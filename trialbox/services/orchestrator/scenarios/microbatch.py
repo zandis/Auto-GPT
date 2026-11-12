@@ -51,14 +51,7 @@ from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.decision_context import decision_of
 from orchestrator.reports import screen_summary_pdf
 from orchestrator.reports.candidate_xlsx import Change
-from orchestrator.scenarios.evaluate import (
-    PatientVerdicts,
-    is_note_answer,
-    not_in_snapshot,
-    row,
-    sort_key,
-    tier,
-)
+from orchestrator.scenarios.evaluate import PatientVerdicts, is_note_answer, not_in_snapshot, row, sort_key, tier
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,

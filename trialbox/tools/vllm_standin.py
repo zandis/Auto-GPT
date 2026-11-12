@@ -9,7 +9,11 @@ unchanged, and it is stricter than vLLM where a box goes wrong:
   ``/v1`` call without ``Authorization: Bearer <key>`` gets 401. ``/health`` is open, as in vLLM.
 * **Open routes, as vLLM.** ``POST /invocations`` (SageMaker: chat) and ``POST /tokenize`` answer without the key,
   as vLLM v0.32 does (it checks the key on ``/v1``, ``/v2``, ``/inference`` and ``/cohere`` only), so a rehearsal
-  without ``model-guard`` in front would show the hole (``trialbox doctor --serving`` probes them).
+  without ``model-guard`` in front would show the hole (``trialbox doctor --serving`` probes them). ``/tokenize``
+  takes a ``prompt`` or ``messages`` and returns token ids (one per character: a stand-in's tokenizer).
+* **Metrics.** ``GET /metrics`` answers without the key, as vLLM's does, in Prometheus text with vLLM's names
+  (prompt and generation tokens, requests, time to first token, queue time, running, waiting, KV cache), counted
+  from the answered calls: the complete run scrapes it around every part (review test G-3).
 * **Answers.** The deterministic answers of ``services/llm_stub`` (by the ``X-TB-Prompt-Id`` header the gateway
   forwards); the response's ``model`` is the served name, so the gateway's served-model echo check runs for real.
 * **Counts.** ``GET /standin/stats`` (with the key) returns the count of model calls by status (200, 400, 401, 404,
@@ -46,6 +50,41 @@ MAX_BODY = 8 * 1024 * 1024  # bytes of one request body
 OPEN_ROUTES = ("/invocations", "/tokenize")  # vLLM answers these without the key (counted under "open")
 
 
+def tokenize(body: dict[str, Any]) -> dict[str, Any]:
+    """vLLM's ``/tokenize`` answer for a ``prompt`` or ``messages`` body: one id per character of the text (chat
+    messages as ``<role>\\n<content>\\n`` each), so equal texts give equal ids and nothing else does."""
+    if body.get("messages"):
+        text = "".join(f"<{m.get('role', '')}>\n{m.get('content', '')}\n" for m in body["messages"]
+                       if isinstance(m, dict))  # fmt: skip
+    else:
+        text = str(body.get("prompt") or "")
+    ids = [ord(c) for c in text]
+    return {"count": len(ids), "max_model_len": 32768, "tokens": ids}
+
+
+def metrics_text(served: str, requests: int = 0, prompt_tokens: int = 0, generation_tokens: int = 0) -> str:
+    """``GET /metrics`` as vLLM v0.32 names it, for one served model: counters from the answered calls; a stand-in
+    answers at once, so nothing waits and the time to first token is a nominal 10 ms a call."""
+    lab = f'{{model_name="{served}"}}'
+    rows = [("vllm:prompt_tokens_total", "counter", prompt_tokens),
+            ("vllm:generation_tokens_total", "counter", generation_tokens),
+            ("vllm:request_success_total", "counter", requests),
+            ("vllm:time_to_first_token_seconds_sum", "histogram", round(0.01 * requests, 3)),
+            ("vllm:time_to_first_token_seconds_count", "", requests),
+            ("vllm:request_queue_time_seconds_sum", "histogram", 0.0),
+            ("vllm:request_queue_time_seconds_count", "", requests),
+            ("vllm:e2e_request_latency_seconds_sum", "histogram", round(0.02 * requests, 3)),
+            ("vllm:e2e_request_latency_seconds_count", "", requests),
+            ("vllm:num_requests_running", "gauge", 0), ("vllm:num_requests_waiting", "gauge", 0),
+            ("vllm:kv_cache_usage_perc", "gauge", 0.0)]  # fmt: skip
+    out = []
+    for name, kind, value in rows:
+        if kind:
+            out.append(f"# TYPE {name.removesuffix('_sum') if kind == 'histogram' else name} {kind}")
+        out.append(f"{name}{lab} {float(value)}")
+    return "\n".join(out) + "\n"
+
+
 class Standin:
     """The served names, the key and the counters of one stand-in server."""
 
@@ -60,6 +99,7 @@ class Standin:
         self.counts: Counter[int] = Counter()  # model calls (POST /v1/chat/completions, /v1/completions) by status
         self.listings: Counter[int] = Counter()  # GET /v1/models by status
         self.open_calls: Counter[int] = Counter()  # /invocations, /tokenize (no key, as vLLM) by status
+        self.tokens: Counter[str] = Counter()  # prompt and generation tokens of the answered calls (/metrics)
         self.lock = threading.Lock()
 
     def count(self, status: int, kind: str = "call") -> None:
@@ -110,6 +150,8 @@ class Standin:
         content = json.dumps(answer, ensure_ascii=False)
         n_in = sum(len(str(x.get("content", ""))) for x in messages) // 4
         n_out = len(content) // 4
+        with self.lock:
+            self.tokens.update({"prompt": n_in, "generation": n_out})
         return 200, {
             "id": f"chatcmpl-standin-{int(time.time() * 1000)}",
             "object": "chat.completion",
@@ -164,8 +206,7 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
                 body = {}
             body = body if isinstance(body, dict) else {}
             if path == "/tokenize":
-                text = str(body.get("prompt") or "")
-                self._send(200, {"count": len(text) // 4, "max_model_len": 32768, "tokens": []}, "open")
+                self._send(200, tokenize(body), "open")
             elif "messages" in body:  # /invocations: SageMaker's chat route
                 status, payload = s.complete({**body, "model": body.get("model") or s.served[0]},
                                              self.headers.get("X-TB-Prompt-Id", ""))  # fmt: skip
@@ -181,6 +222,15 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
             elif path == "/v1/models":
                 if self._gate("listing"):
                     self._send(200, s.models(), "listing")
+            elif path == "/metrics":  # open, as vLLM's; not counted (the run scrapes it around every part)
+                with s.lock:
+                    text = metrics_text(s.served[0], s.counts[200], s.tokens["prompt"], s.tokens["generation"])
+                data = text.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
             elif path == "/standin/stats":
                 if self._gate():
                     self._send(200, s.stats())

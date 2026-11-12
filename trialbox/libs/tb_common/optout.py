@@ -293,3 +293,11 @@ __all__ = [
     "registry_state",
     "sync_registry",
 ]
+
+
+def register_now() -> frozenset[str]:
+    """The register as it stands now (with merged charts), for code that runs outside a job and outside the
+    orchestrator (T-708, D-477): a timer, an export of another service. A job reads its decision context; the
+    orchestrator's own routes call ``orchestrator.decision_context.register_now``, which is this function. Raises
+    when the register does not answer (D-127: fail closed)."""
+    return opted_out()

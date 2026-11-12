@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-219 entries: 86 erase, 26 keep, 107 no patient data. 61 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+220 entries: 86 erase, 27 keep, 107 no patient data. 61 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -33,7 +33,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:ndjson-rerun` | T-206b | kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read | a re-run of a promoted night until it passes the gate (D-271) |
 | `lake:parquet` | T-206b | kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read | the Parquet copy of each snapshot |
 | `lake:site` | T-206b | the clear | facts the site set-up published, as NDJSON, by pseudonym |
-| `lake:tmp` | T-206b | the clear | the rebuild's scratch files (removed after a build; a crash may leave them) |
+| `lake:tmp` | T-206b | the clear | the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them) |
 | `mail.send_keys` | T-206b | the clear | the outbox's send request while queued (attachments by key, recipients) |
 | `objects:attachments` | T-206b | the clear | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
 | `objects:outputs` | T-206b | the clear | job outputs: candidate and excluded lists, micro-batch pids (365 days) |
@@ -105,6 +105,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `omop.tb_id_map` | D-441 | pseudonym to person id: the worker and the loader must still find the person |
 | `omop.tb_withheld` | D-441 | the register's copy the loader reads to keep the patient out |
 | `optout.optout_events` | D-441 | the opt-out register itself: the record of the refusal (D-147) |
+| `orch.judge_answers` | D-456 | a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone |
 | `outside:audit` | D-394 | the audit chain and its journal: append-only, hash-chained; the opt-out's own events carry counts only, never who (D-147, D-441) |
 | `pidmap.pid_alias` | D-441 | a merged chart's opt-out hides the surviving pseudonym (append-only) |
 | `pidmap.pid_map` | D-441 | the chart number must still be recognised at the door to honour the opt-out |
