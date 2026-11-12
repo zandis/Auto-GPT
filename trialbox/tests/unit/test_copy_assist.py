@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from edc import copyassist
-from edc.store import EdcError, _legacy_sha
+from edc.store import EdcError
 
 from tests import edc_kit as k
 
@@ -99,13 +99,14 @@ def test_a_version_one_signature_is_never_a_source(tmp_path: Path) -> None:
     row = svc.store.draft(k.STUDY, d["weight"]["id"])
     assert row is not None
     shas = {int(row["id"]): row["sha"]}
+    svc.store.db.execute("ALTER TABLE signature DROP CONSTRAINT signature_v2_only")  # D-461: the owner goes around it
     sid = svc.store.db.fetchval(
         "INSERT INTO signature (study, record, visit, signer, printed_name, role, meaning, meaning_text, lang, method, "
         "at, content_sha, drafts, sig_version, key_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
         (k.STUDY, k.RECORD, row["visit"], "crc", "Chen Mei", "coordinator", "transcribed", "x", "en", "password",
-         "2026-11-01T00:00:00+00:00", _legacy_sha(shas), json.dumps({str(row["id"]): row["sha"]}), 1, ""))  # fmt: skip
+         "2026-11-01T00:00:00+00:00", k.old_unkeyed_sha(shas), json.dumps({str(row["id"]): row["sha"]}), 1, ""))  # fmt: skip
     svc.store.db.execute("UPDATE draft SET signature_id = ?, signed_sha = ? WHERE id = ?", (sid, row["sha"], row["id"]))
-    assert [x["item"] for x in svc.store.signed(k.STUDY, k.RECORD)] == ["weight"]  # the store still accepts it
+    assert svc.store.signed(k.STUDY, k.RECORD) == []  # D-461: the store refuses version 1 as well
     sheet = copyassist.sheet(svc, k.STUDY, k.RECORD, "crc")
     assert _values(sheet) == []
     with pytest.raises(EdcError, match="edc.tick_not_signed"):

@@ -103,7 +103,14 @@ CREATE TABLE IF NOT EXISTS copy_tick (id BIGINT GENERATED ALWAYS AS IDENTITY PRI
   action TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', by_user TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS copy_tick_rec ON copy_tick (study, record)
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
+# T-720 (D-461): version 1 (the unkeyed hash) is refused; a row inserted without a version is checked by the keyed
+# rule, and a new row must say version 2 (NOT VALID: an existing version-1 row stays, covering nothing)
+SCHEMA_V5 = """
+ALTER TABLE signature ALTER COLUMN sig_version SET DEFAULT 2;
+ALTER TABLE signature DROP CONSTRAINT IF EXISTS signature_v2_only;
+ALTER TABLE signature ADD CONSTRAINT signature_v2_only CHECK (sig_version = 2) NOT VALID
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick")  # fmt: skip
@@ -241,11 +248,6 @@ def signature_sha(key: bytes, s: Mapping[str, Any], shas: Mapping[int, str]) -> 
     body["values"] = [[int(k), str(v)] for k, v in sorted((int(k), str(v)) for k, v in shas.items())]
     msg = json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hmac.new(key, b"trialbox edc signature v2\x00" + msg, hashlib.sha256).hexdigest()
-
-
-def _legacy_sha(shas: Mapping[int, str]) -> str:
-    """Version 1 (before D-281): an unkeyed hash over the value hashes only. Still checked, never made."""
-    return hashlib.sha256(json.dumps(sorted((int(k), str(v)) for k, v in shas.items())).encode()).hexdigest()
 
 
 def _cit(raw: Any) -> dict[str, Any] | None:
@@ -696,17 +698,17 @@ class EdcStore:
         return sig
 
     def intact(self, s: Mapping[str, Any]) -> bool:
-        """The signature row is what was signed: its ``content_sha`` is re-made from the row (D-281, CR-036)."""
+        """The signature row is what was signed: its ``content_sha`` is re-made from the row with the key (D-281,
+        CR-036). Only version 2 counts (D-461): the unkeyed version 1 needs no key to re-make, so a version-1 row
+        covers nothing and its values wait for a new signature."""
         try:
             shas = {int(k): str(v) for k, v in json.loads(s["drafts"]).items()}
+            version = int(s.get("sig_version") or 0)
         except (TypeError, ValueError, AttributeError):
             return False
-        version = int(s.get("sig_version") or 1)
-        if version == SIG_VERSION:
-            want = signature_sha(self._key, s, shas)
-        else:
-            want = _legacy_sha(shas) if version == 1 else ""
-        return bool(want) and hmac.compare_digest(str(s["content_sha"]), want)
+        if version != SIG_VERSION:
+            return False
+        return hmac.compare_digest(str(s["content_sha"]), signature_sha(self._key, s, shas))
 
     def _covered(self, d: Mapping[str, Any], sigs: Mapping[int, Mapping[str, Any]]) -> bool:
         """The value is still exactly what its signature row says was signed, and that row is itself intact."""
@@ -718,6 +720,12 @@ class EdcStore:
         except (TypeError, ValueError, AttributeError):
             return False
         return listed.get(int(d["id"])) == d["signed_sha"] and self.intact(s)
+
+    def covered_ids(self, study: str, rows: list[dict[str, Any]]) -> set[int]:
+        """The ids of ``rows`` (drafts of ``study``) whose value is still covered by an intact signature: what the
+        review page may show as signed (D-461)."""
+        sigs = {int(s["id"]): s for s in self.signatures(study)}
+        return {int(d["id"]) for d in rows if d.get("signature_id") is not None and self._covered(d, sigs)}
 
     def signature(self, sid: int) -> dict[str, Any] | None:
         rows = self._all("SELECT * FROM signature WHERE id = ?", (sid,))
