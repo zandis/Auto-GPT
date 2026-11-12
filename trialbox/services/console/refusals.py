@@ -47,6 +47,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
     "attach the informed-consent form": ("同意説明文書を添付してください", "請附上受試者同意書"),
     "attachments are at most 50 MB": ("添付ファイルは50 MBまでです", "附件最大 50 MB"),
     "bad pseudonym": ("仮名IDの形式が正しくありません", "假名代碼格式不正確"),
+    "type the whole pseudonym (32 characters), or the chart number: the 8 characters a page shows name no patient": (
+        "仮名IDは全体（32文字）を入力するか、カルテ番号を入力してください。画面に表示される8文字だけでは患者を特定できません",
+        "請輸入完整的假名代碼（32 個字元）或病歷號：畫面上顯示的 8 個字元無法指明病人",
+    ),
     "too many exports with chart numbers in the last hour": (
         "この 1 時間のカルテ番号付きの書き出しが上限に達しました",
         "過去一小時內含病歷號的匯出已達上限",
