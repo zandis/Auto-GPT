@@ -278,6 +278,7 @@ TABLES: dict[str, Entry] = {
     ),
     "derived.definition": _none("score definitions"),
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
+    "dataops.built": _none("which generation each derived artefact is built from: names, states and times (D-491)"),
     "tuned.tuned_patients": _owed("the weekly PI sample of patients not matched, by pseudonym"),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),

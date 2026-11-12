@@ -136,7 +136,7 @@ are marked "files".
 | `services/orchestrator/db.py` | `mails` | R-26 |
 | `services/console/sitestore.py` | `notify_log` | R-26 |
 | `services/console/sitestore.py` | `study_state`, `study_identity` | R-27 |
-| `services/datacore/dataops.py` | `batch`, `batch_step` | R-28 |
+| `services/datacore/dataops.py` | `batch`, `batch_step`, `built` | R-28 |
 | `services/datacore/sponsor.py` | `sponsor_layout` | R-10 |
 | `services/patient_profile/twin.py` | `tb_patient_profile` | R-29 |
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
