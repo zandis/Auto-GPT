@@ -9,13 +9,14 @@ structural validator (``fhir.resources`` R4B parsing + SPEC §3.1 required eleme
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -70,16 +71,45 @@ def sample(
     resources: Iterable[Resource], fraction: float = 0.01, minimum_per_type: int = 3, seed: str = "trialbox"
 ) -> list[Resource]:
     """Deterministic sample: ``fraction`` of resources by hash of type/id, at least ``minimum_per_type`` per type."""
-    by_type: dict[str, list[tuple[str, Resource]]] = {}
-    for r in resources:
-        h = hashlib.sha256(f"{seed}|{r['resourceType']}|{r['id']}".encode()).hexdigest()
-        by_type.setdefault(r["resourceType"], []).append((h, r))
-    out: list[Resource] = []
-    for _, items in sorted(by_type.items()):
-        items.sort(key=lambda t: t[0])
-        k = max(minimum_per_type, round(len(items) * fraction))
-        out.extend(r for _, r in items[:k])
-    return out
+    items = list(resources)
+    counts: dict[str, int] = {}
+    for r in items:
+        counts[r["resourceType"]] = counts.get(r["resourceType"], 0) + 1
+    picker = Sampler(seed, lambda t: max(minimum_per_type, round(counts.get(t, 0) * fraction)))
+    for r in items:
+        picker.add(r)
+    return picker.result()
+
+
+class Sampler:
+    """T-692 (D-473): a hash sample taken from a stream. Per type the ``k_of(type)`` resources with the smallest
+    ``sha256(seed|type|id)`` (the earlier one first on a tie), in type order: the same resources as sorting all of
+    them by that hash, holding only the ``k`` kept so far."""
+
+    def __init__(self, seed: str, k_of: Callable[[str], int]) -> None:
+        self.seed, self.k_of = seed, k_of
+        self._heaps: dict[str, list[tuple[int, int, Resource]]] = {}
+        self._seq = 0
+
+    def add(self, r: Resource) -> None:
+        rtype = str(r.get("resourceType"))
+        k = self.k_of(rtype)
+        self._seq += 1
+        if k <= 0:
+            return
+        h = int(hashlib.sha256(f"{self.seed}|{r.get('resourceType')}|{r.get('id')}".encode()).hexdigest(), 16)
+        heap = self._heaps.setdefault(rtype, [])
+        entry = (-h, -self._seq, r)  # a max-heap: the largest kept hash is the first one out
+        if len(heap) < k:
+            heapq.heappush(heap, entry)
+        elif entry[:2] > heap[0][:2]:
+            heapq.heapreplace(heap, entry)
+
+    def result(self) -> list[Resource]:
+        out: list[Resource] = []
+        for _, heap in sorted(self._heaps.items()):
+            out.extend(r for _, _, r in sorted(heap, key=lambda e: (-e[0], -e[1])))
+        return out
 
 
 @dataclass
