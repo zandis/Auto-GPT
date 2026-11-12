@@ -1017,7 +1017,12 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
                                               "?purpose=eligibility", f"/studies/{TRIAL}/referrals")]  # fmt: skip
         s.check(f"the {who} account stays masked (403)", set(got) == {403}, got)
     # opt-out by chart number: the box turns it into the pseudonym; the number is never stored
-    mrn_y = h.bk.reveal(week["job"].job_id, y, "console:crc", role="coordinator", scope="*")  # signed (D-273)
+    # T-716 (D-484): a chart number is given to a signed-in person only, so the coordinator reads it on the page
+    ry = crc.post(f"/studies/{TRIAL}/candidates/{y}/reveal",
+                  data={"csrf": csrf(crc), "purpose": "contact", "reason": "contact"})  # fmt: skip
+    my = re.search(r'data-testid="mrn">[^<]*<span class="mono">([^<]+)<', ry.text)
+    mrn_y = my.group(1) if my else None
+    s.check("the coordinator reads the chart number of a candidate on the page (D-143)", mrn_y in mrns, ry.status_code)
     # D-380 (CR-023): the steward (or the privacy office) keeps the opt-out register, not the coordinator
     h.users.create("stw", "steward", password, "stw@hospa.test")
     stw = ld.sign_in(app, "stw", password, lang)
