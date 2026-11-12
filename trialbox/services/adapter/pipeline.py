@@ -661,6 +661,16 @@ def _run_ingest(
                     continue
                 for res in mapped:
                     to_spool(res)
+                if since:
+                    # NEW-B-7 (D-528): on a delta night the snapshot is the night before with tonight's records
+                    # over it. A row the mapping now leaves out (a ``where`` it no longer passes: a booking whose
+                    # status became a code the map does not know) wrote nothing and removed nothing, so its
+                    # record of the night before stayed as it was. What the row gave before and does not give
+                    # tonight is removed; a record sent in this run wins over its tombstone (write_snapshot)
+                    made = {(str(res.get("resourceType")), str(res.get("id"))) for res in mapped}
+                    for rtype, rid in mapper.tombstones(table, iter([row])):
+                        if (rtype, rid) not in made:
+                            tombstones.setdefault(rtype, set()).add(rid)
             if rejected:
                 n_bad = sum(rejected.values())
                 tables[table]["rejected"] = dict(sorted(rejected.items()))
