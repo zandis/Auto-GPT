@@ -57,6 +57,12 @@ closed). Checks:
   VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
   answer, or when neither can be read. WARN for those in DEV and TEST.
 
+* ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
+  compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
+  ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
+  ``TB_SITE_PATIENTS``. FAIL when a cap is below the need (the night's ingest or rebuild may be killed); WARN when there
+  is no count or no record.
+
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
 
@@ -965,6 +971,20 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
 
 
+def check_memory_caps(inp: DoctorInputs) -> Check:
+    """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
+    (``tools.trialbox.memcaps``)."""
+    from tools.trialbox import memcaps
+
+    deploy = inp.deploy or ROOT / "deploy"
+    record, compose = deploy / "measured" / "ingest_memory.json", deploy / "docker-compose.yml"
+    if not record.is_file() or not compose.is_file():
+        return Check("memory_caps", "WARN", f"{record} or {compose} is not here: the memory caps were not checked")
+    lake = inp.ingest_lake or (Path(inp.env["TB_LAKE_DIR"]) if inp.env.get("TB_LAKE_DIR") else None)
+    status, detail = memcaps.check(inp.env, lake, record, compose)
+    return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -985,6 +1005,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_key_custody,
     check_clock,
     check_audit_heads,
+    check_memory_caps,
 )
 
 
