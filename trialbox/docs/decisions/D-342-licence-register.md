@@ -40,7 +40,8 @@ unchecked and stale, and that nothing read `licence.verified`.
 ## Consequences
 
 - A new code list, map or value set in the image needs a register row in the same pull request.
-- The Gemma 4 NVFP4 repository has no LICENSE file. Before `qualify`, the operator puts the Apache 2.0 text in the
-  weight folder.
+- The Gemma 4 NVFP4 repository has no LICENSE file. The Apache 2.0 text rides beside the weight folder, in
+  `deploy/models/licences/<folder>/`, outside the pinned manifest; `qualify` checks the register row (D-565, which
+  replaces the earlier instruction to put the text into the weight folder: that broke the pin).
 - The embedder (BGE-M3, MIT) has a register row but is not yet a build in the registry (LLM-012).
 - `NOTICE` is still written by hand from the register. Rendering it from the CSV is left open.

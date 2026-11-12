@@ -36,7 +36,7 @@ push to a pull request cancels the older run (pushes to master are never cancell
 | --- | --- | --- |
 | `lint` | ruff check and format; actionlint on the TrialBox workflows | yes |
 | `types` | mypy strict on libs, services, tools, tests | yes |
-| `docs` | `tools/doclint.py` | yes |
+| `docs` | `tools/doclint.py`; the decision index; the licence register; the limits lint (`tools/limits_lint.py`: every `timeout=` over 60 s and every `LIMIT`/`limit=` literal in `services/` has a line with its reason in `tools/limits_allow.yaml`; OD-10, T-687, D-471) | yes |
 | `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
 | `trace` | `tools/gen_traceability.py --check` | yes |
 | `unit-shard (i/N)` | `make test PYTEST_N=auto SHARD=i/N`, one job per shard (T-747, D-475: each test file in one shard by a hash of its path) on throwaway clusters from the runner's own PostgreSQL (`tools/pglocal.py`, server and client tools one version), `TB_DATA_DIR` in the runner's temp, then the data scan of its log | through `unit` |
@@ -48,6 +48,8 @@ push to a pull request cancels the older run (pushes to master are never cancell
 | `shell` | shellcheck on every `*.sh` (OPS-076: every warning listed on 2026-11-09 is fixed) | warnings |
 | `images` | hadolint on the three Dockerfiles | listed only (2026-11-09: first runs to triage) |
 
-`trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill. The
+`trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill, and the
+scale gate `scale-50k` (T-687, D-471: a 50,000-patient synthetic night under the compose memory caps, with a slow
+model stand-in; today's failures are expected failures named by card, see [Developing](../DEVELOPING.md)). The
 supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock` job of `trialbox-supply-chain.yml`
 (D-185, D-186), not repeated in `trialbox-ci.yml`.

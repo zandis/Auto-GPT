@@ -136,7 +136,7 @@ def test_the_job_reveal_follows_the_delegation_log(box: dict[str, Any]) -> None:
     form["csrf"] = _csrf(pi.get("/home").text)
     r = pi.post(f"/pilot/jobs/{jid}/reveal", data=form)
     assert r.status_code == 200 and "MRN-000123" in r.text
-    assert box["backend"].signed == [("reveal", "investigator", "*")]
+    assert box["backend"].signed == [("reveal", "investigator", "GZQO")]  # T-716: the one study, not a list
     ev = _events(box, "console.reveal_patient")
     assert len(ev) == 1 and ev[0]["detail"]["via"] == "job" and ev[0]["detail"]["reason"] == "contact"
 

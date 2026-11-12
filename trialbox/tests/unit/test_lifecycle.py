@@ -30,6 +30,7 @@ from orchestrator.lifecycle_api import router as life_router
 from rc_sim.app import create_app
 from tb_common.audit import AuditLog
 
+from tests.actor3 import SignedClient
 from tests.rc_kit import LINK_A, PIDS, TOKEN_A, sim_edit, study_service
 from tests.unit.test_datacore import rc_client
 
@@ -175,7 +176,7 @@ def _api(tmp_path: Path, now: datetime) -> tuple[TestClient, Any, CandidateRegis
     app = FastAPI()
     app.include_router(dc_router(lambda: svc))
     app.include_router(life_router(lambda: svc))
-    c = TestClient(app)
+    c = SignedClient(app)
     assert c.post(f"/studies/{RS}/forms/builtin", json={"by": "crc"}).status_code == 200
     return c, sim, reg, audit
 
@@ -260,7 +261,7 @@ def test_schedule_from_redcap_arms_and_events(tmp_path: Path) -> None:
     svc = DataService(DataCore(), AuditLog(tmp_path / "a"), lambda: datetime(2026, 11, 8, tzinfo=UTC), client)
     app = FastAPI()
     app.include_router(life_router(lambda: svc))
-    c = TestClient(app)
+    c = SignedClient(app)
     r = c.post("/studies/RB/schedule/redcap", json={"token_ref": "rb", "by": "crc"})
     assert r.status_code == 200, r.text
     assert [

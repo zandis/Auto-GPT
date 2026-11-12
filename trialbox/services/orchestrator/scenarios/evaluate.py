@@ -27,6 +27,9 @@ from typing import Any, Literal, Protocol, cast
 from criteria_compiler.compile_sql.overlay import safe_sql
 from guard.injection import planted_in
 from lake.client import LakeAPI
+from matching import decision
+from matching import excerpts as excerpt_builder
+from matching import verdict as verdict_table
 from matching.coverage import Coverage
 from matching.proposed import Proposed
 from matching.stored_scores import apply_rows
@@ -38,15 +41,22 @@ from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
-from tb_llm.budget import excerpt_tokens
 
 from orchestrator.scenarios.terms import keywords
 from orchestrator.twophase import two_phase
 
 Verdict = Literal["pass", "fail", "unknown", "pending_human"]
-CHUNK_TOKENS = 2500  # the retrieval budget (k=5 chunks); cut further to the models' context (T-603)
-FULL_RECORD_TOKENS = 28000  # used only when neither model's context is known; else the context decides (T-603)
-FULL_RECORD_MAX_CANDIDATES = 100
+# T-710 (D-479): one read of the window, sized from the models' context (``NoteJudge.excerpt_budget``). The two fixed
+# budgets below are no path's budget any more: FULL_RECORD_TOKENS stays as the size the qualification tool fills
+# (``tools/qualify.py``) and as the cap of ``NoteJudge.budget``'s callers; a client that cannot tell its context
+# gets ``matching.excerpts.DEFAULT_TOKENS``
+FULL_RECORD_TOKENS = 28000
+#: how many chunks of the retrieval rank the window's notes (what is read first, never what counts as read)
+RANKING_CHUNKS = 5
+DOCUMENT_SQL = (
+    "SELECT did, CAST(date AS DATE) AS d, type, text FROM document WHERE pid = $1 "
+    "AND CAST(date AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE) ORDER BY date DESC, did"
+)
 NOTES_FLAG = "notes.reading"  # T-609 (OPS-042): off holds note reading (tb_common.flags, RUNBOOK §19)
 NOTES_HELD = "note reading is held (flag notes.reading is off): note answers never exclude"
 
@@ -165,9 +175,9 @@ def engine_from_env(
 
 # --------------------------------------------------------------------------------------------- note criteria
 def _tokens(text: str) -> int:
-    """What a note of ``text`` adds to the judge prompt (:func:`tb_llm.budget.excerpt_tokens`, T-603): CJK characters
-    ~1 token each, Latin ~4 characters per token, plus its JSON keys and escaping."""
-    return excerpt_tokens({"date": "0000-00-00", "note_type": "progress", "text": text})
+    """What a note of ``text`` adds to the judge prompt (:func:`matching.excerpts.note_tokens`, T-603): CJK
+    characters ~1 token each, Latin ~4 characters per token, plus its JSON keys and escaping."""
+    return excerpt_builder.note_tokens(text)
 
 
 def note_window(c: CriterionIR, index_date: date) -> tuple[date, date]:
@@ -264,7 +274,7 @@ class NoteJudge:
         return self.lake
 
     def excerpts(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
-        return self._chunks(pid, c, index_date)[0]
+        return self._record(pid, c, index_date)[0]
 
     def budget(self, c: CriterionIR, index_date: date, default: int) -> int:
         """Tokens of notes one judge prompt may hold (T-603, review LLM-015): what the judge's and the verifier's
@@ -284,63 +294,70 @@ class NoteJudge:
                 out = min(out, room)
         return out
 
-    def _chunks(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
-        """The excerpts and how many retrieved chunks the token budget left out (D-276)."""
+    def excerpt_budget(self, c: CriterionIR, index_date: date) -> int | None:
+        """Tokens of notes one judge prompt for ``c`` may hold (T-710, D-479; OD-10): what the judge's and the
+        verifier's context leave beside the rest of the prompt and the answer (the smaller of the two: both read
+        the same excerpts). None when neither client can tell its context: the caller takes the declared default
+        (``matching.excerpts.DEFAULT_TOKENS``)."""
+        fixed = {
+            "criterion_text": c.text,
+            "note_question": c.note_question or c.text,
+            "index_date": index_date.isoformat(),
+            "excerpts": [],
+        }
+        rooms = []
+        for client in (self.llm, self.verifier):
+            fn = getattr(client, "text_budget", None) if client is not None else None
+            room = fn(self.prompt, fixed) if callable(fn) else None
+            if isinstance(room, int):
+                rooms.append(room)
+        return min(rooms) if rooms else None
+
+    def window(self, pid: str, c: CriterionIR, index_date: date) -> excerpt_builder.ExcerptSet:
+        """What the models read for ``c`` (T-710, D-479): every note of the patient's window offered to the one
+        excerpt builder, the notes the retrieval ranks first read first, inside the models' context. Every window
+        note not shown in full is counted as left out (review H4: before, only the five retrieved chunks were
+        looked at, and a note the retrieval did not return was "not left out")."""
         lo, hi = note_window(c, index_date)
-        query = " ".join([c.note_question or c.text, *keywords(c.text)])
-        hits = self._lake().chunks_search(pid, query, k=5, date_from=lo, date_to=hi)
-        hits = [h for h in hits if h.get("date") and lo.isoformat() <= str(h["date"])[:10] <= hi.isoformat()]
-        hits.sort(key=lambda h: (str(h["date"]), str(h.get("did", ""))), reverse=True)
-        out: list[dict[str, Any]] = []
-        budget = self.budget(c, index_date, CHUNK_TOKENS)
-        for h in hits:
-            n = _tokens(str(h["text"]))
-            if n > budget:
-                continue  # T-603: an older, shorter chunk may still fit; this one is counted as left out
-            budget -= n
-            out.append(
-                {
-                    "date": str(h["date"])[:10],
-                    "note_type": h.get("type") or "note",
-                    "text": h["text"],
-                    "did": h.get("did"),
-                }
-            )
-        return out, len(hits) - len(out)
+        rows = self._lake().query(DOCUMENT_SQL, [pid, lo.isoformat(), hi.isoformat()]).to_pylist()
+        notes = [
+            excerpt_builder.Note(str(r["did"]), r["d"], str(r["type"] or "note"), str(r["text"] or "")) for r in rows
+        ]
+        evidence: dict[str, list[str]] = {}
+        if notes:
+            query = " ".join([c.note_question or c.text, *keywords(c.text)])
+            hits = self._lake().chunks_search(pid, query, k=RANKING_CHUNKS, date_from=lo, date_to=hi)
+            for h in hits:
+                if h.get("did") is not None:
+                    evidence.setdefault(str(h["did"]), []).append(str(h.get("text") or ""))
+        room = self.excerpt_budget(c, index_date)
+        budget = room if room is not None else excerpt_builder.DEFAULT_TOKENS
+        return excerpt_builder.build(notes, evidence, budget, tokens=_tokens, ranked=True)  # the retrieval's order
 
     def full_record(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
         return self._record(pid, c, index_date)[0]
 
     def _record(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
-        """The window's notes, newest first, and how many the token budget left out (D-276). The budget is the
-        models' context (T-603): 28,000 tokens did not fit on a 16k or 8k model, and the server refused the call."""
-        lo, hi = note_window(c, index_date)
-        rows = (
-            self._lake()
-            .query(
-                "SELECT did, CAST(date AS DATE) AS d, type, text FROM document WHERE pid = $1 "
-                "AND CAST(date AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE) ORDER BY date DESC, did",
-                [pid, lo.isoformat(), hi.isoformat()],
-            )
-            .to_pylist()
-        )
-        out: list[dict[str, Any]] = []
-        budget = self.budget(c, index_date, FULL_RECORD_TOKENS)
-        for r in rows:
-            n = _tokens(str(r["text"]))
-            if n > budget:
-                continue  # T-603: counted as left out (the answer is flagged), the older notes still read
-            budget -= n
-            out.append(
-                {"date": r["d"].isoformat(), "note_type": r["type"] or "note", "text": r["text"], "did": r["did"]}
-            )
-        return out, len(rows) - len(out)
+        """The excerpts of :meth:`window` and how many window notes they leave out."""
+        got = self.window(pid, c, index_date)
+        return got.shown, got.left_out
 
     def judge_patient(self, pid: str, c: CriterionIR, index_date: date, full: bool = False) -> NoteResult:
-        excerpts, left_out = self._record(pid, c, index_date) if full else self._chunks(pid, c, index_date)
-        source = "full_record" if full else "chunks"
-        if not excerpts:
-            return NoteResult("unknown", 0.0, reason=Reason.NO_NOTES.value, source=source)
+        """One read of the patient's window for ``c`` (``full`` is kept for callers of before T-710 and changes
+        nothing: there is one read, as much of the window as the models can hold)."""
+        got = self.window(pid, c, index_date)
+        source = "full_record" if not got.left_out else "chunks"
+        if not got.shown:
+            reason = Reason.NOTES_OVER_BUDGET.value if got.left_out else Reason.NO_NOTES.value
+            return NoteResult("unknown", 0.0, reason=reason, source=source, left_out=got.left_out)
+        return self.judge_window(c, index_date, got.shown, got.left_out, source)
+
+    def judge_window(
+        self, c: CriterionIR, index_date: date, excerpts: list[dict[str, Any]], left_out: int, source: str
+    ) -> NoteResult:
+        """Put ``excerpts`` to the models and apply the rule of a cut record (D-276, T-603): with ``left_out``
+        window notes not shown in full, an answer that would exclude is unknown and one that keeps the patient is
+        flagged. The one place for the lake's notes and an uploaded chart (CASE)."""
         r = self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
         if not left_out:
             return r
@@ -491,10 +508,15 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
 
 # --------------------------------------------------------------------------------------------- verdicts & tiers
 def eligibility(kind: str, predicate: bool | None) -> Verdict:
-    if predicate is None:
-        return "unknown"
-    ok = predicate if kind != "exclusion" else not predicate
-    return "pass" if ok else "fail"
+    """The eligibility answer of a coded or note predicate: T-652's table (``matching.verdict``), called here since
+    T-709 (D-478) instead of being written a second time."""
+    return verdict_table.eligibility(kind, predicate)
+
+
+def is_pair(judge: NoteJudge | None) -> bool:
+    """Whether the run's note judge is two different models (the ``pair`` basis of a note answer, D-478): a
+    verifier is configured and is not the judge's own model under another name (D-276)."""
+    return judge is not None and judge.verifier is not None and same_model(judge.llm, judge.verifier) is None
 
 
 @dataclass
@@ -519,19 +541,26 @@ def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> Criterio
         why = Reason.CODE_OUTSIDE_LIST.value if refs else Reason.DATA_GAP.value
     else:
         why = Reason.CODED.value
+    verdict = eligibility(c.kind, known)
     return CriterionVerdict(
         id=c.id,
-        verdict=eligibility(c.kind, known),
+        verdict=verdict,
         evidence=Evidence(resource_refs=refs[:20], reason=why),
+        basis="coded" if verdict != "unknown" else None,  # D-478: the records decided it
     )
 
 
-def note_verdict(c: CriterionIR, r: NoteResult) -> CriterionVerdict:
+def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> CriterionVerdict:
+    """``pair``: whether the answer is the judge's and a second, different model's (:func:`is_pair`); it becomes
+    the verdict's basis (D-478: ``pair`` or ``single``; a single model's "not met" never excludes). A caller that
+    does not say (a tool, a test of the judge) leaves the basis unstated, and the run's policy alone decides, as
+    before the field. Every screening path says."""
     pred = {"pass": True, "fail": False}.get(r.predicate)
     refs = [f"DocumentReference/{d}" for d in r.dids]
+    verdict = eligibility(c.kind, pred)
     return CriterionVerdict(
         id=c.id,
-        verdict=eligibility(c.kind, pred),
+        verdict=verdict,
         evidence=Evidence(
             resource_refs=refs,
             quote=r.quote,
@@ -540,6 +569,7 @@ def note_verdict(c: CriterionIR, r: NoteResult) -> CriterionVerdict:
             reason=r.reason,
             opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
+        basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
     )
 
 
@@ -555,7 +585,10 @@ def not_final(c: CriterionIR, v: CriterionVerdict, note_block: bool) -> Criterio
 
 def human_verdict(c: CriterionIR) -> CriterionVerdict:
     return CriterionVerdict(
-        id=c.id, verdict="pending_human", evidence=Evidence(resource_refs=[], reason=Reason.HUMAN.value)
+        id=c.id,
+        verdict="pending_human",
+        evidence=Evidence(resource_refs=[], reason=Reason.HUMAN.value),
+        basis="person",
     )
 
 
@@ -587,11 +620,8 @@ def coded_settles(c: CriterionIR, ev: PatientEvaluation | None) -> bool:
 
 
 def is_note_answer(c: CriterionIR, v: CriterionVerdict) -> bool:
-    """A verdict that came from the note judge (and so follows the confidence and note-block rules): every ``note``
-    verdict, and a ``mixed`` verdict the coded data did not settle (it carries a model confidence)."""
-    if c.class_ == "note":
-        return True
-    return c.class_ == "mixed" and v.evidence is not None and v.evidence.confidence is not None
+    """A verdict that came from the note judge (:func:`matching.decision.is_note_answer`, the rule's own home)."""
+    return decision.is_note_answer(c, v)
 
 
 def structured_candidate(rs: Ruleset, ev: PatientEvaluation | None, ids: set[str] | None = None) -> bool:
@@ -681,54 +711,18 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     return note_block_why(judge)[:3]
 
 
-def _flagged(v: CriterionVerdict) -> bool:
-    return v.evidence is not None and v.evidence.reason == Reason.NOTES_OVER_BUDGET.value
-
-
 def tier(
     rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, *, note_block: bool
 ) -> tuple[str, list[str], int]:
-    """high: every structured/note criterion passes (note with confidence ≥ t), only human criteria pending;
-    excluded: any criterion fails (note fails only with confidence ≥ t, and only when ``note_block``); review
-    otherwise. Returns tier, actions, number of unknowns.
+    """A patient's tier, the actions of the open criteria and the number of unknowns: the one status function
+    (:func:`matching.decision.status_of`, T-709, D-478), under this run's policy.
 
-    ``note_block`` is required and comes from :func:`effective_note_block` of the run's judge: the configured policy
-    alone is not enough (no verifier, one model twice, the canary gate). MICROBATCH once re-tiered with the policy
-    alone and a single model could exclude (D-276, review F-01). A note fail stored with ``final: false`` was given
-    on a run that could not exclude on it: it stays a reason for review at every later re-tier (T-707, D-476)."""
-    by_id = rs.by_id()
-    actions: list[str] = []
-    unknown = 0
-    failed = False
-    weak = False
-    for v in verdicts:
-        c = by_id[v.id]
-        conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
-        if v.verdict == "fail":
-            if is_note_answer(c, v) and (conf < threshold or not note_block or v.final is False):
-                weak = True  # D-476: an answer stored as not final never excludes, whatever today's policy
-            else:
-                failed = True
-        elif v.verdict == "unknown":
-            unknown += 1
-            if c.action:
-                actions.append(c.action)
-        elif v.verdict == "pending_human":
-            if c.action:
-                actions.append(c.action)
-        elif v.verdict == "pass" and is_note_answer(c, v) and (conf < threshold or _flagged(v)):
-            weak = True  # T-603: a note answer with notes left out by the budget is flagged: review
-            if c.action:
-                actions.append(c.action)
-    if failed:
-        t = "excluded"
-    elif unknown or weak:
-        t = "review"
-    else:
-        t = "high"
-    seen: set[str] = set()
-    acts = [a for a in actions if not (a in seen or seen.add(a))]  # type: ignore[func-returns-value]
-    return t, acts, unknown
+    high: every structured and note criterion says yes, only criteria a person decides are open; excluded: an
+    answer says no (a note answer only when a pair gave it, it is final, sure enough and ``note_block``); review
+    otherwise. ``note_block`` is required and comes from the job's decision context (D-477): the configured policy
+    alone is not enough (no verifier, one model twice, the canary gate; D-276, review F-01)."""
+    st = decision.status_of(rs.by_id(), verdicts, decision.Policy(threshold, note_block))
+    return st.tier, st.actions, st.n_unknown
 
 
 def evaluate_patients(
@@ -748,8 +742,10 @@ def evaluate_patients(
     """Structured screen of every pid, then note criteria for structured candidates only (SPEC §8.2). NAV passes
     ``kinds`` with renewal/documentation criteria and ``all_candidates`` (every scoped patient is judged).
     ``note_block`` defaults to :func:`effective_note_block` of the judge: without a verifier no note answer excludes."""
-    if note_block is None:
-        note_block = effective_note_block(judge)[0]
+    if note_block is None:  # a caller with no job (a tool, a test): the rule applied now (D-477)
+        from orchestrator.decision_context import note_block_of
+
+        note_block = note_block_of(judge).may_block
     active = [c for c in rs.active() if c.kind in kinds and (only is None or c.id in only)]
     structured_ids = [c.id for c in active if c.class_ in FILTERED]
     evals = engine.evaluate(rs, pids, index_date, structured_ids) if structured_ids else {}
@@ -766,12 +762,9 @@ def evaluate_patients(
         def judge_all(j: NoteJudge) -> dict[tuple[str, str], NoteResult]:
             def run(task: tuple[str, CriterionIR]) -> tuple[tuple[str, str], NoteResult]:
                 p, c = task
-                r = j.judge_patient(p, c, index_date)
-                if r.predicate == "unknown" and full_record_fallback and len(cands) <= FULL_RECORD_MAX_CANDIDATES:
-                    r2 = j.judge_patient(p, c, index_date, full=True)
-                    if r2.predicate != "unknown" or r.reason == Reason.NO_NOTES.value:
-                        r = r2
-                return (p, c.id), r
+                # T-710 (D-479, review M5): one read. The second "full record" read ran only for an unknown first
+                # answer in a run of at most 100 candidates, so a status depended on how many others were in the run
+                return (p, c.id), j.judge_patient(p, c, index_date)
 
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 return dict(ex.map(run, tasks))
@@ -783,6 +776,7 @@ def evaluate_patients(
             # becomes unknown, not evaluated: review), so a run that ends under a hold uses no note answer
             note_res = {}
             note_block = False
+    pair = is_pair(judge)  # D-478: the basis of this run's note answers
     out: dict[str, PatientVerdicts] = {}
     for p in pids:
         ev = evals.get(p)
@@ -796,7 +790,7 @@ def evaluate_patients(
             elif c.class_ in JUDGED:
                 r = note_res.get((p, c.id))
                 vs.append(
-                    not_final(c, note_verdict(c, r), note_block)
+                    not_final(c, note_verdict(c, r, pair), note_block)
                     if r is not None
                     else CriterionVerdict(
                         id=c.id,

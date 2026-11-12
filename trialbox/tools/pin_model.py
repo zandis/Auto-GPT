@@ -37,8 +37,9 @@ developer's template at a pinned revision, a file under the models root that com
 ``--chat-template``. ``--chat-template FILE`` (and ``--install``, from ``JUDGE_CHAT_TEMPLATE`` or the row's ``file``)
 hashes it into the pin: ``weights.chat_template`` holds its path under the models root, sha256, source and revision,
 and ``manifests/<build_id>.template.sha256`` holds its ``sha256sum`` line. A file whose sha256 differs from the row's
-``chat_template.sha256`` is refused; while the row has none (not yet fetched from the publisher) the file is recorded
-as ``trust: first_use``. ``--install`` refuses a judge build whose template file is missing, because vLLM would not
+``chat_template.sha256`` is refused. Every deployed row names it (HW-005, D-567); a row that has none (one being
+prepared) gets the file recorded as ``trust: first_use``. ``--install`` refuses a judge build whose template file
+is missing, because vLLM would not
 start with the flag. The weight manifest and its digest are unchanged: the template is a second file of the pin.
 
 **The embedder** (T-607, D-429; LLM-014, DEP-010). The embedder is one build of the ``e-embed`` alias
@@ -309,6 +310,57 @@ def set_served(build_id: str, endpoint: str, served_name: str, out: Path = DEFAU
     _write_override(out, doc)
 
 
+# LLM-007 (D-568): the variable that holds the length a profile's server is started with (compose passes it to
+# --max-model-len), by the endpoint the build is served on
+CONTEXT_VARS = {"serving": "JUDGE_MAX_LEN", "verifier": "VERIFIER_MAX_LEN"}
+CONTEXT_UNMEASURED = ("", "unmeasured")  # deploy/platform/overlays/*/serving.env before the partition is measured
+
+
+def set_context(build_id: str, context: int, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
+    """Write ``context_length`` into the pin of a build already pinned in ``out`` (a registry row that names none)."""
+    from registry.registry import Registry, apply_override
+
+    committed, _ = _committed(registry_path)
+    doc = load_override(out)
+    entry = doc["builds"].get(build_id)
+    if not entry:
+        raise PinError(f"{build_id} is not pinned in {out}")
+    if isinstance(context, bool) or not isinstance(context, int) or context <= 0:
+        raise PinError(f"{build_id}: a context is a whole number above zero, not {context!r}")
+    entry["context_length"] = context
+    Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
+    _write_override(out, doc)
+
+
+def install_context(
+    build_id: str, endpoint: str, row: dict[str, Any], out: Path, env: dict[str, str], registry_path: Path | None
+) -> tuple[bool, str]:
+    """The context of a pinned build whose registry row names none, from the profile's variable (LLM-007): (ok, a
+    note for the build's line). A row that names its context needs nothing. A length in the variable is written, and
+    replaces another one in the pin (the partition was measured again); the note says both."""
+    if row.get("context_length"):
+        return True, ""
+    have = (load_override(out)["builds"].get(build_id) or {}).get("context_length")
+    var = CONTEXT_VARS.get(endpoint, "")
+    raw = (env.get(var) or "").strip()
+    if raw.isascii() and raw.isdigit() and int(raw) > 0:
+        if have == int(raw):
+            return True, ""
+        set_context(build_id, int(raw), out, registry_path)
+        return True, f"; context {int(raw)} ({var}" + (f"; was {have})" if have else ")")
+    # not measured yet (unset, or the platform's placeholder): said, and the pair's result stays; a value that is
+    # set and is not a length is a mistake where the variable is set: not ok
+    unmeasured = raw in CONTEXT_UNMEASURED
+    if have:
+        return unmeasured, "" if unmeasured else f"; {var} is {raw!r}, not a length: the pin keeps context {have}"
+    return unmeasured, (
+        f"; no context: the registry names none for this build and {var or 'its length'} is {raw!r} (the length the "
+        "server runs with, a whole number): the weights are pinned, but the model routes nothing in PRODUCTION "
+        "until it is set in the environment of pin_model --install (the platform: serving.env, then the pin job "
+        f"again), or by hand: pin_model --build {build_id} --model-dir <folder> --context N"
+    )
+
+
 def add_template(build_id: str, path: Path, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
     """Record the chat template in the pin of a build pinned without one (a box pinned before T-674)."""
     from registry.registry import Registry, apply_override
@@ -347,6 +399,14 @@ def verify(
         return False, f"{build_id}: weights changed since the pin ({m.sha256[:12]} != pinned {pinned[:12]})"
     tpl = (entry.get("weights") or {}).get("chat_template") or {}
     if tpl:
+        # HW-005 (D-567): a template pinned before the registry named its hash (first use) is checked against the
+        # registry now, not only against the pin's own record of it
+        named = (template_of(_committed()[1].get(build_id) or {}) or {}).get("sha256")
+        if named and tpl.get("sha256") != named:
+            return False, (
+                f"{build_id}: the pinned chat template {str(tpl.get('sha256'))[:12]} is not the registry's "
+                f"{str(named)[:12]}; put the named file in place and re-pin (pin_model --install)"
+            )
         path = (models_root or model_dir.parent) / str(tpl.get("file"))
         if not path.is_file():
             return False, f"{build_id}: the pinned chat template {path} is missing"
@@ -433,12 +493,19 @@ PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
 }  # fmt: skip
 
 
+# ENG-003 (D-563): the embedder every profile's box runs (compose mounts deploy/models/embedder into the embed
+# service): build, endpoint, model dir variable and default, served-name variable and default
+EMBED_PIN = (EMBED_BUILD, "embed", "EMBED_MODEL_DIR", "embedder", "EMBED_MODEL", EMBED_BUILD)
+
+
 def install_pins(
     gpu: str,
     models_root: Path,
     out: Path = DEFAULT_OVERRIDE,
     env: dict[str, str] | None = None,
     registry_path: Path | None = None,
+    *,
+    with_embedder: bool = False,
 ) -> tuple[bool, list[str]]:
     """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, which
     must be the release's expected manifest (T-012b: a folder of other files is refused and nothing is pinned), the
@@ -452,6 +519,8 @@ def install_pins(
     pairs = PROFILE_PAIRS.get(gpu)
     if pairs is None:
         return False, [f"no deployed pair for GPU profile {gpu!r}"]
+    if with_embedder:  # ENG-003 (D-563): the installer pins the embedder with the pair, on every profile
+        pairs = [*pairs, EMBED_PIN]
     have = (load_override(out).get("builds") or {}) if out.exists() else {}
     known = _committed(registry_path)[1]
     ok, lines = True, []
@@ -468,14 +537,24 @@ def install_pins(
         tpl_path = models_root / (e.get(TEMPLATE_VAR) or str(tpl["file"])) if tpl else None
         if pinned:
             note = ""
-            if tpl_path is not None and not ((have.get(build) or {}).get("weights") or {}).get("chat_template"):
-                try:  # pinned before T-674: the template the server now starts with joins the pin
+            had = ((have.get(build) or {}).get("weights") or {}).get("chat_template") or {}
+            # pinned before T-674 (no template in the pin), or before the registry named the template's hash
+            # (HW-005, D-567: recorded on first use): the file is checked against the registry and the pin follows
+            stale = bool(had) and bool(tpl and tpl.get("sha256")) and had.get("sha256") != (tpl or {}).get("sha256")
+            if tpl_path is not None and (not had or stale):
+                try:
                     add_template(build, tpl_path, out, registry_path)
                 except PinError as exc:
                     ok = False
                     lines.append(f"{build}: {exc}")
                     continue
-                note = f"; chat template {tpl_path.name} added to the pin"
+                note = (
+                    f"; chat template {tpl_path.name} replaced by the registry's in the pin"
+                    if stale
+                    else f"; chat template {tpl_path.name} added to the pin"
+                )
+            ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
+            ok, note = ok and ctx_ok, note + ctx_note
             was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
             if was != name:
                 set_served(build, endpoint, name, out)
@@ -485,7 +564,7 @@ def install_pins(
             continue
         d = models_root / (e.get(dir_var) or dir_default)
         if not d.is_dir():
-            ok = False
+            ok = ok and build == EMBED_BUILD  # the embedder's absence is reported, the result is the pair's
             lines.append(f"{build}: no weights in {d}: this model routes nothing until it is pinned (RUNBOOK §8)")
             continue
         try:
@@ -500,13 +579,20 @@ def install_pins(
                 chat_template=tpl_path,
             )
         except PinError as exc:
-            ok = False
+            # the embedder with no manifest in the registry yet: reported, not a failure of the pair's install
+            ok = ok and build == EMBED_BUILD and not want
             lines.append(f"{build}: {exc}")
             continue
+        after = (
+            "the embed service loads these weights and no others (D-429)"
+            if build == EMBED_BUILD
+            else "champion after trialbox eval qualify and --promote"
+        )
+        ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
+        ok = ok and ctx_ok
         lines.append(
             f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
-            "champion after trialbox eval qualify and --promote"
-            + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
+            f"{after}" + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "") + ctx_note
         )
     return ok, lines
 
@@ -546,6 +632,12 @@ def promote(
 
     from tools.qualify import check_record
 
+    pinned_tpl = ((load_override(out)["builds"].get(build_id) or {}).get("weights") or {}).get("chat_template") or {}
+    if pinned_tpl.get("trust") == "first_use":  # HW-005 (D-567)
+        raise PinError(
+            f"{build_id}: its chat template was trusted on first use and cannot be promoted; put the registry's "
+            "file in place and run --install"
+        )
     try:
         rec = json.loads(record_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -583,10 +675,220 @@ def promote(
     return str(rec["record_id"])
 
 
+SHIPPED_RECORDS = ROOT / "deploy" / "qualification"  # D-569: <profile>/<record>.json, in the bundle's host tree
+IMAGES_LOCK = ROOT / "deploy" / "images.lock"
+
+
+def _shipped_mismatch(rec: Any, gpu: str, builds: list[str], pins: dict[str, Any], lock_digest: str) -> str:
+    """Why this record is not the qualification of this box's pinned pair (empty: it is)."""
+    from tools.qualify import check_record
+
+    problems = check_record(rec, profile=gpu, environment="PRODUCTION")
+    if problems:
+        return "; ".join(problems)
+    by_build = {b["build_id"]: b for b in rec["builds"].values()}
+    for build in builds:
+        if build not in by_build:
+            return f"the record does not name build {build}"
+        if by_build[build].get("weights_sha256") != pins[build]["sha256"]:
+            return (
+                f"the record qualified other weights for {build} ({str(by_build[build].get('weights_sha256'))[:12]}) "
+                f"than the pinned ones ({pins[build]['sha256'][:12]})"
+            )
+    detail = ((rec.get("steps") or {}).get("serving_record") or {}).get("detail") or {}
+    image = detail.get("model_server_image") or {}
+    if not image.get("digest"):
+        return "the record does not name the model server image it was taken with (a record from before D-569)"
+    if image["digest"] != lock_digest:
+        return (
+            f"the record was taken with model server image {str(image['digest'])[:19]}, this release pins "
+            f"{lock_digest[:19]} (deploy/images.lock)"
+        )
+    for build in builds:
+        pinned_tpl = ((pins[build].get("weights") or {}).get("chat_template") or {}).get("sha256")
+        if not pinned_tpl:
+            continue
+        if not detail.get("chat_template_sha256"):
+            return "the record does not name the judge's chat template it was taken with"
+        if detail["chat_template_sha256"] != pinned_tpl:
+            return (
+                f"the record was taken with chat template {str(detail['chat_template_sha256'])[:12]}, the pin of "
+                f"{build} holds {str(pinned_tpl)[:12]}"
+            )
+    return ""
+
+
+PENDING_NAME = "shipped-promotion.pending.json"  # beside the override: a shipped promotion not yet canaried
+
+
+def _pending(out: Path) -> dict[str, Any]:
+    import json
+
+    path = out.parent / PENDING_NAME
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {"unreadable": True}
+    return doc if isinstance(doc, dict) else {"unreadable": True}
+
+
+def _qualified(entry: dict[str, Any]) -> bool:
+    """The registry's rule for a champion that PRODUCTION routes (``Build.qualified_for_production``)."""
+    q = entry.get("qualification") or {}
+    return (
+        entry.get("status") == "champion"
+        and q.get("qualifies_production") is True
+        and bool(entry.get("sha256"))
+        and q.get("weights_sha256") == entry.get("sha256")
+    )
+
+
+def promote_shipped(
+    gpu: str,
+    records: Path = SHIPPED_RECORDS,
+    out: Path = DEFAULT_OVERRIDE,
+    *,
+    images_lock: Path = IMAGES_LOCK,
+    now: datetime | None = None,
+) -> tuple[bool, list[str]]:
+    """HW-003 (D-569): promote the profile's pinned pair from a shipped qualification record. One record under
+    ``records/<gpu>/`` must pass ``check_record`` for the profile and PRODUCTION, name every build of the pair, and
+    have qualified exactly the pinned weights, the model server image of ``images_lock`` and the chat template in
+    the judge's pin. Every build is promoted from that one record, or none, and the promotion waits for the box's
+    canary (:data:`PENDING_NAME`, :func:`confirm_shipped`). A pair that is champion on a shipped record is checked
+    against that record again, and put back when the release no longer matches it. (ok, lines): not ok when the
+    pair is not champion after the call."""
+    import json
+
+    from tools.qualify import PROFILES
+
+    pairs = PROFILE_PAIRS.get(gpu)
+    if pairs is None:
+        return False, [f"no deployed pair for GPU profile {gpu!r}"]
+    if gpu not in PROFILES:
+        return False, [
+            f"profile {gpu} has no qualification profile (tools/qualify.py), so no record can be shipped for it: "
+            "the pair stays candidate until it is qualified on this box (RUNBOOK §11)"
+        ]
+    builds = [p[0] for p in pairs]
+    known = _committed()[1]
+    pins = (load_override(out).get("builds") or {}) if out.exists() else {}
+    missing = [b for b in builds if not (pins.get(b) or {}).get("sha256")]
+    if missing:
+        return False, [f"{b}: not pinned in {out}: pin the pair first (--install)" for b in missing]
+    for b in builds:  # a judge whose registry row names a template is never promoted without it in the pin
+        if template_of(known.get(b) or {}) and not ((pins[b].get("weights") or {}).get("chat_template") or {}):
+            return False, [f"{b}: pinned without the chat template its registry row names: run --install first"]
+    lock = json.loads(images_lock.read_text(encoding="utf-8")) if images_lock.is_file() else {}
+    digest = str(((lock.get("third_party") or {}).get("vllm") or {}).get("digest") or "")
+    folder = records / gpu
+    lines: list[str] = []
+    if all(_qualified(pins[b]) for b in builds):
+        # champion already. On a shipped record: the release may have changed since (an update): check it again
+        shipped = {str((pins[b].get("qualification") or {}).get("record") or "") for b in builds}
+        paths = [folder / name for name in shipped if name and (folder / name).is_file()]
+        if len(shipped) == 1 and paths:
+            try:
+                why = _shipped_mismatch(json.loads(paths[0].read_text(encoding="utf-8")), gpu, builds, pins, digest)
+            except (OSError, ValueError) as exc:
+                why = f"not a readable qualification record ({exc})"
+            if why:
+                rid = str(pins[builds[0]]["qualification"].get("record_id"))
+                return False, [f"{paths[0].name}: {why}", *demote_pair(gpu, out, record_id=rid)]
+        if _pending(out):
+            return True, [f"{b}: champion on a shipped record; the promotion waits for the canary" for b in builds]
+        return True, [f"{b}: already champion on record {pins[b]['qualification'].get('record_id')}" for b in builds]
+    files = sorted(folder.glob("*.json")) if folder.is_dir() else []
+    if not files:
+        return False, [
+            f"no shipped qualification record for profile {gpu} in {folder}: the pair stays candidate and "
+            "routes nothing in PRODUCTION (the vendor's record for these weights rides in the release under "
+            "deploy/qualification/; or qualify on this box: RUNBOOK §11)"
+        ]
+    for path in files:
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            lines.append(f"{path.name}: not a readable qualification record ({exc})")
+            continue
+        why = _shipped_mismatch(rec, gpu, builds, pins, digest)
+        if why:
+            lines.append(f"{path.name}: {why}")
+            continue
+        before = out.read_text(encoding="utf-8")
+        pending = out.parent / PENDING_NAME
+        try:
+            # written first: a promotion that is interrupted is found waiting for its canary, never "already"
+            pending.write_text(json.dumps({"gpu": gpu, "record_id": rec["record_id"], "record": path.name}) + "\n",
+                               encoding="utf-8")  # fmt: skip
+            for build in builds:
+                if not _qualified(pins[build]):
+                    promote(build, path, out, now=now)
+        except Exception as exc:  # both or neither, whatever went wrong
+            out.write_text(before, encoding="utf-8")
+            pending.unlink(missing_ok=True)
+            lines.append(f"{path.name}: {exc}")
+            continue
+        detail = rec["steps"]["serving_record"]["detail"]
+        return True, [
+            *(
+                f"{b}: champion on shipped record {rec['record_id']} ({path.name}); waits for the canary"
+                for b in builds
+            ),
+            f"the record was taken on {detail.get('gpu') or rec.get('driver')} with driver "
+            f"{detail.get('driver') or rec.get('driver')}: the canary on this box decides whether this card answers "
+            "as that one did; on another driver or card edition, take a serving capture",
+        ]
+    return False, lines
+
+
+def confirm_shipped(gpu: str, out: Path = DEFAULT_OVERRIDE) -> bool:
+    """The box's canary passed after a shipped promotion: it no longer waits. False when nothing waited."""
+    pending = out.parent / PENDING_NAME
+    if not pending.is_file() or _pending(out).get("gpu") not in (gpu, None):
+        return False
+    pending.unlink()
+    return True
+
+
+def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE, *, record_id: str | None = None) -> list[str]:
+    """Put back to ``candidate`` the builds of the profile that the shipped record promoted (``record_id``; default:
+    the promotion that waits for its canary), and drop their qualification reference (D-569). A build that is
+    champion on another record (qualified on this box) is not touched. With neither (a demotion by hand, nothing
+    waiting) every champion of the pair is put back. The weights' pins stay. One line per build
+    put back; the waiting mark is removed."""
+    from registry.registry import Registry, apply_override
+
+    doc = load_override(out)
+    rid = record_id or _pending(out).get("record_id")  # none: a demotion by hand of the whole pair
+    lines = []
+    for build, *_ in PROFILE_PAIRS.get(gpu) or []:
+        entry = doc["builds"].get(build)
+        if not entry or entry.get("status") != "champion":
+            continue
+        if rid and (entry.get("qualification") or {}).get("record_id") != rid:
+            continue
+        entry["status"] = "candidate"
+        entry.pop("qualification", None)
+        lines.append(f"{build}: back to candidate (its qualification reference is removed; the weights stay pinned)")
+    if lines:
+        Registry(apply_override(_committed()[0], doc))  # validates the merged registry; raises before writing
+        _write_override(out, doc)
+    (out.parent / PENDING_NAME).unlink(missing_ok=True)
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", help="build_id in models/registry.yaml")
     ap.add_argument("--model-dir", type=Path)
+    ap.add_argument(
+        "--context",
+        type=int,
+        metavar="N",
+        help="with --build: the length the model server runs with, for a build whose registry row names no "
+        "context_length (LLM-007)",
+    )
     ap.add_argument("--served-name", default="", help="name the endpoint reports (vLLM --served-model-name)")
     ap.add_argument("--endpoint", default="serving", help="routing.yaml endpoint that serves the build")
     ap.add_argument("--out", type=Path, default=DEFAULT_OVERRIDE, help="site override file")
@@ -601,6 +903,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--promote", metavar="BUILD", help="make BUILD champion from --record (a passing qualify record)")
     ap.add_argument("--record", type=Path, help="--promote: the qualification record (eval/qualification/*.json)")
     ap.add_argument("--environment", default="PRODUCTION", help="--promote: the environment the record must qualify")
+    ap.add_argument(
+        "--promote-shipped",
+        metavar="GPU",
+        help="promote the profile's pinned pair from a shipped record (D-569); exit 0 promoted and waiting for the "
+        "canary, 3 no record matches, 4 the pair was champion already",
+    )
+    ap.add_argument("--records", type=Path, default=SHIPPED_RECORDS, help="--promote-shipped: the records' folder")
+    ap.add_argument("--images-lock", type=Path, default=IMAGES_LOCK, help="--promote-shipped: deploy/images.lock")
+    ap.add_argument("--demote-pair", metavar="GPU", help="put the profile's promoted pair back to candidate (D-569)")
+    ap.add_argument("--confirm-shipped", metavar="GPU", help="the canary passed after --promote-shipped (D-569)")
     ap.add_argument("--revision", default=None, help="upstream revision (commit or tag) of the weights")
     ap.add_argument(
         "--chat-template",
@@ -632,6 +944,25 @@ def main(argv: list[str] | None = None) -> int:
             print(f"pin_model: {exc}", file=sys.stderr)
             return 2
         return 0
+    if args.promote_shipped:
+        try:
+            good, lines = promote_shipped(args.promote_shipped, args.records, args.out, images_lock=args.images_lock)
+        except (PinError, ValueError) as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        if good and all("already champion" in ln for ln in lines):
+            return 4  # champion before, and nothing waits for a canary: the install leaves the pair alone
+        return 0 if good else 3
+    if args.confirm_shipped:
+        return 0 if confirm_shipped(args.confirm_shipped, args.out) else 1
+    if args.demote_pair:
+        try:
+            print("\n".join(demote_pair(args.demote_pair, args.out)))
+        except (PinError, ValueError) as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        return 0
     if args.promote:
         if args.record is None:
             ap.error("--promote needs --record")
@@ -646,7 +977,8 @@ def main(argv: list[str] | None = None) -> int:
         import os
 
         try:
-            good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ))
+            good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ),
+                                       with_embedder=True)  # fmt: skip
         except PinError as exc:
             print(f"pin_model: {exc}", file=sys.stderr)
             return 2
@@ -662,6 +994,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if good else 1
     if not args.build or args.model_dir is None:
         ap.error("--build and --model-dir are required (or use --verify-all MODELS_ROOT)")
+    if args.context is not None and args.context <= 0:
+        print(f"pin_model: --context is a whole number above zero, not {args.context}", file=sys.stderr)
+        return 2
     try:
         if args.verify:
             good, msg = verify(args.build, args.model_dir, args.out)
@@ -682,6 +1017,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"pin_model: {exc}", file=sys.stderr)
         return 2
     print(f"pinned {args.build}: sha256 {m.sha256} ({m.files} files, {m.bytes} bytes) -> {path}")
+    if args.context is not None:
+        try:
+            set_context(args.build, args.context, args.out)
+        except (PinError, ValueError) as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        print(f"{args.build}: context {args.context}")
     return 0
 
 

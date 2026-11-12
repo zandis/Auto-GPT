@@ -38,6 +38,6 @@
     <p class="hint">{{ t('account.pw.help') }}</p>
     <button type="submit">{{ t('account.pw.save') }}</button>
   </form>{% endif %}
-  <p class="hint">{{ t('account.totp_later') }}</p>
+  <p class="hint" data-testid="account-totp">{{ t('account.totp_on') if totp_on else t('account.totp_later') }}</p>
 </section>
 {% endblock %}

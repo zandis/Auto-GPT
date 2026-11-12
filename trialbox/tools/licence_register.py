@@ -1,6 +1,6 @@
 """The licence register as data (T-617b, STD-044, LLM-012): ``docs/licences/register.csv`` and its build check.
 
-    python -m tools.licence_register --check     # exit 1 with one line per problem (CI job `docs`)
+    python -m tools.licence_register --check     # exit 1 with one line per problem (CI job `checks`)
     python -m tools.licence_register             # the rows, one line each
 
 One row per third-party (or own) source: standard, version, source, licence and SPDX id, obligation, who holds the

@@ -161,6 +161,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             "split": {c: sum(1 for r in rows if r.get("class") == c) for c in ("structured", "note", "mixed", "human")},
             # D-147: a sub-investigator never approves; the study's PI does
             "approver": h.may_approve is None or h.may_approve(sess.user, (job.ruleset or "").upper()),
+            # NEW-JRN-1 (D-540): nobody approves until the steward names the study's PI; the page says so
+            "needs_pi": h.pi_missing is not None and (job.ruleset or "").upper() in h.pi_missing(sess.user),
         }
 
     @app.get("/pilot/jobs/{job_id}/approval")

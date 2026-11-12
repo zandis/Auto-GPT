@@ -1,5 +1,10 @@
 # Windows install checklist for Aimedics engineers (D-125, D-138)
 
+**Since NEW-WIN-1 (D-600):** the lines under "On Windows" from "Install WSL" on, and all of "In WSL2 Ubuntu" up
+to `install.sh`, are done by `Install-TrialBox.cmd` on the media (`deploy/windows/box-install.ps1`). This sheet is
+rewritten to the box form by NEW-WIN-9; until the installer has passed its rehearsal
+(`P-0-windows-rehearsal.md`) the steps below remain the fallback.
+
 On site, with hospital IT present. Offline: the USB disk of `OFFLINE-MEDIA.md`. Tick each line; keep the printed
 output of both pre-flight checks with the install record.
 

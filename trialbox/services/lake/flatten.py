@@ -402,11 +402,26 @@ class _Again:
         return self.make()
 
 
+#: NEW-B-2 (D-521): the earliest year a date in the store of record may carry. A reason, not a tuning value: no
+#: person alive was born before it and no hospital system holds an older record of a living patient; a smaller
+#: year is a date of another calendar read as western (the Republic-of-China year 115, an era year). The same year
+#: and reason as the feed mapping's own bound (DIN-001)
+EARLIEST_YEAR = 1850
+
+
+class NotWesternYear(ValueError):
+    """A FHIR date whose year is before the bound the reader was given: not a western calendar year. The message
+    names no value."""
+
+
 class Flattener:
-    def __init__(self, tz: str | None = None) -> None:
+    def __init__(self, tz: str | None = None, earliest_year: int | None = None) -> None:
         from tb_common.config import site_zone
 
         self.zone = site_zone(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
+        # NEW-B-2 (D-521): the OMOP load asks for the bound and refuses the batch. The legacy flatten asks for
+        # none and reads ``0115-03-01`` as the year 115, as it always did: it is being removed, not repaired
+        self.earliest_year = earliest_year
         # T-616 (STD-014): the batch's Medication resources by id, for a ``medicationReference`` to one of them
         self.medications: dict[str, Resource] = {}
 
@@ -416,8 +431,13 @@ class Flattener:
             return None
         if len(value) == 10:
             d = date.fromisoformat(value)
-            return datetime(d.year, d.month, d.day)
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = datetime(d.year, d.month, d.day)
+        else:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if self.earliest_year is not None and dt.year < self.earliest_year:
+            raise NotWesternYear(
+                f"a date's year is before {self.earliest_year}: not a western year (a date of another calendar)"
+            )
         if dt.tzinfo is not None:
             dt = dt.astimezone(self.zone).replace(tzinfo=None)
         return dt

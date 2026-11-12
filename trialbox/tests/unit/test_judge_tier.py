@@ -164,5 +164,10 @@ def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:
     kw = dict(only=only, workers=1, full_record_fallback=False)
     res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone, 0.75, **kw)  # type: ignore[arg-type]
     assert res["p1"].tier == "review"
+    # T-709 (D-478): the answer carries its basis. One model's "not met" never excludes, even for a caller that
+    # passes note_block=True (before, the parameter alone decided and this was "excluded")
     res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone, 0.75, note_block=True, **kw)  # type: ignore[arg-type]
+    assert res["p1"].tier == "review"
+    two = LoneJudge(SimpleNamespace(), j, "judge", verifier=v)  # control: a pair of two models does exclude
+    res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), two, 0.75, note_block=True, **kw)  # type: ignore[arg-type]
     assert res["p1"].tier == "excluded"

@@ -33,6 +33,7 @@
 <p class="hint">{{ t('team.log.add.help') }}</p>
 <form method="post" action="/studies/{{ rs }}/team" class="markform" data-testid="add-form">
 <input type="hidden" name="csrf" value="{{ csrf }}">
+{% if 'pi' in log_roles and not has_pi and not (accounts|selectattr('role', 'equalto', 'investigator')|list) %}<p class="warn" data-testid="pi-no-account">{{ t('pi.no_account', rs=rs) }}</p>{% endif %}
 <label for="add-user">{{ t('team.log.account') }}</label><select id="add-user" name="username" data-testid="add-user"><option value="">{{ t('team.log.no_account') }}</option>{% for u in accounts %}<option value="{{ u.username }}">{{ u.username }} · {{ t('role.' + u.role) }}</option>{% endfor %}</select>
 <label for="add-name">{{ t('team.log.name') }}</label><input id="add-name" name="name" maxlength="120" data-testid="add-name">
 <label for="add-role">{{ t('team.log.role') }}</label><select id="add-role" name="role" data-testid="add-role">{% for r in log_roles %}<option value="{{ r }}"{% if r == ('sub_pi' if has_pi else 'pi') %} selected{% endif %}>{{ t('team.role.' + r) }}</option>{% endfor %}</select>
@@ -40,7 +41,8 @@
 <label for="add-start">{{ t('team.log.start') }}</label><input id="add-start" name="start" type="date" lang="{{ lang }}" value="{{ today.isoformat() }}" required><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label for="add-end">{{ t('team.log.end') }}</label><input id="add-end" name="end" type="date" lang="{{ lang }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label for="add-train">{{ t('team.log.training') }}</label><input id="add-train" name="training_day" type="date" lang="{{ lang }}" data-testid="add-training"><span class="hint datefmt">{{ t('date.fmt') }}</span>
-<label for="add-ref">{{ t('team.log.training_ref') }}</label><input id="add-ref" name="training_ref" maxlength="80">
+<label for="add-ref">{{ t('team.log.training_cert') }}</label><input id="add-ref" name="training_ref" maxlength="80">
+{% if 'monitor' in log_roles %}<label for="add-visit">{{ t('team.log.visit') }}</label><input id="add-visit" name="visit" maxlength="80" data-testid="add-visit"><span class="hint">{{ t('team.log.visit.help') }}</span>{% endif %}
 <button type="submit" data-testid="add-save">{{ t('team.log.add.save') }}</button>
 </form></section>{% elif user.role == 'investigator' %}<p class="hint" data-testid="log-pi-only">{{ t('team.log.pi_only') }}</p>{% endif %}
 <section class="card" id="check" data-testid="check-card"><h2>{{ t('team.log.check') }}</h2>

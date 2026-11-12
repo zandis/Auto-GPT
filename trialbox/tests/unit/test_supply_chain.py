@@ -178,6 +178,7 @@ def _copy_project(tmp_path: Path) -> Path:
         shutil.copy(ROOT / name, tmp_path / name)
     (tmp_path / "deploy").mkdir()
     shutil.copy(lock.REQUIREMENTS_LOCK, tmp_path / "deploy" / "requirements.lock")
+    shutil.copy(lock.EMBED_LOCK, tmp_path / "deploy" / "requirements-embed.lock")  # ENG-003 (D-563)
     (tmp_path / "tools" / "supply_chain").mkdir(parents=True)
     shutil.copy(lock.PIP_AUDIT_LOCK, tmp_path / "tools" / "supply_chain" / "pip-audit.lock")
     return tmp_path
