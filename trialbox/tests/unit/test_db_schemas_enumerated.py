@@ -121,7 +121,7 @@ def test_every_schema_the_code_opens_is_on_a_role_list() -> None:
     literal = {s for v in OPENED.values() for s in v if not s.startswith("?")}
     assert literal, "the scan found no Database.connect call: it reads nothing"
     assert literal <= set(SCHEMAS), f"opened by the code and on no role's list: {sorted(literal - set(SCHEMAS))}"
-    assert BACKEND_SCHEMAS <= set(SCHEMAS)
+    assert set(SCHEMAS) >= BACKEND_SCHEMAS
     # and the other way: a schema on a list that no code opens is a left-over (or the scan lost a store)
     unread = set(SCHEMAS) - literal - BACKEND_SCHEMAS
     assert unread == set(LISTED_ONLY), f"on a role's list and opened by no code the scan reads: {sorted(unread)}"
