@@ -221,7 +221,15 @@ def test_nav_and_the_weekly_sample_are_held_too(db_url: str, tmp_path: Path, mon
         raise RuntimeError("the test stops the draw here")
 
     monkeypatch.setattr(notmatched_sample, "gate_on", first_step)
+    reads: list[int] = []
+
+    def register(*a: Any, **k: Any) -> set[str]:
+        reads.append(1)
+        return set()
+
+    monkeypatch.setattr(notmatched_sample, "register_now", register)
     assert notmatched_sample.weekly(SimpleNamespace()) == {} and asked == []  # held: not even begun
+    assert reads == []  # and no register was read (the effective register of D-477 included)
     flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "released", actor="console:admin",
                                                                     reason="re-applied")  # fmt: skip
     notmatched_sample.weekly(SimpleNamespace())
