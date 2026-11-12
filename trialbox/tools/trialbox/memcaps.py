@@ -234,13 +234,14 @@ else:
     from embed_service.embedder import HashEmbedder
     from lake.store import Lake
     t.write_ndjson(d / "lake" / "ndjson" / "2026-10-04", n)
-    Lake(d / "lake", "Asia/Taipei").rebuild("2026-10-04", HashEmbedder())
+    Lake(d / "lake").rebuild("2026-10-04", HashEmbedder())
 print(json.dumps({"maxrss_kb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}))
 """
 
 
 def _rss_mb(svc: str, n: int) -> float:
-    env = {**os.environ, "PYTHONPATH": "libs:services:.", "TB_LAKE_SOURCE": "legacy", "TB_TZ": "Asia/Taipei"}
+    env = {**os.environ, "PYTHONPATH": "libs:services:.", "TB_LAKE_SOURCE": "legacy"}
+    env.setdefault("TB_TZ", "UTC")  # the zone moves no byte counted here (D-315: never a site's zone in code)
     env.pop("TB_DB_URL", None)
     # a sort run and a DuckDB limit both sizes pass, so the slope is what grows with the patients, not a buffer
     # filling up to its bound (the bounds are the services' own shares of the cap, added in need_mb)
@@ -286,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--env-file", type=Path, default=ROOT / "deploy" / ".env")
     ap.add_argument("--lake", type=Path, default=None)
     ap.add_argument("--write", action="store_true", help="write the caps into --env-file")
-    ap.add_argument("--measure", action="store_true", help=f"measure and write {RECORD.relative_to(ROOT)}")
+    ap.add_argument("--measure", action="store_true", help="measure and write deploy/measured/ingest_memory.json")
     ap.add_argument("--sizes", type=int, nargs=2, default=(500, 2000))
     a = ap.parse_args(argv)
     if a.measure:
