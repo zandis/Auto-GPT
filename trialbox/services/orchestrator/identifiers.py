@@ -126,7 +126,11 @@ def admit(request: Request, study: str | None, db: Any, audit: Any, at: datetime
     via = route_actor.template(request)
     claim = getattr(request.state, "tb_actor", None)
     if claim is None:
-        raise route_actor.refusal(request, "", NO_PERSON, None, study)
+        # the stage before this door says why a claim it was sent is not a verified person (its role lacks the
+        # right, another study, another body); with no claim at all the reason is that nobody asked
+        seen = str(getattr(request.state, "tb_actor_why", "") or "")
+        why = seen if seen in ("right", "study", "principal", "action") else NO_PERSON
+        raise route_actor.refusal(request, "", why, None, study)
     why = ""
     if claim.action not in ACTIONS:
         why = "action"
