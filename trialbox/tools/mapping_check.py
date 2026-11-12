@@ -19,16 +19,30 @@ Exit status 1 when a column is missing, a resource is structurally invalid or a 
 unmapped codes, unit mismatches and unread qualitative values are warnings for the lab / HIS team.
 
     python tools/mapping_check.py --mapping services/adapter/mapping/tw_core/<site>.yaml --source csv --path <dir>
-    python tools/mapping_check.py --mapping ... --source cgrd_sql --dsn "$HIS_DSN"
+    python tools/mapping_check.py --mapping ... --source cgrd_sql --dsn-env HIS_DSN
+
+**A real source (T-731, D-588).** ``--share <file>`` writes the one report that may leave the site: shapes of dates
+(never a date), codes that look like codes, unit spellings, counts of repeated keys and of refused rows; no row
+value. With it the terminal shows only what the file holds. ``--columns-only`` reads no row: which mapped columns
+each table has. ``--day`` (or ``--since`` / ``--until``) reads one window of the change-time column; ``--rows`` is
+the most rows read from a table (0: no limit). The connection string comes from the environment variable
+``--dsn-env`` names and is never printed.
+
+    python tools/mapping_check.py --mapping <site>.yaml --source cgrd_sql --dsn-env HIS_DSN \
+        --columns-only --share columns.json
+    python tools/mapping_check.py --mapping <site>.yaml --source cgrd_sql --dsn-env HIS_DSN \
+        --day 2026-11-10 --rows 20000 --share day.json
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -177,49 +191,162 @@ def unit_default_conflicts(m: Any) -> list[str]:
     return sorted(set(out))
 
 
-def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> dict[str, Any]:
+def _scan() -> Any:
+    """Text → whether the repository's data scan knows its kind (a chart number, a phone, an id, a name by a
+    date). The share report is not written without it."""
+    if str(ROOT) not in sys.path:  # run as ``python tools/mapping_check.py``: the package's parent is not there
+        sys.path.append(str(ROOT))
+    from tools import data_scan
+
+    patterns = data_scan.load_patterns()
+    allow = data_scan.Allow({}, [])
+    return lambda text: bool(data_scan.scan_text(text, "share", patterns, allow))
+
+
+def _wanted(m: Any, table: str, tspec: dict[str, Any], specs: list[Any]) -> tuple[set[str], set[str], list[str]]:
+    """(canonical columns without which nothing is built, the optional ones, the local names of all of them)."""
+    need: set[str] = set()  # without these no resource (or no patient link) can be built
+    optional: set[str] = set()  # element columns: a missing one only omits that element
+    for spec in specs:
+        need |= referenced_columns(spec.id) | referenced_columns(spec.where) | _patient_columns(spec.elements)
+        optional |= referenced_columns(spec.elements)
+        if isinstance(spec.profile, dict):
+            optional |= referenced_columns(spec.profile)
+    need.add(str(tspec.get("key", "")))
+    need.discard("")
+    canon = need | optional | set((tspec.get("identity") or {}).values()) | set(tspec.get("values") or {})
+    if tspec.get("delta"):
+        canon.add(str(tspec["delta"]))
+    local = {c: loc for loc, c in (tspec.get("rename") or {}).items()}
+    return need, optional, sorted({local.get(c, c) for c in canon})
+
+
+def columns_only(mapping_path: Path, source_kind: str, where: str) -> dict[str, Any]:
+    """Which mapped columns each table or view of a SQL source has, and the database's type of the date columns.
+    No row is read (T-731)."""
+    from adapter.mapping import sharereport
+    from adapter.mapping.engine import Mapping
+    from adapter.pipeline import make_source
+
+    if source_kind != "cgrd_sql":
+        raise SystemExit("--columns-only reads a SQL source (--source cgrd_sql)")
+    m = Mapping.load(mapping_path)
+    src: Any = make_source(source_kind, where)
+    rep: dict[str, Any] = {"report": "columns", "mapping": mapping_path.name, "dialect": src.engine.dialect.name,
+                           "tables": {}, "missing_columns": 0}  # fmt: skip
+    for table, tspec in m.tables.items():
+        specs = [r for r in m.resources if r.table == table]
+        need, optional, wanted = _wanted(m, table, tspec, specs)
+        t: dict[str, Any] = {"source": tspec["source"]}
+        try:
+            have = src.columns(tspec["source"])
+        except Exception as exc:
+            t["cannot_be_read"] = type(exc).__name__
+            rep["missing_columns"] += len(need)
+            rep["tables"][table] = t
+            continue
+        low = {c.lower() for c in have}
+        rename = tspec.get("rename") or {}
+        canon_have = {rename.get(loc, loc) for loc in wanted if loc.lower() in low}
+        t["columns_in_table"] = len(have)
+        t["missing_columns"] = sorted(need - canon_have)
+        t["absent_optional"] = sorted(optional - need - canon_have)
+        t["mapped_names_not_in_table"] = sorted(loc for loc in wanted if loc.lower() not in low)
+        t["names_differ_in_case_only"] = sorted(loc for loc in wanted if loc.lower() in low and loc not in have)
+        types = {k.lower(): v for k, v in src.column_types(tspec["source"]).items()}
+        local = {c: loc for loc, c in rename.items()}
+        dates = sharereport.date_columns(specs)
+        if tspec.get("delta"):
+            dates.setdefault(str(tspec["delta"]), "change time")
+        t["date_column_types"] = {
+            c: types.get(local.get(c, c).lower(), "not told") for c in sorted(dates) if c in canon_have
+        }
+        rep["missing_columns"] += len(t["missing_columns"])
+        rep["tables"][table] = t
+    rep["passed"] = rep["missing_columns"] == 0
+    return rep
+
+
+def check(
+    mapping_path: Path,
+    source_kind: str,
+    where: str,
+    rows: int = 500,
+    since: str | None = None,
+    until: str | None = None,
+    chart_pattern: str | None = None,
+) -> dict[str, Any]:
+    from adapter.mapping import sharereport
     from adapter.mapping.engine import Mapper, Mapping
     from adapter.pipeline import make_source
     from adapter.validate.validator import StructuralValidator
 
     m = Mapping.load(mapping_path)
-    src = make_source(source_kind, where)
+    src: Any = make_source(source_kind, where)
+    if until and source_kind != "cgrd_sql":
+        raise SystemExit("--day and --until read a SQL source (--source cgrd_sql)")
     mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK")
+    net = sharereport.Net(_scan(), chart_pattern)
     report: dict[str, Any] = {"mapping": str(mapping_path), "tables": {}, "missing_columns": 0, "invalid": 0}
+    report["source"] = source_kind
+    report["window"] = {"since": since, "until": until}
+    report["rows_limit"] = rows
     report["unit_default_conflicts"] = unit_default_conflicts(m)
     validator = StructuralValidator()
     for table, tspec in m.tables.items():
         specs = [r for r in m.resources if r.table == table]
-        need: set[str] = set()  # without these no resource (or no patient link) can be built
-        optional: set[str] = set()  # element columns: a missing one only omits that element
-        for spec in specs:
-            need |= referenced_columns(spec.id) | referenced_columns(spec.where) | _patient_columns(spec.elements)
-            optional |= referenced_columns(spec.elements)
-            if isinstance(spec.profile, dict):
-                optional |= referenced_columns(spec.profile)
-        need.add(str(tspec.get("key", "")))
-        need.discard("")
+        need, optional, wanted = _wanted(m, table, tspec, specs)
         got = []
-        for i, row in enumerate(src.rows(table, tspec["source"], None, None)):
-            if i >= rows:
-                break
-            got.append(m.normalize(table, row) if hasattr(m, "normalize") else row)
-        t: dict[str, Any] = {"source": tspec["source"], "rows_read": len(got)}
+        cut = False
+        delta = tspec.get("delta") if (since or until) else None
+        local_delta = {c: loc for loc, c in (tspec.get("rename") or {}).items()}.get(delta, delta) if delta else None
+        if source_kind == "cgrd_sql":  # only the columns the mapping names, only the window asked for (D-588)
+            feed = src.rows(table, tspec["source"], local_delta, since, until=until, columns=wanted)
+        else:
+            feed = src.rows(table, tspec["source"], local_delta, since)
+        try:
+            for i, row in enumerate(feed):
+                if rows and i >= rows:
+                    cut = True
+                    break
+                got.append(m.normalize(table, row) if hasattr(m, "normalize") else row)
+        except Exception as exc:
+            if source_kind != "cgrd_sql":
+                raise
+            # the error's text may hold the connection or a value: its kind only
+            bad = {"source": tspec["source"], "rows_read": 0, "cannot_be_read": type(exc).__name__}
+            report["tables"][table] = bad
+            report["missing_columns"] += len(need)
+            continue
+        t: dict[str, Any] = {"source": tspec["source"], "rows_read": len(got), "cut_at_rows_limit": cut}
+        if since or until:
+            t["window_on"] = delta or "no change-time column: the table was read whole"
+        # the second net learns what identifies somebody in these rows: the whole patient table, and every column
+        # the mapping uses as a patient link or an identity
+        who = {*_patient_columns_all(specs), *(tspec.get("identity") or {}).values()}
+        net.learn(got, None if table == "patient" else who)
         if not got:
             t["note"] = "no rows (table not exported?)"
             report["tables"][table] = t
             continue
+        dates = sharereport.date_columns(specs)
+        t["date_shapes"] = sharereport.date_shapes(mapper, got, dates)
+        if tspec.get("key"):
+            day = next((c for c in dates if any(c in r for r in got)), None)
+            t["repeated_keys"] = sharereport.repeated_keys(got, str(tspec["key"]), day)
         present: set[str] = set().union(*(row.keys() for row in got))
         missing = sorted(need - present)
         t["missing_columns"] = missing
         t["absent_optional"] = sorted(optional - need - present)
         report["missing_columns"] += len(missing)
         unmapped: Counter[str] = Counter()
+        outside: Counter[tuple[str, str]] = Counter()  # (column or look-up, value): every one, for the share report
         for col, mp in (tspec.get("values") or {}).items():
             for row in got:
                 v = row.get(col)
                 if v not in (None, "") and str(v) not in {str(x) for x in mp.values()}:
                     unmapped[f"{col}={v}"] += 1
+                    outside[(f"values:{col}", str(v))] += 1
         for spec in specs:
             for expr in spec.elements.values():
                 if isinstance(expr, dict) and "map" in expr and "column" in expr:
@@ -227,13 +354,16 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
                         v = row.get(expr["column"])
                         if v not in (None, "") and str(v) not in {str(k) for k in expr["map"]}:
                             unmapped[f"{expr['column']}={v}"] += 1
+                            outside[(f"map:{expr['column']}", str(v))] += 1
         if "lab" in m.lookups and table == "lab":
             lk = m.lookups["lab"]
             for row in got:
                 code = row.get(lk.key)
                 if code not in (None, "") and lk.find(code) is None:  # as the night reads it (D-580)
                     unmapped[f"lab {lk.key}={code} (not in lookup)"] += 1
+                    outside[("lookup:lab", str(code))] += 1
         t["unmapped_codes"] = dict(unmapped.most_common(20))
+        t["outside"] = [[name, value, n] for (name, value), n in sorted(outside.items())]
         args = lab_value_args(m, table)
         if args is not None and args.get("lookup") in m.lookups:
             t["unit_pairs"] = unit_pairs(m, args, got)
@@ -247,7 +377,8 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
         if missing:
             report["tables"][table] = t
             continue
-        resources = list(mapper.map_table(table, iter(got)))
+        resources, rejected = sharereport.map_rows(mapper, table, got)  # a refused row is counted, as at night
+        t["rejected"] = dict(sorted(rejected.items()))
         res = validator.validate(resources)
         t["resources"] = len(resources)
         t["structural_errors"] = res.messages[:10]
@@ -256,7 +387,72 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
     report["passed"] = (
         report["missing_columns"] == 0 and report["invalid"] == 0 and not report["unit_default_conflicts"]
     )
+    report["share"] = share(report, mapper, net)
     return report
+
+
+def _patient_columns_all(specs: list[Any]) -> set[str]:
+    out: set[str] = set()
+    for spec in specs:
+        out |= _patient_columns(spec.elements)
+    return out
+
+
+# what a table's share report takes as it stands: names of the mapping, counts, shapes (safe by their kind)
+SHARED_AS_IS = (
+    *("source", "rows_read", "cannot_be_read", "cut_at_rows_limit", "window_on", "note", "missing_columns"),
+    *("absent_optional", "date_shapes", "repeated_keys", "resources", "unknown_code_system"),
+)
+
+
+def share(report: dict[str, Any], mapper: Any, net: Any) -> dict[str, Any]:
+    """The report that may leave the site (D-588): built field by field from what is safe by its kind, then swept
+    by the second net. No row value is copied into it."""
+    from adapter.mapping import sharereport
+
+    by_code = mapper.unmapped_by_code(net.chart.pattern if net.chart else None)
+    out: dict[str, Any] = {
+        "report": "share",
+        "mapping": Path(report["mapping"]).name,
+        "source": report["source"],
+        "window": report["window"],
+        "rows_limit": report["rows_limit"],
+        "passed": report["passed"],
+        "missing_columns": report["missing_columns"],
+        "invalid_resources": report["invalid"],
+        "unit_default_conflicts": len(report["unit_default_conflicts"]),
+        "tables": {},
+    }
+    for table, t in report["tables"].items():
+        s: dict[str, Any] = {k: t[k] for k in SHARED_AS_IS if k in t}
+        if "rejected" in t:
+            s["rejected_rows"] = net.counts(t["rejected"], sharereport.scrub_reason)
+        if "structural_errors" in t:
+            s["structural_errors"] = len(t["structural_errors"])
+        names: dict[str, dict[str, int]] = {}
+        for name, value, n in t.get("outside") or []:
+            names.setdefault(name, {})[value] = n
+        s["outside_the_map"] = {name: net.counts(codes, net.code) for name, codes in sorted(names.items())}
+        s["unmapped_dropped_or_unknown"] = {
+            name: net.counts(codes, net.code) for name, codes in (by_code.get(table) or {}).items()
+        }
+        if "unit_pairs" in t:
+            s["unit_pairs"] = [
+                {"code": net.code(p["code"]), "loinc": p["loinc"], "row_unit": net.unit(p["row_unit"]),
+                 "lookup_unit": p["lookup_unit"], "rows": p["rows"], "read": p["read"],
+                 "factor": None if p.get("factor") is None else str(p["factor"])}
+                for p in t["unit_pairs"]
+            ]  # fmt: skip
+        if "qualitative_values" in t:
+            s["qualitative_values"] = [
+                {"code": net.code(q["code"]), "loinc": q["loinc"], "rows": q["rows"], "read": q["read"],
+                 "raw": net.text(q["raw"]) if "not recognised" not in q["read"] else sharereport.shape(q["raw"])}
+                for q in t["qualitative_values"]
+            ]  # fmt: skip
+        out["tables"][table] = s
+    out = net.sweep(out)
+    out["withheld"] = net.withheld
+    return dict(out)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -264,16 +460,48 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mapping", type=Path, required=True)
     ap.add_argument("--source", choices=["csv", "cgrd_sql", "ssmix2"], default="csv")
     ap.add_argument("--path", help="export directory (csv) or storage root (ssmix2)")
-    ap.add_argument("--dsn", help="SQLAlchemy DSN (cgrd_sql)")
-    ap.add_argument("--rows", type=int, default=500)
+    ap.add_argument("--dsn", help="SQLAlchemy DSN (cgrd_sql): a test database only; a real one goes by --dsn-env")
+    ap.add_argument("--dsn-env", help="the environment variable that holds the SQLAlchemy DSN (never printed)")
+    ap.add_argument("--rows", type=int, default=500, help="the most rows read from a table (0: no limit)")
+    ap.add_argument("--day", help="read the rows changed on this day (YYYY-MM-DD) of each table's change-time column")
+    ap.add_argument("--since", help="read rows changed from this time on (YYYY-MM-DD[ HH:MM:SS])")
+    ap.add_argument("--until", help="with --since: and before this time")
+    ap.add_argument("--chart-pattern", help="the site's chart number pattern: a code that matches is not written out")
+    ap.add_argument("--columns-only", action="store_true", help="read no row: which mapped columns each table has")
+    ap.add_argument("--share", type=Path, help="write the report that may leave the site, and print only that")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    rep = check(args.mapping, args.source, args.path or args.dsn or "", args.rows)
+    where = args.path or args.dsn or ""
+    if args.dsn_env:
+        where = os.environ.get(args.dsn_env, "")
+        if not where:
+            raise SystemExit(f"the environment variable {args.dsn_env} is not set")
+    since, until = args.since, args.until
+    if args.day:
+        day = date.fromisoformat(args.day)
+        since, until = f"{day.isoformat()} 00:00:00", f"{(day + timedelta(days=1)).isoformat()} 00:00:00"
+    if args.columns_only:
+        rep = columns_only(args.mapping, args.source, where)
+        text = json.dumps(rep, ensure_ascii=False, indent=1)
+        if args.share:
+            args.share.write_text(text + "\n", encoding="utf-8")
+        print(text)
+        return 0 if rep["passed"] else 1
+    rep = check(args.mapping, args.source, where, args.rows, since, until, args.chart_pattern)
+    if args.share:
+        text = json.dumps(rep["share"], ensure_ascii=False, indent=1)
+        args.share.write_text(text + "\n", encoding="utf-8")
+        print(text)
+        print(f"Send back only this file: {args.share}")
+        return 0 if rep["passed"] else 1
     if args.json:
         print(json.dumps(rep, ensure_ascii=False, indent=1))
     else:
         for table, t in rep["tables"].items():
             line = f"{table:13s} {t['rows_read']:>5} rows"
+            if t.get("cannot_be_read"):
+                print(f"{line}  CANNOT BE READ ({t['cannot_be_read']})")
+                continue
             if t.get("missing_columns"):
                 line += f"  MISSING {', '.join(t['missing_columns'])}"
             elif "resources" in t:
