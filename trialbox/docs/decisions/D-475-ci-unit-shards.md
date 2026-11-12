@@ -29,11 +29,12 @@ without a label, a new route without a permit row, a new table without an invent
    16 minutes, because the hash put `test_e2e_simple` (one test, 7.8 minutes) with `test_omop_core`,
    `test_recall_cert` and `test_feas_demo` in one shard, and `test_rc_demo`, `test_nav_retro` and the two PoC walks
    (2 to 2.5 minutes each) in another (`--durations=30`, printed by every shard). At N = 8 these heavy files fall in
-   more shards. The N = 8 round still took 16 minutes in the shard of `test_e2e_simple` (545 s that run): xdist hands
-   tests out in collection order, so that one test started minutes into the run. The files with a test of two
-   minutes or more (`LONG_FIRST` in `tools/test_shard.py`, from the shards' `--durations=30`) now run first in their
-   shard; only the order changes, never the shard. The shard times of the final round are in the pull request body. More shards would queue for runners:
-   a pull request already starts about 20 jobs. N is the matrix and nothing else.
+   more shards. The N = 8 rounds still took 16 minutes (and 23 on a slower round, when every shard was about 1.5
+   times slower) in the shard of `test_e2e_simple` (one test, 7 to 9 minutes) with `test_recall_ledger`,
+   `test_rc_demo` and `test_nav_retro` (2 to 3 minutes each). Starting those tests first in their shard was tried
+   and gave no gain, so the order is pytest's. The modelled largest shard (per-test durations of all eight shards'
+   `--durations=30`, the rest spread evenly) is about 10.5 minutes for any N from 7 to 9; more shards cost runners
+   for little. The shard times of the rounds are in the pull request body.
 3. **No test drops out silently.** Each shard writes a record (`--shard-record`): pytest's own collection before the
    shard was taken (after `-m`) and the node ids the shard kept. `python -m tools.test_shard check` in the job `unit`
    fails unless all N shards are present, every shard collected the same suite, and every collected test was kept by

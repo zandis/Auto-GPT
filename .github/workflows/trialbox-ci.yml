@@ -226,7 +226,7 @@ jobs:
   # path (tools/test_shard.py; `make test SHARD=i/N` locally), so module- and session-scoped fixtures stay together
   # and a new file moves no other. Eight shards: the one-runner suite took 35 to 43 minutes of pytest on 2026-11-12 (up
   # to 55), set-up under a minute; at six, two shards took 15 to 16 minutes (the 8-minute test_e2e_simple and three
-  # 2-minute integration files fell together); eight keep each under about 12 (D-475). Each shard keeps
+  # 2-minute integration files fell together); eight spread them (D-475). Each shard keeps
   # its coverage data and the record of what it collected and kept; the job `unit` below checks them all.
   unit-shard:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
