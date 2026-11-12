@@ -13,6 +13,9 @@
 # 5. settings.yaml: data_source: {type: csv, path: <export dir>, mapping: mapping/tw_core/<site>.yaml}
 #    (add `encoding: big5` or `encoding: cp932` when the HIS does not export UTF-8: it is tried first).
 # `delta: updated_at` is the row's change time (`--since` nights); map the HIS column that changes on every edit.
+# Units (D-590): a spelling of a known unit that the box does not read yet is declared once at the top, e.g.
+# `unit_spellings: {"萬/μL": "10*4/uL"}` (spelling as the source writes it -> UCUM code). The night counts results
+# that lost their value to a unit (`unit_mismatch`) per lab code; mapping_check lists the pairs.
 version: 1
 name: SITE_his
 extends: ../tw_core/demo_his.yaml

@@ -186,8 +186,33 @@ class Mapping:
     unit_defaults: dict[str, str] = field(default_factory=dict)
     # NEW-STD-1 (D-586): what a site states once and conditions read as ``{param: name}`` (``icd9cm_before``)
     params: dict[str, str] = field(default_factory=dict)
+    # NEW-DIN-9 (D-590): the site's own unit spellings, each the UCUM code it stands for (``萬/μL: 10*4/uL``)
+    unit_spellings: dict[str, str] = field(default_factory=dict)
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
+
+    @staticmethod
+    def _unit_spellings(path: Path, doc: Any) -> dict[str, str]:
+        """``unit_spellings: {<as the source writes it>: <UCUM code>}``. The code must be one the shared unit table
+        knows, and a spelling the table already reads must not be given another meaning: the mapping does not
+        load. The rule "a value only when both units are one UCUM code" (D-215) stands; the site adds spellings."""
+        if doc is None:
+            return {}
+        if not isinstance(doc, dict):
+            raise MappingError(f"{path}: unit_spellings is a map of a unit as the source writes it to its UCUM code")
+        out: dict[str, str] = {}
+        for spelling, code in doc.items():
+            key, known = labvalue.written(spelling), labvalue.ucum(code)
+            if not key or known is None:
+                raise MappingError(f"{path}: unit_spellings {spelling!r}: {code!r} is not a UCUM code the box knows")
+            if labvalue.ucum(spelling) not in (None, known):
+                raise MappingError(f"{path}: unit_spellings {spelling!r} already means {labvalue.ucum(spelling)}")
+            out[key] = known
+        return out
+
+    def unit_as_code(self, unit: Any) -> Any:
+        """The UCUM code of a site spelling (``unit_spellings``), else the unit as it came."""
+        return self.unit_spellings.get(labvalue.written(unit), unit) if self.unit_spellings else unit
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any]:
@@ -250,6 +275,7 @@ class Mapping:
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
         return cls(
+            unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
             name=doc.get("name", path.stem),
             tz=_zone(path, doc.get("tz")),
             systems=doc.get("systems") or {},
@@ -626,6 +652,21 @@ class Mapper:
         return True
 
     # ------------------------------------------------------------------ builders
+    @staticmethod
+    def _plausible(lk: dict[str, Any]) -> tuple[float, float] | None:
+        """The range a unit-less value of this look-up row may have, in the unit the look-up writes: the row's own
+        ``plausible_low`` / ``plausible_high`` (the site's data), else the built-in one for its LOINC code."""
+        low, high = (lk.get("plausible_low") or "").strip(), (lk.get("plausible_high") or "").strip()
+        if low or high:
+            try:
+                return float(low), float(high)
+            except ValueError as exc:
+                raise MappingError(
+                    f"the plausible range of {lk.get('local_code')!r} needs two numbers (plausible_low, plausible_high)"
+                ) from exc
+        loinc = lk.get("code") if lk.get("system") == "loinc" else None
+        return labvalue.plausible_range(loinc, lk.get("ucum"))
+
     def _b_lab_value(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
         """``value[x]`` from a lab result using the lookup's ucum/factor/value_type/answers columns. With
         ``unit_column`` the row's own unit is checked against the unit the lookup says the source reports (its
@@ -642,8 +683,9 @@ class Mapper:
                 raise MappingError(f"{rs.type} from {rs.table}: unit_column {column!r} is not a column of the source")
             source_unit = lk.get("source_unit") or (lk.get("ucum") if Decimal(lk.get("factor") or "1") == 1 else None)
             loinc = lk.get("code") if lk.get("system") == "loinc" else None  # NEW-STD-4: IU/L as U/L for enzymes
-            checked = labvalue.read(raw, row[column], source_unit, loinc)
+            checked = labvalue.read(raw, self.m.unit_as_code(row[column]), source_unit, loinc)
             if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
+                self._note_unmapped(rs.table, "unit_mismatch", str(row.get(args["key"]) or "").strip())  # D-590
                 return {
                     "dataAbsentReason": {
                         "coding": [{"system": DATA_ABSENT, "code": "error"}],
@@ -684,6 +726,14 @@ class Mapper:
                 return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
+        # D-590 (DIN-017): a value that came with no unit is read in the look-up's unit (D-149) only when it can be
+        # a value in that unit: else it stays text (unknown to the engines) and is counted
+        column = args.get("unit_column")
+        if not (column and str(row.get(column) or "").strip()):
+            span = self._plausible(lk)
+            if span is not None and not span[0] <= float(val) <= span[1]:
+                self._note_unmapped(rs.table, "no_unit_implausible", str(row.get(args["key"]) or "").strip())
+                return {"valueString": str(raw)}
         # NEW-STD-4 (D-585): the unit is stored as its UCUM code, never as the spelling the look-up was typed in
         # (``×10^3/μL``): the engines read the code, not the spellings of the feed
         unit = labvalue.ucum(lk.get("ucum")) or lk.get("ucum") or ""

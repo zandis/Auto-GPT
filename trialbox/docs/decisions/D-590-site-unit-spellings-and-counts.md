@@ -1,4 +1,4 @@
-# D-590 A unit written as the look-up declares it agrees; lost values are counted; a unit-less value must be plausible
+# D-590 A site declares its unit spellings; lost values are counted; a unit-less value must be plausible
 
 - **Task:** NEW-DIN-9 (findings DIN-009 and DIN-017 of the deep review of 2026-11-12, `docs/reviews/2026-11-12-deep-review/08-data-input.md`; plan v7.2 section 5, lane E)
 - **PR:** this branch (`agent/NEW-DIN-9-site-units-counted`)
@@ -18,13 +18,15 @@ became 88 mg/dL, `HbA1c 0.072` became 0.072 %.
 
 ## Decision
 
-1. **Same text as the look-up's declared unit agrees.** The site's lab look-up says per analyte which unit the
-   source reports (`source_unit`, else `ucum` when the factor is 1). A row whose unit is that text (width and
-   blanks folded, case kept) agrees, whether or not the shared table knows the spelling. The site's look-up is the
-   site's data: the lab team adds the spelling there, with the factor to the unit the look-up writes. No code
-   release.
-2. **Anything else is as before**: two spellings agree only when the shared table reads both as one unit; else
-   the row has no value (`unit_mismatch`).
+1. **The site mapping declares its own spellings**: `unit_spellings: {"萬/μL": "10*4/uL"}` (top level): a unit as
+   the source writes it (width and blanks folded, case kept) and the UCUM code it stands for. The code must be
+   one the shared unit table knows; a spelling the table already reads cannot be given another meaning; else the
+   mapping does not load. No code release for a new spelling of a known unit.
+2. **D-215's rule stands as it is**: a row has a value only when its unit and the look-up's are one UCUM code. The
+   first design of this card let "the same text on both sides" agree; four existing tests guard the rule against
+   exactly that (`test_labvalue.py`), and they are unchanged. A unit with no UCUM code in the shared table (`COI`,
+   `S/CO`, `/HPF`) therefore still gives no value: it is now counted (point 3), and the code is added to the
+   shared table when a site needs it.
 3. **Lost values are counted every night**, per local lab code, with D-580's counter and its files
    (`completeness.json`, `unmapped_codes.json`, the night's audit event) under the names `unit_mismatch` and
    `no_unit_implausible`. Counts only; the pairs of spellings are in the mapping check.
@@ -44,6 +46,7 @@ became 88 mg/dL, `HbA1c 0.072` became 0.072 %.
 
 ## Consequences
 
-- A site can take a new unit spelling into use by a line in its look-up.
+- A site can take a new spelling of a known unit into use by a line in its mapping; the mapping check reads it
+  as the night does.
 - A feed with a blank unit column and SI values no longer loads wrong numbers under a right-looking unit for the
   four analytes; for every other analyte D-149 stands as it was, and the site can add a range.
