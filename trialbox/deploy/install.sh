@@ -507,9 +507,11 @@ CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finishe
 CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
 if [ "$CAN_CRON" = 1 ]; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
-  printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && python3 -m tools.trialbox logs daily >> /var/log/trialbox-retention.log 2>&1" \
+  # NEW-STD-2 (D-562): then the night's signed head of the audit chain into TB_AUDIT_ANCHOR_TARGETS, whatever the
+  # first command returned; `trialbox doctor` (audit_heads) FAILs when no folder is set or the newest head is old
+  printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1" \
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
-  echo "    log retention: $CRON_DIR/trialbox-retention (00:20 daily)"
+  echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
 elif [ "$TB_ENV_SITE" = PRODUCTION ]; then
   die "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 fi

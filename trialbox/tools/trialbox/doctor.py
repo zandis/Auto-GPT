@@ -863,6 +863,63 @@ def check_clock(inp: DoctorInputs) -> Check:
     return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
 
 
+HEAD_MAX_AGE_H = 36.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is nightly; 36 h is where the nightly backup is old (D-274)
+
+
+def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
+    """NEW-STD-2 (STD-002, LIFE-010, D-562): the signed audit heads of D-355 are in force only when a folder off the
+    audit volume takes one every night. FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no anchor folder is
+    set, a folder is on the audit volume, the audit signing key is missing, or the newest signed head of any folder
+    is older than ``TB_AUDIT_HEAD_MAX_AGE_H``. The signatures are checked by ``trialbox audit-sign`` each night and
+    by ``tools/audit_verify.py --heads``; this check reads dates only."""
+    if inp.platform:
+        return Check("audit_heads", "PASS", "not a host check on a platform (no host cron)")
+    from tb_common import audit, kek
+
+    from tools.trialbox import audit_heads
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    audit_dir, secrets, targets = audit_heads.host_dirs(inp.env)
+    if not targets:
+        return Check("audit_heads", soft, f"no anchor folder: set {audit.ANCHOR_TARGETS_ENV} in deploy/.env to a folder "
+                     "off the box (the hospital's share); `trialbox audit-sign` then keeps a signed head of the audit "
+                     "chain there every night. Without it a removed audit event leaves no trace (D-562)")  # fmt: skip
+    try:
+        limit = float(inp.env.get("TB_AUDIT_HEAD_MAX_AGE_H") or HEAD_MAX_AGE_H)
+    except ValueError:
+        limit = HEAD_MAX_AGE_H
+    now = now or datetime.now(UTC)
+    problems: list[str] = []
+    if not kek.key_present(secrets / audit.SIGN_KEY_FILE):
+        problems.append(f"no audit signing key in {secrets}: sh deploy/hardening/seal_keys.sh --secrets {secrets} "
+                        "makes it once (TB_SECRETS_HOST_DIR names the folder)")  # fmt: skip
+    newest: list[str] = []
+    for t in targets:
+        if audit._inside(t, audit_dir):
+            problems.append(f"the anchor folder {t} is on the audit volume: it must be off it")
+            continue
+        stamps = []
+        for h in audit.read_signed_heads(t) if (t / "heads").is_dir() else []:
+            try:
+                ts = datetime.fromisoformat(str(h.get("ts")))
+            except ValueError:
+                continue
+            stamps.append(ts if ts.tzinfo else ts.replace(tzinfo=UTC))
+        if not stamps:
+            problems.append(f"no signed head in {t} yet (python3 -m tools.trialbox audit-sign)")
+            continue
+        age = (now - max(stamps)).total_seconds() / 3600
+        if abs(age) > limit:  # dated ahead of the clock is not fresh either
+            problems.append(f"the newest signed head in {t} is {age:.0f} h old (limit {limit:g} h): the nightly "
+                            "audit-sign did not run or did not reach the folder (/var/log/trialbox-retention.log)")  # fmt: skip
+        else:
+            newest.append(f"{t}: {age:.0f} h")
+    if problems:
+        return Check("audit_heads", soft, "; ".join(problems))
+    return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -882,6 +939,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_backup,
     check_key_custody,
     check_clock,
+    check_audit_heads,
 )
 
 
