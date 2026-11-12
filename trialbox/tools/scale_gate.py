@@ -88,15 +88,8 @@ CHECKS = {
 # Today's failures: strict expected failures (D-460). A check here must fail from ``from_patients`` up, and passes
 # below it. The card that fixes one removes its line; until then a pass turns the gate red ("FIXED").
 EXPECTED: dict[str, Expected] = {
-    "ingest.night_under_cap": Expected(
-        ("F-05",), "T-692", FULL, "the night holds the hospital in memory: 16.5 GB against the adapter's 6 GB"
-    ),
-    "rebuild.under_cap": Expected(
-        ("F-05",),
-        "T-692",
-        FULL,
-        "the rebuild loads every line into one Arrow table: 17 GB measured against the lake's 8 GB",
-    ),
+    # F-04: when T-689 (#309) lands, the gateway answers the stand-in's 502 outage with its new code `upstream_down`:
+    # add it to FAULT_REFUSALS (the model's faults) and remove this line if the screen then loses no call
     "screen.outage_no_unknown": Expected(
         ("F-04",),
         "T-689",
@@ -658,16 +651,24 @@ def _screen(
     other = {r: n for r, n in refusals.items() if r not in FAULT_REFUSALS}
     calls = int(got.get("judge_calls", 0))
     rest = f"; {sum(other.values())} other refusals, not the model's faults: {other}" if other else ""
-    rep.check(
-        "screen.outage_no_unknown",
-        lost == 0,
-        (
-            f"{lost} of {calls} judge calls lost to the model's faults ({refusals})"
-            if lost
-            else f"none of {calls} judge calls lost"
+    if not (model.refused() or model.restarts):  # nothing to survive: the check was not exercised, never a pass
+        rep.check(
+            "screen.outage_no_unknown",
+            None,
+            "no outage or restart reached the stand-in (none configured, or the screen made too few calls)" + rest,
+            blocked_by="the stand-in's faults",
         )
-        + rest,
-    )
+    else:
+        rep.check(
+            "screen.outage_no_unknown",
+            lost == 0,
+            (
+                f"{lost} of {calls} judge calls lost to the model's faults ({refusals})"
+                if lost
+                else f"none of {calls} judge calls lost"
+            )
+            + rest,
+        )
     want_outage, want_restart = p.outage_s > 0, p.restart_after > 0
     seen = (not want_outage or model.refused() > 0) and (not want_restart or model.restarts == 1)
     detail = f"{model.refused()} answers of 502, {model.restarts} restart(s) in {model.calls()} calls"

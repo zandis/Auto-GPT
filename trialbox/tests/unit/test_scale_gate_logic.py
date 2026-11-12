@@ -166,9 +166,9 @@ def test_the_ledger_names_a_finding_and_a_card_for_each_known_failure() -> None:
     for cid, e in sg.EXPECTED.items():
         assert e.findings and all(f.startswith("F-") for f in e.findings) and e.card.startswith("T-"), cid
     # G1 BUGS.md B2's three blockers: F-01 (T-690) and F-02 (T-691) are fixed on master and pass the gate (their lines
-    # are gone); F-05 (T-692) is open, and so is F-04 (T-689), which the gate reproduces at any size
+    # are gone), and so is F-05 (T-692, streaming ingest and rebuild); F-04 (T-689) is open and the gate reproduces it
     found = {f for e in sg.EXPECTED.values() for f in e.findings}
-    assert found >= {"F-04", "F-05"} and not found & {"F-01", "F-02"}
+    assert found >= {"F-04"} and not found & {"F-01", "F-02", "F-05"}
 
 
 # ------------------------------------------------------------------------------------------------ the gate, small
@@ -231,6 +231,9 @@ def test_the_gate_catches_f01_and_f02_shapes(tmp_path: Path, db_url: str, monkey
     pause = rows["backup.no_pause"]
     assert pause["state"] == scale.FAIL and "services paused" in pause["detail"], pause
     assert rep.numbers["backup"]["paused"] and not rep.ok()
+    # no fault reached the stand-in in this run: the outage check was not exercised, so it is blocked, never a pass
+    # (nor a "FIXED" of F-04's line)
+    assert rows["screen.outage_no_unknown"]["state"] == scale.BLOCKED
 
 
 def test_a_night_killed_at_its_cap_blocks_nothing_it_can_feed(
@@ -251,6 +254,20 @@ def test_a_night_killed_at_its_cap_blocks_nothing_it_can_feed(
     else:  # the back-fill did not fit 40 MB either: everything that needs the snapshot is blocked by the ingest
         assert rows["rebuild.under_cap"]["blocked_by"] == "ingest"
     assert rows["backup.no_pause"]["state"] == scale.PASS
+
+
+def test_a_lake_over_its_cap_fails_the_rebuild(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """F-05's other half: the lake killed at its cap. A cap below what the lake needs at this size stands in for 8 GB
+    at 50,000; the rebuild fails, and what needs the lake is blocked by it (never a pass)."""
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    caps = {**scale.compose_caps(environ={}), "lake": 120 * 2**20}
+    rep = sg.run(_params(tmp_path, caps=caps, outage_s=0.0, restart_after=0))
+    rows = {r["check"]: r for r in rep.rows()}
+    assert rows["ingest.night_under_cap"]["state"] == scale.PASS
+    assert rows["rebuild.under_cap"]["state"] == scale.FAIL, rows["rebuild.under_cap"]
+    for cid in ("screen.ends_under_cap", "screen.outage_no_unknown"):
+        assert rows[cid]["state"] == scale.BLOCKED and rows[cid]["blocked_by"] == "rebuild", rows[cid]
+    assert not rep.ok()
 
 
 # ------------------------------------------------------------------------------------------------ the nightly job
