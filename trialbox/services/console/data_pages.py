@@ -31,6 +31,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from console import s28
+from console.api_first import before_body, page_twin
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
@@ -456,6 +457,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Unavailable as exc:
             raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
 
+    # T-657 (D-444): the actions' own first checks, run before the body is read (console.api_first)
+    def first_change(sess: Session, request: Request) -> None:
+        study_or_404(sess, request.path_params["rs"])
+        need_change(sess, request.url.path)
+
+    def first_change_rows(sess: Session, request: Request) -> None:
+        study_or_404(sess, request.path_params["rs"], rows=True)
+        need_change(sess, request.url.path)
+
     @app.get("/api/v1/studies/{rs}/sources")
     def api_sources(request: Request, rs: str) -> dict[str, Any]:
         sess = api_session(request)
@@ -464,11 +474,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rid, "may_change": can_change_setup(sess.user), **data}
 
     @app.put("/api/v1/studies/{rs}/sources/redcap")
+    @before_body(first_change)
     def api_attach(request: Request, rs: str, body: ApiRedcap) -> dict[str, Any]:
         sess = api_session(request)
         return {"study": rs.upper(), **api_call(apply_attach, sess, request.url.path, rs, body)}
 
     @app.delete("/api/v1/studies/{rs}/sources/redcap")
+    @page_twin("/studies/{rs}/sources/redcap/detach")
     def api_detach(request: Request, rs: str) -> dict[str, Any]:
         sess = api_session(request)
         return {"study": rs.upper(), **api_call(apply_detach, sess, request.url.path, rs)}
@@ -485,6 +497,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rid, "conflicts": api_call(read_conflicts, rid, all)}
 
     @app.post("/api/v1/studies/{rs}/conflicts/{cid}")
+    @before_body(first_change_rows)
     def api_resolve(request: Request, rs: str, cid: int, body: ApiResolve) -> dict[str, Any]:
         sess = api_session(request)
         return {"study": rs.upper(), **api_call(apply_resolve, sess, request.url.path, rs, cid, body.keep)}
@@ -496,6 +509,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rid, "forms": api_call(read_forms, rid)}
 
     @app.post("/api/v1/studies/{rs}/forms/dictionary")
+    @before_body(first_change)
     def api_dictionary(request: Request, rs: str, body: ApiDictionary) -> dict[str, Any]:
         sess = api_session(request)
         return {"study": rs.upper(),

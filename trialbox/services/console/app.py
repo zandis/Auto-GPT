@@ -53,7 +53,7 @@ from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import demo_guard, feedback, i18n_roles
+from console import api_first, demo_guard, feedback, i18n_roles
 from console.admin_accounts import end_date
 from console.auth import (
     AFFILIATIONS,
@@ -472,6 +472,7 @@ def create_app(
                     sched.shutdown(wait=False)
 
     app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    api_first.install(app)  # T-657 (D-444): /api/v1 changes check the session and permit before the body
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.state.settings = settings
     app.state.identity = ident

@@ -34,6 +34,7 @@ from tb_contracts import Job
 
 from console import coded_view, s28
 from console import studies as st
+from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
 from console.backend import Problem, Refused, Unavailable
 from console.i18n import translate
@@ -958,6 +959,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return RedirectResponse(f"/studies/{rid}/not-matched?done=sent#x-{pid[:8]}", status_code=303)
 
     @app.post("/api/v1/studies/{rs}/not-matched/{pid}/review")
+    @page_twin("/studies/{rs}/excluded/{pid}/review")  # the page's old path, the same handler (T-657)
     async def api_excluded_review(request: Request, rs: str, pid: str) -> dict[str, Any]:
         """The page's "send to review" for the apps (T-310a): the session is checked before the body is read."""
         sess = api_session(request)
@@ -1441,7 +1443,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             ],
         }
 
+    # T-657 (D-444): the handlers' own first checks, run before the body is read (console.api_first)
+    def first_study(sess: Session, request: Request) -> None:
+        study_or_404(sess, request.path_params["rs"])
+
+    def first_mark(sess: Session, request: Request) -> None:
+        rid = study_or_404(sess, request.path_params["rs"])
+        if not sess.user.can_mark or not any(h.permit(sess.user, f"task.{t}", rid) for t in ("approach", "screen")):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")  # the body picks the task (apply_mark asks that one)
+
+    def first_outcome(sess: Session, request: Request) -> None:
+        study_or_404(sess, request.path_params["rs"])
+        if not sess.user.can_request:
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
     @app.post("/api/v1/studies/{rs}/patients/{pid}/mark")
+    @before_body(first_mark)
     def api_mark(request: Request, rs: str, pid: str, body: ApiMark) -> dict[str, Any]:
         sess = api_session(request)
         rid, value, detail = apply_mark(
@@ -1451,12 +1470,15 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "irb_override": detail.get("irb_override") or None}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/patients/{pid}/outcome")
+    @before_body(first_outcome)
     def api_outcome(request: Request, rs: str, pid: str, body: ApiOutcome) -> dict[str, Any]:
         sess = api_session(request)
         rid, no = apply_outcome(sess, request.url.path, rs, pid, body.outcome, body.retry, body.note)
         return {"study": rid, "pid": pid, "outcome": body.outcome, "screening_no": no}
 
     @app.post("/api/v1/studies/{rs}/patients/{pid}/reveal")
+    @before_body(first_study)  # the rest of the one reveal path (break-glass grants) needs the patient: in the handler
+    @page_twin("/studies/{rs}/candidates/{pid}/reveal", "/studies/{rs}/referrals/{ref_id}/print")  # one reveal path
     def api_reveal(request: Request, rs: str, pid: str, body: ApiReveal) -> dict[str, Any]:
         """The chart number of one listed patient for an account with identifier authority (D-143), audited and
         rate-limited exactly as on the patient page."""

@@ -60,6 +60,7 @@ from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import s28
 from console import studies as st
+from console.api_first import before_body, page_twin
 from console.auth import REVEAL_REASONS, Session, User
 from console.backend import Problem, Unavailable
 from console.data_pages import err_of
@@ -908,6 +909,24 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         enters = h.permit(sess.user, "task.enter_data", rid).allowed
         return h.page(request, "team_reconsent.html", sess, rs=rid, due=due, err=err, editable=enters)
 
+    # T-657 (D-444): the actions' own first checks, run before the body is read (console.api_first)
+    def first_refer(sess: Session, request: Request) -> None:
+        need_task(sess, study_or_404(sess, request.path_params["rs"]), "refer", request.url.path)
+
+    def first_answer(sess: Session, request: Request) -> None:
+        rid = study_or_404(sess, request.path_params["rs"])
+        if not h.permit(sess.user, "referral.answer", rid):
+            raise deny(sess, request.url.path)
+
+    def first_irb(sess: Session, request: Request) -> None:
+        rid = study_or_404(sess, request.path_params["rs"])
+        if not may_edit_irb(sess, rid):
+            raise deny(sess, request.url.path)
+
+    def first_optout(sess: Session, request: Request) -> None:
+        if not can_keep_optouts(sess.user):
+            raise deny(sess, request.url.path)
+
     @app.get("/api/v1/studies/{rs}/icf")
     def api_icf(request: Request, rs: str) -> dict[str, Any]:
         sess = api(request)
@@ -918,6 +937,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                 "history": [icf_json(v) for v in team.icf_history(rid)]}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/icf")
+    @before_body(first_irb)
+    @page_twin("/studies/{rs}/irb/icf")
     def api_icf_save(request: Request, rs: str, body: ApiIcf) -> dict[str, Any]:
         sess = api(request)
         rid, rows = save_icf(sess, request.url.path, rs, body)
@@ -1133,6 +1154,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         }  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/candidates/{pid}/referral")
+    @before_body(first_refer)
     def api_referral(request: Request, rs: str, pid: str, body: ApiReferral) -> dict[str, Any]:
         sess = api(request)
         rid, ref_id, no = request_referral(sess, request.url.path, rs, pid, body)
@@ -1149,6 +1171,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return [ref_json(r, nos) for r in team.referrals(rid) if r.pid not in on]
 
     @app.post("/api/v1/studies/{rs}/referrals/{ref_id}/answer")
+    @before_body(first_answer)
     def api_answer(request: Request, rs: str, ref_id: int, body: ApiAnswer) -> dict[str, Any]:
         sess = api(request)
         rid, ref = answer_referral(sess, request.url.path, rs, ref_id, body)
@@ -1165,6 +1188,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                 "warnings": rec.warnings(today())}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/irb")
+    @before_body(first_irb)
     def api_irb_save(request: Request, rs: str, body: ApiIrb) -> dict[str, Any]:
         sess = api(request)
         rid, rec = save_irb(sess, request.url.path, rs, body)
@@ -1181,6 +1205,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                                                   for e in rows]}  # fmt: skip
 
     @app.post("/api/v1/site/opt-outs")
+    @before_body(first_optout)
     def api_optout(request: Request, body: ApiOptOut) -> dict[str, Any]:
         sess = api(request)
         _pid, changed = change_optout(sess, request.url.path, body)

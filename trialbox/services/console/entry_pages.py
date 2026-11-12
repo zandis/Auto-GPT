@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 from tb_common.authz import permit
 
 from console import s28
+from console.api_first import before_body, page_twin
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.data_pages import err_of
@@ -444,7 +445,13 @@ def register(app: FastAPI, h: Helpers) -> None:
             return refused(sess, exc)
         return {"study": rid, "record": rec, "values": got.get("values") or {}, "history": got.get("history") or []}
 
+    def first_enter(sess: Session, request: Request) -> None:
+        """T-657 (D-444): ``apply_save``'s own first checks, run before the body is read (console.api_first)."""
+        need_enter(sess, request.url.path, study_or_404(sess, request.path_params["rs"]))
+
     @app.put("/api/v1/studies/{rs}/records/{record}/forms/{form}", response_model=None)
+    @before_body(first_enter)
+    @page_twin("/studies/{rs}/entry")
     def api_save(request: Request, rs: str, record: str, form: str, body: ApiSave) -> Any:
         sess = api_session(request)
         try:
