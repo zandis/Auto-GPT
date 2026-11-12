@@ -27,6 +27,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from lake.client import LakeLocal
 from llm_stub.app import app as stub
+from orchestrator.actor import report_actor
 from orchestrator.setup_api import router as setup_router
 from sitesetup import help as site_help
 from sitesetup.ocr import NoOcr
@@ -46,10 +47,21 @@ NOW = datetime(2026, 11, 2, 0, 30, tzinfo=UTC)
 TODAY = date(2026, 11, 2)
 
 
-def _no_door(request: Any) -> Any:
-    """T-719 (D-487): no page of these tests turns a chart number into a pseudonym; one that did would have to
-    bring the real door (``orchestrator.identifiers.admit``), as ``tests/console/test_identifiers_box.py`` does."""
-    raise AssertionError("POST /setup/pseudonym is not part of this box")
+DOOR_EVENTS: list[dict[str, Any]] = []
+
+
+def _door(request: Any, actions: tuple[str, ...], service: bool = False) -> Any:
+    """T-719 (D-487): the real door (``orchestrator.identifiers.admit``) on these pages' router: a chart or a sheet
+    turns chart numbers into pseudonyms, so the console's call must carry the signed person (`site.setup`). The
+    cap's counter and the audit log are stand-ins; the decision is the product's."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from orchestrator import identifiers
+
+    db = SimpleNamespace(take_limit=lambda *a, **k: True)
+    audit = SimpleNamespace(append=lambda kind, **kw: DOOR_EVENTS.append({"kind": kind, **kw}))
+    return identifiers.admit(request, None, db, audit, datetime.now(UTC), actions=actions, service=service)
 
 
 @pytest.fixture
@@ -84,8 +96,9 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
             lambda rid: {"forms": state["forms"], "redcap": False},
             lambda rid: rs if state["approved"] else None,
             lambda: bool(state["real"]),
-            _no_door,
-        )
+            _door,
+        ),
+        dependencies=[report_actor],  # as orchestrator.app includes it: the stage reads the signed person
     )
     oc = SignedClient(api)  # the test's own calls (seeding)
     coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)

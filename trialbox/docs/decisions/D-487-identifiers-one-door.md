@@ -6,7 +6,7 @@
 - **Date:** 2026-11-12
 - **Status:** proposed (merges on green CI)
 - **Builds on:** D-438 (one reveal path in the console), D-464 (callers per route), D-483 (actor assertion v3)
-- **Closes:** finding F3 and proposal TR-8, stage a, of `docs/reviews/2026-11-12-architecture/trust.md` (see
+- **Closes:** proposal TR-8, stage a, and finding F3 except the data-core sheet import (see "Not done"), of `docs/reviews/2026-11-12-architecture/trust.md` (see
   "Not done" for stages b and c)
 
 ## The problem
@@ -50,13 +50,35 @@ into the other is in eight places of the orchestrator.
 
 - It is not a defence against a taken-over console: the console holds the key that signs people (D-485). It closes
   the route for every other holder of an admitted token, and it makes every lookup attributable and bounded.
-- `services/sitesetup` (another package) still hashes with the key the orchestrator hands it; its only caller with
-  a chart number from HTTP is the route above.
+- `services/sitesetup` (another package) still hashes with the key the orchestrator hands it. Its callers with a
+  chart number from HTTP are four routes, and all four are behind the door: `POST /setup/pseudonym`
+  (`optout.keep`; also the console's opt-out check, the one service principal) and, since the adversarial review,
+  `POST /setup/{ws}/charts`, `POST /setup/{ws}/sheets` and `POST /setup/{ws}/sheets/{iid}/roles` (`site.setup`).
+  The first version of this record said the first route was the only one; a pasted chart and an uploaded sheet
+  hash chart numbers too, and the set-up read routes give the pseudonyms back, so a bare console token could walk
+  the number space there (the review's H1, confirmed on the real box).
+- **One route, one purpose** (the review's M1): each route tells the door which matrix row it admits. The opt-out
+  lookup takes `optout.keep` only, a registry row `request.prepare` only and for that row's study, site set-up
+  `site.setup` only; a claim for a study is refused on a route of the whole box; a service principal is admitted
+  only on the opt-out lookup.
+- A chart or a sheet given to site set-up writes one `screen.to_pid` event that names the input, not a list of
+  pseudonyms (a sheet holds many).
 
 ## Not done
 
 - **TR-8 stage b:** workbooks stored with pseudonyms and filled with chart numbers at download.
 - **TR-8 stage c:** the identifiers module as its own container and database role (`pidmap` readable by it alone).
-- `POST /data/{rs}/sheet` with a chart-number column hashes a whole sheet with no person required (group
-  `datacore`, stage `report`). It gives no pseudonym back in its answer, so it is not this card's oracle, but it
-  should require its person when the data-core routes move to `refuse` (the rest of T-715).
+- `POST /studies/{rs}/import/sheet` with a chart-number column hashes a whole sheet with no person required
+  (group `datacore`, stage `report`), and `GET /studies/{rs}/data` reads the records back by pseudonym: with one
+  more call it is the same oracle as the set-up routes were. **Open**: it requires its person when the data-core
+  router moves to `refuse` (T-715 stage b, plan wave 2); F3 is not fully closed until then.
+- The lint (`tests/unit/test_identifiers_door.py`) reads `services/orchestrator` and `services/console`; a new
+  route that reaches the key through another package (`services/sitesetup`) or through the module's own helpers
+  is not seen by it. Nothing enumerates which routes must call `admit`.
+- A failed lookup (a blank chart number) uses a unit of the cap; the cap is per signed name with no total per
+  service; the console's opt-out check is one bucket for the whole console and its event names neither the job
+  nor the reader.
+- On a box with one shared token and no registry, every holder of the token can derive the signing key (D-485),
+  so the door stops nobody there.
+- A console of the release before this one does not sign these calls: its opt-out desk, registry row by chart
+  number and site set-up uploads are refused (403) until both are updated; `trialbox update` replaces both.

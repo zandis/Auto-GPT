@@ -729,7 +729,9 @@ app.include_router(
         lambda rid: records_info(orch(), rid),
         lambda rid: approved_of(orch(), rid),
         lambda: real_data(orch()),
-        lambda request: identifiers.admit(request, None, orch().db, orch().audit, _now(orch())),
+        lambda request, actions, service=False: identifiers.admit(
+            request, None, orch().db, orch().audit, _now(orch()), actions=actions, service=service
+        ),
     ),
     dependencies=REPORT,
 )
@@ -801,7 +803,11 @@ def registry_events(ruleset: str, pid: str | None = None) -> list[RegistryEvent]
 def registry_update(ruleset: str, upd: RegistryUpdate, request: Request) -> RegistryEntry:
     o = orch()
     # T-719 (D-487): a row by chart number answers with the pseudonym, so it needs the verified person of the call
-    door = identifiers.admit(request, ruleset.strip().upper(), o.db, o.audit, _now(o)) if upd.mrn else None
+    door = (
+        identifiers.admit(request, ruleset.strip().upper(), o.db, o.audit, _now(o), actions=("request.prepare",))
+        if upd.mrn
+        else None
+    )
     try:
         entry = registry_of(o).update(ruleset, upd, _now(o))
     except RegistryError as exc:

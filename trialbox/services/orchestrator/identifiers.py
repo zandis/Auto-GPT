@@ -33,8 +33,9 @@ from orchestrator import actor as route_actor
 
 SITE_KEY = "site_hmac.key"
 MAP_KEY = "pid_map.key"
-#: the matrix rows that may ask for a pseudonym by chart number: the opt-out register, a registry row typed by hand
-ACTIONS = frozenset({"optout.keep", "request.prepare"})
+#: the matrix rows that may ask for a pseudonym by chart number, each on its own route (:func:`admit` is told
+#: which): the opt-out register, a registry row typed by hand, a chart or a sheet given to site set-up
+ACTIONS = frozenset({"optout.keep", "request.prepare", "site.setup"})
 CAP_ENV = "TB_TO_PID_MAX_PER_HOUR"
 NO_PERSON = "a chart number needs a verified person"
 
@@ -116,13 +117,25 @@ class Door:
         self.audit.append("screen.to_pid", actor=c.sub, ruleset=c.study or None,
                           detail={"pid": pid, "role": c.role, "action": c.action, "via": self.via})  # fmt: skip
 
+    def record_input(self, input_id: Any) -> None:
+        """A chart or a sheet given to site set-up: the pseudonyms are in that input's rows (one chart: one; a
+        sheet: every row), so the event names the input, not a list."""
+        c = self.claim
+        self.audit.append("screen.to_pid", actor=c.sub, ruleset=c.study or None,
+                          detail={"input": str(input_id or ""), "role": c.role, "action": c.action,
+                                  "via": self.via})  # fmt: skip
 
-def admit(request: Request, study: str | None, db: Any, audit: Any, at: datetime) -> Door:
+
+def admit(request: Request, study: str | None, db: Any, audit: Any, at: datetime, *,
+          actions: tuple[str, ...], service: bool = False) -> Door:  # fmt: skip
     """Who asks for a pseudonym by chart number on this request, or HTTP 403 (429 at the cap) and one
     ``actor.refused`` event. The claim is the one ``orchestrator.actor`` verified for exactly this request and body;
     a call with none, however good its service token, is refused here.
 
-    ``study``: the route's study (a registry row), which the claim must be for; None on a route of the whole box."""
+    ``study``: the route's study (a registry row), which the claim must be for; None on a route of the whole box,
+    where a claim for a study is refused. ``actions``: the matrix rows this route admits (one route, one purpose).
+    ``service``: the route admits a console timer's principal for those actions (the opt-out check only)."""
+    assert set(actions) <= ACTIONS, actions
     via = route_actor.template(request)
     claim = getattr(request.state, "tb_actor", None)
     if claim is None:
@@ -132,12 +145,12 @@ def admit(request: Request, study: str | None, db: Any, audit: Any, at: datetime
         why = seen if seen in ("right", "study", "principal", "action") else NO_PERSON
         raise route_actor.refusal(request, "", why, None, study)
     why = ""
-    if claim.action not in ACTIONS:
+    if claim.action not in actions:
         why = "action"
-    elif study is not None and claim.study != study:
+    elif (study or "") != claim.study:
         why = "study"
     elif claim.is_service:
-        if study is not None or claim.action not in route_actor.TABLE["principals"].get(claim.sub, frozenset()):
+        if not service or claim.action not in route_actor.TABLE["principals"].get(claim.sub, frozenset()):
             why = "principal"
     elif not permit(claim.role, claim.action, claim.standing()).allowed:
         why = "right"

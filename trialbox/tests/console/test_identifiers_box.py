@@ -97,3 +97,56 @@ def test_the_consoles_backend_signs_a_row_by_chart_number(orch_box: OrchBox) -> 
     assert [e["detail"]["pid"] for e in orch_box.events("screen.to_pid")] == [pid]
     by_pid = RegistryUpdate(pid=pid2, status="candidate", by="crc1@hospa.test", source="manual")
     assert bk.registry_update(STUDY, by_pid).pid == pid2
+
+
+# ------------------------------------------------------------------------------ the adversarial review's findings
+def test_site_setup_turns_no_chart_number_into_a_pseudonym_for_a_bare_token(orch_box: OrchBox) -> None:
+    """Review H1: a pasted chart and an uploaded sheet hash chart numbers too, and their read routes give the
+    pseudonyms back. With the console's token alone that was a walk of the number space with no person, no cap and
+    no event. The three routes need the verified person of the call (`site.setup`)."""
+    import base64
+
+    c = orch_box.client("console")
+    chart = {"chart_no": "10000001", "text": "synthetic note", "by": "nobody", "lang": "en"}
+    sheet = {"kind": "sheet", "name": "list.csv", "roles": {}, "by": "nobody",
+             "b64": base64.b64encode(b"chart,age\n10000001,61\n10000002,58\n").decode("ascii")}  # fmt: skip
+    for path, body in (("/setup/main/charts", chart), ("/setup/main/sheets", sheet),
+                       ("/setup/main/sheets/1/roles", {"roles": {}, "by": "nobody"})):  # fmt: skip
+        r = c.post(path, json=body)
+        assert r.status_code == 403, (path, r.status_code, r.text[:200])
+        assert orch_box.events("actor.refused")[-1]["detail"]["route"].endswith(path.rsplit("/", 1)[-1])
+    assert (
+        c.get("/setup/main/people").json() in ([], {"people": []}) or "10000001" not in c.get("/setup/main/people").text
+    )
+    assert not orch_box.events("screen.to_pid")
+    # the coordinator's own signed call is admitted, counted, and on the record without the chart number
+    path = "/setup/main/charts"
+    r = c.post(path, json=chart, headers=signed("site.setup", "", "POST", path, chart))
+    assert r.status_code == 200, r.text[:300]
+    done = orch_box.events("screen.to_pid")
+    assert len(done) == 1 and done[0]["actor"] == "console:crc" and done[0]["detail"]["action"] == "site.setup"
+    assert done[0]["detail"]["via"] == "POST /setup/{ws}/charts" and "10000001" not in str(done[0])
+
+
+def test_the_door_ties_the_action_to_the_route(orch_box: OrchBox) -> None:
+    """Review M1: any of the door's actions opened any of its routes: the nightly timer's `request.prepare` on the
+    opt-out lookup, a steward's `optout.keep` on a registry row, a coordinator's claim for a made-up study."""
+    c = orch_box.client("console")
+    ((mrn, _pid),) = _pairs(orch_box, 1)
+    path, body = "/setup/pseudonym", {"chart_no": mrn}
+    for headers in (
+        signed("request.prepare", "", "POST", path, body, sub="service:console-nightly", role="service"),
+        signed("request.prepare", "ZZZZ", "POST", path, body),
+        signed("request.prepare", "", "POST", path, body),
+        signed("site.setup", "", "POST", path, body),
+    ):
+        r = c.post(path, json=body, headers=headers)
+        assert r.status_code == 403, r.text[:200]
+        assert orch_box.events("actor.refused")[-1]["detail"]["reason"] in ("action", "principal", "study")
+    path = f"/registry/{STUDY}"
+    reg: dict[str, Any] = {"mrn": mrn, "status": "candidate", "by": "crc1@hospa.test", "source": "manual"}
+    r = c.post(
+        path, json=reg, headers=signed("optout.keep", STUDY, "POST", path, reg, sub="console:stw", role="steward")
+    )
+    assert r.status_code == 403 and orch_box.events("actor.refused")[-1]["detail"]["reason"] == "action"
+    assert not orch_box.events("screen.to_pid")

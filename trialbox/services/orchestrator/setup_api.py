@@ -116,6 +116,9 @@ class AssistBody(BaseModel):
     points: list[str] = Field(default_factory=list, max_length=30)
 
 
+SETUP_DOOR = ("site.setup",)  # T-719 (D-487): who may give site set-up a chart number (a chart, a sheet)
+
+
 def _fail(exc: SetupError) -> HTTPException:
     return HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
 
@@ -131,7 +134,7 @@ def router(
     records: Callable[[str], dict[str, Any]],
     approved: Callable[[str], Any],
     real_data: Callable[[], bool],
-    door: Callable[[Request], Any],
+    door: Callable[..., Any],
 ) -> APIRouter:
     """``study_info(rs)``: ``{id, exists, approved, waiting, approval_link}``; ``records(rs)``: ``{forms, redcap}``;
     ``approved(rs)``: the approved ``Ruleset`` or None; ``real_data()``: whether the box holds real patient data;
@@ -241,43 +244,53 @@ def router(
         }
 
     @r.post("/setup/{ws}/sheets")
-    def post_sheet(ws: str, body: SheetBody) -> dict[str, Any]:
+    def post_sheet(ws: str, body: SheetBody, request: Request) -> dict[str, Any]:
         svc, w = get(), ws_of(ws)
+        admitted = door(request, SETUP_DOOR)  # T-719 (D-487): a sheet's chart numbers become pseudonyms here
         try:
             data = base64.b64decode(body.b64, validate=True)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"code": "SETUP-FILE", "message": "not base64"}) from exc
         try:
-            return dict(call(lambda: svc.add_sheet(w, body.kind, body.name, data, body.roles, body.by)))
+            out = dict(call(lambda: svc.add_sheet(w, body.kind, body.name, data, body.roles, body.by)))
         except IntakeError as exc:
             raise _intake_fail(exc) from exc
+        admitted.record_input(out.get("input") or out.get("id"))
+        return out
 
     @r.post("/setup/{ws}/sheets/{iid}/roles")
-    def post_roles(ws: str, iid: int, body: RolesBody) -> dict[str, Any]:
+    def post_roles(ws: str, iid: int, body: RolesBody, request: Request) -> dict[str, Any]:
         svc = get()
         ws_of(ws)
+        admitted = door(request, SETUP_DOOR)  # a new chart-number column is hashed at the re-read
         try:
-            return dict(call(lambda: svc.reread(iid, body.by, body.roles)))
+            out = dict(call(lambda: svc.reread(iid, body.by, body.roles)))
         except IntakeError as exc:  # T-629 (FIT-U09): a chart-number column Excel turned into numbers
             raise _intake_fail(exc) from exc
+        admitted.record_input(iid)
+        return out
 
     @r.post("/setup/{ws}/charts")
-    def post_chart(ws: str, body: ChartBody) -> dict[str, Any]:
+    def post_chart(ws: str, body: ChartBody, request: Request) -> dict[str, Any]:
         svc, w = get(), ws_of(ws)
+        admitted = door(request, SETUP_DOOR)  # T-719 (D-487): the chart's number becomes a pseudonym here
         lang = body.lang if body.lang in LANGS else "en"
         if body.b64:
             try:
                 data = base64.b64decode(body.b64, validate=True)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail={"code": "SETUP-FILE", "message": "not base64"}) from exc
-            return dict(call(lambda: svc.add_chart(w, body.chart_no, body.name, data, body.by, lang)))
-        return dict(
-            call(
-                lambda: svc.add_chart(
-                    w, body.chart_no, "pasted.txt", body.text.encode("utf-8"), body.by, lang, pasted=True
+            out = dict(call(lambda: svc.add_chart(w, body.chart_no, body.name, data, body.by, lang)))
+        else:
+            out = dict(
+                call(
+                    lambda: svc.add_chart(
+                        w, body.chart_no, "pasted.txt", body.text.encode("utf-8"), body.by, lang, pasted=True
+                    )
                 )
             )
-        )
+        admitted.record_input(out.get("input"))
+        return out
 
     @r.post("/setup/{ws}/facts/{fid}")
     def post_fact(ws: str, fid: int, body: DecideBody) -> dict[str, Any]:
@@ -328,7 +341,7 @@ def router(
         """D-147: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
         stores only the pseudonym and the number is never kept or logged. T-719 (D-487): for the verified person of
         the call only, capped, and on the record with the pseudonym."""
-        admitted = door(request)
+        admitted = door(request, ("optout.keep",), True)  # the opt-out desk, and the console's opt-out check
         chart = body.chart_no.strip()
         if not chart:
             raise HTTPException(status_code=400, detail={"code": "SETUP-CHART", "message": "give a chart number"})
