@@ -295,6 +295,16 @@ jobs:
       - run: make venv
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      # the path-independence tests (T-705) run whole SCREEN jobs, whose report step needs the fonts; same cache as
+      # the unit job (restore only: the unit job fills it)
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: Fonts
+        run: make fonts
       - name: Property tests
         env:
           TB_DATA_DIR: ${{ runner.temp }}/tb-data
