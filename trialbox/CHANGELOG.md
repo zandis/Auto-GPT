@@ -20,7 +20,12 @@ new heading with the version and date, in the same pull request that sets the ve
   or by an investigator is refused with "cannot be read".
 - The acting person (T-715, D-483): the participant, visit-schedule, SAE-rule, contact-rule, deviation and sponsor
   routes of the orchestrator take the person from a signed claim for that action, study and request, never from the
-  request body; their records name `console:<username>`. The other changing routes count unsigned calls.
+  request body; their records name `console:<username>`. The other changing routes count unsigned calls
+  (audit event `actor.unsigned`, once per route and reason); a participant's step derived from a saved form or a
+  REDCap read names the verified person or `unverified`.
+- Database passwords (T-712, D-481): every service clears the other roles' and the administrators' passwords in
+  the base compose file, so no stack can be started with them; `trialbox doctor` has the check `db_passwords`
+  (the box's `.env`, its compose files and its running containers).
 - Release identity and bundle gates (T-110b, D-340): `tools/release.py` writes `release.json`
   (`schemas/release.schema.json`) and the release's `images.lock` for each bundle; `tools/make_bundle.sh` needs
   `--gates` and `--release-seq`, carries the SBOMs, the gate record, `NOTICE` and this file, and no longer carries

@@ -18,6 +18,7 @@ from tb_common.authz import NO_STANDING
 
 from console import s28
 
+NIGHTLY = "service:console-nightly"  # the nightly REDCap read (rc_read): no session either
 NOTIFY = "service:console-notify"  # the morning notices: no session (route_actors.yaml names what it may do)
 
 
