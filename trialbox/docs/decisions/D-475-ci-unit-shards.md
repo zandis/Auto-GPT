@@ -22,18 +22,23 @@ without a label, a new route without a permit row, a new table without an invent
    (`tools/test_shard.py`; the pytest side is `--shard`, registered in `tests/conftest.py`, applied after every
    other selection). Whole files stay together, so module- and session-scoped fixtures are built once per shard as
    before, and adding or removing a file moves no other file. Only a change of N moves files.
-2. **N = 9, from the measured durations.** The one-runner job spent 35 to 43 minutes in pytest in the runs of
-   2026-11-12 (up to 55 on a busy day) and under a minute in set-up (caches warm). Each shard pays the set-up
-   (about 30 s), the collection (about 30 s) and its workers' cluster starts again. This pull request ran N = 6
-   first (estimated from the test counts: at most 1.36 times the mean per shard), then N = 8; every shard prints its
-   30 slowest tests (`--durations=30`). One test, `test_e2e_simple`, takes 7 to 9 minutes; about ten files take 2 to
-   6 minutes each. At N = 6 and at N = 8 the hash put `test_e2e_simple` with three or four of those files in one
-   shard, and that shard took 16, 16, 23 and 25 minutes while the others took 4 to 17 (CPU-heavy tests slow each
-   other on a 4-core runner, and the runners were up to 1.5 times slower in the afternoon). Modelled from the
-   measured per-file durations, N = 9 leaves `test_e2e_simple` with one 2-minute file and puts no more than two
-   heavy files in any shard. Starting the long tests first in their shard was tried and gave no gain, so the order
-   is pytest's. More shards would queue for runners (the last rounds already waited up to 8 minutes for one).
-   The shard times of each round are in the pull request body.
+2. **N = 6, from the measured durations and the billed minutes.** The one-runner job spent 35 to 43 minutes in
+   pytest in the runs of 2026-11-12 (up to 55 on a busy day) and under a minute in set-up (caches warm). Each shard
+   pays the set-up (about 30 s), the collection (about 30 s) and its workers' cluster starts again, and GitHub bills
+   each job by the started minute. Measured on this pull request (every shard prints its 30 slowest tests):
+
+   | N | rounds | slowest shard | push to `unit` done | shard minutes summed |
+   | --- | --- | --- | --- | --- |
+   | 1 (before) | master and PR runs | 36 to 43 | 36 to 43 | 36 to 43 |
+   | 6 | 2 | 14.8, 15.7 | 15.7, 16.5 | about 55 |
+   | 8 | 3 | 16.2, 23, 25.5 | 17 to 30 | about 100 |
+
+   At N = 8 the hash put `test_e2e_simple` (one test, 7 to 9 minutes) with four 2- to 3-minute files in one shard;
+   at N = 6 it shares its shard with three. CPU-heavy tests slow each other on a 4-core runner, and the afternoon
+   runners were up to 1.5 times slower. Starting the long tests first was tried (no gain). A model from the
+   measured per-file durations gives N = 9 a better spread, but it was not measured: the account's Actions
+   spending limit stopped every job of that round. N = 6 is the measured best on both time and cost; N is the
+   matrix and nothing else.
 3. **No test drops out silently.** Each shard writes a record (`--shard-record`): pytest's own collection before the
    shard was taken (after `-m`) and the node ids the shard kept. `python -m tools.test_shard check` in the job `unit`
    fails unless all N shards are present, every shard collected the same suite, and every collected test was kept by
@@ -56,6 +61,11 @@ without a label, a new route without a permit row, a new table without an invent
    (`docs/DEVELOPING.md`).
 
 ## Open
+
+- **Cost (the owner's call).** The repository is private, so Actions minutes are billed. Six shards cost about 1.5
+  times the minutes of the one-runner job for each push (about 55 against 36 to 43), eight about 2.5 times. On
+  2026-11-12 the account hit its spending limit during this card's rounds. A smaller N is cheaper and slower; a
+  larger N is dearer and, with the hash's spread, not reliably faster.
 
 - The hash balances by file, not by duration. If one shard is regularly much slower than the rest, the remedy is a
   larger N or splitting the slow file, not a duration table (a table goes stale and moves files when it is refreshed).

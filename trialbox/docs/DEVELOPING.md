@@ -48,8 +48,8 @@ the coverage ratchet holds on their combined coverage. A test file is in one sha
 failing shard is repeated locally with the same split (the shard number and N are in the job's name):
 
 ```sh
-make test SHARD=3/9                       # shard 3 of 9, as in CI
-.venv/bin/python -m tools.test_shard files 3/9   # which test files that is
+make test SHARD=3/6                       # shard 3 of 6, as in CI
+.venv/bin/python -m tools.test_shard files 3/6   # which test files that is
 make cross-card                           # the tests that fail when two cards meet (CI job `cross-card`, minutes)
 ```
 

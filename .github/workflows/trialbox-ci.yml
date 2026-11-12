@@ -224,11 +224,10 @@ jobs:
 
   # T-747 (D-475): the unit suite in parallel shards. Each test file runs in exactly one shard, chosen by a hash of its
   # path (tools/test_shard.py; `make test SHARD=i/N` locally), so module- and session-scoped fixtures stay together
-  # and a new file moves no other. Nine shards: the one-runner suite took 35 to 43 minutes of pytest on 2026-11-12 (up
-  # to 55), set-up under a minute; at six and at eight the hash put the 8-minute test_e2e_simple with three or four
-  # 2- to 3-minute files in one shard (16 to 25 minutes); nine leave it with one (D-475, from the shards'
-  # --durations=30). Each shard keeps its coverage data and the record of what it collected and kept; the job `unit`
-  # below checks them all.
+  # and a new file moves no other. Six shards: the one-runner suite took 35 to 43 minutes of pytest on 2026-11-12 (up
+  # to 55), set-up under a minute; six gave `unit` 16 minutes after a push at about 1.5 times the billed minutes,
+  # eight no faster at about 2.5 times (D-475, from the shards' --durations=30). Each shard keeps its coverage data
+  # and the record of what it collected and kept; the job `unit` below checks them all.
   unit-shard:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
@@ -241,7 +240,7 @@ jobs:
     strategy:
       fail-fast: false  # every shard reports, so one push shows every failure
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
