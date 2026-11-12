@@ -282,7 +282,7 @@ def chart_pattern(rule_text: str) -> str:
         return ""
     if rule.kind == "digits":
         return f"^\\d{{{rule.width}}}$"
-    return f"^[0-9{'a-f' if rule.case == 'lower' else 'A-F'}]{{{rule.width}}}$"
+    return f"^[0-9A-Fa-f]{{{rule.width}}}$"  # either case: the rule folds it; a note or a CRC may write the other
 
 
 def retention_rules(tz: str) -> str:

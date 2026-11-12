@@ -250,8 +250,10 @@ def _box_build(rule: str, tmp_path: Path) -> tuple[dict[str, Any], dict[str, str
     [
         ("digits:8", r"^\d{8}$"),
         ("digits:10", r"^\d{10}$"),
-        ("hex:8", r"^[0-9A-F]{8}$"),
-        ("hex:8:lower", r"^[0-9a-f]{8}$"),
+        # review: the rule says case does not matter, so the pattern takes both: a key written in lower case in
+        # a note is masked, and a CRC who types it in lower case is not refused
+        ("hex:8", r"^[0-9A-Fa-f]{8}$"),
+        ("hex:8:lower", r"^[0-9A-Fa-f]{8}$"),
         ("digits", ""),  # no width: no pattern can be given that the scrubber could use
         ("hex", ""),
         ("asis", ""),
@@ -284,6 +286,25 @@ def test_lane_c_review_no_pattern_is_an_empty_pattern_never_the_word_none() -> N
     from tb_common import phi_guard
 
     assert phi_guard.mask_note("None of these 12345678", settings["mrn_regex"]) == "None of these 12345678"
+
+
+def test_review_no_pattern_is_said_whatever_the_rule() -> None:
+    """With no pattern nothing checks what a chart number looks like and the scrubber masks no unlabelled one: a
+    box whose owner skipped the question must be told."""
+    a = _answers()
+    a.pop("mrn_regex")
+    for rule in ("", "asis", "digits"):
+        _settings, _env, warnings = settings_wizard.build({**a, "chartno_rule": rule}, [REHEARSAL / "mapping"])
+        assert any("mrn_regex" in w and "not masked" in w for w in warnings), (rule, warnings)
+
+
+def test_review_a_hex_key_in_either_case_is_masked_in_a_note() -> None:
+    from tb_common import phi_guard
+
+    from tools.box.plan import chart_pattern
+
+    masked = phi_guard.mask_note("seen deadbeef and DEADBEEF today", chart_pattern("hex:8"))
+    assert "deadbeef" not in masked and "DEADBEEF" not in masked
 
 
 def test_lane_c_review_a_rule_with_no_pattern_is_taken_and_said() -> None:

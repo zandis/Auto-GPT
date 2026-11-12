@@ -49,8 +49,8 @@ def _run(argv: list[str]) -> str:
 
 
 def pid_map_rows(deploy: Path, run: Callable[[list[str]], str] = _run) -> int | None:
-    """How many patients the box has loaded (rows of the pid map), asked of the box's database; 0 when the table
-    does not exist yet (no ingest ever ran); None when the database cannot be asked."""
+    """How many rows the pid map holds (loaded patients, and the chart numbers of staged nights), asked of the
+    box's database; 0 when neither table exists yet (no ingest ever ran); None when the database cannot be asked."""
     psql = _compose_psql(deploy)
     try:
         total = 0
@@ -79,9 +79,9 @@ def chartno_change(env_file: Path, new: str, rows: Callable[[], int | None]) -> 
         )
     if n:
         raise PlanError(
-            f"{CHARTNO_RULE} is {present} and the answers say {wanted}: the box holds {n} patients under {present}, "
-            "and another rule would give their chart numbers other pseudonyms. The rule is set before the first "
-            "night only"
+            f"{CHARTNO_RULE} is {present} and the answers say {wanted}: the pid map holds {n} rows made under "
+            f"{present}, and another rule would give those chart numbers other pseudonyms. The rule is set before "
+            "the first night only"
         )
 
 

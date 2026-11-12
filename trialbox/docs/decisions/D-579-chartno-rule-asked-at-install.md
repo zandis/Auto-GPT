@@ -76,8 +76,15 @@ lands with it and with lane C's page.
   pattern), and a rule with no pattern to check against is taken with a warning.
 - **`settings.mrn_regex` was the text `None` on every box**, since before this card: the candidate registry
   refused every chart number that does not start with "None" and the scrubber masked the word. No pattern is now
-  the empty string, which every reader (the scrubber, the candidate registry, the adapter's column check, site
-  set-up) takes as "no pattern".
+  the empty string, which the scrubber, the candidate registry, the adapter's column check and site set-up take
+  as "no pattern" (the log scrubber falls back to eight digits; the support bundle scrubs by no chart pattern,
+  as it did with the text `None`). The wizard says so in a warning: with no pattern nothing checks what a chart
+  number looks like and an unlabelled one in a note is not masked.
 - **"Holds no patient" also reads the pid map's `pending` table**: a first night that is staged and not yet
   promoted counts.
-
+- From the review of this delta: the pattern for a `hex` rule takes both cases (a key in lower case in a note
+  was left unmasked). **Open, in other lanes' files:** the candidate registry, the case scenario and site set-up
+  match the pattern against the chart number as typed, before it is normalised, so with `digits:8` a CRC who
+  types `123456` is refused although the rule would make it `00123456`. A safe refusal, never a wrong patient;
+  reported. A site that was installed from an answers file without `mrn_regex` keeps the text `None` in its
+  settings until someone edits it; `tools.box apply` rewrites a box's.

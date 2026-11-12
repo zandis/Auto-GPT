@@ -334,6 +334,11 @@ def build(
     except re.error as exc:
         errors.append(f"mrn_regex does not compile: {exc}")
     chart_rule = chartno_rule(a.get("chartno_rule"), mrn_regex, errors, warnings)
+    if not mrn_regex:
+        warnings.append(
+            "mrn_regex was not answered: nothing checks what a chart number looks like, and a chart number written "
+            "in a note without its label is not masked. Answer mrn_regex (or a chart-number rule with a width)"
+        )
     depts = _map(get("departments"))
     prac = _practitioners(get("practitioners"))
     for pid, p in prac.items():
