@@ -56,3 +56,24 @@ production compose file; 0 = every decision publishes) of the last publish waits
 published together when the window closes (the orchestrator checks every minute and after each job) or when a person
 presses Publish. Nothing is published while a running job holds the snapshot, even on Publish: the batch follows when
 the job ends. What waits is the difference between the stored facts and the last publish, so a restart loses nothing.
+
+**Rebuild and ingest as polled jobs (T-690, D-472).** A rebuild of a hospital-size snapshot takes longer than any
+sensible HTTP request (805 s at 50,000 patients), so nothing waits on one request any more:
+
+- `POST /rebuild` on the lake answers 202 with a job (`job`, `state: running`) and `GET /rebuild/<snapshot>` reports
+  it: `running`, `done` (with the counts), `busy` (held at the swap, nothing replaced), `refused` (the data, D-271),
+  `failed`, or `interrupted` (its process ended; the state is a small file `<lake>/locks/<snapshot>.rebuild.json`
+  that any lake worker reads). What is known at once is still answered at once with 409: busy (held, already
+  building) and a missing feed folder;
+- `POST /run` on the adapter answers 202 with a run id and `GET /run/<id>` reports the night (`done` with the ingest
+  report, `refused` for a missing or changed site key, `failed`); the orchestrator's nightly job and the adapter's own
+  lake step follow these states; the console's Ingest button starts the run and returns ("Ingest started."), the
+  night's end is the adapter's audit line (data operations, §12);
+- a caller is never limited by the length of the work (OD-10). It reads the state with pauses up to
+  `TB_JOB_POLL_SECONDS` (5) and reports the job lost only when the service has not answered at all for
+  `TB_JOB_LOST_SECONDS` (900; a container restart takes well under it) or no longer knows the job;
+- the site publish on `main` starts the rebuild and records a publish in progress (`<orchestrator data>/sitesetup/
+  main/publishing.json`: job, snapshot, digest, counts; no patient data). Every later publish or tick (the
+  orchestrator checks every minute, batching on or off) follows that job instead of starting another, and records the
+  publish when it is done; a failed rebuild is recorded (`setup.publish_failed`) and not started again for the same
+  facts until a person presses Publish. A box that never published and has no site facts starts no rebuild.

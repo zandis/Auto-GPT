@@ -133,6 +133,18 @@ class FakeBackend:
         )
         return self.add_job(job)
 
+    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Job:
+        """T-746 (D-474): what the orchestrator does, in short: the failed job copied, never the caller's fields."""
+        if self.refuse:
+            raise Refused(self.refuse)
+        failed = self.jobs[job_id]
+        self.retried = [*getattr(self, "retried", []), (job_id, reply_to, by, role)]
+        now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
+        job = failed.model_copy(update={"job_id": _ulid(len(self.jobs) + 1), "state": "received", "error": None,
+                                        "requested_by": reply_to, "parent_job_id": job_id,
+                                        "received_at": now, "updated_at": now})  # fmt: skip
+        return self.add_job(job)
+
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> JobFile:
         key = f"attachments/{job_id}/{filename}"
         self.objects[key] = data
