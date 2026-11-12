@@ -100,7 +100,9 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   - the check's expected set assumes the small synthetic site.
 - **Fix.** Reproduce with `tools/complete_run.py --only hospital-ja --patients 50000` on the stub model (no GPU
   needed), then fix the cause, not the check. This touches D-149 / T-207 (derived and confirmed facts).
-- **Status.** Open.
+- **Status.** Open. #297 (D-470, proposed) keeps an undated chart fact unknown and makes stage 12 record which
+  expected facts were read, missing or undated, so the next run with the real models settles the cause (undated
+  facts, or dropped birth date and sex). A fix that dated facts from the section heading was reviewed and rejected.
 
 ### B2. Fixed limits tuned for small data break at production scale (Blocker class)
 
