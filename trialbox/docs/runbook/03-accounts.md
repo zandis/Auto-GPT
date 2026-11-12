@@ -39,7 +39,9 @@ push to a pull request cancels the older run (pushes to master are never cancell
 | `docs` | `tools/doclint.py` | yes |
 | `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
 | `trace` | `tools/gen_traceability.py --check` | yes |
-| `unit` | `make test PYTEST_N=auto` on throwaway clusters from the runner's own PostgreSQL (`tools/pglocal.py`, server and client tools one version), `TB_DATA_DIR` in the runner's temp, then the data scan of its log | yes |
+| `unit-shard (i/N)` | `make test PYTEST_N=auto SHARD=i/N`, one job per shard (T-747, D-475: each test file in one shard by a hash of its path) on throwaway clusters from the runner's own PostgreSQL (`tools/pglocal.py`, server and client tools one version), `TB_DATA_DIR` in the runner's temp, then the data scan of its log | through `unit` |
+| `unit` | the gate over the shards: every shard passed, `tools.test_shard check` (every collected test ran in exactly one shard), the coverage ratchet on the combined coverage of all shards | yes |
+| `cross-card` | `make cross-card`: the tests that fail when two cards meet, first and fast, no coverage (T-747) | yes |
 | `e2e-simple` | `make e2e-simple` (D-111) | yes |
 | `goldens` | `make goldens-check` (T-006, D-205) | yes |
 | `data-scan` | `make data-scan` (D-203) | yes |
