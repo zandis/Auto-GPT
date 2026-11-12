@@ -24,6 +24,7 @@ from console.i18n import CATALOGUES, EN
 from console.proposals import ProposalError, propose
 from fastapi.testclient import TestClient
 from tb_common.audit import AuditLog, verify
+from tb_common.authz import role_allowed
 from tb_common.crypto import sha256_bytes
 from tb_contracts import (
     Job,
@@ -88,7 +89,29 @@ MODELS_INFO: dict[str, Any] = {
 }
 
 
+def refused_as_the_orchestrator(call: str, role: str, scope: str, study: str | None) -> str:
+    """T-714 (D-482): why the real route refuses this signed role and study scope, "" when it does not. The rule is
+    the orchestrator's own (``orchestrator.app.id_authority``, ``service_auth.in_scope``, in the order of
+    ``_id_authority``), not a copy; ``tests/console/test_backend_contract.py`` holds the fake's answers against the
+    real routes on a box."""
+    from orchestrator.app import id_authority
+    from tb_common.authz import BREAK_GLASS_ROLE
+    from tb_common.service_auth import in_scope
+
+    if not id_authority(role):
+        return "role"
+    if call == "export" and role == BREAK_GLASS_ROLE:
+        return "break-glass covers one patient or one job"
+    if not in_scope(scope, study):
+        return "study scope"
+    return ""
+
+
 class FakeBackend:
+    """An in-memory stand-in for the orchestrator. T-714 (D-482): for reveal, export and jobs it refuses what the
+    real routes refuse for the signed role and study scope, so a console test fails when the console signs the
+    wrong thing. What it still does not model is the named table of ``test_backend_contract.py``."""
+
     def __init__(self) -> None:
         self.jobs: dict[str, Job] = {}
         self.objects: dict[str, bytes] = {}
@@ -116,6 +139,8 @@ class FakeBackend:
     def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job:
         if self.refuse:
             raise Refused(self.refuse)
+        if role and not role_allowed(role, req.type):  # T-714: Orchestrator.create's rule for a signed role
+            raise Refused(f"the {role} role may not run {req.type}")
         self.created.append(req)
         self.created_by = [*getattr(self, "created_by", []), (by, role)]  # D-146: who asked, with which role
         now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
@@ -205,8 +230,15 @@ class FakeBackend:
 
     def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
                reason: str = "") -> str | None:  # fmt: skip
-        self.revealed.append((job_id, pid, by))
         self.signed.append(("reveal", role, scope))
+        job = self.jobs.get(job_id)
+        if job is None:
+            return None  # the route's 404
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
+            raise Refused("chart numbers are revealed for finished screening jobs only")
+        if why := refused_as_the_orchestrator("reveal", role, scope, job.ruleset):
+            raise Refused(f"chart numbers are refused: {why}")
+        self.revealed.append((job_id, pid, by))
         return {"a" * 32: "MRN-000123"}.get(pid)
 
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
@@ -274,6 +306,8 @@ class FakeBackend:
 
     def registry_export(self, ruleset: str, by: str = "", role: str = "", scope: str = "") -> bytes:
         self.signed.append(("export", role, scope))
+        if why := refused_as_the_orchestrator("export", role, scope, ruleset):
+            raise Refused(f"chart numbers are refused: {why}")
         return b"PK\x03\x04fake-xlsx-" + ruleset.encode()
 
 
@@ -1374,7 +1408,7 @@ def test_the_export_names_the_signed_in_user_signed_with_the_session(
 
     def spy(rs: str, by: str, role: str = "", scope: str = "") -> bytes:
         seen.append(sa.actor_header(by, role=role, scope=scope))  # what the HTTP backend sends with the call
-        return bytes(real(rs, by))
+        return bytes(real(rs, by, role=role, scope=scope))  # T-714: the fake refuses an unsigned role or scope
 
     monkeypatch.setattr(box["backend"], "registry_export", spy)
     c, _ = login_crc(box)
