@@ -768,8 +768,15 @@ def registry_update(ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
 @app.post("/registry/{ruleset}/promote")
 def registry_promote(ruleset: str, req: RegistryPromote) -> dict[str, int]:
     o = orch()
+    from tb_common.ruleset import RulesetNotApproved, load_approved
+
+    # D-476 (review of T-707): only pool rows evaluated on the criteria version in force are promoted; with no
+    # approved version there is none ("": no row matches)
+    in_force = ""
+    with contextlib.suppress(RulesetNotApproved, FileNotFoundError, ValueError):
+        in_force = load_approved(o.rulesets_dir, ruleset.upper(), on=o.today()).version
     try:
-        return {"added": registry_of(o).promote(ruleset, req, _now(o))}
+        return {"added": registry_of(o).promote(ruleset, req, _now(o), in_force)}
     except RegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

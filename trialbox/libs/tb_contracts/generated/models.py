@@ -2328,7 +2328,7 @@ class CriterionVerdict(BaseModel):
     evidence: Evidence | None = None
     final: bool | None = None
     """
-    T-707 (D-476): false when this answer was given while a note answer was not allowed to exclude (one model, no second model that agreed, a shut canary gate): it never excludes the patient, on this run or at a later re-tier. Absent on every other verdict.
+    T-707 (D-476): on a note answer that says not met. false: given while a note answer was not allowed to exclude (one model, no second model that agreed, a shut canary gate); it never excludes the patient, on this run or at a later re-tier. true: it was allowed to exclude. Absent on every other verdict; a stored note fail without it is from before the field and never excludes.
     """
 
 

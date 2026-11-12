@@ -3,6 +3,7 @@ export with in-box chart numbers, and the audit records. No orchestrator run nee
 
 from __future__ import annotations
 
+import json
 import io
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,6 +89,18 @@ def test_transitions_are_recorded_and_checked(reg: CandidateRegistry) -> None:
     assert verify(reg.audit.directory).ok
 
 
+def test_promote_leaves_a_pool_row_of_another_criteria_version(reg: CandidateRegistry) -> None:
+    """D-476 (review of T-707, MED 2): a row stored before an amendment that MICROBATCH has not screened again is
+    ``high`` on criteria it was never evaluated on; it is not promoted, and the audit counts it."""
+    stored = {str(p["version"]) for p in reg.db.pool("GZQO")}
+    assert len(stored) == 1
+    assert reg.promote("GZQO", RegistryPromote(by="pi@hospa.test"), NOW, "9.9.9") == 0  # an amendment in force
+    lines = [json.loads(x) for f in sorted(reg.audit.directory.glob("*.jsonl")) for x in f.read_text().splitlines()]
+    last = [r for r in lines if r["event"] == "registry.promote"][-1]
+    assert last["detail"]["added"] == 0 and last["detail"]["other_version"] == 2
+    assert reg.promote("GZQO", RegistryPromote(by="pi@hospa.test"), NOW, stored.pop()) == 2  # the rows' own version
+
+
 def test_promote_takes_high_and_review_tiers_once(reg: CandidateRegistry) -> None:
     assert reg.promote("GZQO", RegistryPromote(by="pi@hospa.test", tiers=["high"]), NOW) == 1
     assert reg.promote("GZQO", RegistryPromote(by="pi@hospa.test"), NOW) == 1  # the review tier joins; high once
@@ -136,6 +149,8 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         db=reg.db,  # T-103 (D-438): the export cap is counted in this store, at the box's clock
         _now=lambda: datetime.now(UTC),
         audit=reg.audit,
+        rulesets_dir=tmp_path / "rulesets",  # no approved version here: nothing is in force (D-476)
+        today=lambda: NOW.date(),
         cfg=SimpleNamespace(
             env=SimpleNamespace(secrets_dir=str(reg.secrets_dir)),
             settings=SimpleNamespace(mrn_regex=r"^\d{8}$", site=SimpleNamespace(tz="Asia/Taipei", id="DEMO-A")),
