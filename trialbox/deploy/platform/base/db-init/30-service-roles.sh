@@ -18,6 +18,8 @@
 # * D-465 (T-727): the orchestrator runs the opt-out worker, which erases the twin (`profile`, which it also builds)
 #   and the vector store (`vec`, the lake's); so both are on its list.
 # * `tuned` (tb_common.notmatched: the not-matched reasons) is read and written by the orchestrator and the console.
+# * D-543 (NEW-ARCH-18): `profile` (the patient twin, built by the orchestrator) is on the console's list too: the
+#   console reads it for `GET /api/v1/studies/{rs}/patients/{pid}/twin` (it could not open the store on a box).
 # The list is the one place that says which service reaches which schema; tests/unit/test_db_roles.py reads it.
 set -eu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialbox_wf}" \
@@ -44,8 +46,8 @@ DECLARE
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
     "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "feedback", "library", "mpi", "omop",
-                   "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
-                   "terminology", "tuned", "wf"]
+                   "optout", "orch", "pidmap", "profile", "recall", "refdata", "sae", "site", "sitesetup", "study",
+                   "team", "terminology", "tuned", "wf"]
   }';
   -- END SERVICE SCHEMAS
   svc text;
