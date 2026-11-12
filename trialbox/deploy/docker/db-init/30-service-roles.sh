@@ -40,12 +40,12 @@ DECLARE
     "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
     "tb_orchestrator": ["app", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi", "omop", "optout",
                         "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup", "study", "terminology",
-                        "tuned", "vec", "wf"],
+                        "tuned", "vec"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
     "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "feedback", "library", "mpi", "omop",
                    "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
-                   "terminology", "tuned", "wf"]
+                   "terminology", "tuned"]
   }';
   -- END SERVICE SCHEMAS
   svc text;
