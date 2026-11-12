@@ -3,7 +3,7 @@
 | When | What | Where to look |
 | --- | --- | --- |
 | 00:20 | `trialbox logs daily` (cron on the host): collect yesterday's service logs, prune, archive the audit | `/var/log/trialbox-retention.log` |
-| 02:00 | INGEST: adapter to FHIR store and lake, 1 % validator sample, snapshot pruning | job list, `ingest_report.json` |
+| 02:00 | INGEST: adapter to FHIR store and lake, validator sample (1 % of each resource type, at least 3 and at most a cap: 4,975 at the default limit, `TB_VALIDATION_SAMPLE_CAP`; D-457), snapshot pruning | job list, `ingest_report.json` (`validation.sample_cap`, `validation.capped`) |
 | 03:00 | REDCap read-back (console timer) | the study's Sources page |
 | before the night's model jobs | the pair canary (54 questions); model jobs start only when it passes | `selftest.passed` in the audit |
 | 05:00 | RETENTION: attachments 90 days, outputs 365 days, mail logs by country | `retention_<date>.json` |

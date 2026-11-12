@@ -770,6 +770,9 @@ DECLARED: dict[str, Declared] = {
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),
     "TB_UPDATE_INCOMING": Declared("str", "", "update: incoming bundle folder"),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
+    "TB_VALIDATION_SAMPLE_CAP": Declared(
+        "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"
+    ),
     "TB_VALIDATOR_IGS": Declared("str", "tw.gov.mohw.twcore#1.0.0", "FHIR validator: guides loaded"),
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),

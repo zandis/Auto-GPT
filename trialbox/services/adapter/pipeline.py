@@ -29,7 +29,14 @@ from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
-from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required, sample
+from adapter.validate.validator import (
+    Hl7Validator,
+    StructuralValidator,
+    capped_types,
+    missing_required,
+    sample,
+    sample_cap,
+)
 
 log = logging.getLogger("adapter")
 Resource = dict[str, Any]
@@ -646,7 +653,11 @@ def _run_ingest(
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
-        picked = sample((r for items in by_type.values() for r in items), cfg.sample_fraction)
+        # T-693 (D-457): the sample is each type's share, at least 3 and at most a cap derived from the gate's own
+        # limit (settable); the report names the cap and the types it cut
+        cap = sample_cap(cfg.validation_max_pct)
+        picked = sample((r for items in by_type.values() for r in items), cfg.sample_fraction, cap_per_type=cap)
+        cut = capped_types({t: len(v) for t, v in by_type.items()}, cfg.sample_fraction, cap=cap)
         try:
             vres = chosen.validate(picked)
             vsum = ValidationSummary(
@@ -655,6 +666,8 @@ def _run_ingest(
                 error_pct=round(vres.error_pct, 3),
                 validator=vres.validator,
                 messages=vres.messages,
+                sample_cap=cap,
+                capped=cut or None,
             )
         except Exception as exc:
             errors.append(f"validation failed to run: {exc}")
