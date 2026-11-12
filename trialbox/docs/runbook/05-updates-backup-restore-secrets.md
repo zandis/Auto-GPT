@@ -161,7 +161,21 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    EDC signatures and submissions, consent changes. The restore lists them (`to_reapply`: time, event, place in
    the chain), writes `backup.restore_reapply` and exits 4 ("NOT complete"). A steward opens each one in the audit
    browser and does it again (records the opt-out again, closes the break-glass, re-signs or re-sends the EDC
-   record) before screening resumes. Rows that do not match the backup fail the restore; a backup made before
+   record) before screening resumes.
+5. **Opt-outs typed after the backup (D-493).** Before the restore empties the trial database it counts the
+   opt-out events the box holds after the backup's snapshot (`optouts_after_backup`: how many, how many a person
+   typed and how many came from the hospital's registry, the first and the last time; never who). They are not in
+   the restored register. The restore prints the count, writes it into `backup.restored` and exits 4 ("NOT
+   complete"). The registry's refusals come back by themselves at the opt-out worker's next tick; **the ones a
+   person typed must be entered again** from the office's own record (paper form, mail, phone note) before
+   screening resumes, or those patients can be listed again. The audit never names them; the kept copy of the box
+   before the restore (step 2) holds the later register, encrypted to the hospital's key.
+6. **Jobs that were running at the backup (D-493).** The restored queue holds them as running. The restore sets
+   each to failed ("interrupted by a restore") and lists them (`jobs_failed`): the orchestrator does not run them
+   again, and nobody is mailed twice. Ask the requester to send a request again if it is still wanted. Jobs that
+   were waiting in the queue and had not started run when the services start.
+
+Rows that do not match the backup fail the restore; a backup made before
 D-187 or by the update path, counted on a running box, gives a warning instead. Held by `tests/unit/test_backup.py`,
 `tests/unit/test_backup_schedule.py` and `tools/backup_drill.py` (`make backup-drill`: the nightly run, layout,
 status and alert, wipe, restore with the pack loaded again, an old-format restore, the Postgres settings and a

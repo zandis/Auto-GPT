@@ -408,6 +408,25 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                   f"{a.refdata} (the update bundle or the vendor) and run this restore again, or load it with "
                   "python -m tb_common.refdata load <pack> (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
             return 3
+        for j in out.get("jobs_failed") or []:  # T-728 (D-493): not run again by the orchestrator
+            print(f"restore: job {j['job_id']} ({j['type']}) was running at the backup (step {j['step']}): it is "
+                  "now failed, not run again; ask the requester to send it again if it is still wanted",
+                  file=sys.stderr)  # fmt: skip
+        lost = out.get("optouts_after_backup") or {}
+        if lost.get("events") or (not lost.get("readable") and lost.get("why") != bk.NO_REGISTER):
+            what = (
+                f"{lost['events']} opt-out event(s) were recorded on this box after the backup's snapshot "
+                f"({lost['since']}; {lost['typed']} typed by a person, {lost['from_registry']} from the hospital's "
+                f"registry, between {lost['first_at']} and {lost['last_at']})"
+                if lost.get("readable")
+                else f"the opt-out register of this box could not be read before the restore ({lost.get('why')})"
+            )
+            print(f"restore: NOT complete: {what}. They are NOT in the restored register: the opt-outs typed by a "
+                  "person must be entered again from the office's own record (the registry's come back by "
+                  "themselves); until then those patients can be listed again (audit event backup.restored, "
+                  "optouts_after_backup; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+            if not out.get("to_reapply"):
+                return 4
         if out.get("to_reapply"):  # D-455 (M3): the restore is not complete until a steward re-applies these
             print(f"restore: NOT complete: {len(out['to_reapply'])} event(s) in the audit chain came after the "
                   f"backup's snapshot ({out['reapply_since']}) and are not in the restored databases (opt-outs, "

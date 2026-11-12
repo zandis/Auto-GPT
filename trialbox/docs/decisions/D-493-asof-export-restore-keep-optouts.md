@@ -36,8 +36,9 @@ Two ways back into the data for a patient who has opted out:
    register of today for refusals, which is the fail-closed reading.
 2. **A restore counts the opt-outs it is about to lose, before it empties the database.** It reads the live
    register (`optout.optout_events`) for events after the backup's snapshot of the trial database and reports
-   `optouts_after_backup`: how many events, how many by action and by source, the first and the last time. Never a
-   pseudonym, a note or who typed it. The count is printed by `trialbox restore` with the instruction "enter them
+   `optouts_after_backup`: how many events, how many by action, the opt-outs by source, how many were the
+   registry's own (they come back at the worker's next tick) and how many a person typed (they must be entered
+   again), the first and the last time. Never a pseudonym, a note or who typed it. The count is printed by `trialbox restore` with the instruction "enter them
    again", is in the `backup.restored` audit event, and makes the restore `complete: false`. A register that cannot
    be read is reported as such, not as zero.
 3. **A restore fails the jobs that were running at the backup.** After the databases are restored and their rows
@@ -52,8 +53,8 @@ Two ways back into the data for a patient who has opted out:
 
 - T-627 can build on the export: an as-of lake holds no row of a patient who is opted out today, but the consent row.
 - A restore over a box with later opt-outs ends "NOT complete" and says how many must be entered again. Refusals
-  that came from the registry come back by themselves at the worker's next tick; the count by source says how many
-  were typed by hand.
+  that came from the registry come back by themselves at the worker's next tick; `typed` says how many a person
+  entered.
 - The kept copy of the box before the restore (D-274) still holds the later register, encrypted to the hospital's
   key: that is where the names are, if the office has no other record.
 
