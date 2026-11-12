@@ -144,8 +144,24 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   `trialbox secrets init` does on a box, and registers its hash. The harness's gateway client
   (`tools.scenarios.gateway_client`) presents it, and `service_callers` allows the orchestrator to call as
   `orchestrator`. Test: `test_the_pair_s_calls_carry_the_orchestrator_s_own_token_in_a_demo_box` (refused before the
-  fix). run-a of the rehearsal passes.
-- **Status.** Fixed in this branch (`claude/g1-b4-caller-identity`).
+  fix). In the rehearsal of the fix (run-a), no call is refused as `caller_unverified` and the canary gets 54 of 54
+  answers. run-a still fails 47/49, now because of B5.
+- **Status.** Fixed in #321.
+
+### B5. With the pair, SCREEN sends a prompt version the box's gateway does not serve (Blocker for the paid run)
+
+- **Symptom.** Found after the B4 fix, in the same run-a: hospital-ja and public-ja still crash with "The judge model
+  did not answer 5 calls in a row". No SCREEN call reaches the gateway. Each one fails in the client with "prompt
+  'judge_v5' refused (prompt_unqualified): judge@5 has no qualification record: refused in PRODUCTION".
+- **Evidence.** Reproduced locally with `tools.complete_run --model pair --only prepare hospital-ja` against
+  `tests/rehearsal/vllm_standin.py`.
+- **Cause.** The in-process box approves the ruleset with `TB_ENV=DEV` (`criteria_compiler.service.approval_pins`
+  pins the served judge prompt of this process's environment: judge@5, registered by T-606 with no qualification
+  record). The harness's gateway client stands for a PRODUCTION box (`prompt_environment`, D-359). There, judge@5 is
+  refused, and a pinned version gets no fallback. On a real box the compiler runs in PRODUCTION and pins judge@4.
+- **Fix.** Make the harness approve as the installed box does: pin the prompt that the box's environment serves. Do
+  not qualify judge@5 or loosen the PRODUCTION check to make the run pass.
+- **Status.** Open.
 
 ## C. Fixed: keep them fixed
 
