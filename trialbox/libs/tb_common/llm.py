@@ -128,7 +128,10 @@ def _load_prompt(prompt_id: str, environment: str) -> Prompt:
     try:
         resolved = default_registry().get(base, want, environment=environment)
     except PromptRegistryError as exc:
-        raise LlmError(f"prompt {prompt_id!r} refused ({exc.reason}): {exc}") from exc
+        # an unqualified version is the request's fault, not the model's: callers that count model failures (the
+        # SCREEN breaker, orchestrator.jobs.NOT_DOWN) must be able to tell, as for the gateway's own refusal
+        kind = LlmPromptUnqualified if exc.reason == "prompt_unqualified" else LlmError
+        raise kind(f"prompt {prompt_id!r} refused ({exc.reason}): {exc}") from exc
     path = resolved.path
     m = _FM.match(resolved.text)
     if not m:

@@ -238,7 +238,9 @@ def test_a_pin_with_a_name_the_server_does_not_serve_is_a_named_404(tmp_path: Pa
     audit = "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "audit").glob("*.jsonl"))
     assert "HTTP 404 (model 'gemma-4-26b-a4b-it' not served there?)" in audit
     rep = run_selftest(judge, None, cases=load_cases()[:2])
-    assert rep["problems"][0].startswith("judge (the gateway's build) failed the canary (0 of 2 answered; ")
+    assert rep["problems"][0].startswith(
+        "judge (the gateway's build) failed the canary (0 of 2 answered, at least 2 needed; "
+    )
 
 
 def test_the_canary_names_a_gateway_client() -> None:

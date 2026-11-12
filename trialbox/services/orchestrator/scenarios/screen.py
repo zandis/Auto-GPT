@@ -18,6 +18,7 @@ from matching import coded_values
 from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
 from tb_common.kek import key_present
+from tb_common.llm import LlmError, load_prompt
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
@@ -221,6 +222,7 @@ def judge_for(ctx: Ctx, rs: Ruleset) -> NoteJudge | None:
     if ctx.services.llm is None:
         return None
     prompt = pinned_judge(rs)
+    usable_judge_prompt(rs, prompt or "judge", ctx.services.llm)
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = ctx.services.verifier if mode != "single" else None
     return NoteJudge(ctx.services.lake, ctx.services.llm, prompt or "judge", job_id=ctx.job.job_id, verifier=verifier)
@@ -236,6 +238,25 @@ def pinned_judge(rs: Ruleset) -> str:
         return pinned_name(rs.manifest, named.rsplit("_v", 1)[0], named)
     except PromptRegistryError as exc:
         raise StepFailed("running", f"Ruleset {rs.id} v{rs.version}: {exc}") from exc
+
+
+def usable_judge_prompt(rs: Ruleset, prompt: str, llm: Any) -> None:
+    """Stop the run before any model call when this box may not use the ruleset's judge prompt: the version the
+    approval pinned has no qualification record where the box's model calls are checked (a PRODUCTION gateway,
+    D-359), or the registry refuses it. Every note call would be refused with the same words, and the run would end
+    as "the model did not answer" (G1 rehearsal, 2026-11-12: a healthy model, 0 calls sent). Never another version in
+    its place: the pinned prompt is what the investigator approved (D-318)."""
+    env = getattr(getattr(llm, "gateway", None), "prompt_environment", None)  # a harness's gateway names its own
+    try:
+        load_prompt(prompt, env)
+    except LlmError as exc:
+        raise StepFailed(
+            "running",
+            f"Ruleset {rs.id} v{rs.version}: this box may not use its judge prompt {prompt} ({exc}). No model was "
+            f"asked and nothing was sent. The model service is not the cause: the study was approved on a prompt "
+            f"version this box does not serve. Approve the study again on this box (it then pins the served "
+            f"version), or install the prompt's qualification record.",
+        ) from exc
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:

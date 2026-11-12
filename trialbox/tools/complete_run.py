@@ -81,7 +81,7 @@ HOSPITAL_PAGES = [
     ("4 ", "pi", f"/studies/{H_TRIAL}/patients/{{pid}}"),
     ("5 ", "pi", f"/studies/{H_TRIAL}/week?list=needs"),
     ("7 ", "crc", f"/studies/{H_TRIAL}/screening-log"),
-    ("audit", "admin", "/audit"),
+    ("audit", "stw", "/audit"),  # the steward reads the audit trail (T-211c, D-451), not the administrator
     ("8 ", "crc", f"/studies/{H_TRIAL}/sources"),
     ("9 ", "crc", f"/studies/{H_TRIAL}/conflicts?all=1"),
     ("10 ", "crc", f"/studies/{H_TRIAL}/forms"),
@@ -108,7 +108,7 @@ PUBLIC_PAGES = [
     ("6 ", "crc", "/reports"),
     ("7 ", "crc", "/pilot/jobs/{case}"),
     ("7b ", "pi", "/pilot/jobs/{case}"),  # D-143: the study's PI sees the CASE request's chart number, audited
-    ("8 ", "admin", "/audit"),
+    ("8 ", "stw", "/audit"),  # as above; the public walk makes the steward
 ]
 
 

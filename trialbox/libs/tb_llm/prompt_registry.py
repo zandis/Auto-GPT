@@ -554,13 +554,15 @@ class PromptRegistry:
             )
 
     # ------------------------------------------------------------------------------------------------ ruleset pins
-    def pins(self, refs: dict[str, int | None]) -> dict[str, dict[str, Any]]:
+    def pins(self, refs: dict[str, int | None], environment: str | None = None) -> dict[str, dict[str, Any]]:
         """The ``prompt_pins`` an approval writes: per prompt id the given version (the served one when None), with
-        its text sha256 and schema sha256, each verified as :meth:`get` verifies it."""
+        its text sha256 and schema sha256, each verified as :meth:`get` verifies it. ``environment``: the one whose
+        served version is pinned (default: this process's ``TB_ENV``); a box whose model gateway runs as another
+        environment names the gateway's, so the approval pins a version that gateway takes."""
         out: dict[str, dict[str, Any]] = {}
         for pid in sorted(refs):
             v = refs[pid]
-            e = self._verify(self.entry(pid, v) if v is not None else self.served(pid)).entry
+            e = self._verify(self.entry(pid, v) if v is not None else self.served(pid, environment)).entry
             pin: dict[str, Any] = {"version": e.version, "sha256": e.sha256}
             if e.schema_sha256:
                 pin["schema_sha256"] = e.schema_sha256

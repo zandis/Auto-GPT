@@ -109,7 +109,7 @@ class Gate:
             return (
                 False,
                 "failed",
-                "the last model self-test (canary) failed: " + "; ".join(rep.get("problems") or [])[:200],
+                "the last model self-test (canary) failed: " + "; ".join(rep.get("problems") or [])[:600],
             )
         if not rep.get("pair"):
             return False, "single", "the last model self-test checked one model, not the pair"

@@ -62,15 +62,20 @@ class CompileFailed(RuntimeError):
         self.step = step
 
 
-def approval_pins(manifest: RulesetManifest) -> dict[str, Any]:
+def approval_pins(manifest: RulesetManifest, environment: str | None = None) -> dict[str, Any]:
     """The prompts an approval pins (D-318): the registry's current version of the judge prompt with its text and
-    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved."""
+    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved.
+
+    The current version is the one served where the box's model calls are checked: this process's ``TB_ENV``, or
+    ``environment`` (``CompilerDeps.prompt_environment``) when the box's gateway runs as another one. A PRODUCTION
+    gateway serves the newest *qualified* version (D-359); an approval that pinned a newer one still waiting for its
+    record would pin a prompt that gateway refuses on every note call (G1 rehearsal, 2026-11-12)."""
     from tb_llm.prompt_registry import PromptRegistryError, default_registry
 
     models = dump(manifest.models) if manifest.models else {}
     pid = str(models.get("judge_prompt") or "judge").rsplit("_v", 1)[0]
     try:
-        pins = default_registry().pins({pid: None})
+        pins = default_registry().pins({pid: None}, environment)
     except PromptRegistryError as exc:
         raise CompileFailed("approve", f"the judge prompt cannot be pinned ({exc.reason}): {exc}") from exc
     return {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
@@ -128,6 +133,10 @@ class CompilerDeps:
     ctgov: CtGov | None = None  # ClinicalTrials.gov client (COHORT trial simulation); default from TB_CTGOV_MODE
     # what a plain "eGFR" criterion becomes at this site (D-149); None: from the site's time zone (JP: JSN 2009)
     egfr_equation: str | None = None
+    # the environment (TB_ENV value) of the model gateway this box's note calls go through, when it is not this
+    # process's own: a run harness in front of an installed box's gateway (tools.scenarios). An approval pins the
+    # judge prompt that environment serves (approval_pins). None: this process's TB_ENV, as on every installed box
+    prompt_environment: str | None = None
 
     def __post_init__(self) -> None:
         self.tz = site_tz(self.tz or None)
@@ -813,7 +822,7 @@ class Compiler:
         manifest = RulesetManifest.model_validate(
             {
                 **dump(manifest),
-                **approval_pins(manifest),
+                **approval_pins(manifest, self.d.prompt_environment),
                 **amendment_record(req, now.date()),
                 "status": "approved",
                 "review": {

@@ -15,6 +15,11 @@ A model passes when, over the cases:
 
 The quote rule of the screening path applies (a decided answer whose quote is not in the excerpt is ``unknown``).
 
+A failed canary says why (OD-10): which threshold failed, with the figures, and its first wrong cases, each with the
+answer expected, the answer given and the reason code of the answer (``abstained``: the model said the note does not
+say; ``quote_not_found``: its quote is in no excerpt; ``note``: it decided, the other way). The same line goes to the
+log, the audit record, ``selftest.json`` and the Models tile, so nobody has to re-run the canary to learn it.
+
     python -m orchestrator.selftest            # uses the orchestrator's environment (TB_GATEWAY_URL ...)
 """
 
@@ -22,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -44,6 +50,7 @@ MIN_ACCURACY = 0.85
 # and it is wrong (a flip, or yes/no where the note is silent) is a case where the box would exclude wrongly. Since
 # a passing pair canary is what lets a note answer exclude (D-117), one such case is one too many.
 MAX_PAIR_WRONG = 0
+WHY_CASES = 2  # wrong cases named in a failed model's problem line (the first ten are in the report's "wrong")
 
 
 @dataclass
@@ -69,6 +76,35 @@ class ModelReport:
             and self.flips <= MAX_FLIPS
             and self.correct >= MIN_ACCURACY * self.cases
         )
+
+    def why(self, shown: int = WHY_CASES) -> str:
+        """Why this model failed, for the report's ``problems`` line ("" when it passed): each threshold it missed
+        with the figures, the first call error, and the first ``shown`` wrong cases with their reason codes."""
+        if self.ok:
+            return ""
+        if self.cases == 0:
+            return "no canary cases"
+        parts: list[str] = []
+        need = math.ceil(MIN_ANSWERED * self.cases)
+        if self.answered < need:
+            parts.append(f"{self.answered} of {self.cases} answered, at least {need} needed")
+        else:
+            parts.append(f"{self.answered} of {self.cases} answered")
+        need = math.ceil(MIN_ACCURACY * self.cases)
+        if self.correct < need:
+            parts.append(f"{self.correct} of {self.cases} correct, at least {need} needed")
+        if self.flips > MAX_FLIPS:
+            parts.append(f"{self.flips} answers the wrong way round, at most {MAX_FLIPS} allowed")
+        if self.errors:
+            parts.append(f"first error: {self.errors[0]}")
+        if self.wrong:
+            first = "; ".join(
+                f"{w['id']} expected {w['expected']}, got {w['got']}" + (f" ({w['reason']})" if w.get("reason") else "")
+                for w in self.wrong[:shown]
+            )
+            more = len(self.wrong) - min(shown, len(self.wrong))
+            parts.append(f"first wrong: {first}" + (f"; and {more} more" if more else ""))
+        return "; ".join(parts)
 
     def as_dict(self) -> dict[str, Any]:
         d = {k: v for k, v in asdict(self).items() if k != "answers"}
@@ -103,7 +139,8 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
         for name in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
             if name not in rep.served:
                 rep.served.append(name)
-        got = postprocess(res.data, c["excerpts"]).predicate
+        answer = postprocess(res.data, c["excerpts"])
+        got = answer.predicate
         rep.answers[c["id"]] = got
         want = c["expected"]
         if got == want:
@@ -111,7 +148,7 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
             continue
         if {got, want} == {"pass", "fail"}:
             rep.flips += 1
-        rep.wrong.append({"id": c["id"], "expected": want, "got": got})
+        rep.wrong.append({"id": c["id"], "expected": want, "got": got, "reason": str(answer.reason or "")})
     rep.seconds = round(time.perf_counter() - t0, 1)
     return rep
 
@@ -147,12 +184,7 @@ def run_selftest(
             swap("serving")
         except LlmError as exc:
             problems.append(f"judge did not wake after the self-test: {exc}")
-    problems += [
-        f"{m.role} {m.model} failed the canary"
-        + (f" ({m.answered} of {m.cases} answered; {m.errors[0]})" if m.errors else "")
-        for m in models
-        if not m.ok
-    ]
+    problems += [f"{m.role} {m.model} failed the canary ({m.why()})" for m in models if not m.ok]
     by_role = {m.role: m for m in models}
     pair = None
     if "judge" in by_role and "verifier" in by_role:
