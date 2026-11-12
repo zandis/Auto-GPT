@@ -28,8 +28,9 @@ never both, and the first real qualification would have failed on step `licence`
    `<models root>/licences/<weight folder's name>/LICENSE` (any of the step's licence file names). The bundle takes
    everything under the models root, so it ships. When the file is there the step records its path and sha256, and
    refuses a text that is not the one the register row checked (when the row holds a text hash). When it is not
-   there the step passes and the detail says `text: null`: the register row is the evidence of the licence; the
-   file is the obligation "keep the licence text with the weights", which the release checklist owns.
+   there the step passes and the detail says `text: null`: the register row is the evidence of the licence. The
+   file answers the row's obligation "keep the licence text with the weights"; that it is in a release bundle is
+   not checked by this step (open, named in the pull request).
 3. **Every other build is checked as before**: a licence file in the weight folder, equal to the register's text
    when the row holds its hash. A build whose row names a licence file (`{path, sha256}`) and whose folder has
    none still fails.

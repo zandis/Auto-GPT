@@ -136,6 +136,13 @@ STUB_CANARY: dict[str, Any] = {
     "pair_decided_wrong": 0,
 }
 LICENCE_FILES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "LICENCE.md", "license.txt", "COPYING")
+# HW-004 (D-565): a registry row whose `provenance.licence_file` is this names a source repository that holds no
+# licence file. The expected manifest is every visible file of that source, so a licence file put into the weight
+# folder breaks the pin: the licence step reads the register row, and the text rides beside the folder, in
+# <models root>/LICENCE_BESIDE/<weight folder's name>/, outside the manifest (as the chat template does).
+NONE_IN_SOURCE = "none-in-source"
+NONE_IN_SOURCE_FILE = "none in source (register row)"
+LICENCE_BESIDE = "licences"
 _tl = threading.local()
 
 
@@ -262,6 +269,7 @@ class Build:
     licence: dict[str, Any]
     status: str
     repository: str | None = None
+    licence_file: Any = None  # the registry row's provenance.licence_file: {path, sha256}, NONE_IN_SOURCE or None
 
 
 @dataclass
@@ -330,6 +338,7 @@ def profile_builds(profile: str, doc: dict[str, Any] | None = None) -> dict[str,
             dict(b.get("licence") or {}),
             str(b.get("status") or ""),
             b.get("repository"),
+            (b.get("provenance") or {}).get("licence_file"),
         )
     if profile == "ci":
         out["judge"].weights_sha256 = out["verifier"].weights_sha256 = SYNTHETIC
@@ -454,6 +463,30 @@ def step_serving_record(ctx: Ctx) -> StepResult:
     return bad("; ".join(problems), detail) if problems else ok(detail)
 
 
+def _none_in_source(b: Build, reg: Any, folder: Path | None, row: dict[str, Any]) -> list[str]:
+    """HW-004 (D-565): the licence check of a build whose source holds no licence file. The register row is the
+    evidence: it names the build's revision and a source URL (that it is cleared, for this repository and SPDX id,
+    is `licence_register.model_problems`). The text beside the weight folder is recorded when it is there, and is
+    refused when it is not the text the row checked."""
+    if reg is None:
+        return []  # said by model_problems: a verified licence without a register row
+    out = []
+    if not b.revision or b.revision not in reg.raw["version"]:
+        out.append(f"{b.build_id}: register row {reg.id} does not name the build's revision {b.revision}")
+    if "https://" not in reg.raw["evidence"]:
+        out.append(f"{b.build_id}: register row {reg.id} names no source URL in its evidence")
+    row["text"] = None
+    beside = folder.parent / LICENCE_BESIDE / folder.name if folder is not None else None
+    found = [n for n in LICENCE_FILES if beside is not None and (beside / n).is_file()]
+    if beside is not None and found:
+        sha = hashlib.sha256((beside / found[0]).read_bytes()).hexdigest()
+        row["text"], row["text_sha256"] = f"{LICENCE_BESIDE}/{folder.name}/{found[0]}" if folder else None, sha
+        if reg.raw["text_sha256"] and sha != reg.raw["text_sha256"]:
+            out.append(f"{b.build_id}: the licence text beside the weight folder is not the text checked in "
+                       f"register row {reg.id}")  # fmt: skip
+    return out
+
+
 def step_licence(ctx: Ctx) -> StepResult:
     problems: list[str] = []
     detail: dict[str, Any] = {}
@@ -469,6 +502,9 @@ def step_licence(ctx: Ctx) -> StepResult:
         row["register"] = reg.id if reg else None
         if b.weights_sha256 == SYNTHETIC:
             row["file"] = "in repository (synthetic weights)"
+        elif b.licence_file == NONE_IN_SOURCE:
+            row["file"] = NONE_IN_SOURCE_FILE
+            problems += _none_in_source(b, reg, ctx.opts.model_dirs.get(role), row)
         else:
             d = ctx.opts.model_dirs.get(role)
             found = [n for n in LICENCE_FILES if d is not None and (d / n).is_file()]
