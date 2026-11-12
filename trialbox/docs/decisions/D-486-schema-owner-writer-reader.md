@@ -20,4 +20,57 @@ against their writers.
 
 ## The decision
 
-(filled in with the build; see the pull request)
+One schema at a time, as the card says. This decision sets the mechanism and applies it to `edc`.
+
+1. **Three roles for an owned schema.** `deploy/docker/db-init/30-service-roles.sh` has a second list, `owned`
+   (now `edc`). For a schema on it the script makes `tbo_<schema>` (owns the schema, every table, sequence and
+   function in it; its one member is `trialbox`, and any other member is removed on each run), `tbw_<schema>`
+   (USAGE on the schema; SELECT, INSERT, UPDATE, DELETE on its tables; its sequences) and `tbr_<schema>` (USAGE,
+   SELECT). Default privileges give the same to tables the owner makes later. A service with the schema on its
+   list becomes a member of `tbw_<schema>` and leaves the D-378 group `tbs_<schema>`; what that group owned on an
+   older volume moves to the owner role. No service is a member of any `tbo_*`.
+2. **A service does not migrate an owned schema.** `tb_common.db.Database.migrate`, on a schema whose owner is a
+   `tbo_` role the caller is not a member of, applies nothing: it checks that the applied versions are the ones
+   this release carries (by checksum) and refuses a schema that is behind, naming the command to run. A member
+   (the box's admin) takes the owner's role on connect, as it took the group's since D-378, so what it makes is
+   the owner's.
+3. **The install step.** `python -m orchestrator.migrate` makes every owned schema as the admin: it first gives
+   back to the owner role what a restore left under the admin's name and grants the writer and reader again
+   (`Database.adopt`; this is the left-over of D-378 "restore" for these schemas), then applies the versions, then
+   the store's own part. For `edc` (`edc.store.install`): the append-only triggers on the eight trail tables, and
+   the writer loses UPDATE, DELETE and TRUNCATE on them and every write on the version table. `deploy/install.sh`
+   runs the step after the role script and before the services start; `trialbox update` runs it before it starts
+   the new containers; `python3 -m tools.trialbox migrate` runs it by hand. The admin's URL is passed in the
+   environment of a one-off orchestrator container, never on a command line.
+4. **The orchestrator checks, it does not make.** `EdcStore` on a schema it does not own verifies that every
+   trail trigger exists and is enabled, and does not start without one.
+
+Where the roles are not set (DEV, TEST, the in-process demo, a box updated without a new run of the role script,
+the Kubernetes platform, whose services still sign in as `trialbox`) nothing changes: the caller owns the schema
+or is a member of its owner, and migrates it at start as before.
+
+## What a service role can no longer do in `edc`
+
+`DROP TRIGGER`, `ALTER TABLE ... DISABLE TRIGGER`, `ALTER TABLE`, `DROP TABLE`, `TRUNCATE`, `UPDATE` or `DELETE` on
+a trail table, replace or drop the trigger's function, create a table, drop the schema, or take the owner's role.
+`tests/unit/test_db_roles.py` runs each as `tb_orchestrator` on a real cluster made by the real script.
+
+## Not done
+
+- **`app` and `pidmap`**, the other two schemas the card names first, and every other schema: they stay with
+  their D-378 group. `app` (the flags) needs a reader for six services and a writer for the console, so the
+  script's list needs a way to say "reader"; `pidmap` waits for the identifiers door to be its own role (D-487,
+  stage c). The mechanism here takes a schema by adding it to `owned`, giving its store an install function in
+  `orchestrator.migrate.OWNED` and, for a reader, that notation.
+- **`dataops.batch_step`**, `breakglass`, `team`, `optout`, the sponsor layouts, the recall ledger (F4's other
+  stores).
+- **The orchestrator's membership of `breakglass` and `team`** (D-484 gave it the groups to read a grant and the
+  delegation log): it should be a reader of both. Needs the reader notation above.
+- **`profile` and `tuned` on no console role.** The console cannot read the twins on per-service roles: the
+  `profile` schema is on the orchestrator's list only and `tuned` on none. This card does not change it; it
+  belongs with the reader notation (the console as a reader of `profile` and `tuned`), or the console should
+  ask the orchestrator over HTTP as it does for the EDC. Listed as a finding for the integrator.
+- **One password file per role** (the rest of T-712): unchanged here.
+- **The Kubernetes platform**: its services still sign in as `trialbox`, so they are owners of everything; the
+  roles are made there but protect nothing until the platform has per-service roles.
+- `GRANT CREATE ON DATABASE` to the service roles (a re-run's scratch schema) stays.

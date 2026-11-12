@@ -1205,10 +1205,23 @@ class ComposeBox(_DockerImages):
                 raise UpdateFailed(str(e)) from e
         return made
 
+    def migrate_owned(self) -> None:
+        """T-718 (D-486): the schemas no service owns are made by the box's admin before the services start, in a
+        one-off orchestrator container of the new image (``python -m orchestrator.migrate``). The admin's URL
+        travels in the environment (``-e NAME`` without a value), never on the command line. The database is up: an
+        update stops the services only."""
+        url = self.env.get("TB_DB_URL", "")
+        if not url:  # a box that never ran install.sh's database step: nothing to do here
+            return
+        self.run(self._c("run", "--rm", "--no-deps", "-T", "-e", "TB_DB_URL", "orchestrator",
+                         "python", "-m", "orchestrator.migrate"), env={"TB_DB_URL": url}, timeout=900)  # fmt: skip
+
     def restart(self, plan: Plan) -> None:
-        # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
+        # new images: the containers are recreated and every service runs its migrations at start (tb_common.db);
+        # the schemas with an owner role (D-486) first, as the admin
         self.resolve_pins()
         self.ensure_model_key()
+        self.migrate_owned()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
         pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
         if pull not in ("never", "missing"):

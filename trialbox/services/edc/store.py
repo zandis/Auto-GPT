@@ -256,6 +256,74 @@ def _cit(raw: Any) -> dict[str, Any] | None:
     return dict(json.loads(raw)) if isinstance(raw, str) else dict(raw)
 
 
+def prepare(db: Database) -> int:
+    """The schema as this release needs it; the version. Whoever owns the schema makes it: the versions, then the
+    trail triggers. D-486 (T-718): on a box the owner is ``tbo_edc`` and only the install step is it
+    (:func:`install`); the orchestrator's role is a writer, so here it checks the versions and that every trail
+    trigger is in place, and refuses a schema that lacks one. It can make none and drop none."""
+    version = db.migrate(list(MIGRATIONS))
+    owner = db.owner_role()
+    if owner is None:
+        _append_only(db)
+        return version
+    missing = sorted(set(_trail_triggers()) - _triggers(db))
+    if missing:
+        raise EdcError(
+            "edc.schema", f"the trail triggers {missing} are missing: {owner} makes them; run `trialbox migrate`", 500
+        )
+    return version
+
+
+def install(url: str | None = None) -> int:
+    """The install step for this schema (``python -m orchestrator.migrate``, as the box's admin): the versions, the
+    trail triggers and the writer's rights. Needs no signature key."""
+    with Database.connect(url or os.environ.get(ENV), "edc") as db:
+        db.adopt()  # what a restore left under the admin's name is the owner role's again
+        return prepare(db)
+
+
+def _trail_triggers() -> list[str]:
+    return [f"{t}_{kind}" for t in APPEND_ONLY for kind in ("append_only", "no_truncate")]
+
+
+def _triggers(db: Any) -> set[str]:
+    """The user triggers of this schema that are enabled."""
+    rows = db.fetchall(
+        "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON "
+        "n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgenabled <> 'D'"
+    )
+    return {str(r[0]) for r in rows}
+
+
+def _append_only(db: Database) -> None:
+    """A trigger on each trail table refuses UPDATE, DELETE and TRUNCATE (D-281, CR-036). Made here, not in a
+    migration, because a plpgsql body holds ``;`` (``Database.migrate`` splits on it); idempotent, one maker at a
+    time. It holds against any role but the tables' owner. D-486 (T-718): on a box that owner is ``tbo_edc``, which
+    no service is; the writer's role then also loses UPDATE, DELETE and TRUNCATE on the trail tables and every
+    write on the version table."""
+    with db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.edc_append_only'))")
+        tx.execute("CREATE OR REPLACE FUNCTION edc_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                   "RAISE EXCEPTION USING MESSAGE = 'edc.' || TG_TABLE_NAME || ' is append-only', "
+                   "ERRCODE = 'insufficient_privilege'; END $$")  # fmt: skip
+        have = _triggers(tx)
+        for table in APPEND_ONLY:
+            if f"{table}_append_only" not in have:
+                tx.execute(f"DROP TRIGGER IF EXISTS {table}_append_only ON {table}")  # one left disabled
+                tx.execute(f"CREATE TRIGGER {table}_append_only BEFORE UPDATE OR DELETE ON {table} "
+                           "FOR EACH ROW EXECUTE FUNCTION edc_append_only()")  # fmt: skip
+            if f"{table}_no_truncate" not in have:
+                tx.execute(f"DROP TRIGGER IF EXISTS {table}_no_truncate ON {table}")
+                tx.execute(f"CREATE TRIGGER {table}_no_truncate BEFORE TRUNCATE ON {table} "
+                           "FOR EACH STATEMENT EXECUTE FUNCTION edc_append_only()")  # fmt: skip
+    writer = db.writer_role()
+    if writer:
+        with db.transaction() as tx:
+            for table in APPEND_ONLY:
+                tx.execute(f'REVOKE UPDATE, DELETE, TRUNCATE ON {table} FROM "{writer}"')
+            tx.execute(f'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON _schema_version FROM "{writer}"')
+
+
 class EdcStore:
     def __init__(self, url: str | None = None, sign_key: bytes | None = None) -> None:
         self._key = sign_key if sign_key is not None else sign_key_of(os.environ)
@@ -263,28 +331,7 @@ class EdcStore:
             raise EdcError("edc.sign_key", "the signature key is shorter than 16 bytes", 500)
         self.key_id = key_fingerprint(self._key)[:16]
         self._db = Database.connect(url or os.environ.get(ENV), "edc")
-        self._db.migrate(list(MIGRATIONS))
-        self._append_only()
-
-    def _append_only(self) -> None:
-        """A trigger on each trail table refuses UPDATE, DELETE and TRUNCATE (D-281, CR-036). Made here, not in a
-        migration, because a plpgsql body holds ``;`` (``Database.migrate`` splits on it); idempotent, one maker at a
-        time. It holds against any role but a table owner who drops it: the database roles are SEC-4's."""
-        with self._db.transaction() as tx:
-            tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.edc_append_only'))")
-            tx.execute("CREATE OR REPLACE FUNCTION edc_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-                       "RAISE EXCEPTION USING MESSAGE = 'edc.' || TG_TABLE_NAME || ' is append-only', "
-                       "ERRCODE = 'insufficient_privilege'; END $$")  # fmt: skip
-            have = {str(r[0]) for r in tx.fetchall(
-                "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON "
-                "n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal")}  # fmt: skip
-            for table in APPEND_ONLY:
-                if f"{table}_append_only" not in have:
-                    tx.execute(f"CREATE TRIGGER {table}_append_only BEFORE UPDATE OR DELETE ON {table} "
-                               "FOR EACH ROW EXECUTE FUNCTION edc_append_only()")  # fmt: skip
-                if f"{table}_no_truncate" not in have:
-                    tx.execute(f"CREATE TRIGGER {table}_no_truncate BEFORE TRUNCATE ON {table} "
-                               "FOR EACH STATEMENT EXECUTE FUNCTION edc_append_only()")  # fmt: skip
+        prepare(self._db)
 
     @property
     def db(self) -> Database:

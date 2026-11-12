@@ -137,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     bi.add_argument("--deploy", type=Path, default=deploy)
     bi.add_argument("--cron-dir", type=Path, default=Path("/etc/cron.d"))
     bi.add_argument("--no-first-run", action="store_true", help="install the cron file only; no first backup")
+    mi = sub.add_parser("migrate", help="make the schemas no service owns, as the box's admin (T-718, D-486)")
+    mi.add_argument("--deploy", type=Path, default=deploy)
     s = sub.add_parser("secrets", help="per-service tokens: init, status, rotate (never prints a value)")
     s.add_argument("action", choices=["init", "status", "rotate"])
     s.add_argument(
@@ -204,6 +206,15 @@ def main(argv: list[str] | None = None) -> int:
         return _exports_cmd(a)
     if a.cmd == "secrets":
         return _secrets_cmd(a)
+    if a.cmd == "migrate":
+        from tools.trialbox import update as tb_update
+
+        try:
+            tb_update.ComposeBox(a.deploy).migrate_owned()
+        except tb_update.UpdateFailed as exc:
+            print(f"migrate: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if a.cmd == "ops":
         from tools.trialbox import ops as tb_ops
 

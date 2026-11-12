@@ -451,6 +451,11 @@ fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
   || die "the database roles could not be set (docker compose logs db)"
+# D-486 (T-718): the schemas no service owns (edc) are made now, by the box's admin, before the services start; the
+# admin's URL goes in the environment, not on the command line
+TB_DB_URL="postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" "${COMPOSE[@]}" run --rm --no-deps -T -e TB_DB_URL \
+  orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
+  || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then

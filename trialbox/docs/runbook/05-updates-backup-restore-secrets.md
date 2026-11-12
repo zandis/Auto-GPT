@@ -171,8 +171,14 @@ point-in-time recovery).
 which belong to group roles. A restore made as `trialbox` leaves its tables owned by `trialbox`, so run the role
 script once after it: `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`
 (`deploy/install.sh` runs it on every install and upgrade). It is safe to run any time.
-Since D-461 the console is not in the EDC group (`tbs_edc`): the console reaches the EDC only through the
+Since D-461 the console does not reach the EDC schema: the console reaches the EDC only through the
 orchestrator, and the script takes an earlier membership away on its next run.
+Since D-486 (T-718) the EDC schema belongs to an owner role of its own (`tbo_edc`, whose one member is
+`trialbox`); the orchestrator is its writer (`tbw_edc`) and cannot create, alter or drop anything in it, its
+append-only triggers included. Its tables are made by the box's admin, not by the orchestrator at start:
+`deploy/install.sh` and `trialbox update` do it, and after a restore run it once after the role script:
+`python3 -m tools.trialbox migrate`. An orchestrator that finds the schema behind its release, or a trail table
+without its trigger, does not start and says to run this.
 The script also gives the audit journal back to its owner and the services their right to write to it (D-394): until
 it runs, a restored box refuses actions that must be audited. When the database is older than the audit chain (an
 update rollback), the `audit-writer` service writes an `audit.journal_resync` event and goes on; `docker compose logs

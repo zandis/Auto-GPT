@@ -10,6 +10,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Database roles (T-718, D-486): the EDC schema has an owner role no service can become; the orchestrator writes its
+  rows and can no longer drop, disable or alter the triggers that make its trail tables append-only. The schema's
+  tables are made by the box's admin before the services start (`install.sh`, `trialbox update`, or by hand
+  `python3 -m tools.trialbox migrate`); after a restore run the role script, then that command.
 - Database passwords (T-712, D-481): every service clears the other roles' and the administrators' passwords in
   the base compose file, so no stack can be started with them; `trialbox doctor` has the check `db_passwords`
   (the box's `.env`, its compose files and its running containers).
