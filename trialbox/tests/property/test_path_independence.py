@@ -1,0 +1,926 @@
+"""Path independence (T-705, D-459; card AD-5 of ``docs/reviews/2026-11-12-architecture/decision.md``).
+
+One small lake, one scripted pair that reads the text it is shown (``tests/judge_kit.py``: :class:`QuotingOracle`),
+and every path that decides or counts patients, driven in process on the same snapshot through the real
+orchestrator, mail gateway and job database (``tests/inproc_box.py``): SCREEN on the cascade and on v1, MICROBATCH
+(the re-check of the pool and the screen of new patients), NAV, CASE with a chart number, FEAS and COHORT.
+
+What must hold, per planted patient (``PATIENTS``):
+
+* **the same status** on every path as on the reference path (SCREEN on the cascade, the default engine), read
+  through the named table of the differences that are decisions (``INTENDED``);
+* **the same verdict** for every criterion two paths both publish;
+* **an opted-out patient is in no published bytes** of any path: lists, pool, workbooks, drafts, evidence files,
+  the mail.
+
+Today's unintended differences are strict expected failures (``KNOWN``), each naming its finding id of the review
+(H1 to H4, M1 to M5) or of the critical-issues register. A card that fixes one removes its lines: a line whose
+check starts to pass fails the run (``strict=True``), and so does a line no check uses. A card that adds a path that
+decides or counts patients adds it here (plan v6.1 §5.1).
+
+What cannot be driven as a path, and why, is said where the test stands in for it (the console's list, the COHORT
+job's trial simulation).
+"""
+
+from __future__ import annotations
+
+import base64
+import fcntl
+import io
+import json
+import os
+import pickle
+import shutil
+import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+import yaml
+from criteria_compiler.compile_sql.generator import SqlGenerator
+from criteria_compiler.terminology.mapper import Terminology, ValueSets
+from embed_service.embedder import HashEmbedder
+from lake.client import LakeLocal
+from lake.store import Lake
+from tb_common.crypto import pid_for_mrn
+from tb_common.ruleset import Ruleset
+from tb_contracts import CriterionIR, JobCreate
+
+from tests.inproc_box import Box, make_box
+from tests.judge_kit import Decisive, QuotingOracle, ScriptedModel, quoting_pair
+
+ROOT = Path(__file__).resolve().parents[2]
+KEY = b"trialbox-test-site-key-0123456789abcdef"
+RUN = date(2026, 10, 5)  # a Monday
+SNAP = "2026-10-04"
+TZ = "Asia/Taipei"  # the zone of deploy/settings.example.yaml's site (D-315)
+PRACT, PRACT2, DEPT = "P12345", "P23456", "RHEU"  # doctors of deploy/settings.example.yaml
+ICD = "http://hl7.org/fhir/sid/icd-10-cm"
+
+# ------------------------------------------------------------------------------------------------ the decisive text
+FLARE = "Acute gout flare of the right toe."
+SOFTFLARE = "Possible gout flare last spring."
+NOFLARE = "No gout flare in the past year."
+TB = "Active tuberculosis infection under treatment."
+NO_TB = "Tuberculosis screening negative."
+PREG = "Pregnancy test positive today."
+NOT_PREG = "Pregnancy test negative."
+FILLER = "Routine follow-up, vitals stable, no change in plan."
+ASKED = "Gout clinic: did the patient have a gout flare in the past year? Notes of the past year to be reviewed."
+
+ORACLE = {  # what a careful reader answers when shown the sentence (rule order: the first shown decides)
+    "gout flare": [Decisive(FLARE), Decisive(SOFTFLARE, confidence=0.6), Decisive(NOFLARE, "fail")],
+    "tuberculosis": [Decisive(TB), Decisive(NO_TB, "fail")],
+    "pregnan": [Decisive(PREG), Decisive(NOT_PREG, "fail")],
+}
+
+# ------------------------------------------------------------------------------------------------ the ruleset
+NOTE_LOGIC = {"domain": "condition", "valueset": "VS_NOTE"}
+
+
+def _ir(cid: str, kind: str, class_: str, text: str, logic: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    return {"id": cid, "kind": kind, "class": class_, "text": text, "label": text[:30], "logic": logic,
+            "review": {"status": "approved", "by": "crc1@hospa.test", "at": "2026-10-01T09:00:00+08:00"}, **extra}  # fmt: skip
+
+
+def _window(days: int) -> dict[str, Any]:
+    return {"window": {"anchor": "index", "from_days": -days, "to_days": 0}}
+
+
+CRITERIA: list[dict[str, Any]] = [
+    _ir("PI-INC-01", "inclusion", "structured", "Age 18 or older",
+        {"domain": "demographic", "valueset": "NONE", "age": {"min": 18}}),
+    _ir("PI-INC-02", "inclusion", "note", "Gout flare in the past year", {**NOTE_LOGIC, **_window(365)},
+        note_question="Do the notes document a gout flare in the past year?"),
+    _ir("PI-EXC-01", "exclusion", "note", "Active tuberculosis infection", {**NOTE_LOGIC, **_window(365)},
+        note_question="Do the notes document active tuberculosis infection?"),
+    _ir("PI-EXC-02", "exclusion", "note", "Currently pregnant", {**NOTE_LOGIC, **_window(30)},
+        note_question="Do the notes document a current pregnancy?", time_sensitive=True),
+    _ir("PI-EXC-03", "exclusion", "structured", "Malignancy within the past 5 years",
+        {"domain": "condition", "quantifier": "any", "valueset": "VS_MALIG", **_window(1825)}),
+]  # fmt: skip
+AMENDMENT = _ir("PI-INC-03", "inclusion", "structured", "Age 70 or older",
+                {"domain": "demographic", "valueset": "NONE", "age": {"min": 70}})  # fmt: skip
+STRUCTURED = {c["id"] for c in CRITERIA if c["class"] == "structured"}
+INCLUSIONS = {c["id"] for c in CRITERIA if c["kind"] == "inclusion"}
+VALUESETS = {
+    "VS_MALIG": {"resourceType": "ValueSet", "id": "VS_MALIG", "name": "VS_MALIG", "status": "active",
+                 "compose": {"include": [{"system": ICD, "concept": [{"code": "C50.9", "display": "breast"}]}]}},
+    "VS_NOTE": {"resourceType": "ValueSet", "id": "VS_NOTE", "name": "VS_NOTE", "status": "active",
+                "compose": {"include": [{"system": ICD, "concept": [{"code": "Z99.99", "display": "none"}]}]}},
+}  # fmt: skip
+
+
+def write_ruleset(root: Path, rid: str, base: str, version: str = "1.0.0",
+                  extra: list[dict[str, Any]] | None = None, **manifest: Any) -> Ruleset:  # fmt: skip
+    """``CRITERIA`` (+ ``extra``) as the approved ruleset ``rid``, under the manifest of the committed ruleset
+    ``base`` (its kind, routing, scopes and judge prompt pin). The same criterion ids in every copy, so the paths'
+    verdicts compare one to one. ``root`` is not a git repository, so no approval tag is asked for."""
+    crits = [CriterionIR.model_validate({**c, "ruleset": rid}) for c in [*CRITERIA, *(extra or [])]]
+    sql = SqlGenerator(rid, version, ValueSets(rid, VALUESETS, Terminology())).render(
+        [c for c in crits if c.class_ == "structured"]
+    )
+    m = Ruleset.load(ROOT / "rulesets" / base).manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
+    m.update({"id": rid, "version": version, "criteria": [c.id for c in crits], "trial_alias": rid, **manifest})
+    for k in ("library", "equivalence", "variants", "source_documents"):
+        m.pop(k, None)
+    d = root / rid
+    shutil.rmtree(d, ignore_errors=True)
+    for sub in ("ir", "valuesets", "sql"):
+        (d / sub).mkdir(parents=True)
+    (d / "manifest.yaml").write_text(yaml.safe_dump(m, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    for c in crits:
+        (d / "ir" / f"{c.id}.json").write_text(c.model_dump_json(by_alias=True, exclude_none=True), encoding="utf-8")
+    for k, v in VALUESETS.items():
+        (d / "valuesets" / f"{k}.json").write_text(json.dumps(v), encoding="utf-8")
+    (d / "sql" / f"{rid}.sql").write_text(sql, encoding="utf-8")
+    return Ruleset.load(d)
+
+
+# ------------------------------------------------------------------------------------------------ the patients
+def _note(on: str, *sentences: str) -> tuple[str, str]:
+    """A note that also says, in so many words, that there is no tuberculosis and no pregnancy (a reader needs a
+    sentence to answer "not present"; the pair keeps no answer without a quote)."""
+    return on, " ".join([*sentences, NO_TB, NOT_PREG, FILLER])
+
+
+# Adults (born 1960) with a booked visit with PRACT on 2026-10-08 in RHEU, unless the entry says otherwise.
+PATIENTS: dict[str, dict[str, Any]] = {
+    "ELIG": {"mrn": "10000001", "notes": [_note("2026-09-20", FLARE)]},
+    "INF": {"mrn": "10000002", "notes": [_note("2026-09-20", FLARE), _note("2026-08-01", TB)]},
+    "CODED": {"mrn": "10000003", "notes": [_note("2026-09-20", FLARE)], "malig": "2026-01-10"},
+    "NOFLARE": {"mrn": "10000004", "notes": [_note("2026-09-20", NOFLARE)]},
+    "SILENT": {"mrn": "10000005", "notes": [_note("2026-09-20")]},
+    "CHILD": {"mrn": "10000006", "birth": "2015-03-01", "notes": [_note("2026-09-20", FLARE)]},
+    "OPT": {"mrn": "10000007", "notes": [_note("2026-09-20", FLARE)], "optout": True},
+    "REFUSED": {"mrn": "10000008", "notes": [_note("2026-09-20", FLARE)],
+                "consent": [("rejected", "deny", "2026-05-01")]},
+    "NOCONTACT": {"mrn": "10000009", "notes": [_note("2026-09-20", FLARE)],
+                  "consent": [("active", "deny", "2026-05-01")]},
+    "UNDATED": {"mrn": "10000010", "notes": [_note("2026-09-20", FLARE)],
+                "consent": [("active", "permit", "2026-05-01"), ("rejected", "deny", None)]},
+    "PERMIT": {"mrn": "10000011", "notes": [_note("2026-09-20", FLARE)],
+               "consent": [("active", "permit", "2026-05-01")]},
+    "LOWCONF": {"mrn": "10000012", "notes": [_note("2026-09-20", SOFTFLARE)]},
+    "PREGNANT": {"mrn": "10000013", "notes": [_note("2026-09-20", FLARE), _note("2026-10-01", PREG)]},
+    "NOAGE": {"mrn": "10000014", "birth": None, "notes": [_note("2026-09-20", FLARE)]},
+    # the flare is in an old note; seven newer notes say there was none (which text a path shows decides)
+    "CUT": {"mrn": "10000015", "notes": [_note("2026-01-15", FLARE)]
+            + [_note(f"2026-09-{d:02d}", NOFLARE) for d in (1, 5, 9, 13, 17, 21, 25)]},
+    # the flare is in an old note, the newer ones say nothing about it (an unknown first answer: the full record)
+    "DEEP": {"mrn": "10000017", "notes": [_note("2026-01-15", FLARE)]
+             + [_note(f"2026-09-{d:02d}", ASKED) for d in (1, 5, 9, 13, 17, 21, 25)]},
+    "OTHERDOC": {"mrn": "10000016", "pract": PRACT2, "notes": [_note("2026-09-20", FLARE)]},
+}  # fmt: skip
+PID = {k: pid_for_mrn(KEY, v["mrn"]) for k, v in PATIENTS.items()}
+WHO = {v: k for k, v in PID.items()}
+SCREENED = [k for k, v in PATIENTS.items() if v.get("pract", PRACT) == PRACT]  # SCREEN's scope (pract=PRACT)
+
+
+def _res(rtype: str, rid: str, **body: Any) -> dict[str, Any]:
+    return {"resourceType": rtype, "id": rid, **body}
+
+
+def build_lake(nd: Path, lake_dir: Path) -> None:
+    """``PATIENTS`` as FHIR NDJSON, flattened into one lake snapshot by the lake's own rebuild (hash embedder)."""
+    types = ("Patient", "Practitioner", "Appointment", "Encounter", "DocumentReference", "Condition", "Consent")
+    out: dict[str, list[dict[str, Any]]] = {t: [] for t in types}
+    for pr in (PRACT, PRACT2):
+        out["Practitioner"].append(_res("Practitioner", pr, name=[{"text": f"Dr {pr} (synthetic)"}]))
+    for key, p in PATIENTS.items():
+        pid, ref = PID[key], {"reference": f"Patient/{PID[key]}"}
+        birth = p.get("birth", "1960-01-01")
+        out["Patient"].append(_res("Patient", pid, gender="female", **({"birthDate": birth} if birth else {})))
+        out["Appointment"].append(_res(
+            "Appointment", f"{pid}-a", status="booked", start="2026-10-08T09:00:00+08:00",
+            serviceType=[{"coding": [{"code": DEPT}]}],
+            participant=[{"actor": ref}, {"actor": {"reference": f"Practitioner/{p.get('pract', PRACT)}"}}]))  # fmt: skip
+        out["Encounter"].append(_res(
+            "Encounter", f"{pid}-e", status="finished", subject=ref, serviceType={"coding": [{"code": DEPT}]},
+            participant=[{"individual": {"reference": f"Practitioner/{p.get('pract', PRACT)}"}}],
+            period={"start": "2026-09-20T09:00:00+08:00", "end": "2026-09-20T09:30:00+08:00"}))  # fmt: skip
+        for i, (on, text) in enumerate(p["notes"], start=1):
+            out["DocumentReference"].append(_res(
+                "DocumentReference", f"{pid}-d{i}", subject=ref, date=f"{on}T09:00:00+08:00",
+                type={"text": "progress"},
+                content=[{"attachment": {"contentType": "text/plain",
+                                         "data": base64.b64encode(text.encode()).decode()}}]))  # fmt: skip
+        if p.get("malig"):
+            out["Condition"].append(_res(
+                "Condition", f"{pid}-c1", subject=ref, code={"coding": [{"system": ICD, "code": "C50.9"}]},
+                recordedDate=p["malig"], onsetDateTime=p["malig"]))  # fmt: skip
+        for i, (status, prov, on) in enumerate(p.get("consent", []), start=1):
+            out["Consent"].append(_res(
+                "Consent", f"{pid}-k{i}", patient=ref, status=status, provision={"type": prov},
+                **({"dateTime": on} if on else {})))  # fmt: skip
+    nd.mkdir(parents=True)
+    for t, rows in out.items():
+        (nd / f"{t}.ndjson").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), "utf-8")
+    Lake(lake_dir, TZ).rebuild(SNAP, HashEmbedder(), nd)
+
+
+def chart(key: str) -> bytes:
+    """The patient's notes as the chart a PI attaches to CASE: one dated paragraph per note."""
+    return "\n\n".join(f"{on}\n{text}" for on, text in PATIENTS[key]["notes"]).encode("utf-8")
+
+
+# ------------------------------------------------------------------------------------------------ what a path says
+@dataclass
+class Seen:
+    """What one path published about each patient: a status word (or None: the path published nothing about the
+    patient) and the verdict of each criterion it published."""
+
+    status: dict[str, str | None] = field(default_factory=dict)
+    verdicts: dict[str, dict[str, str]] = field(default_factory=dict)
+    covers: set[str] = field(default_factory=set)  # the patients this path was asked about
+    why: dict[str, str] = field(default_factory=dict)  # an exclusion with no criterion: "refused" or "contact"
+
+
+def _outputs(box: Box, job: Any) -> dict[str, bytes]:
+    return {o.filename: box.store.get(o.minio_key) for o in job.outputs or []}
+
+
+def _doc(box: Box, job: Any, prefix: str) -> dict[str, Any]:
+    doc: dict[str, Any] = json.loads(
+        next(v for k, v in _outputs(box, job).items() if k.startswith(prefix) and k.endswith(".json"))
+    )
+    return doc
+
+
+def _verdicts(criteria: list[dict[str, Any]]) -> dict[str, str]:
+    return {v["id"]: v["verdict"] for v in criteria}
+
+
+def screen_seen(box: Box, job: Any, covers: list[str]) -> Seen:
+    """SCREEN: the candidate list (high, review; every verdict) and the excluded list (the failing criteria)."""
+    assert job.state == "done", job.error
+    s = Seen(covers=set(covers))
+    for r in _doc(box, job, "candidate_list_")["rows"]:
+        s.status[WHO[r["pid"]]] = r["tier"]
+        s.verdicts[WHO[r["pid"]]] = _verdicts(r["criteria"])
+    for r in _doc(box, job, "excluded_")["rows"]:
+        s.status[WHO[r["pid"]]] = "excluded"
+        s.verdicts[WHO[r["pid"]]] = {v["id"]: "fail" for v in r["criteria"]}
+        acts = " ".join(r.get("actions") or [])
+        if not r["criteria"] and acts:  # the cascade's S0: a consent statement, not a criterion
+            s.why[WHO[r["pid"]]] = "contact" if "contact: deny" in acts else "refused"
+    return s
+
+
+def pool_seen(box: Box, rid: str, covers: set[str]) -> Seen:
+    """MICROBATCH's re-check: the pool rows after the run (tier and every stored verdict)."""
+    s = Seen(covers=covers)
+    for p in box.orch.db.pool(rid):
+        if WHO[p["pid"]] in covers:
+            s.status[WHO[p["pid"]]] = p["tier"]
+            s.verdicts[WHO[p["pid"]]] = _verdicts(p["verdicts"])
+    return s
+
+
+def new_patients_seen(box: Box, job: Any) -> Seen:
+    """MICROBATCH's new patients: the ones its record says it screened; listed ones with their tier and verdicts,
+    the others excluded (the run publishes no evidence file for them)."""
+    assert job.state == "done", job.error
+    screened = {WHO[p] for p in _doc(box, job, "new_screened_")["pids"]}
+    s = Seen(covers=screened)
+    rows = {WHO[r["pid"]]: r for r in _doc(box, job, "candidate_list_")["rows"]}
+    for k in screened:
+        s.status[k] = rows[k]["tier"] if k in rows else "excluded"
+        if k in rows:
+            s.verdicts[k] = _verdicts(rows[k]["criteria"])
+    return s
+
+
+def nav_seen(box: Box, job: Any) -> Seen:
+    """NAV: the list a patient is on (``-``: on none); verdicts of the listed."""
+    assert job.state == "done", job.error
+    s = Seen(covers=set(PATIENTS))
+    for k in PATIENTS:
+        s.status[k] = "-"
+    for name, rows in _doc(box, job, "nav_lists_")["lists"].items():
+        for r in rows:
+            if name != "doc_gaps":
+                s.status[WHO[r["pid"]]] = name
+            s.verdicts[WHO[r["pid"]]] = _verdicts(r["criteria"])
+    return s
+
+
+# ------------------------------------------------------------------------------------------------ the world
+def run_job(box: Box, subject: str, sender: str = "crc1@hospa.test", files: tuple[tuple[str, bytes], ...] = ()) -> Any:
+    """``subject`` as a mail to the box (the gateway makes the job), or, for MICROBATCH (a timer's job, never
+    mailed), as the scheduler submits it."""
+    before = {j.job_id for j in box.orch.db.find(limit=1000)}
+    words = subject.split()
+    if words[0] == "MICROBATCH":
+        opts = dict(w.split("=", 1) for w in words[2:])
+        box.orch.create(JobCreate(type="MICROBATCH", ruleset=words[1], requested_by="scheduler", options=opts or None))
+    else:
+        assert box.mail(subject, files, sender=sender) == "Processed", subject
+    box.orch.drain()
+    (job,) = [j for j in box.orch.db.find(limit=1000) if j.job_id not in before]
+    return job
+
+
+@dataclass
+class JobView:
+    """What a job left: its state, its error and every file it published (as stored, by file name)."""
+
+    state: str
+    error: str
+    outputs: dict[str, bytes]
+
+
+@dataclass
+class World:
+    """Everything the tests read, as plain data: built once per run and shared by the xdist workers."""
+
+    seen: dict[str, Seen]
+    jobs: dict[str, JobView]
+    mails: list[str]  # subject and every text part of each mail the box sent
+    pools: dict[str, list[str]]  # ruleset -> the pids of its candidate pool at the end
+    cohort: dict[str, Any]
+    asked: set[str]  # the oracle's keys the pair was asked about
+    lake_dir: Path
+    rulesets_dir: Path
+
+
+SCR = {"practitioners": [PRACT, PRACT2], "appointment_window_days": 180, "recent_encounter_months": 12,
+       "microbatch_window_days": 14}  # fmt: skip
+
+
+@pytest.fixture(scope="module")
+def world(tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str, worker_id: str) -> World:
+    """Every path run once on one box, one lake, one snapshot (about 45 s), shared by the xdist workers of the run
+    (the first builds it under a lock, the others read it), so ``-n auto`` does not build it once per worker."""
+    if worker_id == "master":
+        return build_world(tmp_path_factory.mktemp("paths"), pg_cluster_url)
+    root = tmp_path_factory.getbasetemp().parent / "path-independence"  # one directory for the run's workers
+    root.mkdir(exist_ok=True)
+    done = root / "world.pickle"
+    with (root / ".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            if not done.exists():
+                w = build_world(root / f"build-{os.getpid()}", pg_cluster_url)
+                done.write_bytes(pickle.dumps(w))
+            loaded: World = pickle.loads(done.read_bytes())  # this run's own file
+            return loaded
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def build_world(tmp: Path, pg_cluster_url: str) -> World:
+    """The site's week, in the order a site would see it. The world's own trial database (the per-test one of
+    ``tests/conftest.py`` would not outlive the first test)."""
+    tmp.mkdir(parents=True, exist_ok=True)
+    mp = pytest.MonkeyPatch()
+    sep = "&" if "?" in pg_cluster_url else "?"
+    mp.setenv("TB_DB_URL", f"{pg_cluster_url}{sep}tb_prefix=pathind{os.getpid()}_")
+    mp.setenv("TB_TZ", TZ)
+    mp.setenv("TB_NOTE_BLOCK", "both_agree")  # the default policy: a note answer excludes when both models agree
+    mp.setenv("TB_CANARY_GATE", "off")
+    for name in ("TB_SCREEN_JUDGE", "TB_MODEL_SWAP", "TB_STUB_MODELS", "TB_SCREEN_PIPELINE"):
+        mp.delenv(name, raising=False)
+    try:
+        sec = tmp / "sec"
+        sec.mkdir()
+        (sec / "site_hmac.key").write_bytes(KEY)
+        build_lake(tmp / "nd", tmp / "lake")
+        box = make_box(tmp / "box", tmp / "lake", sec, RUN)
+        approved = tmp / "approved"
+        box.orch.rulesets_dir = approved  # the approved rulesets of this test (the box's repo holds the seed)
+        rs = {
+            "PIX": write_ruleset(approved, "PIX", "GZQO", scopes={"screen": SCR}),  # the reference
+            "PIV": write_ruleset(approved, "PIV", "GZQO", scopes={"screen": SCR}),  # SCREEN on v1 (own pool)
+            "PIM": write_ruleset(approved, "PIM", "GZQO", scopes={"screen": SCR}),  # MICROBATCH new patients
+            "PIS": write_ruleset(approved, "PIS", "GZQO", scopes={"screen": SCR}),  # one model, then the pair (H1)
+            "PIA": write_ruleset(approved, "PIA", "GZQO", scopes={"screen": SCR}),  # amended (H3)
+            "PIXN": write_ruleset(approved, "PIXN", "RA-BIO"),  # NAV needs an NHI ruleset: same criteria
+            "PISN": write_ruleset(approved, "PISN", "RA-BIO"),
+        }
+        oracle = QuotingOracle(ORACLE)
+        svc = box.orch.services
+        svc.llm, svc.verifier = quoting_pair(oracle)  # type: ignore[assignment]  # a scripted LlmClient
+        from tb_common.optout import OptOutRegister
+
+        reg = OptOutRegister()
+        reg.add(PID["OPT"], "paper", "synthetic opt-out", "crc1@hospa.test", "2026-10-01T09:00:00+08:00")
+        reg.close()
+
+        jobs: dict[str, Any] = {}
+        seen: dict[str, Seen] = {}
+        screen = f"pract={PRACT}"
+        # the reference: SCREEN on the cascade, then the weekly MICROBATCH re-check of its pool
+        jobs["screen.cascade"] = run_job(box, f"SCREEN PIX {screen}")
+        seen["screen.cascade"] = screen_seen(box, jobs["screen.cascade"], SCREENED)
+        pooled = {WHO[p["pid"]] for p in box.orch.db.pool("PIX")}
+        jobs["microbatch.recheck"] = run_job(box, "MICROBATCH PIX incident=0")
+        seen["microbatch.recheck"] = pool_seen(box, "PIX", pooled)
+        # SCREEN on the v1 evaluator
+        mp.setenv("TB_SCREEN_PIPELINE", "v1")
+        jobs["screen.v1"] = run_job(box, f"SCREEN PIV {screen}")
+        seen["screen.v1"] = screen_seen(box, jobs["screen.v1"], SCREENED)
+        mp.delenv("TB_SCREEN_PIPELINE")
+        # MICROBATCH new patients: a SCREEN of the other doctor's patient only, then everyone else is new
+        jobs["screen.other"] = run_job(box, f"SCREEN PIM pract={PRACT2}")
+        jobs["microbatch.new"] = run_job(box, "MICROBATCH PIM")
+        seen["microbatch.new"] = new_patients_seen(box, jobs["microbatch.new"])
+        # NAV (the RHEU appointments of the week: every patient)
+        jobs["nav"] = run_job(box, "NAV PIXN dept=RHEU", sender="nurse-rheu@hospa.test")
+        seen["nav"] = nav_seen(box, jobs["nav"])
+        # CASE with the chart number and the patient's notes as the chart
+        case = Seen(covers=set(SCREENED))
+        for key in SCREENED:
+            jobs[f"case.{key}"] = j = run_job(box, f"CASE PIX mrn={PATIENTS[key]['mrn']} lang=en",
+                                              files=(("chart.txt", chart(key)),))  # fmt: skip
+            if j.state == "done":
+                rec = json.loads(next(v for k, v in _outputs(box, j).items() if k.endswith(".json")))
+                case.verdicts[key] = {r["id"]: r["verdict"] for r in rec["criteria"]}
+                case.status[key] = "sheet"
+            else:
+                case.status[key] = None
+        seen["case"] = case
+        # FEAS: who the count holds at its latest month-end (``FeasRaw.prevalent_pids``, which the job keeps in
+        # memory for its profile and publishes as counts only: read from the job's own call)
+        from orchestrator.scenarios import feas, feas_compute
+
+        raws: list[Any] = []
+
+        def spy(*a: Any, **kw: Any) -> Any:
+            res = real(*a, **kw)
+            raws.append(res[1])
+            return res
+
+        real = feas_compute.compute
+        mp.setattr(feas, "compute", spy)
+        jobs["feas"] = run_job(box, "FEAS PIX")
+        mp.setattr(feas, "compute", real)
+        assert jobs["feas"].state == "done", jobs["feas"].error
+        members = {WHO[p] for p in raws[0].prevalent_pids}
+        seen["feas"] = Seen({k: "member" if k in members else "-" for k in PATIENTS}, {}, set(PATIENTS))
+        # COHORT: its count functions at the run date (see test_cohort_is_counted_by_its_own_functions)
+        cohort = cohort_counts(box, rs["PIX"])
+        by_kind = {c["id"]: c["kind"] for c in CRITERIA}
+        seen["cohort"] = Seen(
+            {k: "member" if PID[k] in cohort["population"] else "-" for k in PATIENTS},
+            {k: {cid: ("pass" if by_kind[cid] == "inclusion" else "fail") if PID[k] in pids else "-"
+                 for cid, pids in cohort["items"].items()} for k in PATIENTS if PID[k] in cohort["population"]},
+            set(PATIENTS),
+        )  # fmt: skip
+
+        # one model (TB_SCREEN_JUDGE=single: no verifier, a note answer may not exclude): SCREEN and NAV
+        mp.setenv("TB_SCREEN_JUDGE", "single")
+        jobs["screen.single"] = run_job(box, f"SCREEN PIS {screen}")
+        seen["screen.single"] = screen_seen(box, jobs["screen.single"], SCREENED)
+        jobs["nav.single"] = run_job(box, "NAV PISN dept=RHEU", sender="nurse-rheu@hospa.test")
+        seen["nav.single"] = nav_seen(box, jobs["nav.single"])
+        mp.delenv("TB_SCREEN_JUDGE")
+        # H1: the next week the pair is back, and its verifier reads the tuberculosis note the other way. MICROBATCH
+        # re-tiers the pool SCREEN left; the reference is SCREEN with the same pair on the same snapshot.
+        pooled = {WHO[p["pid"]] for p in box.orch.db.pool("PIS")}
+        svc.verifier = reads_tb_the_other_way(oracle)  # type: ignore[assignment]
+        jobs["microbatch.after_single"] = run_job(box, "MICROBATCH PIS incident=0")
+        seen["microbatch.after_single"] = pool_seen(box, "PIS", pooled)
+        jobs["screen.pair_disagrees"] = run_job(box, f"SCREEN PIS {screen}")
+        seen["screen.pair_disagrees"] = screen_seen(box, jobs["screen.pair_disagrees"], SCREENED)
+        svc.verifier = quoting_pair(oracle)[1]  # type: ignore[assignment]
+
+        # H3: the pool of version 1.0.0, then version 1.1.0 approved with one more inclusion (age 70 or older)
+        jobs["screen.before_amendment"] = run_job(box, f"SCREEN PIA {screen}")
+        pooled = {WHO[p["pid"]] for p in box.orch.db.pool("PIA")}
+        rs["PIA"] = write_ruleset(approved, "PIA", "GZQO", "1.1.0", [AMENDMENT], scopes={"screen": SCR})
+        jobs["microbatch.amended"] = run_job(box, "MICROBATCH PIA incident=0")
+        seen["microbatch.amended"] = pool_seen(box, "PIA", pooled)
+        jobs["screen.amended"] = run_job(box, f"SCREEN PIA {screen}")
+        seen["screen.amended"] = screen_seen(box, jobs["screen.amended"], SCREENED)
+
+        views = {n: JobView(j.state, str(j.error or ""), _outputs(box, j)) for n, j in jobs.items()}
+        mails = [m.subject + "\n" + "\n".join(p.get_content() for p in m.msg.walk()
+                                               if p.get_content_maintype() == "text") for m in box.sent]  # fmt: skip
+        pools = {rid: [str(p["pid"]) for p in box.orch.db.pool(rid)] for rid in rs}
+        asked = {k for k, _, _ in oracle.asked if k}
+        return World(seen, views, mails, pools, cohort, asked, tmp / "lake", approved)
+    finally:
+        mp.undo()
+
+
+def reads_tb_the_other_way(oracle: QuotingOracle) -> ScriptedModel:
+    """A verifier that agrees with the judge on everything but a note that documents tuberculosis, where it says the
+    opposite: the pair disagrees on that patient only (H1)."""
+
+    def answer(variables: dict[str, Any]) -> dict[str, Any]:
+        key = oracle.key_of(str(variables.get("criterion_text") or ""), str(variables.get("note_question") or ""))
+        ans = oracle.decide(key, list(variables.get("excerpts") or []))
+        return {**ans, "verdict": "fail"} if key == "tuberculosis" and ans["verdict"] == "pass" else ans
+
+    return ScriptedModel("verifier-b", answer)
+
+
+def cohort_counts(box: Box, rs: Ruleset) -> dict[str, Any]:
+    """COHORT's membership by its own functions (``cohort.items_at``, ``cohort.contactable_pids``) at the run date
+    on the job's pinned lake. The COHORT job itself is not run: its published bytes are suppressed counts (no
+    patient id can be compared), and it compiles the trials of the ClinicalTrials.gov cassette, which this test
+    does not need (``tests/integration/test_cohort_inproc.py`` runs the job)."""
+    from orchestrator.scenarios import cohort
+
+    ctx: Any = SimpleNamespace(services=SimpleNamespace(lake=box.orch.services.lake), cfg=box.orch.cfg)
+    items = cohort.items_at(ctx, rs, RUN, SNAP)
+    contact = cohort.contactable_pids(ctx, RUN, SNAP)
+    return {"population": items[0].pids, "items": {it.criterion_id: it.pids for it in items},
+            "contactable": contact or set()}  # fmt: skip
+
+
+# ------------------------------------------------------------------------------------------------ the decisions
+@dataclass(frozen=True)
+class Intended:
+    """A difference between paths that is a decision, with its reason and where it is decided."""
+
+    reason: str
+    basis: str
+
+
+INTENDED: dict[str, Intended] = {
+    "nav.lists": Intended(
+        "NAV's lists are not tiers: likely_eligible holds a patient whose every inclusion is met and no exclusion is "
+        "known to apply; a patient SCREEN would send to review with an inclusion unknown is on no NAV list (its "
+        "open items are the 確認 rows of a listed patient). So: SCREEN high or review with every inclusion met is "
+        "likely_eligible; everything else is on no list.",
+        "SPEC §8.4 (nav.py docstring)",
+    ),
+    "nav.scope": Intended(
+        "NAV scopes by the department's booked visits, SCREEN by the study's doctors: compared on the patients of "
+        "both (every planted patient but OTHERDOC).",
+        "SPEC §8.4, D-146",
+    ),
+    "case.chart": Intended(
+        "CASE answers the note criteria from the chart the PI attaches, not from the lake's notes: the test "
+        "attaches the patient's own notes, so the text is the same.",
+        "D-91",
+    ),
+    "case.no_status": Intended(
+        "CASE gives an answer per criterion and no status: the sheet is a reading aid and the PI decides. Its "
+        "status here is whether a sheet is made at all.",
+        "D-91 (case.py docstring)",
+    ),
+    "counts.notes": Intended(
+        "FEAS and COHORT read no notes: a note criterion is not applied in a count, so a patient excluded by a "
+        "note answer is still counted.",
+        "D-101",
+    ),
+    "counts.contact": Intended(
+        "A consent that denies contact is not an opt-out: it keeps a patient off every list but in the counts "
+        "and on a CASE sheet.",
+        "D-441 (the 'contact: deny' item)",
+    ),
+    "feas.population": Intended(
+        "FEAS counts the patients seen in the lookback (an encounter) at month-ends; SCREEN the study's patients "
+        "with a booked visit or a recent encounter at the run date. Every planted patient has both, and nothing in "
+        "the lake changes between the last month-end and the run date.",
+        "SPEC §8.1, D-18",
+    ),
+    "cohort.documented": Intended(
+        "COHORT counts the patients whose record documents each criterion (C IS TRUE) at quarter ends, not who is "
+        "eligible: an inclusion without a value is not counted; its membership is read from its count functions "
+        "at the run date (its published bytes are suppressed counts).",
+        "SPEC §8.3, D-72",
+    ),
+    "cohort.contactable": Intended(
+        "n_contactable needs a recorded active consent; SCREEN lists a patient with no statement. Compared on the "
+        "patients with a consent statement only.",
+        "D-72, D-441",
+    ),
+    "microbatch.recheck": Intended(
+        "The weekly re-check asks the models again only about the time-sensitive criteria of the pool's patients "
+        "and keeps the stored answers of the rest: compared on the pool's patients.",
+        "D-397",
+    ),
+    "microbatch.new": Intended(
+        "MICROBATCH screens as new only the patients no run has seen since the last SCREEN: compared on the "
+        "patients its record says it screened (it publishes no evidence file for those it excludes).",
+        "D-397",
+    ),
+}
+
+
+# ------------------------------------------------------------------------------------------------ what to expect
+Expect = Callable[[World, "Rule", str], Any]
+
+
+@dataclass(frozen=True)
+class Rule:
+    """A path, the path it must agree with, and the decisions (``INTENDED``) its expectation reads."""
+
+    path: str
+    reference: str
+    family: str
+    intended: tuple[str, ...] = ()
+
+
+RULES: dict[str, Rule] = {r.path: r for r in [
+    Rule("screen.v1", "screen.cascade", "screen"),
+    Rule("microbatch.recheck", "screen.cascade", "screen", ("microbatch.recheck",)),
+    Rule("microbatch.new", "screen.cascade", "screen", ("microbatch.new",)),
+    Rule("nav", "screen.cascade", "nav", ("nav.lists", "nav.scope")),
+    Rule("case", "screen.cascade", "case", ("case.chart", "case.no_status", "counts.contact")),
+    Rule("feas", "screen.cascade", "feas", ("counts.notes", "counts.contact", "feas.population")),
+    Rule("cohort", "screen.cascade", "cohort", ("counts.notes", "counts.contact", "cohort.documented",
+                                                "cohort.contactable")),
+    # one model on the box (no verifier): NAV against SCREEN on the same box
+    Rule("nav.single", "screen.single", "nav", ("nav.lists", "nav.scope")),
+    # the week after: MICROBATCH re-tiers what SCREEN stored with one model; SCREEN with the pair is the reference
+    Rule("microbatch.after_single", "screen.pair_disagrees", "screen", ("microbatch.recheck",)),
+    # after an amendment: MICROBATCH on the old pool against SCREEN on the approved version
+    Rule("microbatch.amended", "screen.amended", "screen", ("microbatch.recheck",)),
+]}  # fmt: skip
+
+
+def structured_truth(w: World, key: str, cid: str) -> str | None:
+    """The verdict of a structured criterion as the SQL engine gave it on the screening paths (the first that
+    published it); None when none did."""
+    for p in ("screen.cascade", "screen.v1", "case"):
+        v = w.seen[p].verdicts.get(key, {}).get(cid)
+        if v is not None:
+            return v
+    return None
+
+
+def out_of_lists(ref: Seen, key: str) -> str | None:
+    """Why the reference keeps the patient off every list without a criterion: the register (it never screened
+    them), a refusal, or a consent that denies contact."""
+    if key in ref.covers and ref.status.get(key) is None:
+        return "register"
+    return ref.why.get(key)
+
+
+def expected_status(w: World, rule: Rule, key: str) -> str | None:
+    ref = w.seen[rule.reference]
+    st = ref.status.get(key)
+    why = out_of_lists(ref, key)
+    if rule.family == "screen":
+        return st
+    if rule.family == "nav":
+        if st in ("high", "review") and all(ref.verdicts.get(key, {}).get(c) == "pass" for c in INCLUSIONS):
+            return "likely_eligible"
+        return "-"
+    if rule.family == "case":
+        return None if why in ("register", "refused") else "sheet"
+    struct_fail = any(structured_truth(w, key, c) == "fail" for c in STRUCTURED)
+    if rule.family == "feas":
+        return "-" if why in ("register", "refused") or struct_fail else "member"
+    if rule.family == "cohort":
+        documented = structured_truth(w, key, "PI-INC-01") == "pass"
+        return "member" if documented and why not in ("register", "refused") else "-"
+    raise AssertionError(rule.family)
+
+
+def compared(rule: Rule) -> list[str]:
+    """The patients a rule compares: those both paths were asked about (``nav.scope``, ``microbatch.*``)."""
+    return [k for k in PATIENTS if k in _COVERS.get(rule.path, set(PATIENTS)) and k in _COVERS.get(rule.reference,
+            set(PATIENTS))]  # fmt: skip
+
+
+# who each path is asked about, known before the run (the parametrisation needs it at collection)
+_COVERS: dict[str, set[str]] = {p: set(SCREENED) for p in (
+    "screen.cascade", "screen.v1", "screen.single", "screen.pair_disagrees", "screen.amended", "case")}  # fmt: skip
+_COVERS["microbatch.new"] = set(SCREENED) - {"OPT"}  # the register keeps OPT out of the new patients too
+# the pool each re-check starts from: who its SCREEN listed (the world checks that the run agrees)
+POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP"}
+_COVERS["microbatch.recheck"] = _COVERS["microbatch.amended"] = POOL
+_COVERS["microbatch.after_single"] = POOL | {"INF", "NOFLARE", "PREGNANT"}  # one model's "not met" is not final
+
+
+# ------------------------------------------------------------------------------------------------ known differences
+@dataclass(frozen=True)
+class Known:
+    finding: str
+    why: str
+
+
+H1 = Known("H1", "SCREEN stored one model's 'present' as verdict=fail; the re-tier with the pair allowed excludes it")
+H2 = Known("H2", "NAV drops a patient on one model's note answer: classify ignores the tier and the note-block")
+H3 = Known("H3", "MICROBATCH re-tiers a pool row of v1.0.0 under v1.1.0 without the new criterion")
+H4 = Known("H4", "the v1 path reads five retrieved chunks; their 'no flare' is final although the flare note was "
+                 "never shown (only retrieved chunks that did not fit count as left out)")  # fmt: skip
+M1A = Known("M1", "(a) a 'met' at confidence 0.6: the cascade keeps it as met (strong), evaluate.tier and NAV's "
+                  "_ok send it to review / unknown")  # fmt: skip
+M1B = Known("M1", "(b) contact: deny: the cascade never lists the patient, the v1 tier and NAV list them")
+M2 = Known("M2", "consent: only the cascade's S0 reads the lake's consent; v1, NAV and CASE depend on the opt-out "
+                 "worker having copied the refusal into the register (no tick ran after this ingest)")  # fmt: skip
+M2U = Known("M2", "consent: the cascade's S0 sorts an undated statement as the newest (here a refusal); the "
+                  "registry rule and COHORT read it as the oldest")  # fmt: skip
+M4U = Known("M4", "FEAS drops an inclusion with no value (IS TRUE); SCREEN keeps the patient for review")
+M4R = Known("M4", "FEAS counts a patient on the opt-out register (FG D-278, CR-026)")
+M4C = Known("M4", "FEAS counts a patient who refused research use (it reads no consent)")
+CR26 = Known("CR-026", "COHORT counts a patient on the opt-out register (FG D-278)")
+M2C = Known("M2", "COHORT's population reads no consent (only n_contactable does): a refusal is counted")
+
+KNOWN: dict[tuple[str, str, str], Known] = {
+    ("screen.v1", "CUT", "status"): H4,
+    ("screen.v1", "CUT", "verdicts"): H4,
+    ("screen.v1", "LOWCONF", "status"): M1A,
+    ("screen.v1", "NOCONTACT", "status"): M1B,
+    ("screen.v1", "REFUSED", "status"): M2,
+    ("screen.v1", "UNDATED", "status"): M2U,
+    ("microbatch.recheck", "LOWCONF", "status"): M1A,
+    ("nav", "CUT", "status"): H4,
+    ("nav", "LOWCONF", "status"): M1A,
+    ("nav", "NOCONTACT", "status"): M1B,
+    ("nav", "REFUSED", "status"): M2,
+    ("nav", "UNDATED", "status"): M2U,
+    ("case", "REFUSED", "status"): M2,
+    ("case", "UNDATED", "status"): M2U,
+    ("feas", "NOAGE", "status"): M4U,
+    ("feas", "OPT", "status"): M4R,
+    ("feas", "REFUSED", "status"): M4C,
+    ("feas", "UNDATED", "status"): M2U,
+    ("cohort", "OPT", "status"): CR26,
+    ("cohort", "REFUSED", "status"): M2C,
+    ("cohort", "UNDATED", "status"): M2U,
+    ("cohort", "UNDATED", "consent"): M2U,
+    ("nav.single", "INF", "status"): H2,
+    ("nav.single", "PREGNANT", "status"): H2,
+    ("nav.single", "CUT", "status"): Known("H4", H4.why + "; H2: and one model's answer drops the patient"),
+    ("nav.single", "LOWCONF", "status"): M1A,
+    ("nav.single", "NOCONTACT", "status"): M1B,
+    ("nav.single", "REFUSED", "status"): M2,
+    ("nav.single", "UNDATED", "status"): M2U,
+    ("microbatch.after_single", "INF", "status"): H1,
+    ("microbatch.after_single", "INF", "verdicts"): H1,
+    ("microbatch.after_single", "LOWCONF", "status"): M1A,
+    **{("microbatch.amended", k, "status"): H3 for k in ("ELIG", "SILENT", "PERMIT", "LOWCONF", "CUT", "DEEP")},
+}
+
+
+def _checks() -> list[Any]:
+    out = []
+    for rule in RULES.values():
+        aspects = ["status"] + (["verdicts"] if rule.family in ("screen", "nav", "case", "cohort") else [])
+        aspects += ["consent"] if rule.family == "cohort" else []
+        for key in compared(rule):
+            for aspect in aspects:
+                if aspect == "consent" and not PATIENTS[key].get("consent"):
+                    continue
+                k = KNOWN.get((rule.path, key, aspect))
+                marks = [pytest.mark.xfail(strict=True, reason=f"{k.finding}: {k.why}")] if k else []
+                out.append(pytest.param(rule.path, key, aspect, marks=marks, id=f"{rule.path}-{key}-{aspect}"))
+    return out
+
+
+CHECKS = _checks()
+
+
+# ------------------------------------------------------------------------------------------------ the tests
+@pytest.mark.parametrize(("path", "key", "aspect"), CHECKS)
+def test_the_same_patient_gets_the_same_answer_on_every_path(world: World, path: str, key: str, aspect: str) -> None:
+    """One patient, one snapshot: the path's status (read through ``INTENDED``) and its verdicts are the
+    reference's. An expected failure names its finding; when the finding is fixed this test fails until its line
+    in ``KNOWN`` is removed."""
+    rule = RULES[path]
+    seen, ref = world.seen[path], world.seen[rule.reference]
+    assert key in seen.covers and key in ref.covers, f"{path} or {rule.reference} was not asked about {key}"
+    if aspect == "status":
+        assert seen.status.get(key) == expected_status(world, rule, key), (
+            f"{path} says {seen.status.get(key)!r} for {key}; {rule.reference} says {ref.status.get(key)!r}"
+        )
+    elif aspect == "verdicts":
+        mine = seen.verdicts.get(key, {})
+        if rule.family == "cohort":  # a count holds a patient or not: compared with the documented structured truth
+            truth = {c: structured_truth(world, key, c) for c in mine}
+            counted = {c: "pass" if c in INCLUSIONS else "fail" for c in mine}  # what being counted says
+            diff = {c: (v, truth[c]) for c, v in mine.items()
+                    if truth[c] in ("pass", "fail") and (v != "-") != (truth[c] == counted[c])}  # fmt: skip
+        else:
+            theirs = ref.verdicts.get(key, {})
+            diff = {c: (mine[c], theirs[c]) for c in mine.keys() & theirs.keys() if mine[c] != theirs[c]}
+        assert not diff, f"{path} vs {rule.reference} for {key}: {diff}"
+    else:  # consent: COHORT's n_contactable against the reference's lists, for the patients with a statement
+        contactable = PID[key] in world.cohort["contactable"]
+        assert contactable == (ref.status.get(key) in ("high", "review")), (
+            f"COHORT contactable={contactable} for {key}; {rule.reference} says {ref.status.get(key)!r}"
+        )
+
+
+def test_every_known_difference_and_every_decision_is_used() -> None:
+    """A line of ``KNOWN`` that no check reads, or a decision of ``INTENDED`` no rule reads, is stale: remove it."""
+    ids = {(p.values[0], p.values[1], p.values[2]) for p in CHECKS}
+    assert not set(KNOWN) - ids, sorted(set(KNOWN) - ids)
+    used = {i for r in RULES.values() for i in r.intended}
+    assert used == set(INTENDED), sorted(set(INTENDED) ^ used)
+    assert {k.finding for k in KNOWN.values()} <= {"H1", "H2", "H3", "H4", "M1", "M2", "M4", "CR-026"}
+
+
+def test_the_world_is_not_vacuous(world: World) -> None:
+    """Every status word occurs, every path ran, and the pair was asked: the comparisons above compare something."""
+    ref = world.seen["screen.cascade"]
+    assert {ref.status[k] for k in SCREENED if k in ref.status} == {"high", "review", "excluded"}
+    assert {"refused", "contact"} <= set(ref.why.values())
+    assert world.seen["nav"].status["ELIG"] == "likely_eligible"
+    assert world.seen["feas"].status["ELIG"] == "member" and world.seen["cohort"].status["ELIG"] == "member"
+    for p in ("microbatch.recheck", "microbatch.after_single", "microbatch.amended", "microbatch.new"):
+        assert world.seen[p].covers == _COVERS[p], (p, sorted(world.seen[p].covers ^ _COVERS[p]))
+    assert world.jobs["case.OPT"].state == "failed" and "opted out" in world.jobs["case.OPT"].error
+    assert {"gout flare", "tuberculosis", "pregnan"} <= world.asked
+    failed = {n: j.error for n, j in world.jobs.items() if j.state != "done" and n != "case.OPT"}
+    assert not failed, failed
+
+
+# ------------------------------------------------------------------------------------------------ the opt-out
+def _texts(name: str, data: bytes) -> str:
+    """What a reader of the file can see: the members of a workbook or a document (zip), a PDF's text, else the
+    bytes themselves."""
+    if data[:2] == b"PK":
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist())
+    if data[:5] == b"%PDF-":
+        from pypdf import PdfReader
+
+        return "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)
+    return data.decode("utf-8", "replace")
+
+
+def _marks(key: str) -> tuple[str, ...]:
+    return PID[key], PID[key][:12], PATIENTS[key]["mrn"]
+
+
+BYTES_PATHS = sorted({n.split(".")[0] if n.startswith("case.") else n for n in (
+    "screen.cascade", "microbatch.recheck", "screen.v1", "screen.other", "microbatch.new", "nav", "case.x", "feas",
+    "screen.single", "nav.single", "microbatch.after_single", "screen.pair_disagrees", "screen.before_amendment",
+    "microbatch.amended", "screen.amended")})  # fmt: skip
+
+
+@pytest.mark.parametrize("path", [*BYTES_PATHS, "pool", "mail"])
+def test_an_opted_out_patient_is_in_no_published_bytes(world: World, path: str) -> None:
+    """The register's patient (OPT) is in no file a path published (lists, workbooks, drafts, evidence files, the
+    stored candidate lists), in no pool row and in no mail (subject, body, the job mails of every path)."""
+    found: list[str] = []
+    if path == "pool":
+        found += [f"pool {rid}" for rid, pids in world.pools.items() if PID["OPT"] in pids]
+    elif path == "mail":
+        found += [m.splitlines()[0] for m in world.mails if any(mark in m for mark in _marks("OPT"))]
+    else:
+        jobs = {n: j for n, j in world.jobs.items() if n == path or n.startswith(f"{path}.")}
+        assert jobs, path
+        for n, j in jobs.items():
+            for fn, data in j.outputs.items():
+                text = _texts(fn, data)
+                found += [f"{n}: {fn}" for mark in _marks("OPT") if mark in text or mark in fn]
+    assert not found, found
+    # control: the scan reads what it is given (ELIG is in the reference's files, the pool and a mail)
+    if path == "screen.cascade":
+        assert PID["ELIG"] in "".join(_texts(fn, d) for fn, d in world.jobs[path].outputs.items())
+    if path == "pool":
+        assert PID["ELIG"] in world.pools["PIX"]
+
+
+# ------------------------------------------------------------------------------------------------ outside the box
+@pytest.mark.xfail(strict=True, reason="M3: the console's pages read OptOutRegister.active(), which leaves out the "
+                   "surviving chart of a merge; the jobs read opted_out() with the survivors")  # fmt: skip
+def test_the_console_reads_the_register_as_the_jobs_do(tmp_path: Path) -> None:
+    """The console's list is the stored candidate list filtered by the register (``console/home.py`` week bundle,
+    ``screening_log.py``): the console process is not driven here (it needs the console app and a session), but the
+    read it makes is ``h.optout.active()``. A chart number that opted out and was then merged into another chart:
+    the jobs keep the surviving patient off every list, the console's read must too."""
+    from adapter.pidmap import PidMap
+    from tb_common.optout import OptOutRegister, opted_out
+
+    pm = PidMap(tmp_path / "pid_map.key")
+    old, survivor = pm.merge(KEY, "20000001", "20000002", "duplicate chart", "TICKET-1")
+    pm.close()
+    reg = OptOutRegister()
+    reg.add(old, "paper", "synthetic opt-out", "crc1@hospa.test", "2026-10-01T09:00:00+08:00")
+    assert survivor in opted_out()  # the jobs' read (control)
+    console = reg.active()  # the console's read (home.py week_bundle, screening_log.py)
+    reg.close()
+    assert survivor in console
+
+
+@pytest.mark.xfail(strict=True, reason="M5: FULL_RECORD_MAX_CANDIDATES: with more candidates in the run than the "
+                   "limit, nobody's unknown first answer gets the full-record read")  # fmt: skip
+def test_a_status_does_not_depend_on_how_many_patients_are_in_the_run(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DEEP's first answer is unknown (the five chunks are notes that say nothing of a flare); the full record holds
+    the flare. Evaluated alone and with one more candidate, on the same snapshot with the same pair, the status must
+    be the same. The limit is lowered to one candidate here so that a run of two is "a large run" (the limit is
+    100 on a box: the same thing at 101)."""
+    from orchestrator.scenarios import evaluate
+    from orchestrator.scenarios.evaluate import NoteJudge, SqlEngine, evaluate_patients
+
+    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+    monkeypatch.setattr(evaluate, "FULL_RECORD_MAX_CANDIDATES", 1)
+    rs = Ruleset.load(world.rulesets_dir / "PIX")
+    lake = LakeLocal(world.lake_dir, HashEmbedder(), TZ)
+
+    def tier(pids: list[str]) -> str:
+        llm, verifier = quoting_pair(QuotingOracle(ORACLE))
+        nj = NoteJudge(lake, llm, "judge", verifier=verifier)  # type: ignore[arg-type]
+        res = evaluate_patients(rs, pids, RUN, SqlEngine(lake, SNAP), nj, 0.75)
+        return res[PID["DEEP"]].tier
+
+    alone = tier([PID["DEEP"]])
+    assert alone == "high"  # control: the full record was read
+    assert tier([PID["DEEP"], PID["ELIG"]]) == alone
