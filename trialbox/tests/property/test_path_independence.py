@@ -717,8 +717,8 @@ _COVERS: dict[str, set[str]] = {p: set(SCREENED) for p in (
     "screen.cascade", "screen.v1", "screen.single", "screen.pair_disagrees", "screen.amended", "case")}  # fmt: skip
 _COVERS["microbatch.new"] = set(SCREENED) - {"OPT"}  # the register keeps OPT out of the new patients too
 # the pool each re-check starts from: who its SCREEN listed (the world checks that the run agrees)
-# UNDATED is listed since D-477: an undated refusal is the oldest statement, so the dated consent decides
-POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP", "UNDATED"}
+# UNDATED is on no list: an undated refusal keeps the patient out on every path (D-477, the ruling on its review)
+POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP"}
 _COVERS["microbatch.recheck"] = _COVERS["microbatch.amended"] = POOL
 _COVERS["microbatch.after_single"] = POOL | {"INF", "NOFLARE", "PREGNANT"}  # one model's "not met" is not final
 
@@ -811,7 +811,8 @@ def test_the_world_is_not_vacuous(world: World) -> None:
     assert world.seen["feas"].status["ELIG"] == "member" and world.seen["cohort"].status["ELIG"] == "member"
     for p in ("microbatch.recheck", "microbatch.after_single", "microbatch.amended", "microbatch.new"):
         assert world.seen[p].covers == _COVERS[p], (p, sorted(world.seen[p].covers ^ _COVERS[p]))
-    refused = ("case.OPT", "case.REFUSED")  # the register, and since D-477 a registry refusal: no sheet is made
+    # the register, and since D-477 a registry refusal, an undated one included: no sheet is made
+    refused = ("case.OPT", "case.REFUSED", "case.UNDATED")
     for n in refused:
         assert world.jobs[n].state == "failed" and "opted out" in world.jobs[n].error, n
     assert {"gout flare", "tuberculosis", "pregnan"} <= world.asked

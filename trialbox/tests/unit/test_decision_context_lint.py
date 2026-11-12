@@ -16,11 +16,21 @@ MODULE = "services/orchestrator/decision_context.py"
 
 #: a call of the register's reader (``opted_out(...)``, ``optout.opted_out(...)``); not ``drop_opted_out(`` etc.
 OPTED_OUT = re.compile(r"(?<![A-Za-z0-9_])opted_out\(")
-#: a query of the lake's consent table (SQL keywords are upper case in this code base; prose says "from consent")
-FROM_CONSENT = re.compile(r"\b(?:FROM|JOIN)\s+consent\b")
+#: an import of the register module: whatever name the read then goes by (``register_now``, ``registry_state``,
+#: ``OptOutRegister().effective()``, ``REGISTRY_SQL``: review of T-708, a rename no longer passes)
+REGISTER_MODULE = re.compile(
+    r"^\s*(?:from tb_common\.optout import|from tb_common import .*\boptout\b|import tb_common\.optout)"
+)
+#: a query of the lake's consent table, in either case and with a schema name (``FROM main.consent``)
+FROM_CONSENT = re.compile(r"(?i)\b(?:FROM|JOIN)\s+(?:[A-Za-z_]+\.)?consent\b")
 #: a read of the note-block decision or of the configured policy
 NOTE_BLOCK = re.compile(r"(?<![A-Za-z0-9_])(?:effective_note_block|note_block_policy)\(")
-PATTERNS = {"opted_out(": OPTED_OUT, "FROM consent": FROM_CONSENT, "note-block read": NOTE_BLOCK}
+PATTERNS = {
+    "opted_out(": OPTED_OUT,
+    "register module": REGISTER_MODULE,
+    "FROM consent": FROM_CONSENT,
+    "note-block read": NOTE_BLOCK,
+}
 
 #: Where each read is implemented: the library the module calls. Nothing else may be added here.
 IMPLEMENTATION: dict[tuple[str, str], str] = {
@@ -29,12 +39,30 @@ IMPLEMENTATION: dict[tuple[str, str], str] = {
     ("services/orchestrator/scenarios/evaluate.py", "note-block read"): "the rule's definition (effective_note_block "
     "calls note_block_policy); every caller goes through the decision context",
 }
-#: Reads outside a job path that stay for now, each with its reason. The list only shrinks.
+#: Reads outside a job path, each with its reason. The list only shrinks.
 OUTSIDE: dict[tuple[str, str], str] = {
     ("services/console/reveal.py", "opted_out("): "the console's reveal guard reads the register as it stands now; "
     "the console has no job context (T-719 moves identifiers behind one module)",
+    ("services/console/reveal.py", "register module"): "the same read (its import)",
     ("services/patient_profile/twin.py", "opted_out("): "the twin builder runs after an ingest, outside a job; it "
     "reads the same one function (with merged charts)",
+    ("services/patient_profile/twin.py", "register module"): "the same read (its import)",
+    ("services/omop/export.py", "register module"): "the as-of export (T-728) tombstones the patients opted out "
+    "now; another service, no job: tb_common.optout.register_now, the door for code outside the orchestrator",
+    ("services/orchestrator/app.py", "register module"): "wires the reader into the EDC service as its check at "
+    "send time (a reference handed over, called per send)",
+    ("services/matching/cascade/engine.py", "register module"): "the cascade's fallback for a caller with no "
+    "context (a tool, a test): registry_state, the one rule; a job passes the context's own read (cfg.registry)",
+    ("services/datacore/optout_worker.py", "register module"): "the opt-out worker: it applies the register to "
+    "the stores and syncs it with the hospital registry (the register's own writer)",
+    ("services/console/team.py", "register module"): "the research office's page: it writes the register and "
+    "lists it (effective(), merged charts)",
+    ("tools/trialbox/backup.py", "register module"): "backup and restore of the register's own table and actor "
+    "name; it decides nothing about a patient",
+}
+#: Lines the patterns match that read nothing (prose).
+NOT_A_READ: dict[tuple[str, str], str] = {
+    ("services/console/i18n_life.py", "FROM consent"): 'a sentence of the page ("from consent")',
 }
 
 
@@ -65,7 +93,7 @@ def _hits() -> dict[tuple[str, str], list[int]]:
 
 def test_the_register_consent_and_the_note_block_are_read_through_the_decision_context() -> None:
     hits = _hits()
-    allowed = {**IMPLEMENTATION, **OUTSIDE}
+    allowed = {**IMPLEMENTATION, **OUTSIDE, **NOT_A_READ}
     stray = {f"{rel}:{nos[0]} ({name})" for (rel, name), nos in hits.items() if (rel, name) not in allowed}
     assert not stray, (
         "read outside the decision context (use ctx.decision, or orchestrator.decision_context.register_now "
@@ -75,10 +103,12 @@ def test_the_register_consent_and_the_note_block_are_read_through_the_decision_c
 
 def test_the_lists_hold_no_stale_line() -> None:
     hits = _hits()
-    stale = sorted(f"{rel} ({name})" for (rel, name) in {**IMPLEMENTATION, **OUTSIDE} if (rel, name) not in hits)
+    stale = sorted(
+        f"{rel} ({name})" for (rel, name) in {**IMPLEMENTATION, **OUTSIDE, **NOT_A_READ} if (rel, name) not in hits
+    )
     assert not stale, f"no longer read there: remove the line(s) {stale}"
     assert not set(IMPLEMENTATION) & set(OUTSIDE)
-    assert len(OUTSIDE) <= 2, "the list of reads outside the decision context only shrinks"
+    assert len(OUTSIDE) <= 10, "the list of reads outside the decision context only shrinks"
 
 
 def test_the_module_is_the_reader() -> None:
@@ -94,6 +124,16 @@ def test_the_patterns_catch_what_they_name() -> None:
     assert not OPTED_OUT.search("kept = drop_opted_out(ctx, scoped)")
     assert not OPTED_OUT.search("self._not_opted_out(rs, by)")
     assert FROM_CONSENT.search('"SELECT pid FROM consent WHERE 1=1"') and not FROM_CONSENT.search("FROM consents")
-    assert FROM_CONSENT.search("LEFT JOIN consent c ON") and not FROM_CONSENT.search("withdrew from consent")
+    assert FROM_CONSENT.search("LEFT JOIN consent c ON")
+    # review of T-708: a lower-case query and a schema name are caught (prose that matches is on NOT_A_READ)
+    assert FROM_CONSENT.search('"select pid from consent"') and FROM_CONSENT.search("FROM main.consent c")
+    for line in (
+        "from tb_common.optout import register_now",
+        "    from tb_common.optout import OptOutRegister, registry_state",
+        "from tb_common import audit, optout",
+        "import tb_common.optout as oo",
+    ):
+        assert REGISTER_MODULE.search(line), line
+    assert not REGISTER_MODULE.search("from orchestrator.decision_context import register_now")
     assert NOTE_BLOCK.search("may = effective_note_block(judge)[0]") and NOTE_BLOCK.search("p = note_block_policy()")
     assert not NOTE_BLOCK.search("nb = decision.note_block(judge)")
