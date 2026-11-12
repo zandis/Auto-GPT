@@ -432,6 +432,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
+    "orch": ("444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
     # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
