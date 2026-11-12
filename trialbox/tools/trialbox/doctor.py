@@ -56,6 +56,11 @@ closed). Checks:
   ``TB_CLOCK_MAX_SKEW_S`` (default 60) seconds from the site's time server (``TB_NTP_SERVER``, one SNTP exchange); in
   VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
   answer, or when neither can be read. WARN for those in DEV and TEST.
+* ``db_passwords`` (T-712, D-481; D-378): a service container holds its own database role's password and no other.
+  Read from ``deploy/.env`` (every service role has a password of its own; none is the example value or shared with
+  another role), from the box's compose files rendered with the box's values (``COMPOSE_FILE``;
+  ``tools/trialbox/db_secrets.py``) and from the environment of the containers that run now. FAIL in VALIDATION and
+  PRODUCTION, WARN in DEV and TEST; not judged without ``--env-file``. No password is printed.
 
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
@@ -863,6 +868,42 @@ def check_clock(inp: DoctorInputs) -> Check:
     return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
 
 
+def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, Any] | None] | None = None) -> Check:
+    """T-712 (D-481; D-378): a service container holds its own database role's password and no other.
+
+    Three readings, none of which shows a password: the box's ``deploy/.env`` (every service role has a password
+    of its own, none is the example value or shared); the box's compose files (``COMPOSE_FILE``, else the base
+    file beside ``--env-file``; ``--compose-config`` when given) rendered with the box's values; and the
+    environment of the containers that run now. FAIL in VALIDATION and PRODUCTION, WARN elsewhere.
+    """
+    from tools.trialbox import db_secrets as ds
+
+    name = "db_passwords"
+    if inp.deploy is None and inp.compose_config is None:
+        return Check(name, "PASS", "no deploy/.env given (--env-file): the box's database passwords were not judged")
+    deploy = inp.deploy or ROOT / "deploy"
+    config = inp.compose_config
+    if config is None:
+        listed = [Path(f) for f in inp.env.get("COMPOSE_FILE", "").split(":") if f]
+        files = [f if f.is_absolute() else deploy / f for f in listed] or [deploy / "docker-compose.yml"]
+        gone = [str(f) for f in files if not f.exists()]
+        if gone:
+            return Check(name, "FAIL", f"compose file(s) not found: {', '.join(gone)} (COMPOSE_FILE in deploy/.env)")
+        config = ds.render(files, inp.env, project_dir=deploy)
+    secrets = ds.db_secrets(inp.env)
+    roles = ds.database_services(config)
+    bad = ds.env_problems(inp.env, roles) + ds.reach_problems(config, secrets)
+    live = (running or ds.running_config)(inp.env.get("COMPOSE_PROJECT_NAME", "trialbox"))
+    if live is not None:
+        bad += [f"running: {p}" for p in ds.reach_problems(live, secrets)]
+    seen = f"{len(live['services'])} running container(s) read" if live is not None else "running containers not read"
+    if bad:
+        strict = inp.env.get("TB_ENV", "PRODUCTION").upper() in ("VALIDATION", "PRODUCTION")
+        fix = "re-run deploy/install.sh (it makes the missing passwords and starts every container again)"
+        return Check(name, "FAIL" if strict else "WARN", f"{'; '.join(bad)}; {fix}")
+    return Check(name, "PASS", f"{len(roles)} service roles, each container its own password only; {seen}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -882,6 +923,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_backup,
     check_key_custody,
     check_clock,
+    check_db_passwords,
 )
 
 

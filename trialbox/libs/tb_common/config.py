@@ -350,6 +350,7 @@ class Declared:
 
 # Families: a name that starts with one of these is declared by the family (the name is built at run time).
 DECLARED_FAMILIES: dict[str, str] = {
+    "TB_DB_PW_": "compose: the password of one service's database role, TB_DB_PW_<SERVICE> (D-378, D-481)",
     "TB_EP_": "egress: one allowed endpoint per variable (deploy/egress.py, D-140)",
     "TB_MEM_": "compose: memory cap of one service, TB_MEM_<SERVICE> (D-360)",
 }

@@ -63,7 +63,12 @@ services:
     env_file: [.env]
     command: ["python", "-m", "tools.trialbox", "doctor", "--platform", "--compose-config", "/etc/trialbox/site/compose.json",
               "--release", "/etc/trialbox/release/release.json", "--evidence", "/etc/trialbox/site/iq-evidence.json"]
-    environment: {TB_SERVICE_NAME: doctor, TB_RELEASE_FILE: /etc/trialbox/release/release.json}
+    # T-712 (D-481): the operator's own tool keeps the host tools' TB_DB_URL (the flags, the site key record); it
+    # holds no service role's password and not HAPI's
+    environment: {TB_SERVICE_NAME: doctor, TB_RELEASE_FILE: /etc/trialbox/release/release.json,
+                  POSTGRES_PASSWORD: "", TB_DB_PW_LAKE: "", TB_DB_PW_CRITERIA_COMPILER: "", TB_DB_PW_ADAPTER: "",
+                  TB_DB_PW_ORCHESTRATOR: "", TB_DB_PW_MAIL_GATEWAY: "", TB_DB_PW_GATEWAY: "", TB_DB_PW_CONSOLE: "",
+                  TB_DB_PW_AUDIT_WRITER: ""}
     restart: "no"   # a one-shot run (docker compose run --rm doctor)
     mem_limit: 1g   # T-108a (D-360), as deploy/platform/base/doctor.yaml
     pids_limit: 256
