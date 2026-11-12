@@ -20,7 +20,7 @@ from typing import Any
 
 from tb_common.db import ENV, Database
 
-from datacore.forms import Field, fields_of
+from datacore.forms import XML_ILLEGAL, Field, fields_of
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS form (study TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL, origin TEXT NOT NULL,
@@ -123,7 +123,12 @@ class DataCore:
 
     def write(self, study: str, record: str, event: str, field: str, value: str, by: str, at: str, source: str,
               seen: str | None = None, keep_seen: bool = True) -> bool:  # fmt: skip
-        """Set a value (no ownership check here; ``DataService`` and ``SyncEngine`` check). False if unchanged."""
+        """Set a value (no ownership check here; ``DataService`` and ``SyncEngine`` check). False if unchanged.
+        The last door of EDC-010 (D-581): a value or a key with a character XML 1.0 does not allow is never stored,
+        whichever path brought it (a source's read-back, the lifecycle, a resolved conflict)."""
+        if any(XML_ILLEGAL.search(x) for x in (value, record, event, field)):
+            raise DataError("DATA-CHARS", f"{field} holds a character that cannot be stored (a control character "
+                            "from pasted text)", [{"field": field, "code": "chars"}])  # fmt: skip
         with self._db.transaction() as tx:
             rows = tx.fetchdicts("SELECT * FROM value WHERE study = ? AND record = ? AND event = ? AND field = ? "
                                  "FOR UPDATE", (study, record, event, field))  # fmt: skip

@@ -104,7 +104,10 @@ box's own screen, `/etc/issue.d/trialbox-firstrun.issue`) and waits. The owner a
 source); the console makes the owner's accounts (steward and `<name>-admin`) and hands the answers over the tmpfs
 folder `/run/trialbox-firstrun`; the script then applies them (`python -m tools.box apply` in the image: settings
 and `deploy/.env` rewritten from the answers, the install's passwords kept), sets the host's zone, restarts the stack,
-installs the backup schedule and runs the host check. **Prepared image:** Aimedics runs the same script with
+installs the backup schedule and runs the host check. On a box the inner install does not stop when the backup
+schedule cannot be installed yet (a fresh host has no alert route): it is a line in the install's FAIL list, the
+stack runs and the wizard is served (OPS-003, D-566); `install.sh` without `TB_BOX` still stops there.
+**Prepared image:** Aimedics runs the same script with
 `--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
 first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the wizard, the apply). The rehearsal of
 this path without Docker is `tests/console/test_box_install_rehearsal.py` (the real script, stand-ins for the inner

@@ -111,7 +111,7 @@ def test_the_clock_moves_a_check_from_green_to_red() -> None:
     h = metrics.evaluate(facts, CANARY_OK, later, TH)
     v = next(c for c in h.checks if c.name == "backup_verified")
     assert v.level == "red" and h.level == "red"
-    assert any(c.name == "facts" and c.level == "warn" for c in h.checks)
+    assert any(c.name == "facts" and c.level == "red" for c in h.checks)  # NEW-OPS-8 (D-561): old facts are red
 
 
 @pytest.mark.parametrize(
@@ -129,9 +129,9 @@ def test_canary_states(canary: dict[str, Any] | None, level: str) -> None:
     assert metrics.check_canary(canary).level == level
 
 
-def test_missing_host_facts_warn_and_never_raise() -> None:
+def test_missing_host_facts_are_red_and_never_raise() -> None:
     h = metrics.evaluate(None, CANARY_OK, NOW, TH)
-    assert h.level == "warn"
+    assert h.level == "red"  # NEW-OPS-8 (D-561, OPS-009): a runner that never ran is not a warning that never ends
     assert {c.name for c in h.checks} >= {"backup", "backup_verified", "facts"}
 
 
