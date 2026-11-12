@@ -706,6 +706,16 @@ def data_missing(tag: str) -> list[str]:
     return [why for need in data_needs(tag) if (why := DATA_CHECKS[need]())]
 
 
+PENDING, STOPPED = "pending", "not run (VM stopped)"  # a part with no result yet (G1 bug A5)
+
+
+def not_started(tag: str, state: str) -> dict[str, Any]:
+    """The row of a part that has no result and is not known to have run: ``pending`` (its VM still runs, or it is
+    later in this run) or ``not run (VM stopped)``. It has no check, so it never counts as a failure (G1 bug A5: the
+    partial report said FAILED for every part a pre-empted VM never reached)."""
+    return {"stages": [{"name": f"{tag}: {state}", "ok": None, "seconds": 0, "checks": []}], "state": state}
+
+
 def _passed(res: dict[str, Any]) -> bool:
     return all(c[1] for st in res.get("stages") or [] for c in st["checks"]) and bool(res.get("stages"))
 
@@ -925,7 +935,9 @@ def run_all(a: argparse.Namespace) -> int:
         print(f"      {'PASS' if bad == 0 else 'FAIL'} in {res['seconds_total']} s", flush=True)
         # the report so far, then the operator's hook (the VM packs results.tgz: a stop at any moment loses at most
         # the part that was running, review M-10)
-        _write_report(a, rows, head, started, report_dir)
+        later = [{**not_started(_tag(*p), PENDING), "part": p[0], "lang": p[1], "tag": _tag(*p), "seconds_total": 0}
+                 for p in todo[i + 1 :]]  # fmt: skip
+        _write_report(a, rows + later, head, started, report_dir)
         if a.after_part:
             subprocess.run(a.after_part, shell=True, cwd=ROOT, check=False)  # the operator's own command
         last_model_part = not any(p in MODEL_PARTS for p, _, _ in todo[i + 1 :])
@@ -934,7 +946,7 @@ def run_all(a: argparse.Namespace) -> int:
             print(f"      after the model parts: {a.after_models}", flush=True)
             subprocess.run(a.after_models, shell=True, cwd=ROOT, check=False)  # the operator's own command
     rep = _write_report(a, rows, head, started, report_dir)
-    verdict = "PASSED" if rep["ok"] else "FAILED"
+    verdict = rep["verdict"]
     print(f"complete run {verdict}: {rep['checks'] - rep['failed']}/{rep['checks']} checks, "
           f"{rep['shots_ok']}/{rep['shots']} screenshots, {len(rep['findings'])} known findings, {rep['seconds']} s; "
           f"{report_dir / 'report.md'}")  # fmt: skip
@@ -955,13 +967,17 @@ def report_only(a: argparse.Namespace) -> int:
     the plan from its ``parts/<tag>.json``; a missing one is a failed row."""
     # --report-parts: the report of a run of some parts only (a bench run, D-148); else the whole plan
     a.only, a.direct = getattr(a, "report_parts", None) or [], getattr(a, "direct", False)
+    pending = set(getattr(a, "pending_parts", None) or [])  # the parts of VMs that still run (the driver says)
     rows = []
     for part, lang, scenario in plan(a):
         tag = _tag(part, lang, scenario)
         f = a.dir / "parts" / f"{tag}.json"
-        res: dict[str, Any] = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {
-            "stages": _one(f"{tag} did not report", [("part ran", False, "no result file")], 0),
-            "not_run": "did not report"}  # fmt: skip
+        # no result: pending while its VM runs, else not run (VM stopped); never a failed check (G1 bug A5)
+        res: dict[str, Any] = (
+            json.loads(f.read_text(encoding="utf-8"))
+            if f.exists()
+            else not_started(tag, PENDING if tag in pending else STOPPED)
+        )
         res.update({"part": part, "lang": lang, "tag": tag, "seconds_total": res.get("wall_seconds", 0)})
         rows.append(res)
     rep = report(a, rows, made_by(rows) or git_head(), datetime.now(UTC))
@@ -969,7 +985,7 @@ def report_only(a: argparse.Namespace) -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
     (out / "report.md").write_text(markdown(rep), encoding="utf-8")
-    print(f"report {'PASSED' if rep['ok'] else 'FAILED'}: {rep['checks'] - rep['failed']}/{rep['checks']} checks; "
+    print(f"report {rep['verdict']}: {rep['checks'] - rep['failed']}/{rep['checks']} checks; "
           f"{out / 'report.md'}")  # fmt: skip
     return 0 if rep["ok"] else 1
 
@@ -1032,7 +1048,14 @@ def report(
     rep["shots"] = sum(1 for r in rows for st in r["stages"] if st.get("shot"))
     rep["shots_ok"] = sum(1 for r in rows for st in r["stages"] if st.get("shot_ok"))
     rep["findings"] = [{**f, "part": r["tag"]} for r in rows for f in r.get("findings") or []]
-    rep["ok"] = rep["failed"] == 0 and rep["shots_ok"] == rep["shots"]
+    # parts with no result that are not known to have run: pending, or not run (VM stopped); no check (G1 bug A5)
+    rep["not_started"] = [{"tag": r["tag"], "state": r["state"]} for r in rows if r.get("state")]
+    # FAILED only when a part that ran failed a check (or lost a screenshot); INCOMPLETE while parts are missing
+    if rep["failed"] or rep["shots_ok"] != rep["shots"]:
+        rep["verdict"] = "FAILED"
+    else:
+        rep["verdict"] = "INCOMPLETE" if rep["not_started"] else "PASSED"
+    rep["ok"] = rep["verdict"] == "PASSED"
     rep["seconds"] = round(sum(r["seconds_total"] for r in rows), 1)
     return rep
 
@@ -1050,8 +1073,10 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
     for name, rs in groups:
         bad = [c for r in rs for st in r["stages"] for c in st["checks"] if not c[1]]
         n = sum(len(st["checks"]) for r in rs for st in r["stages"])
+        waiting = [f"{r['tag']} {r['state']}" for r in rs if r.get("state")]
         out += [f"### {name}: {scenarios.TITLES.get(name, name)}", "",
-                f"**{'pass' if not bad else 'FAIL'}**: {n - len(bad)} of {n} checks."]  # fmt: skip
+                f"**{'pass' if not bad else 'FAIL'}**: {n - len(bad)} of {n} checks."
+                + (f" No result yet: {', '.join(waiting)}." if waiting else "")]  # fmt: skip
         for r in rs:
             b = r.get("scenario") or {}
             lab = f" ({r['lang']})" if name == "db-csv" else ""
@@ -1104,6 +1129,13 @@ def markdown(rep: dict[str, Any]) -> str:
         never = (f" **{len(not_run)} part(s) crashed or never ran** ({', '.join(x['tag'] for x in not_run)}): "
                  + (f"{n} of their checks never ran" if n else "their own checks never ran (number unknown)")
                  + "; each counts as one failed check above.")  # fmt: skip
+    waiting = rep.get("not_started") or []
+    if waiting:
+        by: dict[str, list[str]] = {}
+        for x in waiting:
+            by.setdefault(x["state"], []).append(x["tag"])
+        never += (f" **{len(waiting)} part(s) have no result yet**, not counted as checks: "
+                  + "; ".join(f"{state}: {', '.join(tags)}" for state, tags in by.items()) + ".")  # fmt: skip
     lines = [
         "# TrialBox complete-platform run",
         "",
@@ -1114,7 +1146,8 @@ def markdown(rep: dict[str, Any]) -> str:
         f"Host: {rep['host'].get('machine')}, {rep['host'].get('cpus')} CPUs.",
         f"Started {rep['started']}, finished {rep['finished']}.",
         "",
-        f"**{'PASSED' if rep['ok'] else 'FAILED'}**: {rep['checks'] - rep['failed']} of {rep['checks']} checks; "
+        f"**{rep.get('verdict') or ('PASSED' if rep['ok'] else 'FAILED')}**: {rep['checks'] - rep['failed']} of "
+        f"{rep['checks']} checks; "
         f"{rep['shots_ok']} of {rep['shots']} screenshots; {rep['seconds'] / 60:.1f} min in all; "
         f"{len(rep.get('findings') or [])} known findings reported.{never}",
         "",
@@ -1128,8 +1161,8 @@ def markdown(rep: dict[str, Any]) -> str:
             n = len(st["checks"])
             bad = [c[0] for c in st["checks"] if not c[1]]
             shot = f"`{st['shot']}`" + ("" if st.get("shot_ok") else " (missing)") if st.get("shot") else ""
-            lines.append(f"| {r['tag']} | {st['name']} | {n - len(bad)}/{n} | {'pass' if not bad else 'FAIL'} | "
-                         f"{st['seconds']} | {shot} |")  # fmt: skip
+            result = r.get("state") or ("pass" if not bad else "FAIL")
+            lines.append(f"| {r['tag']} | {st['name']} | {n - len(bad)}/{n} | {result} | {st['seconds']} | {shot} |")
     lines += _scenario_sections(rep)
     lines += ["", "## Part times", "", "| part | wall seconds |", "| --- | --- |"]
     lines += [f"| {r['tag']} | {r['seconds_total']} |" for r in rep["parts"]]
@@ -1153,6 +1186,14 @@ S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient 
 PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
+# A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (G1, run 20261111T183639Z-986d91c9,
+# commit 986d91c): hospital-ja's wall_seconds 17,960 at 50,000 patients, of which the screening stage 8,584 s; the
+# rest is prepare's lake at 50,000 and the other 19 stages. Source: docs/plan/measurements/g1-2026-11-11/
+# hospital-ja.json (wall_seconds; stage "15 delegation, candidates and referral"). The old estimate counted only the
+# screening (2.14 h) and made the hard cap stop an --only run mid-part (G1 bug A4). OD-10: scaled with the patients
+# the part reads; a newer measurement replaces these two numbers.
+HOSPITAL_PART_SECONDS = 17960.0
+HOSPITAL_PART_PATIENTS = 50000
 # the benches (owner's approval of 2026-11-09; no card measurement yet, so set high): the embedding comparison is two
 # small models over about 7,000 notes plus the weights' download; the profile stand-in samples ``--profile-patients``
 # at 2 s each on the card's batch (16 sequences) plus a sequential latency sample and its synthetic hospital
@@ -1169,7 +1210,9 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
              local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
              profile_patients: int = 400) -> dict[str, Any]:  # fmt: skip
-    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. Model time: note-stage patients
+    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the G1
+    measurement (:data:`HOSPITAL_PART_SECONDS` at :data:`HOSPITAL_PART_PATIENTS`) scaled with ``patients``, never
+    below its model time. Model time: note-stage patients
     times the measured 6.3 s per patient on the RTX PRO 6000 (VALIDATION §3; a chart read counts as one), criterion
     checks at 0.3 s each, the canary once per box with the pair. Other time: the part's stub time on the local run,
     scaled with its patients. The walk, backup, update and scale run after the VM has stopped: no card time.
@@ -1197,8 +1240,11 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     g1 = "g1" in parts
     for lang in langs if g1 else ():
         notes = S3_SHARE * patients
-        rows.append(row(f"db-csv ({lang})", patients, notes, notes * sec + CANARY_SECONDS +
-                        other("hospital", patients, local_patients), (f"hospital-{lang}",)))  # fmt: skip
+        # the G1 measurement scaled with the patients (G1 bug A4); never below the model time of the old sum, which
+        # is most of a small hospital (the canary, the stub time)
+        measured = HOSPITAL_PART_SECONDS * patients / HOSPITAL_PART_PATIENTS
+        model = notes * sec + CANARY_SECONDS + other("hospital", patients, local_patients)
+        rows.append(row(f"db-csv ({lang})", patients, notes, max(measured, model), (f"hospital-{lang}",)))
         rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
     for name in scenarios.SCENARIOS if g1 else ():
         t = (f"scenario-{name}",)
@@ -1448,6 +1494,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--parts", default="g1", help="--estimate: g1 (the complete run), embed, profile; comma list")
     ap.add_argument("--report-only", action="store_true", help="build the report from parts/ (the VM's and these)")
     ap.add_argument("--report-parts", nargs="*", default=[], help="--report-only: only these parts or tags")
+    ap.add_argument("--pending-parts", nargs="*", default=[],
+                    help="--report-only: tags whose VM still runs (pending, not 'VM stopped')")  # fmt: skip
     a = ap.parse_args(argv)
     if a.quota_check:
         return quota_check(a.quota_check, [z for z in a.quota_zones.split(",") if z])

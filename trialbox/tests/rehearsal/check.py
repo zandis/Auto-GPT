@@ -263,9 +263,8 @@ def silent_case(a: argparse.Namespace, hang: bool) -> int:
     if hang:
         r.ok("the stuck part has no result (it never finished)", part is None)
         rep = report_of(e)
-        r.ok(
-            "the report names it as not run", any(x["tag"] == tag for x in rep.get("not_run") or []), rep.get("not_run")
-        )
+        named = [x["tag"] for x in (rep.get("not_run") or []) + (rep.get("not_started") or [])]
+        r.ok("the report names it as not run (no result: not run, VM stopped)", tag in named, named)
     else:
         ok = part is not None and all(c[1] for st in json.load(io.BytesIO(part))["stages"] for c in st["checks"])
         r.ok("the busy part passed", ok)

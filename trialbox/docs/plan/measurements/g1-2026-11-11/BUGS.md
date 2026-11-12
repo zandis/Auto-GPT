@@ -50,7 +50,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
      collect, stop and shard.
   2. Every `gcloud` call gets a short timeout and a clear error ("credentials expired: re-activate").
   3. Add a test: `--collect` with an expired token fails within 60 s with that message.
-- **Status.** Open.
+- **Status.** Fixed in #296.
 
 ### A3. A pre-empted part restarts from zero (High; costs money)
 
@@ -77,7 +77,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   - For a resumed or `--only` run (2.64 h → cap 4 h) the cap STOPs the VM in the middle of a hospital part.
 - **Fix.** Use the measured 5.0 h per hospital part at 50k, and scale it with the patient count. Re-check the cap with
   the new figure before the next launch.
-- **Status.** Open.
+- **Status.** Fixed in #299.
 
 ### A5. The partial report says FAILED for parts that never ran (Medium; confusing)
 
@@ -85,7 +85,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   started count as `<part> did not report`.
 - **Cause.** The report does not tell "not run yet / not run" apart from "failed".
 - **Fix.** Add the states `pending` and `not run (VM stopped)`. FAILED only when a part that ran has a failed check.
-- **Status.** Open.
+- **Status.** Fixed in #300.
 
 ## B. Open: the product
 
