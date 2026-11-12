@@ -268,11 +268,9 @@ def _scheduler_types() -> list[str]:
 
 @pytest.mark.parametrize("jtype", _scheduler_types())
 def test_admin_retry_of_a_scheduler_job(b4: dict[str, Any], jtype: str) -> None:
-    """T-713 (D-464): the orchestrator refuses ``requested_by: scheduler`` over HTTP, so a retry names the
-    administrator's mailbox and runs under the administrator's role. A type the role may not start (the box's own
-    INGEST, RETENTION, CALIBRATION) shows no retry and is refused with "runs again at its next scheduled time"."""
-    from tb_common.authz import role_allowed
-
+    """T-746 (D-474; replaces T-713's "three types run again on schedule"): the administrator retries a failed job of
+    the box's scheduler of every type. The console asks the orchestrator's retry route with the job's id and the
+    administrator's mailbox only (the orchestrator copies the type and parameters); it never sends a JobCreate."""
     bk = b4["backend"]
     nightly = bk.add_job(
         Job(
@@ -283,30 +281,54 @@ def test_admin_retry_of_a_scheduler_job(b4: dict[str, Any], jtype: str) -> None:
             received_at=_T,
             updated_at=_T,
             state="failed",
-            options={},
+            options={"window": "1"},
             error=JobError(step="running", message="x"),
         )
     )
     c, csrf = login(b4["app"])
     page = c.get("/admin", params={"tab": "jobs"}).text
+    assert f'data-testid="retry-{nightly.job_id}"' in page and "on-schedule-" not in page
     n = len(bk.created)
-    r = c.post(f"/admin/jobs/{nightly.job_id}/retry", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
-    if role_allowed("admin", jtype):
-        assert f'data-testid="retry-{nightly.job_id}"' in page
-        assert r.status_code == 303
-        req = bk.created[-1]
-        assert req.type == jtype and req.requested_by not in ("scheduler", "system") and "@" in req.requested_by
-    else:
-        assert f'data-testid="retry-{nightly.job_id}"' not in page
-        assert f'data-testid="on-schedule-{nightly.job_id}"' in page
-        assert r.status_code == 409 and len(bk.created) == n
+    r = c.post(f"/admin/jobs/{nightly.job_id}/retry", data={"csrf": csrf})
+    assert 'data-testid="admin-confirm"' in r.text and not getattr(bk, "retried", [])  # asks first
+    r = c.post(f"/admin/jobs/{nightly.job_id}/retry", data={"csrf": csrf, "confirm": "yes", "type": "SCREEN",
+                                                          "options": "window=99"}, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and len(bk.created) == n  # no POST /jobs: the orchestrator copies the failed job
+    job_id, reply_to, by, role = bk.retried[-1]
+    assert (job_id, by, role) == (nightly.job_id, "console:admin", "admin") and "@" in reply_to
+    new = [j for j in bk.jobs.values() if j.parent_job_id == nightly.job_id][-1]
+    assert (new.type, new.ruleset, new.options) == (jtype, "GZQO", {"window": "1"})
+    ops = [r for r in bk.audit() if r.event == "console.operate" and r.detail.get("action") == "retry"]
+    assert ops and ops[-1].detail["from"] == nightly.job_id and ops[-1].job_id == new.job_id
 
 
-def test_the_scheduler_types_split_as_the_card_says() -> None:
-    from tb_common.authz import role_allowed
+def test_a_scheduler_job_retry_needs_the_matrix_row_and_a_failed_job(
+    b4: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from console import step4
+    from tb_common import authz
 
-    types = _scheduler_types()
-    assert {t for t in types if not role_allowed("admin", t)} == {"INGEST", "RETENTION", "CALIBRATION"}
+    bk = b4["backend"]
+    base: dict[str, Any] = {"type": "INGEST", "ruleset": None, "requested_by": "scheduler", "received_at": _T,
+                            "updated_at": _T, "options": {}}  # fmt: skip
+    failed = bk.add_job(Job(job_id=_ulid(704), state="failed", error=JobError(step="running", message="x"), **base))
+    running = bk.add_job(Job(job_id=_ulid(705), state="running", **base))
+    c, csrf = login(b4["app"])
+    assert c.post(f"/admin/jobs/{running.job_id}/retry", data={"csrf": csrf, "confirm": "yes"}).status_code == 409
+    real = authz.permit
+    monkeypatch.setattr(step4, "permit", lambda role, action, *a: authz.Decision(False, role, action, "role")
+                        if action == "job.retry_scheduled" else real(role, action, *a))  # fmt: skip
+    assert f'data-testid="retry-{failed.job_id}"' not in c.get("/admin", params={"tab": "jobs"}).text
+    assert c.post(f"/admin/jobs/{failed.job_id}/retry", data={"csrf": csrf, "confirm": "yes"}).status_code == 403
+    assert not getattr(bk, "retried", [])
+
+
+def test_only_the_administrator_holds_the_retry_of_scheduled_jobs() -> None:
+    from tb_common.authz import MATRIX_ROLES, permit, role_allowed
+
+    assert [r for r in MATRIX_ROLES if permit(r, "job.retry_scheduled").allowed] == ["admin"]
+    # the retry right is not a right to start them: the administrator still may not start these three
+    assert {t for t in _scheduler_types() if not role_allowed("admin", t)} == {"INGEST", "RETENTION", "CALIBRATION"}
 
 
 def test_admin_data_sources_from_ingest_records(b4: dict[str, Any]) -> None:
