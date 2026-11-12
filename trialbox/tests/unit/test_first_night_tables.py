@@ -72,7 +72,7 @@ def test_a_first_night_without_a_mapped_table_is_held(tmp_path: Path, pg_cluster
     out = snapshot_dir(cfg.lake_dir, NIGHT)
     assert (out / HELD).exists() and not (out / PASSED).exists()
     text = " ".join(rep.errors)
-    assert f"{table}: table {word} on the first night" in text and "optional_tables" in text
+    assert f"{table}: table {word} and no earlier good night had it" in text and "optional_tables" in text
     problems = json.loads((out / COMPLETENESS).read_text(encoding="utf-8"))["problems"]
     assert [p.split(":")[0] for p in problems] == [table]
     # the extract is repaired: the same night passes and is the baseline
@@ -131,3 +131,74 @@ def test_the_product_s_entry_always_sets_the_rule() -> None:
     src = inspect.getsource(cli.build_config)
     assert "first_night_all_tables=True" in src
     assert AdapterConfig.__dataclass_fields__["first_night_all_tables"].default is False  # tools and tests opt in
+
+
+# ---------------------------------------------------------------- the adversarial review of PR #351 (2026-11-12)
+def test_a_delta_is_never_the_first_night(tmp_path: Path, pg_cluster_url: str) -> None:
+    """H1: ``--since`` on an empty lake passed with ``lab.csv`` missing and became the baseline."""
+    cfg, rb, feed = _site(tmp_path, pg_cluster_url, first_night_all_tables=True)
+    (feed / "lab.csv").unlink()
+    rep = run_ingest(cfg, "csv", str(feed), snapshot=NIGHT, since="2026-10-01", load_fhir=False, validate=False)
+    assert rep.held and rb.calls == 0 and not (cfg.lake_dir / "CURRENT").exists()
+    assert "run a full load" in " ".join(rep.errors or [])
+
+
+@pytest.mark.parametrize("baseline", ["no completeness record", "the table had no rows"])
+def test_a_table_no_earlier_good_night_had_is_still_asked_for(tmp_path: Path, pg_cluster_url: str,
+                                                              baseline: str) -> None:  # fmt: skip
+    """H2, M1: the night after a first load (the back-fill writes no completeness record), and the night after a
+    night that an override or an older build let through with the table empty."""
+    cfg, _rb, feed = _site(tmp_path, pg_cluster_url)  # an earlier good night, made without the rule
+    (feed / "lab.csv").unlink()
+    assert _night(cfg, feed).passed
+    if baseline == "no completeness record":
+        (snapshot_dir(cfg.lake_dir, NIGHT) / COMPLETENESS).unlink()
+    cfg.first_night_all_tables = True
+    rep = _night(cfg, feed, "2026-11-02")
+    assert rep.held and "lab: table missing and no earlier good night had it" in " ".join(rep.errors)
+    assert (cfg.lake_dir / "CURRENT").read_text().strip() == NIGHT
+    shutil.copy(SITE_A / "lab.csv", feed / "lab.csv")
+    assert _night(cfg, feed, "2026-11-02").passed
+
+
+def test_an_override_lets_one_night_through_and_the_next_night_asks_again(
+    tmp_path: Path, pg_cluster_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tb_common import feedguard
+
+    cfg, _rb, feed = _site(tmp_path, pg_cluster_url, first_night_all_tables=True)
+    (feed / "lab.csv").unlink()
+    monkeypatch.setenv(feedguard.OVERRIDE_ENV, f"{NIGHT}: the lab extract follows tomorrow")
+    assert _night(cfg, feed).passed
+    monkeypatch.delenv(feedguard.OVERRIDE_ENV)
+    rep = _night(cfg, feed, "2026-11-02")
+    assert rep.held and "lab: table missing and no earlier good night had it" in " ".join(rep.errors)
+
+
+def test_a_table_of_deleted_rows_only_is_empty(tmp_path: Path, pg_cluster_url: str) -> None:
+    """M2: "with rows" counted the source rows before the deleted ones were set aside."""
+    cfg, rb, feed = _site(tmp_path, pg_cluster_url, first_night_all_tables=True)
+    with (feed / "claim.csv").open(encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    with (feed / "claim.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=[*rows[0], "deleted"])
+        w.writeheader()
+        w.writerows({**r, "deleted": "1"} for r in rows)
+    rep = _night(cfg, feed)
+    assert rep.held and rb.calls == 0 and "claim: table empty and no earlier good night had it" in " ".join(rep.errors)
+
+
+def test_a_file_set_aside_for_its_form_is_not_also_called_empty(tmp_path: Path, pg_cluster_url: str) -> None:
+    """L1: the quarantine's own error is the reason; "empty ... goes under optional_tables" misled."""
+    cfg, _rb, feed = _site(tmp_path, pg_cluster_url, first_night_all_tables=True)
+    (feed / "claim.csv").write_bytes(b"\xff\xfe\x00\x00 not a csv \x81\x00")
+    rep = _night(cfg, feed)
+    text = " ".join(rep.errors)
+    assert rep.held and "claim:" in text and "no earlier good night had it" not in text
+
+
+def test_the_shipped_settings_name_the_way_out() -> None:
+    import yaml
+
+    doc = yaml.safe_load((ROOT / "deploy/settings.example.yaml").read_text(encoding="utf-8"))
+    assert doc["feed_completeness"]["optional_tables"] == []
