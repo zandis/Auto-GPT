@@ -355,9 +355,20 @@ class PidMap:
                 "INSERT INTO identity (key_id, pid, blob) VALUES (?,?,?) ON CONFLICT (key_id, pid) DO NOTHING",
                 [(new_id, pid, again(pid, blob)) for pid, blob in ids],
             )
+            # T-723 review: a night that waits (held, or between the gate and its publish) is staged under the old
+            # key; without this its rows were invisible to ``commit`` and the published patients could not be resolved
+            staged = tx.fetchall("SELECT snapshot, pid, mrn, blob FROM pending WHERE key_id = ?", (self.key_id,))
+            tx.execute("DELETE FROM pending WHERE key_id = ?", (self.key_id,))
+            tx.executemany(
+                "INSERT INTO pending (snapshot, key_id, pid, mrn, blob) VALUES (?,?,?,?,?)",
+                [
+                    (snap, new_id, pid, again(pid, mrn), again(pid, ident) if ident is not None else None)
+                    for snap, pid, mrn, ident in staged
+                ],
+            )
             tx.execute("DELETE FROM pid_map WHERE key_id = ?", (self.key_id,))
             tx.execute("DELETE FROM identity WHERE key_id = ?", (self.key_id,))
-            moved = len(rows) + len(ids)
+            moved = len(rows) + len(ids) + len(staged)
         self.key, self.key_id = new_key, new_id
         return moved
 

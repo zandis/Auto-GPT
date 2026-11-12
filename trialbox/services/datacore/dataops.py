@@ -64,6 +64,11 @@ EVENT_STEP = "dataops.step"
 DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error", "step", "table", "publish")
 NOTE_KEYS = ("step", "publish")  # what a running night writes into its row (T-723): step names and states only
 INTERRUPTED = "interrupted: the run ended without a result; a later run of this night started"
+#: T-723 review (HIGH-2): a held night whose accept was recorded and whose publish has started. It stays HELD in the
+#: row until the publish is known to have ended, but it can no longer be rejected: only accepted again, which
+#: resumes the publish or records that it ended
+ACCEPTING = "accept:publishing"
+NOT_PUBLISHED = "accept:not published"
 MAX_PAGE = 200  # T-112b: the most batch rows one page or API call reads
 
 _STATE_LIST = ", ".join(f"'{s}'" for s in STATES)
@@ -125,6 +130,13 @@ class Batch:
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
+
+
+def _shown(detail: dict[str, Any]) -> dict[str, Any]:
+    """The hold reasons a steward is shown for a held night, as the row keeps them (``DETAIL_KEYS``: tables and
+    counts, never a row or an identifier), for the audit of the decision."""
+    return {k: detail[k] for k in ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error")
+            if detail.get(k)}  # fmt: skip
 
 
 def can_step(cur: str, to: str) -> str | None:
@@ -372,8 +384,9 @@ class DataOps:
 
     def decide(self, audit: Audit, batch_id: int, decision: str, *, by: str, at: str, reason: str,
                promote: Callable[[Batch], None] | None = None) -> Batch:  # fmt: skip
-        """A steward's accept or reject of a held night, with a reason. Accept runs ``promote`` (the lake's move to
-        the snapshot) inside the transaction: if it raises, the night stays held."""
+        """A steward's accept or reject of a held night, with a reason. Accept runs ``promote`` (the publish of the
+        night): if it raises, the night stays held. An exception that says ``nothing_served`` leaves an ordinary
+        held night; any other leaves the accept recorded (see below)."""
         if decision not in DECISIONS:
             raise DataOpsError("decision", f"decision must be one of {sorted(DECISIONS)}")
         if not by.strip():
@@ -385,12 +398,47 @@ class DataOps:
             raise DataOpsError("not_found", f"no batch {batch_id}")
         if cur.state != HELD:
             raise DataOpsError("not_held", f"batch {batch_id} is {cur.state}, not HELD")
-        hook = promote if decision == "accept" else None
-        return self._move(audit, batch_id, DECISIONS[decision], by=by, at=at, reason=reason, event=EVENT_DECIDE,
-                          decision=decision, hook=hook)  # fmt: skip
+        if decision == "reject":
+            if cur.detail.get("step") == ACCEPTING:
+                raise DataOpsError(
+                    "publishing",
+                    f"batch {batch_id} is being published or has been published (its accept was recorded): accept "
+                    "it again to record the end; it can no longer be rejected",
+                )
+            return self._move(audit, batch_id, REJECTED, by=by, at=at, reason=reason, event=EVENT_DECIDE,
+                              decision=decision)  # fmt: skip
+        if promote is None:
+            return self._move(audit, batch_id, PUBLISHED, by=by, at=at, reason=reason, event=EVENT_DECIDE,
+                              decision=decision)  # fmt: skip
+        # T-723 review (HIGH-2): the accept is recorded before anything is published (the audit and the row), the
+        # publish runs outside any transaction, and its end is recorded after it. A publish whose end is not known
+        # (the console lost the adapter's job) leaves the accept recorded: the night cannot be rejected any more,
+        # and a second accept resumes the publish or records that it ended
+        base = {"batch": batch_id, "source": cur.source, "attempt": cur.attempt, "decision": decision,
+                "reason": reason, "shown": _shown(cur.detail)}  # fmt: skip
+        with self._db.transaction() as tx:
+            rows = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,))
+            if not rows or rows[0]["state"] != HELD:
+                raise DataOpsError("not_held", f"batch {batch_id} is no longer HELD")
+            detail = {**json.loads(rows[0]["detail"] or "{}"), "step": ACCEPTING}
+            tx.execute("UPDATE batch SET detail = ? WHERE id = ?",
+                       (json.dumps(detail, ensure_ascii=False, sort_keys=True), batch_id))  # fmt: skip
+            audit.append(EVENT_DECIDE, snapshot=cur.snapshot, actor=by, detail={**base, "phase": "started"})
+        try:
+            promote(cur)
+        except Exception as exc:
+            nothing = bool(getattr(exc, "nothing_served", False))
+            if nothing:  # the publish ended and nothing is served: an ordinary held night again
+                self.note(batch_id, step=NOT_PUBLISHED)
+            audit.append(EVENT_DECIDE, snapshot=cur.snapshot, actor=by, detail={
+                **base, "phase": "ended", "outcome": "not published" if nothing else "unknown",
+                "error": type(exc).__name__})  # fmt: skip
+            raise
+        return self._move(audit, batch_id, PUBLISHED, by=by, at=at, reason=reason, event=EVENT_DECIDE,
+                          decision=decision, outcome="published")  # fmt: skip
 
     def _move(self, audit: Audit, batch_id: int, to: str, *, by: str, at: str, reason: str, event: str,
-              decision: str = "", hook: Callable[[Batch], None] | None = None) -> Batch:  # fmt: skip
+              decision: str = "", hook: Callable[[Batch], None] | None = None, outcome: str = "") -> Batch:  # fmt: skip
         with self._db.transaction() as tx:
             rows = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,))
             if not rows:
@@ -408,6 +456,9 @@ class DataOps:
                                       "old": cur.state, "new": to, "reason": reason}  # fmt: skip
             if decision:
                 detail["decision"] = decision
+                detail["shown"] = _shown(cur.detail)  # what the steward was shown: counts and names, no identifier
+            if outcome:
+                detail["outcome"] = outcome
             rec = audit.append(event, snapshot=cur.snapshot, actor=by, detail=detail)
             tx.execute("INSERT INTO batch_step (batch, seq, old, new, who, at, reason, audit_event, audit_ref) "
                        "VALUES (?,?,?,?,?,?,?,?,?)", (batch_id, seq, cur.state, to, by, at, reason, event,

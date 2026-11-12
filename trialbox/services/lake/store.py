@@ -678,9 +678,14 @@ class Lake:
         ndjson_dir: Path | None = None,
         promote: bool = True,
         allow_empty: bool = False,
+        check: bool = False,
     ) -> RebuildStats:
         """Build ``db/<snapshot>.duckdb`` (into ``.building``, renamed when complete, with ``.sha256`` sidecars) and,
         with ``promote``, make it ``CURRENT``. The adapter calls this only for a night that passed validation.
+
+        ``check`` (T-723, D-489): build without promoting, but judge the data as a night that will be promoted (the
+        drop against ``CURRENT``): the publish builds first, loads the other stores, and promotes last
+        (:meth:`promote_built`).
 
         A snapshot older than ``CURRENT`` (a late re-run of an earlier night) is built but never made ``CURRENT``
         (T-106b, DATA-007): the box does not move back in time, the same rule as the OMOP store's.
@@ -693,7 +698,18 @@ class Lake:
         files and swapped in under :func:`lake_lock` after the holds are read again: a snapshot a job came to hold
         during the build is refused there (:class:`SnapshotHeld`) and its bytes stay as the job pinned them."""
         with building(self.dir, snapshot):
-            return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty)
+            return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, check)
+
+    def promote_built(self, snapshot: str) -> bool:
+        """T-723 (D-489): make the built ``snapshot`` the served one, as the last step of a publish. False, and
+        nothing changed, when a newer night is served (the box never moves back in time: DATA-007). Under the lake's
+        lock, so two publishes cannot cross."""
+        with lake_lock(self.dir):
+            cur = self.current()
+            if cur is not None and snapshot < cur:
+                return False
+            self.promote(snapshot)
+            return True
 
     def start_rebuild(
         self,
@@ -703,6 +719,7 @@ class Lake:
         promote: bool = True,
         allow_empty: bool = False,
         spawn: Any = None,
+        check: bool = False,
     ) -> dict[str, Any]:
         """Start a rebuild of ``snapshot`` as a job and answer its state (T-690, D-472): the lake service's 202.
 
@@ -740,7 +757,7 @@ class Lake:
             with lock:
                 end: dict[str, Any] = {}
                 try:
-                    st = self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty)
+                    st = self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, check)
                     end = {"state": "done", "result": {"snapshot": st.snapshot, "tables": st.tables,
                                                        "chunks": st.chunks, "embedded_new": st.embedded_new,
                                                        "seconds": st.seconds, "promoted": st.promoted}}  # fmt: skip
@@ -783,7 +800,13 @@ class Lake:
         return src, allow_empty
 
     def _rebuild(
-        self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None, promote: bool, allow_empty: bool
+        self,
+        snapshot: str,
+        embedder: Embedder,
+        ndjson_dir: Path | None,
+        promote: bool,
+        allow_empty: bool,
+        check: bool = False,
     ) -> RebuildStats:
         t0 = time.perf_counter()
         db_path = self.dir / "db" / f"{snapshot}.duckdb"
@@ -815,7 +838,7 @@ class Lake:
             raise RebuildError(
                 f"lake snapshot {snapshot}: {src} holds no patient or clinical record; nothing built, CURRENT unchanged"
             )
-        if promote and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
+        if (promote or check) and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
             self._check_drop(snapshot, have)
         try:
             counts, n_chunks, new = self._build(snapshot, embedder, src, by_type, stage, tmp)

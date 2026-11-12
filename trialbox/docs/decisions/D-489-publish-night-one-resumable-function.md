@@ -28,11 +28,12 @@ a held night: no code promoted one.
 ## Decision
 
 1. **One function, `adapter.publish.publish_night`.** It takes a night that may be published (it passed the gate,
-   or a steward accepted it) and runs, in this order and each only when the one before it is done: **the pid map**
-   (the night's chart numbers), **OMOP** (the dual write, where it is on), **the FHIR store**, **the lake** (build
-   and promote: the lake promotes at its swap, so the promotion is the last thing that happens). Then, and only
-   then, `passed.json` is written. A step that fails stops the publish there: no later step runs, `CURRENT` still
-   names the previous snapshot.
+   or a steward accepted it) and runs, in this order and each only when the one before it is done (the order of the review of 2026-11-12, see
+   "Changed by the review"): **the lake's build** (the night is built and judged, not served), **OMOP** (the dual
+   write, where it is on), **the FHIR store**, **the promotion** (one atomic move of `CURRENT`), **the pid map**
+   (the night's chart numbers, last). Then, and only then, `passed.json` is written. A step that fails stops the
+   publish there: no later step runs, `CURRENT` still names the previous snapshot, and the FHIR store is put back
+   to the night the lake serves.
 2. **A step record makes it resumable.** `publish.json` in the night's folder (snapshot, a fingerprint of the
    folder's NDJSON, each step's state and time; no patient data). A second call on the same folder skips the steps
    that are done and starts at the first that is not. A folder whose NDJSON changed (the night was run again from the
@@ -56,13 +57,54 @@ a held night: no code promoted one.
    opens its own, so no night shows "running" for ever.
 6. **The steward's accept calls the same function.** The adapter serves `POST /publish` (a polled job, as `/run`,
    D-472): it publishes the held night's folder as it stands. The console's data-operations page gets its promoter:
-   accept starts that job and follows it inside `DataOps.decide`'s transaction, so a publish that fails leaves the
-   night held, with the step that failed in `publish.json`, and a second accept resumes there. Accept is refused
+   accept records itself first (the audit and the row), then starts that job and follows it outside any
+   transaction; a publish that fails leaves the night held, with the step that failed in `publish.json`, and a
+   second accept resumes there (see "Changed by the review", point 4). Accept is refused
    for an attempt that is not the newest of its night, and while a job holds the snapshot a re-run would replace.
+
+## Changed by the review (2026-11-12)
+
+The integrator's adversarial review found that the first version did not keep its own promise ("the stores stay
+at one night"). What changed:
+
+1. **Never back in time, before any step.** A night older than the served one is refused before anything is
+   loaded (`stale`). Before, an older held night that a steward accepted after a newer night had been published
+   put the FHIR store back on the older night while the lake built it and did not promote it, and the row said
+   PUBLISHED. `POST /publish` answers `done` only for a night that is served.
+2. **The lake's verdict first, the promotion last, the pid map after it.** The lake service can now build a night
+   without serving it (`RebuildRequest.promote = false`, judged against the served night as a night that will be
+   promoted) and promote it in a second, atomic call (`POST /promote`, refused when a newer night is served). The
+   adapter service is wired that way. A lake that refuses the data, is busy or fails ends the publish before any
+   other store is touched. The FHIR store is the one store written before the promotion; when the promotion does
+   not happen it is put back to the served night, and if that fails the publish says so. The pid map is written
+   after the promotion, so the chart numbers of a night that is not served never reach the reverse map (F-12 holds
+   for a night the lake refuses too).
+3. **A re-run of the served night** has no separate promotion (its build replaces the served file), and callers
+   that give only `rebuild` (the tools) have the lake in one call: there the order is OMOP, the FHIR store, the
+   lake, the pid map, with the same put-back of the FHIR store. A process killed inside a re-run's lake step
+   leaves the swap on disk; `adapter.publish.recover_all`, run before every publish and every ingest, puts the
+   served folder and the FHIR store back, or keeps the re-run when the lake had finished the build (the served
+   file is newer than the swap). T-724's generations remove this case.
+4. **An accept is recorded before it publishes.** `DataOps.decide` writes the accept into the audit (`phase:
+   started`, with the hold reasons the steward was shown, counts and names only) and into the row
+   (`detail.step = accept:publishing`), runs the publish outside any transaction, and records its end (`ended`
+   with `not published` or `unknown`, or the row's move to PUBLISHED with `outcome: published`). While the accept
+   is recorded and its end is not known, the night cannot be rejected; a second accept resumes the publish, and
+   the adapter answers `done` at once for a night that was published already. A publish that ended without
+   serving the night leaves an ordinary held night, which can be rejected. No new state and no migration: the row
+   stays HELD until the publish is known to have ended.
+5. **A nightly run waits behind an accept** (the adapter takes the run and starts it when the publish ends); the
+   empty `X-TB-Run` header is gone. **A key rotation** re-encrypts the staged rows with the map.
+
+**Handed to T-724 (D-490), by the integrator's ruling**, as acceptance items of that card, so they do not fall
+between the two: (a) replacing `sitesetup/main/publishing.json` (D-472); (b) the newer night promoted over a site
+publish's facts (D-462: the `unchanged` branch of `sitesetup/service.py` compares the digest, not
+`last["snapshot"]`); (c) the named "busy" state (D-462).
 
 ## Consequences
 
-- A FHIR-store failure no longer promotes: the stores stay at one night, and the next call goes on from that step.
+- A FHIR-store failure no longer promotes, and what it loaded does not stay: the stores stay at one night, and the
+  next call goes on from that step.
 - The lake's own guards are unchanged (never back in time, never under a hold, one rebuild at a time).
 - The site publish's `publishing.json` (D-472) and the lake's "busy at the swap" stay until generations (T-724).
 

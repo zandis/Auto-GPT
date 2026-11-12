@@ -46,6 +46,10 @@ class AdapterConfig:
     validation_max_pct: float = 0.5
     sample_fraction: float = 0.01
     rebuild: Callable[[str, Path], RebuildResult] | None = None
+    # T-723 (D-489): the lake in two steps, so a publish promotes last: ``build`` builds and judges a night without
+    # serving it, ``promote`` makes it the served one (False: a newer night is served). Both None: ``rebuild`` alone
+    build: Callable[[str, Path], RebuildResult] | None = None
+    promote: Callable[[str], bool] | None = None
     # settings.registry_source: None = the data source's own ``registry`` table; ("none", "") = no registry;
     # ("csv", "/path/registry.csv") or ("sql", dsn) = a separate consent registry
     registry: tuple[str, str] | None = None
@@ -595,6 +599,9 @@ def _run_ingest(
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
     # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
     # touches the NDJSON that CURRENT (or a later delta) was built from
+    from adapter.publish import recover_all
+
+    recover_all(cfg)  # T-723 review: a re-run that was killed in its lake step is put back before anything is read
     rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
     if rerun:
         out_dir = cfg.lake_dir / RERUN_DIR / snap
