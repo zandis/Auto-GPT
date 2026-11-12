@@ -112,9 +112,9 @@ def build_feed(
     if not ok:
         raise opp.FeedRefused("the steward's approved list is empty: nothing is counted or published")
     period = opp.period_of(min(ctx.today(), date.fromisoformat(snapshot)), period_days)
-    from tb_common.optout import opted_out
+    from orchestrator.decision_context import decision_of
 
-    gone = opted_out(as_of=ctx.job.received_at.isoformat())
+    gone = decision_of(ctx).register()
     reach, accept = _rates(ctx, "")
 
     def simulate(prevalent: int, monthly: float, seed: int) -> dict[str, float]:

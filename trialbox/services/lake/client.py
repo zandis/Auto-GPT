@@ -90,14 +90,22 @@ class LakeHttp:
         out: dict[str, int] = resp.json()["counts"]
         return out
 
-    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
         """T-690 (D-472): start a rebuild job on the lake service and answer its state (202). A refusal known at once
         (busy, a missing feed) is the service's 409, raised as ``httpx.HTTPStatusError`` (the header
-        ``X-TB-Lake-Busy`` says busy). ``allow_empty`` is the in-process lake's; the service decides it itself."""
-        resp = self.client.post(f"{self.base}/rebuild", json={"snapshot": snapshot})
+        ``X-TB-Lake-Busy`` says busy). ``allow_empty`` is the in-process lake's; the service decides it itself.
+        ``promote`` false (T-723, D-489): build and judge, do not serve yet (:meth:`promote`)."""
+        body: dict[str, Any] = {"snapshot": snapshot} if promote else {"snapshot": snapshot, "promote": False}
+        resp = self.client.post(f"{self.base}/rebuild", json=body)
         resp.raise_for_status()
-        body: dict[str, Any] = resp.json()
-        return body
+        job: dict[str, Any] = resp.json()
+        return job
+
+    def promote(self, snapshot: str) -> bool:
+        """T-723 (D-489): make the built ``snapshot`` the served one; False when a newer night is served."""
+        resp = self.client.post(f"{self.base}/promote", json={"snapshot": snapshot})
+        resp.raise_for_status()
+        return bool(resp.json().get("promoted"))
 
     def rebuild_state(self, snapshot: str) -> dict[str, Any]:
         """The state of the snapshot's last rebuild job on the lake service (T-690, D-472)."""
@@ -106,12 +114,15 @@ class LakeHttp:
         body: dict[str, Any] = resp.json()
         return body
 
-    def rebuild(self, snapshot: str) -> dict[str, Any]:
+    def rebuild(self, snapshot: str, promote: bool = True) -> dict[str, Any]:
         """Rebuild ``snapshot`` and answer its counts: the job is started and followed to its end (T-690, D-472), never
         timed (OD-10). Busy (held, already building, held at the swap) raises :class:`lake.store.LakeBusy`; a refusal
         of the data :class:`lake.store.RebuildError`; a failed, interrupted or lost job ``RuntimeError``."""
         return follow_rebuild(
-            lambda: self.start_rebuild(snapshot), lambda: self.rebuild_state(snapshot), snapshot, self._poll
+            lambda: self.start_rebuild(snapshot, promote=promote),
+            lambda: self.rebuild_state(snapshot),
+            snapshot,
+            self._poll,
         )
 
     def hold(self, snapshot: str, holder: str) -> None:
@@ -183,13 +194,18 @@ class LakeLocal:
     def holds(self) -> dict[str, str]:
         return self.lake.holds()
 
-    def rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
-        st = self.lake.rebuild(snapshot, self.embedder, allow_empty=allow_empty)
+    def rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
+        st = self.lake.rebuild(snapshot, self.embedder, promote=promote, allow_empty=allow_empty, check=not promote)
         return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds}
 
-    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+    def promote(self, snapshot: str) -> bool:
+        return self.lake.promote_built(snapshot)
+
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
         """The in-process lake runs the job here and answers its end (no client limit to outlast: T-690)."""
-        return self.lake.start_rebuild(snapshot, self.embedder, allow_empty=allow_empty)
+        return self.lake.start_rebuild(
+            snapshot, self.embedder, promote=promote, allow_empty=allow_empty, check=not promote
+        )
 
     def rebuild_state(self, snapshot: str) -> dict[str, Any]:
         return self.lake.rebuild_state(snapshot)

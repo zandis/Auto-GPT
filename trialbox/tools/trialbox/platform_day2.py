@@ -301,7 +301,9 @@ def run_restore(
         out = bk.restore(
             file,
             key,
-            env=env,
+            # D-573: the platform's services sign in as trialbox (kustomization: the roles exist, nothing uses
+            # them), so a restore there has no stores to give back to service roles
+            env={**env, bk.ROLES_CMD: env.get(bk.ROLES_CMD) or bk.ROLES_NOT_NEEDED},
             dirs=stage,
             now=when,
             refdata_dir=refdata_dir,

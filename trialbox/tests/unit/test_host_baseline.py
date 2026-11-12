@@ -271,7 +271,10 @@ def test_seal_keys_wraps_the_plain_keys_under_a_tpm_sealed_kek(tmp_path: Path) -
     (tmp_path / "units").mkdir()
     r = _sh(["deploy/hardening/seal_keys.sh", "--secrets", str(sec), "--conf", str(conf)], env)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert sorted(p.name for p in sec.iterdir()) == ["kek.json", "pid_map.key.wrapped", "site_hmac.key.wrapped"]
+    # NEW-STD-2 (D-562): the audit signing key is made here too, wrapped under the same KEK
+    assert sorted(p.name for p in sec.iterdir()) == [
+        "audit_sign.key.wrapped", "audit_sign.pub", "kek.json", "pid_map.key.wrapped", "site_hmac.key.wrapped",
+    ]  # fmt: skip
     kek = host / "run/trialbox/kek"
     assert kek.stat().st_mode & 0o777 == 0o600 and len(kek.read_bytes()) == 32
     cred = host / "etc/credstore.encrypted/trialbox-kek"

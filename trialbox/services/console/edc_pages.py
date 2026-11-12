@@ -313,7 +313,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         pid = next((p for p, n in store.screening_nos(rid).items() if str(n).upper() == rec), None)
         if pid is None:
             raise h.problem(404, "notfound")
-        if h.optout is not None and pid in h.optout.active():
+        if pid in h.gone():  # D-477: the one register read of the pages
             raise h.problem(409, "edc.err.edc.opted_out")
         return pid
 

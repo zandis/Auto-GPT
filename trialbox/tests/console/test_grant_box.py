@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from console.backend import Refused
-from console.breakglass import BreakGlassStore
+from console.breakglass_store import BreakGlassStore
 
 from tests.actor3 import log_pi, signer
 from tests.console.test_console_app import ADMIN_PW, CRC_PW, login
@@ -135,7 +135,7 @@ def test_an_investigator_reveals_by_the_log_the_orchestrator_reads(site: dict[st
 def test_a_store_that_cannot_be_read_gives_nothing(site: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
     """A box updated without the role script: the orchestrator's role is not in the two schemas yet. It fails
     closed with the reason on the record; a coordinator, whose right needs neither store, is not affected."""
-    import console.breakglass as bg_mod
+    import console.breakglass_store as bg_mod
     import console.teamstore as team_mod
 
     ob: OrchBox = site["ob"]

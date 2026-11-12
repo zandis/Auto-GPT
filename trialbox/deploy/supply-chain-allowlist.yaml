@@ -2149,6 +2149,23 @@ licences:
     licence: GPL-2.0-only WITH Classpath-exception-2.0 (Eclipse Temurin JRE 21, copied unmodified from the pinned eclipse-temurin image)
     reason: The JRE ships unmodified; the Classpath exception covers the jars run on it; listed in the notices
     review_by: 2027-05-01
+  # From the trialbox-embed image (ENG-003, D-563): wheels whose metadata has no licence field, so Syft reads
+  # none. The licence is the one the wheel's own files state (read in the built image, 2026-11-12).
+  - package: markdown-it-py
+    class: unknown
+    licence: MIT (trialbox-embed; the wheel's licenses/LICENSE and its classifier)
+    reason: Comes with transformers' command line (typer, rich); the wheel ships the MIT text and names it only in a classifier
+    review_by: 2027-05-01
+  - package: safetensors
+    class: unknown
+    licence: Apache-2.0 (trialbox-embed; the wheel's licenses/LICENSE and its classifier)
+    reason: Reads the embedder's weights; the wheel ships the Apache-2.0 text and names it only in a classifier
+    review_by: 2027-05-01
+  - package: tokenizers
+    class: unknown
+    licence: Apache-2.0 (trialbox-embed; the wheel's classifier, the publisher's repository LICENSE)
+    reason: The embedder's tokenizer; the wheel names Apache-2.0 only in a classifier and ships no licence file
+    review_by: 2027-05-01
 
 # Licence budgets: open licence flags counted per image and ecosystem (tools/supply_chain/licences.py evaluate). A
 # count above its budget fails, so every new component is reviewed; when a count drops, lower the budget.

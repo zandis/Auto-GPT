@@ -419,7 +419,10 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         if fmt not in export.FORMATS:
             raise HTTPException(status_code=404, detail={"code": "DATA-EXPORT", "message": "odm, cdisc, csv or xlsx"})
         at = svc.now().isoformat(timespec="seconds")
-        body = export.export(svc.dc, rid, fmt, at)
+        try:
+            body = export.export(svc.dc, rid, fmt, at)
+        except DataError as exc:  # EDC-010 (D-581): DATA-CHARS names the field; a person must see it
+            raise _fail(exc) from exc
         suffix, media = export.media(fmt)
         name = f"{rid}_{svc.now().strftime('%Y%m%d')}{suffix}"
         svc.audit.append("data.export", ruleset=rid, actor=by or "orchestrator", detail={"format": fmt})

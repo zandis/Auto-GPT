@@ -10,9 +10,10 @@ result in a word (the role ``breakglass``; a standing). Now the orchestrator ope
 * :func:`log_standing`: the person's standing in the study from the delegation log (the PI the log names, the ticked
   tasks), read here; :func:`own_right` asks the matrix with it, as the console's one reveal path does.
 
-The stores are the console's own classes (``console.breakglass.BreakGlassStore``, ``console.teamstore.TeamStore``):
-one schema, one reader of its rows' meaning. The orchestrator's database role is a member of both schemas' groups
-(``30-service-roles.sh``); T-718 narrows that to SELECT on both and INSERT on ``breakglass.uses``.
+The stores are the console's own classes (``console.breakglass_store.BreakGlassStore``,
+``console.teamstore.TeamStore``): one schema, one reader of its rows' meaning. The orchestrator's database role is a
+member of both schemas' groups (``30-service-roles.sh``); T-718 narrows that to SELECT on both and INSERT on
+``breakglass.uses``.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ def username_of(sub: str) -> str:
 def verify_grant(claim: Claim, *, study: str, pid: str, job_id: str, now: datetime, url: str | None = None) -> Any:
     """The open grant row the claim names, when it covers ``pid`` of ``study`` or ``job_id``. Raises
     :class:`GrantRefused` otherwise; never trusts a field of the claim's ``grant`` but its id."""
-    from console.breakglass import BreakGlassStore
+    from console.breakglass_store import BreakGlassStore
 
     try:
         gid = int(str((claim.grant or {}).get("id")))
@@ -71,7 +72,7 @@ def verify_grant(claim: Claim, *, study: str, pid: str, job_id: str, now: dateti
 def record_use(
     grant: Any, *, what: str, study: str, pid: str, job_id: str, now: datetime, url: str | None = None
 ) -> None:
-    from console.breakglass import BreakGlassStore
+    from console.breakglass_store import BreakGlassStore
 
     store = BreakGlassStore(url)
     try:

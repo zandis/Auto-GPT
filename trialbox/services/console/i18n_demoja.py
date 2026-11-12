@@ -1,0 +1,153 @@
+"""Strings of card DEMO-JA (the demo as a Japanese viewer sees it, rehearsal of 2026-11-12): the account page with
+two-step sign-in on, the English original of the IRB sentence named as such, the data operations trail's events and
+the adapter as an author, the feasibility population, and the reference data sources by name. Merged last into
+``console.i18n`` (en, ja, zh-TW); every language has every key."""
+
+from __future__ import annotations
+
+# the reference data sources (tools.refdata_fetch.SOURCES): the English name is the pack's own
+_SRC_EN = {
+    "ctgov": "ClinicalTrials.gov, all studies (API v2 bulk download)",
+    "tfda_trials": "TFDA drug clinical trials (data.gov.tw 177198)",
+    "tfda_indication": "TFDA trial indications with ICD codes (data.gov.tw 177212)",
+    "mhlw_yakka": "MHLW 薬価基準収載品目リスト (内用薬, 注射薬, 外用薬, 歯科用薬剤)",
+    "nhi_drugs": "NHI drug items 健保用藥品項查詢項目檔 (data.gov.tw 23715)",
+    "icd10cm": "ICD-10-CM code descriptions FY2027 (CDC NCHS)",
+    "tw_icd10_zh": "Taiwan ICD-10-CM/PCS 2023 Chinese edition (NHIA)",
+    "loinc": "LOINC table (Regenstrief)",
+    "umin_ctr": "UMIN-CTR daily snapshot",
+    "ucum": "UCUM, the Unified Code for Units of Measure (Regenstrief), ucum-essence.xml 2.2",
+    "who_ictrp": "WHO ICTRP",
+    "japic_cti": "JAPIC-CTI / JMACCT",
+    "tfda_sites": "TFDA trial sites, drugs and ingredients (data.gov.tw 177215, 177216, 177218)",
+    "nhi_drug_atc": "NHI drug code -> ATC (from 健保用藥品項查詢項目檔, data.gov.tw 23715)",
+    "tw_icd_2014_2023": "Taiwan ICD-10-CM/PCS 2014 <-> 2023 map (NHIA, data.gov.tw 177508)",
+    "nhi_lab_loinc": "NHI lab order code -> LOINC (NHIA PAS IG ConceptMap nhi-loinc)",
+    "naer_medical_terms": "NAER medical terms en <-> zh-TW (國家教育研究院 醫學學術名詞, data.gov.tw 15460)",
+    "tw_zh_synonyms": "TrialBox zh-TW clinical synonyms and note abbreviations (curated)",
+    "nhi_services": "NHI medical service items 醫療服務給付項目及支付標準 (data.gov.tw 174450)",
+    "icd10_who_cm_bridge": "WHO ICD-10 <-> ICD-10-CM category bridge (TrialBox, from the ICD-10-CM code list)",
+    "medis_byomei_icd10": "MEDIS 標準病名マスター -> ICD-10 (the hospital's own download)",
+    "jp_yj_atc": "YJ code (7-character stem) -> ATC (TrialBox, stems from the MHLW 薬価基準収載品目リスト)",
+    "jlac10_loinc": "JLAC10 -> LOINC (the hospital's own map file)",
+    "ctcae_v5_en": "CTCAE v5.0 terms and grades, English (NCI)",
+    "ctcae_v5_ja_jcog": "CTCAE v5.0 日本語訳JCOG版 (the hospital's own download)",
+    "ja_synonyms": "TrialBox Japanese clinical synonyms and note abbreviations (curated)",
+    "jrct": "jRCT (Japan Registry of Clinical Trials), the hospital's own search download",
+}
+_SRC_JA = {
+    "ctgov": "ClinicalTrials.gov 全試験（API v2 一括ダウンロード）",
+    "tfda_trials": "TFDA 医薬品の臨床試験（data.gov.tw 177198）",
+    "tfda_indication": "TFDA 試験の適応症と ICD コード（data.gov.tw 177212）",
+    "mhlw_yakka": "厚生労働省 薬価基準収載品目リスト（内用薬、注射薬、外用薬、歯科用薬剤）",
+    "nhi_drugs": "台湾健保の薬品項目 健保用藥品項查詢項目檔（data.gov.tw 23715）",
+    "icd10cm": "ICD-10-CM コードの説明 FY2027（CDC NCHS）",
+    "tw_icd10_zh": "台湾 ICD-10-CM/PCS 2023 中国語版（NHIA）",
+    "loinc": "LOINC コード表（Regenstrief）",
+    "umin_ctr": "UMIN-CTR 日次スナップショット",
+    "ucum": "UCUM 単位コード（Regenstrief）、ucum-essence.xml 2.2",
+    "who_ictrp": "WHO ICTRP",
+    "japic_cti": "JAPIC-CTI / JMACCT",
+    "tfda_sites": "TFDA 試験の実施施設・薬剤・成分（data.gov.tw 177215、177216、177218）",
+    "nhi_drug_atc": "台湾健保の薬品コード → ATC（健保用藥品項查詢項目檔から、data.gov.tw 23715）",
+    "tw_icd_2014_2023": "台湾 ICD-10-CM/PCS 2014 ↔ 2023 対応表（NHIA、data.gov.tw 177508）",
+    "nhi_lab_loinc": "台湾健保の検査オーダーコード → LOINC（NHIA PAS IG ConceptMap nhi-loinc）",
+    "naer_medical_terms": "NAER 医学用語 英語 ↔ 繁体字中国語（國家教育研究院 醫學學術名詞、data.gov.tw 15460）",
+    "tw_zh_synonyms": "TrialBox 繁体字中国語の臨床同義語とカルテの略語（編集済み）",
+    "nhi_services": "台湾健保の診療報酬項目 醫療服務給付項目及支付標準（data.gov.tw 174450）",
+    "icd10_who_cm_bridge": "WHO ICD-10 ↔ ICD-10-CM 分類の対応（TrialBox、ICD-10-CM コード表から作成）",
+    "medis_byomei_icd10": "MEDIS 標準病名マスター → ICD-10（病院が自らダウンロード）",
+    "jp_yj_atc": "YJ コード（先頭7桁）→ ATC（TrialBox、厚生労働省 薬価基準収載品目リストから作成）",
+    "jlac10_loinc": "JLAC10 → LOINC（病院の対応表ファイル）",
+    "ctcae_v5_en": "CTCAE v5.0 の用語とグレード（英語版、NCI）",
+    "ctcae_v5_ja_jcog": "CTCAE v5.0 日本語訳JCOG版（病院が自らダウンロード）",
+    "ja_synonyms": "TrialBox 日本語の臨床同義語とカルテの略語（編集済み）",
+    "jrct": "jRCT（臨床研究等提出・公開システム）、病院が自ら検索してダウンロード",
+}
+_SRC_ZH = {
+    "ctgov": "ClinicalTrials.gov 全部試驗（API v2 批次下載）",
+    "tfda_trials": "TFDA 藥品臨床試驗（data.gov.tw 177198）",
+    "tfda_indication": "TFDA 試驗適應症與 ICD 代碼（data.gov.tw 177212）",
+    "mhlw_yakka": "日本厚生勞動省 薬価基準収載品目リスト（內服、注射、外用、牙科用藥）",
+    "nhi_drugs": "健保用藥品項查詢項目檔（data.gov.tw 23715）",
+    "icd10cm": "ICD-10-CM 代碼說明 FY2027（CDC NCHS）",
+    "tw_icd10_zh": "臺灣 ICD-10-CM/PCS 2023 中文版（健保署）",
+    "loinc": "LOINC 代碼表（Regenstrief）",
+    "umin_ctr": "UMIN-CTR 每日快照",
+    "ucum": "UCUM 計量單位代碼（Regenstrief），ucum-essence.xml 2.2",
+    "who_ictrp": "WHO ICTRP",
+    "japic_cti": "JAPIC-CTI / JMACCT",
+    "tfda_sites": "TFDA 試驗機構、藥品與成分（data.gov.tw 177215、177216、177218）",
+    "nhi_drug_atc": "健保藥品代碼 → ATC（取自健保用藥品項查詢項目檔，data.gov.tw 23715）",
+    "tw_icd_2014_2023": "臺灣 ICD-10-CM/PCS 2014 ↔ 2023 對照表（健保署，data.gov.tw 177508）",
+    "nhi_lab_loinc": "健保檢驗醫令代碼 → LOINC（健保署 PAS IG ConceptMap nhi-loinc）",
+    "naer_medical_terms": "國家教育研究院 醫學學術名詞 英文 ↔ 繁體中文（data.gov.tw 15460）",
+    "tw_zh_synonyms": "TrialBox 繁體中文臨床同義詞與病歷縮寫（人工整理）",
+    "nhi_services": "醫療服務給付項目及支付標準（data.gov.tw 174450）",
+    "icd10_who_cm_bridge": "WHO ICD-10 ↔ ICD-10-CM 類目對照（TrialBox，取自 ICD-10-CM 代碼表）",
+    "medis_byomei_icd10": "MEDIS 標準病名マスター → ICD-10（醫院自行下載）",
+    "jp_yj_atc": "YJ 代碼（前7碼）→ ATC（TrialBox，取自日本厚生勞動省 薬価基準収載品目リスト）",
+    "jlac10_loinc": "JLAC10 → LOINC（醫院自備的對照檔）",
+    "ctcae_v5_en": "CTCAE v5.0 術語與分級（英文版，NCI）",
+    "ctcae_v5_ja_jcog": "CTCAE v5.0 日本語訳JCOG版（醫院自行下載）",
+    "ja_synonyms": "TrialBox 日文臨床同義詞與病歷縮寫（人工整理）",
+    "jrct": "jRCT（日本臨床試驗登錄系統），醫院自行檢索下載",
+}
+
+EN: dict[str, str] = {
+    # the delegation log's add form: the monitoring visit has its own field (it shared the training certificate's)
+    "team.log.training_cert": "Training certificate",
+    "team.log.visit": "Monitoring visit id",
+    "team.log.visit.help": "A monitor grant only: the id of the monitoring visit (with its last day above).",
+    # the account page once two-step sign-in is on (the "comes with the installation" line was shown after enrolment)
+    "account.totp_on": "Two-step sign-in is on: every sign-in asks for a code from your authenticator app.",
+    # the IRB sentence's English original under its translation (D-395: the wording the record is checked against)
+    "irbt.sentence_en": "English original:",
+    # the data operations trail: the audit event in words (the code stays in the cell's title) and the adapter
+    "dataops.event.ingest.done": "nightly ingest finished",
+    "dataops.event.ingest.failed": "nightly ingest failed",
+    "dataops.event.ingest.held": "nightly ingest held",
+    "dataops.event.dataops.decide": "data steward's decision",
+    "dataops.event.dataops.step": "step recorded",
+    "who.adapter": "ingest adapter",
+    # the FEAS report's population (feas_compute.population_label)
+    "feas.pop.hospital": "whole hospital: patients with at least one visit in the last {months} months",
+    "feas.pop.departments": "departments {departments}: patients with at least one visit in the last {months} months",
+    **{f"refdata.src.{k}": v for k, v in _SRC_EN.items()},
+}
+
+JA: dict[str, str] = {
+    # the delegation log's add form: the monitoring visit has its own field (it shared the training certificate's)
+    "team.log.training_cert": "研修修了証",
+    "team.log.visit": "モニタリング訪問の ID",
+    "team.log.visit.help": "モニターの許可のときだけ：モニタリング訪問の ID（最終日は上の欄）。",
+    "account.totp_on": "2段階認証はオンです。ログインのたびに認証アプリのコードを入力します。",
+    "irbt.sentence_en": "英語の原文：",
+    "dataops.event.ingest.done": "夜間取り込み完了",
+    "dataops.event.ingest.failed": "夜間取り込み失敗",
+    "dataops.event.ingest.held": "夜間取り込み保留",
+    "dataops.event.dataops.decide": "データスチュワードの判断",
+    "dataops.event.dataops.step": "手順の記録",
+    "who.adapter": "取り込み処理",
+    "feas.pop.hospital": "病院全体：過去 {months} か月に1回以上受診した患者",
+    "feas.pop.departments": "診療科 {departments}：過去 {months} か月に1回以上受診した患者",
+    **{f"refdata.src.{k}": v for k, v in _SRC_JA.items()},
+}
+
+ZH: dict[str, str] = {
+    # the delegation log's add form: the monitoring visit has its own field (it shared the training certificate's)
+    "team.log.training_cert": "訓練證明",
+    "team.log.visit": "監測訪視編號",
+    "team.log.visit.help": "僅限監測員授權：監測訪視的編號（最後一天填於上方）。",
+    "account.totp_on": "兩步驟登入已開啟：每次登入都需輸入驗證器應用程式的代碼。",
+    "irbt.sentence_en": "英文原文：",
+    "dataops.event.ingest.done": "夜間匯入完成",
+    "dataops.event.ingest.failed": "夜間匯入失敗",
+    "dataops.event.ingest.held": "夜間匯入暫停",
+    "dataops.event.dataops.decide": "資料管理員的決定",
+    "dataops.event.dataops.step": "步驟紀錄",
+    "who.adapter": "匯入程式",
+    "feas.pop.hospital": "全院：過去 {months} 個月內至少就診一次的病人",
+    "feas.pop.departments": "科別 {departments}：過去 {months} 個月內至少就診一次的病人",
+    **{f"refdata.src.{k}": v for k, v in _SRC_ZH.items()},
+}

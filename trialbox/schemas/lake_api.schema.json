@@ -139,6 +139,11 @@
             "string",
             "null"
           ]
+        },
+        "promote": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: build and judge the night, do not make it CURRENT yet (T-723, D-489: the publish promotes last, POST /promote)"
         }
       }
     },

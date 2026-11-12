@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,6 +89,8 @@ class _Box:
         other = SimpleNamespace(
             job_id="J-OTHER",
             run_date=WED,
+            state="done",
+            options={},
             received_at=RECEIVED,
             metrics=JobMetrics(patients_scoped=others),
             outputs=[],
@@ -116,7 +119,7 @@ class _Box:
             publish=self._publish,
             store=SimpleNamespace(get=lambda key: self.store[key]),
             orch=SimpleNamespace(
-                db=SimpleNamespace(pool=lambda rid: self.pool, find=find),
+                db=SimpleNamespace(pool=lambda rid: self.pool, find=find, locked=lambda name: nullcontext()),
                 audit=SimpleNamespace(append=lambda ev, **kw: self.audit.append((ev, kw))),
             ),
             services=SimpleNamespace(
@@ -384,11 +387,14 @@ def test_the_timer_marks_its_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("apscheduler.schedulers.background.BackgroundScheduler", _Sched)
     monkeypatch.setattr("tb_common.config.schedule_on_demand", lambda settings, env: False)
+    monkeypatch.setattr("orchestrator.night.advance", lambda orch: [])
     orch: Any = SimpleNamespace(
-        cfg=SimpleNamespace(settings=SimpleNamespace(schedule=None), env=SimpleNamespace(tz="Asia/Tokyo", extra={}))
+        cfg=SimpleNamespace(settings=SimpleNamespace(schedule=None), env=SimpleNamespace(tz="Asia/Tokyo", extra={})),
+        on_terminal=[],
     )
     scheduler.start(orch)
-    assert added["ingest"][1:] == ["INGEST", None, {"timer": "1"}]
+    # T-726 (D-492): the timer's ingest is also the start of the night's chain
+    assert added["ingest"][1:] == ["INGEST", None, {"timer": "1", "chain": "1"}]
 
 
 def test_a_passed_ingest_is_followed_by_the_micro_batch(monkeypatch: pytest.MonkeyPatch) -> None:

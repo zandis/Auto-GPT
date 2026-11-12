@@ -189,15 +189,23 @@ status and alert, wipe, restore with the pack loaded again, an old-format restor
 point-in-time recovery).
 
 **Database roles after a restore (D-378).** Each service signs in as its own role and reaches only its own schemas,
-which belong to group roles. A restore made as `trialbox` leaves its tables owned by `trialbox`, so run the role
-script once after it: `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`
-(`deploy/install.sh` runs it on every install and upgrade). It is safe to run any time.
+which belong to group roles. A restore made as `trialbox` leaves its tables and functions owned by `trialbox`, so
+the restore runs the role script itself after the trial database is restored (D-573): set
+`TB_DB_ROLES_CMD="docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh"`
+in the environment of `trialbox restore`, run from the release folder. Without it a PRODUCTION restore ends "NOT
+complete" (exit 4) and prints that line to run by hand; when the command fails the restore stops with its output:
+do not start the services, fix what it names and run the restore again. `deploy/install.sh` runs the script on
+every install and upgrade. Run it through the `db` container, as above: the container holds the service roles'
+passwords. Run from the host without the `TB_DB_PW_*` variables, the script clears the service roles' passwords
+and every service is locked out until it runs again with them.
 **After `trialbox update` (D-484, T-716).** The update does not run the role script. Since D-484 the orchestrator
 reads the break-glass grants and the delegation log itself, so its role must be in the `breakglass` and `team`
 schemas. On a box updated to the release with D-484 and not reinstalled, every reveal under a break-glass grant and
 every investigator's reveal is refused, and the audit trail says "the grant store cannot be read" or "the
-delegation log cannot be read" (`screen.reveal_refused`); a coordinator's reveal is not affected. Run the command
-above once after that update. Nothing is lost: the refused reveals can be asked again.
+delegation log cannot be read" (`screen.reveal_refused`); a coordinator's reveal is not affected. Run the role
+script once after that update, through the `db` container:
+`docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`. Nothing is
+lost: the refused reveals can be asked again.
 Since D-461 the console is not in the EDC group (`tbs_edc`): the console reaches the EDC only through the
 orchestrator, and the script takes an earlier membership away on its next run.
 The script also gives the audit journal back to its owner and the services their right to write to it (D-394): until

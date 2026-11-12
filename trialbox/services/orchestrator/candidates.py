@@ -151,9 +151,9 @@ class CandidateRegistry:
 
         ruleset = check_ruleset(ruleset)
         if exclude is None:
-            from tb_common.optout import opted_out
+            from orchestrator.decision_context import register_now
 
-            exclude = opted_out()
+            exclude = register_now()
         rows = [r for r in self.db.candidates(ruleset) if str(r["pid"]) not in exclude]
         events = [e for e in self.db.candidate_events(ruleset) if str(e["pid"]) not in exclude]
         mrns = self.mrns([str(r["pid"]) for r in rows])
