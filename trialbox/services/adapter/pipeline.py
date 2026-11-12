@@ -710,12 +710,17 @@ def _run_ingest(
         except Exception as exc:
             errors.append(f"fhir-store load failed: {exc}")
     lake_result: RebuildResult | None = None
+    lake_busy = False
     if not held and rebuild_lake and cfg.rebuild is not None:
         try:
             lake_result = cfg.rebuild(snap, out_dir)
         except Exception as exc:
             errors.append(f"lake rebuild failed: {exc}")
-            if type(exc).__name__ in REFUSALS:  # D-271: the lake or the OMOP store refused the data: a held night
+            if type(exc).__name__ in BUSY:
+                # D-462: a job holds the snapshot or another rebuild of it runs: nothing written, not the data's fault
+                lake_busy = True
+                errors.append("lake busy: the night is run again once the lake is free (nothing was written)")
+            elif type(exc).__name__ in REFUSALS:  # D-271: the lake or the OMOP store refused the data: a held night
                 held = True
                 errors.append("night held: the lake refused the snapshot; CURRENT still names the previous snapshot")
     at["step"] = "report"
@@ -790,6 +795,7 @@ def _run_ingest(
                 "snapshots_pruned": pruned,
                 "tombstoned": tombstoned,
                 "held": held,
+                "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
                 "unit_defaults_applied": defaulted,
                 "presence_words_read": presence_read,
                 "instants_to_site_offset": shifted,
@@ -1018,7 +1024,10 @@ def completeness_check(
 
 RERUN_DIR = "ndjson-rerun"  # a re-run of a promoted night until it passes (D-271)
 # exceptions by which the lake refuses a snapshot (lake.store.RebuildError, omop.schema.OmopError, the HTTP 409)
-REFUSALS = ("RebuildError", "OmopError", "RebuildRefused", "SnapshotHeld")
+REFUSALS = ("RebuildError", "OmopError", "RebuildRefused")
+#: D-462: the lake could not rebuild now (``lake.store.LakeBusy``: held by a job, or already building), in process or
+#: over HTTP (409 with ``X-TB-Lake-Busy``): retried later, never a held night
+BUSY = ("LakeBusy", "SnapshotHeld", "SnapshotBuilding")
 
 
 class RebuildRefused(RuntimeError):
@@ -1064,7 +1073,7 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     long SCREEN, or one waiting for an approval, still reads its night after N newer ones arrived)."""
     import shutil
 
-    from lake.store import held_snapshots
+    from lake.store import SnapshotBuilding, building, drop_reader_links, held_snapshots, lake_lock
     from tb_common.retention import snapshots_to_keep
 
     current = (cfg.lake_dir / "CURRENT").read_text().strip() if (cfg.lake_dir / "CURRENT").exists() else None
@@ -1074,11 +1083,20 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
     good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")} | ({current} if current else set())
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
-    keep |= set(held_snapshots(cfg.lake_dir).values())
-    gone = sorted(s for s in snaps if s not in keep)
-    for s in gone:
-        shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
-        shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
-        for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
-            f.unlink(missing_ok=True)
+    gone: list[str] = []
+    with lake_lock(cfg.lake_dir):  # D-462: no hold lands between reading the holds and the deletes
+        keep |= set(held_snapshots(cfg.lake_dir).values())
+        for s in sorted(s for s in snaps if s not in keep):
+            try:
+                # D-462: a snapshot that is being rebuilt is left alone (the build would bring it back at its swap)
+                with building(cfg.lake_dir, s):
+                    shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
+                    shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
+                    for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
+                        f.unlink(missing_ok=True)
+                    drop_reader_links(cfg.lake_dir, s)
+            except SnapshotBuilding:
+                log.info("lake snapshot %s is being rebuilt: not pruned this time", s)
+                continue
+            gone.append(s)
     return gone

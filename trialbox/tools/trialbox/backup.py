@@ -563,8 +563,10 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
         why = ""
         if name == "lake" and parts[0] in LAKE_SKIP_TOP:
             why = "lake tmp/ (spill)"
-        elif name == "lake" and rel.endswith(".building"):
-            why = "lake snapshot being built"
+        elif name == "lake" and any(x.endswith((".building", ".old")) for x in parts):
+            why = "lake snapshot being built"  # D-462: the build file and the Parquet stage, swapped in when done
+        elif name == "lake" and parts[:2] == ("db", ".open"):
+            why = "lake reader links (the same files as db/)"  # D-462: hard links, taken once as db/<snapshot>.duckdb
         elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
                 and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip
             why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
