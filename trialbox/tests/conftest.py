@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import pytest
 
@@ -420,3 +420,12 @@ def ingested(
         "cfg": cfg,
         "key": (site_key_dir / "site_hmac.key").read_bytes(),
     }
+
+
+@pytest.fixture
+def orch_box(synth_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """T-714 (D-482): the real orchestrator app in the production trust configuration, with the console's real
+    backend bound to it (``tests/orch_box.py``). A fresh box per test."""
+    from tests.orch_box import build
+
+    return build(tmp_path / "orch-box", synth_dir, monkeypatch)
