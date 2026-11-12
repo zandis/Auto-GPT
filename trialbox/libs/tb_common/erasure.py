@@ -252,7 +252,7 @@ TABLES: dict[str, Entry] = {
     "edc.draft": _owed(
         "an EDC draft, by pseudonym", "the drafts of a patient who never enrolled (an enrolled subject's stay, OD-8)"
     ),
-    **_each("edc", ("decision", "sent", "signature", "signature_void"), _OD8),
+    **_each("edc", ("copy_tick", "decision", "sent", "signature", "signature_void"), _OD8),
     **_each("edc", ("item_map", "map_event", "reentry_record", "switch", "switch_event", "target"), _CONFIG),
     **_each("sae", ("sae_case", "sae_report", "sae_trail"), _keep("OD-8", "the SAE register of a trial subject")),
     **_each("app", ("flag", "flag_event"), _CONFIG),
@@ -366,6 +366,8 @@ LAKE: dict[str, Entry] = {
     "lake:CURRENT": _none("the name of the served snapshot"),
     "lake:CURRENT.tmp": _none("the served snapshot's name while it is replaced"),
     "lake:FEED": _none("the date of the last feed snapshot"),
+    "lake:.rebuild.lock": _none("the lock one lake rebuild holds (T-722), no patient"),
+    "lake:locks": _none("lock files of the lake's readers and writers (T-722), no patient"),
 }
 
 # ------------------------------------------------------------------------------------------------ object store

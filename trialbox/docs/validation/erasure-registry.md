@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-215 entries: 85 erase, 25 keep, 105 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+218 entries: 85 erase, 26 keep, 107 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -95,6 +95,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `datacore.subject` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `datacore.subject_step` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `datacore.value` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
+| `edc.copy_tick` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `edc.decision` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `edc.sent` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `edc.signature` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
@@ -140,10 +141,12 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.switch_event` | settings and configuration, no patient |
 | `edc.target` | settings and configuration, no patient |
 | `feedback.entry` | in-product feedback from staff, not about a patient (record inventory O-02) |
+| `lake:.rebuild.lock` | the lock one lake rebuild holds (T-722), no patient |
 | `lake:CURRENT` | the name of the served snapshot |
 | `lake:CURRENT.tmp` | the served snapshot's name while it is replaced |
 | `lake:FEED` | the date of the last feed snapshot |
 | `lake:holds` | a job's hold on a snapshot: job id and date |
+| `lake:locks` | lock files of the lake's readers and writers (T-722), no patient |
 | `library.criterion_library` | the criteria library |
 | `library.criterion_library_lexicon_key` | the criteria library |
 | `library.criterion_library_meta` | the criteria library |
