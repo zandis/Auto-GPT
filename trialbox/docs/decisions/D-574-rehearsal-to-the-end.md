@@ -31,3 +31,27 @@ by the rule that a pin is the registry's expected manifest.
 
 - A site that replaces a service through its compose override is not asked for the replaced service's image.
 - No setting, no limit, no new store.
+
+## The identity overlay was never gated (found 2026-11-12)
+
+The rehearsal's bundle is the first one built the way `tools/make_bundle.sh` builds a real one: with the identity
+overlay (Caddy, Authelia). The release gates stopped it at Caddy. The cause is older than the rehearsal: the
+gates' image list (`SC_THIRD_PARTY` in the Makefile) was made from the box's compose file and the test overlay
+only. Caddy and Authelia were in every bundle and in no gate record, so `bundle-check` could not have passed a
+real release bundle.
+
+- **Fixed here:** the list takes the identity overlay and the `oidc` profile too, with the same placeholder host
+  name the bundle uses. `tests/unit/test_gate_image_list.py` holds the list to the bundle's files and profiles,
+  and asks for a pin and a licence budget for every third-party image of a bundle.
+- **Caddy** (`caddy:2.11.9-alpine`, the newest tag): three fixable findings in its Go binary on amd64 and arm64
+  alike (GO-2026-5932 in x/crypto, CVE-2026-78661 in x/net, CVE-2026-97054 in the Go standard library 1.27.3) and
+  148 open licence flags with no budget. The owner's ruling of 2026-11-12, relayed by the integrator: dated,
+  reviewed allow-list entries scoped to the image, as for HAPI, and a licence budget; building Caddy ourselves
+  only if upstream stays silent. **The entries are not in this branch**: the build session's permission layer
+  refuses allow-list additions made on a relayed ruling. They are for the owner to add or to approve directly.
+- **Authelia** (`authelia/authelia:4.39.28`, the newest tag): eight fixable findings in its Go binary, and no
+  package database in the image, so Trivy reads no OS package and the gate refuses the report as blind. Not
+  ruled yet; the choices went to the integrator on 2026-11-12.
+
+Until both are settled the third test of `test_gate_image_list.py` fails and the `images` job fails on these two
+images. That is the state of the gates, shown; nothing was skipped or waived to hide it.

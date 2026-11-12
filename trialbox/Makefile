@@ -480,8 +480,11 @@ TRIVY_CACHE ?= .cache/trivy
 # every image a bundle carries: ours (make images, make demo-bundle) and the third-party images compose pulls,
 # the same list tools/make_bundle.sh exports
 SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-embed:1.0.0 trialbox-postgres:16-1 trialbox-demo:step5
-SC_THIRD_PARTY ?= $(shell docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml \
-	--profile stub --profile test --profile gpu config --images 2>/dev/null | grep -v '^trialbox-' | sort -u)
+# The identity overlay too (Caddy, Authelia; D-574): make_bundle.sh puts it in every bundle, and an image the gates
+# never saw cannot pass bundle-check. Its host name is a placeholder here, as there: only the images are read.
+SC_THIRD_PARTY ?= $(shell TB_TLS_HOSTNAME=bundle.invalid docker compose --project-directory deploy \
+	-f deploy/docker-compose.yml -f deploy/docker-compose.test.yml -f deploy/docker-compose.identity.yml \
+	--profile stub --profile test --profile gpu --profile oidc config --images 2>/dev/null | grep -v '^trialbox-' | sort -u)
 # the third-party images are scanned in their registry, by digest, for this machine's platform (or SC_PLATFORM)
 SC_PLATFORM ?= linux/$(if $(filter aarch64 arm64,$(shell uname -m)),arm64,amd64)
 # third-party images published for amd64 only (named here so nothing is skipped silently; tracked in
