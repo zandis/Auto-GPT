@@ -160,7 +160,7 @@ def test_the_approval_writes_the_pins(monkeypatch: pytest.MonkeyPatch) -> None:
     from criteria_compiler import service
 
     class Reg:
-        def pins(self, want: dict[str, Any]) -> dict[str, Any]:
+        def pins(self, want: dict[str, Any], environment: str | None = None) -> dict[str, Any]:
             return {k: {"version": 4, "sha256": "a" * 64} for k in want}
 
     monkeypatch.setattr("tb_llm.prompt_registry.default_registry", Reg)
