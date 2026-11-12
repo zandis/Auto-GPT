@@ -30,6 +30,7 @@ ALTER ROLE trialbox NOCREATEDB;
 DO $roles$
 DECLARE
   -- BEGIN SERVICE SCHEMAS (D-378)
+  -- D-461 (T-720): edc is the orchestrator's alone; the console reaches the EDC only through its routes
   access CONSTANT jsonb := '{
     "tb_lake": ["app", "omop", "refdata", "terminology", "vec"],
     "tb_criteria_compiler": ["app", "derived", "library", "omop", "refdata", "terminology"],
@@ -38,8 +39,8 @@ DECLARE
                         "orch", "pidmap", "recall", "refdata", "site", "sitesetup", "study", "terminology", "wf"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
-    "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "edc", "feedback", "library", "mpi",
-                   "omop", "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
+    "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "feedback", "library", "mpi", "omop",
+                   "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
                    "terminology", "wf"]
   }';
   -- END SERVICE SCHEMAS

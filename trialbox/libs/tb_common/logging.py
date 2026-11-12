@@ -1,11 +1,20 @@
-"""Structured JSON logging to stdout with a PHI scrubber (SPEC §4, §10.1 "No PHI in logs (pids only)")."""
+"""Structured JSON logging to stdout with a PHI scrubber (SPEC §4, §10.1 "No PHI in logs (pids only)").
+
+T-212d (D-450, PV-10): :func:`setup_logging`, which every TrialBox service runs at start, switches every rule on:
+the identifier patterns below, the site's chart-number pattern (``settings.mrn_regex``; the contract's default when
+no site configuration is readable, so the rule is never off), and the secrets: a value written after a secret's
+name (``token=...``, ``"api_key": "..."``, ``Authorization: Bearer ...``) and every secret value the process itself
+holds (the environment variables and ``*_FILE`` files named like a password, key, token or secret).
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -26,6 +35,17 @@ _PHI_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(rf"(?<!{_D})[0０]{_D}{{1,3}}[-‐－]{_D}{{1,4}}[-‐－]{_D}{{4}}(?!{_D})"), "[PHONE]"),
 ]
 _EXTRA_MRN: list[re.Pattern[str]] = []
+#: a value written after a secret's name; the name stays, the value goes
+_SECRET_LABEL = re.compile(
+    r"(?i)((?<![A-Za-z0-9])(?:authorization|x-tb-service-token|service[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|"
+    r"client[_-]?secret|api[_-]?key|apikey|secret|token|password|passwd|pass|pw)"
+    r"[\"']?\s*[:=]\s*[\"']?(?:(?:bearer|basic|token)\s+)?)([^\s\"',;&}]{6,})"
+)
+_BEARER = re.compile(r"(?i)\b(bearer|basic)\s+([A-Za-z0-9._~+/=-]{12,})")
+_URL_PASSWORD = re.compile(r"(://[^:/\s@]+:)([^@\s/]+)@")  # postgresql://user:password@db
+_SECRET_NAME = re.compile(r"PASS|KEY|TOKEN|SECRET|_PW_|_PW$")
+_SECRET_VALUES: set[str] = set()
+MIN_SECRET = 8  # shorter values are not registered: they would scrub ordinary words
 
 _RESERVED = set(vars(logging.LogRecord("x", 0, "x", 0, "", None, None))) | {"message", "asctime"}
 
@@ -37,8 +57,60 @@ def set_mrn_regex(pattern: str) -> None:
     _EXTRA_MRN.append(re.compile(rf"(?<![0-9A-Za-z]){body}(?![0-9A-Za-z])"))
 
 
+def register_secret(value: str) -> None:
+    """A secret value this process holds: never written to a log line."""
+    v = (value or "").strip()
+    if len(v) >= MIN_SECRET:
+        _SECRET_VALUES.add(v)
+
+
+def register_process_secrets(env: Mapping[str, str] | None = None) -> int:
+    """Register every secret the process holds: environment variables named like a password, key, token or secret,
+    and the files their ``*_FILE`` variables name (read once, at most 64 KiB). Returns how many were registered."""
+    e = os.environ if env is None else env
+    before = len(_SECRET_VALUES)
+    for name, value in e.items():
+        if not _SECRET_NAME.search(name.upper()) or not value:
+            continue
+        if name.upper().endswith("_FILE"):
+            try:
+                with open(value, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read(65536)
+            except OSError:
+                continue
+            for line in text.splitlines():
+                register_secret(line.split("=", 1)[1] if "=" in line and not line.startswith("-") else line)
+        elif not value.startswith(("/", "./")):  # a path, not a secret
+            register_secret(value)
+    return len(_SECRET_VALUES) - before
+
+
+def site_rule_on() -> str:
+    """Switch the chart-number rule on (PV-10): the site's ``settings.mrn_regex``, else the contract's default."""
+    pattern: str | None = None
+    try:
+        from tb_common.phi_guard import site_mrn_regex
+
+        pattern = site_mrn_regex()
+    except Exception:  # a broken configuration must not stop logging
+        pattern = None
+    if not pattern:
+        from tb_contracts.generated.models import Settings
+
+        pattern = str(Settings.model_fields["mrn_regex"].default)
+    set_mrn_regex(pattern)
+    return pattern
+
+
 def redact(text: str) -> str:
-    """Replace Taiwan IDs, Japanese My Number / insurance numbers / postcodes, phone numbers and MRN-shaped tokens."""
+    """Replace Taiwan IDs, Japanese My Number / insurance numbers / postcodes, phone numbers, MRN-shaped tokens and
+    secrets (a value after a secret's name, a bearer token, a secret value the process holds)."""
+    for v in _SECRET_VALUES:
+        if v in text:
+            text = text.replace(v, "[SECRET]")
+    text = _SECRET_LABEL.sub(lambda m: m.group(1) + "[SECRET]", text)
+    text = _BEARER.sub(lambda m: m.group(1) + " [SECRET]", text)
+    text = _URL_PASSWORD.sub(lambda m: m.group(1) + "[SECRET]@", text)
     for pat, repl in _PHI_PATTERNS:
         text = pat.sub(repl, text)
     for pat in _EXTRA_MRN:
@@ -68,7 +140,9 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging(service: str, level: str = "INFO") -> logging.Logger:
-    """Configure the root logger for JSON output; idempotent."""
+    """Configure the root logger for JSON output with every scrubber rule on (D-450); idempotent."""
+    site_rule_on()
+    register_process_secrets()
     root = logging.getLogger()
     root.handlers.clear()
     handler = logging.StreamHandler(sys.stdout)

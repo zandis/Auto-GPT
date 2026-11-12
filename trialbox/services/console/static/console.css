@@ -555,3 +555,6 @@ details.tech > summary { cursor: pointer; }
 /* D-407 (UX-034): the request for the treating doctor: copy text and the one-page print */
 .refdoc-text { width: 100%; font: inherit; }
 .refletter p.refcrit { margin: 2px 0 2px 16px; }
+
+/* T-302c (D-434): copy-assist, the value to type into the sponsor's EDC in large type */
+.bigvalue { font-size: 1.5em; font-weight: 600; font-family: ui-monospace, monospace; }

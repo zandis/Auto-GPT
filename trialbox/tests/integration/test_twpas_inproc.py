@@ -201,7 +201,7 @@ def test_submit_live_posts_audited_bundle(world: dict[str, Any], monkeypatch: py
         cr = {"resourceType": "ClaimResponse", "id": "nhi-1", "status": "active", "outcome": "complete"}
         return httpx.Response(200, json={"resourceType": "Bundle", "type": "collection", "entry": [{"resource": cr}]})
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    _nhi(monkeypatch, fake_post)
     _live(box, monkeypatch)
     for attempt in (1, 2):
         box.mail(f"SUBMIT ONC-OSI pid={pid} bundle={nav.job_id}", sender="onc-dr@hospa.test")
@@ -266,7 +266,7 @@ def test_live_submit_is_once_under_concurrency_and_restart(
         cr = {"resourceType": "ClaimResponse", "id": "nhi-2", "status": "active", "outcome": "complete"}
         return httpx.Response(200, json=cr)
 
-    monkeypatch.setattr(httpx, "post", slow_post)
+    _nhi(monkeypatch, slow_post)
     pid, sha = ready[0]
     jobs = [_submit_job(box, nav, pid), _submit_job(box, nav, pid)]
     threads = [threading.Thread(target=box.orch.run, args=(j,)) for j in jobs]
@@ -318,13 +318,13 @@ def test_live_submit_failure_classification(world: dict[str, Any], monkeypatch: 
 
         return post
 
-    monkeypatch.setattr(httpx, "post", failing(httpx.ConnectError("refused")))
+    _nhi(monkeypatch, failing(httpx.ConnectError("refused")))
     jid = _submit_job(box, nav, pid)
     box.orch.drain()
     job = box.orch.db.get(jid)
     assert job is not None and job.state == "failed" and job.error is not None
     assert "nothing was submitted" in job.error.message and not box.orch.db.submissions(sha, live_only=True)
-    monkeypatch.setattr(httpx, "post", failing(httpx.ReadTimeout("no answer")))
+    _nhi(monkeypatch, failing(httpx.ReadTimeout("no answer")))
     jid = _submit_job(box, nav, pid)
     box.orch.drain()
     job = box.orch.db.get(jid)
@@ -337,3 +337,19 @@ def test_live_submit_failure_classification(world: dict[str, Any], monkeypatch: 
     job = box.orch.db.get(jid)
     assert job is not None and job.state == "failed" and job.error is not None
     assert "already submitted" in job.error.message and calls == ["ConnectError", "ReadTimeout"]
+
+
+def _nhi(monkeypatch: pytest.MonkeyPatch, post: Any) -> None:
+    """Put a fake NHI endpoint ``post(url, content, headers, timeout)`` behind the SSRF guard (T-212d, D-450): the test
+    name resolves to a public address (the guard checks it), and the guarded client's transport calls ``post`` with
+    the URL as the orchestrator wrote it (the name, from the Host header; the connection itself went to the address)."""
+    import httpx
+    from orchestrator.scenarios import submit
+    from tb_common import http as tbh
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = f"{request.url.scheme}://{request.headers['host']}{request.url.raw_path.decode()}"
+        return post(url, request.content, request.headers, 0.0)  # type: ignore[no-any-return]
+
+    monkeypatch.setattr(tbh, "resolve_now", lambda host, port: ["93.184.216.34"])  # TEST: a public address
+    monkeypatch.setattr(submit, "NHI_TRANSPORT", httpx.MockTransport(handler))

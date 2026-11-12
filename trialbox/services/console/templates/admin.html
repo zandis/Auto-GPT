@@ -99,7 +99,7 @@
       <dt>{{ t('admin.denied') }}</dt><dd>{{ counts.denied }}</dd>
       <dt>{{ t('admin.marks') }}</dt><dd>{{ counts.marks }}</dd>
     </dl>
-    <a href="/audit">{{ t('admin.full_audit') }}</a> · <a href="/settings/notices" data-testid="notices-link">{{ t('notices.title') }}</a>
+    {% if permit(user.role, 'audit.browse') %}<a href="/audit">{{ t('admin.full_audit') }}</a> · {% endif %}<a href="/settings/notices" data-testid="notices-link">{{ t('notices.title') }}</a>
   </section>
 </div>
 <p class="hint" data-testid="admin-health-where">{{ t('adm.health.where') }}</p>

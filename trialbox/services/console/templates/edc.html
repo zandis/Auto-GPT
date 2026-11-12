@@ -23,8 +23,14 @@
 <label for="reentry_pages">{{ t('edc.switch.pages') }}</label><input id="reentry_pages" name="reentry_pages" type="number" min="0" required data-testid="edc-pages">
 <label for="reentry_accuracy">{{ t('edc.switch.accuracy') }}</label><input id="reentry_accuracy" name="reentry_accuracy" inputmode="decimal" required data-testid="edc-accuracy">
 <button type="submit" data-testid="edc-on">{{ t('edc.switch.go_on') }}</button></form>
+{% if sw.state == 'off' %}<p class="hint">{{ t('edc.switch.copy_help') }}</p>
+<form method="post" action="/studies/{{ rs }}/edc/switch" class="markform" data-testid="edc-switch-copy">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="on" value="1"><input type="hidden" name="mode" value="copy">
+<label for="copy_pages">{{ t('edc.switch.pages') }}</label><input id="copy_pages" name="reentry_pages" type="number" min="0" required>
+<label for="copy_accuracy">{{ t('edc.switch.accuracy') }}</label><input id="copy_accuracy" name="reentry_accuracy" inputmode="decimal" required>
+<button type="submit" class="secondary" data-testid="edc-copy-on">{{ t('edc.switch.go_copy') }}</button></form>{% endif %}
 {% elif sw.state != 'on' %}<p class="hint" data-testid="edc-pi-only">{{ t('edc.switch.pi_only') }}</p>{% endif %}
-{% if sw.state == 'on' and may.switch_off %}
+{% if sw.state != 'off' and may.switch_off %}
 <form method="post" action="/studies/{{ rs }}/edc/switch" class="inline" data-testid="edc-switch-off">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="on" value="0">
 <label for="off-reason">{{ t('edc.switch.reason') }}</label><input id="off-reason" name="reason" maxlength="300">
@@ -39,7 +45,7 @@
 {% if may.map %}<p><a class="button secondary" href="/studies/{{ rs }}/edc/map" data-testid="edc-to-map">{{ t('edc.map.open') }}</a></p>{% endif %}
 </section>
 
-{% if sw.state == 'on' and st.map and may.draft %}
+{% if sw.state in ('on', 'copy') and st.map and may.draft %}
 <section class="card" data-testid="edc-new">
 <h2>{{ t('edc.new.title') }}</h2>
 <p class="hint">{{ t('edc.new.help') }}</p>
@@ -51,6 +57,17 @@
 <button type="submit" data-testid="edc-draft">{{ t('edc.new.go') }}</button></form>
 </section>{% endif %}
 
+{% if sw.state in ('on', 'copy') and st.map and may.draft %}
+<section class="card" data-testid="edc-import">
+<h2>{{ t('edc.import.title') }}</h2>
+<p class="hint">{{ t('edc.import.help') }}</p>
+{% if q.get('imported') %}<p class="ok" role="status" data-testid="edc-imported">{{ t('edc.import.done', drafted=q.get('imp_drafted', '0'), decided=q.get('imp_decided', '0'), same=q.get('imp_same', '0')) }}</p>{% endif %}
+<form method="post" action="/studies/{{ rs }}/edc/import" enctype="multipart/form-data" class="markform" data-testid="edc-import-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="odm-file">{{ t('edc.import.file') }}</label><input id="odm-file" name="file" type="file" accept=".xml,application/xml" required>
+<button type="submit" class="secondary" data-testid="edc-import-go">{{ t('edc.import.go') }}</button></form>
+</section>{% endif %}
+
 <section class="card" data-testid="edc-subjects">
 <h2>{{ t('edc.subjects.title') }}</h2>
 {% if not st.subjects %}<p class="empty">{{ t('edc.subjects.none') }}</p>{% else %}
@@ -58,7 +75,7 @@
 <thead><tr><th>{{ t('edc.col.subject') }}</th><th>{{ t('edc.col.visit') }}</th><th>{{ t('edc.col.visit_date') }}</th><th>{{ t('edc.col.open') }}</th><th>{{ t('edc.col.decided') }}</th><th>{{ t('edc.col.signed') }}</th><th>{{ t('edc.col.sent') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for s in st.subjects %}<tr data-testid="edc-subject-{{ s.record }}">
 <td class="mono">{{ s.record }}</td><td class="mono">{{ s.visit }}</td><td>{{ s.visit_date }}</td><td>{{ s.open }}</td><td>{{ s.decided }}</td><td>{{ s.signed }}</td><td>{{ s.sent }}</td>
-<td class="nowrap">{% if may.review %}<a href="/studies/{{ rs }}/edc/review/{{ s.record }}?visit={{ s.visit }}" data-testid="edc-review-{{ s.record }}">{{ t('edc.review.open') }}</a> · {% endif %}<a href="/studies/{{ rs }}/edc/trail/{{ s.record }}">{{ t('edc.trail.title') }}</a></td>
+<td class="nowrap">{% if may.review %}<a href="/studies/{{ rs }}/edc/review/{{ s.record }}?visit={{ s.visit }}" data-testid="edc-review-{{ s.record }}">{{ t('edc.review.open') }}</a> · {% endif %}<a href="/studies/{{ rs }}/edc/trail/{{ s.record }}">{{ t('edc.trail.title') }}</a>{% if may.copy and sw.state in ('on', 'copy') and s.signed %} · <a href="/studies/{{ rs }}/edc/copy/{{ s.record }}" data-testid="edc-copy-{{ s.record }}">{{ t('copy.open') }}</a>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 {% if sw.state == 'on' and st.subjects %}<p class="exports">
 {% if may.send and st.target %}<form method="post" action="/studies/{{ rs }}/edc/send" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="edc-send-all">{{ t('edc.send.all') }}</button></form>{% endif %}

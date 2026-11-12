@@ -71,6 +71,7 @@ from starlette.concurrency import run_in_threadpool
 from tb_common.audit_writer import open_audit
 from tb_common.config import site_tz
 from tb_common.http import make_app
+from tb_common.logging import setup_logging
 from tracestore.store import TraceStore
 
 from gateway.core import BUSY_MESSAGE, RETRY_AFTER, Gateway, GatewayConfig
@@ -451,4 +452,6 @@ def create_app(
         return JSONResponse(res.body, status_code=res.status)
 
     app.mount("/registry", registry_app(gw.registry))
+    # the mounted registry app set up logging as "model-registry"; this process is the gateway (T-212d)
+    setup_logging("gateway")
     return app
