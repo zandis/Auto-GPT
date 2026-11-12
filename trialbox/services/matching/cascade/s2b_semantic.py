@@ -13,11 +13,17 @@ CAS-15 requires S2b to call embeddings through ``tb-gateway`` as one D3 batch pe
 ``/v1/chat/completions``, so the embedder is injected: :class:`BatchEmbedder` wraps any in-perimeter embedder
 (``embed_service``) and counts one batch per call, ready to be swapped for the gateway embeddings client. It never
 calls a generative model.
+
+A :class:`SentenceSource` (T-203b, D-449) may rank the window's sentences from stored vectors instead (the vector
+store of the trial database, read through the lake service). The cascade asks it only when the caller gives one (the
+flag ``vec.s2b``) and only with absence semantics off; a :class:`SourceFallback` sends the pair to the on-the-fly
+path above, and the trace says so per patient.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -101,6 +107,41 @@ def screen(embedder: Embedder, query: str, sentences: list[str], threshold: Thre
     return S2bResult(best >= threshold.value, best, threshold, sims[:k])
 
 
+class SourceNote(Protocol):
+    """A note of the S2b window as the cascade holds it: its id, its text in the pinned snapshot, its sentences."""
+
+    @property
+    def did(self) -> str: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def sents(self) -> list[str]: ...
+
+
+@dataclass(frozen=True)
+class SourceRanking:
+    """A ranking from stored vectors: the best similarity, the top sentences (index into the window's sentences, in
+    note then sentence order, and similarity; best first) and the embedding model of the vectors it compared."""
+
+    best: float
+    top: list[tuple[int, float]]
+    model: str
+
+
+@dataclass(frozen=True)
+class SourceFallback:
+    """The stored vectors cannot rank this pair (unavailable, stale for the pinned snapshot, another model, ...): the
+    pair takes the on-the-fly path, and ``reason`` is recorded on the patient's trace."""
+
+    reason: str
+
+
+class SentenceSource(Protocol):
+    def rank(self, pid: str, query: str, notes: Sequence[SourceNote], k: int) -> SourceRanking | SourceFallback: ...
+
+
 __all__ = [
     "MIN_JUDGED_POSITIVES",
     "PUBLIC_PRIOR_THRESHOLD",
@@ -108,6 +149,10 @@ __all__ = [
     "BatchEmbedder",
     "Embedder",
     "S2bResult",
+    "SentenceSource",
+    "SourceFallback",
+    "SourceNote",
+    "SourceRanking",
     "Threshold",
     "ThresholdTable",
     "cosine",

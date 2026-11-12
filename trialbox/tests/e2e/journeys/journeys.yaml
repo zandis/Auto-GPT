@@ -191,10 +191,6 @@ journeys:
       - id: J-MON-03
         do: Under the grant of J-PI-06, open the enrolled participant of J-CRC-06 on the monitor page.
         expect: The participant's record opens read-only with the visit id MV-01, without the pseudonym.
-        expected_failure:
-          card: T-303
-          why: the monitor page refuses every enrolled subject on the real data core (the console reads the state
-            at the top of the reply, the data core nests it under "subject"; the unit test's fake core is flat)
 
   - id: J-VWR
     role: viewer
