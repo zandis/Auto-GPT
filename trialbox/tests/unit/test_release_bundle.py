@@ -350,7 +350,10 @@ def test_the_committed_exceptions_are_scoped_and_dated() -> None:
     allow, errors = allowlist.load(today=allowlist.today())
     assert errors == []
     scoped = [e for e in allow.vulnerabilities if e.image]
-    assert scoped and {e.image for e in scoped} == {"hapiproject/hapi", "vllm/vllm-openai", "trialbox-postgres"}
+    # caddy and authelia/authelia since D-574: the owner's ruling of 2026-11-12, when the gates first saw them
+    assert scoped and {e.image for e in scoped} == {
+        "hapiproject/hapi", "vllm/vllm-openai", "trialbox-postgres", "caddy", "authelia/authelia"
+    }  # fmt: skip
     assert not any(e.image in {"trialbox-py", "trialbox-jvm", "trialbox-demo"} for e in scoped)
     assert all(e.review_by <= dt.date(2026, 12, 10) for e in scoped)
     assert not [e for e in allow.vulnerabilities if not e.image]  # nothing accepted everywhere

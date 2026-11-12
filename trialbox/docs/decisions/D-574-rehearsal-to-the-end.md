@@ -45,31 +45,51 @@ real release bundle.
   and asks for a pin and a licence budget for every third-party image of a bundle.
 - **Caddy** (`caddy:2.11.9-alpine`, the newest tag): three fixable findings in its Go binary on amd64 and arm64
   alike (GO-2026-5932 in x/crypto, CVE-2026-78661 in x/net, CVE-2026-97054 in the Go standard library 1.27.3) and
-  148 open licence flags with no budget. The owner's ruling of 2026-11-12, relayed by the integrator: dated,
-  reviewed allow-list entries scoped to the image, as for HAPI, and a licence budget; building Caddy ourselves
-  only if upstream stays silent. **The entries are not in this branch**: the build session's permission layer
-  refuses allow-list additions made on a relayed ruling. They are for the owner to add or to approve directly.
+  148 open licence flags with no budget. **The owner's ruling of 2026-11-12** (first relayed by the integrator,
+  then given by the owner in the build session, which is what let the allow-list be edited): dated, reviewed
+  entries scoped to the image, as for HAPI, and a licence budget; review on 2026-12-10; building Caddy ourselves
+  only if upstream is silent then. Done: three entries and a budget of 148. The image passes the gates.
 - **Authelia** (`authelia/authelia:4.39.28`, the newest tag): eight fixable findings in its Go binary, and no
-  package database in the image, so Trivy reads no OS package and the gate refuses the report as blind. Not
-  ruled yet; the choices went to the integrator on 2026-11-12.
+  package database in the image, so Trivy reads no OS package and the gate refused the report as blind. **The
+  owner's ruling of 2026-11-12**, the same way: dated entries scoped to the image, a licence budget, and one
+  narrow rule; each entry must say why the finding is not reachable on a box, and one that cannot be argued goes
+  back to the owner by name.
 
-Until both are settled the third test of `test_gate_image_list.py` fails and the `images` job fails on these two
-images. That is the state of the gates, shown; nothing was skipped or waived to hide it.
+### The narrow rule: `os_packages_unreadable`
 
-### The Caddy entries as ruled, for the owner to add to `deploy/supply-chain-allowlist.yaml`
+A new list in the allow-list. One entry names one third-party image repository (never one of ours, never a
+pattern), with a reason and a review date like every entry. For that image only, a Trivy report may show no OS
+packages. It must still show packages of some kind, its findings are gated as always, and when the report does
+show OS packages the entry is refused as stale. Without an entry the gate refuses a report with no OS packages,
+as before. The shipped list has one entry: `authelia/authelia`, review 2026-12-10.
 
-Under `vulnerabilities:`, three entries, each with `image: caddy`, `review_by: 2026-12-10` (or the next Caddy
-release, whichever is first) and `owner: security owner (to assign)`:
+### Authelia: what each entry rests on
 
-| id | package | reason |
-| --- | --- | --- |
-| GO-2026-5932 | `golang-org/x/crypto` | Go module inside the upstream Caddy binary, fixed in x/crypto 0.58.1 |
-| CVE-2026-78661 | `golang-org/x/net` | Go module inside the upstream Caddy binary, fixed in x/net 0.62.0 |
-| CVE-2026-97054 | `stdlib` | Go standard library 1.27.3 inside the upstream Caddy binary, fixed in 1.27.4 |
+How a box runs it (`deploy/docker-compose.identity.yml`, `deploy/identity/Caddyfile`, the configuration template):
+profile `oidc` only; it listens in plain HTTP/1 on 9091 inside `trialbox-net`, with no published port and no
+`server.tls`; Caddy ends TLS and proxies to it in HTTP/1.1; its one outbound connection is LDAPS to the
+hospital's directory, which the egress rules allow and nothing else. What is in the binary of the pinned image was
+read from its symbol table on 2026-11-12.
 
-Each reason ends with: listener on the hospital's inner network behind the box's egress rules; no fixed upstream
-Caddy image exists (2.11.9 is the newest, checked 2026-11-12).
+| Finding | Why it is not reachable on a box |
+| --- | --- |
+| GO-2026-5932, x/crypto | the advisory is for the `openpgp` package; it is not in the binary |
+| CVE-2026-78661, x/net | the flaw is in the HTML parser; only the package's `init` is in the binary, no parser function |
+| CVE-2026-78669, x/net | `golang.org/x/net/http2` is not in the binary (only its `hpack` tables) |
+| CVE-2026-78669, stdlib | needs a malicious HTTP/2 peer: there is no HTTP/2 server in the binary (fasthttp, HTTP/1.1), and the HTTP/2 client runs only on an outbound HTTPS call, which the box neither configures nor lets out |
+| CVE-2026-78667, stdlib | the flaw is in `net/http` file serving; neither it nor the `net/http` server is in the binary |
+| CVE-2026-97031, stdlib | the flaw is in the TLS server handshake; Authelia accepts no TLS connection on a box |
+| CVE-2026-97054, stdlib | the race is in the `net/http` server's response; that server is not in the binary |
 
-Under `budgets:`, one entry: `image: caddy`, `ecosystem: "*"`, `max: 148`, `review_by: 2027-02-01`, reason:
-official Caddy image unmodified (Apache-2.0 project); the Go modules of its binary carry no licence data for Syft.
-The count is the amd64 image's; the arm64 count is confirmed by the `images` job.
+**CVE-2026-111943 (crypto/x509) has no entry and goes back to the owner by name.** It adds a list of
+intermediate certificates that are no longer trusted. Authelia's LDAPS client verifies the directory's certificate
+with the image's 121 public roots plus the hospital's own, so the code runs. To use the flaw an attacker has to
+sit between the box and the directory inside the hospital's network and hold a certificate issued under one of
+those intermediates for the directory's name. That is narrow, but it is not "not reachable". Until the owner
+rules, the gate fails on this one finding, and it should.
+
+A way to make it unreachable, not built here because it changes what a site must supply: mount a CA file with
+only the hospital's own CA over the image's root list, so that no public intermediate can chain to a trusted
+root.
+
+The licence budgets: Caddy 148, Authelia 88 (the amd64 counts; the `images` job confirms arm64).
