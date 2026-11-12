@@ -114,7 +114,7 @@ DAY_ENV = "TB_DEMO_DAY"
 
 
 def seed_day(today: date) -> date:
-    """The day the seed plays for a demo started on ``today`` (D-584): the Tuesday before the last Wednesday on or
+    """The day the seed plays for a demo started on ``today`` (D-589): the Tuesday before the last Wednesday on or
     before ``today``. The seed ends with the screening cadence (e2e stage 17), which ingests the data of the Tuesday
     after the seed day and screens it on the Wednesday; seeding on that Tuesday's eve keeps the data date, that
     Wednesday's run and every mark on or before ``today``, never after it (a Friday seed showed "data as of" the next

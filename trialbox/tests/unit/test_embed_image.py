@@ -17,6 +17,9 @@ from tools.supply_chain import lock
 ROOT = Path(__file__).resolve().parents[2]
 EMBED_LOCK = ROOT / "deploy" / "requirements-embed.lock"
 REVISION = "7b44caba5c06fd6f1ef1d2786261e636c38e4295"
+# the folder a box holds (the revision without its three pickle files), hashed on the real files by lane G
+MANIFEST = "e131f3203849cd7ba89144fdefce52c950bd748c285c2235c1f5628ddcc6e895"
+MANIFEST_FIELD = re.compile(r"manifest_sha256: (?:[0-9a-f]{64}|null)")
 
 pytestmark = pytest.mark.nodb
 
@@ -136,7 +139,7 @@ def _registry_naming(tmp_path: Path, manifest: str) -> Path:
     text = (ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")
     row = text.index(f"build_id: {pin_model.EMBED_BUILD}")
     out = tmp_path / "registry.yaml"
-    out.write_text(text[:row] + text[row:].replace("manifest_sha256: null", f"manifest_sha256: {manifest}", 1),
+    out.write_text(text[:row] + MANIFEST_FIELD.sub(f"manifest_sha256: {manifest}", text[row:], count=1),
                    encoding="utf-8")  # fmt: skip
     return out
 
@@ -176,14 +179,30 @@ def test_other_files_than_the_expected_ones_are_never_pinned(tmp_path: Path) -> 
     assert not ok and "differs from the expected" in line and not out.exists()
 
 
-def test_until_the_registry_names_the_manifest_nothing_is_trusted_on_first_use(tmp_path: Path) -> None:
-    """The committed row has no manifest yet (lane G hashes the real folder): the install does not pin on trust."""
-    assert _build()["expected"]["manifest_sha256"] is None, "the manifest is written: drop this test's premise"
+def test_until_a_registry_names_the_manifest_nothing_is_trusted_on_first_use(tmp_path: Path) -> None:
+    """A row with no manifest (as the committed one was until lane G hashed the real folder): no pin on trust."""
+    _folder(tmp_path)
+    out = tmp_path / "registry.site.yaml"
+    ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {},
+                                       registry_path=_registry_naming(tmp_path, "null"), with_embedder=True)  # fmt: skip
+    line = next(ln for ln in lines if ln.startswith(f"{pin_model.EMBED_BUILD}:"))
+    assert not ok and "no expected weights" in line and not out.exists()
+
+
+def test_the_committed_row_names_the_real_folders_manifest_and_pins_no_other_folder(tmp_path: Path) -> None:
+    """The manifest of the publisher's revision without its three pickle files: 18 files, 2,295,165,682 bytes,
+    hashed by lane G with this tool on the real files (2026-11-12). It counts every visible file of the folder
+    (the README and the images too), so a box holds the whole folder, not the weights alone."""
+    b = _build()
+    assert b["expected"] == {"manifest_sha256": MANIFEST, "revision": REVISION}
     _folder(tmp_path)
     out = tmp_path / "registry.site.yaml"
     ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {}, with_embedder=True)
     line = next(ln for ln in lines if ln.startswith(f"{pin_model.EMBED_BUILD}:"))
-    assert not ok and "no expected weights" in line and not out.exists()
+    assert not ok and f"differs from the expected {MANIFEST[:12]}" in line and not out.exists()
+    text = (ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")
+    row = text[text.index(f"build_id: {pin_model.EMBED_BUILD}") :]
+    assert "the whole folder" in row[: row.index("provenance:")]
 
 
 # ------------------------------------------------------------------------------------------------ the test's model

@@ -33,7 +33,7 @@ def test_seed_day(today: date, seed: date) -> None:
 
 @pytest.mark.parametrize("offset", range(14))
 def test_no_seeded_date_is_after_the_demo_day(offset: int) -> None:
-    """DEMO-JA (D-584): the seed and the cadence stage after it (the next Tuesday's data, screened on the Wednesday)
+    """DEMO-JA (D-589): the seed and the cadence stage after it (the next Tuesday's data, screened on the Wednesday)
     play on or before the demo day, on a working day, so the data date and the run date a viewer sees are not later
     than "today"."""
     today = date(2026, 11, 9) + timedelta(days=offset)
@@ -49,7 +49,7 @@ def test_demo_day_reads_the_setting() -> None:
     late = datetime(2026, 11, 10, 23, 30, tzinfo=UTC)
     assert ld.demo_day("Asia/Taipei", {}) is None
     assert ld.demo_day("Asia/Taipei", {ld.DAY_ENV: "data"}) is None
-    # D-584: the seed plays on the Tuesday before the last Wednesday on or before that day
+    # D-589: the seed plays on the Tuesday before the last Wednesday on or before that day
     assert (
         ld.demo_day("Asia/Taipei", {ld.DAY_ENV: "today"}, late) == ld.seed_day(date(2026, 11, 11)) == date(2026, 11, 10)
     )

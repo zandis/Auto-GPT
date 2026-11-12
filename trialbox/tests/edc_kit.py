@@ -221,3 +221,93 @@ def store_with_old_signature(values: dict[int, str] | None = None) -> tuple[EdcS
     row = store.signature(sid)
     assert row is not None
     return store, row
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# NEW-EDC-0 (D-584): the conformance project of our own REDCap test instance. The CRF above, the longitudinal and
+# repeating set of tests/unit/test_edc_t302b.py (two arms, four events, the repeating ``ae`` instrument, a
+# calculated field, branching logic), and the three fields the deep review asked for: one checkbox, one
+# ``date_dmy`` and one ``number_1dp``. Synthetic data only. ``tools/redcap_instance.py`` builds it on the instance
+# (or on the simulator, as a stand-in) and runs R1 to R9 against it.
+CONF_SCREEN1, CONF_WEEK4_1 = "screening_arm_1", "week4_arm_1"
+CONF_SCREEN2, CONF_WEEK4_2 = "screening_arm_2", "week4_arm_2"
+CONF_BMI = "round([weight]/(([height]/100)^2),1)"
+CONF_CRF: list[dict[str, str]] = [
+    *CRF,
+    {"field_name": "height", "form_name": "baseline", "field_type": "text", "field_label": "Height (cm)",
+     "text_validation_type_or_show_slider_number": "number"},
+    {"field_name": "bmi", "form_name": "baseline", "field_type": "calc", "field_label": "BMI",
+     "select_choices_or_calculations": CONF_BMI},
+    {"field_name": "tophus_site", "form_name": "baseline", "field_type": "text", "field_label": "Tophus site",
+     "branching_logic": "[tophus] = '1'"},
+    {"field_name": "joints", "form_name": "baseline", "field_type": "checkbox", "field_label": "Joints involved",
+     "select_choices_or_calculations": "1, Toe | 2, Ankle | 3, Knee"},
+    {"field_name": "visit_dmy", "form_name": "baseline", "field_type": "text", "field_label": "Visit date (D-M-Y)",
+     "text_validation_type_or_show_slider_number": "date_dmy"},
+    {"field_name": "temp", "form_name": "baseline", "field_type": "text", "field_label": "Body temperature (°C)",
+     "text_validation_type_or_show_slider_number": "number_1dp", "text_validation_min": "30.0",
+     "text_validation_max": "45.0"},
+    {"field_name": "ae_term", "form_name": "ae", "field_type": "text", "field_label": "AE term"},
+    {"field_name": "ae_serious", "form_name": "ae", "field_type": "yesno", "field_label": "Serious"},
+    {"field_name": "ae_sae_reason", "form_name": "ae", "field_type": "text", "field_label": "Why serious",
+     "branching_logic": "[ae_serious] = '1'"},
+]  # fmt: skip
+CONF_ARMS = [{"arm_num": 1, "name": "Drug"}, {"arm_num": 2, "name": "Placebo"}]
+CONF_EVENTS = [{"event_name": "Screening", "arm_num": 1, "unique_event_name": CONF_SCREEN1},
+               {"event_name": "Week4", "arm_num": 1, "unique_event_name": CONF_WEEK4_1},
+               {"event_name": "Screening", "arm_num": 2, "unique_event_name": CONF_SCREEN2},
+               {"event_name": "Week4", "arm_num": 2, "unique_event_name": CONF_WEEK4_2}]  # fmt: skip
+CONF_DESIGNATED = [{"arm_num": a, "unique_event_name": ev, "form": f}
+                   for a, ev in ((1, CONF_SCREEN1), (2, CONF_SCREEN2)) for f in ("demographics", "baseline")]  # fmt: skip
+CONF_DESIGNATED += [{"arm_num": a, "unique_event_name": ev, "form": "ae"}
+                    for a, ev in ((1, CONF_WEEK4_1), (2, CONF_WEEK4_2))]  # fmt: skip
+CONF_REPEATING = [{"event_name": CONF_WEEK4_1, "form_name": "ae"}, {"event_name": CONF_WEEK4_2, "form_name": "ae"}]
+CONF_DAGS = [{"data_access_group_name": "Site A", "unique_group_name": "site_a"},
+             {"data_access_group_name": "Site B", "unique_group_name": "site_b"}]  # fmt: skip
+# record 1 belongs to site A, record 2 to site B (R4: a token bound to site A may not write record 2)
+CONF_SEED = [{"record_id": "1", "redcap_event_name": CONF_SCREEN1, "tb_screening_no": "S-001", "height": "175",
+              "redcap_data_access_group": "site_a"},
+             {"record_id": "2", "redcap_event_name": CONF_SCREEN2, "tb_screening_no": "S-002", "height": "160",
+              "redcap_data_access_group": "site_b"}]  # fmt: skip
+# the users of the instance: who holds which of the four tokens, and the person who may lock a form (R3)
+CONF_USERS = {
+    "full": {"username": "tb_full", "api_export": 1, "api_import": 1},
+    "export_only": {"username": "tb_export", "api_export": 1, "api_import": 0},
+    "dag": {"username": "tb_dag", "api_export": 1, "api_import": 1, "data_access_group": "site_a"},
+    "expired": {"username": "tb_expired", "api_export": 1, "api_import": 1, "expiration": "2020-01-01"},
+    "locker": {"username": "tb_locker", "lock_records": 1, "lock_records_all_forms": 1},
+}
+# R6: the expressions of test_the_evaluator_computes_as_redcap and test_branching_logic_shows_as_redcap, with the
+# row each is computed on. On the instance each becomes a calculated field of a second, classic project (a
+# branching expression as ``if(<expression>, 1, 0)``: REDCap has no API that says whether a field is shown), one
+# record per case. The case that reads another event is run by the evaluator only.
+CONF_CALC: list[tuple[str, dict[str, str]]] = [
+    (CONF_BMI, {"weight": "72.5", "height": "175"}),
+    (CONF_BMI, {"weight": "72.5", "height": ""}),
+    ("sum([a],[b],[c])", {"a": "1", "b": "", "c": "2.5"}),
+    ("mean([a],[b])", {"a": "1", "b": "2"}),
+    ("[a]/[b]", {"a": "1", "b": "0"}),
+    ("round(2.5) + rounddown(1.99,1) + roundup(1.01,1)", {}),
+    ("if([a] > 70, 1, 0)", {"a": "72"}),
+    ("datediff([d1],[d2],'d')", {"d1": "2026-01-01", "d2": "2026-03-01"}),
+    ("datediff([d2],[d1],'d',true)", {"d1": "2026-01-01", "d2": "2026-03-01"}),
+    ("rounddown(datediff([dob],'today','y'))", {"dob": "1960-05-01"}),
+    ("[cb(2)] + [cb(3)]", {"cb": "1,3"}),
+    ("2^10 - -1", {}),
+    ("sqrt(-1)", {}),
+]
+CONF_BRANCH: list[tuple[str, dict[str, str]]] = [
+    ("[s] = '1'", {"s": "1"}),
+    ("[s] = '1'", {"s": ""}),
+    ("[s] = ''", {"s": ""}),
+    ("[s] = 0", {"s": ""}),
+    ("[a] > 5", {"a": ""}),
+    ("[a] <> '2' and ([b] = 'x' or [c] >= 3)", {"a": "1", "b": "y", "c": "3"}),
+    ("[a] != 1 || [b] = 1", {"a": "1", "b": "1"}),
+    ("[d] > '2026-01-01'", {"d": "2026-02-01"}),
+    ("contains([t], 'gout') and not_contain([t], 'rash')", {"t": "Gout flare"}),
+    ("isnumber([a]) and isinteger([b])", {"a": "1.5", "b": "2.0"}),
+]
+# the input fields of the logic project (name, REDCap validation); ``cb`` is a checkbox with the codes 1 to 3
+CONF_LOGIC_INPUTS = {"weight": "number", "height": "number", "a": "", "b": "", "c": "", "d1": "date_ymd",
+                     "d2": "date_ymd", "dob": "date_ymd", "d": "date_ymd", "s": "", "t": ""}  # fmt: skip
