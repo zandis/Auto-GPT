@@ -5,6 +5,7 @@ folder is wrong; the registry row does not claim weights the publisher's revisio
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,8 @@ from tools import pin_model
 from tools.trialbox import doctor
 
 ROOT = Path(__file__).resolve().parents[2]
+
+MANIFEST_FIELD = re.compile(r"manifest_sha256: (?:[0-9a-f]{64}|null)")
 
 pytestmark = pytest.mark.nodb
 
@@ -46,7 +49,7 @@ def _pinned(tmp_path: Path) -> tuple[Path, Path]:
     text = (ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")
     row = text.index(f"build_id: {pin_model.EMBED_BUILD}")
     reg = tmp_path / "registry.yaml"
-    reg.write_text(text[:row] + text[row:].replace("manifest_sha256: null", f"manifest_sha256: {manifest}", 1),
+    reg.write_text(text[:row] + MANIFEST_FIELD.sub(f"manifest_sha256: {manifest}", text[row:], count=1),
                    encoding="utf-8")  # fmt: skip
     out = tmp_path / "registry.site.yaml"
     _ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {}, registry_path=reg,
@@ -118,12 +121,15 @@ def test_the_installs_exit_code_is_the_pairs_unless_the_embedders_folder_is_wron
     assert ok == pair_ok and "no weights in" in lines_of["absent"]
     (models / "embedder").mkdir()
     (models / "embedder" / "model.safetensors").write_bytes(b"synthetic")
-    ok, lines = pin_model.install_pins("rtxpro6000", models, tmp_path / "c.yaml", {}, with_embedder=True)
-    assert ok == pair_ok and any("no expected weights" in ln for ln in lines)  # the committed row: not yet named
     text = (ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")
     row = text.index(f"build_id: {pin_model.EMBED_BUILD}")
+    unnamed = tmp_path / "registry.unnamed.yaml"  # a row with no manifest yet, as the committed one was
+    unnamed.write_text(text[:row] + MANIFEST_FIELD.sub("manifest_sha256: null", text[row:], count=1), encoding="utf-8")
+    ok, lines = pin_model.install_pins("rtxpro6000", models, tmp_path / "c.yaml", {}, registry_path=unnamed,
+                                       with_embedder=True)  # fmt: skip
+    assert ok == pair_ok and any("no expected weights" in ln for ln in lines)
     reg = tmp_path / "registry.yaml"
-    reg.write_text(text[:row] + text[row:].replace("manifest_sha256: null", f"manifest_sha256: {'f' * 64}", 1),
+    reg.write_text(text[:row] + MANIFEST_FIELD.sub(f"manifest_sha256: {'f' * 64}", text[row:], count=1),
                    encoding="utf-8")  # fmt: skip
     ok, lines = pin_model.install_pins("rtxpro6000", models, tmp_path / "d.yaml", {}, registry_path=reg,
                                        with_embedder=True)  # fmt: skip
@@ -141,7 +147,8 @@ def test_the_row_names_the_publishers_last_revision_with_safetensors_and_leaves_
     assert b["provenance"]["copy"] == "publisher-subset"
     assert set(b["provenance"]["left_out"]) == {"pytorch_model.bin", "colbert_linear.pt", "sparse_linear.pt"}
     assert all(name.endswith(pin_model.REFUSED_SUFFIXES) for name in b["provenance"]["left_out"])
-    assert b["expected"]["manifest_sha256"] is None  # from the first hash of the real folder, never guessed
+    # from the first hash of the real folder (lane G, 2026-11-12), never guessed
+    assert b["expected"]["manifest_sha256"] == "e131f3203849cd7ba89144fdefce52c950bd748c285c2235c1f5628ddcc6e895"
     register = (ROOT / "docs" / "licences" / "register.csv").read_text(encoding="utf-8")
     assert f"revision {rev},BAAI/bge-m3" in register
 
