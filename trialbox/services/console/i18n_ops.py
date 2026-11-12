@@ -290,8 +290,8 @@ ZH: dict[str, str] = {
     "ops.action.update_apply": "套用此更新",
     "ops.action.logs_collect": "收集昨天的記錄檔",
     "ops.action.network_sheet": "重新產生網路說明表",
-    "ops.confirm.backup": "要立即備份嗎？服務持續運作，不會中斷任何人的工作：每個資料庫以一個快照複製，之後再複製檔案。"
-    "備份以醫院的金鑰加密，並寫入每個備份位置。",
+    "ops.confirm.backup": "要立即備份嗎？服務持續運作，不會中斷任何人正在進行的事：每個資料庫以一個快照複製，"
+    "之後再複製檔案。備份以醫院的金鑰加密，並寫入每個備份位置。",
     "ops.confirm.backup_check": "要檢查每個備份位置中最新的備份嗎？不會變更任何內容。此檢查可找出被截斷或未寫完的檔案"
     "；只有信封中的私鑰才能證明內容。",
     "ops.confirm.update_check": "要驗證更新包 {bundle} 嗎？將檢查其簽章與每個檔案。本機不會有任何變更。",
