@@ -1,7 +1,7 @@
 """gen_traceability: the traceability matrix of TB-PLAN-05 is generated from the plan's own tables, never typed twice.
 
     python tools/gen_traceability.py            # write docs/plan/25-traceability.csv from docs/plan/25-master-plan.md
-    python tools/gen_traceability.py --check    # print what is stale as warnings; exit 0 (CI job `trace`)
+    python tools/gen_traceability.py --check    # print what is stale as warnings; exit 0 (CI job `checks`)
     python tools/gen_traceability.py --strict   # as --check, but exit 1 when anything is stale
     python tools/gen_traceability.py --write    # also rewrite the §5 "Plan" cells and the §3 totals table in the plan
     python tools/gen_traceability.py --records  # print the record inventory section of a release record (T-643)

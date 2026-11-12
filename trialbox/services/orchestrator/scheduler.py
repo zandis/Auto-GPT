@@ -158,14 +158,22 @@ def night_gate(orch: Orchestrator, today: str | None = None) -> bool:
     return _gate[day]
 
 
-def after_ingest(orch: Orchestrator, timed: bool = False) -> list[str]:
+def after_ingest(orch: Orchestrator, timed: bool = False, chained: bool = False) -> list[str]:
     """D-397 (T-624, LIFE-014): after an ingest that passed, a micro-batch for every study with a candidate pool
     screens the new patients booked in its window (``trigger=ingest``), so a patient who first appears in Tuesday's
     data with a Friday appointment is on the clinic list on Wednesday morning, not after the next weekly run. Held
     like the timer's jobs: a study that is not open (D-386), and after the timer's ingest (``timed``, option
     ``timer=1``) a night whose model self-test did not pass. An ingest asked for by hand is followed at once, as
     ``run_now`` starts a job without the night gate. Returns the studies submitted. Never raises: the ingest itself
-    has passed."""
+    has passed.
+
+    T-726 (D-492): ``chained`` (the timer's ingest on a box whose scheduler runs): the night's chain takes over
+    (:func:`orchestrator.night.advance`): one micro-batch per study and generation, the weekly one on its day, then
+    NAV and retention, each when the step before it has ended."""
+    if chained:
+        from orchestrator import night
+
+        return [r for r in night.advance(orch) if r]
     try:
         if timed and not night_gate(orch):
             log.error("MICROBATCH after the ingest held: the night model self-test did not pass")
@@ -197,6 +205,20 @@ def plan(settings: Settings | None) -> list[tuple[str, dict[str, Any]]]:
         ("RETENTION", cron_kwargs(get("retention", "05:00"))),
         ("CALIBRATION", cron_kwargs(get("calibration", "1st 05:30"))),
     ]
+
+
+#: T-726 (D-492): the job types that keep a clock time; every other type of :func:`plan` follows the ingest
+CLOCKED = ("INGEST", "COHORT", "CALIBRATION")
+
+
+def nav_rulesets(orch: Orchestrator) -> list[str]:
+    """Every approved NHI ruleset (the studies NAV runs for)."""
+    out = []
+    for rid in list_rulesets(orch.rulesets_dir):
+        body = yaml.safe_load((orch.rulesets_dir / rid / "manifest.yaml").read_text(encoding="utf-8"))
+        if (body or {}).get("kind") == "nhi" and body.get("status") == "approved":
+            out.append(rid)
+    return out
 
 
 def scheduled_types() -> frozenset[str]:
@@ -242,30 +264,22 @@ def start(orch: Orchestrator) -> Any:
         return None
 
     sched = BackgroundScheduler(timezone=orch.cfg.env.tz, job_defaults=SCHEDULER_JOB_DEFAULTS)  # F-14
+    # T-726 (D-492; scale review F-33): only the ingest and the monthly jobs keep a clock time. The weekly
+    # micro-batch, NAV and the daily retention follow the ingest's end (orchestrator.night): a slow ingest no
+    # longer leaves Monday's jobs on last night's snapshot
     for jtype, kw in plan(orch.cfg.settings):
-        if jtype in ("MICROBATCH", "CALIBRATION"):
+        if jtype not in CLOCKED:
+            continue
+        if jtype == "CALIBRATION":
 
-            def per_ruleset(jt: str = jtype) -> None:
+            def calibration() -> None:
                 if not night_gate(orch):
-                    log.error("%s held: the night model self-test did not pass", jt)
+                    log.error("CALIBRATION held: the night model self-test did not pass")
                     return
-                db = orch.db
-                for rid in db.pool_rulesets() if jt == "MICROBATCH" else db.feedback_rulesets():
-                    _submit(orch, jt, rid)
+                for rid in orch.db.feedback_rulesets():
+                    _submit(orch, "CALIBRATION", rid)
 
-            sched.add_job(per_ruleset, "cron", id=jtype.lower(), **kw)
-        elif jtype == "NAV":
-
-            def nav() -> None:
-                if not night_gate(orch):
-                    log.error("NAV held: the night model self-test did not pass")
-                    return
-                for rid in list_rulesets(orch.rulesets_dir):
-                    body = yaml.safe_load((orch.rulesets_dir / rid / "manifest.yaml").read_text(encoding="utf-8"))
-                    if (body or {}).get("kind") == "nhi" and body.get("status") == "approved":
-                        _submit(orch, "NAV", rid)
-
-            sched.add_job(nav, "cron", id="nav", **kw)
+            sched.add_job(calibration, "cron", id="calibration", **kw)
         elif jtype == "COHORT":
 
             def cohort() -> None:
@@ -276,10 +290,17 @@ def start(orch: Orchestrator) -> Any:
                     _submit(orch, "COHORT", rid)
 
             sched.add_job(cohort, "cron", id="cohort", **kw)
-        elif jtype == "INGEST":  # D-397: the timer's ingest; its follow-up micro-batch waits for the night gate
-            sched.add_job(_submit, "cron", id="ingest", args=[orch, "INGEST", None, {"timer": "1"}], **kw)
-        else:
-            sched.add_job(_submit, "cron", id=jtype.lower(), args=[orch, jtype], **kw)
+        else:  # D-397: the timer's ingest; the night's chain follows it
+            sched.add_job(_submit, "cron", id="ingest", args=[orch, "INGEST", None, {"timer": "1", "chain": "1"}], **kw)
+    from orchestrator import night
+
+    def go_on(_job: Any = None) -> None:
+        night.advance(orch)
+
+    hooks = getattr(orch, "on_terminal", None)  # an orchestrator stand-in without job ends has no chain
+    if hooks is not None:
+        hooks.append(go_on)  # a step starts when the step before it has ended
+        go_on()  # after a restart: go on from the step the night was in
     # T-310a (D-446): the weekly PI sample of "criteria not matched", drawn from each study's latest SCREEN
     from orchestrator import notmatched_sample
 

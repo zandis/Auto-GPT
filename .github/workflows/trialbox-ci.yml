@@ -1,6 +1,8 @@
 # TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
-# push to master runs these jobs; `make ci` runs the same list locally. Job names are stable: branch protection on
-# master requires unit, lint, contracts, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3).
+# push to master runs these jobs (in tiers: D-564, D-578); `make ci` runs the same list locally. Job names are stable: branch protection on
+# master requires unit, checks, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3). Since D-578
+# `checks` holds what the jobs lint, types, docs, contracts, trace and shell held: where branch protection names `lint`
+# or `contracts`, it must name `checks` instead.
 # The security job (secret scan, static security scan) is T-654. The nightly drills are in trialbox-e2e.yml; the
 # supply-chain gates (lock-check, allow-list, pip-audit, licences) are trialbox-supply-chain.yml (D-185, D-186) and
 # are not repeated here. A job marked continue-on-error carries the date and the reason.
@@ -37,6 +39,10 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read  # D-578: the `unit` check of a merged train's head
+      pull-requests: read  # and whether that head was a train's
     outputs:
       trialbox: ${{ steps.diff.outputs.trialbox }}
       # D-564: 'true' when the full tier runs: not on a draft pull request, except a merge train (train/*)
@@ -55,8 +61,15 @@ jobs:
           else
             echo "trialbox=false" >> "$GITHUB_OUTPUT"
           fi
-      # D-564: the tiers. Fast (every push): changes, lint, types, docs, contracts, data-scan, shell, trace,
-      # cross-card. Full (a pull request that is not a draft, a branch train/*, master, a run by hand): unit-shard,
+      # D-578: a push to master whose tree a merged train's green `unit` already proved runs the fast tier only
+      # (tools/ci_proved_tree.py: every full-tier check green on the train's head; any doubt or error says false).
+      - id: proved
+        if: github.event_name == 'push'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "proved=$(python3 trialbox/tools/ci_proved_tree.py)" >> "$GITHUB_OUTPUT"
+      # D-564: the tiers. Fast (every push): changes, checks, data-scan, cross-card, powershell, differential. Full (a pull request that is not a draft, a branch train/*, master, a run by hand): unit-shard,
       # unit, property, goldens, e2e-simple, demo-boot, security, standards, images. tests/unit/test_ci_tiers.py
       # holds the two lists; a new job is put in one.
       - id: tier
@@ -65,14 +78,20 @@ jobs:
           EVENT: ${{ github.event_name }}
           DRAFT: ${{ github.event.pull_request.draft }}
           HEAD_REF: ${{ github.head_ref }}
+          PROVED: ${{ steps.proved.outputs.proved }}
         run: |
           full=true
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then
             case "$HEAD_REF" in train/*) ;; *) full=false ;; esac
           fi
+          if [ "$EVENT" = push ] && [ "$PROVED" = true ]; then full=false; fi
           echo "full=$full" >> "$GITHUB_OUTPUT"
 
-  lint:
+  # D-578: the checks of under a minute each were a job each (lint, types, docs, contracts, trace, shell): six
+  # runners, six set-ups, six billed minutes for a few seconds of work. They are the steps of one job. Every check
+  # step runs unless the run was cancelled, so one failure does not hide the next; the job fails when any failed.
+  # The step names are what the log shows.
+  checks:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
@@ -87,83 +106,53 @@ jobs:
       - name: Python environment (uv.lock, exactly)
         run: make venv
       - name: ruff
+        if: ${{ !cancelled() }}
         run: .venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .
       - name: actionlint (the workflows themselves)
+        if: ${{ !cancelled() }}
         working-directory: .
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color .github/workflows/trialbox-*.yml
-
-  types:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-        with:
-          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
-          enable-cache: true
-          cache-dependency-glob: trialbox/uv.lock
-      - run: make venv
       - name: mypy (strict)
+        if: ${{ !cancelled() }}
         run: .venv/bin/python -m mypy libs services tools tests
-
-  docs:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-        with:
-          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
-          enable-cache: true
-          cache-dependency-glob: trialbox/uv.lock
-      - run: make venv
       - name: doclint (the eight documents; link and path problems are warnings, D-311)
+        if: ${{ !cancelled() }}
         run: .venv/bin/python tools/doclint.py
       - name: decision numbers (one number, one text; registry rows are notes only; D-306, D-311)
+        if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.decisions_index --check
       - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
+        if: ${{ !cancelled() }}
         run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
       - name: limits lint (every timeout over 60 s and every LIMIT literal in services/ has a reason; OD-10, T-687, D-471)
+        if: ${{ !cancelled() }}
         run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.limits_lint
-
-  contracts:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-        with:
-          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
-          enable-cache: true
-          cache-dependency-glob: trialbox/uv.lock
-      - run: make venv
       - name: generated contracts are what the schemas generate (no hand edit)
+        if: ${{ !cancelled() }}
         run: make contracts-check
       - name: shipped rulesets are what the compiler gives (ValueSets, SQL, CQL; T-613a, D-322)
+        if: ${{ !cancelled() }}
         run: TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m tools.build_rulesets --check
-
-  trace:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-        with:
-          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
-          enable-cache: true
-          cache-dependency-glob: trialbox/uv.lock
-      - run: make venv
-      - name: the traceability CSV (warnings only, never blocks a merge; D-311)
+      - name: traceability CSV (warnings only, never blocks a merge; D-311)
+        if: ${{ !cancelled() }}
         run: .venv/bin/python tools/gen_traceability.py --check
+      # gates on warnings (OPS-076): the warnings D-206 listed are fixed, so a new one fails the job
+      - name: shellcheck
+        if: ${{ !cancelled() }}
+        run: |
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc
+      # T-509 (D-330): the PoC host's scripts at warning level, and its Caddyfile through caddy itself (the image the VM
+      # runs, by digest)
+      - name: PoC host scripts and Caddyfile
+        if: ${{ !cancelled() }}
+        run: |
+          shellcheck --severity=warning deploy/gcp/poc-host.sh deploy/gcp/hosted-demo-startup.sh
+          TB_MD_TB_DOMAIN=poc.example.org TB_MD_TB_IMAGE=r.example.org/demo@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            bash deploy/gcp/hosted-demo-startup.sh --print-caddyfile > "$RUNNER_TEMP/Caddyfile"
+          pin=$(sed -n 's/^CADDY_IMAGE_PIN="\(.*\)"$/\1/p' deploy/gcp/hosted-demo-startup.sh)
+          docker run --rm -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" "$pin" \
+            caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 
   # T-619a (D-417; STD-011, STD-017, STD-070): standards conformance. TW Core 1.0.0 through the HL7 validator on 200
   # mapped synthetic resources (0 errors, each fillable slice matched); the TW Core and JP Core rule files rebuilt from
@@ -583,28 +572,6 @@ jobs:
         run: .venv/bin/python -m tools.security_scan secrets
       - name: Static security scan (bandit)
         run: .venv/bin/python -m tools.security_scan sast
-
-  shell:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      # gates on warnings (OPS-076): the warnings D-206 listed are fixed, so a new one fails the job
-      - name: shellcheck
-        run: |
-          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc
-      # T-509 (D-330): the PoC host's scripts at warning level, and its Caddyfile through caddy itself (the image the VM
-      # runs, by digest)
-      - name: PoC host scripts and Caddyfile
-        run: |
-          shellcheck --severity=warning deploy/gcp/poc-host.sh deploy/gcp/hosted-demo-startup.sh
-          TB_MD_TB_DOMAIN=poc.example.org TB_MD_TB_IMAGE=r.example.org/demo@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
-            bash deploy/gcp/hosted-demo-startup.sh --print-caddyfile > "$RUNNER_TEMP/Caddyfile"
-          pin=$(sed -n 's/^CADDY_IMAGE_PIN="\(.*\)"$/\1/p' deploy/gcp/hosted-demo-startup.sh)
-          docker run --rm -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" "$pin" \
-            caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 
   # NEW-WIN-1 (D-600): the Windows installer's PowerShell is parsed, held to Windows PowerShell 5.1 syntax and
   # unit-tested with Pester on the Linux runner's PowerShell 7 (no Windows runner). Every Windows command is behind

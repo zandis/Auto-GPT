@@ -95,8 +95,38 @@ def ingest(ctx: Ctx) -> Outcome:
     ctx.state("running")
     ds = ctx.cfg.settings.data_source
     opts = ctx.job.options or {}
-    report = ctx.services.adapter.run(IngestRequest(source=ds.type, since=opts.get("since")))
+    # NEW-PERF-2 (D-523): the adapter run this job is on is written into its record as soon as it is known.
+    # ``followed``: the run was already running (this job queued again after a restart, or another caller's run)
+    on = {"run": "", "followed": False, "own": False}
+
+    def on_run(rid: str, followed: bool) -> None:
+        on.update(run=rid, followed=followed, own=opts.get("adapter_run") == rid)
+        ctx.update(options={**opts, "adapter_run": rid, **({"followed": "1"} if followed and not on["own"] else {})})
+
+    req = IngestRequest(source=ds.type, since=opts.get("since"))
+    follow = getattr(ctx.services.adapter, "run_followed", None)
+    report = follow(req, on_run) if follow is not None else ctx.services.adapter.run(req)
     ctx.update(snapshot_date=report.snapshot)
+    if on["followed"] and not on["own"]:
+        if opts.get("since"):  # review F3: "done" would say a back-fill ran that did not
+            raise StepFailed(
+                "ingest",
+                f"Another ingest was running (adapter run {on['run']}) and this job followed it to its end; this "
+                f"job's own request (since {opts['since']}) was not run. Send it again.",
+            )
+        # review F1: the steps that follow an ingest run once for an adapter run, in the first job that is on it
+        mine = ctx.job.job_id
+        others = [j for j in ctx.orch.db.with_option("INGEST", "adapter_run", str(on["run"]))
+                  if j.job_id != mine and j.state != "failed"]  # fmt: skip
+        if any((j.received_at, j.job_id) < (ctx.job.received_at, mine) for j in others):
+            if not report.passed:
+                raise StepFailed(
+                    "ingest", "The nightly ingest finished with errors: " + "; ".join((report.errors or [])[:5])
+                )
+            return Outcome(
+                summary_md=f"Ingest {report.snapshot}: passed. This job followed a run another job started; the "
+                "steps that follow the ingest run in that job."
+            )
     ctx.state("reporting")
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     ctx.publish(f"ingest_report_{report.snapshot}.json", body, "aggregate", [])
@@ -108,6 +138,9 @@ def ingest(ctx: Ctx) -> Outcome:
     # D-442: the stored derived rows of the new snapshot before anything screens it
     derive.after_ingest(getattr(ctx, "orch", None), str(report.snapshot))
     # D-397: the new patients booked in each study's window are screened now, not next week
-    after_ingest(ctx.orch, timed=opts.get("timer") == "1")
+    # T-726 (D-492): the timer's ingest on a box whose scheduler runs is followed by the night's chain, which
+    # starts when this job has ended (its end is what the chain reads); an ingest by hand as before
+    if opts.get("chain") != "1":
+        after_ingest(ctx.orch, timed=opts.get("timer") == "1")
     twins_after_ingest(ctx, report.snapshot)
     return Outcome(summary_md=f"Ingest {report.snapshot}: passed.")

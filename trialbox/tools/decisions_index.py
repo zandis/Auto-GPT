@@ -1,7 +1,7 @@
 """decisions_index: one decision number, one text, one owner (T-002, D-306, CR-077).
 
     python -m tools.decisions_index            # print the index of every decision number (Markdown, to stdout)
-    python -m tools.decisions_index --check    # exit 1 on a number used twice; CI job `docs`
+    python -m tools.decisions_index --check    # exit 1 on a number used twice; CI job `checks`
 
 A decision's text lives in one of two places: the frozen log ``docs/DECISIONS.md`` (entries D-01 to D-270, each a
 paragraph that starts ``**D-nnn``) or one file ``docs/decisions/D-nnn-<slug>.md``. Who may use a number is written in

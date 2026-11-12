@@ -38,9 +38,12 @@ def _modules() -> dict[str, Path]:
     return out
 
 
-def _imports(f: Path, mods: dict[str, Path]) -> set[str]:
+def _imports(f: Path, mods: dict[str, Path], nested: bool = True) -> set[str]:
+    """The modules of ``services/`` a file imports. ``nested=False``: at module level only, which is what runs when
+    the module is loaded; an import inside a function runs only when that function is called."""
+    tree = ast.parse(f.read_text(encoding="utf-8"))
     named: set[str] = set()
-    for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+    for n in ast.walk(tree) if nested else _module_level(tree):
         if isinstance(n, ast.Import):
             named |= {a.name for a in n.names}
         elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
@@ -48,15 +51,45 @@ def _imports(f: Path, mods: dict[str, Path]) -> set[str]:
     return {".".join(m.split(".")[:i]) for m in named for i in range(1, m.count(".") + 2)} & set(mods)
 
 
+def _module_level(tree: ast.Module) -> list[ast.stmt]:
+    """The statements that run at import: the module's body, and what sits in its ``if`` / ``try`` blocks."""
+    out: list[ast.stmt] = []
+    todo = list(tree.body)
+    while todo:
+        n = todo.pop()
+        out.append(n)
+        if isinstance(n, (ast.If, ast.Try, ast.With)):
+            todo += [*n.body, *getattr(n, "orelse", []), *getattr(n, "finalbody", []),
+                     *(s for h in getattr(n, "handlers", []) for s in h.body)]  # fmt: skip
+    return out
+
+
 def _closure(service: str, mods: dict[str, Path]) -> set[str]:
-    """Every module of ``services/`` the service imports, transitively (what its process can run)."""
+    """Every module of ``services/`` the service's process can run. Its own package's imports are followed wherever
+    they stand (a page imports a store inside its function and calls it). In another package only the imports at
+    module level are followed: those run when the service loads the module; an import inside a function of another
+    package runs only if the service calls that function, which a reading of the text cannot know. Found on train
+    4: the console imports ``orchestrator.candidates`` for two constants, and a chain of imports inside the
+    orchestrator's own functions led from there to ``orchestrator.app`` and its ``service.route_refused``."""
     seen: set[str] = set()
     todo = {m for m in mods if m == service or m.startswith(service + ".")}
     while todo:
         m = todo.pop()
         seen.add(m)
-        todo |= _imports(mods[m], mods) - seen
+        own = m == service or m.startswith(service + ".")
+        todo |= _imports(mods[m], mods, nested=own) - seen
     return seen
+
+
+def test_the_closure_follows_what_a_process_runs() -> None:
+    mods = _modules()
+    console = _closure("console", mods)
+    # a store the console's own page opens inside a function is the console's
+    assert "datacore.dataops" in console and "orchestrator.candidates" in console
+    # the orchestrator's app, reached only through imports inside the orchestrator's own functions, is not
+    assert "orchestrator.app" not in console and "orchestrator.callers" not in console
+    assert "orchestrator.callers" in _closure("orchestrator", mods)
+    assert aw.foreign("tb_console", "service.route_refused") == "role"  # the console does not send the gate's event
 
 
 def _written(files: list[Path]) -> set[str]:

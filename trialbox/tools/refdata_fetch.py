@@ -192,6 +192,21 @@ SOURCES: tuple[Source, ...] = (
         filename="icd10cm-code-descriptions-2027.zip",
     ),
     Source(
+        "cms_gem_icd9_icd10cm", "ICD-9-CM -> ICD-10-CM General Equivalence Mappings 2018 (CMS)", "map", "ship",
+        "https://www.cms.gov/Medicare/Coding/ICD10/Downloads/2018-ICD-10-CM-General-Equivalence-Mappings.zip",
+        "Public domain (U.S. government work, 17 U.S.C. 105)", "https://www.cms.gov/medicare/coding-billing/icd-10-codes",
+        "No restriction. The GEMs are an aid to conversion, not a crosswalk: an approximate or one-to-many entry "
+        "is not a statement that the codes mean the same.",
+        "2018 ICD-10-CM General Equivalence Mappings, Centers for Medicare & Medicaid Services (CMS) and the "
+        "National Center for Health Statistics (NCHS), U.S. Department of Health and Human Services.",
+        "never (2018 is the last edition; CMS stopped maintaining the GEMs)",
+        "1.1 MB zip; 2018_I9gem.txt has 24,860 lines for 14,567 ICD-9-CM codes",
+        "D-592: a code with exactly one target and no combination is `equivalent` or `inexact` (10,765 codes); every "
+        "other row is `relatedto` and is never used as the code. Pinned by sha256; the reverse file is not read.",
+        "2018-ICD-10-CM-General-Equivalence-Mappings.zip", decision="D-592", version="2018",
+        sha256="1c5e5f14026ace48437a0d1c485d282fb5d171c357c6ab4f7798fc0a1e3624a2",
+    ),
+    Source(
         "tw_icd10_zh", "Taiwan ICD-10-CM/PCS 2023 Chinese edition (NHIA)", "term", "ship",
         "https://www.nhi.gov.tw/ch/cp-13108-67ddf-2508-1.html", OGDL, OGDL_URL,
         "Government open data; free use with attribution of the provider.",
@@ -641,6 +656,50 @@ def parse_icd10cm(path: Path) -> Iterator[dict[str, Any]]:
                    "display": m.group(2).strip(), "extra": {}}  # fmt: skip
 
 
+GEM_FILE = "2018_I9gem.txt"
+_GEM_LINE = re.compile(r"([0-9]{3,5}|V[0-9]{2,4}|E[0-9]{3,4})\s+([A-Z][0-9][0-9A-Z]{1,5}|NoDx)\s+([01]{3}[0-9]{2})")
+
+
+def parse_cms_gem(path: Path) -> Iterator[dict[str, Any]]:
+    """``2018_I9gem.txt`` of the CMS download (D-592): one line per ICD-9-CM code and ICD-10-CM target, neither
+    with its dot, and five flags (approximate, no map, combination, scenario, choice list). A line that is not of
+    that layout refuses the whole file. The relation: ``equivalent`` or ``inexact`` for the only line of a code
+    outside a combination (by its approximate flag), ``relatedto`` for every other line; "no map" gives no row."""
+    with zipfile.ZipFile(path) as z:
+        name = next((n for n in z.namelist() if n.rsplit("/", 1)[-1] == GEM_FILE), None)
+        if name is None:
+            raise ValueError(f"{path.name}: no {GEM_FILE} in the download")
+        lines = [ln.strip() for ln in z.read(name).decode("ascii", errors="replace").splitlines() if ln.strip()]
+    if not lines:
+        raise ValueError(f"{path.name}: {GEM_FILE} is empty")
+    by: dict[str, list[tuple[str, str]]] = {}  # ICD-9-CM code → its lines (target, flags), in file order
+    for n, line in enumerate(lines, 1):
+        m = _GEM_LINE.fullmatch(line)
+        if m is None:
+            raise ValueError(f"{path.name}: {GEM_FILE} line {n} is not 'ICD-9-CM code, ICD-10-CM code, five flags'")
+        by.setdefault(m.group(1), []).append((m.group(2), m.group(3)))
+    for code9, targets in by.items():
+        cut = 4 if code9.startswith("E") else 3  # an E code has four places before its dot
+        dotted = code9[:cut] + ("." + code9[cut:] if len(code9) > cut else "")
+        # one row per pair: the file names ten pairs twice (once alone, once inside a combination), and the
+        # box's table holds one row per source and target
+        pairs: dict[str, list[str]] = {}
+        for code10, flags in targets:
+            if flags[1] != "1" and code10 != "NoDx":
+                pairs.setdefault(code10, []).append(flags)
+        for code10, all_flags in pairs.items():
+            if len(targets) > 1 or all_flags[0][2] == "1":
+                relation = "relatedto"
+            else:
+                relation = "inexact" if all_flags[0][0] == "1" else "equivalent"
+            yield {
+                "source_system": "http://hl7.org/fhir/sid/icd-9-cm", "source_code": dotted, "source_display": "",
+                "target_system": "http://hl7.org/fhir/sid/icd-10-cm",
+                "target_code": code10[:3] + ("." + code10[3:] if len(code10) > 3 else ""), "target_display": "",
+                "relation": relation, "extra": {"flags": "+".join(all_flags), "lines": len(targets)},
+            }  # fmt: skip
+
+
 def parse_loinc(path: Path) -> Iterator[dict[str, Any]]:
     """``LoincTableCore.csv`` (or ``Loinc.csv``) inside the release zip, or the CSV itself."""
     if zipfile.is_zipfile(path):
@@ -865,6 +924,7 @@ KIND_FILE = {"ctgov": "studies", "trial": "trials", "term": "terms", "map": "map
 PARSERS: dict[str, Callable[[Path], Iterator[dict[str, Any]]]] = {
     "nhi_drugs": parse_nhi_drugs,
     "icd10cm": parse_icd10cm,
+    "cms_gem_icd9_icd10cm": parse_cms_gem,
     "loinc": parse_loinc,
     "tw_icd10_zh": parse_tw_icd10_zh,
     "umin_ctr": parse_umin,
@@ -899,6 +959,10 @@ def sample_raw(raw: Path) -> Path:
             "icd10cm-code-descriptions-2027/icd10cm-codes-2027.txt", (SAMPLES / "icd10cm_sample.txt").read_text()
         )
     put("icd10cm", "icd10cm-sample.zip", buf.getvalue(), BY_ID["icd10cm"].url)
+    gem = io.BytesIO()  # D-592: an excerpt of the public CMS file
+    with zipfile.ZipFile(gem, "w") as z:
+        z.writestr(GEM_FILE, (SAMPLES / "cms_gem_i9_sample.txt").read_text())
+    put("cms_gem_icd9_icd10cm", "gem-sample.zip", gem.getvalue(), BY_ID["cms_gem_icd9_icd10cm"].url)
     wb = openpyxl.Workbook()
     ws = wb.worksheets[0]
     for row in csv.reader(io.StringIO((SAMPLES / "mhlw_yakka_sample.csv").read_text(encoding="utf-8"))):
