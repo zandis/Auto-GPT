@@ -57,7 +57,7 @@ DECISIONS = {"accept": PUBLISHED, "reject": REJECTED}
 EVENT_DECIDE = "dataops.decide"
 EVENT_STEP = "dataops.step"
 # what a batch row keeps from the night's audit detail (tables and counts only, never a row)
-DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error", "step", "table")
+DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "unmapped", "error", "step", "table")
 MAX_PAGE = 200  # T-112b: the most batch rows one page or API call reads
 
 _STATE_LIST = ", ".join(f"'{s}'" for s in STATES)

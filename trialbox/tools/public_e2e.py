@@ -33,7 +33,6 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from tb_common.authz import permit  # noqa: E402
 
 from tools import feas_demo as fd  # noqa: E402
 from tools import list_demo as ld  # noqa: E402
@@ -122,13 +121,22 @@ def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, 
 
 
 def attach_models(box: Any, llm: Any, verifier: Any) -> dict[str, Any] | None:
-    """Real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub. Returns the
-    pair canary's status when the gate is on (D-117: as at box start, the canary runs first and gates exclusions)."""
+    """Real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub and is told the
+    environment of the gateway the pair is reached through, so its approvals pin a judge prompt that gateway takes.
+    Returns the pair canary's status when the gate is on (D-117: as at box start, the canary runs first and gates
+    exclusions)."""
     for c in (llm, verifier):
         if c is not None:
             c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
     box.orch.services.llm = llm
     box.orch.services.verifier = verifier
+    # the pair through an installed box's gateway (tools.scenarios.gateway_client: TB_ENV=PRODUCTION) while this
+    # process is DEV: an approval on this box must pin the judge prompt that gateway serves (the newest qualified
+    # one, D-359), as the installed box's own compiler does. Pinned from this process's environment it is the newest
+    # registered version, which the gateway refuses until its qualification record exists
+    deps = getattr(getattr(box.orch.services, "compiler", None), "d", None)
+    if deps is not None and hasattr(deps, "prompt_environment"):
+        deps.prompt_environment = getattr(getattr(llm, "gateway", None), "prompt_environment", None)
     from orchestrator import canary_gate
 
     if not canary_gate.gate_on():
@@ -691,22 +699,18 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     # ------------------------------------------------------------------ 6 the other screens, every role
     s = Stage("6 other screens")
     t = time.perf_counter()
-    for who, role, c in (("crc", "coordinator", crc), ("pi", "investigator", pi), ("admin", "admin", admin)):
-        for path in ("/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"):
+    for who, c in (("crc", crc), ("pi", pi), ("admin", admin)):
+        for path, code in other_screens(who, TRIAL):
             r = c.get(path)
-            # ENG-002 (D-560): what a role may open is the permission matrix's, not this list's. `/week` leads to
-            # the one screened study's patient list: only for a role that reads patient-level results (D-280)
-            status = 200 if path != "/week" or permit(role, "phi.view").allowed else 403
-            s.check(f"{who} {path}", r.status_code == status, r.status_code)
+            label = f"{who} {path}" if code == 200 else f"{who} {path} is refused ({code}: no patient data)"
+            s.check(label, r.status_code == code, r.status_code)
     # D-120: a public-data site says so (not "synthetic"), lists its own studies only, and names its clinicians
     # from the records
     home = crc.get("/home").text
     s.check("banner says public data", 'data-testid="banner"' in home and "synthetic" not in home.lower(), "")
-    menu = [
-        v
-        for sel in re.findall(r'<select[^>]*name="ruleset"[^>]*>(.*?)</select>', crc.get("/pilot/request").text, re.S)
-        for v in re.findall(r'<option value="([A-Z0-9-]+)"', sel)
-    ]  # the study menus only: the page has other menus (ENG-002)
+    # the two study menus of the request page only (the page's other selects are not studies)
+    selects = re.findall(r'<select id="(?:feas|scr)-rs"[^>]*>(.*?)</select>', crc.get("/pilot/request").text, re.S)
+    menu = [v for sel in selects for v in re.findall(r'<option value="([A-Z0-9-]+)"', sel)]
     s.check("request menu: this site's studies only", bool(menu) and set(menu) <= {TRIAL, COHORT}, menu)
     wk = pi.get(f"/studies/{TRIAL}/week?list=all").text
     s.check("clinician names from the records", "public-data site" in wk and "(synthetic)" not in wk, "")
@@ -723,14 +727,17 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "/admin?tab=jobs",
         "/admin?tab=sources",
         "/ops/users",
-        "/audit",
         "/jobs",
         *(f"/admin/ops?tab={tab}" for tab in ("overview", "backups", "update", "logs", "secrets", "network")),
     ):
         r = admin.get(path)
-        # the audit trail is read by the privacy office and the steward, not the administrator (D-451)
-        status = 200 if path != "/audit" or permit("admin", "audit.browse").allowed else 403
-        s.check(f"admin {path}", r.status_code == status, r.status_code)
+        s.check(f"admin {path}", r.status_code == 200, r.status_code)
+    # T-211c (D-451, ROLE-013): the audit trail is read by the steward and the privacy office, not the administrator
+    app.state.helpers.users.create("stw", "steward", password, "stw@hospa.test")
+    stw = ld.sign_in(app, "stw", password, lang)
+    s.check("admin /audit is refused (403)", admin.get("/audit").status_code == 403, "")
+    r = stw.get("/audit")
+    s.check("steward /audit", r.status_code == 200, r.status_code)
     r = pi.get("/admin")
     s.check("investigator cannot open admin", r.status_code in (403, 303, 404), r.status_code)
     # D-178 (review J-09): the network sheet from the console, after a confirmation that names the consequence
@@ -914,6 +921,17 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         }
     )
     return out
+
+
+def other_screens(who: str, trial: str) -> list[tuple[str, int]]:
+    """Stage 6: the pages every role opens, each with the status it must get. The administrator sees no patient data
+    (D-280), and the page that says so is the study's week page: ``/week`` has no guard of its own for that role (it
+    answers 403 only because, with one study and nothing to approve, it sends the reader on to that page), so ``/week``
+    is not asserted for the administrator (review of 2026-11-12)."""
+    pages = ["/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"]
+    if who == "admin":
+        return [(p, 200) for p in pages if p != "/week"] + [(f"/studies/{trial}/week", 403)]
+    return [(p, 200) for p in pages]
 
 
 # roles that hold no identifier authority (D-143): they must never see a chart number or a patient's name

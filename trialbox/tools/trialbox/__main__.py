@@ -144,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     s.add_argument("--deploy", type=Path, default=deploy)
     s.add_argument("--no-restart", action="store_true", help="rotate the files only; restart the services yourself")
+    sg = sub.add_parser("audit-sign", help="the nightly signed head of the audit chain (NEW-STD-2, D-562)")
+    sg.add_argument("--deploy", type=Path, default=deploy)
+    sg.add_argument("--local", action="store_true", help="an in-process box: sign here, append the event to the chain")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
     lg.add_argument("action", choices=["collect", "prune", "archive-audit", "daily"])
     lg.add_argument("--deploy", type=Path, default=deploy)
@@ -214,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
         return tb_watchdog.main(a.deploy, interval=a.interval, after_minutes=a.after_minutes,
                                 max_restarts=a.max_restarts, window_hours=a.window_hours, dry_run=a.dry_run,
                                 as_json=a.json)  # fmt: skip
+    if a.cmd == "audit-sign":
+        from tools.trialbox import audit_heads
+
+        return audit_heads.main_action(a.deploy, a.local)
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 
@@ -403,6 +410,33 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         print(json.dumps(out, indent=1, ensure_ascii=False))
         for w in out["warnings"]:
             print(f"restore: warning: {w}", file=sys.stderr)
+        for j in out.get("jobs_failed") or []:  # T-728 (D-493): not run again by the orchestrator
+            print(f"restore: job {j['job_id']} ({j['type']}) was running at the backup (step {j['step']}): it is "
+                  "now failed, not run again; ask the requester to send it again if it is still wanted",
+                  file=sys.stderr)  # fmt: skip
+        # T-728 (D-493): said before any early exit (review H2: the reference-data exit came first)
+        lost = out.get("optouts_after_backup") or {}
+        state = lost.get("state")
+        if state == "counted" and lost.get("kept"):
+            print(f"restore: {lost['kept']} opt-out(s) recorded after the backup's snapshot ({lost['since']}) were "
+                  "put back into the restored register: those patients stay withheld", file=sys.stderr)  # fmt: skip
+        if state == "counted" and lost.get("not_kept"):
+            print(f"restore: NOT complete: {lost['not_kept']} opt-out(s) recorded on this box after the backup's "
+                  f"snapshot ({lost['since']}) could NOT be put back into the restored register: enter them again "
+                  "from the office's own record; until then those patients can be listed again (audit event "
+                  "backup.restored, optouts_after_backup; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+        if state == "counted" and lost.get("lifts_reverted"):
+            print(f"restore: NOT complete: {lost['lifts_reverted']} lift(s) of an opt-out typed after the backup's "
+                  "snapshot are not in the restored register: those patients stay withheld until a steward lifts "
+                  "the opt-out again (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+        if state == "unknown":
+            print(f"restore: NOT complete: opt-outs recorded on the old box after {lost.get('since')} are unknown: "
+                  "check the office's records since then and enter each one again (this box held no register to "
+                  "read them from; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+        if state == "unreadable":
+            print(f"restore: NOT complete: the opt-out register of this box could not be read before the restore "
+                  f"({lost.get('why')}): what it held after the backup is unknown; check the office's records since "
+                  "then (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
         if out["refdata"]["missing"]:  # D-187: a backup holds no vendor pack rows; the box is not whole without them
             print(f"restore: the reference data is NOT loaded: put {', '.join(out['refdata']['missing'])}.tar in "
                   f"{a.refdata} (the update bundle or the vendor) and run this restore again, or load it with "
@@ -414,7 +448,7 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                   "erasures, break-glass, EDC signatures, consent): a steward re-applies each one (to_reapply above; "
                   "audit event backup.restore_reapply; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
             return 4
-        return 0
+        return 0 if bk.optouts_ok(lost) else 4
     except bk.BackupError as exc:
         print(f"{a.cmd}: {exc}", file=sys.stderr)
         return 1

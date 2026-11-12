@@ -1,4 +1,4 @@
-# Every minute (D-178, RUNBOOK §15). Not enabled by the installer.
+# Every minute (D-178, RUNBOOK §15). Enabled and started by deploy/install.sh (NEW-OPS-8, D-561).
 [Unit]
 Description=TrialBox operations runner every minute
 

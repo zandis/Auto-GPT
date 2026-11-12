@@ -55,7 +55,10 @@ def test_default_install_passes() -> None:
         "flags",
         "site_key",
         "key_custody",
+        "db_passwords",
         "clock",
+        "ops_runner",
+        "audit_heads",
         "memory_caps",
     }
 

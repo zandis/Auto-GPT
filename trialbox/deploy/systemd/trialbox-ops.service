@@ -1,5 +1,5 @@
-# The console's operations runner (D-178), the unit of RUNBOOK §15. Installed by deploy/install.sh but not enabled:
-# turn it on with `systemctl enable --now trialbox-ops.timer`.
+# The console's operations runner (D-178), the unit of RUNBOOK §15. deploy/install.sh installs it and turns its
+# timer on (NEW-OPS-8, D-561): it writes the host's health facts and runs the Operations page's requests.
 [Unit]
 Description=TrialBox operations requests
 After=trialbox.service
