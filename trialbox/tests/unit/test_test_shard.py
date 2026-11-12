@@ -195,7 +195,8 @@ def test_the_shards_run_every_shard_with_fail_fast_off() -> None:
     shards = strategy["matrix"]["shard"]
     assert shards == list(range(1, len(shards) + 1)) and len(shards) >= 2
     assert "unit" not in {str(job.get("name"))} and "unit-shard (" in str(job["name"])
-    assert job["if"] == "needs.changes.outputs.trialbox == 'true'"
+    # CI-TIERS (D-564): the shards are full tier: not on a draft pull request (tests/unit/test_ci_tiers.py)
+    assert job["if"] == "needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'"
     runs = _runs(job)
     assert "SHARD=${{ matrix.shard }}/${{ strategy.job-total }}" in runs and "SHARD_RECORD=" in runs
     assert "tools/ci_postgres.sh" in runs and "make data-scan" in runs

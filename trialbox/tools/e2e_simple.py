@@ -386,6 +386,39 @@ SITE_CRITERIA = (
     "3. Most recent serum urate in the last year at least 7.0 mg/dL.\n\nExclusion Criteria\n"
     "1. Any history of malignancy.\n"
 )
+# D-309: the investigator's label of each pasted SITE5B criterion in the page language (en pages need none). Taken
+# from the shipped rulesets' labels of the criteria that say the same: INC-01 = GZQO-INC-01, INC-02 = GOUT-COH-INC-01;
+# INC-03 is GOUT-COH-INC-02's label at this study's 7.0 and EXC-01 GZQO-EXC-07's without its 5-year window.
+SITE_LABELS = {
+    "ja": {"SITE5B-INC-01": "18歳以上", "SITE5B-INC-02": "痛風", "SITE5B-INC-03": "尿酸値 7.0以上",
+           "SITE5B-EXC-01": "悪性腫瘍"},
+    "zh-TW": {"SITE5B-INC-01": "年滿18歲", "SITE5B-INC-02": "痛風診斷", "SITE5B-INC-03": "尿酸≥7.0",
+              "SITE5B-EXC-01": "惡性腫瘤"},
+}  # fmt: skip
+# DEMO-JA: the demo CRF's item labels in ja and zh-TW (REDCap's per-language ``field_label:<lang>``), so the EDC pages
+# of a Japanese or Chinese demo name every item in the page language; an item with a standard CDASH name (sex,
+# weight, urate) needs none. The English labels are the dictionary's own (tests/edc_kit.py).
+CRF_LABELS = {
+    "record_id": {"ja": "レコードID", "zh-TW": "紀錄編號"},
+    "tb_screening_no": {"ja": "スクリーニング番号", "zh-TW": "篩選編號"},
+    "brthdat": {"zh-TW": "出生日期"},
+    "pt_initials": {"ja": "イニシャル", "zh-TW": "姓名縮寫"},
+    "mh_gout": {"ja": "痛風の既往", "zh-TW": "痛風病史"},
+    "cm_allo": {"ja": "アロプリノール（服薬）", "zh-TW": "別嘌呤醇（用藥）"},
+    "tophus": {"ja": "痛風結節あり", "zh-TW": "有痛風石"},
+    "comments": {"ja": "コメント", "zh-TW": "備註"},
+}
+
+
+def crf_with_labels(crf: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The CRF with :data:`CRF_LABELS` added where the dictionary has no label in that language yet."""
+    out = []
+    for row in crf:
+        extra = {f"field_label:{g}": v for g, v in CRF_LABELS.get(str(row.get("field_name")), {}).items()}
+        out.append({**extra, **row})
+    return out
+
+
 # D-470 (proposed): the fact kinds each practice chart states, so a real-model run shows which it read, which it
 # missed and which came back undated. 10000004's "悪性腫瘍なし" is a negation: no malignancy is expected there.
 CHART_KINDS = {
@@ -474,15 +507,26 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
     waiting = box.orch.db.find(ruleset=SITE_RS, state="awaiting_approval", limit=5)
     s.check("the protocol's criteria are drafted and wait for the investigator", bool(waiting) and
             state("trial") == "amber", [j.state for j in box.orch.db.find(ruleset=SITE_RS, limit=5)])  # fmt: skip
-    # D-380 (ROLE-008): the new study's PI entry, written from the signed log as the steward would
-    fd.seed_pi(studies=(SITE_RS,))
+    # NEW-JRN-1 (D-540; D-380, ROLE-008): the steward names the new study's PI on its delegation log, through
+    # the page. The study has no ruleset folder yet: the criteria waiting for approval make it a study.
+    stw_pw = secrets.token_urlsafe(18)
+    res["app"].state.helpers.users.create("stw-setup", "steward", stw_pw, "stw-setup@hospa.test")
+    stw = ld.sign_in(res["app"], "stw-setup", stw_pw, lang)
+    log = stw.get(f"/studies/{SITE_RS}/team")
+    s.check("the steward opens the new study's delegation log before its first approval", log.status_code == 200,
+            log.status_code)  # fmt: skip
+    if log.status_code == 200:
+        r = stw.post(f"/studies/{SITE_RS}/team", data={"csrf": fd._csrf(log.text), "username": "pi", "role": "pi",
+                                                       "start": "2026-01-01", "training_day": "2025-06-01"},
+                     follow_redirects=False)  # fmt: skip
+        s.check("the steward names the study's PI from the signed log", r.status_code == 303, r.status_code)
     if waiting:
         page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
         # D-309: a pasted protocol ships no labels in the page language; the investigator gives each one first
         for cid in re.findall(r'data-testid="label-missing-([A-Z0-9-]+)"', page.text):
             pi.post(
                 f"/pilot/jobs/{waiting[0].job_id}/approval/label",
-                data={"csrf": fd._csrf(page.text), "crit": cid, "text": f"{cid} label"},
+                data={"csrf": fd._csrf(page.text), "crit": cid, "text": SITE_LABELS.get(lang, {}).get(cid, cid)},
             )
         page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
         pi.post(
@@ -1122,7 +1166,7 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
             shown is not None and shown.group(1) == visit.isoformat() and visit <= box.orch.today(),
             (shown and shown.group(1), visit, box.orch.today()))  # fmt: skip
     sim = SimClient(res["sim"])
-    made = sim.post("/sim/projects", json={"title": "GZQO CRF", "metadata": edc_kit.CRF}).json()
+    made = sim.post("/sim/projects", json={"title": "GZQO CRF", "metadata": crf_with_labels(edc_kit.CRF)}).json()
     rc = RedcapClient(rc_demo.SIM_URL, made["token"])
     rc.import_records([{"record_id": "1", "tb_screening_no": no}])
     admin = res["admin"]
@@ -1351,8 +1395,16 @@ def _stage17(work: Path, res: dict[str, Any], pi: Any, box: Any) -> Stage:
     new_mrn = next(f"{n:08d}" for n in range(39990624, 39999999) if f"{n:08d}" not in set(mrns))
     new_pid = pid_for_mrn(key, new_mrn)
     day = orch.today()
-    wed = day + timedelta(days=(2 - day.weekday()) % 7 or 7)
+    wed = ld.cadence_night(day)  # the demo seeds so that this is on or before the demo day (D-496)
     tue, fri = wed - timedelta(days=1), wed + timedelta(days=2)
+    if ld.is_live():  # a demo on the real day: Tuesday's data and Wednesday's run are not after today
+        from datetime import UTC, datetime
+
+        from console.timefmt import local_today
+        from tb_common.config import site_zone
+
+        real = local_today(datetime.now(UTC), site_zone(ld.site_tz_of(box)))
+        s.check("the demo's cadence night is not after today (D-496)", wed <= real, (wed, real))
     s.check("the new patient is not in the lake before Tuesday's ingest",
             not orch.services.lake.query("SELECT pid FROM patient WHERE pid = $1", [new_pid]).to_pylist())  # fmt: skip
     tuesday = work / "hospital-tuesday"

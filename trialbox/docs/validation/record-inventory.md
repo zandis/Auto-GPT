@@ -60,7 +60,7 @@ bundle of card T-304 builds from this table.
 | R-22 | Screening review traces: criterion labels, code pre-ticks, amber rows opened, the review of the excluded list; the weekly PI sample of ten "criteria not matched" patients with the run and snapshot each was drawn from and the PI's answer, and the site's check that opens the list (D-446) | aid | the box | PI | kept | page only | `console.excluded_review`, `console.view`, `notmatched.sample`, `notmatched.held`, `console.notmatched_answer`, `console.notmatched_check` |
 | R-23 | Derived scores with their inputs and definition versions; the derive batch of each snapshot (D-442) | copy | the hospital data they are computed from (R-25) | data steward | kept | page only | `derive.batch`, `derive.failed` |
 | R-24 | Pseudonym map and master patient index: the only link from a pseudonym back to a chart number | control | the box (encrypted; the key under the KEK) | site administrator | kept while any record keyed by the pseudonym is kept | never exported | `console.reveal_patient`, `console.chart_lookup` |
-| R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
+| R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots (each night's folder also holds its reports; one of them lists the codes no look-up knows with their row counts, never a row or a patient, D-580) | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
 | R-26 | Mail and notice logs | aid | the mail server; the box keeps the index | site administrator | `mail_log_days` (five years Japan, seven years Taiwan) | page only | `mail.received`, `mail.duplicate_suppressed`, `mail.deferred`, `mail.failed`, `mail.uncertain`, `mail.resolved`, `retention.mail`, `console.notice` |
 | R-27 | Study state and identifiers: the state (start-up, open, paused, closed) with every change, who, when and why; sponsor, protocol number, SIV date, registry ids (D-386) | control | the box; the sponsor's and the registries' own records for the identifiers | trial office | kept (the state is an event log) | the screening log's "about" sheet (`/studies/{rs}/screening-log.xlsx`) | `console.study_state`, `console.study_identity`, `scheduler.held` |
 | R-28 | Ingest batch register: one row per ingest run (source, snapshot, attempt) with its state (landed, validated, mapped, pseudonymised, published, held, failed, rejected), every step with who, when and the audit event that recorded it, and the steward's accept or reject of a held night with its reason (D-427) | control | the box | data steward | kept (the steps are append-only) | page only | `ingest.done`, `ingest.held`, `ingest.failed`, `dataops.decide`, `dataops.step` |
@@ -76,7 +76,6 @@ R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-i
 | O-01 | Sign-in state: sessions, pending sign-ins, single sign-on hand-offs, failure counters | transient; every sign-in, failure and lock is in R-01 | until the session or the lock ends |
 | O-02 | Feedback entries (in-product feedback) | product feedback, not about a patient or the trial | kept; exported by the owner |
 | O-03 | Model traces | debugging aid, redacted at write; the audit trail is the gateway's ledger and R-01 | 7 days in PRODUCTION, 90 in DEV and TEST (`tracestore` `production_retention_days`, `retention_days`; D-346); PRODUCTION D3 and D4 rows hold sha256 and size only (D-431) |
-| O-04 | Workflow steps and the outbox | how a job resumes; the job (R-18) is the record | kept |
 | O-05 | Working pool and the PI feedback of a job | rebuilt by each run; the marks of R-03 are the record | `pool_months_after_ruleset` |
 | O-06 | Weekly appearances | "new this week" on the list | kept |
 | O-07 | Notice recipients | settings | kept |
@@ -113,8 +112,8 @@ are marked "files".
 | `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
 | `services/console/teamstore.py` | `candidate_views` | R-12 |
 | `services/console/teamstore.py` | `monitor_visits` | R-30 |
-| `services/console/breakglass.py` | `grants` | R-12 |
-| `services/console/breakglass.py` | `uses` | R-12 |
+| `services/console/breakglass_store.py` | `grants` | R-12 |
+| `services/console/breakglass_store.py` | `uses` | R-12 |
 | `services/orchestrator/db.py` | `id_limits` | R-12 |
 | `services/console/auth.py` | `users` | R-13 |
 | `libs/tb_common/flags.py` | `flag`, `flag_event` | R-14 |
@@ -130,20 +129,19 @@ are marked "files".
 | `services/console/sitestore.py` | `criterion_labels`, `code_ticks`, `approval_opened`, `excluded_review` | R-22 |
 | `libs/tb_common/notmatched.py` | `tuned_patients`, `not_matched_check` | R-22 |
 | `libs/tb_common/derived_store.py` | `definition`, `score_row`, `input_link`, `conflict`, `batch_run` | R-23 |
-| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key`, `pid_alias` | R-24 |
+| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key`, `pid_alias`, `pending` | R-24 |
 | `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load`, `tb_withheld` | R-25 |
 | `services/lake/store.py` | `document_chunk`, `lake_meta` | R-25 |
 | `services/mail_gateway/store.py` | `intake`, `sent`, `send_keys` | R-26 |
 | `services/orchestrator/db.py` | `mails` | R-26 |
 | `services/console/sitestore.py` | `notify_log` | R-26 |
 | `services/console/sitestore.py` | `study_state`, `study_identity` | R-27 |
-| `services/datacore/dataops.py` | `batch`, `batch_step` | R-28 |
+| `services/datacore/dataops.py` | `batch`, `batch_step`, `built` | R-28 |
 | `services/datacore/sponsor.py` | `sponsor_layout` | R-10 |
 | `services/patient_profile/twin.py` | `tb_patient_profile` | R-29 |
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
-| `services/orchestrator/db_pg.py` | `steps`, `outbox` | O-04 |
 | `services/orchestrator/db.py` | `pool`, `feedback` | O-05 |
 | `services/console/sitestore.py` | `weekly_seen` | O-06 |
 | `services/console/sitestore.py` | `notify_people` | O-07 |

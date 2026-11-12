@@ -157,7 +157,7 @@ def test_caddy_refuses_every_request_without_a_front_door_token(env: dict[str, s
 
 
 @pytest.mark.skipif(
-    shutil.which("caddy") is None, reason="no caddy binary here (CI job shell validates with the image)"
+    shutil.which("caddy") is None, reason="no caddy binary here (CI job checks validates with the image)"
 )
 def test_the_caddyfile_is_valid_for_caddy(env: dict[str, str], tmp_path: Path) -> None:
     f = tmp_path / "Caddyfile"
@@ -248,7 +248,7 @@ def test_purge_deletes_every_volume_and_snapshot_and_checks_none_is_left(env: di
 
 
 # ------------------------------------------------------------------------------------------------ the scripts
-@pytest.mark.skipif(shutil.which("shellcheck") is None, reason="no shellcheck here (CI job shell runs it)")
+@pytest.mark.skipif(shutil.which("shellcheck") is None, reason="no shellcheck here (CI job checks runs it)")
 def test_shellcheck() -> None:
     r = subprocess.run(["shellcheck", "-x", "--severity=warning", str(HOST), str(START)], cwd=ROOT,
                        capture_output=True, text=True, check=False)  # fmt: skip

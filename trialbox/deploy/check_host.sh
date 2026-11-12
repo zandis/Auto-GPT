@@ -272,8 +272,27 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   # the KEK the unseal writes (tb_common.kek, D-347), read-only, when this host has one
   KEK_DIR="${TB_KEK_HOST_DIR:-/run/trialbox}"; KEK_MOUNT=""
   [ -d "$KEK_DIR" ] && KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"
+  # NEW-STD-2 (D-562): doctor's audit_heads check reads the secrets volume (the audit key) and the anchor folders
+  # (the signed heads) at their host paths, read-only; without them a healthy box FAILed the check in the image
+  AUDIT_MOUNTS=""
+  SEC_HOST="$(sed -n 's/^TB_SECRETS_HOST_DIR=//p' "$ENV_FILE" | tail -1)"
+  [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)"
+  [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="-v $SEC_HOST:$SEC_HOST:ro -e TB_SECRETS_HOST_DIR=$SEC_HOST"
+  ANCHORS="$(sed -n 's/^TB_AUDIT_ANCHOR_TARGETS=//p' "$ENV_FILE" | tail -1)"
+  OLD_IFS="$IFS"; IFS=:
+  for anchor in $ANCHORS; do
+    [ -d "$anchor" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $anchor:$anchor:ro"
+  done
+  IFS="$OLD_IFS"
+  # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
+  # (tools/host_tree.py); the doctor read deploy/egress.py and the compose files through them and found nothing.
+  # The release tree is mounted where the links point, as install.sh does (tree_args)
+  TREE_MOUNT=""
+  [ -d "$ROOT_DIR/current" ] && TREE_MOUNT="$(readlink -f "$ROOT_DIR/current"):/app/current:ro"
+  # $AUDIT_MOUNTS is a list of words by design (the folders' paths hold no space on a box)
+  # shellcheck disable=SC2086
   if docker run --rm --network none --env-file "$ENV_FILE" -e TB_HOST_TZ="$HOST_TZ" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
-      ${KEK_MOUNT:+-v "$KEK_MOUNT"} --user 0:0 \
+      ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
       "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
     pass "trialbox doctor"
   else

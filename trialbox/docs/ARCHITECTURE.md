@@ -199,7 +199,9 @@ permissions and audit (D-121). Results go by mail; patient-level files only to t
   `tools/audit_verify.py`).
 - A job's run date is fixed at start, so a re-run on the same snapshot is byte-identical
   (`python -m orchestrator.rerun`, D-82; checked by `e2e_simple` stage "re-run").
-- Delivery goes through the outbox, never twice (D-127).
+- A mail leaves once: the mail gateway's send keys are its outbox (D-401). A job that was running when the
+  orchestrator stopped is queued again and replays the model answers it had (D-456). The step engine and outbox of
+  D-127 were never called by a job and are removed (D-524).
 
 ## 10. Where the rest is
 

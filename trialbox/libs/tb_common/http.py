@@ -27,11 +27,13 @@ VERSION = "1.0.0"
 
 
 class ServiceError(RuntimeError):
-    def __init__(self, service: str, status: int, detail: str) -> None:
+    def __init__(self, service: str, status: int, detail: str, headers: Mapping[str, str] | None = None) -> None:
         super().__init__(f"{service} returned {status}: {detail}")
         self.service = service
         self.status = status
         self.detail = detail
+        #: the refusal's response headers, lower-cased names (a 409 that names what is running: ``x-tb-run``)
+        self.headers: dict[str, str] = {k.lower(): v for k, v in (headers or {}).items()}
 
 
 def make_app(
@@ -163,7 +165,7 @@ class ServiceClient:
                 time.sleep(min(2**attempt, 8))
                 continue
             if resp.status_code >= 400:
-                raise ServiceError(self.service, resp.status_code, resp.text[:2000])
+                raise ServiceError(self.service, resp.status_code, resp.text[:2000], dict(resp.headers))
             return resp
         if last is not None and not isinstance(last, httpx.ConnectError | httpx.ConnectTimeout):
             raise ServiceError(self.service, 0, f"no answer (the request may have been processed): {last}")

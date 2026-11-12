@@ -18,6 +18,12 @@ new heading with the version and date, in the same pull request that sets the ve
   there too. The orchestrator's database role joins the `breakglass` and `team` schemas: `install.sh` re-runs the
   role script; after a `trialbox update` run it once by hand (runbook §5, "Database roles after a restore"), or a reveal under a grant
   or by an investigator is refused with "cannot be read".
+- The audit trail (T-721, D-488): the audit writer marks an event sent by a database role that does not write
+  that kind of event, or dated more than `TB_AUDIT_TS_MAX_SKEW_S` (300 s) from when it arrived;
+  `python -m tools.audit_verify <audit dir> --foreign` lists the marked events.
+- A new study's first approval (NEW-JRN-1, D-540): the data steward can open the delegation log of a study whose
+  criteria wait for approval and name its PI; the steward's pages show that task, and the approval page says
+  when no PI is named. An account limited to its studies is told why a request for another study is refused.
 - The acting person (T-715, D-483): the participant, visit-schedule, SAE-rule, contact-rule, deviation and sponsor
   routes of the orchestrator take the person from a signed claim for that action, study and request, never from the
   request body; their records name `console:<username>`. The other changing routes count unsigned calls

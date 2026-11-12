@@ -84,8 +84,8 @@ UCUM: dict[str, tuple[str, ...]] = {
     "pmol/L": ("pmol/l",),
     "meq/L": ("mEq/L", "mEq/l", "meq/l"),
     "%": ("percent",),
-    # an enzyme unit (U) and an international unit ([IU]) are kept apart: labs often use them alike, but a person
-    # says so for the site once, the table does not
+    # an enzyme unit (U) and an international unit ([IU]) are kept apart in this table. The feed's reader takes them
+    # as one unit for the analytes of catalytic activity only (``labvalue.ENZYME_ACTIVITY``, D-585)
     "U/L": (),
     "[IU]/L": ("IU/L",),
     "U/mL": (),

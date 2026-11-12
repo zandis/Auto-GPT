@@ -9,6 +9,7 @@ case "$*" in
   *--query-gpu=name,driver_version*) echo "$NAME, 580.142" ;;
   *--query-gpu=driver_version*) echo "580.142" ;;
   *--query-gpu=memory.total*) echo "97887 MiB" ;;
+  *--query-gpu=compute_cap*) echo "12.0" ;;  # Blackwell; install.sh and check_host.sh hold it against images.lock
   *--query-gpu=name*) echo "$NAME" ;;
   *) echo "nvidia-smi: TrialBox rehearsal stand-in for $NAME (no GPU here)" ;;
 esac

@@ -300,7 +300,9 @@ def test_cro_and_scoped_accounts_see_only_what_they_may(box: dict[str, Any]) -> 
             data={"csrf": _csrf(page.text), "kind": "SCREEN", "ruleset": "GZQO", "version": "1.0.0"},
             follow_redirects=False,
         )
-        assert r.status_code == 404, r.text[:300]
+        # NEW-JRN-1 (D-540): refused as before, now said as a refusal with its reason (403), not the 404 page;
+        # the answer is the same for a study the box does not have (tests/console/test_first_approval.py)
+        assert r.status_code == 403 and "limited to its own studies" in r.text, r.text[:300]
     for path in ("/jobs", "/audit", "/pilot/mailbox", "/pilot/cascade"):
         assert smo.get(path).status_code == 403, path
     assert "GZQO" not in smo.get("/pilot/registry").text

@@ -30,6 +30,7 @@ import hashlib
 import json
 import random
 from collections.abc import Callable, Iterator
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -357,7 +358,12 @@ def _ctx(lake: Any, llm: Any, verifier: Any, *, job_id: str = "J-706", options: 
         metrics=lambda **kw: None,
         today=lambda: IDX,
         orch=SimpleNamespace(
-            db=SimpleNamespace(pool=lambda rid: list(pool or []), find=lambda **kw: [], pool_upsert=upsert),
+            db=SimpleNamespace(
+                pool=lambda rid: list(pool or []),
+                find=lambda **kw: [],
+                pool_upsert=upsert,
+                locked=lambda name: nullcontext(),
+            ),
             audit=SimpleNamespace(append=lambda *a, **kw: None),
             _now=lambda: datetime(2026, 10, 5, 2, 0, tzinfo=UTC),
         ),
@@ -520,16 +526,7 @@ APPLIES = {
 
 # Today's defects, by finding of docs/reviews/2026-11-12-architecture/decision.md. Strict: a case that starts passing
 # fails the suite, and the card that fixed it removes its line. Empty at the end of wave D.
-EXPECTED: dict[tuple[str, str], str] = {
-    ("screen_v1", "ranked_out"): "H4: v1 counts only the five retrieved chunks as left out (evaluate.py _chunks); "
-    "T-710",
-    ("screen_v1", "index_lost"): "H4: a window note the index did not return is not left out; T-710",
-    ("nav", "ranked_out"): "H4: NAV reads through the v1 chunks; T-710",
-    ("nav", "index_lost"): "H4: NAV reads through the v1 chunks; T-710",
-    ("nav", "single"): "H2: NAV's classify ignores the run's note-block, so one model's answer excludes; T-709",
-    ("case", "single"): "H2: CASE prints one model's 'not met' as not met (decision.md answer 4); T-709",
-    ("screen_cascade", "lexicon"): "H4 (S2 half): a window note with no lexicon hit is not left out; T-710",
-}  # fmt: skip
+EXPECTED: dict[tuple[str, str], str] = {}
 
 
 def _params(cases: list[tuple[str, str]]) -> list[Any]:

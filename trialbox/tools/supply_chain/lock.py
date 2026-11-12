@@ -17,6 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 UV_LOCK = ROOT / "uv.lock"
 REQUIREMENTS_LOCK = ROOT / "deploy" / "requirements.lock"
+# ENG-003 (D-563): the second export, for the embed image alone: the runtime dependencies plus the ``embed`` extra
+# (sentence-transformers; torch from the publisher's CPU wheel index on Linux, so no CUDA libraries)
+EMBED_LOCK = ROOT / "deploy" / "requirements-embed.lock"
+EMBED_EXTRA = "embed"
+#: packages an image that runs on the CPU must not carry: the CUDA stack that torch from PyPI pulls in on Linux
+GPU_ONLY = re.compile(r"^(nvidia-|cuda-|triton$)")
 # pip-audit itself is installed from this hashed file (``make pip-audit``), never as a bare ``pip-audit==x``
 PIP_AUDIT_LOCK = ROOT / "tools" / "supply_chain" / "pip-audit.lock"
 PIP_AUDIT_VERSION = "2.10.1"
@@ -129,7 +135,12 @@ def check_requirements_hashes(text: str) -> list[str]:
                 problems.append(f"{label} has a hash that is not sha256: {alg}:{digest[:12]}")
     names = [r.name for r in entries if r.name]
     for name in sorted({n for n in names if names.count(n) > 1}):
-        # uv writes one entry per name with markers; two entries for one name is a hand edit
+        # uv writes one entry per name; two entries for one name is a hand edit, unless uv forked the name by
+        # environment (ENG-003: torch from the CPU wheel index on Linux, from PyPI elsewhere): then every entry of
+        # the name carries its own marker, and no two share one
+        markers = [r.marker for r in entries if r.name == name]
+        if all(markers) and len(set(markers)) == len(markers):
+            continue
         problems.append(f"{name} is listed more than once")
     return problems
 
@@ -170,9 +181,11 @@ def _uv() -> str:
     return uv
 
 
-def export_requirements(root: Path = ROOT) -> str:
-    """The text deploy/requirements.lock must have, made from uv.lock without touching the network."""
-    proc = subprocess.run([_uv(), *EXPORT_ARGS], cwd=root, capture_output=True, text=True, check=False)
+def export_requirements(root: Path = ROOT, extra: str | None = None) -> str:
+    """The text deploy/requirements.lock must have, made from uv.lock without touching the network; with ``extra``,
+    the text of that extra's lock (``embed``: deploy/requirements-embed.lock)."""
+    args = [*EXPORT_ARGS, "--extra", extra] if extra else EXPORT_ARGS
+    proc = subprocess.run([_uv(), *args], cwd=root, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise LockError(f"uv export failed: {proc.stderr.strip()}")
     return HEADER + proc.stdout
@@ -247,5 +260,33 @@ def lock_check(root: Path = ROOT, *, offline: bool = False, skip_resolve: bool =
             problems.append(f"uv {uv_version()} is not the pinned uv {UV_VERSION}; its export may differ in form")
         problems.append(
             "deploy/requirements.lock differs from `uv export` of uv.lock (run `make lock`):\n" + diff(expected, actual)
+        )
+    problems += check_embed_lock(root)
+    return problems
+
+
+def check_embed_lock(root: Path = ROOT) -> list[str]:
+    """ENG-003 (D-563): the embed image's lock is the export of uv.lock with the ``embed`` extra, every entry
+    hashed; it holds the embedder's library and no CUDA package."""
+    path = root / "deploy" / "requirements-embed.lock"
+    if not path.is_file():
+        return [f"{path} is missing: run `make lock`"]
+    actual = path.read_text(encoding="utf-8")
+    problems = [f"deploy/requirements-embed.lock: {p}" for p in check_requirements_hashes(actual)]
+    names = {r.name.lower() for r in parse_requirements(actual) if r.name}
+    for need in ("sentence-transformers", "torch"):
+        if need not in names:
+            problems.append(f"deploy/requirements-embed.lock has no {need}: the embed image could not load a model")
+    gpu = sorted(n for n in names if GPU_ONLY.match(n))
+    if gpu:
+        problems.append(
+            "deploy/requirements-embed.lock carries GPU-only packages (the embedder runs on the CPU; torch must come "
+            f"from the CPU wheel index, pyproject.toml [tool.uv.sources]): {', '.join(gpu)}"
+        )
+    expected = export_requirements(root, EMBED_EXTRA)
+    if expected != actual:
+        problems.append(
+            "deploy/requirements-embed.lock differs from `uv export --extra embed` of uv.lock (run `make lock`):\n"
+            + diff(expected, actual)
         )
     return problems

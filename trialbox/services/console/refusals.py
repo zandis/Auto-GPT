@@ -13,6 +13,23 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    # DEMO-JA: a monitor grant names the field it lacks (the rehearsal saw only "could not be done")
+    "a monitor grant needs the last day of the monitoring visit": (
+        "モニターの許可には、モニタリング訪問の最終日が必要です",
+        "監測員授權需要監測訪視的最後一天",
+    ),
+    "a monitor grant needs the visit id of the monitoring visit": (
+        "モニターの許可には、モニタリング訪問の ID が必要です",
+        "監測員授權需要監測訪視的編號",
+    ),
+    "a monitor grant needs the last day and the visit id of the monitoring visit": (
+        "モニターの許可には、モニタリング訪問の最終日と ID が必要です",
+        "監測員授權需要監測訪視的最後一天與編號",
+    ),
+    "a monitor grant names a CRO account of this study": (
+        "モニターの許可には、この試験の CRO アカウントを選んでください",
+        "監測員授權須選擇本試驗的 CRO 帳號",
+    ),
     # D-380 (FIT-002): the monitor's read of the data core
     "the data core refused the subject": ("データコアがこの被験者を拒否しました", "資料核心拒絕了這位受試者"),
     "the data core did not answer": ("データコアが応答しませんでした", "資料核心沒有回應"),

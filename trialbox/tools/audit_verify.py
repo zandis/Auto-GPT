@@ -78,6 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--anchor", type=Path, help="a head anchor kept elsewhere (the archive's HEAD.json)")
     ap.add_argument("--no-head", action="store_true", help="the folder is a copy without HEAD.json")
     ap.add_argument("--find-ids", action="store_true", help="list events holding a chart number in clear")
+    ap.add_argument("--foreign", action="store_true",
+                    help="list events the drain marked: a name its sending database role does not write, or a time "
+                         "far from the journal's (T-721)")  # fmt: skip
     ap.add_argument("--reanchor", metavar="REASON", help="record the gap and anchor the chain where it ends")
     ap.add_argument("--actor", default="", help="who runs --reanchor or --rotate-key")
     ap.add_argument("--heads", type=Path, action="append", help="an anchor folder whose signed heads are checked")
@@ -109,6 +112,18 @@ def main(argv: list[str] | None = None) -> int:
         rec = AuditLog(args.audit_dir).reanchor(f"audit_verify:{args.actor.strip()}", args.reanchor)
         print(f"audit.reanchored written: {canonical_detail(rec)}")
         return 0
+    if args.foreign:
+        from tb_common.audit_writer import flagged
+
+        marked = flagged(args.audit_dir)
+        if args.json:
+            print(json.dumps({"flagged": marked}, ensure_ascii=False))
+        else:
+            print(f"{len(marked)} audit events are marked by the drain (D-488)")
+            for r in marked:
+                print(f"  journal {r['seq']} from {r['role']}: {r['event']} at {r['ts']} (received {r['at']}): "
+                      f"{', '.join(r['flag'])}")  # fmt: skip
+        return 1 if marked else 0
     if args.find_ids:
         rows, pids = find_ids(args.audit_dir)
         if args.json:

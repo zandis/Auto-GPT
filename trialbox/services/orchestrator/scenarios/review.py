@@ -29,7 +29,7 @@ def approved_or_none(ctx: Ctx, ruleset: str, version: str | None = None, run: bo
             ruleset,
             version,
             terminology=resolver.guard() if run else None,
-            on=ctx.orch.today() if run else None,
+            on=ctx.today() if run else None,  # the job's run date, not the wall clock's (D-477, review L1)
         )
     except RecompileNeeded:  # approved, but compiled against another terminology release (D-301): never "none"
         raise

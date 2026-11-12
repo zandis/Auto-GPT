@@ -22,6 +22,7 @@ def _allow(args: argparse.Namespace) -> tuple[allowlist.Allowlist, list[str]]:
 def cmd_lock_export(args: argparse.Namespace) -> int:
     text = lock.export_requirements()
     lock.REQUIREMENTS_LOCK.write_text(text, encoding="utf-8")
+    lock.EMBED_LOCK.write_text(lock.export_requirements(extra=lock.EMBED_EXTRA), encoding="utf-8")  # ENG-003 (D-563)
     problems = lock.check_requirements_hashes(text)
     for p in problems:
         print(f"lock-export: {p}", file=sys.stderr)

@@ -118,7 +118,7 @@ Signer = Callable[[str, str, Any], dict[str, str]]
 
 
 class Backend(Protocol):
-    def list_jobs(self, limit: int = 100) -> list[Job]: ...
+    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]: ...
     def get_job(self, job_id: str) -> Job | None: ...
     def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job: ...
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> JobFile: ...
@@ -273,9 +273,11 @@ class HttpBackend:
         if gateway_url:
             self.services["gateway"] = gateway_url.removesuffix("/v1")
 
-    def list_jobs(self, limit: int = 100) -> list[Job]:
+    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]:
+        """The newest ``limit`` jobs; ``state``: of that state only (the orchestrator filters, so a job that
+        waits behind many newer ones is still found)."""
         try:
-            data = self.orch.get_json(f"/jobs?limit={limit}")
+            data = self.orch.get_json(f"/jobs?limit={limit}" + (f"&state={state}" if state else ""))
         except ServiceError as exc:
             raise Unavailable(str(exc)) from exc
         return [Job.model_validate(j) for j in data]
