@@ -23,8 +23,11 @@
 #                     the media's linux/debs
 #   10 gpu-container  a container started with --gpus all sees the card
 #   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over an existing one)
-#   12 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
-#                     the owner. Its window is never written to the log
+#   12 boot-task      start without a person (NEW-WIN-2, D-602): hibernation and sleep off; the task TrialBox-WSL2
+#                     (register_keepalive.ps1) starts the distribution at boot, signed in or not
+#   13 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
+#                     the owner. Its window is never written to the log. Then: Docker and the stack are enabled
+#                     to start with the distribution
 # It never removes a distribution, a virtual disk or a file it did not write: a distribution of the same name that
 # this install did not import, or a virtual disk already in the data folder, stops it (D-600).
 # The log, in English, for the install record: %ProgramData%\TrialBox\box-install\box-install.log. No secret is
@@ -54,11 +57,12 @@ param(
 )
 
 $script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
-  "packages", "gpu-container", "host-tree", "linux-install")
+  "packages", "gpu-container", "host-tree", "boot-task", "linux-install")
 $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", "EnterpriseS", "Education",
   "ProfessionalEducation")
 $script:TbFeatures = @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")
 $script:TbResumeTask = "TrialBox-Install-Resume"
+$script:TbBootTask = "TrialBox-WSL2"  # the name host_facts.ps1 and wsl2_policy.py look for (D-421)
 $script:TbRestartExit = 3010  # the exit code Windows installers use for "restart needed"
 
 # ------------------------------------------------------------------------------------------------ seams (Windows)
@@ -150,6 +154,10 @@ function Unregister-TbResumeTask {
   if (Get-ScheduledTask -TaskName $script:TbResumeTask -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $script:TbResumeTask -Confirm:$false
   }
+}
+function Register-TbBootTask([string]$Account, [string]$Distro, [string]$TaskName) {
+  # one definition of the task for the installer and for a person at a terminal: register_keepalive.ps1
+  & (Join-Path $PSScriptRoot "register_keepalive.ps1") -User $Account -Distro $Distro -TaskName $TaskName | Out-Null
 }
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
@@ -352,7 +360,7 @@ function Step-WslEnable {
     # the copy the task runs must not depend on the media's drive letter after the restart
     $copy = Join-Path $script:TbStateDir "scripts"
     Protect-TbDirectory $copy $script:TbFacts.Account
-    foreach ($n in @("box-install.ps1", "box-install.messages.json")) {
+    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1")) {
       $from = Join-Path $PSScriptRoot $n; $to = Join-Path $copy $n
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
@@ -453,6 +461,16 @@ function Step-HostTree {
     (ConvertTo-TbWslPath (Join-Path $script:TbStage "vendor_ed25519.pub")))
   foreach ($ln in @($r.Output | Where-Object { $_ -like "vendor key*" })) { Say "vendor_key" @($ln) }
 }
+function Step-BootTask {
+  # a workstation that sleeps or hibernates serves nobody, and hiberfil.sys would hold WSL2's memory (D-421)
+  foreach ($a in @(@("/hibernate", "off"), @("/change", "standby-timeout-ac", "0"), @("/change", "hibernate-timeout-ac", "0"))) {
+    $r = Invoke-TbNative "powercfg.exe" $a
+    if ($r.ExitCode -ne 0) { Stop-TbStep "power_failed" @(($a -join " "), $r.ExitCode) }
+  }
+  try { Register-TbBootTask $script:TbFacts.Account $script:TbState.distro $script:TbBootTask }
+  catch { Stop-TbStep "boot_task_failed" @([string]$_.Exception.Message) }
+  Say "boot_task" @($script:TbBootTask)
+}
 function Step-LinuxInstall {
   Say "linux_install" @()
   $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
@@ -463,6 +481,7 @@ function Step-LinuxInstall {
   $r = Invoke-TbSetup "state" @()
   $line = [string](@($r.Output) | Select-Object -Last 1)
   if ($line -ne "installed=1") { Stop-TbStep "linux_install_stopped" @($code) }
+  [void](Assert-TbSetup "boot-check" @())  # Docker and the stack start with the distribution, with nobody there
   if ($code -ne 0) { Say "host_check_fails" @() }
   $script:TbState.finished = $true
 }

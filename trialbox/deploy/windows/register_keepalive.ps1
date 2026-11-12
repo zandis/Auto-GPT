@@ -4,7 +4,9 @@
 #
 # Without it WSL2 stops when nobody is signed in and does not come back after a Windows Update restart. The task
 # starts at boot, runs whether or not anyone is signed in (S4U: no password is stored), keeps one wsl.exe open and
-# restarts it within a minute when it ends. Run it as administrator, once, at install; check_host.sh --wsl2 checks it.
+# restarts it within a minute when it ends. deploy/windows/box-install.ps1 runs it at step boot-task (NEW-WIN-2,
+# D-602); by hand: as administrator, once. check_host.sh --wsl2 checks it. systemd inside the distribution then
+# starts Docker and the stack (docker.service, trialbox.service).
 param(
   [Parameter(Mandatory = $true)][string]$User,
   [string]$Distro = "Ubuntu-24.04",

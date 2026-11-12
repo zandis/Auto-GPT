@@ -61,6 +61,17 @@ Read these during Part 1; they need no extra run.
 | 22 | `wsl -d TrialBox -- df -h /` | The size of `/` is near the data drive's size, not 1 TB | The Size column and the drive's size |
 | 23 | After line 15: `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"` | A line `wsl2_memory` with PASS, the caps' sum and WSL2's memory | That line |
 
+## Part 3: NEW-WIN-2, start without a person (D-602)
+
+After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WSL2 start from the boot task.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 24 | In an administrator window: `Get-ScheduledTask TrialBox-WSL2`, `powercfg /a` | The task is Ready or Running; hibernation is listed as not available | The task's State; the `powercfg /a` text |
+| 25 | Note the time. Restart Windows. **Do not sign in.** Wait five minutes at the sign-in screen. From this PC nothing can be seen yet; if a second PC is on the same network, try the console's address from it and note what happens (it is expected to fail until NEW-WIN-4) | (nothing to see on this PC) | The time of the restart and the time you signed in at line 26 |
+| 26 | Sign in. At once, in an administrator window: `wsl --list --running`, then `wsl -d TrialBox -- uptime -s`, `wsl -d TrialBox -- systemctl is-active docker trialbox`, `wsl -d TrialBox -- docker ps --format "{{.Names}} {{.Status}}"` | `TrialBox` is running; `uptime -s` shows a start time **before** you signed in; both units `active`; the containers "Up" for longer than you have been signed in | The four outputs. If `uptime -s` is after the sign-in, WSL2 did not start from the task: record `Get-ScheduledTaskInfo TrialBox-WSL2` (LastRunTime, LastTaskResult) |
+| 27 | Open the console on this PC's browser | The sign-in page, without starting anything by hand | Seconds from sign-in until the page answered |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -74,4 +85,6 @@ Read these during Part 1; they need no extra run.
 - Line 13 "question not visible": the pass-through in `wsl-setup.sh install` holds lines back; fix there.
 - Line 20 or 21 "no": WSL2 does not take the share the installer wrote; NEW-WIN-3's file is wrong for this WSL
   version. Line 22 "no": the disk limit needs `wsl --manage TrialBox --resize` after the import instead.
+- Line 26 "no" (WSL2 started only after the sign-in): the S4U task cannot start WSL2. D-602 point 4: the fallback is
+  chosen with NEW-WIN-8. This is the most important answer of the whole sheet; send it even if nothing else is done.
 - Line 14: the address NEW-WIN-4 must make work from another PC.

@@ -320,5 +320,25 @@ def test_install_refuses_a_bundle_that_is_not_there(box: Box) -> None:
     assert "box-install" not in box.log()
 
 
+def test_boot_check_wants_docker_and_the_stack_enabled(box: Box) -> None:
+    box.stub(
+        "systemctl", 'case "$*" in "is-enabled trialbox.service") echo disabled; exit 1 ;; *) echo enabled ;; esac'
+    )
+    out = box.run("boot-check")
+    assert out.returncode == 1 and "trialbox.service" in out.stderr and "docker.service" not in out.stderr
+    box.stub("systemctl", "echo enabled")
+    assert box.run("boot-check").returncode == 0
+
+
+def test_the_boot_task_has_one_definition_and_the_name_the_host_check_looks_for() -> None:
+    ps1 = PS1.read_text(encoding="utf-8")
+    keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")
+    name = re.search(r'\$script:TbBootTask = "([^"]+)"', ps1)
+    assert name and f'$TaskName = "{name.group(1)}"' in keep
+    assert f'$TaskName = "{name.group(1)}"' in (WIN / "host_facts.ps1").read_text(encoding="utf-8")
+    assert "New-ScheduledTaskTrigger -AtStartup" in keep and "-LogonType S4U" in keep  # no stored password
+    assert "New-ScheduledTaskTrigger -AtStartup" not in ps1  # the installer calls the one definition
+
+
 def test_an_unknown_step_is_an_error(box: Box) -> None:
     assert box.run("format-disk").returncode == 1

@@ -208,5 +208,20 @@
     "en": "This machine has {0} GB of memory and {1} processors: with {2} percent kept for the desktop nothing is left for TrialBox. Nothing was changed.",
     "ja": "この機械のメモリは {0} GB、プロセッサは {1} 個です。デスクトップ用に {2} パーセントを残すと、TrialBox に割り当てる分がありません。何も変更していません。",
     "zh-TW": "這台機器有 {0} GB 記憶體與 {1} 個處理器：保留 {2}% 給桌面後，沒有可分配給 TrialBox 的資源。沒有做任何變更。"
+  },
+  "boot_task": {
+    "en": "Sleep and hibernation are off. The task {0} starts TrialBox when Windows starts, whether or not anyone signs in.",
+    "ja": "スリープと休止状態を無効にしました。タスク {0} が、Windows の起動時に、サインインの有無にかかわらず TrialBox を起動します。",
+    "zh-TW": "已關閉睡眠與休眠。工作 {0} 會在 Windows 啟動時啟動 TrialBox，不論是否有人登入。"
+  },
+  "boot_task_failed": {
+    "en": "Windows could not register the start-at-boot task: {0}",
+    "ja": "Windows が起動時タスクを登録できませんでした: {0}",
+    "zh-TW": "Windows 無法登錄開機啟動工作：{0}"
+  },
+  "power_failed": {
+    "en": "Windows could not change the power setting (powercfg {0}, exit {1}).",
+    "ja": "Windows が電源設定を変更できませんでした（powercfg {0}、終了コード {1}）。",
+    "zh-TW": "Windows 無法變更電源設定（powercfg {0}，結束代碼 {1}）。"
   }
 }

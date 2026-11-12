@@ -12,6 +12,7 @@
 #   wsl-setup.sh host-tree TAR PUBKEY    the release's host tree to /opt/trialbox, never over an existing folder
 #   wsl-setup.sh install BUNDLE [--yes]  deploy/box-install.sh in this terminal (the first-run code, the owner's wait)
 #   wsl-setup.sh state                   prints installed=1 once box-install.sh has said the box is ready
+#   wsl-setup.sh boot-check              Docker and the stack are enabled to start with the distribution (NEW-WIN-2)
 #
 # Every step may be run again. None removes or replaces a file it did not write.
 # Knobs for the tests only: TB_WSL_ETC (/etc), TB_WSL_PROC (/proc), TB_WSL_ROOT (/opt/trialbox), TB_WSL_SMI (the
@@ -160,6 +161,14 @@ EOP
     ;;
   state)
     if [ -f "$DONE_MARK" ]; then echo "installed=1"; else echo "installed=0"; fi
+    ;;
+  boot-check)
+    off=""
+    for u in docker.service trialbox.service; do
+      [ "$(systemctl is-enabled "$u" 2>/dev/null || true)" = enabled ] || off="$off $u"
+    done
+    [ -z "$off" ] || die "not enabled to start with the distribution:$off (after a restart TrialBox would stay down)"
+    echo "docker.service and trialbox.service start with the distribution"
     ;;
   *)
     die "unknown step '${STEP}' (see the head of this file)"
