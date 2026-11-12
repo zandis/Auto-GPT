@@ -19,6 +19,7 @@ name: TrialBox image gates
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]  # D-564: marking ready starts the full tier
     paths:
       - "trialbox/uv.lock"
       - "trialbox/pyproject.toml"
@@ -27,6 +28,12 @@ on:
       - "trialbox/Makefile"
       - "trialbox/tools/supply_chain/**"
       - "trialbox/tools/make_bundle.sh"
+      # ENG-003 (D-563): what the PRODUCTION start of the embed service reads
+      - "trialbox/services/embed_service/**"
+      - "trialbox/tools/pin_model.py"
+      - "trialbox/tools/tiny_embedder.py"
+      - "trialbox/models/registry.yaml"
+      - "trialbox/tests/integration/test_embed_production_start.py"
       - ".github/workflows/trialbox-images.yml"
   push:
     tags: ["trialbox-v*"]
@@ -38,11 +45,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-images-${{ github.ref }}
+  group: trialbox-images-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   images:
+    # D-564: full tier: not on a draft pull request, except a merge train
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false || startsWith(github.head_ref, 'train/')
     strategy:
       fail-fast: false
       matrix:
@@ -87,6 +96,11 @@ jobs:
         run: |
           make images
           docker build -f demo/Dockerfile -t trialbox-demo:step5 .
+
+      # ENG-003 (D-563): the box's compose file starts the embed service from trialbox-embed with
+      # TB_ENV=PRODUCTION and weights pinned by the installer's own call (a tiny model made here, no download)
+      - name: A PRODUCTION box starts its embed service
+        run: make embed-start
 
       # T-214, D-373: the GB10 two-device form on this platform: both devices' rendered compose against
       # deploy/gb10-profile.yaml, and the link selftest (mutual TLS 1.3) inside the image just built. On the arm64 leg

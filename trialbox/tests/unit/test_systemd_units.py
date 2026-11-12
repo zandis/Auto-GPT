@@ -110,7 +110,7 @@ def test_install_renders_and_enables_the_units() -> None:
     enable = text.split("systemctl enable ", 1)[1].split(">/dev/null", 1)[0]
     for unit in (EGRESS_UNIT, STACK_UNIT, "trialbox-egress-refresh.timer", "trialbox-watchdog.timer"):
         assert unit in enable
-    assert "trialbox-ops" not in enable  # the operations runner stays a site's choice (RUNBOOK §15)
+    assert "trialbox-ops.timer" in enable  # NEW-OPS-8 (D-561): the runner is on, or the health facts are never written
     assert "s#@TB_ROOT@#$ROOT#g" in text
     # the units are enabled only once `apply` wrote the state file a boot restores from
     assert text.index("deploy/network.sh apply") < text.index("systemctl enable")

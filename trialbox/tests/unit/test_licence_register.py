@@ -156,6 +156,7 @@ def test_every_verified_model_licence_is_backed_by_its_row() -> None:
         "model-gemma-4-26b-a4b-nvfp4",
         "model-qwen3.5-9b-awq-4bit",
         "model-gpt-oss-safeguard-20b",
+        "model-bge-m3",  # ENG-003 (D-563): the embedder is a build with a verified licence now
     }
     for rid in ("model-qwen3.5-9b-awq-4bit", "model-gpt-oss-safeguard-20b"):
         assert len(rows[rid].raw["text_sha256"]) == 64 and "revision" in rows[rid].raw["version"]

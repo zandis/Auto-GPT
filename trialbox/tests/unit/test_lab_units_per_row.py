@@ -329,6 +329,7 @@ def test_mapping_check_lists_unit_pairs_and_raw_values(tmp_path: Path, capsys: p
             _lab_row(lab_no="L6", local_code="HBSAG", result_value="POS", unit=""),
             _lab_row(lab_no="L7", local_code="HBSAG", result_value="判定保留", unit=""),
             _lab_row(lab_no="L8", local_code="HBSAG", result_value="see note", unit=""),
+            _lab_row(lab_no="L9", local_code="UA", result_value="30", unit="IU/L"),
         ],
     )
     rep = mapping_check.check(TW, "csv", str(tmp_path))
@@ -339,7 +340,9 @@ def test_mapping_check_lists_unit_pairs_and_raw_values(tmp_path: Path, capsys: p
     assert "source_unit µmol/L" in pairs[("CRE", "µmol/L")]["proposal"]
     assert pairs[("CRE", "mg/dL")]["read"] == "same unit"
     assert pairs[("CRE", "")]["read"] == "no unit: read in the lookup's unit"
-    assert pairs[("ALT", "IU/L")]["factor"] is None and "no tested factor" in pairs[("ALT", "IU/L")]["proposal"]
+    # NEW-STD-4 (D-585): for an enzyme activity IU/L is U/L; for any other analyte it is still another unit
+    assert pairs[("ALT", "IU/L")]["read"] == "same unit"
+    assert pairs[("UA", "IU/L")]["factor"] is None and "no tested factor" in pairs[("UA", "IU/L")]["proposal"]
     values = {q["raw"]: q["read"] for q in lab["qualitative_values"]}
     assert values == {
         "陰性": "NEG (shared table)",

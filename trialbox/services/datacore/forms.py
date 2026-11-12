@@ -325,12 +325,27 @@ def _real_date(value: str) -> bool:
     return True
 
 
+# EDC-010 (D-581): what XML 1.0 does not allow in a document (its ``Char`` production allows tab, line feed, carriage
+# return, U+0020 to U+D7FF, U+E000 to U+FFFD and U+10000 to U+10FFFF). One such character in one value made the whole
+# study's ODM file unreadable.
+XML_ILLEGAL = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+
+
+def xml_text(text: str) -> str:
+    """``text`` for an XML file when it is not a value (a label, a name, a quote): a character XML 1.0 does not
+    allow is written as U+FFFD, which a reader sees. A value is never altered: it is refused (:func:`problem`)."""
+    return XML_ILLEGAL.sub("\ufffd", text)
+
+
 def problem(f: Field, value: str) -> dict[str, str] | None:
     """None if ``value`` (a raw code) fits the field's type and range, else ``{field, code, ...}``. The code names
-    the reason (choice, date, datetime, integer, decimal, min, max, not_entered), for a message in any language."""
+    the reason (chars, choice, date, datetime, integer, decimal, min, max, not_entered), for a message in any
+    language."""
     if value == "":
         return None
     p = {"field": f.name}
+    if XML_ILLEGAL.search(value):  # before every other check: the message never repeats the value
+        return {**p, "code": "chars"}
     if f.kind in ("display", "calc", "file"):
         return {**p, "code": "not_entered"}
     v = f.validation
@@ -378,6 +393,7 @@ _WHY = {"choice": "{v!r} is not a choice of {f}", "date": "{f} is a date (YYYY-M
         "decimal": "{f} is a number", "not_entered": "{f} is not entered", "min": "{f} is below {min}",
         "max": "{f} is above {max}", "required": "{f} is required", "owned": "{f}: owned by {owner}",
         "unknown": "{f}: not a field of this form", "decimals": "{f} has at most {places} decimal places",
+        "chars": "{f} holds a character that cannot be stored (a control character from pasted text)",
         "time": "{f} is a time (HH:MM)", "email": "{f} is an e-mail address",
         "phone": "{f} is a phone number"}  # fmt: skip
 

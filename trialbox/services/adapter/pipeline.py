@@ -59,6 +59,10 @@ class AdapterConfig:
     table_max_drop_pct: float = 10.0
     required_tables: tuple[str, ...] = ()
     optional_tables: tuple[str, ...] = ()
+    # NEW-DIN-8 (D-583): on the first night every table the mapping declares must be there with rows, unless it is
+    # in ``optional_tables``. The product's entry (``adapter.cli``) always sets it; a tool or a test that builds a
+    # night from a partial feed of its own making leaves it off
+    first_night_all_tables: bool = False
     source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
     # T-659b (D-370): the folder of data contracts (adapter/governance.py); None: no contract checks
     contracts_dir: Path | None = None
@@ -607,12 +611,15 @@ def _run_ingest(
                 quarantined[table] = refused
                 errors.append(f"{table}: {refused}")
                 rows = rows.where(keep=set())
+            if table in quarantined:  # NEW-DIN-8: already an error of its own; not also "empty"
+                tables[table]["set_aside"] = True
             # a row marked deleted (``deleted`` column, or the table's ``deleted:`` column) is a tombstone, never a
             # record; a source that keeps deletes apart (SS-MIX2 flag 0) gives them through ``deleted_rows``
             dcol = str(tspec.get("deleted") or "deleted")
             dead = [r for r in rows if dcol in r and is_deleted_flag(r[dcol])]
             if dead:
                 rows = rows.where(live=dcol)
+                tables[table]["rows_live"] = len(rows)  # NEW-DIN-8: a table of deleted rows only is empty
             deleted_rows = getattr(src, "deleted_rows", None)
             if deleted_rows is not None:
                 dead += [mapping.normalize(table, r) for r in deleted_rows(table, src_name, delta, since)]
@@ -699,7 +706,9 @@ def _run_ingest(
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
     last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
     base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
-    if since and last_good is None and (prev or _current(cfg.lake_dir)):
+    if since and last_good is None and (prev or _current(cfg.lake_dir) or cfg.first_night_all_tables):
+        # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
+        # table of it can be judged complete
         errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
     full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night)
     defaulted, presence_read, shifted, aliased = (
@@ -1183,12 +1192,25 @@ def completeness_check(
     before: dict[str, int] = {str(k): int(v) for k, v in (base.get("reference") or {}).items()}
     problems: list[str] = []
     optional = set(cfg.optional_tables)
+    # NEW-DIN-8 (D-583): a table no earlier good night had rows of has no baseline to be compared with: the first
+    # night, the first night after a first load (the back-fill writes no completeness record), a table an override
+    # once let through empty. So on a full night such a table must be there with live rows, unless the site lists
+    # it as optional; else a table missing on go-live night would never be asked for again.
     for t in sorted(set(tables) | set(cfg.required_tables)):
         now = tables.get(t)
         rows = int(now["rows"]) if now else 0
         present = now["present"] if now else None
         if t in cfg.required_tables and (present is False or (full and rows == 0) or now is None):
             problems.append(f"{t}: required table {'missing' if present is False or now is None else 'empty'}")
+            continue
+        live = int(now.get("rows_live", rows)) if now else 0
+        if (cfg.first_night_all_tables and full and not before.get(t) and t not in optional and now is not None
+                and not now.get("set_aside") and (present is False or live == 0)):  # fmt: skip
+            problems.append(
+                f"{t}: table {'missing' if present is False else 'empty'} and no earlier good night had it (every "
+                "table of the mapping is required until one has; a table this site does not have goes under "
+                "feed_completeness.optional_tables)"
+            )
             continue
         old = before.get(t, 0)
         if not old or t in optional:
