@@ -6,9 +6,8 @@
 | 02:00 | INGEST: adapter to FHIR store and lake, 1 % validator sample, snapshot pruning | job list, `ingest_report.json` |
 | 03:00 | REDCap read-back (console timer) | the study's Sources page |
 | before the night's model jobs | the pair canary (54 questions); model jobs start only when it passes | `selftest.passed` in the audit |
-| 05:00 | RETENTION: attachments 90 days, outputs 365 days, mail logs by country | `retention_<date>.json` |
 | 07:00, 07:30 | morning mail N1 (coordinator) and N2 (investigator), console timers | Notices received |
-| Mon 03:00, 03:30 | MICROBATCH and NAV per ruleset | mail |
+| after the ingest has passed, in this order, each when the one before it has ended (D-492) | the night's chain: MICROBATCH per study with a pool (the weekly one on Monday, else the one for new booked patients; never both), then on Monday NAV per ruleset, then RETENTION (attachments 90 days, outputs 365 days, mail logs by country). `schedule.microbatch`, `.nav` and `.retention` name the day only; their hour is not read. A Monday whose ingest failed is made up on the next night that passes | mail; `retention_<date>.json`; each job's record names its night (`options.night`) |
 | Mon 06:00 | the weekly PI sample of ten "criteria not matched" patients per study (orchestrator, `schedule.not_matched_sample`; D-446) | `notmatched.sample` in the audit |
 | 1st of the month 05:30 | CALIBRATION | `calibration.json` |
 | quarterly 04:00 | COHORT tables | mail |
