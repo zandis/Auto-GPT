@@ -177,7 +177,24 @@ CREATE TABLE icf_versions (
 );
 CREATE INDEX icf_versions_rs ON icf_versions (ruleset, at)
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
+# D-436 (T-303, FIT-002): the monitoring-visit record a CRA writes under a monitor grant: the visit date, the CRA (the
+# signed-in account), the monitoring-visit id the grant names, the subjects verified and the findings. Append-only by
+# code: a correction is a new row.
+SCHEMA_V3 = """
+CREATE TABLE monitor_visits (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  visit_ref TEXT NOT NULL,
+  visit_day TEXT NOT NULL,
+  cra TEXT NOT NULL,
+  subjects TEXT NOT NULL,
+  findings TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL
+);
+CREATE INDEX monitor_visits_rs ON monitor_visits (ruleset, at)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
+FINDINGS_MAX = 2000  # characters of a monitoring visit's findings
 ICF_ACTIONS = ("add", "withdraw")
 _ICF_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,39}$")
 
@@ -288,6 +305,24 @@ class Irb:
         if not self.icf_version:  # an expired approval also expires the consent form approved under it
             out.append("icf_missing")
         return out
+
+
+@dataclass(frozen=True)
+class MonitorVisit:
+    """One monitoring-visit record (D-436): the visit date, the CRA's account, the monitoring-visit id of the grant,
+    the subjects verified (screening numbers) and the findings."""
+
+    id: int
+    visit_ref: str
+    visit_day: str
+    cra: str
+    subjects: tuple[str, ...]
+    findings: str
+    at: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "visit": self.visit_ref, "visit_day": self.visit_day, "cra": self.cra,
+                "subjects": list(self.subjects), "findings": self.findings, "at": self.at}  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -778,3 +813,35 @@ class TeamStore:
             (ruleset, pid),
         )
         return [(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in rows]
+
+    # ------------------------------------------------------------------ monitoring visits (D-436, T-303)
+    def add_monitor_visit(self, ruleset: str, *, visit_ref: str, visit_day: str, cra: str, subjects: list[str],
+                          findings: str, at: str) -> MonitorVisit:  # fmt: skip
+        """Record one monitoring visit. The caller has checked the grant and that each subject is one the monitor
+        may open; here: a date, at least one subject, findings within :data:`FINDINGS_MAX`."""
+        day = _day(visit_day, "the visit date")
+        if day is None:
+            raise TeamError("give the visit date")
+        subs = list(dict.fromkeys(s.strip() for s in subjects if s.strip()))
+        if not subs:
+            raise TeamError("name at least one subject verified")
+        text = findings.strip()
+        if len(text) > FINDINGS_MAX:
+            raise TeamError(f"the findings are at most {FINDINGS_MAX} characters")
+        with self.db.transaction() as tx:
+            new_id = tx.fetchval(
+                "INSERT INTO monitor_visits (ruleset, visit_ref, visit_day, cra, subjects, findings, at) "
+                "VALUES (?,?,?,?,?,?,?) RETURNING id",
+                (ruleset, visit_ref.strip()[:60], day, cra, json.dumps(subs), text, at),
+            )
+        return MonitorVisit(int(new_id), visit_ref.strip()[:60], day, cra, tuple(subs), text, at)
+
+    def monitor_visits(self, ruleset: str) -> list[MonitorVisit]:
+        """The study's monitoring-visit records, newest first."""
+        rows = self.db.fetchall(
+            "SELECT id, visit_ref, visit_day, cra, subjects, findings, at FROM monitor_visits WHERE ruleset = ? "
+            "ORDER BY at DESC, id DESC",
+            (ruleset,),
+        )
+        return [MonitorVisit(int(r[0]), str(r[1]), str(r[2]), str(r[3]), tuple(json.loads(str(r[4]))), str(r[5]),
+                             str(r[6])) for r in rows]  # fmt: skip
