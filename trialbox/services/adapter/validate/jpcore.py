@@ -27,7 +27,6 @@ Errors fail the resource; warnings are listed. Nothing is dropped: the ingest re
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from collections.abc import Iterable
@@ -431,15 +430,12 @@ def sample_per_type(
     resources: Iterable[Resource], per_type: int = DEFAULT_PER_TYPE, seed: str = "jp-core"
 ) -> list[Resource]:
     """Up to ``per_type`` resources of each type, the same ones every run (by a hash of type and id)."""
-    by_type: dict[str, list[tuple[str, Resource]]] = {}
+    from adapter.validate.validator import Sampler
+
+    picker = Sampler(seed, lambda _t: per_type)
     for r in resources:
-        h = hashlib.sha256(f"{seed}|{r.get('resourceType')}|{r.get('id')}".encode()).hexdigest()
-        by_type.setdefault(str(r.get("resourceType")), []).append((h, r))
-    out: list[Resource] = []
-    for _, items in sorted(by_type.items()):
-        items.sort(key=lambda t: t[0])
-        out.extend(r for _, r in items[: max(0, per_type)])
-    return out
+        picker.add(r)
+    return picker.result()
 
 
 def validate_snapshot(

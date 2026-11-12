@@ -139,6 +139,18 @@ class Result:
 
 
 # ------------------------------------------------------------------------------------------------ models
+GATEWAYS: list[Any] = []  # every in-process gateway this process built (its breakers' counts: breaker_opens)
+
+
+def breaker_opens() -> dict[str, int]:
+    """Endpoint -> how often its breaker opened in this process's gateways (T-608; the complete run's G-3 record)."""
+    out: dict[str, int] = {}
+    for gw in GATEWAYS:
+        for name, snap in gw.load.snapshot().items():
+            out[name] = out.get(name, 0) + int(snap.get("opens") or 0)
+    return out
+
+
 def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     """``tb_llm.GatewayClient`` to an in-process tb-gateway built exactly as an installed box builds it
     (:func:`gateway.app.from_env` over ``env``: ``TB_ENV``, ``TB_PROFILE``, ``TB_EP_*_URL``, the registry with its
@@ -170,6 +182,7 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
         guard=Guard.from_settings(),
         env=env,
     )
+    GATEWAYS.append(gw)
     http = TestClient(create_app(gw))
 
     def as_orchestrator(request: Any) -> None:

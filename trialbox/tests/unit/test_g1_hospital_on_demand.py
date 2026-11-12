@@ -126,7 +126,8 @@ def test_the_driver_says_when_the_owner_forced_the_provisioning_model(tmp_path: 
 
 def test_a_resumed_shard_gets_a_recomputed_cap(tmp_path: Path) -> None:
     only = "install,hospital-ja,scenario-gateway"
-    out = _dry(tmp_path, "--patients", "50000", "--only", only, TB_RUN_ID="R")
+    # one call in flight, as G1 measured it (not given, the run takes the serving record's 16: test_g3_throughput_curve)
+    out = _dry(tmp_path, "--patients", "50000", "--only", only, "--llm-concurrency", "1", TB_RUN_ID="R")
     assert "--max-run-duration=8h" in out and "--provisioning-model=STANDARD" in out
     o = tmp_path / "out"
     (o / "TB_HEAD.json").write_text(json.dumps({"head": HEAD}), encoding="utf-8")
