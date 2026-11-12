@@ -243,6 +243,18 @@ def _hex_key(path: str) -> bytes | None:
     return key if len(key) == 32 else None
 
 
+_NO_KEY_SAID = False
+
+
+def _say_no_key(why: str) -> None:
+    """Once per process: a service that was given a signing key it cannot use signs nobody, and every person's
+    action is refused by the service it calls. The reason is said here, where it is (never the file's content)."""
+    global _NO_KEY_SAID
+    if not _NO_KEY_SAID:
+        _NO_KEY_SAID = True
+        log.error("this service can sign nobody: %s (run `trialbox secrets init`, then restart it)", why)
+
+
 def signing_key() -> bytes | None:
     """The key this service signs people with (T-717, D-485), or None when it may sign nobody.
 
@@ -255,7 +267,10 @@ def signing_key() -> bytes | None:
     * No token at all (DEV, TEST): None; nothing is signed or verified there."""
     path = (os.environ.get(ACTOR_SIGN_KEY_ENV) or "").strip()
     if path:
-        return _hex_key(path)
+        key = _hex_key(path)
+        if key is None:
+            _say_no_key(f"the signing key file {path} cannot be read or is not a 32-byte hex key")
+        return key
     if (os.environ.get(REGISTRY_ENV) or "").strip():
         return None
     tok = service_token()

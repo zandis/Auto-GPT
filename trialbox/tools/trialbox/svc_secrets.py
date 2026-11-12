@@ -217,7 +217,10 @@ def _actor_sign_key(deploy: Path) -> str:
         key = p.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
-    return key if len(key) == 64 and all(c in "0123456789abcdef" for c in key) else ""
+    try:  # what tb_common.service_auth accepts as a key: 32 bytes of hex, either case
+        return key if len(bytes.fromhex(key)) == 32 else ""
+    except ValueError:
+        return ""
 
 
 def ensure_actor_sign_key(deploy: Path, uid: int | None = SERVICE_UID) -> bool:
@@ -484,6 +487,12 @@ def status(deploy: Path, env_file: Path | None = None) -> list[dict[str, object]
     row = {"name": "model key", "file": str(mk), "present": mk.is_file()}
     if mk.is_file():
         st = mk.stat()
+        row.update({"mode": oct(st.st_mode & 0o777), "age_days": round((now - st.st_mtime) / 86400, 1)})
+    rows.append(row)
+    ak = actor_sign_key_path(deploy)  # T-717 (D-485): the console's signing key; without it nobody is signed
+    row = {"name": "actor signing key", "file": str(ak), "present": bool(_actor_sign_key(deploy))}
+    if ak.is_file():
+        st = ak.stat()
         row.update({"mode": oct(st.st_mode & 0o777), "age_days": round((now - st.st_mtime) / 86400, 1)})
     rows.append(row)
     rows.append(
