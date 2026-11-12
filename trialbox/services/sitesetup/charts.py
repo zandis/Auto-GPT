@@ -11,12 +11,6 @@ code systems to their URIs) and is **proposed**: it waits beside its quote for a
 Correct or Reject, and until then it can only send the patient to "needs information" (``matching.proposed``).
 The chart itself stays in the box's protected data folder; the lake gets the text with identifiers redacted.
 
-A fact the model leaves without a date (the prompt asks for the date "as written", so a lab line under the visit's
-heading, or "乳癌（2019年手術）", comes back with none) takes the date of the chart section it is quoted from: the last
-dated line at or above the quote, never a date of birth (:func:`section_day`, D-470). Without it the fact reached the
-lake undated, and an undated record leaves a criterion unknown (DUMP-01), so confirming it could never count it.
-The date is on the review list beside the quote before anyone confirms the fact.
-
 A chart longer than the model can read at once is read in parts (T-603, review LLM-015): each part is sized from the
 model's context (:meth:`tb_common.llm.LlmClient.text_budget`), so 60,000 characters of Japanese or Chinese, which
 fit no profile in one prompt, are read on the 8k, 16k and 32k profiles alike. Facts found in several parts are kept
@@ -33,8 +27,8 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from doc_parser.hidden_text import hidden_text
-from tb_common import dates, encoding, instruments
-from tb_common.quotes import quote_in, quote_key
+from tb_common import encoding, instruments
+from tb_common.quotes import quote_in
 from tb_llm.budget import estimate_tokens
 
 from sitesetup import messy
@@ -212,33 +206,6 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
     return None
 
 
-_BIRTH_LINE = re.compile(r"生年月日|出生|birth|DOB", re.I)
-
-
-def section_day(text: str, quote: str) -> str:
-    """The ISO date of the chart section ``quote`` is in (D-470): the last line at or above the line where the quote
-    ends that holds a full date (和暦, 民國 or Gregorian, D-215), a date-of-birth line never counting; "" when there is
-    none or the quote is not in the chart."""
-    q = quote_key(quote)
-    if not q:
-        return ""
-    lines = text.splitlines()
-    if not lines or q not in quote_key(text):
-        return ""
-    lo, hi = 0, len(lines) - 1  # the first prefix of lines that holds the quote (every longer prefix holds it too)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        lo, hi = (lo, mid) if q in quote_key("\n".join(lines[: mid + 1])) else (mid + 1, hi)
-    end = lo
-    for line in reversed(lines[: end + 1]):
-        if _BIRTH_LINE.search(line):
-            continue
-        found = dates.CHART_SPAN.search(line)
-        if found:
-            return messy.parse_date(found.group(0)).iso or ""
-    return ""
-
-
 def _part_tokens(text: str) -> int:
     """What ``text`` adds to the chart prompt, which renders it as a JSON string (``tojson_pretty``)."""
     return estimate_tokens(json.dumps(text, ensure_ascii=False))
@@ -320,7 +287,5 @@ def extract(
         if key in seen:
             continue
         seen.add(key)
-        if not f["day"] and f["domain"] != "demographic":  # D-470: recorded in the chart section it is quoted from
-            f["day"] = section_day(text, str(raw.get("quote") or ""))
         kept.append(f)
     return kept, dropped

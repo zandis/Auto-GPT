@@ -386,6 +386,48 @@ SITE_CRITERIA = (
     "3. Most recent serum urate in the last year at least 7.0 mg/dL.\n\nExclusion Criteria\n"
     "1. Any history of malignancy.\n"
 )
+# D-470 (proposed): the fact kinds each practice chart states, so a real-model run shows which it read, which it
+# missed and which came back undated. 10000004's "悪性腫瘍なし" is a negation: no malignancy is expected there.
+CHART_KINDS = {
+    "10000004": ("birth_date", "sex", "gout", "urate"),
+    "10000005": ("malignancy", "gout", "urate"),
+}
+
+
+def _fact_kind(f: dict[str, Any]) -> str:
+    """The kind of one site fact, from structured fields only (never its term or quote)."""
+    code, dom = str(f.get("code") or ""), str(f.get("domain") or "")
+    if dom == "demographic":
+        return code if code in ("birth_date", "sex") else "other"
+    if dom == "condition":
+        if code.startswith("C"):
+            return "malignancy"
+        if code.startswith(("M10", "M1A")):
+            return "gout"
+        return "condition_uncoded" if not code else "condition_other"
+    if dom == "observation":
+        return "urate" if code == "3084-1" else "observation_other"
+    return dom or "other"
+
+
+def chart_fact_kinds(facts: list[dict[str, Any]], pids: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """Per expected chart patient (pseudonym prefix): each expected kind as its day ("" undated) or missing, and the
+    kinds read beyond those (D-470: the evidence that tells an undated fact from a dropped one). Synthetic data, no
+    free text."""
+    out: dict[str, dict[str, Any]] = {}
+    for no, want in CHART_KINDS.items():
+        p = pids[no]
+        mine = [f for f in facts if f.get("pid") == p]
+        got: dict[str, list[str]] = {}
+        for f in mine:
+            got.setdefault(_fact_kind(f), []).append(str(f.get("day") or ""))
+        out[p[:8]] = {
+            "read": {k: sorted(got[k]) for k in want if k in got},
+            "missing": [k for k in want if k not in got],
+            "undated": sorted(k for k in want if k in got and "" in got[k]),
+            "other": {k: len(v) for k, v in sorted(got.items()) if k not in want},
+        }
+    return out
 
 
 def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Stage:
@@ -454,10 +496,12 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
         r = crc.post("/site/charts", data={"csrf": csrf(), "ws": SITE_WS, "study": SITE_RS, "chart_no": no,
                                             "text": text})  # fmt: skip
     facts = orch_api("GET", f"/setup/{SITE_WS}/facts?status=proposed")
-    # D-470: the evidence names each fact (pseudonym prefix, domain, code, day), so a real-model run shows what it read
+    # D-470 (proposed): the evidence names each fact (pseudonym prefix, domain, code, day) and, per chart patient, the
+    # kinds read, missing and undated, so a real-model run settles which candidate cause it was
     s.check("two pasted charts: facts proposed, each beside its quote", len(facts) >= 7 and all(f["quote"] for f in
             facts) and 'data-testid="chart-saved"' in r.text,
-            (len(facts), [(f["pid"][:8], f["domain"], f["code"], f["day"]) for f in facts]))  # fmt: skip
+            (len(facts), [(f["pid"][:8], f["domain"], f["code"], f["day"]) for f in facts],
+             chart_fact_kinds(facts, pid)))  # fmt: skip
     page = crc.get(f"/site?{q}").text
     s.check("charts alone: the box says feasibility needs a bulk source",
             'data-testid="miss-bulk"' in page and 'data-testid="feas-needs-bulk"' in page)  # fmt: skip
