@@ -21,6 +21,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 S = Path(os.environ["BR_S"])
 BOX = S / "box"
@@ -44,11 +45,12 @@ def called(what: str) -> None:
         fh.write(what + "\n")
 
 
-def job_load() -> dict:
-    return json.loads((BOX / "job.json").read_text())
+def job_load() -> dict[str, Any]:
+    job: dict[str, Any] = json.loads((BOX / "job.json").read_text())
+    return job
 
 
-def job_save(job: dict) -> None:
+def job_save(job: dict[str, Any]) -> None:
     tmp = BOX / "job.json.tmp"
     tmp.write_text(json.dumps(job))
     tmp.replace(BOX / "job.json")
