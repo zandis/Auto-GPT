@@ -450,10 +450,10 @@ if [ "$MODE" = gpu ]; then
   say "model servers: pinned served names and key (trialbox doctor --serving)"
   set +e
   docker run --rm --network trialbox-model-net --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" \
-    --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.trialbox doctor --serving | sed 's/^/    /'
+    -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.trialbox doctor --serving | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
-  [ "$rc" = 0 ] || die "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL, TB_LLM_API_KEY) or re-pin (RUNBOOK §8), then re-run"
+  [ "$rc" = 0 ] || die "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL), the key (python3 -m tools.trialbox secrets rotate --service model) or re-pin (RUNBOOK §8), then re-run"
 fi
 EGRESS_OK=0
 if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then

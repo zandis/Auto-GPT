@@ -188,3 +188,36 @@ def seen(svc: EdcService, record: str = RECORD, visit: str = "") -> dict[int, st
 
     return {int(d["id"]): str(d["sha"]) for d in svc.store.drafts(STUDY, record, visit or BASE_EVENT)
             if d["fate"] in ("confirmed", "edited") and d["signature_id"] is None}  # fmt: skip
+
+
+def old_unkeyed_sha(shas: dict[int, str]) -> str:
+    """What a version-1 signature (before D-281) stored: an unkeyed hash over the value hashes, which anyone can
+    re-make. Kept here only to show that such a row covers nothing (D-461)."""
+    import hashlib
+    import json as _json
+
+    return hashlib.sha256(_json.dumps(sorted((int(k), str(v)) for k, v in shas.items())).encode()).hexdigest()
+
+
+def store_with_old_signature(values: dict[int, str] | None = None) -> tuple[EdcStore, dict[str, Any]]:
+    """D-461: an EDC store at schema version 3 holding one version-1 (unkeyed) signature row, as a box signed before
+    D-281 would, then opened by today's code. Synthetic values."""
+    import json as _json
+    import os
+
+    from edc.store import MIGRATIONS
+    from tb_common.db import ENV, Database
+
+    shas = values if values is not None else {1: "a" * 64, 2: "b" * 64}
+    with Database.connect(os.environ[ENV], "edc") as db:
+        db.migrate(list(MIGRATIONS[:3]))
+        sid = int(db.fetchval(
+            "INSERT INTO signature (study, record, visit, signer, printed_name, role, meaning, meaning_text, lang, "
+            "method, at, content_sha, drafts, sig_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1) RETURNING id",
+            (STUDY, RECORD, "", "crc", "Chen Mei", "coordinator", "transcribed", "I checked each value.", "en",
+             "password", "2026-10-01T09:00:00+00:00", old_unkeyed_sha(shas),
+             _json.dumps({str(k): v for k, v in sorted(shas.items())}))))  # fmt: skip
+    store = EdcStore(sign_key=SIGN_KEY)
+    row = store.signature(sid)
+    assert row is not None
+    return store, row

@@ -11,19 +11,22 @@ One tick (:func:`run_once`):
    COHORT's ``n_contactable``) is copied into the register: a refusal the register lacks is added, and an opt-out the
    registry itself added is lifted when the registry no longer refuses. An opt-out the office typed is never lifted
    by the feed.
-2. **The stores.** Each store in :data:`STORES` is cleared for the patients opted out now. v1 has three:
-   ``candidate_pool`` (MICROBATCH's pool: the rows go), ``candidate_registry`` (an open candidate, ``candidate`` or
-   ``contacted``, becomes ``withdrawn``; a patient who consented or enrolled keeps the trial's record, OD-8) and
-   ``omop`` (``tb_withheld`` plus an immediate tombstone, ``omop.load.withhold``; a later load keeps them out).
+2. **The stores.** Every clear the erasure registry names (:mod:`tb_common.erasure`, T-727, D-465) is run for the
+   patients opted out now, and its store is read back by the clear's verify. Today: ``candidate_pool`` (MICROBATCH's
+   pool: the rows go), ``candidate_registry`` (an open candidate, ``candidate`` or ``contacted``, becomes
+   ``withdrawn``; a patient who consented or enrolled keeps the trial's record, OD-8), ``omop`` (``tb_withheld``
+   plus an immediate tombstone, ``omop.load.withhold``; a later load keeps them out), ``vec``
+   (``VecStore.delete_patient``) and ``profile`` (``ProfileStore.erase``). A row left after a clear fails the tick.
 3. **One audit event** ``optout.worker`` with counts only: who opted out is itself private (D-147).
 
 A store that fails does not stop the others; the tick reports it, audits it and the next tick tries again (every
 clear is idempotent). Lifting an opt-out restores nothing by itself: the patient comes back in the next SCREEN and
 the next load (by design, D-441).
 
-**Adding a store** (T-206b: profiles ``tb_patient_profile``, vectors ``services/vec``, chunks, job outputs): write
-``clear(pids, env) -> dict[str, int]`` (idempotent, counts only, no pid in the result) and call
-:func:`register_store` from the store's own module, or add it to :data:`BUILTIN` here. Nothing else changes.
+**Adding a store**: give every table it creates an entry in :mod:`tb_common.erasure` (the enumerating test fails until
+it has one). For an ``erase`` entry, write ``clear(pids, env) -> dict[str, int]`` (idempotent, counts only, no pid in
+the result) and ``verify(pids, env) -> {table: rows left}`` here and name them in ``erasure.CLEARS``; the worker runs
+them. Until then the entry is owed (``owed_by``) and on the generated erasure-owed list.
 
 The orchestrator runs a tick every ``TB_OPTOUT_WORKER_MINUTES`` (default 5; 0: off) in its own process
 (:func:`start`), so the register's change reaches the lists within one tick even when the night schedule is on demand.
@@ -33,7 +36,6 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -65,22 +67,19 @@ class WorkerEnv:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class Store:
-    """One store the worker clears for the opted-out patients. ``clear`` is idempotent and returns counts only."""
-
-    name: str
-    clear: Callable[[frozenset[str], WorkerEnv], dict[str, int]]
-    note: str = ""
-
-
-def _clear_pool(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+def clear_pool(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     if env.jobs is None:
         return {"skipped": 1}
     return {"removed": int(env.jobs.pool_remove(sorted(pids)))}
 
 
-def _clear_candidates(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+def verify_pool(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    if env.jobs is None:
+        return {}
+    return {"orch.pool": int(env.jobs.pool_count(sorted(pids)))}
+
+
+def clear_candidates(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     if env.jobs is None:
         return {"skipped": 1}
     at = env.now.isoformat(timespec="seconds")
@@ -97,7 +96,20 @@ def _clear_candidates(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return {"withdrawn": withdrawn, "kept_consented_or_enrolled": kept}
 
 
-def _clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+def verify_candidates(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """What the clear promises: no open candidate of an opted-out patient (the withdrawn row itself is owed)."""
+    if env.jobs is None:
+        return {}
+    left = sum(
+        1
+        for rs in sorted({str(s["ruleset"]) for s in env.jobs.candidate_summaries()})
+        for r in env.jobs.candidates(rs)
+        if str(r["pid"]) in pids and r["status"] in OPEN_STATUSES
+    )
+    return {"orch.candidates": left}
+
+
+def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     if env.omop is None:
         return {"skipped": 1}
     from omop.load import withhold
@@ -105,25 +117,126 @@ def _clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return withhold(env.omop, pids, ACTOR).as_dict()
 
 
-BUILTIN: tuple[Store, ...] = (
-    Store("candidate_pool", _clear_pool, "MICROBATCH's candidate pool (orchestrator)"),
-    Store("candidate_registry", _clear_candidates, "open candidates withdrawn; consented and enrolled kept (OD-8)"),
-    Store("omop", _clear_omop, "tb_withheld and an immediate tombstone; later loads keep the patient out"),
+#: the OMOP tables the withhold deletes by person (``note_nlp`` and ``fact_relationship`` go with their notes and
+#: measurements, ``tb_record`` is read for live rows)
+OMOP_BY_PERSON = (
+    "person",
+    "observation_period",
+    "death",
+    "visit_occurrence",
+    "condition_occurrence",
+    "drug_exposure",
+    "procedure_occurrence",
+    "measurement",
+    "observation",
+    "note",
+    "tb_appointment",
+    "tb_claim",
 )
-#: the stores a tick clears, by name; T-206b adds profiles and vectors with :func:`register_store`
-STORES: dict[str, Store] = {s.name: s for s in BUILTIN}
 
 
-def register_store(store: Store) -> None:
-    """Add (or replace, by name) a store every later tick clears."""
-    STORES[store.name] = store
+def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    if env.omop is None or not pids:
+        return {}
+    db = env.omop
+    persons = [
+        int(r[0])
+        for r in db.fetchall(
+            "SELECT omop_id FROM tb_id_map WHERE id_kind = 'person' AND source_id = ANY(?)", (sorted(pids),)
+        )
+    ]
+    out = {"omop.tb_withheld": len(pids - {str(r[0]) for r in db.fetchall("SELECT pid FROM tb_withheld")})}
+    if not persons:
+        return out
+    for t in OMOP_BY_PERSON:
+        out[f"omop.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE person_id = ANY(?)", (persons,)))
+    out["omop.tb_record"] = int(
+        db.fetchval(
+            "SELECT count(*) FROM tb_record WHERE status <> 'tombstoned' AND (person_id = ANY(?) OR "
+            "(cdm_table = 'person' AND record_id = ANY(?))) AND coalesce(cdm_table, '') <> 'tb_consent'",
+            (persons, persons),
+        )
+    )
+    out["omop.note_nlp"] = int(
+        db.fetchval(
+            "SELECT count(*) FROM note_nlp WHERE note_id IN (SELECT record_id FROM tb_record WHERE cdm_table = 'note' "
+            "AND person_id = ANY(?))",
+            (persons,),
+        )
+    )
+    return out
+
+
+def _schema_url(env: WorkerEnv, schema: str, table: str) -> str | None:
+    """The trial database's URL when ``schema.table`` exists on this box (a box without the store is not given one;
+    the worker never creates a store it clears)."""
+    from tb_common.db import split_url
+
+    prefix = split_url(env.register.db.url)[1]
+    if env.register.db.fetchval("SELECT to_regclass(?)", (f'"{prefix}{schema}".{table}',)) is None:
+        return None
+    return str(env.register.db.url)
+
+
+def clear_vec(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    url = _schema_url(env, "vec", "note_chunk")
+    if url is None:
+        return {"skipped": 1}
+    from vec.store import VecStore
+
+    out = {"chunks": 0, "embeddings": 0}
+    with VecStore(url) as st:
+        for pid in sorted(pids):
+            for k, n in st.delete_patient(pid).items():
+                out[k] += n
+    return out
+
+
+def verify_vec(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    url = _schema_url(env, "vec", "note_chunk")
+    if url is None or not pids:
+        return {}
+    from tb_common.db import Database
+
+    with Database.connect(url, "vec") as db:
+        return {
+            "vec.note_chunk": int(db.fetchval("SELECT count(*) FROM note_chunk WHERE pid = ANY(?)", (sorted(pids),)))
+        }
+
+
+def clear_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    url = _schema_url(env, "profile", "tb_patient_profile")
+    if url is None:
+        return {"skipped": 1}
+    from patient_profile.twin import ProfileStore
+
+    st = ProfileStore(url)
+    try:
+        return {"erased": sum(st.erase(pid) for pid in sorted(pids))}
+    finally:
+        st.close()
+
+
+def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    url = _schema_url(env, "profile", "tb_patient_profile")
+    if url is None or not pids:
+        return {}
+    from tb_common.db import Database
+
+    with Database.connect(url, "profile") as db:
+        n = db.fetchval("SELECT count(*) FROM tb_patient_profile WHERE pid = ANY(?)", (sorted(pids),))
+    return {"profile.tb_patient_profile": int(n)}
 
 
 def run_once(env: WorkerEnv) -> dict[str, Any]:
-    """One tick: the registry copied into the register, then every store cleared for the patients opted out now.
-    Returns counts (never a pseudonym) and writes them as one ``optout.worker`` audit event."""
+    """One tick: the registry copied into the register, then every clear of the erasure registry
+    (:func:`tb_common.erasure.clears`) run for the patients opted out now and its store read back. Returns counts
+    (never a pseudonym) and writes them as one ``optout.worker`` audit event. A clear that raises, or whose verify
+    finds a row left, is named in ``failed``."""
+    from tb_common import erasure
+
     at = env.now.isoformat()
-    out: dict[str, Any] = {"registry": None, "stores": {}, "failed": []}
+    out: dict[str, Any] = {"registry": None, "stores": {}, "left": {}, "failed": []}
     if env.lake is not None:
         try:
             snap = env.lake.snapshot()
@@ -136,12 +249,19 @@ def run_once(env: WorkerEnv) -> dict[str, Any]:
             out["failed"].append("registry")
     pids = frozenset(env.register.effective())  # merged charts: the surviving pid too (review MED-4)
     out["opted_out"] = len(pids)
-    for name, store in sorted(STORES.items()):
+    for c in erasure.clears():
         try:
-            out["stores"][name] = store.clear(pids, env)
+            clear, verify = c.resolve()
+            out["stores"][c.name] = clear(pids, env)
+            left = {t: n for t, n in verify(pids, env).items() if n}
         except Exception as exc:  # one store does not hold up the others; it is retried next tick
-            log.error("opt-out worker: store %s not cleared (%s)", name, type(exc).__name__)
-            out["failed"].append(name)
+            log.error("opt-out worker: store %s not cleared (%s)", c.name, type(exc).__name__)
+            out["failed"].append(c.name)
+            continue
+        if left:  # the clear ran and the store still holds an opted-out patient: never reported as erased
+            log.error("opt-out worker: store %s still holds opted-out patients after its clear", c.name)
+            out["left"][c.name] = left
+            out["failed"].append(c.name)
     env.audit.append("optout.worker", actor=ACTOR, detail=out)
     return out
 
@@ -208,7 +328,7 @@ def tick(orch: Any) -> dict[str, Any] | None:
             omop.close()
         reg.close()
     if out["failed"]:
-        STATUS["failed"] = list(out["failed"])  # run_once's own audit event names them
+        _failed(orch, list(out["failed"]), now)  # audited by name (never who) and the health line turns red
     else:
         STATUS["failed"], STATUS["ok_at"] = [], now.isoformat(timespec="seconds")
     return out
@@ -240,4 +360,21 @@ def start(orch: Any, production: bool = False) -> Any | None:
     return sched
 
 
-__all__ = ["BUILTIN", "STATUS", "STORES", "Store", "WorkerEnv", "register_store", "run_once", "start", "status", "tick"]
+__all__ = [
+    "STATUS",
+    "WorkerEnv",
+    "clear_candidates",
+    "clear_omop",
+    "clear_pool",
+    "clear_profile",
+    "clear_vec",
+    "run_once",
+    "start",
+    "status",
+    "tick",
+    "verify_candidates",
+    "verify_omop",
+    "verify_pool",
+    "verify_profile",
+    "verify_vec",
+]

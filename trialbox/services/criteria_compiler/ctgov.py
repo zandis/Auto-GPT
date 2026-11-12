@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+from tb_common.http import EgressRefused, guarded_client
 from tb_contracts import CtgovSearchRequest, CtgovSearchResult, CtgovStudy
 
 CASSETTES = Path(__file__).resolve().parent / "cassettes" / "ctgov"
@@ -135,7 +136,8 @@ class CtGov:
         return [resp.json()]
 
     def _live(self, req: CtgovSearchRequest) -> list[dict[str, Any]]:
-        client = self.http or httpx.Client(timeout=60)
+        # T-212d (D-450): TB_CTGOV_BASE_URL is a setting; the guard holds the call to the declared registry
+        client = self.http or guarded_client("criteria-compiler", timeout=60)
         params: dict[str, Any] = {
             "query.cond": req.condition,
             "filter.overallStatus": req.status or "RECRUITING",
@@ -160,6 +162,8 @@ class CtGov:
                 token = body.get("nextPageToken")
                 if not token:
                     break
+        except EgressRefused as exc:
+            raise CtgovError(f"the ClinicalTrials.gov address is not allowed ({exc.reason}): {exc.host}") from exc
         except httpx.HTTPError as exc:
             raise CtgovError(f"ClinicalTrials.gov unreachable ({type(exc).__name__})") from exc
         finally:

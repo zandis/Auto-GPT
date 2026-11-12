@@ -58,12 +58,15 @@ services:
       - --enforce-eager
       - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.30}
       - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
+    # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+    # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+    # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+    env_file: [{path: ./secrets/model/vllm.env, required: false}]
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
       VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
-      VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
     healthcheck:
       start_period: 600s  # first load from NVMe into unified memory
 
@@ -85,12 +88,15 @@ services:
       - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.15}
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}
+    # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+    # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+    # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+    env_file: [{path: ./secrets/model/vllm.env, required: false}]
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
       VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
-      VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
     networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)

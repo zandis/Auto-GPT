@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any, ClassVar
 
 import httpx
+from tb_common.http import EgressRefused
 
 # REDCap majors the connector accepts (FR-RC-14). Tested only against rc_sim so far: no real REDCap instance yet;
 # each site's version is recorded at go-live (RUNBOOK §6, DEP-026, D-393)
@@ -86,8 +87,10 @@ class RedcapClient:
                     raise RcError("RC-UPSTREAM", f"no in-process REDCap is registered at {key}")
                 http = _LOCAL[key]()
                 self.url = "/api/"
-            else:
-                http = httpx.Client(timeout=timeout)
+            else:  # T-212d (D-450): the URL an administrator typed goes through the SSRF guard
+                from tb_common.http import guarded_client
+
+                http = guarded_client(timeout=timeout)
         self.http = http
 
     def close(self) -> None:
@@ -106,6 +109,8 @@ class RedcapClient:
         url = self.url if self.url.endswith("/") else self.url + "/"
         try:
             resp = self.http.post(url, data=data)
+        except EgressRefused as exc:
+            raise RcError("RC-UPSTREAM", f"the REDCap address is not allowed ({exc.reason}): {exc.host}") from exc
         except httpx.HTTPError as exc:
             raise RcError("RC-UPSTREAM", f"REDCap did not answer ({type(exc).__name__})") from exc
         if resp.status_code == 200:

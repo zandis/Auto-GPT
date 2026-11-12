@@ -91,6 +91,10 @@ def build_config() -> tuple[AdapterConfig, str, str]:
                 detail = str(resp.json().get("detail"))
             except ValueError:
                 detail = resp.text[:500]
+            if resp.status_code == 409 and resp.headers.get("X-TB-Lake-Busy"):
+                from lake.store import LakeBusy  # D-462: held by a job or already building: retried, not refused
+
+                raise LakeBusy(f"the lake is busy with snapshot {snapshot}: {detail}")
             if resp.status_code == 409:
                 from adapter.pipeline import RebuildRefused
 

@@ -26,8 +26,9 @@ unpack_release() {  # the release tree from the media into a fresh folder: what 
 }
 
 # doctor <args...>: trialbox doctor where the gateway's model network is (as install.sh runs it), with the box's env
-doctor() {
+doctor() {  # the model key as the gateway reads it: the key file only (D-437, D-450), not deploy/.env's copy
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
+    -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
     --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml "$@"
 }
 
@@ -154,6 +155,7 @@ install)
     deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --yes \
     || fail "deploy/install.sh failed"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
+  grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
   grep -q '^TB_SOURCE_DIR=./site/feed-a' deploy/.env || fail "the wizard wrote no feed folder"
   grep -q '^TB_TLS_HOSTNAME=trialbox.hospa.test' deploy/.env || fail "TLS is not on"
@@ -263,7 +265,7 @@ guard)
   # answer /invocations and /tokenize without a key, as vLLM does, so a box without the guard would show here.
   in_svc gateway <<'EOF' || fail "model-guard let a call through that it must not"
 import json, os, urllib.error, urllib.request
-key = os.environ["TB_LLM_API_KEY"]
+key = open(os.environ["TB_LLM_API_KEY_FILE"]).read().strip()  # the compose secret (D-437); the variable is cleared
 def call(method, url, k):
     h = {"Content-Type": "application/json", **({"Authorization": f"Bearer {k}"} if k else {})}
     body = json.dumps({"messages": [{"role": "user", "content": "x"}], "prompt": "x"}).encode() if method == "POST" else None
@@ -438,11 +440,14 @@ wrong-name)
 
 # ------------------------------------------------------------------------------------------------ negative: key
 missing-key)
-  # the gateway loses the key (deploy/.env without TB_LLM_API_KEY, gateway restarted); the servers keep theirs
-  key="$(envget TB_LLM_API_KEY)"
-  putback() { envset TB_LLM_API_KEY "$key"; dc up -d --no-deps --wait gateway; }
-  envset TB_LLM_API_KEY
-  dc up -d --no-deps --wait gateway || fail "the gateway did not restart"
+  # the gateway loses the key, gateway restarted; the servers keep theirs. Under the secrets overlay the gateway reads
+  # the compose secret deploy/secrets/model/llm.key, not deploy/.env (D-437), so the drill empties the file (D-450).
+  # model-guard mounts the same file but read its key at start and is not restarted; the vLLM servers read vllm.env
+  keyfile="$BOX/deploy/secrets/model/llm.key"
+  key="$(cat "$keyfile")" && [ -n "$key" ] || fail "no model key file at $keyfile"
+  putback() { printf '%s\n' "$key" > "$keyfile"; dc up -d --no-deps --wait gateway; }
+  : > "$keyfile"
+  dc up -d --no-deps --wait gateway || { putback; fail "the gateway did not restart"; }
   out="$(doctor --serving 2>&1)"; rc=$?
   echo "$out"
   [ "$rc" = 1 ] && echo "$out" | grep -q "refused the key (HTTP 401)" || { putback; fail "the doctor did not catch the missing key"; }
@@ -452,7 +457,7 @@ missing-key)
   [ "$rc" = 0 ] && grep -q "^j-workhorse: refused" "$W/probe-no-key.txt" && grep -q "^v-verifier: refused" "$W/probe-no-key.txt" \
     || { putback; fail "the gateway's calls without the key were not refused"; }
   ok "gateway: both calls refused (upstream 401)"
-  envset TB_LLM_API_KEY "$key"
+  printf '%s\n' "$key" > "$keyfile"
   dc up -d --no-deps --wait gateway || fail "the gateway did not come back"
   doctor --serving >/dev/null || fail "the box did not recover with the key back"
   gateway_probe ok || fail "the gateway does not answer with the key back"
