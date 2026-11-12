@@ -390,6 +390,88 @@ def test_a_backup_taken_while_the_box_writes_restores_exactly_its_snapshot(tmp_p
     assert lines and all(json.loads(ln)["n"] == i for i, ln in enumerate(lines))  # the audit file whole, untorn
 
 
+def _appended_during_every_read(monkeypatch: pytest.MonkeyPatch, path: Path, grow: Any) -> None:
+    """Every read of ``path`` by the backup meets a change made while it reads (``grow`` is called once per try)."""
+    from tools.trialbox import backup as bk
+
+    real = bk._HashReader.read
+    grown: set[int] = set()
+
+    def read(self: Any, size: int = -1) -> bytes:
+        out = real(self, size)
+        if id(self) not in grown and out:  # one reader per try: its first bytes are read, then the file changes
+            grown.add(id(self))
+            grow()
+        return out
+
+    monkeypatch.setattr(bk._HashReader, "read", read)
+
+
+def test_an_audit_file_appended_to_during_every_read_is_taken_up_to_a_line_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The audit chain is appended to all night (every model call writes a line). A day file that grew while it
+    was read is not "kept changing": the bytes read are a whole earlier state of an append-only file, cut at a line
+    end. (The test above failed under load with "log.jsonl kept changing while it was backed up (3 reads)".)"""
+    import tarfile
+
+    from tools.trialbox import backup as bk
+
+    day = tmp_path / "2026-11-12.jsonl"
+    day.write_text("".join(json.dumps({"n": i}) + "\n" for i in range(50)) + '{"n": 50, "torn')  # a line being written
+    n = [50]
+
+    def grow() -> None:
+        n[0] += 1
+        with day.open("a") as fh:
+            fh.write(json.dumps({"n": n[0]}) + "\n")
+
+    _appended_during_every_read(monkeypatch, day, grow)
+    with tarfile.open(tmp_path / "a.tar", "w") as tar:
+        sha, size = bk._add(tar, day, "dirs/audit/2026-11-12.jsonl")
+    with tarfile.open(tmp_path / "a.tar") as tar:
+        got = tar.extractfile("dirs/audit/2026-11-12.jsonl").read()  # type: ignore[union-attr]
+    import hashlib
+
+    assert len(got) == size and hashlib.sha256(got).hexdigest() == sha
+    lines = got.decode().splitlines()
+    assert got.endswith(b"\n") and [json.loads(ln)["n"] for ln in lines] == list(range(50))  # whole lines, a prefix
+
+
+def test_any_other_file_that_keeps_changing_still_fails_the_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rule is the audit chain's only: a file that may be rewritten in place (a DuckDB file, a list) is read
+    again and, if it never holds still, fails the backup. So does an audit file that was replaced or cut back."""
+    import tarfile
+
+    from tools.trialbox import backup as bk
+
+    f = tmp_path / "list.jsonl"
+    f.write_text('{"n": 0}\n')
+
+    def grow() -> None:
+        with f.open("a") as fh:
+            fh.write('{"n": 1}\n')
+
+    _appended_during_every_read(monkeypatch, f, grow)
+    with tarfile.open(tmp_path / "a.tar", "w") as tar, pytest.raises(bk.BackupError, match="kept changing"):
+        bk._add(tar, f, "dirs/lake/list.jsonl")
+
+    day = tmp_path / "2026-11-12.jsonl"
+    day.write_text('{"n": 0}\n{"n": 1}\n')
+
+    turn = [0]
+
+    def rewritten() -> None:  # not an append: the same file, longer, but its beginning is no longer what was read
+        turn[0] += 1
+        day.write_text("".join(json.dumps({"n": turn[0] * 10 + i}) + "\n" for i in range(turn[0] + 3)))
+
+    _appended_during_every_read(monkeypatch, day, rewritten)
+    with tarfile.open(tmp_path / "b.tar", "w") as tar, pytest.raises(bk.BackupError, match="kept changing"):
+        bk._add(tar, day, "dirs/audit/2026-11-12.jsonl")
+
+
 # ------------------------------------------------------------------------------------------------ review fixes
 def _sidecar_ok(f: Path) -> bool:
     import hashlib

@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from datacore.forms import XML_ILLEGAL
 from datacore.store import TRIALBOX, DataCore, DataError
 
 
@@ -83,12 +84,21 @@ def sync(dc: DataCore, study: str, source: Source, by: str, at: str, push: bool 
     res.refused = list(getattr(source, "refused", []) or [])
     for row in rows:
         res.pulled += 1
+        if XML_ILLEGAL.search(row.record) or XML_ILLEGAL.search(row.event):
+            # EDC-010 (D-581): a record or event key no XML file can carry; never stored, never repeated here
+            res.refused.append({"at": "a record", "reason": "its record or event key holds a control character"})
+            continue
         if row.source_id:
             dc.put_source_id(study, source.name, row.record, row.source_id)
         for f, v in row.values.items():
             if f not in carried:
                 continue
             v = str(v)
+            if XML_ILLEGAL.search(v):  # the source holds a control character: the field is named, the value not
+                res.refused.append(
+                    {"at": f"record {row.record}, field {f}", "reason": "the value holds a control character"}
+                )
+                continue
             owner = owners.get(f, TRIALBOX)
             cur = dc.get(study, row.record, row.event, f)
 

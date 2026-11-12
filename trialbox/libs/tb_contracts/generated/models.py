@@ -595,6 +595,10 @@ class Judging(BaseModel):
     verifier_model: str | None = None
     note_block: Literal["both_agree", "never"]
     note_block_reason: str | None = None
+    note_block_code: str | None = None
+    """
+    Why a note answer could not exclude, as a code (ok when it could); the mail and the PDF say it in the reader's language.
+    """
     configured_note_block: Literal["both_agree", "never"] | None = None
     may_block: bool
     disagreements: int | None = None
@@ -2339,6 +2343,10 @@ class CriterionVerdict(BaseModel):
     id: str
     verdict: Literal["pass", "fail", "unknown", "pending_human"]
     evidence: Evidence | None = None
+    final: bool | None = None
+    """
+    T-707 (D-476): on a note answer that says not met. false: given while a note answer was not allowed to exclude (one model, no second model that agreed, a shut canary gate); it never excludes the patient, on this run or at a later re-tier. true: it was allowed to exclude. Absent on every other verdict; a stored note fail without it is from before the field and never excludes.
+    """
 
 
 class CtgovSearchResult(BaseModel):
@@ -2990,7 +2998,7 @@ class RulesetManifest(BaseModel):
 
 class CandidateList(BaseModel):
     """
-    SPEC 3.6 candidate_list (tag phi). Schema version 1.2.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362).
+    SPEC 3.6 candidate_list (tag phi). Schema version 1.3.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362; 1.3.0: optional criterion_verdict.final, D-476).
     """
 
     model_config = ConfigDict(

@@ -56,6 +56,11 @@ closed). Checks:
   ``TB_CLOCK_MAX_SKEW_S`` (default 60) seconds from the site's time server (``TB_NTP_SERVER``, one SNTP exchange); in
   VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
   answer, or when neither can be read. WARN for those in DEV and TEST.
+* ``db_passwords`` (T-712, D-481; D-378): a service container holds its own database role's password and no other.
+  Read from ``deploy/.env`` (every service role has a password of its own; none is the example value or shared with
+  another role), from the box's compose files rendered with the box's values (``COMPOSE_FILE``;
+  ``tools/trialbox/db_secrets.py``) and from the environment of the containers that run now. FAIL in VALIDATION and
+  PRODUCTION, WARN in DEV and TEST; not judged without ``--env-file``. No password is printed.
 
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
@@ -135,6 +140,7 @@ class DoctorInputs:
     resolver: Callable[[str], list[str]] | None = None  # check perimeter_addresses; None: the system resolver
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
+    timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -583,6 +589,8 @@ def check_serving(inp: DoctorInputs) -> Check:
     for b in reg.builds:
         if not b.pinned or b.serving in ("stub", "hosted"):
             continue
+        if b.family == "embedder":  # ENG-003 (D-563): the embed service is not a model server: it has no
+            continue  # /v1/models and no key; its own /healthz names the pinned weights (D-429)
         for ep_name, name in sorted(b.served.items()):
             ep = policy.endpoints.get(ep_name)
             if name and ep is not None and ep.zone == "perimeter":
@@ -869,6 +877,167 @@ def check_clock(inp: DoctorInputs) -> Check:
     return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
 
 
+OPS_TIMER = "trialbox-ops.timer"
+
+
+def _timer_state(unit: str) -> str | None:
+    """``systemctl is-enabled``'s word for ``unit`` (enabled, disabled, not-found, ...); None where systemd cannot
+    be asked (a container, a platform, a developer's machine)."""
+    import shutil
+    import subprocess
+
+    if not Path("/run/systemd/system").is_dir() or shutil.which("systemctl") is None:
+        return None
+    try:
+        r = subprocess.run(["systemctl", "is-enabled", unit], capture_output=True, text=True, check=False)
+    except OSError:
+        return None
+    return (r.stdout.strip().splitlines() or ["unknown"])[0]
+
+
+def check_ops_runner(inp: DoctorInputs, now: datetime | None = None) -> Check:
+    """NEW-OPS-8 (OPS-009, D-561): the host runner (``trialbox-ops.timer``) writes the health facts every minute and
+    runs the Operations page's requests. Its own record says whether it runs: facts that are missing or older than
+    the health line's limit are a FAIL in VALIDATION and PRODUCTION (WARN elsewhere), with the timer's state."""
+    if inp.platform:
+        return Check("ops_runner", "PASS", "not a host check on a platform (pods; no host timer)")
+    from tb_common import metrics
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    raw = (inp.env.get("TB_OPS_DIR") or "").strip()
+    if not raw and inp.deploy is None:
+        return Check("ops_runner", soft, "the deploy folder is not known: run with --env-file deploy/.env")
+    record = (Path(raw) if raw else (inp.deploy or ROOT / "deploy") / "ops") / "status.json"
+    seen: datetime | None = None
+    try:
+        doc = json.loads(record.read_text(encoding="utf-8"))
+        at = (doc.get("health") or {}).get("at") if isinstance(doc, dict) else None
+        seen = datetime.fromisoformat(str(at)) if at else None
+    except (OSError, ValueError):
+        seen = None
+    if seen is not None and seen.tzinfo is None:
+        seen = seen.replace(tzinfo=UTC)
+    now = now or datetime.now(UTC)
+    age = (now - seen).total_seconds() / 3600 if seen is not None else None
+    if age is not None and abs(age) <= metrics.FACTS_STALE_H:  # a record dated ahead of the clock is not fresh
+        return Check("ops_runner", "PASS", f"the runner wrote its record {max(age, 0) * 60:.0f} min ago ({record})")
+    state = (inp.timer_state or _timer_state)(OPS_TIMER)
+    what = f"the runner has never written {record}" if age is None else f"the runner's record is {age:.0f} h old"
+    if age is not None and age < 0:
+        what = f"the runner's record is dated {-age:.0f} h after this clock"
+    if state == "enabled":
+        fix = (
+            f"{OPS_TIMER} is enabled: see systemctl status trialbox-ops.service and journalctl -u trialbox-ops.service"
+        )
+    else:
+        is_now = f"{OPS_TIMER} is {state}; " if state else ""
+        fix = f"{is_now}turn it on: systemctl enable --now {OPS_TIMER} (RUNBOOK §15)"
+    return Check("ops_runner", soft, f"{what}: no health facts, and the Operations page's requests wait; {fix}")
+
+
+HEAD_MAX_AGE_H = 36.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is nightly; 36 h is where the nightly backup is old (D-274)
+
+
+def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
+    """NEW-STD-2 (STD-002, LIFE-010, D-562): the signed audit heads of D-355 are in force only when a folder off the
+    audit volume takes one every night. FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no anchor folder is
+    set, a folder is on the audit volume, the audit signing key is missing, or the newest signed head of any folder
+    is older than ``TB_AUDIT_HEAD_MAX_AGE_H``. The signatures are checked by ``trialbox audit-sign`` each night and
+    by ``tools/audit_verify.py --heads``; this check reads each head's date and that this box's key signed it."""
+    if inp.platform:  # nothing signs heads on a platform yet: said, not passed (the review's M6)
+        return Check("audit_heads", "WARN", "on a platform no host cron signs the audit head: STD-002 is open there")
+    from tb_common import audit, kek
+
+    from tools.trialbox import audit_heads
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    audit_dir, secrets, targets = audit_heads.host_dirs(inp.env)
+    if not targets:
+        why = (
+            f"no anchor folder: set {audit.ANCHOR_TARGETS_ENV} in deploy/.env to a folder off the box (the hospital's "
+            "share); `trialbox audit-sign` then keeps a signed head of the audit chain there every night. Without it "
+            "a removed audit event leaves no trace (D-562)"
+        )
+        return Check("audit_heads", soft, why)
+    try:
+        limit = float(inp.env.get("TB_AUDIT_HEAD_MAX_AGE_H") or HEAD_MAX_AGE_H)
+    except ValueError:
+        limit = HEAD_MAX_AGE_H
+    now = now or datetime.now(UTC)
+    problems: list[str] = []
+    waiting: list[str] = []
+    key_age: float | None = None  # how long the box could have signed: a new key has no head until the first night
+    if not kek.key_present(secrets / audit.SIGN_KEY_FILE):
+        problems.append(
+            f"no audit signing key in {secrets}: sh deploy/hardening/seal_keys.sh --secrets {secrets} makes it once "
+            "(TB_SECRETS_HOST_DIR names the folder)"
+        )
+    else:
+        try:
+            made = datetime.fromtimestamp((secrets / audit.SIGN_PUB_FILE).stat().st_mtime, UTC)
+            key_age = (now - made).total_seconds() / 3600
+        except OSError:
+            key_age = None
+    # the night's own result (tools.trialbox.audit_heads.write_state): a refused night is a FAIL here, the same day
+    state = audit_heads.state_file(inp.deploy or ROOT / "deploy", inp.env)
+    try:
+        last = json.loads(state.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        last = None
+    if isinstance(last, dict) and last.get("ok") is False:
+        said = "; ".join(str(x) for x in (last.get("problems") or [])[:2])[:500]
+        problems.append(f"the last audit-sign ({last.get('at')}) was refused or failed: {said}")
+    try:
+        own: dict[str, bytes] | None = audit_heads.own_keys(secrets)
+    except (OSError, ValueError):
+        own = None
+    newest: list[str] = []
+    for t in targets:
+        if audit._inside(t, audit_dir):
+            problems.append(f"the anchor folder {t} is on the audit volume: it must be off it")
+            continue
+        stamps, foreign = [], 0
+        for h in audit.read_signed_heads(t) if (t / "heads").is_dir() else []:
+            try:
+                ts = datetime.fromisoformat(str(h.get("ts")))
+            except ValueError:
+                foreign += 1
+                continue
+            if own is not None:  # only a head this box's own key signed counts: a file with a date is not a head
+                try:
+                    pub = own.get(str(h.get("key_id")))
+                    if pub is None or audit.signed_head_problem(h, pub):
+                        foreign += 1
+                        continue
+                except ImportError:  # a host python3 without the crypto library: dates only
+                    own = None
+            stamps.append(ts if ts.tzinfo else ts.replace(tzinfo=UTC))
+        if foreign:
+            problems.append(f"{foreign} file(s) in {t}/heads are not signed by this box's audit key")
+        if not stamps:
+            none = f"no signed head in {t} yet (python3 -m tools.trialbox audit-sign)"
+            if key_age is not None and abs(key_age) <= limit and not foreign:
+                waiting.append(f"{none}: the audit key is {key_age:.0f} h old, the first night has not signed")
+            else:
+                problems.append(none)
+            continue
+        age = (now - max(stamps)).total_seconds() / 3600
+        if abs(age) > limit:  # dated ahead of the clock is not fresh either
+            problems.append(
+                f"the newest signed head in {t} is {age:.0f} h old (limit {limit:g} h): the nightly audit-sign did "
+                "not run or did not reach the folder (/var/log/trialbox-retention.log)"
+            )
+        else:
+            newest.append(f"{t}: {age:.0f} h")
+    if problems:
+        return Check("audit_heads", soft, "; ".join(problems + waiting))
+    if waiting:
+        return Check("audit_heads", "WARN", "; ".join(waiting))
+    return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
+
+
 def check_memory_caps(inp: DoctorInputs) -> Check:
     """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
     (``tools.trialbox.memcaps``)."""
@@ -881,6 +1050,63 @@ def check_memory_caps(inp: DoctorInputs) -> Check:
     lake = inp.ingest_lake or (Path(inp.env["TB_LAKE_DIR"]) if inp.env.get("TB_LAKE_DIR") else None)
     status, detail = memcaps.check(inp.env, lake, record, compose)
     return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
+
+
+def _compose_file(deploy: Path, entry: str) -> Path:
+    """One entry of ``COMPOSE_FILE`` as this process can read it. ``install.sh`` writes the host's absolute paths
+    (``$ROOT/deploy/...``); the doctor may run in the box's image, where the same folder is mounted elsewhere
+    (``check_host.sh``): an absolute path that is not here is read as its part below ``deploy/`` in the deploy
+    folder given."""
+    path = Path(entry)
+    if not path.is_absolute():
+        return deploy / path
+    if path.exists():
+        return path
+    parts = path.parts
+    if "deploy" in parts:
+        below = parts[len(parts) - parts[::-1].index("deploy") :]
+        return deploy.joinpath(*below) if below else path
+    return path
+
+
+def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, Any] | None] | None = None) -> Check:
+    """T-712 (D-481; D-378): a service container holds its own database role's password and no other.
+
+    Three readings, none of which shows a password: the box's ``deploy/.env`` (every service role has a password
+    of its own, none is the example value or shared); the box's compose files (``COMPOSE_FILE``, else the base
+    file beside ``--env-file``; ``--compose-config`` when given) rendered with the box's values; and the
+    environment of the containers that run now. FAIL in VALIDATION and PRODUCTION, WARN elsewhere.
+    """
+    from tb_common.config import environment_name
+
+    from tools.trialbox import db_secrets as ds
+
+    name = "db_passwords"
+    strict = environment_name(inp.env) in ("VALIDATION", "PRODUCTION")  # an empty TB_ENV is PRODUCTION (D-127)
+    if inp.deploy is None and inp.compose_config is None:
+        # never a pass: nothing was read. A box that may hold real data must be judged
+        return Check(name, "FAIL" if strict else "WARN",
+                     "the box's database passwords were not judged: give --env-file <deploy/.env>")  # fmt: skip
+    deploy = inp.deploy or ROOT / "deploy"
+    config = inp.compose_config
+    if config is None:
+        listed = [f for f in inp.env.get("COMPOSE_FILE", "").split(":") if f]
+        files = [_compose_file(deploy, f) for f in listed] or [deploy / "docker-compose.yml"]
+        gone = [str(f) for f in files if not f.exists()]
+        if gone:
+            return Check(name, "FAIL", f"compose file(s) not found: {', '.join(gone)} (COMPOSE_FILE in deploy/.env)")
+        config = ds.render(files, inp.env, project_dir=deploy)
+    secrets = ds.db_secrets(inp.env)
+    roles = ds.database_services(config)
+    bad = ds.env_problems(inp.env, roles) + ds.reach_problems(config, secrets)
+    live = (running or ds.running_config)(inp.env.get("COMPOSE_PROJECT_NAME", "trialbox"))
+    if live is not None:
+        bad += [f"running: {p}" for p in ds.reach_problems(live, secrets)]
+    seen = f"{len(live['services'])} running container(s) read" if live is not None else "running containers not read"
+    if bad:
+        fix = "re-run deploy/install.sh (it makes the missing passwords and starts every container again)"
+        return Check(name, "FAIL" if strict else "WARN", f"{'; '.join(bad)}; {fix}")
+    return Check(name, "PASS", f"{len(roles)} service roles, each container its own password only; {seen}")
 
 
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
@@ -902,7 +1128,10 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_backup,
     check_key_custody,
     check_clock,
+    check_ops_runner,
+    check_audit_heads,
     check_memory_caps,
+    check_db_passwords,
 )
 
 
