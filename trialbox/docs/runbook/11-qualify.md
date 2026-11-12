@@ -11,7 +11,11 @@ that card's profile. G1b runs through this command. It costs nothing by itself: 
    record taken on the box names its sha256 (`chat_template_sha256`).
 2. The working tree is clean at the commit you want to qualify.
 3. Have these at hand:
-   - the two weight folders (for the licence file check);
+   - the two weight folders (for the licence file check). A build whose source holds no licence file (the
+     registry says `licence_file: none-in-source`; today the judge) is checked against its licence register row,
+     and its folder stays as published: put the licence text beside it, in `deploy/models/licences/<folder>/LICENSE`
+     (never into the weight folder: the pin is the digest of every file there). This holds for the flat
+     `deploy/models/<folder>` layout; beside a model cache's snapshot the text is not looked for (D-565);
    - the model servers' log files, for example `docker logs <server> > /tmp/judge.log 2>&1`;
    - the gateway's audit folder;
    - the result files of the three evidence steps, each written at the same commit: N-12 (`tools/trec_ct_eval.py`),
@@ -34,7 +38,10 @@ Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say 
 - Promote each build of the pair (D-358): `python -m tools.pin_model --promote <build> --record <record>`. It refuses
   a record that does not qualify PRODUCTION or that qualified other weights than the pinned ones. Then restart the
   gateway in PRODUCTION. Before the promotion a PRODUCTION gateway refuses the pair with `champion_unqualified` (or
-  `no_eligible_build` for a candidate); run the qualification with the box's gateway in TEST (its calls are D0).
+  `no_eligible_build` for a candidate). A build on a local model server whose context is unknown is refused with
+  `context_unknown` (LLM-007, D-568): the registry row names it, or `pin_model --install` writes the server's
+  length (`JUDGE_MAX_LEN`, `VERIFIER_MAX_LEN`) into the pin, or by hand `pin_model --build <build> --model-dir
+  <folder> --context N`; run the qualification with the box's gateway in TEST (its calls are D0).
 - Commit the record with the pull request that pins the pair.
 - **A record for a site (HW-003, D-569).** Copy a record taken with real weights on the vendor's card into
   `deploy/qualification/<profile>/` in the release. On a box the install then promotes the pinned pair when the
