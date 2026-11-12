@@ -308,6 +308,8 @@ class Ssmix2Source:
         self._cm: set[str] | None = None
         self.missed: Counter[str] = Counter()  # "diagnosis:<標準病名 code>", "medication:<YJ code>"
         self.stats: Counter[str] = Counter()  # messages and documents read, by type and outcome
+        # NEW-DIN-4: (patient, type, order number, day) of an order number's later days (not its first)
+        self._later_days: set[tuple[str, str, str, str]] = set()
         self._index: dict[str, list[StoredFile]] | None = None
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
@@ -325,10 +327,20 @@ class Ssmix2Source:
                     sf = parse_name(f)
                     if sf is None or not f.is_file():
                         continue
-                    key = (sf.patient, sf.type, sf.order, sf.day if sf.order == "-" else "")
+                    # NEW-DIN-4 (DIN-004): the day is part of the key. An order number a hospital uses again on
+                    # another day is another order; without the day the later one replaced the earlier
+                    key = (sf.patient, sf.type, sf.order, sf.day)
                     cur = latest.get(key)
                     if cur is None or sf.stamp > cur.stamp:
                         latest[key] = sf
+            days: dict[tuple[str, str, str], set[str]] = {}
+            for patient, typ, order, day in latest:
+                if order != "-":
+                    days.setdefault((patient, typ, order), set()).add(day)
+            for (patient, typ, order), seen in days.items():
+                if len(seen) > 1:  # counted so the site check shows whether its numbers repeat
+                    self.stats[f"{typ}:order number used on another day"] += 1
+                    self._later_days |= {(patient, typ, order, d) for d in sorted(seen)[1:]}
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
             for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
@@ -361,6 +373,13 @@ class Ssmix2Source:
                 for row in rows:
                     row.pop("_same", None)
                     yield row
+
+    def _order_on_its_day(self, sf: StoredFile) -> str:
+        """The order number for an id built from it (a result with no id of its own). On the first day a number is
+        used it is the number, as it always was (ids made before the number came back do not change); on a later
+        day it carries that day, so the two orders' results are two sets of rows."""
+        later = (sf.patient, sf.type, sf.order, sf.day) in self._later_days
+        return f"{sf.order}@{sf.day}" if later else sf.order
 
     def _messages(self, typ: str) -> Iterator[tuple[StoredFile, hl7.Message]]:
         """The current messages of one type. A file no codec reads, or that is not HL7, is quarantined (STD-020):
@@ -665,7 +684,7 @@ class Ssmix2Source:
             status = _status(_OBX_STATUS, obx.field(11))
             order = (obr.comp(3, 1) or obr.comp(2, 1)) if obr else ""
             row: Row = {
-                "lab_no": obx.comp(21, 1) or f"{sf.order}-{obx.field(1)}",
+                "lab_no": obx.comp(21, 1) or f"{self._order_on_its_day(sf)}-{obx.field(1)}",
                 "mrn": sf.patient,
                 "local_code": code,  # the lookup key (jlac10_to_loinc.csv), JLAC10 or the hospital's own code
                 "jlac10_code": jlac,
