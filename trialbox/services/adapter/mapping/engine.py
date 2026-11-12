@@ -545,7 +545,8 @@ class Mapper:
             if column not in row:  # a declared unit column the source does not have: stop, never skip the check
                 raise MappingError(f"{rs.type} from {rs.table}: unit_column {column!r} is not a column of the source")
             source_unit = lk.get("source_unit") or (lk.get("ucum") if Decimal(lk.get("factor") or "1") == 1 else None)
-            checked = labvalue.read(raw, row[column], source_unit)
+            loinc = lk.get("code") if lk.get("system") == "loinc" else None  # NEW-STD-4: IU/L as U/L for enzymes
+            checked = labvalue.read(raw, row[column], source_unit, loinc)
             if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
                 return {
                     "dataAbsentReason": {
@@ -587,7 +588,9 @@ class Mapper:
                 return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
-        unit = lk.get("ucum") or ""
+        # NEW-STD-4 (D-585): the unit is stored as its UCUM code, never as the spelling the look-up was typed in
+        # (``×10^3/μL``): the engines read the code, not the spellings of the feed
+        unit = labvalue.ucum(lk.get("ucum")) or lk.get("ucum") or ""
         q: dict[str, Any] = {"value": float(val) if val % 1 else int(val), "unit": unit}
         if comparator:
             q["comparator"] = comparator

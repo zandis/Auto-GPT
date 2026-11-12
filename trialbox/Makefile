@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: cross-card embed-start security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: cross-card embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -125,7 +125,8 @@ test-random-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
 	TB_TEST_RANDOM=1 TMPDIR="$(TB_TEST_ROOT)/tmp" uv run --frozen --no-sync --with "$(RANDOMLY)" $(NO_NETWORK) \
 		python -m pytest -p randomly $(if $(RANDOM_SEED),--randomly-seed=$(RANDOM_SEED),) $(NO_NETWORK_ARGS) \
-		-n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf"; rc=$$?; \
+		-n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf" \
+		$(SHARD_ARGS); rc=$$?; \
 	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
 
@@ -258,6 +259,12 @@ test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
+# the public corpus the public-data site reads (ENG-002, D-560; tools/public_site.py): NTCIR-16 Real-MedNLP MedTxt
+# (CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and never committed. `tools.public_e2e` and the
+# nightly job `public-e2e` need it.
+public-data:
+	PYTHONPATH=libs:services:. $(PY) -c "import tools.medtxt_eval as m; m.fetch(); print('public-data: MedTxt in', m.CACHE)"
+
 # integration or e2e (HAPI CQL and the equivalence gate against HAPI, the compose data, the database image, mail
 # through GreenMail and Mailpit, the role walk) except the egress test (root and nftables: `make test-egress`) and the
 # console POC (`make poc`, `make test-console-e2e`). TB_STRICT_SKIPS=1: a skipped test fails, so a missing stack,
