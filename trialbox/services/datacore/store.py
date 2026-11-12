@@ -42,6 +42,35 @@ CREATE TABLE IF NOT EXISTS src_record (study TEXT NOT NULL, source TEXT NOT NULL
   source_id TEXT NOT NULL, PRIMARY KEY (study, source, record))
 """
 TRIALBOX = "trialbox"
+# EDC-009 (D-582): the trail tables. ``history`` and ``subject_step``: inserts only. ``conflict``: never deleted; the
+# one UPDATE allowed closes an open conflict (``resolved`` was empty and is set) and changes no other column.
+APPEND_ONLY = ("history", "subject_step")
+_TRAIL_FUNCTIONS = (
+    "CREATE OR REPLACE FUNCTION datacore_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+    "RAISE EXCEPTION USING MESSAGE = 'datacore.' || TG_TABLE_NAME || ' is append-only', "
+    "ERRCODE = 'insufficient_privilege'; END $$",
+    "CREATE OR REPLACE FUNCTION datacore_conflict_close_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+    "IF TG_OP = 'UPDATE' AND OLD.resolved IS NULL AND NEW.resolved IS NOT NULL AND "
+    "(NEW.id, NEW.study, NEW.record, NEW.event, NEW.field, NEW.owner, NEW.source, NEW.theirs, NEW.at) = "
+    "(OLD.id, OLD.study, OLD.record, OLD.event, OLD.field, OLD.owner, OLD.source, OLD.theirs, OLD.at) AND "
+    "NEW.trialbox IS NOT DISTINCT FROM OLD.trialbox THEN RETURN NEW; END IF; "
+    "RAISE EXCEPTION USING MESSAGE = 'datacore.conflict: a row is never deleted, and a change may only close an "
+    "open conflict', ERRCODE = 'insufficient_privilege'; END $$",
+)
+_TRAIL_TRIGGERS = {
+    **{
+        f"{t}_append_only": f"CREATE TRIGGER {t}_append_only BEFORE UPDATE OR DELETE ON {t} "
+        "FOR EACH ROW EXECUTE FUNCTION datacore_append_only()"
+        for t in APPEND_ONLY
+    },
+    **{
+        f"{t}_no_truncate": f"CREATE TRIGGER {t}_no_truncate BEFORE TRUNCATE ON {t} "
+        "FOR EACH STATEMENT EXECUTE FUNCTION datacore_append_only()"
+        for t in (*APPEND_ONLY, "conflict")
+    },
+    "conflict_close_only": "CREATE TRIGGER conflict_close_only BEFORE UPDATE OR DELETE ON conflict "
+    "FOR EACH ROW EXECUTE FUNCTION datacore_conflict_close_only()",
+}
 
 
 class DataError(ValueError):
@@ -62,6 +91,23 @@ class DataCore:
         from datacore.sponsor import SCHEMA as SPONSOR
 
         self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR])  # SPONSOR: version 8 (D-435)
+        self._append_only()
+
+    def _append_only(self) -> None:
+        """EDC-009 (D-582): the trail refuses to be rewritten. ``history`` and ``subject_step`` take inserts only; a
+        ``conflict`` row is never deleted and an UPDATE may only close an open one. Made here, not in a migration,
+        because a plpgsql body holds ``;`` (``Database.migrate`` splits on it); idempotent, one maker at a time. As
+        the pre-fill's triggers (D-281), this holds against any role but a table owner who drops it (T-718)."""
+        with self._db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.datacore_append_only'))")
+            for fn in _TRAIL_FUNCTIONS:
+                tx.execute(fn)
+            have = {str(r[0]) for r in tx.fetchall(
+                "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON "
+                "n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal")}  # fmt: skip
+            for name, sql in _TRAIL_TRIGGERS.items():
+                if name not in have:
+                    tx.execute(sql)
 
     @property
     def db(self) -> Database:
