@@ -181,10 +181,13 @@ box is Linux on a workstation or a Spark. A site that wants one of these forms g
 4. **The gates of §7.5 exist**: `property` (T-737), `differential` (T-711), `scale` nightly (T-687).
 5. **Every store is enumerated** by the record inventory (as today), the erasure registry (T-727) and the role tests
    (T-718): a new table fails all three until it has its rows.
-6. **Merging.** A card merges when its own CI unit job is green on a head that contains master. Master was broken
-   twice on 2026-11-11 by merges made before that job had finished; the rule is now without exception. The integrator
-   reads each card's unit result, not only its fast jobs. CI's pull-request jobs have no pgvector and no Docker: a
-   card whose SQL needs either says where it was run.
+6. **Merging.** A card merges only after its own CI unit job is green. The integrator then merges master into the
+   branch, runs the gates and the touched tests on the merged tree, and merges; the next pull request's CI run checks
+   the combined master, and a break is fixed at once. Master was broken twice on 2026-11-11 by merges made before the
+   card's own unit job had finished; that is the part without exception. The integrator reads each card's unit
+   result, not only its fast jobs. This build machine runs as root and has directories CI lacks, which hid two
+   failures: CI is the judge. CI's pull-request jobs have no pgvector and no Docker: a card whose SQL needs either
+   says where it was run.
 7. **Review.** Safety-core cards (matching, the engines, the guard, `authz`, the prefill path, and now the decision
    path, the opt-out path and identifiers) get one automated adversarial review before merge. On 2026-11-11 and 11-12
    each of the six reviews found at least one defect the card's own tests had passed.
