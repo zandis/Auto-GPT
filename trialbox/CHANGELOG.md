@@ -11,8 +11,8 @@ new heading with the version and date, in the same pull request that sets the ve
 ## Unreleased
 
 - The opt-out register (NEW-JRN-2, D-542): a pseudonym must be typed whole (32 characters) or the chart number
-  used; the 8 characters a page shows are refused. After the save the page says which studies listed the
-  patient, or that nobody matched.
+  used; the 8 characters a page shows are refused. After the save the page says whether a listed patient
+  matched, or that nobody did.
 - Database passwords (T-712, D-481): every service clears the other roles' and the administrators' passwords in
   the base compose file, so no stack can be started with them; `trialbox doctor` has the check `db_passwords`
   (the box's `.env`, its compose files and its running containers).

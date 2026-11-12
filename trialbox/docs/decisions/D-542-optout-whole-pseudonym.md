@@ -22,13 +22,22 @@ opted out kept being screened and listed while the register showed an opt-out: a
 1. **A typed pseudonym is whole or it is refused.** 32 hexadecimal characters (`tb_common.crypto.PID_HEX_LEN`),
    after spaces are trimmed and capitals lowered. Anything else is a 400 that says: type the whole pseudonym or
    the chart number; the eight characters a page shows name no patient. The page and `/api/v1` share the rule.
-2. **The page says what matched.** For a typed pseudonym the console reads, before the opt-out removes them,
-   which studies' registries and current lists hold it. After the save the page says "The patient was on the list
-   or registry of: ..." or, when none does, a warning that no patient with this pseudonym is on a list or
-   registry of this box today. The opt-out is kept either way: a patient may opt out before any list names them.
-   `/api/v1` answers `matched` (a count). Neither gives the pseudonym back (D-273).
-3. **A chart number** is turned into the pseudonym by the box as before (capped, audited). Its match is not
-   shown: whether the box knows that patient is NEW-DIN-3 (the orchestrator answers it from the pid map).
+2. **The page says whether a listed patient matched.** For a typed pseudonym the console reads, before the
+   opt-out removes them, whether any study's registry or current list holds it. After the save the page says "A
+   patient with this pseudonym was on a list or registry of this box" or, when none does, a warning that no
+   patient with this pseudonym is on a list or registry of this box today. The opt-out is kept either way: a
+   patient may opt out before any list names them. `/api/v1` answers `matched` (true or false) when the opt-out
+   changed something. Since the adversarial review:
+   - **No study is named** and nothing but "yes" or "no" travels in the redirect: the keeper of the register
+     reads no study's list, and may be limited to other studies.
+   - **It is a lookup, so it is counted and recorded.** "Is this pseudonym a listed patient" is asked at most
+     `TB_OPTOUT_LOOKUPS_PER_HOUR` times per person and hour (the chart-number lookups' limit, a declared
+     setting); past it the opt-out is still taken, with no note. The `console.opt_out` event carries
+     `match_shown`.
+   - **When a study could not be read, nothing is said** (the first version said "nobody matched").
+3. **A chart number** is turned into the pseudonym by the box as before (capped, audited) and gets the plain
+   answer with no note: whether the box knows that patient is NEW-DIN-3 (the orchestrator answers it from the
+   pid map). A whole pseudonym typed into the chart-number field is refused: hashed again it would name nobody.
 4. **Old rows.** A register row made before this rule for a short text names nobody. Its "take back" on the page
    still works (the form posts the row's own text, and a lift is accepted for a text that is on the register);
    nothing else is accepted short.
@@ -40,6 +49,12 @@ opted out kept being screened and listed while the register showed an opt-out: a
 - It does not resolve a unique short form to its patient (the finding's other suggestion): that would turn the
   register into a lookup by prefix, which D-273 keeps out.
 - It does not clean old short rows by itself; the keeper sees them on the register and takes them back.
+- A chart number that is not a patient of this box is still recorded and answered "Recorded: ... removed"
+  (JRN-002 on the chart path): NEW-DIN-3's console half closes it.
+- The match is read for the typed pseudonym only: for a chart merged into another (`optout.effective()`), the
+  survivor leaves the lists while the note may say that nobody matched.
+- The read costs one job listing and two registry reads per study, before the write, and waits for an
+  orchestrator that hangs (the client's timeout). A typed opt-out did not need the orchestrator before.
 - The shared library (`tb_common.optout`) still accepts 8 to 64 characters: other writers (the restore, the
   adapter's own register feed) are not changed here.
 
