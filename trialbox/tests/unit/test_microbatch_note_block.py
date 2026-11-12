@@ -75,7 +75,10 @@ def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> st
         ),
         services=SimpleNamespace(
             lake=SimpleNamespace(
-                snapshot=lambda: "2026-10-05", query=lambda *a, **kw: SimpleNamespace(to_pylist=lambda: [appt])
+                snapshot=lambda: "2026-10-05",
+                query=lambda sql, *a, **kw: SimpleNamespace(  # no consent statement (D-477); the visit otherwise
+                    to_pylist=lambda: [] if "consent" in sql else [appt]
+                ),
             ),
             llm=llm,
             verifier=verifier,

@@ -33,11 +33,11 @@ from tb_contracts import CriterionVerdict, Evidence, Opinion
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx
+from orchestrator.decision_context import decision_of
 from orchestrator.scenarios.evaluate import (
     MAX_JUDGE_FAILURE_SHARE,
     NoteJudge,
     PatientVerdicts,
-    effective_note_block,
     not_in_snapshot,
 )
 from orchestrator.twophase import two_phase
@@ -362,7 +362,8 @@ def screen_with_cascade(
     ``fail`` sends the patient to review and never out. Screening spends its tokens: every zero-hit pair goes to
     the judge (``absence_semantics=False``), nobody is sampled."""
     judge = OrchestratorJudge.from_note_judge(note_judge) if note_judge is not None else None
-    may_block, _policy, _why = effective_note_block(note_judge)
+    decision = decision_of(ctx)
+    may_block = decision.note_block(note_judge).may_block
     from embed_service.embedder import HashEmbedder
 
     source = s2b_source(ctx.services.lake, snapshot, job_vec_s2b(ctx))  # once per job (D-449)
@@ -382,6 +383,7 @@ def screen_with_cascade(
         absence_semantics=False,
         max_llm_items=max_pairs,
         llm_concurrency=llm_concurrency(),
+        registry=lambda: decision.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
     )
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge

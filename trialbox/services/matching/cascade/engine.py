@@ -40,6 +40,7 @@ from typing import Any
 
 from criteria_compiler.compile_sql.overlay import safe_sql
 from tb_common.labunit import reason_of as derived_reason
+from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
@@ -133,6 +134,9 @@ class CascadeConfig:
     population: Sequence[str] | None = None
     note_block: bool = True
     absence_semantics: bool = True
+    # T-708 (D-477): the consent state of S0, given by the caller's decision context (the orchestrator). None: a
+    # caller with no job (a tool) and S0 reads the lake by the same rule (``tb_common.optout.registry_state``).
+    registry: Callable[[], RegistryState | None] | None = None
 
 
 @dataclass
@@ -270,7 +274,8 @@ WHERE EXISTS (SELECT 1 FROM encounter e WHERE e.pid = p.pid
               AND CAST(e.start AS DATE) BETWEEN CAST($1 AS DATE) AND CAST($2 AS DATE))
 ORDER BY p.pid
 """
-CONSENT_SQL = "SELECT pid, status, contact_ok FROM consent ORDER BY pid, date"
+#: the consent query of S0: the registry's one rule (T-708, D-477); the name the stand-in lakes of the tests know
+CONSENT_SQL = REGISTRY_SQL
 
 
 def missing_table(exc: BaseException, table: str) -> bool:
@@ -371,25 +376,24 @@ class _Run:
         else:
             rows = self.lake.query(POP_SQL, [pop_from.isoformat(), idx[-1].isoformat()], cfg.snapshot).to_pylist()
             population = f"≥1 encounter {pop_from.isoformat()}…{idx[-1].isoformat()}"
-        consent: dict[str, tuple[str, bool | None]] = {}
-        try:
-            for r in self.lake.query(CONSENT_SQL, [], cfg.snapshot).to_pylist():
-                consent[str(r["pid"])] = (str(r["status"] or ""), r["contact_ok"])
-        except Exception as exc:
-            # only a lake that has no consent table at all has no opt-outs to apply; any other failure stops the
-            # run, because skipping opt-outs would list patients who said no (D-127, review F-04)
-            if not missing_table(exc, "consent"):
-                raise
-            consent = {}
+        # T-708 (D-477, review M2): one consent rule on every path. The patient's latest statement on or before the
+        # index date decides, an undated one is the oldest, one entered in error is none, ties of a day fail closed
+        # (``tb_common.optout.registry_rule``). Only a lake that has no consent table at all has no opt-outs to
+        # apply; any other failure stops the run, because skipping opt-outs would list patients who said no (D-127,
+        # review F-04)
+        state = (
+            cfg.registry() if cfg.registry is not None else registry_state(self.lake, cfg.snapshot, idx[-1].isoformat())
+        )
+        refused = state.refused if state is not None else frozenset()
+        no_contact = state.no_contact if state is not None else frozenset()
         opted_out = 0
         for r in rows:
             pid = str(r["pid"])
-            status, contact = consent.get(pid, ("", None))
             t = PatientTrace(pid=pid, index_date=idx[-1], department=r.get("dept"))
-            if status == "rejected":
+            if pid in refused:
                 t.in_scope, t.scope_reason = False, "research-use opt-out (FHIR Consent rejected)"
                 opted_out += 1
-            t.contact_ok = contact is not False
+            t.contact_ok = pid not in no_contact
             self.traces[pid] = t
         n_scope = sum(1 for t in self.traces.values() if t.in_scope)
         self.metrics.n_scope = n_scope

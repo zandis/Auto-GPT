@@ -35,6 +35,7 @@ from tb_contracts import CohortTable, schema_errors
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.db import JobDB
+from orchestrator.decision_context import decision_of
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import report_meta, small_cell
 from orchestrator.scheduler import require_open
@@ -103,7 +104,8 @@ def population_id(rs: Ruleset) -> str:
 def items_at(ctx: Ctx, rs: Ruleset, index: date, snapshot: str | None = None) -> list[Item]:
     rows = ctx.services.lake.query(safe_sql(rs), [[index.isoformat()], None], snapshot).to_pylist()
     pop = population_id(rs)
-    p_rows = [r for r in rows if r.get(f"C_{pop}") is True]
+    gone = decision_of(ctx).uncounted()  # D-477 (OD-8, CR-026): the register and the registry's refusals
+    p_rows = [r for r in rows if r.get(f"C_{pop}") is True and r["pid"] not in gone]
     out = [Item(pop, _label(rs, pop), {r["pid"] for r in p_rows})]
     for c in rs.ordered():
         if c.id == pop or c.class_ != "structured" or (c.review and c.review.status == "rejected"):
@@ -127,29 +129,12 @@ def contactable_pids(ctx: Ctx, index: date, snapshot: str | None = None) -> set[
     The patient's latest consent record on or before ``index`` decides (an undated one counts as the oldest): a
     later withdrawal (``inactive``, ``rejected``) ends an earlier ``active`` consent. A record entered in error is
     not a statement."""
-    from matching.cascade.engine import missing_table
-
     reg = ctx.cfg.settings.registry_source
     if reg is None or reg.type == "none":
         return None
-    try:
-        rows = ctx.services.lake.query(
-            "SELECT pid, status, contact_ok FROM consent WHERE coalesce(status, '') <> 'entered-in-error' "
-            "AND (date IS NULL OR date <= CAST($1 AS DATE)) "
-            # D-441 (review MED-2): dates are whole days; of two statements on one day the not-contactable one is
-            # taken (it sorts last), so a same-day withdrawal or refusal is never read as contactable
-            "ORDER BY pid, date NULLS FIRST, coalesce(status = 'active' AND contact_ok, false) DESC",
-            [index.isoformat()],
-            snapshot,
-        ).to_pylist()
-    except Exception as exc:
-        if not missing_table(exc, "consent"):  # only a lake without a consent table (registry never ingested)
-            raise
-        return None
-    latest: dict[str, bool] = {}
-    for r in rows:
-        latest[r["pid"]] = r["status"] == "active" and bool(r["contact_ok"])
-    return {p for p, ok in latest.items() if ok}
+    # D-477: the one consent rule, read through the job's context (D-441 MED-2: of two statements on one day the
+    # not-contactable one is taken, so a same-day withdrawal or refusal is never read as contactable)
+    return decision_of(ctx).contactable(index, snapshot)
 
 
 def table_rows(

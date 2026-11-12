@@ -46,6 +46,7 @@ from tb_contracts import CriterionIR, CriterionVerdict, Evidence, ParseRequest, 
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
+from orchestrator.decision_context import decision_of
 from orchestrator.i18n import detect_lang
 from orchestrator.reports import case_html
 from orchestrator.scenarios.evaluate import (
@@ -201,9 +202,8 @@ def refuse_opted_out(ctx: Ctx, pid: str | None) -> None:
     received. The refusal is audited without the pseudonym; the requester typed the chart number and is told why."""
     if pid is None:
         return
-    from tb_common.optout import opted_out
-
-    if pid in opted_out(as_of=ctx.job.received_at.isoformat()):
+    d = decision_of(ctx)
+    if pid in d.register() or pid in d.refused():  # D-477: a registry refusal as the register (the worker copies it)
         ctx.orch.audit.append("case.opt_out_refused", job_id=ctx.job.job_id, ruleset=ctx.job.ruleset,
                               detail={"register": "optout"})  # fmt: skip
         raise StepFailed("received", "This patient opted out of research use: no eligibility sheet is made.")

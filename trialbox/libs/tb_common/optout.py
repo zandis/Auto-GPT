@@ -45,8 +45,8 @@ REGISTRY_SQL = (
     "SELECT pid, status, contact_ok FROM consent WHERE coalesce(status, '') <> 'entered-in-error' "
     "AND (date IS NULL OR date <= CAST($1 AS DATE)) "
     "ORDER BY pid, date NULLS FIRST, CASE status WHEN 'active' THEN 0 WHEN 'rejected' THEN 2 ELSE 1 END, "
-    "coalesce(contact_ok, true) DESC"
-)
+    "coalesce(contact_ok, true) DESC, coalesce(contact_ok, false) DESC"
+)  # the last key (D-477): of two same-day statements one that does not say "contact allowed" sorts after one that does
 
 SCHEMA_V1 = """
 CREATE TABLE optout_events (
@@ -199,11 +199,13 @@ class OptOutRegister:
 class RegistryState:
     """What the hospital's registry says now, per patient, by the latest statement: ``refused`` (FHIR Consent
     ``rejected``: no research use), ``no_contact`` (a latest statement that denies contact) and ``consenting`` (a
-    latest ``active`` statement: the only one that may lift the registry's own opt-out)."""
+    latest ``active`` statement: the only one that may lift the registry's own opt-out). ``contactable`` (D-477):
+    a latest ``active`` statement that allows contact, COHORT's ``n_contactable``."""
 
     refused: frozenset[str]
     no_contact: frozenset[str]
     consenting: frozenset[str] = frozenset()
+    contactable: frozenset[str] = frozenset()
 
 
 def registry_rule(rows: list[tuple[str, str, bool | None]]) -> RegistryState:
@@ -216,6 +218,7 @@ def registry_rule(rows: list[tuple[str, str, bool | None]]) -> RegistryState:
         frozenset(p for p, (st, _) in last.items() if st == "rejected"),
         frozenset(p for p, (_, ok) in last.items() if ok is False),
         frozenset(p for p, (st, _) in last.items() if st == "active"),
+        frozenset(p for p, (st, ok) in last.items() if st == "active" and ok is True),
     )
 
 

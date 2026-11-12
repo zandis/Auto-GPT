@@ -544,7 +544,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if "screen" not in stand(sess.user, rid).tasks:
             raise deny(sess, path)
         ref = team.referral(rid, ref_id)
-        if ref is None or ref.pid in optout.active():
+        if ref is None or ref.pid in optout.effective():
             raise h.problem(404, "notfound")
         return rid, ref
 
@@ -587,7 +587,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         s = stand(sess.user, rid)
         if "screen" not in s.tasks:
             raise deny(sess, request.url.path)
-        on = optout.active()
+        on = optout.effective()
         refs = [r for r in team.referrals(rid) if r.pid not in on]
         latest = team.latest_referrals(rid)
         open_refs = [r for r in refs if r.open and latest[r.pid].id == r.id]
@@ -768,7 +768,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         rec = team.irb(rid)
-        on = optout.active()
+        on = optout.effective()
         # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
         overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
@@ -827,7 +827,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         for re-consent, with their screening numbers; opted-out patients are left out."""
         day = today()
         out = s28.call(bk, "GET", f"/studies/{rid}/subjects?today={day.isoformat()}")
-        on = optout.active()
+        on = optout.effective()
         subs = [x for x in out.get("subjects") or [] if str(x.get("pid") or "") not in on]
         due = reconsent_due(subs, [v.as_row() for v in team.icf_list(rid)], day)
         nos = store.screening_nos(rid)
@@ -1119,7 +1119,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = api(request)
         rid = study_or_404(sess, rs)
         need_task(sess, rid, "screen", request.url.path)
-        on = optout.active()
+        on = optout.effective()
         nos = store.screening_nos(rid)
         return [ref_json(r, nos) for r in team.referrals(rid) if r.pid not in on]
 

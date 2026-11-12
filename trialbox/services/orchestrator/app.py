@@ -422,9 +422,9 @@ def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
                        detail={"pid": req.pid, "reason": "not on this job's list"})  # fmt: skip
         raise HTTPException(status_code=403, detail="this patient is not on this job's list")
     # D-273 (PV-4): never the chart number of a patient on the opt-out register now, whatever the job's age
-    from tb_common.optout import opted_out
+    from orchestrator.decision_context import register_now
 
-    if req.pid in opted_out():
+    if req.pid in register_now():
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "opted out"})  # fmt: skip
         raise HTTPException(status_code=403, detail="this patient opted out")

@@ -41,9 +41,10 @@ from tb_contracts import CandidateList, CandidateRow, CriterionVerdict, Judging,
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
+from orchestrator.decision_context import decision_of
 from orchestrator.reports import screen_summary_pdf
 from orchestrator.reports.candidate_xlsx import Change
-from orchestrator.scenarios.evaluate import PatientVerdicts, effective_note_block, row, sort_key, tier
+from orchestrator.scenarios.evaluate import PatientVerdicts, row, sort_key, tier
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,
@@ -206,6 +207,8 @@ def run(ctx: Ctx) -> Outcome:
         )
     pool_pids = {p["pid"] for p in pool}
     kept = {s.pid for s in drop_opted_out(ctx, every)}  # D-147: the opt-out register applies to every list
+    # D-477: and the consent rule of SCREEN (a refusal or a contact denial since the row was stored)
+    kept -= decision_of(ctx).consent_off_lists(kept, "screen.opt_out_removed", where="pool")
     pool = [p for p in pool if p["pid"] in kept]
     week = {s.pid: s for s in every if s.pid in kept and s.pid in appts}
     ts = {c.id for c in rs.active() if c.time_sensitive and c.kind in ("inclusion", "exclusion")}
@@ -216,7 +219,7 @@ def run(ctx: Ctx) -> Outcome:
     t = threshold(ctx, rs)
     # the same note-block decision as SCREEN: no verifier, one model twice or a shut canary gate never exclude
     # on a note answer (D-276, review F-01; before, the re-tier below used the configured policy alone)
-    may_block = effective_note_block(judge_for(ctx, rs))[0]
+    may_block = decision_of(ctx).note_block(judge_for(ctx, rs)).may_block
     pool_rows: list[CandidateRow] = []
     changes: list[Change] = []
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
@@ -261,7 +264,7 @@ def run(ctx: Ctx) -> Outcome:
     used = len(recheck)
 
     # ---------------------------------------------------------------- new in-scope patients (D-397)
-    judging: dict[str, Any] | None = judging_info(judge_for(ctx, rs)) if recheck else None
+    judging: dict[str, Any] | None = judging_info(judge_for(ctx, rs), ctx) if recheck else None
     new_rows: list[CandidateRow] = []
     screened: list[str] = []
     carried = 0
