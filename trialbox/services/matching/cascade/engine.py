@@ -72,7 +72,7 @@ from matching.cascade.s2b_semantic import (
     screen,
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
-from matching.excerpts import sentences
+from matching.excerpts import sentences as sentences  # the name callers of before T-710 import from here
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.stored_scores import apply_rows
 
