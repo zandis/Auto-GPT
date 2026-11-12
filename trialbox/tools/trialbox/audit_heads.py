@@ -229,8 +229,9 @@ def sign_local(env: Mapping[str, str]) -> Night:
 
 def report(night: Night, targets: int) -> int:
     if night.signed:
-        print(f"signed head: event {night.signed['lines']} ({str(night.signed['hash'])[:16]}…), key "
-              f"{night.signed['key_id']}, {(night.detail or {}).get('anchors', 0)} of {targets} anchor folders")  # fmt: skip
+        head, took = night.signed, (night.detail or {}).get("anchors", 0)
+        print(f"signed head: event {head['lines']} ({str(head['hash'])[:16]}…), key {head['key_id']}, "
+              f"{took} of {targets} anchor folders")  # fmt: skip
     elif night.ok:
         print("signed head: the audit chain has no event yet; nothing to sign")
     for p in night.problems:
