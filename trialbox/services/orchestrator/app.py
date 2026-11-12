@@ -40,6 +40,7 @@ from tb_common.service_auth import (
 )
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
+from orchestrator import actor as route_actor
 from orchestrator.callers import Gate
 from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -167,6 +168,9 @@ def _queue() -> dict[str, Any]:
 # T-713 (D-464): which verified service reaches which route is one table (route_callers.yaml), enforced right after the
 # token check; a refusal is 403 with a named reason and audited with the verified service.
 CALLER_GATE = Gate(load_callers(), lambda: orch().audit)
+route_actor.bind(lambda: orch().audit)  # T-715 (D-483): where a refused person is recorded
+#: the stage before `require_actor` (route_actors.yaml): a changing call without a v3 assertion is counted
+REPORT = [route_actor.report_actor]
 app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
 
 
@@ -586,7 +590,7 @@ def study_service_of(o: Orchestrator) -> StudyService:
     return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o), core_of(o))
 
 
-app.include_router(study_router(lambda: study_service_of(orch())))
+app.include_router(study_router(lambda: study_service_of(orch())), dependencies=REPORT)
 
 # ---------------------------------------------------------------------------- TrialBox's own data core (D-123)
 _cores: dict[str, Any] = {}
@@ -613,7 +617,7 @@ def data_service_of(o: Orchestrator) -> Any:
     return DataService(core, o.audit, lambda: _now(o), studies.client, site_key, registry_of(o))
 
 
-app.include_router(datacore_router(lambda: data_service_of(orch())))
+app.include_router(datacore_router(lambda: data_service_of(orch())), dependencies=REPORT)
 app.include_router(lifecycle_router(lambda: data_service_of(orch())))  # TB-PLAN-04 step 5 (D-134)
 app.include_router(sponsor_router(lambda: data_service_of(orch())))  # the sponsor layout and weekly sheet (D-435)
 
@@ -697,7 +701,8 @@ app.include_router(
         lambda rid: records_info(orch(), rid),
         lambda rid: approved_of(orch(), rid),
         lambda: real_data(orch()),
-    )
+    ),
+    dependencies=REPORT,
 )
 
 # ---------------------------------------------------------------------------- EDC prefill (D-160)
@@ -763,7 +768,7 @@ def registry_events(ruleset: str, pid: str | None = None) -> list[RegistryEvent]
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/registry/{ruleset}")
+@app.post("/registry/{ruleset}", dependencies=REPORT)
 def registry_update(ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
     o = orch()
     try:
@@ -772,7 +777,7 @@ def registry_update(ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/registry/{ruleset}/promote")
+@app.post("/registry/{ruleset}/promote", dependencies=REPORT)
 def registry_promote(ruleset: str, req: RegistryPromote) -> dict[str, int]:
     o = orch()
     from tb_common.ruleset import RulesetNotApproved, load_approved
@@ -825,3 +830,5 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
 
 
 CALLER_GATE.bind(app)  # T-713 (D-464): every route is included above; the gate compiles them once, here
+# T-715 (D-483): and every changing route takes its person as route_actors.yaml says, or the service does not start
+route_actor.assert_staged(app, CALLER_GATE.table.group_of)

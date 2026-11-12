@@ -31,7 +31,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.authz import permit
 
-from console import s28
+from console import actor, s28
 from console import studies as st
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
@@ -134,12 +134,17 @@ def screening_map(store: Any, rs: str) -> dict[str, str]:
     return {no: pid for pid, no in store.screening_nos(rs).items()}
 
 
-def read_now(h: Helpers, rs: str, by: str) -> dict[str, Any]:
-    """Run now and the nightly job: the orchestrator reads REDCap through the study's link and updates the log."""
+def read_now(h: Helpers, rs: str, by: str, sess: Any = None) -> dict[str, Any]:
+    """Run now and the nightly job: the orchestrator reads REDCap through the study's link and updates the log.
+    T-715 (D-483): the call is signed, by the person who pressed "run now" (``sess``) or as the nightly timer, so
+    that the participants' steps the read derives name a verified actor."""
     issued = {no: at for _pid, no, at in h.store.screening_rows(rs)}
     body = {"screening": screening_map(h.store, rs), "issued": issued, "by": by}
-    out = s28.call(h.bk, "POST", f"/studies/{rs}/redcap-read", body)
-    return dict(out)
+    path = f"/studies/{rs}/redcap-read"
+    if sess is not None:
+        return dict(actor.call(h, sess, "request.prepare", rs, "POST", path, body))
+    headers = actor.assert_service(actor.NIGHTLY, "request.prepare", rs, "POST", path, body)
+    return dict(s28.call(h.bk, "POST", path, body, headers=headers))
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -269,7 +274,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             # T-629 (FIT-U06): a study type of another country would select another country's reporting table
             return setup_page(request, sess, rid, err={"code": "SAE-COUNTRY", "msg": country, "fields": ""})
         try:
-            s28.call(bk, "PUT", f"/studies/{rid}/sae-rule", {"rule_set": rule_set.strip()[:40], "by": h.actor(sess)})
+            actor.call(h, sess, "study.setup", rid, "PUT", f"/studies/{rid}/sae-rule",
+                       {"rule_set": rule_set.strip()[:40]})  # fmt: skip
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         detail = {"section": "sae", "rule_set": rule_set[:40]}
@@ -285,11 +291,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         need_edit(request, sess, csrf)
         try:
-            body = {"max_attempts": int(max_attempts), "min_days": int(min_days), "by": h.actor(sess)}
+            body = {"max_attempts": int(max_attempts), "min_days": int(min_days)}
         except ValueError:
             raise h.problem(400, "request.refused", reason="attempts and days are whole numbers") from None
         try:
-            s28.call(bk, "PUT", f"/studies/{rid}/contact-rule", body)
+            actor.call(h, sess, "study.setup", rid, "PUT", f"/studies/{rid}/contact-rule", body)
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         au.append(
@@ -464,7 +470,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         target = f"/studies/{rid}/screening-log" if back == "log" else f"/studies/{rid}/setup"
         try:
-            out = read_now(h, rid, h.actor(sess))
+            out = read_now(h, rid, h.actor(sess), sess)
         except (Problem, Unavailable) as exc:
             e = err_of(exc)
             return RedirectResponse(f"{target}?rc_err={quote(e['code'])}#redcap", status_code=303)
