@@ -133,8 +133,10 @@ def test_a_monitor_grant_says_which_field_is_missing_and_has_a_visit_field(box: 
 
 
 def test_the_admin_page_names_the_reference_sources_in_japanese(
-    box: dict[str, Any], db_url: str, tmp_path: Path
-) -> None:  # noqa: F811
+    box: dict[str, Any],  # noqa: F811
+    db_url: str,
+    tmp_path: Path,
+) -> None:
     from tb_common import refdata as rd
 
     from tools import refdata_fetch as rf
