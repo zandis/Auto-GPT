@@ -554,7 +554,14 @@ if [ "$CAN_CRON" = 1 ]; then
   python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
-  [ "$rc" = 0 ] || die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
+  if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
+    die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
+  elif [ "$rc" != 0 ]; then
+    # OPS-003 (D-566): a box has no alert route yet (no mail relay on a fresh host). A stop here is a stop before
+    # the wizard; a FAIL line leaves the stack running, and box-install.sh goes on to the first-run code and
+    # installs the schedule again after the owner's answers
+    FAILS+=("the backup schedule is not installed yet (above): box-install.sh installs it again after the first-run set-up; if it is still missing then: python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)")
+  fi
 else
   echo "install: warning: the backup cron is not installed (needs root, /etc/cron.d and python3): python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)" >&2
 fi
