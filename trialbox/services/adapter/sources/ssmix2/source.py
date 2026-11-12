@@ -176,12 +176,26 @@ def _lookup(path: Path, key: str, field: str) -> dict[str, str]:
         return {r[key]: r[field] for r in csv.DictReader(fh) if r.get(key) and r.get(field)}
 
 
+def _triples(seg: hl7.Segment, n: int) -> list[tuple[str, str, str]]:
+    """``(code, text, coding system)`` of every triple of a coded field: the primary and the alternate triple of
+    each repetition, in order. The system's name is given without blanks and in upper case (vendors write ``i10``,
+    ``Hot9``); a triple with neither code nor text is left out."""
+    out: list[tuple[str, str, str]] = []
+    for rep in seg.reps(n):
+        for at in (1, 4):
+            code, text = hl7.Segment.rep_comp(rep, at), hl7.Segment.rep_comp(rep, at + 1)
+            if code or text:
+                out.append((code, text, hl7.Segment.rep_comp(rep, at + 2).strip().upper()))
+    return out
+
+
 def _suspected(prb: hl7.Segment) -> bool:
     """A suspected diagnosis: PRB-13 ``1^疑いあり^JHSD0005`` (any coding system name, as vendors vary), or a 病名
-    whose text carries the 修飾語 "の疑い" / "疑い" when the vendor sends no flag."""
-    flag, text, system = prb.comp(13, 1).strip(), prb.comp(13, 2), prb.comp(13, 3).strip().upper()
-    if (flag == "1" and system in ("", "JHSD0005")) or "疑いあり" in text:
-        return True
+    whose text carries the 修飾語 "の疑い" / "疑い" when the vendor sends no flag. The flag is read from whichever
+    triple names table JHSD0005 (or names no table): a hospital's own code may stand first."""
+    for flag, text, system in _triples(prb, 13):
+        if (flag.strip() == "1" and system in ("", "JHSD0005")) or "疑いあり" in text:
+            return True
     return "疑い" in prb.comp(3, 2)
 
 
@@ -194,18 +208,23 @@ def _alt(seg: hl7.Segment, n: int, systems: tuple[str, ...]) -> str:
 
 
 def drug_codes(seg: hl7.Segment, n: int) -> dict[str, str]:
-    """``{yj, hot, atc, name}`` from a drug CWE (RXE-2, RXA-5): the primary code and the alternate, by coding system.
-    A primary code with no recognised system is taken as the YJ / local drug code, as OMP-01 always was."""
+    """``{yj, hot, atc, name}`` from a drug CWE (RXE-2, RXA-5): each code by the coding system its triple names,
+    whatever the case of the name. A first code whose system is none of them (none at all, or a hospital's own
+    ``99xxx``) is the YJ / local drug code, as OMP-01 always was, unless another triple names a YJ code."""
     out = {"yj": "", "hot": "", "atc": "", "name": seg.comp(n, 2)}
-    for i, (code, system) in enumerate(((seg.comp(n, 1), seg.comp(n, 3)), (seg.comp(n, 4), seg.comp(n, 6)))):
+    local = ""
+    for i, (code, _text, system) in enumerate(_triples(seg, n)):
         if not code:
             continue
         if system in _ATC_SYS:
             out["atc"] = out["atc"] or code
         elif system in _HOT_SYS:
             out["hot"] = out["hot"] or code
-        elif system in _YJ_SYS or i == 0:
+        elif system in _YJ_SYS:
             out["yj"] = out["yj"] or code
+        elif i == 0:
+            local = code
+    out["yj"] = out["yj"] or local
     return out
 
 
@@ -572,13 +591,16 @@ class Ssmix2Source:
         enc = pv1.comp(19, 1) if pv1 else ""
         for prb in msg.all("PRB"):
             code = prb.comp(3, 1)
-            # NEW-DIN-5 (DIN-005): the ICD-10 code is in whichever triple names ICD-10. The standard puts the 病名
-            # code first and ICD-10 second; a vendor that sends ICD-10 first used to get a diagnosis with no code
-            named = prb.comp(3, 3).strip().upper() in _ICD10_SYS  # the first triple says it is ICD-10
-            first = who_icd10(code) if named else ""
-            if not _WHO_SHAPE.match(first):
-                first = ""  # called ICD-10 and not one: never passed on, and it does not hide a good second triple
-            icd = first or who_icd10(_alt(prb, 3, _ICD10_SYS)) or ("" if named else self._icd(code))
+            # NEW-DIN-5 (DIN-005): the ICD-10 code is in whichever triple names ICD-10: the standard puts the 病名
+            # code first and ICD-10 second, vendors differ, and some send it as a second repetition. A triple that
+            # is called ICD-10 and is not a code of that shape is never passed on and hides no later one
+            triples = _triples(prb, 3)
+            named = bool(triples) and triples[0][2] in _ICD10_SYS  # the first triple says it is ICD-10
+            icd = next((c for c in (who_icd10(t[0]) for t in triples if t[2] in _ICD10_SYS) if _WHO_SHAPE.match(c)), "")
+            if not icd:  # as before: an alternate that is called ICD-10 is passed on as written
+                icd = who_icd10(_alt(prb, 3, _ICD10_SYS)) or ("" if named else self._icd(code))
+            if len(prb.reps(3)) > 1:
+                self.stats["PPR-01:PRB-3 repeated"] += 1  # one diagnosis is made of it; the site check shows it
             if not icd:
                 self.missed[f"diagnosis:{code}"] += 1
             yield {
@@ -691,9 +713,12 @@ class Ssmix2Source:
             if seg.name != "OBX":
                 continue
             obx = seg
-            code, system = obx.comp(3, 1), obx.comp(3, 3)
-            is_jlac = system in _JLAC_SYS or (not system and bool(_JLAC_SHAPE.match(code)))
-            jlac = code if is_jlac else ""
+            code, system = obx.comp(3, 1), obx.comp(3, 3).strip().upper()
+            # the JLAC10 code is in whichever triple names it (a hospital's own code may stand first); with no
+            # system at all, a first code of the JLAC10 shape is one, as before
+            jlac = next((c for c, _t, sysname in _triples(obx, 3) if c and sysname in _JLAC_SYS), "")
+            if not jlac and not system and _JLAC_SHAPE.match(code):
+                jlac = code
             times = (
                 ("OBX-14", hl7.ts(obx.field(14))),
                 ("OBR-7", hl7.ts(obr.field(7)) if obr else None),
@@ -710,7 +735,7 @@ class Ssmix2Source:
                 "mrn": sf.patient,
                 "local_code": code,  # the lookup key (jlac10_to_loinc.csv), JLAC10 or the hospital's own code
                 "jlac10_code": jlac,
-                "hosp_lab_code": "" if is_jlac else code,
+                "hosp_lab_code": "" if jlac == code else code,  # the first code, when it is the hospital's own
                 "item_name": obx.comp(3, 2),
                 "result_value": obx_value(obx),
                 "unit": obx.comp(6, 1),
