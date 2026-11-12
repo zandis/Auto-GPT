@@ -21,13 +21,14 @@
 2. **The night's resources are not held.** `adapter.pipeline` writes every mapped resource to the spool as it is
    mapped, and each source table's normalized rows to a file it reads back for each pass (`_TableRows`); the
    duplicate keys are counted over the keys sorted in runs. Only the data contracts (`TB_DATA_CONTRACTS`, off by
-   default) still read a table's raw rows in memory. The unit defaults, presence words, site offset and merged chart numbers are applied to each resource as
-   it is read back for writing; the validation sample, the JP Core sample, the missing-element counts and the unread
-   elements are taken from that same stream (`heapq.nsmallest` over the hash, the same resources as the sort of the
-   old code). The reports, the snapshot and the samples are the same as before.
+   default) still read a table's raw rows in memory. The unit defaults, presence words, site offset and merged chart
+   numbers are applied to each resource as it is read back for writing; the validation sample, the JP Core sample,
+   the missing-element counts and the unread elements are taken from that same stream (`validator.Sampler`: a heap
+   of the k smallest hashes per type, the same resources as the sort of the old code). The reports, the snapshot and the samples are the same as before.
 3. **The CSV read streams.** `CsvSource.rows` reads rows from the file in the detected character set, one at a time.
    A file that is not a readable CSV, or holds U+FFFD, is still quarantined before any of its rows is given (a first
-   pass parses it without keeping rows). The character-set detector still reads the file's bytes once (Open).
+   pass parses it without keeping rows). A UTF-8 file's character set is checked in chunks (`encoding.file_codec`, the same answer as
+   `encoding.decode`); a legacy character set is still decided over all of the file's bytes (Open).
 4. **The Parquet build streams.** With the lake source `legacy` (the default), the rebuild flattens each type's
    NDJSON as it reads it and writes each table's Parquet file in row groups (`pq.ParquetWriter`); the counts and the
    drop check read lines without parsing; the note chunks are made, stored and embedded in batches. Rows, order and
