@@ -73,11 +73,28 @@ RESTORE_HELD = (
 
 
 def restore_held(url: str | None = None) -> bool:
-    """True while the hold of a restore that is not complete stands (the flag is ``held``). A flag that has no row
-    or cannot be read is not a hold: the list scenarios need the same database and fail there."""
-    from tb_common.flags import read
+    """True while the hold of a restore stands (the flag is ``held``). Read from the store each time, never from a
+    cache. **A hold that cannot be read is a hold** (review M2: one refused connection must not let a list
+    through), as an unreadable study state holds a list job (D-386). No store at all (no trial database
+    configured, a store that was never installed) or no row is not a hold."""
+    from tb_common.flags import Flags
 
-    return read(RESTORE_FLAG, url) == "held"
+    try:
+        return Flags(url=url).row(RESTORE_FLAG) == "held"
+    except LookupError:  # no trial database configured (a bare test stack)
+        return False
+    except Exception as exc:
+        log.error("the hold after a restore could not be read (%s): taken as held", type(exc).__name__)
+        return True
+
+
+def require_released() -> None:
+    """The first check of a scenario that lists patients (NEW-B-3, D-522): nothing is listed while the hold of a
+    restore stands. :func:`require_open` calls it for SCREEN, MICROBATCH and COHORT; NAV calls it itself."""
+    from orchestrator.clients import StepFailed
+
+    if restore_held():
+        raise StepFailed("restore", RESTORE_HELD)
 
 
 def study_state(ruleset: str, url: str | None = None) -> str:
@@ -107,8 +124,7 @@ def require_open(ruleset: str | None) -> None:
 
     from orchestrator.clients import StepFailed
 
-    if restore_held():  # NEW-B-3 (D-522): before anything is read or listed
-        raise StepFailed("restore", RESTORE_HELD)
+    require_released()  # NEW-B-3 (D-522): before anything is read or listed
     if not ruleset:
         return
     try:

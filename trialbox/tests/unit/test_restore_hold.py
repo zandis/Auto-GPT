@@ -25,6 +25,13 @@ def _events(audit: Path, name: str) -> list[dict[str, Any]]:
 
 
 def _restore(tmp_path: Path, db_url: str, monkeypatch: Any, late_events: bool) -> tuple[dict[str, Any], Path]:
+    out, audit, _f, _priv = _backup_and_restore(tmp_path, db_url, monkeypatch, late_events)
+    return out, audit
+
+
+def _backup_and_restore(
+    tmp_path: Path, db_url: str, monkeypatch: Any, late_events: bool
+) -> tuple[dict[str, Any], Path, Path, Path]:
     """A backup and its restore on one database; with ``late_events`` an opt-out is typed between the database
     snapshot and the copy of the audit chain (so the restored databases do not hold it)."""
     from tb_common.audit import AuditLog
@@ -53,7 +60,7 @@ def _restore(tmp_path: Path, db_url: str, monkeypatch: Any, late_events: bool) -
     f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"audit": audit})[0]
     monkeypatch.setattr(bk, "take_snapshot", real)
     out = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
-    return out, audit
+    return out, audit, f, priv
 
 
 def test_a_restore_that_is_not_complete_holds_the_list_jobs_until_it_is_released(
@@ -67,9 +74,10 @@ def test_a_restore_that_is_not_complete_holds_the_list_jobs_until_it_is_released
     out, audit = _restore(tmp_path, db_url, monkeypatch, late_events=True)
     assert out["complete"] is False and len(out["to_reapply"]) == 1
     assert out["hold"] == "held" and flags.Flags(url=db_url).row(FLAG) == "held"
-    (ev,) = [e for e in _events(audit, "flag.set") if e["detail"]["flag"] == FLAG]
-    assert ev["detail"]["new"] == "held" and "1 event" in ev["detail"]["reason"]
-    assert "synthetic" not in json.dumps(ev)  # counts and times only, never what an event was about
+    (ev,) = _events(audit, "backup.restored")
+    assert ev["detail"]["hold"] == "held"  # in the restored chain: the restore says it left the box held
+    written = json.dumps(ev) + json.dumps(flags.Flags(url=db_url).events(FLAG, limit=5), default=str)
+    assert "synthetic" not in written  # counts and times only, never what an event was about
     # the orchestrator: the timer starts no list job, and a list job a person asks for fails at its first step
     flags.clear_cache()
     said: list[tuple[str, dict[str, Any]]] = []
@@ -99,24 +107,116 @@ def test_a_complete_restore_holds_nothing(tmp_path: Path, db_url: str, monkeypat
     monkeypatch.setattr(bk, "optouts_ok", lambda lost: True)
     out, audit = _restore(tmp_path, db_url, monkeypatch, late_events=False)
     assert out["complete"] is True and out["to_reapply"] == []
-    assert out["hold"] == "not needed" and flags.Flags(url=db_url).row(FLAG) in (None, "released")
-    assert not [e for e in _events(audit, "flag.set") if e["detail"]["flag"] == FLAG]
+    # the hold is set as soon as the trial database is replaced and released by the restore itself only when it
+    # ends complete and no earlier hold or restore stands
+    assert out["hold"] == "released" and flags.Flags(url=db_url).row(FLAG) == "released"
+    (rel,) = [e for e in _events(audit, "flag.set") if e["detail"]["flag"] == FLAG]
+    assert rel["detail"]["new"] == "released" and rel["actor"] == "trialbox restore"
 
 
-def test_a_second_incomplete_restore_under_a_hold_keeps_the_hold(tmp_path: Path, db_url: str, monkeypatch: Any) -> None:
-    """The backup was taken while the box was held (the flag is in the restored database): the restore does not
-    fail on "already held", and the hold stays."""
+def test_a_second_restore_never_removes_the_hold(tmp_path: Path, db_url: str, monkeypatch: Any) -> None:
+    """Review H1: the first restore is not complete and holds the box. The operator runs the restore again (the
+    command itself says so when a reference pack is missing). The second run finds nothing to re-apply: the chain
+    it sets aside is the first run's restored one. The hold stands; only a person releases it."""
     from tb_common import flags
-    from tb_common.audit import AuditLog
 
     from tools.trialbox import backup as bk
 
-    (tmp_path / "audit").mkdir()
-    flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "held", actor="trialbox restore",
-                                                                    reason="an earlier restore")  # fmt: skip
-    assert bk.hold_screening({"TB_DB_URL": db_url}, tmp_path / "audit", "a second restore") == "held"
+    out, audit, f, priv = _backup_and_restore(tmp_path, db_url, monkeypatch, late_events=True)
+    assert out["hold"] == "held"
+    monkeypatch.setattr(bk, "optouts_ok", lambda lost: True)  # the register's side is whole in both runs
+    # the second run reads the chain the first run restored, not the one the box wrote: it finds nothing
+    monkeypatch.setattr(bk, "events_to_reapply", lambda audit_dir, since: [])
+    again = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
+    assert again["to_reapply"] == [] and again["complete"] is True
+    assert again["hold"] == "held" and flags.Flags(url=db_url).row(FLAG) == "held"
+
+
+def test_a_restore_that_stops_after_the_database_was_replaced_leaves_the_box_held(
+    tmp_path: Path, db_url: str, monkeypatch: Any
+) -> None:
+    """Review H1 and M1: the hold is set as soon as the trial database is replaced, so a restore that fails or is
+    killed after that (here: the running jobs cannot be failed) leaves a held box, and so does its re-run."""
+    from tb_common import flags
+    from tb_common.audit import AuditLog
+    from tb_common.db import Database
+
+    from tools.trialbox import backup as bk
+
+    db = Database.connect(db_url, "site")
+    db.migrate(["CREATE TABLE marks (n BIGINT PRIMARY KEY)"])
+    db.close()
+    audit = tmp_path / "audit"
+    AuditLog(audit).append("console.opt_out", actor="console:steward", detail={"note": "before the backup"})
+    priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
+    bk.keygen(priv, pub)
+    f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"audit": audit})[0]
+    real = bk.fail_running_jobs
+
+    def cannot(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("the queue is locked")
+
+    monkeypatch.setattr(bk, "fail_running_jobs", cannot)
+    with pytest.raises(bk.BackupError, match="could not be failed"):
+        bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
     assert flags.Flags(url=db_url).row(FLAG) == "held"
-    assert bk.hold_screening({"TB_DB_URL": db_url}, None, "no audit directory").startswith("NOT set")
+    monkeypatch.setattr(bk, "fail_running_jobs", real)
+    monkeypatch.setattr(bk, "optouts_ok", lambda lost: True)
+    out = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
+    assert out["hold"] == "held" and flags.Flags(url=db_url).row(FLAG) == "held"  # the re-run does not release it
+
+
+def test_a_hold_that_cannot_be_read_is_a_hold(db_url: str, tmp_path: Path, monkeypatch: Any) -> None:
+    """Review M2: the flag is held and the read fails once (the database refuses a connection). Before: "not
+    held", and a list job a person asked for ran. No store at all (a bare test stack) is not a hold."""
+    from orchestrator import scheduler
+    from orchestrator.clients import StepFailed
+    from tb_common import flags
+    from tb_common.audit import AuditLog
+
+    flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "held", actor="trialbox restore",
+                                                                    reason="a restore")  # fmt: skip
+
+    def down(self: Any, name: str) -> str:
+        raise ConnectionError("the database refused the connection")
+
+    real = flags.Flags.row
+    monkeypatch.setattr(flags.Flags, "row", down)
+    with pytest.raises(StepFailed, match="restored from a backup"):
+        scheduler.require_open("ADX")
+    orch: Any = SimpleNamespace(audit=SimpleNamespace(append=lambda e, **kw: {}))
+    assert scheduler._held(orch, "MICROBATCH", "ADX")
+    monkeypatch.setattr(flags.Flags, "row", real)
+    monkeypatch.delenv("TB_DB_URL")
+    assert not scheduler.restore_held()
+
+
+def test_nav_and_the_weekly_sample_are_held_too(db_url: str, tmp_path: Path, monkeypatch: Any) -> None:
+    """Review M3, M4: a NAV that was queued at the backup, or that the administrator retries, lists patients; so
+    does the weekly sample of "criteria not matched". Neither passed the list scenarios' first check."""
+    from orchestrator import notmatched_sample
+    from orchestrator.clients import StepFailed
+    from orchestrator.scenarios import nav
+    from tb_common import flags
+    from tb_common.audit import AuditLog
+
+    flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "held", actor="trialbox restore",
+                                                                    reason="a restore")  # fmt: skip
+    ctx: Any = SimpleNamespace(job=SimpleNamespace(ruleset="NHI1", options={}))
+    with pytest.raises(StepFailed, match="restored from a backup"):
+        nav.run(ctx)
+    asked: list[int] = []
+
+    def register() -> set[str]:
+        asked.append(1)
+        raise RuntimeError("the test stops the draw here")
+
+    monkeypatch.setattr(notmatched_sample, "opted_out", register)
+    assert notmatched_sample.weekly(SimpleNamespace()) == {} and asked == []  # held: not even begun
+    flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "released", actor="console:admin",
+                                                                    reason="re-applied")  # fmt: skip
+    notmatched_sample.weekly(SimpleNamespace())
+    assert asked == [1]  # released: the draw goes on to the register
 
 
 def test_doctor_shows_the_hold(db_url: str, tmp_path: Path) -> None:
@@ -130,7 +230,7 @@ def test_doctor_shows_the_hold(db_url: str, tmp_path: Path) -> None:
     flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "held", actor="trialbox restore",
                                                                     reason="2 event(s) to re-apply")  # fmt: skip
     got = doctor.check_restore_hold(inp)
-    assert got.status == "WARN" and "/ops/flags" in got.detail and "2 event(s)" in got.detail
+    assert got.status == "WARN" and got.name == "restore_hold" and "/ops/flags" in got.detail
     assert doctor.check_restore_hold in doctor.CHECKS
     nowhere: Any = SimpleNamespace(env={})
     assert doctor.check_restore_hold(nowhere).status == "PASS"  # no database here: not read

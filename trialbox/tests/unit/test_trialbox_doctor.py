@@ -53,6 +53,7 @@ def test_default_install_passes() -> None:
         "site_tz",
         "backup",
         "flags",
+        "restore_hold",
         "site_key",
         "key_custody",
         "db_passwords",

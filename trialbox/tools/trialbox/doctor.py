@@ -753,18 +753,18 @@ def check_restore_hold(inp: DoctorInputs) -> Check:
     with the reason the restore gave (counts and times)."""
     url = inp.env.get("TB_DB_URL", "")
     if not url:
-        return Check("restore hold", "PASS", "no trial database configured here (TB_DB_URL): the hold was not read")
+        return Check("restore_hold", "PASS", "no trial database configured here (TB_DB_URL): the hold was not read")
     try:
         from tb_common.flags import Flags
 
         flags = Flags(url=url)
         if flags.row("screening.after_restore") != "held":
-            return Check("restore hold", "PASS", "no restore is waiting for its events to be re-applied")
+            return Check("restore_hold", "PASS", "no restore is waiting for its events to be re-applied")
         why = next((str(e.get("reason") or "") for e in flags.events("screening.after_restore", limit=1)), "")
     except Exception as e:  # the flag lives on the box: unreadable from here is worth a look, not a failure
-        return Check("restore hold", "WARN", f"cannot read the hold after a restore ({type(e).__name__})")
+        return Check("restore_hold", "WARN", f"cannot read the hold after a restore ({type(e).__name__})")
     return Check(
-        "restore hold",
+        "restore_hold",
         "WARN",
         f"the box's list jobs are held after a restore ({why}): re-apply the events the restore listed, then set "
         "screening.after_restore to released on /ops/flags with the reason (RUNBOOK §5)",

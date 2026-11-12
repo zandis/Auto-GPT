@@ -23,18 +23,25 @@ place to record an acknowledgement.
    `held`. The flag store already gives what the hold needs: one row in the trial database, a change with an actor
    and a reason, an audit event per change (`flag.set`), a page a person changes it on (`/ops/flags`), and a read
    every service can do without a restart. No new table and no new audit event.
-2. **The restore sets it.** `tools.trialbox.backup.restore`, after the restored rows are in, sets the flag to
-   `held` when the restore is not complete (`complete` is false: events to re-apply, or opt-outs that are unknown,
-   unreadable or not kept). The reason holds counts and times only. The report says `hold: held`; when the flag
-   could not be written (no audit directory, a database error) it says `NOT set: <why>` and the command prints
-   that the box will screen: keep the services stopped.
-3. **The orchestrator reads it.** While it is `held`: the timer and the night's chain start no list job
-   (`scheduler._held`: SCREEN, MICROBATCH, COHORT and NAV; audited `scheduler.held`, "held after a restore"), and a
-   list scenario a person asks for fails at its first step (`scheduler.require_open`) with a message that says
-   why and where to release. The ingest, retention and the monthly calibration run: they list nobody.
-4. **A person releases it** on `/ops/flags` with the reason, after the listed events were re-applied. The change
+2. **The restore sets it as soon as the restored rows are in**, before anything else can stop it and before any
+   folder is set aside (`tools.trialbox.backup.restore`; the flag is a row of the restored database, so it is
+   written right after the rows were compared with the backup's). A restore that fails or is killed after that
+   leaves a held box. The report says `hold: held`; when the flag could not be written (no audit directory, a
+   database error) it says `NOT set: <why>` and the command prints that the box will screen: keep the services
+   stopped.
+3. **The restore takes its own hold off only when it ends complete and nothing was carried.** Carried: a hold
+   that stood on the box before the restore (or could not be read), or an earlier restore's set-aside audit chain
+   beside the audit folder (`audit.pre-restore-*`: its events may not be re-applied yet, and a second run does not
+   see them). Then only a person releases it. `backup.restored` carries `hold` and the count to re-apply.
+4. **The orchestrator reads it** from the store each time, and **a hold that cannot be read is a hold**. While it
+   is `held`: the timer and the night's chain start no list job (`scheduler._held`: SCREEN, MICROBATCH, COHORT and
+   NAV; audited `scheduler.held`, "held after a restore"); a list scenario fails at its first step
+   (`scheduler.require_released`: SCREEN, MICROBATCH and COHORT through `require_open`, NAV itself: also a NAV
+   that was queued at the backup or that the administrator retries); the timer's weekly sample of "criteria not
+   matched" is not drawn. The ingest, retention and the monthly calibration run: they list nobody.
+5. **A person releases it** on `/ops/flags` with the reason, after the listed events were re-applied. The change
    is audited with the account.
-5. **`trialbox doctor` shows it** (`restore hold`: WARN with the restore's reason).
+6. **`trialbox doctor` shows it** (`restore_hold`: WARN).
 
 ## Consequences
 
@@ -48,6 +55,11 @@ place to record an acknowledgement.
 
 - **Who may release.** `/ops/flags` is the administrator's page; D-455 names a steward. A release by the steward's
   own account needs a right for this one flag (the console, lane C).
-- **A NAV, CASE or FEAS job a person asks for** does not pass `require_open` and is not held; the timer's NAV is.
+- **CASE and FEAS** are not held: CASE answers for one patient a person names, FEAS counts. Whether a held box
+  should refuse them too is the owner's.
+- **The console's own drawing of the not-matched sample** on a page view: `notmatched_sample.weekly` is held
+  whoever calls it; any other drawing path of the console is lane C's.
+- A restore killed between the restored rows and their comparison with the backup has set no hold yet; no folder
+  was set aside then, and its re-run sees what a first run sees.
 - The list to re-apply is in the restore's report and in the audit event; the console does not show it as a list
   to tick off.
