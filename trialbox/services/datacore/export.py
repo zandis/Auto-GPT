@@ -28,9 +28,9 @@ from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 
 from edc import cdash
 
-from datacore.forms import LANGS, Field, fields_of, titles_of
+from datacore.forms import LANGS, XML_ILLEGAL, Field, fields_of, titles_of, xml_text
 from datacore.lifecycle import Lifecycle, live_steps
-from datacore.store import DataCore
+from datacore.store import DataCore, DataError
 
 RECORD_ID = "record_id"
 BASE_EVENT = "event_1_arm_1"  # REDCap's one event of a classic (not longitudinal) project
@@ -152,6 +152,18 @@ def item_def_attrs(f: Field) -> dict[str, str]:
 
 def _sub(parent: ET.Element, tag: str, **attrs: str) -> ET.Element:
     return ET.SubElement(parent, tag, {k: v for k, v in attrs.items() if v != ""})
+
+
+def write_xml(root: ET.Element) -> str:
+    """The ODM file of ``root`` (EDC-010, D-581). Text that is not a value (a label, a name, a reason) has a
+    character XML 1.0 does not allow written as U+FFFD; the values were checked by the caller before this."""
+    for el in root.iter():
+        if el.text:
+            el.text = xml_text(el.text)
+        for name, text in el.attrib.items():
+            el.set(name, xml_text(text))
+    ET.indent(root, space=" ")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
 
 
 def _texts(parent: ET.Element, tag: str, en: str, tr: dict[str, str]) -> None:
@@ -283,11 +295,21 @@ def odm(dc: DataCore, study: str, at: str, cdisc: bool = False) -> str:
             _texts(item, "Decode", d, {g: f.options_in(g).get(c, "") for g in f.option_labels})
     cd = _sub(root, "ClinicalData", StudyOID=study_oid, MetaDataVersionOID=mdv_oid)
     data: dict[str, dict[str, dict[str, str]]] = {}
+    bad: set[str] = set()
     for r in dc.values(study):
         fld = by_name.get(str(r["field"]))
         if fld is None or fld.name == RECORD_ID or r["value"] == "":
             continue
+        if XML_ILLEGAL.search(str(r["value"])):  # a row from before the rule (D-581): never written, never altered
+            bad.add(fld.name)
         data.setdefault(str(r["record"]), {}).setdefault(event_name(str(r["event"])), {})[fld.name] = str(r["value"])
+    if bad:
+        raise DataError(
+            "DATA-CHARS",
+            "a stored value holds a character an XML file cannot carry; correct it, then export: "
+            + ", ".join(sorted(bad)),
+            [{"field": name, "code": "chars"} for name in sorted(bad)],
+        )
     for rec in extra:
         data.setdefault(rec, {}).setdefault(event_names[0], {})
     for rec in sorted(data):
@@ -317,8 +339,7 @@ def odm(dc: DataCore, study: str, at: str, cdisc: bool = False) -> str:
                     for var, _ in dict(domains)[dom]:
                         if row.get(var):
                             _sub(igd, "ItemData", ItemOID=f"{dom}.{var}", Value=row[var])
-    ET.indent(root, space=" ")
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+    return write_xml(root)
 
 
 def _item_oids(f: Field) -> list[str]:

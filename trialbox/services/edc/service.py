@@ -287,6 +287,11 @@ class EdcService:
 
         now: dict[str, str] | None = None
         try:
+            # EDC-010 (D-581): the reason and the citation's words go into the trail and the ODM file
+            for what, text in (("reason", reason), ("citation", str((citation or {}).get("text") or ""))):
+                if forms.XML_ILLEGAL.search(text):
+                    raise EdcError("edc.invalid", f"the {what} holds a character that cannot be stored (a control "
+                                   "character from pasted text)", 400)  # fmt: skip
             if action in ("confirm", "edit"):
                 now = self._built(rs, str(d["item"]))
             if action == "confirm":  # a draft is confirmed only under the map row and dictionary entry of now (E-16)
@@ -683,6 +688,13 @@ class EdcService:
             self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.odm_gap", "items": lost})
             err = EdcError("edc.odm_gap", "signed values whose item left the map or the dictionary: " + ", ".join(lost))
             err.problems = [{"item": i, "code": "not_in_map"} for i in lost]  # type: ignore[attr-defined]
+            raise err
+        chars = sorted({str(d["item"]) for d in values if forms.XML_ILLEGAL.search(str(d["final"]))})
+        if chars:  # EDC-010 (D-581): a row from before the rule; never written broken, never altered
+            self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.odm_chars", "items": chars})
+            err = EdcError("edc.odm_chars", "signed values that hold a character an XML file cannot carry: "
+                           + ", ".join(chars))  # fmt: skip
+            err.problems = [{"item": i, "code": "chars"} for i in chars]  # type: ignore[attr-defined]
             raise err
         sigs = {int(s["id"]): s for s in self.store.signatures(rs)}
         text = odm.build(rs, self.dc.fields(rs), self.store.map(rs), values, sigs, meaning_text, self.stamp())
