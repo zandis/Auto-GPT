@@ -17,6 +17,7 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from dataclasses import dataclass
 from datetime import date
@@ -106,6 +107,52 @@ class OrchestratorJudge(NoteJudge):
             tokens_out=r.tokens_out,
             opinions=list(r.opinions),
         )
+
+
+VEC_FLAG = "vec.s2b"  # T-203b (D-449): S2b from the vector store; off until the S2b threshold refit after G1 (D-429)
+
+
+def vec_s2b_on() -> bool:
+    """The flag ``vec.s2b`` as stored (``/ops/flags``); off when it has no row or the flag store cannot be read."""
+    from tb_common.flags import read
+
+    return read(VEC_FLAG) == "on"
+
+
+VEC_OPTION = "vec_s2b"  # the job record's copy of the flag, written at the job's first S2b (D-449, review LOW 4)
+
+
+def job_vec_s2b(ctx: Ctx) -> bool:
+    """The flag ``vec.s2b`` for this job, decided once per job execution (MICROBATCH runs several studies; all
+    take the same path) and, when on, written into the job record (``options.vec_s2b``; with the flag off the record
+    stays as before). A re-run of an old job takes the path its record says, with one limit: a recorded "on" applies
+    only while the flag is on, so an operator's switch-off is never overridden by a job record, and an option typed
+    into a request can never switch the store on."""
+    cached = getattr(ctx, "_tb_vec_s2b", None)
+    if cached is not None:
+        return bool(cached)
+    flag_on = vec_s2b_on()
+    opts = dict(getattr(ctx.job, "options", None) or {})
+    recorded = opts.get(VEC_OPTION)
+    if recorded is None:
+        on = flag_on
+        if on:  # written only when on: with the flag off the job record stays as before (D-449 item 2)
+            ctx.update(options={**opts, VEC_OPTION: "on"})
+    else:
+        on = recorded == "on" and flag_on
+    with contextlib.suppress(AttributeError):  # a stand-in context without attributes: read again next time
+        ctx._tb_vec_s2b = on  # type: ignore[attr-defined]
+    return on
+
+
+def s2b_source(lake: Any, snapshot: str, on: bool) -> Any:
+    """The cascade's stored-vector source on the job's pinned snapshot when the flag is on, else None (the S2b path
+    of every run before T-203b, byte for byte)."""
+    if not on:
+        return None
+    from vec.s2b import LakeVecSource
+
+    return LakeVecSource(lake, snapshot)
 
 
 def check_failures(judge: OrchestratorJudge | None) -> None:
@@ -257,6 +304,9 @@ class CascadeScreen:
     judging: dict[str, Any]
     summary: dict[str, Any]
     judge: OrchestratorJudge | None
+    # T-203b (D-449): per patient, where S2b's ranking came from (stored vectors or on the fly, why, which model);
+    # patient level (D3), published with the job only when the flag vec.s2b was on; None when it was off
+    s2b_sources: dict[str, dict[str, Any]] | None = None
 
 
 # D-142 (review A-07): SCREEN's budget of model calls is explicit (job option ``max_pairs``, else
@@ -317,6 +367,7 @@ def screen_with_cascade(
 
     from orchestrator import derive
 
+    source = s2b_source(ctx.services.lake, snapshot, job_vec_s2b(ctx))  # once per job (D-449)
     cfg = CascadeConfig(
         study_id=rs.id,
         run_date=run_date,
@@ -333,12 +384,14 @@ def screen_with_cascade(
         absence_semantics=False,
         max_llm_items=max_pairs,
         llm_concurrency=llm_concurrency(),
-        stored=derive.reader(ctx.orch),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
+        stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
     )
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
             judge,
-            lambda j: run_cascade(ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None),
+            lambda j: run_cascade(
+                ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None, s2b_source=source
+            ),
         )
     except CascadeError as exc:
         raise StepFailed("running", f"The screening cascade could not run for {rs.id} v{rs.version}: {exc}") from exc
@@ -360,7 +413,10 @@ def screen_with_cascade(
     out = summary(res)
     # D-142 (review A-07): the budget of model calls and whether it ran out, for the report and the job record
     out["budget"] = {"max_pairs": max_pairs, "unprocessed": res.metrics.unprocessed, "hit": res.metrics.unprocessed > 0}
-    return CascadeScreen(results, judging, out, judge)
+    sources = None
+    if source is not None:
+        sources = {pid: dict(t.s2b_source) for pid, t in sorted(res.traces.items()) if t.s2b_source is not None}
+    return CascadeScreen(results, judging, out, judge, sources)
 
 
 __all__ = [
@@ -369,10 +425,13 @@ __all__ = [
     "CascadeScreen",
     "OrchestratorJudge",
     "check_failures",
+    "job_vec_s2b",
     "judged",
     "pipeline",
+    "s2b_source",
     "screen_with_cascade",
     "summary",
+    "vec_s2b_on",
     "verdict_of",
     "verdicts_of",
 ]

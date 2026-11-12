@@ -1,0 +1,24 @@
+# The journeys a site re-runs after a long break (plan risk RSK-64; T-315a, D-448).
+#
+# A long break is five or more days with no one at the console: Golden Week in Japan (late April to early May), the
+# Lunar New Year in Taiwan, a long hospital closure. Over a break the feed nights run unwatched, grants and opt-outs
+# wait, accounts and authenticators go unused. On the first working day the site re-runs these journeys (by hand, or
+# `tests/e2e/journeys/test_journeys.py` on the box's build) before the lists are used again; the other journeys wait
+# for their next change. `test_journeys.py` checks that every name below is a journey or a step of journeys.yaml.
+
+version: 1
+after: a break of 5 days or more (Golden Week, Lunar New Year, a hospital closure)
+
+rerun:
+  - journey: J-ADM
+    why: the feed nights of the break; a held night must show on the readiness page before anyone reads a list
+  - journey: J-STW
+    why: break-glass grants opened during the break are reviewed; conflicts the nights recorded are settled
+  - journey: J-PRV
+    why: paper opt-outs that arrived during the break are entered before the first new list
+  - journey: J-CRC
+    why: the first screening run after the break, the referrals and consents that waited, the EDC drafts
+  - journey: J-PI
+    why: criteria that waited for approval; the approach after a referral
+  - step: J-SI-01
+    why: each investigator's second factor still works after days unused (the sign-in step of every role)

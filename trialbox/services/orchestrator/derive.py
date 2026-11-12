@@ -35,13 +35,25 @@ def store(url: str | None = None) -> DerivedStore | None:
 
 def reader(orch: Any) -> DerivedStore | None:
     """The store every screening path reads (D-442), from the job runner's own trial database; None while the flag
-    ``derived.stored_read`` is off (the default). Read once when a job starts."""
-    return stored_read(url_of(orch))
+    ``derived.stored_read`` is off (the default). No trial database, no flag store or a store that cannot be opened
+    is "off": never an error, never an assumed "on". Read once when a job starts."""
+    try:
+        return stored_read(url_of(orch))
+    except Exception as exc:  # the store cannot be opened: no path reads it (the flag reads as off)
+        log.warning("stored-score read off: the derived store cannot be opened (%s)", type(exc).__name__)
+        return None
+
+
+def reader_for(ctx: Any) -> DerivedStore | None:
+    """:func:`reader` of a job's context; a context without a job runner (a test's stand-in) reads as "off"."""
+    return reader(getattr(ctx, "orch", None))
 
 
 def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
     """Recompute the stored derived rows of ``snapshot``; returns the batch's counts, or None when there is no trial
     database or the batch failed (logged and audited). Never raises."""
+    if orch is None:  # a context without a job runner (a test's stand-in): nothing to recompute into
+        return None
     try:
         st = store(url_of(orch))
         if st is None:

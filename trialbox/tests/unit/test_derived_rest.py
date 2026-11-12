@@ -383,7 +383,7 @@ def test_every_path_reads_the_store_through_the_one_reader() -> None:
         "orchestrator/scenarios/screen.py", "orchestrator/scenarios/screen_cascade.py",
         "orchestrator/scenarios/case.py", "orchestrator/scenarios/cohort.py")}  # fmt: skip
     for p, text in src.items():
-        assert "derive.reader(ctx.orch)" in text, p
+        assert "derive.reader_for(ctx)" in text, p
     eng = (ROOT / "services" / "matching" / "cascade" / "engine.py").read_text(encoding="utf-8")
     ev = (ROOT / "services" / "orchestrator" / "scenarios" / "evaluate.py").read_text(encoding="utf-8")
     assert "apply_rows(table, applied, self.cfg.stored" in eng and "apply_rows(t, crit, self.stored" in ev
@@ -576,3 +576,20 @@ def test_a_leap_day_birth_has_one_age_in_the_three_engines(tmp_path: Path, day: 
     (body,) = cql_eval.run(lines, gen.library, version, day, exprs, ["LEAP"])
     cql_got = FhirEvaluator.parse("LEAP", day, body, exprs).results.get(CID)
     assert (cql_got is not None) is adult  # CQL
+
+
+def test_a_context_without_a_job_runner_reads_the_flag_as_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from orchestrator import derive
+
+    monkeypatch.delenv("TB_DB_URL", raising=False)
+    assert derive.reader_for(SimpleNamespace(services=SimpleNamespace(lake=None))) is None  # no orch: off
+    assert derive.reader(SimpleNamespace(db=SimpleNamespace())) is None  # no trial database: off
+    assert derive.after_ingest(None, SNAP) is None  # nothing to recompute into, never an error
+
+    def broken(url: str | None = None) -> Any:
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(derive, "stored_read", broken)
+    assert derive.reader(SimpleNamespace(db=SimpleNamespace(url="postgresql://x"))) is None  # never assumed on

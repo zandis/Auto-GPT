@@ -1,0 +1,271 @@
+# The journeys (T-315a, D-448): the PQ script of TrialBox as automated end-to-end tests.
+#
+# One journey per console role, on the synthetic Taiwan site (`tw`: the rheumatology hospital of T-504, Asia/Taipei;
+# studies RA-JAK, GZQO with one amendment, the GOUT-COH registry linked to the REDCap simulator). Each step is what a
+# person does ("do") and what the screen must show ("expect"); `tests/e2e/journeys/test_journeys.py` walks every step
+# in the order of `walk` on the in-process box and checks the expected result. Synthetic data only, stub model, no
+# network, no docker. D-311: no signer, no gate record; a site walks the same steps by hand.
+#
+# Fields of a step:
+#   id       J-<journey>-<nn>, in order within the journey
+#   do       what the person does
+#   expect   what the screen must show
+#   covers   the topics of the card this step proves (see `topics`)
+#   langs    the step is language-sensitive: its expected text is checked in each of these languages (from the
+#            console's catalogues, en, ja and zh-TW)
+#   expected_failure  the feature is not on master yet: {card: T-nnn, why: ...}. The step runs and must fail; when it
+#            passes, the walk fails and asks the card that delivered it to remove these lines. Never a silent skip.
+
+version: 1
+site: tw
+
+topics:
+  sign_in_2fa: sign-in with the second factor
+  protocol_to_criteria: a study from protocol to approved criteria
+  screening_run: a screening run to a candidate list
+  approach: an approach
+  referral: a referral through the treating physician
+  consent: consent recorded
+  edc_prefill_review: EDC prefill to review (drafts only)
+  opt_out: an opt-out that removes the patient from every list
+  break_glass: a break-glass grant and its steward review
+  conflict: a conflict resolved by the steward
+  held_feed: a held feed night seen on the readiness page
+
+journeys:
+  - id: J-ADM
+    role: admin
+    who: the administrator (hospital IT), no patient-level right (D-280)
+    steps:
+      - id: J-ADM-01
+        do: Open the console in your language. Sign in with the issued password, set up the authenticator with the
+          enrolment code, choose your own password, sign in again with it and a new code.
+        expect: '"Sign in", then "Set up your authenticator" in the browser''s language; after the new password,
+          your home page.'
+        covers: [sign_in_2fa]
+        langs: [en, ja, zh-TW]
+      - id: J-ADM-02
+        do: The hospital's nightly export arrives without the lab table. Next morning open "Site set-up" for RA-JAK.
+        expect: The night is held and the box still serves the night before; the readiness page says "The last
+          night of the hospital feed was held ... Tables affected - lab", in each language.
+        covers: [held_feed]
+        langs: [en, ja, zh-TW]
+      - id: J-ADM-03
+        do: Type the address of an RA-JAK patient page yourself.
+        expect: Refused (403). Your home page lists no patient.
+      - id: J-ADM-04
+        do: On "Break-glass", open a grant for that one patient with the reason "support" and a note, open the
+          patient, then end the grant.
+        expect: The patient opens, another patient does not; after "End" the patient page is refused again.
+        covers: [break_glass]
+
+  - id: J-STW
+    role: steward
+    who: the data steward
+    steps:
+      - id: J-STW-01
+        do: Sign in for the first time with the second factor, as in J-ADM-01.
+        expect: '"Break-glass" is your home page.'
+        covers: [sign_in_2fa]
+      - id: J-STW-02
+        do: On "Break-glass", find the administrator's grant (J-ADM-04) and review it with a note.
+        expect: The grant waits for review; after "Review" it is marked reviewed with your note. The study's PI
+          sees the grant on their own list.
+        covers: [break_glass]
+      - id: J-STW-03
+        do: Two sources gave different birth dates for one patient (recorded by the nightly load). Open "Clinical
+          conflicts", keep one of the values with a reason.
+        expect: The page title in each language; the conflict lists both values; after "Keep" it leaves the open
+          list and the trail shows your reason.
+        covers: [conflict]
+        langs: [en, ja, zh-TW]
+      - id: J-STW-04
+        do: Open "Data operations". Find the held night of J-ADM-02, read the tables the gate named, and reject it
+          with a reason (the export is redone tonight).
+        expect: The held night is listed with the lab table; "Accept" is not offered yet; after "Reject" the night
+          is rejected with your reason on its trail, and the readiness page no longer says the feed was held.
+        covers: [held_feed]
+
+  - id: J-CRC
+    role: coordinator
+    who: the clinical research coordinator (CRC)
+    steps:
+      - id: J-CRC-01
+        do: Sign in for the first time with the second factor, as in J-ADM-01.
+        expect: '"My work" with "My tasks".'
+        covers: [sign_in_2fa]
+      - id: J-CRC-02
+        do: The sponsor amended GZQO (BMI cut from 27 to 25, one added exclusion). On "Send in a protocol", paste
+          the amended criteria for GZQO and send them.
+        expect: The criteria wait for the PI's approval as GZQO v1.1.0.
+        covers: [protocol_to_criteria]
+      - id: J-CRC-03
+        do: After the PI's approval (J-PI-02), ask for a new GZQO list.
+        expect: The list of GZQO v1.1.0 opens with candidates on "This week's patients", in each language.
+        covers: [screening_run]
+        langs: [en, ja, zh-TW]
+      - id: J-CRC-04
+        do: Open "Referrals". For the patient the PI referred (J-PI-04), record that the doctor agrees, by phone.
+        expect: '"Doctor agreed 1"; the PI''s patient sheet shows "Approach" again.'
+        covers: [referral]
+      - id: J-CRC-05
+        do: Open "IRB and consent form" of RA-JAK and enter a made-up approval number, its dates and the consent
+          form version.
+        expect: Saved and shown; the PI no longer sees the IRB warning before "Approach".
+      - id: J-CRC-06
+        do: Open the approached patient (J-PI-05), record "Reached, visit booked"; on the participant page record
+          the consent on today's date, then the enrolment.
+        expect: The screening log shows "Reached, visit booked"; the participant is "Consented", then "Enrolled".
+        covers: [consent]
+      - id: J-CRC-07
+        do: On GOUT-COH, "EDC prefill", draft the baseline visit of the registry member and open "Review".
+        expect: Drafts only. "Check each value against its source" (each language); birth date and sex drafted
+          with their source; "Comments" not drafted; nothing reaches REDCap before a person confirms and signs.
+        covers: [edc_prefill_review]
+        langs: [en, ja, zh-TW]
+
+  - id: J-PI
+    role: investigator
+    who: the principal investigator (PI) of RA-JAK and GZQO
+    steps:
+      - id: J-PI-01
+        do: Sign in for the first time with the second factor, as in J-ADM-01.
+        expect: '"This week''s patients" with "Criteria waiting for your approval: GZQO v1.1.0".'
+        covers: [sign_in_2fa]
+      - id: J-PI-02
+        do: Open the waiting criteria, open every amber line, label each line that asks for one, "Approve all".
+        expect: '"Changes since v1.0.0" names the new wording and the new criterion; after approval GZQO is at
+          v1.1.0 and nothing waits.'
+        covers: [protocol_to_criteria]
+      - id: J-PI-03
+        do: On RA-JAK, open the first patient of "Clinic, next 2 weeks".
+        expect: '"Why this patient fits", "Still open", "Needs you", "To do", "Ask treating doctor", the mark bar
+          and "Every criterion with its evidence".'
+      - id: J-PI-04
+        do: Open the fourth patient and press "Ask treating doctor"; send the request to the suggested doctor.
+        expect: '"Referral requested. It is on the screening log."; on the patient "Approach waits for the treating
+          doctor" and no "Approach" button.'
+        covers: [referral]
+      - id: J-PI-05
+        do: After the doctor agreed (J-CRC-04) and the IRB record is in (J-CRC-05), press "Approach" on that patient.
+        expect: No IRB warning; "Approved. The coordinator has a task to contact this patient."; a screening number
+          RA-JAK-nnnn on the screening log.
+        covers: [approach, referral]
+      - id: J-PI-06
+        do: On "Delegation log" of RA-JAK, give the CRO's monitor a grant for a monitoring visit (MV-01) of three days.
+        expect: The grant is on the log with its visit id and end date.
+      - id: J-PI-07
+        do: Open this week's sample of RA-JAK "Criteria not matched" patients; send one back with a note.
+        expect: Ten patients (or all, if fewer) with the week's counter; after "Send back" the patient is on the
+          weekly list again, marked "sent back".
+
+  - id: J-SI
+    role: investigator
+    who: a sub-investigator of RA-JAK (tasks screen and refer)
+    steps:
+      - id: J-SI-01
+        do: Sign in for the first time with the second factor, as in J-ADM-01.
+        expect: '"This week''s patients · RA-JAK".'
+        covers: [sign_in_2fa]
+      - id: J-SI-02
+        do: Open the fifth patient of the clinic list; look for "Approach"; try the approach anyway.
+        expect: No "Approach" button; "Need info" is there; a typed approach is refused (403).
+      - id: J-SI-03
+        do: On the same patient, type a note and press "Need info".
+        expect: Accepted; the mark is listed with your account name.
+      - id: J-SI-04
+        do: Type the address of the GZQO list yourself.
+        expect: '"Page not found": the study is not one of yours.'
+
+  - id: J-MON
+    role: cro
+    who: the sponsor's monitor (CRO account named for RA-JAK)
+    steps:
+      - id: J-MON-01
+        do: Sign in for the first time with the second factor, as in J-ADM-01.
+        expect: '"Feasibility reports" is your home page.'
+        covers: [sign_in_2fa]
+      - id: J-MON-02
+        do: Type the addresses of the RA-JAK list and of a patient page yourself.
+        expect: Both refused; a CRO account never reads a candidate.
+      - id: J-MON-03
+        do: Under the grant of J-PI-06, open the enrolled participant of J-CRC-06 on the monitor page.
+        expect: The participant's record opens read-only with the visit id MV-01, without the pseudonym.
+
+  - id: J-VWR
+    role: viewer
+    who: a viewer (counts only)
+    steps:
+      - id: J-VWR-01
+        do: Sign in for the first time with the second factor, as in J-ADM-01.
+        expect: '"Feasibility reports" in each language.'
+        covers: [sign_in_2fa]
+        langs: [en, ja, zh-TW]
+      - id: J-VWR-02
+        do: Type the address of an RA-JAK patient page and of the list; try to start a request anyway.
+        expect: All refused (403); no request is created.
+
+  - id: J-PRV
+    role: privacy
+    who: the privacy office
+    steps:
+      - id: J-PRV-01
+        do: Sign in for the first time with the second factor, as in J-ADM-01.
+        expect: '"Opt-out register" is your home page, in each language.'
+        covers: [sign_in_2fa]
+        langs: [en, ja, zh-TW]
+      - id: J-PRV-02
+        do: A patient's paper opt-out form arrives. Enter the chart number on "Opt-out register" (source paper).
+        expect: The page gives no pseudonym back. The patient leaves the PI's list, the coordinator's candidates
+          and the patient page (404) at once, and is not on the next screening run's list.
+        covers: [opt_out]
+      - id: J-PRV-03
+        do: Wait for the opt-out worker's next run (every 5 minutes).
+        expect: The run clears every store it keeps for the patient (the candidate pool, the candidate registry)
+          and fails none.
+        covers: [opt_out]
+      - id: J-PRV-04
+        do: After the opt-out worker's run, look for the patient in the lake.
+        expect: No note chunk of the patient is left for search.
+        expected_failure:
+          card: T-206b
+          why: the opt-out worker v1 (T-206a) hides the patient on every read and withholds OMOP records; erasing
+            lake snapshots, note chunks and vectors is the rest of T-206
+
+# The order a site walks the steps in: one site day across the roles. Within a journey the order is the journey's.
+walk:
+  - J-ADM-01
+  - J-ADM-02
+  - J-ADM-03
+  - J-ADM-04
+  - J-STW-01
+  - J-PI-01
+  - J-STW-02
+  - J-STW-03
+  - J-STW-04
+  - J-CRC-01
+  - J-CRC-02
+  - J-PI-02
+  - J-CRC-03
+  - J-PI-03
+  - J-PI-04
+  - J-SI-01
+  - J-SI-02
+  - J-SI-03
+  - J-SI-04
+  - J-CRC-04
+  - J-CRC-05
+  - J-PI-05
+  - J-CRC-06
+  - J-CRC-07
+  - J-PI-06
+  - J-PI-07
+  - J-MON-01
+  - J-MON-02
+  - J-MON-03
+  - J-VWR-01
+  - J-VWR-02
+  - J-PRV-01
+  - J-PRV-02
+  - J-PRV-03
+  - J-PRV-04

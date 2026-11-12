@@ -107,7 +107,7 @@ def items_at(ctx: Ctx, rs: Ruleset, index: date, snapshot: str | None = None) ->
     from orchestrator import derive
 
     # D-442: the stored-row read while the flag is on, the same function as every screening path
-    apply_rows(rows, rs.active(), derive.reader(ctx.orch), snapshot, getattr(rs.manifest, "derived_pins", None))
+    apply_rows(rows, rs.active(), derive.reader_for(ctx), snapshot, getattr(rs.manifest, "derived_pins", None))
     pop = population_id(rs)
     p_rows = [r for r in rows if r.get(f"C_{pop}") is True]
     out = [Item(pop, _label(rs, pop), {r["pid"] for r in p_rows})]

@@ -470,6 +470,9 @@ DECLARED: dict[str, Declared] = {
     "TB_EP_VERIFIER_URL": Declared("str", "", "scenario tool: verifier endpoint"),
     "TB_EVAL_LIMIT": Declared("int", "", "eval: cases per suite"),
     "TB_EXPORT_MAX_PER_HOUR": Declared("int", "10", "screening-log exports allowed per hour"),
+    "TB_EXPORT_MAX_PER_HOUR_PER_SERVICE": Declared(
+        "int", "60", "screening-log exports per calling service per hour, every name together (D-438)"
+    ),
     "TB_EXTRA_CA_FILE": Declared("path", "", "extra CA bundle the services trust"),
     "TB_FEED_DROP_OVERRIDE": Declared("str", "", "allow one feed load that drops too many rows"),
     "TB_FEED_MAX_DROP_PCT": Declared("float", "", "largest row drop a feed load may make"),
@@ -660,6 +663,9 @@ DECLARED: dict[str, Declared] = {
     "TB_RESTORE_OLDER_OK": Declared("bool", "", "platform restore job: restore a backup older than 14 days (T-633)"),
     "TB_RESTORE_OTHER_SITE": Declared("bool", "", "platform restore job: restore another site's backup (T-633)"),
     "TB_REVEAL_MAX_PER_HOUR": Declared("int", "60", "chart-number reveals per user per hour"),
+    "TB_REVEAL_MAX_PER_HOUR_PER_SERVICE": Declared(
+        "int", "600", "chart-number reveals per calling service per hour, every name together (D-438)"
+    ),
     "TB_REVISION": Declared("str", "", "about page: git revision"),
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),

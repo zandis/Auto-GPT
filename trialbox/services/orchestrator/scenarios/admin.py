@@ -87,7 +87,7 @@ def ingest(ctx: Ctx) -> Outcome:
     from orchestrator.scheduler import after_ingest
 
     # D-442: the stored derived rows of the new snapshot before anything screens it
-    derive.after_ingest(ctx.orch, str(report.snapshot))
+    derive.after_ingest(getattr(ctx, "orch", None), str(report.snapshot))
     # D-397: the new patients booked in each study's window are screened now, not next week
     after_ingest(ctx.orch, timed=opts.get("timer") == "1")
     twins_after_ingest(ctx, report.snapshot)

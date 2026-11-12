@@ -260,7 +260,7 @@ def evaluate_case(
         from orchestrator import derive
 
         # the lake snapshot, deterministic; the stored-row read while the flag is on (D-442), as on every path
-        engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot, derive.reader(ctx.orch))
+        engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot, derive.reader_for(ctx))
         evals = engine.evaluate(rs, [subj.pid], index_date, ids) if ids else {}
     judge = judge_for(ctx, rs)
     cj = ChartJudge(judge, excerpts) if judge is not None else None

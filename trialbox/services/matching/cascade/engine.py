@@ -61,7 +61,15 @@ from matching.cascade.model import (
     Stage,
     StageLog,
 )
-from matching.cascade.s2b_semantic import BatchEmbedder, Embedder, ThresholdTable, screen
+from matching.cascade.s2b_semantic import (
+    BatchEmbedder,
+    Embedder,
+    SentenceSource,
+    SourceFallback,
+    SourceRanking,
+    ThresholdTable,
+    screen,
+)
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.stored_scores import apply_rows
@@ -316,8 +324,10 @@ class _Run:
         cfg: CascadeConfig,
         judge: JudgeClient | None,
         embedder: Embedder | None,
+        s2b_source: SentenceSource | None = None,
     ) -> None:
         self.lake = lake
+        self.s2b_source = s2b_source  # T-203b (D-449): stored vectors behind the flag vec.s2b; None = on the fly
         self.rs = rs
         self.cfg = cfg
         self.judge = judge
@@ -713,7 +723,12 @@ class _Run:
             sents = [(n, s) for n in win for s in n.sents]
             query = " ".join([c.note_question or c.text, *lexicon_terms(c, self.cfg.lexicon)])
             thr = self.cfg.thresholds.get(c.kind, self.cfg.language)
-            if self.embedder is None:
+            stored = self._from_store(t, query, win, len(sents)) if sents else None
+            if stored is not None:
+                # the threshold is fitted to on-the-fly vectors (D-429): a stored score never decides a rescue
+                # (index sweep) until the refit after G1; it only picks the excerpts (D-449)
+                res_above, best, top = False, stored.best, [i for i, _ in stored.top]
+            elif self.embedder is None:
                 res_above, best, top = True, 1.0, list(range(min(5, len(sents))))  # no S2b: never absence
             else:
                 res = screen(self.embedder, query, [s for _, s in sents], thr)
@@ -736,6 +751,11 @@ class _Run:
                     keep.setdefault(sents[i][0].did, set()).add(sents[i][1])
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
                 shown, left = self.excerpt_set(win, keep)
+                # D-449 (review of PR #275, HIGH 1): S2b shows only the notes holding a top sentence. A window note
+                # with sentences and none of them in the top is part of the record the models did not read: it counts
+                # as left out, so a "not met" on this cut set is never final (D-276 guard in _map) and a "met" is
+                # flagged, never "strong" (T-603). On either ranking, on the fly or stored.
+                left += sum(1 for n in win if n.sents and n.did not in keep)
                 routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", best - thr.value, left_out=left))
                 continue
             self.metrics.pairs_s2b_below += 1
@@ -767,8 +787,58 @@ class _Run:
             below=self.metrics.pairs_s2b_below,
             embed_batches=self.metrics.s2b_embed_batches,
             embed_model=self.embedder.model if self.embedder else None,
+            **self._source_detail(),
         )
         self.metrics.n_after["S2b"] = len(alive)
+
+    def _from_store(self, t: PatientTrace, query: str, win: list[_Note], n_sents: int) -> SourceRanking | None:
+        """T-203b (D-449): the pair's ranking from the stored vectors, or None for the on-the-fly path.
+
+        Asked only with absence semantics off (screening): there S2b picks the excerpts and the index rescue and
+        never decides an exclusion, and the threshold stays the one fitted to on-the-fly vectors (D-429: the refit
+        follows G1). Anything the source cannot answer, any error, and any answer that does not index the window's
+        sentences is a fallback: the pair goes the on-the-fly way and the patient's trace records it."""
+        src = self.s2b_source
+        if src is None:
+            return None
+        rec = t.s2b_source
+        if rec is None:
+            rec = t.s2b_source = {"vec_pairs": 0, "fallback_pairs": 0, "vec_model": None, "fallback": []}
+        rec["on_the_fly_model"] = self.embedder.model if self.embedder else None
+        got: SourceRanking | SourceFallback
+        if self.cfg.absence_semantics:
+            got = SourceFallback("absence semantics on: the S2b threshold is fitted to on-the-fly vectors (D-429)")
+        else:
+            try:
+                got = src.rank(t.pid, query, win, 5)
+            except Exception as exc:  # a store or lake that fails is a fallback, never a lost pair
+                got = SourceFallback(f"vector store error: {type(exc).__name__}")
+        if isinstance(got, SourceRanking):
+            if not got.top or any(not 0 <= i < n_sents for i, _ in got.top):
+                got = SourceFallback("the stored ranking does not index the window's sentences")
+            elif rec["vec_model"] not in (None, got.model):
+                got = SourceFallback(f"vectors of a second model ({got.model}) in one patient's run: refused")
+        if isinstance(got, SourceFallback):
+            rec["fallback_pairs"] += 1
+            if got.reason not in rec["fallback"]:
+                rec["fallback"] = sorted([*rec["fallback"], got.reason])
+            return None
+        rec["vec_pairs"] += 1
+        rec["vec_model"] = got.model
+        return got
+
+    def _source_detail(self) -> dict[str, Any]:
+        """The S2b stage log's account of the stored-vector source; nothing when none was given (flag off)."""
+        if self.s2b_source is None:
+            return {}
+        recs = [t.s2b_source for t in self.traces.values() if t.s2b_source]
+        models = sorted({str(r["vec_model"]) for r in recs if r["vec_model"]})
+        return {
+            "vec_pairs": sum(int(r["vec_pairs"]) for r in recs),
+            "vec_fallback_pairs": sum(int(r["fallback_pairs"]) for r in recs),
+            "vec_fallback_patients": sum(1 for r in recs if r["fallback_pairs"]),
+            "vec_model": ",".join(models) or None,
+        }
 
     # -------------------------------------------------------------------------------------------- CAS-8 sample
     def sample(self, routes: list[_Route]) -> None:
@@ -1116,9 +1186,11 @@ def run_cascade(
     judge: JudgeClient | None = None,
     embedder: Embedder | None = None,
     reviewer: Reviewer | None = None,
+    s2b_source: SentenceSource | None = None,
 ) -> CascadeResult:
-    """Run S0 → S5 for one study. ``lake`` is a ``lake.client.LakeAPI`` on the pinned L5 snapshot."""
-    run = _Run(lake, rs, cfg, judge, embedder)
+    """Run S0 → S5 for one study. ``lake`` is a ``lake.client.LakeAPI`` on the pinned L5 snapshot. ``s2b_source``
+    (T-203b, flag ``vec.s2b``): S2b ranks from stored vectors where they answer, else on the fly (D-449)."""
+    run = _Run(lake, rs, cfg, judge, embedder, s2b_source)
     idx = run.s0()
     applied = run.s1(idx)
     note_crit = [c for c in rs.active() if c.class_ in JUDGED and c.kind in ("inclusion", "exclusion")]
