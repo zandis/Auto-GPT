@@ -29,11 +29,12 @@ class LakeAPI(Protocol):
 
 
 class LakeHttp:
-    def __init__(self, base_url: str, timeout: float = 330) -> None:
+    def __init__(self, base_url: str, timeout: float = 330, poll: Any = None) -> None:
         self.base = base_url.rstrip("/")
         from tb_common.service_auth import auth_headers
 
         self.client = httpx.Client(timeout=timeout, headers=auth_headers())  # D-127 (F-11)
+        self._poll = poll  # T-690 (D-472): how a rebuild job is followed (tb_common.jobpoll.Poll); settings if None
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
         body = dump(
@@ -88,11 +89,35 @@ class LakeHttp:
         out: dict[str, int] = resp.json()["counts"]
         return out
 
-    def rebuild(self, snapshot: str) -> dict[str, Any]:
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        """T-690 (D-472): start a rebuild job on the lake service and answer its state (202). A refusal known at once
+        (busy, a missing feed) is the service's 409, raised as ``httpx.HTTPStatusError`` (the header
+        ``X-TB-Lake-Busy`` says busy). ``allow_empty`` is the in-process lake's; the service decides it itself."""
         resp = self.client.post(f"{self.base}/rebuild", json={"snapshot": snapshot})
         resp.raise_for_status()
         body: dict[str, Any] = resp.json()
         return body
+
+    def rebuild_state(self, snapshot: str) -> dict[str, Any]:
+        """The state of the snapshot's last rebuild job on the lake service (T-690, D-472)."""
+        resp = self.client.get(f"{self.base}/rebuild/{snapshot}")
+        resp.raise_for_status()
+        body: dict[str, Any] = resp.json()
+        return body
+
+    def rebuild(self, snapshot: str) -> dict[str, Any]:
+        """Rebuild ``snapshot`` and answer its counts: the job is started and followed to its end (T-690, D-472), never
+        timed (OD-10). Busy (held, already building, held at the swap) raises :class:`lake.store.LakeBusy`; a refusal
+        of the data :class:`lake.store.RebuildError`; a failed, interrupted or lost job ``RuntimeError``."""
+        from tb_common.jobpoll import Poll
+
+        try:
+            job = self.start_rebuild(snapshot)
+        except httpx.HTTPStatusError as exc:
+            raise _refusal(exc.response, snapshot) from None
+        if job.get("state") == "running":
+            job = (self._poll or Poll()).until_done(lambda: self.rebuild_state(snapshot), f"lake rebuild {snapshot}")
+        return rebuild_answer(job, snapshot)
 
     def hold(self, snapshot: str, holder: str) -> None:
         """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned."""
@@ -166,3 +191,44 @@ class LakeLocal:
     def rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
         st = self.lake.rebuild(snapshot, self.embedder, allow_empty=allow_empty)
         return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds}
+
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        """The in-process lake runs the job here and answers its end (no client limit to outlast: T-690)."""
+        return self.lake.start_rebuild(snapshot, self.embedder, allow_empty=allow_empty)
+
+    def rebuild_state(self, snapshot: str) -> dict[str, Any]:
+        return self.lake.rebuild_state(snapshot)
+
+
+def _refusal(resp: httpx.Response, snapshot: str) -> Exception:
+    """The lake service's answer to a rebuild it would not start, as the in-process lake raises it (D-462, D-271)."""
+    from lake.store import BUSY_HEADER, RebuildError, SnapshotBuilding, SnapshotHeld
+
+    try:
+        detail = str(resp.json().get("detail"))
+    except ValueError:
+        detail = resp.text[:500]
+    if resp.status_code == 409:
+        busy = resp.headers.get(BUSY_HEADER)
+        if busy == "building":
+            return SnapshotBuilding(detail)
+        if busy:
+            return SnapshotHeld(detail)
+        return RebuildError(detail)
+    return RuntimeError(f"lake service answered {resp.status_code} for snapshot {snapshot}: {detail}")
+
+
+def rebuild_answer(job: dict[str, Any], snapshot: str) -> dict[str, Any]:
+    """A rebuild job that ended, as its counts or the in-process lake's exception (T-690, D-472)."""
+    from lake.store import RebuildError, SnapshotBuilding, SnapshotHeld
+
+    state, detail = job.get("state"), str(job.get("detail") or "")
+    if state == "done":
+        out: dict[str, Any] = dict(job.get("result") or {})
+        out.setdefault("snapshot", snapshot)
+        return out
+    if state == "busy":
+        raise (SnapshotBuilding if job.get("busy") == "building" else SnapshotHeld)(detail or "lake busy")
+    if state == "refused":
+        raise RebuildError(detail)
+    raise RuntimeError(f"lake rebuild of {snapshot} {state}: {detail}")

@@ -53,6 +53,30 @@ def _registry(reg: Any) -> tuple[str, str] | None:
     return ("sql", os.environ.get(reg.dsn_env, "") if reg.dsn_env else (reg.path or ""))
 
 
+def http_rebuild(lake: Any, snapshot: str) -> RebuildResult:
+    """The night's lake step over HTTP (T-690, D-472): the rebuild is started as a job on the lake service and followed
+    to its end, never timed (OD-10; before, 7,200 s: a longer rebuild failed the night while the lake finished it and
+    moved CURRENT). Busy stays busy (``LakeBusy``: the night is run again, D-462); a refusal of the data is
+    ``RebuildRefused`` (a held night, D-271); anything else, or a lake that stopped answering, fails the step."""
+    from lake.store import LakeBusy, RebuildError
+
+    from adapter.pipeline import RebuildRefused
+
+    try:
+        out = lake.rebuild(snapshot)
+    except LakeBusy:
+        raise
+    except RebuildError as exc:
+        raise RebuildRefused(f"the lake refused snapshot {snapshot}: {exc}") from None
+    return RebuildResult(
+        snapshot=out.get("snapshot") or snapshot,
+        tables=out.get("tables") or {},
+        chunks=int(out.get("chunks") or 0),
+        embedded_new=int(out.get("embedded_new") or 0),
+        seconds=float(out.get("seconds") or 0),
+    )
+
+
 def build_config() -> tuple[AdapterConfig, str, str]:
     cfg = load()
     ds = cfg.settings.data_source
@@ -80,27 +104,9 @@ def build_config() -> tuple[AdapterConfig, str, str]:
                 embedded_new=st.embedded_new,
                 seconds=st.seconds,
             )
-        import httpx
-        from tb_common.service_auth import auth_headers
+        from lake.client import LakeHttp
 
-        resp = httpx.post(
-            f"{cfg.env.lake_url.rstrip('/')}/rebuild", json={"snapshot": snapshot}, timeout=7200, headers=auth_headers()
-        )
-        if resp.status_code >= 400:  # D-271: the lake's reason reaches the ingest report, not only its log
-            try:
-                detail = str(resp.json().get("detail"))
-            except ValueError:
-                detail = resp.text[:500]
-            if resp.status_code == 409 and resp.headers.get("X-TB-Lake-Busy"):
-                from lake.store import LakeBusy  # D-462: held by a job or already building: retried, not refused
-
-                raise LakeBusy(f"the lake is busy with snapshot {snapshot}: {detail}")
-            if resp.status_code == 409:
-                from adapter.pipeline import RebuildRefused
-
-                raise RebuildRefused(f"the lake refused snapshot {snapshot}: {detail}")
-            raise RuntimeError(f"lake service answered {resp.status_code}: {detail}")
-        return RebuildResult.model_validate(resp.json())
+        return http_rebuild(LakeHttp(cfg.env.lake_url), snapshot)
 
     ret = cfg.settings.retention
     fc = cfg.settings.feed_completeness  # T-611

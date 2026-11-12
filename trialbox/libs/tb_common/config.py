@@ -523,6 +523,10 @@ DECLARED: dict[str, Declared] = {
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
     "TB_JAVA": Declared("str", "java", "java command"),
+    "TB_JOB_LOST_SECONDS": Declared(
+        "float", "900", "a polled job is lost when its service is silent this long (> a restart; D-472)"
+    ),
+    "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),

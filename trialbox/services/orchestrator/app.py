@@ -130,8 +130,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         from orchestrator.scheduler import start
 
         sched = start(o)
-    if sched is not None and o.cfg.env.site_publish_batch_seconds > 0:  # T-305b (D-403): the batch's own tick
-        sched.add_job(lambda: _flush_main(setup_of(o)), "interval", seconds=60, id="site-publish-batch")
+    if sched is not None:  # T-305b (D-403): the batch's own tick; T-690 (D-472): it also follows a publish whose
+        # rebuild runs as a lake job, batching on or off (a publish with nothing new and no job in progress is a no-op)
+        sched.add_job(lambda: _flush_main(None, o), "interval", seconds=60, id="site-publish-batch")
     # D-441: the opt-out worker ticks even when nights are on demand; in PRODUCTION also without the scheduler (and it
     # refuses to be off there)
     from datacore.optout_worker import start as optout_start
@@ -586,9 +587,13 @@ def setup_of(o: Orchestrator) -> Any:
     return _setups[key]
 
 
-def _flush_main(svc: Any) -> None:
-    """Apply the hospital lake's waiting batch of site decisions, if its window closed and no job holds it."""
+def _flush_main(svc: Any, o: Orchestrator | None = None) -> None:
+    """Apply the hospital lake's waiting batch of site decisions, if its window closed and no job holds it, and
+    follow a publish in progress (T-690)."""
     try:
+        if svc is None:
+            assert o is not None
+            svc = setup_of(o)
         svc.flush("main")
     except Exception:  # the next tick or the next job tries again; the decisions are stored
         log.exception("site publish batch not applied")

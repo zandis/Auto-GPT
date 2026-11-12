@@ -236,6 +236,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "發布院內設定正等待進行中的重建",
     ),
     "setup.publish_deferred": ("Site set-up publishing deferred", "施設設定の公開延期", "延後發布院內設定"),
+    "setup.publish_failed": (
+        "Site set-up publishing failed (the rebuild did not finish)",
+        "施設設定の公開に失敗（再構築が完了せず）",
+        "發布院內設定失敗（重建未完成）",
+    ),
     "setup.remote": (
         "Remote site source changed (service)",
         "遠隔施設ソースの変更（サービス）",
