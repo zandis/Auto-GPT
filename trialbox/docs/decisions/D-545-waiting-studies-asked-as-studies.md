@@ -30,6 +30,13 @@ named the fixed 500; the allow-list line said plainly that it was a cut.
   with their reasons; they are T-700's.
 - The list is as long as the number of studies that wait, which is bounded by the number of studies.
 
+## What the adversarial review changed
+
+One review by a fresh reviewer. Verdict: merge; no HIGH or MED. From its LOW points: a study id of blanks names
+no study (the query and the console's reader); the route test also asserts the operator's token reads it; D-540
+points here. Not changed: the order rests on the stored text timestamps, as `GET /jobs` does (display only); the
+console's test stand-in returns the studies in the order they were added.
+
 ## Reuse check
 
 Nothing fits: one SQL query on the box's own job table.

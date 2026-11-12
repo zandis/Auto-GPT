@@ -28,6 +28,7 @@ def test_the_route_names_every_waiting_study_and_only_the_console_and_the_operat
         _wait(orch_box, n, "BUSY")
     r = orch_box.client("console").get("/jobs/waiting-studies")
     assert r.status_code == 200 and r.json() == ["BUSY", "NEWSTUDY"]
+    assert orch_box.client("operator").get("/jobs/waiting-studies").status_code == 200
     assert orch_box.client(None).get("/jobs/waiting-studies").status_code == 401
     assert orch_box.client("lake").get("/jobs/waiting-studies").status_code == 403
     assert orch_box.client("mail-gateway").get("/jobs/waiting-studies").status_code == 403
@@ -38,7 +39,7 @@ def test_the_route_names_every_waiting_study_and_only_the_console_and_the_operat
 def test_the_consoles_reader_asks_no_job_listing(monkeypatch: pytest.MonkeyPatch) -> None:
     class Bk:
         def waiting_studies(self) -> list[str]:
-            return ["gzqo", "GZQO", "", "NEW1"]
+            return ["gzqo", "GZQO", "", "  ", " new1 "]
 
         def list_jobs(self, *a: Any, **k: Any) -> list[Any]:
             raise AssertionError("the waiting studies are not read from a listing of jobs")

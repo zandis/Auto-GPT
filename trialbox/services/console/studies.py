@@ -35,7 +35,7 @@ def waiting_studies(bk: Any) -> list[str]:
     waiting jobs is still found."""
     seen: list[str] = []
     for raw in bk.waiting_studies():
-        rid = str(raw or "").upper()
+        rid = str(raw or "").strip().upper()
         if rid and rid not in seen:
             seen.append(rid)
     return seen

@@ -28,6 +28,7 @@ def test_a_study_behind_more_waiting_jobs_than_any_listing_reads_is_still_named(
         db.put(_job(n, "BUSY"))
     db.put(_job(600, "DONE1", state="done"))
     db.put(_job(601, None))  # a waiting job with no study names none
+    db.put(_job(603, "   "))  # nor one whose study is blanks (the review)
     db.put(_job(602, "newer"))
     # the old way: the newest 500 waiting jobs do not hold the oldest study's
     assert "OLDEST" not in {j.ruleset for j in db.find(state="awaiting_approval", limit=500)}

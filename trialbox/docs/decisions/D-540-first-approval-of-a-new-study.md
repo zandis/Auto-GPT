@@ -20,7 +20,8 @@ and the coordinator's accounts are limited to their studies, so the new study wa
 
 1. **The delegation log opens for a study whose first criteria wait for approval.** `console.studies.log_study`
    answers yes for a known study (D-133, unchanged) and for a ruleset id that has a job in state
-   `awaiting_approval` (`waiting_studies`: the orchestrator is asked for the jobs of that state). Only the log's
+   `awaiting_approval` (`waiting_studies`: the orchestrator is asked for the jobs of that state; since D-545
+   for the waiting studies themselves, with no cut). Only the log's
    page and its "add" route use it. Every other study page (set-up, forms, entry, sources, candidates, IRB) stays
    closed until the first approval writes the ruleset, as before. When the jobs cannot be read the answer is no:
    an unknown study stays unknown while the orchestrator is down. A mistyped code, and a study whose only job was
