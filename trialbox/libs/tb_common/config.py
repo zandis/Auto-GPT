@@ -366,7 +366,9 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_DIR": Declared("path", "/data/audit", "the audit chain's folder"),
     "TB_AUDIT_HOST_DIR": Declared("path", "", "host path of the audit volume (logs archive-audit)"),
     "TB_AUDIT_MIN_FREE_MB": Declared("int", "64", "audit refuses to write below this free space"),
-    "TB_AUDIT_TS_MAX_SKEW_S": Declared("float", "300", "seconds an audit event's own time may be from the journal's"),
+    "TB_AUDIT_TS_MAX_SKEW_S": Declared(
+        "float", "300", "seconds an event's own time may differ from the journal's; a slow transaction (D-488)"
+    ),
     "TB_AUDIT_WRITER": Declared("str", "file", "db: send audit events to the journal (D-394); file: write the chain"),
     "TB_AUDIT_WRITER_ALIVE": Declared("path", "", "the audit drain's heartbeat file (default in the temp folder)"),
     "TB_AUTH_HOSTNAME": Declared("str", "", "compose: the identity provider's DNS name (network sheet, T-632)"),

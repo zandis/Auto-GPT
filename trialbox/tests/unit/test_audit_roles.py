@@ -76,11 +76,52 @@ def _named(files: list[Path]) -> set[str]:
     return out
 
 
+def _constants(files: list[Path]) -> set[str]:
+    """Review M1: the families of event names held in a module-level constant whose name says it is an event
+    (``EVENT_DECIDE = "dataops.decide"``, ``ACK_EVENT = "demo.ack"``): such a name is passed to ``append`` as a
+    variable, which the ``append("...")`` pattern never sees."""
+    out: set[str] = set()
+    for f in files:
+        for n in ast.parse(f.read_text(encoding="utf-8")).body:
+            if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
+                    and re.fullmatch(r"[a-z_]+(\.[a-z_]+)+", n.value.value)
+                    and any(isinstance(t, ast.Name) and "EVENT" in t.id for t in n.targets)):  # fmt: skip
+                out.add(n.value.value.split(".")[0])
+    return out
+
+
+def _host_tool_events() -> set[str]:
+    """Review H1: the events the host's tools send through the orchestrator's container
+    (``compose exec -T orchestrator python -c "... open_audit().append(...)"``): the journal records them under the
+    orchestrator's role, not the administrator's. Every labelled event name written out in a tool that does so."""
+    from console.i18n_audit import EVENTS
+
+    out: set[str] = set()
+    for f in [*sorted((ROOT / "tools" / "trialbox").glob("*.py")), ROOT / "deploy" / "install.sh"]:
+        text = f.read_text(encoding="utf-8")
+        if "open_audit(" not in text or "orchestrator" not in text:
+            continue
+        out |= {m for m in re.findall(r"""["']([a-z_]+(?:\.[a-z_]+)+)["']""", text) if m in EVENTS}
+    return out
+
+
+def test_the_host_tools_events_are_the_orchestrators() -> None:
+    events = _host_tool_events()
+    assert {"backup.done", "update.applied", "console.ops"} <= events, sorted(events)  # the scan finds them
+    marked = sorted(e for e in events if aw.foreign("tb_orchestrator", e))
+    assert marked == [], f"sent through the orchestrator's container and marked on every box: {marked}"
+    # an exact event, not its family: the orchestrator does not speak for the console
+    assert aw.foreign("tb_orchestrator", "console.user") == "role"
+    assert all(why.strip() for row in aw.EXACT_EVENTS.values() for why in row.values())
+
+
 def test_every_family_a_service_writes_is_in_its_row() -> None:
     mods = _modules()
     for name, role in ROLE_OF.items():
         files = sorted((SERVICES / name).rglob("*.py"))
         own = _written(files) | (set() if role in HOSTS else _named(files))  # the console names others' events to read
+        if role in HOSTS:
+            own |= _constants([mods[m] for m in _closure(name, mods)])
         assert own <= aw.ROLE_EVENTS[role], f"{role} writes {sorted(own - aw.ROLE_EVENTS[role])} in services/{name}"
         if role in HOSTS:  # everything its process can run
             hosted = _written([mods[m] for m in _closure(name, mods)])
@@ -120,6 +161,16 @@ def test_foreign_and_time() -> None:
     assert aw.flags_of("tb_orchestrator", "screen.reveal", now + timedelta(hours=1), now.isoformat()) == ["time"]
     assert aw.flags_of("tb_mail_gateway", "screen.reveal", now - timedelta(days=7), now) == ["role", "time"]
     assert aw.flags_of("tb_orchestrator", "screen.reveal", now, "not a time") == ["time"]
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "1e400", "abc"])
+def test_an_allowance_that_is_not_a_number_of_seconds_is_the_default(monkeypatch: pytest.MonkeyPatch,
+                                                                    value: str) -> None:  # fmt: skip
+    """Review L1: ``inf`` switched the time mark off without a word."""
+    monkeypatch.setenv(aw.SKEW_ENV, value)
+    assert aw.max_skew() == 300.0
+    now = datetime(2026, 11, 12, 9, 0, tzinfo=UTC)
+    assert aw.flags_of("tb_orchestrator", "screen.reveal", now - timedelta(days=7), now) == ["time"]
 
 
 def test_the_allowance_is_a_setting(monkeypatch: pytest.MonkeyPatch) -> None:

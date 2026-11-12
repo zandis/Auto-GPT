@@ -37,6 +37,7 @@ import contextlib
 import importlib
 import json
 import logging
+import math
 import os
 import sys
 import tempfile
@@ -274,15 +275,26 @@ _SHARED = ("audit", "flag", "flow", "llm", "mail")  # written through tb_common 
 _ORCH = ("actor", "case", "cohort", "consent", "data", "derive", "edc", "feas", "job", "lake", "life", "microbatch",
          "nav", "notice", "notmatched", "opportunity", "optout", "redcap", "registry", "rerun", "retention",
          "scheduler", "screen", "selftest", "service", "setup", "sponsor", "study", "terminology", "twpas")  # fmt: skip
-_CONSOLE = ("console", "edc", "feedback", "instrument", "notmatched", "optout", "registry", "setup", "sponsor",
-            "terminology")  # fmt: skip
+_CONSOLE = ("console", "dataops", "demo", "edc", "feedback", "instrument", "notmatched", "optout", "registry",
+            "setup", "sponsor", "terminology")  # fmt: skip
+#: The host's `trialbox` tools (backup, update, watchdog, the operations runner) and `deploy/install.sh` send their
+#: events from inside the orchestrator's container (`compose exec -T orchestrator python -c "... open_audit()"`),
+#: so the journal records them under the orchestrator's role, not the administrator's (the review's H1).
+_HOST_TOOLS = ("backup", "ops", "update")
+#: one event of another role's family that a role sends, each with its reason (never the whole family)
+EXACT_EVENTS: dict[str, dict[str, str]] = {
+    "tb_orchestrator": {
+        "console.ops": "the operations runner of the host (tools/trialbox/ops.py) sends it from the "
+        "orchestrator's container"
+    },
+}
 #: what an edge service writes beyond its own folder's events, and why
 EDGE_EXTRA: dict[str, dict[str, str]] = {
     "tb_criteria_compiler": {"llm": "its model calls go through tb_common.llm, which audits them in the caller's log"},
 }
 ROLE_EVENTS: dict[str, frozenset[str]] = {
     "tb_console": frozenset({*_CONSOLE, *_SHARED}),
-    "tb_orchestrator": frozenset({*_ORCH, *_SHARED}),
+    "tb_orchestrator": frozenset({*_ORCH, *_SHARED, *_HOST_TOOLS, "dataops"})  # it imports datacore.dataops,
     "tb_mail_gateway": frozenset({"mail"}),
     "tb_gateway": frozenset({"llm"}),
     "tb_lake": frozenset({"lake"}),
@@ -298,9 +310,11 @@ def max_skew() -> float:
     same host, so the two differ by the length of a transaction; five minutes is a slow one. It is a setting, not a
     constant, because a site with a database on another host may need more (OD-10)."""
     try:
-        return max(0.0, float(os.environ.get(SKEW_ENV) or 300))
+        value = float(os.environ.get(SKEW_ENV) or 300)
     except ValueError:
         return 300.0
+    # not a number of seconds (inf, nan, below zero): the default, so that no value switches the mark off
+    return value if math.isfinite(value) and value >= 0 else 300.0
 
 
 def foreign(role: str, event: str) -> str:
@@ -311,7 +325,9 @@ def foreign(role: str, event: str) -> str:
     allowed = ROLE_EVENTS.get(role)
     if allowed is None:
         return "unknown role"
-    return "" if event.split(".", 1)[0] in allowed else "role"
+    if event.split(".", 1)[0] in allowed or event in EXACT_EVENTS.get(role, {}):
+        return ""
+    return "role"
 
 
 def flags_of(role: str, event: str, ts: datetime, at: Any) -> list[str]:
@@ -405,7 +421,8 @@ class Drain:
             # so there is no moment at which the event is in the chain without it.
             if marks := flags_of(str(role), str(event), stamp, at):
                 journal["flag"] = marks
-                log.warning("audit journal row %s from %s marked %s (event %s)", seq, role, ", ".join(marks), event)
+                # the event's name is the sender's own text: it stays in the record, not in the log line
+                log.warning("audit journal row %s from %s marked %s", seq, role, ", ".join(marks))
             self.chain.append(event, ts=stamp, journal=journal, **f)
             self.cursor = Cursor(int(seq), _iso(at))
             self._after = None
