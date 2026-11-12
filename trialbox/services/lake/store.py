@@ -832,3 +832,31 @@ class Lake:
             ]
         finally:
             con.close()
+
+    def vec_s2b(
+        self, pid: str, dids: list[str], query: str, embedder: Embedder, store: Any, snapshot: str | None = None
+    ) -> dict[str, Any]:
+        """T-203b (D-449, flag ``vec.s2b``): S2b's ranking of one patient's window notes from the vector store
+        (schema ``vec``, read by this service only, D-378). The notes are read from ``snapshot`` (the job's pinned
+        one) and checked against the stored chunks; a store that is not there, not this snapshot's or not of the
+        embedder's model answers ``{"state": "fallback", "reason"}`` and the cascade ranks on the fly
+        (:func:`vec.s2b.rank_chunks`)."""
+        from vec.index import Note
+        from vec.s2b import UNAVAILABLE, fallback, rank_chunks
+
+        if store is None:
+            return fallback(UNAVAILABLE)
+        want = sorted(set(dids))
+        rows = self.query(
+            "SELECT did, pid, CAST(date AS DATE) AS d, type, text FROM document "
+            "WHERE pid = $1 AND list_contains(CAST($2 AS VARCHAR[]), did) ORDER BY did",
+            [pid, want],
+            snapshot,
+        ).to_pylist()
+        if sorted(str(r["did"]) for r in rows) != want:  # a note the cascade read is not this patient's in the snapshot
+            return fallback("a window note is not in the pinned snapshot")
+        notes = [
+            Note(pid, str(r["did"]), str(r["text"] or ""), r["d"].isoformat() if r["d"] else None, r["type"])
+            for r in rows
+        ]
+        return rank_chunks(store, embedder, pid, notes, query, self.mrn_regex)
