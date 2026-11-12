@@ -36,11 +36,32 @@ Each job's model clients (judge and verifier) are now wrapped in a :class:`Guard
 
 The other job types get the cancel check only. The judge's own failure count and the end-of-run share rule
 (``check_failures``) are unchanged: the breaker only stops a run sooner when the model stopped answering.
+
+T-689 (D-456; scale review F-04, F-28, F-31): a job of hours must outlive a model outage and a restart of this
+service.
+
+* **wait and retry**: a call that fails because the model did not answer (:class:`tb_common.llm.LlmModelFault`: the
+  gateway's ``model_busy``, ``model_unavailable``, ``model_asleep``, ``upstream_down``, an endpoint that cannot be
+  reached, a 5xx without a refusal code; never a timeout and never the gateway's configuration fault
+  ``upstream_failed``) is not an answer of ``unknown``. The call sleeps the gateway's ``Retry-After`` and is sent again
+  (:func:`tb_llm.outage.wait_and_retry`), until the job's outage allowance is used up
+  (:class:`tb_llm.outage.OutageBudget`: ``TB_LLM_OUTAGE_WAIT_S`` seconds per job over all its calls and both models,
+  not per call). Then the job fails at
+  once (:class:`ModelOutage`). A model fault never counts in the breaker, and the breaker's threshold is at least
+  twice the calls in flight, so one blip that fails them all together cannot open it.
+* **kept answers**: every answer a SCREEN or MICROBATCH job's model client gives is kept in ``orch.judge_answers``
+  (:class:`KeptAnswers`) while the job is unfinished. After a restart the job runs again from its start and a call
+  with the same role, snapshot, prompt and variables gets the kept answer, if the build that gave it is the build
+  that answers that role in this run (the build of the role's latest live answer; unknown: nothing is replayed).
+  So a list is never of two builds of one role, and each run asks at least one call per role live.
 """
 
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+import hashlib
+import json
 import logging
 import os
 import threading
@@ -51,7 +72,16 @@ from dataclasses import dataclass, replace
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from tb_common.llm import LlmError, LlmPromptTooLong, LlmPromptUnqualified
+from tb_common.llm import (
+    LlmError,
+    LlmModelFault,
+    LlmPromptTooLong,
+    LlmPromptUnqualified,
+    LlmResult,
+    load_prompt,
+)
+from tb_llm.outage import ENV as OUTAGE_ENV
+from tb_llm.outage import OutageBudget, OutageExhausted, wait_and_retry
 
 from orchestrator.clients import StepFailed
 
@@ -211,7 +241,20 @@ class BreakerSettings:
             window = float(e.get("TB_SCREEN_BREAKER_WINDOW_S") or BREAKER_WINDOW_S)
         except ValueError as exc:
             raise ValueError("TB_SCREEN_BREAKER_FAILURES and TB_SCREEN_BREAKER_WINDOW_S must be numbers") from exc
+        if failures > 0:
+            # T-689 (F-31): the calls in flight fail together on one event; "in a row" means more than two rounds
+            failures = max(failures, 2 * llm_concurrency(e))
         return cls(max(0, failures), max(1.0, window))
+
+
+def llm_concurrency(env: Mapping[str, str] | None = None) -> int:
+    """Model calls a screening job has in flight (``TB_SCREEN_LLM_CONCURRENCY``; compose sets it to the serving
+    profile's ``--max-num-seqs``)."""
+    e = os.environ if env is None else env
+    try:
+        return max(1, min(64, int(e.get("TB_SCREEN_LLM_CONCURRENCY") or 1)))
+    except ValueError:
+        return 1
 
 
 def monotonic() -> float:
@@ -282,8 +325,111 @@ class Breaker:
             return max(0, int(self.settings.window_s - (self._now() - self.opened_at) + 0.999))
 
 
+# ------------------------------------------------------------------------- restarts (T-689, D-456; review F-28)
+# restarts of this service one job may survive (TB_JOB_MAX_RESTARTS). The reason: the restart may be the job's own
+# doing (an out-of-memory kill), and without a count the box loops on it; three covers an update and two faults
+MAX_RESTARTS = 3
+
+
+def max_restarts(env: Mapping[str, str] | None = None) -> int:
+    e = os.environ if env is None else env
+    raw = (e.get("TB_JOB_MAX_RESTARTS") or "").strip()
+    try:
+        return max(0, int(raw)) if raw else MAX_RESTARTS
+    except ValueError as exc:
+        raise ValueError("TB_JOB_MAX_RESTARTS must be a whole number") from exc
+
+
+# ------------------------------------------------------------------------- outages and kept answers (T-689, D-456)
+REPLAY_JOBS = frozenset({"SCREEN", "MICROBATCH"})
+
+
+class ModelOutage(StepFailed):
+    """The model stayed down for longer than the job's outage allowance (:mod:`tb_llm.outage`): the job stops,
+    nothing is written as ``unknown`` for the pairs it did not reach."""
+
+
+def _model_fault(exc: BaseException) -> tuple[str, float | None] | None:
+    return (exc.reason, exc.retry_after) if isinstance(exc, LlmModelFault) else None
+
+
+class KeptAnswers:
+    """The answers one job's model clients gave, in ``orch.judge_answers`` (T-689, D-456): written as they arrive,
+    read back when the job runs again after a restart. Only :class:`tb_common.llm.LlmResult` answers are kept,
+    never an error. The key names the client's role, the job's pinned snapshot, the prompt (id and file sha, so an
+    update that changes the prompt between two starts replays nothing stale) and the variables.
+
+    **The build** (review of T-689): a kept answer stands in only when its ``build_sha`` is the build that answers
+    its role in this run, which is the build of the role's latest live answer here. Until a role has answered live
+    in this run, or when the client names no build (a direct endpoint), nothing of that role is replayed. An update
+    that changes the routed build between two starts therefore replays nothing of the old build, and its kept
+    answers are replaced as the new build answers."""
+
+    def __init__(self, db: Any, job_id: str, snapshot: Callable[[], str], now: Callable[[], str]) -> None:
+        self._db = db
+        self.job_id = job_id
+        self._snapshot = snapshot
+        self._now = now
+        self.replayed = 0
+        self._build: dict[str, str] = {}  # role -> the build of its latest live answer in this run
+        self._lock = threading.Lock()
+
+    def key(self, label: str, inner: Any, prompt_id: str, variables: Any, schema: str | None) -> str | None:
+        try:
+            env = getattr(inner, "_prompt_env", None) or getattr(
+                getattr(inner, "gateway", None), "prompt_environment", None
+            )
+            sha = load_prompt(prompt_id, env).sha256
+            body = json.dumps(
+                [label, self._snapshot(), prompt_id, sha, schema, variables],
+                sort_keys=True,
+                ensure_ascii=False,
+                default=str,
+            )
+        except Exception:  # a prompt that cannot be loaded, variables that cannot be written: asked live, not kept
+            return None
+        return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+    def get(self, key: str, label: str) -> LlmResult | None:
+        with self._lock:
+            build = self._build.get(label)
+        if not build:  # the role has not answered live in this run, or names no build: asked live
+            return None
+        raw = self._db.answer_get(self.job_id, key)
+        if raw is None:
+            return None
+        try:
+            out = LlmResult(**json.loads(raw))
+        except (TypeError, ValueError):  # written by another build of the code: asked again
+            return None
+        if out.build_sha != build:  # another build of the model said it: asked again
+            return None
+        with self._lock:
+            self.replayed += 1
+        return out
+
+    def put(self, key: str, result: Any, label: str) -> None:
+        if not isinstance(result, LlmResult):
+            return
+        with self._lock:
+            self._build[label] = result.build_sha
+        try:
+            raw = json.dumps(dataclasses.asdict(result), ensure_ascii=False)
+        except (TypeError, ValueError):
+            return
+        other = False  # a kept answer of another build gives way; one of the same build stays (the first)
+        old = self._db.answer_get(self.job_id, key)
+        if old is not None:
+            try:
+                other = json.loads(old).get("build_sha") != result.build_sha
+            except (TypeError, ValueError, AttributeError):
+                other = True
+        self._db.answer_put(self.job_id, key, raw, self._now(), replace=other)
+
+
 class GuardedLlm:
-    """A job's view of one model client: the cancel check before each call and, for SCREEN, the breaker."""
+    """A job's view of one model client: the cancel check before each call, the wait on a model outage, the kept
+    answers of a screening job and, for SCREEN, the breaker."""
 
     def __init__(
         self,
@@ -291,20 +437,43 @@ class GuardedLlm:
         should_stop: Callable[[], bool],
         breaker: Breaker | None,
         label: str,
+        outage: OutageBudget | None = None,
+        answers: KeptAnswers | None = None,
     ) -> None:
         self.inner = inner
         self._should_stop = should_stop
         self._breaker = breaker
         self._label = label
+        self._outage = outage
+        self._answers = answers
 
     def __getattr__(self, name: str) -> Any:  # model, base_url, gateway, text_budget ... of the wrapped client
         return getattr(self.inner, name)
 
-    def _call(self, fn: Callable[..., Any], *args: Any, **kw: Any) -> Any:
+    def _check_stop(self) -> None:
         if self._should_stop():
             from orchestrator.core import Cancelled
 
             raise Cancelled("cancelled")
+
+    def _call(self, fn: Callable[..., Any], *args: Any, **kw: Any) -> Any:
+        """``fn``, sent again after a wait while the model does not answer and the job's allowance lasts."""
+        waiting = self._outage is not None and self._outage.waits
+        try:
+            return wait_and_retry(
+                lambda: self._once(fn, waiting, *args, **kw), self._outage, self._label, _model_fault, self._check_stop
+            )
+        except OutageExhausted as exc:
+            raise ModelOutage(
+                "running",
+                f"The {exc.label} model did not answer ({exc.reason}) and this job has waited "
+                f"{round(exc.spent_s)} s for it, its whole allowance ({OUTAGE_ENV} = {round(exc.allowance_s)} s), so "
+                f"the job stopped. Nothing was sent. Check the model service (RUNBOOK §4) and send the request again "
+                f"when the model is back.",
+            ) from exc
+
+    def _once(self, fn: Callable[..., Any], waiting: bool, *args: Any, **kw: Any) -> Any:
+        self._check_stop()
         b = self._breaker
         if b is not None and not b.allow():
             raise BreakerOpen(
@@ -319,6 +488,13 @@ class GuardedLlm:
             if b is not None:
                 b.release()
             raise
+        except LlmModelFault:
+            if b is not None:
+                if waiting:  # T-689: the job waits for the model; an outage is not a failure in a row
+                    b.release()
+                else:
+                    b.failure()
+            raise
         except LlmError:
             if b is not None:
                 b.failure()
@@ -332,7 +508,19 @@ class GuardedLlm:
         return out
 
     def chat_json(self, *args: Any, **kw: Any) -> Any:
-        return self._call(self.inner.chat_json, *args, **kw)
+        key = None
+        if self._answers is not None and len(args) >= 2:
+            schema = args[2] if len(args) > 2 else kw.get("schema")
+            key = self._answers.key(self._label, self.inner, str(args[0]), args[1], schema)
+        if key is not None and self._answers is not None:
+            self._check_stop()
+            kept = self._answers.get(key, self._label)
+            if kept is not None:
+                return kept
+        out = self._call(self.inner.chat_json, *args, **kw)
+        if key is not None and self._answers is not None:
+            self._answers.put(key, out, self._label)
+        return out
 
 
 _BREAKERS: weakref.WeakKeyDictionary[Any, dict[int, Breaker]] = weakref.WeakKeyDictionary()
@@ -361,13 +549,39 @@ def guarded_services(ctx: Ctx, base: Services) -> Services:
     stop = cancel_requested(ctx)
     screen = ctx.job.type in BREAKER_JOBS
     wrapped: dict[int, GuardedLlm] = {}
+    job_id = ctx.job.job_id
+
+    def outage_ended(label: str, reason: str, waited: float, outcome: str) -> None:
+        ctx.orch.audit.append(
+            "llm.outage",
+            job_id=job_id,
+            detail={"model": label, "reason": reason, "waited_s": round(waited, 1), "outcome": outcome},
+        )
+
+    def outage_started(label: str, reason: str) -> None:
+        # review of T-689: the person who looks at a job that only says "running" finds why in the audit
+        ctx.orch.audit.append(
+            "llm.outage",
+            job_id=job_id,
+            detail={"model": label, "reason": reason, "waited_s": 0.0, "outcome": "waiting"},
+        )
+
+    outage = OutageBudget(on_end=outage_ended, on_start=outage_started)
+    answers = None
+    if ctx.job.type in REPLAY_JOBS:
+        answers = KeptAnswers(
+            ctx.orch.db,
+            job_id,
+            lambda: ctx.job.snapshot_date.isoformat() if ctx.job.snapshot_date else "",
+            lambda: ctx.orch._now().isoformat(),
+        )
 
     def guard(client: Any, label: str) -> Any:
         if client is None:
             return None
         if id(client) not in wrapped:
             b = breaker_for(ctx.orch, client) if screen else None
-            wrapped[id(client)] = GuardedLlm(client, stop, b, label)
+            wrapped[id(client)] = GuardedLlm(client, stop, b, label, outage, answers)
         return wrapped[id(client)]
 
     return replace(base, llm=guard(base.llm, "judge"), verifier=guard(base.verifier, "verifier"))

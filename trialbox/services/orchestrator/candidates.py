@@ -118,14 +118,19 @@ class CandidateRegistry:
         )
         return RegistryEntry.model_validate(row)
 
-    def promote(self, ruleset: str, req: RegistryPromote, now: datetime) -> int:
-        """Add the ruleset's current SCREEN pool rows (D-92: tiers high and review) that the registry lacks."""
+    def promote(self, ruleset: str, req: RegistryPromote, now: datetime, version: str | None = None) -> int:
+        """Add the ruleset's current SCREEN pool rows (D-92: tiers high and review) that the registry lacks.
+        ``version``: the criteria version in force. A pool row stored under another version was never evaluated on
+        it (D-476, review of T-707 MED 2): it is not promoted until MICROBATCH or SCREEN has screened it again."""
         ruleset = check_ruleset(ruleset)
         tiers = set(req.tiers or ["high", "review"])
         have = {r["pid"] for r in self.db.candidates(ruleset)}
-        added = 0
+        added = behind = 0
         for p in self.db.pool(ruleset):
             if p["tier"] not in tiers or p["pid"] in have:
+                continue
+            if version is not None and p.get("version") != version:
+                behind += 1
                 continue
             self.db.candidate_set(
                 ruleset,
@@ -140,7 +145,10 @@ class CandidateRegistry:
             )
             added += 1
         self.audit.append(
-            "registry.promote", ruleset=ruleset, actor=req.by, detail={"added": added, "tiers": sorted(tiers)}
+            "registry.promote",
+            ruleset=ruleset,
+            actor=req.by,
+            detail={"added": added, "tiers": sorted(tiers), **({"other_version": behind} if behind else {})},
         )
         return added
 
