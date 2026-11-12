@@ -17,7 +17,10 @@ build). The steps, in order (:data:`STEPS`); each one ends ``passed`` or ``faile
   registry and prompt-registry versions, and the active prompt set with each text and schema sha;
 * ``licence``: each build's licence row is verified in the registry and backed by its row of
   ``docs/licences/register.csv`` (same repository and SPDX id, cleared; T-617b); for real weights the weight folder
-  (``--model-dir``) holds a licence file, and when the register row has the text's sha256 the file is that text;
+  (``--model-dir``) holds a licence file, and when the register row has the text's sha256 the file is that text. A
+  build whose source holds no licence file (``provenance.licence_file: none-in-source``; HW-004, D-565) is checked
+  against the register row alone (it names the build's revision and a source URL); its text rides beside the
+  folder, in ``<models root>/licences/<weight folder's name>/``, outside the pinned manifest;
 * ``schema``: every prompt of the active set is sent once with an adversarial line in its data
   (``eval/qualification/schema_probes.yaml``); 100 % must be valid on the first attempt and not cut off (LLM-020);
 * ``longest_prompt``: the longest prompt the product sends per role (the judge's full-record fallback, the uploaded
@@ -61,6 +64,7 @@ import json
 import logging
 import os
 import platform
+import re
 import secrets
 import shutil
 import subprocess
@@ -139,10 +143,11 @@ LICENCE_FILES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "LICENCE.md"
 # HW-004 (D-565): a registry row whose `provenance.licence_file` is this names a source repository that holds no
 # licence file. The expected manifest is every visible file of that source, so a licence file put into the weight
 # folder breaks the pin: the licence step reads the register row, and the text rides beside the folder, in
-# <models root>/LICENCE_BESIDE/<weight folder's name>/, outside the manifest (as the chat template does).
+# <models root>/licences/<weight folder's name>/, outside the manifest (as the chat template does).
 NONE_IN_SOURCE = "none-in-source"
 NONE_IN_SOURCE_FILE = "none in source (register row)"
 LICENCE_BESIDE = "licences"
+_FULL_REVISION = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
 _tl = threading.local()
 
 
@@ -468,20 +473,31 @@ def _none_in_source(b: Build, reg: Any, folder: Path | None, row: dict[str, Any]
     evidence: it names the build's revision and a source URL (that it is cleared, for this repository and SPDX id,
     is `licence_register.model_problems`). The text beside the weight folder is recorded when it is there, and is
     refused when it is not the text the row checked."""
+    row["text"] = None
     if reg is None:
         return []  # said by model_problems: a verified licence without a register row
     out = []
-    if not b.revision or b.revision not in reg.raw["version"]:
+    named = _FULL_REVISION.findall(reg.raw["version"])  # exactly one full revision, and it is the build's
+    if not b.revision or named != [b.revision]:
         out.append(f"{b.build_id}: register row {reg.id} does not name the build's revision {b.revision}")
     if "https://" not in reg.raw["evidence"]:
         out.append(f"{b.build_id}: register row {reg.id} names no source URL in its evidence")
-    row["text"] = None
-    beside = folder.parent / LICENCE_BESIDE / folder.name if folder is not None else None
-    found = [n for n in LICENCE_FILES if beside is not None and (beside / n).is_file()]
-    if beside is not None and found:
-        sha = hashlib.sha256((beside / found[0]).read_bytes()).hexdigest()
-        row["text"], row["text_sha256"] = f"{LICENCE_BESIDE}/{folder.name}/{found[0]}" if folder else None, sha
-        if reg.raw["text_sha256"] and sha != reg.raw["text_sha256"]:
+    if folder is None:
+        return out
+    folder = folder.resolve()  # a link to the weight folder: the folder's own name and place
+    if not folder.name or folder.parent.name == "snapshots":
+        # a model cache's snapshot: beside it is the cache's `snapshots` folder, where another folder would be
+        # read as a snapshot (tools/serving_config.py). The text rides beside a flat <models root>/<folder> only
+        return out
+    beside = folder.parent / LICENCE_BESIDE / folder.name
+    found = [n for n in LICENCE_FILES if (beside / n).is_file()]
+    if found:
+        data = (beside / found[0]).read_bytes()
+        sha = hashlib.sha256(data).hexdigest()
+        row["text"], row["text_sha256"] = f"{LICENCE_BESIDE}/{folder.name}/{found[0]}", sha
+        if not data.strip():
+            out.append(f"{b.build_id}: the licence text beside the weight folder is empty ({row['text']})")
+        elif reg.raw["text_sha256"] and sha != reg.raw["text_sha256"]:
             out.append(f"{b.build_id}: the licence text beside the weight folder is not the text checked in "
                        f"register row {reg.id}")  # fmt: skip
     return out

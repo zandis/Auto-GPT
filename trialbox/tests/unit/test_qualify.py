@@ -191,7 +191,9 @@ def test_a_build_with_no_licence_file_is_refused_and_the_text_must_be_the_checke
     (dirs["verifier"] / "LICENSE").write_text("some other text\n", encoding="utf-8")
     r = q.step_licence(ctx)
     assert r.status == "failed" and "not the text checked in register row model-qwen3.5-9b-awq-4bit" in r.reason
-    assert "gemma" not in r.reason  # the Gemma row records no text hash: any licence file is accepted
+    # the judge's source has no licence file (D-565): its folder is not read by this step; a file put there is
+    # the pin's to refuse (the manifest is every visible file)
+    assert "gemma" not in r.reason
 
     sha = hashlib.sha256(b"some other text\n").hexdigest()
     rows = [
@@ -475,3 +477,80 @@ def test_the_trialbox_command_writes_a_stub_record(
     assert rc == 0 and out["status"] == "passed"
     doc = json.loads(Path(out["record"]).read_text(encoding="utf-8"))
     assert set(doc["steps"]) == {"pin", "serving_record"} and q.schema_problems(doc) == []
+
+
+# ------------------------------------------------------------------------- HW-004: the review of PR #355
+@pytest.mark.parametrize(
+    "version",
+    [
+        "NOT a19cfe00be84568a6867111c9a68c9c44fdcffe6; revision 1111111111111111111111111111111111111111",
+        "revision a19cfe00be84568a6867111c9a68c9c44fdcffe6ff",
+        "revision a19cfe0",
+    ],
+)
+def test_hw004_review_the_row_names_exactly_one_full_revision_and_it_is_the_builds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    """MED-1: the revision was looked for as a substring of the row's version."""
+    monkeypatch.setattr(licence_register, "load", lambda: _rows(version=version))
+    ctx, _ = _judge_ctx(tmp_path)
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and "does not name the build's revision" in r.reason
+
+
+def test_hw004_review_a_short_build_revision_never_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, builds = _judge_ctx(tmp_path)
+    builds["judge"].revision = "a"
+    assert "does not name the build's revision" in q.step_licence(ctx).reason
+
+
+def test_hw004_review_an_empty_text_beside_the_folder_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MED-2: with no text hash in the row, an empty file was recorded as the licence text."""
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, _ = _judge_ctx(tmp_path)
+    beside = tmp_path / "models" / "licences" / "gemma-folder"
+    beside.mkdir(parents=True)
+    (beside / "LICENSE").write_text(" \n", encoding="utf-8")
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and "the licence text beside the weight folder is empty" in r.reason
+
+
+def test_hw004_review_the_folder_is_resolved_and_a_cache_snapshot_has_no_beside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LOW: a link to the weight folder used the link's name. MED-3: beside a Hugging Face cache snapshot is the
+    `snapshots` folder, where a `licences` folder would be read as a snapshot (tools/serving_config.py)."""
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, _ = _judge_ctx(tmp_path)
+    beside = tmp_path / "models" / "licences" / "gemma-folder"
+    beside.mkdir(parents=True)
+    (beside / "LICENSE").write_text("Apache License 2.0 text\n", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "models" / "gemma-folder")
+    ctx.opts.model_dirs["judge"] = link
+    r = q.step_licence(ctx)
+    assert r.status == "passed" and r.detail["judge"]["text"] == "licences/gemma-folder/LICENSE"
+
+    snap = tmp_path / "hub" / "models--x--y" / "snapshots" / "a19c"
+    snap.mkdir(parents=True)
+    (snap.parent / "licences" / "a19c").mkdir(parents=True)
+    (snap.parent / "licences" / "a19c" / "LICENSE").write_text("text\n", encoding="utf-8")
+    ctx.opts.model_dirs["judge"] = snap
+    r = q.step_licence(ctx)
+    assert r.status == "passed" and r.detail["judge"]["text"] is None  # not looked for there
+
+
+def test_hw004_review_the_detail_always_has_the_text_key_and_the_pages_say_where_the_text_goes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = [x for x in _rows() if x.id != "model-gemma-4-26b-a4b-nvfp4"]
+    monkeypatch.setattr(licence_register, "load", lambda: rows)
+    ctx, _ = _judge_ctx(tmp_path)
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and r.detail["judge"]["text"] is None
+    page = (q.ROOT / "docs" / "runbook" / "11-qualify.md").read_text(encoding="utf-8")
+    assert "licences/<folder>/LICENSE" in page and "none-in-source" in page
+    assert "licences/<weight folder" in (q.__doc__ or "")

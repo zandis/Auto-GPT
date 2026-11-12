@@ -22,7 +22,8 @@ never both, and the first real qualification would have failed on step `licence`
 
 1. **A build whose registry row says `provenance.licence_file: none-in-source` is checked against its register
    row, not against a file in the weight folder.** The row must be there, be `cleared` (the existing rule), name
-   the build's revision in its `version` and a source URL in its `evidence`. The step's detail says
+   the build's revision in its `version` (exactly one full revision, the build's) and a source URL in its
+   `evidence`. The step's detail says
    `file: none in source (register row)`. No weight folder is needed for this build's licence check.
 2. **The licence text rides beside the weight folder, outside the manifest**, as the chat template does:
    `<models root>/licences/<weight folder's name>/LICENSE` (any of the step's licence file names). The bundle takes
@@ -36,6 +37,11 @@ never both, and the first real qualification would have failed on step `licence`
    none still fails.
 4. The register row's note and D-342's instruction ("the operator puts the Apache 2.0 text in the weight folder")
    are replaced by "beside the weight folder".
+
+5. **The layout.** "Beside" means the flat `<models root>/<folder>` layout of `deploy/models`. The folder given is
+   resolved first (a link's own name is not used). When the folder is a model cache's snapshot
+   (`.../snapshots/<revision>`), the text is not looked for: a `licences` folder there would be read as a snapshot
+   by `tools/serving_config.py`. An empty text file is refused.
 
 ## Consequences
 
