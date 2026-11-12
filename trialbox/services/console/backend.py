@@ -252,7 +252,8 @@ class HttpBackend:
         self.audit_log = audit
         self.orch = ServiceClient(env.orchestrator_url, "orchestrator", timeout=60, retries=1)
         self.mail = ServiceClient(env.mail_gateway_url, "mail-gateway", timeout=15, retries=0)
-        self.adapter = ServiceClient(env.adapter_url, "adapter", timeout=1800, retries=0, idempotent=False)
+        # T-690 (D-472): the ingest is started (202) and never waited for here; the request is short
+        self.adapter = ServiceClient(env.adapter_url, "adapter", timeout=60, retries=0, idempotent=False)
         self.gateway_url = gateway_url
         self.test_smtp = test_smtp
         seed_working_copy(env.rulesets_path)  # D-469: a first copy of the shipped rulesets; never the checkout
@@ -421,8 +422,8 @@ class HttpBackend:
             resp = self.adapter.post_raw("/run", {"source": "csv", "snapshot": snapshot})
         except ServiceError as exc:
             raise Unavailable(str(exc)) from exc
-        report: dict[str, Any] = resp.json()
-        return report
+        body = resp.json()  # T-690 (D-472): 202, the run id and "running"; the night's end is the adapter's audit
+        return {"run": str(body.get("run") or ""), "state": str(body.get("state") or "")}
 
     def deceased(self, pids: list[str]) -> set[str]:
         """FIT-U04 (T-629, D-415): which of ``pids`` the lake's current snapshot records as dead (the orchestrator's

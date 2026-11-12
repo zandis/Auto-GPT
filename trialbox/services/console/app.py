@@ -934,11 +934,11 @@ def create_app(
     def ingest(request: Request, csrf: str = Form("")) -> Response:
         sess = need_admin(request, csrf)
         au.append("console.operate", actor=actor(sess), detail={"action": "ingest"})
-        report = bk.ingest()
+        started = bk.ingest()  # T-690 (D-472): started, not waited for; the night's end is the adapter's audit line
         au.append(
             "console.operate",
             actor=actor(sess),
-            detail={"action": "ingest.done", "reason": "passed" if report.get("passed") else "not passed"},
+            detail={"action": "ingest.started", "run": str(started.get("run") or "")},
         )
         return RedirectResponse("/?notice=ingested", status_code=303)
 
