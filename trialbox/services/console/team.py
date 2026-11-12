@@ -8,8 +8,8 @@
   role's rights. Every action records who did it (the audit trail and the rows' ``by``).
 * **Monitor grant** (D-380, FIT-002 grant half): the PI or the steward gives a CRO account a ``monitor`` entry of the
   log for the visit dates, with the monitoring-visit id. Under it the account reads the study's *enrolled* subjects
-  only (``/studies/{rs}/monitor/{record}``), read-only; a candidate, a screen failure or another study is refused;
-  each view is audited with the visit id.
+  only, read-only; a candidate, a screen failure or another study is refused; each view is audited with the visit
+  id. The monitor's pages are ``console.sdv_page`` (D-436).
 * **Candidates** (``/studies/{rs}/candidates``): every candidate the study's screening run found, whoever the treating
   doctor is. A candidate's page opens only with a purpose, is logged with the study and the purpose, and is
   rate-limited per person (``TB_CANDIDATE_VIEWS_PER_HOUR``, default 60). On it the PI and delegated sub-PIs see the
@@ -46,14 +46,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from datacore.lifecycle import reconsent_due
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.authz import STUDY_TASKS, conditional, monitor_may_see, permit
+from tb_common.authz import STUDY_TASKS, conditional, permit
 from tb_common.authz import Standing as Grant
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
@@ -91,7 +90,6 @@ _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _CHART = re.compile(r"^[A-Za-z0-9-]{1,40}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (record id), as on the lifecycle pages
-MONITOR_HIDDEN = frozenset({"pid"})  # a monitor reads the subject by its screening number, never the pseudonym
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
@@ -787,52 +785,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         rid, _ = save_irb(sess, request.url.path, rs, body)
         return RedirectResponse(f"/studies/{rid}/irb?done=1", status_code=303)
 
-    # ------------------------------------------------------------------ monitor grant (D-380, FIT-002 grant half)
-    def monitor_grant(sess: Session, path: str, rid: str) -> Standing:
-        """The account's monitor grant in the study today (``monitor.read``), or a refusal (audited)."""
-        s = stand(sess.user, rid)
-        if s.monitor is None or not permit(sess.user.role, "monitor.read", s.grant()):
-            raise deny(sess, path)
-        return s
-
-    def monitor_subject(sess: Session, path: str, rs: str, record: str) -> tuple[str, Standing, dict[str, Any]]:
-        """One subject for the monitor: read-only, enrolled subjects only (``tb_common.authz.monitor_may_see``). A
-        candidate, a screen failure or a consented person who never enrolled is refused and the refusal audited;
-        each view is audited with the monitoring-visit id the grant names."""
-        rid = study_or_404(sess, rs)
-        s = monitor_grant(sess, path, rid)
-        rec = record.strip()[:64]
-        if not _REC.match(rec):
-            raise h.problem(404, "notfound")
-        try:
-            one = dict(s28.call(bk, "GET", f"/studies/{rid}/subjects/{quote(rec)}?today={today().isoformat()}"))
-        except Problem as exc:
-            if exc.status == 404:
-                raise h.problem(404, "notfound") from exc
-            raise h.problem(409, "request.refused", reason="the data core refused the subject") from exc
-        except Unavailable as exc:
-            raise h.problem(503, "request.refused", reason="the data core did not answer") from exc
-        visit = s.monitor.training_ref if s.monitor else ""
-        if not monitor_may_see(one):
-            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
-                      detail={"action": path[:80], "why": "not_enrolled", "visit": visit or ""})  # fmt: skip
-            raise h.problem(403, "forbidden")
-        au.append("console.monitor_view", ruleset=rid, actor=h.actor(sess),
-                  detail={"record": rec, "visit": visit or "", "state": str(one.get("state") or "")})  # fmt: skip
-        shown = {k: v for k, v in one.items() if k not in MONITOR_HIDDEN}
-        return rid, s, shown
-
-    @app.get("/studies/{rs}/monitor/{record}")
-    def monitor_page(request: Request, rs: str, record: str) -> Response:
-        sess = h.need(request)
-        rid, s, one = monitor_subject(sess, request.url.path, rs, record)
-        return h.page(request, "team_monitor.html", sess, rs=rid, record=record[:64], one=one, grant=s.monitor)
-
-    @app.get("/api/v1/studies/{rs}/monitor/{record}")
-    def api_monitor(request: Request, rs: str, record: str) -> dict[str, Any]:
-        sess = api(request)
-        rid, s, one = monitor_subject(sess, request.url.path, rs, record)
-        return {"study": rid, "visit": s.monitor.training_ref if s.monitor else None, "subject": one}
+    # the monitor's pages (reads under a monitor grant, the visit record) are ``console.sdv_page`` (D-436)
 
     # ------------------------------------------------------------------ approved ICF versions, re-consent (D-399)
     def icf_json(v: IcfVersion) -> dict[str, Any]:
