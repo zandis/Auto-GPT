@@ -118,3 +118,51 @@ def test_a_scoped_coordinator_is_told_why_a_new_study_is_refused(box: dict[str, 
         assert r.status_code == 403, (rs, r.status_code)
         assert "limited to its own studies (GZQO)" in r.text and "does not exist" not in r.text
     assert box["backend"].created == []
+
+
+def test_review_findings_fail_closed_one_page_only_and_a_pi_with_an_account(box: dict[str, Any]) -> None:  # noqa: F811
+    """The adversarial review of this card. H1: with the orchestrator down an unknown study must stay unknown.
+    O1: a waiting study opens its delegation log, not its whole surface. M1: a PI entry without an account
+    approves nothing, so the task stays. M2: the waiting jobs are asked for by state, not cut from the newest."""
+    from console.backend import Unavailable
+
+    jid = _waiting(box, 975)
+    crc = _user(box, "crc9", "coordinator")
+    box["users"].create("stw1", "steward", STW_PW, "stw1@hospa.test")
+    stw, _ = login(box["app"], "stw1", STW_PW)
+    # O1: before the first approval only the delegation log opens
+    for path in ("setup", "entry", "forms", "sources", "irb", "candidates"):
+        assert crc.get(f"/studies/{NEW}/{path}").status_code == 404, path
+        assert stw.get(f"/studies/{NEW}/{path}").status_code in (403, 404), path
+    # M2: asked by state (a listing cut to the newest jobs without the waiting one would lose the study)
+    seen: list[Any] = []
+    real = box["backend"].list_jobs
+
+    def listing(limit: int = 100, state: str | None = None) -> list[Job]:
+        seen.append(state)
+        return list(real(limit, state))
+
+    box["backend"].list_jobs = listing
+    log = stw.get(f"/studies/{NEW}/team")
+    assert log.status_code == 200 and "awaiting_approval" in seen
+    # M1: a PI entry that names no account is not a PI who can approve
+    r = stw.post(f"/studies/{NEW}/team", data={"csrf": _csrf(log.text), "username": "", "name": "Dr Paper",
+                                               "role": "pi", "start": "2026-01-01", "training_day": "2025-06-01"},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code in (303, 400)
+    assert f'data-testid="task-name-pi-{NEW}"' in stw.get("/site/staff").text
+    pi = _user(box, "drsato", "investigator")
+    assert 'data-testid="approve-needs-pi"' in pi.get(f"/pilot/jobs/{jid}/approval").text
+    # H1: the orchestrator is down: nothing new opens, and no log entry can be written for an unknown study
+
+    def down(limit: int = 100, state: str | None = None) -> list[Job]:
+        raise Unavailable("orchestrator down")
+
+    box["backend"].list_jobs = down
+    assert stw.get("/studies/NOSUCH9/team").status_code == 404
+    assert stw.get(f"/studies/{NEW}/team").status_code == 404
+    r = stw.post("/studies/NOSUCH9/team", data={"csrf": _csrf(log.text), "username": "drsato", "role": "pi",
+                                                "start": "2026-01-01", "training_day": "2025-06-01"},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code == 404
+    assert stw.get("/site/staff").status_code == 200  # the steward's pages still open, without the task

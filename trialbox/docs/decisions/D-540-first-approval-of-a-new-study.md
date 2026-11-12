@@ -18,16 +18,19 @@ and the coordinator's accounts are limited to their studies, so the new study wa
 
 ## The decision
 
-1. **A study whose criteria wait for approval is a study.** `console.studies.known_study` answers yes for a ruleset
-   id that has a job in state `awaiting_approval` (`waiting_studies`, the same job listing as the home page's
-   approval queue). The delegation log, the set-up page and the other study pages open for it, under the same role
-   and scope rules as for any study. A mistyped code, and a study whose only job was rejected or failed, still get
-   the 404 page.
+1. **The delegation log opens for a study whose first criteria wait for approval.** `console.studies.log_study`
+   answers yes for a known study (D-133, unchanged) and for a ruleset id that has a job in state
+   `awaiting_approval` (`waiting_studies`: the orchestrator is asked for the jobs of that state). Only the log's
+   page and its "add" route use it. Every other study page (set-up, forms, entry, sources, candidates, IRB) stays
+   closed until the first approval writes the ruleset, as before. When the jobs cannot be read the answer is no:
+   an unknown study stays unknown while the orchestrator is down. A mistyped code, and a study whose only job was
+   rejected or failed, still get the 404 page.
 2. **The pages say who must act.**
    - The approval page, while the log names no PI: "Nobody can approve these criteria yet ... the data steward
      names the PI", with the link to the log for the account that may name one.
    - Every page of the account that names a PI (the matrix row `delegation.name_pi`): a task "<study>: name the
      principal investigator" for each waiting study without a PI, with the link. It goes when the PI is named.
+     A PI entry that names no account is not a PI who can approve: the task and the hint stay.
    - The delegation log, when no investigator account can open the study: the administrator creates the account or
      adds the study to an account limited to other studies.
    - A request for a study outside an account's own (`POST /pilot/protocol`, `/pilot/request`): 403 "Your account
@@ -44,6 +47,12 @@ and the coordinator's accounts are limited to their studies, so the new study wa
 - It adds no right: who may name a PI, approve, start a request or change an account's studies is as before.
 - The administrator still adds a new study to the accounts that are limited to studies, by hand, on "Users".
   A page that offers this at the moment the study is made is not built.
+- A PI named for a study whose waiting job is then rejected stays on that study's log (the log is append-only by
+  design). A second protocol under the same id is then approvable by that PI without a new steward step.
+- Two PI entries can be active for one study; the later one is the PI (older behaviour).
+- `tools/public_e2e.py` and `tools/list_demo.py: console` still seed the PI of the studies their demo box starts
+  with, some of which are pasted on that box before any approval. They are demo set-up, lane D's and G's tools;
+  moving them to the steward's page is a card for those lanes.
 - JRN-015 (a) (the banner "Criteria waiting for your approval" shown to accounts that cannot approve) is not
   changed here.
 

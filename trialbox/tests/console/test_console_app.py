@@ -130,8 +130,8 @@ class FakeBackend:
         self.jobs[job.job_id] = job
         return job
 
-    def list_jobs(self, limit: int = 100) -> list[Job]:
-        return list(self.jobs.values())[:limit]
+    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]:
+        return [j for j in self.jobs.values() if state is None or j.state == state][:limit]
 
     def get_job(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)
