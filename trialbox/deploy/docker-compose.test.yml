@@ -64,6 +64,10 @@ services:
       - lake-data:/data/lake
       - audit-data:/data/audit
       - ../.cache/test-secrets:/run/secrets/trialbox
+  embed-service:
+    # ENG-003 (D-563): the hash embedder of a synthetic stack needs no library: the service image, not trialbox-embed
+    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    build: {context: .., dockerfile: deploy/docker/python.Dockerfile}
   doc-parser:
     environment: {TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}
     networks: [trialbox-net, host-net]
@@ -79,6 +83,11 @@ services:
   db:   # host access for the outbox / recall-ledger Postgres tests (TB_PG_DSN, database trialbox_wf)
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_WORKFLOW_DB_PORT:-5433}:5432"]
+  # T-687 (D-471): the stub as the slow model stand-in of the scale gate when the shell asks for it (seconds per call,
+  # an outage of 502 answers); unset, it answers at once as before
+  llm-stub:
+    environment: {TB_STUB_LATENCY_S: "${TB_STUB_LATENCY_S:-}", TB_STUB_OUTAGE_AFTER: "${TB_STUB_OUTAGE_AFTER:-}",
+                  TB_STUB_OUTAGE_S: "${TB_STUB_OUTAGE_S:-}"}
 volumes:
   objects-data:   # bind-mounted on the host so the integration tests read and write objects directly (D-121)
     driver: local

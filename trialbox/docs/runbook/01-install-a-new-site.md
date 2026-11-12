@@ -61,7 +61,8 @@ for every image a bundle carries; the dated exceptions and open findings are in 
    `deploy/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja`: the developer's file at the revision
    `models/registry.yaml` names (`chat_template`, D-392). Compose starts the judge with `--chat-template` on it
    (`JUDGE_CHAT_TEMPLATE` moves it), and the install pins its sha256 with the weights; a judge without it is not
-   pinned and routes nothing.
+   pinned and routes nothing. The registry names the file's sha256 (HW-005, D-567): the install refuses any other
+   file (`sha256sum` of yours must print the registry's `chat_template.sha256`).
 3. **Settings.** `python -m tools.settings_wizard --out deploy/settings.yaml --env-out deploy/.env`, or
    `--answers site.yaml` (example: `python -m tools.settings_wizard --answers
    tests/fixtures/onboarding/site_c_answers.yaml --out deploy/settings.yaml --env-out deploy/.env`, which finds its
