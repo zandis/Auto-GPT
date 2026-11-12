@@ -187,6 +187,17 @@ def basis_of(o: Outcome, status: str, pair: bool) -> Any:
     return None
 
 
+def _final(o: Outcome, status: str) -> bool | None:
+    """T-707 (D-476): whether a "not met" was allowed to exclude when it was given. A soft fail (a single model's
+    answer, CAS-7) says ``false`` in the stored row, so that no later re-tier reads it as an answer a pair gave; a
+    judged fail that was allowed to exclude says ``true``; a coded answer needs neither."""
+    if status != "fail":
+        return None
+    if not o.hard:
+        return False
+    return True if o.stage in ("S3", "S4") else None
+
+
 def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     """One cascade outcome as the candidate-list verdict: the verified span (document, quote, date), the lake records
     of a coded answer, the judge's confidence and the stage's reason. ``pair``: the run's judge is two different
@@ -221,9 +232,7 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
         ),
-        # T-707 (D-476): a soft fail (a single model's "not met", CAS-7) says so in the stored row, so that no later
-        # re-tier reads it as an answer a pair gave
-        final=False if status == "fail" and not o.hard else None,
+        final=_final(o, status),
         basis=basis_of(o, status, pair),
     )
 

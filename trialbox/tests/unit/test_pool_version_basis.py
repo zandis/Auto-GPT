@@ -152,14 +152,15 @@ def test_the_cascade_stores_a_soft_fail_as_not_final() -> None:
     hard = verdict_of(Outcome(NOTE.id, "fail", "S3", hard=True, evidence=ev, reason="not_met"))
     met = verdict_of(Outcome(NOTE.id, "pass", "S3", evidence=ev, reason="met"))
     assert (soft.verdict, soft.final) == ("fail", False)
-    assert (hard.verdict, hard.final) == ("fail", None)
+    assert (hard.verdict, hard.final) == ("fail", True)  # it was allowed to exclude, and says so
     assert met.final is None
-    assert "final" not in hard.model_dump(mode="json", exclude_none=True)  # stored rows of a pair are unchanged
+    coded = verdict_of(Outcome(NOTE.id, "fail", "S1", hard=True, reason="matching record"))
+    assert coded.final is None and "final" not in coded.model_dump(mode="json", exclude_none=True)
 
 
 def test_the_v1_evaluator_marks_a_note_fail_of_a_run_that_may_not_exclude() -> None:
     assert not_final(NOTE, _note_fail(), note_block=False).final is False
-    assert not_final(NOTE, _note_fail(), note_block=True).final is None
+    assert not_final(NOTE, _note_fail(), note_block=True).final is True
     passed = CriterionVerdict(id=NOTE.id, verdict="pass", evidence=Evidence(resource_refs=[], confidence=0.9))
     assert not_final(NOTE, passed, note_block=False).final is None
     coded = next(c for c in GZQO.active() if c.class_ == "structured")
@@ -170,7 +171,7 @@ def test_the_v1_evaluator_marks_a_note_fail_of_a_run_that_may_not_exclude() -> N
 def test_a_fail_stored_as_not_final_never_excludes_at_a_later_tier() -> None:
     """The run of H1: stored under one model, re-tiered when the pair may exclude."""
     assert tier(GZQO, [_note_fail(final=False)], 0.75, note_block=True)[0] == "review"
-    assert tier(GZQO, [_note_fail()], 0.75, note_block=True)[0] == "excluded"  # control: a pair's answer excludes
+    assert tier(GZQO, [_note_fail(final=True)], 0.75, note_block=True)[0] == "excluded"  # control: a pair's answer
 
 
 def _retier(monkeypatch: pytest.MonkeyPatch, stored: CriterionVerdict, stored_tier: str) -> tuple[str, Any]:
@@ -202,13 +203,39 @@ def test_the_weekly_re_tier_never_excludes_on_a_stored_soft_fail(monkeypatch: py
     assert (t, v.final) == ("review", False)
 
 
-def test_a_row_stored_before_the_field_is_read_by_its_tier(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A row stored before D-476 has no ``final``. Not excluded then means its note fail was not allowed to
-    exclude: it is not excluded now, and the row says so from here on. An excluded row stays excluded."""
-    t, v = _retier(monkeypatch, _note_fail(), "review")
-    assert (t, v.final) == ("review", False)
-    t, v = _retier(monkeypatch, _note_fail(), "excluded")
-    assert (t, v.final) == ("excluded", None)
+def test_a_note_fail_stored_before_the_field_never_excludes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A row stored before D-476 has no ``final``. Whether a pair gave its note fail cannot be read from the row,
+    whatever its tier: it never excludes from here on, and the row says so. A fail written since, that was allowed
+    to exclude (``final: true``), still does."""
+    for stored_tier in ("review", "excluded"):
+        t, v = _retier(monkeypatch, _note_fail(), stored_tier)
+        assert (t, v.final) == ("review", False), stored_tier
+    t, v = _retier(monkeypatch, _note_fail(final=True), "excluded")
+    assert (t, v.final) == ("excluded", True)
+
+
+def test_an_old_excluded_row_whose_coded_exclusion_clears_is_not_excluded_on_one_models_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The review's sequence (HIGH 1). A row stored before the field, tier ``excluded`` by a coded, time-sensitive
+    criterion, also holds one model's note fail (no ``final``, confidence 0.95). Next week the pair may exclude and
+    the re-check finds the coded criterion met. The patient must come back for review: no pair ever gave the note
+    answer. Before the fix the row stayed ``excluded`` and was written back so."""
+    coded = next(c for c in GZQO.active() if c.time_sensitive and c.class_ == "structured" and c.kind == "exclusion")
+    box = Box(pool=["P1"], old=[], booked={"P1": THU}, scope=[], options={"incident": "0"})
+    box.pool[0]["tier"] = "excluded"
+    stored = {NOTE.id: _note_fail(), coded.id: CriterionVerdict(id=coded.id, verdict="fail",
+                                                                evidence=Evidence(resource_refs=["Medication/1"]))}  # fmt: skip
+    box.pool[0]["verdicts"] = [stored.get(v.id, v).model_dump(mode="json", exclude_none=True) for v in _verdicts()]
+    box.ctx.services.llm, box.ctx.services.verifier = PAIR
+    cleared = CriterionVerdict(id=coded.id, verdict="pass", evidence=Evidence(resource_refs=[]))
+    box.evaluate_scope = lambda *a, **kw: {"P1": PatientVerdicts("P1", [cleared], "high", [], 0)}  # type: ignore[method-assign]
+    box.go(monkeypatch)
+    row_ = box.listed()["P1"]
+    by = {v["id"]: v for v in row_["criteria"]}
+    assert row_["tier"] == "review" and by[coded.id]["verdict"] == "pass"
+    assert by[NOTE.id]["verdict"] == "fail" and by[NOTE.id]["final"] is False
+    assert box.persisted == ["P1"]  # written back as review, saying whose answer the note fail is
 
 
 def test_the_pool_row_helper_is_at_the_version_in_force() -> None:
