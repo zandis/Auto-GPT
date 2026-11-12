@@ -103,12 +103,11 @@ def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     sure = _confidence(verdict) >= policy.threshold
     if v == "pass":
         return "yes" if sure and not _flagged(verdict) else "unknown"
-    # a "not met" excludes only when it says who gave it and that it was allowed to (review of T-709, LOW 4): a
-    # pair's answer, or an answer stored by T-707 (before the basis) as final. A fail that says neither is read as
-    # not final, as the schema promises for a stored row; ``held_back`` is the one test for the rest.
-    final = getattr(verdict, "final", None)
-    stated = basis == "pair" or (basis is None and final is True)
-    may_exclude = policy.note_block and sure and stated and held_back(verdict) is None
+    # ``held_back`` is the one test for an answer that may not exclude (one model's, or not final): the same test
+    # the pages and the sheets use. A fail that states neither basis nor ``final`` is decided by the policy alone:
+    # a caller that states no basis (a tool, a test of the evaluator) and a list published before the field. A
+    # stored pool row never reaches here so: MICROBATCH stamps ``final: false`` on it first (D-476 rule 3).
+    may_exclude = policy.note_block and sure and basis in (None, "pair") and held_back(verdict) is None
     return "no" if may_exclude else "unknown"
 
 

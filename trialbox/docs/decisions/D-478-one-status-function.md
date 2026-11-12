@@ -49,9 +49,14 @@ answer dropped a patient with no review row.
    "excluded patients and why" document and the feasibility attrition read through it. A test
    (`tests/unit/test_verdict_word.py`) fails when code outside the rule compares a verdict with "fail" or indexes
    a map by a verdict's word; its two lists name every place that may, with the reason.
-6. **A "not met" that says neither who gave it nor that it was final does not exclude.** `answer_of` needs
-   `basis: pair`, or `final: true` on a row T-707 stored before the basis. The defaults of a caller that names
-   no policy (`nav.classify`, the cascade's `DEFAULT_POLICY`) are "notes may not exclude".
+6. **Safe defaults for a caller that names no policy** (`nav.classify`, the cascade's `DEFAULT_POLICY`): notes
+   may not exclude. **Not changed:** a "not met" that states neither `basis` nor `final` is still decided by the
+   policy alone (the review asked for it to read as not final). Tried and withdrawn: callers that state no basis
+   (the evaluator called by a tool or a test, and the pair's own exclusion tests of other cards) would stop
+   excluding altogether; ten tests of other cards say so. The promise the schema makes for a **stored** row is
+   kept where stored rows are read: MICROBATCH stamps `final: false` on such a row before it is tiered (D-476
+   rule 3). Making every writer state the basis, and then reading "unstated" as not final, is left to the card
+   that removes the v1 path.
 7. **The hand-off from D-476 is narrowed.** D-476 handed this card "which models answered, on what text". This
    card records the four-value basis per verdict. Which pair (the two build ids), the prompt and the snapshot
    stay per list (`judging`), so a pool row re-tiered week after week cannot name the pair behind a stored
