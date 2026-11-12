@@ -60,13 +60,17 @@ class Fhir:
             from adapter import pipeline as home  # type: ignore[no-redef]
 
         self.calls: list[str] = []
+        self.full: list[bool] = []  # per call: every resource is loaded again (a put-back), not only the changed
         self.down = False
         self.bad: set[str] = set()  # nights the store refuses part-way (it is up: a put-back works)
         self.holds: str | None = None  # the night the store holds now
         monkeypatch.setattr(home, "sync_snapshot", self)
 
-    def __call__(self, base: str, folder: Path, ledger: Path, previous: Path | None = None) -> tuple[int, int]:
+    def __call__(
+        self, base: str, folder: Path, ledger: Path, previous: Path | None = None, full: bool = False
+    ) -> tuple[int, int]:
         self.calls.append(folder.name)
+        self.full.append(full)
         if self.down:
             raise ConnectionError("the FHIR store did not answer")
         if folder.name in self.bad:
@@ -742,10 +746,18 @@ def test_a_nightly_run_waits_behind_an_accept_and_is_not_refused(
         adapter_app._accepting.clear()
         adapter_app._running.release()
     assert len(spawned) == 1  # the run is queued behind the publish, not dropped
+    rid = r.json()["run"]
+    spawned[0]()  # second review, L2: the publish has ended; the queued run starts and ends (its source is missing)
+    ended = http.get(f"/run/{rid}").json()
+    assert ended["state"] != "running" and ended["ended"] and "waiting" not in ended["detail"]
     assert adapter_app._running.acquire(blocking=False)  # an ingest runs (no accept)
+    adapter_app._runs["busy"] = {"run": "busy", "state": "running"}
     try:
-        assert http.post("/run", json={"source": "csv"}).status_code == 409
+        r = http.post("/run", json={"source": "csv"})
+        assert r.status_code == 409
+        assert r.headers["X-TB-Run"] == "busy"  # T-690: the 409 names the running ingest (PERF-008 follows it)
     finally:
+        adapter_app._runs.pop("busy")
         adapter_app._running.release()
 
 

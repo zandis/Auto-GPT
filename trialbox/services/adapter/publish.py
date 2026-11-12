@@ -16,10 +16,18 @@ in this order, each step only when the one before it is done:
 
 Then, and only then, ``passed.json`` is written.
 
-**The stores stay at one night.** The FHIR store is the only store written before the promotion. When the
-promotion does not happen (the FHIR load failed part-way, the lake's one call did not end well, a newer night was
-promoted meanwhile), the FHIR store is put back to the night the lake serves (``fhir_back``); if that fails too,
-the publish says so and its ``fhir`` step stays ``failed``.
+**The stores stay at one night.** When the promotion does not happen (the FHIR load failed part-way, the lake's
+one call did not end well, a newer night was promoted meanwhile), the FHIR store is put back to the night the lake
+serves (``fhir_back``: every resource of that night is loaded again, so a resource the broken load had changed goes
+back too); if that fails, the publish says so and its ``fhir`` step stays ``failed``. The OMOP store of record
+(dual write, where it is on) is the one store that can be a night ahead until the publish is resumed: it never moves
+back (D-339).
+
+**What the lake serves is read, not remembered.** ``Published.promoted`` is ``CURRENT == night`` on every way out,
+so a publish that failed after the promotion (the pid map's step, an answer of the lake that was lost) never says
+"nothing is served". A promotion whose answer did not arrive is read from ``CURRENT``: when it names the night, the
+step is done. A served night whose ``pidmap`` step did not end is finished by :func:`finish_served` before the next
+ingest stages anything and before the next publish.
 
 **Never back in time.** A night older than the served one is refused before any step (``stale``): the lake would
 build it and not promote it, and the FHIR store would have gone back to it.
@@ -140,6 +148,14 @@ def _sync_fhir(cfg: AdapterConfig, folder: Path, previous: Path | None) -> tuple
     return sync_snapshot(cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", previous)
 
 
+def _fhir_put_back(cfg: AdapterConfig, folder: Path) -> tuple[int, int]:
+    """Make the FHIR store hold ``folder`` again after a load of another night that may have broken part-way. The
+    ledger keeps a changed resource's old hash until a load ends, so a delta would skip exactly the resources the
+    broken load changed (second review, H3): every resource is loaded."""
+    assert cfg.fhir_base_url is not None
+    return sync_snapshot(cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", None, full=True)
+
+
 def recover(cfg: AdapterConfig, snap: str) -> str:
     """Undo what a re-run of the served night ``snap`` left on disk when its process was killed inside the lake
     step (review MED-2): the re-run's folder in the served folder's place and the served one aside
@@ -151,14 +167,27 @@ def recover(cfg: AdapterConfig, snap: str) -> str:
     * ``"back"``: the served folder is put back, the re-run goes back beside it (unless a later re-run is already
       there: then the killed one is dropped), and the FHIR store, which the killed run had loaded with the re-run,
       is put back to the served folder."""
+    from lake.store import building
+
     from adapter.pipeline import RERUN_DIR
 
     aside = cfg.lake_dir / RERUN_DIR / f"{snap}.replaced"
     if not aside.is_dir():
         return ""
+    # second review, M3: the adapter was killed, the lake service may still be building from the folder the re-run
+    # was moved into. The folder is not taken from under the build: ``SnapshotBuilding`` (the caller says "lake
+    # busy" and comes again); the build's lock is held while the folders are moved
+    with building(cfg.lake_dir, snap):
+        return _recover(cfg, snap, aside)
+
+
+def _recover(cfg: AdapterConfig, snap: str, aside: Path) -> str:
+    from adapter.pipeline import RERUN_DIR
+
     final_dir = snapshot_dir(cfg.lake_dir, snap)
     rerun_dir = cfg.lake_dir / RERUN_DIR / snap
-    rec = read_record(final_dir) if final_dir.is_dir() else {}
+    # killed between the two renames (M4): no served folder on disk; the re-run, with its record, is still beside
+    rec = read_record(final_dir) if final_dir.is_dir() else read_record(rerun_dir) if rerun_dir.is_dir() else {}
     steps = rec.get("steps") or {}
     built = cfg.lake_dir / "db" / f"{snap}.duckdb"
     swapped = int(rec.get("swapped_ns") or 0)
@@ -177,7 +206,7 @@ def recover(cfg: AdapterConfig, snap: str) -> str:
     log.warning("publish of %s was interrupted in its lake step: the served folder is put back", snap)
     if steps.get("fhir") == DONE and cfg.fhir_base_url:
         try:
-            _sync_fhir(cfg, final_dir, None)
+            _fhir_put_back(cfg, final_dir)
         except Exception as exc:
             log.error("the FHIR store could not be put back to %s (%s)", snap, type(exc).__name__)
         if rerun_dir.is_dir() and read_record(rerun_dir):
@@ -198,6 +227,41 @@ def recover_all(cfg: AdapterConfig) -> list[str]:
     return [p.name[: -len(".replaced")] for p in sorted(home.glob("*.replaced")) if recover(cfg, p.name[:-9])]
 
 
+def finish_served(cfg: AdapterConfig) -> bool:
+    """Second review, H2: the served night was promoted and its ``pidmap`` step did not end (the step failed, or the
+    process was killed between the two). Its staged chart numbers enter the pid map now and the folder gets its
+    ``passed.json``: the stores are on one night again. Called before an ingest stages or drops anything and before
+    a publish. True when it finished a night; a failure is logged and left for the next call (never raised: the
+    night that is running must not fail for it)."""
+    from adapter.pipeline import HELD as HELD_FILE
+    from adapter.pipeline import PASSED
+
+    served = _current(cfg.lake_dir)
+    folder = snapshot_dir(cfg.lake_dir, served) if served else None
+    if served is None or folder is None or not folder.is_dir():
+        return False
+    rec = read_record(folder)
+    steps = rec.get("steps") or {}
+    if rec.get("snapshot") != served or steps.get("lake") != DONE or steps.get("pidmap") in ENDED:
+        return False
+    try:
+        pm = cfg.pidmap()
+        try:
+            pm.commit(served)
+        finally:
+            pm.close()
+    except Exception as exc:
+        log.error("the pid map of the served night %s is still not written (%s)", served, type(exc).__name__)
+        return False
+    rec["steps"], rec["at"] = {**steps, "pidmap": DONE}, {**rec.get("at", {}), "pidmap": _now()}
+    _write_record(folder, rec)
+    if all(rec["steps"].get(s) in ENDED for s in STEPS):
+        (folder / PASSED).write_text(json.dumps({"snapshot": served}) + "\n", encoding="utf-8")
+        (folder / HELD_FILE).unlink(missing_ok=True)
+    log.warning("the served night %s: its pid map step is finished now", served)
+    return True
+
+
 def publish_night(
     cfg: AdapterConfig,
     snap: str,
@@ -211,15 +275,25 @@ def publish_night(
     """Publish the night in ``night_dir`` (see the module docstring). Never raises for a step's failure: the result
     names the step and the errors, in the words the ingest report has always used. ``on_step(step, steps)`` is
     called when a step starts and when it ends (the data-operations row, the failure's audit)."""
+    from lake.store import SnapshotBuilding
+
     from adapter.dual_write import load_night
     from adapter.pipeline import BUSY as BUSY_CLASSES
     from adapter.pipeline import HELD as HELD_FILE
     from adapter.pipeline import PASSED, REFUSALS, RERUN_DIR
 
-    recover_all(cfg)
     final_dir = snapshot_dir(cfg.lake_dir, snap)
-    rerun = night_dir.resolve() != final_dir.resolve()
     out = Published(snap, night_dir)
+    try:
+        recover_all(cfg)
+    except SnapshotBuilding as exc:  # a killed re-run's lake build still runs: nothing is read or moved
+        out.steps = {s: PENDING for s in STEPS}
+        out.lake_busy = True
+        out.errors += [f"lake rebuild failed: {exc}", BUSY_ERROR]
+        return out
+    if _current(cfg.lake_dir) != snap:
+        finish_served(cfg)
+    rerun = night_dir.resolve() != final_dir.resolve()
     rec = read_record(night_dir)
     mark = fingerprint(night_dir)
     if rec.get("fingerprint") != mark or rec.get("snapshot") != snap:
@@ -268,6 +342,11 @@ def publish_night(
         )
         note(step, STALE)
 
+    def end() -> Published:
+        """Every way out: what the lake serves is read from ``CURRENT`` (second review, H1)."""
+        out.promoted = _current(cfg.lake_dir) == snap
+        return out
+
     def fhir_back() -> None:
         """The promotion did not happen: the FHIR store goes back to the night the lake serves (review MED-1)."""
         if not fhir_on or steps["fhir"] not in (DONE, FAILED):
@@ -277,7 +356,7 @@ def publish_night(
         if folder is None or not folder.is_dir():
             return  # no night is served yet: there is nothing to go back to
         try:
-            _sync_fhir(cfg, folder, None)
+            _fhir_put_back(cfg, folder)
         except Exception as exc:
             out.errors.append(f"fhir-store put-back failed: {exc}")
             note("fhir", FAILED)
@@ -288,14 +367,14 @@ def publish_night(
     served = _current(cfg.lake_dir)
     if lake_on and served is not None and snap < served and steps["lake"] not in ENDED:
         stale(served, "build" if two_step else "lake")  # review HIGH-1: before any step, nothing loaded
-        return out
+        return end()
     if rerun and steps["lake"] not in ENDED:
         held_by = holders(cfg.lake_dir, snap)
         if held_by:  # F-3: nothing of the served night is touched while a job reads it
             out.lake_busy = True
             out.errors += [f"lake rebuild failed: snapshot {snap} is held by {len(held_by)} running job(s)", BUSY_ERROR]
             note("lake", BUSY)
-            return out
+            return end()
     if todo("build"):
         if two_step:
             assert cfg.build is not None
@@ -303,7 +382,7 @@ def publish_night(
                 out.lake = cfg.build(snap, final_dir)
             except Exception as exc:  # review MED-1: the lake's verdict first; no other store was touched
                 lake_error("build", exc)
-                return out
+                return end()
             note("build", DONE)
         else:
             note("build", SKIPPED)
@@ -320,7 +399,7 @@ def publish_night(
                 out.errors.append(f"fhir-store load failed: {exc}")
                 note("fhir", FAILED)
                 fhir_back()  # what was loaded before the failure does not stay
-                return out
+                return end()
             note("fhir", DONE)
         else:
             note("fhir", SKIPPED)
@@ -331,13 +410,17 @@ def publish_night(
             try:
                 moved = cfg.promote(snap)
             except Exception as exc:
-                lake_error("lake", exc)
-                fhir_back()
-                return out
+                if _current(cfg.lake_dir) == snap:  # H1: the lake promoted it and its answer was lost
+                    log.warning("the promotion of %s gave no answer (%s); CURRENT names it", snap, type(exc).__name__)
+                    moved = True
+                else:
+                    lake_error("lake", exc)
+                    fhir_back()
+                    return end()
             if not moved:  # a newer night was promoted while this one was published
                 stale(_current(cfg.lake_dir), "lake")
                 fhir_back()
-                return out
+                return end()
             note("lake", DONE)
         elif lake_on:
             assert cfg.rebuild is not None
@@ -364,7 +447,7 @@ def publish_night(
                 put_back()
                 lake_error("lake", exc)
                 fhir_back()
-                return out
+                return end()
             except BaseException:  # the process is dying mid-step: leave the served folder as it was
                 put_back()
                 raise
@@ -373,7 +456,7 @@ def publish_night(
                 put_back()
                 stale(now_served, "lake")
                 fhir_back()
-                return out
+                return end()
             note("lake", DONE)
         else:
             note("lake", SKIPPED)
@@ -388,13 +471,12 @@ def publish_night(
         except Exception as exc:
             out.errors.append(f"pid map write failed: {type(exc).__name__}")
             note("pidmap", FAILED)
-            return out
+            return end()
         note("pidmap", DONE)
-    out.promoted = _current(cfg.lake_dir) == snap
     # D-271: the only NDJSON a later delta night may merge over; written last, after every step
     (out.out_dir / PASSED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
     (out.out_dir / HELD_FILE).unlink(missing_ok=True)
-    return out
+    return end()
 
 
 def published(cfg: AdapterConfig, snap: str) -> bool:
@@ -439,6 +521,7 @@ __all__ = [
     "NothingToPublish",
     "Published",
     "fingerprint",
+    "finish_served",
     "holders",
     "publish_held",
     "publish_night",

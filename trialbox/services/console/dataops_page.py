@@ -69,6 +69,9 @@ class PromoteFailed(RuntimeError):
     served (an ordinary held night again); otherwise its end is not known (the accept stays recorded)."""
 
     nothing_served = False
+    #: the adapter refused to start the publish (409: an ingest or a publish runs, or the attempt is not the newest
+    #: of its night): this accept started nothing and learned nothing about an earlier one
+    not_started = False
 
 
 def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
@@ -89,6 +92,12 @@ def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
                 "/publish", {"snapshot": batch.snapshot, "source": batch.source, "attempt": batch.attempt}
             ).json()
         except ServiceError as exc:
+            # second review (H4): refused at once. 404: no held night of that date on the box and none published,
+            # so nothing is served from it. 409: nothing was started by this accept
+            if exc.status in (404, 409):
+                err = PromoteFailed(f"the adapter did not start the publish (HTTP {exc.status})")
+                err.nothing_served, err.not_started = exc.status == 404, exc.status == 409
+                raise err from exc
             raise RuntimeError(f"the adapter did not start the publish (HTTP {exc.status})") from exc
         rid = str(started.get("run") or "")
 
@@ -104,7 +113,9 @@ def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
         st = started if started.get("state") != "running" else (poll or Poll()).until_done(read, "publish")
         if st.get("state") != "done":
             err = PromoteFailed(f"the publish ended {st.get('state')}: {st.get('steps')}")
-            err.nothing_served = not st.get("promoted")
+            # ``promoted`` is what the lake serves, read by the adapter at the publish's end; without it (a
+            # publish that raised before it could be read) the end is not known
+            err.nothing_served = st.get("promoted") is False
             raise err
 
     return promote
@@ -182,6 +193,7 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
                 log.warning("promotion of batch %s failed (%s)", bid, type(e).__name__)
                 err = PromoteFailed(type(e).__name__)
                 err.nothing_served = bool(getattr(e, "nothing_served", False))
+                err.not_started = bool(getattr(e, "not_started", False))
                 raise err from e
 
         ops = store()

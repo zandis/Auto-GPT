@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextlib
 import logging
 import os
 import threading
@@ -65,7 +66,8 @@ def run(req: IngestRequest) -> JSONResponse:
     waits = False
     if not _running.acquire(blocking=False):
         if not _accepting.is_set():
-            raise HTTPException(status_code=409, detail="an ingest is already running")
+            busy = next((r["run"] for r in reversed(_runs.values()) if r["state"] == "running"), "")
+            raise HTTPException(status_code=409, detail="an ingest is already running", headers={"X-TB-Run": busy})
         waits = True
     try:
         ac, default_kind, default_path = build_config()
@@ -147,12 +149,14 @@ def publish(body: PublishBody) -> JSONResponse:
 
     if not _running.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
+    _accepting.set()  # second review (L1): from here a night's run waits, also while the accept is still checked
     try:
         ac = build_config()[0]
         try:
             held_folder(ac, body.snapshot)
         except NothingToPublish as exc:
             if published(ac, body.snapshot):
+                _accepting.clear()
                 _running.release()
                 rid = os.urandom(8).hex()
                 _publishes[rid] = {"run": rid, "state": "done", "started": _now(), "ended": _now(), "detail":
@@ -174,14 +178,13 @@ def publish(body: PublishBody) -> JSONResponse:
                     "the newest attempt",
                 )
     except BaseException:
+        _accepting.clear()
         _running.release()
         raise
     rid = os.urandom(8).hex()
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": "",
                              "snapshot": body.snapshot, "steps": {}}  # fmt: skip
     _publishes[rid] = state
-
-    _accepting.set()
 
     def work() -> None:
         try:
@@ -195,6 +198,10 @@ def publish(body: PublishBody) -> JSONResponse:
         except Exception as exc:
             log.exception("publish %s failed", rid)
             state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+            # second review (H1): what the lake serves is read, also when the publish raised. Unreadable: it stays
+            # unset, and the console keeps the accept recorded
+            with contextlib.suppress(OSError):
+                state["promoted"] = (ac.lake_dir / "CURRENT").read_text(encoding="utf-8").strip() == body.snapshot
         finally:
             state["ended"] = _now()
             _accepting.clear()

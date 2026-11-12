@@ -420,6 +420,7 @@ class DataOps:
             rows = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,))
             if not rows or rows[0]["state"] != HELD:
                 raise DataOpsError("not_held", f"batch {batch_id} is no longer HELD")
+            before = json.loads(rows[0]["detail"] or "{}").get("step")
             detail = {**json.loads(rows[0]["detail"] or "{}"), "step": ACCEPTING}
             tx.execute("UPDATE batch SET detail = ? WHERE id = ?",
                        (json.dumps(detail, ensure_ascii=False, sort_keys=True), batch_id))  # fmt: skip
@@ -428,11 +429,14 @@ class DataOps:
             promote(cur)
         except Exception as exc:
             nothing = bool(getattr(exc, "nothing_served", False))
-            if nothing:  # the publish ended and nothing is served: an ordinary held night again
+            # second review (H4): refused before anything started. This accept changed nothing, so the row says
+            # what it said before: an earlier accept whose end is not known stays recorded
+            unstarted = bool(getattr(exc, "not_started", False))
+            if nothing or (unstarted and before != ACCEPTING):  # an ordinary held night again
                 self.note(batch_id, step=NOT_PUBLISHED)
+            outcome = "not published" if nothing else "not started" if unstarted else "unknown"
             audit.append(EVENT_DECIDE, snapshot=cur.snapshot, actor=by, detail={
-                **base, "phase": "ended", "outcome": "not published" if nothing else "unknown",
-                "error": type(exc).__name__})  # fmt: skip
+                **base, "phase": "ended", "outcome": outcome, "error": type(exc).__name__})  # fmt: skip
             raise
         return self._move(audit, batch_id, PUBLISHED, by=by, at=at, reason=reason, event=EVENT_DECIDE,
                           decision=decision, outcome="published")  # fmt: skip
@@ -447,6 +451,14 @@ class DataOps:
             why = can_step(cur.state, to)
             if why is not None:
                 raise DataOpsError("step", why)
+            if to == REJECTED and cur.detail.get("step") == ACCEPTING:
+                # second review (M1): asked again under the row's lock; an accept recorded since the caller read
+                # the row wins
+                raise DataOpsError(
+                    "publishing",
+                    f"batch {batch_id} is being published or has been published (its accept was recorded): accept "
+                    "it again to record the end; it can no longer be rejected",
+                )
             seq = cur.seq + 1
             tx.execute("UPDATE batch SET state = ?, seq = ?, changed_at = ?, changed_by = ? WHERE id = ?",
                        (to, seq, at, by, batch_id))  # fmt: skip

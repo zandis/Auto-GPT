@@ -670,15 +670,20 @@ def _run_ingest(
         if bad:
             errors.append(f"data contracts: {'; '.join(bad)}")
     aliases: dict[str, str] = {}
+    from adapter.publish import finish_served
+
+    finish_served(cfg)  # T-723 second review (H2): a served night whose pid map step did not end is finished first
     if patient_pairs:
         pm = cfg.pidmap()
         try:
             # T-723 (D-489, F-12): the night's chart numbers are staged, not written: they enter the pid map when
             # the night is published (adapter.publish), so a held night's never reach the reverse map. The staged
-            # rows of nights that are no longer held (rejected, replaced) are dropped here
+            # rows of nights that are no longer held (rejected, replaced) are dropped here; never the served
+            # night's (its pid map step may still be owed: ``finish_served``)
             still_held = _held_nights(cfg)
             if still_held is not None:
-                pm.discard(still_held | {snap})
+                served_now = _current(cfg.lake_dir)
+                pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
             pm.stage(snap, patient_pairs, identities or [])
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
@@ -1308,6 +1313,15 @@ def merge_base(lake_dir: Path, snap: str) -> str | None:
     return max(good) if good else None
 
 
+def _built_not_served(lake_dir: Path, snap: str) -> bool:
+    """The night has a publish record (T-723) and its promotion did not end. A folder without a record (a night
+    from before T-723, a lake rebuilt by hand) is not judged here."""
+    from adapter.publish import ENDED, read_record
+
+    steps = read_record(snapshot_dir(lake_dir, snap)).get("steps") or {}
+    return bool(steps) and steps.get("lake") not in ENDED
+
+
 def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
     DuckDB); the current snapshot is always kept, and so is every snapshot a running job holds (T-305b, D-403: a
@@ -1322,7 +1336,10 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     # T-611: only nights that passed count towards the N kept (a held night has no passed.json and no DuckDB; a
     # folder from before the marker that was promoted has its DuckDB)
     good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
-    good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")} | ({current} if current else set())
+    # T-723 second review (L3): the lake now builds a night before it serves it. A built night whose publish record
+    # says the promotion did not end was never served: it is not a good night and takes no place among the N kept
+    good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb") if not _built_not_served(cfg.lake_dir, p.stem)}
+    good |= {current} if current else set()
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
     gone: list[str] = []
     with lake_lock(cfg.lake_dir):  # D-462: no hold lands between reading the holds and the deletes

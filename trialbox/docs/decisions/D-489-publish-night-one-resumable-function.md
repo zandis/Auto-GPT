@@ -94,12 +94,47 @@ at one night"). What changed:
    serving the night leaves an ordinary held night, which can be rejected. No new state and no migration: the row
    stays HELD until the publish is known to have ended.
 5. **A nightly run waits behind an accept** (the adapter takes the run and starts it when the publish ends); the
-   empty `X-TB-Run` header is gone. **A key rotation** re-encrypts the staged rows with the map.
+   run that waits carries no `X-TB-Run`; the 409 for an ingest that is running names it as before, D-472). **A key
+rotation** re-encrypts the staged rows with the map.
 
 **Handed to T-724 (D-490), by the integrator's ruling**, as acceptance items of that card, so they do not fall
 between the two: (a) replacing `sitesetup/main/publishing.json` (D-472); (b) the newer night promoted over a site
 publish's facts (D-462: the `unchanged` branch of `sitesetup/service.py` compares the digest, not
 `last["snapshot"]`); (c) the named "busy" state (D-462).
+
+## The second review (2026-11-12, on the design above)
+
+One more adversarial review, on the changed design. What it found and what changed:
+
+1. **What the lake serves is read, never remembered.** `Published.promoted` is `CURRENT == night` on every way out
+   of the publish, and the adapter's job reports it also when the publish raised. Before, a publish that failed
+   after the promotion (the pid map's step; an answer of `POST /promote` that was lost) said "not promoted", the
+   console read that as "nothing is served", and the steward could reject a night the box was serving. A promotion
+   whose answer did not arrive is read from `CURRENT`: when it names the night, the step is done.
+2. **A served night keeps its staged chart numbers until they are written.** The next ingest no longer drops the
+   staging of the served night, and `adapter.publish.finish_served`, run before an ingest stages anything and
+   before a publish, writes them and the folder's `passed.json`. A kill between the promotion and the pid map
+   leaves the same state and is finished the same way. The data-operations row of such a nightly run stays FAILED
+   (FAILED is final; a row state for "published, a step owed" needs the migration of the "busy" state: a card of
+   its own, see below).
+3. **The FHIR store's put-back loads every resource.** The loader's ledger keeps a changed resource's old hash
+   until a load ends, so a delta put-back skipped exactly the resources the broken load had changed.
+4. **An accept the adapter refuses at once** (409: an ingest or a publish runs, or the attempt is not the newest
+   of its night; 404: no such held night and none published) started nothing. The row goes back to an ordinary
+   held night (it can be accepted or rejected), unless an earlier accept's end is still not known: then the row
+   keeps that accept. The audit's `ended` says `not started`.
+5. **A reject is asked again under the row's lock**: an accept recorded after the reject read the row wins.
+6. **What a killed re-run leaves:** recovery takes the lake's build lock, so a folder is never taken from under a
+   lake service that is still building (the publish says "lake busy", the ingest stops before it reads anything);
+   a kill between the two renames (no served folder on disk) puts the FHIR store back too.
+7. **Retention:** a night the lake built and never served is not a "good" night and takes no place among the N
+   kept. **The accept's window:** a nightly run waits from the moment the accept holds the adapter, not from the
+   start of its publish.
+
+Not changed, and why: the OMOP store of record (dual write) is written before the promotion and is not put back
+when the promotion does not happen. It refuses a batch older than the one it holds and its failure never holds a
+night (D-339), so it has no way back: it can be one night ahead of the lake until the publish is resumed. `adapter/backfill.py` writes the pid map directly (a first load has no gate and no steward);
+it is not changed here.
 
 ## Consequences
 
