@@ -34,8 +34,8 @@
 param(
   [string]$MediaRoot = "",
   [string]$DataDrive = "",
-  [string]$Distro = "TrialBox",
-  [string]$Lang = "",
+  [ValidatePattern("^[A-Za-z0-9._-]+$")][string]$Distro = "TrialBox",
+  [ValidateSet("", "en", "ja", "zh-TW")][string]$Lang = "",
   [string]$StateDir = "",
   # room the data drive must have: the figure preflight.ps1 and preflight.sh already declare (D-125: images and
   # models about 40 GB; the lake, the databases and the local backup copies are the rest)
@@ -96,6 +96,12 @@ function Protect-TbDirectory([string]$Path, [string]$Account) {
     if (@($sids | Where-Object { $_.Value -eq $owner.Value }).Count -eq 0) {
       throw ("TBOWNER " + $owner.Value)
     }
+    # a folder that was open to other accounts may hold their files (a planted script): only an empty one is taken
+    $old = Get-Acl -LiteralPath $Path
+    $allowed = @($sids | ForEach-Object { $_.Value })
+    $open = (-not $old.AreAccessRulesProtected) -or (@($old.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) |
+        Where-Object { $_.AccessControlType -eq "Allow" -and ($allowed -notcontains $_.IdentityReference.Value) }).Count -gt 0)
+    if ($open -and @(Get-ChildItem -LiteralPath $Path -Force).Count -gt 0) { throw "TBOWNER open-and-not-empty" }
   }
   $acl = New-Object Security.AccessControl.DirectorySecurity
   $acl.SetAccessRuleProtection($true, $false)
@@ -118,8 +124,8 @@ function Test-TbMsiSignature([string]$Path) {
   $sig = Get-AuthenticodeSignature -LiteralPath $Path
   return ($sig.Status -eq "Valid" -and [string]$sig.SignerCertificate.Subject -match "O=Microsoft Corporation")
 }
-function Register-TbResumeTask([string]$ScriptPath, [string]$Account, [string]$StateDir) {
-  $arguments = '-NoProfile -ExecutionPolicy Bypass -NoExit -File "{0}" -Resume -StateDir "{1}"' -f $ScriptPath, $StateDir
+function Register-TbResumeTask([string]$ScriptPath, [string]$Account, [string]$StateDir, [string]$More) {
+  $arguments = '-NoProfile -ExecutionPolicy Bypass -NoExit -File "{0}" -Resume -StateDir "{1}" {2}' -f $ScriptPath, $StateDir, $More
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $Account
   $principal = New-ScheduledTaskPrincipal -UserId $Account -LogonType Interactive -RunLevel Highest
@@ -148,9 +154,20 @@ function Invoke-TbNative([string]$Exe, [string[]]$Arguments) {
   return @{ ExitCode = [int]$code; Output = $out }
 }
 function Invoke-TbNativeConsole([string]$Exe, [string[]]$Arguments) {
-  # a program that owns this window (the Linux installer: its questions and the first-run code); nothing is captured
-  & $Exe @Arguments
-  return [int]$LASTEXITCODE
+  # A program that owns this window (the Linux installer: its questions and the first-run code). The process gets
+  # the console itself: PowerShell never reads its output, so nothing is captured, held back or logged (a plain
+  # "& program" inside a function would collect the output as the function's result).
+  $quoted = @($Arguments | ForEach-Object {
+      if ($_ -ne "" -and $_ -notmatch '[\s"]') { $_ }
+      else { '"' + (($_ -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"' }
+    })
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $Exe
+  $psi.Arguments = ($quoted -join " ")
+  $psi.UseShellExecute = $false
+  $p = [System.Diagnostics.Process]::Start($psi)
+  $p.WaitForExit()
+  return [int]$p.ExitCode
 }
 
 # ------------------------------------------------------------------------------------------------ small pieces
@@ -306,9 +323,13 @@ function Step-WslEnable {
     $copy = Join-Path $script:TbStateDir "scripts"
     Protect-TbDirectory $copy $script:TbFacts.Account
     foreach ($n in @("box-install.ps1", "box-install.messages.json")) {
-      Copy-Item -LiteralPath (Join-Path $PSScriptRoot $n) -Destination (Join-Path $copy $n) -Force
+      $from = Join-Path $PSScriptRoot $n; $to = Join-Path $copy $n
+      if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
-    Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir
+    # the run after the restart gets this run's settings (all checked: figures, a language of the list, a name)
+    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -Distro {3} -Lang {4}" -f $MinFreeGB,
+      $MinWindowsBuild, $StartWaitSeconds, $script:TbState.distro, $script:TbLang
+    Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
     Say "restart" @($script:TbFacts.Account)

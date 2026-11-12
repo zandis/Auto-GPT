@@ -66,7 +66,7 @@ Describe "box-install.ps1" {
     Mock Protect-TbDirectory { New-Item -ItemType Directory -Force -Path $Path | Out-Null }
     Mock Get-TbFeatureEnabled { return [bool]$script:S.Features[$Name] }
     Mock Enable-TbFeature { $script:S.Features[$Name] = $true; return [bool]$script:S.FeatureRestart }
-    Mock Register-TbResumeTask { $script:S.ResumeTask = $true }
+    Mock Register-TbResumeTask { $script:S.ResumeTask = $true; $script:S.ResumeMore = $More; $script:S.ResumeScript = $ScriptPath }
     Mock Unregister-TbResumeTask { $script:S.ResumeTask = $false }
     Mock Restart-TbComputer { $script:S.Restarted++ }
     Mock Start-TbSleep { }
@@ -166,6 +166,13 @@ Describe "box-install.ps1" {
       $state.media_root | Should -Be $script:S.Media
       # the copy the task runs after the restart does not depend on the media's drive letter
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.ps1") | Should -BeTrue
+      Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.messages.json") | Should -BeTrue
+      $script:S.ResumeScript | Should -Be (Join-Path $script:S.StateDir "scripts/box-install.ps1")
+    }
+    It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
+      $MinFreeGB = 200; $script:S.FreeGB = 250
+      Invoke-Run | Should -Be 3010
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -Distro TrialBox -Lang en"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -317,5 +324,19 @@ Describe "box-install.ps1" {
       $text = Get-Content -LiteralPath $script:Ps1 -Raw
       $text | Should -Not -Match "--unregister|Remove-Item|Format-Volume|Clear-Disk|diskpart"
     }
+  }
+}
+
+Describe "the seam that gives a program the window (not replaced here)" {
+  It "gives the Linux installer the window itself: its output is not collected, only its exit code comes back" {
+    $r = Invoke-TbNativeConsole "/bin/sh" @("-c", "echo the-first-run-code; exit 3")
+    $r | Should -BeOfType [int]
+    @($r).Count | Should -Be 1
+    $r | Should -Be 3
+  }
+  It "keeps an argument with a space as one argument" {
+    $f = Join-Path $TestDrive "arg out.txt"
+    Invoke-TbNativeConsole "/bin/sh" @("-c", 'printf %s "$1" > "$2"', "sh", "a b", $f) | Should -Be 0
+    Get-Content -LiteralPath $f -Raw | Should -Be "a b"
   }
 }
