@@ -1187,7 +1187,13 @@ ON_DEMAND_PRICE_PER_HOUR = round(3 * PRICE_PER_HOUR, 2)
 
 def provisioning(tags: list[str] | tuple[str, ...]) -> str:
     """The VM's Compute Engine provisioning model for these parts (D-468): STANDARD (on demand, never pre-empted)
-    when a hospital part is among them, else SPOT."""
+    when a hospital part is among them, else SPOT. ``TB_PROVISIONING=SPOT|STANDARD`` overrides it for every VM: the
+    owner's choice of price against the risk of a pre-emption inside a 5 h hospital part (setting, OD-10)."""
+    forced = os.environ.get("TB_PROVISIONING", "").strip().upper()
+    if forced:
+        if forced not in ("SPOT", "STANDARD"):
+            raise ValueError(f"TB_PROVISIONING must be SPOT or STANDARD, not {forced!r}")
+        return forced
     return "STANDARD" if any(t.startswith("hospital-") for t in tags) else "SPOT"
 
 
