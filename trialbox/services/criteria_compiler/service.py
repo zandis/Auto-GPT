@@ -62,9 +62,12 @@ class CompileFailed(RuntimeError):
         self.step = step
 
 
-def approval_pins(manifest: RulesetManifest, criteria: Sequence[CriterionIR] = ()) -> dict[str, Any]:
-    """The prompts an approval pins (D-318): the registry's current version of the judge prompt with its text and
-    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved.
+def approval_pins(
+    manifest: RulesetManifest, criteria: Sequence[CriterionIR] = (), environment: str | None = None
+) -> dict[str, Any]:
+    """The prompts an approval pins (D-318): the version of the judge prompt the box's environment serves (D-359;
+    ``environment`` None: this process's ``TB_ENV``) with its text and schema shas, and ``models.judge_prompt`` naming
+    that version, so SCREEN runs what the investigator approved.
     D-442: and ``derived_pins``, the score definitions the active criteria follow (:func:`tb_common.scores.pins`)."""
     from tb_common.scores import pins as derived_pins
     from tb_llm.prompt_registry import PromptRegistryError, default_registry
@@ -72,7 +75,7 @@ def approval_pins(manifest: RulesetManifest, criteria: Sequence[CriterionIR] = (
     models = dump(manifest.models) if manifest.models else {}
     pid = str(models.get("judge_prompt") or "judge").rsplit("_v", 1)[0]
     try:
-        pins = default_registry().pins({pid: None})
+        pins = default_registry().pins({pid: None}, environment)
     except PromptRegistryError as exc:
         raise CompileFailed("approve", f"the judge prompt cannot be pinned ({exc.reason}): {exc}") from exc
     out: dict[str, Any] = {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
@@ -134,6 +137,9 @@ class CompilerDeps:
     ctgov: CtGov | None = None  # ClinicalTrials.gov client (COHORT trial simulation); default from TB_CTGOV_MODE
     # what a plain "eGFR" criterion becomes at this site (D-149); None: from the site's time zone (JP: JSN 2009)
     egfr_equation: str | None = None
+    # the environment whose served prompt versions an approval pins (D-359); None: this process's TB_ENV, as on an
+    # installed box. A harness whose box stands for another environment sets it (G1 B5)
+    prompt_environment: str | None = None
 
     def __post_init__(self) -> None:
         self.tz = site_tz(self.tz or None)
@@ -820,7 +826,7 @@ class Compiler:
         manifest = RulesetManifest.model_validate(
             {
                 **dump(manifest),
-                **approval_pins(manifest, updated),
+                **approval_pins(manifest, updated, self.d.prompt_environment),
                 **amendment_record(req, now.date()),
                 "status": "approved",
                 "review": {

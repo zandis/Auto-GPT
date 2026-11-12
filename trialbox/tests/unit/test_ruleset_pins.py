@@ -159,3 +159,29 @@ def test_a_newer_version_waiting_for_its_qualification_leaves_the_study_approved
     assert reg.pin_drift(manifest_pins(m)) == []
     drift = qualified([1, 2]).pin_drift(manifest_pins(m))
     assert drift == [{"id": "judge", "pinned": "judge@1", "active": "judge@2", "state": "newer"}]
+
+
+def test_the_harness_box_pins_what_its_production_gateway_serves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """G1 B5: the in-process box runs under this process's TB_ENV=DEV, its models behind a gateway client that stands
+    for a PRODUCTION box (D-359). The approval pins the version that box serves, so SCREEN's pinned prompt is one
+    PRODUCTION accepts, as on an installed box; DEV alone would pin the newest, unqualified one."""
+    from types import SimpleNamespace
+
+    from criteria_compiler.service import CompilerDeps, approval_pins
+    from tb_common.llm import load_prompt
+
+    from tools.public_e2e import attach_models
+
+    monkeypatch.setenv("TB_ENV", "DEV")
+    monkeypatch.setenv("TB_CANARY_GATE", "off")
+    reg = default_registry()
+    deps = CompilerDeps(None, None, None, None, {}, tz="Asia/Taipei")  # type: ignore[arg-type]
+    orch = SimpleNamespace(audit=None, services=SimpleNamespace(compiler=SimpleNamespace(d=deps)))
+    llm = SimpleNamespace(gateway=SimpleNamespace(prompt_environment="PRODUCTION"))
+    assert attach_models(SimpleNamespace(orch=orch), llm, None) is None
+    m = _manifest(models={"judge_prompt": "judge"})
+    pinned = approval_pins(m, [], deps.prompt_environment)["models"]["judge_prompt"]
+    assert pinned == f"judge_v{reg.served('judge', 'PRODUCTION').version}"
+    load_prompt(pinned, "PRODUCTION")  # the gateway client's check: not refused (prompt_unqualified)
+    # the stand-in box alone (no gateway client) keeps pinning what this process's environment serves
+    assert approval_pins(m)["models"]["judge_prompt"] == f"judge_v{reg.served('judge', 'DEV').version}"

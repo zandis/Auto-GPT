@@ -159,9 +159,13 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   pins the served judge prompt of this process's environment: judge@5, registered by T-606 with no qualification
   record). The harness's gateway client stands for a PRODUCTION box (`prompt_environment`, D-359). There, judge@5 is
   refused, and a pinned version gets no fallback. On a real box the compiler runs in PRODUCTION and pins judge@4.
-- **Fix.** Make the harness approve as the installed box does: pin the prompt that the box's environment serves. Do
-  not qualify judge@5 or loosen the PRODUCTION check to make the run pass.
-- **Status.** Open.
+- **Fix.** The harness now approves as the installed box does: it pins the prompt that the box's environment
+  serves. judge@5 stays unqualified and the PRODUCTION check is unchanged. `attach_models` (`tools/public_e2e.py`)
+  copies the gateway client's `prompt_environment` to the compiler's `CompilerDeps.prompt_environment`.
+  `approval_pins` then pins `registry.pins({judge: None}, environment)`, which is the PRODUCTION-served judge@4.
+  Without a gateway client, the box pins what its own `TB_ENV` serves, as before. Test:
+  `test_the_harness_box_pins_what_its_production_gateway_serves`, which pinned `judge_v5` before the fix.
+- **Status.** Fixed in #321.
 
 ## C. Fixed: keep them fixed
 

@@ -127,6 +127,12 @@ def attach_models(box: Any, llm: Any, verifier: Any) -> dict[str, Any] | None:
             c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
     box.orch.services.llm = llm
     box.orch.services.verifier = verifier
+    # the approval pins the prompt versions the models' box serves (D-359): an installed box compiles in its own
+    # TB_ENV, so the pin is one its gateway client accepts (G1 B5: else judge@5 under this process's DEV)
+    env = getattr(getattr(llm, "gateway", None), "prompt_environment", None)
+    deps = getattr(getattr(box.orch.services, "compiler", None), "d", None)
+    if env and deps is not None:
+        deps.prompt_environment = env
     from orchestrator import canary_gate
 
     if not canary_gate.gate_on():
