@@ -24,7 +24,7 @@ REGISTER_MODULE = re.compile(
 #: a query of the lake's consent table, in either case and with a schema name (``FROM main.consent``)
 FROM_CONSENT = re.compile(r"(?i)\b(?:FROM|JOIN)\s+(?:[A-Za-z_]+\.)?consent\b")
 #: a read of the note-block decision or of the configured policy
-NOTE_BLOCK = re.compile(r"(?<![A-Za-z0-9_])(?:effective_note_block|note_block_policy)\(")
+NOTE_BLOCK = re.compile(r"(?<![A-Za-z0-9_])(?:effective_note_block|note_block_policy|note_block_why)\(")
 PATTERNS = {
     "opted_out(": OPTED_OUT,
     "register module": REGISTER_MODULE,
@@ -114,7 +114,7 @@ def test_the_lists_hold_no_stale_line() -> None:
 def test_the_module_is_the_reader() -> None:
     """Not vacuous: the module itself reads all three, and a job context hands it out."""
     text = (ROOT / MODULE).read_text(encoding="utf-8")
-    assert "opted_out(" in text and "registry_state(" in text and "effective_note_block(" in text
+    assert "opted_out(" in text and "registry_state(" in text and "note_block_why(" in text
     core = (ROOT / "services/orchestrator/core.py").read_text(encoding="utf-8")
     assert "def decision(self) -> DecisionContext" in core
 
