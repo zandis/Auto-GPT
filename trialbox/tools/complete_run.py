@@ -333,7 +333,7 @@ def part_install(a: argparse.Namespace) -> dict[str, Any]:
 
 
 def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
-    from tools import e2e_simple
+    from tools import e2e_simple, run_metrics
     from tools import feas_demo as fd
 
     work = a.dir / f"hospital-{a.lang}"
@@ -379,6 +379,8 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
         "chain_seconds": out["chain_seconds"],
         "screen": {k: scr.get(k) for k in ("funnel", "tiers", "listed", "judging")},
         "canary": canary.get("status"),
+        # G-3: who was listed, with a hash: the list must be the same at every TB_SCREEN_LLM_CONCURRENCY
+        "candidates": run_metrics.candidate_list(cap.get("results") or {}),
         "scenario": {
             "title": "Hospital database feed (CGRD-style CSV)",
             "input": f"CGRD-style CSV export of {a.patients:,} synthetic patients (two sites, JP and TW style)",
@@ -390,7 +392,8 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
         },
     }
     fill = {"feas": out["jobs"]["feas"], "pid": lst["picks"][0]["pid"]}
-    items = _page_items(f"hospital-{a.lang}", a.lang, stages, HOSPITAL_PAGES, fill)
+    # a repeat at its own concurrency keeps its own screenshots (hospital-ja@c4-00.png)
+    items = _page_items(_tag("hospital", a.lang, getattr(a, "variant", "")), a.lang, stages, HOSPITAL_PAGES, fill)
     srv = Served(out["result"]["app"])
     try:
         _attach_shots(stages, shoot(items, a.shots, a.password, srv.base))
@@ -621,6 +624,13 @@ def part_selftest(a: argparse.Namespace) -> dict[str, Any]:
                            [("silent part ran to its end", took >= seconds, round(took, 1))], took)}  # fmt: skip
 
 
+def _chat_template(a: argparse.Namespace) -> dict[str, Any]:
+    """Review test G-1 (``tools.chat_template_check``): the passed chat template against the weights folder's own."""
+    from tools import chat_template_check
+
+    return chat_template_check.run(a)
+
+
 def _bench_synth(work: Path, sites: str) -> Path:
     """A synthetic hospital of its own for a bench (fictional patients only), made once per work folder."""
     from tools import feas_demo as fd
@@ -645,9 +655,12 @@ PARTS = {
     "embed": part_embed,
     "profile": part_profile,
     "selftest": part_selftest,
+    "chat-template": _chat_template,
 }
-NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile", "selftest")
-MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile")  # on the card; walk, backup, update, scale: stub
+NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile", "selftest", "chat-template")
+# on the card; walk, backup, update, scale: stub
+MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile", "chat-template")
+G1_CHECK = "chat-template"  # review test G-1 (tools.chat_template_check): in a run only when --only names it
 BENCH_PARTS = ("embed", "profile")  # in a run only when --only names them (not part of the complete run, G1)
 STUB_PARTS = ("walk", "backup", "update", "scale")  # run on the driver after the VM has stopped
 SELFTESTS = ("busy", "hang")  # the rehearsal's silent parts (selftest-busy, selftest-hang): only when --only names them
@@ -658,7 +671,53 @@ def _tag(part: str, lang: str = "", scenario: str = "") -> str:
         return f"scenario-{scenario}"
     if part == "selftest":
         return f"selftest-{scenario}"
+    if part == "hospital" and scenario:  # a repeat at its own concurrency (G-3): hospital-ja@c4
+        return f"hospital-{lang}@{scenario}"
     return part + (f"-{lang}" if part in ("hospital", "public") and lang else "")
+
+
+def base_tag(tag: str) -> str:
+    """``hospital-ja@c4`` -> ``hospital-ja``: the part a repeat at its own concurrency belongs to."""
+    return tag.split("@", 1)[0]
+
+
+# ---------------------------------------------------------------- model calls in flight (review G-3, D-142)
+MAX_CONCURRENCY = 64  # screen_cascade.llm_concurrency's own ceiling
+
+
+def parse_concurrency(text: str | None) -> tuple[int, ...]:
+    """``--llm-concurrency``: ``"16"`` or ``"1,4,16,48"`` (commas or spaces) as whole numbers from 1 to 64, each once,
+    in the order given. Empty: none given. Anything else raises ``ValueError``."""
+    out: list[int] = []
+    for x in (text or "").replace(",", " ").split():
+        if not x.isdigit() or not 1 <= int(x) <= MAX_CONCURRENCY:
+            raise ValueError(f"--llm-concurrency: whole numbers from 1 to {MAX_CONCURRENCY}, not {x!r}")
+        if int(x) not in out:
+            out.append(int(x))
+    return tuple(out)
+
+
+def record_max_seqs(record: Path | None = None) -> int:
+    """The judge's ``max_num_seqs`` in the serving record of this run (``--live-record``), else in the vendor's
+    measured record: what compose gives SCREEN as ``TB_SCREEN_LLM_CONCURRENCY`` on an installed box (D-142), and the
+    run's default when ``--llm-concurrency`` is not given (review 2026-11-12). 1 when no record says."""
+    for path in (record, VENDOR_RECORD):
+        try:
+            rec = json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
+        except (OSError, ValueError):
+            continue
+        n = next((s.get("max_num_seqs") for s in rec.get("servers") or [] if s.get("role") == "judge"), None)
+        if isinstance(n, int) and n > 0:
+            return min(n, MAX_CONCURRENCY)
+    return 1
+
+
+def concurrency_of(a: argparse.Namespace) -> tuple[int, ...]:
+    """The run's concurrency settings, parsed once (``a.lc``); () when none was given or defaulted."""
+    if not hasattr(a, "lc"):
+        a.lc = parse_concurrency(getattr(a, "llm_concurrency", ""))
+    lc: tuple[int, ...] = a.lc
+    return lc
 
 
 # ---------------------------------------------------------------- the data a part needs (review C-02, C-03)
@@ -726,7 +785,9 @@ def run_part(a: argparse.Namespace) -> int:
     logging.disable(logging.INFO)  # the in-process services log every request; the checks are the output
     a.password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
     a.shots.mkdir(parents=True, exist_ok=True)
-    tag = _tag(a.part, a.lang, a.scenario)
+    tag = _tag(a.part, a.lang, getattr(a, "variant", "") if a.part == "hospital" else a.scenario)
+    if getattr(a, "llm_concurrency", ""):  # this part's calls in flight (G-3); SCREEN reads it (screen_cascade)
+        os.environ["TB_SCREEN_LLM_CONCURRENCY"] = str(int(a.llm_concurrency))
     final = a.dir / "parts" / f"{tag}.json"
     ident = run_identity(a.run_id)
     if a.resume and final.exists():
@@ -740,7 +801,16 @@ def run_part(a: argparse.Namespace) -> int:
         final.unlink()
     t0 = time.perf_counter()
     res: dict[str, Any]
-    missing = data_missing(tag)
+    from tools import run_metrics
+
+    began = datetime.now().astimezone()
+    pair = a.model == "pair" and a.part in MODEL_PARTS
+    servers = {"judge": getattr(a, "judge_url", ""), "verifier": getattr(a, "verifier_url", "")} if pair else {}
+    monitor = run_metrics.Monitor(a.dir / "parts" / tag, servers, os.environ.get("TB_GPU_KEY", ""))
+    if a.part in MODEL_PARTS:
+        shutil.rmtree(monitor.folder, ignore_errors=True)  # an earlier attempt's samples are not this result's
+        monitor.start()
+    missing = data_missing(base_tag(tag))
     if missing:  # fail fast, before any box is built: no card time for a part that cannot run (review C-03)
         res = {"stages": _one(f"{tag}: data missing, not run", [("the part's data is on this machine", False,
                                                                  "; ".join(missing)[:300])], 0),
@@ -755,10 +825,21 @@ def run_part(a: argparse.Namespace) -> int:
             res = {"stages": _one(f"{tag} crashed", [("part ran", False, f"{exc!r} {' | '.join(tb)}"[:300])], 0),
                    "not_run": "crashed"}  # fmt: skip
     res["run"] = ident
+    # the calls in flight this part ran with, and what it measured (review G-3: tokens, queue, card, calls per second)
+    from orchestrator.scenarios.screen_cascade import llm_concurrency
+
+    res["llm_concurrency"] = llm_concurrency()
+    if a.part in MODEL_PARTS:
+        res["metrics"] = monitor.stop()
+        calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began)
+        if calls:
+            res["throughput"] = run_metrics.call_stats(calls)
     if a.model == "pair":
         from tools import scenarios
 
         res["run"]["weight_pins"] = scenarios.weight_pins()
+        if "throughput" in res:
+            res["throughput"]["breaker_opens"] = scenarios.breaker_opens()
     res["wall_seconds"] = round(time.perf_counter() - t0, 1)
     if a.part in NO_CONSOLE:
         url = table_page(a.shots / f"{tag}.html", f"TrialBox complete run: {tag}", res["stages"])
@@ -780,7 +861,12 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
     from tools import scenarios
 
     out = [("prepare", "", ""), ("install", "", "")]
-    out += [("hospital", lang, "") for lang in a.langs]
+    out += [(G1_CHECK, "", "")] if G1_CHECK in (a.only or []) else []  # G-1 before the parts that depend on it
+    # several --llm-concurrency values: the hospital part once per value, as hospital-<lang>@c<N> (G-3's curve);
+    # each repeat reads the same prepared hospital
+    lc = concurrency_of(a)
+    variants = [f"c{n}" for n in lc] if len(lc) > 1 else [""]
+    out += [("hospital", lang, v) for lang in a.langs for v in variants]
     out += [("public", lang, "") for lang in a.langs]
     out += [("scenario", a.langs[0], sc) for sc in (a.scenarios or scenarios.SCENARIOS)]
     out += [("walk", "", ""), ("backup", "", ""), ("update", "", ""), ("scale", "", "")]
@@ -788,7 +874,7 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
     out += [("selftest", "", s) for s in SELFTESTS if f"selftest-{s}" in (a.only or [])]
     keep = [p for p in out if p[0] not in a.skip]
     if a.only:
-        keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only]
+        keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only or base_tag(_tag(*p)) in a.only]
     return keep
 
 
@@ -797,8 +883,12 @@ def _cmd(a: argparse.Namespace, part: str, lang: str, scenario: str, shots: Path
            "--patients", str(a.patients), "--model", a.model, "--ocr", a.ocr, "--run-id", a.run_id]  # fmt: skip
     if lang:
         cmd += ["--lang", lang]
-    if scenario:
-        cmd += ["--scenario", scenario]
+    lc = concurrency_of(a)
+    if part == "hospital" and scenario:  # a repeat at its own concurrency: the variant c<N>
+        cmd += ["--variant", scenario, "--llm-concurrency", scenario.removeprefix("c")]
+    else:
+        cmd += ["--scenario", scenario] if scenario else []
+        cmd += ["--llm-concurrency", str(lc[0])] if lc else []
     if a.model == "pair":
         cmd += ["--judge-url", a.judge_url, "--verifier-url", a.verifier_url]
     if a.direct:
@@ -918,6 +1008,11 @@ def run_all(a: argparse.Namespace) -> int:
     env.setdefault("TB_DEMO_PASSWORD", secrets.token_urlsafe(12))  # one random password for every part, never printed
     started = datetime.now(UTC)
     rows: list[dict[str, Any]] = []
+    lc = concurrency_of(a)
+    if lc:
+        print(f"      model calls in flight (TB_SCREEN_LLM_CONCURRENCY): {', '.join(map(str, lc))}"
+              + (" (default: the serving record's max_num_seqs)" if getattr(a, "lc_default", False) else "")
+              + ("; the hospital part runs once per value" if len(lc) > 1 else ""), flush=True)  # fmt: skip
     for i, (part, lang, scenario) in enumerate(todo):
         tag = _tag(part, lang, scenario)
         t = time.perf_counter()
@@ -1036,6 +1131,13 @@ def report(
         "run_ids": sorted({str(x.get("id")) for x in runs if x.get("id")}),
         "parts": rows,
     }
+    from tools import run_metrics
+
+    # G-3: the calls in flight each part ran with, what it measured, and whether the lists agree across the settings
+    rep["llm_concurrency"] = sorted({int(r["llm_concurrency"]) for r in rows
+                                     if r.get("llm_concurrency") and r.get("part") in MODEL_PARTS})  # fmt: skip
+    rep["throughput"] = run_metrics.curve(rows)
+    rep["candidates_identical"] = run_metrics.lists_identical(rows)
     rep["checks"] = sum(len(st["checks"]) for r in rows for st in r["stages"])
     rep["failed"] = sum(1 for r in rows for st in r["stages"] for c in st["checks"] if not c[1])
     # a part that crashed, did not report or had no data counts one failed check; its own checks never ran (review
@@ -1079,7 +1181,7 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
                 + (f" No result yet: {', '.join(waiting)}." if waiting else "")]  # fmt: skip
         for r in rs:
             b = r.get("scenario") or {}
-            lab = f" ({r['lang']})" if name == "db-csv" else ""
+            lab = f" ({r['tag'].removeprefix('hospital-')})" if name == "db-csv" else ""
             out += [
                 "",
                 f"* Input{lab}: {b.get('input', '-')}",
@@ -1118,6 +1220,33 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
     return out
 
 
+def _throughput_section(rep: dict[str, Any]) -> list[str]:
+    """Review G-3: per part, the calls in flight, calls and tokens per second, call times, the card, the list."""
+    rows = rep.get("throughput") or []
+    if not rows:
+        return []
+
+    def cell(v: Any) -> str:
+        if isinstance(v, dict):
+            return ", ".join(f"{k} {x}" for k, x in v.items()) or "-"
+        return "-" if v is None else str(v)
+
+    keys = ("tag", "llm_concurrency", "calls", "calls_per_second", "tokens_per_second", "p50_s", "p95_s",
+            "queue_mean_s", "gpu_util_mean_pct", "gpu_memory_peak_mib", "breaker_opens", "candidates")  # fmt: skip
+    out = ["", "## Throughput (model calls through the gateway)", "",
+           "Calls and tokens per second are over the seconds in which a call was in flight (the gateway's audit); the "
+           "servers' `/metrics` before and after, `gpu.csv` (every 10 s) and `vllm.csv` are in `parts/<part>/`.", "",
+           "| part | in flight | calls | calls/s | tokens/s | p50 s | p95 s | queue s (vLLM) | GPU % mean | "
+           "GPU MiB peak | breaker opened | listed | list sha256 |",
+           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
+    out += ["| " + " | ".join(cell(r.get(k)) for k in keys) + f" | `{str(r.get('candidates_sha256') or '-')[:12]}` |"
+            for r in rows]  # fmt: skip
+    for lang, same in (rep.get("candidates_identical") or {}).items():
+        verdict = "**identical**." if same else "**DIFFERENT** (the list must not depend on the calls in flight)."
+        out += ["", f"Candidate lists of hospital-{lang} at every setting: {verdict}"]
+    return out
+
+
 def markdown(rep: dict[str, Any]) -> str:
     g = rep["git"]
     heads = g.get("heads") or []
@@ -1143,6 +1272,7 @@ def markdown(rep: dict[str, Any]) -> str:
         f"{mixed}. Run: {', '.join(rep.get('run_ids') or []) or '-'}. "
         f"Model: {', '.join(rep['models'])} ({rep.get('path', '')}). Hospital: {rep['patients']:,} synthetic patients. "
         f"Languages: {', '.join(rep['langs'])}. OCR: {rep.get('ocr', '-')}. "
+        f"Model calls in flight: {', '.join(map(str, rep.get('llm_concurrency') or [])) or '-'}. "
         f"Host: {rep['host'].get('machine')}, {rep['host'].get('cpus')} CPUs.",
         f"Started {rep['started']}, finished {rep['finished']}.",
         "",
@@ -1164,6 +1294,7 @@ def markdown(rep: dict[str, Any]) -> str:
             result = r.get("state") or ("pass" if not bad else "FAIL")
             lines.append(f"| {r['tag']} | {st['name']} | {n - len(bad)}/{n} | {result} | {st['seconds']} | {shot} |")
     lines += _scenario_sections(rep)
+    lines += _throughput_section(rep)
     lines += ["", "## Part times", "", "| part | wall seconds |", "| --- | --- |"]
     lines += [f"| {r['tag']} | {r['seconds_total']} |" for r in rep["parts"]]
     fails = [(r["tag"], st["name"], c) for r in rep["parts"] for st in r["stages"] for c in st["checks"] if not c[1]]
@@ -1171,7 +1302,7 @@ def markdown(rep: dict[str, Any]) -> str:
         lines += ["", "## Failed checks", ""]
         lines += [f"- {t} / {s}: {c[0]}: {str(c[2])[:200]}" for t, s, c in fails]
     for r in rep["parts"]:
-        for key in ("screen", "canary", "walk", "scale", "embed", "profile"):
+        for key in ("screen", "canary", "walk", "scale", "embed", "profile", "chat_template"):
             if r.get(key):
                 lines += ["", f"## {r['tag']}: {key}", "", "```json", json.dumps(r[key], default=str)[:1500], "```"]
     return "\n".join(lines) + "\n"
@@ -1229,6 +1360,41 @@ SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
 # the part reads; a newer measurement replaces these two numbers.
 HOSPITAL_PART_SECONDS = 17960.0
 HOSPITAL_PART_PATIENTS = 50000
+# The same measurement's model time: 6,704 calls in the 8,584 s of the screening stage, one call in flight (G1 ran
+# with TB_SCREEN_LLM_CONCURRENCY unset): 0.78 calls per second. With N calls in flight the screening time is the
+# calls over that rate times min(N, LLM_SPEEDUP); the rest of the part does not change with N.
+G1_SCREEN_SECONDS = 8584.0
+G1_SCREEN_CALLS = 6704
+G1_CALLS_PER_SECOND = G1_SCREEN_CALLS / G1_SCREEN_SECONDS  # 0.78 at N = 1
+# OD-10, a declared setting with its reason: the most the estimate lets N calls in flight raise the calls per second.
+# No rate at N > 1 is measured yet (review test G-3 measures it), so the estimate must stay an upper bound of the
+# time: it assumes only that two or more calls in flight are served at twice the single-call rate (vLLM batches
+# them on one card), and no more however large N is. TB_ESTIMATE_LLM_SPEEDUP changes it: 1 is the strict bound (the
+# single-call time at every N); G-3's measured calls per second at the chosen N, over 0.78, replaces it.
+LLM_SPEEDUP = 2.0
+
+
+def llm_speedup(n: int) -> float:
+    """What the estimate divides the single-call screening time by at ``n`` calls in flight: ``min(n, the declared
+    factor)`` (:data:`LLM_SPEEDUP`, ``TB_ESTIMATE_LLM_SPEEDUP``), never below 1."""
+    raw = os.environ.get("TB_ESTIMATE_LLM_SPEEDUP", "").strip()
+    try:
+        factor = float(raw) if raw else LLM_SPEEDUP
+    except ValueError as exc:
+        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}") from exc
+    if factor < 1:
+        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}")
+    return max(1.0, min(float(n), factor))
+
+
+def hospital_seconds(patients: int, n: int = 1) -> float:
+    """A hospital part's wall seconds at ``patients`` with ``n`` model calls in flight: G1's measurement scaled with
+    the patients, its screening share (the calls at 0.78 per second) divided by :func:`llm_speedup`. At ``n`` 1 it
+    is the measurement itself; above, an upper bound until G-3 measures the rate."""
+    scale = patients / HOSPITAL_PART_PATIENTS
+    return (HOSPITAL_PART_SECONDS - G1_SCREEN_SECONDS) * scale + G1_SCREEN_SECONDS * scale / llm_speedup(n)
+
+
 # the benches (owner's approval of 2026-11-09; no card measurement yet, so set high): the embedding comparison is two
 # small models over about 7,000 notes plus the weights' download; the profile stand-in samples ``--profile-patients``
 # at 2 s each on the card's batch (16 sequences) plus a sequential latency sample and its synthetic hospital
@@ -1244,10 +1410,12 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
 
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
              local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
-             profile_patients: int = 400) -> dict[str, Any]:  # fmt: skip
+             profile_patients: int = 400, llm_concurrency: tuple[int, ...] = (1,)) -> dict[str, Any]:  # fmt: skip
     """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the G1
     measurement (:data:`HOSPITAL_PART_SECONDS` at :data:`HOSPITAL_PART_PATIENTS`) scaled with ``patients``, never
-    below its model time. Model time: note-stage patients
+    below its model time. ``llm_concurrency``: the model calls in flight (:func:`hospital_seconds`; the default 1 is
+    what G1 measured); several values: one hospital part per value and language, tagged ``hospital-<lang>@c<N>``
+    (review G-3's curve). Model time: note-stage patients
     times the measured 6.3 s per patient on the RTX PRO 6000 (VALIDATION §3; a chart read counts as one), criterion
     checks at 0.3 s each, the canary once per box with the pair. Other time: the part's stub time on the local run,
     scaled with its patients. The walk, backup, update and scale run after the VM has stopped: no card time.
@@ -1272,13 +1440,17 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
         row("VM setup: packages, venv, browser, fonts", 0, 0, SETUP_HOURS * 3600),
     ]
     g1 = "g1" in parts
+    lc = tuple(llm_concurrency) or (1,)
     for lang in langs if g1 else ():
         notes = S3_SHARE * patients
-        # the G1 measurement scaled with the patients (G1 bug A4); never below the model time of the old sum, which
-        # is most of a small hospital (the canary, the stub time)
-        measured = HOSPITAL_PART_SECONDS * patients / HOSPITAL_PART_PATIENTS
-        model = notes * sec + CANARY_SECONDS + other("hospital", patients, local_patients)
-        rows.append(row(f"db-csv ({lang})", patients, notes, max(measured, model), (f"hospital-{lang}",)))
+        for n in lc:
+            # the G1 measurement scaled with the patients (G1 bug A4) and the calls in flight; never below the model
+            # time of the old sum at that concurrency, which is most of a small hospital (the canary, the stub time)
+            measured = hospital_seconds(patients, n)
+            model = notes * sec / llm_speedup(n) + CANARY_SECONDS + other("hospital", patients, local_patients)
+            many = len(lc) > 1
+            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''})", patients, notes,
+                            max(measured, model), (f"hospital-{lang}" + (f"@c{n}" if many else ""),)))  # fmt: skip
         rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
     for name in scenarios.SCENARIOS if g1 else ():
         t = (f"scenario-{name}",)
@@ -1305,7 +1477,9 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     for r in rows:
         r["hours"] = round(r["seconds"] / 3600, 2)
     hours = sum(r["seconds"] for r in rows) / 3600
-    return _priced({"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts)}, rows, hours)
+    head = {"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts), "llm_concurrency": list(lc),
+            "llm_speedup": [llm_speedup(n) for n in lc], "max_num_seqs": record_max_seqs()}  # fmt: skip
+    return _priced(head, rows, hours)
 
 
 def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
@@ -1315,13 +1489,25 @@ def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
     if not only:
         return e
     selftests = [f"selftest-{s}" for s in SELFTESTS if f"selftest-{s}" in only]  # the rehearsal's (tests/rehearsal)
-    known = {t for r in e["rows"] for t in r["tags"]} | {"install", "prepare", *selftests}
+    tags = {t for r in e["rows"] for t in r["tags"]}
+    # a hospital part named without its concurrency (hospital-ja) is every repeat of it (hospital-ja@c1, @c4 ...)
+    known = tags | {base_tag(t) for t in tags} | {"install", "prepare", G1_CHECK, *selftests}
     unknown = sorted(set(only) - known)
     if unknown:
         raise ValueError(f"--only: no such part in the plan: {' '.join(unknown)}")
-    rows = [dict(r) for r in e["rows"] if not r["tags"] or set(r["tags"]) & set(only)]
-    rows += [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17}
+    rows = [dict(r) for r in e["rows"]
+            if not r["tags"] or set(r["tags"]) & set(only) or {base_tag(t) for t in r["tags"]} & set(only)]  # fmt: skip
+    fixed = [r for r in rows if not r["tags"]]
+    extra = [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17}
              for t in selftests]  # fmt: skip
+    if G1_CHECK in only:  # review test G-1 (tools.chat_template_check), before the parts that depend on it
+        from tools.chat_template_check import N_PROMPTS, SECONDS
+
+        extra.insert(0, {"scenario": "G-1 chat template (sha256, token identity)", "patients": 0,
+                         "model_items": N_PROMPTS, "seconds": SECONDS, "tags": [G1_CHECK],
+                         "hours": round(SECONDS / 3600, 2)})  # fmt: skip
+    rows = fixed + [r for r in extra if r["tags"] == [G1_CHECK]] + [r for r in rows if r["tags"]] + [
+        r for r in extra if r["tags"] != [G1_CHECK]]  # fmt: skip
     hours = sum(r["seconds"] for r in rows) / 3600
     return _priced({**e, "only": list(only)}, rows, hours)
 
@@ -1347,6 +1533,7 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
     shards = []
     for i, b in enumerate(bins):
         tags = [t for r in b for t in r["tags"]]
+        tags.sort(key=lambda t: t != G1_CHECK)  # G-1 first on its VM (stable: the others keep their order)
         if "g1" in e.get("parts", ["g1"]):
             if any(t.startswith("hospital-") for t in tags):
                 tags = ["prepare", *tags]
@@ -1386,7 +1573,8 @@ def shard_now(doc: dict[str, Any], i: int, dirs: list[Path], run_id: str, head: 
     is left, and spot once its hospital parts are done. Nothing known (no results, no HEAD): the whole shard."""
     s = doc["plan"]["shards"][i - 1]
     left = [t for t in s["tags"] if not (head and _done(dirs, t, f"{run_id}-s{i}", head))]
-    e = estimate(int(doc["patients"]), parts=tuple(doc.get("parts") or ("g1",)))
+    e = estimate(int(doc["patients"]), parts=tuple(doc.get("parts") or ("g1",)),
+                 llm_concurrency=tuple(doc.get("llm_concurrency") or (1,)))  # fmt: skip
     now = restrict(e, left or ["install"])  # nothing left: the start and setup rows only
     return {"left": left, "done": [t for t in s["tags"] if t not in left], "hours": now["hours"], "usd": now["usd"],
             "cap_hours": now["cap_hours"], "cap_usd": now["cap_usd"], "provisioning": provisioning(left),
@@ -1475,6 +1663,29 @@ def print_shards(e: dict[str, Any], p: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def concurrency_lines(e: dict[str, Any]) -> list[str]:
+    """The estimate's and the plan's lines about the model calls in flight (``--llm-concurrency``, review G-3)."""
+    lc = [int(n) for n in e.get("llm_concurrency") or []]
+    if not lc:
+        return []
+    seqs = e.get("max_num_seqs")
+    out = [f"model calls in flight (TB_SCREEN_LLM_CONCURRENCY): {', '.join(map(str, lc))}"
+           + (f" (not given: the serving record's max_num_seqs, {seqs})" if e.get("llm_concurrency_default") else "")
+           + ("; the hospital part runs once per value (hospital-<lang>@c<N>), on one prepared hospital"
+              if len(lc) > 1 else "")]  # fmt: skip
+    if any(n > 1 for n in lc):
+        factor = max(e.get("llm_speedup") or [1.0])
+        out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, divided by min(N, "
+                   f"{factor:g}) (TB_ESTIMATE_LLM_SPEEDUP): an UPPER BOUND for N > 1 (no rate above 1 in flight is "
+                   f"measured yet; it counts on a gain of {factor:g}x and no more)")  # fmt: skip
+    over = [n for n in lc if seqs and n > int(seqs)]
+    if over:
+        out.append(f"  note: {', '.join(map(str, over))} in flight is above the servers' max_num_seqs ({seqs}) and "
+                   "the gateway's slots: the calls beyond wait in the gateway (it measures the queue, not a larger "
+                   "batch)")  # fmt: skip
+    return out
+
+
 def print_estimate(e: dict[str, Any]) -> str:
     lines = [f"TrialBox complete run on the RTX PRO 6000: {e['patients']:,} patients, US${e['price_per_hour']}/h, "
              f"{e['seconds_per_note_patient']} s per note-stage patient (VALIDATION §3)", "",
@@ -1483,7 +1694,7 @@ def print_estimate(e: dict[str, Any]) -> str:
         lines.append(
             f"{r['scenario']:<42}{r['patients']:>10,}{r['model_items']:>13,}{r['hours']:>8.2f}{r['usd']:>9.2f}"
         )
-    lines += ["", f"{'total':<42}{'':>10}{'':>13}{e['hours']:>8.2f}{e['usd']:>9.2f}",
+    lines += ["", f"{'total':<42}{'':>10}{'':>13}{e['hours']:>8.2f}{e['usd']:>9.2f}", *concurrency_lines(e),
               f"hard cap (estimate x 1.3, rounded up): {e['cap_hours']} h, at most US${e['cap_usd']}",
               f"one VM: {'on demand (a hospital part, D-468)' if e.get('provisioning') == 'STANDARD' else 'spot'}, "
               f"US${e['price_per_hour']}/h",
@@ -1530,10 +1741,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--profile-workers", type=int, default=16, help="profile bench: parallel calls (vLLM batch)")
     ap.add_argument("--run-id", default=os.environ.get("TB_RUN_ID", ""),
                     help="the run's id: --resume keeps only parts of this run id and HEAD (H-01)")  # fmt: skip
+    ap.add_argument("--llm-concurrency", default="", metavar="N[,N...]",
+                    help="model calls in flight (TB_SCREEN_LLM_CONCURRENCY) for every part; several values: the "
+                    "hospital part once per value, as hospital-<lang>@c<N> (review G-3). Not given with --model "
+                    "pair: the serving record's max_num_seqs")  # fmt: skip
     if argv[:1] == ["part"]:
         ap.add_argument("part", nargs="?", choices=sorted(PARTS))
         ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
         ap.add_argument("--scenario", default="", choices=["", *scenarios.SCENARIOS, *SELFTESTS])
+        ap.add_argument("--variant", default="", help="a hospital part's repeat, c<N>: the tag hospital-<lang>@c<N>")
         ap.add_argument("--shots", type=Path, required=True)
         a = ap.parse_args(argv[1:])
         return run_part(a)
@@ -1565,6 +1781,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pending-parts", nargs="*", default=[],
                     help="--report-only: tags whose VM still runs (pending, not 'VM stopped')")  # fmt: skip
     a = ap.parse_args(argv)
+    try:
+        a.lc = parse_concurrency(a.llm_concurrency)
+    except ValueError as exc:
+        ap.error(str(exc))
+    a.lc_default = False
+    if not a.lc and (a.estimate or (a.model == "pair" and not a.report_only)):
+        # not given: what an installed box runs SCREEN with, the serving record's max_num_seqs (D-142; review G-3)
+        a.lc, a.lc_default = (record_max_seqs(a.live_record),), True
     if a.quota_check:
         return quota_check(a.quota_check, [z for z in a.quota_zones.split(",") if z],
                            [z for z in a.quota_standard.split(",") if z])  # fmt: skip
@@ -1579,8 +1803,9 @@ def main(argv: list[str] | None = None) -> int:
         parts = tuple(x for x in a.parts.split(",") if x)
         if not parts or set(parts) - {"g1", *BENCH_PARTS}:
             ap.error(f"--parts: g1, {', '.join(BENCH_PARTS)}")
-        e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients)
         try:
+            e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc)
+            e["llm_concurrency_default"] = a.lc_default
             e = restrict(e, a.only)
         except ValueError as exc:
             ap.error(str(exc))
