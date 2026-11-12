@@ -7,6 +7,7 @@ answers the question itself: the distinct studies with a job in ``awaiting_appro
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from orchestrator.db import JobDB
 from tb_contracts import Job
@@ -14,7 +15,7 @@ from tb_contracts import Job
 T0 = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
 
 
-def _job(n: int, ruleset: str | None, state: str = "awaiting_approval") -> Job:
+def _job(n: int, ruleset: str | None, state: Any = "awaiting_approval") -> Job:
     at = T0 + timedelta(minutes=n)
     return Job(job_id=f"01JWA1T{n:019d}", type="FEAS", ruleset=ruleset, requested_by="crc@hospa.test",
                received_at=at, updated_at=at, state=state, options={}, outputs=[])  # fmt: skip
