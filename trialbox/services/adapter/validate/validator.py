@@ -11,12 +11,13 @@ from __future__ import annotations
 import hashlib
 import heapq
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -68,15 +69,66 @@ def missing_required(res: Resource) -> list[str]:
     return [p for p in REQUIRED.get(res.get("resourceType", ""), []) if not _has(res, p)]
 
 
+CAP_ENV = "TB_VALIDATION_SAMPLE_CAP"
+
+
+def sample_cap(max_pct: float, env: Mapping[str, str] | None = None) -> int | None:
+    """The most resources of one type the gate's sample takes (T-693, D-457), or None for no cap.
+
+    ``TB_VALIDATION_SAMPLE_CAP`` when set (``0``: no cap). Else derived from the gate's own limit ``max_pct``
+    (``validation_error_max_pct``, in percent): the sample size at which the standard error of the measured failure
+    share is a fifth of the limit, ``ceil(25 x (1 - p) / p)``: 4,975 at 0.5 %. A limit of 0 or of 100 % and more
+    gives no cap (there is nothing to derive one from)."""
+    e = os.environ if env is None else env
+    raw = (e.get(CAP_ENV) or "").strip()
+    if raw:
+        try:
+            cap = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{CAP_ENV} must be a whole number of resources per type (0: no cap)") from exc
+        if cap < 0:
+            raise ValueError(f"{CAP_ENV} must be a whole number of resources per type (0: no cap)")
+        return cap or None
+    p = max_pct / 100.0
+    if not 0.0 < p < 1.0:
+        return None
+    return math.ceil(25.0 * (1.0 - p) / p)
+
+
+def sample_size(n: int, fraction: float, minimum_per_type: int = 3, cap: int | None = None) -> int:
+    """How many of a type's ``n`` resources the sample takes: its share, at least ``minimum_per_type``, at most
+    ``cap`` (never under the minimum), never more than there are. One rule for the night and the back-fill."""
+    k = max(minimum_per_type, round(n * fraction))
+    if cap is not None:
+        k = min(k, max(cap, minimum_per_type))
+    return min(n, k)
+
+
+def capped_types(
+    counts: Mapping[str, int], fraction: float, minimum_per_type: int = 3, cap: int | None = None
+) -> dict[str, int]:
+    """The resource types the cap cut, with the number of their resources (for the night's report)."""
+    return {
+        t: n
+        for t, n in sorted(counts.items())
+        if sample_size(n, fraction, minimum_per_type, cap) < sample_size(n, fraction, minimum_per_type, None)
+    }
+
+
 def sample(
-    resources: Iterable[Resource], fraction: float = 0.01, minimum_per_type: int = 3, seed: str = "trialbox"
+    resources: Iterable[Resource],
+    fraction: float = 0.01,
+    minimum_per_type: int = 3,
+    seed: str = "trialbox",
+    cap_per_type: int | None = None,
 ) -> list[Resource]:
-    """Deterministic sample: ``fraction`` of resources by hash of type/id, at least ``minimum_per_type`` per type."""
+    """Deterministic sample: ``fraction`` of resources by hash of type/id, at least ``minimum_per_type`` per type
+    and at most ``cap_per_type`` (T-693, D-457; None: no cap). A type under the cap is sampled exactly as without."""
     items = list(resources)
     counts: dict[str, int] = {}
     for r in items:
         counts[r["resourceType"]] = counts.get(r["resourceType"], 0) + 1
-    picker = Sampler(seed, lambda t: max(minimum_per_type, round(counts.get(t, 0) * fraction)))
+    picker = Sampler(seed, lambda t: sample_size(counts.get(t, 0), fraction, minimum_per_type, cap_per_type))
     for r in items:
         picker.add(r)
     return picker.result()

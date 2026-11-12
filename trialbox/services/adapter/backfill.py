@@ -113,6 +113,8 @@ class BackfillReport:
     seconds: float = 0.0
     lake: dict[str, Any] | None = None
     omop: dict[str, Any] | None = None
+    # T-693 (D-457): the cap of the validation sample in force and the types it cut (None: not validated)
+    validation_sample: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -371,11 +373,18 @@ def _write_merged(runs: Path, buckets: list[str], out: Path) -> dict[str, int]:
     return counts
 
 
-def _sample(folder: Path, counts: dict[str, int], fraction: float, minimum: int = 3) -> list[dict[str, Any]]:
-    """``validator.sample`` over a folder without loading it: the same hash order, a bounded heap per type."""
+def _sample(
+    folder: Path, counts: dict[str, int], fraction: float, minimum: int = 3, cap: int | None = None
+) -> list[dict[str, Any]]:
+    """``validator.sample`` over a folder without loading it: the same hash order, a bounded heap per type, the
+    same size rule (T-693, D-457: the share, at least ``minimum``, at most ``cap``)."""
+    from adapter.validate.validator import sample_size
+
     out: list[dict[str, Any]] = []
     for rtype in sorted(counts):
-        k = max(minimum, round(counts[rtype] * fraction))
+        k = sample_size(counts[rtype], fraction, minimum, cap)
+        if k <= 0:
+            continue
         heap: list[tuple[str, str]] = []  # max-heap by hash (negated via sorting key below)
         with (folder / f"{rtype}.ndjson").open(encoding="utf-8") as fh:
             for line in fh:
@@ -506,7 +515,14 @@ def _publish(
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
         try:
-            v = chosen.validate(_sample(stage, counts, cfg.sample_fraction))
+            from adapter.validate.validator import capped_types, sample_cap
+
+            cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457)
+            rep.validation_sample = {
+                "sample_cap": cap,
+                "capped": capped_types(counts, cfg.sample_fraction, cap=cap),
+            }
+            v = chosen.validate(_sample(stage, counts, cfg.sample_fraction, cap=cap))
             if v.error_pct > cfg.validation_max_pct:
                 errors.append(f"validation error rate {v.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
         except Exception as exc:

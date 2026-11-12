@@ -29,7 +29,15 @@ from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import Spool, is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
-from adapter.validate.validator import Hl7Validator, Sampler, StructuralValidator, missing_required
+from adapter.validate.validator import (
+    Hl7Validator,
+    Sampler,
+    StructuralValidator,
+    capped_types,
+    missing_required,
+    sample_cap,
+    sample_size,
+)
 
 log = logging.getLogger("adapter")
 Resource = dict[str, Any]
@@ -700,6 +708,7 @@ def _run_ingest(
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
+    cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
     night = _NightPass(
         zone,
         unit_defaults,
@@ -708,6 +717,7 @@ def _run_ingest(
         counts,
         cfg.sample_fraction if validate else None,
         cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
+        cap,
     )
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
@@ -798,7 +808,10 @@ def _run_ingest(
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
+        # T-693 (D-457): the sample is each type's share, at least 3 and at most a cap derived from the gate's own
+        # limit (settable); the report names the cap and the types it cut. Taken from the stream (T-692)
         picked = night.sample.result() if night.sample is not None else []
+        cut = capped_types(night.kept, cfg.sample_fraction, cap=cap)
         try:
             vres = chosen.validate(picked)
             vsum = ValidationSummary(
@@ -807,6 +820,8 @@ def _run_ingest(
                 error_pct=round(vres.error_pct, 3),
                 validator=vres.validator,
                 messages=vres.messages,
+                sample_cap=cap,
+                capped=cut or None,
             )
         except Exception as exc:
             errors.append(f"validation failed to run: {exc}")
@@ -1139,6 +1154,7 @@ class _NightPass:
         counts: dict[str, int],
         fraction: float | None,
         per_type: int | None,
+        cap: int | None = None,
     ) -> None:
         from lake.flatten import Unread  # the inbound FHIR contract (T-616), the lake's own reading
 
@@ -1147,8 +1163,11 @@ class _NightPass:
         self.missing: Counter[str] = Counter()
         self.unread = Unread()
         kept = {**counts, "Patient": counts.get("Patient", 0) - aliases.dropped}
+        self.kept = kept  # what the sample is taken from, by type (the report names the types the cap cut)
         self.sample = (
-            Sampler("trialbox", lambda t: max(3, round(kept.get(t, 0) * fraction))) if fraction is not None else None
+            Sampler("trialbox", lambda t: sample_size(kept.get(t, 0), fraction, 3, cap))
+            if fraction is not None
+            else None
         )
         self.jp_sample = Sampler("jp-core", lambda _t: per_type) if per_type is not None else None
 

@@ -2209,6 +2209,14 @@ class ValidationSummary(BaseModel):
     error_pct: float
     validator: str
     messages: list[str] | None = None
+    sample_cap: int | None = None
+    """
+    T-693 (D-457): the most resources of one type the sample took; null: no cap
+    """
+    capped: dict[str, Any] | None = None
+    """
+    T-693 (D-457): the resource types the cap cut, with the number of their resources
+    """
 
 
 class Window(BaseModel):
