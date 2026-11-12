@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The audit trail (T-721, D-488): the audit writer marks an event sent by a database role that does not write
+  that kind of event, or dated more than `TB_AUDIT_TS_MAX_SKEW_S` (300 s) from when it arrived;
+  `python -m tools.audit_verify <audit dir> --foreign` lists the marked events.
 - Release identity and bundle gates (T-110b, D-340): `tools/release.py` writes `release.json`
   (`schemas/release.schema.json`) and the release's `images.lock` for each bundle; `tools/make_bundle.sh` needs
   `--gates` and `--release-seq`, carries the SBOMs, the gate record, `NOTICE` and this file, and no longer carries

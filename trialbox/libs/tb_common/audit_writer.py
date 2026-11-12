@@ -259,6 +259,93 @@ def _same_time(a: str, b: str) -> bool:
         return a == b
 
 
+# ---------------------------------------------------------------------------------- who may say what (T-721, D-488)
+ADMIN_ROLE = "trialbox"  # the host's administrator role (`trialbox` tools, migrations): not judged
+SKEW_ENV = "TB_AUDIT_TS_MAX_SKEW_S"
+#: The event families (the part of an event's name before the first dot) each service's database role writes. The
+#: journal records the role (``session_user``), which the sender cannot choose; the event's name, its actor and
+#: its time are the sender's. A row whose family is not its role's is marked by the drain, never dropped: the
+#: chain keeps what was sent, and says it should not have come from there.
+#: ``tests/unit/test_audit_roles.py`` holds this table against the code. The console and the orchestrator host the
+#: shared libraries (and helpers of each other): their rows cover every family written anywhere in the modules
+#: they import. A service that reads outside input (mail, model output, hospital files, protocols) has the
+#: narrowest row: exactly what its own folder writes, plus :data:`EDGE_EXTRA`, each with its reason.
+_SHARED = ("audit", "flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
+_ORCH = ("actor", "case", "cohort", "consent", "data", "derive", "edc", "feas", "job", "lake", "life", "microbatch",
+         "nav", "notice", "notmatched", "opportunity", "optout", "redcap", "registry", "rerun", "retention",
+         "scheduler", "screen", "selftest", "service", "setup", "sponsor", "study", "terminology", "twpas")  # fmt: skip
+_CONSOLE = ("console", "edc", "feedback", "instrument", "notmatched", "optout", "registry", "setup", "sponsor",
+            "terminology")  # fmt: skip
+#: what an edge service writes beyond its own folder's events, and why
+EDGE_EXTRA: dict[str, dict[str, str]] = {
+    "tb_criteria_compiler": {"llm": "its model calls go through tb_common.llm, which audits them in the caller's log"},
+}
+ROLE_EVENTS: dict[str, frozenset[str]] = {
+    "tb_console": frozenset({*_CONSOLE, *_SHARED}),
+    "tb_orchestrator": frozenset({*_ORCH, *_SHARED}),
+    "tb_mail_gateway": frozenset({"mail"}),
+    "tb_gateway": frozenset({"llm"}),
+    "tb_lake": frozenset({"lake"}),
+    "tb_adapter": frozenset({"ingest", "terminology"}),
+    "tb_criteria_compiler": frozenset({"approve", "compile", "ctgov", "llm"}),
+    "tb_audit_writer": frozenset({"audit"}),
+}
+
+
+def max_skew() -> float:
+    """How far an event's own time may be from the time the journal received it, in seconds (``TB_AUDIT_TS_MAX_SKEW_S``,
+    default 300). A service stamps an event when it happens and sends it in the same request, to a database on the
+    same host, so the two differ by the length of a transaction; five minutes is a slow one. It is a setting, not a
+    constant, because a site with a database on another host may need more (OD-10)."""
+    try:
+        return max(0.0, float(os.environ.get(SKEW_ENV) or 300))
+    except ValueError:
+        return 300.0
+
+
+def foreign(role: str, event: str) -> str:
+    """Why this event should not have come from this database role ("" when it may): ``role`` when the event's
+    family is not one the role writes, ``unknown role`` for a role the table does not know."""
+    if role == ADMIN_ROLE:
+        return ""
+    allowed = ROLE_EVENTS.get(role)
+    if allowed is None:
+        return "unknown role"
+    return "" if event.split(".", 1)[0] in allowed else "role"
+
+
+def flags_of(role: str, event: str, ts: datetime, at: Any) -> list[str]:
+    """The marks of one journal row: ``role`` / ``unknown role`` (:func:`foreign`) and ``time`` when the event's own
+    time is further than :func:`max_skew` from the journal's (a back-dated or post-dated event)."""
+    out = [why] if (why := foreign(role, event)) else []
+    try:
+        received = at if isinstance(at, datetime) else datetime.fromisoformat(str(at))
+        if abs((ts - received).total_seconds()) > max_skew():
+            out.append("time")
+    except (TypeError, ValueError):  # a time that cannot be compared is not a time the journal agrees with
+        out.append("time")
+    return out
+
+
+def flagged(directory: Path) -> list[dict[str, Any]]:
+    """Every chain record the drain marked, oldest first: ``{seq, role, event, ts, at, actor, flag}``. What
+    ``tools/audit_verify.py --foreign`` prints."""
+    out: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("*.jsonl")) if directory.is_dir() else []:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                j = rec.get("journal") if isinstance(rec, dict) else None
+                if isinstance(j, dict) and j.get("flag"):
+                    out.append({"seq": j.get("seq"), "role": j.get("role"), "event": rec.get("event"),
+                                "ts": rec.get("ts"), "at": j.get("at"), "actor": rec.get("actor"),
+                                "flag": list(j["flag"])})  # fmt: skip
+    return out
+
+
 class Drain:
     """Copies the journal into the chain in ``directory``, in ``seq`` order; the only writer of the chain on a box."""
 
@@ -313,7 +400,13 @@ class Drain:
             f = dict(fields if isinstance(fields, dict) else json.loads(fields or "{}"))
             f.pop("journal", None)
             stamp = datetime.fromisoformat(ts)
-            self.chain.append(event, ts=stamp, journal={"seq": int(seq), "role": role, "at": _iso(at)}, **f)
+            journal: dict[str, Any] = {"seq": int(seq), "role": role, "at": _iso(at)}
+            # T-721 (D-488): who may say what, and when. The mark is part of the record the event is written in,
+            # so there is no moment at which the event is in the chain without it.
+            if marks := flags_of(str(role), str(event), stamp, at):
+                journal["flag"] = marks
+                log.warning("audit journal row %s from %s marked %s (event %s)", seq, role, ", ".join(marks), event)
+            self.chain.append(event, ts=stamp, journal=journal, **f)
             self.cursor = Cursor(int(seq), _iso(at))
             self._after = None
         return len(rows)
