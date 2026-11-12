@@ -179,6 +179,9 @@ def _suspected(prb: hl7.Segment) -> bool:
     return "疑い" in prb.comp(3, 2)
 
 
+_ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendors write
+
+
 def _alt(seg: hl7.Segment, n: int, systems: tuple[str, ...]) -> str:
     """The alternate code (components 4-6) of a CWE field when its coding system is one of ``systems``."""
     return seg.comp(n, 4) if seg.comp(n, 6) in systems else ""
@@ -537,7 +540,10 @@ class Ssmix2Source:
         enc = pv1.comp(19, 1) if pv1 else ""
         for prb in msg.all("PRB"):
             code = prb.comp(3, 1)
-            icd = who_icd10(_alt(prb, 3, ("I10", "ICD10"))) or self._icd(code)
+            # NEW-DIN-5 (DIN-005): the ICD-10 code is in whichever triple names ICD-10. The standard puts the 病名
+            # code first and ICD-10 second; a vendor that sends ICD-10 first used to get a diagnosis with no code
+            first = code if prb.comp(3, 3).strip().upper() in _ICD10_SYS else ""
+            icd = who_icd10(first or _alt(prb, 3, _ICD10_SYS)) or ("" if first else self._icd(code))
             if not icd:
                 self.missed[f"diagnosis:{code}"] += 1
             yield {
@@ -545,7 +551,7 @@ class Ssmix2Source:
                 "enc_no": enc,
                 "mrn": sf.patient,
                 **self._icd_columns(icd),
-                "byomei_code": code if prb.comp(3, 3) not in ("I10", "ICD10") else "",
+                "byomei_code": "" if first else code,
                 "byomei_name": prb.comp(3, 2),
                 "diag_date": hl7.ts(prb.field(16)) or "",
                 "recorded_date": hl7.ts(prb.field(2)) or hl7.ts(prb.field(7)) or "",
