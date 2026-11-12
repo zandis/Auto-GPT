@@ -28,7 +28,7 @@ Workflow `.github/workflows/trialbox-ci.yml`, on every pull request and every pu
 | `lint`, `types` | ruff (with the `S` security rules), ruff format, actionlint, mypy strict |
 | `docs` | doclint and decision numbers |
 | `contracts`, `trace` | generated contracts and rulesets match their sources; the traceability CSV (warnings) |
-| `unit` | the test suite, including property, mutation-killing and engine-agreement tests |
+| `unit` | the test suite, including property, mutation-killing and engine-agreement tests, and the journeys: one per console role on the in-process synthetic site, the PQ script a site walks (`tests/e2e/journeys/`, D-448); the journeys a site re-runs after a long break are listed in `rerun_after_break.yaml` beside them (RSK-64) |
 | `e2e-simple`, `goldens` | the whole path on a synthetic hospital; the committed goldens do not move unasked |
 | `data-scan` | no real patient data or identifier in the tree or the test log |
 | `security` | secret scanning (detect-secrets) and a static security scan (bandit), `tools/security_scan.py` |
