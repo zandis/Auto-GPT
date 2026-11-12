@@ -348,6 +348,14 @@ def verify(
         return False, f"{build_id}: weights changed since the pin ({m.sha256[:12]} != pinned {pinned[:12]})"
     tpl = (entry.get("weights") or {}).get("chat_template") or {}
     if tpl:
+        # HW-005 (D-567): a template pinned before the registry named its hash (first use) is checked against the
+        # registry now, not only against the pin's own record of it
+        named = (template_of(_committed()[1].get(build_id) or {}) or {}).get("sha256")
+        if named and tpl.get("sha256") != named:
+            return False, (
+                f"{build_id}: the pinned chat template {str(tpl.get('sha256'))[:12]} is not the registry's "
+                f"{str(named)[:12]}; put the named file in place and re-pin (pin_model --install)"
+            )
         path = (models_root or model_dir.parent) / str(tpl.get("file"))
         if not path.is_file():
             return False, f"{build_id}: the pinned chat template {path} is missing"
@@ -469,14 +477,22 @@ def install_pins(
         tpl_path = models_root / (e.get(TEMPLATE_VAR) or str(tpl["file"])) if tpl else None
         if pinned:
             note = ""
-            if tpl_path is not None and not ((have.get(build) or {}).get("weights") or {}).get("chat_template"):
-                try:  # pinned before T-674: the template the server now starts with joins the pin
+            had = ((have.get(build) or {}).get("weights") or {}).get("chat_template") or {}
+            # pinned before T-674 (no template in the pin), or before the registry named the template's hash
+            # (HW-005, D-567: recorded on first use): the file is checked against the registry and the pin follows
+            stale = bool(had) and bool(tpl and tpl.get("sha256")) and had.get("sha256") != (tpl or {}).get("sha256")
+            if tpl_path is not None and (not had or stale):
+                try:
                     add_template(build, tpl_path, out, registry_path)
                 except PinError as exc:
                     ok = False
                     lines.append(f"{build}: {exc}")
                     continue
-                note = f"; chat template {tpl_path.name} added to the pin"
+                note = (
+                    f"; chat template {tpl_path.name} replaced by the registry's in the pin"
+                    if stale
+                    else f"; chat template {tpl_path.name} added to the pin"
+                )
             was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
             if was != name:
                 set_served(build, endpoint, name, out)
@@ -547,6 +563,12 @@ def promote(
 
     from tools.qualify import check_record
 
+    pinned_tpl = ((load_override(out)["builds"].get(build_id) or {}).get("weights") or {}).get("chat_template") or {}
+    if pinned_tpl.get("trust") == "first_use":  # HW-005 (D-567)
+        raise PinError(
+            f"{build_id}: its chat template was trusted on first use and cannot be promoted; put the registry's "
+            "file in place and run --install"
+        )
     try:
         rec = json.loads(record_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:

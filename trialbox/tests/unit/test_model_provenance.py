@@ -271,7 +271,8 @@ def test_hw005_a_deployed_row_without_the_template_hash_is_a_provenance_problem(
 
 def test_hw005_the_flag_stays_while_the_weight_folders_template_is_another_file() -> None:
     """The measured record lists the weight folder's own chat_template.jinja. It is not the developer's file, so
-    compose keeps --chat-template; when the two hashes are equal the flag can go (D-567)."""
+    compose keeps --chat-template; when the two hashes are equal the flag can go (D-567). The folder's hash is
+    written here from that record: a retaken record with another folder template changes this line, on purpose."""
     record = json.loads((ROOT / "deploy" / "measured" / "serving_config.rtxpro6000.json").read_text(encoding="utf-8"))
     found: list[str] = []
 
@@ -376,3 +377,58 @@ def test_cards_show_the_provenance() -> None:
         encoding="utf-8"
     )
     assert "queued (GPU ledger row S4)" in (ROOT / "models" / "cards" / f"{CHALLENGER}.md").read_text("utf-8")
+
+
+# ------------------------------------------------------------------------- HW-005: the review of PR #358
+def _old_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, Path]:
+    """A box installed before the registry named the template's hash: its own file was recorded on first use.
+    Returns (the template's path, the site override, the release registry that now names the hash)."""
+    from registry import registry as reg_mod
+
+    release, _ = _release(tmp_path, monkeypatch)
+    doc = yaml.safe_load(release.read_text(encoding="utf-8"))
+    before = copy.deepcopy(doc)
+    for b in before["builds"]:
+        if b.get("chat_template"):
+            b["chat_template"]["sha256"] = None
+    old = tmp_path / "registry.before.yaml"
+    old.write_text(yaml.safe_dump(before, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(reg_mod, "DEFAULT_PATH", old)
+    template = tmp_path / "models" / _builds(doc)[JUDGE]["chat_template"]["file"]
+    template.write_text("{{ another template }}", encoding="utf-8")
+    out = tmp_path / "site" / "registry.site.yaml"
+    ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {})
+    assert ok, lines
+    pin = yaml.safe_load(out.read_text(encoding="utf-8"))["builds"][JUDGE]["weights"]["chat_template"]
+    assert pin["trust"] == "first_use"
+    monkeypatch.setattr(reg_mod, "DEFAULT_PATH", release)  # the update: the registry now names the hash
+    return template, out, release
+
+
+def test_hw005_review_a_box_pinned_on_first_use_is_refused_until_the_named_file_is_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HIGH-1: after an update the install said "already pinned" and verify-all compared the file with the pin's
+    own hash only: the box went on serving a file nobody checked."""
+    from tests.model_pins import TEMPLATE_TEXT
+
+    template, out, _ = _old_box(tmp_path, monkeypatch)
+    ok, lines = pin_model.verify_all(tmp_path / "models", out)
+    assert not ok and any("is not the registry's" in x and "re-pin" in x for x in lines), lines
+    ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {})
+    assert not ok and "is not the expected" in lines[0], lines  # the wrong file is still there: said, not kept
+    template.write_text(TEMPLATE_TEXT, encoding="utf-8")  # the registry's file is put in place
+    ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {})
+    assert ok and "chat template" in lines[0] and "replaced by the registry's" in lines[0], lines
+    pin = yaml.safe_load(out.read_text(encoding="utf-8"))["builds"][JUDGE]["weights"]["chat_template"]
+    assert pin["trust"] == "expected" and pin["sha256"] == pin_model.file_sha256(template)
+    assert pin_model.verify_all(tmp_path / "models", out)[0]
+
+
+def test_hw005_review_a_template_trusted_on_first_use_is_never_promoted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MED-2: promote looked at the weights' trust only."""
+    _template, out, _ = _old_box(tmp_path, monkeypatch)
+    with pytest.raises(pin_model.PinError, match="chat template .* trusted on first use"):
+        pin_model.promote(JUDGE, tmp_path / "no-record-is-read-before-this.json", out)

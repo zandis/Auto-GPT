@@ -1,4 +1,4 @@
-# D-567 The judge's chat template is named by its hash: nothing is trusted at first use
+# D-567 The judge's chat template is named by its hash: no deployed row trusts a file at first use
 
 - **Task:** HW-005 (TB-PLAN-07 v7.2, `docs/plan/33-plan-v7.md`, wave 1, lane D; finding HW-005 of
   `docs/reviews/2026-11-12-deep-review/13-final-build-hardware-install.md`)
@@ -27,15 +27,25 @@ served.
 2. **A deployed judge or front-desk build without a template hash fails the provenance test.** `first_use` stays
    in `pin_model` for a row someone is still preparing; it cannot ship.
 3. **The flag stays.** The weight folder's own template is another file: sha256 `94899c0f…` (16,934 bytes; the
-   measured record `deploy/measured/serving_config.rtxpro6000.json`, and the publisher's file at the weights'
-   revision read the same day). They are not identical, so `--chat-template` is not dropped. A test holds the two
+   measured record `deploy/measured/serving_config.rtxpro6000.json`; the publisher's file at the weights'
+   revision `a19cfe00…`, read the same day, has the same hash). They are not identical, so `--chat-template` is not dropped. A test holds the two
    hashes apart: when they become equal, the flag can go.
 4. **What the accuracy evidence was taken with is lane G's to redo.** The measured record and G1 ran with the
    folder's template. The canary and one hospital part are run again with the developer's file before anything
    else is measured (test G-1).
 
+5. **A box pinned before this** holds a template recorded on first use. `pin_model --verify-all` (the install,
+   the doctor) now refuses a pinned template whose hash is not the registry's; `--install` checks the file again:
+   the named file replaces the pin's entry (`trust: expected`), any other file is refused and said. A template
+   trusted on first use is never promoted.
+6. **Open, named here.** (a) A judge pinned by hand without `--chat-template` has no template in its pin, and
+   `--promote` does not ask for one; `--install` adds it. (b) Nothing compares the template the server was started
+   with against the pin: the pin records the registry's `file`, compose serves `JUDGE_CHAT_TEMPLATE`, and
+   `serving_config.template_problems` has no caller. Both belong to the vendor qualification record (HW-003,
+   LLM-005), which names the template's hash from the serving record.
+
 ## Consequences
 
-- A box whose template file is not the named one is refused at the pin, before the judge starts.
+- A box whose template file is not the named one is refused at the pin and at every later check of the pins.
 - The model cards show the full revision.
 - No setting, no limit, no new store.
