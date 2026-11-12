@@ -626,6 +626,31 @@ def _shipped_mismatch(rec: Any, gpu: str, builds: list[str], pins: dict[str, Any
     return ""
 
 
+PENDING_NAME = "shipped-promotion.pending.json"  # beside the override: a shipped promotion not yet canaried
+
+
+def _pending(out: Path) -> dict[str, Any]:
+    import json
+
+    path = out.parent / PENDING_NAME
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {"unreadable": True}
+    return doc if isinstance(doc, dict) else {"unreadable": True}
+
+
+def _qualified(entry: dict[str, Any]) -> bool:
+    """The registry's rule for a champion that PRODUCTION routes (``Build.qualified_for_production``)."""
+    q = entry.get("qualification") or {}
+    return (
+        entry.get("status") == "champion"
+        and q.get("qualifies_production") is True
+        and bool(entry.get("sha256"))
+        and q.get("weights_sha256") == entry.get("sha256")
+    )
+
+
 def promote_shipped(
     gpu: str,
     records: Path = SHIPPED_RECORDS,
@@ -637,34 +662,57 @@ def promote_shipped(
     """HW-003 (D-569): promote the profile's pinned pair from a shipped qualification record. One record under
     ``records/<gpu>/`` must pass ``check_record`` for the profile and PRODUCTION, name every build of the pair, and
     have qualified exactly the pinned weights, the model server image of ``images_lock`` and the chat template in
-    the judge's pin. Every build is promoted from that one record, or none. (ok, lines): not ok when nothing was
-    promoted and the pair is not already champion."""
+    the judge's pin. Every build is promoted from that one record, or none, and the promotion waits for the box's
+    canary (:data:`PENDING_NAME`, :func:`confirm_shipped`). A pair that is champion on a shipped record is checked
+    against that record again, and put back when the release no longer matches it. (ok, lines): not ok when the
+    pair is not champion after the call."""
     import json
+
+    from tools.qualify import PROFILES
 
     pairs = PROFILE_PAIRS.get(gpu)
     if pairs is None:
         return False, [f"no deployed pair for GPU profile {gpu!r}"]
+    if gpu not in PROFILES:
+        return False, [
+            f"profile {gpu} has no qualification profile (tools/qualify.py), so no record can be shipped for it: "
+            "the pair stays candidate until it is qualified on this box (RUNBOOK §11)"
+        ]
     builds = [p[0] for p in pairs]
+    known = _committed()[1]
     pins = (load_override(out).get("builds") or {}) if out.exists() else {}
     missing = [b for b in builds if not (pins.get(b) or {}).get("sha256")]
     if missing:
         return False, [f"{b}: not pinned in {out}: pin the pair first (--install)" for b in missing]
-    if all(
-        pins[b].get("status") == "champion"
-        and (pins[b].get("qualification") or {}).get("weights_sha256") == pins[b]["sha256"]
-        for b in builds
-    ):
+    for b in builds:  # a judge whose registry row names a template is never promoted without it in the pin
+        if template_of(known.get(b) or {}) and not ((pins[b].get("weights") or {}).get("chat_template") or {}):
+            return False, [f"{b}: pinned without the chat template its registry row names: run --install first"]
+    lock = json.loads(images_lock.read_text(encoding="utf-8")) if images_lock.is_file() else {}
+    digest = str(((lock.get("third_party") or {}).get("vllm") or {}).get("digest") or "")
+    folder = records / gpu
+    lines: list[str] = []
+    if all(_qualified(pins[b]) for b in builds):
+        # champion already. On a shipped record: the release may have changed since (an update): check it again
+        shipped = {str((pins[b].get("qualification") or {}).get("record") or "") for b in builds}
+        paths = [folder / name for name in shipped if name and (folder / name).is_file()]
+        if len(shipped) == 1 and paths:
+            try:
+                why = _shipped_mismatch(json.loads(paths[0].read_text(encoding="utf-8")), gpu, builds, pins, digest)
+            except (OSError, ValueError) as exc:
+                why = f"not a readable qualification record ({exc})"
+            if why:
+                rid = str(pins[builds[0]]["qualification"].get("record_id"))
+                return False, [f"{paths[0].name}: {why}", *demote_pair(gpu, out, record_id=rid)]
+        if _pending(out):
+            return True, [f"{b}: champion on a shipped record; the promotion waits for the canary" for b in builds]
         return True, [f"{b}: already champion on record {pins[b]['qualification'].get('record_id')}" for b in builds]
-    files = sorted((records / gpu).glob("*.json")) if (records / gpu).is_dir() else []
+    files = sorted(folder.glob("*.json")) if folder.is_dir() else []
     if not files:
         return False, [
-            f"no shipped qualification record for profile {gpu} in {records / gpu}: the pair stays candidate and "
+            f"no shipped qualification record for profile {gpu} in {folder}: the pair stays candidate and "
             "routes nothing in PRODUCTION (the vendor's record for these weights rides in the release under "
             "deploy/qualification/; or qualify on this box: RUNBOOK §11)"
         ]
-    lock = json.loads(images_lock.read_text(encoding="utf-8")) if images_lock.is_file() else {}
-    digest = str(((lock.get("third_party") or {}).get("vllm") or {}).get("digest") or "")
-    lines: list[str] = []
     for path in files:
         try:
             rec = json.loads(path.read_text(encoding="utf-8"))
@@ -676,16 +724,25 @@ def promote_shipped(
             lines.append(f"{path.name}: {why}")
             continue
         before = out.read_text(encoding="utf-8")
+        pending = out.parent / PENDING_NAME
         try:
+            # written first: a promotion that is interrupted is found waiting for its canary, never "already"
+            pending.write_text(json.dumps({"gpu": gpu, "record_id": rec["record_id"], "record": path.name}) + "\n",
+                               encoding="utf-8")  # fmt: skip
             for build in builds:
-                promote(build, path, out, now=now)
-        except PinError as exc:  # both or neither
+                if not _qualified(pins[build]):
+                    promote(build, path, out, now=now)
+        except Exception as exc:  # both or neither, whatever went wrong
             out.write_text(before, encoding="utf-8")
+            pending.unlink(missing_ok=True)
             lines.append(f"{path.name}: {exc}")
             continue
         detail = rec["steps"]["serving_record"]["detail"]
         return True, [
-            *(f"{b}: champion on shipped record {rec['record_id']} ({path.name})" for b in builds),
+            *(
+                f"{b}: champion on shipped record {rec['record_id']} ({path.name}); waits for the canary"
+                for b in builds
+            ),
             f"the record was taken on {detail.get('gpu') or rec.get('driver')} with driver "
             f"{detail.get('driver') or rec.get('driver')}: the canary on this box decides whether this card answers "
             "as that one did; on another driver or card edition, take a serving capture",
@@ -693,16 +750,31 @@ def promote_shipped(
     return False, lines
 
 
-def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE) -> list[str]:
-    """Put the profile's promoted builds back to ``candidate`` and drop their qualification reference (D-569: the
-    canary on the box failed after a shipped promotion). The weights' pins stay. One line per build put back."""
+def confirm_shipped(gpu: str, out: Path = DEFAULT_OVERRIDE) -> bool:
+    """The box's canary passed after a shipped promotion: it no longer waits. False when nothing waited."""
+    pending = out.parent / PENDING_NAME
+    if not pending.is_file() or _pending(out).get("gpu") not in (gpu, None):
+        return False
+    pending.unlink()
+    return True
+
+
+def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE, *, record_id: str | None = None) -> list[str]:
+    """Put back to ``candidate`` the builds of the profile that the shipped record promoted (``record_id``; default:
+    the promotion that waits for its canary), and drop their qualification reference (D-569). A build that is
+    champion on another record (qualified on this box) is not touched. With neither (a demotion by hand, nothing
+    waiting) every champion of the pair is put back. The weights' pins stay. One line per build
+    put back; the waiting mark is removed."""
     from registry.registry import Registry, apply_override
 
     doc = load_override(out)
+    rid = record_id or _pending(out).get("record_id")  # none: a demotion by hand of the whole pair
     lines = []
     for build, *_ in PROFILE_PAIRS.get(gpu) or []:
         entry = doc["builds"].get(build)
         if not entry or entry.get("status") != "champion":
+            continue
+        if rid and (entry.get("qualification") or {}).get("record_id") != rid:
             continue
         entry["status"] = "candidate"
         entry.pop("qualification", None)
@@ -710,6 +782,7 @@ def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE) -> list[str]:
     if lines:
         Registry(apply_override(_committed()[0], doc))  # validates the merged registry; raises before writing
         _write_override(out, doc)
+    (out.parent / PENDING_NAME).unlink(missing_ok=True)
     return lines
 
 
@@ -734,12 +807,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--promote-shipped",
         metavar="GPU",
-        help="promote the profile's pinned pair from a shipped record (D-569); exit 0 promoted, 3 no record "
-        "matches, 4 the pair was champion already",
+        help="promote the profile's pinned pair from a shipped record (D-569); exit 0 promoted and waiting for the "
+        "canary, 3 no record matches, 4 the pair was champion already",
     )
     ap.add_argument("--records", type=Path, default=SHIPPED_RECORDS, help="--promote-shipped: the records' folder")
     ap.add_argument("--images-lock", type=Path, default=IMAGES_LOCK, help="--promote-shipped: deploy/images.lock")
     ap.add_argument("--demote-pair", metavar="GPU", help="put the profile's promoted pair back to candidate (D-569)")
+    ap.add_argument("--confirm-shipped", metavar="GPU", help="the canary passed after --promote-shipped (D-569)")
     ap.add_argument("--revision", default=None, help="upstream revision (commit or tag) of the weights")
     ap.add_argument(
         "--chat-template",
@@ -779,8 +853,10 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print("\n".join(lines))
         if good and all("already champion" in ln for ln in lines):
-            return 4  # nothing was promoted now: the install leaves a pair that was champion before alone
+            return 4  # champion before, and nothing waits for a canary: the install leaves the pair alone
         return 0 if good else 3
+    if args.confirm_shipped:
+        return 0 if confirm_shipped(args.confirm_shipped, args.out) else 1
     if args.demote_pair:
         try:
             print("\n".join(demote_pair(args.demote_pair, args.out)))

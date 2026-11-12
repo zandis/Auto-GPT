@@ -535,31 +535,47 @@ fi
 FAILS=()   # T-632: a FAIL here does not stop the install half-way; the install ends with exit 1 and the list
 # HW-003 (D-569): the shipped qualification record. The pair was pinned as candidate, and PRODUCTION routes a
 # champion only. When a record in deploy/qualification/<profile>/ qualified exactly these weights, this model
-# server image and this chat template, the pair is promoted; the promotion is kept only when the box's own canary
-# passes through the gateway (the self-test the orchestrator runs at start and before each night).
+# server image and this chat template, the pair is promoted; the promotion is kept only when the canary passes on
+# this box through the gateway. Until then it waits (deploy/site/shipped-promotion.pending.json): an install that
+# is interrupted here runs the canary the next time, and a failed canary puts the pair back to candidate.
 if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   say "model pair: the shipped qualification record (tools/pin_model.py --promote-shipped)"
+  # on a box installed from a bundle these two are links into ../current (tools/host_tree.py): resolved here,
+  # because a link out of the mounted folder dangles inside the container
+  QUAL_DIR="$(readlink -f deploy/qualification 2>/dev/null || true)"; [ -d "$QUAL_DIR" ] || QUAL_DIR="$ROOT/deploy/site"
+  LOCK_FILE="$(readlink -f deploy/images.lock 2>/dev/null || true)"
+  pin_tool() {
+    docker run --rm -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
+      python -m tools.pin_model "$@" --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /'
+    return "${PIPESTATUS[0]}"
+  }
   set +e
-  docker run --rm -v "$ROOT/deploy:/d" "$IMAGE_PY" \
-    python -m tools.pin_model --promote-shipped "$GPU" --records /d/qualification --images-lock /d/images.lock --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /'
-  rc="${PIPESTATUS[0]}"
-  set -e
+  pin_tool --promote-shipped "$GPU" --records /q --images-lock /images.lock
+  rc=$?
   if [ "$rc" = 0 ]; then
-    "${COMPOSE[@]}" restart gateway >/dev/null
-    say "model pair: the canary on this box (trialbox selftest)"
-    set +e
-    python3 -m tools.trialbox selftest 2>&1 | sed 's/^/    /'
-    rc="${PIPESTATUS[0]}"
-    set -e
-    if [ "$rc" != 0 ]; then
-      docker run --rm -v "$ROOT/deploy:/d" "$IMAGE_PY" \
-        python -m tools.pin_model --demote-pair "$GPU" --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /' || true
-      "${COMPOSE[@]}" restart gateway >/dev/null || true
-      FAILS+=("the model pair was promoted on its shipped record but the canary on this box failed (above): it is back to candidate and routes nothing; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
+    canary=1  # anything that keeps the canary from running counts as a canary that did not pass
+    if "${COMPOSE[@]}" restart gateway >/dev/null 2>&1 && "${COMPOSE[@]}" up -d --wait gateway >/dev/null 2>&1; then
+      say "model pair: the canary on this box (trialbox selftest)"
+      if command -v python3 >/dev/null; then
+        python3 -m tools.trialbox selftest 2>&1 | sed 's/^/    /'
+        canary="${PIPESTATUS[0]}"
+      fi
     fi
-  elif [ "$rc" != 4 ]; then  # 4: the pair was champion before this install (qualified here); left as it is
+    if [ "$canary" = 0 ]; then
+      pin_tool --confirm-shipped "$GPU"
+      # the orchestrator ran its start canary while the pair was candidate: started again, its own canary gate
+      # opens on the promoted pair (until then note answers send a patient to review and never exclude)
+      "${COMPOSE[@]}" restart orchestrator >/dev/null 2>&1 \
+        || FAILS+=("the orchestrator did not restart after the model pair was promoted: docker compose --project-directory deploy restart orchestrator")
+    elif pin_tool --demote-pair "$GPU" && "${COMPOSE[@]}" restart gateway >/dev/null 2>&1; then
+      FAILS+=("the model pair was promoted on its shipped record but the canary on this box did not pass (above): it is back to candidate and routes nothing; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
+    else
+      FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
+    fi
+  elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
     FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
   fi
+  set -e
 fi
 # T-632 (OPS-014): every overlay renders; an error is shown, never hidden
 if SHEET_OUT="$(docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
