@@ -60,13 +60,16 @@ never called by the worker. After an opt-out and a tick the patient stayed in at
    delete. The alternative, a lake endpoint the orchestrator calls, would add a route, a token check and an HTTP
    failure mode to a tick that must not depend on the lake service being up; the orchestrator already holds OMOP's
    notes, so `vec`'s masked chunks are no new class of data for it. A store that does not exist on a box (no pgvector,
-   no twin yet) is not created by the worker: its clear reports `skipped` and its verify finds nothing. The lake's
-   nightly indexer (T-203b) still cannot read `optout`; it may index an opted-out patient's notes again, and the next
-   tick deletes them (within `TB_OPTOUT_WORKER_MINUTES`). Skipping at index time is T-203b's.
+   no twin yet) is not created by the worker: its clear reports `skipped` and its verify finds nothing. The vector
+   indexer of T-203b (`vec.index.index_snapshot`, no production caller yet on master) skips the patients its caller
+   passes in `exclude`; the lake role cannot read `optout`, so whatever it indexes of an opted-out patient is deleted
+   by the next tick (within `TB_OPTOUT_WORKER_MINUTES`) and the verify proves it.
 5. **The owed list can only shrink.** `erasure.owed()` is the list of `erase` entries not fully met; the seed test
    asserts it equals a known set, so a card that adds a clear must remove its line, and a card that adds a store with
    patient data and no clear must add one. The list is rendered in `docs/validation/erasure-registry.md`
-   (`python -m tb_common.erasure --write`; a test fails when the file and the registry differ).
+   (`python -m tb_common.erasure --write`; a test fails when the file and the registry differ). Merging master
+   brought `team.monitor_visits` (a monitoring visit's record) in: the enumerating test failed until it had its line
+   (`keep`, OD-8), which is the rule working.
 6. **What an opt-out removes today** is written once, in `docs/security/05-data-protection.md`, from the registry: the
    candidate pool, open candidates (withdrawn), OMOP's live rows, the vector store and the patient twin. Everything
    else on the owed list stays until T-206b builds its clear: the lake's snapshots, NDJSON nights and Parquet,

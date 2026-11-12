@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-214 entries: 85 erase, 24 keep, 105 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+215 entries: 85 erase, 25 keep, 105 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -109,6 +109,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `sae.sae_case` | OD-8 | the SAE register of a trial subject |
 | `sae.sae_report` | OD-8 | the SAE register of a trial subject |
 | `sae.sae_trail` | OD-8 | the SAE register of a trial subject |
+| `team.monitor_visits` | OD-8 | a monitoring visit's record: the subjects reviewed are trial subjects (an essential record) |
 
 ## 4. No patient data
 

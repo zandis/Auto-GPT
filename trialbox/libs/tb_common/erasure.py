@@ -234,6 +234,9 @@ TABLES: dict[str, Entry] = {
         _CONFIG,
     ),
     "site.notify_log": _none("a notice sent: kind, user, day, subject"),
+    "team.monitor_visits": _keep(
+        "OD-8", "a monitoring visit's record: the subjects reviewed are trial subjects (an essential record)"
+    ),
     "team.approach_overrides": _owed("an override of an approach warning, by pseudonym"),
     "team.candidate_views": _owed("a cross-department view of a candidate, by pseudonym"),
     "team.referrals": _owed("a referral of a patient, by pseudonym"),
