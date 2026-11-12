@@ -35,8 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common import dates
-from tb_common.crypto import load_key, pid_for_mrn, sha256_bytes
-from tb_common.kek import key_present
+from tb_common.crypto import sha256_bytes
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.routing import is_internal
@@ -44,6 +43,7 @@ from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_contracts import CriterionIR, CriterionVerdict, Evidence, ParseRequest, PatientEvaluation
 
+from orchestrator import identifiers
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.i18n import detect_lang
@@ -181,10 +181,9 @@ def resolve_subject(ctx: Ctx, mrn: str | None) -> Subject:
     rx = ctx.cfg.settings.mrn_regex
     if rx and not re.match(rx, mrn):
         raise StepFailed("received", f"mrn={mrn!r} does not look like a chart number of this site")
-    key_file = Path(ctx.cfg.env.secrets_dir) / "site_hmac.key"
-    if not key_present(key_file):  # plain or wrapped under the KEK (T-210b)
+    if not identifiers.has_site_key(ctx.cfg.env.secrets_dir):  # plain or wrapped under the KEK (T-210b)
         return Subject(note="the box has no site key yet (no ingest): structured criteria answered from the chart")
-    pid = pid_for_mrn(load_key(key_file), mrn)
+    pid = identifiers.pid_of(ctx.cfg.env.secrets_dir, mrn)
     snapshot = ctx.services.lake.snapshot()
     if not snapshot:
         return Subject(pid=pid, note="the lake has no snapshot yet: structured criteria answered from the chart")

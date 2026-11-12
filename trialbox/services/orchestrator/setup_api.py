@@ -28,7 +28,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sitesetup import help as site_help
 from sitesetup import publish, readiness
@@ -131,9 +131,12 @@ def router(
     records: Callable[[str], dict[str, Any]],
     approved: Callable[[str], Any],
     real_data: Callable[[], bool],
+    door: Callable[[Request], Any],
 ) -> APIRouter:
     """``study_info(rs)``: ``{id, exists, approved, waiting, approval_link}``; ``records(rs)``: ``{forms, redcap}``;
-    ``approved(rs)``: the approved ``Ruleset`` or None; ``real_data()``: whether the box holds real patient data."""
+    ``approved(rs)``: the approved ``Ruleset`` or None; ``real_data()``: whether the box holds real patient data;
+    ``door(request)``: who may turn a chart number into a pseudonym on this call (``orchestrator.identifiers.admit``:
+    it refuses, or returns the record to write)."""
     r = APIRouter()
 
     def ws_of(ws: str) -> str:
@@ -321,13 +324,17 @@ def router(
         return dict(call(lambda: svc.resolve(w, body.pid, body.what, body.keep, body.by)))
 
     @r.post("/setup/pseudonym")
-    def post_pseudonym(body: PseudonymBody) -> dict[str, Any]:
+    def post_pseudonym(body: PseudonymBody, request: Request) -> dict[str, Any]:
         """D-147: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
-        stores only the pseudonym and the number is never kept or logged."""
+        stores only the pseudonym and the number is never kept or logged. T-719 (D-487): for the verified person of
+        the call only, capped, and on the record with the pseudonym."""
+        admitted = door(request)
         chart = body.chart_no.strip()
         if not chart:
             raise HTTPException(status_code=400, detail={"code": "SETUP-CHART", "message": "give a chart number"})
-        return {"pid": call(lambda: get().pseudonym(chart))}
+        pid = str(call(lambda: get().pseudonym(chart)))
+        admitted.record(pid)
+        return {"pid": pid}
 
     @r.post("/setup/{ws}/publish")
     def post_publish(ws: str, body: ByBody) -> dict[str, Any]:

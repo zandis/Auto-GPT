@@ -11,10 +11,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from tb_common.kek import key_present
 from tb_common.ruleset import Ruleset
 from tb_contracts import NavRow, Precheck
 
+from orchestrator import identifiers
 from orchestrator.core import Ctx
 from orchestrator.reports import twpas_bundle
 from orchestrator.scenarios.facts import Facts
@@ -49,20 +49,7 @@ def enabled(ctx: Ctx, rs: Ruleset) -> bool:
 
 
 def _identity(ctx: Ctx, pid: str) -> dict[str, str]:
-    sec = Path(ctx.cfg.env.secrets_dir)
-    if not key_present(sec / "pid_map.key"):  # no map yet (plain or wrapped under the KEK, T-210b)
-        return {}
-    from adapter.pidmap import PidMap
-
-    pm = PidMap(sec / "pid_map.key", ctx.orch.db.url)  # the orchestrator's trial database
-    try:
-        out = dict(pm.identity(pid) or {})
-        mrn = pm.resolve(pid)
-        if mrn:
-            out["mrn"] = mrn
-        return out
-    finally:
-        pm.close()
+    return identifiers.identity_of(ctx.cfg.env.secrets_dir, pid, ctx.orch.db.url)  # the orchestrator's database
 
 
 def _latest(ctx: Ctx, pid: str, code: str, run_date: date, value: str = "value_num") -> tuple[Any, str | None]:

@@ -23,7 +23,6 @@ from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
 from tb_common.authz import permit
 from tb_common.config import get_config, tb_env
-from tb_common.crypto import load_key
 from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
@@ -42,6 +41,7 @@ from tb_common.service_auth import (
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator import actor as route_actor
+from orchestrator import identifiers
 from orchestrator.callers import Gate
 from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -635,7 +635,7 @@ def data_service_of(o: Orchestrator) -> Any:
     studies = study_service_of(o)
 
     def site_key() -> bytes:
-        return load_key(Path(o.cfg.env.secrets_dir) / "site_hmac.key")  # plain or under the KEK (T-210b)
+        return identifiers.site_key(o.cfg.env.secrets_dir)  # plain or under the KEK (T-210b)
 
     return DataService(core, o.audit, lambda: _now(o), studies.client, site_key, registry_of(o))
 
@@ -659,7 +659,7 @@ def setup_of(o: Orchestrator) -> Any:
     if key not in _setups:
 
         def site_key() -> bytes:
-            return load_key(Path(o.cfg.env.secrets_dir) / "site_hmac.key")  # plain or under the KEK (T-210b)
+            return identifiers.site_key(o.cfg.env.secrets_dir)  # plain or under the KEK (T-210b)
 
         svc = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
                         o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
@@ -724,6 +724,7 @@ app.include_router(
         lambda rid: records_info(orch(), rid),
         lambda rid: approved_of(orch(), rid),
         lambda: real_data(orch()),
+        lambda request: identifiers.admit(request, None, orch().db, orch().audit, _now(orch())),
     ),
     dependencies=REPORT,
 )
@@ -792,12 +793,17 @@ def registry_events(ruleset: str, pid: str | None = None) -> list[RegistryEvent]
 
 
 @app.post("/registry/{ruleset}", dependencies=REPORT)
-def registry_update(ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
+def registry_update(ruleset: str, upd: RegistryUpdate, request: Request) -> RegistryEntry:
     o = orch()
+    # T-719 (D-487): a row by chart number answers with the pseudonym, so it needs the verified person of the call
+    door = identifiers.admit(request, ruleset.strip().upper(), o.db, o.audit, _now(o)) if upd.mrn else None
     try:
-        return registry_of(o).update(ruleset, upd, _now(o))
+        entry = registry_of(o).update(ruleset, upd, _now(o))
     except RegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if door is not None:
+        door.record(entry.pid)
+    return entry
 
 
 @app.post("/registry/{ruleset}/promote", dependencies=REPORT)

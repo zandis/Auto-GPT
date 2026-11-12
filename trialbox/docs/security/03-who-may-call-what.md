@@ -47,6 +47,14 @@
   random secret mounted into the console alone; the orchestrator verifies with `secrets/services/actor/keys`. The
   key is not derived from the console's token (which every service the console calls receives): a service with
   per-service tokens and no signing key signs nobody. Tests: `tests/unit/test_actor_key_apart.py`.
+- **A pseudonym for a chart number** (D-487, T-719; review 2026-11-12 trust F3). `POST /setup/pseudonym` and
+  `POST /registry/{ruleset}` with `mrn` answer with the pseudonym, so they ask `orchestrator/identifiers.py`
+  (`admit`) first: the verified v3 claim of the call for the row `optout.keep` or `request.prepare` (and the
+  route's study), a cap per signed name and hour (`TB_TO_PID_MAX_PER_HOUR`; unset, the value of
+  `TB_REVEAL_MAX_PER_HOUR`), and one `screen.to_pid` event with the pseudonym. A service token alone is refused
+  (403, `actor.refused`). That module is the only one of the orchestrator and the console that imports the hash
+  or the pid map or names their key files. Tests: `tests/console/test_identifiers_box.py`,
+  `tests/unit/test_identifiers_door.py`.
 - **The administrator's retry of a failed nightly job** (D-474, T-746). `POST /jobs/{job_id}/retry` (group
   `job_retry_scheduled`, the console only; the mail gateway and the operator token are refused by the route gate)
   runs a failed job of the box's own scheduler again (every type of `scheduler.plan`). The orchestrator checks the

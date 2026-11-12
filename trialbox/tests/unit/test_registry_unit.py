@@ -7,6 +7,7 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from adapter.pidmap import PidMap
@@ -143,11 +144,22 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
     monkeypatch.setattr(oapp, "orch", lambda: fake)
     c = TestClient(oapp.app)
-    r = c.post("/registry/GZQO", json={"mrn": "10000001", "status": "candidate", "by": "crc1@hospa.test"})
+
+    def by_chart(body: dict[str, str]) -> Any:
+        """T-719 (D-487): a row by chart number is a person's lookup, so it carries that person's assertion."""
+        from tests.actor3 import signed
+
+        return c.post(
+            "/registry/GZQO", json=body, headers=signed("request.prepare", "GZQO", "POST", "/registry/GZQO", body)
+        )
+
+    first = {"mrn": "10000001", "status": "candidate", "by": "crc1@hospa.test"}
+    assert c.post("/registry/GZQO", json=first).status_code == 403  # a chart number and nobody
+    r = by_chart(first)
     assert (
         r.status_code == 200 and r.json()["status"] == "candidate" and r.json()["pid"] == pid_for_mrn(KEY, "10000001")
     )
-    assert c.post("/registry/GZQO", json={"mrn": "x", "status": "candidate", "by": "a@b"}).status_code == 400
+    assert by_chart({"mrn": "x", "status": "candidate", "by": "a@b"}).status_code == 400
     assert c.post("/registry/GZQO", json={"status": "candidate", "by": "a@b"}).status_code == 400
     assert c.post("/registry/GZQO", json={"mrn": "10000001", "status": "nope", "by": "a@b"}).status_code == 422
     assert c.get("/registry").json()[0]["counts"] == {"candidate": 1}

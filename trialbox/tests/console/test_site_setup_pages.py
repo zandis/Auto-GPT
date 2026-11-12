@@ -46,6 +46,12 @@ NOW = datetime(2026, 11, 2, 0, 30, tzinfo=UTC)
 TODAY = date(2026, 11, 2)
 
 
+def _no_door(request: Any) -> Any:
+    """T-719 (D-487): no page of these tests turns a chart number into a pseudonym; one that did would have to
+    bring the real door (``orchestrator.identifiers.admit``), as ``tests/console/test_identifiers_box.py`` does."""
+    raise AssertionError("POST /setup/pseudonym is not part of this box")
+
+
 @pytest.fixture
 def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa: F811
     llm = LlmClient("http://stub/v1", "stub")
@@ -78,6 +84,7 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
             lambda rid: {"forms": state["forms"], "redcap": False},
             lambda rid: rs if state["approved"] else None,
             lambda: bool(state["real"]),
+            _no_door,
         )
     )
     oc = SignedClient(api)

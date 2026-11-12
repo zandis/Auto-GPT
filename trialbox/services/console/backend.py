@@ -27,7 +27,16 @@ from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
 from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
 from tb_common.service_auth import actor_header
-from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
+from tb_contracts import (
+    Job,
+    JobCreate,
+    JobFile,
+    RegistryEntry,
+    RegistryPromote,
+    RegistrySummary,
+    RegistryUpdate,
+    dump,
+)
 
 from console import ruleset_labels
 
@@ -135,7 +144,7 @@ class Backend(Protocol):
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str: ...
     def registry_summaries(self) -> list[RegistrySummary]: ...
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
-    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer | None = None) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
     def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
     def reveal(self, job_id: str, pid: str, sign: Signer, purpose: str = "", reason: str = "") -> str | None: ...
@@ -441,15 +450,16 @@ class HttpBackend:
         return {str(p) for p in (data.get("deceased") or [])} if isinstance(data, dict) else set()
 
     # ------------------------------------------------------------------ candidate registry (D-92)
-    def _registry_call(self, method: str, path: str, body: Any = None) -> Any:
+    def _registry_call(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> Any:
         try:
             if method == "GET":
                 return self.orch.get_json(path)
-            return self.orch.post_raw(path, body).json()
+            return self.orch.post_raw(path, body, headers).json()
         except ServiceError as exc:
-            if exc.status in (400, 404, 422):
+            if exc.status in (400, 403, 404, 422, 429):
                 try:
-                    detail = str(json.loads(exc.detail).get("detail"))
+                    detail = json.loads(exc.detail).get("detail")
+                    detail = str(detail.get("message") if isinstance(detail, dict) else detail)
                 except (ValueError, AttributeError):
                     detail = exc.detail
                 raise Refused(detail) from exc
@@ -461,8 +471,14 @@ class HttpBackend:
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]:
         return [RegistryEntry.model_validate(r) for r in self._registry_call("GET", f"/registry/{ruleset}")]
 
-    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
-        return RegistryEntry.model_validate(self._registry_call("POST", f"/registry/{ruleset}", upd))
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer | None = None) -> RegistryEntry:
+        """One registry row. T-719 (D-487): a row given by chart number (``upd.mrn``) is a lookup of a pseudonym, so
+        it carries the v3 assertion ``sign`` mints for exactly this request; the orchestrator refuses it without
+        one (403) and caps it per person (429), and both are a refusal here."""
+        path, body = f"/registry/{ruleset}", dump(upd)
+        return RegistryEntry.model_validate(
+            self._registry_call("POST", path, body, sign("POST", path, body) if sign else None)
+        )
 
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])

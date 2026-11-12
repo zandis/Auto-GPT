@@ -17,12 +17,12 @@ from zoneinfo import ZoneInfo
 from matching import coded_values
 from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
-from tb_common.kek import key_present
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
 from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
+from orchestrator import identifiers
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_stamp
 from orchestrator.i18n import population_line, t
@@ -397,16 +397,7 @@ def pid_names(ctx: Ctx, pids: list[str]) -> dict[str, str]:
 def resolve_mrns(sec: Path, pids: list[str], url: str | None = None) -> dict[str, str]:
     """pid -> chart number from the pid map of the key under ``sec``; empty when the box has no map (no key: stub
     installs, no ingest yet). ``url``: the trial database (the orchestrator's; ``TB_DB_URL`` when None)."""
-    key = sec / "pid_map.key"
-    if not key_present(key):  # plain or wrapped under the KEK (T-210b)
-        return {}
-    from adapter.pidmap import PidMap
-
-    pm = PidMap(key, url)
-    try:
-        return pm.resolve_many(pids)
-    finally:
-        pm.close()
+    return identifiers.charts_of(sec, pids, url)
 
 
 def practitioner_names(ctx: Ctx) -> dict[str, str]:
