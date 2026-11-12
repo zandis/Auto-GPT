@@ -88,6 +88,7 @@ EOP
   fi
   # ---------------------------------------------------------------------------------------------- 2. plan
   say "plan from the hardware"
+  rm -f "$BOX/applied"  # D-576: a new install: the answers are provisional again and the wizard is due
   ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --provisional --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)"
   read -r -a INSTALL_ARGS <<< "${ARGS_LINE#install-args: }"
   DEFER=0; [ "$(json_get "$BOX/hardware.json" tpm)" = True ] || DEFER=1
@@ -118,6 +119,12 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 5. first run
 [ -f "$BOX/answers.json" ] && [ -f "$BOX/hardware.json" ] || die "this box was not installed by box-install.sh"
+# BOX-APPLIED (D-576): the owner's answers were applied by an earlier start that did not reach its last line (the
+# window closed, the session dropped). The console's set-up is finished: a new code would never be accepted and the
+# wait would never end. Nothing is asked again; what follows the apply is done again.
+if [ -f "$BOX/applied" ]; then
+  say "the owner's answers were applied on $(cat "$BOX/applied"): finishing the set-up (no new code)"
+else
 cp "$BOX/hardware.json" "$FR/hardware.json" && chmod 600 "$FR/hardware.json" && chown 10001:10001 "$FR/hardware.json" 2>/dev/null || true
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"
 show_code() {
@@ -156,12 +163,14 @@ TZ_NEW="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tz"])
 if [ -n "${TB_BOX_PY:-}" ]; then APPLY=(--firstrun "$FR" --hardware "$BOX/hardware.json" --deploy "$ROOT/deploy")
 else APPLY=(--firstrun /fr --hardware /d/site/box/hardware.json --deploy /d); fi  # the image's mounts (box_py)
 box_py apply "${APPLY[@]}" || die "the owner's answers could not be applied (above)"
-HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
+date -u +%FT%TZ > "$BOX/applied"  # D-576: from here a new start does not ask again
 if [ "$WSL2" = 1 ]; then
   echo "    the host's time zone is not set here: Windows keeps the clock and the time zone (the site's zone $TZ_NEW is in the settings)"
 elif [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ] && command -v timedatectl >/dev/null; then
   timedatectl set-timezone "$TZ_NEW" || echo "box-install: warning: the host's time zone is not $TZ_NEW" >&2
 fi
+fi  # the answers were not applied before
+HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
 chown "$(id -u):10001" deploy/settings.yaml 2>/dev/null && chmod 640 deploy/settings.yaml
 # shellcheck disable=SC2086 # a command line on purpose (tests)
 ${TB_BOX_COMPOSE:-docker compose --project-directory deploy} up -d --wait || die "the stack did not restart on the new settings"
