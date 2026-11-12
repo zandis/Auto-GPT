@@ -417,9 +417,13 @@ OUTPUT_READERS = {
     ("approval.py", "label"): "the criteria review book",
     ("approval.py", "approve"): "the criteria review book",
     ("home.py", "load"): "the candidate-list JSON (pseudonyms)",
+    ("notmatched_pages.py", "run_doc"): "the not-matched list JSON of a run (pseudonyms; T-310a, D-383)",
     ("screening_log.py", "criteria_choices"): "the candidate-list JSON (pseudonyms)",
     ("screening_log.py", "load"): "the candidate-list JSON (pseudonyms)",
 }
+#: Not a sight of a chart number, so not in the walk: a chart number a person *types* (the opt-out door's
+#: ``change_optout`` and the pasted-chart lookup, ``team.chart_lookup``) is turned into a pseudonym on the box, capped
+#: and audited as ``console.chart_lookup`` (D-273 PV-6), and neither the number nor the pseudonym is shown back.
 #: what hands a chart number out of the back end or the pid map: only ``console.reveal`` (and the client) may call it
 ID_SOURCES = {"reveal", "registry_export", "resolve_mrns", "pid_names", "mrns", "load_pid_map"}
 
@@ -497,10 +501,11 @@ def test_the_orchestrators_cap_survives_a_restart_and_records_the_purpose(monkey
         ev["kind"] == "screen.reveal" and ev["detail"]["purpose"] == "contact" and ev["detail"]["reason"] == "consent"
     )
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())  # a restart: a new limiter, the same store
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=h).status_code == 429
+    # D-447: an assertion is accepted once, so each call signs again (``resign``), as the console does
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=sa.resign(h)).status_code == 429
     assert events[-1]["detail"]["reason"] == "rate limit"
     bad = {"pid": "PID-00000001", "purpose": "Not A Purpose"}
-    assert client.post("/jobs/J1/reveal", json=bad, headers=h).status_code == 422
+    assert client.post("/jobs/J1/reveal", json=bad, headers=sa.resign(h)).status_code == 422
 
 
 def test_a_token_holder_signing_new_names_meets_the_services_total_cap(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -547,7 +552,7 @@ def test_the_whole_registry_export_is_never_given_to_a_break_glass_grant(monkeyp
     assert r.status_code == 403 and events[-1]["kind"] == "registry.export_refused"
     assert events[-1]["detail"]["reason"].startswith("break-glass")
     h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:crc1", role="coordinator", scope="*")}
-    assert client.get("/registry/GZQO/export.xlsx", headers=h).status_code == 200
+    assert client.get("/registry/GZQO/export.xlsx", headers=sa.resign(h)).status_code == 200
 
 
 # ---------------------------------------------------------------------------------------------- the record itself

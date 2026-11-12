@@ -41,7 +41,11 @@
 5. **Mailed workbooks.** A list the job mails to its named recipients is the job's delivery (audited by the mail and
    the flow ledger) and is not counted against a person's cap. Downloading the same workbook in the browser is a
    reveal: one use and one record with the number of patients. A workbook that names a patient who has opted out
-   since it was made is refused with the reason ("run the list again"), never served (D-273 PV-4).
+   since it was made is refused with the reason ("run the list again"), never served (D-273 PV-4); the register is
+   read as it stands at the download, the same read a run makes at publish (`tb_common.optout.opted_out`, D-441).
+   A chart number a person *types* (the opt-out door, the pasted-chart lookup) is an entry, not a sight: it is turned
+   into a pseudonym on the box, capped and audited as `console.chart_lookup` (D-273 PV-6), and nothing is shown back,
+   so it is outside this cap and outside the walk of decision 1.
 6. **One record shape, written truthfully.** The back end is asked first; the record is written after it answers and
    before anything is shown (if it cannot be written, nothing is shown). A number given out is exactly one
    `console.reveal_patient` with `pid`, `role`, `affiliation`, `study`, `purpose`, `reason`, `via`, `basis` (`role`,

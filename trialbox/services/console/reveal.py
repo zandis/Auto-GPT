@@ -318,7 +318,9 @@ class Reveal:
                               job_id=job.job_id)  # fmt: skip
         data: bytes = self.h.bk.get_object(out.minio_key)
         pids = workbook_pids(data)
-        if pids & self.h.gone():
+        from tb_common.optout import opted_out  # the register as it stands now, as a run reads it at publish (D-441)
+
+        if pids & (opted_out() | self.h.gone()):
             raise self.refuse(sess, path, rid, "", purpose, "", via, "opted out", 409, "request.refused",
                               job_id=job.job_id,
                               values={"reason": "a patient on this list has opted out since it was made; run the "
