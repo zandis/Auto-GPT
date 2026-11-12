@@ -351,3 +351,25 @@ def test_a_report_route_counts_a_claim_for_another_study_or_without_the_right(bo
     seen = [(e["detail"]["route"], e["detail"]["reason"]) for e in events if e["kind"] == "actor.unsigned"]
     assert len(seen) == len(set(seen))  # once per route and reason in a process
     assert all(set(e["detail"]) == {"route", "reason", "caller"} for e in events if e["kind"] == "actor.unsigned")
+
+
+def test_a_count_that_cannot_be_audited_does_not_refuse_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CI on the first push: a router of a `report` group used outside the box's app (a page test's own FastAPI)
+    has no audit log to write to. The stage lets the call through, so the count must not turn it into an error."""
+
+    def no_audit() -> Any:
+        raise PermissionError("no audit log here")
+
+    monkeypatch.setattr(ra, "_audit", no_audit)
+    monkeypatch.setattr(ra, "_logged", set())
+    app = FastAPI()
+
+    @app.post("/studies/{rs}/x", dependencies=[ra.report_actor])
+    def reported(rs: str, body: _Plain) -> dict[str, str]:
+        return {"ok": rs}
+
+    key = "POST /studies/{rs}/x"
+    before = ra.UNSIGNED[(key, "no v3 assertion")]
+    r = TestClient(app).post("/studies/GZQO/x", json={"to": "a"})
+    assert r.status_code == 200 and r.json() == {"ok": "GZQO"}
+    assert ra.UNSIGNED[(key, "no v3 assertion")] == before + 1

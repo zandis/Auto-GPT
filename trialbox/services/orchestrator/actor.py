@@ -153,8 +153,11 @@ def _count(request: Request, reason: str) -> None:
         caller = getattr(request.state, "tb_caller", None) or ""
         log.warning("actor.unsigned", extra={"route": key, "reason": reason, "caller": caller})
         if _audit is not None:
-            _audit().append("actor.unsigned", ruleset=_study(request),
-                            detail={"route": key, "reason": reason, "caller": caller})  # fmt: skip
+            try:  # the stage lets the call through: a count that cannot be written never refuses it
+                _audit().append("actor.unsigned", ruleset=_study(request),
+                                detail={"route": key, "reason": reason, "caller": caller})  # fmt: skip
+            except Exception:
+                log.warning("actor.unsigned: not written to the audit trail", exc_info=True)
 
 
 async def _report(request: Request) -> None:
