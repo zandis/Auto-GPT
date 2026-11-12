@@ -28,7 +28,17 @@ with its unit (`mg/dL`): no snapshot.
 3. **Nothing else is caught.** A `TypeError` or a `KeyError` in the mapper is a fault of the mapping, not of a
    row, and still ends the night loudly.
 
+4. **A fault of the mapping is not a row's.** The mapper parses a look-up row's `factor` per source row; with
+   point 1 a factor typed wrongly would reject every row of its code each night, under a key that blames the feed,
+   and never hold the night while that code is under the hold share. `adapter.pipeline.check_lookup_factors` reads
+   every factor of every look-up before the first row and ends the load with the look-up and its row named.
+5. **The first load (`adapter/backfill.py`) follows**: the same catch, the same check.
+
 ## Consequences
+
+- On a **delta** night a rejected row leaves the record of the night before in the snapshot (it is not replaced
+  and not removed), as for any rejected row since STD-025. Before this decision the night ended and nothing was
+  published. The row is counted in `completeness.json` and in the log every night until the feed is corrected.
 
 - One more key can appear under `rejected` in `completeness.json`, in the night's error, the audit and the log. It
   holds no feed value.

@@ -12,6 +12,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -567,6 +568,7 @@ def _run_ingest(
             check_delta(mapping, source_kind)
             at["step"] = "read"
         # T-106b (DATA-010): every resource carries its source row, mapping version and the night it was ingested
+        check_lookup_factors(mapping)  # D-527: a factor typed wrongly ends the night here, not row by row
         mapper = Mapper(mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz))
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
@@ -1242,6 +1244,21 @@ def reject_key(exc: BaseException) -> str:
     head = re.sub(r"[0-9]+(?:[.,:/-][0-9]+)*", "<n>", head).strip()
     said = f"{head} <value>".strip() if cut else head
     return f"{type(exc).__name__}: {said}" if said else type(exc).__name__
+
+
+def check_lookup_factors(mapping: Any) -> None:
+    """Every ``factor`` of every look-up row is a finite number (empty: 1), or the load ends before its first row
+    (D-527, review). The mapper parses the factor per row; with a row's ``ArithmeticError`` now a rejected row, a
+    factor typed wrongly would reject every row of its code each night under a key that blames the feed."""
+    for name, lookup in mapping.lookups.items():
+        for code, row in lookup.rows.items():
+            text = str(row.get("factor") or "1").strip()
+            try:
+                ok = Decimal(text).is_finite()
+            except ArithmeticError:
+                ok = False
+            if not ok:
+                raise ValueError(f"look-up {name}, row {code!r}: the factor {text!r} is not a number")
 
 
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
