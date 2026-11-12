@@ -65,7 +65,9 @@ Left as it is, with the reason:
 - **One row per artefact, no history.** Once a newer generation's build begins, a job pinned to the older one
   reads every stored score as unknown: safe (unknown never excludes), but a re-run of yesterday's job does not
   read what the job read (D-442). Keeping the finished generations of `derived` (whose store keeps its rows as of
-  a batch) needs a key of (artefact, generation) and a rule per artefact: put to the owner, a card of its own.
+  a batch) needs a key of (artefact, generation) and a rule per artefact. **The owner's ruling of 2026-11-12:**
+  keep them readable, as a follow-up card after this one (NEW-B-4, D-525: a ledger key of artefact and generation,
+  a small migration); this card stays fail-closed (unknown).
 - **A box updated to this card has no ledger rows**: on the first night stored scores read as unknown until that
   night's batch ends (the list header says so; the readiness item and the health line read `batch_run` and do
   not), and the first re-run of an older night is not refused.
