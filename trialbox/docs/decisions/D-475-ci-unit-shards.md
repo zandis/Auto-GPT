@@ -22,19 +22,18 @@ without a label, a new route without a permit row, a new table without an invent
    (`tools/test_shard.py`; the pytest side is `--shard`, registered in `tests/conftest.py`, applied after every
    other selection). Whole files stay together, so module- and session-scoped fixtures are built once per shard as
    before, and adding or removing a file moves no other file. Only a change of N moves files.
-2. **N = 8, from the measured durations.** The one-runner job spent 35 to 43 minutes in pytest in the runs of
+2. **N = 9, from the measured durations.** The one-runner job spent 35 to 43 minutes in pytest in the runs of
    2026-11-12 (up to 55 on a busy day) and under a minute in set-up (caches warm). Each shard pays the set-up
-   (about 30 s), the collection (about 30 s) and its workers' cluster starts again. The first two rounds on this pull
-   request ran N = 6 (estimated from the test counts: at most 1.36 times the mean per shard): the shards took 4 to
-   16 minutes, because the hash put `test_e2e_simple` (one test, 7.8 minutes) with `test_omop_core`,
-   `test_recall_cert` and `test_feas_demo` in one shard, and `test_rc_demo`, `test_nav_retro` and the two PoC walks
-   (2 to 2.5 minutes each) in another (`--durations=30`, printed by every shard). At N = 8 these heavy files fall in
-   more shards. The N = 8 rounds still took 16 minutes (and 23 on a slower round, when every shard was about 1.5
-   times slower) in the shard of `test_e2e_simple` (one test, 7 to 9 minutes) with `test_recall_ledger`,
-   `test_rc_demo` and `test_nav_retro` (2 to 3 minutes each). Starting those tests first in their shard was tried
-   and gave no gain, so the order is pytest's. The modelled largest shard (per-test durations of all eight shards'
-   `--durations=30`, the rest spread evenly) is about 10.5 minutes for any N from 7 to 9; more shards cost runners
-   for little. The shard times of the rounds are in the pull request body.
+   (about 30 s), the collection (about 30 s) and its workers' cluster starts again. This pull request ran N = 6
+   first (estimated from the test counts: at most 1.36 times the mean per shard), then N = 8; every shard prints its
+   30 slowest tests (`--durations=30`). One test, `test_e2e_simple`, takes 7 to 9 minutes; about ten files take 2 to
+   6 minutes each. At N = 6 and at N = 8 the hash put `test_e2e_simple` with three or four of those files in one
+   shard, and that shard took 16, 16, 23 and 25 minutes while the others took 4 to 17 (CPU-heavy tests slow each
+   other on a 4-core runner, and the runners were up to 1.5 times slower in the afternoon). Modelled from the
+   measured per-file durations, N = 9 leaves `test_e2e_simple` with one 2-minute file and puts no more than two
+   heavy files in any shard. Starting the long tests first in their shard was tried and gave no gain, so the order
+   is pytest's. More shards would queue for runners (the last rounds already waited up to 8 minutes for one).
+   The shard times of each round are in the pull request body.
 3. **No test drops out silently.** Each shard writes a record (`--shard-record`): pytest's own collection before the
    shard was taken (after `-m`) and the node ids the shard kept. `python -m tools.test_shard check` in the job `unit`
    fails unless all N shards are present, every shard collected the same suite, and every collected test was kept by
