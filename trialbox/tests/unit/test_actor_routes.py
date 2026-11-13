@@ -39,11 +39,12 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     rows = ra.walk(app)
     refuse = [r for r in rows if r[2] == "refuse"]
     report = [r for r in rows if r[2] == "report" and r[0] not in sa.SAFE_METHODS]
-    assert len(refuse) >= 13 and len(report) >= 30  # lifecycle and sponsor converted; the rest counted
+    assert len(refuse) >= 15 and len(report) == 30  # lifecycle, sponsor and the registry converted; the rest counted
     assert {r[3] for r in refuse} <= set(MATRIX) and all(r[4] == () for r in refuse)
     # the stage is the group's: every changing lifecycle and sponsor route, and no other, refuses
     groups = {CALLER_GATE.table.group_of(f"{m} {p}") for m, p, *_ in refuse}
-    assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal"}  # T-716: the chart number
+    # T-716: the chart number; T-715b (D-550): the registry
+    assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal", "registry"}
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
     assert all(r[2] or CALLER_GATE.table.group_of(f"{r[0]} {r[1]}") in (*ra.TABLE["v2"], *ra.TABLE["no_person"])
                for r in changing)  # fmt: skip
@@ -274,16 +275,17 @@ def test_every_refuse_route_refuses_an_unsigned_call_and_a_role_without_the_righ
     assert len(routes) >= 13
     for method, template, action in routes:
         path = template.replace("{rs}", "GZQO").replace("{record}", "GZQO-0001").replace("{event}", "ae1")
+        path = path.replace("{ruleset}", "GZQO")  # T-715b: the registry names its study so
         path = path.replace("{fmt}", "csv").replace("{job_id}", "J1")
         body = None if method == "GET" else {"x": 1}
         kw = {} if body is None else {"json": body}
         assert "no signed-in user" in _refused(client.request(method, path, **kw)), template
         wrong = signed(action, "GZQO", method, path, body, role="viewer")
         assert _refused(client.request(method, path, headers=wrong, **kw)) == "right", template
-        if "{rs}" in template:  # a job's route has no study in its path: its handler compares it (T-716)
+        if "{rs}" in template or "{ruleset}" in template:  # a job's route has none: its handler compares it
             other = signed(action, "OTHER", method, path, body)
             assert _refused(client.request(method, path, headers=other, **kw)) == "study", template
-    with_study = sum("{rs}" in template for _, template, _ in routes)
+    with_study = sum("{rs}" in template or "{ruleset}" in template for _, template, _ in routes)
     assert len(events) == 2 * len(routes) + with_study and {e["kind"] for e in events} == {"actor.refused"}
 
 

@@ -150,7 +150,8 @@ def require_actor(action: str, *, service: bool = False, study_in_handler: bool 
 
 
 def _study(request: Request) -> str | None:
-    return str(request.path_params.get("rs") or "").strip().upper() or None
+    """The study a `refuse` route's path names: ``{rs}``, or ``{ruleset}`` on the registry's routes (T-715b)."""
+    return _named_study(request) or None
 
 
 def _named_study(request: Request) -> str | None:

@@ -1961,12 +1961,12 @@ def create_app(
             ruleset=rs,
             detail={"action": "update", "status": status, "by_mrn": bool(upd.mrn)},
         )
-        sign = None
-        if upd.mrn:  # T-719 (D-487): a row by chart number is this person's lookup; the box refuses a bare token
-            from console import actor as acting
+        # T-715b (D-550): every registry change is signed for this person and this request (T-719: a row by chart
+        # number is also this person's lookup); the box refuses a bare token
+        from console import actor as acting
 
-            def sign(method: str, path: str, body: Any) -> dict[str, str]:
-                return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:
+            return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
 
         try:
             bk.registry_update(rs, upd, sign)
@@ -1981,8 +1981,13 @@ def create_app(
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
         who = sess.user.mailbox or sess.user.username
+        from console import actor as acting
+
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:
+            return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
+
         try:
-            added = bk.registry_promote(rs, RegistryPromote(by=who))
+            added = bk.registry_promote(rs, RegistryPromote(by=who), sign)
         except Refused as exc:
             return _registry_page(request, sess, rs, 422, error=str(exc))
         au.append("console.registry", actor=actor(sess), ruleset=rs, detail={"action": "promote", "added": added})
