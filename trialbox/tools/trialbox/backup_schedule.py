@@ -1297,6 +1297,19 @@ def copy_night_length(env: Mapping[str, str], deploy: Path) -> str:
             raise ValueError("not a record of nights")  # a half-read or wrong-shaped file never replaces a good one
     except Exception as exc:
         return f"the night's length was not copied: {src} could not be read ({type(exc).__name__})"
+    # NEW-B-26 (D-667): the orchestrator's record of when its nightly work ended goes into the same file (``work``).
+    # A box whose scheduler does not run has none: not a failure of the copy. A part that cannot be read keeps the
+    # earlier copy of that part.
+    work: Any = None
+    for part, key in ((root / f"trialbox_{update.BACKUP_VOLUMES['orchestrator']}" / "_data" / "night_work.json",
+                       "nights"), (dst, "work")):  # fmt: skip
+        try:
+            work = json.loads(part.read_bytes())[key]
+        except Exception:
+            work = None
+        if isinstance(work, list):
+            body = (json.dumps({"nights": got["nights"], "work": work}, indent=1) + "\n").encode()
+            break
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_bytes(body)

@@ -112,10 +112,10 @@ def weekly_due(orch: Orchestrator, step: str, ruleset: str | None, day: date, we
     )
 
 
-def current_night(orch: Orchestrator) -> tuple[str, date] | None:
-    """The night the chain is on: the newest timed ingest that passed (its generation, else its date; its day). The
-    timer's ingest is the scheduler's own job or an administrator's retry of one (D-474): a retry copies the failed
-    job's options and names the administrator, and it is the same night."""
+def current_ingest(orch: Orchestrator) -> Job | None:
+    """The timed ingest the chain is on: the newest one that passed. The timer's ingest is the scheduler's own job
+    or an administrator's retry of one (D-474): a retry copies the failed job's options and names the
+    administrator, and it is the same night."""
     before: str | None = None
     while True:
         j = orch.db.chained_ingest(before)
@@ -123,9 +123,22 @@ def current_night(orch: Orchestrator) -> tuple[str, date] | None:
             return None
         root = j if j.requested_by == "scheduler" and not j.parent_job_id else orch.scheduled_root(j)
         if root is not None and j.snapshot_date is not None:
-            o = j.options or {}
-            return str(o.get("lake_generation") or j.snapshot_date.isoformat()), j.snapshot_date
+            return j
         before = j.received_at.isoformat()  # a person's ingest that carries the option is not the night: the next
+
+
+def night_of(ingest: Job) -> str:
+    """The night's name in the chain's jobs: the generation the ingest published, else its date."""
+    assert ingest.snapshot_date is not None
+    return str((ingest.options or {}).get("lake_generation") or ingest.snapshot_date.isoformat())
+
+
+def current_night(orch: Orchestrator) -> tuple[str, date] | None:
+    """The night the chain is on (:func:`current_ingest`): its name (:func:`night_of`) and its day."""
+    j = current_ingest(orch)
+    if j is None or j.snapshot_date is None:
+        return None
+    return night_of(j), j.snapshot_date
 
 
 def _targets(orch: Orchestrator, step: str) -> list[str | None]:
@@ -211,42 +224,54 @@ def _complete(orch: Orchestrator, step: str, night: str, day: date, jobs: list[J
     return missing
 
 
+def _go_on(orch: Orchestrator) -> list[str | None]:
+    cur = current_night(orch)
+    if cur is None:
+        return []
+    night, day = cur
+    older = [  # an earlier night's chain that has not ended
+        j
+        for j in orch.db.scheduler_jobs(unfinished=True)
+        if (j.options or {}).get("step") and (j.options or {}).get("night") not in (None, night)
+    ]
+    if older:
+        _say(orch, night, "waits", f"waits for {len(older)} job(s) of an earlier night's chain; the steps "
+             "that night had not started are not run, this night covers them")  # fmt: skip
+        return []
+    by_step = {step: chain_jobs(orch, night, step) for step in STEPS}
+    reached = max((i for i, step in enumerate(STEPS) if by_step[step]), default=-1)
+    for i, step in enumerate(STEPS):
+        jobs = by_step[step]
+        if jobs:
+            made = _complete(orch, step, night, day, jobs)
+            if made:
+                return made
+            if any(j.state not in TERMINAL for j in jobs):
+                return []  # this step is still running
+            continue
+        if i < reached:
+            continue  # passed over, and a later step has started: not started any more this night
+        started = _start_step(orch, step, night, day)
+        if started:
+            return started
+    return []
+
+
 def advance(orch: Orchestrator) -> list[str | None]:
     """Go on with the night: complete a step that was started in part, else start the first step that has no job
     and is not passed, once every job of the steps before it has ended. Returns the studies of the jobs it started
-    (none: nothing to start now). Never raises."""
+    (none: nothing to start now). Never raises.
+
+    NEW-B-26 (D-667): a night whose last step has ended is written to the night's record
+    (:mod:`orchestrator.night_work`)."""
+    from orchestrator import night_work
+
     try:
         with _lock:
-            cur = current_night(orch)
-            if cur is None:
-                return []
-            night, day = cur
-            older = [  # an earlier night's chain that has not ended
-                j
-                for j in orch.db.scheduler_jobs(unfinished=True)
-                if (j.options or {}).get("step") and (j.options or {}).get("night") not in (None, night)
-            ]
-            if older:
-                _say(orch, night, "waits", f"waits for {len(older)} job(s) of an earlier night's chain; the steps "
-                     "that night had not started are not run, this night covers them")  # fmt: skip
-                return []
-            by_step = {step: chain_jobs(orch, night, step) for step in STEPS}
-            reached = max((i for i, step in enumerate(STEPS) if by_step[step]), default=-1)
-            for i, step in enumerate(STEPS):
-                jobs = by_step[step]
-                if jobs:
-                    made = _complete(orch, step, night, day, jobs)
-                    if made:
-                        return made
-                    if any(j.state not in TERMINAL for j in jobs):
-                        return []  # this step is still running
-                    continue
-                if i < reached:
-                    continue  # passed over, and a later step has started: not started any more this night
-                started = _start_step(orch, step, night, day)
-                if started:
-                    return started
-            return []
+            started = _go_on(orch)
+            if not started:
+                night_work.note(orch)
+            return started
     except Exception as exc:  # the chain must not take a job's end or the start-up down
         log.exception("the night chain did not advance: %s", exc)
         return []
@@ -257,9 +282,11 @@ __all__ = [
     "advance",
     "chain_job_id",
     "chain_jobs",
+    "current_ingest",
     "current_night",
     "days",
     "last_scheduled",
+    "night_of",
     "weekday_of",
     "weekly_due",
 ]
