@@ -5,7 +5,7 @@
 S=/rehearsal/s
 if [ "$1" = poweroff ]; then
   sleep 1  # the console line that says why is still on its way through the serial FIFO
-  why=$(grep -a 'TB-WATCHDOG\|TB-NO-KEY\|TB-FRONT-FAILED\|TB-DOOR-FAILED' $S/console.log 2>/dev/null | tail -n 1)
+  why=$(grep -a 'TB-WATCHDOG\|TB-NO-KEY\|TB-NO-CODE\|TB-FRONT-FAILED\|TB-DOOR-FAILED' $S/console.log 2>/dev/null | tail -n 1)
   echo "$(date -u +%FT%TZ) poweroff by: $(tr '\0' ' ' < /proc/$PPID/cmdline 2>/dev/null | cut -c1-120) | $why" >> $S/POWEROFF
   echo TERMINATED > $S/status
   sync

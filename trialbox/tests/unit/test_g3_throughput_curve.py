@@ -70,6 +70,20 @@ def test_a_list_runs_the_hospital_part_once_per_value_on_one_prepared_hospital()
     assert "chat-template" not in [cr._tag(*p) for p in cr.plan(_ns())]  # G-1 only when --only names it
 
 
+def test_g3s_full_curve_runs_ja_then_zh_tw_at_1_4_8_16_32_48(tmp_path: Path) -> None:
+    """Plan G-3: 1, 4, 8, 16, 32, 48 in flight, ja then zh-TW: nothing refuses 8 or 32 or the zh-TW repeats."""
+    lc = "1,4,8,16,32,48"
+    out = _dry(
+        tmp_path, "--patients", "5000", "--only", "hospital-ja,hospital-zh-TW", "--llm-concurrency", lc, "--keep-order"
+    )
+    meta = next(ln for ln in out.splitlines() if "add-metadata" in ln and "tb-run-id=" in ln)
+    assert "tb-llm-concurrency=1 4 8 16 32 48," in meta
+    want = [f"hospital-{lang}@c{n}" for lang in ("ja", "zh-TW") for n in (1, 4, 8, 16, 32, 48)]
+    assert sorted(meta.split("tb-only=")[1].split(",")[0].split()) == sorted(["prepare", *want])
+    a = _ns(langs=["ja", "zh-TW"], only=["prepare", *want], llm_concurrency=lc, scenarios=[])
+    assert [cr._tag(*p) for p in cr.plan(a)] == ["prepare", *want]  # the VM's order: ja's curve, then zh-TW's
+
+
 def test_each_part_process_gets_its_concurrency(tmp_path: Path) -> None:
     a = _ns(llm_concurrency="1,4", dir=tmp_path, patients=500, model="stub", ocr="fake", run_id="R", direct=False,
             live_record=None, resume=False, keep_work=False)  # fmt: skip
@@ -91,49 +105,56 @@ def _row(e: dict[str, Any], tag: str) -> dict[str, Any]:
     return next(r for r in e["rows"] if r["tags"] == [tag])
 
 
-def test_the_screening_time_is_the_g1_rate_over_min_n_and_the_declared_factor() -> None:
-    assert round(cr.G1_CALLS_PER_SECOND, 2) == 0.78 and cr.LLM_SPEEDUP == 2.0
+def test_the_screening_time_is_the_g1_rate_times_g3s_measured_gain() -> None:
+    """M3 (OD-10, measured): the gain at N calls in flight is G-3's curve of 2026-11-12 (calls/s 1: 0.40, 4: 1.04,
+    16: 1.77, 48: 1.95 at 5,000 ja), not an assumed 2; the rate at 1 stays G1's 0.78 (the part time it scales)."""
+    assert round(cr.G1_CALLS_PER_SECOND, 2) == 0.78
+    assert cr.G3_CALLS_PER_SECOND == {1: 0.4, 4: 1.041, 16: 1.774, 48: 1.947}
     assert cr.hospital_seconds(50000, 1) == cr.HOSPITAL_PART_SECONDS  # N = 1 is the measurement itself
+    assert [cr.llm_speedup(n) for n in (1, 4, 16, 48)] == [1.0, 2.602, 4.435, 4.867]
+    assert 2.602 < cr.llm_speedup(8) < 4.435 and 4.435 < cr.llm_speedup(32) < 4.867  # between points: interpolated
+    assert cr.llm_speedup(64) == cr.llm_speedup(48)  # above the last point: held, never extrapolated
     other = cr.HOSPITAL_PART_SECONDS - cr.G1_SCREEN_SECONDS
-    for n in (2, 4, 16, 48):  # min(N, 2): no more than the declared factor however large N is
-        assert cr.hospital_seconds(50000, n) == other + cr.G1_SCREEN_SECONDS / 2
+    assert cr.hospital_seconds(50000, 16) == pytest.approx(other + cr.G1_SCREEN_SECONDS / 4.435)
     e = cr.estimate(5000, llm_concurrency=(1, 4, 16, 48))
-    assert e["llm_concurrency"] == [1, 4, 16, 48] and e["llm_speedup"] == [1.0, 2.0, 2.0, 2.0]
+    assert e["llm_concurrency"] == [1, 4, 16, 48] and e["llm_speedup"] == [1.0, 2.602, 4.435, 4.867]
     assert _row(e, "hospital-ja@c1")["seconds"] == pytest.approx(1796.0)
-    assert _row(e, "hospital-ja@c4")["seconds"] == pytest.approx(937.6 + 858.4 / 2)
-    assert _row(e, "hospital-zh-TW@c48")["seconds"] == _row(e, "hospital-ja@c4")["seconds"]
+    assert _row(e, "hospital-ja@c4")["seconds"] == pytest.approx(937.6 + 858.4 / 2.602)
+    assert _row(e, "hospital-zh-TW@c4")["seconds"] == _row(e, "hospital-ja@c4")["seconds"]
     assert _row(cr.estimate(50000), "hospital-ja")["seconds"] == 17960.0  # not given in Python: G1's N = 1
 
 
-def test_the_factor_is_a_declared_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_factor_is_a_declared_override(monkeypatch: pytest.MonkeyPatch) -> None:
     from tb_common.config import DECLARED
 
-    assert DECLARED["TB_ESTIMATE_LLM_SPEEDUP"].default == "2" and DECLARED["TB_ESTIMATE_LLM_SPEEDUP"].kind == "float"
+    assert DECLARED["TB_ESTIMATE_LLM_SPEEDUP"].default == "" and DECLARED["TB_ESTIMATE_LLM_SPEEDUP"].kind == "float"
     monkeypatch.setenv("TB_ESTIMATE_LLM_SPEEDUP", "1")  # the strict bound: the single-call time at every N
     assert cr.hospital_seconds(50000, 48) == cr.HOSPITAL_PART_SECONDS
     monkeypatch.setenv("TB_ESTIMATE_LLM_SPEEDUP", "8")
     assert cr.llm_speedup(4) == 4.0 and cr.llm_speedup(48) == 8.0 and cr.llm_speedup(1) == 1.0
-    for bad in ("0.5", "fast"):
+    text = cr.print_estimate(cr.estimate(5000, llm_concurrency=(1, 4)))
+    assert "divided by min(N, 8) (TB_ESTIMATE_LLM_SPEEDUP, the owner's override" in text
+    for bad in ("0.5", "fast", "nan"):
         monkeypatch.setenv("TB_ESTIMATE_LLM_SPEEDUP", bad)
         with pytest.raises(ValueError):
             cr.llm_speedup(4)
 
 
-def test_the_bounded_g3_estimate_names_every_repeat_and_says_upper_bound() -> None:
+def test_the_bounded_g3_estimate_names_every_repeat_and_its_measured_gain() -> None:
     e = cr.restrict(cr.estimate(5000, llm_concurrency=(1, 4, 16, 48)), ["hospital-ja", "chat-template"])
     tags = [t for r in e["rows"] for t in r["tags"]]
     assert tags == ["chat-template", "hospital-ja@c1", "hospital-ja@c4", "hospital-ja@c16", "hospital-ja@c48"]
-    work = 1796.0 + 3 * (937.6 + 429.2) + ctc.SECONDS
+    work = 1796.0 + sum(937.6 + 858.4 / g for g in (2.602, 4.435, 4.867)) + ctc.SECONDS
     assert e["hours"] == pytest.approx((1800 + work) / 3600, abs=0.01) and e["cap_hours"] == 3
     assert e["provisioning"] == "STANDARD"  # a hospital part: on demand (D-468)
     text = cr.print_estimate(e)
     assert "model calls in flight (TB_SCREEN_LLM_CONCURRENCY): 1, 4, 16, 48" in text
-    assert "0.78 calls/s at 1 in flight, divided by min(N, 2)" in text and "UPPER BOUND for N > 1" in text
-    assert "48 in flight is above the servers' max_num_seqs (16)" in text
+    assert "0.78 calls/s at 1 in flight, times the gain G-3 measured" in text and "4: 2.602x" in text
+    assert "UPPER BOUND" not in text and "48 in flight is above the servers' max_num_seqs (16)" in text
     shard = cr.shard_plan(e, 1)["shards"][0]
     assert shard["tags"][:2] == ["prepare", "chat-template"] and len(shard["tags"]) == 6
     alone = cr.print_estimate(cr.restrict(cr.estimate(5000, llm_concurrency=(1,)), ["hospital-ja"]))
-    assert "UPPER BOUND" not in alone  # N = 1 is the measurement
+    assert "measured at N" not in alone  # N = 1 is the measurement
     with pytest.raises(ValueError):
         cr.restrict(cr.estimate(5000, llm_concurrency=(1, 4)), ["hospital-ja@c16"])
 
@@ -152,7 +173,7 @@ def test_a_restarted_shard_keeps_the_repeats_done_and_caps_what_is_left(tmp_path
         _part(tmp_path / "parts", tag, "R-s1")
     now = cr.shard_now(doc, 1, [tmp_path / "parts"], "R", HEAD)
     assert now["left"] == ["hospital-ja@c16"] and now["provisioning"] == "STANDARD"
-    assert now["hours"] == pytest.approx(0.5 + (937.6 + 429.2) / 3600, abs=0.01)
+    assert now["hours"] == pytest.approx(0.5 + (937.6 + 858.4 / 4.435) / 3600, abs=0.01)
 
 
 # ---------------------------------------------------------------- the driver (--dry-run: nothing starts)
@@ -167,9 +188,9 @@ def _dry(tmp_path: Path, *args: str, **env_kw: str) -> str:
 
 
 def test_the_g3_launch_plan_cap_and_metadata(tmp_path: Path) -> None:
-    out = _dry(tmp_path, *G3, TB_RUN_ID="R")
+    out = _dry(tmp_path, *G3, "--keep-order", TB_RUN_ID="R")  # the order given (else seeded at random)
     assert "model calls in flight (TB_SCREEN_LLM_CONCURRENCY): 1, 4, 16, 48" in out
-    assert "UPPER BOUND for N > 1" in out and "above the servers' max_num_seqs (16)" in out
+    assert "times the gain G-3 measured" in out and "above the servers' max_num_seqs (16)" in out
     meta = next(ln for ln in out.splitlines() if "add-metadata" in ln and "tb-run-id=" in ln)
     assert "tb-llm-concurrency=1 4 16 48," in meta and "tb-patients=5000," in meta
     only = meta.split("tb-only=")[1].split(",")[0].split()
@@ -178,7 +199,7 @@ def test_the_g3_launch_plan_cap_and_metadata(tmp_path: Path) -> None:
     sched = next(ln for ln in out.splitlines() if "set-scheduling" in ln and "max-run-duration=" in ln)
     assert "--max-run-duration=3h" in sched and "--provisioning-model=STANDARD" in sched
     plan = json.loads((tmp_path / "out" / "plan.json").read_text(encoding="utf-8"))
-    assert plan["llm_concurrency"] == [1, 4, 16, 48] and plan["plan"]["shards"][0]["hours"] == pytest.approx(2.22)
+    assert plan["llm_concurrency"] == [1, 4, 16, 48] and plan["plan"]["shards"][0]["hours"] == pytest.approx(2.06)
     report = next(ln for ln in out.splitlines() if "--report-only" in ln)
     assert "--llm-concurrency 1 4 16 48" in report and "hospital-ja@c48" in report
 
@@ -190,7 +211,7 @@ def test_not_given_the_driver_prints_and_passes_the_records_max_num_seqs(tmp_pat
 
 
 def test_the_default_cap_still_covers_the_run_at_one_call_in_flight(tmp_path: Path) -> None:
-    """Not given, the estimate takes 16 in flight at min(16, 2) times G1's rate. The cap made from it (x 1.3) must
+    """Not given, the estimate takes 16 in flight at G-3's measured gain (4.4x). The cap made from it (x 1.3) must
     still hold the whole run should the calls in flight gain nothing at all (G1 bug A4: a cap below the part)."""
     for only in (["hospital-ja"], ["hospital-ja", "hospital-zh-TW"], []):
         for patients in (5000, 50000):
@@ -203,7 +224,8 @@ def test_the_default_cap_still_covers_the_run_at_one_call_in_flight(tmp_path: Pa
                 fast["cap_hours"],
             )
     out = _dry(tmp_path, "--patients", "50000")
-    assert "--max-run-duration=16h" in out  # 12.2 h x 1.3; at one call in flight the plan is 14.56 h
+    # 10.87 h x 1.3 = 14.1 h, raised to the plan at one call in flight (no gain at all), 14.56 h: 15 h
+    assert "--max-run-duration=15h" in out
 
 
 def test_one_value_reaches_the_vm_and_the_vm_script_passes_it_on(tmp_path: Path) -> None:
@@ -401,7 +423,10 @@ def test_the_report_has_the_curve_and_says_whether_the_lists_agree() -> None:
         ("hospital-ja@c1", 0.78, 0), ("hospital-ja@c4", 2.9, 0)]  # fmt: skip
     md = cr.markdown(rep)
     assert "Model calls in flight: 1, 4." in md and "## Throughput (model calls through the gateway)" in md
-    assert "| hospital-ja@c4 | 4 | 670 | 2.9 | 900.0 | 1.2 | 3.4 | judge 0.4 | 91.0 | 62574.0 | 0 | 62 |" in md
+    assert (
+        "| hospital-ja@c4 | whole part | 4 | 670 | 2.9 | 900.0 | 1.2 | 3.4 | judge 0.4 | 91.0 | - | - | 62574.0 | 0 | 62 |"
+        in md
+    )
     assert "Candidate lists of hospital-ja at every setting: **identical**." in md
     rows[1]["candidates"]["sha256"] = "b" * 64
     rep = cr.report(a, rows, {"head": HEAD, "subject": "s", "dirty": False}, datetime.now(UTC))

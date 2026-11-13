@@ -732,9 +732,16 @@ DECLARED: dict[str, Declared] = {
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),
     "TB_RUN_ID": Declared("str", "", "complete-run tool: run id"),
+    "TB_REPORT_DETAIL_CHARS": Declared(
+        "int", "300", "complete-run report: a failed check's detail cut in report.md (failed-checks.json has it all)"
+    ),
     "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
     "TB_ESTIMATE_LLM_SPEEDUP": Declared(
-        "float", "2", "complete-run estimate: most that N model calls in flight cut the screening time by"
+        "float", "", "complete-run estimate: override of G-3's measured gain, min(N, this) (unset: the curve)"
+    ),
+    "TB_BUCKET": Declared("str", "", "complete-run: gs:// bucket for the code and results (unset: through the door)"),
+    "TB_DOOR_DIRECT": Declared(
+        "bool", "", "complete-run: launch in door mode though HTTPS_PROXY is set (this host reaches the VM directly)"
     ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
