@@ -49,9 +49,11 @@ python3 -m tools.windows_media build --out /media/build --version <version> \
 python3 -m tools.windows_media check /media/usb/TRIALBOX-<version>     # again on the disk, after the copy
 ```
 
-`build` refuses a wrongly named input, a Linux NVIDIA driver package among the packages and a folder that already
-holds files. `check` names every reason step 1 of the installer would stop: a file missing, doubled, unlisted or
-not matching, a script whose line ends were changed. `SHA256SUMS.sig`, the network sheets and the PDFs under
+`build` refuses a wrongly named input, a Linux NVIDIA driver package among the packages, packages without Docker
+Engine or the NVIDIA Container Toolkit, and a folder that already holds files. `check` names the reasons the
+installer would stop that can be read without Windows: a file missing, doubled, unlisted, linked or not matching,
+a script whose line ends were changed. It does not check Microsoft's signature on the WSL package (step 1 of the
+installer does). `SHA256SUMS.sig`, the network sheets and the PDFs under
 `docs/` are added by the release's own steps, then `SHA256SUMS` is written again with
 `python3 -m tools.windows_media sums <folder>` (`check` fails until it is).
 

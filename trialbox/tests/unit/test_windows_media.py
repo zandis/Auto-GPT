@@ -93,6 +93,15 @@ def test_the_builder_looks_for_the_same_files_as_step_1_of_the_installer() -> No
     )  # fmt: skip
     table = {pattern for patterns in wm.NEEDS_ONE.values() for pattern in patterns} | {wm.BUNDLE_PATTERN}
     assert set(found) == table
+    # every call is one of the shapes read above: a new call of another shape turns this red, not silent
+    assert len(re.findall(r"Find-TbOne [($]", PS1)) == len(found)
+    # every file the installer reads from beside itself is one the builder places there
+    beside = re.findall(r'Join-Path \$PSScriptRoot "([^"]+)"', PS1)
+    assert beside and set(beside) <= set(wm.INSTALLER_FILES)
+    # ... and it reaches no other folder of the media than these (a new one must be taught to the builder)
+    assert set(re.findall(r'Join-Path \$(?:win|lin|m) "([^"]+)"', PS1)) <= {
+        "wsl", "nvidia", "debs", "windows", "linux", "SHA256SUMS",
+    }  # fmt: skip
     # the installer copies these beside itself for the run after the restart, and reads its messages from there
     for name in re.findall(r"foreach \(\$n in @\(([^)]*)\)\)", PS1)[0].replace('"', "").split(", "):
         assert name in wm.INSTALLER_FILES, name
@@ -196,7 +205,7 @@ def test_the_command_line_builds_and_checks(tmp_path: Path) -> None:
     ok = subprocess.run(
         [*cmd, "check", str(media)], capture_output=True, text=True, cwd=ROOT, env=env, check=False, timeout=120
     )
-    assert ok.returncode == 0 and "would take this media" in ok.stdout
+    assert ok.returncode == 0 and "nothing here would stop" in ok.stdout
     (media / "windows/box-install.ps1").write_text("changed")
     bad = subprocess.run(
         [*cmd, "check", str(media)], capture_output=True, text=True, cwd=ROOT, env=env, check=False, timeout=120
@@ -212,6 +221,90 @@ def test_a_file_added_later_fails_the_check_until_the_list_is_written_again(tmp_
     assert wm.check(media) == []
     assert wm.main(["sums", str(tmp_path / "in")]) == 1  # not a media folder: nothing is written there
     assert not (tmp_path / "in/SHA256SUMS").exists()
+
+
+def test_packages_without_docker_or_the_container_toolkit_are_refused(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    (inputs["debs"] / "docker-ce_27.3.1_amd64.deb").unlink()
+    with pytest.raises(wm.MediaError, match=r"lacks Docker Engine \(docker-ce_\*\.deb\)"):
+        wm.build(**inputs, out=tmp_path / "out", version="1.0.0")  # type: ignore[arg-type]
+    assert not (tmp_path / "out").exists()
+    media = _build(tmp_path / "second")
+    (media / "linux/debs/nvidia-container-toolkit_1.17.0_amd64.deb").unlink()
+    wm.write_sums(media)
+    assert wm.check(media) == ["linux/debs: lacks the NVIDIA Container Toolkit (nvidia-container-toolkit_*.deb)"]
+
+
+def test_a_build_that_fails_midway_leaves_no_media_and_can_be_run_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools import host_tree
+
+    def broken(*_a: object, **_k: object) -> None:
+        raise host_tree.HostTreeError("the tree cannot be packed")
+
+    inputs = _inputs(tmp_path)
+    with monkeypatch.context() as m:
+        m.setattr(host_tree, "pack", broken)
+        with pytest.raises(host_tree.HostTreeError):
+            wm.build(**inputs, out=tmp_path / "out", version="1.0.0")  # type: ignore[arg-type]
+        assert list((tmp_path / "out").iterdir()) == []  # no TRIALBOX-1.0.0, no .part
+        args = ["build", "--out", str(tmp_path / "out"), "--version", "1.0.0", "--bundle", str(inputs["bundle"]),
+                "--wsl-msi", str(inputs["wsl_msi"]), "--rootfs", str(inputs["rootfs"]), "--debs", str(inputs["debs"]),
+                "--vendor-pub", str(inputs["vendor_pub"])]  # fmt: skip
+        assert wm.main(args) == 1  # a message, not a traceback
+    media = wm.build(**inputs, out=tmp_path / "out", version="1.0.0")  # type: ignore[arg-type]
+    assert wm.check(media) == [] and not (tmp_path / "out/TRIALBOX-1.0.0.part").exists()
+
+
+def test_file_names_are_matched_as_windows_matches_them(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    (media / "windows/wsl/WSL.2.5.0.0.X64.MSI").write_bytes(b"a second package, in capitals")
+    wm.write_sums(media)
+    assert wm.check(media) == ["windows/wsl/wsl.*.msi: the installer wants exactly one, found 2"]
+    (media / "windows/wsl/wsl.2.4.13.0.x64.msi").unlink()
+    wm.write_sums(media)
+    assert wm.check(media) == []  # only the one in capitals: the installer takes it
+
+
+def test_a_link_never_reaches_the_media(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    real = inputs["rootfs"].rename(tmp_path / "in/real-image")
+    inputs["rootfs"].symlink_to(real)
+    media = wm.build(**inputs, out=tmp_path / "out", version="1.0.0", link=True)
+    image = media / "windows/wsl/ubuntu-24.04-wsl-amd64.tar.gz"
+    assert not image.is_symlink() and image.read_bytes() == real.read_bytes()
+    (media / "docs/extra.txt").symlink_to(real)
+    wm.write_sums(media)
+    assert "docs/extra.txt: a link, not a file" in wm.check(media)
+
+
+def test_the_list_is_never_written_through_a_link(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not the media's")
+    (media / "SHA256SUMS").unlink()
+    (media / "SHA256SUMS").symlink_to(outside)
+    wm.write_sums(media)
+    assert outside.read_text() == "not the media's" and not (media / "SHA256SUMS").is_symlink()
+
+
+def test_a_list_saved_by_a_windows_editor_is_read_and_an_unreadable_one_is_named(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    sums = media / "SHA256SUMS"
+    sums.write_bytes(b"\xef\xbb\xbf" + sums.read_bytes().replace(b"\n", b"\r\n"))
+    assert wm.check(media) == []
+    sums.write_bytes(sums.read_text(encoding="utf-8-sig").encode("utf-16"))
+    assert wm.check(media) == ["SHA256SUMS cannot be read as UTF-8 text (UnicodeDecodeError)"]
+    assert wm.main(["check", str(media)]) == 1
+
+
+def test_a_launcher_with_one_unix_line_end_fails_the_check(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    launcher = media / "Install-TrialBox.cmd"
+    launcher.write_bytes(launcher.read_bytes() + b"rem added on Linux\n")
+    wm.write_sums(media)
+    assert wm.check(media) == ["Install-TrialBox.cmd has a line without a Windows line end"]
 
 
 def test_nothing_is_downloaded_and_no_windows_payload_is_in_the_repository() -> None:

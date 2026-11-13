@@ -12,6 +12,7 @@ vendor brings (the signed bundle, the WSL package, the Ubuntu image, the package
 key, the Windows NVIDIA driver). It writes ``SHA256SUMS`` over every file. Nothing is downloaded: each input is a
 path the caller names. ``check`` reads a media back the way step 1 of the installer does (the files it needs are
 there, each exactly once where it wants one, each listed and matching), so a media is checked before it leaves.
+``build`` works in ``TRIALBOX-<version>.part`` and moves it into place only when ``check`` passes.
 
 What it refuses: a missing input; a package of a Linux NVIDIA driver among the packages (WSL2 uses the Windows
 driver; the installer would refuse the media); an output folder that already holds something. What it does not do:
@@ -62,8 +63,13 @@ TOOLKIT_RE = re.compile(
     r"^(nvidia-container-toolkit|nvidia-container-toolkit-base|nvidia-container-runtime|nvidia-docker2"
     r"|libnvidia-container1|libnvidia-container-tools)$"
 )
+# the package step of wsl-setup.sh stops without these two commands (docker, nvidia-ctk)
+NEEDED_PACKAGES = {"docker-ce": "Docker Engine", "nvidia-container-toolkit": "the NVIDIA Container Toolkit"}
 VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]*$")
 SUMS = "SHA256SUMS"
+OK_LINE = (
+    "ok: nothing here would stop the installer's step 1 (Microsoft's signature on the WSL package is not checked here)"
+)
 CHUNK = 1 << 20
 
 
@@ -88,7 +94,7 @@ def _put(src: Path, dst: Path, link: bool) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     if link:
         try:
-            os.link(src, dst)
+            os.link(os.path.realpath(src), dst)
             return
         except OSError:
             pass  # another file system: copy
@@ -102,13 +108,29 @@ def _text(src: Path, dst: Path, newline: str) -> None:
     dst.write_bytes(text.replace("\n", newline).encode("utf-8"))
 
 
+def _match(folder: Path, pattern: str) -> list[Path]:
+    """Files of a folder by a pattern, upper and lower case alike: as ``Get-ChildItem -Filter`` on Windows."""
+    if not folder.is_dir():
+        return []
+    return sorted(p for p in folder.iterdir() if p.is_file() and fnmatch.fnmatchcase(p.name.lower(), pattern.lower()))
+
+
+def _missing_packages(names: list[str]) -> list[str]:
+    have = {n.split("_", 1)[0].lower() for n in names}
+    return [f"{what} ({package}_*.deb)" for package, what in NEEDED_PACKAGES.items() if package not in have]
+
+
 def _files(media: Path) -> list[Path]:
-    return sorted(p for p in media.rglob("*") if p.is_file() and p.name not in (SUMS, SUMS + ".sig"))
+    return sorted(p for p in media.rglob("*") if p.is_file() and p.name not in (SUMS, SUMS + ".sig", SUMS + ".part"))
 
 
 def write_sums(media: Path) -> int:
     lines = [f"{sha256(p)}  {p.relative_to(media).as_posix()}" for p in _files(media)]
-    (media / SUMS).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    part = media / (SUMS + ".part")  # never through a link named SHA256SUMS
+    if part.is_symlink() or part.exists():
+        part.unlink()
+    part.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(part, media / SUMS)
     return len(lines)
 
 
@@ -142,7 +164,7 @@ def build(
         raise MediaError(f"--rootfs: '{rootfs.name}' is not named ubuntu-24.04*.tar.gz (the installer imports that)")
     if not fnmatch.fnmatch(bundle.name, BUNDLE_PATTERN) or bundle.name == HOST_TAR:
         raise MediaError(f"--bundle: '{bundle.name}' is not named trialbox-<version>.tar")
-    packages = sorted(debs.glob("*.deb")) if debs.is_dir() else []
+    packages = sorted(p for p in debs.glob("*.deb") if p.is_file()) if debs.is_dir() else []
     if not packages:
         raise MediaError(f"--debs: no .deb package in {debs}")
     drivers = [p.name for p in packages if is_linux_driver(p.name)]
@@ -151,16 +173,55 @@ def build(
             "--debs holds a Linux NVIDIA driver package (WSL2 uses the Windows driver; the installer refuses such "
             f"a media): {', '.join(drivers)}"
         )
-    media = out / f"TRIALBOX-{version}"
-    if media.exists() and any(media.iterdir()):
-        raise MediaError(f"{media} already holds files: name an empty folder (nothing is overwritten)")
+    lacking = _missing_packages([p.name for p in packages])
+    if lacking:
+        raise MediaError(f"--debs lacks {' and '.join(lacking)}: the installer's package step would stop")
+    for name in (LAUNCHER, *INSTALLER_FILES):
+        if not (source / "deploy/windows" / name).is_file():
+            raise MediaError(f"the source tree has no deploy/windows/{name}")
+    final = out / f"TRIALBOX-{version}"
+    if final.is_symlink() or (final.exists() and (not final.is_dir() or any(final.iterdir()))):
+        raise MediaError(f"{final} already holds files: name an empty folder (nothing is overwritten)")
+    # built beside its final place and moved there only when it passes its own check: a build that fails
+    # midway leaves nothing that looks like a media, and can be run again
+    media = out / f"TRIALBOX-{version}.part"
+    if media.is_symlink():
+        raise MediaError(f"{media} is a link: remove it")
+    if media.exists():
+        shutil.rmtree(media)  # what a failed build left
+    try:
+        _lay_out(media, version, bundle, wsl_msi, rootfs, packages, vendor_pub, nvidia_driver, measured, link, source)
+        problems = check(media)
+        if problems:  # never hand over a media the installer would stop on
+            raise MediaError("the media just built does not pass its own check: " + "; ".join(problems))
+        if final.exists():
+            final.rmdir()  # empty, checked above
+        os.replace(media, final)
+    except BaseException:
+        shutil.rmtree(media, ignore_errors=True)
+        raise
+    return final
+
+
+def _lay_out(
+    media: Path,
+    version: str,
+    bundle: Path,
+    wsl_msi: Path,
+    rootfs: Path,
+    packages: list[Path],
+    vendor_pub: Path,
+    nvidia_driver: Path | None,
+    measured: Path | None,
+    link: bool,
+    source: Path,
+) -> None:
     from tools import host_tree
 
+    media.mkdir(parents=True)
     _text(source / "deploy/windows" / LAUNCHER, media / LAUNCHER, "\r\n")
     for name in INSTALLER_FILES:
         src = source / "deploy/windows" / name
-        if not src.is_file():
-            raise MediaError(f"the source tree has no deploy/windows/{name}")
         if name.endswith(".sh"):
             _text(src, media / "windows" / name, "\n")
         else:
@@ -196,46 +257,56 @@ def build(
     ]
     (media / "README.txt").write_bytes("\r\n".join([*readme, ""]).encode("ascii"))
     write_sums(media)
-    problems = check(media)
-    if problems:  # never hand over a media the installer would stop on
-        raise MediaError("the media just built does not pass its own check: " + "; ".join(problems))
-    return media
 
 
 def check(media: Path) -> list[str]:
-    """Every reason step 1 of the installer (or its package step) would stop on this media; empty when it passes."""
+    """Reasons the installer would stop on this media, as far as they can be read without Windows; empty when none.
+
+    Not looked at: Microsoft's signature on the WSL package (step 1 of the installer checks it with Windows' own
+    means), the bundle's signature, and whether the packages install. Stricter than the installer: every file must
+    be listed (the installer checks only those it uses), a listed path must match in case, ``wsl-setup.sh`` must
+    have Unix line ends (the installer converts them itself), nothing may be a link."""
     problems: list[str] = []
     sums_file = media / SUMS
     if not sums_file.is_file():
         return [f"no {SUMS} in {media}"]
     listed: dict[str, str] = {}
-    for line in sums_file.read_text(encoding="utf-8").splitlines():
+    try:
+        sums_text = sums_file.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        return [f"{SUMS} cannot be read as UTF-8 text ({type(exc).__name__})"]
+    for line in sums_text.splitlines():
         m = re.match(r"^([0-9a-fA-F]{64})\s+\*?(.+)$", line)
         if m:
             listed[m.group(2).strip().replace("\\", "/")] = m.group(1).lower()
     if not (media / LAUNCHER).is_file():
         problems.append(f"no {LAUNCHER}")
-    elif b"\r\n" not in (media / LAUNCHER).read_bytes():
-        problems.append(f"{LAUNCHER} has no Windows line ends")
+    elif re.search(rb"(?<!\r)\n", (media / LAUNCHER).read_bytes()) or b"\r\n" not in (media / LAUNCHER).read_bytes():
+        problems.append(f"{LAUNCHER} has a line without a Windows line end")
     for name in ("box-install.ps1", "box-install.messages.json"):
         if not (media / "windows" / name).is_file():
             problems.append(f"no windows/{name}")
     for folder, patterns in NEEDS_ONE.items():
         for pattern in patterns:
-            found = [p for p in (media / folder).glob(pattern) if p.is_file()] if (media / folder).is_dir() else []
+            found = _match(media / folder, pattern)
             if len(found) != 1:
                 problems.append(f"{folder}/{pattern}: the installer wants exactly one, found {len(found)}")
     linux = media / "linux"
-    bundles = [p for p in linux.glob(BUNDLE_PATTERN) if p.is_file() and p.name != HOST_TAR] if linux.is_dir() else []
+    bundles = [p for p in _match(linux, BUNDLE_PATTERN) if p.name.lower() != HOST_TAR]
     if len(bundles) != 1:
         problems.append(f"linux/{BUNDLE_PATTERN}: the installer wants exactly one bundle, found {len(bundles)}")
-    packages = sorted((linux / "debs").glob("*.deb")) if (linux / "debs").is_dir() else []
+    packages = _match(linux / "debs", "*.deb")
     if not packages:
         problems.append("linux/debs: no .deb package")
+    else:
+        problems += [f"linux/debs: lacks {what}" for what in _missing_packages([p.name for p in packages])]
     problems += [f"linux/debs/{p.name}: a Linux NVIDIA driver package" for p in packages if is_linux_driver(p.name)]
     setup = media / "windows/wsl-setup.sh"
     if setup.is_file() and b"\r\n" in setup.read_bytes():
-        problems.append("windows/wsl-setup.sh has Windows line ends (bash would not run it)")
+        problems.append("windows/wsl-setup.sh has Windows line ends (the builder writes Unix ones)")
+    problems += [
+        f"{p.relative_to(media).as_posix()}: a link, not a file" for p in sorted(media.rglob("*")) if p.is_symlink()
+    ]
     for p in _files(media):
         rel = p.relative_to(media).as_posix()
         if rel not in listed:
@@ -245,6 +316,12 @@ def check(media: Path) -> list[str]:
     on_disk = {p.relative_to(media).as_posix() for p in _files(media)}
     problems += [f"{rel}: listed in {SUMS} but not on the media" for rel in sorted(set(listed) - on_disk)]
     return problems
+
+
+def host_tree_error() -> type[Exception]:
+    from tools import host_tree
+
+    return host_tree.HostTreeError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -280,12 +357,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise MediaError(f"{args.media} is not a media folder (no {LAUNCHER})")
             print(f"{SUMS}: {write_sums(args.media)} files listed (not signed)")
         problems = check(args.media)
-    except MediaError as exc:
+    except (MediaError, OSError, UnicodeError, host_tree_error()) as exc:
         print(f"windows_media: {exc}", file=sys.stderr)
         return 1
     for line in problems:
         print(f"FAIL  {line}")
-    print("the installer would stop on this media" if problems else "ok: the installer's step 1 would take this media")
+    print("the installer would stop on this media" if problems else OK_LINE)
     return 1 if problems else 0
 
 
