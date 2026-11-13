@@ -20,7 +20,7 @@ from tests.unit.test_omop_core import _feed, _legacy, _load, _site, db, feed_dir
 EARLY, LATE = "2026-10-01", "2026-10-05"
 
 
-def _two_deaths(feed_dir: Path) -> tuple[str, dict[str, Any], dict[str, Any]]:
+def _two_deaths(feed_dir: Path) -> tuple[str, dict[str, Any], dict[str, Any]]:  # noqa: F811
     feed, site = _feed(feed_dir), _site(feed_dir)
     in_feed = {p["id"] for p in feed["Patient"]}
     pid = next(p["id"] for p in site["Patient"] if p["id"] in in_feed)
@@ -53,7 +53,7 @@ def _in_base(row: dict[str, Any], index_date: str) -> bool:
     return bool(n and n[0])
 
 
-def test_the_legacy_merge_keeps_the_latest_claimed_death(feed_dir: Path) -> None:
+def test_the_legacy_merge_keeps_the_latest_claimed_death(feed_dir: Path) -> None:  # noqa: F811
     pid, feed, site = _two_deaths(feed_dir)
     row = next(r for r in _legacy(feed, site)["patient"] if r["pid"] == pid)
     assert str(row["deceased_date"]) == LATE and row["deceased"] is True  # before: None and True
@@ -62,7 +62,7 @@ def test_the_legacy_merge_keeps_the_latest_claimed_death(feed_dir: Path) -> None
     assert not _in_base(row, "2026-10-06")  # after both: out
 
 
-def test_the_omop_export_keeps_the_latest_claimed_death(feed_dir: Path, db: Any) -> None:
+def test_the_omop_export_keeps_the_latest_claimed_death(feed_dir: Path, db: Any) -> None:  # noqa: F811
     from omop import conflicts
     from omop.export import export_rows
 
