@@ -73,7 +73,7 @@ class Hardware:
     mig: str = ""
     tpm: bool = False
     disks: tuple[Disk, ...] = ()  # disks other than the one the system is on: candidates for backups
-    lan: str = ""  # the box's network, CIDR (192.0.2.0/24)
+    lan: str = ""  # the box's network, CIDR; with IPv6 two, space-separated (192.0.2.0/24 2001:db8::/64), D-629
     hostname: str = "trialbox"
     host_tz: str = ""
 
@@ -149,7 +149,11 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
         mig=mig if mig not in ("[N/A]", "N/A") else "",
         tpm=(host_root / "dev/tpmrm0").exists() or (host_root / "dev/tpm0").exists(),
         disks=parse_lsblk(_run(["lsblk", "-J", "-b", "-o", "PATH,SIZE,TYPE,TRAN,MOUNTPOINT"])),
-        lan=parse_ip(_run(["ip", "-j", "-4", "addr", "show", "scope", "global"])),
+        lan=clinic_ranges(
+            _run(["ip", "-j", "addr", "show", "scope", "global"]),
+            _run(["ip", "-j", "route", "show", "default"]),
+            _run(["ip", "-j", "-6", "route", "show", "default"]),
+        ),
         hostname=socket.gethostname().split(".")[0].lower() or "trialbox",
         host_tz=tz,
     )
@@ -176,19 +180,73 @@ def parse_lsblk(text: str) -> tuple[Disk, ...]:
     return tuple(x for x in out if x.path)
 
 
-def parse_ip(text: str) -> str:
-    """The box's network as a CIDR, from ``ip -j -4 addr``: the first global address that is not a container bridge."""
+#: D-629: never the clinic's network: a container bridge, a tunnel
+_BRIDGES = ("docker", "br-", "veth", "virbr", "cni", "podman")
+_TUNNELS = ("tun", "tap", "wg", "ppp", "tailscale", "zt", "utun", "ipsec")
+#: the plan's warning when no network could be told (D-629)
+LAN_UNKNOWN = (
+    "network: the clinic's network could not be told from this machine (no default route and not exactly one "
+    "network card, or only a VPN): CLINIC_RANGES in deploy/site/hardening.conf is the box itself, so port 443 "
+    "answers nobody else until the range is written there"
+)
+
+
+def _json_list(text: str) -> list[dict[str, Any]]:
     try:
-        links = json.loads(text or "[]")
+        rows = json.loads(text or "[]")
     except ValueError:
-        return ""
-    for link in links:
-        if str(link.get("ifname", "")).startswith(("docker", "br-", "veth", "virbr")):
+        return []
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _networks(link: dict[str, Any]) -> list[str]:
+    """The networks of one interface that could be the clinic's (D-629): none for a loopback interface, a container
+    bridge or a tunnel; of its addresses, not a loopback, link-local or host (/32, /128) address."""
+    name = str(link.get("ifname", ""))
+    flags = {str(f) for f in link.get("flags") or ()}
+    if (
+        name == "lo"
+        or name.startswith((*_BRIDGES, *_TUNNELS))
+        or flags & {"LOOPBACK", "POINTOPOINT"}
+        or link.get("link_type") == "loopback"
+    ):
+        return []
+    v4: list[str] = []
+    v6: list[str] = []
+    for a in link.get("addr_info") or ():
+        if not isinstance(a, dict) or a.get("family") not in ("inet", "inet6") or not a.get("local"):
             continue
-        for a in link.get("addr_info") or ():
-            if a.get("family") == "inet" and a.get("local"):
-                return str(ipaddress.ip_interface(f"{a['local']}/{a.get('prefixlen', 24)}").network)
-    return ""
+        try:
+            ifc = ipaddress.ip_interface(f"{a['local']}/{a.get('prefixlen', 24 if a['family'] == 'inet' else 64)}")
+        except ValueError:
+            continue
+        if ifc.ip.is_loopback or ifc.ip.is_link_local or ifc.network.prefixlen == ifc.ip.max_prefixlen:
+            continue
+        out = v4 if ifc.version == 4 else v6
+        if str(ifc.network) not in out:
+            out.append(str(ifc.network))
+    return v4 + v6
+
+
+def clinic_ranges(addrs: str, routes4: str = "", routes6: str = "") -> str:
+    """The box's network for ``CLINIC_RANGES`` (who reaches port 443), from ``ip -j addr show scope global`` and
+    ``ip -j [-6] route show default`` (D-629): the IPv4 and IPv6 networks of the interface the default route uses,
+    lowest metric first, IPv4's route before IPv6's. A route through an interface that cannot be the clinic's (see
+    :func:`_networks`) is passed over. With no route to go by, the one interface that could be the clinic's; with
+    several, or none, the empty string: it decides who reaches the console, so it is not guessed."""
+    nets = {str(link.get("ifname", "")): _networks(link) for link in _json_list(addrs)}
+    nets = {name: found for name, found in nets.items() if name and found}
+    for routes in (routes4, routes6):
+        rows = [r for r in _json_list(routes) if r.get("dst") in ("default", "0.0.0.0/0", "::/0")]
+        for r in sorted(rows, key=lambda r: int(r.get("metric") or 0)):
+            if str(r.get("dev", "")) in nets:
+                return " ".join(nets[str(r["dev"])])
+    return " ".join(next(iter(nets.values()))) if len(nets) == 1 else ""
+
+
+def parse_ip(text: str, routes4: str = "", routes6: str = "") -> str:
+    """The name from before D-629; see :func:`clinic_ranges`."""
+    return clinic_ranges(text, routes4, routes6)
 
 
 # ------------------------------------------------------------------------------------------------ memory (OD-10)
@@ -326,6 +384,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         warnings.append(f"no GPU of a TrialBox profile ({hw.gpu_name or 'none'}): structured criteria only")
     caps, notes = memory_caps(hw.ram_gib, profile if mode == "gpu" else "stub", deploy)
     warnings += notes
+    if not hw.lan:
+        warnings.append(LAN_UNKNOWN)  # D-629
     email = a.owner.email
     domain = email.split("@", 1)[1]
     ds: dict[str, Any] = {"data_source_host_dir": "./site/feed", "mapping": BOX_MAPPING}
