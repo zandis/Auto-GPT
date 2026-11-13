@@ -100,6 +100,15 @@ def test_the_source_is_the_routes_and_a_job_must_be_the_studys(orch_box: OrchBox
     r = send({**base, "source_job": "01JF0RGED000000000000000ZZ"})
     assert r.status_code == 400 and "not a job of this study" in r.text, r.text[:200]
     assert _rows(orch_box) == [] and orch_box.events("registry.update") == []
+    # the review: a job of another study is refused with the same words; a text that is no job id never reaches
+    # the store (a NUL byte was a server error)
+    other = "/registry/OTHR"
+    theirs = {**base, "source_job": job.job_id}
+    r = c.post(other, json=theirs, headers=signed(ACT, "OTHR", "POST", other, theirs))
+    assert r.status_code == 400 and "not a job of this study" in r.text, r.text[:200]
+    for odd in ("a\x00b", "", "x" * 65, "not a job id"):
+        assert send({**base, "source_job": odd}).status_code == 422, repr(odd)
+    assert _rows(orch_box) == [] and orch_box.events("registry.update") == []
     r = send({**base, "source_job": job.job_id})
     assert r.status_code == 200, r.text[:300]
     row = r.json()

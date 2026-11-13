@@ -32,6 +32,20 @@ the audit trail then said so. The console's form always sent `manual`; nothing h
 - A status is still the requester's to set within the recorded transitions (the consent statuses are blocked on
   the console's form, not here).
 
+## What the adversarial review changed
+
+One review by a fresh reviewer; verdict: merge, no HIGH or MED. Every caller still works (the console's page
+sends no job; a contact outcome sends the study's own latest screening, which retention never deletes); the job
+is checked before a chart number is turned into a pseudonym, so a forged job costs no lookup; "unknown" and
+"another study" are answered with the same words.
+
+- **A text that is no job id was a server error** (a NUL byte reached the store's query). `source_job` must have
+  the shape of a job id now (422 otherwise). Test first.
+- **The other-study half had no test**; it has one.
+- **Left:** the 400 for a job that is not the study's writes no audit event (the chart-number door records its
+  refusals; this one does not). A signed requester who tries job ids learns nothing from it, the answer being the
+  same either way.
+
 ## Reuse check
 
 Nothing fits: two lines of the route's own handler.

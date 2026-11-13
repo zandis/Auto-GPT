@@ -818,7 +818,7 @@ class RegistryUpdateBody(BaseModel):
     reason: str | None = Field(None, max_length=500)
     # T-715c (D-552): no `source`: a change through this route is a manual one. A job may be named with it (a
     # contact outcome names the screening it came from); it must be a job of the route's study
-    source_job: str | None = Field(None, max_length=64)
+    source_job: str | None = Field(None, pattern="^[0-9A-HJKMNP-TV-Z]{26}$")  # a job id, as the contract writes one
 
 
 class RegistryPromoteBody(BaseModel):
