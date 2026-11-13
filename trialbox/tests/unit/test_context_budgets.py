@@ -308,7 +308,9 @@ def test_the_truncation_retry_fits_the_answering_alias_context(tmp_path: Path, m
 
     gc = GatewayClient("http://gateway/v1", "orchestrator", http=httpx.Client(transport=httpx.MockTransport(mock)))
     p = load_prompt("judge")
-    huge = [{"date": "2026-10-01", "note_type": "progress", "text": LINE * 170}]
+    # sized so that a retry of 4,096 does not fit an 8k context and a smaller one does (the assertions below hold
+    # that); 170 lines before D-645 counted each digit of LINE as a token
+    huge = [{"date": "2026-10-01", "note_type": "progress", "text": LINE * 140}]
     msgs = render(p, {"criterion_text": "x", "note_question": "x?", "index_date": "2026-10-05", "excerpts": huge})
     labels = CallLabels("D3", "screening", "STUDY-1", "s3_note_judgement", "judge", "judge@4", "step-1")
     gc.chat(

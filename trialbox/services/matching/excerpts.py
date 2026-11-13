@@ -116,7 +116,8 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
     stitched (before, the evidence sentences and the note's start were joined with nothing between, so a list under
     "family history" or under "denies the following" read as the patient's own history).
 
-    What is shown, in this order while it fits: each evidence sentence; above each, the nearest heading
+    What is shown, in this order while it fits: each evidence sentence (one the note says once before one it
+    repeats, else in the note's order); above each, the nearest heading
     (:func:`_is_heading`), which may stand across a cut; then each window grows by one sentence up and one down in
     turn, so the lines just above the evidence (the lead-in of its list, a heading written with a colon) are shown
     joined to it or not at all. A direction ends at the first sentence that does not fit: nothing is skipped to
@@ -154,6 +155,10 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
         return True
 
     first = [i for i, x in enumerate(sents) if any(x == w or x in w for w in wanted)] or ([0] if sents else [])
+    # a sentence the note says once before one it repeats (a daily "no change" inside a retrieved chunk makes every
+    # copy evidence): else the copies, in the note's order, take the room of the chunk's own sentence (D-645)
+    copies = {x: sents.count(x) for x in {sents[i] for i in first}}
+    first.sort(key=lambda i: (copies[sents[i]], i))
     for i in first:
         take(i)
     if not chosen:
@@ -170,7 +175,7 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
         while out and tokens("".join(out)) > cap:
             out.pop()
         return "".join(out)
-    centres = [i for i in first if i in chosen]
+    centres = sorted(i for i in first if i in chosen)
     heads: set[int] = set()  # the heading each evidence sentence stands under, when it is shown
     for i in centres:
         h = next((k for k in range(i - 1, -1, -1) if _is_heading(sents, k)), None)

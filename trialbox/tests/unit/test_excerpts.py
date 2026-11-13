@@ -342,6 +342,19 @@ def test_a_retrieved_chunk_is_evidence_for_the_sentences_it_holds() -> None:
     assert key in got.shown[0]["text"] and got.left_out == 1
 
 
+def test_a_line_the_chunk_shares_with_the_whole_note_does_not_crowd_out_its_own_sentence() -> None:
+    """D-645: a chunk holds a line the note repeats (a daily "no change"): every copy counted as evidence and was
+    taken first, in the note's order, so whether the chunk's own sentence was shown hung on the tokens left over
+    (the test above passed at 400 and would not have at 410, 420, 440 or 800). The sentence the note says once
+    goes first, at every budget that forces a cut."""
+    key = "Tophus on the left ear."
+    long = FILLER * 300 + key + "\n" + FILLER * 300
+    chunk = FILLER + key + "\n" + FILLER
+    missing = [b for b in range(120, 3000, 10)
+               if key not in build([_n("n", "2026-10-01", long)], {"n": [chunk]}, b).shown[0]["text"]]  # fmt: skip
+    assert missing == []
+
+
 def test_clip_and_sentences_are_the_cascades_own() -> None:
     assert sentences("痛風発作。再診予定！\nUric acid 9.1? ok") == ["痛風発作。", "再診予定！", "Uric acid 9.1?", "ok"]
     assert cascade_engine.sentences is sentences  # type: ignore[attr-defined]  # one splitter
