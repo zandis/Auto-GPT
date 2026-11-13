@@ -35,6 +35,7 @@ from lake.store import (
     Lake,
     LakeBusy,
     RebuildError,
+    error_answer,
     read_rebuild_job,
     split_generation,
     write_rebuild_job,
@@ -92,8 +93,8 @@ def query(req: LakeQuery, x_tb_lake_generation: str | None = Header(default=None
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:  # duckdb errors -> 422 with the engine message (no data echoed)
-        raise HTTPException(status_code=422, detail=f"{type(exc).__name__}: {str(exc)[:500]}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=error_answer(exc)) from exc
     return Response(content=to_ipc(table), media_type=ARROW_STREAM)
 
 
