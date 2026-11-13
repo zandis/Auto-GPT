@@ -334,13 +334,11 @@ def mask_contacts(text: str, guard: Guard) -> tuple[str, list[str]]:
     kinds: set[str] = set()
     lines = []
     for line in text.split("\n"):
-        # every pattern match, without the tripwire's second look (D-647): a subject or contact line of a protocol
-        # holds a name more often than a note line does; masking too much costs readability only
-        v = guard.tripwire(line, second_look=False)
+        v = guard.tripwire(line)
         if v.hit:
             kinds.update(v.kinds)
             line = guard.redact(line)
-            if guard.tripwire(line, second_look=False).hit:
+            if guard.tripwire(line).hit:
                 line = "[CONTACT]"
         lines.append(line)
     return "\n".join(lines), sorted(kinds)

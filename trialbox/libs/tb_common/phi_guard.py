@@ -8,7 +8,6 @@ clearance for exactly the text being sent. The guard errs on the side of hits (f
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -150,10 +149,7 @@ def variables_text(variables: Any) -> str:
     return "\n".join(out)
 
 
-def scan(text: str, mrn_regex: str | None = None, cjk_names: Callable[[str], list[str]] | None = None) -> PhiScan:
-    """``cjk_names``: what finds the Chinese and Japanese names of a text (default: :func:`_cjk_names`, every
-    match of the patterns). The tripwire passes its own, which takes a second look at each match (D-647)."""
-    cjk_names = cjk_names or _cjk_names
+def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
     findings: list[tuple[str, str]] = []
     for m in TW_ID.finditer(text):
         findings.append(("taiwan_id", _mask(m.group(0))))
@@ -165,14 +161,14 @@ def scan(text: str, mrn_regex: str | None = None, cjk_names: Callable[[str], lis
         findings.append(("phone", _mask(m.group(0))))
     for m in KEYWORDS.finditer(text):
         findings.append(("keyword", m.group(0)))
-    names = cjk_names(text)
+    names = _cjk_names(text)
     findings.extend(("name", _mask(n)) for n in names)
     for m in EN_NAME.finditer(text):
         findings.append(("name", _mask(m.group(0))))
     # date of birth near a name-like token
     for m in DATE.finditer(text):
         window = text[max(0, m.start() - 30) : m.end() + 30]
-        if cjk_names(window) or EN_NAME.search(window) or re.search(r"生日|出生|DOB|born", window, re.I):
+        if _cjk_names(window) or EN_NAME.search(window) or re.search(r"生日|出生|DOB|born", window, re.I):
             findings.append(("dob_near_name", _mask(m.group(0))))
     if findings:
         return PhiScan(True, findings, None)
