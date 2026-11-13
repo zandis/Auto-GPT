@@ -104,7 +104,7 @@ def test_the_same_feed_twice_is_the_same_bytes_and_copies_keep_their_weekday(
     densify(thin, tmp_path / "again")
     for f in sorted(out.glob("*.csv")):
         assert f.read_bytes() == (tmp_path / "again" / f.name).read_bytes(), f.name
-    days = Counter()
+    days: Counter[int] = Counter()
     for r in _rows(out, "encounter"):
         days[datetime.fromisoformat(r["visit_datetime"]).weekday()] += 1
     thin_days = {datetime.fromisoformat(r["visit_datetime"]).weekday() for r in _rows(thin, "encounter")}
