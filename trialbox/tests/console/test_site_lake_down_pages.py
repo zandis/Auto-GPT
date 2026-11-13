@@ -59,6 +59,10 @@ def test_the_pages_say_the_data_could_not_be_read(down: dict[str, Any], lang: st
     assert page.status_code == 200
     assert 'data-testid="miss-lake_unread"' in page.text and str(escape(cat["site.miss.lake_unread"])) in page.text
     assert 'data-testid="q-patients" data-state="amber"' in page.text  # not known: not red ("none"), not green
+    # nothing on this page fixes it: no button, and no key shown where a label belongs
+    assert 'data-testid="fix-lake_unread"' not in page.text and "site.fix." not in page.text
+    ask = c.get("/ask?q=next&study=GZQO")
+    assert ask.status_code == 200 and "site.fix." not in ask.text
     assert 'data-testid="site-feed"' not in page.text
     assert 'data-testid="feas-lake-unread"' in page.text and 'data-testid="feas-basis"' not in page.text
     pc = c.get("/site/patients?study=GZQO")

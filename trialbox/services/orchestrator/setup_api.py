@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 from sitesetup import help as site_help
 from sitesetup import publish, readiness
 from sitesetup.intake import IntakeError
-from sitesetup.service import LAKE_DOWN, SiteSetup, ws_ok
+from sitesetup.service import SiteSetup, ws_ok
 from sitesetup.store import SetupError
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -229,7 +229,7 @@ def router(
             return {"study": rid, "approved": False, "patients": []}
         try:
             return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
-        except LAKE_DOWN:  # D-709: said, not a 500 and not "no patients"
+        except readiness.UNREAD:  # D-709: said, not a 500 and not "no patients"
             return {"study": rid, "approved": True, "patients": [], "lake_unread": True}
 
     @r.get("/setup/{ws}/feasibility")
@@ -246,7 +246,7 @@ def router(
             return {"study": rid, "approved": True, "needs_bulk": True, "feas": None}
         try:
             return {**out, "feas": readiness.feasibility(svc, w, rs, svc.today())}
-        except LAKE_DOWN:
+        except readiness.UNREAD:
             return {**out, "feas": None, "lake_unread": True}
 
     @r.post("/setup/{ws}/sheets")

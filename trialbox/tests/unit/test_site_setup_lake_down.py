@@ -24,6 +24,7 @@ import pytest
 from lake.client import LakeUnhealthy
 from sitesetup import help, readiness
 from sitesetup.service import LAKE_DOWN, SiteSetup
+from tb_common.http import ServiceError
 from tb_common.db import ENV as DB_ENV
 
 from tests.unit.test_site_setup import STUDY, TODAY, pid, site_ruleset, svc  # noqa: F401 - the fixture, by name
@@ -119,6 +120,66 @@ def test_a_publish_a_person_asks_for_still_fails_and_another_error_is_not_swallo
     svc.main_lake = up
 
 
+def _status(code: int) -> Exception:
+    req = httpx.Request("POST", "http://lake/rebuild")
+    return httpx.HTTPStatusError("refused", request=req, response=httpx.Response(code, request=req))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [_status(400), _status(409), ServiceError("embed", 422, "x"), ServiceError("lake", 409, "x")],
+    ids=["the lake refuses 400", "the lake refuses 409", "another service", "the lake's refusal as a service error"],
+)
+def test_a_refusal_is_not_the_lake_being_down_and_goes_on(svc: SiteSetup, error: Exception) -> None:  # noqa: F811
+    """ "Waiting" would be untrue of a refusal: nothing a later tick does changes a 400 or a 409."""
+    inp = help.practice_inputs()
+    up = svc.main_lake
+    svc.main_lake = Down(up, error)
+    with pytest.raises(type(error)):
+        svc.add_sheet(MAIN, "sheet", inp["sheet"][0], inp["sheet"][1], {}, "crc")
+    svc.main_lake = up
+
+
+@pytest.mark.parametrize("error", [_status(503), ServiceError("lake", 502, "x")], ids=["503", "502 as a service error"])
+def test_a_lake_that_fails_is_down(svc: SiteSetup, error: Exception) -> None:  # noqa: F811
+    inp = help.practice_inputs()
+    up = svc.main_lake
+    svc.main_lake = Down(up, error)
+    assert svc.add_sheet(MAIN, "sheet", inp["sheet"][0], inp["sheet"][1], {}, "crc")["publish"] == "waits_for_lake"
+    svc.main_lake = up
+
+
+class Halfway:
+    """A lake whose health answers (it names a snapshot) and whose queries fail, as the client raises them."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def snapshot(self) -> str:
+        return "2026-11-01"
+
+    def query(self, *a: Any, **k: Any) -> Any:
+        raise self._error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("lake query failed (500): x"), httpx.ReadTimeout("slow"), ServiceError("lake", 500, "x")],
+    ids=["the query answers 500", "the query times out", "a service error"],
+)
+def test_a_lake_that_names_its_snapshot_and_cannot_be_queried_is_unread_too(
+    svc: SiteSetup,  # noqa: F811
+    error: Exception,
+) -> None:
+    up = svc.main_lake
+    svc.main_lake = Halfway(error)
+    rd = readiness.readiness(svc, MAIN, STUDY, {"forms": 7})
+    q = rd["questions"]["patients"]
+    assert rd["lake_unread"] is True and rd["feed"] is None and q["missing"][0]["key"] == "patients.lake_unread"
+    assert q["state"] == "amber"
+    svc.main_lake = up
+
+
 def test_a_change_with_the_lake_up_says_nothing_of_waiting(svc: SiteSetup) -> None:  # noqa: F811
     inp = help.practice_inputs()
     out = svc.add_sheet("newsite", "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
@@ -139,7 +200,7 @@ def test_the_three_readers_raise_instead_of_answering_nothing(down: SiteSetup, m
     monkeypatch.setenv(DB_ENV, "postgresql://nowhere/none")
     for fn, args in ((readiness.feed_loaded, (down,)), (readiness.unknown_share, (down, MAIN)),
                      (readiness.scores_unverified, (down,))):  # fmt: skip
-        with pytest.raises(LAKE_DOWN):
+        with pytest.raises(readiness.UNREAD):
             fn(*args)
 
 

@@ -40,10 +40,26 @@ from sitesetup.store import COUNTED, SetupError, SetupStore
 
 log = logging.getLogger("sitesetup")
 
-#: NEW-SITE-2 (D-709): the hospital's lake could not be asked. A service's failure (the lake answered, but not
-#: healthy: ``lake.client.LakeUnhealthy``, D-672; or any other answer that is an error) or no answer at all. Never
-#: an error of this code, which goes on.
+#: NEW-SITE-2 (D-709): the error types a lake that cannot be asked raises; :func:`lake_down` says whether one is
+#: that, or a refusal. Never an error of this code, which goes on.
 LAKE_DOWN = (ServiceError, httpx.HTTPError)
+
+
+def lake_down(exc: BaseException) -> bool:
+    """Is this the hospital's lake failing or not answering (so a later try may work), and not a refusal? The
+    lake's health not read (``lake.client.LakeUnhealthy``, D-672, whatever its status), an answer of 500 and
+    above from the lake, or no answer at all. A 4xx of the lake (a rebuild refused: no feed folder, a bad
+    request) and any other service's error are refusals: waiting changes nothing, so they go on."""
+    from lake.client import LakeUnhealthy
+
+    if isinstance(exc, LakeUnhealthy):
+        return True
+    if isinstance(exc, ServiceError):
+        return exc.service == "lake" and (exc.status >= 500 or exc.status == 0)
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.HTTPError)
+
 
 _WS = re.compile(r"^[a-z][a-z0-9]{0,15}$")
 SAFE_NAME = re.compile(r"[^\w.\-]+")
@@ -409,12 +425,14 @@ class SiteSetup:
     def _saved(self, ws: str, by: str, out: dict[str, Any]) -> dict[str, Any]:
         """Publish after a change that is stored and audited (an upload, a chart, a code map, a resolve), and
         answer the change. NEW-SITE-2 (D-709): when the lake cannot be asked, the change is still saved: the answer
-        says its publish waits for the lake (``publish: waits_for_lake``) and the next tick (:meth:`flush`) or the
+        says its publish waits for the lake (``publish: waits_for_lake``; :func:`lake_down`, not a refusal) and the next tick (:meth:`flush`) or the
         next change publishes it, because what waits is the difference between the facts and the last publish.
         A person who presses Publish calls :meth:`publish` itself and gets the error."""
         try:
             self.publish(ws, by)
         except LAKE_DOWN as exc:
+            if not lake_down(exc):
+                raise
             log.warning("a site change is saved; its publish waits for the lake (%s)", type(exc).__name__)
             self.audit.append("setup.publish_waits", actor=by, detail={"ws": ws, "why": "lake"})
             return {**out, "publish": "waits_for_lake"}

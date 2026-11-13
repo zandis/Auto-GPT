@@ -139,9 +139,9 @@ CALLERS: dict[tuple[str, str], str] = {
     # caught, and said (D-672 left these four open, read as "nothing"; NEW-SITE-2, D-709, closed them)
     ("orchestrator/derive.py", "status"): "caught: the status says lake_unread; the health line says not asked",
     ("sitesetup/readiness.py", "readiness"): "caught: the answer says lake_unread; the page says could not be read",
-    ("sitesetup/readiness.py", "unknown_share"): "a lake's failure is raised again: never (0, 0)",
+    ("sitesetup/readiness.py", "unknown_share"): RAISES,  # never (0, 0); `readiness` catches and says it
     ("sitesetup/readiness.py", "scores_unverified"): "a lake's failure is raised again: never 'verified'",
-    ("sitesetup/readiness.py", "feed_loaded"): "a lake's failure is raised again: never 'no feed is loaded'",
+    ("sitesetup/readiness.py", "feed_loaded"): RAISES,  # never "no feed is loaded"; `readiness` catches and says it
     ("datacore/optout_worker.py", "run_once"): "caught: the registry is named as failed; the next tick tries again",
     # other objects that have a snapshot() of their own
     ("edc/prefill.py", "build"): NOT_THE_LAKE,
