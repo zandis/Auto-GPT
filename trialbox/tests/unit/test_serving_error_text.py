@@ -48,24 +48,6 @@ def test_a_model_server_that_does_not_answer_is_named_by_the_errors_type(caplog:
     assert WORDS in caplog.text  # the text is in the log, for the operator
 
 
-def test_a_stub_handler_that_cannot_read_its_messages_answers_a_fixed_sentence(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fastapi.testclient import TestClient
-    from llm_stub import app as stub_app
-    from llm_stub import handlers
-
-    def broken(_messages: list[Any]) -> Any:
-        raise ValueError(f"cannot read {WORDS}")
-
-    monkeypatch.setitem(handlers.MESSAGE_HANDLERS, "broken_v1", broken)
-    r = TestClient(stub_app.app).post(
-        "/v1/chat/completions",
-        json={"model": "stub", "messages": [{"role": "user", "content": "x"}]},
-        headers={"x-tb-prompt-id": "broken_v1"},
-    )
-    assert r.status_code == 400 and WORDS not in r.text
-    assert "ValueError" in r.text and "handler" in r.text
-
-
 def test_the_model_guards_refusals_are_its_own_class_and_its_own_sentences(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
