@@ -198,6 +198,12 @@ class FakeBackend:
         assert self.audit_dir is not None
         return read_audit(self.audit_dir, job_id, limit)
 
+    def recheck_share(self, job_id: str) -> dict[str, Any] | None:
+        from console.backend import read_recheck_share
+
+        assert self.audit_dir is not None
+        return read_recheck_share(self.audit_dir, job_id)
+
     def rulesets(self) -> list[RulesetInfo]:
         return [RulesetInfo("GZQO", "1.0.0", "approved", "trial"), RulesetInfo("RA-BIO", "1.0.0", "approved", "nhi")]
 
