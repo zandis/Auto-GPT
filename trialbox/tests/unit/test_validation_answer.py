@@ -13,6 +13,8 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field, field_validator
 from tb_common.http import make_app
 
+from tests.actor3 import signed
+
 CHART = "A1234567"  # synthetic
 pytestmark = pytest.mark.nodb
 
@@ -138,10 +140,14 @@ def test_the_orchestrators_own_route_answers_so(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("TB_ENV", "TEST")
     monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
     c = TestClient(oapp.app, raise_server_exceptions=False)
-    r = c.post("/registry/GZQO", json={"mrn": CHART})
-    assert r.status_code == 422 and CHART not in r.text, r.text[:200]
-    r = c.post("/registry/GZQO", json={"mrn": "12345678", CHART: 1})  # an extra key, on a contract that forbids one
-    assert r.status_code == 422 and CHART not in r.text, r.text[:200]
+    # the registry's route takes a signed person first (T-715b, D-550): an unsigned call is refused before its
+    # shape is read, so the calls are signed for exactly this body, as the console signs them
+    path = "/registry/GZQO"
+    for body in ({"mrn": CHART}, {"mrn": "12345678", CHART: 1}):  # a missing field; an extra key (forbidden)
+        r = c.post(path, json=body, headers=signed("request.prepare", "GZQO", "POST", path, body))
+        assert r.status_code == 422 and CHART not in r.text, r.text[:200]
+    r = c.post(path, json={"mrn": CHART})  # unsigned: refused, and the refusal repeats nothing either
+    assert r.status_code == 403 and CHART not in r.text, r.text[:200]
     r = c.post("/jobs", json={CHART: 1})
     assert r.status_code == 422 and CHART not in r.text, r.text[:200]
 

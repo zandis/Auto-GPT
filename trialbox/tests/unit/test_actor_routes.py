@@ -9,7 +9,9 @@ person, right, study, request or body is refused on the real app in the producti
 
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -234,6 +236,76 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, li
     monkeypatch.setattr(oapp, "orch", lambda: SimpleNamespace(audit=audit))
     client = TestClient(oapp.app, headers={sa.TOKEN_HEADER: token_of("console")}, raise_server_exceptions=False)
     return client, events
+
+
+class _Lines(logging.Handler):
+    """The orchestrator's own log lines, read at the logger itself: the app's logging set-up decides whether a
+    line travels further (to pytest's capture), and that depends on which test built the app first."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.fixture
+def lines() -> Iterator[_Lines]:
+    h, lg = _Lines(), logging.getLogger("orchestrator")
+    lg.addHandler(h)
+    try:
+        yield h
+    finally:
+        lg.removeHandler(h)
+
+
+def test_a_refusal_stays_a_refusal_when_its_record_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lines: _Lines
+) -> None:
+    """Train 8: an unsigned registry change on a box whose database did not answer was a 500 ("internal error"),
+    because writing the ``actor.refused`` record raised and the refusal was lost with it. The person is refused
+    all the same (403, the same body), and the record that could not be written is an ERROR line of the log."""
+    from orchestrator import app as oapp
+
+    per_service_tokens(tmp_path, monkeypatch)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+
+    def no_box() -> Any:
+        raise RuntimeError("cannot reach the trial database: OperationalError")
+
+    monkeypatch.setattr(oapp, "orch", no_box)
+    client = TestClient(oapp.app, headers={sa.TOKEN_HEADER: token_of("console")}, raise_server_exceptions=False)
+    r = client.post("/registry/GZQO", json={"pid": "ab" * 16, "status": "contacted"})
+    assert r.status_code == 403, r.text[:200]
+    assert "no signed-in user" in _refused(r)
+    lost = [x for x in lines.records if x.getMessage() == "actor.refused: not written to the audit trail"]
+    assert len(lost) == 1 and getattr(lost[0], "route", "") == "POST /registry/{ruleset}"
+    assert getattr(lost[0], "reason", "") and getattr(lost[0], "error", "") == "RuntimeError"
+    assert ra.lost_refusals()["routes"].get("POST /registry/{ruleset}", 0) >= 1  # counted: the status shows it
+
+
+def test_the_older_checks_refusal_stays_one_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lines: _Lines) -> None:
+    """The same fault in the older signed-person check (``orchestrator.app._claim``: a job's retry, cancel, the
+    notices, the EDC): a person named without a valid assertion was a 500 when the record could not be written."""
+    from orchestrator import app as oapp
+
+    per_service_tokens(tmp_path, monkeypatch)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+
+    def no_box() -> Any:
+        raise RuntimeError("cannot reach the trial database: OperationalError")
+
+    monkeypatch.setattr(oapp, "orch", no_box)
+    headers = {sa.TOKEN_HEADER: token_of("console"), sa.ACTOR_HEADER: "console:dr_tanaka",
+               sa.ROLE_HEADER: "admin", sa.ASSERTION_HEADER: "not-a-signature"}  # fmt: skip
+    client = TestClient(oapp.app, headers=headers, raise_server_exceptions=False)
+    before = ra.lost_refusals()["count"]
+    r = client.post("/jobs/01HZZZZZZZZZZZZZZZZZZZZZZZ/retry", json={"reply_to": "it@hospa.test"})
+    assert r.status_code == 403 and "dr_tanaka" not in r.text, r.text[:200]
+    lost = [x for x in lines.records if x.getMessage() == "actor.refused: not written to the audit trail"]
+    assert len(lost) == 1 and getattr(lost[0], "route", "") == "POST /jobs/{job_id}/retry"
+    assert ra.lost_refusals()["count"] == before + 1
 
 
 def _refused(r: Any) -> str:
