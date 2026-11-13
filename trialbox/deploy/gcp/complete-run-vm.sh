@@ -405,6 +405,9 @@ setup_failed() { finish "TB-SETUP-FAILED: $1" setup-failed; }
 echo "== setup $(date -u +%FT%TZ)" >>"$LOG"
 # DPkg::Lock::Timeout: the image's own unattended-upgrades may hold the lock at boot; wait for it (10 min) not fail
 APT=(apt-get -o DPkg::Lock::Timeout=600)
+# The same wait for every other apt on this VM: `playwright install --with-deps` calls apt-get itself, without the
+# option above, and run 20261113T072836Z ended at TB-SETUP-FAILED: playwright on unattended-upgrades' lock.
+echo 'DPkg::Lock::Timeout "600";' >/etc/apt/apt.conf.d/99tb-lock-timeout
 "${APT[@]}" update -qq >>"$LOG" 2>&1
 "${APT[@]}" install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra tesseract-ocr-eng \
   python3-venv python3-pip curl xz-utils git >>"$LOG" 2>&1 || setup_failed "apt-get install"

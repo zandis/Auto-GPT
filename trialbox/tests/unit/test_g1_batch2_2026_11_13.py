@@ -152,3 +152,12 @@ def test_the_refusal_over_an_uncollected_run_names_discard_previous_for_another_
     assert r.returncode == 3 and "holds run OLD-s1" in r.stderr, _said(r)
     assert "collected in another folder" in r.stderr and f"looks in {tmp_path / 'runs'}" in r.stderr
     assert "--discard-previous is the way" in r.stderr and _starts(tmp_path) == 0
+
+
+def test_every_apt_on_the_vm_waits_for_the_dpkg_lock_not_only_the_scripts_own() -> None:
+    """Run 20261113T072836Z: playwright's own apt-get (install --with-deps) met unattended-upgrades' lock and the VM
+    ended at TB-SETUP-FAILED. The wait is an apt configuration file, written before anything installs."""
+    vm = (Path(__file__).resolve().parents[2] / "deploy/gcp/complete-run-vm.sh").read_text(encoding="utf-8")
+    conf = "echo 'DPkg::Lock::Timeout \"600\";' >/etc/apt/apt.conf.d/99tb-lock-timeout"
+    assert conf in vm
+    assert vm.index(conf) < vm.index('"${APT[@]}" update') < vm.index("npx playwright install --with-deps")
