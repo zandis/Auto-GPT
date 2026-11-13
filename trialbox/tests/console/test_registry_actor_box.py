@@ -35,7 +35,7 @@ def test_a_name_in_the_body_sets_no_status_and_promotes_nobody(orch_box: OrchBox
 def test_a_signed_call_is_recorded_under_the_verified_person_whatever_the_body_says(orch_box: OrchBox) -> None:
     pid = orch_box.listed()[0]
     c = orch_box.client("console")
-    path, body = f"/registry/{STUDY}", {"pid": pid, "status": "contacted", "reason": "phone", "source": "manual"}
+    path, body = f"/registry/{STUDY}", {"pid": pid, "status": "contacted", "reason": "phone"}
     r = c.post(path, json=body, headers=signed(ACT, STUDY, "POST", path, body, sub="console:crc"))
     assert r.status_code == 200, r.text[:300]
     assert r.json()["updated_by"] == "console:crc"
@@ -81,3 +81,29 @@ def test_the_coordinator_promotes_and_edits_through_the_console(site: dict[str, 
     rows = {row["pid"]: row for row in _rows(ob)}
     assert rows[pid]["status"] == "contacted" and {row["updated_by"] for row in rows.values()} == {"console:crc"}
     assert not ob.events("actor.refused") and not ob.events("actor.unsigned")
+
+
+def test_the_source_is_the_routes_and_a_job_must_be_the_studys(orch_box: OrchBox) -> None:
+    """T-715c (D-552): a signed requester could send `source` and `source_job` as they liked: a hand-made change
+    was recorded as a screening's, under a job that does not exist. The route sets the source; a job named with
+    the change must be a job of this study."""
+    job = orch_box.screen()
+    pid = orch_box.listed()[0]
+    c = orch_box.client("console")
+    path = f"/registry/{STUDY}"
+
+    def send(body: dict[str, Any]) -> Any:
+        return c.post(path, json=body, headers=signed(ACT, STUDY, "POST", path, body))
+
+    base = {"pid": pid, "status": "contacted"}
+    assert send({**base, "source": "screen"}).status_code == 422  # not a field of the request
+    r = send({**base, "source_job": "01JF0RGED000000000000000ZZ"})
+    assert r.status_code == 400 and "not a job of this study" in r.text, r.text[:200]
+    assert _rows(orch_box) == [] and orch_box.events("registry.update") == []
+    r = send({**base, "source_job": job.job_id})
+    assert r.status_code == 200, r.text[:300]
+    row = r.json()
+    assert row["source"] == "manual" and row["source_job"] == job.job_id
+    assert orch_box.events("registry.update")[-1]["job_id"] == job.job_id
+    r = send({"pid": orch_box.listed()[1], "status": "contacted"})  # no job named: none recorded
+    assert r.status_code == 200 and r.json()["source"] == "manual" and r.json()["source_job"] is None
