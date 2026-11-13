@@ -264,9 +264,9 @@ def advance(orch: Orchestrator) -> list[str | None]:
 
     NEW-B-26 (D-667): a night whose last step has ended is written to the night's record
     (:mod:`orchestrator.night_work`)."""
-    from orchestrator import night_work
-
     try:
+        from orchestrator import night_work
+
         with _lock:
             started = _go_on(orch)
             if not started:

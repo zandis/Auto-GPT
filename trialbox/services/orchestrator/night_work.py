@@ -17,11 +17,17 @@ on this box, or retention is held), a night whose chain was cut short by the nex
 does not run. Times and a date only: no patient data.
 
 How many nights are kept is not a number of this file's: an entry goes when the job store no longer holds a
-retention job of its night (the box's own retention of jobs decides).
+retention job of its night. **The job store keeps every job today**, so the file grows by one small entry a night,
+as the jobs table grows by that night's jobs; the day jobs are removed, the entries go with them. The host's copy
+keeps only the nights the lake keeps (``backup_schedule.copy_night_length``).
+
+``end`` is a job's last state change. A chain job that did not end by itself (stopped by the restart limit, or
+cancelled) ends at that moment, which can be later than the night's work.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -47,8 +53,13 @@ def _read(path: Path) -> list[dict[str, Any]]:
 
 def _write(path: Path, nights: list[dict[str, Any]]) -> None:
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps({"nights": nights}, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    try:
+        tmp.write_text(json.dumps({"nights": nights}, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
 
 
 def note(orch: Orchestrator) -> None:

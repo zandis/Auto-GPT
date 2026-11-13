@@ -202,20 +202,46 @@ def test_the_backup_copies_both_records_into_the_one_file_and_the_reader_answers
     ]  # fmt: skip
 
 
+DEEP = "[" * 1500 + "]" * 1500  # a list json reads and cannot write again
+
+
 @pytest.mark.parametrize("work", [None, "", "{", "[]", '{"nights": 3}', "[" * 5000])
 def test_an_orchestrator_record_the_host_cannot_use_leaves_the_adapters_copy_whole(
     tmp_path: Path, work: str | None
 ) -> None:
     deploy = tmp_path / "deploy"
-    _deploy(tmp_path, [_adapter("2026-09-30")], [_work("2026-09-30")])  # an earlier run's copy
-    env = _volumes(tmp_path, [_adapter("2026-10-01")], work)
+    _deploy(tmp_path, [_adapter("2026-10-01")], [_work("2026-10-01")])  # an earlier run's copy
+    env = _volumes(tmp_path, [_adapter("2026-10-01"), _adapter("2026-10-02")], work)
     assert bs.copy_night_length(env, deploy) == ""  # the adapter's record is the copy's reason: it was copied
     got = json.loads((deploy / "site" / night_length.FILE).read_text(encoding="utf-8"))
-    assert got["nights"] == [_adapter("2026-10-01")]
-    assert got["work"] == [_work("2026-09-30")]  # the earlier copy of the part that could not be read stays
-    assert night_length.night_runs(deploy) == [
-        {"start": "2026-10-01T01:00:00+08:00", "end": "2026-10-01T03:10:00+08:00"}
+    assert got["nights"] == [_adapter("2026-10-01"), _adapter("2026-10-02")]
+    assert got["work"] == [_work("2026-10-01")]  # the earlier copy of the part that could not be read stays
+    assert [sorted(r) for r in night_length.night_runs(deploy)] == [
+        ["end", "start", "work_end", "work_start"],
+        ["end", "start"],
     ]
+    assert not list((deploy / "site").glob("*.tmp"))
+
+
+@pytest.mark.parametrize("where", ["volume", "copy"])
+def test_a_part_nested_too_deep_to_write_again_never_fails_the_backup(tmp_path: Path, where: str) -> None:
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    if where == "copy":
+        (deploy / "site" / night_length.FILE).write_text(f'{{"nights": [], "work": {DEEP}}}', encoding="utf-8")
+    env = _volumes(tmp_path, [_adapter("2026-10-01")], f'{{"nights": {DEEP}}}' if where == "volume" else None)
+    assert bs.copy_night_length(env, deploy) == ""
+    got = json.loads((deploy / "site" / night_length.FILE).read_text(encoding="utf-8"))
+    assert got == {"nights": [_adapter("2026-10-01")], "work": []}  # what names no night is not copied
+
+
+def test_the_hosts_copy_keeps_the_work_of_the_nights_the_lake_keeps_and_no_other_count(tmp_path: Path) -> None:
+    # the job store keeps every job, so the orchestrator's file grows as its jobs do; the host's copy does not
+    work = [_work("2026-09-01"), _work("2026-10-02"), {"day": 7}, "x"]
+    env = _volumes(tmp_path, [_adapter("2026-10-02")], json.dumps({"nights": work}))
+    assert bs.copy_night_length(env, tmp_path / "deploy") == ""
+    got = json.loads((tmp_path / "deploy" / "site" / night_length.FILE).read_text(encoding="utf-8"))
+    assert got["work"] == [_work("2026-10-02")]
 
 
 @pytest.mark.parametrize(
@@ -228,6 +254,7 @@ def test_an_orchestrator_record_the_host_cannot_use_leaves_the_adapters_copy_who
         [_work("2026-10-01", start="yesterday")],
         [_work("2026-10-02")],  # another night's
         [3, "x", {"day": 7}],
+        [_work("2026-10-01"), _work("2026-10-01", end="2026-10-01T09:00:00+08:00")],  # two answers for one night
         {"day": "2026-10-01"},
         "x",
     ],
@@ -246,3 +273,26 @@ def test_a_copy_made_before_this_card_reads_as_before(tmp_path: Path) -> None:
     assert night_length.night_runs(tmp_path / "deploy") == [
         {"start": "2026-10-01T01:00:00+08:00", "end": "2026-10-01T03:10:00+08:00"}
     ]
+
+
+def test_entries_that_name_no_night_are_never_matched_to_each_other(tmp_path: Path) -> None:
+    nameless = {k: v for k, v in _adapter("2026-10-01").items() if k != "snapshot"}
+    no_day = {k: v for k, v in _work("2026-10-01").items() if k != "day"}
+    for entry, work in ((nameless, no_day), ({**nameless, "snapshot": 1}, {**no_day, "day": 1})):
+        _deploy(tmp_path, [entry], [work])
+        assert night_length.night_runs(tmp_path / "deploy") == [
+            {"start": "2026-10-01T01:00:00+08:00", "end": "2026-10-01T03:10:00+08:00"}
+        ]
+
+
+def test_a_write_that_fails_part_way_leaves_no_part_file(box: Box, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    def full(self: Path, *_a: Any, **_k: Any) -> None:
+        self.touch()
+        raise OSError(28, "No space left on device")
+
+    box.timer_ingest(MON)
+    with monkeypatch.context() as m:
+        m.setattr(Path, "replace", full)
+        box.orch.drain()
+    assert len(box.chain()) == 4 and _entries(box) == []
+    assert [p.name for p in box.tmp_path.iterdir() if "night_work" in p.name] == []

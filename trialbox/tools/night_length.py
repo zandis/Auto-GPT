@@ -32,13 +32,18 @@ def night_runs(deploy: Path) -> list[dict[str, str]]:
         nights = body["nights"]
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return []
-    work = {str(w.get("day")): w for w in _measured(body.get("work"))}
+    work: dict[str, dict[str, object] | None] = {}
+    for w in _measured(body.get("work")):
+        day = w.get("day")
+        if isinstance(day, str):
+            work[day] = None if day in work else w  # two answers for one night: neither is the night's
     out: list[tuple[datetime, dict[str, str]]] = []
     for n in _measured(nights):
         run = {"start": str(n["start"]), "end": str(n["end"])}
-        w = work.get(str(n.get("snapshot")))
-        if w is not None:
-            run |= {"work_start": str(w["start"]), "work_end": str(w["end"])}
+        snapshot = n.get("snapshot")
+        mine = work.get(snapshot) if isinstance(snapshot, str) else None
+        if mine is not None:
+            run |= {"work_start": str(mine["start"]), "work_end": str(mine["end"])}
         out.append((datetime.fromisoformat(run["start"]), run))
     return [run for _, run in sorted(out, key=lambda x: x[0])]
 

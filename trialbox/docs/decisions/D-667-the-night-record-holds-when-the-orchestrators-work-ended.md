@@ -27,22 +27,27 @@ the volume `orch-data`, which the host's backup already reads.
    received; `end` is the latest end among that ingest job and the jobs of the night's chain. The entry is written
    when the night's retention job has ended and no job of the chain is open (`night.advance`, which runs at every
    job's end and at the orchestrator's start). Because the times are the jobs', a process that died before the
-   write records the same times at its next start. The first finished entry of a night stays.
+   write records the same times at its next start, as long as that night is still the newest that passed. The
+   first finished entry of a night stays. `end` is a job's last state change: a chain job that did not end by
+   itself (stopped by the restart limit, or cancelled) ends at that moment, which can be later than the work.
 3. **`run` is 1 when the timer's own ingest passed, 2 when the night passed only as an administrator's retry**
    (D-474). The reader takes only `run` 1, as for the adapter's record: a daytime retry is not the night's length.
 4. **Not measured, never a guess**: a night whose ingest failed; a night with no retention job (the scenario is
    not on the box, or retention is held); a night whose chain was cut short by the next night's ingest; a box
    whose scheduler does not run.
-5. **No new count.** An entry goes when the job store no longer holds a retention job of its night: the box's
-   own retention of jobs decides how many nights are kept.
+5. **No new count.** An entry goes when the job store no longer holds a retention job of its night. The job store
+   keeps every job today (nothing deletes from `jobs`), so the orchestrator's file grows by one small entry a
+   night, as the jobs table grows by that night's jobs; the day jobs are removed, the entries go with them. The
+   host's copy keeps only the entries of the nights the adapter's record holds, which the lake's retention bounds.
 6. **The same file and the same function on the host.** The nightly backup's copy step
    (`backup_schedule.copy_night_length`) puts the orchestrator's entries into `deploy/site/night-length.json`
    under the key `work`, beside the adapter's `nights`. `tools.night_length.night_runs(deploy)` answers each night
    as before (`start`, `end`), and adds `work_start` and `work_end` when the orchestrator measured the same day.
    **A night without the two keys: its work was not measured**, never "no work after the publish".
 7. **The record never fails what it measures.** `night_work.note` never raises (a full disk, a damaged file); the
-   copy step keeps the adapter's part whole when the orchestrator's part cannot be read, and keeps the earlier
-   copy of that part.
+   copy step keeps the adapter's part whole when the orchestrator's part cannot be read or cannot be written
+   again, and keeps the earlier copy of that part. The reader matches a night only by a day that is text on both
+   sides, and gives no work times to a night the file answers twice.
 
 ## What this does not do
 
