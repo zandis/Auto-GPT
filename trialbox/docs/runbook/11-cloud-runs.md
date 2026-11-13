@@ -46,7 +46,8 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 | `run-b` | the same disk, a new run: nothing kept from `run-a`, a fresh log |
 | `served` | the judge serves a wrong name: `TB-SERVING-FAILED` before any part, the servers' logs in `results.tgz` |
 | `no-upload` | nobody uploads: `TB-NO-CODE`, power-off at once (no grace) |
-| `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
+| `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM (its first results-only start is refused, as in a stockout: said, nothing marked, the next `--collect` starts it) |
+| `hang-driven` | the same stuck part with a driver following it (wait mode, a poll every minute; one status describe fails on the way): the poll touches the VM's `driver-alive`, not the run's heartbeat, so the VM powers off within the idle limit; "unknown" is not the end of the run; the driver then collects results-only and sets the VM back to spot |
 | `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
 | `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door |
 | `preempt` | three short parts done, the VM pre-empted while a fourth runs; `--collect` gets the three from the stopped VM and removes none; the same run started again (`--shard 1`) keeps them (`--resume`) and runs only the fourth (G1 bug A1) |
@@ -77,7 +78,12 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
    `TB_SA_KEY_FILE` (gcloud gets the file's path; the driver never reads it) and probes the token: a dead credential
    stops it at once with `credentials expired: re-activate` (G1 bug A2). It:
    * probes the credential (`gc_probe`), reads the GPU and CPU quota (read-only) and refuses when the VMs cannot run,
-     and refuses unless every VM is `TERMINATED`;
+     and refuses unless every VM is `TERMINATED`. It reads each VM's `tb-run-id`: the VM keeps one run directory and
+     a launch of another run id deletes the earlier one's results, so it refuses while that run's results are not here
+     (its folder's state `done` or `noresults`); `--collect <that run>` first, or `--discard-previous`. One driver per
+     run folder (`flock` on `driver.lock`) and one launch per VM (`.cache/complete-run/locks`, `TB_LOCK_DIR`): a
+     second one says who holds the lock and exits. `--hours` takes whole hours only. A `--shard i` restart by hand
+     reads its zone's quota as a launch does;
    * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
      --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP
      --provisioning-model=STANDARD|SPOT` (`--hours N` to change). A VM whose shard holds a hospital part runs **on
@@ -98,25 +104,39 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
      Once the results are here the driver destroys the secret version: a `--collect` that has every part of the plan
      (even while the VM still runs its grace, or through the bucket) and `--stop` destroy every version this run
      made (also one a retried `versions add` left), and each says "no enabled version" or names what remains (the
-     report too, A8). A start that gives up (no door in 30 minutes by the clock, a failed start or upload) stops the
-     VM and destroys its version; without code the VM powers off at once (`TB-NO-CODE`), not after its grace (A6).
+     report too, A8). A start that gives up (no door in 30 minutes by the clock, a failed start or upload, and any
+     other exit or signal of the driver from the start until the upload is accepted: a trap) stops the VM and destroys
+     its version; without code the VM powers off at once (`TB-NO-CODE`), not after its grace (A6). The door's
+     certificate is valid 30 days (`DOOR_CERT_DAYS`), so a late `--collect` still reaches it.
 3. On the VM: a systemd hard cap and a watchdog start first; then a pre-flight (docker with the NVIDIA runtime, the
    weights in `/models`, 50 GB free: else `TB-PREFLIGHT-FAILED`); then both model servers, which must be healthy,
    list exactly their served names, answer one chat call and refuse a call without the key, else
    `TB-SERVING-FAILED` and their logs in the results; only then `PRO6000-RUN-READY`. Setup installs git, the venv,
    Node.js, Playwright (Chromium must launch) and fetches the data git does not carry (`tools/fetch_run_data.py`: the
    CQL translator's `quick-5.4.0.jar`, MedTxt, TREC CT; a dataset it cannot fetch is named `TB-DATA-MISSING`, and
-   its parts fail at once as "data missing" without using the card). The watchdog limits each phase (serving and
-   setup 45 minutes, the code 35) and, in the run, powers off when no part has worked for 20 minutes (the run's own
-   heartbeat follows the part's CPU, so a long silent SCREEN stays alive and a stuck one does not), and 30 minutes
-   after the done marker (at once when the driver has collected). The model parts run in the run's own directory
+   its parts fail at once as "data missing" without using the card). The watchdog limits each phase (serving: the
+   sum of its own waits, `SERVING_LIMIT_S` in the script, so it never cuts a boot inside one of them; setup 45
+   minutes, the code 35) and, in the run, powers off when no part has worked for 20 minutes (the run's own heartbeat
+   follows the part's CPU, its own containers' CPU, `docker run --label tb-part=1` as the embed bench and G-1's
+   tokenizer run, and the card's utilisation, so a long silent SCREEN stays alive and a stuck one does not; the
+   driver's poll touches `driver-alive`, never this heartbeat, so a driver following a stuck part cannot keep it alive
+   to its cap), and 30 minutes after the done marker (5 after a failure marker, `tb-fail-grace`; at once when the
+   driver has collected). Every boot writes `TB-IMAGES` (the vLLM and nginx images present or missing) to its serial
+   console, which `--preflight` reads for a stopped VM; the model servers run with `HF_HUB_OFFLINE=1`; apt waits up to
+   10 minutes for the dpkg lock. With `TB_BUCKET` the VM tries the results upload three times; one that still fails
+   (`TB-UPLOAD-FAILED`) leaves the archive on the disk, and `--collect` fetches it by a results-only start through
+   the door, naming what is missing. The model parts run in the run's own directory
    (`/var/lib/tb/runs/<run id>`) with `--resume --ocr tesseract`, through the gateway built as an installed box builds
    it; `results.tgz` is re-packed after every part.
 4. Collect: `deploy/gcp/complete-run.sh --collect <run id>`, as often as wanted (each call is short: one look, the
    results so far, the report so far, "still running"; `--follow` polls to the end). The driver need not live through
    the run: the operator's shell may be capped at two hours, the run is not. When the VM has stopped with its
    results not yet collected, `--collect` starts it once in a **results-only** mode (no models, no run, a 20-minute
-   cloud cap; it powers off as soon as the results are here; about US$0.20). Once every VM is done, it runs the walk,
+   cloud cap; it powers off as soon as the results are here; about US$0.20). A start that is refused (a stockout)
+   marks nothing: the next `--collect` tries again. The poll ends only on `TERMINATED` or `STOPPED`: a status that
+   cannot be read is taken as still running, never as the end. Once a VM is collected and has powered off it goes
+   back to spot with the usual startup script, as `--stop` does. `prepare` and `install` (run on every VM with a
+   hospital part) are merged as failed if any VM's copy failed. Once every VM is done, it runs the walk,
    backup, update and scale on the stub here (at the run's `--patients`, OCR tesseract) and writes the report, whose
    head, host and run id are the VM's. A restart of the same run (`TB_RUN_ID=<run id> --shard i`) keeps the parts
    passed in that run at that HEAD; a new run never keeps anything. `<run id>` and the VM's `<run id>-s<i>` are one

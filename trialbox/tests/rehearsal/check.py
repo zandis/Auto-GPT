@@ -3,7 +3,7 @@
     python tests/rehearsal/check.py run-a <evidence> --only TAG,TAG --head <sha>
     python tests/rehearsal/check.py run-b <evidence> --only ... --head <sha> --previous <run id of run-a>
     python tests/rehearsal/check.py bucket <evidence> --only ... --head <sha>
-    python tests/rehearsal/check.py served|no-upload|hang|busy <evidence>
+    python tests/rehearsal/check.py served|no-upload|hang|hang-driven|busy <evidence>
     python tests/rehearsal/check.py preempt <evidence> --only TAG,TAG
 
 The evidence (rehearse.sh ``end_case``): ``console.log`` (the VM's serial console of this case), ``POWEROFF`` (each
@@ -26,6 +26,7 @@ import json
 import re
 import sys
 import tarfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -100,8 +101,8 @@ def check_door(r: Result, e: Path, collected: bool = True) -> None:
     """T-119 (CR-048): the key never in the metadata, the door on TLS 443, its secret version gone once collected."""
     keys = text(e / "metadata-keys").split()
     r.ok("metadata: no tb-key (the door comes from Secret Manager)", "tb-key" not in keys, keys)
-    r.ok("metadata: the door's secret and certificate named", {"tb-door-secret", "tb-door-version", "tb-door-cert"}
-         <= set(keys), keys)  # fmt: skip
+    # tb-door-version goes with the reset to spot once the VM has powered off after its collect (review 14)
+    r.ok("metadata: the door's secret and certificate named", {"tb-door-secret", "tb-door-cert"} <= set(keys), keys)
     con = text(e / "console.log")
     r.ok("console: no TB-NO-KEY", "TB-NO-KEY" not in con)
     r.ok("console: the door is up on 443 (TLS), no port 80", "behind nginx :443 (TLS" in con)
@@ -150,6 +151,12 @@ def check_measured(r: Result, rep: dict[str, Any], res: dict[str, bytes], vm: st
     r.ok(f"{tag}: calls per second from the gateway's audit", int(t.get("calls") or 0) + int(t.get("cached") or 0) > 0,
          {k: t.get(k) for k in ("calls", "cached", "calls_per_second", "p95_s")})  # fmt: skip
     r.ok(f"{tag}: the candidate list has a hash", bool((hosp.get("candidates") or {}).get("sha256")))
+    # the gateway's audit comes back with the results (the 2026-11-12 run lacked it: no per-call recomputation)
+    r.ok("results.tgz has the hospital part's gateway audit (gw-audit-hospital/*.jsonl)",
+         any(k.startswith("gw-audit-hospital/") and k.endswith(".jsonl") for k in res),
+         sorted(k for k in res if k.startswith("gw-audit"))[:4])  # fmt: skip
+    r.ok(f"{tag}: the refusal count has its input (the audit read: asked > 0)",
+         int((hosp.get("refusals") or {}).get("asked") or 0) > 0, hosp.get("refusals"))  # fmt: skip
 
 
 def report_of(e: Path) -> dict[str, Any]:
@@ -265,14 +272,41 @@ def no_upload_case(a: argparse.Namespace) -> int:
     return r.done()
 
 
+def _at(line: str) -> datetime | None:
+    m = re.search(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", line)
+    return datetime.strptime(m.group(0), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC) if m else None
+
+
+IDLE_SLACK_S = 180  # the watchdog looks once a minute, then packs (up to 120 s) and powers off: on top of the limit
+
+
 def silent_case(a: argparse.Namespace, hang: bool) -> int:
     r = Result(a.case)
     e = a.evidence
     con = text(e / "console.log")
     run_offs = poweroffs(e, "POWEROFF.run")
+    drv = text(e / "driver.log")
     if hang:
         r.ok("the stuck part was powered off by the idle watchdog", bool(run_offs) and "no heartbeat" in run_offs[0],
              run_offs[:1])  # fmt: skip
+    if a.case == "hang-driven":
+        # review 1: the driver followed it (wait mode, a poll with POST /tb/heartbeat every minute): the poll touches
+        # driver-alive, so the stuck part still powered off within the idle limit (2 minutes here)
+        ran = next((_at(ln) for ln in con.splitlines() if "TB-PHASE run" in ln), None)
+        off = _at(run_offs[0]) if run_offs else None
+        took = (off - ran).total_seconds() if ran and off else None
+        r.ok("a followed stuck part powered off within the idle limit", took is not None and took <= 120 + IDLE_SLACK_S,
+             took)  # fmt: skip
+        r.ok(
+            "the driver polled it while it hung (POST /tb/heartbeat)", drv.count(" RUNNING") >= 2, drv.count(" RUNNING")
+        )
+        # review 2: a describe that failed is "unknown", not stopped: the poll went on
+        r.ok("one status describe failed and the poll went on", re.search(r"^\d\d:\d\d \S+ unknown$", drv, re.M)
+             is not None and "fault describe-fail" in text(e / "gcloud.log"), drv[-400:])  # fmt: skip
+    if a.case == "hang":
+        # review 3: the first results-only start was refused (a stockout): nothing marked, the next collect started it
+        r.ok("a refused results-only start was said and tried again", "results-only start was refused" in drv
+             and "found nothing earlier" not in drv, [ln for ln in drv.splitlines() if "refused" in ln][:2])  # fmt: skip
     else:
         r.ok("the busy silent part was never powered off as idle", not any("no heartbeat" in x for x in run_offs),
              run_offs)  # fmt: skip
@@ -284,6 +318,8 @@ def silent_case(a: argparse.Namespace, hang: bool) -> int:
     res = members(e / "out" / "shard-1" / "results.tgz")
     vm = res.get("vm.log", b"").decode("utf-8", "replace")
     tag = "selftest-hang" if hang else "selftest-busy"
+    r.ok("the VM went back to spot and the usual startup script after its collect",
+         "back to spot and the usual startup script" in drv, drv[-300:])  # fmt: skip
     r.ok(f"the driver has results.tgz with the run log ({tag} started)", f"] {tag}" in vm, vm[-300:])
     part = res.get(f"parts/{tag}.json")
     if hang:
@@ -336,7 +372,9 @@ def preempt_case(a: argparse.Namespace) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("case", choices=["run-a", "run-b", "bucket", "served", "no-upload", "hang", "busy", "preempt"])
+    ap.add_argument(
+        "case", choices=["run-a", "run-b", "bucket", "served", "no-upload", "hang", "hang-driven", "busy", "preempt"]
+    )
     ap.add_argument("evidence", type=Path)
     ap.add_argument("--only", default="")
     ap.add_argument("--head", default="")
@@ -351,7 +389,7 @@ def main() -> int:
         return no_upload_case(a)
     if a.case == "preempt":
         return preempt_case(a)
-    return silent_case(a, a.case == "hang")
+    return silent_case(a, a.case in ("hang", "hang-driven"))
 
 
 if __name__ == "__main__":

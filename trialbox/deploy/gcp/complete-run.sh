@@ -85,10 +85,27 @@
 # VM's own watchdog), and the VM itself powers off at once with TB-NO-CODE when no code came (A6).
 # Optional TB_BUCKET=gs://<bucket>: code and results go through the bucket (the VM's service account needs storage
 # access); without it they go through the door.
+# Hardening (independent review, 2026-11-12):
+#   * the poll's POST /tb/heartbeat touches the VM's driver-alive, never the run's heartbeat: a driver that follows a
+#     stuck part (wait mode, --follow, --detach, frequent --collect) cannot keep it alive to its cap;
+#   * the poll ends only on TERMINATED or STOPPED; a describe that fails is "unknown": the poll goes on (bounded by
+#     the VM's cap), a one-look --collect says "still running" and nothing is marked final or retired;
+#   * a results-only start is marked (collect-boot) only once its door answered; a refused start (a stockout) is
+#     said and tried again at the next --collect;
+#   * a launch reads each VM's tb-run-id and refuses while that run's results are not here (state done/noresults);
+#     --discard-previous launches anyway (the VM deletes the earlier run's directory and results.tgz);
+#   * from the start until the upload is accepted, any exit (an error, a signal) stops the VM and retires its door;
+#   * with TB_BUCKET a results.tgz the VM could not upload is fetched by a results-only start through the door, and
+#     the collect names what is missing;
+#   * one driver per run folder (flock on driver.lock; a second one says who holds it and exits), one launch per VM
+#     (a lock per VM under .cache/complete-run/locks, TB_LOCK_DIR);
+#   * a --shard restart checks the quota of its zone; at the end of a VM's collect the VM goes back to spot and the
+#     usual startup script (as --stop does), once it has powered off;
+#   * prepare / install (run on every VM with a hospital part) merge as failed if any VM's copy failed.
 set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
-SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0
+SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0; DISCARD_PREV=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -109,11 +126,14 @@ while [ $# -gt 0 ]; do
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
     --preflight) PREFLIGHT=1; shift ;;
-    -h|--help) sed -n 2,87p "$0"; exit 0 ;;
+    --discard-previous) DISCARD_PREV=1; shift ;;
+    -h|--help) sed -n 2,105p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
 case "$VMS" in ''|*[!0-9]*|0) echo "--vms: a whole number from 1" >&2; exit 2 ;; esac
+# the cap is whole hours (max-run-duration ${H}h, tb-max-minutes H*60-5): refuse 2.5 before anything is made
+[ -z "$HOURS" ] || case "$HOURS" in *[!0-9]*|0) echo "--hours: a whole number of hours from 1 (got '$HOURS')" >&2; exit 2 ;; esac
 VM="${1:-tb-gpu-sim}"; ZONE="${2:-asia-east1-a}"
 # RTX PRO 6000 (G4) zones, one per region: candidates only; confirm with the read-only check the dry run prints
 CANDIDATE_ZONES="asia-east1-a,asia-southeast1-b,us-central1-b,europe-west4-a"
@@ -168,7 +188,8 @@ preflight() {  # A7: $1 a folder, then "name zone" per VM; read-only gcloud call
     echo "+ gcloud config get-value project; gcloud config get-value account   # local config"
     echo "+ gcloud secrets describe $DOOR_SECRET --format=json   # the API on, the secret there, the deployer may read it"
     echo "+ gcloud secrets get-iam-policy $DOOR_SECRET --format=json   # who adds versions, who reads them"
-    for x in "$@"; do echo "+ gcloud compute instances describe ${x% *} --zone ${x#* } --format=json   # its service account"; done
+    for x in "$@"; do echo "+ gcloud compute instances describe ${x% *} --zone ${x#* } --format=json   # its service account"
+      echo "+ gcloud compute instances get-serial-port-output ${x% *} --zone ${x#* }   # TB-IMAGES: vLLM and nginx on its disk"; done
     if [ -n "$BUCKET" ]; then
       echo "+ gcloud storage ls $BUCKET; gcloud storage buckets get-iam-policy $BUCKET --format=json   # the bucket; objectAdmin for the deployer and each VM's account"
       [ -z "${PF_RUN:-}" ] || echo "+ gcloud storage ls $BUCKET/runs/$PF_RUN-s*   # nothing there yet for the new run id"
@@ -193,6 +214,9 @@ preflight() {  # A7: $1 a folder, then "name zone" per VM; read-only gcloud call
     n="${x% *}"; z="${x#* }"
     gc compute instances describe "$n" --zone "$z" --format=json > "$pf/vm-$n.json" 2> "$pf/vm-$n.err" \
       && rm -f "$pf/vm-$n.err"
+    # the images its last boot found (TB-IMAGES): a stopped VM cannot be asked, its serial console can
+    gc compute instances get-serial-port-output "$n" --zone "$z" > "$pf/console-$n.txt" 2>/dev/null \
+      || rm -f "$pf/console-$n.txt"
     if [ -z "$BUCKET" ] && [ -s "$pf/vm-$n.json" ] && [ -s "$pf/firewall.json" ]; then
       door_firewall_check "$PY" "$pf/vm-$n.json" "$pf/firewall.json" 2> "$pf/firewall-$n.txt" || true
     fi
@@ -230,13 +254,30 @@ if [ "$DETACH" = 1 ] && [ -z "$SHARD" ]; then  # the driver without the operator
   echo "driver detached (pid $!), run $RUN_ID: tail -f $OUT/driver.log; collect later with: $0 --collect $RUN_ID"
   exit 0
 fi
+# ---------------------------------------------------------------- locks (review: two drivers on one run, or one VM)
+LOCKS="${TB_LOCK_DIR:-$ROOT/.cache/complete-run/locks}"
+lock_or_say() {  # $1 fd (8 or 7), $2 lock file, $3 what: flock -n, else say who holds it (its .who file) and fail
+  local f=$2 what=$3
+  if [ "$1" = 8 ]; then exec 8> "$f"; else exec 7> "$f"; fi
+  if ! flock -n "$1"; then
+    echo "$what: held by another driver ($(cat "$f.who" 2>/dev/null || echo 'who: unknown')); not run" >&2
+    return 7
+  fi
+  printf 'pid %s, since %s, %s\n' "$$" "$(date -u +%FT%TZ)" "$(basename "$0") ${ARGS[*]}" > "$f.who"
+}
+if [ "$DRY" = 0 ] && [ "$STOP" = 0 ] && [ -z "${TB_DRIVER_LOCK_HELD:-}" ]; then
+  # the driver and its shard children share it (TB_DRIVER_LOCK_HELD); a --shard by hand takes it as a driver does
+  lock_or_say 8 "$OUT/driver.lock" "run $RUN_ID (folder $OUT)" || exit 7
+  export TB_DRIVER_LOCK_HELD=$$
+fi
 plan_get() {  # shard field: one value of plan.json (vm, zone, cap_hours, hours, usd, tags as one line)
   "$PY" -c 'import json,sys; s=json.load(open(sys.argv[1]))["plan"]["shards"][int(sys.argv[2])-1]; v=s[sys.argv[3]]
 print(" ".join(v) if isinstance(v, list) else v)' "$PLAN" "$1" "$2"
 }
 quota_check() {  # $1 = number of VMs (zones 1..N): read-only quota reads, refuse when N VMs cannot run (review H-05)
+  # [$2 zones, $3 the on-demand zones]: one shard's zone (a --shard restart), instead of the plan's first N
   local n=$1 zs q r
-  zs="$(echo "$ZONES" | cut -d, -f1-"$n")"
+  zs="${2:-$(echo "$ZONES" | cut -d, -f1-"$n")}"
   if [ "$DRY" = 1 ]; then
     echo "# the quota (read-only; the run refuses to start when $n VM(s) cannot run):"
     echo "+ gcloud compute project-info describe --format=json   # GPUS_ALL_REGIONS"
@@ -251,8 +292,10 @@ quota_check() {  # $1 = number of VMs (zones 1..N): read-only quota reads, refus
     gc compute regions describe "$r" --format=json > "$q/region-$r.json" || { echo "quota: region $r is not readable" >&2; return 4; }
   done
   # the zones whose VM runs on demand (a hospital part, D-468) draw on the regular quota
+  if [ -n "${2:-}" ]; then std="${3:-}"; else
   std="$("$PY" -c 'import json,sys; s=json.load(open(sys.argv[1]))["plan"]["shards"]
 print(",".join(x["zone"] for x in s[:int(sys.argv[2])] if x.get("provisioning") == "STANDARD"))' "$PLAN" "$n" 2>/dev/null || true)"
+  fi
   cr --quota-check "$q" --quota-zones "$zs" --quota-standard "$std"
 }
 
@@ -262,6 +305,9 @@ stop_vm() {
   gc compute instances stop "$VM" --zone "$ZONE" || true
   local s; s="$(status)"
   echo "VM $VM status: $s"
+  reset_vm
+}
+reset_vm() {  # a stopped VM back to how it is kept: spot, the usual startup script, no door metadata
   # back to spot (D-468: a run puts a VM with a hospital part on demand; a VM started by hand later must not pay 3x)
   gc compute instances set-scheduling "$VM" --zone "$ZONE" --preemptible --provisioning-model=SPOT --instance-termination-action=STOP || true
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file startup-script="$ROOT/deploy/gcp/gpu-sim-startup.sh" || true
@@ -368,11 +414,41 @@ door_retire_all() {  # A8: every part of the plan is in: each VM's door version 
   done
 }
 fetch_results() {  # this VM's results.tgz as it is now, replacing the earlier one only when the download is whole
-  if [ -n "$BUCKET" ]; then gc storage cp "$BUCKET/runs/$RUN_ID-s$i/results.tgz" "$SH/results.tgz.new" || return 1
-  else door GET results.tgz -o "$SH/results.tgz.new" || return 1; fi
+  # TB_BUCKET: the bucket first, then the door (a VM whose upload failed keeps the archive on its disk); what is
+  # missing goes to stderr and $SH/missing.txt
+  local obj why=""
+  rm -f "$SH/results.tgz.new" "$SH/missing.txt"
+  if [ -n "$BUCKET" ]; then
+    obj="$BUCKET/runs/$RUN_ID-s$i/results.tgz"
+    gc storage cp "$obj" "$SH/results.tgz.new" 2>/dev/null \
+      || why="$obj: not in the bucket (the VM's upload failed, TB-UPLOAD-FAILED in its log, or has not happened yet)"
+    [ "$DRY" = 1 ] && return 0
+  fi
+  if [ ! -s "$SH/results.tgz.new" ]; then
+    if [ "$DRY" = 1 ] || { [ -s "$KEYF" ] && [ -n "${IP:-}" ]; }; then
+      door GET results.tgz -o "$SH/results.tgz.new" 2>/dev/null \
+        || why="${why:+$why; }the door of $VM: no results.tgz (the VM is not up, or its disk has none)"
+    else why="${why:+$why; }the door of $VM: not open (no key here, or the VM is not up)"; fi
+  fi
   [ "$DRY" = 1 ] && return 0
-  tar -tzf "$SH/results.tgz.new" >/dev/null 2>&1 || { rm -f "$SH/results.tgz.new"; return 1; }
+  if [ -s "$SH/results.tgz.new" ] && ! tar -tzf "$SH/results.tgz.new" >/dev/null 2>&1; then
+    why="${why:+$why; }results.tgz came incomplete"; rm -f "$SH/results.tgz.new"
+  fi
+  if [ ! -s "$SH/results.tgz.new" ]; then
+    echo "VM $i: results.tgz not fetched: ${why:-?}" >&2; printf '%s\n' "${why:-?}" > "$SH/missing.txt"; return 1
+  fi
   mv -f "$SH/results.tgz.new" "$SH/results.tgz"
+}
+settle_and_reset() {  # after "collected" the VM powers off (its watchdog looks every minute): then back to spot and
+  # the usual startup script, as --stop does (TB_SETTLE_S, 240 s: two watchdog rounds and the power-off itself)
+  local end=$((SECONDS + ${TB_SETTLE_S:-240})) st
+  if [ "$DRY" = 1 ]; then reset_vm; return 0; fi
+  while :; do
+    st="$(status)"
+    case "$st" in TERMINATED|STOPPED) reset_vm; echo "VM $i: powered off; back to spot and the usual startup script"; return 0 ;; esac
+    [ "$SECONDS" -lt "$end" ] || { echo "VM $i: still $st after ${TB_SETTLE_S:-240} s; it powers itself off; --stop resets it to spot"; return 0; }
+    sleep 15
+  done
 }
 wait_door() {  # $1 tries of 20 s: a wall-clock bound ($1 x 20 s), whatever each call takes (each one at most 30 s)
   local end=$((SECONDS + ${1:-90} * 20))
@@ -388,18 +464,60 @@ collect_start() {  # a stopped VM whose results are on its disk: start it in the
   if [ ! -f "$KEYF" ] || [ ! -f "$SH/door-version" ]; then  # --stop destroyed its door (A8): a new one for this boot
     if ! door_make "$SH" || ! door_secret_add; then echo "$VM: no door for a results-only start" >&2; return 1; fi
   fi
-  gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration=20m --instance-termination-action=STOP
+  # each call checked: a results-only start that did not happen is said, nothing is marked, the next --collect tries
+  # again (a refused start, e.g. a stockout, is no proof that the disk has no results)
+  gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration=20m --instance-termination-action=STOP \
+    || { echo "$VM: its 20-minute cap could not be set: no results-only start; --collect $RUN_ID again later" >&2
+         door_retire; return 1; }
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
     "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-door-cert=$SH/door.crt" \
-    --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-collect-only=1,tb-max-minutes=15,tb-done-grace=10"
-  gc compute instances start "$VM" --zone "$ZONE"
-  IP="$(ip)"
+    --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-collect-only=1,tb-max-minutes=15,tb-done-grace=10" \
+    || { echo "$VM: its metadata could not be set: no results-only start; --collect $RUN_ID again later" >&2
+         door_retire; return 1; }
+  if ! gc compute instances start "$VM" --zone "$ZONE"; then
+    echo "$VM: the results-only start was refused (a stockout or quota?): its disk is untouched; --collect $RUN_ID again later" >&2
+    [ "$(status)" = TERMINATED ] || stop_vm
+    door_retire; return 1
+  fi
+  IP="$(ip)" || { echo "$VM: no address after the start: stopping it" >&2; stop_vm; door_retire; return 1; }
   wait_door 30 || { echo "$VM: the door did not answer in 10 minutes: stopping it, its door destroyed" >&2
                    stop_vm; door_retire; return 1; }
+  touch "$SH/collect-boot"   # only now: a results-only boot did happen (one that finds nothing is not repeated)
 }
 
+give_up_started() {  # $1 why: after the start, before the code was accepted: stop the VM, retire its door
+  trap - EXIT INT TERM HUP
+  echo "$VM: $1: stopping it, its door destroyed" >&2
+  stop_vm || true; door_retire || true
+  [ "$DRY" = 1 ] || echo noresults > "$SH/state"
+}
+prev_run_check() {  # $1 vm $2 zone: the run its disk holds (metadata tb-run-id) is deleted by a launch of another run
+  # id (the VM keeps one run directory); refuse while that run's results are not here, unless --discard-previous
+  local j prev base n st runs="${TB_RUNS_DIR:-$(dirname "$OUT")}"
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud compute instances describe $1 --zone $2 --format=json   # its tb-run-id: refused while that run's results are not here (--discard-previous)"
+    return 0
+  fi
+  j="$(gc compute instances describe "$1" --zone "$2" --format=json)" || { echo "$1: its metadata is not readable" >&2; return 3; }
+  prev="$(printf '%s' "$j" | "$PY" -c 'import json,sys
+items = (json.load(sys.stdin).get("metadata") or {}).get("items") or []
+print(next((x.get("value") or "" for x in items if x.get("key") == "tb-run-id"), ""))')"
+  [ -n "$prev" ] || return 0
+  base="${prev%-s*}"; n="${prev##*-s}"
+  [ "$base" = "$RUN_ID" ] && return 0   # this run itself (a restart of a shard)
+  st="$(cat "$runs/$base/shard-$n/state" 2>/dev/null || echo "no folder $runs/$base here")"
+  case "$st" in done|noresults) return 0 ;; esac
+  if [ "$DISCARD_PREV" = 1 ]; then
+    echo "$1: run $prev on its disk (state: $st) is discarded (--discard-previous): the VM deletes its results" >&2
+    return 0
+  fi
+  echo "$1 ($2) holds run $prev, whose results are not collected here (state: $st); a launch would delete them." \
+       "Collect them first: $0 --collect $base; or launch with --discard-previous" >&2
+  return 3
+}
 shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the cap from what is left (shard_now)
-  local i=$1 SH TAGS EST_H EST_USD CAP_H PROV PRICE LEFT PREEMPT WHY_PROV s p done_seen=0
+  # SH (like VM, ZONE, KEYF) is global: the EXIT trap runs after the function's locals are gone
+  local i=$1 TAGS EST_H EST_USD CAP_H PROV PRICE LEFT PREEMPT WHY_PROV s p done_seen=0
   VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; TAGS="$(plan_get "$i" tags)"
   SH="$OUT/shard-$i"; mkdir -p "$SH"; KEYF="$SH/tb-key"
   if [ -z "$COLLECT" ]; then
@@ -415,8 +533,14 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     elif [ "$PROV" = STANDARD ]; then WHY_PROV="on demand (a hospital part, D-468)"
     else WHY_PROV=spot; fi
     echo "VM $i/$VMS $VM ($ZONE): estimate ${EST_H} h (US\$${EST_USD}); hard cap ${CAP_H} h (STOP), at most US\$$("$PY" -c "print(round($CAP_H*$PRICE, 2))"); $WHY_PROV; parts: $TAGS; parts left: ${LEFT:-none}"
+    # one launch per VM at a time (the lock is this child's: it ends with it)
+    [ "$DRY" = 1 ] || { mkdir -p "$LOCKS"; lock_or_say 7 "$LOCKS/$VM-$ZONE.lock" "VM $VM ($ZONE)" || return 7; }
+    if [ -z "${TB_DRIVER_CHILD:-}" ]; then  # a --shard restart by hand: the quota of its zone, as a launch reads it
+      quota_check 1 "$ZONE" "$([ "$PROV" = STANDARD ] && echo "$ZONE" || true)" || { echo "$VM: not started (quota)" >&2; return 4; }
+    fi
     s="$(status)"
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
+    prev_run_check "$VM" "$ZONE" || return 3
     door_reach_check || { echo "$VM: not started (see above)" >&2; return 3; }   # A6: a door no proxy can carry
     door_vm_ready || { echo "$VM: not started (see above)" >&2; return 3; }   # its door: Secret Manager, 443 only
     # ------------------------------------------------------------ 1. the cloud-side hard cap, before the start
@@ -435,20 +559,22 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
       "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-door-cert=$SH/door.crt" \
       --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}" \
       || { echo "$VM: not started: its metadata could not be set" >&2; door_retire; return 3; }
-    # every give-up from here destroys the door versions it made (A8): a failed start, no door, a failed upload
+    # every give-up from here destroys the door versions it made (A8): a failed start, no door, a failed upload, and
+    # (the trap) any other exit or signal before the upload is accepted: an error, Ctrl-C, a lost shell
+    trap 'give_up_started "the driver ended before the code was accepted"' EXIT
+    trap 'exit 9' INT TERM HUP
     gc compute instances start "$VM" --zone "$ZONE" \
-      || { echo "$VM: the start failed: stopping it, its door destroyed" >&2; stop_vm; door_retire
-           echo noresults > "$SH/state"; return 3; }
+      || { give_up_started "the start failed"; return 3; }
     echo "started $VM; it stops itself (cap ${CAP_H} h, watchdog). Collect, now and later: $0 --collect $RUN_ID"
     IP="$(ip)"
     if [ -z "$BUCKET" ]; then  # 3. the code through the door (TLS) once it is up (the VM waits 30 minutes for it)
       # A6: a door that never answers is a paid VM nobody can drive: stop it now, not after its own watchdog
-      wait_door 90 || { echo "$VM: the door did not answer in 30 minutes: stopping it (no code was uploaded)" >&2
-                        stop_vm; door_retire; echo noresults > "$SH/state"; return 4; }
+      wait_door 90 || { give_up_started "the door did not answer in 30 minutes (no code was uploaded)"; return 4; }
       door PUT upload --data-binary @"$OUT/src.tgz" -H 'Content-Type: application/gzip' \
-        || { echo "$VM: the code upload failed: stopping it, its door destroyed" >&2; stop_vm; door_retire
-             echo noresults > "$SH/state"; return 4; }
+        || { give_up_started "the code upload failed"; return 4; }
     fi
+    trap - EXIT INT TERM HUP   # the code is there (door) or in the bucket: the VM runs and stops itself
+    [ "$DRY" = 1 ] || flock -u 7 2>/dev/null || true
     [ "$WAIT" = 1 ] || return 0
   else
     # nothing more to come: the results are here, or a results-only boot found none; a door that --stop destroyed
@@ -460,39 +586,53 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     IP="$(ip)"
   fi
   # -------------------------------------------------------------- poll: short calls only, nothing held open
+  # it ends only when the VM has stopped (TERMINATED, STOPPED) or says DONE; any other answer, "unknown" (a describe
+  # that failed) among them, is not the end of the run: the poll goes on, bounded by the VM's cap and 30 minutes
+  local poll_end=$((SECONDS + ${CAP_H:-${HOURS:-$(plan_get "$i" cap_hours)}} * 3600 + 1800))
   while :; do
     s="$(status)"
     echo "$(date -u +%H:%M) $VM $s"
-    [ "$s" = RUNNING ] || break
-    door POST heartbeat >/dev/null 2>&1 || true
-    p="$(door GET progress 2>/dev/null || true)"
-    printf '%s\n' "$p" | tail -n 3
-    if printf '%s' "$p" | grep -q '^DONE'; then done_seen=1; break; fi
+    case "$s" in TERMINATED|STOPPED) break ;; esac
+    if [ "$s" = RUNNING ]; then
+      door POST heartbeat >/dev/null 2>&1 || true   # the VM's driver-alive, not its run heartbeat
+      p="$(door GET progress 2>/dev/null || true)"
+      printf '%s\n' "$p" | tail -n 3
+      if printf '%s' "$p" | grep -q '^DONE'; then done_seen=1; break; fi
+    fi
     [ "$DRY" = 1 ] && break
     if [ "$FOLLOW" = 0 ] && [ -n "$COLLECT" ]; then  # one look: the results so far, and come back later
-      fetch_results && echo "VM $i: still running; the results so far ($(stat -c %s "$SH/results.tgz") bytes) are merged below; --collect $RUN_ID again later"
+      [ "$s" = RUNNING ] || echo "VM $i: status $s: taken as still running (nothing is marked final, its door is kept)"
+      fetch_results 2>/dev/null && echo "VM $i: still running; the results so far ($(stat -c %s "$SH/results.tgz") bytes) are merged below; --collect $RUN_ID again later"
       echo running > "$SH/state"; return 0
     fi
+    [ "$SECONDS" -lt "$poll_end" ] \
+      || { echo "VM $i: still $s past its cap: not collected; --collect $RUN_ID later" >&2; echo running > "$SH/state"; return 6; }
     sleep 60
   done
   # -------------------------------------------------------------- this VM's results
-  local booted=0
-  if [ "$DRY" = 0 ] && [ "$done_seen" = 0 ] && [ "$s" = TERMINATED ] && [ -z "$BUCKET" ] && [ ! -f "$SH/results.final" ]; then
+  local booted=0 got=0
+  # TB_BUCKET: the bucket may already have them; else (or in door mode) a stopped VM is started results-only
+  if [ "$DRY" = 0 ] && [ -n "$BUCKET" ] && [ "$s" != RUNNING ] && fetch_results; then got=1; fi
+  if [ "$DRY" = 0 ] && [ "$got" = 0 ] && [ "$done_seen" = 0 ] && [ "$s" != RUNNING ] && [ ! -f "$SH/results.final" ]; then
     # once per VM and run: a results-only boot that finds nothing is not repeated at every --collect
-    [ -f "$SH/collect-boot" ] && { echo "VM $i: a results-only boot found nothing earlier; its disk has no results" >&2
-                                    echo "noresults" > "$SH/state"; door_retire; return 5; }
-    touch "$SH/collect-boot"
-    collect_start || { echo stopped > "$SH/state"; return 5; }
+    if [ -f "$SH/collect-boot" ]; then
+      echo "VM $i: a results-only boot found nothing earlier; its disk has no results" >&2
+      [ -z "$BUCKET" ] || echo "VM $i: and $BUCKET/runs/$RUN_ID-s$i/results.tgz is not there" >&2
+      echo "noresults" > "$SH/state"; door_retire; reset_vm; return 5
+    fi
+    collect_start || { echo stopped > "$SH/state"; return 5; }   # it marks collect-boot once its door answered
     booted=1
   fi
-  if fetch_results; then
+  if [ "$got" = 1 ] || fetch_results; then
     touch "$SH/results.final"; echo "done" > "$SH/state"
     door POST collected >/dev/null 2>&1 || true   # the VM powers off now
     door_retire  # the key and its secret version are kept until the results are here (--collect)
+    settle_and_reset
   elif [ "$done_seen" = 1 ] || [ "$booted" = 1 ]; then  # done, or started for this, and nothing to hand over
     door POST collected >/dev/null 2>&1 || true   # so it powers off now, not after its grace
     door_retire
     echo "VM $i: no results.tgz on its disk (see its serial console); it powers off now" >&2; echo "noresults" > "$SH/state"
+    settle_and_reset
   else
     echo "results not reachable: $VM is $s; --collect $RUN_ID later" >&2; echo stopped > "$SH/state"
   fi
@@ -623,6 +763,7 @@ json.dump({"head": g("rev-parse","HEAD"), "subject": g("log","-1","--format=%s")
       s="$(gc compute instances describe "$VM_I" --zone "$Z_I" --format='value(status)' 2>/dev/null || echo missing)"
       [ "$s" = TERMINATED ] || { echo "$VM_I ($Z_I) is $s: stop it, or make it with --provision" >&2; exit 3; }
     fi
+    prev_run_check "$VM_I" "$Z_I" || exit 3   # its disk holds a run whose results are not here: nothing starts
   done
   if [ -n "$BUCKET" ]; then for i in $(seq 1 "$VMS"); do gc storage cp "$OUT/src.tgz" "$BUCKET/runs/$RUN_ID-s$i/src.tgz"; done; fi
 fi
@@ -630,7 +771,8 @@ fi
 # -------------------------------------------------------------- one child per VM; each stops its own VM
 CHILD=("$0"); [ "$DRY" = 1 ] && CHILD+=(--dry-run); [ "$WAIT" = 1 ] || CHILD+=(--no-wait); [ "$FOLLOW" = 1 ] && CHILD+=(--follow)
 [ -n "$HOURS" ] && CHILD+=(--hours "$HOURS"); [ -n "$COLLECT" ] && CHILD+=(--collect "$COLLECT")
-export TB_RUN_ID="$RUN_ID" TB_COMPLETE_DIR="$OUT"
+[ "$DISCARD_PREV" = 1 ] && CHILD+=(--discard-previous)
+export TB_RUN_ID="$RUN_ID" TB_COMPLETE_DIR="$OUT" TB_DRIVER_CHILD=1
 if [ "$VMS" = 1 ]; then
   "${CHILD[@]}" --shard 1 "$VM" "$ZONE" || echo "VM 1 ended with an error" >&2
 else
@@ -662,11 +804,13 @@ if [ "$DRY" = 1 ]; then
 fi
 missing=""; running=""
 mkdir -p "$OUT/parts" "$OUT/report/shots"
+rm -f "$OUT/parts/prepare.json" "$OUT/parts/install.json"   # merged afresh from every VM's copy below
 for i in $(seq 1 "$VMS"); do
   SH="$OUT/shard-$i"
   [ "$(cat "$SH/state" 2>/dev/null)" = running ] && running="$running $i"
   if [ -s "$SH/results.tgz" ] && rm -rf "$SH/parts" "$SH/report" && tar -xzf "$SH/results.tgz" -C "$SH"; then
-    cp -p "$SH"/parts/*.json "$OUT/parts/" 2>/dev/null || true
+    # prepare / install run on every VM with a hospital part: merged as failed if any VM's copy failed
+    cr --merge-parts "$SH/parts" --parts-dir "$OUT/parts" || true
     # each model part's measurements (G-3): the servers' /metrics before and after, gpu.csv, vllm.csv
     for d in "$SH"/parts/*/; do if [ -d "$d" ]; then cp -pr "$d" "$OUT/parts/"; fi; done
     cp -pr "$SH"/report/shots/. "$OUT/report/shots/" 2>/dev/null || true

@@ -56,7 +56,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -952,16 +952,61 @@ def _tree_cpu(pid: int) -> float | None:
     return total / (os.sysconf("SC_CLK_TCK") or 100)
 
 
+def gpu_busy() -> bool | None:
+    """The card is working now: ``nvidia-smi`` utilisation above 0 on any card (None: no card or no answer). The
+    resident model servers idle at 0; a part's model calls, or its own GPU work in a container, show here."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=10, check=False).stdout  # fmt: skip
+        vals = [float(x) for x in out.split()]
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    return any(v > 0 for v in vals) if vals else None
+
+
+# complete-run-vm.sh tb-embed-py: `docker run --label tb-part=1` (the embed bench, G-1's tokenizer)
+PART_LABEL = "tb-part"
+
+
+def containers_cpu() -> float | None:
+    """CPU seconds used so far by the part's own containers (label :data:`PART_LABEL`), from their cgroups: work in
+    ``docker run`` is under dockerd, not under the part's process tree. None: none running, or not readable."""
+    try:
+        ids = subprocess.run(["docker", "ps", "-q", "--no-trunc", "--filter", f"label={PART_LABEL}"],
+                             capture_output=True, text=True, timeout=10, check=False).stdout.split()  # fmt: skip
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    total, seen = 0.0, False
+    for cid in ids:
+        v2 = Path(f"/sys/fs/cgroup/system.slice/docker-{cid}.scope/cpu.stat")
+        v1 = Path(f"/sys/fs/cgroup/cpu,cpuacct/docker/{cid}/cpuacct.usage")
+        try:
+            if v2.exists():
+                usec = next(int(ln.split()[1]) for ln in v2.read_text().splitlines() if ln.startswith("usage_usec"))
+                total, seen = total + usec / 1e6, True
+            elif v1.exists():
+                total, seen = total + int(v1.read_text().strip()) / 1e9, True
+        except (OSError, ValueError, StopIteration, IndexError):
+            continue
+    return total if seen else None
+
+
 class Heartbeat:
     """The in-run heartbeat (review H-03): while a part runs, touch ``path`` every ``every`` seconds in which the
-    part's processes used CPU. A 50,000-patient SCREEN is silent in the log for hours but always busy, so the VM's
-    idle watchdog no longer depends on the driver being alive; a part that is stuck (no CPU at all) stops touching it
-    and the watchdog powers the VM off after its idle limit, as before."""
+    part worked: its processes used CPU, a container of its own (``docker run --label tb-part=1``: the embed bench, the
+    G-1 tokenizer, invisible in its process tree) used CPU, or the card was busy. A 50,000-patient SCREEN is silent in
+    the log for hours but always busy, so the VM's idle watchdog does not depend on a driver; a part that is stuck (no
+    work anywhere) stops touching it and the watchdog powers the VM off after its idle limit, as before. The driver's
+    poll never touches this file (complete-run-vm.sh: driver-alive)."""
 
-    def __init__(self, path: str, pid: int, every: float = 30.0) -> None:
+    def __init__(self, path: str, pid: int, every: float = 30.0,
+                 gpu: Callable[[], bool | None] = gpu_busy,
+                 containers: Callable[[], float | None] = containers_cpu) -> None:  # fmt: skip
         self.path, self.pid, self.every = Path(path), pid, every
+        self.gpu, self.containers = gpu, containers
         self.stop = threading.Event()
         self.beats = 0
+        self.why: dict[str, int] = {"cpu": 0, "container": 0, "gpu": 0}
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
@@ -970,11 +1015,23 @@ class Heartbeat:
         # been reaped): no beat, so a beat between its end and close() cannot make a stopped part look busy
         no_proc = not Path("/proc").is_dir()
         last = _tree_cpu(self.pid)
+        last_c = self.containers()
         while not self.stop.wait(self.every):
             now = _tree_cpu(self.pid)
+            why = ""
             if no_proc or (now is not None and last is not None and now > last):
+                why = "cpu"
+            elif now is not None:  # the part still runs: its containers, then the card
+                c = self.containers()
+                if c is not None and last_c is not None and c > last_c:
+                    why = "container"
+                elif self.gpu():
+                    why = "gpu"
+                last_c = c
+            if why:
                 self.path.touch()
                 self.beats += 1
+                self.why[why] += 1
             last = now
 
     def close(self) -> None:
@@ -1778,6 +1835,15 @@ def _bound(policy: dict[str, Any], member: str, roles: set[str]) -> bool:
     return any(b.get("role") in roles and member in (b.get("members") or []) for b in policy.get("bindings") or [])
 
 
+def images_of_console(console: str) -> dict[str, str] | None:
+    """The images the VM's last boot found on its disk: its last ``TB-IMAGES <image>=present|missing ...`` line
+    (complete-run-vm.sh, every boot); None when the console has none."""
+    lines = [ln for ln in console.splitlines() if ln.startswith("TB-IMAGES")]
+    if not lines:
+        return None
+    return dict(x.rsplit("=", 1) for x in lines[-1].split()[1:] if "=" in x)
+
+
 def preflight_problems(folder: Path, secret: str = "tb-gpu-door") -> tuple[list[str], list[str]]:
     """A7: every reason a launch would fail in the cloud, from the read-only gcloud answers the driver saved in
     ``folder`` (``complete-run.sh --preflight``; the same at the start of a real launch, before any VM starts):
@@ -1847,6 +1913,15 @@ def preflight_problems(folder: Path, secret: str = "tb-gpu-door") -> tuple[list[
         if mode == "door":
             fw = read(f"firewall-{name}.txt")
             bad += [f"VM {name}: {x}" for x in fw.splitlines() if x.strip()]
+        if (folder / f"console-{name}.txt").exists():
+            got = images_of_console(read(f"console-{name}.txt"))
+            if got is None:
+                notes.append(f"VM {name}: no TB-IMAGES line in its serial console (its last boot ran an older script, "
+                             "or the console has rolled over): its images are checked at its next boot")  # fmt: skip
+            for im in sorted(k for k, v in (got or {}).items() if v != "present"):
+                bad.append(f"VM {name}: image {im} is not on its disk (its last boot's TB-IMAGES): start it with the "
+                           f"usual startup script and run: sudo docker pull {im}; then stop it (a pull inside the "
+                           "serving limit, or none without a network, would cost the boot)")  # fmt: skip
     ferr = read("firewall.err")
     if ferr and mode == "door":
         bad.append(f"the firewall rules are not readable (the door needs tcp:443 open and tcp:80 closed): gcloud "
@@ -1919,6 +1994,32 @@ def parts_missing(doc: dict[str, Any], parts: Path) -> list[str]:
     """A8: the plan's part tags with no result in ``parts`` yet (empty: every part is in, the door may go)."""
     tags = [t for s in doc["plan"]["shards"] for t in s["tags"]]
     return [t for t in tags if not (parts / f"{t}.json").is_file()]
+
+
+SHARED_PARTS = ("prepare", "install")  # run on every VM that needs them: one row in the merged report
+
+
+def merge_parts(src: Path, dst: Path) -> list[str]:
+    """One VM's part results (``src``/*.json) into the merged ``dst``. A part every VM runs for itself (prepare,
+    install) is one row: failed if any VM's copy failed (a later VM's passed copy never hides an earlier failure).
+    Returns a line per shared part whose copies disagree."""
+    dst.mkdir(parents=True, exist_ok=True)
+    said = []
+    for f in sorted(src.glob("*.json")) if src.is_dir() else []:
+        to = dst / f.name
+        if f.stem in SHARED_PARTS and to.exists():
+            try:
+                old_ok = _passed(json.loads(to.read_text(encoding="utf-8")))
+                new_ok = _passed(json.loads(f.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                old_ok, new_ok = False, True
+            if not old_ok and new_ok:
+                said.append(f"{f.stem}: failed on another VM, passed on {src.parent.name}: kept as failed")
+                continue
+            if old_ok and not new_ok:
+                said.append(f"{f.stem}: failed on {src.parent.name}: merged as failed")
+        shutil.copy2(f, to)
+    return said
 
 
 def print_shards(e: dict[str, Any], p: dict[str, Any]) -> str:
@@ -2062,7 +2163,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--preflight-check", type=Path, help="a folder of read-only gcloud answers: every problem (A7)")
     ap.add_argument("--parts-missing", type=Path, help="a run's plan.json: print its tags with no result in "
                     "--parts-dir (A8)")  # fmt: skip
+    ap.add_argument("--merge-parts", type=Path, help="one VM's parts/ folder: its results into --parts-dir "
+                    "(prepare / install: failed if any VM's copy failed)")  # fmt: skip
     a = ap.parse_args(argv)
+    if a.merge_parts:
+        for line in merge_parts(a.merge_parts, (a.parts_dir or [a.dir / "parts"])[0]):
+            print(line)
+        return 0
     if a.door_reach_check:
         why = door_reach_problem(os.environ)
         if why:

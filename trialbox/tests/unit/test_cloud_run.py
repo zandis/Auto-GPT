@@ -336,7 +336,12 @@ def test_vm_preflight_phases_and_state_per_run() -> None:
     assert 'RUN="$TB/runs/$RUN_ID"' in VM and '"$TB"/runs/*' in VM and '"$TB/out/results.tgz"' in VM
     assert 'mv -f "$LOG" "$LOG.prev"' in VM and 'mv -f "$CON" "$CON.prev"' in VM
     assert VM.index('COLLECT_ONLY" != 1') < VM.index('rm -rf "$TB/run" "$TB/out/results.tgz"')  # collect keeps them
-    for limit in ('serving|setup) [ "$since" -ge 2700 ]', 'code) [ "$since" -ge 2100 ]', "run) [ $((now - hb))"):
+    for limit in (
+        'serving) [ "$since" -ge "$serving" ]',
+        'setup) [ "$since" -ge 2700 ]',
+        'code) [ "$since" -ge 2100 ]',
+        "run) [ $((now - hb))",
+    ):
         assert limit in VM
     assert "--property=Restart=on-failure" in VM and "TB-DOOR-FAILED" in VM and "TB-NO-KEY" in VM
 

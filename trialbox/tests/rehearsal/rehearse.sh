@@ -2,7 +2,7 @@
 # The cloud run's local rehearsal (D-150; review of 2026-11-09 §5): the gate before any paid launch (RUNBOOK §11).
 #
 #   make rehearse                       # every case below, about 40-60 minutes, US$0
-#   tests/rehearsal/rehearse.sh [CASE ...]   # some cases, in order: run-a run-b bucket served no-upload hang busy
+#   tests/rehearsal/rehearse.sh [CASE ...]   # some cases, in order: run-a run-b bucket served no-upload hang hang-driven busy
 #                                            # preempt
 #   make rehearse CASES=run-a,bucket    # commas or spaces
 #
@@ -30,7 +30,11 @@
 #   no-upload  nobody uploads: TB-NO-CODE after the (1-minute) wait, power-off at once (no grace: A6);
 #   hang       a silent, stuck part (selftest-hang) and no driver: the watchdog powers off after the idle limit
 #              (2 minutes here); --collect then starts the stopped VM results-only and gets what is there (H-04);
-#   busy       a silent part that works for 5 minutes (selftest-busy), idle limit 2 minutes, no driver: the in-run
+#              the first results-only start is refused (a stockout): said, nothing marked, the next collect starts it;
+#   hang-driven  the same stuck part with a driver following it (wait mode, a poll every minute; one status describe
+#              fails on the way): the poll touches driver-alive, not the heartbeat, so the VM powers off within the
+#              idle limit; "unknown" is not the end of the run; the driver then collects results-only and resets it;
+#   busy      a silent part that works for 5 minutes (selftest-busy), idle limit 2 minutes, no driver: the in-run
 #              heartbeat keeps the VM alive (H-03); it finishes, powers off after the grace; --collect gets the result.
 #   preempt    G1 bug A1: three short parts done, the VM pre-empted (stopped without warning) while the fourth, a
 #              silent selftest-busy, runs; --collect starts it results-only and gets the three; then the same run is
@@ -55,7 +59,7 @@ PY="$VENV/bin/python"
 PRE_ONLY=scenario-gateway,scenario-it-dump,scenario-registry,selftest-busy   # the preempt case: 3 short parts, 1 long
 POS_ONLY="${TB_REHEARSAL_ONLY:-hospital-ja,public-ja,scenario-gateway,scenario-emr-fhir,scenario-it-dump,scenario-public-medtxt,scenario-public-trec}"
 # shellcheck disable=SC2206  # CASES=run-a,bucket from make: split on commas and spaces
-CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=(run-a run-b bucket served no-upload hang busy preempt)
+CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=(run-a run-b bucket served no-upload hang hang-driven busy preempt)
 S="$REH/state"
 mkdir -p "$REH" "$REH/evidence"
 log() { echo "$(date -u +%T) rehearse: $*"; }
@@ -80,7 +84,7 @@ prune_evidence() {  # D-201: the newest two per case, <case> and <case>.prev; ol
   for d in "$REH/evidence"/*.*; do
     [ -e "$d" ] || continue
     name="$(basename "$d")"
-    for c in "${CASES[@]}" run-a run-b bucket served no-upload hang busy preempt; do
+    for c in "${CASES[@]}" run-a run-b bucket served no-upload hang hang-driven busy preempt; do
       if [ "${name%%.*}" = "$c" ] && [ "$name" != "$c.prev" ]; then rm -rf "$d"; break; fi
     done
   done
@@ -228,9 +232,23 @@ for case in "${CASES[@]}"; do
       wait_terminated 30 || log "hang: still running after 30 minutes"
       cp "$S/POWEROFF" "$REH/evidence/hang/POWEROFF.run"
       rm -rf "$S/knobs/metadata"
+      echo 1 > "$S/knobs/start-fail"   # the first results-only start is refused (a stockout): tried again, not given up
       collect_until_done hang 15 || log "hang: no results after 15 minutes"
       wait_terminated 5 || true
       end_case hang; check hang "$E" ;;
+    hang-driven)  # the stuck part with a driver following it (wait mode): its poll must not keep the part alive
+      start_case hang-driven; knob tb-idle-minutes 2; knob tb-done-grace 1; knob tb-selftest-seconds 900
+      drive hang-driven --patients 500 --only selftest-hang &
+      dpid=$!
+      for _ in $(seq 1 180); do grep -q "^started " "$E/driver.log" 2>/dev/null && break; sleep 5; done
+      echo 1 > "$S/knobs/describe-fail"   # one status describe fails while it follows: "unknown" is not the end
+      wait_terminated 30 || log "hang-driven: still running after 30 minutes"
+      cp "$S/POWEROFF" "$E/POWEROFF.run"
+      rm -rf "$S/knobs/metadata"
+      for _ in $(seq 1 120); do kill -0 "$dpid" 2>/dev/null || break; sleep 10; done   # it collects, then ends
+      kill "$dpid" 2>/dev/null || true; wait "$dpid" 2>/dev/null || true
+      wait_terminated 5 || true
+      end_case hang-driven; check hang-driven "$E" ;;
     busy)
       start_case busy; knob tb-idle-minutes 2; knob tb-done-grace 1; knob tb-selftest-seconds 300
       drive busy --no-wait --patients 500 --only selftest-busy || true

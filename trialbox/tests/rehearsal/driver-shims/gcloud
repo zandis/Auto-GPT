@@ -18,9 +18,21 @@
 #   project-info / regions describe --format=json   quota JSON: $TB_REH_GPU_LIMIT GPUs (default 1), 96 CPUs
 #   auth print-access-token   a fake token (the driver's probe)
 #   auth activate-service-account  accepted (the driver activates at the start of every command)
+#   instances get-serial-port-output  the console of the boots so far (the pre-flight's TB-IMAGES line)
+# Knobs (a case's faults, each a count in $TB_REH_STATE/knobs/ that the shim counts down):
+#   describe-fail   the next N status describes fail (gcloud error): the driver must take it as "unknown", not stopped
+#   start-fail      the next N `instances start` are refused (a stockout): nothing may be marked or destroyed for it
+#   natip-fail      the next N address describes fail (tests/unit: an error between the start and the upload)
+# $TB_REH_STATE/vm.json, when there, is the VM's describe --format=json (tests/unit: a VM holding another run)
 S=${TB_REH_STATE:?}
 C=${TB_REH_CONTAINER:-tb-rehearsal-vm}
 echo "$(date -u +%T) gcloud $*" >> "$S/gcloud.log"
+fault() {  # $1 knob: true (and one less) while its count is above 0
+  local f="$S/knobs/$1" n
+  n=$(cat "$f" 2>/dev/null || echo 0)
+  [ "${n:-0}" -gt 0 ] 2>/dev/null || return 1
+  echo $((n - 1)) > "$f"; echo "$(date -u +%T) gcloud fault $1 ($n left before)" >> "$S/gcloud.log"
+}
 fmt=""; mfiles=""; mvals=""; cap=""; keys=""; secret=""
 for a in "$@"; do
   case "$a" in --format=*) fmt=${a#--format=} ;; --max-run-duration=*) cap=${a#--max-run-duration=} ;; esac
@@ -42,10 +54,12 @@ case "$1 $2 $3" in
   "auth activate-service-account"*) true ;;   # every driver command activates first (G1 bug A2); no key is read
   "compute instances describe")
     case "$fmt" in
-      *status*) cat "$S/status" 2>/dev/null || echo TERMINATED ;;
-      *natIP*) echo 127.0.0.1 ;;
+      *status*) if fault describe-fail; then echo "ERROR: (gcloud.compute.instances.describe) rehearsal fault" >&2; exit 1; fi
+                cat "$S/status" 2>/dev/null || echo TERMINATED ;;
+      *natIP*) if fault natip-fail; then echo "ERROR: rehearsal fault" >&2; exit 1; fi; echo 127.0.0.1 ;;
       *maxRunDuration*) echo "$(cat "$S/cap" 2>/dev/null) STOP" ;;
-      json) printf '%s\n' '{"name": "tb-gpu-sim", "tags": {"items": ["tb-gpu-door"]},
+      json) if [ -s "$S/vm.json" ]; then cat "$S/vm.json"; exit 0; fi   # a test's own VM (e.g. its tb-run-id)
+            printf '%s\n' '{"name": "tb-gpu-sim", "tags": {"items": ["tb-gpu-door"]},
   "networkInterfaces": [{"network": "https://www.googleapis.com/compute/v1/projects/rehearsal/global/networks/default"}],
   "serviceAccounts": [{"email": "tb-gpu@rehearsal.iam.gserviceaccount.com",
                        "scopes": ["https://www.googleapis.com/auth/cloud-platform"]}]}' ;;
@@ -98,8 +112,12 @@ case "$1 $2 $3" in
     for x in "${kv[@]}"; do [ -n "$x" ] && printf '%s' "${x#*=}" > "$S/metadata/${x%%=*}"; done
     for f in "$S"/knobs/metadata/*; do [ -f "$f" ] && cp "$f" "$S/metadata/$(basename "$f")"; done
     true ;;
+  "compute instances get-serial-port-output") cat "$S/console.log" 2>/dev/null; true ;;
   "compute instances start")
     [ "$(cat "$S/status" 2>/dev/null || echo TERMINATED)" = TERMINATED ] || { echo "ERROR: the VM is not TERMINATED" >&2; exit 1; }
+    if fault start-fail; then
+      echo "ERROR: (gcloud.compute.instances.start) ZONE_RESOURCE_POOL_EXHAUSTED (rehearsal fault)" >&2; exit 1
+    fi
     echo RUNNING > "$S/status"
     docker exec -d "$C" /rehearsal/h/vm/boot.sh ;;
   "compute instances stop")
