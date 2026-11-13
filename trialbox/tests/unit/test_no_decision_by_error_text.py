@@ -49,8 +49,9 @@ LISTED: dict[str, tuple[int, str]] = {
         "orchestrator: 'classic' in the EDC adapter's own error message (a REDCap project without arms)",
     ),
     "services/sitesetup/service.py": (
-        2,
-        "site set-up: the lake's refusal of a rebuild by its type, its 409 and header, then the answer's words",
+        3,
+        "site set-up: the lake's refusal of a rebuild by its type, its 409 and header, then the answer's words; "
+        "and lake_down(exc) (D-709, #538), which reads the error's type and its status, no text",
     ),
 }
 
