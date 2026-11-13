@@ -122,9 +122,11 @@ def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
 
 
 def unmapped_of(detail: Any) -> list[tuple[str, int]]:
-    """NEW-DOPS-1 (D-708): the records a night did not load because their hospital code is not in the site's code
-    table, per source table, the largest first (D-580 keeps the counts in the night's row; the codes are in the
-    night's ``unmapped_codes.json``, never here). Every table is listed: no cut. A value that is not a table name
+    """NEW-DOPS-1 (D-708): the rows of a night that hold a value the mapping could not use, per source table, the
+    largest first. It is D-580's counter as the night's row keeps it: rows left out (a code no look-up knows, an
+    unknown status) and rows kept without the value (a unit not read: D-590), and rows whose code the reference
+    data could not be asked for (D-593); a row is counted once per such value. The values are in the night's
+    ``unmapped_codes.json``, never here. Every table is listed: no cut. A value that is not a table name
     with a count above zero is not shown."""
     kept = detail.get("unmapped") if isinstance(detail, dict) else None
     if not isinstance(kept, dict):
@@ -314,7 +316,7 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
         if b is None:
             raise h.problem(404, "notfound")
         return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid)),
-                "unmapped": [{"table": t, "records": n} for t, n in unmapped_of(b.detail)]}  # fmt: skip
+                "unmapped": [{"table": t, "rows": n} for t, n in unmapped_of(b.detail)]}  # fmt: skip
 
     @app.post("/api/v1/data/batches/{bid}/decide")
     @page_twin("/data-ops/batches/{bid}/decide")  # T-657 (D-444): the page's twin (FIT-019)

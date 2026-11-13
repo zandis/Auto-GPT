@@ -1,6 +1,6 @@
 # ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
-"""NEW-DOPS-1 (D-708): the data-operations pages show the records a night did not load because their hospital
-code is not in the site's code table.
+"""NEW-DOPS-1 (D-708): the data-operations pages show the rows of a night that hold a value the mapping could not
+use (a hospital code that is not in the site's code table, a unit or status it could not read).
 
 The adapter counts them every night (D-580) and the night's row keeps the count per table (never a code, never a
 row). Until this card no page showed it: a lab analyte could be missing for every patient with nothing to see. The
@@ -44,7 +44,7 @@ def _steward(b: dict[str, Any]) -> Any:
 
 def _section(page: str) -> str:
     m = re.search(r'<section class="card" data-testid="batch-unmapped">(.*?)</section>', page, re.S)
-    assert m, "no section for the records that were not loaded"
+    assert m, "no section for the values the mapping could not use"
     return m.group(1)
 
 
@@ -57,6 +57,25 @@ def test_the_nights_page_lists_every_table_with_its_count_the_largest_first(box:
     assert 'data-testid="unmapped-total">1,244<' in sec
     assert "unmapped_codes.json" in sec  # where the codes are: the night's folder, for whoever keeps the code table
     assert not check(sec)
+
+
+def test_no_table_is_cut_and_equal_counts_are_in_the_order_of_their_names(box: dict[str, Any]) -> None:
+    kept = {f"t{i:02d}": 5 for i in range(40)} | {"zz": 9}
+    bid = _night(box, "2026-11-10", kept)
+    c, _ = _steward(box)
+    sec = _section(c.get(f"/data-ops/batches/{bid}").text)
+    assert re.findall(r'data-table="([^"]+)"', sec) == ["zz", *(f"t{i:02d}" for i in range(40))]
+    assert 'data-testid="unmapped-total">209<' in sec
+
+
+def test_the_words_do_not_say_the_rows_were_left_out_or_that_a_code_is_the_cause() -> None:
+    """D-580's counter also holds rows that were loaded without a value (a unit not read: D-590) and rows whose
+    code the reference data could not be asked for (D-593), and counts a row once per such value."""
+    en = i18n_dataops.EN
+    for key in ("dataops.unmapped.title", "dataops.unmapped.mark", "dataops.unmapped.records"):
+        assert "not loaded" not in en[key] and "record" not in en[key].lower() and "code" not in en[key], key
+    said = en["dataops.unmapped.help"]
+    assert "left out, or loaded without that value" in said and "counted twice" in said and "unit" in said
 
 
 def test_a_night_with_none_has_no_section_and_no_mark(box: dict[str, Any]) -> None:
@@ -102,10 +121,10 @@ def test_the_api_answers_the_same_counts(box: dict[str, Any]) -> None:
     r = TestClient(box["app"]).get(f"/api/v1/data/batches/{bid}", headers=_bearer(box, "stwa", "steward"))
     assert r.status_code == 200, r.text[:200]
     got = r.json()
-    assert got["unmapped"] == [{"table": "lab", "records": 1200}, {"table": "medication", "records": 3}]
+    assert got["unmapped"] == [{"table": "lab", "rows": 1200}, {"table": "medication", "rows": 3}]
 
 
-@pytest.mark.parametrize(("lang", "title"), [("en", "not loaded"), ("ja", "取り込まれなかった"), ("zh-TW", "未載入")])
+@pytest.mark.parametrize(("lang", "title"), [("en", "could not use"), ("ja", "使えなかった"), ("zh-TW", "無法使用")])
 def test_the_section_in_three_languages(box: dict[str, Any], lang: str, title: str) -> None:
     bid = _night(box, "2026-11-10", {"lab": 1200})
     c, csrf = _steward(box)
