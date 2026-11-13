@@ -1173,6 +1173,37 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
     return 0
 
 
+def copy_night_length(env: Mapping[str, str], deploy: Path) -> str:
+    """NEW-B-20 (D-661): copy the adapter's record of how long its nights took from the lake's volume to
+    ``deploy/site/night-length.json``, where the host's doctor reads it (``tools.night_length``; it has no docker
+    call and no database). Returns "" when copied, else why not (a host that cannot read the volumes, a box that
+    has not run a night): the copy of an earlier run then stays as it was. Never raises: the backup goes on."""
+    from tools import night_length
+    from tools.trialbox import update
+
+    root = Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+    src = root / f"trialbox_{update.BACKUP_VOLUMES['lake']}" / "_data" / "night_runs.json"
+    dst = deploy / "site" / night_length.FILE
+    tmp = dst.with_name(f"{dst.name}.tmp")
+    try:
+        body = src.read_bytes()
+        got = json.loads(body)
+        if not isinstance(got, dict) or not isinstance(got.get("nights"), list):
+            raise ValueError("not a record of nights")  # a half-read or wrong-shaped file never replaces a good one
+    except Exception as exc:
+        return f"the night's length was not copied: {src} could not be read ({type(exc).__name__})"
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(body)
+        tmp.chmod(0o644)  # times only, and the doctor may run as the host's user, not root
+        tmp.replace(dst)
+    except Exception as exc:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        return f"the night's length was not copied: {dst} could not be written ({type(exc).__name__})"
+    return ""
+
+
 class BackupBusy(RuntimeError):
     """Another backup run holds ``deploy/site/backup.lock``."""
 
@@ -1189,8 +1220,11 @@ def run_backup(deploy: Path, ops: ComposeOps | None = None, quiesce: str | None 
         ops = ops or ComposeOps(deploy)
         ops.sweep()
         cfg = config(deploy, update._env_file(deploy / ".env"))
+        why = copy_night_length(ops.env, deploy)  # D-661: before the backup, so the backup holds this night's copy
         pgb = ops.pgbackrest if cfg.archive_on and with_pgbackrest else None
-        return cfg, ops, nightly(cfg, ops.make_backup(cfg, quiesce, wait), ops.audit, pgb)
+        res = nightly(cfg, ops.make_backup(cfg, quiesce, wait), ops.audit, pgb)
+        res["night_length"] = why or "copied"  # for the caller's lines; not in backup-last.json (not the backup's)
+        return cfg, ops, res
 
 
 def main_nightly(deploy: Path) -> int:
@@ -1201,6 +1235,8 @@ def main_nightly(deploy: Path) -> int:
         return 1
     for e in res["errors"]:
         print(f"backup-nightly: {e}")
+    if res.get("night_length") not in (None, "copied"):
+        print(f"backup-nightly: {res['night_length']} (the doctor's update_window line reads the copy)")
     if res["file"]:
         print(f"backup-nightly: wrote {res['file']['name']} ({res['file']['bytes']} bytes) to "
               f"{len(res['file']['copies'])} targets")  # fmt: skip
