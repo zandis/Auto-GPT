@@ -103,15 +103,18 @@ async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
 
 
 #: a failure a service recorded without expecting it: the error's type, a colon, some of the error's text
-_RECORDED = re.compile(r"^((?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*[a-z][A-Za-z0-9_]*): ")
+_RECORDED = re.compile(r"^((?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*):(?:\s|$)")
 
 
 def kept_failure(detail: str) -> str:
     """What to keep of a failure another service recorded, in a record a person reads (D-557, D-700).
 
     A service's own sentence ("the source folder is empty", "night refused: ...") is kept: it is its word for the
-    operator. A record of the shape ``"<ErrorType>: <text>"`` is a failure it did not expect, and the text is the
-    error's own (an engine quotes the value it could not cast): the type is kept, the service's log has the rest."""
+    operator. A record that starts with ONE name and a colon (``"ConversionException: ..."``, ``"error: ..."``,
+    ``"_Refused: ..."``, with or without a module path) is a failure it did not expect, written as the error's
+    type and the error's own text (an engine quotes the value it could not cast): the name is kept, the service's
+    log has the rest. No service writes a sentence of its own that starts with one word and a colon; one that did
+    would be cut to that word, which fails safe. Applying it twice changes nothing."""
     text = str(detail or "").strip()
     kind = _RECORDED.match(text)
     return kind.group(1) if kind else text

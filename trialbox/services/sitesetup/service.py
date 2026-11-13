@@ -591,7 +591,7 @@ def _failed(last: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, Any]:
         "unchanged": False,
         "pending": False,
         "failed": True,
-        "detail": str(rec.get("detail") or ""),
+        "detail": kept_failure(str(rec.get("detail") or "")),  # also a record kept before D-700
         "counts": last["counts"] if last else {},
     }
 

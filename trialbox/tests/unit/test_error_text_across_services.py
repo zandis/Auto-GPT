@@ -16,6 +16,7 @@ person reads keeps the type (``tb_common.http.kept_failure``). Synthetic data on
 from __future__ import annotations
 
 import ast
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -27,16 +28,17 @@ CHART = "A1234567"
 GENERAL = {"Exception", "BaseException", "ValueError", "KeyError", "FileNotFoundError", "OSError", "RuntimeError",
            "TypeError", "LookupError", "AttributeError", "IndexError"}  # fmt: skip
 
-#: this lane's places (the console, the orchestrator, the site set-up): file -> what it is
-MINE: dict[str, str] = {
-    "console/app.py": "the cascade runs' own refusal: 'a cascade run is already running'",
-    "console/approval.py": "a catalogue key raised by the approval form's own checks, translated before it is shown",
-    "console/cli.py": "the console's command-line tool, to its own stderr",
-    "console/edc_pages.py": "the text only of the sign-in provider's own error class, else the error's type",
-    "console/identity.py": "the same guard: the provider's own error class, else the type",
-    "orchestrator/reports/twpas_bundle.py": "the first line of the FHIR validator's message for a built resource",
-    "orchestrator/scenarios/approve.py": "the approval workbook's own reading errors (D-557)",
-    "orchestrator/datacore_api.py": "the CTCAE check's sentence that lists the versions (D-555)",
+#: this lane's places (the console, the orchestrator, the site set-up):
+#: (file, the general errors caught) -> (how many statements, what it is). Exact.
+MINE: dict[tuple[str, str], tuple[int, str]] = {
+    ("console/app.py", "RuntimeError"): (1, "the cascade runs' own refusal: 'a cascade run is already running'"),
+    ("console/approval.py", "ValueError"): (1, "a catalogue key raised by the approval form's own checks"),
+    ("console/cli.py", "OSError"): (1, "the console's command-line tool, to its own stderr"),
+    ("console/edc_pages.py", "OSError/ValueError"): (1, "the sign-in provider's own error class, else the type"),
+    ("console/identity.py", "OSError/ValueError"): (1, "the same guard: the provider's own class, else the type"),
+    ("orchestrator/datacore_api.py", "ValueError"): (1, "the CTCAE check's sentence that lists the versions (D-555)"),
+    ("orchestrator/reports/twpas_bundle.py", "Exception"): (1, "the first line of the FHIR validator's message"),
+    ("orchestrator/scenarios/approve.py", "ValueError"): (1, "the approval workbook's own reading errors (D-557)"),
 }
 #: other lanes' services, by reading, not judged here: file -> whose. Theirs to take off; the integrator has them.
 THEIRS: dict[str, str] = {
@@ -53,34 +55,38 @@ THEIRS: dict[str, str] = {
 }  # fmt: skip
 
 
-def _found() -> set[str]:
-    out: set[str] = set()
+def _found() -> Counter[tuple[str, str]]:
+    """How many statements take a general error's text, by (file, the general errors caught)."""
+    out: Counter[tuple[str, str]] = Counter()
     for f in sorted(ROOT.rglob("*.py")):
         tree = ast.parse(f.read_text(encoding="utf-8"))
         for h in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.name):
-            caught = set(_caught(h)) & GENERAL
+            caught = sorted(set(_caught(h)) & GENERAL)
             if not caught:
                 continue
             assert h.name is not None
             for stmt in (n for b in h.body for n in ast.walk(b) if isinstance(n, ast.stmt)):
                 takes = isinstance(stmt, ast.Raise | ast.Return | ast.Assign | ast.AnnAssign | ast.AugAssign | ast.Expr)
                 if takes and not _is_log(stmt) and _uses_text_of(stmt, h.name):
-                    out.add(str(f.relative_to(ROOT)))
+                    out[(str(f.relative_to(ROOT)), "/".join(caught))] += 1
     return out
 
 
 def test_a_general_errors_text_is_used_only_in_the_listed_places() -> None:
-    new = sorted(_found() - set(MINE) - set(THEIRS))
+    files = {f for f, _ in _found()}
+    new = sorted(files - {f for f, _ in MINE} - set(THEIRS))
     assert new == [], f"an error's own text goes into an answer or a record here: {new}"
-    assert not set(MINE) & set(THEIRS)
+    assert not {f for f, _ in MINE} & set(THEIRS)
 
 
-def test_this_lanes_services_have_no_place_left_but_the_listed_ones() -> None:
-    found = _found()
-    mine = {f for f in found if f.split("/")[0] in ("console", "orchestrator", "sitesetup")}
-    assert mine == set(MINE), sorted(mine ^ set(MINE))  # exactly: a place made type-only leaves the list
+def test_this_lanes_places_are_exactly_the_listed_ones() -> None:
+    """By file, the errors caught and how many statements: a new statement in a listed file fails too (the review:
+    the first list was exact by file only, and the console's largest file has one listed place)."""
+    found = {k: n for k, n in _found().items() if k[0].split("/")[0] in ("console", "orchestrator", "sitesetup")}
+    listed = {k: n for k, (n, _) in MINE.items()}
+    assert found == listed, sorted(set(found.items()) ^ set(listed.items()))
     # the two this card took off
-    assert "console/cascade.py" not in found and not [f for f in found if f.startswith("sitesetup/")]
+    assert not [k for k in found if k[0] == "console/cascade.py" or k[0].startswith("sitesetup/")]
 
 
 @pytest.mark.parametrize(
@@ -91,6 +97,18 @@ def test_this_lanes_services_have_no_place_left_but_the_listed_ones() -> None:
         (f"KeyError: '{CHART}'", "KeyError"),
         ("the source folder is empty", "the source folder is empty"),
         ("night refused: the site key changed", "night refused: the site key changed"),
+        # the review: a name without a capital, or with a leading underscore, is an error's type too
+        (f"error: Error -3 while decompressing data {CHART}", "error"),
+        (f"gaierror: [Errno -2] {CHART}", "gaierror"),
+        (f"_Refused: chart {CHART}", "_Refused"),
+        (f"IO: {CHART}", "IO"),
+        (f"ConversionException:\n{CHART}", "ConversionException"),
+        ("lake snapshot 2026-10-04 is held by a running job", "lake snapshot 2026-10-04 is held by a running job"),
+        (
+            "the ingest's process ended with exit code 2 and no answer",
+            "the ingest's process ended with exit code 2 and no answer",
+        ),
+        ("OSError", "OSError"),  # applying it twice changes nothing
         ("refused", "refused"),
         ("", ""),
     ],
@@ -99,18 +117,19 @@ def test_a_failure_recorded_as_type_and_text_is_kept_as_its_type(recorded: str, 
     from tb_common.http import kept_failure
 
     assert kept_failure(recorded) == kept
-    assert CHART not in kept_failure(recorded)
+    assert CHART not in kept_failure(recorded) and kept_failure(kept) == kept
 
 
 def test_a_failed_publish_of_the_site_set_up_keeps_the_engines_type() -> None:
-    """The site set-up follows the lake's rebuild; a rebuild that failed is recorded by the lake as the engine's
-    error, type and text, and the publish kept 300 characters of it for the page."""
-    import inspect
+    """The site set-up follows the lake's rebuild; a rebuild that broke is recorded by the lake as the engine's
+    error, type and text, and the publish kept 300 characters of it in its answer and its record. (The path
+    through a real publish is held by tests/unit/test_polled_jobs.py.) A record kept before this card is reduced
+    when it is read."""
+    from sitesetup.service import _failed
 
-    from sitesetup import service
-
-    src = inspect.getsource(service)
-    assert 'detail = str(st.get("detail") or state)[:300]' not in src and "kept_failure(" in src
+    old = {"state": "failed", "detail": f"ConversionException: Could not convert string '{CHART}' to INT32"}
+    assert _failed(None, old)["detail"] == "ConversionException"
+    assert _failed(None, {"detail": "lake snapshot 2026-10-04 is held"})["detail"] == "lake snapshot 2026-10-04 is held"
 
 
 def test_a_cascade_run_that_broke_keeps_the_errors_type(tmp_path: Path) -> None:
@@ -133,3 +152,26 @@ def test_a_cascade_run_that_broke_keeps_the_errors_type(tmp_path: Path) -> None:
         time.sleep(0.02)
     got = runs.get(run.run_id)
     assert got is not None and got.state == "failed" and got.error == "RuntimeError"
+    # a run kept before this card holds the type and the text: shown as its type
+    import json
+
+    meta = tmp_path / "runs" / run.run_id / "run.json"
+    kept = json.loads(meta.read_text(encoding="utf-8"))
+    meta.write_text(json.dumps({**kept, "error": f"RuntimeError: no row for chart {CHART}"}), encoding="utf-8")
+    again = runs.get(run.run_id)
+    assert again is not None and again.error == "RuntimeError"
+
+
+def test_a_subject_that_cannot_be_read_is_refused_without_repeating_what_was_typed() -> None:
+    """The rejection reply of a mailed request, and the mail gateway's record of it, repeated the typed command,
+    job id, ruleset, option and value (``unknown command 'A1234567'``). The texts name the rule; an option's NAME
+    is said only once it is one of the allowed names."""
+    from tb_common.subject import SubjectError, parse_subject
+
+    for subject in (f"{CHART} GZQO", f"SCREEN {CHART}!", f"STATUS {CHART}", f"SCREEN GZQO {CHART}",
+                    f"SCREEN GZQO {CHART}=1", f"SCREEN GZQO window={CHART}!"):  # fmt: skip
+        with pytest.raises(SubjectError) as said:
+            parse_subject(subject)
+        assert CHART not in str(said.value), subject
+    with pytest.raises(SubjectError, match="window"):  # the option's name, which is one of the allowed
+        parse_subject(f"SCREEN GZQO window={CHART}!")
