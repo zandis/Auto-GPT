@@ -22,6 +22,8 @@ from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from tb_common import chartno
+
 LANGUAGES = ("en", "ja", "zh-TW")  # the console's three catalogues
 
 
@@ -83,6 +85,9 @@ class OwnerAnswers:
     box_name: str  # the box's name on the network; ".local" is added when it has no dot (mDNS)
     backup: Backup
     source: SourceKind
+    # NEW-DIN-3 (D-544, D-579): how the hospital writes chart numbers (``tb_common.chartno``: ``asis``,
+    # ``digits[:width]``, ``hex[:width][:lower]``); empty: not answered, the installer keeps the rule the box runs on
+    chartno_rule: str = ""
 
     @property
     def hostname(self) -> str:
@@ -147,13 +152,41 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
     except ValueError:
         source = SourceKind.LATER
         problems.append(Problem("source", "source"))
-    if problems or kind is None:
+    rule = chartno_rule(raw)
+    if rule is None:
+        problems.append(Problem("chartno_rule", "chartno_rule"))
+    if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")
     return (
-        OwnerAnswers(site_name, tz, language, Owner(full_name, username, email), box_name, backup, source),
+        OwnerAnswers(site_name, tz, language, Owner(full_name, username, email), box_name, backup, source, rule),
         [],
     )
+
+
+# a rule exactly as tb_common.chartno writes one: ASCII digits, one width, no part twice
+_RULE = re.compile(r"^(asis|digits(:[0-9]{1,2})?|hex(:[0-9]{1,2})?(:(upper|lower))?)$")
+
+
+def chartno_rule(raw: dict[str, Any]) -> str | None:
+    """The chart-number rule as ``tb_common.chartno`` writes it, from ``chartno_rule`` (a file) or from the form's
+    ``chartno_kind`` and ``chartno_width`` (and ``chartno_case`` for hex), never from both. Empty: no answer. None:
+    it cannot be read; nothing is cut, guessed or taken in part (the rule decides every patient's pseudonym)."""
+    text = str(raw.get("chartno_rule") or "").strip().lower()
+    kind = str(raw.get("chartno_kind") or "").strip().lower()
+    width, case = str(raw.get("chartno_width") or "").strip(), str(raw.get("chartno_case") or "").strip().lower()
+    if text and (kind or width or case):
+        return None
+    if not text:
+        if not kind:
+            return None if width or case else ""
+        text = ":".join(p for p in (kind, width, case) if p)
+    if not _RULE.fullmatch(text):
+        return None
+    try:
+        return str(chartno.parse_rule(text))
+    except ValueError:  # ChartNoError is one; a width the pattern let through and int() cannot read is another
+        return None
 
 
 @dataclass(frozen=True)

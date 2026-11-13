@@ -222,6 +222,18 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "協同主持人須以醫師帳號登入",
     ),
     "give a chart number or a pseudonym": ("カルテ番号か仮名IDを入力してください", "請輸入病歷號或假名代碼"),
+    # NEW-DIN-3 (D-544): console.team.CANNOT_CHECK
+    "TrialBox cannot check this chart number now: to register it without the check, write why "
+    "(at least 10 characters)": (
+        "TrialBoxは今このカルテ番号を確認できません。確認なしで登録する場合は、理由を10文字以上で書いてください",
+        "TrialBox 目前無法核對此病歷號。若要不經核對而登記，請寫明理由（至少 10 個字）",
+    ),
+    # NEW-DIN-3 (D-544): console.team.NOT_A_PATIENT
+    "this chart number is not a patient of this box: check the number; to register it anyway, write why "
+    "(at least 10 characters)": (
+        "このカルテ番号はこのTrialBoxの患者さんのものではありません。番号を確かめてください。それでも登録する場合は、理由を10文字以上で書いてください",
+        "此病歷號不是本 TrialBox 的病人，請核對號碼。若仍要登記，請寫明理由（至少 10 個字）",
+    ),
     "the box could not turn the chart number into a pseudonym": (
         "カルテ番号を仮名IDに変えられませんでした",
         "無法將病歷號轉為假名代碼",

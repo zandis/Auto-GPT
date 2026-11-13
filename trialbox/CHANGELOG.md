@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The opt-out desk checks the chart number (NEW-DIN-3, D-544): a number that is not a patient of this box is
+  refused with that message; the keeper may register it anyway with a written reason. The box's first-run page
+  asks how the hospital writes chart numbers, only while the box holds no patient.
 - The opt-out register (NEW-JRN-2, D-542): a pseudonym must be typed whole (32 characters) or the chart number
   used; the 8 characters a page shows are refused. After the save the page says whether a listed patient
   matched, or that nobody did.

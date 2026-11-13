@@ -58,6 +58,9 @@ class SiteSetup:
     site_key: Callable[[], bytes]
     ocr: Ocr = field(default_factory=default_ocr)
     mrn_regex: str | None = None
+    # NEW-DIN-3 (D-544): asks the pid map whether a pseudonym is a patient of this box (true, false, or None when
+    # the map cannot say); None here: this service has no way to ask
+    known: Callable[[str], bool | None] | None = None
     # T-305b (D-403): decisions on ``main`` within this many seconds of the last publish wait and go as one batch
     # (``TB_SITE_PUBLISH_BATCH_SECONDS``; 0 = every decision publishes, as before)
     publish_batch_seconds: int = 0
@@ -116,6 +119,16 @@ class SiteSetup:
         then hashed with the site key, as the feed's own chart numbers are."""
         key = self.site_key()
         return pid_for_mrn(key, chartno.normalise(None, chart_no))
+
+    def known_pid(self, pid: str) -> bool | None:
+        """Whether the box holds a patient under this pseudonym. None: it cannot say, which is never "yes"."""
+        if self.known is None:
+            return None
+        try:
+            got = self.known(pid)
+        except Exception:
+            return None
+        return got if isinstance(got, bool) else None
 
     # ------------------------------------------------------------------ sheets and dumps
     def add_sheet(self, ws: str, kind: str, name: str, data: bytes, roles: dict[str, str], by: str) -> dict[str, Any]:

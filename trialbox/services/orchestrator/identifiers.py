@@ -19,6 +19,7 @@ Two kinds of caller:
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,7 @@ from tb_common.kek import key_present
 
 from orchestrator import actor as route_actor
 
+_log = logging.getLogger("trialbox.identifiers")
 SITE_KEY = "site_hmac.key"
 MAP_KEY = "pid_map.key"
 #: the matrix rows that may ask for a pseudonym by chart number, each on its own route (:func:`admit` is told
@@ -78,6 +80,27 @@ def charts_of(secrets_dir: Path | str, pids: list[str], url: str | None = None) 
     pm = _map(secrets_dir, url)
     try:
         return dict(pm.resolve_many(pids))
+    finally:
+        pm.close()
+
+
+def known_pid(secrets_dir: Path | str, url: str | None, pid: str) -> bool | None:
+    """NEW-DIN-3 (D-544): whether the pid map knows this pseudonym, so whether it is a patient this box has loaded:
+    a row of its own, or a chart number merged into another patient (the opt-out register hides the surviving
+    patient for it, ``tb_common.optout.with_survivors``). None: it cannot say (no map key yet, or the map cannot be
+    read); never taken for "known". Why it cannot say goes to the log, without the pseudonym."""
+    if not has_map(secrets_dir):
+        return None
+    try:
+        pm = _map(secrets_dir, url)
+    except Exception as exc:
+        _log.warning("known_pid: the pid map cannot be opened: %s", type(exc).__name__)
+        return None
+    try:
+        return pm.resolve(pid) is not None or pid in pm.aliases()
+    except Exception as exc:
+        _log.warning("known_pid: the pid map cannot be read: %s", type(exc).__name__)
+        return None
     finally:
         pm.close()
 

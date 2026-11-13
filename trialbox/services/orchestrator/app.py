@@ -669,6 +669,7 @@ def setup_of(o: Orchestrator) -> Any:
         svc = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
                         o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
                         mrn_regex=o.cfg.settings.mrn_regex,
+                        known=lambda pid: identifiers.known_pid(o.cfg.env.secrets_dir, o.db.url, pid),
                         publish_batch_seconds=o.cfg.env.site_publish_batch_seconds)  # fmt: skip
         _setups[key] = svc
         o.after_job.append(lambda: _flush_main(svc))  # T-305b (D-403): a batch held by the job goes after it

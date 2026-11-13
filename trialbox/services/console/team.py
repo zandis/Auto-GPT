@@ -100,6 +100,19 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (re
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
+# NEW-DIN-3 (D-544): an opt-out typed by chart number for a pseudonym the pid map does not hold is registered only
+# with a written reason of this length; without one the desk says this
+UNKNOWN_REASON_MIN = 10
+NOT_A_PATIENT = (
+    "this chart number is not a patient of this box: check the number; to register it anyway, write why "
+    f"(at least {UNKNOWN_REASON_MIN} characters)"
+)
+# the box could not answer (the map is away, a release that does not answer): the keeper is not told to doubt the number
+CANNOT_CHECK = (
+    "TrialBox cannot check this chart number now: to register it without the check, write why "
+    f"(at least {UNKNOWN_REASON_MIN} characters)"
+)
+KNOWN_WORD = {True: "yes", False: "no", None: "cannot_say"}
 IRB_FIELDS = ("approval_no", "approved_on", "expires_on", "icf_version", "icf_date")  # the stored IRB record
 
 
@@ -225,6 +238,7 @@ class ApiOptOut(BaseModel):
     source: str = "office"
     note: str = Field(default="", max_length=300)
     lift: bool = False
+    unknown_reason: str = Field(default="", max_length=300)  # NEW-DIN-3: why a number the box does not know is kept
 
 
 def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
@@ -995,17 +1009,20 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return RedirectResponse(f"/site/staff?done={action}", status_code=303)
 
     # ------------------------------------------------------------------ opt-out register
-    def to_pid(sess: Session, chart_no: str, pid: str, lift: bool = False) -> str:
+    def to_pid(sess: Session, chart_no: str, pid: str, lift: bool = False) -> tuple[str, bool | None]:
+        """The pseudonym, and for a chart number whether the box holds a patient under it (NEW-DIN-3, D-544): True
+        only when the box says so; False when it says no; None when it cannot say or does not answer the question
+        (and for a typed pseudonym, which is not asked)."""
         pid = pid.strip()
         if pid:
             # NEW-JRN-2 (D-542): the whole pseudonym or nothing. Every screen shows a patient by the first eight
             # characters; an opt-out stored for those names nobody and removes nobody. The one exception is taking
             # back a row that is on the register as it was typed (made before this rule).
             if lift and _PID.match(pid) and any(e.pid == pid for e in optout.current()):
-                return pid  # the row's own text, as it is on the register
+                return pid, None  # the row's own text, as it is on the register
             whole = pid.lower()
             if _WHOLE_PID.match(whole):
-                return whole
+                return whole, None
             raise refused(OptOutError(WHOLE_PID_WHY))
         chart = chart_no.strip()
         if not chart:
@@ -1015,15 +1032,18 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if _WHOLE_PID.match(chart.lower()):  # hashed again it would name nobody (review of NEW-JRN-2)
             raise refused(OptOutError("this is a pseudonym, not a chart number: put it in the pseudonym field"))
         try:  # the box turns the chart number into the pseudonym at the door; the number is never stored
-            # T-719 (D-487): as the signed-in keeper of the register; the box refuses the console's token alone
-            out = acting.call(h, sess, "optout.keep", None, "POST", "/setup/pseudonym", {"chart_no": chart})
+            # T-719 (D-487): as the signed-in keeper of the register; the box refuses the console's token alone.
+            # NEW-DIN-3 (D-544): and the box is asked whether it knows the pseudonym
+            out = acting.call(h, sess, "optout.keep", None, "POST", "/setup/pseudonym",
+                              {"chart_no": chart, "ask_known": True})  # fmt: skip
         except (Problem, Unavailable) as exc:
             raise h.problem(409, "request.refused",
                             reason="the box could not turn the chart number into a pseudonym") from exc  # fmt: skip
         got = str((out or {}).get("pid") or "")
         if not _PID.match(got):
             raise h.problem(409, "request.refused", reason="the box could not turn the chart number into a pseudonym")
-        return got
+        known = (out or {}).get("known")
+        return got, known if isinstance(known, bool) else None
 
     def on_lists(pid: str) -> bool | None:
         """NEW-JRN-2 (D-542): is this pseudonym on a registry or a current list of any study of this box? Read
@@ -1058,17 +1078,30 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
-        pid = to_pid(sess, body.chart_no, body.pid, body.lift)
+        pid, known = to_pid(sess, body.chart_no, body.pid, body.lift)
+        why_unknown = ""
         if by_chart:
             au.append(
                 "console.chart_lookup",
                 actor=h.actor(sess),
-                detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role},
-            )
+                detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role,
+                        "known": KNOWN_WORD[known]},
+            )  # fmt: skip
+            # NEW-DIN-3 (D-544): a number that is not a patient of this box (a slip of the hand, another hospital's
+            # number) is not registered as one; the keeper may still register it, saying why. A lift is not asked:
+            # what is on the register can always be taken off.
+            if known is not True and not body.lift:
+                why_unknown = " ".join(body.unknown_reason.split())[:300]
+                if len(why_unknown) < UNKNOWN_REASON_MIN:
+                    raise refused(OptOutError(NOT_A_PATIENT if known is False else CANNOT_CHECK))
         detail = {"pid": pid, "action": "lift" if body.lift else "opt_out",
                   "reason": body.note.strip()[:300] if body.lift else "",
                   "source": "" if body.lift else (body.source if body.source in SOURCES else "other"),
                   "removed_from": "" if body.lift else "screening, candidate lists, exports"}  # fmt: skip
+        if by_chart and not body.lift:
+            detail["known"] = KNOWN_WORD[known]
+            if why_unknown:
+                detail["unknown_reason"] = why_unknown
         if match:  # NEW-JRN-2: the keeper was told whether this pseudonym is on a list (a lookup: on the record)
             detail["match_shown"] = match
 
@@ -1117,7 +1150,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_csrf(sess, form)
         body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:40],
                          source=str(form.get("source") or "office")[:20], note=str(form.get("note") or "")[:300],
-                         lift=form.get("lift") == "1")  # fmt: skip
+                         lift=form.get("lift") == "1",
+                         unknown_reason=str(form.get("unknown_reason") or "")[:300])  # fmt: skip
         match = matched_before(sess, body)
         _pid, changed = change_optout(sess, request.url.path, body, match)
         done = ("lifted" if body.lift else "added") if changed else "same"

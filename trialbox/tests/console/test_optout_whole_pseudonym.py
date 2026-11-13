@@ -99,7 +99,7 @@ def test_review_a_chart_number_gets_the_plain_answer_and_a_pseudonym_is_not_a_ch
 
     def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
         assert path == "/setup/pseudonym", path  # the box turns the chart number into B's pseudonym
-        return {"pid": B}
+        return {"pid": B, "known": True}  # NEW-DIN-3 (D-544): and says B is a patient of this box
 
     box["backend"].study_api = study_api
     stw = _user(box, "stw", "steward")
