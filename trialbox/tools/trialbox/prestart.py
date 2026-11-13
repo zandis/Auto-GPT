@@ -45,10 +45,18 @@ def _model_key(box: ComposeBox) -> str:
     return "made now" if box.ensure_model_key() else "in place, or not a GPU box"
 
 
+def _actor_key(box: ComposeBox) -> str:
+    """T-717 (D-485), T-717b (D-547): the console's signing key and the orchestrator's keys file. Harmless to the
+    release before: it reads neither file."""
+    made = box.ensure_actor_key()
+    return "no per-service tokens on this box" if made is None else ("made now" if made else "in place")
+
+
 #: name, step; in the order they run. The first two are what every release before this one ran in the updater itself.
 STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
     ("image pins", _image_pins),
     ("model key", _model_key),
+    ("actor signing key", _actor_key),
 ]
 
 

@@ -1203,13 +1203,19 @@ class ComposeBox(_DockerImages):
                 svc_secrets.ensure_model_key(self.deploy)
             except svc_secrets.SecretsError as e:  # T-608 (D-445): two different model keys stop the update
                 raise UpdateFailed(str(e)) from e
-        # T-717 (D-485): the secrets overlay gives the console its signing key as a compose secret, which needs its
-        # file: a box with per-service tokens from before it gets the key (and the orchestrator's keys file) here
-        if (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
-            from tools.trialbox import svc_secrets
-
-            svc_secrets.ensure_actor_sign_key(self.deploy)
         return made
+
+    def ensure_actor_key(self) -> bool | None:
+        """T-717 (D-485): the secrets overlay gives the console its signing key as a compose secret, which needs its
+        file: a box with per-service tokens from before it gets the key (and the orchestrator's keys file) here.
+        True: made now; False: in place; None: a box without per-service tokens, which has no such secret.
+        T-717b (D-547): a pre-start step of its own (``tools/trialbox/prestart.py``), no longer inside the model
+        key's."""
+        if not (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
+            return None
+        from tools.trialbox import svc_secrets
+
+        return svc_secrets.ensure_actor_sign_key(self.deploy)
 
     def set_roles(self) -> None:
         """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box
@@ -1236,13 +1242,14 @@ class ComposeBox(_DockerImages):
         (``tools/trialbox/prestart.py``): this process is the installed, older release's, and a step the new release
         added is not in it. The command runs in the install folder, where ``tools/`` is the new tree since
         ``apply_host``. A tree without the command (a downgrade to a release from before it; a box with no host
-        tree) gets the two steps every such release ran, here."""
+        tree) gets the steps every such release ran, and this release's signing key, here."""
         # absolute, not resolved: the command changes into the install folder first, and the symlinked layout stays
         deploy = Path(os.path.abspath(self.deploy))
         root = deploy.parent
         if not (root / "tools" / "trialbox" / "prestart.py").is_file():
             self.resolve_pins()
             self.ensure_model_key()
+            self.ensure_actor_key()  # T-717b: this release's own step, when the tree has no command to run it
             return
         python = sys.executable or "python3"
         argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', "tb-pre-start", str(root),
