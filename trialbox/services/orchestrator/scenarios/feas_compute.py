@@ -170,7 +170,7 @@ def build_variants(rs: Ruleset, spec: dict[str, str], applied: list[Step]) -> li
         if "-" in key:
             cid = key if key.startswith(f"{rs.id}-") else f"{rs.id}-{key}"
             if cid not in by_id:
-                raise FeasError(f"variant {key}: no applied structured criterion {cid}")
+                raise FeasError("variant: no applied structured criterion of that id")
             targets = [by_id[cid]]
         else:
             targets = [
@@ -182,7 +182,7 @@ def build_variants(rs: Ruleset, spec: dict[str, str], applied: list[Step]) -> li
                 )
             ]
             if not targets:
-                raise FeasError(f"variant {key}: no applied criterion uses derived value {key!r}")
+                raise FeasError("variant: no applied criterion uses that derived value")
         for st in sorted(targets, key=lambda s: s.id):
             for num in nums:
                 logic = st.criterion.logic.model_dump(mode="json", by_alias=True, exclude_none=True)

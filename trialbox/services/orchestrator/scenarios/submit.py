@@ -36,7 +36,7 @@ def _nav_job(ctx: Ctx, ruleset: str, ref: str | None, pid: str) -> Any:
     if ref:
         nav = ctx.orch.db.get(ref.upper())
         if nav is None or nav.type != "NAV" or (nav.ruleset or "").upper() != ruleset:
-            raise StepFailed("received", f"bundle={ref} is not a NAV job for {ruleset} on this box.")
+            raise StepFailed("received", f"bundle= does not name a NAV job for {ruleset} on this box.")
         return nav
     # no bundle= → the latest finished NAV run of this ruleset that holds a bundle for the patient
     for nav in ctx.orch.db.find(type_="NAV", ruleset=ruleset, state="done"):  # newest first
@@ -174,7 +174,7 @@ def run(ctx: Ctx) -> Outcome:
     try:  # the receipt is phi: the requester must be on the ruleset's list_to — checked before anything is sent
         check("phi", [norm(job.requested_by)], rs.manifest.routing, ctx.cfg.settings.internal_domains)
     except RoutingViolation as exc:
-        raise StepFailed("received", f"the sender is not a list recipient of {ruleset}: {exc}") from exc
+        raise StepFailed("received", f"the sender is not a list recipient of {ruleset}") from exc
     if nav.state != "done":
         raise StepFailed("received", f"NAV job {nav.job_id} is {nav.state}, not done.")
     if nav.received_at.date() < ctx.today() - timedelta(days=MAX_AGE_DAYS):

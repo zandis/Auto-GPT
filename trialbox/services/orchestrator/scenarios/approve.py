@@ -92,7 +92,7 @@ def run(ctx: Ctx) -> Outcome:
     if meta.get("ruleset") and meta["ruleset"].upper() != ruleset:
         raise StepFailed("approve", f"The workbook is for ruleset {meta['ruleset']}, not {ruleset}.")
     if meta.get("version") and meta["version"] != version:
-        raise StepFailed("approve", f"The workbook is for version {meta['version']}, not {version}.")
+        raise StepFailed("approve", f"The workbook is for version {meta['version']}, not the version= of the request.")
     via = "web console" if (ctx.job.comment or "").startswith("web console") else "e-mail"
     res = ctx.services.compiler.approve(
         ApproveRequest(

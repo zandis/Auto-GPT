@@ -101,6 +101,10 @@ async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse({"detail": detail}, status_code=422)
 
 
+TRACE_FRAMES = 30  # of each error of the chain, so that one line of the log stays a line
+TRACE_CHAIN = 5
+
+
 def trace_of(exc: BaseException) -> dict[str, str]:
     """An error for the log without its own text (D-557): ``error`` is its type, ``trace`` the frames it passed
     (file, line, function, the line of code) and the types of the errors it came from.
@@ -111,9 +115,9 @@ def trace_of(exc: BaseException) -> dict[str, str]:
     parts: list[str] = []
     seen: set[int] = set()
     cur: BaseException | None = exc
-    while cur is not None and id(cur) not in seen:
+    while cur is not None and id(cur) not in seen and len(parts) < TRACE_CHAIN:
         seen.add(id(cur))
-        frames = "".join(traceback.format_tb(cur.__traceback__))
+        frames = "".join(traceback.format_tb(cur.__traceback__, limit=-TRACE_FRAMES))  # the last ones: where it broke
         parts.append(f"{frames}{type(cur).__name__}")
         cur = cur.__cause__ or (None if cur.__suppress_context__ else cur.__context__)
     return {"error": type(exc).__name__, "trace": "\n-- raised while handling --\n".join(parts)}

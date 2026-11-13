@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -60,16 +61,28 @@ class AdapterAPI(Protocol):
     def run(self, req: IngestRequest) -> IngestReport: ...
 
 
+_TYPE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.]{0,60}):")
+
+
+def _ingest_ended(st: dict[str, Any]) -> str:
+    kind = _TYPE.match(str(st.get("detail") or ""))
+    state = str(st.get("state") or "")
+    state = state if state in ("failed", "interrupted", "cancelled", "held") else "not done"
+    return f"The nightly ingest ended {state}" + (f" ({kind.group(1)})" if kind else "") + "; the adapter's log has it."
+
+
 def _step_error(exc: ServiceError, default_step: str) -> StepFailed:
-    step, message = default_step, exc.detail
+    """A service's refusal of a step as the job's error. The message is the service's own when the answer has the
+    shape of one (``{"detail": {"step", "message"}}``, written by that service for the person); any other answer
+    (a framework's text, a body of up to 2,000 characters, "unreachable: ...") is not kept in the job's record:
+    the record says which service and with what status (D-557)."""
+    step, message = default_step, f"The {exc.service} service did not do this step."
     try:
         body = json.loads(exc.detail)
         detail = body.get("detail", body)
-        if isinstance(detail, dict):
+        if isinstance(detail, dict) and detail.get("message"):
             step = str(detail.get("step") or default_step)
-            message = str(detail.get("message") or message)
-        elif isinstance(detail, str):
-            message = detail
+            message = str(detail["message"])
     except (ValueError, AttributeError):
         pass
     return StepFailed(step, message, f"{exc.service} HTTP {exc.status}")
@@ -184,4 +197,6 @@ class AdapterHttp:
             raise _step_error(exc, "ingest") from exc
         if st.get("state") == "done":
             return IngestReport.model_validate(st.get("report") or {})
-        raise StepFailed("ingest", str(st.get("detail") or f"the ingest ended {st.get('state')}"), f"adapter run {rid}")
+        # D-557: the adapter's "failed" detail is an error's type and up to 500 characters of its text (a cast
+        # error quotes the value it could not cast); the job's record keeps the type, the adapter's log the rest
+        raise StepFailed("ingest", _ingest_ended(st), f"adapter run {rid}")

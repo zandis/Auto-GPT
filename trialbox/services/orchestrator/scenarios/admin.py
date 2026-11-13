@@ -9,13 +9,20 @@ from datetime import UTC, datetime
 
 from tb_common.db import ENV
 from tb_common.subject import job_subject
-from tb_contracts import IngestRequest, dump
+from tb_contracts import IngestReport, IngestRequest, dump
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_markdown
 from orchestrator.i18n import t
 
 log = logging.getLogger("orchestrator.admin")
+
+
+def _ingest_errors(report: IngestReport) -> str:
+    """D-557: the report's error lines can hold an error's own text (a validator that failed to run); the job's
+    record says how many there are and where they are, the published ingest report holds the lines."""
+    n = len(report.errors or [])
+    return f"The nightly ingest finished with {n} error(s): see ingest_report_{report.snapshot}.json."
 
 
 def _target(ctx: Ctx) -> str:
@@ -112,7 +119,7 @@ def ingest(ctx: Ctx) -> Outcome:
             raise StepFailed(
                 "ingest",
                 f"Another ingest was running (adapter run {on['run']}) and this job followed it to its end; this "
-                f"job's own request (since {opts['since']}) was not run. Send it again.",
+                "job's own request (with since=) was not run. Send it again.",
             )
         # review F1: the steps that follow an ingest run once for an adapter run, in the first job that is on it
         mine = ctx.job.job_id
@@ -120,9 +127,7 @@ def ingest(ctx: Ctx) -> Outcome:
                   if j.job_id != mine and j.state != "failed"]  # fmt: skip
         if any((j.received_at, j.job_id) < (ctx.job.received_at, mine) for j in others):
             if not report.passed:
-                raise StepFailed(
-                    "ingest", "The nightly ingest finished with errors: " + "; ".join((report.errors or [])[:5])
-                )
+                raise StepFailed("ingest", _ingest_errors(report))
             return Outcome(
                 summary_md=f"Ingest {report.snapshot}: passed. This job followed a run another job started; the "
                 "steps that follow the ingest run in that job."
@@ -131,7 +136,7 @@ def ingest(ctx: Ctx) -> Outcome:
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     ctx.publish(f"ingest_report_{report.snapshot}.json", body, "aggregate", [])
     if not report.passed:
-        raise StepFailed("ingest", "The nightly ingest finished with errors: " + "; ".join((report.errors or [])[:5]))
+        raise StepFailed("ingest", _ingest_errors(report))
     from orchestrator import derive
     from orchestrator.scheduler import after_ingest
 
