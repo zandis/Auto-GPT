@@ -346,6 +346,73 @@ def merge_refusal(db: JobDB, rows: list[dict[str, Any]], sender: str, own_site: 
     return None
 
 
+class RecordChanged(RuntimeError):
+    """A recorded table cannot be read, or is not the table its hash was taken of."""
+
+
+class ReplayUnsure(RuntimeError):
+    """The record does not settle what a re-run of the merge would read (D-648)."""
+
+
+def _recorded(stored: list[dict[str, Any]]) -> list[tuple[list[dict[str, Any]], str, str]]:
+    """The recorded stores as (table, job, sender), each table checked against its hash."""
+    from orchestrator.db import cohort_table_hash
+
+    out = []
+    for t in stored:
+        try:
+            rows = json.loads(t["rows"])
+            same = cohort_table_hash(rows) == t["table_sha256"]
+        except (ValueError, KeyError, TypeError):
+            same = False
+        if not same:
+            raise RecordChanged(
+                f"the record of the table of site {t['site_id']} stored by job {t['job_id']} cannot be read, or was "
+                "altered"
+            )
+        out.append((rows, str(t["job_id"]), str(t["received_from"])))
+    return out
+
+
+def replay_until(record: JobDB, into: JobDB, upto: int | None = None) -> None:
+    """Rebuild in ``into`` the alliance tables of ``record`` as they stood after its store number ``upto`` (after
+    its last store when None), from the record alone (D-648): the tables the version that began the record found,
+    then every recorded table in the order of the stores, whichever job stored it. Every recorded table is checked
+    before anything is stored."""
+    tables = _recorded(record.cohort_stored_all(upto))
+    before: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    for r in record.cohort_before():  # a store replaced a whole (site, disease, quarter, definition): one group each
+        before.setdefault((r["site_id"], r["disease"], r["quarter"], r["definition_version"]), []).append(r)
+    for group in before.values():
+        into.cohort_store(group, group[0]["job_id"], group[0]["received_from"])
+    for rows, job_id, sender in tables:
+        into.cohort_store(rows, job_id, sender)
+
+
+def replay_stored(record: JobDB, into: JobDB, job_id: str) -> bool:
+    """For a re-run of the merge ``job_id``: rebuild in ``into`` the alliance tables as they stood when the merge
+    read them for its output (:func:`replay_until` its recorded read point, D-648). It follows the order of the
+    stores, not of the jobs, so merges that ran at the same time and a merge that was stopped and run again later
+    are replayed as they happened; it needs no job's files, today's reader or any job's ending.
+
+    False, and nothing stored: the merge has no recorded read (it read before the record began); the caller then
+    has only how the earlier jobs ended (D-666). :class:`ReplayUnsure`: between this merge's store of a site's
+    table and its read, another job stored a table of the same site; the re-run would store this merge's table
+    over it and read something else. :class:`RecordChanged`: a recorded table cannot be read."""
+    upto = record.cohort_read_point(job_id)
+    if upto is None:
+        return False
+    last = {str(t["site_id"]): str(t["job_id"]) for t in record.cohort_stored_all(upto)}
+    for site in sorted({str(t["site_id"]) for t in record.cohort_stored(job_id)}):
+        if last[site] != job_id:
+            raise ReplayUnsure(
+                f"after the merge {job_id} stored the table of site {site} and before it read the tables, the job "
+                f"{last[site]} stored a table of that site; a re-run cannot give what the first run read"
+            )
+    replay_until(record, into, upto)
+    return True
+
+
 def run_merge(ctx: Ctx) -> Outcome:
     job = ctx.job
     cs = ctx.cfg.settings.cohort
@@ -371,7 +438,7 @@ def run_merge(ctx: Ctx) -> Outcome:
     if not accepted:
         raise StepFailed("running", "No valid alliance table:\n" + "\n".join(f"- {p}" for p in problems[:20]))
     keys = sorted({(r["disease"], r["quarter"]) for r in accepted})
-    stored = [r for d, q in keys for r in ctx.orch.db.cohort_rows(d, q)]
+    stored = ctx.orch.db.cohort_read(job.job_id, keys)  # D-648: with the record of the point they are read at
     sc = int((ctx.cfg.settings.thresholds.small_cell if ctx.cfg.settings.thresholds else None) or 5)
     table = merged(stored, sc)
     ctx.state("reporting")
