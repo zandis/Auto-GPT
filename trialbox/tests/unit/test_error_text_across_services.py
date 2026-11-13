@@ -46,8 +46,6 @@ THEIRS: dict[str, str] = {
     "adapter/pipeline.py": "adapter", "adapter/publish.py": "adapter", "adapter/run_job.py": "adapter",
     "adapter/sources/ssmix2/source.py": "adapter", "adapter/validate/jpcore.py": "adapter",
     "adapter/validate/validator.py": "adapter",
-    "embed_service/embedder.py": "models", "gateway/app.py": "models", "llm_stub/app.py": "models",
-    "model_guard/__init__.py": "models",
     "lake/app.py": "lake (its own card, D-664)", "lake/store.py": "lake (its own card, D-664)",
     "mail_gateway/admin.py": "mail", "mail_gateway/app.py": "mail", "mail_gateway/gateway.py": "mail",
     "matching/proposed.py": "matching",

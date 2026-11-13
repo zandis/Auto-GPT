@@ -152,7 +152,8 @@ def _get_models(gw: Gateway, url: str, key: str) -> tuple[int | None, Any]:
     try:
         r = gw.http.get(f"{url}/models", headers={"Authorization": f"Bearer {key}"} if key else {}, timeout=10.0)
     except Exception as e:  # unreachable is "not yet", never a mismatch
-        return None, f"{type(e).__name__}: {e}"
+        log.warning("start check: GET %s/models failed: %s", url, e)  # D-636: the text here, the type in the answer
+        return None, type(e).__name__
     try:
         return r.status_code, r.json()
     except ValueError:
