@@ -63,6 +63,9 @@ ALLOWED: dict[str, str] = {
     "fakes vLLM's GET /v1/models (no network)",
     "tests/rehearsal/": "D-150 the rehearsal's vLLM stand-in serves the API (the repository stub behind it); "
     "it calls nothing",
+    "tools/g_probes.py": "G-4 (plan section 13.1) times the judge's own server with guided decoding on and off, "
+    "which the gateway does not switch per call (the serving measurement itself); synthetic excerpts only, the "
+    "run's own server on the GPU VM; not shipped on a box",
 }
 
 
