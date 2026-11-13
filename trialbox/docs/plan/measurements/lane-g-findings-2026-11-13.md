@@ -75,8 +75,31 @@ in run `20261112T165042Z` (B1 there). Evidence: `g3-2026-11-13/failed-checks.jso
 | 16 | 4.391 | 4.613 |
 
 The main SCREEN of 5,000 patients makes about 245 calls, so the window at 16 in flight is under one minute. The
-50,000-patient run (`20261113T085509Z`, started 2026-11-13 08:55 UTC) gives a longer one. One run per setting: no
-repeats, no restart of the servers between settings.
+figures above are from run `20261113T044219Z`. One run per setting: no repeats, no restart of the servers between
+settings.
+
+### The 50,000-patient run (`20261113T085509Z-c25cea6b`, 16 in flight)
+
+Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
+
+| | ja | zh-TW |
+| --- | --- | --- |
+| Whole part, seconds | 2,986 | 2,991 |
+| Main SCREEN calls | 3,226 | 3,217 |
+| Main SCREEN calls/s | 4.447 | 4.558 |
+| Main SCREEN p50 / p95, seconds | 3.2 / 5.1 | 3.2 / 5.0 |
+| Mean calls in flight | 15.79 | 15.73 |
+| Model calls in the part, refused | 6,568, 0 | 6,550, 0 |
+| Candidates listed | 627 | 628 |
+| Canary: pair correct of 54, decided wrong | 53, 0 | 53, 0 |
+| Checks passed | 227/228 | 227/228 |
+
+- The rate at 16 in flight holds over a 12-minute window: 4.4 to 4.6 calls/s, as at 5,000 patients.
+- Model time is about a quarter of the part. The rest is loading, coded screening and the other stages.
+- The failed check in each part is P5 (stage 12). G-7 passed. G-4 and G-5 failed as in P2 and P3; this commit is
+  before D-645.
+- The estimate before this run was 3.14 h for each hospital part; the part took 0.83 h. The estimator now reads
+  these measured parts (B10).
 
 ## 3. Driver and probe defects (lane G's own)
 
@@ -86,11 +109,14 @@ repeats, no restart of the servers between settings.
 | B2 | G-4 kept only counts, not the failing answers | fixed, with tests |
 | B3 | a spot stockout at start was not retried | fixed: `TB_START_RETRIES`, `TB_START_RETRY_SECONDS` |
 | B4 | the refusal over an uncollected run did not name `--discard-previous` for a run collected elsewhere | fixed |
-| B5 | no repeats per setting, no restart between settings | open |
+| B5 | no repeats per setting, no restart between settings | repeats built (`--repeats N`), with tests; no restart between settings, and the report says so |
 | B6 | `playwright install --with-deps` ran apt without the dpkg lock wait; run `20261113T072836Z` ended at TB-SETUP-FAILED | fixed, with a test |
-| B7 | in bucket mode the VM stayed up about five minutes after the last collect, until `--stop` | open |
+| B7 | in bucket mode the VM stayed up about five minutes after the last collect, until `--stop` | fixed: the VM powers off after its last upload went through; rehearsed |
 | B8 | the results reader took its rates from the whole part, not the main SCREEN | fixed, with a test |
-| B9 | G-5 does not measure English | open |
+| B9 | G-5 does not measure English | built (synthetic English notes); not yet run on the GPU |
+| B10 | the estimate for a 50,000-patient part was 3.8 times the measured time | fixed: the estimate reads the measured parts of both runs and names them |
+| B11 | a bucket name left in the VM's metadata by an earlier run was read by a later door-mode run | fixed, with a test |
+| B12 | a Node.js download cut short was kept on the disk and broke the next set-up | fixed: fetched again, with a test |
 
 ## 4. Asked of other lanes
 
