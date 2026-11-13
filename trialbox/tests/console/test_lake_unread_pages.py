@@ -62,19 +62,40 @@ def test_the_page_says_the_confirmed_facts_and_the_values_were_not_read(box: dic
         )
 
 
-def test_a_run_that_read_everything_and_a_list_from_before_show_no_such_sentence(box: dict[str, Any]) -> None:  # noqa: F811
-    read = {**UNREAD, "confirmed_facts": "read", "coded_values": "read"}
-    read["rows"] = [{**UNREAD["rows"][1], "criteria": [{**UNREAD["rows"][1]["criteria"][0], "source": "coded"}]}]  # type: ignore[index]
-    _store(box, read, 972)
-    box["users"].create("pi", "investigator", PW, "pi@hospa.test")
-    name_pi(box, "pi")
-    pi, _ = login(box["app"], "pi", PW)
-    page = pi.get("/studies/GZQO/excluded").text
+def _reader(b: dict[str, Any]) -> Any:
+    b["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(b, "pi")
+    return login(b["app"], "pi", PW)[0]
+
+
+READ = {
+    **UNREAD, "confirmed_facts": "read", "coded_values": "read",
+    "rows": [{"pid": "d" * 32, "actions": [], "criteria": [
+        {"id": "GZQO-EXC-01", "source": "coded", "reason": "coded", "resource_refs": ["cond-1"]}]}],
+}  # fmt: skip
+
+
+def test_a_run_that_read_everything_shows_no_such_sentence(box: dict[str, Any]) -> None:  # noqa: F811
+    _store(box, READ, 972)
+    page = _reader(box).get("/studies/GZQO/excluded").text
     assert "ex-facts-unread" not in page and "ex-values-unread" not in page and "the coded records" in page
-    old = {k: v for k, v in read.items() if k not in ("confirmed_facts", "coded_values")}  # written before D-652
-    _store(box, old, 973)
-    page = pi.get("/studies/GZQO/excluded").text
+
+
+def test_a_list_written_before_the_fields_existed_is_shown_as_before(box: dict[str, Any]) -> None:  # noqa: F811
+    """In a box of its own (the review: two lists stored in one box at one time, and the page kept the first)."""
+    _store(box, {k: v for k, v in READ.items() if k not in ("confirmed_facts", "coded_values")}, 973)
+    page = _reader(box).get("/studies/GZQO/excluded").text
+    assert 'data-testid="ex-dddddddd"' in page and "the coded records" in page
     assert "ex-facts-unread" not in page and "ex-values-unread" not in page
+
+
+def test_an_answer_with_no_source_is_not_called_coded_when_the_facts_were_not_read(box: dict[str, Any]) -> None:  # noqa: F811
+    doc = {**UNREAD, "rows": [{"pid": "d" * 32, "actions": [], "criteria": [
+        {"id": "GZQO-EXC-01", "reason": "coded", "resource_refs": ["cond-1"]}]}]}  # fmt: skip
+    _store(box, doc, 974)
+    page = _reader(box).get("/studies/GZQO/excluded").text
+    pill = page.split('data-testid="ex-source-dddddddd-1">')[1].split("</span>")[0]
+    assert pill == i18n_review.EN["ex.src.records"]
 
 
 @pytest.mark.parametrize(

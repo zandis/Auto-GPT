@@ -32,9 +32,11 @@ answers that were decided without it.
    `confirmed_facts: not read`, and an answer from the records has the source `records`, not `coded`. The page
    says "the records (whether a person confirmed them could not be read)", the filter can select it, and a
    sentence above the list says what could not be read.
-2. **A doctor's name.** On a failed read every label is `<id> (name not read)`. The settings name still fills a
-   name the records do not hold when the records were read (D-120); it does not stand in for records that were
-   not read.
+2. **A doctor's name.** On a failed read the settings name is all there is: the label says so,
+   `<name> (<id>; name from settings)`, and a doctor with no settings name is `<id> (name not read)`. When the
+   records were read, the settings name still fills a name the records do not hold (D-120), unmarked as before.
+   A doctor who is not in the settings has no label; the lists show the bare id, as for any doctor without a name.
+   The two phrases are English in every language's workbook: the label is built where no language is known.
 3. **The values behind a coded answer.** `attach` returns None, not 0. The answers keep no `coded` (which claims
    nothing; an empty list would say "the run looked and found no record"). The run carries
    `coded_values_read`, the stored document `coded_values: not read`, and the page says so in one sentence.
@@ -60,3 +62,33 @@ document from before; the feasibility facts for not read, none and some.
 Existing tests changed, each for the changed behaviour: `test_coded_values.py` (a failed read gave 0, now None);
 `tests/console/test_excluded_page.py` (its lake stand-in took one argument; the read now uses the lake's own call
 shape; two assertions added).
+
+## What follows from it, for an update and a re-run
+
+- **Update the console before or with the orchestrator.** A console from before this card shows the source
+  `records` as the raw key `ex.src.records`, with no sentence above the list. Not a false fact, but a raw key on
+  a page a person decides on.
+- **A re-run of a job whose first run had a failed read** differs from it on a healthy lake (the stored list
+  says "not read" in one and not in the other). Expected: the first run's output says what it could not read.
+- An older snapshot without the name column: every doctor's label says "name from settings" or "name not read".
+
+## Review
+
+One adversarial review by running (on `db45f309`). Verdict: fix first, for one finding.
+
+| Finding | Confirmed | What was done |
+|---|---|---|
+| HIGH: the Japanese sentence held a variant the wording rule bans (人の確認); `tests/unit/test_wording.py` was red | by running | reworded (人が確認した) |
+| MED: the "list from before" half of a page test never showed that list (two lists stored at one time; the page kept the first) | by running | a box of its own |
+| MED: nothing tested that a failed read of the values reaches the run's flag | by a mutation | the step is a function of its own, tested |
+| MED: an answer with no source, in a list that says the facts were not read, showed "the coded records" (not reachable from the producer) | by running | it shows "the records"; test |
+| MED: a console older than the orchestrator shows the raw key | by running | stated above |
+| MED: "name not read" was only for doctors in the settings; the NAV draft's doctor field got the phrase where it had the settings name | by running, by reading | the settings name is kept and marked; the record says who has no label |
+| LOW: the PI's weekly sample page has no sentence (its pill does say "the records …"); a re-run differs; three log lines a run | by running | stated; not changed |
+
+Held (the reviewer's runs): the page for lists with one, both or neither flag, the filter and its counts; no
+other reader of the stored list reads the source (no export, gate, audit or quality figure); every real lake's
+`query` takes the three arguments, and a real in-process screening run reads the facts and names with no error
+swallowed; no consumer parses a doctor's label, routing is by id; an answer without `coded` never shows "no coded
+record"; only the console reads the feasibility counts; seven mutations each fail a test; the log lines print the
+error's type only. The fixes after the review were not reviewed again.

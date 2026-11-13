@@ -92,7 +92,9 @@ def test_a_doctors_name_that_could_not_be_read_is_not_filled_from_the_settings_p
     )
     assert read == {"D1": "林 醫師 (D1)", "D2": "D2 (D2)"}
     down = screen.practitioner_names(_ctx(_Lake({}, fail=DOWN), settings))
-    assert down == {"D1": "D1 (name not read)", "D2": "D2 (name not read)"}
+    # the settings name is all there is, and it is said to be the settings' name; no name at all: "name not read"
+    assert down == {"D1": "Dr. A (synthetic) (D1; name from settings)", "D2": "D2 (name not read)"}
+    assert screen.practitioner_names(_ctx(_Lake({}, fail=DOWN), {})) == {}  # not in the settings: the bare id
     # the records hold no name for D1: the settings name fills it, as before (D-120)
     none = screen.practitioner_names(
         _ctx(_Lake({"practitioner": [{"practitioner_id": "D9", "name": "王 醫師"}]}), settings)
@@ -105,6 +107,9 @@ def test_coded_values_that_could_not_be_read_are_not_the_same_as_none_found() ->
     v = CriterionVerdict(id=CODED_EXC, verdict="fail", basis="coded", evidence=Evidence(resource_refs=["C/f-1"]))
     assert coded_values.attach(_Lake({}, fail=DOWN), GZQO.active(), {"P1": [v]}, date(2026, 10, 5), None) is None
     assert v.evidence is not None and v.evidence.coded is None  # no claim on the answer: not "no record"
+    # the run's own step: False when the read failed, True when it was made (also when it found nothing)
+    assert screen.attach_values(_Lake({}, fail=DOWN), GZQO, {"P1": [v]}, date(2026, 10, 5), None) is False
+    assert screen.attach_values(_Lake({}, fail=DOWN), GZQO, {}, date(2026, 10, 5), None) is True  # nothing to read
     run = _run()
     assert run.coded_values_read is True
     run.coded_values_read = False

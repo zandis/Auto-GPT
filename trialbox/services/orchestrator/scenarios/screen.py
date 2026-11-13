@@ -130,6 +130,12 @@ class ScreenRun:
         return "cascade" if self.cascade else "v1"
 
 
+def attach_values(lake: Any, rs: Ruleset, verdicts: dict[str, Any], run_date: date, snapshot: str | None) -> bool:
+    """Put the coded values on the run's coded answers (:func:`matching.coded_values.attach`, display only). False:
+    they could not be read (D-652); the run says so in what it stores."""
+    return coded_values.attach(lake, rs.active(), verdicts, run_date, snapshot) is not None
+
+
 def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
     """How note criteria were judged on this run: models, agreement mode, and whether a note answer could exclude
     (D-97). Aggregate metadata: goes into the candidate list, the summary PDF, the done mail and the console.
@@ -436,9 +442,14 @@ def practitioner_names(ctx: Ctx) -> dict[str, str]:
         found = rows.to_pylist()
     except Exception as exc:
         # D-652: the names could not be read (the lake is down, or an older snapshot without the column). A settings
-        # name must not stand in for the records then: the list says the name was not read, by the id alone
+        # name is then all there is, and the list says that it is the settings' name, not the records'; a doctor
+        # with no settings name is listed by the id, with "name not read". (A doctor who is not in the settings has
+        # no label here at all: the lists show the bare id, as they do for any doctor without a name.)
         log.error("practitioner names were not read from the lake (%s)", type(exc).__name__)
-        return {k: f"{k} (name not read)" for k in sorted(configured)}
+        return {
+            k: f"{v.name} ({k}; name from settings)" if v.name else f"{k} (name not read)"
+            for k, v in sorted(configured.items())
+        }
     names = {k: v.name for k, v in configured.items() if v.name}
     names.update({str(r["practitioner_id"]): str(r["name"]) for r in found if r.get("name")})
     ids = set(names) | set(configured)
@@ -654,11 +665,8 @@ def run_screen(
         judging = judging_info(judge, ctx)  # after the run: its disagreements and failures, as the cascade path does
     # T-514 (D-362, review UX-008): each coded answer carries the record's value, unit, date and code for the person
     # who checks it; display only, after every answer is decided
-    values_read = (
-        coded_values.attach(
-            ctx.services.lake, rs.active(), {p: pv.verdicts for p, pv in results.items()}, run_date, snapshot
-        )
-        is not None
+    values_read = attach_values(
+        ctx.services.lake, rs, {p: pv.verdicts for p, pv in results.items()}, run_date, snapshot
     )
     by_pid = {s.pid: s for s in scoped}
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
