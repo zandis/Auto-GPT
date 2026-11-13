@@ -25,7 +25,8 @@
     <select id="acc-lang" name="lang">{% for l in langs %}<option value="{{ l }}" lang="{{ l }}" {{ 'selected' if l == lang else '' }}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>
     <button type="submit" data-testid="account-lang">{{ t('lang.apply') }}</button>
   </form>
-  <p class="hint"><a href="/settings/notices">{{ t('account.notice_settings') }}</a>{% if user.role in ('investigator', 'coordinator', 'admin') %} · <a href="/notices/received">{{ t('received.title') }}</a>{% endif %}</p>
+  {# review 2026-11-13 (CON-ROLE-2): a CRO account reaches only its reports (D-104): no link it would get 403 on #}
+  {% if not user.sponsor_form %}<p class="hint"><a href="/settings/notices">{{ t('account.notice_settings') }}</a>{% if user.role in ('investigator', 'coordinator', 'admin') %} · <a href="/notices/received">{{ t('received.title') }}</a>{% endif %}</p>{% endif %}
 </section>
 <section class="card">
   <h2>{{ t('account.password') }}</h2>

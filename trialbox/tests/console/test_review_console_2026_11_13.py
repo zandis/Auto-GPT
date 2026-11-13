@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from tests.console.test_api_identity import ON, _api_login, _client
 from tests.console.test_console_app import box  # noqa: F401 - the fixture by name
 from tests.console.test_console_app import VIEWER_PW
@@ -79,3 +81,20 @@ def test_the_administrators_study_view_lists_no_patient_task(box: dict) -> None:
     admin, _ = login(box["app"])
     home = admin.get("/home?view=studies").text
     assert f"pid={pid}" not in home and pid[:8] not in home
+
+
+@pytest.mark.parametrize("role", ["cro", "viewer", "coordinator", "investigator", "admin", "steward", "privacy"])
+def test_every_link_of_my_account_page_opens_for_its_role(box: dict, role: str) -> None:  # noqa: F811
+    """CON-ROLE-2: "My account" offered every role the notification settings; a CRO account got 403 there. Each
+    link the page offers opens for the account that sees it."""
+    import re
+
+    from tests.console.test_role_pages import _user
+
+    c = _user(box, f"acct-{role}", role)
+    page = c.get("/account")
+    assert page.status_code == 200
+    for href in sorted(set(re.findall(r'href="(/[^"#?]*)', page.text))):
+        if href.startswith(("/static/", "/logout")):
+            continue
+        assert c.get(href).status_code != 403, (role, href)
