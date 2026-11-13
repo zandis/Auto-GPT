@@ -18,6 +18,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.routing import Match
 from tb_contracts import dump
 
 from tb_common.logging import setup_logging
@@ -99,6 +100,51 @@ async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse({"detail": detail}, status_code=422)
 
 
+NO_ROUTE = "(no route)"
+
+
+def route_of(request: Request) -> str:
+    """The template of the route a request was for (``/studies/{rs}/records/{record}``), for the log (D-556).
+
+    A path carries what the caller put in it (a record, a job, anything typed where an id belongs), so the log
+    holds the route instead. A request that reached a handler has its route in the scope; one that was answered
+    before (a refused token, a method the route does not take) is matched here; a path of no route is written
+    ``(no route)``."""
+    scope = request.scope
+    found = _template(scope.get("route"), scope.get("path_params") or {}, request.url.path)
+    if found is not None:
+        return found
+    for candidate in getattr(request.app.router, "routes", []):
+        try:
+            match, child = candidate.matches(scope)
+        except Exception as exc:  # a route that cannot judge this scope is not the route
+            logging.getLogger("tb_common.http").debug("route_of: a route could not be matched (%s)", type(exc).__name__)
+            continue
+        if match != Match.NONE:
+            found = _template(child.get("route", candidate), child.get("path_params") or {}, request.url.path)
+            if found is not None:
+                return found
+    return NO_ROUTE
+
+
+def _template(route: Any, params: Mapping[str, Any], sent: str) -> str | None:
+    """A route's template, with the fixed prefix it was included under when that can be told from the path that
+    was sent (a router included with ``prefix="/v1"`` keeps its own path). The prefix is taken only when it holds
+    no value of a path parameter."""
+    path = getattr(route, "path", None)
+    if not isinstance(path, str):
+        return None
+    try:
+        rendered = path.format(**{k: str(v) for k, v in params.items()})
+    except (KeyError, IndexError, ValueError):
+        return path
+    if rendered and sent.endswith(rendered) and len(sent) > len(rendered):
+        prefix = sent[: len(sent) - len(rendered)]
+        if not any(str(v) and str(v) in prefix for v in params.values()):
+            return prefix + path
+    return path
+
+
 def make_app(
     service: str,
     checks: list[HealthCheck] | None = None,
@@ -175,14 +221,14 @@ def make_app(
         try:
             response = await call_next(request)
         except Exception:
-            log.exception("unhandled error", extra={"path": request.url.path})
+            log.exception("unhandled error", extra={"path": route_of(request)})
             return JSONResponse({"error": "internal error"}, status_code=500)
         if request.url.path != "/healthz":
             log.info(
                 "request",
                 extra={
                     "method": request.method,
-                    "path": request.url.path,
+                    "path": route_of(request),  # the route, not what was sent in it (D-556)
                     "status": response.status_code,
                     "ms": round((time.perf_counter() - t0) * 1000, 1),
                 },
