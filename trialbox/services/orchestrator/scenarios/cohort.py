@@ -29,7 +29,7 @@ from typing import Any
 from criteria_compiler.compile_sql.overlay import safe_sql
 from tb_common.authz import norm
 from tb_common.csvfile import for_spreadsheet
-from tb_common.encoding import EncodingRefused, decode_upload
+from tb_common.encoding import EncodingRefused
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_contracts import CohortTable, schema_errors
@@ -38,9 +38,9 @@ from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.db import JobDB
 from orchestrator.decision_context import decision_of
+from orchestrator.scenarios import upload_text
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import report_meta, small_cell
-from orchestrator.scenarios.upload_text import why_unreadable
 from orchestrator.scheduler import require_open
 
 COLUMNS = (
@@ -196,9 +196,10 @@ def _count(v: str) -> int | str:
 def parse_csv(data: bytes) -> tuple[list[dict[str, Any]], list[str]]:
     """Alliance schema v1 CSV -> rows; errors name the line. The header must be exactly the v1 columns."""
     try:
-        text = decode_upload(data)[0]  # UX-004: UTF-8 with or without the mark, Shift_JIS, Big5; else an error line
+        text = upload_text.read(data)  # UX-004: UTF-8 with or without the mark, Shift_JIS, Big5; else an error line
     except EncodingRefused as exc:
-        return [], [why_unreadable("the table", exc)]
+        where = f" (line {exc.line})" if exc.line is not None else ""
+        return [], [f"the character set cannot be told for certain{where}: save the table as UTF-8"]
     reader = csv.DictReader(io.StringIO(text))
     if tuple(h.strip() for h in reader.fieldnames or []) != COLUMNS:
         return [], [f"header must be {','.join(COLUMNS)}"]

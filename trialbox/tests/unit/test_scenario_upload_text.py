@@ -74,3 +74,50 @@ def test_a_feedback_sheet_in_big5_is_read_and_one_in_no_character_set_fails_the_
     with pytest.raises(StepFailed) as exc:
         feedback.read_rows("screen_feedback.csv", b"pid,outcome,reason_code,note\nP1,x,y," + MIXED)
     assert exc.value.step == "feedback" and "screen_feedback.csv" in exc.value.message
+
+
+# ------------------------------------------------------------------------------------------------ review of the card
+@pytest.mark.parametrize(
+    ("text", "codec"),
+    [
+        ("已转院了", "gb18030"),
+        ("拒绝", "gb18030"),
+        ("辞退", "euc_jp"),
+        ("家族反対", "euc_jp"),
+        ("尿酸値", "euc_jp"),
+        ("Dx: 高血圧", "euc_jp"),
+        ("Dx: 肺炎", "gb18030"),
+    ],
+)
+def test_a_short_text_another_character_set_reads_as_well_is_refused_not_read_wrong(text: str, codec: str) -> None:
+    """The decoder reads Shift_JIS and Big5; a few characters of EUC-JP or GB18030 decode as one of them without
+    an error and came out as other characters (已转院了 as half-width kana), stored with no error. A text that
+    EUC-JP or GB18030 reads at least as well is refused."""
+    data = text.encode(codec)
+    try:
+        got = upload_text(data, "note.txt", "parsing")
+    except StepFailed as exc:
+        assert "UTF-8" in exc.message
+    else:
+        assert got == text  # read right is as good as refused; read wrong is the defect
+    sheet = b"pid,outcome,reason_code,note\nP1,screen_fail,other," + data + b"\n"
+    try:
+        rows = feedback.read_rows("screen_feedback.csv", sheet)
+    except StepFailed:
+        return
+    assert rows[0]["note"] == text
+
+
+def test_a_cohort_label_in_euc_jp_is_an_error_line_not_other_characters() -> None:
+    header = ",".join(cohort.COLUMNS)
+    row = "DEMO-A,gout,2026Q3,GOUT-COH-INC-01,尿酸値,154,98,1.0.0"
+    rows, errors = cohort.parse_csv((header + "\n" + row + "\n").encode("euc_jp"))
+    assert (rows == [] and len(errors) == 1) or rows[0]["criterion_label"] == "尿酸値"
+
+
+def test_the_sentence_for_an_unreadable_file_is_one_plain_sentence() -> None:
+    with pytest.raises(StepFailed) as exc:
+        upload_text(b"Blood pressure \xff 120/80, afebrile.", "chart.txt", "parsing")
+    msg = exc.value.message
+    assert msg.count("cannot be told") == 1 and "cp932" not in msg and "0.00" not in msg
+    assert msg.startswith("chart.txt: ") and msg.endswith("Save it as UTF-8 and send it again.")
