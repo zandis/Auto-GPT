@@ -26,7 +26,10 @@
 #   10 gpu-container  a container started with --gpus all sees the card
 #   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over an existing one)
 #   12 boot-task      start without a person (NEW-WIN-2, D-602): hibernation and sleep off; the task TrialBox-WSL2
-#                     (register_keepalive.ps1) starts the distribution at boot, signed in or not
+#                     (register_keepalive.ps1) starts the distribution at boot, signed in or not. Windows Update
+#                     (NEW-WIN-5, D-606): installs and restarts only in the declared update window, never takes a
+#                     driver (the NVIDIA driver stays the measured one); only administrators may shut the PC down.
+#                     A Windows Update policy the site's IT already set is kept as it is
 #   13 network        the console on the site's network (NEW-WIN-4, D-604): WSL2 runs with mirrored networking, and
 #                     one firewall rule admits the console's port from the site's own network, nothing else
 #   14 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
@@ -61,6 +64,12 @@ param(
   [ValidateSet("tpm", "tpm_pin")][string]$BitLockerUnlock = "tpm",
   # a rehearsal on a PC that must stay unencrypted: BitLocker is left as it is, and the host check then fails
   [switch]$SkipBitLocker,
+  # the update window (NEW-WIN-5, D-606): the hour of the day, this PC's clock, at which Windows Update may install
+  # and restart, and how many hours the window lasts. The declared settings TB_WIN_UPDATE_WINDOW_START and
+  # TB_WIN_UPDATE_WINDOW_HOURS (libs/tb_common/config.py gives the reasons; the same defaults, held by a test).
+  # At least 6 hours: Windows protects at most 18 hours of a day from restarts ("active hours")
+  [ValidateRange(0, 23)][int]$UpdateWindowStart = 19,
+  [ValidateRange(6, 23)][int]$UpdateWindowHours = 6,
   [switch]$Resume,
   [switch]$Yes,
   [switch]$LoadOnly
@@ -73,6 +82,10 @@ $script:TbShareGiven = $PSBoundParameters.ContainsKey("DesktopSharePercent")
 # the disk unlock the same way: tpm_pin chosen once is never turned into tpm by a later start without the parameter
 $script:TbUnlockDefault = $BitLockerUnlock
 $script:TbUnlockGiven = $PSBoundParameters.ContainsKey("BitLockerUnlock")
+# the update window the same way
+$script:TbUpdateDefault = @($UpdateWindowStart, $UpdateWindowHours)
+$script:TbUpdateGiven = ($PSBoundParameters.ContainsKey("UpdateWindowStart") -or $PSBoundParameters.ContainsKey("UpdateWindowHours"))
+$script:TbAdminsSid = "S-1-5-32-544"  # the built-in Administrators group, the same on every Windows
 $script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
   "packages", "gpu-container", "host-tree", "boot-task", "network", "linux-install")
 $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", "EnterpriseS", "Education",
@@ -288,6 +301,49 @@ function Set-TbConsoleFirewall([string]$RuleName, [int]$Port) {
   Write-TbConsoleFirewallRule $RuleName $Port $true
   return "corrected"
 }
+# ---- Windows Update and the right to shut down (NEW-WIN-5, D-606): registry policy values and secedit, as seams
+function Get-TbUpdatePolicy {
+  # the Windows Update policy as it stands: values a group policy, the site's IT or an earlier run of this script wrote
+  $wu = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"; $au = $wu + "\AU"
+  $p = @{}
+  foreach ($n in @("NoAutoUpdate", "AUOptions", "ScheduledInstallDay", "ScheduledInstallTime")) {
+    try { $p[$n] = (Get-ItemProperty -LiteralPath $au -Name $n -ErrorAction Stop).$n } catch { $p[$n] = $null }
+  }
+  foreach ($n in @("SetActiveHours", "ActiveHoursStart", "ActiveHoursEnd", "ExcludeWUDriversInQualityUpdate")) {
+    try { $p[$n] = (Get-ItemProperty -LiteralPath $wu -Name $n -ErrorAction Stop).$n } catch { $p[$n] = $null }
+  }
+  try { $p["Ours"] = [string](Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\TrialBox" -Name "update_window" -ErrorAction Stop).update_window }
+  catch { $p["Ours"] = "" }
+  return $p
+}
+function Write-TbUpdateValue([string]$Sub, [string]$Name, [int]$Value) {
+  $key = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" + $Sub
+  if (-not (Test-Path -LiteralPath $key)) { New-Item -Path $key -Force | Out-Null }
+  Set-ItemProperty -LiteralPath $key -Name $Name -Value $Value -Type DWord
+}
+function Get-TbShutdownRight {
+  # who may shut this PC down: the SIDs of the user right "Shut down the system" (secedit's export), and whether
+  # the sign-in screen offers shutting down to somebody who has not signed in. secedit works on files: they are
+  # kept in the install's own folder (administrators only) under fixed names, and hold no secret
+  $f = Join-Path $script:TbStateDir "rights-now.inf"
+  $sids = @()
+  & secedit.exe /export /cfg $f /areas USER_RIGHTS | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw ("secedit /export ended with code " + $LASTEXITCODE) }
+  $line = Get-Content -LiteralPath $f | Where-Object { $_ -match "^SeShutdownPrivilege\s*=" } | Select-Object -First 1
+  if ($line) { $sids = @(($line -split "=", 2)[1].Split(",") | ForEach-Object { $_.Trim().TrimStart("*") } | Where-Object { $_ }) }
+  $at = 1
+  try { $at = [int](Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ShutdownWithoutLogon" -ErrorAction Stop).ShutdownWithoutLogon }
+  catch { $at = 1 }
+  return @{ Sids = $sids; AtSignIn = ($at -ne 0) }
+}
+function Write-TbShutdownRight([string]$Sid) {
+  $inf = Join-Path $script:TbStateDir "rights-set.inf"
+  $lines = @("[Unicode]", "Unicode=yes", "[Version]", 'signature="$CHICAGO$"', "Revision=1", "[Privilege Rights]", ("SeShutdownPrivilege = *" + $Sid))
+  Set-Content -LiteralPath $inf -Value $lines -Encoding Unicode
+  & secedit.exe /configure /db (Join-Path $script:TbStateDir "rights-set.sdb") /cfg $inf /areas USER_RIGHTS | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw ("secedit /configure ended with code " + $LASTEXITCODE) }
+  Set-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ShutdownWithoutLogon" -Value 0 -Type DWord
+}
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -374,7 +430,7 @@ function Save-TbState {
 }
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
-    desktop_share_pct = -1; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
+    desktop_share_pct = -1; update_window = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
     restart_pending = $false; finished = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -586,8 +642,8 @@ function Step-WslEnable {
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
     # the run after the restart gets this run's settings (all checked: figures, a language of the list, a name)
-    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -DesktopSharePercent {3} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
-      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock
+    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
+      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1]
     if ($SkipBitLocker) { $more += " -SkipBitLocker" }
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
@@ -717,6 +773,54 @@ function Set-TbBootTask {
   Register-TbBootTask $script:TbFacts.Account $script:TbState.distro $script:TbBootTask
   if ($null -eq $info) { return "registered" } else { return "restored" }
 }
+function Set-TbUpdateWindow([int]$Start, [int]$Hours) {
+  # Windows Update installs at the window's first hour and may restart only inside the window: the hours outside
+  # it are Windows' "active hours". Drivers are never taken from Windows Update: the NVIDIA driver is the one the
+  # serving record was measured with. A policy that is there and that this script did not write is the site's
+  # IT's: it is kept, and the host check judges it. Returns "kept", "same" or "written".
+  $p = Get-TbUpdatePolicy
+  $end = ($Start + $Hours) % 24
+  if ($null -eq $p.ExcludeWUDriversInQualityUpdate -or [int]$p.ExcludeWUDriversInQualityUpdate -ne 1) {
+    Write-TbUpdateValue "" "ExcludeWUDriversInQualityUpdate" 1
+    Write-TbLog "    Windows Update: drivers excluded (ExcludeWUDriversInQualityUpdate=1)"
+  }
+  $theirs = (-not $p.Ours) -and ($null -ne $p.NoAutoUpdate -or $null -ne $p.AUOptions -or $null -ne $p.SetActiveHours)
+  if ($theirs) {
+    Write-TbLog ("    Windows Update: a policy is already set (NoAutoUpdate {0}, AUOptions {1}, install time {2}, active hours set {3}): kept" -f $p.NoAutoUpdate,
+      $p.AUOptions, $p.ScheduledInstallTime, $p.SetActiveHours)
+    return "kept"
+  }
+  $want = @(@("\AU", "NoAutoUpdate", 0), @("\AU", "AUOptions", 4), @("\AU", "ScheduledInstallDay", 0), @("\AU", "ScheduledInstallTime", $Start),
+    @("", "SetActiveHours", 1), @("", "ActiveHoursStart", $end), @("", "ActiveHoursEnd", $Start))
+  $ours = "{0}+{1}" -f $Start, $Hours
+  $differs = @($want | Where-Object { $null -eq $p[$_[1]] -or [int]$p[$_[1]] -ne [int]$_[2] })
+  if ($differs.Count -eq 0 -and $p.Ours -eq $ours) { return "same" }
+  foreach ($w in $want) { Write-TbUpdateValue $w[0] $w[1] $w[2] }
+  Set-TbMachineSetting "update_window" $ours
+  Write-TbLog ("    Windows Update: installs daily at {0}:00, restarts only from {0}:00 to {1}:00 (active hours {1} to {0})" -f $Start, $end)
+  return "written"
+}
+function Set-TbShutdownRight {
+  # Only administrators may shut the PC down, and the sign-in screen offers it to nobody: a desktop user who turns
+  # the PC off in the evening stops the night. Returns "kept" or "written".
+  $now = Get-TbShutdownRight
+  if (@($now.Sids).Count -eq 1 -and $now.Sids[0] -eq $script:TbAdminsSid -and -not $now.AtSignIn) { return "kept" }
+  Write-TbLog ("    shutdown right was: {0}; offered at the sign-in screen: {1}" -f (@($now.Sids) -join ","), [bool]$now.AtSignIn)
+  Write-TbShutdownRight $script:TbAdminsSid
+  return "written"
+}
+function Set-TbUnattended([bool]$Quiet) {
+  # Neither part stops the install: a PC whose policy cannot be written still runs TrialBox, and the host check
+  # (deploy/windows/wsl2_policy.py) fails it by name. $Quiet: a finished install says only what changed.
+  $start = [int]$script:TbUpdate[0]; $hours = [int]$script:TbUpdate[1]
+  try {
+    $did = Set-TbUpdateWindow $start $hours
+    if ($did -eq "kept") { if (-not $Quiet) { Say "updates_kept" @() } }
+    elseif ($did -eq "written" -or -not $Quiet) { Say "updates" @($start, (($start + $hours) % 24)) }
+  } catch { Say "updates_failed" @([string]$_.Exception.Message) }
+  try { if ((Set-TbShutdownRight) -eq "written" -or -not $Quiet) { Say "shutdown_right" @() } }
+  catch { Say "shutdown_right_failed" @([string]$_.Exception.Message) }
+}
 function Step-BootTask {
   # A workstation that sleeps or hibernates serves nobody, and hiberfil.sys would hold WSL2's memory (D-421).
   # What is set: hibernation off, and the idle timers of the current power plan to never, on mains and on battery.
@@ -732,6 +836,7 @@ function Step-BootTask {
   $info = Get-TbBootTaskInfo $script:TbBootTask
   Write-TbLog ("    task {0}: {1}; state {2}; last result {3}" -f $script:TbBootTask, $did, $info.State, $info.LastResult)
   Say "boot_task" @($script:TbBootTask)
+  Set-TbUnattended $false
 }
 function Step-Network {
   # the form is mirrored networking (.wslconfig, step 6): the workstation's own address is WSL2's, so the box sees
@@ -809,6 +914,8 @@ function Invoke-TbInstall {
   $script:TbShare = [int]$script:TbState.desktop_share_pct
   if ($script:TbUnlockGiven -or -not $script:TbState.bitlocker_unlock) { $script:TbState.bitlocker_unlock = $script:TbUnlockDefault }
   $script:TbUnlock = [string]$script:TbState.bitlocker_unlock
+  if ($script:TbUpdateGiven -or [string]$script:TbState.update_window -notmatch "^\d+\+\d+$") { $script:TbState.update_window = "{0}+{1}" -f $script:TbUpdateDefault[0], $script:TbUpdateDefault[1] }
+  $script:TbUpdate = @([string]$script:TbState.update_window -split "\+" | ForEach-Object { [int]$_ })
   if ($script:TbState.finished) {
     # A finished install is left alone, but for .wslconfig: it follows the hardware (memory was added, the share
     # was changed), so "start the installer again after a hardware change" is true on a finished box too.
@@ -834,6 +941,8 @@ function Invoke-TbInstall {
     # and the start-at-boot task, when it was deleted or disabled by hand (D-602)
     try { if ((Set-TbBootTask) -ne "kept") { Say "boot_task_restored" @($script:TbBootTask) } }
     catch { Say "boot_task_failed" @([string]$_.Exception.Message) }
+    # and the update window and the shutdown right (D-606): an install made before NEW-WIN-5 gets them here
+    Set-TbUnattended $true
     Save-TbState
     Say "already_installed" @($script:TbLogPath)
     return 0

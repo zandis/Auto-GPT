@@ -76,6 +76,18 @@ closed). Checks:
   when a compose file is missing or a cap is not a size; WARN when a service has no cap or no ``--env-file`` was
   given; PASS on a plain Linux host.
 
+* ``update_window`` (NEW-WIN-5, D-606): on a WSL2 kernel, the hours in which Windows Update may restart the
+  workstation (``TB_WIN_UPDATE_WINDOW_START`` and ``TB_WIN_UPDATE_WINDOW_HOURS``, the installer's
+  ``-UpdateWindowStart`` and ``-UpdateWindowHours``) against the night's start (``data_source.nightly_at``). FAIL
+  when the night starts inside the window; PASS names the hours between the night's start and the window, the room
+  the night has (its measured length is not recorded on the box yet); WARN when the settings name no night. That
+  Windows really holds this window is judged from Windows' side by ``deploy/windows/wsl2_policy.py``.
+* ``wsl2_versions`` (NEW-WIN-5, D-606): on a WSL2 kernel, the NVIDIA driver the card answers with against the
+  driver of the serving record of that card (``deploy/site/serving_config.*.json``, else ``deploy/measured``): FAIL
+  when they differ (Windows Update or a person changed the driver the box was measured with), or when the card
+  does not answer. The WSL2 kernel against the record's ``wsl_kernel``: FAIL when they differ, WARN while the
+  record names none. PASS on a plain Linux host.
+
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
@@ -157,6 +169,7 @@ class DoctorInputs:
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
     timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
     proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
+    gpu_query: Callable[[], tuple[str, str] | None] | None = None  # NEW-WIN-5: (card, driver); None: nvidia-smi
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -1209,6 +1222,103 @@ def _compose_file(deploy: Path, entry: str) -> Path:
     return path
 
 
+def _wsl2_kernel(inp: DoctorInputs) -> str:
+    """The kernel's release when it is a WSL2 kernel, else ``""``."""
+    try:
+        kernel = (inp.proc / "sys/kernel/osrelease").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return kernel if "microsoft" in kernel.lower() and "wsl2" in kernel.lower() else ""
+
+
+def check_update_window(inp: DoctorInputs) -> Check:
+    """NEW-WIN-5 (D-606): Windows Update may restart the workstation only in a window the night does not start in."""
+    from tb_common.config import DECLARED
+
+    name = "update_window"
+    if not _wsl2_kernel(inp):
+        return Check(name, "PASS", "not WSL2: no Windows Update under the box")
+    figures: dict[str, int] = {}
+    for key, low, high in (("TB_WIN_UPDATE_WINDOW_START", 0, 23), ("TB_WIN_UPDATE_WINDOW_HOURS", 6, 23)):
+        raw = str(inp.env.get(key) or DECLARED[key].default).strip()
+        if not raw.isdigit() or not low <= int(raw) <= high:
+            return Check(name, "FAIL", f"{key}='{raw}' is not a whole number from {low} to {high}")
+        figures[key] = int(raw)
+    start, hours = figures["TB_WIN_UPDATE_WINDOW_START"], figures["TB_WIN_UPDATE_WINDOW_HOURS"]
+    end = (start + hours) % 24
+    window = f"Windows Update may restart the workstation from {start:02d}:00 to {end:02d}:00"
+    source = inp.settings.get("data_source") if isinstance(inp.settings, Mapping) else None
+    at = str(source.get("nightly_at") or "") if isinstance(source, Mapping) else ""
+    m = re.fullmatch(r"([01][0-9]|2[0-3]):([0-5][0-9])", at)
+    if not m:
+        return Check(name, "WARN", f"{window}; the settings name no nightly_at, so the night was not judged against it")
+    night = int(m.group(1)) * 60 + int(m.group(2))
+    if (night - start * 60) % 1440 < hours * 60:
+        return Check(name, "FAIL", f"{window}, and the night starts at {at}, inside it: a restart would cut the "
+                     "night. Move the window (start the Windows installer again with -UpdateWindowStart, and set "
+                     "TB_WIN_UPDATE_WINDOW_START in deploy/.env) or nightly_at")  # fmt: skip
+    room = ((start * 60 - night) % 1440) / 60
+    return Check(name, "PASS", f"{window}; the night starts at {at} and has {room:g} h before the window opens "
+                 "(the night's measured length is not recorded on the box yet: it must stay below that)")  # fmt: skip
+
+
+def _nvidia_smi() -> tuple[str, str] | None:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.strip().splitlines()[0] if out.returncode == 0 and out.stdout.strip() else ""
+    name, _, driver = line.partition(",")
+    return (name.strip(), driver.strip()) if driver.strip() else None
+
+
+def check_wsl2_versions(inp: DoctorInputs) -> Check:
+    """NEW-WIN-5 (D-606): the NVIDIA driver and the WSL2 kernel are the ones the serving record was measured with."""
+    name = "wsl2_versions"
+    kernel = _wsl2_kernel(inp)
+    if not kernel:
+        return Check(name, "PASS", "not WSL2: the driver is the Linux host's own (check_host.sh)")
+    if inp.deploy is None:
+        return Check(name, "WARN", "WSL2: the driver was not judged: give --env-file <deploy/.env>")
+    got = (inp.gpu_query or _nvidia_smi)()
+    if got is None:
+        return Check(name, "FAIL", "WSL2: the card does not answer (nvidia-smi): the Windows NVIDIA driver is missing, "
+                     "was replaced, or Windows needs a restart after a driver change")  # fmt: skip
+    card, driver = got
+    records: list[tuple[Path, Mapping[str, Any]]] = []
+    for folder in (inp.deploy / "site", inp.deploy / "measured"):
+        for path in sorted(folder.glob("serving_config.*.json")):
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(doc, dict) and isinstance(doc.get("card"), dict) and doc["card"].get("name") == card:
+                records.append((path, doc))
+    if not records:
+        return Check(name, "WARN", f"WSL2: no serving record for the card '{card}' (deploy/site, deploy/measured): "
+                     f"driver {driver} and kernel {kernel} were compared with nothing")  # fmt: skip
+    path, doc = records[0]  # the site's own record wins, as in install.sh
+    where = f"{path.parent.name}/{path.name}"
+    measured = str(doc["card"].get("driver") or "")
+    if measured != driver:
+        return Check(name, "FAIL", f"the NVIDIA driver is {driver}; the serving record ({where}) was measured with "
+                     f"{measured or 'no driver named'}. Put the measured driver back (the offline media, "
+                     "windows/nvidia), or measure again with this one (tools/serving_config.py measured)")  # fmt: skip
+    measured_kernel = str(doc.get("wsl_kernel") or "")
+    if not measured_kernel:
+        return Check(name, "WARN", f"NVIDIA driver {driver} as measured ({where}); the record names no WSL2 kernel, "
+                     f"so the kernel {kernel} was compared with nothing")  # fmt: skip
+    if measured_kernel != kernel:
+        return Check(name, "FAIL", f"the WSL2 kernel is {kernel}; the serving record ({where}) was measured with "
+                     f"{measured_kernel}: WSL was updated. Measure again (tools/serving_config.py)")  # fmt: skip
+    return Check(name, "PASS", f"NVIDIA driver {driver} and WSL2 kernel {kernel}, as measured ({where})")
+
+
 def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, Any] | None] | None = None) -> Check:
     """T-712 (D-481; D-378): a service container holds its own database role's password and no other.
 
@@ -1417,6 +1527,8 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_memory_caps,
     check_db_passwords,
     check_wsl2_memory,
+    check_update_window,
+    check_wsl2_versions,
 )
 
 

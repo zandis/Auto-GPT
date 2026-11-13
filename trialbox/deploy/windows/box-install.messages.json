@@ -383,5 +383,30 @@
     "en": "The console is not reachable from other computers yet: WSL2 still runs with the earlier networking ({0}). Restart Windows, then start the installer once more.",
     "ja": "コンソールには、まだほかのコンピューターから接続できません。WSL2 が以前のネットワーク方式（{0}）のまま動いています。Windows を再起動してから、もう一度インストーラーを起動してください。",
     "zh-TW": "其他電腦目前還無法連到主控台：WSL2 仍以先前的網路模式（{0}）執行。請重新啟動 Windows，然後再啟動安裝程式一次。"
+  },
+  "updates": {
+    "en": "Windows Update installs every day at {0}:00 and may restart this PC only between {0}:00 and {1}:00. It no longer takes drivers: the NVIDIA driver stays the one TrialBox was measured with. Keep the nightly run outside these hours.",
+    "ja": "Windows Update は毎日 {0}:00 にインストールを行い、この PC を再起動できるのは {0}:00 から {1}:00 の間だけです。ドライバーは Windows Update から取得しません。NVIDIA ドライバーは TrialBox を測定したときのもののままです。夜間処理はこの時間帯の外にしてください。",
+    "zh-TW": "Windows Update 每天 {0}:00 安裝更新，並且只能在 {0}:00 到 {1}:00 之間重新啟動這台電腦。不再從 Windows Update 取得驅動程式：NVIDIA 驅動程式維持 TrialBox 測量時的版本。請讓夜間作業避開這段時間。"
+  },
+  "updates_kept": {
+    "en": "This PC already has a Windows Update policy (from your IT department). It is kept as it is; only 'no drivers from Windows Update' was added. Ask IT to keep restarts out of the nightly run; the host check shows what is set.",
+    "ja": "この PC にはすでに Windows Update のポリシー（IT 部門によるもの）があります。そのままにしました。「Windows Update からドライバーを取得しない」だけを追加しました。再起動が夜間処理と重ならないよう IT 部門に依頼してください。設定内容はホストチェックで確認できます。",
+    "zh-TW": "這台電腦已有 Windows Update 原則（由資訊部門設定）。已原樣保留；只加入「不從 Windows Update 取得驅動程式」。請資訊部門讓重新啟動避開夜間作業；主機檢查會顯示目前的設定。"
+  },
+  "updates_failed": {
+    "en": "Warning: the Windows Update settings could not be written ({0}). The install goes on; Windows may restart this PC at any hour until your IT department sets an update time. The host check will say so.",
+    "ja": "注意: Windows Update の設定を書き込めませんでした（{0}）。インストールは続行します。IT 部門が更新時刻を設定するまで、Windows は任意の時刻にこの PC を再起動する可能性があります。ホストチェックにも表示されます。",
+    "zh-TW": "警告：無法寫入 Windows Update 設定（{0}）。安裝會繼續；在資訊部門設定更新時間之前，Windows 可能在任何時間重新啟動這台電腦。主機檢查會指出這一點。"
+  },
+  "shutdown_right": {
+    "en": "Only administrators can shut this PC down now, and the sign-in screen no longer offers it. Other users can still sign out and lock the screen.",
+    "ja": "この PC をシャットダウンできるのは管理者だけになりました。サインイン画面からもシャットダウンできません。ほかのユーザーは、サインアウトと画面のロックは引き続き行えます。",
+    "zh-TW": "現在只有系統管理員可以將這台電腦關機，登入畫面也不再提供關機。其他使用者仍可登出與鎖定畫面。"
+  },
+  "shutdown_right_failed": {
+    "en": "Warning: the rule 'only administrators shut this PC down' could not be set ({0}). The install goes on; tell the people who use this PC not to turn it off.",
+    "ja": "注意:「管理者だけがこの PC をシャットダウンできる」という設定を行えませんでした（{0}）。インストールは続行します。この PC を使う人に、電源を切らないよう伝えてください。",
+    "zh-TW": "警告：無法設定「只有系統管理員可以將這台電腦關機」（{0}）。安裝會繼續；請告知使用這台電腦的人不要關機。"
   }
 }
