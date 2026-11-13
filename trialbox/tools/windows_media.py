@@ -1,7 +1,7 @@
 """The offline media for a Windows workstation (NEW-WIN-9, D-605; ``docs/handover/OFFLINE-MEDIA.md``).
 
     python3 -m tools.windows_media build --out DIR --version 1.0.0 --bundle trialbox-1.0.0.tar \\
-        --wsl-msi wsl.2.x.y.0.x64.msi --rootfs ubuntu-24.04-wsl-amd64.tar.gz --debs DEBS_DIR \\
+        --wsl-msi wsl.2.x.y.0.x64.msi --rootfs ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz --debs DEBS_DIR \\
         --vendor-pub vendor_ed25519.pub [--nvidia-driver DRIVER.exe] [--measured DIR] [--link]
     python3 -m tools.windows_media check DIR/TRIALBOX-1.0.0
     python3 -m tools.windows_media sums DIR/TRIALBOX-1.0.0      # after a file was added: list again, then check
@@ -30,6 +30,7 @@ import os
 import re
 import shutil
 import sys
+import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -83,6 +84,50 @@ def sha256(path: Path) -> str:
         while chunk := fh.read(CHUNK):
             h.update(chunk)
     return h.hexdigest()
+
+
+OS_RELEASE_FILES = ("etc/os-release", "usr/lib/os-release")
+
+
+def os_release(text: str) -> dict[str, str]:
+    """``KEY=value`` lines of an ``/etc/os-release``, quotes taken off."""
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        key, eq, value = line.partition("=")
+        if eq and key.strip() and not key.lstrip().startswith("#"):
+            out[key.strip()] = value.strip().strip('"').strip("'")
+    return out
+
+
+def rootfs_name(rootfs: Path) -> str:
+    """The name the image gets on the media: one the installer finds (``ubuntu-24.04*.tar.gz``).
+
+    Canonical publishes the Ubuntu 24.04 WSL image as ``ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz``, which the
+    installer's pattern does not match. So the image is known by what it is, not by its name: its own
+    ``etc/os-release`` must say Ubuntu 24.04. A name that already fits is kept; any other gets ``ubuntu-24.04.``
+    put before it."""
+    if not rootfs.name.lower().endswith(".tar.gz"):
+        raise MediaError(f"--rootfs: '{rootfs.name}' is not a .tar.gz archive (wsl --import takes that)")
+    text = None
+    try:
+        with tarfile.open(rootfs, "r:gz") as tar:
+            for member in tar:
+                # in Canonical's image etc/os-release is a link to usr/lib/os-release: the file is read where it is
+                if member.name.removeprefix("./") in OS_RELEASE_FILES and member.isfile():
+                    data = tar.extractfile(member)
+                    text = data.read().decode("utf-8", errors="replace") if data is not None else None
+                    break
+    except (OSError, tarfile.TarError) as exc:
+        raise MediaError(f"--rootfs: '{rootfs.name}' cannot be read as a .tar.gz archive ({exc})") from exc
+    if text is None:
+        raise MediaError(f"--rootfs: '{rootfs.name}' holds no etc/os-release: not a Linux root file system")
+    release = os_release(text)
+    if release.get("ID") != "ubuntu" or release.get("VERSION_ID") != "24.04":
+        raise MediaError(f"--rootfs: '{rootfs.name}' is {release.get('ID', '?')} {release.get('VERSION_ID', '?')}; "
+                         "the installer imports Ubuntu 24.04")  # fmt: skip
+    if fnmatch.fnmatchcase(rootfs.name.lower(), "ubuntu-24.04*.tar.gz"):
+        return rootfs.name
+    return "ubuntu-24.04." + rootfs.name
 
 
 def is_linux_driver(deb_name: str) -> bool:
@@ -160,8 +205,7 @@ def build(
         raise MediaError(
             f"--wsl-msi: '{wsl_msi.name}' is not named wsl.<version>.x64.msi (the installer looks for wsl.*.msi)"
         )
-    if not fnmatch.fnmatch(rootfs.name, "ubuntu-24.04*.tar.gz"):
-        raise MediaError(f"--rootfs: '{rootfs.name}' is not named ubuntu-24.04*.tar.gz (the installer imports that)")
+    rootfs_name(rootfs)  # refuses an image that is not Ubuntu 24.04
     if not fnmatch.fnmatch(bundle.name, BUNDLE_PATTERN) or bundle.name == HOST_TAR:
         raise MediaError(f"--bundle: '{bundle.name}' is not named trialbox-<version>.tar")
     packages = sorted(p for p in debs.glob("*.deb") if p.is_file()) if debs.is_dir() else []
@@ -227,7 +271,7 @@ def _lay_out(
         else:
             _put(src, media / "windows" / name, False)
     _put(wsl_msi, media / "windows/wsl" / wsl_msi.name, link)
-    _put(rootfs, media / "windows/wsl" / rootfs.name, link)
+    _put(rootfs, media / "windows/wsl" / rootfs_name(rootfs), link)
     if nvidia_driver is not None:
         _put(nvidia_driver, media / "windows/nvidia" / nvidia_driver.name, link)
     for p in packages:
@@ -332,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--version", required=True)
     b.add_argument("--bundle", type=Path, required=True, help="the signed bundle of tools/make_bundle.sh")
     b.add_argument("--wsl-msi", type=Path, required=True, help="wsl.<version>.x64.msi from Microsoft")
-    b.add_argument("--rootfs", type=Path, required=True, help="ubuntu-24.04-wsl-amd64.tar.gz")
+    b.add_argument("--rootfs", type=Path, required=True, help="the Ubuntu 24.04 WSL image (.tar.gz), under any name")
     b.add_argument("--debs", type=Path, required=True, help="folder of .deb packages for Ubuntu 24.04")
     b.add_argument("--vendor-pub", type=Path, required=True)
     b.add_argument("--nvidia-driver", type=Path, help="the NVIDIA driver for Windows (the installer does not run it)")

@@ -1,0 +1,69 @@
+# D-609 The media's Ubuntu packages are worked out against the image itself; the image is known by what it is
+
+- **Task:** NEW-WIN-9, the media part, second card (`docs/plan/33-plan-v7.md` section 2.3; lane W; wave 3)
+- **PR:** this branch (`agent/NEW-WIN-9-media-packages`), on top of D-605 (the media builder)
+- **Date:** 2026-11-13
+- **Status:** accepted. The package tool ran once for real on 2026-11-13 against Canonical's image (below). That
+  the packages install on that image inside WSL2 is the installer's package step, first seen at P-0 (line 10)
+- **Builds on:** D-605 (`tools/windows_media.py`), D-600 (the installer's package step: `dpkg -i` from the media,
+  no Linux NVIDIA driver), D-125 (the workstation is never online)
+
+## Context
+
+D-605 lays the media out from files the vendor names, and says where the packages for Ubuntu go (`linux/debs`).
+Nothing said which packages, and getting it wrong shows only on a workstation that cannot fetch what is missing.
+The set depends on what the Ubuntu WSL image already holds. Writing the owner's commands for the first rehearsal
+also showed that Canonical's file is `ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz`, a name neither the builder
+nor the installer's `ubuntu-24.04*.tar.gz` accepts; D-605's documents named a file nobody publishes.
+
+## Decision
+
+1. **`tools/windows_media_debs.py --rootfs <image> --out <folder>`** works the set out against the image
+   itself: it copies the image's own list of installed packages (`var/lib/dpkg/status`) and its archive keyring
+   out of the tarball and asks `apt-get install --download-only` what installing the installer's packages
+   (`docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-compose-plugin`, `nvidia-container-toolkit`,
+   `nftables`, `cron`) on exactly that system would fetch. apt is given a world of its own (state, lists, cache,
+   sources and trust all under one working folder): this machine's packages are neither read nor changed, no
+   container and no root are needed. What apt fetched is the set. It refuses an image that is not Ubuntu 24.04,
+   a set that holds a Linux NVIDIA driver, an empty result, and an output folder that holds files.
+2. **This is the one media tool that goes online**, and only when the vendor runs it; it writes only where the
+   vendor says. `tools/windows_media.py` still fetches nothing (its test holds that).
+3. **The repository keys are pinned.** Ubuntu's archive is checked with the image's own keyring. Docker's and
+   NVIDIA's keys are fetched over HTTPS and accepted only when the fingerprint of the primary key is the one
+   written in the tool (Docker: `9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`; NVIDIA libnvidia-container:
+   `C95B 321B 61E8 8C18 09C4 F759 DDCA E044 F796 ECB0`), read with `gpg --show-keys`, importing nothing. Every
+   source has a key of its own (`signed-by`); nothing is fetched unauthenticated.
+4. **The media builder knows the image by its `os-release`**, not by its file name: Ubuntu 24.04 or it is
+   refused. A name that fits the installer's pattern is kept; Canonical's gets `ubuntu-24.04.` put before it, so
+   the installer finds it and the publisher's name stays readable. The installer is not changed.
+
+**Reuse check.** apt itself does the work (its resolver, its signature checks); the tool only points it at the
+image. `apt-offline` and `apt-rdepends` exist for nearby jobs: the first wants to run on the offline machine
+first, the second lists dependencies without the image's state. A container of the image (`docker import`) gives
+the same answer and needs a Docker daemon and root on the vendor's machine; not needed.
+
+## What is proven here, and what is not
+
+**Run for real, once, by hand (2026-11-13, this build machine, Ubuntu 24.04):** against Canonical's
+`ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz` (sha256 `2a790896...bd9934`, matching Canonical's `SHA256SUMS`)
+the tool accepted both repository keys by fingerprint and fetched 16 packages, 84 MB, in 15 seconds: Docker
+Engine 29.9.3 with its CLI, containerd.io and the compose plugin, the NVIDIA Container Toolkit 1.20.2 with its
+three companions, nftables and seven libraries; apt reported "0 upgraded, 16 newly installed". `cron` was already
+in the image. `tools.windows_media build` then laid out a media from that image and those packages (stand-ins for
+the bundle and the WSL package) and its `check` passed. That run found what the stand-in images had not: in the
+real image `etc/os-release` is a link to `usr/lib/os-release`; both tools read the file where it is, and a test
+now builds an image that way.
+
+Proven by tests (offline; apt and the network replaced): which files are read from the image; the refusals; the
+options and sources apt is given; the fingerprint rule; what is done with what apt fetched.
+
+Not proven: that `dpkg -i` of the set succeeds on the image inside WSL2 (the installer's package step; P-0 line
+10). Completeness rests on apt's resolver, which worked the set out against the image's own state; no install was
+run here. That the set stays right as the repositories move: the tool is run again for each release, and the
+release records the set (`SHA256SUMS` of the media).
+
+## Consequences
+
+- The owner can build a media from a fresh checkout with the commands in `docs/handover/OFFLINE-MEDIA.md`.
+- For lane D: the release target can run both tools after the bundle is signed; an offline Ubuntu patch bundle
+  (`tools/apply_update.sh`) can be made the same way against the box's current package list.
