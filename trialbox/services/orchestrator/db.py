@@ -8,7 +8,7 @@ import contextlib
 import hashlib
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -837,15 +837,35 @@ class JobDB:
         "definition_version",
     )
 
-    def cohort_store(self, rows: list[dict[str, Any]], job_id: str, received_from: str) -> None:
+    def cohort_store(
+        self,
+        rows: list[dict[str, Any]],
+        job_id: str,
+        received_from: str,
+        refuse: Callable[[set[str]], str | None] | None = None,
+    ) -> str | None:
         """Replace a site's table for each (disease, quarter, definition) it contains, then insert the rows, and
         record what was stored (D-648): one ``cohort_stored`` row per site in ``rows``, in this transaction, so the
         record and the tables cannot differ however the caller ends. One store at a time (the lock), so the
-        record's order is the order the tables were committed in."""
+        record's order is the order the tables were committed in.
+
+        ``refuse``: the caller's rule on who may store these rows, asked inside the transaction, under the lock,
+        with the addresses whose tables of the rows' sites stand in the store now (all the sites in ``rows``
+        together: a caller with a rule per site passes one site's rows). A sentence back: nothing is stored
+        and the sentence is returned. A check made before the call can be overtaken by another store (two senders
+        of one site, both let in). None is returned when the rows were stored."""
         if not rows:
-            return
+            return None
         with self.tx() as con:
             con.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"{self.schema}:cohort_store",))
+            if refuse is not None:
+                senders: set[str] = set()
+                for site in sorted({r["site_id"] for r in rows}):
+                    got = con.fetchall("SELECT DISTINCT received_from FROM cohort_tables WHERE site_id = ?", (site,))
+                    senders |= {str(r[0]) for r in got}
+                said = refuse(senders)
+                if said:
+                    return said
             for site, disease, quarter, version in {
                 (r["site_id"], r["disease"], r["quarter"], r["definition_version"]) for r in rows
             }:
@@ -876,6 +896,7 @@ class JobDB:
                     "INSERT INTO cohort_stored (job_id, site_id, received_from, table_sha256, rows) VALUES (?,?,?,?,?)",
                     (job_id, site, received_from, cohort_table_hash(table), json.dumps(table, ensure_ascii=False)),
                 )
+        return None
 
     _STORED_COLS = ("seq", "job_id", "site_id", "received_from", "table_sha256", "rows")
 

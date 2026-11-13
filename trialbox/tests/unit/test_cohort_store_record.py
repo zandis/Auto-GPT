@@ -176,7 +176,7 @@ def _fault(b: _Box, mp: pytest.MonkeyPatch, where: str, k: int, exc: BaseExcepti
     elif where == "parse":
         mp.setattr(cohort, "parse_csv", at(cohort.parse_csv))
     elif where == "refusal":
-        mp.setattr(cohort, "merge_refusal", at(cohort.merge_refusal))
+        mp.setattr(cohort, "sender_refusal", at(cohort.sender_refusal))
     elif where == "stored":
         mp.setattr(b.db, "cohort_store", at(b.db.cohort_store, after=True))
     elif where == "rows":
@@ -468,3 +468,82 @@ def test_on_a_box_updated_in_place_the_tables_it_had_are_kept_for_the_replay(
             again.db.drop()
     finally:
         new.db.drop()
+
+
+# ------------------------------------------------------------- the review of lane B2's re-run built on this record
+def test_another_jobs_table_of_the_same_site_for_another_quarter_does_not_stop_the_re_run(
+    box: Callable[[], _Box], tmp_path: Path
+) -> None:
+    """The question "did another job store over this merge's table before it read" was asked per site. A re-run's
+    own store replaces only the (site, disease, quarter, definition) groups the merge stores: another job's table
+    of the same site for another quarter stays as it was, and the re-run reads what the first run read."""
+    b = box()
+    job_id = b.merge([_table("HOSP-B", n=12), _table("HOSP-C", n=7)])
+    real = b.db.cohort_read
+
+    def another_quarter_first(*a: Any, **kw: Any) -> Any:
+        b.db.cohort_store(_table("HOSP-C", n=99, quarter="2026Q2"), "J-OTHER", SENDER)
+        return real(*a, **kw)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(b.db, "cohort_read", another_quarter_first)
+        b.orch.run(job_id)
+    first = b.db.get(job_id)
+    assert first is not None and first.state == "done"
+    second, again = _run_again(b, tmp_path, first)
+    try:
+        assert _same_output(first, second)
+        assert {r["quarter"] for r in again.held()["HOSP-C"]} == {"2026Q2", "2026Q3"}
+    finally:
+        again.db.drop()
+
+
+def test_the_sender_of_a_site_is_checked_where_the_table_is_stored_not_before(
+    box: Callable[[], _Box], tmp_path: Path
+) -> None:
+    """The check "this site's table comes from the address that first sent it" ran before the store, outside its
+    lock: another sender's table of the same site, stored between the check and the store, let both in. The merge
+    ended done, and its re-run then failed on the same check. Now the check is made in the store's transaction."""
+    b = box()
+    job_id = b.merge([_table("HOSP-B", n=12), _table("HOSP-C", n=7)])
+    real = b.db.cohort_store
+    seen = {"n": 0}
+
+    def another_sender_just_before(rows: Any, *a: Any, **kw: Any) -> Any:
+        seen["n"] += 1
+        if seen["n"] == 2:  # after the merge's last look at HOSP-C, before its store of it
+            real(_table("HOSP-C", n=99), "J-OTHER", "crc@hospc.test")
+        return real(rows, *a, **kw)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(b.db, "cohort_store", another_sender_just_before)
+        b.orch.run(job_id)
+    job = b.db.get(job_id)
+    assert job is not None and job.state == "done"
+    held = b.held()
+    assert {r["n"] for r in held["HOSP-C"]} == {100, 101}  # the other sender's table stands; the merge's was refused
+    assert [r["site_id"] for r in b.db.cohort_stored(job_id)] == ["HOSP-B"]
+    second, again = _run_again(b, tmp_path, job)  # and a re-run gives the same, not "No valid alliance table"
+    try:
+        assert _same_output(job, second)
+    finally:
+        again.db.drop()
+
+
+def test_the_refusal_names_no_mail_address(box: Callable[[], _Box]) -> None:
+    b = box()
+    b.db.cohort_store(_table("HOSP-C", n=99), "J-OTHER", "crc@hospc.test")
+    said = cohort.merge_refusal(b.db, _table("HOSP-C"), SENDER, "DEMO-A")
+    assert said is not None and "HOSP-C" in said and "@" not in said
+    assert cohort.merge_refusal(b.db, _table("HOSP-C"), "crc@hospc.test", "DEMO-A") is None
+    own = cohort.merge_refusal(b.db, _table("DEMO-A"), SENDER, "DEMO-A")
+    assert own is not None and "own table" in own
+    # in the store's transaction: refused, nothing stored, no record
+    refused = b.db.cohort_store(
+        _table("HOSP-C", n=5),
+        "J-X",
+        SENDER,
+        refuse=lambda senders: cohort.sender_refusal("HOSP-C", "DEMO-A", senders, SENDER),
+    )
+    assert refused and "@" not in refused
+    assert {r["n"] for r in b.held()["HOSP-C"]} == {100, 101} and b.db.cohort_stored_all()[-1]["job_id"] == "J-OTHER"
