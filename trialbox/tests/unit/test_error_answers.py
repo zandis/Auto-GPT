@@ -123,6 +123,8 @@ KNOWN = {
     ("datacore_api.py", "ValueError"): "datacore.forms' CTCAE check: a fixed sentence that lists the versions",
     ("migrate.py", "DatabaseError"): "the migration tool's own stderr",
     ("migrate.py", "EdcError"): "the migration tool's own stderr",
+    ("rerun.py", "ReplayUnknown"): "the re-run's own refusal (D-666): its sentences are written in rerun.py and "
+    "name job ids only",
     # the scenarios (D-557): another error's text inside a failed job's record, each an error written in this
     # repository about the study's own files (a prompt registry, a cascade, an approval workbook, a routing table)
     ("approve.py", "ValueError"): "the approval workbook's own reading errors (tb_common.ruleset)",
