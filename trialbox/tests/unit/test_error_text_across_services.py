@@ -215,3 +215,83 @@ def test_a_held_mail_and_a_missing_attachment_name_the_errors_type() -> None:
     assert src.count('f"{type(exc).__name__}: {exc}"') == 1 and "def _not_sent" in src
     assert "after the message left: {type(exc).__name__}: {exc}" not in src
     assert "attachment not found: {exc}" not in inspect.getsource(mail_app)
+
+
+# ---------------------------------------------------------------------------------- NEW-TRUST-9 (D-705)
+#: a general error handed WHOLE to a helper (``helper(exc)``): the reading above does not see what the helper does
+#: with it (the matching's ``missing_table(exc, ...)`` reads its text). Each such call is listed: for this lane
+#: exactly, with what the helper does; for other lanes as a ceiling, by file and helper.
+_NO_TEXT = {"type", "isinstance", "trace_of", "str", "repr"}  # read above, or take no text
+HANDED_MINE: dict[tuple[str, str], tuple[int, str]] = {
+    ("console/api_first.py", "handler"): (1, "the framework's own handler, then the answer without values (D-551)"),
+    ("console/dataops_page.py", "getattr"): (2, "reads two yes-or-no marks of a data operation's error"),
+    ("console/home.py", "getattr"): (1, "reads the error's `status`, a number"),
+    ("orchestrator/core.py", "_error"): (1, "the job's error record: the type only for an unexpected error (D-557)"),
+    ("sitesetup/service.py", "_building_refusal"): (1, "tests the lake's refusal for 'already building': a yes or no"),
+    ("sitesetup/service.py", "_held_refusal"): (1, "tests the lake's refusal for 'running job': a yes or no"),
+}
+HANDED_THEIRS: dict[tuple[str, str], int] = {
+    ("adapter/app.py", "failure.log_failure"): 2, ("adapter/app.py", "failure.words"): 2,
+    ("adapter/backfill.py", "failure.log_failure"): 1, ("adapter/backfill.py", "failure.words"): 1,
+    ("adapter/pipeline.py", "failure.log_failure"): 2, ("adapter/pipeline.py", "failure.words"): 2,
+    ("adapter/pipeline.py", "reject_key"): 1,
+    ("adapter/publish.py", "_other_generation"): 1, ("adapter/publish.py", "_said"): 1,
+    ("adapter/publish.py", "failure.log_failure"): 2, ("adapter/publish.py", "failure.words"): 2,
+    ("adapter/publish.py", "lake_error"): 3,
+    ("adapter/run_job.py", "failure.log_failure"): 1, ("adapter/run_job.py", "failure.words"): 1,
+    ("adapter/sources/ssmix2/hl7.py", "getattr"): 1, ("adapter/validate/jpcore.py", "_base_problem"): 1,
+    ("datacore/dataops.py", "getattr"): 2,
+    ("lake/app.py", "error_answer"): 1, ("lake/store.py", "error_answer"): 1, ("lake/store.py", "error_kind"): 1,
+    ("mail_gateway/outbound.py", "NotSent"): 2,
+    ("matching/cascade/engine.py", "missing_table"): 1,
+    ("tracestore/app.py", "refusal"): 1,
+}  # fmt: skip
+
+
+def _handed() -> Counter[tuple[str, str]]:
+    """How many times a general error is passed whole to a call, by (file, the function called)."""
+    out: Counter[tuple[str, str]] = Counter()
+    for f in sorted(ROOT.rglob("*.py")):
+        for fn in _handed_in(ast.parse(f.read_text(encoding="utf-8"))):
+            out[(str(f.relative_to(ROOT)), fn)] += 1
+    return out
+
+
+def _handed_in(tree: ast.AST) -> list[str]:
+    """The functions a general error is passed whole to, inside its ``except`` block (log calls apart)."""
+    out: list[str] = []
+    for h in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.name):
+        if not set(_caught(h)) & GENERAL:
+            continue
+        for call in (n for b in h.body for n in ast.walk(b) if isinstance(n, ast.Call)):
+            fn = ast.unparse(call.func)
+            if fn.split(".")[-1] in _NO_TEXT or fn.split(".")[0] in ("log", "logger", "logging"):
+                continue
+            args = [*call.args, *[k.value for k in call.keywords]]
+            if any(isinstance(a, ast.Name) and a.id == h.name for a in args):
+                out.append(fn)
+    return out
+
+
+def test_a_general_error_is_handed_whole_to_a_helper_only_in_the_listed_places() -> None:
+    found = dict(_handed())
+    mine = {k: n for k, n in found.items() if k[0].split("/")[0] in ("console", "orchestrator", "sitesetup")}
+    assert mine == {k: n for k, (n, _) in HANDED_MINE.items()}, sorted(mine.items())
+    theirs = {k: n for k, n in found.items() if k not in mine}
+    over = {k: n for k, n in theirs.items() if n > HANDED_THEIRS.get(k, 0)}
+    assert over == {}, f"a general error is handed whole to a helper here, more often than listed: {over}"
+
+
+def test_the_scan_sees_a_helper_that_reads_the_errors_text() -> None:
+    """The shape lane A2 found in the matching: ``if not missing_table(exc, "document")``, where the helper reads
+    ``str(exc)``. The reading of statements cannot see that; the list of helpers does. A log call and ``type(exc)``
+    are not helpers."""
+    src = (
+        "try:\n    run()\n"
+        "except Exception as exc:\n"
+        "    log.warning('x', exc)\n"
+        "    kind = type(exc).__name__\n"
+        "    if not missing_table(exc, 'document'):\n        raise\n"
+    )
+    assert _handed_in(ast.parse(src)) == ["missing_table"]
+    assert _handed_in(ast.parse("try:\n    run()\nexcept Refused as exc:\n    helper(exc)\n")) == []  # not general
