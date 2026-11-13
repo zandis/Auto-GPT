@@ -38,6 +38,23 @@ TRIALBOX-<version>/                      one folder per release, read-only on th
     RUNBOOK.pdf, WINDOWS-INSTALL-CHECKLIST.pdf
 ```
 
+**Making the media** (NEW-WIN-9, D-605). `tools/windows_media.py` lays this folder out and writes `SHA256SUMS`;
+it downloads nothing, so the vendor first fetches Microsoft's WSL package, the Ubuntu 24.04 WSL image, the packages
+for Ubuntu and the NVIDIA driver for Windows on a machine that may, and names them:
+
+```
+python3 -m tools.windows_media build --out /media/build --version <version> \
+    --bundle dist/trialbox-<version>.tar --wsl-msi wsl.<v>.x64.msi --rootfs ubuntu-24.04-wsl-amd64.tar.gz \
+    --debs debs/ --vendor-pub keys/vendor_ed25519.pub --nvidia-driver <driver>.exe --measured deploy/measured
+python3 -m tools.windows_media check /media/usb/TRIALBOX-<version>     # again on the disk, after the copy
+```
+
+`build` refuses a wrongly named input, a Linux NVIDIA driver package among the packages and a folder that already
+holds files. `check` names every reason step 1 of the installer would stop: a file missing, doubled, unlisted or
+not matching, a script whose line ends were changed. `SHA256SUMS.sig`, the network sheets and the PDFs under
+`docs/` are added by the release's own steps, then `SHA256SUMS` is written again with
+`python3 -m tools.windows_media sums <folder>` (`check` fails until it is).
+
 **The bundle** (`trialbox-<version>.tar`, `tools/make_bundle.sh`, verified by `tools/verify_update.py`; D-125
 estimated 30 GB, the sizes below make it nearer 40 GB, so plan a 128 GB disk):
 
