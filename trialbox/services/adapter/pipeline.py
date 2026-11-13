@@ -59,7 +59,9 @@ class AdapterConfig:
     # T-723 (D-489): the lake in two steps, so a publish promotes last: ``build`` builds and judges a night without
     # serving it, ``promote`` makes it the served one (False: a newer night is served). Both None: ``rebuild`` alone
     build: Callable[[str, Path], RebuildResult] | None = None
-    promote: Callable[[str], bool] | None = None
+    # called as promote(night) or promote(night, generation) (D-531): a callable of either shape, so not typed
+    # more closely than this
+    promote: Callable[..., bool] | None = None
     # settings.registry_source: None = the data source's own ``registry`` table; ("none", "") = no registry;
     # ("csv", "/path/registry.csv") or ("sql", dsn) = a separate consent registry
     registry: tuple[str, str] | None = None

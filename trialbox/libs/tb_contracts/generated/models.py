@@ -1229,6 +1229,10 @@ class RebuildResult(BaseModel):
     chunks: int
     embedded_new: int
     seconds: float | None = None
+    generation: str | None = None
+    """
+    the lake generation this rebuild made, "<snapshot>.g<n>" (T-724, D-490); the publish names it when it promotes (D-531). Absent: a lake step from before generations
+    """
 
 
 class RegistryPromote(BaseModel):
