@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from guard.guard import Guard
+from tb_common import encoding
 from tb_common.crypto import sha256_bytes
 from tb_contracts import DocSection, DocTable, IEBlock, ParsedDoc
 
@@ -205,7 +206,9 @@ def _lite_xlsx(data: bytes) -> _Doc:
 
 
 def _text(data: bytes) -> _Doc:
-    text = data.decode("utf-8-sig", errors="replace")
+    # UX-004: the one decoder (D-215). UTF-8, Shift_JIS and Big5 are read as what they are; a file whose character
+    # set cannot be told is refused, never read with what does not fit replaced by U+FFFD on its way to the model
+    text, _ = encoding.decode(data)
     lines = []
     for raw in text.splitlines():
         line = raw.strip()
@@ -380,6 +383,12 @@ def parse(data: bytes, filename: str, ie_locator: IeLocator | None = None, backe
             doc = _lite_xlsx(data)
         else:
             doc = _text(data)
+    except encoding.EncodingRefused as exc:
+        raise UnreadableDocument(
+            f"{filename}: its character set cannot be told for certain ({exc.message}"
+            + (f", line {exc.line}" if exc.line else "")
+            + "); save it as UTF-8 and send it again"
+        ) from exc
     except Exception as exc:  # corrupt, truncated or mislabelled file: a reason for the requester, not a 500
         raise UnreadableDocument(f"{filename} could not be read as {kind.upper()} ({type(exc).__name__})") from exc
     hidden = hidden_text(kind, data)  # T-208 (D-346): text nobody sees on the page is flagged, never dropped

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -230,6 +231,44 @@ def test_a_sync_of_an_unknown_source_and_a_bad_dictionary_are_shown_not_raised(d
     assert 'data-testid="dc-error"' in r.text and "FORM-COLUMNS" in r.text
     r = c.post("/studies/GZQO/forms/dictionary", data={"csrf": csrf})
     assert "FORM-EMPTY" in r.text
+
+
+def _labelled(label: str, codec: str) -> bytes:
+    """Project A's dictionary with one field's label replaced, saved in ``codec`` (as REDCap in Japan or Taiwan saves)."""
+    rows = list(csv.DictReader(io.StringIO(dictionary().decode())))
+    rows[1]["field_label"] = label
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=list(rows[0]))
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue().encode(codec)
+
+
+@pytest.mark.parametrize(("label", "codec"), [
+    ("同意取得日（スクリーニング時に記入してください）", "cp932"),
+    ("簽署同意書日期（請於篩選時填寫）", "big5"),
+    ("同意取得日（スクリーニング時に記入してください）", "utf-8-sig"),
+])  # fmt: skip
+def test_a_dictionary_saved_in_shift_jis_or_big5_keeps_its_labels(dcb: dict[str, Any], label: str, codec: str) -> None:
+    """UX-004: the upload is read by the one decoder, not as UTF-8 with what does not fit replaced."""
+    c, csrf = login(dcb["app"], "crc", PW)
+    files = {"dictionary": ("dict.csv", _labelled(label, codec), "text/csv")}
+    r = c.post("/studies/GZQO/forms/dictionary", data={"csrf": csrf, "record_field": "record_id"}, files=files,
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303
+    sent = json.dumps([c_[2] for c_ in dcb["calls"] if c_[0] != "GET"], ensure_ascii=False)
+    assert label in sent and "\ufffd" not in sent
+
+
+def test_a_dictionary_whose_character_set_cannot_be_told_is_refused_on_the_page(dcb: dict[str, Any]) -> None:
+    c, csrf = login(dcb["app"], "crc", PW)
+    ja = _labelled("同意取得日（スクリーニング時に記入してください）", "cp932")
+    zh = "簽署同意書日期（請於篩選時填寫）\n".encode("big5")
+    r = c.post(
+        "/studies/GZQO/forms/dictionary", data={"csrf": csrf}, files={"dictionary": ("d.csv", ja + zh, "text/csv")}
+    )
+    assert 'data-testid="dc-error"' in r.text and "FORM-ENCODING" in r.text
+    assert not [c_ for c_ in dcb["calls"] if c_[0] != "GET"]  # nothing was sent on
 
 
 # ---------------------------------------------------------------------------------------------- roles
