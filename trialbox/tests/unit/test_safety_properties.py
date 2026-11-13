@@ -1079,23 +1079,34 @@ def _toe_run(notes: list[dict[str, Any]], pids: list[str], embedder: Any, source
 
 
 @pytest.mark.parametrize("flag", ["off", "on"])
-def test_regression_a_ranking_that_cuts_the_decisive_note_never_excludes(flag: str) -> None:
+def test_regression_a_ranking_that_cuts_the_decisive_note_never_excludes(
+    flag: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The review's reproduction: two window notes, five filler sentences and one decisive sentence. The on-the-fly
     ranking puts the decisive sentence first and shows both notes (strong); a stored ranking that puts the fillers
     first used to show only the filler note, and the confident "not met" became a hard exclusion at S3. Now the
-    unshown note counts as left out: "needs information", never "not matched"."""
+    unshown note counts as left out: "needs information", never "not matched".
+
+    Since T-710 (D-479) the ranking only orders the reading: with room for the window both notes are shown
+    whatever the ranking (first block). The cut of the reproduction needs a budget that holds the first-ranked
+    note alone, which is what this test sets for the rest."""
     notes = [_note("T-1", FILLER, offset=-10, did="a"), _note("T-1", DECISIVE, offset=-11, did="b")]
     source = _Ranked("fillers") if flag == "on" else None
+    roomy, read = _toe_run(notes, ["T-1"], _Toe(first=True), source)
+    assert read.shown["T-1"] == {"a", "b"} and roomy.traces["T-1"].tier == "strong"  # room: nothing is cut
+    assert roomy.traces["T-1"].outcomes["N-INC-01"].status == "pass"  # and the answer is the decisive note's
+    monkeypatch.setattr(cascade_engine, "EXCERPT_TOKENS", cascade_engine._tokens(FILLER))  # the filler note alone
     res, judge = _toe_run(notes, ["T-1"], _Toe(first=True), source)
     t = res.traces["T-1"]
     o = t.outcomes["N-INC-01"]
-    if flag == "off":
-        assert (t.tier, o.status) == ("strong", "pass") and judge.shown["T-1"] == {"a", "b"}
+    if flag == "off":  # the decisive note is ranked first and read whole; the filler note no longer fits: flagged
+        assert o.status == "pass" and "b" in judge.shown["T-1"] and t.tier == "potential:uncertain"
     else:
         assert judge.shown["T-1"] == {"a"} and t.s2b_source is not None and t.s2b_source["vec_pairs"] == 2
         assert t.exit_stage is None and t.tier != "excluded" and not o.hard
         assert (o.status, o.unknown_kind) == ("unknown", "uncertain") and o.reason.startswith("not judged: 1 ")
     # the same cut on the on-the-fly path (master's defect): the decisive sentence ranked last, never shown
+    monkeypatch.setattr(cascade_engine, "EXCERPT_TOKENS", cascade_engine._tokens(FILLER + "\nAnother routine line."))
     cut, judge2 = _toe_run([_note("T-2", FILLER + "\nAnother routine line.", offset=-10, did="a2"),
                             _note("T-2", DECISIVE, offset=-11, did="b2")], ["T-2"], _Toe(first=False), None)  # fmt: skip
     t2 = cut.traces["T-2"]

@@ -8,6 +8,7 @@ SCREEN on the same box would never exclude on it. Now the tier needs the run's d
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -71,11 +72,18 @@ def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> st
         metrics=lambda **kw: None,
         today=lambda: RUN,
         orch=SimpleNamespace(
-            db=SimpleNamespace(pool=lambda rid: [{"pid": "P1", "verdicts": _pool_verdicts()}], find=lambda **kw: [])
+            db=SimpleNamespace(
+                pool=lambda rid: [{"pid": "P1", "verdicts": _pool_verdicts()}],
+                find=lambda **kw: [],
+                locked=lambda name: nullcontext(),
+            )
         ),
         services=SimpleNamespace(
             lake=SimpleNamespace(
-                snapshot=lambda: "2026-10-05", query=lambda *a, **kw: SimpleNamespace(to_pylist=lambda: [appt])
+                snapshot=lambda: "2026-10-05",
+                query=lambda sql, *a, **kw: SimpleNamespace(  # no consent statement (D-477); the visit otherwise
+                    to_pylist=lambda: [] if "consent" in sql else [appt]
+                ),
             ),
             llm=llm,
             verifier=verifier,
@@ -92,6 +100,9 @@ def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> st
 def _policy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")  # the default
     monkeypatch.setenv("TB_CANARY_GATE", "off")
+    # NEW-B-3 (D-522): a list run asks first whether the box is held after a restore, and a hold that cannot be
+    # read is a hold. These are pure tests (no database to read it from): the box here was not restored
+    monkeypatch.setattr("orchestrator.scheduler.restore_held", lambda url=None: False)
     monkeypatch.delenv("TB_SCREEN_JUDGE", raising=False)
 
 

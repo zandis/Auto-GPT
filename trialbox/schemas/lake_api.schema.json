@@ -139,6 +139,11 @@
             "string",
             "null"
           ]
+        },
+        "promote": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: build and judge the night, do not make it CURRENT yet (T-723, D-489: the publish promotes last, POST /promote)"
         }
       }
     },
@@ -170,6 +175,13 @@
         },
         "seconds": {
           "type": "number"
+        },
+        "generation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the lake generation this rebuild made, \"<snapshot>.g<n>\" (T-724, D-490); the publish names it when it promotes (D-531). Absent: a lake step from before generations"
         }
       }
     }

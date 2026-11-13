@@ -1209,59 +1209,128 @@ class ComposeBox(_DockerImages):
                 svc_secrets.ensure_model_key(self.deploy)
             except svc_secrets.SecretsError as e:  # T-608 (D-445): two different model keys stop the update
                 raise UpdateFailed(str(e)) from e
+        # T-717 (D-485): the secrets overlay gives the console its signing key as a compose secret, which needs its
+        # file: a box with per-service tokens from before it gets the key (and the orchestrator's keys file) here
+        if (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
+            from tools.trialbox import svc_secrets
+
+            svc_secrets.ensure_actor_sign_key(self.deploy)
         return made
 
-    def set_roles(self) -> None:
-        """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box
-        updated in place otherwise keeps a schema under its old group, with the service as its owner. The script
-        is idempotent and reads the passwords from the database container's own environment."""
-        # D-541 (NEW-TRUST-1): a box installed before the FHIR store had a role of its own has no password for it.
-        # The file first, the role after: a run that stops in between is repeated with the same value. The running
-        # database container was started without the variable, so it is handed over by name for this one command
-        # (the value in the environment, never on the command line).
+    def _pull(self) -> str:
+        pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
+        if pull not in ("never", "missing"):
+            raise UpdateFailed(f"TB_INSTALL_PULL must be never or missing, not {pull!r}")
+        return pull
+
+    def db_on_new_settings(self) -> str:
+        """D-624: the ``db`` service on the settings of the release now in force, before anything is run in it. The
+        role script reads each service's password from the container's environment, and until here the container is
+        the one the previous release started. Compose recreates it when its settings changed and leaves it
+        otherwise. The final ``up`` did the same before; what is still running then (``fhir-store`` always, every
+        service with ``--no-backup``) loses its connections a little earlier and is recreated by that ``up``."""
+        if not self.env.get("TB_DB_URL", ""):  # as set_roles
+            return "no database step on this box"
+        t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
+        self.run(self._c("up", "-d", "--pull", self._pull(), "--wait", "--wait-timeout", t, "db"), timeout=int(t) + 120)
+        return "on this release's settings"
+
+    def ensure_fhir_password(self) -> bool:
+        """D-541 (NEW-TRUST-1): a box installed before the FHIR store had a role of its own has no password for it
+        in ``.env``. Made here, a pre-start step (``tools/trialbox/prestart.py``): the database container is then
+        put on this release's settings (D-624) and the role script reads the password from the container's
+        environment, never from a command line. True when it was made now."""
         from tools.trialbox import svc_secrets
 
         fhir = self.env.get(FHIR_PW, "")
-        if not fhir or fhir.startswith("change-me"):  # none yet, or the example file's placeholder
-            fhir = secrets.token_urlsafe(32)
+        if fhir and not fhir.startswith("change-me"):  # set; the example file's placeholder is not
+            return False
+        fhir = secrets.token_urlsafe(32)
+        try:
             svc_secrets._set_env(self.deploy / ".env", {FHIR_PW: fhir})
-            self.env[FHIR_PW] = fhir
-        if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
-            return
-        # the script of this release, on standard input: the running database container still has the folder of
-        # the release before mounted, so the path inside it would run the older script
-        script = self.deploy / "docker" / "db-init" / "30-service-roles.sh"
-        t = int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900"))
-        if script.is_file():
-            self.run(self._c("exec", "-T", "-e", FHIR_PW, "db", "sh", "-s"), stdin_file=script, env={FHIR_PW: fhir},
-                     timeout=t)  # fmt: skip
-        else:  # a deploy folder without the script (a copied tree): the one the container has
-            self.run(self._c("exec", "-T", "-e", FHIR_PW, "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
-                     env={FHIR_PW: fhir}, timeout=t)  # fmt: skip
+        except OSError as e:
+            raise UpdateFailed(f"the FHIR store's database password could not be written to .env: {e}") from e
+        self.env[FHIR_PW] = fhir
+        return True
 
-    def migrate_owned(self) -> None:
+    def set_roles(self) -> bool:
+        """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box
+        updated in place otherwise keeps a schema under its old group, with the service as its owner. The script
+        is idempotent and reads the passwords from the database container's own environment."""
+        if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
+            return False
+        self.run(self._c("exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
+                 timeout=int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")))  # fmt: skip
+        return True
+
+    def migrate_owned(self) -> bool:
         """T-718 (D-486): the schemas no service owns are made by the box's admin before the services start, in a
         one-off orchestrator container of the new image (``python -m orchestrator.migrate``). The admin's URL
         travels in the environment (``-e NAME`` without a value), never on the command line. The database is up: an
         update stops the services only."""
         url = self.env.get("TB_DB_URL", "")
         if not url:  # a box that never ran install.sh's database step: nothing to do here
-            return
+            return False
         self.run(self._c("run", "--rm", "--no-deps", "-T", "-e", "TB_DB_URL", "orchestrator",
                          "python", "-m", "orchestrator.migrate"), env={"TB_DB_URL": url}, timeout=900)  # fmt: skip
+        return True
+
+    def pre_start(self) -> None:
+        """The host-side steps before the stack starts, run by the release whose tree is now in force
+        (``tools/trialbox/prestart.py``): this process is the installed, older release's, and a step the new release
+        added is not in it. The command runs in the install folder, where ``tools/`` is the new tree since
+        ``apply_host``. A tree without the command (a downgrade to a release from before it; a box with no host
+        tree) gets the two steps every such release ran, here."""
+        # absolute, not resolved: the command changes into the install folder first, and the symlinked layout stays
+        deploy = Path(os.path.abspath(self.deploy))
+        root = deploy.parent
+        if not (root / "tools" / "trialbox" / "prestart.py").is_file():
+            self.resolve_pins()
+            self.ensure_model_key()
+            self.ensure_fhir_password()  # D-541: this release's own step, when the tree has no command to run it
+            return
+        self._new_tree("pre-start", root, deploy)
+
+    def _new_tree(self, cmd: str, root: Path, deploy: Path) -> None:
+        """``python3 -m tools.trialbox <cmd>`` of the tree now in force, as a process of its own in the install
+        folder; its lines go to the operator's log, and a failure is the reason the step gave."""
+        python = sys.executable or "python3"
+        argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', f"tb-{cmd}", str(root),
+                python, "-m", "tools.trialbox", cmd, "--deploy", str(deploy)]  # fmt: skip
+        # never shorter than the steps' own limits (the database's wait, the role script, the migrate step)
+        t = int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900"))
+        try:
+            out = self.run(argv, timeout=max(3600, 2 * t + 1200))
+        except UpdateFailed as exc:
+            # the reason the step gave, not the command line around it
+            said = [ln.strip() for ln in str(exc).splitlines() if ln.strip().startswith(cmd)]
+            raise UpdateFailed(said[-1] if said else f"{cmd} failed: {str(exc)[-400:]}") from exc
+        finally:
+            self.env = _env_file(self.deploy / ".env")  # a step may have written a setting the checks read
+        for line in (out or "").splitlines():
+            print(line)  # each step and what it did, in the operator's log
+
+    def db_up(self) -> None:
+        """D-624: what is done once the database is up and before the services start, run by the release whose
+        tree is now in force (``DB_STEPS`` of its ``tools/trialbox/prestart.py``), as :meth:`pre_start`. A tree
+        from before the command (its ``prestart.py`` has no ``DB_STEPS``, or there is none) gets the two commands
+        every such release ran, here."""
+        deploy = Path(os.path.abspath(self.deploy))
+        root = deploy.parent
+        mod = root / "tools" / "trialbox" / "prestart.py"
+        if not (mod.is_file() and "DB_STEPS" in mod.read_text(encoding="utf-8")):
+            self.set_roles()
+            self.migrate_owned()
+            return
+        self._new_tree("db-up", root, deploy)
 
     def restart(self, plan: Plan) -> None:
         # new images: the containers are recreated and every service runs its migrations at start (tb_common.db);
-        # the schemas with an owner role (D-486) first, as the admin
-        self.resolve_pins()
-        self.ensure_model_key()
-        self.set_roles()
-        self.migrate_owned()
+        # the schemas with an owner role (D-486) first, as the admin, once the host-side steps are done (the db is up)
+        self.pre_start()
+        self.db_up()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
-        pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
-        if pull not in ("never", "missing"):
-            raise UpdateFailed(f"TB_INSTALL_PULL must be never or missing, not {pull!r}")
-        self.run(self._c("up", "-d", "--pull", pull, "--wait", "--wait-timeout", t), timeout=int(t) + 120)
+        self.run(self._c("up", "-d", "--pull", self._pull(), "--wait", "--wait-timeout", t), timeout=int(t) + 120)
 
     def check_serving(self) -> str:
         """``trialbox doctor --serving`` on the model network, as install.sh runs it (pinned names, the key, model-guard

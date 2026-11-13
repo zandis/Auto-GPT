@@ -36,6 +36,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from datacore import pgfunc
 from tb_common.config import environment_name
 from tb_common.crypto import key_fingerprint
 from tb_common.db import ENV, Database
@@ -301,21 +302,17 @@ def _append_only(db: Database) -> None:
     time. It holds against any role but the tables' owner. D-486 (T-718): on a box that owner is ``tbo_edc``, which
     no service is; the writer's role then also loses UPDATE, DELETE and TRUNCATE on the trail tables and every
     write on the version table."""
-    with db.transaction() as tx:
-        tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.edc_append_only'))")
-        tx.execute("CREATE OR REPLACE FUNCTION edc_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-                   "RAISE EXCEPTION USING MESSAGE = 'edc.' || TG_TABLE_NAME || ' is append-only', "
-                   "ERRCODE = 'insufficient_privilege'; END $$")  # fmt: skip
-        have = _triggers(tx)
-        for table in APPEND_ONLY:
-            if f"{table}_append_only" not in have:
-                tx.execute(f"DROP TRIGGER IF EXISTS {table}_append_only ON {table}")  # one left disabled
-                tx.execute(f"CREATE TRIGGER {table}_append_only BEFORE UPDATE OR DELETE ON {table} "
-                           "FOR EACH ROW EXECUTE FUNCTION edc_append_only()")  # fmt: skip
-            if f"{table}_no_truncate" not in have:
-                tx.execute(f"DROP TRIGGER IF EXISTS {table}_no_truncate ON {table}")
-                tx.execute(f"CREATE TRIGGER {table}_no_truncate BEFORE TRUNCATE ON {table} "
-                           "FOR EACH STATEMENT EXECUTE FUNCTION edc_append_only()")  # fmt: skip
+    fn = ("CREATE OR REPLACE FUNCTION edc_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+          "RAISE EXCEPTION USING MESSAGE = 'edc.' || TG_TABLE_NAME || ' is append-only', "
+          "ERRCODE = 'insufficient_privilege'; END $$")  # fmt: skip
+    triggers = {
+        **{f"{t}_append_only": f"CREATE TRIGGER {t}_append_only BEFORE UPDATE OR DELETE ON {t} "
+           "FOR EACH ROW EXECUTE FUNCTION edc_append_only()" for t in APPEND_ONLY},
+        **{f"{t}_no_truncate": f"CREATE TRIGGER {t}_no_truncate BEFORE TRUNCATE ON {t} "
+           "FOR EACH STATEMENT EXECUTE FUNCTION edc_append_only()" for t in APPEND_ONLY},
+    }  # fmt: skip
+    with db.transaction() as tx:  # EDC-009 (D-582): made only when absent, so a restored box opens
+        pgfunc.ensure(tx, "edc_append_only", (fn,), triggers)
     writer = db.writer_role()
     if writer:
         with db.transaction() as tx:

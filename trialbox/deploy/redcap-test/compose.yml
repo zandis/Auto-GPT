@@ -1,0 +1,44 @@
+# Our own REDCap test instance (NEW-EDC-0, D-584; plan v7.2 section 2.4). NOT a box file: it is in no bundle, no
+# network sheet and no CI job, and runs on a developer's or the owner's machine through
+# `python -m tools.redcap_instance up`, which sets the three variables below.
+#
+# REDCap's code is never in the repository or in an image: the owner's release zip is unpacked by the tool under
+# deploy/site/redcap/www (an ignored folder) and mounted here read-only. The web server is published on the
+# loopback address only; the database is published nowhere.
+#
+# NEVER RUN in this repository's history: it needs the zip. The images are public (PHP with Apache; MariaDB).
+name: tb-redcap-test
+services:
+  db:
+    image: ${RC_TEST_DB_IMAGE:-mariadb:10.11}
+    environment:
+      MARIADB_DATABASE: redcap
+      MARIADB_USER: redcap
+      MARIADB_PASSWORD: ${RC_TEST_DB_PASSWORD:?set by tools/redcap_instance.py}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--max-allowed-packet=64M"]
+    volumes:
+      - redcap-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${RC_TEST_PORT:-8791}:80"
+    volumes:
+      - ${RC_TEST_WORK:?set by tools/redcap_instance.py}/www/redcap:/var/www/html/redcap:ro
+      - redcap-temp:/var/redcap-temp
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 80) ? 0 : 1);"]
+      interval: 5s
+      retries: 30
+volumes:
+  redcap-db:
+  redcap-temp:

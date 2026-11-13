@@ -1,0 +1,128 @@
+# The allow-list of the limits lint (tools/limits_lint.py; T-687, D-471; OD-10 of TB-PLAN-06.1).
+#
+# One line per (file, kind, value): `count` is how many such literals the file holds. Every reason names the scale
+# review finding (F-nn, docs/reviews/2026-11-11-scale-timeouts.md) and the card that removes the literal, or says why
+# the literal is "not a cut" (one row by key, the newest row, a small text helper, a call whose size does not grow
+# with the hospital). A new literal, or a line whose literal is gone, fails the lint: the card that removes a limit
+# removes its line here in the same pull request.
+allow:
+  # ---------------------------------------------------------------- time limits that grow with the hospital
+  - {path: services/lake/client.py, kind: timeout, value: 330, count: 1,
+     reason: "F-01: the site publish waits 330 s on a whole-lake rebuild (805 s at 50k), and every lake query (F-29); T-690 makes the rebuild a polled job, T-694 gives queries a limit per job type"}
+  - {path: services/adapter/validate/validator.py, kind: timeout, value: 1800, count: 1,
+     reason: "F-06 (rest): 1,800 s per validator run of 5,000 files; the sample's absolute cap per type is T-693"}
+  - {path: services/orchestrator/twophase.py, kind: timeout, value: 600, count: 1,
+     reason: "F-30: the swap client's 600 s on the one-card layout; T-698 (one lease of the card)"}
+  - {path: services/gateway/swap.py, kind: timeout, value: 120, count: 1,
+     reason: "F-30: 120 s for a model wake on the swap layout (a cold load can be longer); T-698"}
+  - {path: services/embed_service/embedder.py, kind: timeout, value: 300, count: 1,
+     reason: "F-15: 300 s per embedding batch, one try, on the CPU; T-701 (GPU, retry and progress)"}
+  - {path: services/orchestrator/clients.py, kind: timeout, value: 3600, count: 1,
+     reason: "F-27: the compiler's equivalence gate evaluates the whole lake inside 3,600 s; T-694"}
+  # ---------------------------------------------------------------- time limits on calls whose size does not grow with the hospital
+  - {path: services/adapter/load_fhir.py, kind: timeout, value: 600, count: 2,
+     reason: "one FHIR batch POST / one delete batch of a fixed size: the time per call does not grow with the hospital, the number of calls does; not a cut (a failed batch fails the load loudly)"}
+  - {path: services/criteria_compiler/compile_cql/translator.py, kind: timeout, value: 600, count: 1,
+     reason: "one CQL translation of one protocol: protocol size, not patients; fails loudly; not a cut"}
+  - {path: services/model_guard/__init__.py, kind: timeout, value: 900, count: 1,
+     reason: "the guard's proxy read to the model server: the model's longest answer, as nginx 900 s (D-445); not a cut; the batch roles' read limit from max_tokens and the measured rate is T-698 (F-13)"}
+  - {path: services/orchestrator/clients.py, kind: timeout, value: 900, count: 1,
+     reason: "one protocol document parsed by doc-parser: document size, not patients; fails loudly; not a cut"}
+  - {path: services/orchestrator/clients.py, kind: timeout, value: 300, count: 1,
+     reason: "one mail handed to the mail gateway (no retry: a retry is a second mail); not a cut"}
+  - {path: services/orchestrator/scenarios/submit.py, kind: timeout, value: 120, count: 1,
+     reason: "one TWPAS bundle posted to the claims endpoint: one patient's bundle; not a cut"}
+  # ---------------------------------------------------------------- counts that cut a result
+  - {path: services/console/home.py, kind: limit, value: 500, count: 9,
+     reason: "F-14: 'this study's latest job' looked for in the newest 500 jobs of the box; T-700 (ask per study and type)"}
+  - {path: services/console/home.py, kind: limit, value: 200, count: 1,
+     reason: "F-14: the newest 200 jobs; T-700"}
+  - {path: services/console/screening_log.py, kind: limit, value: 500, count: 2,
+     reason: "F-14: the screening log's job in the newest 500 of the box; T-700"}
+  - {path: services/console/step4.py, kind: limit, value: 200, count: 1,
+     reason: "F-14: step 4's jobs in the newest 200; T-700"}
+  - {path: services/console/step4.py, kind: limit, value: 300, count: 1,
+     reason: "F-14: the administrator's job filter covers the newest 300; T-700"}
+  - {path: services/console/app.py, kind: limit, value: 100, count: 1,
+     reason: "F-14 (Low list: newest 100 with no 'more'): the job list page; T-700"}
+  - {path: services/console/backend.py, kind: limit, value: 100, count: 2,
+     reason: "F-14: the console's list_jobs default of 100 (protocol and HTTP backend); T-700"}
+  - {path: services/console/backend.py, kind: limit, value: 200, count: 3,
+     reason: "F-22: the newest 200 audit records per read, every file read per call; T-700 (read by date and event)"}
+  - {path: services/console/breakglass_store.py, kind: limit, value: 200, count: 1,
+     reason: "F-21: the newest 200 break-glass grants; an older unreviewed one leaves the steward's list; T-700"}
+  - {path: services/orchestrator/notmatched_sample.py, kind: limit, value: 500, count: 1,
+     reason: "F-14: the weekly 'not matched' sample looks for SCREEN jobs in the newest 500 done; T-700"}
+  - {path: services/orchestrator/scenarios/microbatch.py, kind: limit, value: 1000, count: 1,
+     reason: "F-32: tonight's microbatch use read from the newest 1,000 MICROBATCH jobs; T-704 (the allowance reserved in the database)"}
+  - {path: services/orchestrator/scenarios/microbatch.py, kind: limit, value: 100, count: 1,
+     reason: "F-34: the study's earlier microbatches read from its newest 100; T-704"}
+  - {path: services/orchestrator/db.py, kind: limit, value: 100, count: 1,
+     reason: "F-14: the job finder's default of 100 rows; T-700 (callers ask per study and type)"}
+  - {path: services/orchestrator/app.py, kind: limit, value: 50, count: 1,
+     reason: "F-14: GET /jobs answers 50 by default (500 at most); T-700"}
+  - {path: services/orchestrator/app.py, kind: limit, value: 500, count: 1,
+     reason: "F-14: GET /jobs answers at most 500 rows (min(limit, 500)); T-700"}
+  - {path: services/orchestrator/app.py, kind: limit, value: 20, count: 1,
+     reason: "F-14: the jobs awaiting approval of a study read 20 at a time; T-700"}
+  # ---------------------------------------------------------------- counts that are not a cut
+  - {path: services/orchestrator/rerun.py, kind: limit, value: 1000000, count: 1,
+     reason: "every COHORT job of the box (a million is 'all'); not a cut"}
+  - {path: services/console/app.py, kind: limit, value: 8, count: 1,
+     reason: "the home page's 'recent jobs' card shows eight with a link to the full list; not a cut"}
+  - {path: services/console/admin_flags.py, kind: limit, value: 50, count: 1,
+     reason: "the newest 50 flag changes on the flags page, the full history in the audit; not a cut"}
+  - {path: services/console/breakglass_store.py, kind: limit, value: 50, count: 1,
+     reason: "one user's newest 50 grants on their own page; the steward's review list is F-21; not a cut"}
+  - {path: services/console/sitestore.py, kind: limit, value: 50, count: 1,
+     reason: "one user's newest 50 notices; not a cut"}
+  - {path: services/datacore/dataops.py, kind: limit, value: 50, count: 1,
+     reason: "the data-operations history page size, paged by cursor (scale review §5); not a cut"}
+  - {path: services/mail_gateway/gateway.py, kind: limit, value: 50, count: 1,
+     reason: "mails sent per drain round; the rest wait for the next round (scale review §5); not a cut"}
+  - {path: services/mail_gateway/store.py, kind: limit, value: 50, count: 1,
+     reason: "due mails read per round; not a cut"}
+  - {path: services/adapter/validate/jpcore.py, kind: limit, value: 200, count: 1,
+     reason: "the first 200 validator messages for display; the counts are complete; not a cut"}
+  - {path: services/matching/cascade/engine.py, kind: limit, value: 24, count: 1,
+     reason: "24 keywords of one criterion's text for the lexicon (text size, not patients); not a cut"}
+  - {path: services/orchestrator/scenarios/terms.py, kind: limit, value: 12, count: 1,
+     reason: "12 keywords of one criterion's text (text size, not patients); not a cut"}
+  # one row: the newest row, a row by key, an existence check, the job claim
+  - {path: services/console/sitestore.py, kind: limit, value: 1, count: 4, reason: "the newest row of one study; not a cut"}
+  - {path: services/datacore/dataops.py, kind: limit, value: 1, count: 1, reason: "the newest batch; not a cut"}
+  - {path: services/datacore/sponsor.py, kind: limit, value: 1, count: 1, reason: "the newest layout of one study; not a cut"}
+  - {path: services/edc/store.py, kind: limit, value: 1, count: 5, reason: "one row by key, or an existence check; not a cut"}
+  - {path: services/omop/export.py, kind: limit, value: 1, count: 2, reason: "the newest load batch / one person row; not a cut"}
+  - {path: services/omop/load.py, kind: limit, value: 1, count: 2, reason: "one provider row / the active vocabulary release; not a cut"}
+  - {path: services/omop/vocab.py, kind: limit, value: 1, count: 1, reason: "the active vocabulary release; not a cut"}
+  - {path: services/orchestrator/app.py, kind: limit, value: 1, count: 1, reason: "an existence check (does the study have a job); not a cut"}
+  - {path: services/orchestrator/db.py, kind: limit, value: 1, count: 2, reason: "the job claim, FOR UPDATE SKIP LOCKED (scale review §5); the night's newest timed ingest that passed (T-726, D-492); not a cut"}
+  - {path: services/orchestrator/scenarios/approve.py, kind: limit, value: 1, count: 1, reason: "an existence check (a job awaiting approval); not a cut"}
+  - {path: services/orchestrator/scenarios/facts.py, kind: limit, value: 1, count: 3, reason: "one patient's latest value; not a cut"}
+  - {path: services/orchestrator/scenarios/microbatch.py, kind: limit, value: 1, count: 1, reason: "the study's latest done SCREEN; not a cut"}
+  - {path: services/orchestrator/scenarios/twpas.py, kind: limit, value: 1, count: 1, reason: "one patient's latest value; not a cut"}
+  - {path: services/orchestrator/scheduler.py, kind: limit, value: 1, count: 1, reason: "the study's current state; not a cut"}
+  - {path: services/vec/store.py, kind: limit, value: 1, count: 2, reason: "an existence check (another dimension for the model); not a cut"}
+  # ---------------------------------------------------------------- waits of a minute or less (NEW-B-12, D-534)
+  # Listed since the lint has no floor. Each is one call whose size does not grow with the hospital, or a wait on the
+  # box's own thread; "not a cut" says why. A wait that does grow belongs above, with its finding and card.
+  - {path: services/adapter/cli.py, kind: timeout, value: 60, count: 1, reason: "one request to the lake service (start a rebuild job, read its state, promote): the rebuild itself is a polled job (T-690); not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 60, count: 2, reason: "one request from the console to the orchestrator or to the adapter (a page of jobs, a job started and not waited for); not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 15, count: 1, reason: "one request from the console to the mail gateway; not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 10, count: 1, reason: "the gateway's list of model builds for the status page; not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 4, count: 1, reason: "a service's health answer for the status page; not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 30, count: 1, reason: "the SMTP session of one test mail; not a cut"}
+  - {path: services/console/demo_guard.py, kind: timeout, value: 10, count: 1, reason: "the connect time of one database connection (the demo guard); not a cut"}
+  - {path: services/console/oidc.py, kind: timeout, value: 10, count: 1, reason: "one request to the identity provider at sign-in; not a cut"}
+  - {path: services/console/proposals.py, kind: timeout, value: 45, count: 1, reason: "one model call for a study proposal typed in the console: one protocol's text, never the hospital's data; not a cut"}
+  - {path: services/criteria_compiler/ctgov.py, kind: timeout, value: 60, count: 1, reason: "one search of the public trial registry for a protocol; not a cut"}
+  - {path: services/gateway/app.py, kind: timeout, value: 10, count: 1, reason: "the model server's list of models (the check of what it serves); not a cut"}
+  - {path: services/mail_gateway/app.py, kind: timeout, value: 10, count: 1, reason: "the service's own threads joined at shutdown; not a cut"}
+  - {path: services/mail_gateway/gateway.py, kind: timeout, value: 60, count: 1, reason: "one request from the mail gateway to the orchestrator (one mail's job); not a cut"}
+  - {path: services/mail_gateway/outbound.py, kind: timeout, value: 60, count: 1, reason: "the connect, TLS handshake and greeting of one SMTP session; not a cut"}
+  - {path: services/orchestrator/clients.py, kind: timeout, value: 60, count: 1, reason: "one request to the adapter: the ingest is started and followed as a run, not waited for inside the call (D-523); not a cut"}
+  - {path: services/orchestrator/core.py, kind: timeout, value: 2, count: 2, reason: "a worker's wait on an empty queue, and its pause after a job was put back (D-532): woken at once by a new job; not a cut"}
+  - {path: services/orchestrator/core.py, kind: timeout, value: 5, count: 1, reason: "a worker thread joined at shutdown: the threads are daemons and a run's lease ends with its connection (D-532); not a cut"}
+  - {path: services/rc_bridge/client.py, kind: timeout, value: 10, count: 1, reason: "one request to the REDCap bridge; not a cut"}
+  - {path: services/sitesetup/ocr.py, kind: timeout, value: 30, count: 1, reason: "the OCR program's list of languages, asked once; not a cut"}

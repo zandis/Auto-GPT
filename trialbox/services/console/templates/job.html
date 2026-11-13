@@ -96,7 +96,7 @@
 {% if result.simulation %}
 <p data-testid="answer"><strong>{{ t('job.answer', months=result.simulation.months, low=num(result.simulation.low), high=num(result.simulation.high), mid=num(result.simulation.mid)) }}</strong>{% if barriers %} {{ t('job.answer.barriers', items=barriers|join(', ')) }}{% endif %}</p>
 {% endif %}
-<p class="hint">{{ t('job.result.line', population=result.population, snapshot=result.snapshot, months=result.lookback_months, start=cell(result.start_n)) }}</p>
+<p class="hint">{{ t('job.result.line', population=population(result.population), snapshot=result.snapshot, months=result.lookback_months, start=cell(result.start_n)) }}</p>
 <h3>{{ t('job.funnel') }}</h3>
 <div class="scroll" tabindex="0"><table data-testid="funnel">
 <thead><tr><th scope="col">{{ t('col.criterion') }}</th><th scope="col">{{ t('col.remaining') }}</th><th scope="col">{{ t('col.dropped') }}</th><th scope="col">{{ t('col.pct') }}</th></tr></thead>

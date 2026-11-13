@@ -11,10 +11,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from tb_common.kek import key_present
+from tb_common import derived
 from tb_common.ruleset import Ruleset
 from tb_contracts import NavRow, Precheck
 
+from orchestrator import identifiers
 from orchestrator.core import Ctx
 from orchestrator.reports import twpas_bundle
 from orchestrator.scenarios.facts import Facts
@@ -49,29 +50,26 @@ def enabled(ctx: Ctx, rs: Ruleset) -> bool:
 
 
 def _identity(ctx: Ctx, pid: str) -> dict[str, str]:
-    sec = Path(ctx.cfg.env.secrets_dir)
-    if not key_present(sec / "pid_map.key"):  # no map yet (plain or wrapped under the KEK, T-210b)
-        return {}
-    from adapter.pidmap import PidMap
-
-    pm = PidMap(sec / "pid_map.key", ctx.orch.db.url)  # the orchestrator's trial database
-    try:
-        out = dict(pm.identity(pid) or {})
-        mrn = pm.resolve(pid)
-        if mrn:
-            out["mrn"] = mrn
-        return out
-    finally:
-        pm.close()
+    return identifiers.identity_of(ctx.cfg.env.secrets_dir, pid, ctx.orch.db.url)  # the orchestrator's database
 
 
-def _latest(ctx: Ctx, pid: str, code: str, run_date: date, value: str = "value_num") -> tuple[Any, str | None]:
+# D-643: the bundle's own lookups name the code system with the code, as the criteria's compiled SQL does
+WEIGHT = derived.CODES["weight"]
+HEIGHT = derived.CODES["height"]
+EGFR_MUT = (derived.SCORE, "EGFR-MUT")  # as ONC-OSI's VS_EGFR_MUTATION names it
+
+
+def _latest(
+    ctx: Ctx, pid: str, system: str, code: str, run_date: date, value: str = "value_num"
+) -> tuple[Any, str | None]:
+    """The newest value of observation (``system``, ``code``) on or before ``run_date``. A row with that code
+    string under another system is another observation (D-643)."""
     col = {"value_num": "value_num", "value_code": "value_code"}[value]
     rows = ctx.services.lake.query(
         f"SELECT {col} AS v, CAST(effective AS DATE) AS d FROM observation WHERE pid = $1 AND code = $2 "
-        f"AND CAST(effective AS DATE) <= CAST($3 AS DATE) AND {col} IS NOT NULL ORDER BY effective DESC, oid DESC "
-        "LIMIT 1",
-        [pid, code, run_date.isoformat()],
+        f"AND system = $4 AND CAST(effective AS DATE) <= CAST($3 AS DATE) AND {col} IS NOT NULL "
+        "ORDER BY effective DESC, oid DESC LIMIT 1",
+        [pid, code, run_date.isoformat(), system],
     ).to_pylist()
     return (rows[0]["v"], rows[0]["d"].isoformat()) if rows else (None, None)
 
@@ -81,9 +79,9 @@ def build_one(ctx: Ctx, rs: Ruleset, row: NavRow, f: Facts, run_date: date, rene
     ident = _identity(ctx, row.pid)
     pr = (ctx.cfg.settings.practitioners or {}).get(row.practitioner_id or "")
     site = ctx.cfg.settings.twpas
-    weight, _ = _latest(ctx, row.pid, "29463-7", run_date)
-    height, _ = _latest(ctx, row.pid, "8302-2", run_date)
-    egfr, egfr_date = _latest(ctx, row.pid, "EGFR-MUT", run_date, "value_code")
+    weight, _ = _latest(ctx, row.pid, *WEIGHT, run_date)
+    height, _ = _latest(ctx, row.pid, *HEIGHT, run_date)
+    egfr, egfr_date = _latest(ctx, row.pid, *EGFR_MUT, run_date, "value_code")
     ecog = ecog_date = None
     for v in row.criteria:
         q = (v.evidence.quote or "") if v.evidence else ""

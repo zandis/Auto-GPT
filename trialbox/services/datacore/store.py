@@ -20,7 +20,8 @@ from typing import Any
 
 from tb_common.db import ENV, Database
 
-from datacore.forms import Field, fields_of
+from datacore import pgfunc
+from datacore.forms import XML_ILLEGAL, Field, fields_of
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS form (study TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL, origin TEXT NOT NULL,
@@ -42,6 +43,36 @@ CREATE TABLE IF NOT EXISTS src_record (study TEXT NOT NULL, source TEXT NOT NULL
   source_id TEXT NOT NULL, PRIMARY KEY (study, source, record))
 """
 TRIALBOX = "trialbox"
+# EDC-009 (D-582): the trail tables. ``history`` and ``subject_step``: inserts only. ``conflict``: never deleted; the
+# one UPDATE allowed closes an open conflict (``resolved`` was empty and is set) and changes no other column.
+APPEND_ONLY = ("history", "subject_step")
+_TRAIL_FUNCTIONS = (
+    "CREATE OR REPLACE FUNCTION datacore_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+    "RAISE EXCEPTION USING MESSAGE = 'datacore.' || TG_TABLE_NAME || ' is append-only', "
+    "ERRCODE = 'insufficient_privilege'; END $$",
+    "CREATE OR REPLACE FUNCTION datacore_conflict_close_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+    "IF TG_OP = 'UPDATE' AND OLD.resolved IS NULL AND NEW.resolved <> '' AND NEW.resolved_by <> '' AND "
+    "NEW.resolved_at <> '' AND "
+    "(NEW.id, NEW.study, NEW.record, NEW.event, NEW.field, NEW.owner, NEW.source, NEW.theirs, NEW.at) = "
+    "(OLD.id, OLD.study, OLD.record, OLD.event, OLD.field, OLD.owner, OLD.source, OLD.theirs, OLD.at) AND "
+    "NEW.trialbox IS NOT DISTINCT FROM OLD.trialbox THEN RETURN NEW; END IF; "
+    "RAISE EXCEPTION USING MESSAGE = 'datacore.conflict: a row is never deleted, and a change may only close an "
+    "open conflict', ERRCODE = 'insufficient_privilege'; END $$",
+)
+_TRAIL_TRIGGERS = {
+    **{
+        f"{t}_append_only": f"CREATE TRIGGER {t}_append_only BEFORE UPDATE OR DELETE ON {t} "
+        "FOR EACH ROW EXECUTE FUNCTION datacore_append_only()"
+        for t in APPEND_ONLY
+    },
+    **{
+        f"{t}_no_truncate": f"CREATE TRIGGER {t}_no_truncate BEFORE TRUNCATE ON {t} "
+        "FOR EACH STATEMENT EXECUTE FUNCTION datacore_append_only()"
+        for t in (*APPEND_ONLY, "conflict")
+    },
+    "conflict_close_only": "CREATE TRIGGER conflict_close_only BEFORE UPDATE OR DELETE ON conflict "
+    "FOR EACH ROW EXECUTE FUNCTION datacore_conflict_close_only()",
+}
 
 
 class DataError(ValueError):
@@ -62,6 +93,15 @@ class DataCore:
         from datacore.sponsor import SCHEMA as SPONSOR
 
         self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR])  # SPONSOR: version 8 (D-435)
+        self._append_only()
+
+    def _append_only(self) -> None:
+        """EDC-009 (D-582): the trail refuses to be rewritten. ``history`` and ``subject_step`` take inserts only; a
+        ``conflict`` row is never deleted and an UPDATE may only close an open one. Made here, not in a migration,
+        because a plpgsql body holds ``;`` (``Database.migrate`` splits on it); idempotent, one maker at a time. As
+        the pre-fill's triggers (D-281), this holds against any role but a table owner who drops it (T-718)."""
+        with self._db.transaction() as tx:
+            pgfunc.ensure(tx, "datacore_append_only", _TRAIL_FUNCTIONS, _TRAIL_TRIGGERS)
 
     @property
     def db(self) -> Database:
@@ -123,7 +163,12 @@ class DataCore:
 
     def write(self, study: str, record: str, event: str, field: str, value: str, by: str, at: str, source: str,
               seen: str | None = None, keep_seen: bool = True) -> bool:  # fmt: skip
-        """Set a value (no ownership check here; ``DataService`` and ``SyncEngine`` check). False if unchanged."""
+        """Set a value (no ownership check here; ``DataService`` and ``SyncEngine`` check). False if unchanged.
+        The last door of EDC-010 (D-581): a value or a key with a character XML 1.0 does not allow is never stored,
+        whichever path brought it (a source's read-back, the lifecycle, a resolved conflict)."""
+        if any(XML_ILLEGAL.search(x) for x in (value, record, event, field)):
+            raise DataError("DATA-CHARS", f"{field} holds a character that cannot be stored (a control character "
+                            "from pasted text)", [{"field": field, "code": "chars"}])  # fmt: skip
         with self._db.transaction() as tx:
             rows = tx.fetchdicts("SELECT * FROM value WHERE study = ? AND record = ? AND event = ? AND field = ? "
                                  "FOR UPDATE", (study, record, event, field))  # fmt: skip
@@ -184,9 +229,12 @@ class DataCore:
         rows = self._all("SELECT * FROM conflict WHERE id = ?", (cid,))
         return rows[0] if rows else None
 
-    def close_conflict(self, cid: int, keep: str, by: str, at: str) -> None:
-        self._run("UPDATE conflict SET resolved = ?, resolved_by = ?, resolved_at = ? WHERE id = ?",
-                  (keep, by, at, cid))  # fmt: skip
+    def close_conflict(self, cid: int, keep: str, by: str, at: str) -> bool:
+        """Close an open conflict. False: it was not open (someone closed it first); nothing changed (D-582)."""
+        with self._db.transaction() as tx:
+            n = tx.execute("UPDATE conflict SET resolved = ?, resolved_by = ?, resolved_at = ? WHERE id = ? AND "
+                           "resolved IS NULL", (keep, by, at, cid))  # fmt: skip
+        return bool(n)
 
     # ------------------------------------------------------------------ source record ids
     def source_id(self, study: str, source: str, record: str) -> str | None:

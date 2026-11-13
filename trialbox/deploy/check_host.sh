@@ -272,9 +272,54 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   # the KEK the unseal writes (tb_common.kek, D-347), read-only, when this host has one
   KEK_DIR="${TB_KEK_HOST_DIR:-/run/trialbox}"; KEK_MOUNT=""
   [ -d "$KEK_DIR" ] && KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"
-  if docker run --rm --network none --env-file "$ENV_FILE" -e TB_HOST_TZ="$HOST_TZ" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
-      ${KEK_MOUNT:+-v "$KEK_MOUNT"} --user 0:0 \
-      "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
+  # NEW-STD-2 (D-562): doctor's audit_heads check reads the secrets volume (the audit key) and the anchor folders
+  # (the signed heads) at their host paths, read-only; without them a healthy box FAILed the check in the image
+  AUDIT_MOUNTS=""
+  SEC_HOST="$(sed -n 's/^TB_SECRETS_HOST_DIR=//p' "$ENV_FILE" | tail -1)"
+  [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)"
+  [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="-v $SEC_HOST:$SEC_HOST:ro -e TB_SECRETS_HOST_DIR=$SEC_HOST"
+  ANCHORS="$(sed -n 's/^TB_AUDIT_ANCHOR_TARGETS=//p' "$ENV_FILE" | tail -1)"
+  OLD_IFS="$IFS"; IFS=:
+  for anchor in $ANCHORS; do
+    [ -d "$anchor" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $anchor:$anchor:ro"
+  done
+  IFS="$OLD_IFS"
+  # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
+  # (tools/host_tree.py); the doctor read deploy/egress.py and the compose files through them and found nothing.
+  # The release tree is mounted where the links point, as install.sh does (tree_args)
+  TREE_MOUNT=""
+  [ -d "$ROOT_DIR/current" ] && TREE_MOUNT="$(readlink -f "$ROOT_DIR/current"):/app/current:ro"
+  # D-621: the doctor's container has no network and no docker, so the host hands in what it cannot see: the
+  # environment of the running containers (docker inspect, through a pipe: it holds passwords and is never
+  # written to a file) and the pid map's row for the site (the fingerprint and the chart-number rule; no secret)
+  PROJECT="${COMPOSE_PROJECT_NAME:-trialbox}"
+  RUNNING_IDS="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null | tr '\n' ' ')"
+  SITE_ID="$(sed -n 's/^TB_SITE_ID=//p' "$ENV_FILE" | tail -1)"
+  PIDMAP_ROW=""
+  if [ -n "$RUNNING_IDS" ] && [ -n "$SITE_ID" ]; then
+    if PIDMAP_OUT="$(printf '%s\n' "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site'" \
+        | docker compose --project-directory "$ROOT_DIR/deploy" exec -T db psql -X -q -tA -v ON_ERROR_STOP=1 \
+            -v site="$SITE_ID" -U trialbox -d trialbox_wf 2>/dev/null)"; then
+      PIDMAP_ROW="${PIDMAP_OUT:-none}"
+    fi
+  fi
+  # $AUDIT_MOUNTS and $RUNNING_IDS are lists of words by design (the folders' paths hold no space on a box)
+  running_env() {
+    # shellcheck disable=SC2086
+    if [ -n "$RUNNING_IDS" ] && docker inspect $RUNNING_IDS 2>/dev/null; then return 0; fi
+    echo '[]'
+  }
+  doctor_in_image() {
+    # shellcheck disable=SC2086
+    if docker run --rm --network none --env-file "$ENV_FILE" -i -e TB_HOST_TZ="$HOST_TZ" \
+        -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
+        ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
+        "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
+      return 0
+    fi
+    return 1
+  }
+  if running_env | doctor_in_image "$@"; then
     pass "trialbox doctor"
   else
     fail "trialbox doctor (see the lines above)"

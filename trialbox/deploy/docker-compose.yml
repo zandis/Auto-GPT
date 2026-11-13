@@ -66,7 +66,7 @@ x-no-db-passwords: &nodb
 services:
   db:
     # One PostgreSQL server for the box (TB-PLAN-03 step 6, D-121): database `hapi` for the FHIR store and
-    # `trialbox_wf` for durable steps, outbox and recall ledger (spec v4 §11.0), made by db-init on first start.
+    # `trialbox_wf` for every store TrialBox owns (D-126), made by db-init on first start.
     # Multi-arch index digest (linux/amd64 and linux/arm64 manifests). One volume, one backup, one restore.
     # D-187 (WS-08.6): WAL compressed with zstd, TOAST with lz4 (PG 16 offers pglz and lz4 only); new clusters get
     # data checksums. WAL archiving to pgBackRest (point-in-time restore) is off until the site turns it on: it needs
@@ -177,7 +177,12 @@ services:
   embed-service:
     <<: *py
     mem_limit: ${TB_MEM_EMBED:-4g}
-    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    # ENG-003 (D-563): the embedder's own image (trialbox-py plus the hashed `embed` extra, CPU wheels); the
+    # other services do not carry the library
+    image: ${TB_EMBED_IMAGE:-trialbox-embed:1.0.0}
+    build:   # not the anchor's python.Dockerfile: compose would build a torch-less image under this tag
+      context: ..
+      dockerfile: deploy/docker/embed.Dockerfile
     command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
     # T-607 (D-429): in PRODUCTION the service loads only the weights pinned for e-embed-1 in the site override
     environment: {<<: *nodb, PORT: "8014", TB_SERVICE_NAME: embed-service, TB_DB_URL: "", TB_EMBED_MODEL_PATH: /models/embedder,
@@ -342,7 +347,11 @@ services:
                   TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
-                  TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
+                  TB_OPS_DIR: /data/ops,  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
+                  # NEW-STD-2 (D-562): the anchor folders are host paths the console does not mount; with the name set
+                  # the audit page's Verify called an intact chain broken ("no signed heads found"). Cleared until the
+                  # console mounts them; the nightly `trialbox audit-sign` and audit_verify.py --heads check them.
+                  TB_AUDIT_ANCHOR_TARGETS: ""}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - console-data:/data/console

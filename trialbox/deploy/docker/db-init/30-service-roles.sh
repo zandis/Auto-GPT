@@ -24,6 +24,8 @@
 #   tables of such a schema are made by the install step (`python -m orchestrator.migrate`, as `trialbox`), not by
 #   the service at start. First on the list: `edc`.
 # * `tuned` (tb_common.notmatched: the not-matched reasons) is read and written by the orchestrator and the console.
+# * D-543 (NEW-ARCH-18): `profile` (the patient twin, built by the orchestrator) is on the console's list too: the
+#   console reads it for `GET /api/v1/studies/{rs}/patients/{pid}/twin` (it could not open the store on a box).
 # * D-541 (NEW-TRUST-1): the FHIR store signs in as `tb_fhir_store`, a role of its own (no superuser, no CREATEDB,
 #   no CREATEROLE) that owns the database `hapi` and what is in it and reaches nothing else. Before, it signed in
 #   as the cluster's superuser. Its password is read by psql from the environment (\getenv), not given on the
@@ -69,14 +71,14 @@ DECLARE
     "tb_lake": ["app", "omop", "refdata", "terminology", "vec"],
     "tb_criteria_compiler": ["app", "derived", "library", "omop", "refdata", "terminology"],
     "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
-    "tb_orchestrator": ["app", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi", "omop", "optout",
-                        "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup", "study", "terminology",
-                        "tuned", "vec", "wf"],
+    "tb_orchestrator": ["app", "breakglass", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi",
+                        "omop", "optout", "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup",
+                        "study", "team", "terminology", "tuned", "vec"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
     "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "feedback", "library", "mpi", "omop",
-                   "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
-                   "terminology", "tuned", "wf"]
+                   "optout", "orch", "pidmap", "profile", "recall", "refdata", "sae", "site", "sitesetup", "study",
+                   "team", "terminology", "tuned"]
   }';
   -- END SERVICE SCHEMAS
   -- BEGIN OWNED SCHEMAS (D-486)
@@ -110,14 +112,20 @@ BEGIN
                                       WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
                      sch, obj.relname, grp);
     END LOOP;
+    -- D-573: functions, procedures and aggregates too (a restore makes them trialbox's, as it does the tables);
+    -- what an extension owns stays the extension's
+    FOR obj IN
+      SELECT p.oid::regprocedure::text AS sig, p.prokind FROM pg_proc p
+      WHERE p.pronamespace = sch::regnamespace AND p.proowner <> grp::regrole
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid
+                                                    AND d.deptype = 'e')
+    LOOP
+      EXECUTE format('ALTER %s %s OWNER TO %I',
+                     CASE obj.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,
+                     obj.sig, grp);
+    END LOOP;
     IF sch = ANY(owned) THEN
-      -- D-486: functions too (a trigger's function belongs to the owner, or its writer could replace its body)
-      FOR obj IN
-        SELECT p.oid::regprocedure::text AS sig FROM pg_proc p
-        WHERE p.pronamespace = sch::regnamespace AND p.proowner <> grp::regrole
-      LOOP
-        EXECUTE format('ALTER ROUTINE %s OWNER TO %I', obj.sig, grp);
-      END LOOP;
+      -- D-486: its functions are the owner's already (the loop above): a writer cannot replace a trigger's body
       wr := 'tbw_' || sch;
       rd := 'tbr_' || sch;
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = wr) THEN

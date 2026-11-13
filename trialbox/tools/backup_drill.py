@@ -45,6 +45,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import sys
 import tarfile
@@ -214,6 +215,7 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
 
     checks.append(_extensions_check(ext_before, _extensions(), require_extensions))
     checks.append(_extensions_roundtrip(url, require_extensions))
+    checks.append(roles_after_restore(base / "roles-cluster"))
     checks.append(_vec_check(vec_before, _vec(fill=False), require_extensions))
 
     # 5. a backup in the previous format restores
@@ -318,6 +320,145 @@ def _extensions_roundtrip(url: str, require: bool) -> tuple[str, bool, str]:
     finally:
         with psycopg.connect(dsn, autocommit=True) as con:
             con.execute(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
+
+
+ROLES_SCRIPT = ROOT / "deploy" / "docker" / "db-init" / "30-service-roles.sh"
+
+
+def service_access(script: Path = ROLES_SCRIPT) -> dict[str, list[str]]:
+    """The roles script's own list: service role -> the store schemas it reaches (D-378)."""
+    text = script.read_text(encoding="utf-8")
+    block = text.split("-- BEGIN SERVICE SCHEMAS (D-378)", 1)[1].split("-- END SERVICE SCHEMAS", 1)[0]
+    data: dict[str, list[str]] = json.loads(block.split(":= '", 1)[1].rsplit("';", 1)[0])
+    return data
+
+
+def owned_schemas(script: Path = ROLES_SCRIPT) -> list[str]:
+    """The roles script's list of schemas with an owner, a writer and a reader role (D-486); empty before it."""
+    text = script.read_text(encoding="utf-8")
+    if "-- BEGIN OWNED SCHEMAS (D-486)" not in text:
+        return []
+    block = text.split("-- BEGIN OWNED SCHEMAS (D-486)", 1)[1].split("-- END OWNED SCHEMAS", 1)[0]
+    return re.findall(r"'(\w+)'", block.split("ARRAY[", 1)[1])
+
+
+def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, bool, str]:
+    """D-573: on a throwaway cluster of its own, with the real roles script: every store gets a table and a
+    function, the trial database is dumped and restored as the box does it, the restore's own step puts the roles
+    back, and then every service role opens each store on its list as the store's group (alters the table,
+    replaces the function) and reads no store off its list. D-486: in a schema with an owner role the service is a
+    writer: it writes a row, and can neither alter the table nor replace the function."""
+    import psycopg
+    from psycopg import errors, sql
+    from tb_common.db import Database
+
+    from tools import pglocal
+    from tools.trialbox import backup as bk
+
+    name = "restore: every service opens its stores as its own role afterwards (D-573)"
+    access = service_access(script)
+    owned = owned_schemas(script)
+    schemas = sorted({s for v in access.values() for s in v})
+    root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o755)
+    try:
+        url = pglocal.ensure(root)
+    except Exception as e:
+        return (name, False, f"no throwaway cluster: {type(e).__name__}: {str(e)[-200:]}")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PG")}
+    env.update(
+        PATH=f"{pglocal.bindir()}:{env.get('PATH', '')}",
+        PGHOST=str((root / "run").resolve()),
+        POSTGRES_USER="postgres",
+        TB_WF_DB=pglocal.DB,
+        TB_DB_ROLES_CMD=f"sh {shlex.quote(str(script))}",
+    )
+    try:
+        # this round is about roles. Where the server has pgvector, the throwaway cluster's database holds the
+        # extension, made by the superuser (pglocal.ensure), and the restore runs as `trialbox`, which is not one
+        # here: it could not put the extension back ("must be superuser"). Extensions have their own check (D-204).
+        with psycopg.connect(
+            url.replace("postgresql://trialbox@", "postgresql://postgres@", 1), autocommit=True
+        ) as con:
+            con.execute("DROP EXTENSION IF EXISTS vector CASCADE")
+        bk.reapply_service_roles(env)  # the box before the restore: the roles are there, as install.sh leaves them
+        for schema in schemas:
+            with Database.connect(url, schema) as db:  # as the store's group, as a migration makes them
+                db.execute("CREATE TABLE drill_probe (k INT)")
+                db.execute("INSERT INTO drill_probe VALUES (1)")
+                db.execute("CREATE FUNCTION drill_fn() RETURNS INT LANGUAGE sql AS 'SELECT 1'")
+        src = bk.DbSource("trialbox_wf", url, ())
+        dump = root / "wf.dump"
+        bk.dump(src, dump, env)
+        bk.restore_db(src, dump, env)
+        with psycopg.connect(url, autocommit=True) as con:
+            owners = {r[0] for r in con.execute(
+                "SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.relname = 'drill_probe'")}  # fmt: skip
+        if owners != {"trialbox"}:
+            return (
+                name,
+                False,
+                f"the restored tables are owned by {sorted(owners)}, not trialbox: the premise is gone",
+            )
+        state = bk.reapply_service_roles(env)["state"]
+        # D-486: in a schema with an owner role the service is a writer and can replace no function whoever owns
+        # it, so the round below cannot tell: ask who owns what the restore put back
+        with psycopg.connect(url, autocommit=True) as con:
+            for schema in owned:
+                for what, query in (
+                    ("function", "SELECT pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.proname = 'drill_fn' "
+                                 "AND p.pronamespace = %s::regnamespace"),
+                    ("table", "SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.relname = 'drill_probe' "
+                              "AND c.relnamespace = %s::regnamespace"),
+                ):  # fmt: skip
+                    got = {r[0] for r in con.execute(query, (schema,))}
+                    if got != {f"tbo_{schema}"}:
+                        return (name, False, f"the restored {what} is still trialbox's in {schema}: owned by "
+                                             f"{sorted(got)}, not tbo_{schema}")  # fmt: skip
+        opened = 0
+        for role, own in sorted(access.items()):
+            dsn = url.replace("postgresql://trialbox@", f"postgresql://{role}@", 1)
+            with psycopg.connect(dsn, autocommit=True) as con:
+                for schema in schemas:
+                    if schema in own and schema in owned:  # D-486: a writer, never the owner
+                        try:
+                            con.execute(sql.SQL("INSERT INTO {}.drill_probe VALUES (2)").format(sql.Identifier(schema)))
+                        except errors.InsufficientPrivilege as e:
+                            return (name, False, f"{role} cannot write its table in {schema}: {str(e).strip()[:160]}")
+                        for ddl in (f'ALTER TABLE "{schema}".drill_probe ADD COLUMN IF NOT EXISTS seen INT',
+                                    f'CREATE OR REPLACE FUNCTION "{schema}".drill_fn() RETURNS INT LANGUAGE sql '
+                                    "AS 'SELECT 2'"):  # fmt: skip
+                            try:
+                                con.execute(ddl)
+                            except errors.InsufficientPrivilege:
+                                continue
+                            return (name, False, f"{role} changed what the owner of {schema} made: {ddl[:40]}")
+                        opened += 1
+                    elif schema in own:
+                        try:
+                            con.execute(f'SET ROLE "tbs_{schema}"')
+                            con.execute(f'ALTER TABLE "{schema}".drill_probe ADD COLUMN IF NOT EXISTS seen INT')
+                            con.execute(f'CREATE OR REPLACE FUNCTION "{schema}".drill_fn() RETURNS INT LANGUAGE sql '
+                                        "AS 'SELECT 2'")  # fmt: skip
+                            con.execute("RESET ROLE")
+                        except errors.InsufficientPrivilege as e:
+                            what = "function" if "function" in str(e) else "table"
+                            return (name, False, f"{role} cannot change its {what} in {schema}: {str(e).strip()[:160]}")
+                        opened += 1
+                    else:
+                        try:
+                            con.execute(sql.SQL("SELECT count(*) FROM {}.drill_probe").format(sql.Identifier(schema)))
+                        except errors.InsufficientPrivilege:
+                            continue
+                        return (name, False, f"{role} reads {schema}, which is not on its list")
+        return (name, state == "applied",
+                f"{len(access)} service roles, {opened} stores opened as their groups: a table altered and a function "
+                "replaced in each; no store off a list is read")  # fmt: skip
+    except Exception as e:
+        return (name, False, f"{type(e).__name__}: {str(e)[-300:]}")
+    finally:
+        pglocal.stop(root)
+        shutil.rmtree(root, ignore_errors=True)
 
 
 VEC_NOTES = (  # synthetic notes for the vector store's check (D-439)

@@ -40,7 +40,10 @@ services:
     ports: ["127.0.0.1:${TB_HOST_MAIL_GATEWAY_PORT:-8015}:8015"]
   orchestrator:
     networks: [trialbox-net, egress-net, host-net]
-    environment: {TB_TODAY: "2026-10-05", TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}  # fixtures' reference date (tools/synth)
+    # TB_ENV TEST (D-640, as D-560 for embed-service): a synthetic stack says so. Unset is PRODUCTION, where no
+    # shipped example ruleset is seeded or run; this stack's studies are the examples
+    environment: {TB_TODAY: "2026-10-05", TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}",  # fixtures' reference date (tools/synth)
+                  TB_ENV: "${TB_ENV:-TEST}"}
     ports: ["127.0.0.1:${TB_HOST_ORCH_PORT:-8010}:8010"]
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -64,6 +67,13 @@ services:
       - lake-data:/data/lake
       - audit-data:/data/audit
       - ../.cache/test-secrets:/run/secrets/trialbox
+  embed-service:
+    # ENG-002 (D-560): a synthetic stack says so. The base file leaves TB_ENV unset here, which is PRODUCTION, where
+    # the stub embedder is refused (D-429): `make up-test` stopped on it for two nights
+    environment: {TB_ENV: "${TB_ENV:-TEST}"}
+    # ENG-003 (D-563): the hash embedder of a synthetic stack needs no library: the service image, not trialbox-embed
+    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    build: {context: .., dockerfile: deploy/docker/python.Dockerfile}
   doc-parser:
     environment: {TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}
     networks: [trialbox-net, host-net]
@@ -71,7 +81,9 @@ services:
   criteria-compiler:
     networks: [trialbox-net, egress-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_COMPILER_PORT:-8012}:8012"]
-    environment: {TB_CTGOV_MODE: cassette, TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}  # synthetic CT.gov (make_ctgov_cassettes)
+    # TB_ENV TEST (D-640): the compiler seeds the shipped example rulesets only on a DEV or TEST box
+    environment: {TB_CTGOV_MODE: cassette, TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}",  # synthetic CT.gov (make_ctgov_cassettes)
+                  TB_ENV: "${TB_ENV:-TEST}"}
   gateway:
     environment: {TB_ENV: "${TB_ENV:-TEST}"}
     networks: [trialbox-net, model-net, egress-net, host-net]
@@ -79,6 +91,11 @@ services:
   db:   # host access for the outbox / recall-ledger Postgres tests (TB_PG_DSN, database trialbox_wf)
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_WORKFLOW_DB_PORT:-5433}:5432"]
+  # T-687 (D-471): the stub as the slow model stand-in of the scale gate when the shell asks for it (seconds per call,
+  # an outage of 502 answers); unset, it answers at once as before
+  llm-stub:
+    environment: {TB_STUB_LATENCY_S: "${TB_STUB_LATENCY_S:-}", TB_STUB_OUTAGE_AFTER: "${TB_STUB_OUTAGE_AFTER:-}",
+                  TB_STUB_OUTAGE_S: "${TB_STUB_OUTAGE_S:-}"}
 volumes:
   objects-data:   # bind-mounted on the host so the integration tests read and write objects directly (D-121)
     driver: local

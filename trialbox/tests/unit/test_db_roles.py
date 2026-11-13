@@ -78,7 +78,12 @@ def test_cr037_the_edge_services_reach_no_account_signature_or_pseudonym_store()
     for role in ("tb_lake", "tb_criteria_compiler", "tb_mail_gateway", "tb_gateway"):
         assert not set(ACCESS[role]) & set(SENSITIVE), role
     assert not {"auth", "edc", "sae", "team", "breakglass"} & set(ACCESS["tb_adapter"])
-    assert not {"auth", "breakglass", "sae", "team", "feedback", "trace"} & set(ACCESS["tb_orchestrator"])
+    assert not {"auth", "sae", "feedback", "trace"} & set(ACCESS["tb_orchestrator"])
+    # T-716 (D-484): the orchestrator reads the break-glass grant and the delegation log itself before it gives a
+    # chart number, and writes the grant's use; until T-718 splits owner, writer and reader that is the group
+    assert {"breakglass", "team"} <= set(ACCESS["tb_orchestrator"])
+    assert [r for r, s in ACCESS.items() if "breakglass" in s] == ["tb_orchestrator", "tb_console"]
+    assert [r for r, s in ACCESS.items() if "team" in s] == ["tb_orchestrator", "tb_console"]
     assert "trace" not in ACCESS["tb_console"] and "mail" not in ACCESS["tb_console"]
 
 

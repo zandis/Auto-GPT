@@ -61,7 +61,7 @@ _HASHES = ("hash", "prev_hash", "input_sha", "output_sha")
 KINDS: dict[str, frozenset[str]] = {
     "reveal": frozenset({
         "console.reveal_patient", "console.reveal_refused", "console.view_id", "console.view_id_refused",
-        "screen.reveal", "screen.reveal_refused", "console.chart_lookup", "console.site_chart",
+        "screen.reveal", "screen.reveal_refused", "console.chart_lookup", "console.site_chart", "screen.to_pid",
     }),
     "breakglass": frozenset({
         "console.breakglass_open", "console.breakglass_use", "console.breakglass_end", "console.breakglass_review",

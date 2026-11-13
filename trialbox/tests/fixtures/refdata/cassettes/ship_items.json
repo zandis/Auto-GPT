@@ -299,6 +299,17 @@
     "text": "# UCUM Copyright Notice and License\n(excerpt) Regenstrief Institute ... a worldwide, non-exclusive, no-charge, royalty-free, revocable license to reproduce, publicly display, publicly perform, and distribute the Work ...\n"
    },
    "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://www.cms.gov/Medicare/Coding/ICD10/Downloads/2018-ICD-10-CM-General-Equivalence-Mappings.zip",
+   "status": 200,
+   "body": {
+    "zip": {
+     "2018_I9gem.txt": "../cms_gem_i9_sample.txt"
+    }
+   },
+   "repeat": true
   }
  ]
 }

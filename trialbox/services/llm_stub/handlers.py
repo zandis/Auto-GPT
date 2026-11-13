@@ -8,6 +8,7 @@ templates of the synthetic fixtures; LLM quality is measured only with a real mo
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 from datetime import date, timedelta
@@ -18,6 +19,27 @@ from tb_common import dates
 
 CASSETTES = Path(__file__).resolve().parent / "cassettes"
 _DATE_ZH = re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})日")
+# DEMO-JA: the judge also reads the Japanese templates of the synthetic notes (tools/synth/notes_ja.py) when this lists
+# ja. Off by default, so every default run (and its goldens) reads the notes exactly as before; the demo's Japanese
+# site (TB_DEMO_SITE_LANG=ja) turns it on.
+NOTE_LANGS_ENV = "TB_LLM_STUB_NOTE_LANGS"
+_WAREKI = re.compile(r"(令和|平成)(元|\d{1,2})年(\d{1,2})月(\d{1,2})日")
+
+
+def reads_ja() -> bool:
+    return "ja" in [x.strip() for x in os.environ.get(NOTE_LANGS_ENV, "").split(",")]
+
+
+def _ja_dates(sentence: str) -> list[date]:
+    """Western (2026年7月24日) and era (令和8年7月24日) dates of a Japanese sentence."""
+    out = _zh_dates(sentence)
+    for era, y, m, d in _WAREKI.findall(sentence):
+        year = (1 if y == "元" else int(y)) + (2018 if era == "令和" else 1988)
+        try:
+            out.append(date(year, int(m), int(d)))
+        except ValueError:
+            continue
+    return out
 
 
 def norm(text: str) -> str:
@@ -195,6 +217,13 @@ def judge(inp: dict[str, Any]) -> dict[str, Any]:
                     for d in _zh_dates(s):
                         if index - timedelta(days=365) <= d <= index:
                             flare_dates.setdefault(d, (s, ex))
+                if reads_ja():  # notes_ja.py: no flare, a single flare, a dated flare
+                    if "過去一年間に痛風発作はなく" in s or ("過去一年間の痛風発作は" in s and "一回のみ" in s):
+                        return found("fail", s, ex, "notes state fewer than two flares in the past year")
+                    if "急性痛風発作と診断" in s:
+                        for d in _ja_dates(s):
+                            if index - timedelta(days=365) <= d <= index:
+                                flare_dates.setdefault(d, (s, ex))
         if len(flare_dates) >= 2:
             s, ex = flare_dates[max(flare_dates)]
             return found("pass", s, ex, f"{len(flare_dates)} dated flares within 12 months")
@@ -207,6 +236,10 @@ def judge(inp: dict[str, Any]) -> dict[str, Any]:
                 if "急性痛風發作中" in s:
                     return found("pass", s, ex, "acute flare documented within 14 days")
                 if "目前無急性痛風發作" in s:
+                    return found("fail", s, ex, "no current flare documented within 14 days")
+                if reads_ja() and "急性痛風発作中" in s:
+                    return found("pass", s, ex, "acute flare documented within 14 days")
+                if reads_ja() and "現在、急性痛風発作はなく" in s:
                     return found("fail", s, ex, "no current flare documented within 14 days")
     elif "ecog" in q:
         for ex in excerpts:

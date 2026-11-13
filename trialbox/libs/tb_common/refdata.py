@@ -573,9 +573,15 @@ def check_records(source: dict[str, Any], recs: Iterable[dict[str, Any]]) -> Ite
     """Each record checked as the box's load checks it (a relation outside RELATIONS, a synonym without its term),
     so a pack that would fail at the hospital fails at the vendor's build and verify instead."""
     check = {"map": map_row, "synonym": synonym_row}.get(str(source.get("kind")))
+    pairs: set[tuple[str, ...]] = set()  # D-592: the box's concept_map holds one row per source and target
     for r in recs:
         if check is not None:
             check(r, str(source.get("id")))
+        if source.get("kind") == "map":
+            key = tuple(str(r.get(k)) for k in ("source_system", "source_code", "target_system", "target_code"))
+            if key in pairs:
+                raise PackError(f"{source.get('id')}: the map names {key[1]} -> {key[3]} twice")
+            pairs.add(key)
         yield r
 
 
@@ -950,6 +956,22 @@ def map_targets_or_empty(source_system: str, code: str, url: str | None = None) 
     except Exception:
         _drop_shared(st)
         return []
+
+
+def map_targets_or_none(source_system: str, code: str, url: str | None = None) -> list[dict[str, Any]] | None:
+    """:meth:`RefStore.map_targets` for a caller that must tell "no entry" from "could not ask" (D-593): [] when no
+    database is configured (there is nothing to ask), None when one is configured and it cannot be reached or the
+    question fails."""
+    if not _url(url):
+        return []
+    st = shared(url)
+    if st is None:
+        return None
+    try:
+        return st.map_targets(source_system, code)
+    except Exception:
+        _drop_shared(st)
+        return None
 
 
 def synonyms_or_empty(term: str, domain: str = "", url: str | None = None) -> list[dict[str, Any]]:

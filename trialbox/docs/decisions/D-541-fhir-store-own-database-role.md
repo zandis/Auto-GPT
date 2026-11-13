@@ -3,7 +3,7 @@
 - **Task:** NEW-TRUST-1 (the owner's ruling of 2026-11-12 on a finding left open by the review of T-712, #308;
   `docs/plan/33-plan-v7.md` section 5, wave 1, lane C)
 - **PR:** this branch (`agent/NEW-TRUST-1-fhir-store-role`), stacked on T-718 (#337): it uses that card's
-  `ComposeBox.set_roles` (the update runs the role script)
+  `ComposeBox.ensure_fhir_password` and lane D's `db-up` steps (the update runs the role script)
 - **Date:** 2026-11-12
 - **Status:** proposed (merges on green CI)
 - **Builds on:** D-378 (one role per service), D-481 (a service holds its own role's password only), D-121 (one
@@ -29,28 +29,26 @@ an allowed holder.
    T-712 left the other roles' passwords on the command line: its own card).
 3. **A new box**: `install.sh` makes the password with the others; the role script makes the role before HAPI
    first starts, so HAPI makes its tables as their owner.
-4. **An installed box, updated in place.** The steps, in this order (`ComposeBox.set_roles`, then the start):
-   - the password is written to `deploy/.env` (0600) if it is not there, or is still the example file's;
-   - the role script of the new release runs in the database container. It is given on standard input, because
-     the running container still has the folder of the release before mounted; and the one variable that
-     container was started without is handed over by name (`exec -e TB_DB_PW_FHIR_STORE`; the value is in the
-     environment, never an argument). It makes the role, sets the password, gives it the database, and inside
-     `hapi` moves what HAPI made as the superuser: tables with their indexes, sequences, views, the schema
-     `public`, and the large objects in committed batches of 1,000;
+4. **An installed box, updated in place.** The steps are the new release's own, run from its tree by lane D's
+   two commands (`tools/trialbox/prestart.py`; UPDATE-PRESTART and UPDATE-DBUP, D-624):
+   - `pre-start`, step `FHIR store password`: the password is written to `deploy/.env` (0600) if it is not
+     there, or is still the example file's (`ComposeBox.ensure_fhir_password`);
+   - `db-up`, step `database`: the database container is put on this release's settings, so it holds the
+     password in its own environment and mounts this release's role script;
+   - `db-up`, step `service roles`: the role script runs in that container. Nothing is handed over on the
+     command: psql reads the password from the container's environment (`\getenv`). It makes the role, sets
+     the password, gives it the database, and inside `hapi` moves what HAPI made as the superuser: tables with
+     their indexes, sequences, views, the schema `public`, and the large objects in committed batches of 1,000;
    - the services start; the FHIR store signs in as its own role.
    Every step can be repeated: a run that stops after the file and before the script, or in the script, is run
-   again with the same password and moves what is left. **The window:** the update stops TrialBox's own
-   services, not the FHIR store, so the script runs while HAPI is up and waits for its locks; if it gives up, the
-   role, the password and the database's owner are already set, no table has moved, and a rerun finishes. The
-   old FHIR store container keeps working as the superuser until it is recreated with the new sign-in.
-   **What does not work yet (the adversarial review's H1, by reading):** the update that BRINGS this release is
-   run by the release before it, whose steps know none of this (`apply_update.sh` starts the installed updater;
-   `install.sh` with a new bundle goes the same way). The new compose file is then in force with no role and no
-   password: the FHIR store cannot sign in, the start fails, and the update rolls back. Nothing is lost, and the
-   box stays on the old release. So this card reaches an installed box only once the update tool runs the new
-   release's own steps (a finding sent to lane D on 2026-11-12), or by a release in two steps (this one makes
-   the role while the compose file still accepts the old sign-in; the next one changes the compose file). A new
-   box is not affected. No box is in the field.
+   again with the same password and moves what is left. **The window:** the database step recreates the
+   database container, so the FHIR store loses its connections there and is recreated by the final start with
+   the new sign-in (D-624 says the same of every service still running).
+   **The first version** ran the script from the updater itself, on standard input and with the password handed
+   over by name, because the running container was the previous release's. Its review found that the update
+   which BRINGS this release is run by the release before it, whose steps knew none of this. Lane D's two
+   commands are the answer; a box must be on a release that has `db-up` before it takes this one
+   (`min_installed_version`, lane D's rule). A new box is not affected. No box is in the field.
 5. **After a restore** the dump is loaded by the superuser, so the tables are the superuser's again: the role
    script is run after a restore (as D-378 already asks) and moves them.
 6. `ADMIN_HOLDERS["POSTGRES_PASSWORD"]` is the database server alone. The unit test over every compose file set

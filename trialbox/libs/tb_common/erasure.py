@@ -92,6 +92,12 @@ CLEARS: dict[str, Clear] = {
             "VecStore.delete_patient: the chunks and every vector no other chunk uses (D-439)",
         ),
         Clear(
+            "pid_pending",
+            f"{_W}:clear_pending",
+            f"{_W}:verify_pending",
+            "the staged chart number and identity of the patient go; a later night stages them again (D-489)",
+        ),
+        Clear(
             "profile",
             f"{_W}:clear_profile",
             f"{_W}:verify_profile",
@@ -137,8 +143,6 @@ TABLES: dict[str, Entry] = {
         "refdata", ("concept_map", "ctgov_study", "pack", "source", "synonym", "term", "trial", "withdrawn"), _REFDATA
     ),
     "optout.optout_events": _keep("D-441", "the opt-out register itself: the record of the refusal (D-147)"),
-    "wf.outbox": _owed("a job's mail payloads may carry pseudonyms (candidate lists)"),
-    "wf.steps": _owed("a job step's input and output may carry pseudonyms"),
     **_each(
         "recall",
         ("recall_cell", "recall_registration", "recall_run_cell", "recall_sequence_state"),
@@ -199,6 +203,10 @@ TABLES: dict[str, Entry] = {
     **_each("terminology", ("concept", "release"), _REFDATA),
     "pidmap.pid_map": _keep("D-441", "the chart number must still be recognised at the door to honour the opt-out"),
     "pidmap.pid_alias": _keep("D-441", "a merged chart's opt-out hides the surviving pseudonym (append-only)"),
+    "pidmap.pending": _erase(
+        "pid_pending",
+        "a night's chart numbers and identities, encrypted, until the night is published or dropped (D-489)",
+    ),
     "pidmap.identity": _owed("the encrypted identity of the patient", "the crypto-shred of the opted-out identity"),
     "pidmap.site_key": _none("the site key's fingerprint"),
     "trace.traces": _owed("a model call's redacted body: note excerpts", "the traces of the patient (7 days kept)"),
@@ -270,6 +278,8 @@ TABLES: dict[str, Entry] = {
     ),
     "derived.definition": _none("score definitions"),
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
+    "dataops.built": _none("which generation each derived artefact is built from: names, states and times (D-491)"),
+    "dataops.built_kept": _none("the finished generations of the derived rows and their batch ids: no patient (D-525)"),
     "tuned.tuned_patients": _owed("the weekly PI sample of patients not matched, by pseudonym"),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),

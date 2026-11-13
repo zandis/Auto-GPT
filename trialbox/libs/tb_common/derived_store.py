@@ -594,6 +594,24 @@ class DerivedStore:
             return None
         return Batch(int(r[0]), snapshot, dict(json.loads(r[1])), frozenset(json.loads(r[2] or "[]")), str(r[3]))
 
+    def batch_by_id(self, run_id: int) -> Batch | None:
+        """The finished derive batch with this run id (T-725, D-491: the batch a generation's build made), or None."""
+        r = self._db.fetchone(
+            "SELECT id, snapshot, defs, failed_pids, finished_at FROM batch_run "
+            "WHERE id = ? AND finished_at IS NOT NULL",
+            (run_id,),
+        )
+        if r is None:
+            return None
+        return Batch(int(r[0]), str(r[1]), dict(json.loads(r[2])), frozenset(json.loads(r[3] or "[]")), str(r[4]))
+
+    def newest_batch_id(self, snapshot: str) -> int | None:
+        """The run id of the newest finished derive batch of ``snapshot`` (the one a build that just ended made)."""
+        got = self._db.fetchval(
+            "SELECT max(id) FROM batch_run WHERE snapshot = ? AND finished_at IS NOT NULL", (snapshot,)
+        )
+        return int(got) if got is not None else None
+
     def last_batch(self) -> dict[str, Any] | None:
         """The newest derive batch, finished or not (readiness and health, D-442): snapshot, started, finished
         (None: it never finished), failed count."""

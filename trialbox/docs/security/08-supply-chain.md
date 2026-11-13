@@ -33,7 +33,7 @@ The build side needs the network; the box never runs these tools. Code: `tools/s
 - **The vulnerability gate blocks for every image a bundle carries** (T-110b, D-340). Report mode
   (`--vuln-mode report`) is left for the test-only mail servers (MailHog, GreenMail), which no bundle carries. The
   open findings of HAPI FHIR, vLLM and the `trialbox-postgres` base are dated allow-list entries scoped to that image (`image:`), each with
-  `review_by: 2026-12-10`; a new finding blocks. The list, with planned fixes, is in
+  `review_by: 2026-12-10`; a new finding blocks. One exception, D-622: one dated entry accepts every finding of the kernel headers package `linux-libc-dev` in the pinned vLLM image, so a new finding of that package there does not block. The list, with planned fixes, is in
   `deploy/security/known-image-findings.md`. MailHog has no arm64 image; it is left out of the arm64 gates by name
   (`SC_AMD64_ONLY`).
 - **SBOM per release.** Syft writes CycloneDX JSON for each image and platform, and for the Python lock: Syft over an

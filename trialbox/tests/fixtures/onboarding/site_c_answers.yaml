@@ -16,6 +16,7 @@ data_source_path: /data/source/site-c
 data_source_host_dir: /srv/hospc/his-export
 mapping: mapping/tw_core/site_c.yaml
 mrn_regex: '^C\d{7}$'
+chartno_rule: asis  # D-579: a letter and seven digits, taken exactly as written
 registry_type: none
 departments: {RHEU: 風濕免疫科, META: 新陳代謝科, FM: 家庭醫學科, ONC: 腫瘤科, CARD: 心臟內科, NEPH: 腎臟科, ORTH: 骨科}
 practitioners:

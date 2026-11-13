@@ -37,11 +37,21 @@ class LakeHttp:
         self.client = httpx.Client(timeout=timeout, headers=auth_headers())  # D-127 (F-11)
         self._poll = poll  # T-690 (D-472): how a rebuild job is followed (tb_common.jobpoll.Poll); settings if None
 
+    @staticmethod
+    def _named(snapshot: str | None) -> tuple[date | None, dict[str, str]]:
+        """T-724 (D-490): a snapshot name as the request's date and, for a generation (``<date>.g<n>``), the header
+        that carries its number: the request contracts are unchanged."""
+        if not snapshot:
+            return None, {}
+        from lake.store import GENERATION_HEADER, split_generation
+
+        snap, seq = split_generation(snapshot)
+        return date.fromisoformat(snap), ({GENERATION_HEADER: str(seq)} if seq is not None else {})
+
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
-        body = dump(
-            LakeQuery(sql=sql, params=params or [], snapshot=date.fromisoformat(snapshot) if snapshot else None)
-        )
-        resp = self.client.post(f"{self.base}/query", json=body)
+        day, headers = self._named(snapshot)
+        body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day))
+        resp = self.client.post(f"{self.base}/query", json=body, headers=headers)
         if resp.status_code != 200:
             raise RuntimeError(f"lake query failed ({resp.status_code}): {resp.text[:500]}")
         return pa.ipc.open_stream(resp.content).read_all()
@@ -55,15 +65,9 @@ class LakeHttp:
         date_to: date | None = None,
         snapshot: str | None = None,
     ) -> list[dict[str, Any]]:
-        req = ChunkSearchRequest(
-            pid=pid,
-            query=query,
-            k=k,
-            date_from=date_from,
-            date_to=date_to,
-            snapshot=date.fromisoformat(snapshot) if snapshot else None,
-        )
-        resp = self.client.post(f"{self.base}/chunks/search", json=dump(req))
+        day, headers = self._named(snapshot)
+        req = ChunkSearchRequest(pid=pid, query=query, k=k, date_from=date_from, date_to=date_to, snapshot=day)
+        resp = self.client.post(f"{self.base}/chunks/search", json=dump(req), headers=headers)
         resp.raise_for_status()
         hits: list[dict[str, Any]] = resp.json()["hits"]
         return hits
@@ -90,14 +94,24 @@ class LakeHttp:
         out: dict[str, int] = resp.json()["counts"]
         return out
 
-    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
         """T-690 (D-472): start a rebuild job on the lake service and answer its state (202). A refusal known at once
         (busy, a missing feed) is the service's 409, raised as ``httpx.HTTPStatusError`` (the header
-        ``X-TB-Lake-Busy`` says busy). ``allow_empty`` is the in-process lake's; the service decides it itself."""
-        resp = self.client.post(f"{self.base}/rebuild", json={"snapshot": snapshot})
+        ``X-TB-Lake-Busy`` says busy). ``allow_empty`` is the in-process lake's; the service decides it itself.
+        ``promote`` false (T-723, D-489): build and judge, do not serve yet (:meth:`promote`)."""
+        body: dict[str, Any] = {"snapshot": snapshot} if promote else {"snapshot": snapshot, "promote": False}
+        resp = self.client.post(f"{self.base}/rebuild", json=body)
         resp.raise_for_status()
-        body: dict[str, Any] = resp.json()
-        return body
+        job: dict[str, Any] = resp.json()
+        return job
+
+    def promote(self, snapshot: str, generation: str | None = None) -> bool:
+        """T-723 (D-489): make the built ``snapshot`` the served one; False when a newer night is served.
+        ``generation``: the one the caller built; refused (409) when the date names another one now."""
+        body = {"snapshot": snapshot, **({"generation": generation} if generation else {})}
+        resp = self.client.post(f"{self.base}/promote", json=body)
+        resp.raise_for_status()
+        return bool(resp.json().get("promoted"))
 
     def rebuild_state(self, snapshot: str) -> dict[str, Any]:
         """The state of the snapshot's last rebuild job on the lake service (T-690, D-472)."""
@@ -106,17 +120,45 @@ class LakeHttp:
         body: dict[str, Any] = resp.json()
         return body
 
-    def rebuild(self, snapshot: str) -> dict[str, Any]:
+    def rebuild(self, snapshot: str, promote: bool = True) -> dict[str, Any]:
         """Rebuild ``snapshot`` and answer its counts: the job is started and followed to its end (T-690, D-472), never
         timed (OD-10). Busy (held, already building, held at the swap) raises :class:`lake.store.LakeBusy`; a refusal
         of the data :class:`lake.store.RebuildError`; a failed, interrupted or lost job ``RuntimeError``."""
         return follow_rebuild(
-            lambda: self.start_rebuild(snapshot), lambda: self.rebuild_state(snapshot), snapshot, self._poll
+            lambda: self.start_rebuild(snapshot, promote=promote),
+            lambda: self.rebuild_state(snapshot),
+            snapshot,
+            self._poll,
         )
 
-    def hold(self, snapshot: str, holder: str) -> None:
-        """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned."""
-        self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder}).raise_for_status()
+    def hold(self, snapshot: str, holder: str, pin: bool = False) -> str:
+        """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned. With ``pin``
+        (T-724, D-490) it pins a generation, which is returned: see :meth:`lake.store.Lake.hold`."""
+        resp = self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder, "pin": pin})
+        resp.raise_for_status()
+        return str(resp.json().get("generation") or snapshot)
+
+    def generation(self, snapshot: str | None = None) -> str | None:
+        """T-724 (D-490): the generation the date ``snapshot`` (default the served one) names now; None when the
+        lake has no snapshot, or the date was built before generations."""
+        snap = snapshot or self.snapshot()
+        if not snap:
+            return None
+        resp = self.client.get(f"{self.base}/generations/{snap}")
+        resp.raise_for_status()
+        got = resp.json().get("generation")
+        return str(got) if got else None
+
+    def site_in_sync(self, snapshot: str | None = None) -> bool | None:
+        """T-724: whether the generation the date names was built with the site's inputs the lake holds now (None:
+        not known). See :meth:`lake.store.Lake.site_in_sync`."""
+        snap = snapshot or self.snapshot()
+        if not snap:
+            return None
+        resp = self.client.get(f"{self.base}/generations/{snap}")
+        resp.raise_for_status()
+        got = resp.json().get("site_in_sync")
+        return None if got is None else bool(got)
 
     def release(self, holder: str) -> bool:
         resp = self.client.delete(f"{self.base}/holds/{holder}")
@@ -174,8 +216,14 @@ class LakeLocal:
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         return self.lake.put_site(resources)
 
-    def hold(self, snapshot: str, holder: str) -> None:
-        self.lake.hold(snapshot, holder)
+    def hold(self, snapshot: str, holder: str, pin: bool = False) -> str:
+        return self.lake.hold(snapshot, holder, pin=pin)
+
+    def generation(self, snapshot: str | None = None) -> str | None:
+        return self.lake.generation(snapshot) if (snapshot or self.lake.current()) else None
+
+    def site_in_sync(self, snapshot: str | None = None) -> bool | None:
+        return self.lake.site_in_sync(snapshot)
 
     def release(self, holder: str) -> bool:
         return self.lake.release(holder)
@@ -183,13 +231,19 @@ class LakeLocal:
     def holds(self) -> dict[str, str]:
         return self.lake.holds()
 
-    def rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
-        st = self.lake.rebuild(snapshot, self.embedder, allow_empty=allow_empty)
-        return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds}
+    def rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
+        st = self.lake.rebuild(snapshot, self.embedder, promote=promote, allow_empty=allow_empty, check=not promote)
+        return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds,
+                "generation": st.generation}  # fmt: skip
 
-    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+    def promote(self, snapshot: str, generation: str | None = None) -> bool:
+        return self.lake.promote_built(snapshot, generation)
+
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
         """The in-process lake runs the job here and answers its end (no client limit to outlast: T-690)."""
-        return self.lake.start_rebuild(snapshot, self.embedder, allow_empty=allow_empty)
+        return self.lake.start_rebuild(
+            snapshot, self.embedder, promote=promote, allow_empty=allow_empty, check=not promote
+        )
 
     def rebuild_state(self, snapshot: str) -> dict[str, Any]:
         return self.lake.rebuild_state(snapshot)

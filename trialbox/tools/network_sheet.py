@@ -462,6 +462,11 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
                 where = "deploy/secrets/model/vllm.env (0600, root)"
                 rows.append(("model key, the vLLM servers' copy (VLLM_API_KEY)", where, f"{', '.join(vllm)} only"))
             continue
+        if sec == "actor_sign_key":  # T-717 (D-485): the console's own key that signs the acting person
+            rows.append(("actor-signing key", "deploy/secrets/services/actor-sign.key (0600)",
+                         f"{', '.join(names)} only, at /run/secrets/tb_actor_sign_key; its copy for verification "
+                         "(deploy/secrets/services/actor/keys) in the orchestrator only"))  # fmt: skip
+            continue
         if not sec.startswith("token_"):  # the identity overlay's OIDC client secret (RUNBOOK §12)
             rows.append((sec, f"deploy/secrets/authelia/{sec}.txt (0600, root)",
                          f"{', '.join(names)} only, at /run/secrets/{sec} (OIDC on)"))  # fmt: skip

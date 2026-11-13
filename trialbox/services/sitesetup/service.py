@@ -58,6 +58,9 @@ class SiteSetup:
     site_key: Callable[[], bytes]
     ocr: Ocr = field(default_factory=default_ocr)
     mrn_regex: str | None = None
+    # NEW-DIN-3 (D-544): asks the pid map whether a pseudonym is a patient of this box (true, false, or None when
+    # the map cannot say); None here: this service has no way to ask
+    known: Callable[[str], bool | None] | None = None
     # T-305b (D-403): decisions on ``main`` within this many seconds of the last publish wait and go as one batch
     # (``TB_SITE_PUBLISH_BATCH_SECONDS``; 0 = every decision publishes, as before)
     publish_batch_seconds: int = 0
@@ -97,10 +100,15 @@ class SiteSetup:
 
     def redact(self, text: str, chart_no: str = "", keep: tuple[str, ...] = ()) -> str:
         """Identifiers out of a chart text: the chart number given with it, and what the box's guard recognises
-        (names, other numbers, phones, addresses; dates of birth unless kept)."""
+        (names, other numbers, phones, addresses; dates of birth unless kept)."""  # the guard also knows the pattern
         if chart_no:
-            for v in {chart_no, messy.half_width(chart_no)}:
-                text = text.replace(v, "[MRN]")
+            # NEW-DIN-3c (D-546, the review): the number as the site writes it, which is how a chart carries it;
+            # the typed spellings only when they are as long (typed `2` for chart `00000002` must not mask every 2)
+            whole = chartno.normalise(None, chart_no)
+            typed = {chart_no.strip(), messy.half_width(chart_no).strip()}
+            for v in sorted({whole} | {t for t in typed if len(t) >= len(whole)}, key=len, reverse=True):
+                if v:
+                    text = text.replace(v, "[MRN]")
         g = self._guard()
         spans = [f for f in g.detect(text) if f.kind not in keep]
         out, pos = [], 0
@@ -116,6 +124,16 @@ class SiteSetup:
         then hashed with the site key, as the feed's own chart numbers are."""
         key = self.site_key()
         return pid_for_mrn(key, chartno.normalise(None, chart_no))
+
+    def known_pid(self, pid: str) -> bool | None:
+        """Whether the box holds a patient under this pseudonym. None: it cannot say, which is never "yes"."""
+        if self.known is None:
+            return None
+        try:
+            got = self.known(pid)
+        except Exception:
+            return None
+        return got if isinstance(got, bool) else None
 
     # ------------------------------------------------------------------ sheets and dumps
     def add_sheet(self, ws: str, kind: str, name: str, data: bytes, roles: dict[str, str], by: str) -> dict[str, Any]:
@@ -204,7 +222,8 @@ class SiteSetup:
         chart_no = messy.half_width(chart_no or "").strip()
         if not chart_no:
             raise SetupError("SETUP-KEY", "give the patient's chart number: it is turned into a code at once")
-        if self.mrn_regex and not re.match(self.mrn_regex, chart_no):
+        # NEW-DIN-3c (D-546): the pattern is asked of the number as the site writes it, as it is then hashed
+        if self.mrn_regex and not re.match(self.mrn_regex, chartno.normalise(None, chart_no)):
             raise SetupError("SETUP-KEY", "this is not a chart number of this hospital")
         try:
             ct = charts.chart_text("pasted.txt" if pasted else name, data, self.ocr)
@@ -414,7 +433,13 @@ class SiteSetup:
             last = self.store.published(ws)
             if rec is not None and rec.get("state") == "failed" and rec.get("digest") == dg and not force:
                 return _failed(last, rec)
-            if not force and last is not None and last["digest"] == dg and lake.snapshot():
+            # T-724 (D-490; D-462's guess, handed over by T-723): the facts are the last publish's, but is the served
+            # night built with them? A night built before that publish's ``put_site`` and promoted after it serves a
+            # lake without them, and "unchanged" would skip them for ever. The lake says whether the generation it
+            # serves holds the site's inputs of now; "no" publishes again, "not known" (a lake without generations)
+            # keeps the old answer
+            same = not force and last is not None and last["digest"] == dg and lake.snapshot()
+            if same and last is not None and _site_in_sync(lake) is not False:
                 return {"snapshot": last["snapshot"], "unchanged": True, "counts": last["counts"]}
             if ws == "main" and last is None and not any(res.values()):
                 # F-01 (T-690): a fresh box with no site facts has nothing to publish; no rebuild of the hospital
@@ -567,6 +592,17 @@ def _failed(last: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, Any]:
         "detail": str(rec.get("detail") or ""),
         "counts": last["counts"] if last else {},
     }
+
+
+def _site_in_sync(lake: Any) -> bool | None:
+    ask = getattr(lake, "site_in_sync", None)
+    if ask is None:
+        return None
+    try:
+        got = ask()
+    except Exception:  # the lake does not answer now: the old answer, asked again at the next call
+        return None
+    return None if got is None else bool(got)
 
 
 def _building_refusal(exc: Exception) -> bool:

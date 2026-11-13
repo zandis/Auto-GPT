@@ -25,7 +25,7 @@ from typing import Any
 
 from datacore import sync
 from datacore.store import TRIALBOX, DataCore
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from rc_bridge import writeback
 from rc_bridge.client import RcError, RedcapClient, api_url, check_token
@@ -33,6 +33,7 @@ from rc_bridge.link import WRITE_FIELDS, LinkError, ProjectLink, read_back, vali
 from tb_common.audit import AuditLog
 from tb_contracts import RegistryUpdate
 
+from orchestrator.actor import person_of
 from orchestrator.candidates import FORWARD, CandidateRegistry, RegistryError
 from orchestrator.studystore import StudyStore
 
@@ -206,8 +207,11 @@ class StudyService:
         return {"made": len(out["made"]), "held": out["held"]}
 
     def read(
-        self, rs: str, screening: dict[str, str], by: str, full: bool = False, issued: dict[str, str] | None = None
-    ) -> dict[str, Any]:
+        self, rs: str, screening: dict[str, str], by: str, full: bool = False, issued: dict[str, str] | None = None,
+        life_by: str | None = None,
+    ) -> dict[str, Any]:  # fmt: skip
+        """``life_by``: who the participants' steps derived from the read name (T-715: the verified person of the
+        call, given by the route); ``by`` when a caller in this process gives none."""
         row = self.store.link(rs)
         if row is None:
             raise HTTPException(status_code=404, detail={"code": "RC-LINK-NONE", "message": "no REDCap link"})
@@ -279,7 +283,7 @@ class StudyService:
                 changes.append({"link_value": j.link_value, "record_id": j.record_id, "pid": j.pid,
                                 "from": cur, "to": j.status})  # fmt: skip
         self.store.mark_read(rs, at)
-        life = self.lifecycle(rs, screening, by)
+        life = self.lifecycle(rs, screening, life_by or by)
         result: dict[str, Any] = {"at": at, "since": since, "rows": len(rows), "linked": len(joined),
                                   "changes": changes,
                   "duplicates": rb.duplicates, "unmatched": rb.unmatched, "conflicts": conflicts,
@@ -485,9 +489,11 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             raise _fail(exc) from exc
 
     @r.post("/studies/{rs}/redcap-read")
-    def run_read(rs: str, body: ReadBody) -> dict[str, Any]:
+    def run_read(rs: str, body: ReadBody, request: Request) -> dict[str, Any]:
+        # T-715 (D-483): a step derived from the read names the verified person (or the console's nightly timer)
+        life_by = person_of(request, "request.prepare", service=True)
         try:
-            return get().read(_rs(rs), body.screening, body.by, body.full, body.issued)
+            return get().read(_rs(rs), body.screening, body.by, body.full, body.issued, life_by)
         except (RcError, LinkError) as exc:
             raise _fail(exc) from exc
 

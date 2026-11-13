@@ -6,7 +6,10 @@
 <div class="headrow"><h1>{{ t('team.optout.title') }}</h1><span class="hint" data-testid="optout-n">{{ t('team.optout.count', n=rows|length) }}</span></div>
 <p class="hint">{{ t('team.optout.help') }}</p>
 {% set done = request.query_params.get('done', '') %}
-{% if done in ('added', 'lifted', 'same') %}<p class="{{ 'hint' if done == 'same' else 'ok' }}" role="status" data-testid="optout-done">{{ t('team.optout.done.' + done) }}</p>{% endif %}
+{# NEW-JRN-2 (D-542): for a typed pseudonym the page says which studies listed the patient, or that nobody matched #}
+{% if done == 'added' and on == 'no' %}<p class="warn" role="status" data-testid="optout-done"><span data-testid="optout-nomatch">{{ t('team.optout.nomatch') }}</span></p>
+{% elif done in ('added', 'lifted', 'same') %}<p class="{{ 'hint' if done == 'same' else 'ok' }}" role="status" data-testid="optout-done">{{ t('team.optout.done.' + done) }}</p>
+{% if done == 'added' and on == 'yes' %}<p class="ok" data-testid="optout-matched">{{ t('team.optout.matched') }}</p>{% endif %}{% endif %}
 <section class="card"><h2>{{ t('team.optout.add') }}</h2>
 <form method="post" action="/site/opt-outs" class="markform" data-testid="optout-form" autocomplete="off">
 <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -14,6 +17,8 @@
 <label for="oo-pid">{{ t('team.optout.pid') }}</label><input id="oo-pid" name="pid" maxlength="64" data-testid="optout-pid">
 <label for="oo-src">{{ t('team.optout.source') }}</label><select id="oo-src" name="source">{% for s in sources %}<option value="{{ s }}">{{ t('team.optout.src.' + s) }}</option>{% endfor %}</select>
 <label for="oo-note">{{ t('mark.note') }}</label><input id="oo-note" name="note" maxlength="300">
+<label for="oo-unknown">{{ t('team.optout.unknown_reason') }}</label><input id="oo-unknown" name="unknown_reason" maxlength="300" data-testid="optout-unknown-reason" aria-describedby="oo-unknown-help">
+<p class="hint" id="oo-unknown-help">{{ t('team.optout.unknown_reason.help') }}</p>
 <button type="submit" data-testid="optout-save">{{ t('team.optout.save') }}</button>
 </form></section>
 <section class="card"><h2>{{ t('team.optout.now') }}</h2>

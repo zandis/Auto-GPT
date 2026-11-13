@@ -185,12 +185,19 @@ def write_snapshot(
     tombstones: Mapping[str, Iterable[str]] | None = None,
     transform: Callable[[Resource], bool] | None = None,
     run_bytes: int | None = None,
+    left_out: Mapping[str, Iterable[str]] | None = None,
+    removed: dict[str, int] | None = None,
 ) -> dict[str, int]:
     """Write all resource types; with ``base`` (previous snapshot) resources are merged by id.
 
     ``tombstones`` (type -> ids deleted at the source) are removed from the merged snapshot. A record sent again in
     the same run wins over its tombstone (deleted and entered again inside one delta window). What was dropped is
     written to ``tombstones.json``; with nothing dropped the file is absent, so a run without deletes is unchanged.
+
+    ``left_out`` (D-528: type -> ids a feed row gave before and does not give tonight) are written from neither
+    the previous snapshot nor the night, and are **not** listed in ``tombstones.json``: the source did not delete
+    them, and the file is what says "deleted at the source" downstream. How many left the snapshot, per type, is
+    added to ``removed`` when given.
 
     T-692 (D-473): in streams. ``by_type`` may be a :class:`Spool`; the night's records are sorted in runs of at most
     ``run_bytes`` (:func:`sort_run_bytes`) and merged with the previous snapshot's file, which is read line by line
@@ -199,6 +206,7 @@ def write_snapshot(
     directory.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
     dead = {t: set(ids) for t, ids in (tombstones or {}).items()}
+    out = {t: set(ids) for t, ids in (left_out or {}).items()}
     dropped: dict[str, list[str]] = {}
     spool = by_type if isinstance(by_type, Spool) else None
     given: Mapping[str, Iterable[Resource]] = {} if isinstance(by_type, Spool) else by_type
@@ -221,15 +229,21 @@ def write_snapshot(
                 fh.writelines(
                     f"{json.dumps(i)}\t{n}\t{line}\n" for i, n, line in _sorted(items, budget, work / "night")
                 )
+            left = [0]
             try:
-                n, gone = _write_type(directory, rtype, night, base if has_base else None, dead, True, budget, work)
+                n, gone = _write_type(
+                    directory, rtype, night, base if has_base else None, dead, True, budget, work, out.get(rtype), left
+                )
             except _Unsorted:
-                n, gone = _write_type(directory, rtype, night, base, dead, False, budget, work)
+                left[0] = 0
+                n, gone = _write_type(directory, rtype, night, base, dead, False, budget, work, out.get(rtype), left)
         finally:
             shutil.rmtree(work, ignore_errors=True)
             night.unlink(missing_ok=True)
         if gone:
             dropped[rtype] = gone
+        if removed is not None and left[0]:
+            removed[rtype] = removed.get(rtype, 0) + left[0]
         counts[rtype] = n
     marker = directory / TOMBSTONES
     if dropped:
@@ -248,9 +262,15 @@ def _write_type(
     base_sorted: bool,
     budget: int,
     work: Path,
+    left_out: set[str] | None = None,
+    left: list[int] | None = None,
 ) -> tuple[int, list[str]]:
     """One type: the previous snapshot's records and the night's, by id; per id the night's last record, else the
-    previous snapshot's last one unless the source deleted it. Returns (records written, ids dropped)."""
+    previous snapshot's last one unless the source deleted it. Returns (records written, ids dropped).
+
+    ``left_out`` (D-528): ids written from neither side, the night's record included (the caller takes an id out
+    of the set when a later row gives the record again: the last row of a key decides). ``left[0]`` counts those
+    that were in the previous snapshot."""
     old: Iterable[_Item] = ()
     if base is not None:
         old = (
@@ -266,9 +286,14 @@ def _write_type(
         cur: Any = None
         line = ""
         from_night = False
+        from_base = False
 
         def flush() -> None:
             nonlocal n
+            if left_out and cur in left_out:
+                if from_base and left is not None:
+                    left[0] += 1
+                return
             if not from_night and cur in killed:
                 gone.append(cur)
                 return
@@ -279,9 +304,10 @@ def _write_type(
             if cur is not None and rid != cur:
                 flush()
             if rid != cur:
-                cur, from_night = rid, False
+                cur, from_night, from_base = rid, False, False
             line = body
             from_night = from_night or seq >= 0
+            from_base = from_base or seq < 0
         if cur is not None:
             flush()
     tmp.replace(directory / f"{rtype}.ndjson")

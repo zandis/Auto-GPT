@@ -35,20 +35,29 @@ KEK_FILE="${TB_KEK_FILE:-$RUN_DIR/kek}"
 TB_KEK_FILE="$KEK_FILE"; export TB_KEK_FILE
 CRED="$HR/etc/credstore.encrypted/trialbox-kek"
 
-keys() {
+tool() {  # tool MODULE ARGS...: the host's python3 when it can, else the image's own copy of the module
+  mod="$1"; shift
   if python3 -c "import cryptography" 2>/dev/null; then
-    (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.keys "$@")
+    (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m "$mod" "$@")
   else
-    # the image's own tools.keys; the folders keep their host paths inside the container
+    # the folders keep their host paths inside the container
     docker run --rm --network none --user 0:0 -e TB_KEK_PASSPHRASE -e TB_KEK_FILE -e TB_ENV -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" \
-      ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.keys "$@"
+      ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} "${TB_IMAGE:-trialbox-py:1.0.0}" python -m "$mod" "$@"
   fi
+}
+keys() { tool tools.keys "$@"; }
+# NEW-STD-2 (D-562): the audit signing key, made once beside the site keys and wrapped under the same KEK; a key that
+# is there is kept. Not a stop: `trialbox doctor` (audit_heads) names a missing key
+audit_key() {
+  tool tools.trialbox.audit_heads --init-key --secrets "$SECRETS" \
+    || hb_say "the audit signing key was not made (above): trialbox doctor names it; run this script again"
 }
 
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
   [ "$DRY" = 1 ] && { hb_say "would run: tools.keys wrap"; exit 0; }
   keys wrap --secrets "$SECRETS"
+  audit_key
   exit 0
 fi
 
@@ -98,3 +107,4 @@ case "$KEK_BACKEND" in
   *) hb_die "KEK_BACKEND must be tpm, shamir or passphrase, not '$KEK_BACKEND'" ;;
 esac
 keys check --secrets "$SECRETS"
+audit_key

@@ -3,7 +3,9 @@ its extended storage (TB-PLAN-04 step 7, D-137).
 
 Layout (SS-MIX2 標準化ストレージ仕様書 v1.2): ``<root>/<id[0:3]>/<id[3:6]>/<patient id>/<YYYYMMDD | ->/<type>/<file>``
 with file names ``<patient id>_<date>_<type>_<order no>_<timestamp>_<dept>_<flag>``. Every change writes a new file;
-the newest timestamp per (patient, type, order no) wins and flag ``0`` means the record was deleted.
+the newest timestamp per (patient, type, order no) wins and flag ``0`` means the record was deleted. A site whose
+order numbers come back on another day sets ``TB_SSMIX2_ORDER_NUMBERS=per_day`` (D-594): the day is then part of
+that key; either way an order number seen on several days is counted (``<type>:order number on several days``).
 
 The message types read, and the canonical tables (``mapping/templates/CANONICAL.md``) they become:
 
@@ -73,6 +75,7 @@ import csv
 import io
 import json
 import logging
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -95,6 +98,9 @@ TYPES = {
     "medication": ("OMP-01", "OMP-02"),
     "lab": ("OML-11",),
 }
+_RECORD_TYPES = frozenset(t for types in TYPES.values() for t in types)
+ORDER_KEY_ENV = "TB_SSMIX2_ORDER_NUMBERS"
+ORDER_KEYS = ("unique", "per_day")  # D-594
 CHANGES = {"encounter": ("ADT-52",), "medication": ("OMP-11", "OMP-12")}  # read after the table's own types
 INJECTION = ("OMP-02", "OMP-12")
 JP_CORE = Path(__file__).resolve().parents[2] / "mapping" / "jp_core"
@@ -170,33 +176,65 @@ def _lookup(path: Path, key: str, field: str) -> dict[str, str]:
         return {r[key]: r[field] for r in csv.DictReader(fh) if r.get(key) and r.get(field)}
 
 
+def _triples(seg: hl7.Segment, n: int) -> list[tuple[str, str, str]]:
+    """``(code, text, coding system)`` of every triple of a coded field: the primary and the alternate triple of
+    each repetition, in order. The system's name is given without blanks and in upper case (vendors write ``i10``,
+    ``Hot9``); a triple with neither code nor text is left out."""
+    return [t for rep in _triples_by_rep(seg, n) for t in rep]
+
+
+def _triples_by_rep(seg: hl7.Segment, n: int) -> list[list[tuple[str, str, str]]]:
+    """:func:`_triples`, one list for each repetition of the field."""
+    out: list[list[tuple[str, str, str]]] = []
+    for rep in seg.reps(n):
+        out.append([])
+        for at in (1, 4):
+            code, text = hl7.Segment.rep_comp(rep, at), hl7.Segment.rep_comp(rep, at + 1)
+            if code or text:
+                out[-1].append((code, text, hl7.Segment.rep_comp(rep, at + 2).strip().upper()))
+    return out
+
+
 def _suspected(prb: hl7.Segment) -> bool:
     """A suspected diagnosis: PRB-13 ``1^疑いあり^JHSD0005`` (any coding system name, as vendors vary), or a 病名
-    whose text carries the 修飾語 "の疑い" / "疑い" when the vendor sends no flag."""
-    flag, text, system = prb.comp(13, 1).strip(), prb.comp(13, 2), prb.comp(13, 3).strip().upper()
-    if (flag == "1" and system in ("", "JHSD0005")) or "疑いあり" in text:
+    whose text carries the 修飾語 "の疑い" / "疑い" when the vendor sends no flag. The flag is read from whichever
+    triple names table JHSD0005 (a hospital's own code may stand first), and such a triple alone decides: a named
+    ``0`` is not overruled by a ``1`` of another table or of none. With no triple naming the table, the first triple
+    is read as it always was."""
+    named = [(flag, text) for flag, text, system in _triples(prb, 13) if system == "JHSD0005"]
+    if not named:
+        first = prb.comp(13, 3).strip() == ""
+        named = [(prb.comp(13, 1) if first else "", prb.comp(13, 2))]
+    if any(flag.strip() == "1" or "疑いあり" in text for flag, text in named):
         return True
     return "疑い" in prb.comp(3, 2)
 
 
+_ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendors write
+
+
 def _alt(seg: hl7.Segment, n: int, systems: tuple[str, ...]) -> str:
     """The alternate code (components 4-6) of a CWE field when its coding system is one of ``systems``."""
-    return seg.comp(n, 4) if seg.comp(n, 6) in systems else ""
+    return seg.comp(n, 4) if seg.comp(n, 6).strip().upper() in systems else ""
 
 
 def drug_codes(seg: hl7.Segment, n: int) -> dict[str, str]:
-    """``{yj, hot, atc, name}`` from a drug CWE (RXE-2, RXA-5): the primary code and the alternate, by coding system.
-    A primary code with no recognised system is taken as the YJ / local drug code, as OMP-01 always was."""
+    """``{yj, hot, atc, name}`` from a drug CWE (RXE-2, RXA-5): each code by the coding system its triple names,
+    whatever the case of the name. A first code whose system is none of them (none at all, or a hospital's own
+    ``99xxx``) is the YJ / local drug code, as OMP-01 always was, unless another triple names a YJ code. "First" is
+    the field's first component: an alternate code after an empty first triple is not it."""
     out = {"yj": "", "hot": "", "atc": "", "name": seg.comp(n, 2)}
-    for i, (code, system) in enumerate(((seg.comp(n, 1), seg.comp(n, 3)), (seg.comp(n, 4), seg.comp(n, 6)))):
+    for code, _text, system in _triples(seg, n):
         if not code:
             continue
         if system in _ATC_SYS:
             out["atc"] = out["atc"] or code
         elif system in _HOT_SYS:
             out["hot"] = out["hot"] or code
-        elif system in _YJ_SYS or i == 0:
+        elif system in _YJ_SYS:
             out["yj"] = out["yj"] or code
+    if seg.comp(n, 3).strip().upper() not in (*_ATC_SYS, *_HOT_SYS, *_YJ_SYS):
+        out["yj"] = out["yj"] or seg.comp(n, 1)
     return out
 
 
@@ -278,6 +316,7 @@ class Ssmix2Source:
         lab_lookup: Path | None = None,
         licensed: dict[str, dict[str, dict[str, str]]] | None = None,
         quarantine_max_pct: float = QUARANTINE_MAX_PCT,
+        order_key: str | None = None,
     ) -> None:
         if not directory.is_dir():
             raise FileNotFoundError(f"ssmix2 storage not found: {directory}")
@@ -308,6 +347,10 @@ class Ssmix2Source:
         self._cm: set[str] | None = None
         self.missed: Counter[str] = Counter()  # "diagnosis:<標準病名 code>", "medication:<YJ code>"
         self.stats: Counter[str] = Counter()  # messages and documents read, by type and outcome
+        # NEW-DIN-4 (D-594): whether the day folder is part of an order's key: the site's declaration
+        self.order_key = order_key or os.environ.get(ORDER_KEY_ENV) or "unique"
+        if self.order_key not in ORDER_KEYS:
+            raise ValueError(f"{ORDER_KEY_ENV}={self.order_key!r}: the key is one of {', '.join(ORDER_KEYS)}")
         self._index: dict[str, list[StoredFile]] | None = None
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
@@ -320,15 +363,31 @@ class Ssmix2Source:
         """The current version of every record by message type (latest timestamp wins, flag 0 = deleted)."""
         if self._index is None:
             latest: dict[tuple[str, str, str, str], StoredFile] = {}
+            per_day: dict[tuple[str, str, str, str], StoredFile] = {}  # the newest version in each day folder
             for top in sorted(p for p in self.root.iterdir() if p.is_dir() and p.name not in NOT_PATIENT_DIRS):
                 for f in top.glob("*/*/*/*/*"):
                     sf = parse_name(f)
                     if sf is None or not f.is_file():
                         continue
-                    key = (sf.patient, sf.type, sf.order, sf.day if sf.order == "-" else "")
+                    # D-594: the day is part of the key only where the site says its order numbers repeat
+                    by_day = sf.order == "-" or self.order_key == "per_day"
+                    key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
                     cur = latest.get(key)
                     if cur is None or sf.stamp > cur.stamp:
                         latest[key] = sf
+                    if sf.order != "-" and sf.type in _RECORD_TYPES:
+                        on = (sf.patient, sf.type, sf.order, sf.day)
+                        if on not in per_day or sf.stamp > per_day[on].stamp:
+                            per_day[on] = sf
+            # counted either way, so the site check shows whether a storage's order numbers come back on another
+            # day: live versions of the record types only (a change message names an earlier order by design)
+            days: Counter[tuple[str, str, str]] = Counter()
+            for (patient, typ, order, _day), sf in per_day.items():
+                if not sf.deleted:
+                    days[(patient, typ, order)] += 1
+            for (_patient, typ, _order), n in days.items():
+                if n > 1:
+                    self.stats[f"{typ}:order number on several days"] += 1
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
             for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
@@ -361,6 +420,11 @@ class Ssmix2Source:
                 for row in rows:
                     row.pop("_same", None)
                     yield row
+
+    def _order_on_its_day(self, sf: StoredFile) -> str:
+        """The order number for an id built from it (a result with no id of its own): with ``per_day`` it
+        always carries its day, so an id never changes meaning when another day's file appears (D-594)."""
+        return f"{sf.order}@{sf.day}" if self.order_key == "per_day" else sf.order
 
     def _messages(self, typ: str) -> Iterator[tuple[StoredFile, hl7.Message]]:
         """The current messages of one type. A file no codec reads, or that is not HL7, is quarantined (STD-020):
@@ -537,7 +601,25 @@ class Ssmix2Source:
         enc = pv1.comp(19, 1) if pv1 else ""
         for prb in msg.all("PRB"):
             code = prb.comp(3, 1)
-            icd = who_icd10(_alt(prb, 3, ("I10", "ICD10"))) or self._icd(code)
+            # NEW-DIN-5 (DIN-005): the ICD-10 code is in whichever triple names ICD-10: the standard puts the 病名
+            # code first and ICD-10 second, vendors differ, and some send it as a second repetition. A triple that
+            # is called ICD-10 and is not a code of that shape is never passed on and hides no later one. The first
+            # repetition is read whole first (its 病名 code through the site's licence too): a later repetition is
+            # asked only when the first gives no ICD-10 code, so it never replaces one
+            first, *later = _triples_by_rep(prb, 3) or [[]]
+            named = bool(first) and prb.comp(3, 3).strip().upper() in _ICD10_SYS  # the first triple says ICD-10
+
+            def shaped(triples: list[tuple[str, str, str]]) -> str:
+                codes = (who_icd10(t[0]) for t in triples if t[2] in _ICD10_SYS)
+                return next((c for c in codes if _WHO_SHAPE.match(c)), "")
+
+            icd = shaped(first)
+            if not icd:  # as before: an alternate that is called ICD-10 is passed on as written
+                icd = who_icd10(_alt(prb, 3, _ICD10_SYS)) or ("" if named else self._icd(code))
+            if not icd:
+                icd = shaped([t for r in later for t in r])
+            if len(prb.reps(3)) > 1:
+                self.stats["PPR-01:PRB-3 repeated"] += 1  # one diagnosis is made of it; the site check shows it
             if not icd:
                 self.missed[f"diagnosis:{code}"] += 1
             yield {
@@ -545,7 +627,7 @@ class Ssmix2Source:
                 "enc_no": enc,
                 "mrn": sf.patient,
                 **self._icd_columns(icd),
-                "byomei_code": code if prb.comp(3, 3) not in ("I10", "ICD10") else "",
+                "byomei_code": "" if named else code,
                 "byomei_name": prb.comp(3, 2),
                 "diag_date": hl7.ts(prb.field(16)) or "",
                 "recorded_date": hl7.ts(prb.field(2)) or hl7.ts(prb.field(7)) or "",
@@ -650,9 +732,18 @@ class Ssmix2Source:
             if seg.name != "OBX":
                 continue
             obx = seg
-            code, system = obx.comp(3, 1), obx.comp(3, 3)
-            is_jlac = system in _JLAC_SYS or (not system and bool(_JLAC_SHAPE.match(code)))
-            jlac = code if is_jlac else ""
+            code, system = obx.comp(3, 1), obx.comp(3, 3).strip().upper()
+            # the JLAC10 code is in whichever triple names it (a hospital's own code may stand first); with no
+            # system at all, a first code of the JLAC10 shape is one, as before. The first triple is asked first; a
+            # later triple's code is taken without its blanks and only when it has the shape
+            if system in _JLAC_SYS or (not system and _JLAC_SHAPE.match(code)):
+                jlac = code
+            else:
+                later = (c.strip() for c, _t, sysname in _triples(obx, 3) if sysname in _JLAC_SYS)
+                jlac = next((c for c in later if _JLAC_SHAPE.match(c)), "")
+            # the look-up key: the first code when the table knows it, else the JLAC10 code when the table knows that
+            known = code.upper() in self.lab_known
+            key = jlac if not known and jlac.upper() in self.lab_known else code
             times = (
                 ("OBX-14", hl7.ts(obx.field(14))),
                 ("OBR-7", hl7.ts(obr.field(7)) if obr else None),
@@ -665,11 +756,11 @@ class Ssmix2Source:
             status = _status(_OBX_STATUS, obx.field(11))
             order = (obr.comp(3, 1) or obr.comp(2, 1)) if obr else ""
             row: Row = {
-                "lab_no": obx.comp(21, 1) or f"{sf.order}-{obx.field(1)}",
+                "lab_no": obx.comp(21, 1) or f"{self._order_on_its_day(sf)}-{obx.field(1)}",
                 "mrn": sf.patient,
-                "local_code": code,  # the lookup key (jlac10_to_loinc.csv), JLAC10 or the hospital's own code
+                "local_code": key,  # the lookup key (jlac10_to_loinc.csv), JLAC10 or the hospital's own code
                 "jlac10_code": jlac,
-                "hosp_lab_code": "" if is_jlac else code,
+                "hosp_lab_code": "" if jlac == code else code,  # the first code, when it is the hospital's own
                 "item_name": obx.comp(3, 2),
                 "result_value": obx_value(obx),
                 "unit": obx.comp(6, 1),
@@ -681,7 +772,7 @@ class Ssmix2Source:
                 "specimen": self._specimen(spm, jlac),
                 "_same": (sf.patient, order or sf.order, code, obx.field(4).strip()),
             }
-            if code and code.upper() not in self.lab_known:
+            if code and key.upper() not in self.lab_known:
                 self.missed[f"lab:{code}"] += 1
             if obx.field(11).strip().upper() == "D":  # deleted: a tombstone, never a record
                 self.stats["OML-11:deleted result"] += 1
