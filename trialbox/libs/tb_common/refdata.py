@@ -831,6 +831,15 @@ class RefStore:
         """What one code maps to (every loaded map from ``source_system``), e.g. an NHI lab code -> LOINC."""
         return self._map("source_system = ? AND source_code = ?", (source_system, code.strip()))
 
+    def has_map(self, source_system: str, target_system: str) -> bool:
+        """Whether a map from ``source_system`` to ``target_system`` is loaded (at least one entry): the question
+        a load asks before it starts, so that codes are not published as "no entry" for want of the pack."""
+        row = self.db.fetchone(
+            "SELECT 1 FROM concept_map WHERE source_system = ? AND target_system = ? LIMIT 1",
+            (source_system, target_system),
+        )
+        return row is not None
+
     def map_sources(self, target_system: str, code: str) -> list[dict[str, Any]]:
         """The reverse: which codes map to this one (e.g. the 2014 codes behind a 2023 TW ICD-10-CM code)."""
         return self._map("target_system = ? AND target_code = ?", (target_system, code.strip()))
@@ -956,6 +965,22 @@ def map_targets_or_empty(source_system: str, code: str, url: str | None = None) 
     except Exception:
         _drop_shared(st)
         return []
+
+
+def has_map_or_none(source_system: str, target_system: str, url: str | None = None) -> bool | None:
+    """:meth:`RefStore.has_map` for a caller that must tell "not loaded" from "could not ask": False when no
+    database is configured (nothing is loaded), None when one is configured and it cannot be reached or the
+    question fails."""
+    if not _url(url):
+        return False
+    st = shared(url)
+    if st is None:
+        return None
+    try:
+        return st.has_map(source_system, target_system)
+    except Exception:
+        _drop_shared(st)
+        return None
 
 
 def map_targets_or_none(source_system: str, code: str, url: str | None = None) -> list[dict[str, Any]] | None:
