@@ -155,7 +155,8 @@ def test_a_job_started_before_a_publish_finishes_on_its_own_snapshot(make: Any, 
     job = _run(orch)
     assert job.state == "done", job.error
     assert seen["pinned"] == NIGHT_1 and seen["current"] == NIGHT_2
-    assert seen["before"] == seen["after"] == 3 and seen["search_on"] == NIGHT_1
+    # T-724 (D-490): the job names the generation of its night it pinned, in every read
+    assert seen["before"] == seen["after"] == 3 and seen["search_on"] == f"{NIGHT_1}.g1"
     assert job.snapshot_date == date.fromisoformat(NIGHT_1)  # the pin field, recorded on the job
     assert _count(local) == 5  # the next job reads the new night
     again = _run(orch)
