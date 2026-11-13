@@ -23,7 +23,9 @@ from tb_testkit import scale
 
 from tools import scale_gate as sg
 
-pytestmark = pytest.mark.perf
+# D-674: not under the suite's default limit of 900 s per test. The gate is one fixture that runs a whole night; the
+# night of 50,000 patients ingests for about 820 s alone. 0 is "no limit"; the nightly job's own limit ends a hang.
+pytestmark = [pytest.mark.perf, pytest.mark.timeout(sg.limit_s())]
 PATIENTS = int(os.environ.get("TB_SCALE_PATIENTS") or 300)
 
 

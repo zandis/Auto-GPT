@@ -496,6 +496,10 @@ def markdown(rows: Sequence[Mapping[str, Any]], head: Sequence[str], runs: Seque
     out += ["", "| Process | Service cap | Mode | Result | Peak | Seconds |", "| --- | --- | --- | --- | --- | --- |"]
     for p in runs:
         res = "killed at the cap" if p.oom else ("ok" if p.rc == 0 else f"exit {p.rc}")
+        if p.rc is None and not p.oom:  # D-674: a report written while the process runs
+            out.append(f"| {p.name} | {f'{p.service} {gib(p.cap)}' if p.cap else 'none'} | {p.mode} | still running "
+                       "| not yet | not yet |")  # fmt: skip
+            continue
         cap = f"{p.service} {gib(p.cap)}" if p.cap else "none"
         out.append(f"| {p.name} | {cap} | {p.mode} | {res} | {gib(p.peak)} | {p.seconds:.0f} |")
     out += [

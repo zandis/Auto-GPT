@@ -128,6 +128,20 @@ class Report:
     notes: list[str] = field(default_factory=list)
     profile_facts: dict[str, Any] = field(default_factory=dict)  # the dense profile's own numbers
     numbers: dict[str, Any] = field(default_factory=dict)
+    #: NEW-B-33 (D-674): the part the gate is in ("" once it has ended). The report is written before every part,
+    #: so a gate that is cut (a time limit, a kill, a runner that goes away) leaves what it measured till then.
+    unfinished: str = ""
+
+    def progress(self, part: str) -> None:
+        """The gate enters ``part``: write the report of what is measured so far, marked NOT FINISHED."""
+        self.unfinished = part
+        self.write()
+
+    def write(self) -> None:
+        out = self.params.out
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "scale_gate.json").write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
+        (out / "scale_gate.md").write_text(self.markdown(), encoding="utf-8")
 
     def check(self, cid: str, passed: bool | None, detail: str, blocked_by: str = "") -> None:
         assert cid in CHECKS, cid
@@ -137,7 +151,7 @@ class Report:
         return verdict(self.checks, EXPECTED, self.params.patients)
 
     def ok(self) -> bool:
-        return gate_ok(self.rows())
+        return not self.unfinished and gate_ok(self.rows())
 
     def markdown(self) -> str:
         p = self.params
@@ -149,7 +163,17 @@ class Report:
             f"restart after call {p.restart_after or 'never'}.",
             *(f"Note: {n}" for n in self.notes),
         ]
-        return markdown(self.rows(), head, self.runs)
+        if not self.unfinished:
+            return markdown(self.rows(), head, self.runs)
+        head.append(
+            f"**NOT FINISHED: {self.unfinished}.** This report was written when the gate entered that part. If it "
+            "is the last report of a run, the gate was cut there (a time limit, a kill): the rows below are what "
+            "was measured till then, a check without a row was not reached, and a process shown as still running "
+            "has no result and no peak yet."
+        )
+        body = markdown(self.rows(), head, self.runs).rstrip("\n").split("\n")
+        body[-1] = f"Gate: NOT FINISHED (in: {self.unfinished})."
+        return "\n".join(body) + "\n"
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -158,6 +182,7 @@ class Report:
             "profile_facts": self.profile_facts,
             "mode": self.mode,
             "ok": self.ok(),
+            "unfinished": self.unfinished,
             "rows": self.rows(),
             "notes": self.notes,
             "numbers": self.numbers,
@@ -316,6 +341,7 @@ def run(p: Params) -> Report:
     big = max(p.caps.values())
 
     # 1. the input
+    rep.progress("generate")  # D-674: also replaces an earlier run's report in this folder
     site = work / "site"
     gen = enf.run(
         "generate",
@@ -345,6 +371,7 @@ def run(p: Params) -> Report:
     xmx = compose_setting("adapter", "TB_VALIDATOR_XMX")  # the validator's heap inside the adapter's cap, as composed
     if xmx:
         env["TB_VALIDATOR_XMX"] = xmx
+    rep.progress("ingest (nightly)")
     ing = enf.run(
         "ingest (nightly)",
         "adapter",
@@ -362,6 +389,7 @@ def run(p: Params) -> Report:
     nd = work / "lake" / "ndjson" / SNAPSHOT
     if why:
         shutil.rmtree(work / "lake", ignore_errors=True)
+        rep.progress("ingest (back-fill, to feed the rest)")
         bf = enf.run(
             "ingest (back-fill, to feed the rest)",
             "adapter",
@@ -386,9 +414,10 @@ def run(p: Params) -> Report:
             rep.check(cid, None, "no snapshot was written", blocked_by="ingest")
     else:
         _lake_parts(p, rep, enf, work, logs, token)
+    rep.progress("backup (nightly steps)")
     _backup(p, rep, work, db_url)
-    (p.out / "scale_gate.json").write_text(json.dumps(rep.to_json(), indent=1), encoding="utf-8")
-    (p.out / "scale_gate.md").write_text(rep.markdown(), encoding="utf-8")
+    rep.unfinished = ""
+    rep.write()
     return rep
 
 
@@ -432,6 +461,7 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
             ):
                 rep.check(cid, None, "the lake service did not start", blocked_by="rebuild")
             return
+        rep.progress("site publish and lake rebuild")
         built = _publish(p, rep, url, alive, token)
         lake_died = not alive()
         if lake_died:
@@ -457,6 +487,7 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
             for cid in ("screen.ends_under_cap", "screen.model_faults_seen", "screen.outage_no_unknown"):
                 rep.check(cid, None, "the lake has no built snapshot", blocked_by="rebuild")
             return
+        rep.progress("screen (cascade)")
         _screen(p, rep, enf, work, logs, url, alive, token)
     if not lake_died:  # the lake lived to the end: its whole run's peak against its cap
         why = _over(lake_run)
@@ -885,6 +916,15 @@ def _backup(p: Params, rep: Report, work: Path, db_url: str) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ the command
+def limit_s() -> float:
+    """NEW-B-33 (D-674): the time limit of the gate's test, in seconds: ``TB_SCALE_LIMIT_S``, else 0, which is "no
+    limit" to pytest-timeout. Not the suite's default (900 s per test): the gate is one fixture that runs a whole
+    night, and a night is measured, not budgeted. The nightly job's own ``timeout-minutes`` ends a hang; a person
+    who wants a bound on their own machine sets the variable."""
+    raw = os.environ.get("TB_SCALE_LIMIT_S", "").strip()
+    return float(raw) if raw else 0.0
+
+
 def params_from_env(out: Path, patients: int | None = None, profile: str | None = None) -> Params:
     """The gate's settings from ``TB_SCALE_*`` (the nightly job's values are in trialbox-e2e.yml)."""
     e = os.environ
