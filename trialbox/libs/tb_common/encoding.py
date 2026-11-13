@@ -40,7 +40,7 @@ from pathlib import Path
 THRESHOLD = 0.6
 # character sets that are never chosen unless asked for, but are weighed: when one reads a file as well as the
 # chosen candidate, the file is refused rather than read wrong (GB18030 against Big5, EUC-JP against CP932)
-RIVALS: tuple[str, ...] = ("cp932", "big5", "euc_jp", "gb18030")
+RIVALS: tuple[str, ...] = ("cp932", "big5", "euc_jp", "gb18030", "euc_kr", "cp1252")
 UTF8_SURE = 3  # valid UTF-8 with at least this many usual non-ASCII characters is read without weighing
 UTF8_IMPLAUSIBLE = 0.3  # valid UTF-8 scoring this or less is weighed against the legacy readings, however long
 UTF8_HEAD_START = 0.3  # what being valid UTF-8 is worth when it is weighed
@@ -111,6 +111,7 @@ _WESTERN = re.compile(
     "|".join(
         (
             r"(?<=[A-Za-z])[\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u00ff]{1,2}(?=[a-z])",  # Sjögren, Ménière, naïve
+            r"(?<=[a-z]{2})[\u00e0-\u00f6\u00f8-\u00ff](?![A-Za-z0-9\u0080-\uffff])",  # José, café, résumé
             r"(?<=[0-9])\u00b0(?=[CF](?![A-Za-z]))|(?<=[0-9] )\u00b0(?=[CF](?![A-Za-z]))",  # 38°C, 37.5 °C
             r"(?<![A-Za-z])[\u00b5\u03bc](?=(?:mol|kat|IU|Eq|[glLmMsU])(?![a-z]))",  # µg, µmol/L, μL
             r"(?<=m)[\u00b2\u00b3](?![A-Za-z0-9])",  # m², cm³
@@ -129,20 +130,75 @@ def _western_only(text: str) -> bool:
     return all(i in covered for i, ch in enumerate(text) if not ch.isascii())
 
 
-def _weight(codec: str, ch: str, text: str, i: int) -> float:
-    """How usual ``ch`` (a non-ASCII character decoded by ``codec``) is in that character set, 0..1."""
+_WESTERN_SCAN = 4  # accented letters looked at on each side of one: a western word has no longer run of them
+# a run of accented letters with nothing ASCII beside it (``ÄÖÜ``) is the same bytes as half-width kana (``ﾄﾖﾜ``).
+# Weighed so that such a run alone ties and is refused, and a kana name with its voicing marks and spaces (which
+# are symbols in Windows-1252) is still read: at 0.9 half of a fuzz of kana-name sheets was refused, at 0.75 five
+# of 3,600 western lines were read as kana
+_WESTERN_ALONE = 0.8
+
+
+def _weight_western(text: str, i: int) -> float:
+    """How usual the non-ASCII character at ``i`` is in western single-byte text (Windows-1252), which is never a
+    candidate and is weighed as a rival: ``ATENÇÃO`` is the same bytes as ``ATENﾇﾃO``. An accented letter in a run
+    that touches an ASCII letter is a western word; a typographic quote or dash beside a letter or a space is
+    western punctuation; a run of accented letters with nothing ASCII beside it is not told from half-width kana
+    and weighs little, so a column of kana names is still read."""
+    ch = text[i]
+    o = ord(ch)
+    if 0xC0 <= o <= 0xFF and o not in (0xD7, 0xF7):
+        lo = hi = i
+        while lo > 0 and i - lo < _WESTERN_SCAN and 0xC0 <= ord(text[lo - 1]) <= 0xFF:
+            lo -= 1
+        while hi + 1 < len(text) and hi - i < _WESTERN_SCAN and 0xC0 <= ord(text[hi + 1]) <= 0xFF:
+            hi += 1
+        before = text[lo - 1] if lo > 0 else ""
+        after = text[hi + 1] if hi + 1 < len(text) else ""
+        word = (before.isascii() and before.isalpha()) or (after.isascii() and after.isalpha())
+        return 1.0 if word else _WESTERN_ALONE
+    if ch in "\u2018\u2019\u201c\u201d\u2013\u2014\u2026":
+        return 0.9
+    if 0xA0 <= o <= 0xBF or o in (0xD7, 0xF7):
+        return 0.6
+    return 0.3
+
+
+def _hw_runs_ok(text: str) -> dict[int, bool]:
+    """:func:`_hw_run_ok` for every half-width katakana of ``text``, in one pass: each run's start is looked at
+    once. Walking back from every character took time quadratic in the length of a run (8,000 in a row: 17 s)."""
+    out: dict[int, bool] = {}
+    ok = False
+    inside = False
+    for i, ch in enumerate(text):
+        if ord(ch) in _HW_KANA:
+            if not inside:
+                ok = ch not in _HW_NOT_FIRST
+                inside = True
+            out[i] = ok
+        else:
+            inside = False
+    return out
+
+
+def _weight(codec: str, ch: str, text: str, i: int, hw_ok: dict[int, bool] | None = None) -> float:
+    """How usual ``ch`` (a non-ASCII character decoded by ``codec``) is in that character set, 0..1. ``hw_ok`` is
+    :func:`_hw_runs_ok` of ``text`` when the caller scores a whole text."""
     cat = unicodedata.category(ch)
     if cat in ("Co", "Cc", "Cn", "Cs") or ch == "\ufffd":
         return 0.0
     if codec in ("utf-8", "utf-8-sig"):
         return _weight_utf8(ch)
+    if codec == "cp1252":
+        return _weight_western(text, i)
+    if codec == "euc_kr":  # a rival only: Hangul syllables are Korean text, the rest of the set is rarely written
+        return 1.0 if 0xAC00 <= ord(ch) <= 0xD7A3 else 0.3
     try:
         b = ch.encode(codec)
     except UnicodeEncodeError:
         return 0.0
     if codec == "cp932":
         if len(b) == 1:  # half-width katakana
-            return 1.0 if _hw_run_ok(text, i) else 0.05
+            return 1.0 if (hw_ok[i] if hw_ok is not None else _hw_run_ok(text, i)) else 0.05
         hi = b[0]
         if hi == 0x81:
             return 0.8  # punctuation and symbols
@@ -200,7 +256,8 @@ def _weight(codec: str, ch: str, text: str, i: int) -> float:
 def score(codec: str, text: str) -> float:
     """The mean :func:`_weight` of the non-ASCII characters of ``text`` (1.0 for ASCII-only text)."""
     sample = text[:_SAMPLE]
-    w = [_weight(codec, ch, sample, i) for i, ch in enumerate(sample) if not ch.isascii()]
+    hw_ok = _hw_runs_ok(sample) if codec == "cp932" else None
+    w = [_weight(codec, ch, sample, i, hw_ok) for i, ch in enumerate(sample) if not ch.isascii()]
     return sum(w) / len(w) if w else 1.0
 
 
@@ -308,6 +365,10 @@ def detect(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, float]
         if mixed is not None:
             raise EncodingRefused("the file mixes two character sets", mixed) from None
     else:
+        if "\ufffd" in text:
+            # a UTF-8 file damaged before it reached the box: UTF-8, so that :func:`decode` refuses it with the line
+            # of the replacement character (as a rival, Windows-1252 reads its three bytes better than UTF-8 does)
+            return "utf-8", 1.0
         utf8 = score("utf-8", text)
         usual = sum(1 for ch in text[:_SAMPLE] if not ch.isascii() and _weight_utf8(ch) >= 0.9)
         if usual >= UTF8_SURE or not scored or text.isascii():
@@ -325,7 +386,13 @@ def detect(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, float]
     # another candidate (or UTF-8) must be clearly behind; a rival nobody asked for must not read the file better
     rival = max((s for s, c in scored if c != codec and c in allowed), default=0.0)
     outsider = max((s for s, c in scored if c not in allowed), default=0.0)
-    confidence = _confidence(best, rival) if outsider <= best else 0.0
+    if len({_family(c) for c in candidates}) == 1:
+        # the caller says what the file is (a vendor's master is Shift_JIS): a rival must read it better to refuse it
+        confidence = _confidence(best, rival) if outsider <= best else 0.0
+    else:
+        # a file of unknown origin: the reading taken must lead EVERY other reading clearly, a rival's too. Short
+        # EUC-JP, GB18030 or Windows-1252 text tied with its Shift_JIS or Big5 reading and was read as that
+        confidence = _confidence(best, max(rival, outsider))
     if confidence < THRESHOLD:
         others = ", ".join(f"{c} {s:.2f}" for s, c in scored)
         raise EncodingRefused(f"the character set cannot be told for certain ({others})")
@@ -354,13 +421,18 @@ def _cjk(ch: str) -> bool:
     return 0x3040 <= o <= 0x30FF or 0x3400 <= o <= 0x9FFF or 0xF900 <= o <= 0xFAFF or 0xFF66 <= o <= 0xFF9F
 
 
+UPLOAD_WESTERN_TEXT = 40  # ASCII letters that make an upload a western document, not a cell (two short sentences)
+
+
 def decode_upload(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, str]:
     """``(text, codec)`` of a text file a person uploads (UX-004): a protocol as text, a data dictionary.
 
     Such a file is mostly western text and has always been read as UTF-8, so **bytes that are valid UTF-8 are
-    UTF-8**: :func:`detect` weighs a few non-ASCII bytes against Shift_JIS and Big5 (right for a sheet of CJK cells,
-    where legacy bytes can pass for UTF-8), and would refuse ``38°C`` or read a Cyrillic line as half-width kana.
-    A file with a UTF-16 byte order mark (Notepad's "Unicode") is UTF-16.
+    UTF-8 when the file is a document**: with a byte order mark, all ASCII, or holding at least
+    :data:`UPLOAD_WESTERN_TEXT` ASCII letters. :func:`detect` would refuse such a protocol for one ``§``. A shorter
+    file is a cell or a line and is judged as a sheet is (:func:`decode`): a legacy cell whose bytes are valid
+    UTF-8 by chance is refused, not read as ``¦``. A file with a UTF-16 byte order mark (Notepad's "Unicode") is
+    UTF-16.
 
     Only bytes that are not UTF-8 are given to :func:`decode`, and its answer is taken only when the text it reads
     is CJK text: at least one run of two CJK characters. A western file in Windows-1252 has no such run; each of its
@@ -372,9 +444,18 @@ def decode_upload(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str,
         except UnicodeDecodeError as exc:
             raise EncodingRefused("the file starts as UTF-16 and is not") from exc
     try:
-        return data.decode("utf-8-sig"), "utf-8-sig" if data.startswith(codecs.BOM_UTF8) else "utf-8"
+        text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         pass
+    else:
+        if data.startswith(codecs.BOM_UTF8):
+            return text, "utf-8-sig"
+        # a document: enough western text that it is not a legacy cell whose two bytes are valid UTF-8 by chance
+        # (Big5 礎 is ``¦``; GB18030 转院 is a Hebrew and an Armenian letter). Shorter text is judged as a sheet is
+        if text.isascii() or sum(1 for ch in text[:_SAMPLE] if ch.isascii() and ch.isalpha()) >= UPLOAD_WESTERN_TEXT:
+            return text, "utf-8"
+        detect(data, candidates)  # D-599: for bytes that are valid UTF-8 the answer is UTF-8 or a refusal
+        return text, "utf-8"
     text, codec = decode(data, candidates)
     if not any(_cjk(a) and _cjk(b) for a, b in itertools.pairwise(text)):
         raise EncodingRefused("the file is not UTF-8 and does not read as Japanese or Chinese text")
