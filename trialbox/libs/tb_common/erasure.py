@@ -411,6 +411,13 @@ OBJECTS: dict[str, Entry] = {
 OUTSIDE: dict[str, Entry] = {
     "outside:fhir_store": _owed("the FHIR store (HAPI, database hapi): every resource of the patient"),
     "outside:backups": _owed("every backup: the databases, the lake, the FHIR store", "the backups (with T-728)"),
+    "outside:sitesetup_space_omop": _owed(
+        "the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake "
+        "folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of "
+        "the space drops it whole (D-714)",
+        "the opt-out's clear in a practice space's store",
+        card="NEW-SITE-4 (a card after it)",
+    ),
     "outside:audit": _keep(
         "D-394",
         "the audit chain and its journal: append-only, hash-chained; the opt-out's own "

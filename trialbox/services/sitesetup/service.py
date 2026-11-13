@@ -600,13 +600,47 @@ class SiteSetup:
         if ws == "main":
             raise SetupError("SETUP-WS", "the hospital's own data cannot be reset here")
         ws_ok(ws)
+        # NEW-SITE-4 (D-714): first, and before anything else is deleted: when the store cannot be dropped the
+        # error goes on and the space is as it was (a reset that left the patients in the database said "reset")
+        omop = self._drop_space_store(ws)
         self.store.reset(ws)
         import shutil
 
         with contextlib.suppress(FileNotFoundError):
             shutil.rmtree(self.root / ws)
         self._lakes.pop(ws, None)
-        self.audit.append("setup.reset", actor=by, detail={"ws": ws})
+        self.audit.append("setup.reset", actor=by, detail={"ws": ws, "omop_store": omop})
+
+    def _drop_space_store(self, ws: str) -> str:
+        """Drop the OMOP store of record a publish made for this space's own lake, when there is one (D-714).
+
+        With the lake built from OMOP (``lake.source`` = ``omop``) a publish of a space other than ``main`` loads
+        ``omop_<hash of the space's lake folder>`` in the trial database (``omop.schema.schema_for``), and an upload
+        can hold a site's real rows. The name comes from this space's own folder, so no other space's store and
+        never the hospital's (``omop``) can be the one dropped. Asked of the catalogue first: nothing is made for
+        a space that never had one. Returns ``dropped`` or ``none``."""
+        import os
+
+        from omop import schema
+        from tb_common.db import ENV, Database, split_url
+
+        url = os.environ.get(ENV)
+        if not url:
+            return "none"  # no trial database: no store of record was ever made
+        name = schema.schema_for(self.root / ws / "lake")
+        if name == schema.SCHEMA or not name.startswith(f"{schema.SCHEMA}_"):
+            raise SetupError("SETUP-WS", "the hospital's own data cannot be reset here")
+        full = split_url(url)[1] + name
+        with Database.connect(url, "sitesetup") as db:  # the set-up's own store: only to read the catalogue
+            if not db.fetchval("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = ?)", (full,)):
+                return "none"
+        lake = self._lakes.pop(ws, None)  # a library lake of this process may hold the store open
+        if lake is not None:
+            with contextlib.suppress(Exception):
+                lake.close()
+        with Database.connect(url, name) as own:  # as the publish that made it (it exists: nothing is created)
+            own.execute(f'DROP SCHEMA "{full}" CASCADE')  # nosec B608 - our own name, checked above
+        return "dropped"
 
 
 def _pending(last: dict[str, Any] | None, wait: int, held: int, building: bool = False) -> dict[str, Any]:
