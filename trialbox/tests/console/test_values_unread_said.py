@@ -121,7 +121,7 @@ def test_the_runs_list_is_read_once_for_views_of_the_same_run(
     asked: list[str] = []
     real = backend.get_object
 
-    def counted(self: Any, key: str) -> bytes:
+    def counted(self: Any, key: str) -> Any:
         asked.append(key)
         return real(self, key)
 
