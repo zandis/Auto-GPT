@@ -41,6 +41,8 @@ TPM_ALONE = "Tpm"
 # the box's disk unlock setting (D-494 point 6; NEW-WIN-8, D-603), recorded on the Windows side by box-install.ps1.
 # No setting recorded (a workstation not installed by the box installer) is judged as D-421 wrote: tpm_pin
 UNLOCK_TPM = "tpm"
+# protectors that open the system drive with nobody there: the TPM alone, or the TPM with the site's network unlock
+NOBODY_THERE = frozenset({"Tpm", "TpmNetworkKey"})
 UNLOCK_TPM_PIN = "tpm_pin"
 DRIFT_WARN_S = 5
 DRIFT_FAIL_S = 60  # the skew beyond which T-211a refuses jobs
@@ -145,15 +147,17 @@ def check_bitlocker(facts: Facts, v: Verdicts) -> None:
         if tag != system:
             # NEW-WIN-8 (D-603): the data drive must open with the system drive, or the virtual disk stays locked
             # after a restart with nobody there. Facts of an older host_facts.ps1 carry no such line: not judged
-            auto = facts.get(f"bitlocker_{tag}_autounlock", "")
-            if auto == "False":
+            auto = facts.get(f"bitlocker_{tag}_autounlock", "").strip().lower()
+            if auto not in ("", "true", "false", "0", "1"):
+                v.warn(f"BitLocker on {tag}: ({role}) automatic unlock not read ('{auto}')")
+            elif auto in ("false", "0"):
                 v.policy(
                     f"BitLocker on {tag}: ({role}) does not unlock by itself at start (automatic unlock off): "
                     f"after a restart the WSL2 disk stays locked (Enable-BitLockerAutoUnlock {tag}:)"
                 )
             else:
                 v.ok(f"BitLocker on {tag}: ({role}) FullyEncrypted, {method or 'method ?'}"
-                     + (", unlocks with the system drive" if auto == "True" else ""))  # fmt: skip
+                     + (", unlocks with the system drive" if auto in ("true", "1") else ""))  # fmt: skip
             continue
         prot = _protectors(facts, tag)
         unlock = facts.get("bitlocker_unlock", "").strip().lower()
@@ -161,9 +165,13 @@ def check_bitlocker(facts: Facts, v: Verdicts) -> None:
             # D-494 point 6, NEW-WIN-8 (D-603): the box's declared setting. The TPM opens the drive, so the
             # workstation returns after a restart with nobody there; the Windows sign-in and the console's sign-in
             # stand between a stolen workstation and the data. Recorded by box-install.ps1 (HKLM, administrators)
-            if any(p.startswith("Tpm") for p in prot):
+            if NOBODY_THERE.intersection(prot):
                 v.ok(f"BitLocker on {tag}: ({role}) FullyEncrypted, {method or 'method ?'}, unlock {','.join(prot)} "
                      "(bitlocker_unlock=tpm: starts with nobody there, D-494)")  # fmt: skip
+            elif any(p.startswith("Tpm") for p in prot):
+                v.policy(f"BitLocker on {tag}: bitlocker_unlock=tpm, but the drive asks for a PIN or a key at start "
+                         f"(protectors {','.join(prot)}): a person is needed at every restart (record tpm_pin, or "
+                         "add the TPM protector)")  # fmt: skip
             else:
                 v.fail(f"BitLocker on {tag}: bitlocker_unlock=tpm, but the TPM does not open the drive (protectors "
                        f"{','.join(prot) or 'none'}): a person is needed at every restart")  # fmt: skip

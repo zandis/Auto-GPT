@@ -83,6 +83,9 @@ foreach ($d in $drives) {
   Fact "bitlocker_${tag}_protectors" ((@($bl.KeyProtector) | ForEach-Object { [string]$_.KeyProtectorType }) -join ",")
   Fact "bitlocker_${tag}_autounlock" ([bool]$bl.AutoUnlockEnabled)
 }
+# who keeps the recovery keys: as stated at this check, else as recorded by box-install.ps1 when the owner
+# confirmed each key at the install (NEW-WIN-8, D-603)
+if (-not $RecoveryKeyEscrow) { $RecoveryKeyEscrow = RegValue "HKLM:\SOFTWARE\TrialBox" "RecoveryKeyKeptBy" }
 Fact "recovery_escrow" $RecoveryKeyEscrow
 # the box's disk unlock setting, recorded by box-install.ps1 (NEW-WIN-8, D-603): tpm or tpm_pin; empty when not set
 Fact "bitlocker_unlock" (RegValue "HKLM:\SOFTWARE\TrialBox" "BitlockerUnlock")

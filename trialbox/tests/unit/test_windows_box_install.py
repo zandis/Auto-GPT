@@ -447,7 +447,11 @@ BITLOCKER_C = {
     [
         # the box's setting tpm (D-494 point 6): the TPM alone opens the drive, and that is what was chosen
         ("tpm", "Tpm,RecoveryPassword", "PASS", "starts with nobody there"),
-        ("tpm", "TpmPin,RecoveryPassword", "PASS", "starts with nobody there"),
+        ("tpm", "TpmNetworkKey,TpmPin,RecoveryPassword", "PASS", "starts with nobody there"),
+        # review L1: a drive that asks for a PIN does not "start with nobody there", whatever the setting says
+        ("tpm", "TpmPin,RecoveryPassword", "FAIL", "asks for a PIN or a key at start"),
+        ("tpm", "Tpm,ExternalKey,RecoveryPassword", "PASS", "starts with nobody there"),
+        ("tpm", "ExternalKey,RecoveryPassword", "FAIL", "the TPM does not open the drive"),
         ("tpm", "Password,RecoveryPassword", "FAIL", "the TPM does not open the drive"),
         ("tpm", "RecoveryPassword", "FAIL", "the TPM does not open the drive"),
         # tpm_pin, and no setting at all (not a box install): D-421's rule stands, the TPM alone is refused
@@ -479,7 +483,10 @@ def test_an_unknown_unlock_setting_is_said_and_judged_as_the_strict_one() -> Non
     assert all(ln.startswith("FAIL") for ln in v.lines)
 
 
-@pytest.mark.parametrize(("auto", "verdict"), [("True", "PASS"), ("False", "FAIL"), ("", "PASS")])
+@pytest.mark.parametrize(
+    ("auto", "verdict"),
+    [("True", "PASS"), ("False", "FAIL"), ("", "PASS"), ("false", "FAIL"), ("0", "FAIL"), ("Unknown", "WARN")],
+)
 def test_the_data_drive_must_open_with_the_system_drive(auto: str, verdict: str) -> None:
     pol = _policy()
     v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
@@ -500,14 +507,25 @@ def test_the_data_drive_must_open_with_the_system_drive(auto: str, verdict: str)
     assert ("unlocks with the system drive" in line) is (auto == "True")
 
 
+def test_the_owners_confirmation_at_the_install_answers_where_the_recovery_key_is_kept() -> None:
+    """Review L3: a box set up by the installer must not fail "say where the recovery password is kept"."""
+    facts = (WIN / "host_facts.ps1").read_text(encoding="utf-8")
+    assert 'RegValue "HKLM:\\SOFTWARE\\TrialBox" "RecoveryKeyKeptBy"' in facts
+    assert 'Set-TbMachineSetting "RecoveryKeyKeptBy"' in PS1.read_text(encoding="utf-8")
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    kept = "the box owner (each key shown and confirmed at the install)"
+    facts_c = {**BITLOCKER_C, "bitlocker_C_protectors": "Tpm,RecoveryPassword", "recovery_escrow": kept}
+    pol.check_recovery(facts_c, v)  # type: ignore[attr-defined]
+    assert v.lines[0].startswith("PASS") and "the box owner" in v.lines[0]
+
+
 def test_host_facts_prints_the_unlock_setting_and_the_installer_records_it_where_only_administrators_write() -> None:
     facts = (WIN / "host_facts.ps1").read_text(encoding="utf-8")
     ps1 = PS1.read_text(encoding="utf-8")
     assert 'Fact "bitlocker_unlock" (RegValue "HKLM:\\SOFTWARE\\TrialBox" "BitlockerUnlock")' in facts
     assert 'Fact "bitlocker_${tag}_autounlock"' in facts
-    assert (
-        '$key = "HKLM:\\SOFTWARE\\TrialBox"' in ps1 and 'Set-TbMachineSetting "BitlockerUnlock" $BitLockerUnlock' in ps1
-    )
+    assert '$key = "HKLM:\\SOFTWARE\\TrialBox"' in ps1 and 'Set-TbMachineSetting "BitlockerUnlock" $unlock' in ps1
 
 
 def test_the_installer_never_turns_bitlocker_off_and_never_logs_or_stores_a_recovery_key() -> None:
@@ -517,11 +535,14 @@ def test_the_installer_never_turns_bitlocker_off_and_never_logs_or_stores_a_reco
     )
     # the key's variable reaches the window and the printer only: no log line, no state field, no Say (Say logs)
     lines = [ln for ln in ps1.splitlines() if "$secret" in ln]
-    assert len(lines) >= 8
+    assert len(lines) >= 4
     for line in lines:
         assert not re.search(r"Write-TbLog|Say |TbState\.|Set-Content|WriteAllText|Out-File|Invoke-TbNative", line), (
             line
         )
+    # the same for the pair the seam returns (its Password field): handed to Confirm-TbRecoveryKey and nowhere else
+    uses = [ln.strip() for ln in ps1.splitlines() if "$rp.Password" in ln]
+    assert uses == ["Confirm-TbRecoveryKey $drv $rp.Password"], uses
 
 
 def test_the_key_probe_handles_a_dummy_value_only_and_uses_the_boot_tasks_sign_in() -> None:
@@ -531,13 +552,29 @@ def test_the_key_probe_handles_a_dummy_value_only_and_uses_the_boot_tasks_sign_i
     assert "RandomNumberGenerator" in probe and "$dummy" in probe
     # nothing of TrialBox's is read: no secrets folder, no key file, no .env, no site folder
     assert not re.search(r"secrets|\.env|site[/\\]|kek|vendor_ed25519|\.pem|RecoveryPassword", probe, re.I)
-    # the same principal as the boot task, and the task is removed again
+    # the same principal as the boot task
     keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")
     assert "-LogonType S4U -RunLevel Highest" in probe and "-LogonType S4U -RunLevel Highest" in keep
-    assert "Unregister-ScheduledTask -TaskName $TaskName" in probe
-    # the value reaches WSL2 on standard input, never as an argument of wsl.exe
+    # the value reaches WSL2 on standard input, never as an argument of wsl.exe; no tool beyond the base system
     hand = next(ln for ln in probe.splitlines() if "wsl.exe -d $Distro" in ln)
     assert hand.strip().startswith("$out = $hex | & wsl.exe") and "$hex" not in hand.split("wsl.exe", 1)[1]
+    assert "xxd" not in probe
+
+
+def test_the_key_probe_decides_at_startup_with_nobody_signed_in_and_leaves_no_task() -> None:
+    """Review of NEW-WIN-8, H3 and L6: the run that decides is the one at startup, as the boot task runs."""
+    probe = (WIN / "key-probe.ps1").read_text(encoding="utf-8")
+    assert "New-ScheduledTaskTrigger -AtStartup" in probe and "[switch]$Collect" in probe
+    assert "desktop_shells_running=" in probe and "ran_at=" in probe
+    # the on-demand task is removed also when the run dies; the startup task is removed by -Collect
+    assert re.search(r"\} finally \{[^}]*Unregister-ScheduledTask -TaskName \$TaskName", probe, re.S)
+    collect = probe[probe.index("if ($Collect) {") : probe.index("$dummy = New-Object byte[] 32")]
+    assert "Unregister-ScheduledTask -TaskName $TaskName" in collect
+    # the task runs a copy in the installer's closed folder, not a path on the media, and the folder is not a parameter
+    assert "$copy = Join-Path $ProbeDir" in probe and "$PSCommandPath, $mode" not in probe
+    assert "[string]$ProbeDir" not in probe
+    sheet = (ROOT / "docs/handover/P-0-windows-rehearsal.md").read_text(encoding="utf-8")
+    assert "key-probe.ps1 -AtStartup" in sheet and "key-probe.ps1 -Collect" in sheet
 
 
 def test_an_unknown_step_is_an_error(box: Box) -> None:

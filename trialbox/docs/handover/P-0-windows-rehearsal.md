@@ -100,19 +100,24 @@ After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WS
 
 **Choose first.** On a PC that may be encrypted (and stay so), run the installer as it is: lines 28 to 35 happen
 during Part 1, at step 4. On a PC that must stay unencrypted, add `-SkipBitLocker` to the installer's start, skip
-to line 36, and write that you did. Never send a recovery key back; write only "shown" and "confirmed".
+to line 36a, and write that you did. Never send a recovery key back; write only "shown" and "confirmed".
 
 | # | Do | Expect | Record |
 | --- | --- | --- | --- |
 | 28 | Before the installer: `Get-BitLockerVolume` and `Get-Tpm` in an administrator window | (the starting point) | For each drive: VolumeStatus, ProtectionStatus, the protector types (not the key). TpmPresent, TpmReady. Whether the PC is signed in with a Microsoft account or joined to a domain |
-| 29 | At step 4, on a drive that was not encrypted | "BitLocker recovery key for drive C:" with 48 digits, the question about the printer, then the request for the last six digits. **No restart is asked for** | Whether a restart or a "hardware test" was asked for; any red text. Not the key |
-| 30 | Answer `y` to the printer question on one drive | A page with the key comes out of the default printer | Whether it printed; what the window said if it did not |
-| 31 | Type six wrong digits once, then the right ones | "Those are not the last six digits", then the install goes on | - |
-| 32 | A second drive, if the PC has one and you chose it as the data drive | Its own key the same way; no question about a password for that drive after a restart | After the next restart (line 25): is the data drive open before anyone signs in? `Get-BitLockerVolume` shows AutoUnlockEnabled True |
+| 29 | At step 4, on a drive that was not encrypted | "BitLocker recovery key for drive C:" with 48 digits, the question about the printer (it names the printer), then the request for the last six digits; the window is cleared; only then does encryption start. **No restart is asked for** | Whether the key appeared BEFORE `Get-BitLockerVolume` (in another window) showed the drive encrypting; whether a restart or a "hardware test" was asked for; any red text. Not the key |
+| 29a | Close the installer's window while it waits for the six digits (once, on a drive that was not encrypted), then `Get-BitLockerVolume` | The drive is still FullyDecrypted (a recovery password protector may be listed; nothing is encrypted). Starting the installer again shows the same key | VolumeStatus; whether the same key came again (yes or no) |
+| 30 | Answer `y` to the printer question on one drive | A page with the key comes out of the printer the question named | Whether it printed; the printer's kind (beside you, shared, "print to PDF"); what the window said if it did not |
+| 31 | Type six wrong digits once, then the right ones | "Those are not the last six digits", then the window is cleared and the install goes on | Whether the key can still be scrolled back to in the window |
+| 32 | A second drive, if the PC has one and you chose it as the data drive | Its own key the same way; no "did not set it to open together with the system drive" stop | `Get-BitLockerVolume` for it right after step 4: AutoUnlockEnabled, and how many RecoveryPassword protectors it lists (two are expected). After the next restart (line 25): is the drive open before anyone signs in? |
 | 33 | On a PC that came already encrypted | The window shows the existing key and asks for its last six digits; nothing is encrypted again | Whether the key shown equals the one in your Microsoft account or on your sheet (yes or no, not the key) |
-| 34 | After the install: `Get-BitLockerVolume`, and the host check's lines (`wsl -d TrialBox -u root -- sh /opt/trialbox/deploy/check_host.sh`, the lines that start "BitLocker") | Both drives EncryptionInProgress or FullyEncrypted, protection On. The host check: "still encrypting", later "starts with nobody there (bitlocker_unlock=tpm ...)" and "unlocks with the system drive" | The lines |
-| 35 | Search the log for a recovery key: `Select-String -Path C:\ProgramData\TrialBox\box-install\box-install.log -Pattern "\d{6}-\d{6}"` and the same on `state.json` | No match | The two answers |
-| 36 | **The key probe.** After the install is finished, as the owner in an administrator window: `powershell -NoProfile -ExecutionPolicy Bypass -File <media>\windows\key-probe.ps1` | About a minute, then five lines: `ran_as=`, `dpapi_user=`, `dpapi_machine=`, `acl_file=`, `wsl_handover=`, each `ok` or `fail: <why>` | All of its lines (they hold no secret: the value is random bytes made for the probe). This decides how the site keys are held |
+| 34 | During and after the install: `Get-BitLockerVolume`, and the host check's lines (`wsl -d TrialBox -u root -- sh /opt/trialbox/deploy/check_host.sh`, the lines that start "BitLocker") | Both drives EncryptionInProgress, later FullyEncrypted with protection On. The host check: while encrypting "still encrypting" or a FAIL naming the state; when done "starts with nobody there (bitlocker_unlock=tpm ...)", "unlocks with the system drive" and "BitLocker recovery: password kept by the box owner" | VolumeStatus AND ProtectionStatus while it encrypts (the installer assumes protection may read Off then); the host check's lines at both times |
+| 34a | Start the installer again while a drive still encrypts | It goes on; no "suspended" stop | The window's text at step 4 |
+| 35 | Search for a recovery key where it must not be: `Select-String -Path C:\ProgramData\TrialBox\box-install\box-install.log -Pattern "\d{6}-\d{6}"`, the same on `state.json`, and `Get-ChildItem $env:USERPROFILE\Documents -Filter PowerShell_transcript* -Recurse` | No match in the two files. No transcript file (if there is one, the PC records PowerShell windows: the installer should have stopped instead of showing a key) | The three answers |
+| 35a | As a **standard** account: `Set-ItemProperty HKLM:\SOFTWARE\TrialBox -Name BitlockerUnlock -Value tpm` | Refused | The answer |
+| 36a | **The key probe, the run that decides.** After the install is finished, as the owner in an administrator window: `powershell -NoProfile -ExecutionPolicy Bypass -File <media>\windows\key-probe.ps1 -AtStartup`. Restart Windows. **Do not sign in for five minutes.** Sign in, then `... key-probe.ps1 -Collect` | Lines `mode=at_startup`, `ran_at=`, `ran_as=`, `desktop_shells_running=0`, then `dpapi_user=`, `dpapi_machine=`, `acl_file=`, `wsl_handover=`, each `ok` or `fail: <why>` | All of its lines, and the time you signed in. `ran_at` must be before your sign-in and `desktop_shells_running` 0: otherwise the run did not happen with nobody there, and it is repeated |
+| 36b | The same probe on demand, for comparison: `... key-probe.ps1` (no switch) | The same lines with `mode=on_demand` | All of its lines |
+| 36c | `Get-ScheduledTask TrialBox-Key-Probe` afterwards | No such task | The answer |
 
 ## What the answers decide
 
@@ -135,6 +140,10 @@ to line 36, and write that you did. Never send a recovery key back; write only "
 - Line 29 "a restart was asked for": BitLocker cannot be turned on in one pass; the installer's step must carry it
   across a restart like step 5 does.
 - Line 32 "no": the data drive stays locked after a restart; the stack cannot come back by itself.
-- Line 36: the key back end is built on the first of `dpapi_user`, `acl_file`, `dpapi_machine` that says `ok`, and
-  needs `wsl_handover=ok`. All `fail` with line 26a "yes": a stored password for the task, or a service (D-602 point 4).
+- Line 29 "the drive was encrypting before the key appeared", or line 29a "the drive was encrypted": the order of
+  D-603 point 2 does not hold on Windows; BitLocker is then set up by hand until it does.
+- Line 34 "protection Off while encrypting": expected; anything else is recorded for the judge's wording.
+- Line 36a: the key back end is built on the first of `dpapi_user`, `acl_file`, `dpapi_machine` that says `ok` AT
+  STARTUP, and needs `wsl_handover=ok` there. Line 36b does not decide: a store that is `ok` only on demand is of
+  no use. All `fail` at startup with line 26a "yes": a stored password for the task, or a service (D-602 point 4).
 - Line 14: the address NEW-WIN-4 must make work from another PC.
