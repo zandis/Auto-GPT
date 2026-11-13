@@ -248,12 +248,12 @@ def test_a_query_the_lake_did_not_answer_is_an_error_of_the_lake_service_with_it
     assert isinstance(got.value, RuntimeError)  # the callers that catch RuntimeError still catch it
 
 
-def test_the_callers_that_read_the_engines_sentence_in_a_failed_query_still_find_it() -> None:
-    from matching.cascade.engine import missing_table
-
+def test_the_engines_sentence_is_still_in_a_failed_querys_error() -> None:
+    """The error keeps the engine's own sentence. No caller reads it to decide any more: ``missing_table`` is gone
+    (D-650), and whether a table is missing is asked of the lake (``tb_common.lakeprobe``, D-649 to D-651)."""
     with pytest.raises(ServiceError) as got:
         _lake(
             {"/query": {"detail": "CatalogException: Catalog Error: Table with name document does not exist!"}},
             status=422,
         ).query("SELECT 1")
-    assert missing_table(got.value, "document") and not missing_table(got.value, "site_fact")
+    assert "Table with name document does not exist" in str(got.value) and got.value.status == 422
