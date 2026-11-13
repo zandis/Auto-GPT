@@ -127,11 +127,14 @@ def test_a_real_lake_says_its_version_and_a_night_it_does_not_hold_is_not_schema
     assert gone.value.status == 503
 
 
-def test_a_real_snapshot_built_before_the_version_was_recorded_is_schema_1_and_its_rows_are_read(
+def test_a_real_lake_file_without_the_version_column_answers_0_and_is_schema_1(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A real lake file whose ``lake_meta`` has no version column (as a schema-1 snapshot), through the service
-    and in process: schema 1, and the rows come without provenance, as before."""
+    """A built snapshot with only the version column dropped, through the service and in process: the lake
+    answers 0, the reader says schema 1 and asks for the rows without provenance. It is NOT a snapshot as schema 1
+    built it: such a file also lacks columns of the tables (``encounter.status`` came with schema 3), and the
+    row queries fail on it, before this card and after (the review; sent to the integrator). The parent's code
+    passes this test once it has the question: it guards the old-snapshot answer, it does not show the defect."""
     real, night = _real_lake(tmp_path / "lake")
     for f in (tmp_path / "lake" / "db").rglob("*.duckdb"):
         if ".open" in f.parts:
@@ -155,3 +158,30 @@ def real_embedder() -> Any:
     from embed_service.embedder import HashEmbedder
 
     return HashEmbedder()
+
+
+def test_the_night_keeps_no_twin_built_on_a_guess_when_the_lake_fails_on_the_layout_question(
+    db_url: str, tmp_path: Path
+) -> None:
+    """The defect, end to end on a real lake and a real store: the lake fails on the layout question only. Before,
+    the night step read "schema 1" and kept two twins without the provenance of their rows; now it keeps none and
+    answers None (the build did not run: the ledger of the night keeps "building", the ingest has passed)."""
+    from tests.unit import test_twin as tt
+
+    store.Lake(tmp_path / "lake", tt.ZONE).rebuild(tt.S1, real_embedder(), tt._write(tmp_path / "nd1", tt._feed()))
+    real = LakeLocal(tmp_path / "lake", real_embedder(), tt.ZONE)
+
+    class FailsOnTheLayout:
+        def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+            if "lake_meta" in sql:
+                raise store.LakeLimitError("LAKE-LIMIT: the query needed more memory than the box allows")
+            return real.query(sql, params, snapshot)
+
+    assert twin.after_ingest(tt._OrchDb(), FailsOnTheLayout(), tt.S1, tt.NOW, db_url) is None
+    kept = twin.ProfileStore(db_url)
+    try:
+        assert kept.current(tt.P1) is None and kept.current(tt.P2) is None
+    finally:
+        kept.close()
+    rep = twin.after_ingest(tt._OrchDb(), real, tt.S1, tt.NOW, db_url)  # the next run, the lake well: built
+    assert rep is not None and rep.inserted == 2

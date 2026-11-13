@@ -197,7 +197,10 @@ CALLERS: dict[tuple[str, str], str] = {
     + "a lake without the fact tables, for its facts query (the report says so); its other two queries go on",
     ("orchestrator/scenarios/screen.py", "practitioner_names"): OPEN + "no names (the settings' ids are shown)",
     ("orchestrator/scenarios/screen.py", "confirmed_facts"): OPEN + "no confirmed fact",
-    ("patient_profile/twin.py", "lake_schema"): GOES_ON,  # NEW-B-35 (D-676): asks the lake for the column
+    # NEW-B-35 (D-676): asks the lake for the column, no handler. Its one caller in the services, the night step
+    # ``twin.after_ingest``, never fails the ingest: it logs the error's type and keeps no twin (the same for
+    # ``read_lake`` below)
+    ("patient_profile/twin.py", "lake_schema"): GOES_ON,
     ("sitesetup/readiness.py", "unknown_share"): OPEN + "(0, 0), a lake with no diagnosis",
     ("sitesetup/readiness.py", "feed_loaded"): OPEN + "no feed loaded",
 }
