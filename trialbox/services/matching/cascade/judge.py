@@ -60,6 +60,10 @@ class JudgeClient(Protocol):
     ) -> JudgeReply: ...
 
 
+#: the fields of an excerpt a model is shown (D-644; ``orchestrator.scenarios.evaluate`` sends the same three)
+SHOWN = ("date", "note_type", "text")
+
+
 @dataclass
 class GatewayJudge:
     """The production judge path: ``libs/tb_llm`` → ``tb-gateway`` (the only route to a model, LLM-1)."""
@@ -105,7 +109,9 @@ class GatewayJudge:
             "criterion_text": criterion_text,
             "note_question": note_question,
             "index_date": index_date.isoformat(),
-            "excerpts": excerpts,
+            # D-644: what a model reads of an excerpt, as NoteJudge sends it. Never the record's id (``did``): an
+            # identifier has no place in a prompt, and a hex id holds digit runs the PHI tripwire refuses
+            "excerpts": [{k: e.get(k) for k in SHOWN} for e in excerpts],
         }
         labels = CallLabels(
             data_class=data_class,
