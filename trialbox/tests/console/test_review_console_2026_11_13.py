@@ -84,6 +84,8 @@ def test_the_administrators_study_view_lists_no_patient_task(box: dict[str, Any]
     admin, _ = login(box["app"])
     home = admin.get("/home?view=studies").text
     assert f"pid={pid}" not in home and pid[:8] not in home
+    assert 'href="/studies/GZQO/week"' not in home  # the study card's list link would be 403 too
+    assert 'href="/studies/GZQO/week"' in crc.get("/home").text
 
 
 @pytest.mark.parametrize("role", ["cro", "viewer", "coordinator", "investigator", "admin", "steward", "privacy"])

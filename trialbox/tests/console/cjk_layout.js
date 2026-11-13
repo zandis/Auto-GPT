@@ -114,6 +114,24 @@ async function measure(page) {
         if (c === "markbar-first-screen") {
           check(m.markbar && m.markbar.bottom <= m.innerHeight + 1 && m.markbar.top >= 0,
             `${name}: the mark bar is not on the first screen (${JSON.stringify(m.markbar)})`);
+        } else if (c === "reason-above-dock") {
+          // review 2026-11-13: pressing "Not suitable" without a reason scrolls to the required select; the sticky
+          // dock must not cover it (the field the browser's message points at)
+          const btn = await page.$("#chart [data-testid^=not_suitable-]");
+          let r = null;
+          if (btn) {
+            await btn.click();
+            await page.waitForTimeout(300);
+            r = await page.evaluate(() => {
+              const sel = document.querySelector("#chart select[name=reason]");
+              const dock = document.querySelector("#chart .chartdock");
+              if (!sel || !dock) return null;
+              const a = sel.getBoundingClientRect(), d = dock.getBoundingClientRect();
+              return { top: a.top, bottom: a.bottom, dock: d.top, h: window.innerHeight };
+            });
+          }
+          check(r && r.top >= 0 && r.bottom <= r.dock + 1,
+            `${name}: after an empty "Not suitable" the reason select is not above the dock (${JSON.stringify(r)})`);
         } else if (c === "worklist-fits") {
           check(m.worklist && m.worklist.scrollWidth <= m.worklist.clientWidth + 1,
             `${name}: the worklist scrolls sideways inside its box (${JSON.stringify(m.worklist)})`);

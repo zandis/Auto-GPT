@@ -20,7 +20,7 @@ running (command, test or screenshot); **read** means found in the code only.
    Critical.
 2. **The demo's first screen will tell the guest the data is stale** (CON-DEMO-1). On Tuesday 2026-11-17 the PI's list
    says "Data as of 2026-11-10: more than two days old. Ask for a new run before you act on this list." A new run
-   does not change it: the demo's data never moves. Owner's decision (section 5).
+   does not change it: the demo's data never moves. Owner's decision (section 6).
 3. **The hosted demo never switches demo mode on** (CON-DEMO-2): uploads are accepted and nobody is asked to confirm
    "synthetic data only" unless the owner remembers `/ops/flags`. A step for Tuesday.
 4. **A guest who picks English on the sign-in page lands in Japanese** (CON-DEMO-3). The demo's language wrapper wins
@@ -47,20 +47,20 @@ decision and model. "Fixed" means fixed on this branch with a test that failed b
 
 | ID | Finding | Evidence | Root cause | Fix | Lane | State |
 | --- | --- | --- | --- | --- | --- | --- |
-| CON-DEMO-1 | On the demo the PI's first screen and every patient page show an amber line: data more than two days old, ask for a new run. On Tuesday 2026-11-17 the data will be 7 days old. Asking for a run does not help. | Verified: PI week page `data-testid="data-asof" data-stale="yes"` "Data as of 2026-11-10…"; a coordinator's SCREEN of GZQO and the scheduler's MICROBATCH at 00:04 both finished `done`, the line still says 2026-11-10. Screenshot `pi-home-ja.png` (scratch). | `home.py:75` `STALE_DAYS = 2` (a fixed limit that is not a declared setting) against D-496, which seeds the demo on the Tuesday before the last Wednesday, so its data is 1 to 7 days old by design and never moves. | Owner decision (section 5). Either the line names the demo ("demonstration data, fixed on 2026-11-10") when the lake has no feed, or the threshold comes from the site's data cadence and is declared in `tb_common.config.DECLARED`. | C2, D | open |
-| CON-DEMO-2 | The hosted demo starts with demo mode off: uploads and pasted chart text are accepted and no account confirms "synthetic data only". | Read: `TB_DEMO_MODE` is set nowhere (`deploy/gcp/hosted-demo-startup.sh:187-194`, `demo/Dockerfile`, `demo/README.md`); `tb_common/flags.py:105-111` default `off`. The intent is in `tests/integration/test_poc_scripts.py:11-12,169` (the owner switches it on after seeding) but no document tells him. | A manual step that lives only in a test. | Tuesday: the owner sets `demo.mode` on `/ops/flags` after the seed. Lasting: set `TB_DEMO_MODE=on` in the hosted start script and say so in `demo/README.md` (both files are in open PR #246: not edited here). | D, G | open |
-| CON-DEMO-3 | The sign-in page's language choice is overridden: picking English or 繁體中文 lands the PI in Japanese. | Verified: `journey.json` `signin_pick_en {loginLang: en, lang: ja}`, same for zh-TW. | `tools/demo.py:309-345` `DefaultLanguage` resets every new session of a built-in account to `--lang`; the product itself does not keep a language per user (UX-008, still open). | Short term: the wrapper applies only when the sign-in carried no explicit choice. Lasting: UX-008 (a `users.lang` column) and delete the wrapper. `tools/demo.py` is in open PR #246: not edited here. | D, C2 | open |
+| CON-DEMO-1 | On the demo the PI's first screen and every patient page show an amber line: data more than two days old, ask for a new run. On Tuesday 2026-11-17 the data will be 7 days old. Asking for a run does not help. | Verified: PI week page `data-testid="data-asof" data-stale="yes"` "Data as of 2026-11-10…"; a coordinator's SCREEN of GZQO and the scheduler's MICROBATCH at 00:04 both finished `done`, the line still says 2026-11-10. Screenshot `pi-home-ja.png` (scratch). | `home.py:76` `STALE_DAYS = 2` (a fixed limit that is not a declared setting) against D-496, which seeds the demo on the Tuesday before the last Wednesday, so its data is 1 to 7 days old by design and never moves. | Owner decision (section 6). Either the line names the demo ("demonstration data, fixed on 2026-11-10") when the lake has no feed, or the threshold comes from the site's data cadence and is declared in `tb_common.config.DECLARED`. | C2, D | open |
+| CON-DEMO-2 | The hosted demo starts with demo mode off: uploads and pasted chart text are accepted and no account confirms "synthetic data only". | Read: `TB_DEMO_MODE` is set nowhere (`deploy/gcp/hosted-demo-startup.sh:187-194`, `demo/Dockerfile`, `demo/README.md`); `tb_common/flags.py:105-111` default `off`. The intent is in `tests/integration/test_poc_scripts.py:11-12,169` (the owner switches it on after seeding) but no document tells him. | A manual step that lives only in a test. | Tuesday: the owner sets `demo.mode` on `/ops/flags` after the seed. The environment variable is read only at the first start (`flags.py:329-331`), so on a kept (`TB_DEMO_KEEP=1`) demo only `/ops/flags` works. Lasting: set `TB_DEMO_MODE=on` in the hosted start script (it can pass per-site `TB_` settings from instance metadata, lines 180-191, undocumented) and say so in `demo/README.md` (both files are in open PR #246: not edited here). | D, G | open |
+| CON-DEMO-3 | The sign-in page's language choice is overridden: picking English or 繁體中文 lands the PI in Japanese. | Verified: `journey.json` `signin_pick_en {loginLang: en, lang: ja}`, same for zh-TW. | `tools/demo.py:309-345` `DefaultLanguage` resets every new session to `--lang` for the built-in accounts and to each account's `language` with an accounts file (`tools/demo.py:496`), so it also overrides the per-tester accounts of the hosted demo; the product itself does not keep a language per user (UX-008, still open). | Short term: the wrapper applies only when the sign-in carried no explicit choice. Lasting: UX-008 (a `users.lang` column) and delete the wrapper. `tools/demo.py` is in open PR #246: not edited here. | D, C2 | open |
 | CON-API-1 | `GET /api/v1/studies/{rs}/reconsent` answers 503 as an HTML page, not JSON. | Verified by the API reviewer: `503 text/html <!doctype html>` with `Accept: application/json`. | `app.py:744-748` `Unavailable` handler always renders `problem.html`; `team.py:952` does not catch `Unavailable` as the other modules do. | Add the `/api/` branch to the handler, as `_Problem` has (`app.py:726-735`). `app.py` is in open PR #486: not edited here. | C2 | open |
-| UX-001 | The desktop mark bar sat under all criteria, 2,373 px from the top of a 768 px screen. | Verified: `journey.json` `approach top 2373 inView false` in ja, zh-TW, en. | `.chartp { overflow: hidden }` made the panel its own scroll container, so a sticky bar stuck inside it. | `overflow: clip` and one sticky dock (`.chartdock`) holding the bar and its IRB and referral warnings. Test: `tests/console/test_cjk_layout.py` (a desktop sheet page in each language). | C2 | **fixed** |
+| UX-001 | The desktop mark bar sat under all criteria, 2,373 px from the top of a 768 px screen. | Verified: `journey.json` `approach top 2373 inView false` in ja, zh-TW, en. | `.chartp { overflow: hidden }` made the panel its own scroll container, so a sticky bar stuck inside it. | `overflow: clip` and one sticky dock (`.chartdock`) holding the bar and its IRB and referral warnings; the panel's fields keep a bottom scroll margin so the dock never covers the required "Not suitable" reason the browser scrolls to (found by the adversarial reviewer in the first version); on the phone sheet only the bar sticks, as before. Tests: `tests/console/test_cjk_layout.py` (a desktop sheet page in each language: bar on the first screen, reason select above the dock after an empty press; fails without the margin). | C2 | **fixed** |
 
 ### 2.2 Medium
 
 | ID | Finding | Evidence | Root cause | Fix | Lane | State |
 | --- | --- | --- | --- | --- | --- | --- |
 | CON-DEMO-4 | The demo's PI first screen also says the delegation log was not compared with the office's signed log this month. | Verified: `data-testid="team-due"` on the week page. | The seed records no monthly comparison. | Tuesday: the PI ticks the comparison on `/studies/GZQO/team#check` before the guest arrives (a `--keep` demo keeps it). Lasting: the seed records one. | D | open |
-| CON-ROLE-1 | The administrator's study view (`/home?view=studies`) listed each patient a PI had marked, by pseudonym, linking a panel that answers 403. | Verified: link `患者 61c68617（GZQO）の情報を確認` → 403. | D-280 removed the clinic rows there, not the tasks (`home.py` `study_card` tasks). | Patient tasks (call, info, prepare, refer) are left out where `can_view_phi` is false. Test: `test_the_administrators_study_view_lists_no_patient_task`. | C2 | **fixed** |
+| CON-ROLE-1 | The administrator's study view (`/home?view=studies`) listed each patient a PI had marked, by pseudonym, linking a panel that answers 403. | Verified: link `患者 61c68617（GZQO）の情報を確認` → 403. | D-280 removed the clinic rows there, not the tasks (`home.py` `study_card` tasks). | Patient tasks (call, info, prepare, refer) are left out where `can_view_phi` is false, and so are the study card's "open this week" link and a next step to the list (also 403; found by the adversarial reviewer). Test: `test_the_administrators_study_view_lists_no_patient_task`. | C2 | **fixed** |
 | CON-ROLE-3 | An investigator's study lists follow the account's study scope, not the delegation log: the sub-investigator's Ask examples default to study AD-MAB and the registry index links AD-MAB; both answer 403. | Verified: `/ask` example → `/site/patients?ws=main&study=AD-MAB` 403; `/pilot/registry` → `/pilot/registry/AD-MAB` 403. | Two scopes: `User.sees_study` (account) in `site_pages.py:148-162` and `home.py:261-266`; `Helpers.delegated` (log) on the pages. | One helper "studies this person may work in" (account scope ∩ delegation for investigators) used by every list. Who-may-see logic: not patched here. | C2 | open |
-| CON-I18N-1 | The steward's and privacy office's Help showed the raw key `help.role.steward`; the viewer's Help said it reads the audit trail (only the steward and the privacy office do, D-451); the CRO's did not mention the monitor grant. | Verified: `/help` as `stw` printed `<p>help.role.steward</p>`. | Keys never written for the two newer roles. | Texts in three languages. Test: `test_every_role_has_its_own_help_text_in_every_language`. | C2 | **fixed** |
+| CON-I18N-1 | The steward's and privacy office's Help showed the raw key `help.role.steward` (texts now written with the catalogues' own terms; the glossary test caught one word); the viewer's Help said it reads the audit trail (only the steward and the privacy office do, D-451); the CRO's did not mention the monitor grant. | Verified: `/help` as `stw` printed `<p>help.role.steward</p>`. | Keys never written for the two newer roles. | Texts in three languages. Test: `test_every_role_has_its_own_help_text_in_every_language`. | C2 | **fixed** |
 | CON-API-3 | No test checks the shape of any `/api/v1` answer; about 25 GET routes only ever answer 503 in the role walk. | Read and run by the API reviewer (`test_role_route_matrix.py` scores the status class only). | Routes declare `dict[str, Any]`; `schemas/` covers jobs, not the console API. | A response model or JSON schema per route and one shape test per route on a box with the study store. | C2 | open |
 | CON-API-4 | Error bodies come in three shapes: `{"error","detail":{}}`, `{"detail":"Not Found"}`, `{"detail":[…]}`; an unknown `/api/v1/…` URL with `Accept: text/html` gets the HTML 404 page (against D-125). | Verified by the API reviewer. | 404, 405 and 422 on `/api/` go through FastAPI's defaults. | Answer them in the `{"error","detail"}` form on `/api/`. | C2 | open |
 | CON-API-5 | `GET /api/v1/ask` refuses a CRO account that `/ask` lets in. | Read: `app.py:590` allow-list has `/ask`, not `/api/v1/ask`; `SAME_ANSWER` does not pair them. | Two lists. | Add the API twin, pair them in the matrix test. | C2 | open |
@@ -115,7 +115,20 @@ Checklist for the owner (no code needed):
 | Stay off `/pilot/*`, `/jobs` and the API: builder screens with English words | the walk | UX-015, UX-021 |
 | Use a desktop at 1366 px or wider for the PI; a phone works for the week list | | UX-001, CON-UX-7 |
 
-## 4. What is good and should not be changed
+## 4. The adversarial review
+
+A separate reviewer tried to break the eight fixes and to refute the four demo and role claims, in the running demo
+(Chromium at 1366×768, 1100×800, 390×844) and with the tests. Results:
+
+| Item | Result |
+| --- | --- |
+| UX-001 dock | Broke one case: the taller sticky dock covered the required "Not suitable" reason select after an empty press (1366, 1100), and on the phone the warning line had become sticky. Fixed (scroll margin; phone layout as before) and held by a new browser check that fails without the fix. Who may press Approach is unchanged; the IRB and referral warnings are inside the dock, so they are seen before Approach. `overflow: clip` needs Firefox 81 and Safari 16; an older Safari loses only the rounded corners. |
+| CON-ROLE-1 | Holds; one leftover of the same kind (the study card's list link) fixed. |
+| CON-ROLE-2, CON-TZ-1, CON-API-2, CON-UX-2 | Hold. |
+| CON-I18N-1 | Holds; no statement false against the matrix; four terms aligned with the catalogues; omissions noted (the steward's monitor grants and held nights, the viewer's yearly office counts). |
+| CON-DEMO-1, 2, 3, CON-ROLE-3 | Confirmed; CON-DEMO-2 and CON-DEMO-3 wider than first written (texts above). |
+
+## 5. What is good and should not be changed
 
 * The guard of `/api/v1`: the session and the declared permission are checked before the body is read; bearer only;
   every one of 82 routes answers an anonymous call with JSON 401; refusals repeat no value of the request.
@@ -128,14 +141,14 @@ Checklist for the owner (no code needed):
 * Site-day handling in the console (`timefmt.local_today`, `local_date`): the run crossed midnight in Taipei and every
   run, job and list date was the site's date.
 
-## 5. Decisions for the owner
+## 6. Decisions for the owner
 
 | Question | Options | Recommendation |
 | --- | --- | --- |
 | D-TBD: what the "data as of" line says when the data cannot move (the demo) | (a) a demo line "demonstration data, fixed on <day>", no amber; (b) the threshold from the site's data cadence, declared in `DECLARED`; (c) leave it and explain at the demo | (a) for Tuesday, (b) for the box: `STALE_DAYS = 2` is also an undeclared fixed limit |
 | Should this branch's UX-001 fix be in Tuesday's image | yes / no | yes: it is CSS and one template block, tested in three languages |
 
-## 6. Where the project carries needless weight
+## 7. Where the project carries needless weight
 
 * Three ideas of "the studies a person sees": the account's list, the delegation log, and a CRO allow-list of paths
   (`app.py:588-597`). They disagree (CON-ROLE-3, CON-API-5). One helper would remove a class of 403 links.
@@ -146,7 +159,7 @@ Checklist for the owner (no code needed):
 * The `/pilot/*` builder pages are still reachable from the coordinator's menu with English labels ("Ruleset",
   "practitioner ids").
 
-## 7. How the review ran (for repeating it)
+## 8. How the review ran (for repeating it)
 
 `make venv fonts`; `make jvm-deps` needed `~/.m2/settings.xml` to name the session's HTTPS proxy (Maven does not read
 `JAVA_TOOL_OPTIONS` proxy properties): a fact of this machine, not of the product. The demo:

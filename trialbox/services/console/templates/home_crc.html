@@ -57,11 +57,12 @@
       · <a href="/studies/{{ c.id }}/feasibility">{{ t('home.open_report') }}</a>
       {% else %}{{ t('home.feas.none') }}{% endif %}</dd>
     <dt>{{ t('home.week') }}</dt>
-    <dd>{% if c.week %}{{ t('home.week.line', n=c.week.counts.total, new=c.week.counts.new, marked=c.week.counts.marked) }} · <a href="/studies/{{ c.id }}/week">{{ t('home.open_week') }}</a>
+    <dd>{% if c.week %}{{ t('home.week.line', n=c.week.counts.total, new=c.week.counts.new, marked=c.week.counts.marked) }}{% if user.can_view_phi %} · <a href="/studies/{{ c.id }}/week">{{ t('home.open_week') }}</a>{% endif %}
       {% else %}{{ t('home.week.none') }}{% endif %}</dd>
   </dl>
   <p class="chartlinks">{% if user.can_request %}<a href="/studies/{{ c.id }}/setup" data-testid="setup-{{ c.id }}">{{ t('home.setup') }}</a> {% endif %}{% if user.can_view_phi %}<a href="/studies/{{ c.id }}/subjects" data-testid="subjects-{{ c.id }}">{{ t('life.to.subjects') }}</a> <a href="/studies/{{ c.id }}/visits" data-testid="visits-{{ c.id }}">{{ t('life.to.visits') }}</a> <a href="/studies/{{ c.id }}/enrolment" data-testid="enrolment-{{ c.id }}">{{ t('life.to.report') }}</a> <a href="/studies/{{ c.id }}/not-matched" data-testid="excluded-{{ c.id }}">{{ t('ex.link') }}</a>{% endif %}</p>
-  <div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>
+  {# review 2026-11-13 (CON-ROLE-1): no link to a patient list for an account that may not open one (403) #}
+  {% if user.can_view_phi or c.next[0] not in ('week', 'contact') %}<div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>{% endif %}
 </section>
 {% endfor %}
 <p class="hint">{{ t('home.more') }}</p>

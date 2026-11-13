@@ -245,6 +245,8 @@ table.worklist .bad { color: var(--bad); font-weight: 600; }
 .chartp { overflow: clip; }
 .chartp > .chartdock { position: sticky; bottom: 0; z-index: 2; background: var(--card); box-shadow: 0 -4px 12px rgba(0,0,0,.08); }
 .chartp > .chartdock > p { margin: 0; padding: 8px 12px; }
+/* the dock must not cover the field a refused press scrolls to (the required "Not suitable" reason) */
+.chartp :is(select, input, textarea) { scroll-margin-bottom: 220px; }
 .chartp .pbanner { padding: 12px; background: var(--bg); border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
 .chartp .pname { font-size: 18px; }
 .chartp .pbanner dl { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; font-size: 15px; }
@@ -416,8 +418,8 @@ a.rowlink { min-height: 44px; }
     background: var(--card); border-bottom: 1px solid var(--line); }
   .chartp.sheet .sheetnav .button { margin: 0; }
   .chartp.sheet .markbar { position: sticky; bottom: 0; margin-top: auto; z-index: 2; box-shadow: 0 -4px 12px rgba(0,0,0,.08); }
-  .chartp.sheet > .chartdock { margin-top: auto; }
-  .chartp.sheet > .chartdock .markbar { box-shadow: none; }
+  /* on the phone sheet only the bar sticks, as before the dock: its warnings stay in the flow */
+  .chartp.sheet > .chartdock { display: contents; }
   body:has(.chartp.sheet) { overflow: hidden; }
   table.worklist td.needed, table.worklist th:nth-child(4) { display: none; }
   .markbar button, .markbar .button { flex: 1 1 40%; }
