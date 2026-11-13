@@ -61,6 +61,13 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("data_source_dsn_env", "Env var holding the SQL DSN (cgrd_sql) or empty", "", "str"),
     ("mapping", "Mapping YAML (in deploy/site/mapping, else the shipped ones)", "mapping/tw_core/demo_his.yaml", "str"),
     ("mrn_regex", "MRN pattern (regular expression)", r"^\d{8}$", "str"),
+    # NEW-DIN-3 (D-579): asked once; no answer is asis (leading zeros significant) and a warning
+    (
+        "chartno_rule",
+        "Chart-number format: digits:<width> | hex:<width>[:lower] | asis (empty: asis, as written)",
+        "",
+        "str",
+    ),
     ("registry_type", "Consent registry (csv | sql | none)", "none", "str"),
     ("registry_path", "Registry CSV path (csv) or empty", "", "str"),
     ("departments", "Departments CODE=name (comma separated)", None, "map"),
@@ -201,6 +208,75 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
     return out
 
 
+_PROBE_WIDTHS = range(1, 65)  # the widths tb_common.chartno accepts
+
+
+def _rule_fits(kind: str, case: str, width: int | None, pat: re.Pattern[str]) -> bool:
+    """Whether the MRN pattern describes chart numbers the rule can write without making two of them one.
+
+    With a width: the pattern accepts a number of that width with leading zeros and no number of any other width
+    (padding and stripping then only join spellings of one number). Without a width the rule strips leading zeros:
+    the pattern must accept some number and none that starts with a zero. The services read the pattern with
+    ``re.match``, so "accepts no other width" is asked the same way: a pattern without its end anchor fails."""
+    last = "1" if kind == "digits" else ("a" if case == "lower" else "A")
+
+    def padded(k: int) -> str:
+        return "0" * (k - 1) + last
+
+    if width:
+        if not pat.fullmatch(padded(width)):
+            return False
+        others = [k for k in (*_PROBE_WIDTHS, _PROBE_WIDTHS[-1] + 1) if k != width]
+        return not any(pat.match(padded(k)) or pat.match(last * k) for k in others)
+    if not any(pat.fullmatch(last * k) for k in _PROBE_WIDTHS):
+        return False
+    return not any(pat.match("0" + last * k) for k in _PROBE_WIDTHS)
+
+
+def chartno_rule(answer: Any, mrn_regex: str, errors: list[str], warnings: list[str]) -> str:
+    """The site's chart-number rule for ``TB_CHARTNO_RULE`` (NEW-DIN-3, D-579; ``tb_common.chartno``).
+
+    An answer must be a rule the normaliser reads, and the MRN pattern must describe numbers that rule can write
+    (:func:`_rule_fits`). No answer is ``asis``, the rule every box ran on, with a warning that names the question.
+    A rule is never read from the MRN pattern: the pattern may under-describe the hospital's numbers, and a wrong
+    rule makes two patients one."""
+    from tb_common import chartno
+
+    text = str(answer or "").strip()
+    if not text:
+        warnings.append(
+            "chartno_rule was not answered: asis, where leading zeros stay significant: a chart number that lost "
+            "them in a sheet is another patient. Answer chartno_rule (digits:<width> or hex:<width>) with the "
+            "hospital's chart-number format"
+        )
+        return "asis"
+    if any(c in text for c in "\r\n"):
+        errors.append("chartno_rule has a line break")
+        return "asis"
+    try:
+        rule = chartno.parse_rule(text)
+    except ValueError as exc:  # ChartNoError, and a width that is a digit but not an ASCII number
+        errors.append(f"chartno_rule {text!r} is not a rule: {exc}")
+        return "asis"
+    if rule.kind != "asis" and not mrn_regex.strip():
+        warnings.append(
+            f"chartno_rule {rule} was taken with no MRN pattern to check it against: answer mrn_regex with the "
+            "hospital's chart-number pattern"
+        )
+    elif rule.kind != "asis":
+        try:
+            pat = re.compile(mrn_regex)
+        except re.error:
+            return str(rule)  # the pattern's own error is reported by the caller
+        if not _rule_fits(rule.kind, rule.case, rule.width, pat):
+            errors.append(
+                f"chartno_rule {rule} contradicts mrn_regex {mrn_regex}: the pattern must accept a chart number as "
+                "the rule writes it and no number the rule would join with another (one fixed width for a rule "
+                "with a width; no leading zero for a rule without; for a lower-case key say hex:<width>:lower)"
+            )
+    return str(rule)
+
+
 def _zone_errors(tz: str, mapping: Path) -> list[str]:
     """site.tz must be a real zone and the one the data source mapping states (D-315, doctor check site_tz)."""
     from zoneinfo import ZoneInfo
@@ -250,10 +326,19 @@ def build(
             errors.append(f"{who!r} is not an e-mail address")
         elif not any(who.lower().endswith("@" + d.lower()) or who.lower().endswith("." + d.lower()) for d in domains):
             warnings.append(f"{who} is outside the internal domains: it will never receive patient lists")
+    # no pattern is the empty string, which every reader takes as "no pattern" (the scrubber, the candidate
+    # registry, the adapter's column check); it was the text "None", which they took for a pattern (D-579)
+    mrn_regex = "" if get("mrn_regex") is None else str(get("mrn_regex")).strip()
     try:
-        re.compile(str(get("mrn_regex")))
+        re.compile(mrn_regex)
     except re.error as exc:
         errors.append(f"mrn_regex does not compile: {exc}")
+    chart_rule = chartno_rule(a.get("chartno_rule"), mrn_regex, errors, warnings)
+    if not mrn_regex:
+        warnings.append(
+            "mrn_regex was not answered: nothing checks what a chart number looks like, and a chart number written "
+            "in a note without its label is not masked. Answer mrn_regex (or a chart-number rule with a width)"
+        )
     depts = _map(get("departments"))
     prac = _practitioners(get("practitioners"))
     for pid, p in prac.items():
@@ -372,7 +457,7 @@ def build(
         "require_spf_dkim": True,
         "rate_limit_per_sender_per_day": 20,
         "data_source": data_source,
-        "mrn_regex": str(get("mrn_regex")),
+        "mrn_regex": mrn_regex,
         "profiles": {"tw_core": "1.0.0", "twpas_version": "1.2.5"},
         "models": {
             "judge": "qwen3.5-35b-a3b-q4",
@@ -413,6 +498,7 @@ def build(
     env = {
         "TB_SITE_ID": site_id,
         "TB_TZ": settings["site"]["tz"],
+        "TB_CHARTNO_RULE": chart_rule,  # NEW-DIN-3 (D-579): every service reads .env (tb_common.chartno)
         "COMPOSE_PROFILES": "gpu" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_LLM_MODE": "vllm" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_EMBED_MODE": embed_mode,
@@ -482,6 +568,18 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
 def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Path | None) -> None:
     from tb_common.config import load_settings
 
+    # D-579: a box that is installed (it has an .env) keeps its chart-number rule. The wizard writes the whole
+    # file and cannot ask the database whether patients are loaded; another rule would change their pseudonyms
+    if env_out is not None and env_out.exists():
+        have = [ln.split("=", 1)[1].strip() for ln in env_out.read_text(encoding="utf-8").splitlines()
+                if ln.startswith("TB_CHARTNO_RULE=")]  # fmt: skip
+        present, wanted = (have[-1] if have and have[-1] else "asis"), env.get("TB_CHARTNO_RULE") or "asis"
+        if present != wanted:
+            raise WizardError(
+                f"{env_out} already runs on TB_CHARTNO_RULE={present} and the answers say {wanted}: another "
+                "rule gives the chart numbers of loaded patients other pseudonyms. Answer chartno_rule: "
+                f"{present}, or set the rule on a box that has loaded no patient"
+            )
     out.parent.mkdir(parents=True, exist_ok=True)
     header = (
         f"# TrialBox settings.yaml for {settings['site']['id']} — written by tools/settings_wizard.py.\n"

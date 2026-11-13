@@ -36,6 +36,15 @@ which the site puts in `deploy/.env` before the first install) and the measured 
 defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_caps`) fails when a cap is below what
 the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
 
+**The chart-number format** (D-579). The answers file says how the hospital writes a chart number, in
+`chartno_rule`: `digits:8` for eight digits with leading zeros, `hex:8` for a hexadecimal key, `asis` when the number
+is to be taken exactly as written. The wizard writes it to `deploy/.env` as `TB_CHARTNO_RULE`, and every service
+writes a chart number that way before it becomes a pseudonym, so `123456` from a sheet that dropped the zeros and
+`00123456` are one patient. The wizard refuses a rule the MRN pattern does not fit (the pattern must say one fixed
+width, with both anchors). With no answer it keeps `asis` and warns; it never reads a rule from the pattern. Set
+it at install: once the box has loaded patients the tools refuse another rule, because it would change the
+pseudonym of every chart number that is not already written the new way.
+
 **What the site brings** (D-382). A folder with the answers file and the site's mapping beside it:
 `site.yaml` and `mapping/tw_core/<site>.yaml` (with its lab lookup). The installer copies `mapping/` into
 `deploy/site/mapping/`, which every update keeps; the wizard and the adapter look there before the image, so the

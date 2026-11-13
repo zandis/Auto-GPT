@@ -267,6 +267,24 @@ def site_id(name: str) -> str:
     )
 
 
+def chart_pattern(rule_text: str) -> str:
+    """The MRN pattern that goes with the owner's chart-number rule (``tb_common.chartno``): a rule with a width
+    says exactly what a chart number looks like (``digits:8`` is ``^\\d{8}$``). A rule without a width, ``asis``
+    and no answer give no pattern (the empty string): the scrubber masks what the pattern matches in a note, and a
+    pattern as wide as "any number" would mask every number."""
+    from tb_common import chartno
+
+    try:
+        rule = chartno.parse_rule(rule_text or "")
+    except ValueError:
+        return ""  # the wizard refuses the rule itself, with its reason
+    if rule.kind == "asis" or not rule.width:
+        return ""
+    if rule.kind == "digits":
+        return f"^\\d{{{rule.width}}}$"
+    return f"^[0-9A-Fa-f]{{{rule.width}}}$"  # either case: the rule folds it; a note or a CRC may write the other
+
+
 def retention_rules(tz: str) -> str:
     """D-138's country rules from the site's zone: Japan's for a site in Japan, Taiwan's (the wizard's own default)
     otherwise. The report language does not decide it: a Taiwanese site may read its reports in English."""
@@ -354,6 +372,10 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "imap_host": "",
         "mta_authserv_id": "",
         "tls_hostname": a.hostname,
+        # NEW-DIN-3 (D-579): the first-run page's answer, once it has the field; empty: the wizard decides and warns.
+        # The pattern that goes with it: the page asks the format once, not a regular expression too
+        "chartno_rule": getattr(a, "chartno_rule", ""),
+        "mrn_regex": chart_pattern(getattr(a, "chartno_rule", "")),
         "tls_mode": "internal",  # the box's default; the hospital's certificate is IT's optional step (one page, T-735)
         "retention_rules": retention_rules(a.tz),
         "ctgov_mode": "offline",

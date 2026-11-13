@@ -18,6 +18,7 @@ data_source_path: /data/source/site-a
 data_source_host_dir: ./site/feed-a
 mapping: mapping/tw_core/rehearsal_a.yaml
 mrn_regex: '^\d{8}$'
+chartno_rule: digits:8  # D-579: eight digits; a number that lost its leading zeros gets them back
 registry_type: none
 departments: {RHEU: 風濕免疫科, META: 新陳代謝科, ONC: 腫瘤科}
 practitioners:
