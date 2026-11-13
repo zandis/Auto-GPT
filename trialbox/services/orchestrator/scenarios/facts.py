@@ -28,10 +28,30 @@ class Facts:
 
 
 def _codes(rs: Ruleset, vs_name: str) -> list[str]:
+    """The codes of a ValueSet, for a column that holds one code system by construction (``medication.atc``)."""
     vs = rs.valuesets.get(vs_name)
     if not vs:
         return []
     return [c["code"] for inc in vs["compose"]["include"] for c in inc.get("concept", [])]
+
+
+def _pair(system: str, code: str) -> str:
+    """One string for a (system, code), as the queries below write a record's: ``(system || '|' || code)``."""
+    return f"{system}|{code}"
+
+
+def _pairs(rs: Ruleset, vs_name: str) -> list[str]:
+    """The ``system|code`` pairs of a ValueSet (D-643). A record is the ValueSet's only under the same code system,
+    as the ruleset's compiled SQL matches it (``vs.system = x.system AND vs.code = x.code``): a house or ICD-9-CM
+    code that reads like one of its codes is not."""
+    vs = rs.valuesets.get(vs_name)
+    if not vs:
+        return []
+    return [
+        _pair(str(inc.get("system") or ""), c["code"])
+        for inc in vs["compose"]["include"]
+        for c in inc.get("concept", [])
+    ]
 
 
 def _vs_names(rs: Ruleset, kind: str, domain: str) -> list[str]:
@@ -70,9 +90,10 @@ def collect(lake: LakeAPI, rs: Ruleset, pid: str, run_date: date) -> Facts:
     if dx_vs:
         rows = lake.query(
             "SELECT code, min(coalesce(onset, recorded)) AS first FROM condition WHERE pid = $1 "
-            "AND list_contains(CAST($2 AS VARCHAR[]), code) AND coalesce(onset, recorded) <= CAST($3 AS DATE) "
+            "AND list_contains(CAST($2 AS VARCHAR[]), (system || '|' || code)) "
+            "AND coalesce(onset, recorded) <= CAST($3 AS DATE) "
             "GROUP BY code ORDER BY first, code",
-            [pid, _codes(rs, dx_vs[0]), rd],
+            [pid, _pairs(rs, dx_vs[0]), rd],
         ).to_pylist()
         if rows:
             f.values["diagnosis_code"] = rows[0]["code"]
@@ -106,22 +127,24 @@ def collect(lake: LakeAPI, rs: Ruleset, pid: str, run_date: date) -> Facts:
         f.das28.append(_das28(lake, pid, run_date, label, lo, hi))
     # screening results
     for key, vs in (("hbsag", "VS_HBSAG"), ("ahbc", "VS_ANTI_HBC"), ("igra", "VS_IGRA")):
-        codes = _codes(rs, vs)
+        codes = _pairs(rs, vs)
         if not codes:
             continue
         r = lake.query(
             "SELECT value_code, CAST(effective AS DATE) AS d FROM observation WHERE pid = $1 "
-            "AND list_contains(CAST($2 AS VARCHAR[]), code) AND CAST(effective AS DATE) <= CAST($3 AS DATE) "
+            "AND list_contains(CAST($2 AS VARCHAR[]), (system || '|' || code)) "
+            "AND CAST(effective AS DATE) <= CAST($3 AS DATE) "
             "ORDER BY effective DESC, oid DESC LIMIT 1",
             [pid, codes, rd],
         ).to_pylist()
         if r:
             res = {"LA6576-8": "陽性", "LA6577-6": "陰性"}.get(str(r[0]["value_code"]), str(r[0]["value_code"]))
             f.values[key] = f"{res}（{r[0]['d'].isoformat()}）"
-    cxr = _codes(rs, "VS_CHEST_X_RAY")
+    cxr = _pairs(rs, "VS_CHEST_X_RAY")
     if cxr:
         r = lake.query(
-            "SELECT effective, conclusion FROM report WHERE pid = $1 AND list_contains(CAST($2 AS VARCHAR[]), code) "
+            "SELECT effective, conclusion FROM report WHERE pid = $1 "
+            "AND list_contains(CAST($2 AS VARCHAR[]), (system || '|' || code)) "
             "AND effective <= CAST($3 AS DATE) ORDER BY effective DESC, rid DESC LIMIT 1",
             [pid, cxr, rd],
         ).to_pylist()
@@ -143,13 +166,15 @@ def collect(lake: LakeAPI, rs: Ruleset, pid: str, run_date: date) -> Facts:
 
 def _das28(lake: LakeAPI, pid: str, run_date: date, label: str, lo: int, hi: int) -> dict[str, str]:
     comps = {k: derived.CODES[k][1] for k in derived.COMPONENTS["das28"]}
+    pairs = [_pair(*derived.CODES[k]) for k in derived.COMPONENTS["das28"]]  # D-643: the component's own system
     rows = lake.query(
         "SELECT code, value_num, unit, oid, CAST(effective AS DATE) AS d FROM observation WHERE pid = $1 "
-        "AND list_contains(CAST($2 AS VARCHAR[]), code) AND CAST(effective AS DATE) BETWEEN CAST($3 AS DATE) "
+        "AND list_contains(CAST($2 AS VARCHAR[]), (system || '|' || code)) "
+        "AND CAST(effective AS DATE) BETWEEN CAST($3 AS DATE) "
         "AND CAST($4 AS DATE) AND value_num IS NOT NULL ORDER BY effective DESC, oid DESC",
         [
             pid,
-            list(comps.values()),
+            pairs,
             (run_date + timedelta(days=lo)).isoformat(),
             (run_date + timedelta(days=hi)).isoformat(),
         ],
