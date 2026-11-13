@@ -112,34 +112,27 @@ def content_sha(doc: Mapping[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- the lake read
-_NO_VERSION = 'Referenced column "schema_version" not found'  # the engine's sentence, kept whole by the lake (D-664)
-
-
-def _no_version_column(exc: Exception) -> bool:
-    """Is ``exc`` the engine refusing the question because the snapshot has no version column (schema 1)?
-
-    NEW-B-35 (D-676): only a fault of the question (D-675: 422, the engine's "wrong statement" group) with the
-    engine's own sentence about that column. A lake that failed (5xx: no such snapshot, a limit, an I/O error) is
-    never an older snapshot, whatever its words."""
-    if _NO_VERSION not in str(exc):
-        return False
-    status = getattr(exc, "status", None)  # the lake service's answer (``LakeQueryFailed``)
-    if status is None:  # the lake as a library: the error's own class, placed by the lake's rule
-        from lake.store import query_failure_status
-
-        status = query_failure_status(exc)
-    return bool(status == 422)
+#: has the snapshot's ``lake_meta`` a version column: one row, one number (a snapshot of schema 1 has none)
+VERSION_COLUMN_SQL = (
+    "SELECT count(*) AS n FROM duckdb_columns() "
+    "WHERE lower(table_name) = 'lake_meta' AND lower(column_name) = 'schema_version'"
+)
 
 
 def lake_schema(lake: LakeReader, snapshot: str) -> int:
-    """The layout version of ``snapshot``; 1 for a snapshot built before the version was recorded. Any other error
-    goes on and stops the build: twins built on a guess of the layout would lose the provenance of their rows."""
-    try:
-        rows = lake.query("SELECT schema_version FROM lake_meta", [], snapshot).to_pylist()
-    except Exception as exc:
-        if not _no_version_column(exc):
-            raise
-        return 1  # a snapshot of schema 1 has no schema_version column
+    """The layout version of ``snapshot``; 1 for a snapshot built before the version was recorded.
+
+    NEW-B-35 (D-676): whether the version column is there is asked of the lake, not read from an error. Before,
+    every error of the version question was read as "schema 1": a lake that failed on that one question was taken
+    for an older snapshot and the twins were built without the provenance of their rows. There is no handler
+    here: a failure of the lake (D-675: a 5xx) or a fault of the question stops the build."""
+    rows = lake.query(VERSION_COLUMN_SQL, [], snapshot).to_pylist()
+    n = rows[0].get("n") if len(rows) == 1 else None
+    if type(n) is not int:
+        raise TwinError(f"the lake did not say whether snapshot {snapshot} records its layout version")
+    if n == 0:
+        return 1
+    rows = lake.query("SELECT schema_version FROM lake_meta", [], snapshot).to_pylist()
     v = rows[0].get("schema_version") if rows else None
     return int(v) if v is not None else 1
 
