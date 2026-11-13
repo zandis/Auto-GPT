@@ -63,6 +63,8 @@ def test_default_install_passes() -> None:
         "audit_heads",
         "memory_caps",
         "wsl2_memory",
+        "update_window",
+        "wsl2_versions",
     }
 
 

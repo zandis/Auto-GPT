@@ -137,6 +137,29 @@ Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). Af
 | 43a | Name lookups from a container that is allowed out: `wsl -d TrialBox -u root -- sh -c 'docker exec $(docker ps --format "{{.Names}}" \| grep -m1 mail-gateway) getent hosts localhost'` and the mail settings' test in the console, if a mail server was given | A name is answered; mail to the configured server works | What was printed (typed as shown, with single quotes outside) |
 | 44 | Restart Windows, sign in, and repeat lines 39, 40 and 43 | The same answers | Any difference after the restart |
 
+## Part 6: NEW-WIN-5, Windows Update, the driver and the right to shut down (D-606)
+
+Everything here is by Microsoft's documentation and has not been seen run: the policy values "Configure Automatic
+Updates" (`AUOptions`, `ScheduledInstallTime`), "Turn off auto-restart for updates during active hours"
+(`SetActiveHours`, `ActiveHoursStart`, `ActiveHoursEnd`), "Do not include drivers with Windows Updates"
+(`ExcludeWUDriversInQualityUpdate`), the user right "Shut down the system" set with `secedit`, and "Shutdown: Allow
+system to be shut down without having to log on".
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 45 | After the install, read the log's lines of step 12 | "Windows Update: drivers excluded", "Windows Update: installs daily at 19:00; restarts by itself only from 19:00 to 1:00", "shutdown right was: ..." | The lines; on a PC joined to a domain, whether it said "a policy is already set ... kept" instead |
+| 46 | Settings, Windows Update, Advanced options | "Some settings are managed by your organization"; active hours shown as 01:00 to 19:00 and not changeable | What the page shows; a screenshot |
+| 47 | `gpresult /scope computer /v` is **not** the place (these are local registry values); instead in an administrator PowerShell: `Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate, HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU` | `AUOptions 4`, `ScheduledInstallTime 19`, `SetActiveHours 1`, `ActiveHoursStart 1`, `ActiveHoursEnd 19`, `ExcludeWUDriversInQualityUpdate 1` | The values |
+| 48 | Sign in as a **standard** account. Open the Start menu's power button | No "Shut down" and no "Restart" (sign out and lock stay). Note whether "Sleep" is offered | What the menu offers; if Shut down is still there, sign out and in once more and look again |
+| 49 | At the sign-in screen (nobody signed in), the power button at the lower right | No shut down offered | What it offers |
+| 50 | As the standard account, in a terminal: `shutdown /s /t 0` | "Access is denied" (5) | The text |
+| 51 | **Does the window hold.** With an update waiting (a PC that is behind on updates). The rehearsal PC holds synthetic data only and may be online for this line; a site workstation is never put online for it. Nobody restarts the PC or schedules a restart by hand during this line. Leave the PC on over one window. Next day: `Get-WinEvent -FilterHashtable @{LogName='System'; Id=1074} -MaxEvents 5 \| Format-List TimeCreated, Message` | Any restart Windows Update started lies between 19:00 and 01:00; none outside | Each restart's time and who asked for it. This line can take days; record what was seen and when |
+| 52 | After line 51's restart, nobody signs in. From another PC, or after signing in: was TrialBox back? `Get-ScheduledTaskInfo TrialBox-WSL2` | The task ran at startup; the console answers (line 23) | LastRunTime against the restart's time |
+| 53 | Device Manager, the NVIDIA card, Driver tab; and inside WSL2 `nvidia-smi --query-gpu=driver_version --format=csv,noheader` | The same version before and after line 51's updates | Both versions, before and after |
+| 54 | `wsl -d TrialBox -u root -- sh -c 'cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env --settings deploy/settings.yaml'`, the lines `update_window` and `wsl2_versions` | `update_window` WARN with the window the installer set and the time between the night's start and the window (WARN, not PASS: the night's length is not measured; also WARN when `settings.yaml` names no `nightly_at`); `wsl2_versions` WARN "no serving record for the card" on a rehearsal PC (its card was never measured), with the driver and the kernel it read | Both lines whole |
+| 55 | The host check from inside WSL2 (`deploy/check_host.sh`, an elevated terminal), the Windows lines | PASS "installs at 19:00 and restarts by itself only from 19:00 to 1:00", PASS "takes no drivers", PASS "the sign-in screen does not offer it" | The three lines |
+| 56 | Start the installer once more with `-UpdateWindowStart 12 -UpdateWindowHours 8` | "restarts this PC by itself only between 12:00 and 20:00"; line 47's values follow (install time 12, active hours 20 to 12); `cat /opt/trialbox/deploy/site/box/windows-update-window` inside WSL2 says `12+8`, and line 54 judges that window | The values; then set it back by starting it with `-UpdateWindowStart 19 -UpdateWindowHours 6` |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -169,3 +192,12 @@ Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). Af
   restart (line 44). `verdict=OUT`: the egress rule moves to Windows Firewall, or the port proxy is built as a card
   of its own. Line 38 wrong: the fix is in the box plan's network detection (lane D), not in the form.
 - Line 14: the address NEW-WIN-4 must make work from another PC.
+- Line 46 or 47 wrong: the policy values are not the ones Windows 11 reads on this edition; the window is then set
+  by the site's IT, and the installer only checks.
+- Line 48 or 50 "shut down still possible": the user right did not take (a domain policy sets it back, or secedit's
+  form is wrong); line 49 is a separate value and is read separately.
+- Line 51 "a restart outside the window": active hours do not bind a scheduled install the way D-606 point 2
+  assumes; the next form to try is Windows' maintenance windows (24H2), else "notify only" (hospital IT starts
+  installs).
+- Line 53 "the driver changed": the exclusion does not hold the driver; `wsl2_versions` then fails by design, and
+  the driver is held another way (a device-installation restriction for the card's hardware id).

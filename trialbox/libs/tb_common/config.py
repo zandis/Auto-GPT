@@ -848,6 +848,12 @@ DECLARED: dict[str, Declared] = {
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),
+    "TB_WIN_UPDATE_WINDOW_HOURS": Declared(
+        "int", "6", "Windows box: hours the update window lasts; 6 is the least Windows allows (D-606)"
+    ),
+    "TB_WIN_UPDATE_WINDOW_START": Declared(
+        "int", "19", "Windows box: hour Windows Update may install and restart; after desk hours (D-606)"
+    ),
     "TB_WSL_DESKTOP_SHARE_PCT": Declared(
         "int", "25", "Windows box: percent of memory and processors kept for the desktop; WSL2 gets the rest (D-601)"
     ),

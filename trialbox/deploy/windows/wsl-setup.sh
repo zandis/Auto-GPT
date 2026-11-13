@@ -194,6 +194,15 @@ EOP
     [ -z "$off" ] || die "not enabled to start with the distribution:$off (after a restart TrialBox would stay down)"
     echo "docker.service and trialbox.service start with the distribution"
     ;;
+  update-window)
+    # NEW-WIN-5 (D-606): the window the Windows installer gave Windows Update ("<start hour>+<hours>"), or "kept"
+    # when the site's IT holds the policy. trialbox doctor (update_window) reads it
+    # the whole value, not a line of it: it becomes a file trialbox doctor reads
+    [[ "${1:-}" =~ ^([0-9]{1,2}\+[0-9]{1,2}|kept)$ ]] || die "update-window: want <start hour>+<hours> or kept"
+    mkdir -p "$(dirname "$DONE_MARK")"
+    printf '%s\n' "$1" > "$(dirname "$DONE_MARK")/windows-update-window"
+    echo "update window recorded for the host check: $1"
+    ;;
   network-mode)
     # wslinfo comes with WSL 2.0 and later; without it the mode cannot be mirrored
     if command -v wslinfo >/dev/null 2>&1; then wslinfo --networking-mode | tr -d '\r' | tail -1; else echo unknown; fi

@@ -124,6 +124,23 @@ Fact "wu_au_options" (RegValue $au "AUOptions")
 Fact "wu_scheduled_install_day" (RegValue $au "ScheduledInstallDay")
 Fact "wu_scheduled_install_time" (RegValue $au "ScheduledInstallTime")
 Fact "wu_mdm_allow_auto_update" (RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Update" "AllowAutoUpdate")
+# NEW-WIN-5 (D-606): the update window the installer set, Windows' active hours, drivers from Windows Update
+$wu = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+Fact "update_window" (RegValue "HKLM:\SOFTWARE\TrialBox" "update_window")
+Fact "wu_set_active_hours" (RegValue $wu "SetActiveHours")
+Fact "wu_active_hours_start" (RegValue $wu "ActiveHoursStart")
+Fact "wu_active_hours_end" (RegValue $wu "ActiveHoursEnd")
+Fact "wu_exclude_drivers" (RegValue $wu "ExcludeWUDriversInQualityUpdate")
+# values that take restarts out of the active hours' hands (Microsoft, "Manage device restarts after updates")
+Fact "wu_no_auto_reboot_logged_on" (RegValue $au "NoAutoRebootWithLoggedOnUsers")
+Fact "wu_always_reboot_at_scheduled" (RegValue $au "AlwaysAutoRebootAtScheduledTime")
+Fact "wu_compliance_deadline" (RegValue $wu "SetComplianceDeadline")
+Fact "wu_deadline_quality" (RegValue $wu "ConfigureDeadlineForQualityUpdates")
+Fact "wu_deadline_feature" (RegValue $wu "ConfigureDeadlineForFeatureUpdates")
+# whether the sign-in screen offers shutting down. The user right "Shut down the system" itself is not read here
+# (Windows gives it only through secedit's export to a file, and this script writes nothing): the installer sets
+# and logs it, and puts it right at every start
+Fact "shutdown_at_sign_in" (RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ShutdownWithoutLogon")
 Fact "wu_reboot_pending" ([int](Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
 
 # the start-at-boot task that keeps WSL2 running whether or not anyone is signed in (register_keepalive.ps1)

@@ -30,6 +30,7 @@ import argparse
 import base64
 import binascii
 import configparser
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -285,7 +286,48 @@ def check_windows_update(facts: Facts, v: Verdicts) -> None:
     pending = facts.get("wu_reboot_pending") == "1"
     au, mdm = facts.get("wu_au_options", ""), facts.get("wu_mdm_allow_auto_update", "")
     day, hour = facts.get("wu_scheduled_install_day", ""), facts.get("wu_scheduled_install_time", "")
-    if facts.get("wu_no_auto_update") == "1" or au in WU_MANUAL_AU or mdm in WU_MANUAL_MDM:
+    ours = re.fullmatch(r"(\d+)\+(\d+)", facts.get("update_window", ""))
+    if ours:
+        # NEW-WIN-5 (D-606): the installer's window. Windows restarts by itself only outside its active hours, so
+        # the active hours must be the rest of the day: from the window's end to its start. Values that defeat
+        # active hours (Microsoft, "Manage device restarts after updates") or an MDM policy make it no window
+        start, hours = int(ours.group(1)), int(ours.group(2))
+        end = (start + hours) % 24
+        wrong = [
+            f"{label} '{facts.get(key, '')}' (want {want})"
+            for key, label, want in (
+                ("wu_au_options", "AUOptions", "4"),
+                ("wu_scheduled_install_time", "install time", str(start)),
+                ("wu_set_active_hours", "active hours set", "1"),
+                ("wu_active_hours_start", "active hours from", str(end)),
+                ("wu_active_hours_end", "active hours to", str(start)),
+            )
+            if facts.get(key, "") != want
+        ]
+        if facts.get("wu_no_auto_update", "") not in ("", "0"):
+            wrong.append("automatic updates are switched off (NoAutoUpdate)")
+        if not 0 <= start <= 23 or not 6 <= hours <= 23:
+            wrong.append(f"a window of {hours} h from {start}:00 is not one Windows can hold (6 to 23 h)")
+        wrong += [
+            f"{label} is set ('{facts[key]}')"
+            for key, label in (
+                ("wu_no_auto_reboot_logged_on", "NoAutoRebootWithLoggedOnUsers"),
+                ("wu_always_reboot_at_scheduled", "AlwaysAutoRebootAtScheduledTime"),
+                ("wu_compliance_deadline", "a compliance deadline"),
+                ("wu_deadline_quality", "a deadline for quality updates"),
+                ("wu_deadline_feature", "a deadline for feature updates"),
+                ("wu_mdm_allow_auto_update", "an MDM update policy"),
+            )
+            if facts.get(key, "") != ""
+        ]
+        if not wrong:
+            v.ok(f"Windows Update restarts: installs at {start}:00 and restarts by itself only from {start}:00 to "
+                 f"{end}:00, the installer's update window (trialbox doctor judges it against the night)")  # fmt: skip
+        else:
+            v.policy(f"Windows Update restarts: the installer set the window {start}:00 to {end}:00, but Windows does "
+                     f"not hold it: {'; '.join(wrong)}. Start the Windows installer again, or ask hospital IT which "
+                     "policy replaced it")  # fmt: skip
+    elif facts.get("wu_no_auto_update") == "1" or au in WU_MANUAL_AU or mdm in WU_MANUAL_MDM:
         v.ok("Windows Update restarts: installs and restarts are started by hospital IT in the window (RUNBOOK §24)")
     elif au == "4" or mdm == "3":
         when = f"day {day or '0'} at {hour}:00" if hour else "the scheduled time"
@@ -299,6 +341,32 @@ def check_windows_update(facts: Facts, v: Verdicts) -> None:
     if pending:
         v.warn("Windows Update: a restart is pending (restart in the agreed window; the start-at-boot task brings "
                "WSL2 and the stack back)")  # fmt: skip
+
+
+def check_update_drivers(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-5 (D-606): the NVIDIA driver is the one the box was measured with; Windows Update must not replace it."""
+    if "wu_exclude_drivers" not in facts:
+        return  # facts of a release before NEW-WIN-5
+    if facts["wu_exclude_drivers"] == "1":
+        v.ok("Windows Update takes no drivers: the NVIDIA driver stays the one the box was measured with")
+    else:
+        v.policy("Windows Update may replace the NVIDIA driver (no policy 'Do not include drivers with Windows "
+                 "Updates'): start the Windows installer again, or ask hospital IT to set it")  # fmt: skip
+
+
+def check_shutdown_right(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-5 (D-606): a desktop user who turns the workstation off in the evening stops the night.
+
+    Judged here: the sign-in screen. The user right "Shut down the system" is not among the facts (host_facts.ps1
+    writes nothing, and Windows gives the right only through an export to a file): the installer sets it."""
+    if "shutdown_at_sign_in" not in facts:
+        return  # facts of a release before NEW-WIN-5
+    if facts["shutdown_at_sign_in"] == "0":
+        v.ok("shutdown: the sign-in screen does not offer it (the right to shut down is set by the installer: "
+             "administrators only; not read here)")  # fmt: skip
+    else:
+        v.policy("shutdown: the sign-in screen offers shutting down to anyone at the keyboard: the workstation can be "
+                 "turned off under the night. Start the Windows installer again")  # fmt: skip
 
 
 def check_keepalive(facts: Facts, v: Verdicts) -> None:
@@ -379,6 +447,8 @@ CHECKS: tuple[Callable[[Facts, Verdicts], None], ...] = (
     check_wsl_swap,
     check_rdp,
     check_windows_update,
+    check_update_drivers,
+    check_shutdown_right,
     check_keepalive,
     check_clock,
     check_vhdx,
