@@ -180,7 +180,7 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    stands: after a restore that is not complete (this step or the next), that failed part-way, or that was run a
    second time, the box stays held. While held, the timer starts no list job (SCREEN, MICROBATCH, COHORT, NAV), a
    list a person asks for fails with a message that says so, and the weekly not-matched sample is not drawn. The
-   ingest and retention run. `trialbox doctor` shows the hold (`restore_hold`). When every listed event is re-applied, the administrator sets the flag to `released` on
+   ingest and retention run. `trialbox doctor` shows the hold (`restore_hold`). When every listed event is re-applied, the data steward (or the administrator) sets the flag to `released` on
    `/ops/flags`, with the reason (who re-applied what); the change is in the audit. If the restore prints that the
    hold could not be set, keep the services stopped until the events are re-applied.
 5. **Opt-outs recorded after the backup (D-493).** Before the restore empties the trial database it reads the
