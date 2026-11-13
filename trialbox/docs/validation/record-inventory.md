@@ -149,7 +149,7 @@ are marked "files".
 | `libs/tb_common/refdata.py` | `pack`, `source`, `ctgov_study`, `trial`, `term`, `concept_map`, `synonym`, `withdrawn` | O-09 |
 | `services/adapter/licensed.py` | `release`, `concept` | O-09 |
 | `services/omop/schema.py` | `tb_vocab_release`, `tb_concept_attr`, `tb_term_grouper`, `tb_map_relation` | O-09 |
-| `services/orchestrator/db.py` | `cohort_tables`, `cohort_stored`, `cohort_stored_since`, `trial_cache` | O-10 |
+| `services/orchestrator/db.py` | `cohort_tables`, `cohort_stored`, `cohort_read`, `cohort_tables_before`, `trial_cache` | O-10 |
 | `services/lake/store.py` | `cache` | O-11 |
 | `libs/tb_common/db.py` | `_schema_version` | O-12 |
 | `services/vec/store.py` | `embedding`, `note_chunk` | O-13 |

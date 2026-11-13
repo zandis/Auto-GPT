@@ -117,7 +117,6 @@ def _record_is_the_store(b: _Box, job_id: str, tmp_path: Path) -> list[dict[str,
     """The record of the one job that ran says what the store holds: the same sites, the same tables (by hash), and
     the record alone, replayed into an empty store, gives the same rows."""
     record = b.db.cohort_stored(job_id)
-    assert record is not None  # the job is from after the record began
     held = b.held()
     last = {r["site_id"]: r for r in record}  # a table stored twice (a restart): the later one stands
     assert set(last) == set(held)
@@ -125,7 +124,7 @@ def _record_is_the_store(b: _Box, job_id: str, tmp_path: Path) -> list[dict[str,
         assert last[site]["table_sha256"] == orch_db.cohort_table_hash(rows), site
     scratch = JobDB(schema=f"{b.db.schema}_replay")
     try:
-        assert cohort.replay_stored(b.db, scratch, job_id) is True
+        cohort.replay_until(b.db, scratch)
         with scratch.tx() as tx:
             got = tx.fetchall(f"SELECT {', '.join(COLS)}, received_from, job_id FROM cohort_tables ORDER BY seq")
         with b.db.tx() as tx:
@@ -182,7 +181,7 @@ def _fault(b: _Box, mp: pytest.MonkeyPatch, where: str, k: int, exc: BaseExcepti
         mp.setattr(b.db, "cohort_store", at(b.db.cohort_store, after=True))
     elif where == "rows":
         k = 0
-        mp.setattr(b.db, "cohort_rows", at(b.db.cohort_rows))
+        mp.setattr(b.db, "cohort_read", at(b.db.cohort_read))
     elif where == "publish":
         k = 0
         mp.setattr(core.Ctx, "publish", at(core.Ctx.publish))
@@ -234,7 +233,7 @@ def test_a_merge_that_ends_well_and_one_refused_at_the_start_are_recorded_as_the
     bad = c.merge([[{**r, "quarter": "not a quarter"} for r in _table("HOSP-B")]])
     c.orch.run(bad)
     assert c.db.get(bad).state == "failed"  # type: ignore[union-attr]
-    assert c.db.cohort_stored(bad) == [] and c.held() == {}  # after the record began, and it stored nothing
+    assert c.db.cohort_stored(bad) == [] and c.held() == {}
 
 
 def test_a_cancel_asked_for_while_the_tables_are_read_ends_the_job_with_the_record_whole(
@@ -301,28 +300,50 @@ def test_the_record_keeps_the_table_itself_and_notices_a_changed_one(box: Callab
     job_id = b.merge([rows])
     b.orch.run(job_id)
     b.db.cohort_store(_table("DEMO-A"), "J-OWN", "self:DEMO-A")  # the root's own run is recorded too
-    (one,) = b.db.cohort_stored(job_id) or []
-    assert one["rows"] == rows and one["received_from"] == SENDER and one["site_id"] == "HOSP-B"
+    (one,) = b.db.cohort_stored(job_id)
+    assert json.loads(one["rows"]) == rows and one["received_from"] == SENDER and one["site_id"] == "HOSP-B"
     assert one["table_sha256"] == orch_db.cohort_table_hash(list(reversed(rows)))  # the order of the rows is not in it
     assert one["table_sha256"] != orch_db.cohort_table_hash([{**rows[0], "n": 99}, rows[1]])
     assert [(r["site_id"], r["job_id"]) for r in b.db.cohort_stored_all()] == [("HOSP-B", job_id), ("DEMO-A", "J-OWN")]
-    with b.db.tx() as tx:
-        tx.execute("UPDATE cohort_stored SET rows = replace(rows, '13', '31') WHERE job_id = ?", (job_id,))
-    scratch = JobDB(schema=f"{b.db.schema}_x")
+    for damage in ("replace(rows, '13', '31')", "'not json'", '\'[{"site_id": "HOSP-B"}]\''):
+        with b.db.tx() as tx:
+            tx.execute("UPDATE cohort_stored SET rows = ? WHERE job_id = ?", (one["rows"], job_id))
+            tx.execute(f"UPDATE cohort_stored SET rows = {damage} WHERE job_id = ?", (job_id,))
+        scratch = JobDB(schema=f"{b.db.schema}_x")
+        try:
+            with pytest.raises(cohort.RecordChanged, match=job_id):
+                cohort.replay_stored(b.db, scratch, job_id)
+            with scratch.tx() as tx:
+                assert tx.fetchall("SELECT 1 FROM cohort_tables") == []  # checked before anything is stored
+        finally:
+            scratch.drop()
+
+
+def _run_again(b: _Box, tmp_path: Path, first: Any) -> tuple[Any, _Box]:
+    """What a re-run does: the tables rebuilt from the record in a store of its own, then the job run there."""
+    again = _Box(tmp_path, schema=f"{b.db.schema}_rerun{_Box.n}")
     try:
-        with pytest.raises(cohort.RecordChanged, match=job_id):
-            cohort.replay_stored(b.db, scratch, job_id)
-        with scratch.tx() as tx:
-            assert tx.fetchall("SELECT 1 FROM cohort_tables") == []
-    finally:
-        scratch.drop()
+        assert cohort.replay_stored(b.db, again.db, first.job_id) is True
+        again.db.put(first.model_copy(update={"state": "received", "outputs": [], "error": None}), queued=False)
+        return again.orch.run(first.job_id), again
+    except BaseException:
+        again.db.drop()
+        raise
+
+
+def _same_output(first: Any, second: Any) -> bool:
+    files = [(o.filename, o.sha256) for o in first.outputs or []]
+    return second.state == "done" and bool(files) and files == [(o.filename, o.sha256) for o in second.outputs or []]
 
 
 def test_a_later_merge_run_again_after_a_stopped_one_gives_what_its_first_run_gave(
     box: Callable[[], _Box], tmp_path: Path
 ) -> None:
-    """A merge is killed after its first table; a later merge reads the store as that left it; then a site sends a
-    new table. The later merge, run again on tables rebuilt from the record alone, publishes the same bytes."""
+    """A merge is killed after its first table; a later merge reads the store as that left it; then the stopped
+    merge is run again and stores all three of its tables (the box's recovery), and a site sends a new table. The
+    later merge, run again on tables rebuilt from the record alone, publishes the same bytes. The review of the
+    first version: a replay job by job, in job order, put the stopped merge's later tables before the later
+    merge."""
     b = box()
     stopped = b.merge([_table("HOSP-B", n=12), _table("HOSP-C", n=7), _table("HOSP-D", n=3)])
     with pytest.MonkeyPatch.context() as mp:
@@ -332,50 +353,118 @@ def test_a_later_merge_run_again_after_a_stopped_one_gives_what_its_first_run_ga
     b.orch.run(later)
     first = b.db.get(later)
     assert first is not None and first.state == "done" and first.outputs
-    after = b.merge([_table("HOSP-B", n=30), _table("HOSP-D", n=5)])  # what a re-run must not see
-    b.orch.run(after)
+    b.orch.run(stopped)  # what a re-run of the later merge must not see: HOSP-C at 7 again, and HOSP-D
+    assert b.db.get(stopped).state == "done"  # type: ignore[union-attr]
+    b.orch.run(b.merge([_table("HOSP-B", n=30)]))
+    assert [r["job_id"] for r in b.db.cohort_stored_all()][:3] == [stopped, later, stopped]
 
-    again = _Box(tmp_path, schema=f"{b.db.schema}_rerun")
+    second, again = _run_again(b, tmp_path, first)
     try:
-        for earlier in (stopped,):  # every COHORT job before the one run again, in order
-            assert cohort.replay_stored(b.db, again.db, earlier) is True
-        assert set(again.held()) == {"HOSP-B"}  # the stopped merge stored one table, and the record says which
-        again.db.put(first.model_copy(update={"state": "received", "outputs": [], "error": None}), queued=False)
-        second = again.orch.run(later)
-        assert second.state == "done"
-        assert [(o.filename, o.sha256) for o in second.outputs or []] == [
-            (o.filename, o.sha256) for o in first.outputs or []
-        ]
+        assert _same_output(first, second)
         data = again.store.get((second.outputs or [])[0].minio_key).decode("utf-8-sig")
         assert "HOSP-D" not in data and ",30," not in data
     finally:
         again.db.drop()
+    # the stopped merge itself, done in the end, is run again from where it read: the later merge's table of
+    # HOSP-C was stored before its own, and its own stands
+    done = b.db.get(stopped)
+    second, again = _run_again(b, tmp_path, done)
+    try:
+        assert _same_output(done, second)
+    finally:
+        again.db.drop()
 
 
-def test_a_job_from_before_the_record_has_none_and_says_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A box that ran merges before this release: those jobs have no record, which is not "stored nothing"."""
+def test_a_table_of_the_same_site_stored_by_another_job_before_the_merge_read_is_not_guessed_at(
+    box: Callable[[], _Box], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = box()
+    job_id = b.merge([_table("HOSP-B", n=12), _table("HOSP-C", n=7)])
+    real = b.db.cohort_read
+
+    def another_store_first(*a: Any, **kw: Any) -> Any:
+        b.db.cohort_store(_table("HOSP-C", n=99), "J-OTHER", SENDER)  # a merge running at the same time
+        return real(*a, **kw)
+
+    monkeypatch.setattr(b.db, "cohort_read", another_store_first)
+    b.orch.run(job_id)
+    first = b.db.get(job_id)
+    assert first is not None and first.state == "done"
+    scratch = JobDB(schema=f"{b.db.schema}_x")
+    try:
+        with pytest.raises(cohort.ReplayUnsure, match="HOSP-C"):
+            cohort.replay_stored(b.db, scratch, job_id)
+        with scratch.tx() as tx:
+            assert tx.fetchall("SELECT 1 FROM cohort_tables") == []
+    finally:
+        scratch.drop()
+
+
+def test_a_merge_that_never_read_the_tables_has_no_point_to_run_again_from(box: Callable[[], _Box]) -> None:
+    b = box()
+    job_id = b.merge([_table("HOSP-B")])
+    with pytest.MonkeyPatch.context() as mp:
+        _fault(b, mp, "stored", 0, RuntimeError("stopped"))
+        _run(b, job_id)
+    assert b.db.cohort_read_point(job_id) is None and len(b.db.cohort_stored(job_id)) == 1
+    scratch = JobDB(schema=f"{b.db.schema}_x")
+    try:
+        assert cohort.replay_stored(b.db, scratch, job_id) is False
+    finally:
+        scratch.drop()
+
+
+def test_on_a_box_updated_in_place_the_tables_it_had_are_kept_for_the_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A box that ran merges before this release. Their tables are in no record: the schema step keeps them as it
+    found them, so a merge run after the update is run again exactly, whatever the old jobs' endings were. A merge
+    that read before the update has no recorded read, and says so. A job waiting at the update is recorded like
+    any other."""
     schema = "orch_rec_before"
     with monkeypatch.context() as mp:
         mp.setattr(orch_db, "MIGRATIONS", orch_db.MIGRATIONS[:3])
         old = _Box(tmp_path, schema=schema)
         before = old.merge([_table("HOSP-B")])
-        with old.db.tx() as tx:  # as the release before stored it
-            tx.execute(
-                "INSERT INTO cohort_tables (site_id, disease, quarter, criterion_id, definition_version, "
-                "criterion_label, n, n_contactable, received_from, job_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                ("HOSP-B", "gout", "2026Q3", "C-1", "GOUT-COH@1.0.0", "x", "12", "0", SENDER, before),
-            )
+        waiting = old.merge([_table("HOSP-C", n=7)])
+        with old.db.tx() as tx:  # as the release before stored it: two tables of HOSP-B, one of them two quarters
+            for quarter, cid, n in (("2026Q2", "C-1", "12"), ("2026Q2", "C-2", '"<5"'), ("2026Q3", "C-1", "8")):
+                tx.execute(
+                    "INSERT INTO cohort_tables (site_id, disease, quarter, criterion_id, definition_version, "
+                    "criterion_label, n, n_contactable, received_from, job_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    ("HOSP-B", "gout", quarter, cid, "GOUT-COH@1.0.0", "x", n, "0", SENDER, before),
+                )
     new = _Box(tmp_path, schema=schema)  # this release starts on that store
     try:
-        assert new.db.cohort_stored(before) is None
+        assert new.db.cohort_read_point(before) is None and new.db.cohort_stored(before) == []
         scratch = JobDB(schema=f"{schema}_x")
         try:
             assert cohort.replay_stored(new.db, scratch, before) is False
         finally:
             scratch.drop()
-        since = new.merge([_table("HOSP-C")])
-        new.orch.run(since)
-        assert [r["site_id"] for r in new.db.cohort_stored(since) or []] == ["HOSP-C"]
-        assert new.db.cohort_stored("no such job") is None
+        new.orch.run(waiting)
+        first = new.db.get(waiting)
+        assert first is not None and first.state == "done"
+        then = _canon(new.held())
+        new.orch.run(new.merge([_table("HOSP-B", n=50), _table("HOSP-C", n=70)]))  # later: both replaced
+        assert _canon(new.held()) != then
+        scratch = JobDB(schema=f"{schema}_y")
+        try:
+            assert cohort.replay_stored(new.db, scratch, waiting) is True
+            with scratch.tx() as tx:
+                got = tx.fetchall(f"SELECT {', '.join(COLS)} FROM cohort_tables ORDER BY seq")
+            rows = []
+            for r in got:
+                d = dict(zip(COLS, r, strict=True))
+                d["n"], d["n_contactable"] = json.loads(d["n"]), json.loads(d["n_contactable"])
+                rows.append(json.dumps(d, sort_keys=True, ensure_ascii=False))
+            assert sorted(rows) == then  # with the tables from before the record, as they stood at its read
+        finally:
+            scratch.drop()
+        second, again = _run_again(new, tmp_path, first)
+        try:
+            assert _same_output(first, second)
+        finally:
+            again.db.drop()
     finally:
         new.db.drop()
