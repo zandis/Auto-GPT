@@ -160,6 +160,20 @@ system to be shut down without having to log on".
 | 55 | The host check from inside WSL2 (`deploy/check_host.sh`, an elevated terminal), the Windows lines | PASS "installs at 19:00 and restarts by itself only from 19:00 to 1:00", PASS "takes no drivers", PASS "the sign-in screen does not offer it" | The three lines |
 | 56 | Start the installer once more with `-UpdateWindowStart 12 -UpdateWindowHours 8` | "restarts this PC by itself only between 12:00 and 20:00"; line 47's values follow (install time 12, active hours 20 to 12); `cat /opt/trialbox/deploy/site/box/windows-update-window` inside WSL2 says `12+8`, and line 54 judges that window | The values; then set it back by starting it with `-UpdateWindowStart 19 -UpdateWindowHours 6` |
 
+## Part 7: NEW-WIN-6, the card shared with the desktop (D-607; the rehearsal of P-11)
+
+The rehearsal PC's card is not the site's card and its models are the small stand-in: the figures here show
+whether each reading works, not whether the real pair has room. That is P-11, on the reference workstation.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 57 | With TrialBox up, inside WSL2: `nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits`; then open a browser with a video on the Windows desktop and run it again | Two whole numbers; the first grows when the desktop program starts: WSL2 sees the memory Windows programs hold | Both readings, with and without the browser |
+| 58 | The console's health line (or `wsl -d TrialBox -u root -- sh -c 'cd /opt/trialbox && python3 -m tools.trialbox ops run'` and then the health page) | A part "programs outside TrialBox hold X GiB of the graphics card; Y GiB is spare beside the models", or "no serving record says what the models need" on a rehearsal PC without a record | The line whole. Did the health facts get written at all (the runner is a timer as root inside WSL2)? |
+| 59 | The host check from an elevated terminal (`deploy/check_host.sh`), the line "graphics card by program (Windows)" | "WSL2 holds N MiB; programs outside TrialBox hold M MiB (name MiB, ...)". The process name Windows gives WSL2's virtual machine (`vmmem` or `vmmemWSL`) is counted as WSL2, not as outside | The line whole; in Task Manager, Details, the name of the WSL2 process; whether N is near the models' memory or near zero (if near zero, Windows does not attribute WSL2's card memory to that process and the line must be corrected) |
+| 60 | NVIDIA Control Panel, Manage 3D settings, Global Settings: is there "CUDA - Sysmem Fallback Policy"? Set "Prefer No Sysmem Fallback". Then, inside WSL2, start a program that asks for more card memory than is free (the installer's GPU probe image with a large allocation, or a second copy of the stand-in model server) | With the setting: the program fails at once with an out-of-memory error, and TrialBox's models keep answering at their usual speed. Without it: note what happens | Whether the setting exists on this driver; what the over-asking program did with and without it; the console's response time during it. This decides whether the setting governs WSL2 at all |
+| 61 | Start a GPU program on the Windows desktop that takes most of the spare card memory (a game or a renderer). Look at the health line after two minutes | "red", naming how much programs outside TrialBox hold; line 59 names the program | The line; the minutes it took to turn |
+| 62 | The host check's line "administrator accounts". Then create a standard account (Settings, Accounts, Other users), sign in with it, and try: `wsl --shutdown`, `wsl -l -v`, opening `<data drive>\TrialBox` in Explorer | "administrator accounts: one"; the standard account sees no TrialBox distribution (`wsl -l -v` lists none of the owner's), cannot stop it, and Explorer refuses the folder | Each answer. If `wsl --shutdown` by a standard account stops the owner's distribution, rule 5 of the plan does not hold on this Windows |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -201,3 +215,9 @@ system to be shut down without having to log on".
   installs).
 - Line 53 "the driver changed": the exclusion does not hold the driver; `wsl2_versions` then fails by design, and
   the driver is held another way (a device-installation restriction for the card's hardware id).
+- Line 57 "the first number does not grow": WSL2 does not see Windows programs' card memory; the health line
+  `desktop_gpu` then cannot work from inside WSL2 and must read Windows (line 59's counters, through the boot task).
+- Line 59 "N near zero": the per-program line is corrected to say only what Windows programs hold.
+- Line 60 decides the handbook's NVIDIA step: kept, or struck when it has no effect on WSL2.
+- Line 62 "a standard account stopped WSL2": owner decision needed; the distribution would then run under a
+  service account no desktop user shares a session with.

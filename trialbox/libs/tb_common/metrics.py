@@ -27,6 +27,10 @@ The checks and their thresholds (each can be moved in ``deploy/.env``):
                     (``TB_TLS_MODE=internal``) renews itself and is ok
 ``optout_worker``   red when the opt-out worker's last tick failed or none completed for three intervals (D-441,
                     from the orchestrator's ``/models``); not shown when the orchestrator does not report it
+``desktop_gpu``     a Windows workstation only (WSL2; NEW-WIN-6, D-607): the card memory held by programs outside
+                    TrialBox (the desktop's) against the card's spare memory, which is the card less what the
+                    serving record measured for the models. Warn over ``TB_HEALTH_DESKTOP_GPU_WARN`` (70) percent,
+                    red over ``TB_HEALTH_DESKTOP_GPU_RED`` (85): the model servers would not fit after a restart
 ``facts``           warn when the host's runner has not written the facts for an hour (the checks above are old)
 ==================  ==========================================================================================
 
@@ -42,6 +46,7 @@ import json
 import math
 import os
 import shutil
+import subprocess
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -74,6 +79,8 @@ class Thresholds:
     backup_max_age_h: float = 36.0
     verified_warn_days: float = 90.0
     verified_red_days: float = 100.0
+    desktop_gpu_warn_pct: float = 70.0
+    desktop_gpu_red_pct: float = 85.0
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Thresholds:
@@ -87,6 +94,8 @@ class Thresholds:
             backup_max_age_h=_num(e, "TB_BACKUP_MAX_AGE_HOURS", 36.0),
             verified_warn_days=max(0.0, red_days - 10.0),
             verified_red_days=red_days,
+            desktop_gpu_warn_pct=_num(e, "TB_HEALTH_DESKTOP_GPU_WARN", 70.0),
+            desktop_gpu_red_pct=_num(e, "TB_HEALTH_DESKTOP_GPU_RED", 85.0),
         )
 
 
@@ -261,6 +270,39 @@ def check_cert(cert: Mapping[str, Any] | None, now: datetime, th: Thresholds) ->
     return Check("certificate", OK, f"certificate {days:.0f} days left", days)
 
 
+def check_desktop_gpu(gpu: Mapping[str, Any], models_up: bool, th: Thresholds) -> Check:
+    """NEW-WIN-6 (D-607; plan v7 section 2.3 rule 6): the workstation's card is shared with the desktop.
+
+    ``gpu``: :func:`gpu_facts`. Inside WSL2 the card reports the memory held by every program, Windows' too, but
+    not by which. What is outside TrialBox is therefore what is used less what the serving record measured for the
+    models, when the models are up (``models_up``: the self-test passed); all of it when they are not. It is set
+    against the card's spare memory: the card less the models' measured share."""
+    name = "desktop_gpu"
+    used, total, models = gpu.get("used_mib"), gpu.get("total_mib"), gpu.get("models_mib")
+    if not isinstance(used, (int, float)) or not isinstance(total, (int, float)) or total <= 0:
+        return Check(
+            name, WARN, "the graphics card's memory could not be read (nvidia-smi): the desktop's use of it is unknown"
+        )
+    gib = 1024.0
+    if not isinstance(models, (int, float)) or models <= 0:
+        return Check(name, WARN, f"{used / gib:.1f} of {total / gib:.1f} GiB of the graphics card in use; no serving "
+                     "record says what the models need, so the desktop's share was not judged")  # fmt: skip
+    spare = total - models
+    if spare <= 0:
+        return Check(name, RED, f"the models were measured at {models / gib:.1f} GiB and the card has "
+                     f"{total / gib:.1f} GiB: nothing is left for the desktop")  # fmt: skip
+    outside = max(0.0, used - models) if models_up else float(used)
+    pct = 100.0 * outside / spare
+    said = (f"programs outside TrialBox hold {outside / gib:.1f} GiB of the graphics card; {spare / gib:.1f} GiB is "
+            f"spare beside the models ({pct:.0f} %)")  # fmt: skip
+    if pct >= th.desktop_gpu_red_pct:
+        return Check(name, RED, f"{said}: the model servers may not fit after a restart. Close the program that "
+                     "uses the card (a game, rendering, another model)", pct)  # fmt: skip
+    if pct >= th.desktop_gpu_warn_pct:
+        return Check(name, WARN, said, pct)
+    return Check(name, OK, said, pct)
+
+
 def evaluate(
     facts: Mapping[str, Any] | None,
     canary: Mapping[str, Any] | None,
@@ -280,6 +322,8 @@ def evaluate(
         checks.append(check_derive(derive))
     checks += check_disks(f.get("disks") or [], th)
     checks.append(check_cert(f.get("cert"), now, th))
+    if isinstance(f.get("gpu"), Mapping):  # a Windows workstation (WSL2) only
+        checks.append(check_desktop_gpu(f["gpu"], check_canary(canary).level == OK and canary is not None, th))
     seen = _when(f.get("at"))
     if seen is None:
         checks.append(Check("facts", RED, f"the host runner has not written the health facts ({RUNNER_HINT})"))
@@ -371,6 +415,60 @@ def record_verified(deploy: Path, result: Mapping[str, Any], now: datetime | Non
     return out
 
 
+def _card_memory() -> tuple[int, int] | None:
+    """(used, total) MiB of the first card, as nvidia-smi reports them; None when it does not answer."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=20, check=False,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.strip().splitlines()[0] if out.returncode == 0 and out.stdout.strip() else ""
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) != 2 or not all(p.isascii() and p.isdigit() for p in parts):
+        return None
+    return int(parts[0]), int(parts[1])
+
+
+def gpu_facts(
+    deploy: Path,
+    env: Mapping[str, str],
+    *,
+    proc: Path = Path("/proc"),
+    card: Any = None,
+) -> dict[str, Any] | None:
+    """The card's memory on a Windows workstation, for :func:`check_desktop_gpu`; ``None`` on any other host.
+
+    ``models_mib`` is ``memory_used_mib`` of the box's serving record: the one of ``TB_GPU_PROFILE``, else the only
+    record there is; the site's own (``deploy/site``) before the vendor's (``deploy/measured``). ``card``: a
+    callable in place of nvidia-smi (tests)."""
+    try:
+        kernel = (proc / "sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+    except OSError:
+        return None
+    if "microsoft" not in kernel or "wsl2" not in kernel:
+        return None
+    got = (card or _card_memory)()
+    profile = str(env.get("TB_GPU_PROFILE") or "").strip()
+    models: float | None = None
+    for folder in (deploy / "site", deploy / "measured"):
+        pattern = f"serving_config.{profile}.json" if profile and profile != "auto" else "serving_config.*.json"
+        records = sorted(folder.glob(pattern))
+        if len(records) != 1:
+            if records:
+                break  # two records and no profile: never a guess
+            continue
+        try:
+            value = json.loads(records[0].read_text(encoding="utf-8")).get("memory_used_mib")
+        except (OSError, ValueError, AttributeError):
+            value = None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            models = float(value)
+        break
+    return {"used_mib": got[0] if got else None, "total_mib": got[1] if got else None, "models_mib": models}
+
+
 def host_facts(
     deploy: Path,
     env: Mapping[str, str],
@@ -387,6 +485,7 @@ def host_facts(
         "verified": read_verified(deploy),
         "disks": disk_usage(disk_paths(deploy, env)),
         "cert": cert_facts(env),
+        "gpu": gpu_facts(deploy, env),
     }
 
 

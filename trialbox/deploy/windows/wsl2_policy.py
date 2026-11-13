@@ -369,6 +369,40 @@ def check_shutdown_right(facts: Facts, v: Verdicts) -> None:
                  "turned off under the night. Start the Windows installer again")  # fmt: skip
 
 
+def check_gpu_programs(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-6 (D-607): the card is shared with the desktop. Which Windows programs hold its memory, by name.
+
+    The verdict on how much is the health line's (``desktop_gpu``, every minute, from inside WSL2, which sees the
+    amount and not the program). This line names the programs when that one is red."""
+    if "gpu_programs_known" not in facts:
+        return  # facts of a release before NEW-WIN-6
+    if facts["gpu_programs_known"] != "1":
+        v.warn("graphics card by program: Windows gave no figures (the counter class is missing on this build)")
+        return
+    wsl, outside = _int(facts.get("gpu_wsl_mib")), _int(facts.get("gpu_outside_mib"))
+    if wsl is None or outside is None:
+        v.warn("graphics card by program: the figures could not be read")
+        return
+    top = facts.get("gpu_outside_top", "")
+    names = ", ".join(f"{n} {m} MiB" for n, _, m in (part.partition(":") for part in top.split(",") if part))
+    v.ok(f"graphics card by program (Windows): WSL2 holds {wsl} MiB; programs outside TrialBox hold {outside} MiB"
+         + (f" ({names})" if names else ""))  # fmt: skip
+
+
+def check_admin_accounts(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-6 (D-607; plan v7 section 2.3 rule 5): desktop staff sign in with standard accounts."""
+    if "admin_accounts" not in facts:
+        return  # facts of a release before NEW-WIN-6
+    n = _int(facts["admin_accounts"])
+    if n is None:
+        v.warn("administrator accounts: not read")
+    elif n <= 1:
+        v.ok("administrator accounts: one (the box owner's); desktop staff sign in with standard accounts")
+    else:
+        v.warn(f"administrator accounts: {n}. Each can stop WSL2, read its disk file and shut the workstation down: "
+               "keep them to the box owner and hospital IT; desktop staff sign in with standard accounts")  # fmt: skip
+
+
 def check_keepalive(facts: Facts, v: Verdicts) -> None:
     name = facts.get("keepalive_task_name", "TrialBox-WSL2")
     if facts.get("keepalive_task_found") != "1":
@@ -449,6 +483,8 @@ CHECKS: tuple[Callable[[Facts, Verdicts], None], ...] = (
     check_windows_update,
     check_update_drivers,
     check_shutdown_right,
+    check_gpu_programs,
+    check_admin_accounts,
     check_keepalive,
     check_clock,
     check_vhdx,

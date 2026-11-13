@@ -143,6 +143,40 @@ Fact "wu_deadline_feature" (RegValue $wu "ConfigureDeadlineForFeatureUpdates")
 Fact "shutdown_at_sign_in" (RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ShutdownWithoutLogon")
 Fact "wu_reboot_pending" ([int](Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
 
+# NEW-WIN-6 (D-607): the card shared with the desktop. The card's memory by program, from Windows' own counters
+# (a CIM class, the same name in every display language); WSL2's virtual machine is the process vmmem or vmmemWSL
+$gp = @(Get-CimInstance -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory)
+if ($gp.Count -eq 0) {
+  Fact "gpu_programs_known" 0
+} else {
+  Fact "gpu_programs_known" 1
+  $by = @{}
+  foreach ($r in $gp) {
+    if ([string]$r.Name -match "^pid_(\d+)_") { $id = [int]$Matches[1]; $by[$id] = [long]$by[$id] + [long]$r.DedicatedUsage }
+  }
+  $wslBytes = [long]0; $other = @{}
+  foreach ($id in @($by.Keys)) {
+    $n = [string](Get-Process -Id $id).ProcessName
+    if (-not $n) { $n = "unknown" }
+    if ($n -like "vmmem*") { $wslBytes += $by[$id] } else { $other[$n] = [long]$other[$n] + $by[$id] }
+  }
+  $sum = [long]0; foreach ($v in $other.Values) { $sum += $v }
+  Fact "gpu_wsl_mib" ([long]($wslBytes / 1MB))
+  Fact "gpu_outside_mib" ([long]($sum / 1MB))
+  Fact "gpu_outside_top" ((@($other.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 5 |
+        ForEach-Object { "{0}:{1}" -f ($_.Key -replace "[,:=]", "_"), [long]($_.Value / 1MB) }) -join ","))
+}
+# who is an administrator of this workstation: a number, no names. The built-in account counts when it is enabled
+$adminCount = ""
+$members = @(Get-LocalGroupMember -SID "S-1-5-32-544" | Where-Object { $_.ObjectClass -eq "User" })
+if ($members.Count -gt 0) {
+  $adminCount = 0
+  foreach ($m in $members) {
+    if ([string]$m.PrincipalSource -eq "Local") { if ((Get-LocalUser -SID $m.SID).Enabled) { $adminCount++ } } else { $adminCount++ }
+  }
+}
+Fact "admin_accounts" $adminCount
+
 # the start-at-boot task that keeps WSL2 running whether or not anyone is signed in (register_keepalive.ps1)
 Fact "keepalive_task_name" $TaskName
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
