@@ -22,6 +22,11 @@ asked for again: that is not the network's fault, and it is refused at once. `de
 `tools/fetch_fonts.py` use it. Standard library only; the CA file of the build (`SSL_CERT_FILE`) is honoured
 as before.
 
+Only an `https` address is fetched: the tool's opener has no `file:` or `ftp:` handler, and an answer that
+ended at another scheme after a redirect is refused. With that, the static scan has nothing to accept: the
+reviewed entry for `tools/fetch_fonts.py` (opening a URL) is removed from `tools/security_scan_ignores.yaml`,
+and none is added for the new file.
+
 ## Consequences
 
 - One bad answer from a mirror no longer fails the image build; three in a row do, with each try's reason.

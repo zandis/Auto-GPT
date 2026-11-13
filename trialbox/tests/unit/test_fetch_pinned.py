@@ -70,7 +70,7 @@ def test_a_file_that_is_not_the_pinned_one_is_refused_at_once_and_never_written(
 
 
 def test_the_command_says_what_failed_and_returns_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert fetch_pinned.main(["http://127.0.0.1:9/x.jar", str(tmp_path / "x.jar"), "0" * 64, "--wait", "0"]) == 1
+    assert fetch_pinned.main(["https://127.0.0.1:9/x.jar", str(tmp_path / "x.jar"), "0" * 64, "--wait", "0"]) == 1
     err = capsys.readouterr().err
     assert "3 tries" in err and "x.jar" in err
     assert fetch_pinned.main([URL, str(tmp_path / "x.jar"), "not-a-sha"]) == 2
@@ -97,3 +97,21 @@ def test_the_demo_image_fetches_its_jar_with_the_tool() -> None:
     assert "urlopen" not in text  # no second, single-try fetch left in the build
     ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
     assert "tools/fetch_pinned.py" not in ignore
+
+
+@pytest.mark.parametrize(
+    "url", ["file:///etc/hostname", "http://repo.example.org/x.jar", "ftp://repo.example.org/x.jar"]
+)
+def test_only_https_is_ever_asked_for(tmp_path: Path, url: str) -> None:
+    """The static scan's point about opening a URL: a file: or plain http address is refused, not fetched."""
+    net = Net(DATA)
+    with pytest.raises(fetch_pinned.FetchError, match="https"):
+        fetch_pinned.fetch(url, tmp_path / "x", SHA, get=net.get, sleep=net.waits.append)
+    assert net.asked == 0
+    with pytest.raises(fetch_pinned.FetchError, match="https"):
+        fetch_pinned._get(url)
+
+
+def test_the_scan_has_no_entry_left_for_a_fetch_that_moved() -> None:
+    ignores = (ROOT / "tools" / "security_scan_ignores.yaml").read_text(encoding="utf-8")
+    assert "tools/fetch_fonts.py" not in ignores and "tools/fetch_pinned.py" not in ignores

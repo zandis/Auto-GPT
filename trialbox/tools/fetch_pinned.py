@@ -20,6 +20,7 @@ import ssl
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -36,9 +37,28 @@ class PinError(RuntimeError):
     """A download whose sha256 is not the pinned one."""
 
 
+def _https(url: str) -> None:
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise FetchError(f"{url}: only an https address is fetched")
+
+
 def _get(url: str) -> bytes:
+    """The bytes at an https address. The opener speaks https only (through the build's proxy, when one is set):
+    no ``file:`` or ``ftp:`` handler is in it, and an answer that ended at another scheme after a redirect is
+    refused."""
+    _https(url)
     ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
-    with urllib.request.urlopen(url, timeout=120, context=ctx) as resp:
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.ProxyHandler(),
+        urllib.request.HTTPSHandler(context=ctx),
+        urllib.request.HTTPRedirectHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        urllib.request.HTTPErrorProcessor(),
+    ):
+        opener.add_handler(handler)
+    with opener.open(url, timeout=120) as resp:
+        _https(resp.geturl())
         data: bytes = resp.read()
     return data
 
@@ -53,6 +73,7 @@ def fetch_bytes(
 ) -> bytes:
     """The bytes at ``url`` when their sha256 is ``sha256``. :class:`FetchError` after the last failed try, with each
     try's reason; :class:`PinError` at once for other bytes."""
+    _https(url)
     reasons: list[str] = []
     for n in range(len(waits) + 1):
         if n:
