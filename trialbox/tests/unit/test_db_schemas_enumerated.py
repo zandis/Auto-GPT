@@ -26,6 +26,7 @@ ROLE_OF = {"console": "tb_console", "orchestrator": "tb_orchestrator", "mail_gat
 DYNAMIC = {
     ("console.storedb", "schema"): "open_db(url, <schema>, ...): every call of it is read (a literal second argument)",
     ("omop.schema", "name"): "connect(url, name=SCHEMA): the default is read; another name is a rerun's scratch schema",
+    ("orchestrator.db", "name"): "JobLease (D-532): a second connection to the store its JobDB opened; no other schema",
     ("orchestrator.db", "schema"): "JobDB(url, schema=SCHEMA_NAME): the default is read",
     ("orchestrator.db_pg", "schema"): "the workflow backend: the default (wf) is read; the recall ledger names its own",
 }

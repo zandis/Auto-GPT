@@ -19,6 +19,17 @@ from tests.unit.test_t689_outage_restart import Scripted, _events, _job, screen_
 make = t689.make  # that file's fixture (an orchestrator on the test database), used here under its own name
 
 
+def _given_up(db: JobDB, job_id: str) -> bool:
+    """A holder that DIED gives its lease up when the server has ended its session: a moment after the connection
+    closed, not at once. Waited for here, bounded; a release() is immediate and is asserted without waiting."""
+    import time
+
+    end = time.monotonic() + 30
+    while db.leased(job_id) and time.monotonic() < end:
+        time.sleep(0.01)
+    return not db.leased(job_id)
+
+
 def test_a_lease_is_one_holders_and_ends_with_its_connection(db_url: str) -> None:
     a, b = JobDB(), JobDB()
     try:
@@ -31,7 +42,7 @@ def test_a_lease_is_one_holders_and_ends_with_its_connection(db_url: str) -> Non
         again = b.lease("01JOBAAAAAAAAAAAAAAAAAAAAA")  # free again: the next holder takes it
         assert a.leased("01JOBAAAAAAAAAAAAAAAAAAAAA")
         again.drop_connection()  # the holder dies: no release is ever called
-        assert not a.leased("01JOBAAAAAAAAAAAAAAAAAAAAA")
+        assert _given_up(a, "01JOBAAAAAAAAAAAAAAAAAAAAA")
     finally:
         a.close()
         b.close()
@@ -57,6 +68,7 @@ def test_a_second_orchestrator_does_not_take_a_running_job_for_interrupted(make:
     # the first process dies (or is stopped before the job ended): its lease goes with its connection. The second
     # process, which left the job alone, finds it interrupted by itself: no third start is needed (review HIGH-1)
     lease.drop_connection()
+    assert _given_up(second.db, job_id)
     second.drain()
     assert second.db.restarts(job_id) == 1 and len(_events(tmp_path, "job.requeued")) == 1
     done = second.db.get(job_id)
@@ -141,3 +153,26 @@ def test_two_jobs_whose_32_bit_hashes_meet_do_not_share_a_lease() -> None:
     a, b = lease_keys("tb_orch", "01JOB199167"), lease_keys("tb_orch", "01JOB31483")
     assert a != b and all(-(2**31) <= k < 2**31 for k in (*a, *b))
     assert lease_keys("tb_orch", "01JOB199167") == a and lease_keys("other_orch", "01JOB199167") != a
+
+
+def test_a_release_unlocks_and_does_not_wait_for_the_session_to_end(db_url: str, monkeypatch: Any) -> None:
+    """Train 5: release() only closed the connection; the server gives a session's locks back when it has ended
+    the session, a moment after the close returns, and for that moment another connection still saw the lease (a
+    job handed from one worker to the next would be refused as "leased"). The release says the unlock itself:
+    shown here with the connection kept open, where only an unlock can free the lease."""
+    from orchestrator.db import JobLease
+
+    a, b = JobDB(), JobDB()
+    try:
+        held = a.lease("01JOBAAAAAAAAAAAAAAAAAAAAA")
+        assert b.leased("01JOBAAAAAAAAAAAAAAAAAAAAA")
+        monkeypatch.setattr(JobLease, "drop_connection", lambda self: None)  # the session stays
+        held.release()
+        assert not b.leased("01JOBAAAAAAAAAAAAAAAAAAAAA")  # free, though the holder's connection is still open
+        nxt = b.lease("01JOBAAAAAAAAAAAAAAAAAAAAA")  # and the next holder takes it
+        monkeypatch.undo()
+        nxt.release()
+        held.drop_connection()
+    finally:
+        a.close()
+        b.close()

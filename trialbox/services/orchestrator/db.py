@@ -183,9 +183,10 @@ class JobLease:
 
     def __init__(self, url: str, name: str, schema: str, job_id: str) -> None:
         self.job_id = job_id
+        self._keys = lease_keys(schema, job_id)
         self._db = Database.connect(url, name)
         try:
-            row = self._db.fetchone("SELECT pg_try_advisory_lock(?, ?)", lease_keys(schema, job_id))
+            row = self._db.fetchone("SELECT pg_try_advisory_lock(?, ?)", self._keys)
         except BaseException:
             self._db.close()
             raise
@@ -194,8 +195,14 @@ class JobLease:
             raise JobLeased(f"job {job_id} is being run by another worker")
 
     def release(self) -> None:
-        """Give the lease up: the session ends and the lock with it. No unlock statement: a connection that was
-        lost would be opened again just to say it (review LOW-6)."""
+        """Give the lease up: unlock, then close. The unlock is said on the connection that holds the lock, while
+        it lives: closing alone gives the lock back only when the server has ended the session, a moment after
+        the close returns, and for that moment the next worker would find the job "leased" (seen on train 5: a
+        test read the lease right after the release and still saw it). A connection that was lost holds nothing
+        and is not opened again to say so (review LOW-6)."""
+        if not self._db._dead():
+            with contextlib.suppress(Exception):
+                self._db._con.execute("SELECT pg_advisory_unlock(%s, %s)", self._keys)
         self.drop_connection()
 
     def drop_connection(self) -> None:
