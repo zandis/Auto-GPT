@@ -23,7 +23,8 @@ import httpx
 import pytest
 from lake.client import LakeUnhealthy
 from sitesetup import help, readiness
-from sitesetup.service import SiteSetup
+from sitesetup.service import LAKE_DOWN, SiteSetup
+from tb_common.db import ENV as DB_ENV
 
 from tests.unit.test_site_setup import STUDY, TODAY, pid, site_ruleset, svc  # noqa: F401 - the fixture, by name
 
@@ -135,10 +136,10 @@ def test_the_readiness_answer_says_the_lake_could_not_be_read_not_that_there_is_
 
 
 def test_the_three_readers_raise_instead_of_answering_nothing(down: SiteSetup, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(readiness.DB_ENV, "postgresql://nowhere/none")
+    monkeypatch.setenv(DB_ENV, "postgresql://nowhere/none")
     for fn, args in ((readiness.feed_loaded, (down,)), (readiness.unknown_share, (down, MAIN)),
                      (readiness.scores_unverified, (down,))):  # fmt: skip
-        with pytest.raises(readiness.LAKE_DOWN):
+        with pytest.raises(LAKE_DOWN):
             fn(*args)
 
 
