@@ -323,7 +323,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if job is None or result is None:
             return None
         prof = load(job, "feasprofile_", ".json", "aggregate")
-        rep = st.feas_report(result, prof, store.profile(rs), crit_of(rs, sess.lang if sess else "en"), sponsor=sponsor)
+        rep = st.feas_report(result, prof, store.profile(rs), crit_of(rs, sess.lang if sess else "en"), sponsor=sponsor,
+                             zone=site_zone(bk))  # fmt: skip
         rep["job"] = job
         rep["has_profile"] = prof is not None
         rep["files"] = [
