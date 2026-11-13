@@ -3,18 +3,21 @@
 * :meth:`Guard.detect` runs every recogniser and merges overlapping spans (longest wins).
 * :meth:`Guard.redact` replaces each span with a type tag (``[TW_NATIONAL_ID]``); the trace store calls it at write.
 * :meth:`Guard.tripwire` is the independent check the gateway runs (LLM-15, PRIV-29): a hit from these recognisers
-  or from the v1 :func:`tb_common.phi_guard.scan` blocks, whatever the class label says.
+  or from the v1 :func:`tb_common.phi_guard.scan` blocks, whatever the class label says. A Chinese or Japanese
+  NAME finding gets a second look first (:mod:`guard.names`, D-647): the patterns alone refused ordinary text.
 * :meth:`Guard.screen` is the planted-instruction screen (T-606, D-359; :mod:`guard.injection`): it flags text written
   as an instruction to a model. It never blocks a call; the caller decides what a flag does.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from tb_common import phi_guard
 
+from guard import names
 from guard.injection import Screen, screen
 from guard.recognisers import Finding, recognisers
 
@@ -40,6 +43,29 @@ def merge(findings: list[Finding]) -> list[Finding]:
     return out
 
 
+_CJK = re.compile(r"[぀-ヿ㐀-鿿]")
+
+
+def _unconfirmed(text: str, f: Finding) -> bool:
+    """A NAME finding in Chinese or Japanese writing that the second look takes away. A name in Latin letters
+    (``Mr. Chen``) is not looked at again: it stands."""
+    return f.kind == "NAME" and bool(_CJK.search(text[f.start : f.end])) and not names.stands(text, f.start, f.end)
+
+
+def _standing_names(text: str) -> list[str]:
+    """The v1 guard's Chinese and Japanese names (:func:`tb_common.phi_guard._cjk_names`) that stand at one of the
+    places they are written."""
+    out = []
+    for name in phi_guard._cjk_names(text):
+        at = text.find(name)
+        while at >= 0:
+            if names.stands(text, at, at + len(name)):
+                out.append(name)
+                break
+            at = text.find(name, at + 1)
+    return out
+
+
 class Guard:
     def __init__(self, mrn_regex: str | None = None) -> None:
         self.mrn_regex = mrn_regex
@@ -55,10 +81,14 @@ class Guard:
         except Exception:
             return cls(None)
 
-    def detect(self, text: str) -> list[Finding]:
+    def detect(self, text: str, second_look: bool = False) -> list[Finding]:
+        """``second_look`` (the tripwire, D-647): a Chinese or Japanese NAME finding stands only if
+        :func:`guard.names.stands` says so. Redaction does not take it: masking too much costs readability only."""
         found: list[Finding] = []
         for _name, rec in self._recognisers:
             found.extend(f for f in rec(text) if f.end > f.start)
+        if second_look:
+            found = [f for f in found if not _unconfirmed(text, f)]
         return merge(found)
 
     def redact(self, text: str) -> str:
@@ -85,8 +115,8 @@ class Guard:
         return obj
 
     def tripwire(self, text: str) -> Verdict:
-        spans = self.detect(text)
-        v1 = phi_guard.scan(text, self.mrn_regex)
+        spans = self.detect(text, second_look=True)
+        v1 = phi_guard.scan(text, self.mrn_regex, cjk_names=_standing_names)
         kinds = sorted({f.kind for f in spans} | {k.upper() for k, _ in v1.findings})
         hit = bool(spans) or v1.hit
         return Verdict(hit, tuple(kinds), len(spans) + len(v1.findings), spans)
