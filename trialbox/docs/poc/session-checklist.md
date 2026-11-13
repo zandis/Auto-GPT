@@ -51,9 +51,10 @@ the repository, an issue, a chat or this checklist.
 
 - [ ] Run the stored-input scan against the baseline:
       `python -m console.demo_guard scan --db <data folders> --baseline <baseline file>`
-      Exit 0 is clean. Exit 1 means something was not scanned (the message names it). Exit 2 is a new hit (printed masked, with its place): treat it as real data entered (purge,
-      record without the content, tell the tester). Exit 1 means `TB_DB_URL` was not set, or a column
-      the scan must read (the feedback comment, T-510) was not reached: fix and run again.
+      Exit 0 is clean. Exit 2 is a new hit (printed masked, with its place): treat it as real data entered (purge,
+      record without the content, tell the tester). Exit 1 means `TB_DB_URL` was not set, a column
+      the scan must read (the feedback comment, T-510) was not reached, or the database holds a store this role
+      may not read (the message names them; use the admin role, D-711): fix and run again.
 - [ ] Export the in-product feedback (`/feedback/export.csv` as an admin, or `python -m console.feedback export`)
       and add each entry to the finding forms.
 - [ ] Fill the finding forms from the session record; one finding per form.
