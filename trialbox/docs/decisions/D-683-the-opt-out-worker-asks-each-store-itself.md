@@ -61,6 +61,23 @@ What still held: an opt-out typed by the office is in the register at once, and 
 register itself (D-147, D-273), so a new run did not list the patient. Each tick's failure was audited and the
 health line was red.
 
+## The adversarial review (run with the real role script) and what it changed
+
+- **A merge was never followed under roles (high).** `tb_common.optout.with_survivors` asked whether it may use
+  the pid map as the role its connection works as (`tbs_optout`), which never may: an opt-out typed under a chart
+  that was merged did not reach the surviving patient, in the stores or in any screening read, and the tick
+  reported nothing failed. Older than this card; fixed here (the question is asked of the catalog for
+  `session_user`, the map is read on its own connection), with a roles test. `libs/tb_common/optout.py` is lane
+  A2's file: one statement changed.
+- **An OMOP store in another database (`TB_OMOP_DB_URL`) was reported as skipped (medium).** The worker now looks
+  where the load writes. A practice site's own `omop_<hash>` store is not the box's store of record and is not
+  cleared by the worker: still so, and owed.
+- **A store whose table is a view was "skipped" (low).** Any relation of the name is now a store that is there.
+- **The enumerating test could be fooled (low).** It now reads every way a table is asked for (`to_regclass`,
+  `::regclass`, `information_schema.tables`, `pg_tables`), by file, way and count.
+- **Not changed, for lane D:** the script never takes TEMPORARY back from a `tbs_` group whose schema later
+  becomes owned or leaves the list.
+
 ## Stated plainly
 
 - **With the install's roles, the OMOP dual write and the OMOP lake source have never loaded a record.** Every
@@ -83,9 +100,12 @@ health line was red.
 
 ## Other lanes (not changed here)
 
-- `services/console/firstrun.py` asks about the pid map over the console's `auth` connection (by reading: on a
-  box with roles the question raises, is caught, and the first-run page reads it as "the box holds patients").
-  Listed in the enumerating test as the console lane's.
+- `services/console/firstrun.py` asks about the pid map over the console's `auth` connection: on a box with
+  roles the question raises, is caught, and the first-run page reads it as "the box holds patients", so the
+  chart-number rule is never offered (confirmed by the review's run). Listed in the enumerating test as the
+  console lane's.
+- `services/console/demo_guard.py` lists every schema's text columns through `information_schema` as the
+  console's role (by reading): a schema the console may not read is not shown to it, so the scan does not see it.
 
 ## Evidence
 

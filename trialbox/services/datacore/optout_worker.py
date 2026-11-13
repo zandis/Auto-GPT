@@ -190,7 +190,7 @@ def store_has(url: str, schema: str, table: str) -> bool:
     with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
         row = con.execute(
             "SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname = %s AND c.relname = %s AND c.relkind IN ('r', 'p')",
+            "WHERE n.nspname = %s AND c.relname = %s",  # any relation of the name: a view is not "no store"
             (prefix + schema, table),
         ).fetchone()
     return row is not None
@@ -326,7 +326,8 @@ def minutes() -> int:
 def _omop_store(reg: OptOutRegister) -> Any | None:
     """The box's OMOP store when it exists (dual write or the OMOP lake source), opened as the store itself; a box
     without one is not given one. Raises when the store is there and cannot be opened."""
-    url = str(reg.db.url)
+    # the store's own database when the box names one (TB_OMOP_DB_URL, as the load reads it), else the register's
+    url = os.environ.get("TB_OMOP_DB_URL") or str(reg.db.url)
     if not store_has(url, "omop", "tb_record"):
         return None
     from omop import schema

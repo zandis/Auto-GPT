@@ -30,10 +30,11 @@ from tools import pglocal
 
 ROOT = Path(__file__).resolve().parents[2]
 D, E, F = "a1b2c3d4e5f60004", "a1b2c3d4e5f60005", "a1b2c3d4e5f60006"
-ALL = [A, B, C, D, E]  # the fixture's feed; F arrives with the adapter's dual write
+G, H = "a1b2c3d4e5f60007", "a1b2c3d4e5f60008"  # the chart H was merged into G (the pid map's alias)
+ALL = [A, B, C, D, E, G]  # the fixture's feed; F arrives with the adapter's dual write
 NIGHT1, NIGHT2 = "2026-11-01", "2026-11-02"
 # The tests share one cluster and must pass in any order: each asserts only on its own patients (the tick: A and B;
-# the store that cannot be opened: D; the dual write: F; C and E are never opted out).
+# the store that cannot be opened: D; the dual write: F; the merged chart: G and H; C and E are never opted out).
 
 
 @pytest.fixture(scope="module")
@@ -65,6 +66,8 @@ def box() -> Iterator[str]:
         with Database.connect(admin, "pidmap") as pm:
             pm.execute("CREATE TABLE pending (pid TEXT, night TEXT)")
             pm.execute("INSERT INTO pending VALUES (?, 'n'), (?, 'n'), (?, 'n')", (A, C, D))
+            pm.execute("CREATE TABLE pid_alias (old_pid TEXT, pid TEXT)")
+            pm.execute("INSERT INTO pid_alias VALUES (?, ?)", (H, G))
         yield _as(admin, "tb_orchestrator")
     finally:
         pglocal.stop(root)
@@ -156,35 +159,70 @@ def test_an_omop_store_that_cannot_be_opened_is_named_and_the_other_stores_are_c
     assert again is not None and again["failed"] == [] and _omop_live(box, D) == 0
 
 
+def test_an_opt_out_under_a_merged_chart_reaches_the_surviving_patient_under_roles(
+    box: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review's finding: the register asked whether it may use the pid map as its group role (``tbs_optout``),
+    which never may, so on a box with roles a merge was never followed: the surviving patient stayed in every
+    store and in every screening read, and the tick said nothing had failed."""
+    from datacore import optout_worker as w
+    from tb_common import optout
+
+    monkeypatch.setenv("TB_DB_URL", box)
+    reg = OptOutRegister(box)
+    try:
+        reg.add(H, "office", "by letter", "office:t", T0)
+        assert reg.db.fetchval("SELECT current_user") == "tbs_optout"
+        assert G in reg.effective()
+    finally:
+        reg.close()
+    for role in ("tb_orchestrator", "tb_console"):  # the screening read, as each service that reads the register
+        assert G in optout.opted_out(_as_role(box, role)), role
+    out = w.tick(_orch(Lake([(B, "rejected", None, "2026-11-01")])))
+    assert out is not None and out["failed"] == []
+    assert _omop_live(box, G) == 0 and _omop_live(box, E) > 0
+
+
+#: how code asks the database whether a table is there, in a way a role without the schema is refused or shown
+#: nothing (``pg_class`` itself answers every role: ``optout_worker.store_has`` and the register's pid-map question)
+_ASKS = ("to_regclass", "::regclass", "information_schema.tables", "pg_tables")
+
+
 def test_no_code_asks_whether_a_table_exists_over_another_stores_connection() -> None:
-    """The class of this fault: ``to_regclass`` about a schema, asked on a connection that works as another
-    schema's group role, raises on a box with roles and answers on a developer's database. Every use in the
-    services and libraries is listed here with why it may ask; the list only shrinks."""
+    """The class of this fault: a question about a schema, asked on a connection that works as another schema's
+    group role, is refused on a box with roles and answered on a developer's database. Every statement in the
+    services and libraries that asks whether a table is there is listed here, by file, the way it asks and how
+    many times, with why it may ask; the list only shrinks, and a new statement fails here until it is judged."""
     listed = {
-        "libs/tb_common/flags.py": (4, "the flags' own schema, on its own connection or one without a group role"),
-        "libs/tb_common/optout.py": (2, "the register's own table; the pid map only after has_schema_privilege"),
-        "services/orchestrator/scenarios/retention.py": (1, "the site store's own schema, on its connection"),
-        "services/orchestrator/scheduler.py": (1, "the site store's own schema, on its connection"),
-        "services/console/firstrun.py": (1, "the pid map over the console's auth connection: the console lane's"),
-    }
-    found: Counter[str] = Counter()
+        ("libs/tb_common/db.py", "::regclass"): (2, "the connection's own schema (its version table, its sequences)"),
+        ("libs/tb_common/flags.py", "to_regclass"): (4, "the flags' own schema, on a connection without a group role"),
+        ("libs/tb_common/optout.py", "to_regclass"): (1, "the register's own table, on the register's connection"),
+        ("services/orchestrator/scenarios/retention.py", "to_regclass"): (1, "the site store's own schema"),
+        ("services/orchestrator/scheduler.py", "to_regclass"): (1, "the site store's own schema"),
+        ("services/omop/vocab_load.py", "information_schema.tables"): (1, "the reference store's own schema"),
+        # two that are NOT judged safe, both the console lane's and reported with D-683:
+        ("services/console/firstrun.py", "to_regclass"): (1, "the pid map over the auth connection: refused under roles"),
+        ("services/console/demo_guard.py", "information_schema.tables"): (1, "every schema, as the console's role: "
+                                                                          "a schema it may not read is not shown"),
+    }  # fmt: skip
+    found: Counter[tuple[str, str]] = Counter()
     for top in ("libs", "services"):
         for f in sorted((ROOT / top).rglob("*.py")):
-            for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
-                if isinstance(node, ast.Constant) and isinstance(node.value, str) and "to_regclass" in node.value:
-                    found[str(f.relative_to(ROOT))] += 1
-    docs = {  # a docstring that explains the function is not a question
-        k: sum(
-            1
-            for n in ast.walk(ast.parse((ROOT / k).read_text(encoding="utf-8")))
-            if isinstance(n, ast.FunctionDef | ast.ClassDef | ast.Module)
-            and "to_regclass" in (ast.get_docstring(n) or "")
-        )
-        for k in found
-    }
-    asked = {k: n - docs[k] for k, n in found.items() if n - docs[k]}
-    assert asked == {k: n for k, (n, _) in listed.items()}
-    assert "services/datacore/optout_worker.py" not in asked
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+            docs = {
+                id(n.body[0].value)
+                for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Module)
+                and n.body
+                and isinstance(n.body[0], ast.Expr)
+                and isinstance(n.body[0].value, ast.Constant)
+            }  # a docstring that explains is not a question
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs:
+                    for how in _ASKS:
+                        if how in node.value:
+                            found[(str(f.relative_to(ROOT)), how)] += 1
+    assert dict(found) == {k: n for k, (n, _) in listed.items()}
 
 
 def _as_role(box: str, role: str) -> str:
@@ -287,3 +325,38 @@ def test_a_service_on_an_owned_schema_works_as_itself(box: str) -> None:
             "WHERE rolname IN ('tbo_edc', 'tbw_edc', 'tbr_edc')"
         ))  # fmt: skip
         assert got and not any(got.values()), got
+
+
+def test_a_store_is_there_whatever_kind_of_relation_holds_its_name(box: str) -> None:
+    """The review: a table, a partitioned table or a view of the name is a store that is there (its clear runs, and
+    fails by name if it cannot); only no relation of the name, or no schema, is "this box has no such store"."""
+    from datacore.optout_worker import store_has
+
+    with Database.connect(_as_role(box, "trialbox"), "pidmap") as pm:
+        pm.execute("CREATE OR REPLACE VIEW pending_seen AS SELECT pid FROM pending")
+    assert store_has(box, "pidmap", "pending") and store_has(box, "pidmap", "pending_seen")
+    assert store_has(box, "omop", "measurement")  # partitioned
+    assert not store_has(box, "pidmap", "no_such_table") and not store_has(box, "no_such_store", "pending")
+    assert store_has(_as_role(box, "tb_gateway"), "omop", "tb_record")  # a role without the store is answered too
+
+
+def test_the_omop_store_is_looked_for_where_the_load_writes_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The review: with ``TB_OMOP_DB_URL`` the store is in another database than the register; the worker looked
+    in the register's only and reported the store as skipped while it held the patient."""
+    from datacore import optout_worker as w
+    from omop import schema
+
+    asked: list[str] = []
+
+    def has(url: str, schema_name: str, table: str) -> bool:
+        asked.append(url)
+        return True
+
+    monkeypatch.setattr(w, "store_has", has)
+    monkeypatch.setattr(schema, "connect", lambda url=None, name="omop": ("store", url))
+    reg = SimpleNamespace(db=SimpleNamespace(url="postgresql://x@h/register"))
+    monkeypatch.setenv("TB_OMOP_DB_URL", "postgresql://x@h/omopdb")
+    assert w._omop_store(reg) == ("store", "postgresql://x@h/omopdb")  # type: ignore[arg-type]
+    monkeypatch.delenv("TB_OMOP_DB_URL")
+    assert w._omop_store(reg) == ("store", "postgresql://x@h/register")  # type: ignore[arg-type]
+    assert asked == ["postgresql://x@h/omopdb", "postgresql://x@h/register"]

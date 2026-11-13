@@ -103,10 +103,14 @@ def with_survivors(db: Database, pids: set[str]) -> set[str]:
     if not pids:
         return pids
     schema = db.schema[: -len(SCHEMA)] + "pidmap"
+    # D-683: asked for the service itself (session_user), not for the role this connection works as: the register's
+    # connection is its group role (D-378), which may never use the pid map, so on a box with roles a merge was
+    # never followed. The catalog answers every role; the map is then read on its own connection
     ok = db.fetchval(
-        "SELECT has_schema_privilege(n.oid, 'USAGE') AND to_regclass(?) IS NOT NULL FROM pg_namespace n "
-        "WHERE n.nspname = ?",
-        (f'"{schema}".pid_alias', schema),
+        "SELECT has_schema_privilege(session_user, n.oid, 'USAGE') AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c "
+        "WHERE c.relnamespace = n.oid AND c.relname = 'pid_alias' AND c.relkind IN ('r', 'p')) "
+        "FROM pg_catalog.pg_namespace n WHERE n.nspname = ?",
+        (schema,),
     )
     if not ok:
         return pids
