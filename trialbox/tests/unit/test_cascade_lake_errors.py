@@ -15,8 +15,8 @@ import duckdb
 import pyarrow as pa
 import pytest
 from lake.sqlguard import check_select
-from matching import lakeprobe
 from matching.cascade import engine
+from tb_common import lakeprobe
 
 QUESTION = lakeprobe.table_sql("document")
 

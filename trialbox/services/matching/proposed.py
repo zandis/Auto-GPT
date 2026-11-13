@@ -33,9 +33,8 @@ from typing import Any, Protocol
 
 from criteria_compiler.semantics import Kind, kind, window
 from criteria_compiler.terminology.mapper import FAMILY_EXT
+from tb_common import lakeprobe
 from tb_contracts import Atom, BoolExpr, CriterionIR
-
-from matching import lakeprobe
 
 PROPOSED_FACT = "proposed_fact"
 SUSPECTED_DIAGNOSIS = "suspected_diagnosis"  # D-142: a diagnosis recorded as suspected (疑い, provisional)
