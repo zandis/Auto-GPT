@@ -10,6 +10,8 @@ The real script on a cluster of its own, the console's own login role. Synthetic
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from tb_common.db import Database
 
@@ -19,8 +21,8 @@ CONSOLE = "tb_console"
 
 
 @pytest.fixture
-def as_console(roles_cluster: tuple, monkeypatch: pytest.MonkeyPatch) -> str:  # noqa: F811
-    url = roles_cluster[1]
+def as_console(roles_cluster: tuple[Path, str], monkeypatch: pytest.MonkeyPatch) -> str:  # noqa: F811
+    url: str = roles_cluster[1]
     monkeypatch.setenv("TB_DB_URL", _as(url, CONSOLE))
     return url
 
