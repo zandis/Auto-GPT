@@ -81,10 +81,11 @@ def register(app: FastAPI, h: Helpers) -> None:
     def flags_view(request: Request) -> Response:
         sess = admin(request)
         store = Flags()
-        flags, events = stored(lambda: (store.all(), store.events(limit=50)))
-        if only_hold(sess):  # the steward's page is this one flag's: its value, and its own changes
-            flags = [f for f in flags if f["name"] == HOLD]
-            events = stored(lambda: store.events(HOLD, limit=50))
+        # the steward's page is this one flag's: its value, and its own changes
+        of = HOLD if only_hold(sess) else None
+        flags, events = stored(lambda: (store.all(), store.events(of, limit=50)))
+        if of:
+            flags = [f for f in flags if f["name"] == of]
         return h.page(request, "ops_flags.html", sess, flags=flags, events=events)
 
     @app.post("/ops/flags")
