@@ -28,10 +28,13 @@ so was every path of no route at all (a 404). The line of an unhandled error hel
 The request line and the unhandled-error line hold **the route's template** (`/studies/{rs}/records/{record}`),
 with the method, the status and the time as before (`tb_common.http.route_of`).
 
-- A request that reached its handler has its route in the scope. One that was answered earlier (a refused token,
-  a method the route does not take) is matched against the app's routes.
-- A router included under a fixed prefix keeps its own path, so the prefix is put back from the path that was
-  sent, but only when it holds no value of a path parameter.
+- **Nothing is built from the path that was sent.** The template is the framework's own: the route's path, and
+  for a route of an included router the full template with the prefix it was included under (the framework keeps
+  it beside the route while it handles the request).
+- A request that was answered before its handler (a refused token, the route gate, a method the route does not
+  take) is matched against the app's routes, the routes of included routers too; the route that takes the method
+  is named before one that only fits the path.
+- A mounted application is named by its mount's path when that is a fixed one, else `(mount)`.
 - A path that matches no route is written `(no route)`.
 
 The field keeps its name (`path`), so whoever reads the log by that field reads a route there.
@@ -46,6 +49,25 @@ The field keeps its name (`path`), so whoever reads the log by that field reads 
   path** in their detail (about twenty places in the console, one in the orchestrator). The audit trail is not
   the log and may hold a screening number; whether it should hold a typed path is a finding, not changed here.
 - The console builds its own app and writes no request line of its own.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer, with experiments on small apps and on the real orchestrator. Verdict: fix first.
+
+- **A refused request to a route of an included router was written `(no route)`** (95 method and route pairs of
+  the orchestrator: the set-up, the EDC, the REDCap connections), the same as a scan of paths that do not exist:
+  the lines an operator reads after an incident. They are matched now.
+- **The first version put a router's prefix back from the path that was sent**, guarded by a comparison of
+  values. A parameter of the prefix that is spelled otherwise once converted (a number, a UUID in capitals)
+  passed the guard and came back in the line; and one route's name changed with the value sent. No service has
+  such a prefix today, but the function is the shared one. Nothing is taken from the sent path any more.
+- The route that takes the method is preferred over one that only fits the path.
+- Tests for each: a refused token on a route of the app and of an included router, prefixes with a float, a UUID
+  and a text parameter, a mounted application, two routes that fit one path.
+- **Checked and sound:** nobody reads the field (no tool, check or test parses the log's `path`); the query
+  string is not logged; no other line of the two middlewares holds the path.
+- The names the framework keeps the full template under are private ones; the test of an included route pins
+  them, so an upgrade that moves them fails there and not in the log.
 
 ## Reuse check
 

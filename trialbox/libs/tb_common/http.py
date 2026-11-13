@@ -9,7 +9,7 @@ import logging
 import os
 import socket
 import time
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from typing import Any, TypeVar, get_args
 from urllib.parse import urlparse
 
@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from starlette.routing import Match
+from starlette.routing import Match, Mount, compile_path
 from tb_contracts import dump
 
 from tb_common.logging import setup_logging
@@ -101,48 +101,77 @@ async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
 
 
 NO_ROUTE = "(no route)"
+MOUNT = "(mount)"
 
 
 def route_of(request: Request) -> str:
     """The template of the route a request was for (``/studies/{rs}/records/{record}``), for the log (D-556).
 
     A path carries what the caller put in it (a record, a job, anything typed where an id belongs), so the log
-    holds the route instead. A request that reached a handler has its route in the scope; one that was answered
-    before (a refused token, a method the route does not take) is matched here; a path of no route is written
-    ``(no route)``."""
+    holds the route instead. Nothing here is built from the path that was sent: the template is the framework's
+    own, with the prefix its router was included under. A request that reached a handler has its route in the
+    scope; one that was answered before (a refused token, a method the route does not take) is matched against
+    the app's routes, the routes of included routers too; a mounted application is named by its mount's path; a
+    path of no route is written ``(no route)``."""
     scope = request.scope
-    found = _template(scope.get("route"), scope.get("path_params") or {}, request.url.path)
+    found = _included_template(scope) or _own_template(scope.get("route"))
     if found is not None:
         return found
-    for candidate in getattr(request.app.router, "routes", []):
-        try:
-            match, child = candidate.matches(scope)
-        except Exception as exc:  # a route that cannot judge this scope is not the route
-            logging.getLogger("tb_common.http").debug("route_of: a route could not be matched (%s)", type(exc).__name__)
-            continue
-        if match != Match.NONE:
-            found = _template(child.get("route", candidate), child.get("path_params") or {}, request.url.path)
-            if found is not None:
-                return found
-    return NO_ROUTE
+    partial: str | None = None
+    for template, match in _candidates(getattr(request.app.router, "routes", []), scope):
+        if match == Match.FULL:
+            return template
+        partial = partial or template  # the route is there, the method is not its: named all the same
+    return partial or NO_ROUTE
 
 
-def _template(route: Any, params: Mapping[str, Any], sent: str) -> str | None:
-    """A route's template, with the fixed prefix it was included under when that can be told from the path that
-    was sent (a router included with ``prefix="/v1"`` keeps its own path). The prefix is taken only when it holds
-    no value of a path parameter."""
+def _included_template(scope: Any) -> str | None:
+    """The full template of a route of an included router (``/v1`` + ``/jobs/{job_id}``), which the framework keeps
+    beside the route while it handles the request. The names are the framework's private ones, so a test pins that
+    an included route is logged with its prefix (``tests/unit/test_access_log_route.py``)."""
+    ctx = (
+        (scope.get("fastapi") or {}).get("effective_route_context") if isinstance(scope.get("fastapi"), dict) else None
+    )
+    path = getattr(ctx, "path", None)
+    return path if isinstance(path, str) and path else None
+
+
+def _own_template(route: Any) -> str | None:
     path = getattr(route, "path", None)
     if not isinstance(path, str):
         return None
-    try:
-        rendered = path.format(**{k: str(v) for k, v in params.items()})
-    except (KeyError, IndexError, ValueError):
-        return path
-    if rendered and sent.endswith(rendered) and len(sent) > len(rendered):
-        prefix = sent[: len(sent) - len(rendered)]
-        if not any(str(v) and str(v) in prefix for v in params.values()):
-            return prefix + path
+    if isinstance(route, Mount):  # a mounted application: its mount's path when that is a fixed one
+        return (path or "/") if "{" not in path else MOUNT
     return path
+
+
+def _candidates(routes: Any, scope: Any) -> Iterator[tuple[str, Match]]:
+    """Every route of the app that the request's path fits, with how well (the method too, or the path only)."""
+    for route in routes:
+        contexts = getattr(route, "effective_route_contexts", None)
+        if callable(contexts):  # an included router: its routes, each with its full template
+            for ctx in contexts():
+                template = getattr(ctx, "path", None)
+                if not isinstance(template, str) or not template:
+                    continue
+                try:
+                    regex = compile_path(template)[0]
+                except Exception as exc:
+                    logging.getLogger("tb_common.http").debug("route_of: %s", type(exc).__name__)
+                    continue
+                if regex.match(scope.get("path") or ""):
+                    methods = getattr(getattr(ctx, "original_route", None), "methods", None)
+                    ok = methods is None or scope.get("method") in methods
+                    yield template, Match.FULL if ok else Match.PARTIAL
+            continue
+        try:
+            match, _ = route.matches(scope)
+        except Exception as exc:  # a route that cannot judge this scope is not the route
+            logging.getLogger("tb_common.http").debug("route_of: %s", type(exc).__name__)
+            continue
+        template = _own_template(route)
+        if match != Match.NONE and template is not None:
+            yield template, match
 
 
 def make_app(
