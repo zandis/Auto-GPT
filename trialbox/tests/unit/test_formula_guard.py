@@ -80,10 +80,11 @@ def test_a_workbook_keeps_typed_text_as_text() -> None:
 
 def test_the_data_export_workbook_and_the_enrolment_report_keep_typed_text_as_text() -> None:
     """The review: two more files the console serves. An EDC text value and a withdrawal reason are typed."""
+    from datacore import lifecycle as lc
     from orchestrator import lifecycle_api
 
     typed = '=HYPERLINK("http://example.test","open")'
-    rep = {"counts": dict.fromkeys(lifecycle_api.lc.STATES, 0), "ever": dict.fromkeys(lifecycle_api.lc.STATES, 0),
+    rep = {"counts": dict.fromkeys(lc.STATES, 0), "ever": dict.fromkeys(lc.STATES, 0),
            "months": [], "screen_fail_reasons": {typed: 1, "+other": 2},
            "withdrawals": [{"record": "S-001", "day": "2026-11-01", "reason": typed}]}  # fmt: skip
     files = lifecycle_api.report_files(rep, "GZQO", "2026-11-13T00:00:00+00:00")
