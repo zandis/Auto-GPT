@@ -106,3 +106,25 @@ allow:
   - {path: services/orchestrator/scenarios/twpas.py, kind: limit, value: 1, count: 1, reason: "one patient's latest value; not a cut"}
   - {path: services/orchestrator/scheduler.py, kind: limit, value: 1, count: 1, reason: "the study's current state; not a cut"}
   - {path: services/vec/store.py, kind: limit, value: 1, count: 2, reason: "an existence check (another dimension for the model); not a cut"}
+  # ---------------------------------------------------------------- waits of a minute or less (NEW-B-12, D-534)
+  # Listed since the lint has no floor. Each is one call whose size does not grow with the hospital, or a wait on the
+  # box's own thread; "not a cut" says why. A wait that does grow belongs above, with its finding and card.
+  - {path: services/adapter/cli.py, kind: timeout, value: 60, count: 1, reason: "one request to the lake service (start a rebuild job, read its state, promote): the rebuild itself is a polled job (T-690); not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 60, count: 2, reason: "one request from the console to the orchestrator or to the adapter (a page of jobs, a job started and not waited for); not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 15, count: 1, reason: "one request from the console to the mail gateway; not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 10, count: 1, reason: "the gateway's list of model builds for the status page; not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 4, count: 1, reason: "a service's health answer for the status page; not a cut"}
+  - {path: services/console/backend.py, kind: timeout, value: 30, count: 1, reason: "the SMTP session of one test mail; not a cut"}
+  - {path: services/console/demo_guard.py, kind: timeout, value: 10, count: 1, reason: "the connect time of one database connection (the demo guard); not a cut"}
+  - {path: services/console/oidc.py, kind: timeout, value: 10, count: 1, reason: "one request to the identity provider at sign-in; not a cut"}
+  - {path: services/console/proposals.py, kind: timeout, value: 45, count: 1, reason: "one model call for a study proposal typed in the console: one protocol's text, never the hospital's data; not a cut"}
+  - {path: services/criteria_compiler/ctgov.py, kind: timeout, value: 60, count: 1, reason: "one search of the public trial registry for a protocol; not a cut"}
+  - {path: services/gateway/app.py, kind: timeout, value: 10, count: 1, reason: "the model server's list of models (the check of what it serves); not a cut"}
+  - {path: services/mail_gateway/app.py, kind: timeout, value: 10, count: 1, reason: "the service's own threads joined at shutdown; not a cut"}
+  - {path: services/mail_gateway/gateway.py, kind: timeout, value: 60, count: 1, reason: "one request from the mail gateway to the orchestrator (one mail's job); not a cut"}
+  - {path: services/mail_gateway/outbound.py, kind: timeout, value: 60, count: 1, reason: "the connect, TLS handshake and greeting of one SMTP session; not a cut"}
+  - {path: services/orchestrator/clients.py, kind: timeout, value: 60, count: 1, reason: "one request to the adapter: the ingest is started and followed as a run, not waited for inside the call (D-523); not a cut"}
+  - {path: services/orchestrator/core.py, kind: timeout, value: 2, count: 2, reason: "a worker's wait on an empty queue, and its pause after a job was put back (D-532): woken at once by a new job; not a cut"}
+  - {path: services/orchestrator/core.py, kind: timeout, value: 5, count: 1, reason: "a worker thread joined at shutdown: the threads are daemons and a run's lease ends with its connection (D-532); not a cut"}
+  - {path: services/rc_bridge/client.py, kind: timeout, value: 10, count: 1, reason: "one request to the REDCap bridge; not a cut"}
+  - {path: services/sitesetup/ocr.py, kind: timeout, value: 30, count: 1, reason: "the OCR program's list of languages, asked once; not a cut"}
