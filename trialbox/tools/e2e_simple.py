@@ -62,6 +62,16 @@ BUDGET_S = 15 * 60  # TB-DS-04 §3.4.1: the whole run within 15 minutes
 PAIR: tuple[str, str] | None = None
 
 
+#: D-628: a failed check's detail in the printed report; the record (``--json``) keeps it whole
+PRINT_DETAIL = 300
+
+
+def shown(detail: str) -> str:
+    if len(detail) <= PRINT_DETAIL:
+        return detail
+    return f"{detail[:PRINT_DETAIL]} ... [cut: {len(detail)} characters in the JSON]"
+
+
 @dataclass
 class Stage:
     name: str
@@ -69,7 +79,7 @@ class Stage:
     seconds: float = 0.0
 
     def check(self, what: str, ok: Any, detail: Any = "") -> None:
-        self.checks.append((what, bool(ok), str(detail)[:300]))
+        self.checks.append((what, bool(ok), str(detail)))  # D-628: whole; `shown` cuts for print
 
     @property
     def ok(self) -> bool:
@@ -1999,7 +2009,7 @@ def report(out: dict[str, Any]) -> str:
     for st in out["stages"]:
         lines.append(f"{'PASS' if st.ok else 'FAIL'}  {st.name}  ({st.seconds:.1f} s)")
         for what, ok, detail in st.checks:
-            lines.append(f"   {'ok ' if ok else 'BAD'} {what}" + ("" if ok else f"  -> {detail}"))
+            lines.append(f"   {'ok ' if ok else 'BAD'} {what}" + ("" if ok else f"  -> {shown(detail)}"))
     lines.append(
         f"e2e_simple {'PASSED' if out['ok'] else 'FAILED'} in {out['seconds']} s (chain {out['chain_seconds']} s)"
     )
