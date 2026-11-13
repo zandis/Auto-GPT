@@ -357,7 +357,8 @@ def run_g4(a: Any) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- G-5: the token counts
 def count_rows(texts: Sequence[str], real: Callable[[str], int | None]) -> list[dict[str, Any]]:
-    """Per excerpt: the server's count and the product's two estimates (the budget's and the cascade's)."""
+    """Per excerpt: the server's count and the product's two estimators (the budget's and the cascade's; since D-645
+    the cascade counts with the budget's estimate, so the two columns agree, and both stay measured)."""
     from matching.cascade.judge import expected_tokens
     from tb_llm.budget import estimate_tokens
 

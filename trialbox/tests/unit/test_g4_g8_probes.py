@@ -259,6 +259,17 @@ def test_token_summary_fits_or_names_the_safety_it_needs() -> None:
     assert ok["fits"] and ok["safety_from_measurement"] == 0.85
 
 
+def test_count_rows_uses_the_products_current_estimate() -> None:
+    """G-5 measures the product's own estimators, not a copy: since D-645 a digit is one token and the cascade's
+    count is the budget's estimate, so a date of eight digits and two hyphens is 8 + 1 + 1 = 10 for both."""
+    from tb_llm.budget import estimate_tokens
+
+    texts = ["2026-11-13", "患者は 12 歳"]
+    rows = gp.count_rows(texts, lambda t: None)
+    assert rows[0] == {"chars": 10, "real": None, "budget": 10, "cascade": 10}
+    assert all(r["budget"] == r["cascade"] == estimate_tokens(t) for r, t in zip(rows, texts, strict=True))
+
+
 def test_g5_against_the_stand_in(standin: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _, base = standin
     monkeypatch.setattr(cr, "JUDGE", "local/judge")
