@@ -12,7 +12,9 @@ its Windows driver, virtualisation on in the firmware, and 500 GB free on a fixe
 `-MinFreeGB <what the drive has>` in step 3 and write the figure down). Not a machine that holds anything you need:
 the run enables Windows features, restarts once, and adds a WSL system. It removes nothing.
 
-**Data.** Synthetic only. No patient data, no site secret. Use a media built with the small stand-in model.
+**Data.** Synthetic only. No patient data, no site secret. Use a media built with the small stand-in model. Build it with
+`python3 -m tools.windows_media build` and check the copy on the disk with `python3 -m tools.windows_media check`
+(`docs/handover/OFFLINE-MEDIA.md`, "Making the media").
 
 **What to send back.** The file `C:\ProgramData\TrialBox\box-install\box-install.log` (it holds no password, no
 first-run code and no key), this sheet with each line marked, and a photo or the text of the window wherever a

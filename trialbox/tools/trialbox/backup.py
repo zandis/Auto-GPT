@@ -688,6 +688,12 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
         with path.open("rb") as fh:
             before = os.fstat(fh.fileno())
             info = tar.gettarinfo(arcname=arcname, fileobj=fh)
+            if info.islnk():
+                # NEW-B-17 (D-537): a second name of a file this tar already holds (a hard link: a work lake's
+                # db/<date>.duckdb, its generation, a reader's link). The tar writer would store a link with no
+                # bytes, and the manifest would name the hash of nothing for a file a restore writes whole. Every
+                # name is stored with its own bytes: no member of a backup needs another one to be read
+                info.type, info.linkname, info.size = tarfile.REGTYPE, "", before.st_size
             if grows:  # never a line that is being written
                 info.size = _line_end(fh, before.st_size)
                 fh.seek(0)
@@ -1015,6 +1021,43 @@ def _named(what: str, names: Iterable[str]) -> str:
     return f"; {what}: {', '.join(listed[:NAMED])}{more}"
 
 
+_NOTHING = hashlib.sha256(b"").hexdigest()
+
+
+def _second_names(into: Path, manifest: dict[str, Any], bad: list[str]) -> list[str]:
+    """``bad`` without the entries that are the fault of backups written before NEW-B-17 (D-537), which are put right
+    in ``manifest``.
+
+    Such a backup stored the second name of one file (a hard link) as a link with no bytes and listed it with the
+    hash of nothing and size 0; the nightly, which has no private key, recorded it as good. Its bytes are whole: the
+    extraction made the name a link to the first one. An entry is read so only when it is exactly that: the hash of
+    nothing, size 0, and the extracted file is the same file as a listed one whose own hash holds. It then takes that
+    one's hash and size. Anything else stays a mismatch."""
+    wrong = set(bad)
+    maybe = [
+        rel
+        for rel in bad
+        if manifest["files"][rel] == _NOTHING
+        and manifest.get("sizes", {}).get(rel) == 0
+        and (into / rel).is_file()
+        and (into / rel).stat().st_nlink > 1
+    ]
+    if not maybe:
+        return bad
+    whole: dict[tuple[int, int], str] = {}
+    for rel in manifest["files"]:
+        if rel not in wrong and (into / rel).is_file():
+            st = (into / rel).stat()
+            whole[(st.st_dev, st.st_ino)] = rel
+    for rel in maybe:
+        st = (into / rel).stat()
+        first = whole.get((st.st_dev, st.st_ino))
+        if first is not None:
+            manifest["files"][rel], manifest["sizes"][rel] = manifest["files"][first], manifest["sizes"][first]
+            wrong.discard(rel)
+    return [rel for rel in bad if rel in wrong]
+
+
 def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
     """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
 
@@ -1041,6 +1084,7 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
         raise BackupError(f"{file.name} does not match its .sha256 sidecar")
     manifest: dict[str, Any] = json.loads((into / "manifest.json").read_text(encoding="utf-8"))
     bad = [rel for rel, sha in manifest["files"].items() if not (into / rel).is_file() or _sha_file(into / rel) != sha]
+    bad = _second_names(into, manifest, bad)
     extra = {str(p.relative_to(into)) for p in into.rglob("*") if p.is_file() and p.name != "manifest.json"} - set(
         manifest["files"]
     )

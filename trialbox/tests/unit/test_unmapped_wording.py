@@ -29,8 +29,8 @@ def test_an_outage_of_the_reference_data_is_said_by_name_and_counted_apart() -> 
     assert first.startswith("diagnosis: 8 rows hold a value the mapping could not use (3 distinct values)")
     assert second == (
         "diagnosis: the reference data did not answer for 7 rows (map:icd9cm->icd10cm): their codes were not "
-        "mapped tonight and stay so until the row is sent again or the next full load. The night is not held "
-        "for this (D-530)"
+        "mapped tonight. The next delta night reads this table whole and maps what the source still holds "
+        "(D-538). The night is not held for this (D-530)"
     )
     for line in (first, second):
         assert "042" not in line and "7140" not in line and "E03" not in line  # counts and names, never a code

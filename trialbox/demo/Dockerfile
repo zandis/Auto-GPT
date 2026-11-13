@@ -41,7 +41,8 @@ COPY --chown=tb:tb . /app
 # T-501 (OPS-001, UX-001, LIFE-005): the compiler reads FHIRHelpers-4.0.1.cql from the translator's quick jar, also
 # with the in-process fake translator. `make demo-bundle` runs `make jvm-deps` first, and .dockerignore lets only that
 # jar into the context (the demo has no JRE, so the other translator jars would be dead weight). A build from a fresh
-# clone (Render, Cloud Run, CI) has no jar: it is fetched from Maven Central and checked against its sha256. Either
+# clone (Render, Cloud Run, CI) has no jar: it is fetched from Maven Central and checked against its sha256, asked for
+# up to three times (tools/fetch_pinned.py, D-632: one 404 from the mirror cost train 7 a full run). Either
 # way the FHIRHelpers text must match the pinned sha256, or the build stops here, not at the first compile.
 ARG CQL_QUICK_VERSION=5.4.0
 ARG CQL_QUICK_SHA256=b5b1b076711d7c6ddb700f7f6d7aacc210824dc37a41405fdfd9fab09d6a2ba4
@@ -53,9 +54,9 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     mkdir -p "$TB_CQL_TRANSLATOR_LIB"; \
     if ! ls "$TB_CQL_TRANSLATOR_LIB"/quick-*.jar >/dev/null 2>&1; then \
       jar="$TB_CQL_TRANSLATOR_LIB/quick-$CQL_QUICK_VERSION.jar"; \
-      python -c "import os,ssl,sys,urllib.request as u; c=ssl.create_default_context(cafile=os.environ.get('SSL_CERT_FILE') or None); open(sys.argv[2],'wb').write(u.urlopen(sys.argv[1],timeout=120,context=c).read())" \
-        "https://repo1.maven.org/maven2/org/cqframework/quick/$CQL_QUICK_VERSION/quick-$CQL_QUICK_VERSION.jar" "$jar"; \
-      echo "$CQL_QUICK_SHA256  $jar" > /tmp/quick.sha256; sha256sum -c /tmp/quick.sha256; rm /tmp/quick.sha256; \
+      python tools/fetch_pinned.py \
+        "https://repo1.maven.org/maven2/org/cqframework/quick/$CQL_QUICK_VERSION/quick-$CQL_QUICK_VERSION.jar" \
+        "$jar" "$CQL_QUICK_SHA256"; \
     fi; \
     PYTHONPATH=services python -c "import sys; from criteria_compiler.compile_cql.translator import fhirhelpers_source as f; open(sys.argv[1],'wb').write(f().encode())" \
       /app/.cache/jvm/FHIRHelpers-4.0.1.cql; \
