@@ -31,7 +31,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 ROLES_SCRIPT = ROOT / "deploy" / "docker" / "db-init" / "30-service-roles.sh"
 NAME = "roles: each service's real write paths run as its own role (D-720)"
-TZ = "Asia/Taipei"  # a synthetic site's zone for the one synthetic patient; the paths do not depend on it
 SNAPSHOT = "2000-01-02"
 
 
@@ -81,7 +80,7 @@ def omop_load(url: str) -> None:
 
     db = schema.connect(_as(url, "tb_adapter"))
     try:
-        load.load_batch(db, "feed", SNAPSHOT, _patient(), tz=TZ)
+        load.load_batch(db, "feed", SNAPSHOT, _patient())
     finally:
         db.close()
 
@@ -94,9 +93,9 @@ def omop_export(url: str) -> None:
     writer = schema.connect(_as(url, "tb_adapter"))
     try:
         # the same one patient in every batch: a batch without them would be a mass removal, which the load refuses
-        load.load_batch(writer, "feed", "2000-01-03", _patient(), tz=TZ)
+        load.load_batch(writer, "feed", "2000-01-03", _patient())
         between = writer.fetchval("SELECT clock_timestamp()")
-        load.load_batch(writer, "feed", "2000-01-04", _patient(gender="female"), tz=TZ)
+        load.load_batch(writer, "feed", "2000-01-04", _patient(gender="female"))
     except Exception as exc:
         raise RuntimeError(f"its two loads did not run ({_said(exc)})") from exc
     finally:
@@ -113,11 +112,12 @@ def optout_tick(url: str) -> None:
     keeps what it is given, no lake and no job store (the worker takes a box without them)."""
     from datacore import optout_worker
     from omop import schema
+    from tb_common.config import site_tz
 
     schema.connect(url).close()  # the box has an OMOP store (dual write, or the OMOP lake source)
     events: list[str] = []
     orch = SimpleNamespace(
-        cfg=SimpleNamespace(env=SimpleNamespace(tz=TZ)),
+        cfg=SimpleNamespace(env=SimpleNamespace(tz=site_tz(None))),  # the site's zone (TB_TZ, D-315)
         audit=SimpleNamespace(append=lambda event, **_kw: events.append(event)),
         services=SimpleNamespace(lake=None),
         db=None,
