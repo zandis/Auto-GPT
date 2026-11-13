@@ -8,8 +8,9 @@
 
 ## Context
 
-A lake without notes (the MIMIC demo) has no `document` table. The cascade's note reader tolerated that one
-failure and told it from any other by a helper, `missing_table`, that read the error's text: the table's name
+A lake with no `document` table has no notes. (The lake's own store builds the table always, empty when there
+are no notes, also for the MIMIC demo; the case is live only for a lake made by hand or by other software.) The
+cascade's note reader tolerated that one failure and told it from any other by a helper, `missing_table`, that read the error's text: the table's name
 with "does not exist" or "Catalog Error".
 
 **What a mistaken reading did:** another failure of the note query whose text held those words (run for this
@@ -43,3 +44,25 @@ a lake without, whatever the error's text; every other failure stops, also with 
 table is there, the lake answers 1); the question failing; every answer that is not a clear no; an unpinned run.
 The four "other errors are not mistaken" cases of the old file are kept as cases of the new one.
 `tests/unit/test_proposed_old_snapshot.py` (D-649) passes unchanged.
+The test's last part looks at every use of a caught error in the service's source, whatever its spelling
+(`str`, `repr`, `format`, an f-string, `%`, `.args`, the error passed on to a helper), and at the scan itself.
+
+## Review
+
+One adversarial review by running, on the first form (`3c6167af`). Verdict: merge; no HIGH or MED in the card.
+
+| Finding | Confirmed | What was done |
+|---|---|---|
+| **MED, outside this card and this lane, the same defect in a worse direction:** `libs/tb_common/optout.py` `registry_state` tells a lake without a `consent` table by the error's text; another failure with those words gives "no registry", and the cascade then applies no opt-out: people who said no are listed. It leans to a pass | by running (the helper), by reading (the cascade's use) | not in this card: reported to the integrator at once. The remedy is the same question; `lakeprobe` would move to the library |
+| LOW: `services/edc/prefill.py` returns no site facts for any failure whose text names `site_fact` | by reading | reported with the above |
+| LOW: the source test saw one spelling only | by reading | the scan looks at every use of a caught error; a test of the scan |
+| LOW: with the lake answering None for its current snapshot, a mutant that asked the question of "current" after all survived; a view of the name was untested here | by running | tests |
+| LOW: on an unpinned run, a failure after the first (the lake's naming, the second try) was raised in place of the first | by running | the first failure is the one raised; test |
+| LOW: the record said the MIMIC demo has no note table; the store builds one always | by running | the record says so |
+| LOW: four places elsewhere swallow a lake failure without reading its text (`screen.py` confirmed facts and practitioner names, `coded_values.py` display, `feas_profile.py` counts) | by reading | not in this card: listed for the integrator |
+
+Held (the reviewer's runs): a real lake in process and over HTTP with the table, with it dropped by hand, by
+generation name, an unknown snapshot; no object of the name in the full-text schema; a view, another schema, a
+temporary table or an attached database each count as there (the run stops); with the two catalogue functions
+forbidden in the lake's guard the note reader stops; 15 of 17 mutants killed before the fixes, the two survivors
+are the tests added; `proposed.py` moved line for line.

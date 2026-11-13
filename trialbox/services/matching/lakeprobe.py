@@ -50,15 +50,21 @@ def rows_or_no_table(
 
     With no snapshot named, a failed query and the question after it would each read "current", which can move in
     between. So after a failure the lake is asked once which snapshot is current, and the query is put again, and
-    then the question, to that name. A stand-in that cannot name its snapshot is asked the question as it was
-    asked the query."""
+    then the question, to that name; a second try that works gives its rows (the first failure was passing). A
+    lake that answers None for its current snapshot is asked nothing more. A stand-in that has no way to name its
+    snapshot is asked the question as it was asked the query."""
     try:
         return list(lake.query(sql, params, snapshot).to_pylist())
-    except Exception:
+    except Exception as first:
         name = snapshot
         current = getattr(lake, "snapshot", None)
         if name is None and callable(current):
-            name = current()
+            # whatever goes wrong from here on (the lake cannot name its snapshot, the second try fails), the
+            # failure that stops the run is the first one
+            try:
+                name = current()
+            except Exception:
+                raise first from None
             if name is None:
                 raise
             try:
@@ -66,7 +72,7 @@ def rows_or_no_table(
             except Exception:
                 if no_table(lake, name, table):
                     return None
-                raise
+                raise first from None
         if no_table(lake, name, table):
             return None
         raise

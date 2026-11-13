@@ -137,19 +137,89 @@ def test_the_question_names_only_a_plain_table_and_passes_the_lakes_guard() -> N
     assert con.execute(QUESTION).fetchall() == [(1,)]
 
 
-def test_no_place_in_the_matching_service_reads_an_errors_text_to_tell_a_missing_table() -> None:
-    """The scan of D-700 looks at statements inside an ``except``; this check was in a helper called from an ``if``
-    there, and was not seen. Nothing in the service takes ``str(exc)`` of a caught error apart from the one listed
-    place (a model's own refusal class, kept as the answer's error)."""
-    import re
+def test_an_unpinned_run_whose_lake_cannot_name_a_snapshot_stops_on_the_first_failure() -> None:
+    """The review: with ``snapshot()`` answering None the question must not be put to "current" after all; and
+    whatever fails after the first failure (the lake's naming, the second try), the FIRST failure stops the run."""
+
+    class Lake:
+        def __init__(self, name: Any, again: str = "lake query failed (504)") -> None:
+            self.name, self.again, self.asked = name, again, []
+
+        def snapshot(self) -> Any:
+            if isinstance(self.name, Exception):
+                raise self.name
+            return self.name
+
+        def query(self, sql: str, params: Any = None, snapshot: str | None = None) -> Any:
+            self.asked.append(("question" if sql == QUESTION else "rows", snapshot))
+            if sql == QUESTION:
+                return pa.table({"n": [0 if snapshot is None else 1]})
+            raise RuntimeError("lake query failed (503)" if snapshot is None else self.again)
+
+    lake = Lake(None)
+    with pytest.raises(RuntimeError, match="503"):
+        _notes(lake, snapshot=None)
+    assert lake.asked == [("rows", None)]
+    lake = Lake(OSError("the lake cannot say which snapshot is current"))
+    with pytest.raises(RuntimeError, match="503"):
+        _notes(lake, snapshot=None)
+    assert lake.asked == [("rows", None)]
+    lake = Lake("2026-11-01")
+    with pytest.raises(RuntimeError, match="503"):  # the second try failed too: the first failure is the one raised
+        _notes(lake, snapshot=None)
+
+
+def test_a_view_of_that_name_counts_as_there() -> None:
+    con = duckdb.connect(":memory:")
+    con.execute("CREATE VIEW document AS SELECT 1 AS did")
+    assert con.execute(QUESTION).fetchall() == [(1,)]
+
+
+def _text_uses(root: Any) -> list[str]:
+    """Where the source under ``root`` uses a caught error other than by its type, a typed field, or to raise:
+    ``str(exc)``, ``repr(exc)``, ``format(exc)``, ``f"{exc}"``, ``"%s" % exc``, ``exc.args``, the bare name passed
+    on to a helper (which is how the note reader's check escaped the scan of D-700)."""
+    import ast
+
+    typed = {"reason"}  # a gateway refusal's own field (matching/cascade/judge.py)
+    out = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.name):
+            for use in (
+                n for b in handler.body for n in ast.walk(b) if isinstance(n, ast.Name) and n.id == handler.name
+            ):
+                up = parents[use]
+                if isinstance(up, ast.Raise):  # raise exc / raise ... from exc
+                    continue
+                if isinstance(up, ast.Attribute) and (up.attr in typed or up.attr.startswith("__")):
+                    continue
+                if isinstance(up, ast.Call) and isinstance(up.func, ast.Name) and up.func.id in ("type", "isinstance"):
+                    continue
+                out.append(f"{path.relative_to(root)}:{use.lineno}")
+    return out
+
+
+def test_no_place_in_the_matching_service_uses_a_caught_errors_text() -> None:
+    """The scan of D-700 looks at statements inside an ``except`` that take the error's text; the note reader's
+    check passed the error to a helper from an ``if`` and was not seen. Here every use of a caught error in the
+    service is looked at, whatever its spelling: one listed place keeps a model's own refusal as an answer's
+    error."""
     from pathlib import Path
 
     root = Path(engine.__file__).resolve().parents[1]
-    found = sorted(
-        f"{p.relative_to(root)}:{i}"
-        for p in root.rglob("*.py")
-        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
-        if re.search(r"\bstr\((exc|e|err|error)\)", line)
-    )
+    found = _text_uses(root)
     assert [f.rsplit(":", 1)[0] for f in found] == ["registry_match/llm.py"], found
     assert not hasattr(engine, "missing_table")
+
+
+def test_the_scan_sees_every_spelling(tmp_path: Any) -> None:
+    spellings = ["str(exc)", "repr(exc)", "format(exc)", 'f"{exc}"', '"%s" % exc', "exc.args", "helper(exc, 1)"]
+    for i, use in enumerate(spellings):
+        (tmp_path / f"m{i}.py").write_text(f"try:\n    pass\nexcept Exception as exc:\n    x = {use}\n")
+    (tmp_path / "ok.py").write_text(
+        "try:\n    pass\nexcept Exception as exc:\n    x = type(exc).__name__\n    y = exc.reason\n"
+        "    raise RuntimeError('stopped') from exc\n"
+    )
+    assert [f.split(":")[0] for f in _text_uses(tmp_path)] == [f"m{i}.py" for i in range(len(spellings))]
