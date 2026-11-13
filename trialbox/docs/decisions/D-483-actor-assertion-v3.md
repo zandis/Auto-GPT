@@ -53,7 +53,8 @@ was allowed to do, to what, or with which request body.
      models have no `by`; the console signs every call (`lifecycle_pages`, `entry_pages`, `study_setup`,
      `sae_pages`). The sponsor's three changing routes have no console caller yet, so they were open to any
      admitted token with a typed name; they now need a signed coordinator.
-   - `report`: **study, data core, site set-up, registry** (32 changing routes). `report_actor` is on the
+   - `report`: **study, data core, site set-up** (30 changing routes; the registry left for `refuse` with
+     T-715b, D-550; this record first listed it here, with 32). `report_actor` is on the
      router: a changing call without a verified person is counted per route and reason
      (`orchestrator.actor.UNSIGNED`), logged and written to the audit trail (`actor.unsigned`) once per route and
      reason in a process, and let through; the person is still the body's `by`. A claim counts as a verified

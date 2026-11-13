@@ -496,6 +496,23 @@ def backfill(
         tables = {str(t): dict(v) for t, v in (got.get("tables") or {}).items()}
         return completeness_check(cfg, tables, work / "none", None, full=True)[0]
 
+    def outage(got: dict[str, Any]) -> list[str]:
+        # NEW-B-19 (D-660): rows whose code the reference data could not be asked for (D-593: ``:unavailable``).
+        # A night is not held for them (D-530) because the next delta night reads the table again (D-538). The
+        # history is read once: published so, it would stay without its mapped codes. The load is held
+        out = []
+        for table, by in sorted((got.get("unmapped_codes") or {}).items()):
+            down = {
+                k.removesuffix(":unavailable"): sum(c.values()) for k, c in by.items() if k.endswith(":unavailable")
+            }
+            if down:
+                out.append(
+                    f"{table}: the reference data did not answer for {sum(down.values())} rows "
+                    f"({', '.join(sorted(down))}): the history would be published without their mapped codes and is "
+                    "read only once. Run the back-fill again when the reference data answers (D-660)"
+                )
+        return out
+
     # a spool is reused when it is of the same source, mapping and snapshot AND holds the table facts (a spool
     # written before D-535 has none: the source is read again, or the gate and the baseline would be skipped)
     if done_spool and done_spool.get("fingerprint") == fp and "tables" in done_spool:
@@ -507,6 +524,11 @@ def backfill(
             log.warning("back-fill %s: the kept spool's tables are incomplete; the source is read again", snap)
             rep.spool_reused = False
             facts = read_source()
+        elif outage(facts):
+            # D-660: the kept spool holds rows without their mapped codes. Reused, the load would be held for ever
+            log.warning("back-fill %s: the kept spool met an outage of the reference data; read again", snap)
+            rep.spool_reused = False
+            facts = read_source()
     else:
         if done_spool and done_spool.get("fingerprint") == fp:
             log.warning("back-fill %s: the kept spool has no table facts (an older version's); read again", snap)
@@ -516,6 +538,7 @@ def backfill(
     rep.unmapped = {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(codes.items())}
     rep.incomplete = gate(facts)
     rep.errors += rep.incomplete
+    rep.errors += outage(facts)
     for table, n in rep.unmapped.items():
         log.warning("%s: %d rows hold a value no look-up knows (%s)", table, n, UNMAPPED_CODES)
     for table, n_bad in sorted(rep.rejected.items()):

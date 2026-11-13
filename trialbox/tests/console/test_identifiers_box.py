@@ -24,16 +24,19 @@ def test_the_two_open_routes_refuse_a_bare_token(orch_box: OrchBox) -> None:
     (mrn, pid), (mrn2, pid2) = _pairs(orch_box, 2)
     r = c.post("/setup/pseudonym", json={"chart_no": mrn})
     assert r.status_code == 403 and pid not in r.text, r.text[:200]
-    body: dict[str, Any] = {"mrn": mrn2, "status": "candidate", "by": "console:somebody", "source": "manual"}
+    body: dict[str, Any] = {"mrn": mrn2, "status": "candidate", "source": "manual"}
     r = c.post(f"/registry/{STUDY}", json=body)
     assert r.status_code == 403 and pid2 not in r.text, r.text[:200]
     assert c.get(f"/registry/{STUDY}").json() == []  # and nothing was written
     refused = orch_box.events("actor.refused")
-    assert len(refused) == 2 and {e["detail"]["reason"] for e in refused} == {"a chart number needs a verified person"}
+    # the pseudonym route's door, and since T-715b (D-550) the registry's own stage, which comes before its door
+    assert len(refused) == 2 and {e["detail"]["reason"] for e in refused} == {
+        "a chart number needs a verified person", "no signed-in user on this call (X-TB-Actor-Assertion)"}  # fmt: skip
     assert not orch_box.events("screen.to_pid")
-    # a pseudonym in the same registry call needs no chart number turned, so it is not this door's
-    body = {"pid": pid, "status": "candidate", "by": "console:crc", "source": "manual"}
-    assert c.post(f"/registry/{STUDY}", json=body).status_code == 200
+    # T-715b: a row by pseudonym is no lookup, and it too needs the verified person now
+    body = {"pid": pid, "status": "candidate", "source": "manual"}
+    assert c.post(f"/registry/{STUDY}", json=body).status_code == 403
+    assert c.get(f"/registry/{STUDY}").json() == []
 
 
 def test_a_verified_person_with_a_right_gets_the_pseudonym_and_it_is_on_the_record(orch_box: OrchBox) -> None:
@@ -49,7 +52,7 @@ def test_a_verified_person_with_a_right_gets_the_pseudonym_and_it_is_on_the_reco
     assert done[0]["detail"] == {"pid": pid, "role": "steward", "action": "optout.keep", "via": "POST /setup/pseudonym"}
     assert mrn not in str(done[0])  # the chart number is never on the record
     path = f"/registry/{STUDY}"
-    reg: dict[str, Any] = {"mrn": mrn2, "status": "candidate", "by": "crc1@hospa.test", "source": "manual"}
+    reg: dict[str, Any] = {"mrn": mrn2, "status": "candidate", "source": "manual"}
     r = c.post(path, json=reg, headers=signed("request.prepare", STUDY, "POST", path, reg))
     assert r.status_code == 200 and r.json()["pid"] == pid2
     assert orch_box.events("screen.to_pid")[-1]["detail"]["via"] == "POST /registry/{ruleset}"
@@ -81,7 +84,7 @@ def test_the_number_space_cannot_be_walked(orch_box: OrchBox, monkeypatch: Any) 
 
 def test_the_consoles_backend_signs_a_row_by_chart_number(orch_box: OrchBox) -> None:
     """``HttpBackend.registry_update`` on the real orchestrator: refused without the person's assertion, a row and a
-    record with it; a row by pseudonym needs none."""
+    record with it; since T-715b a row by pseudonym needs it too."""
     import pytest
     from console.backend import Refused
     from tb_contracts import RegistryUpdate
@@ -91,12 +94,14 @@ def test_the_consoles_backend_signs_a_row_by_chart_number(orch_box: OrchBox) -> 
     bk = orch_box.backend()
     (mrn, pid), (_m, pid2) = _pairs(orch_box, 2)
     upd = RegistryUpdate(mrn=mrn, status="candidate", by="crc1@hospa.test", source="manual")
-    with pytest.raises(Refused, match="a chart number needs a verified person"):
-        bk.registry_update(STUDY, upd)
+    with pytest.raises(Refused, match="no signed-in user"):  # a signer that signs nothing
+        bk.registry_update(STUDY, upd, lambda *_a: {})
     assert bk.registry_update(STUDY, upd, signer(STUDY, action="request.prepare")).pid == pid
     assert [e["detail"]["pid"] for e in orch_box.events("screen.to_pid")] == [pid]
     by_pid = RegistryUpdate(pid=pid2, status="candidate", by="crc1@hospa.test", source="manual")
-    assert bk.registry_update(STUDY, by_pid).pid == pid2
+    with pytest.raises(Refused, match="no signed-in user"):  # T-715b (D-550): a row by pseudonym too
+        bk.registry_update(STUDY, by_pid, lambda *_a: {})
+    assert bk.registry_update(STUDY, by_pid, signer(STUDY, action="request.prepare")).pid == pid2
 
 
 # ------------------------------------------------------------------------------ the adversarial review's findings

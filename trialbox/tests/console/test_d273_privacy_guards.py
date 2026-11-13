@@ -25,6 +25,12 @@ from tests.console.test_site_setup_pages import PW as SITE_PW
 from tests.console.test_site_setup_pages import sb  # noqa: F401 - the fixture by name
 from tests.console.test_team_pages import _log_pi_and_sub
 
+
+#: the test's own seeding of the stand-in's registry: a signer that the stand-in only calls (T-715b, D-550)
+def _SEED(*_a: Any) -> dict[str, str]:
+    return {}
+
+
 A, B, C = "a" * 32, "b" * 32, "c" * 32
 
 
@@ -63,7 +69,7 @@ def test_the_delegation_rule_holds_on_the_sibling_pages(box: dict[str, Any]) -> 
     pi = _user(box, "drsato", "investigator")
     sub = _user(box, "drkato", "investigator")
     _log_pi_and_sub(box, pi, ("refer",))  # the sub-investigator is not ticked "screen"
-    box["backend"].registry_update("GZQO", RegistryUpdate(pid=A, status="candidate", by="crc1"))
+    box["backend"].registry_update("GZQO", RegistryUpdate(pid=A, status="candidate", by="crc1"), _SEED)
     pages = ("/studies/GZQO/excluded", "/studies/GZQO/screening-log", "/studies/GZQO/cohort",
              "/studies/GZQO/subjects", "/studies/GZQO/entry", "/pilot/registry/GZQO",
              "/pilot/registry/GZQO/export.xlsx")  # fmt: skip
@@ -108,7 +114,7 @@ def test_an_opted_out_patient_leaves_the_job_page_registry_and_excluded_list(box
     crc = _user(box, "crc1", "coordinator")
     admin = _user(box, "crc2", "coordinator")  # D-280 (OD-5): a patient-level reader is no longer the administrator
     csrf = _csrf(admin.get("/home").text)
-    box["backend"].registry_update("GZQO", RegistryUpdate(pid=B, status="candidate", by="crc1"))
+    box["backend"].registry_update("GZQO", RegistryUpdate(pid=B, status="candidate", by="crc1"), _SEED)
     assert "bbbbbbbb" in admin.get("/pilot/registry/GZQO").text
     assert admin.get(f"/pilot/jobs/{jid}").text.count("<tr data-pid=") == 2
     assert 'data-testid="ex-cccccccc"' in admin.get("/studies/GZQO/excluded").text

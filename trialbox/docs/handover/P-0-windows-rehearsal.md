@@ -137,6 +137,60 @@ Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). Af
 | 43a | Name lookups from a container that is allowed out: `wsl -d TrialBox -u root -- sh -c 'docker exec $(docker ps --format "{{.Names}}" \| grep -m1 mail-gateway) getent hosts localhost'` and the mail settings' test in the console, if a mail server was given | A name is answered; mail to the configured server works | What was printed (typed as shown, with single quotes outside) |
 | 44 | Restart Windows, sign in, and repeat lines 39, 40 and 43 | The same answers | Any difference after the restart |
 
+## Part 6: NEW-WIN-5, Windows Update, the driver and the right to shut down (D-606)
+
+Everything here is by Microsoft's documentation and has not been seen run: the policy values "Configure Automatic
+Updates" (`AUOptions`, `ScheduledInstallTime`), "Turn off auto-restart for updates during active hours"
+(`SetActiveHours`, `ActiveHoursStart`, `ActiveHoursEnd`), "Do not include drivers with Windows Updates"
+(`ExcludeWUDriversInQualityUpdate`), the user right "Shut down the system" set with `secedit`, and "Shutdown: Allow
+system to be shut down without having to log on".
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 45 | After the install, read the log's lines of step 12 | "Windows Update: drivers excluded", "Windows Update: installs daily at 19:00; restarts by itself only from 19:00 to 1:00", "shutdown right was: ..." | The lines; on a PC joined to a domain, whether it said "a policy is already set ... kept" instead |
+| 46 | Settings, Windows Update, Advanced options | "Some settings are managed by your organization"; active hours shown as 01:00 to 19:00 and not changeable | What the page shows; a screenshot |
+| 47 | `gpresult /scope computer /v` is **not** the place (these are local registry values); instead in an administrator PowerShell: `Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate, HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU` | `AUOptions 4`, `ScheduledInstallTime 19`, `SetActiveHours 1`, `ActiveHoursStart 1`, `ActiveHoursEnd 19`, `ExcludeWUDriversInQualityUpdate 1` | The values |
+| 48 | Sign in as a **standard** account. Open the Start menu's power button | No "Shut down" and no "Restart" (sign out and lock stay). Note whether "Sleep" is offered | What the menu offers; if Shut down is still there, sign out and in once more and look again |
+| 49 | At the sign-in screen (nobody signed in), the power button at the lower right | No shut down offered | What it offers |
+| 50 | As the standard account, in a terminal: `shutdown /s /t 0` | "Access is denied" (5) | The text |
+| 51 | **Does the window hold.** With an update waiting (a PC that is behind on updates). The rehearsal PC holds synthetic data only and may be online for this line; a site workstation is never put online for it. Nobody restarts the PC or schedules a restart by hand during this line. Leave the PC on over one window. Next day: `Get-WinEvent -FilterHashtable @{LogName='System'; Id=1074} -MaxEvents 5 \| Format-List TimeCreated, Message` | Any restart Windows Update started lies between 19:00 and 01:00; none outside | Each restart's time and who asked for it. This line can take days; record what was seen and when |
+| 52 | After line 51's restart, nobody signs in. From another PC, or after signing in: was TrialBox back? `Get-ScheduledTaskInfo TrialBox-WSL2` | The task ran at startup; the console answers (line 23) | LastRunTime against the restart's time |
+| 53 | Device Manager, the NVIDIA card, Driver tab; and inside WSL2 `nvidia-smi --query-gpu=driver_version --format=csv,noheader` | The same version before and after line 51's updates | Both versions, before and after |
+| 54 | `wsl -d TrialBox -u root -- sh -c 'cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env --settings deploy/settings.yaml'`, the lines `update_window` and `wsl2_versions` | `update_window` WARN with the window the installer set and the time between the night's start and the window (WARN, not PASS: the night's length is not measured; also WARN when `settings.yaml` names no `nightly_at`); `wsl2_versions` WARN "no serving record for the card" on a rehearsal PC (its card was never measured), with the driver and the kernel it read | Both lines whole |
+| 55 | The host check from inside WSL2 (`deploy/check_host.sh`, an elevated terminal), the Windows lines | PASS "installs at 19:00 and restarts by itself only from 19:00 to 1:00", PASS "takes no drivers", PASS "the sign-in screen does not offer it" | The three lines |
+| 56 | Start the installer once more with `-UpdateWindowStart 12 -UpdateWindowHours 8` | "restarts this PC by itself only between 12:00 and 20:00"; line 47's values follow (install time 12, active hours 20 to 12); `cat /opt/trialbox/deploy/site/box/windows-update-window` inside WSL2 says `12+8`, and line 54 judges that window | The values; then set it back by starting it with `-UpdateWindowStart 19 -UpdateWindowHours 6` |
+
+## Part 7: NEW-WIN-6, the card shared with the desktop (D-607; the rehearsal of P-11)
+
+The rehearsal PC's card is not the site's card and its models are the small stand-in: the figures here show
+whether each reading works, not whether the real pair has room. That is P-11, on the reference workstation.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 57 | With TrialBox up, inside WSL2: `nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits`; then open a browser with a video on the Windows desktop and run it again | Two whole numbers; the first grows when the desktop program starts: WSL2 sees the memory Windows programs hold | Both readings, with and without the browser |
+| 58 | The console's health line (or `wsl -d TrialBox -u root -- sh -c 'cd /opt/trialbox && python3 -m tools.trialbox ops run'` and then the health page) | A part "programs outside TrialBox hold X GiB of the graphics card; Y GiB is spare beside the models", or "no serving record says what the models need" on a rehearsal PC without a record | The line whole. Did the health facts get written at all (the runner is a timer as root inside WSL2)? |
+| 59 | The host check from an elevated terminal (`deploy/check_host.sh`), the line "graphics card by program (Windows)" | "WSL2 holds N MiB; programs outside TrialBox hold M MiB (name MiB, ...)". The process name Windows gives WSL2's virtual machine (`vmmem` or `vmmemWSL`) is counted as WSL2, not as outside | The line whole; in Task Manager, Details, the name of the WSL2 process; whether N is near the models' memory or near zero (if near zero, Windows does not attribute WSL2's card memory to that process and the line must be corrected) |
+| 60 | NVIDIA Control Panel, Manage 3D settings, Global Settings: is there "CUDA - Sysmem Fallback Policy"? Set "Prefer No Sysmem Fallback". Then, inside WSL2, start a program that asks for more card memory than is free (the installer's GPU probe image with a large allocation, or a second copy of the stand-in model server) | With the setting: the program fails at once with an out-of-memory error, and TrialBox's models keep answering at their usual speed. Without it: note what happens | Whether the setting exists on this driver; what the over-asking program did with and without it; the console's response time during it. This decides whether the setting governs WSL2 at all |
+| 61 | Start a GPU program on the Windows desktop that takes most of the spare card memory (a game or a renderer). Look at the health line after two minutes | "red", naming how much programs outside TrialBox hold; line 59 names the program | The line; the minutes it took to turn |
+| 62 | The host check's line "administrator accounts". Then create a standard account (Settings, Accounts, Other users), sign in with it, and try: `wsl --shutdown`, `wsl -l -v`, opening `<data drive>\TrialBox` in Explorer | "administrator accounts: one"; the standard account sees no TrialBox distribution (`wsl -l -v` lists none of the owner's), cannot stop it, and Explorer refuses the folder | Each answer. If `wsl --shutdown` by a standard account stops the owner's distribution, rule 5 of the plan does not hold on this Windows |
+
+## Part 8: NEW-WIN-7, backup paths (D-608)
+
+Needs a USB disk (BitLocker on it or not) and, if there is one, a file share the rehearsal PC can reach. Every
+mount line below is as Microsoft documents WSL2 to print it; none has been seen.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 63 | After the install: `wsl -d TrialBox -u root -- cat /opt/trialbox/deploy/site/box/windows-drives`, and the log's line "this PC's own drives recorded" | The letters of the system drive, the data drive and every other fixed drive; **not** the media's letter when the media is a USB disk | The line; `Get-Disk \| Format-Table Number, BusType, FriendlyName` beside it. A USB disk that Windows lists with another BusType than USB breaks the rule: write its BusType down |
+| 64 | Plug in the USB disk (say it becomes `E:`). Inside WSL2: `ls /mnt/e` | The disk's files. If `/mnt/e` is not there: `mkdir -p /mnt/e && mount -t drvfs E: /mnt/e`, and note that a drive plugged in after WSL2 started is not mounted by itself | Whether it was there by itself; `grep -E " /mnt/[a-z] " /proc/mounts` whole (this is the line the backup check reads: the source `E:\` or `drvfs`, the type `9p`, `path=E:\` in the options) |
+| 64a | In an administrator PowerShell: `<media>\\windows\\box-install.ps1 -BackupDrive E:`; then the same with the data drive's letter, and with a letter that does not exist | "Drive E: is marked as an outside drive for backups", and a file `.trialbox-outside-drive` at `E:\\`; the data drive: "one of this PC's own drives"; the missing letter: "could not be checked or marked" | Each message; `(Get-Partition -DriveLetter E \| Get-Disk).BusType` for the USB disk (the rule needs it to read `USB`) |
+| 65 | Set `TB_BACKUP_TARGETS=/mnt/e/trialbox` in `deploy/.env`, make the folder, then `python3 -m tools.trialbox doctor --env-file deploy/.env`, the `backup` line | The target counted as off-box ("1 off-box") | The line whole. Before line 64a it must say "no off-box backup target"; so must `/mnt/d/...` (the data drive) |
+| 66 | `bash /opt/trialbox/deploy/windows/wsl-setup.sh backup-speed /mnt/e/trialbox 1024`, and the same for a folder inside WSL2 (`/opt/trialbox/deploy/backups`) | `mbps=...` for each; the test file is gone | Both speeds: this is the figure nobody has for a path through Windows |
+| 67 | `doctor`'s `backup_speed` line | PASS, or the value to set for `TB_BACKUP_MIN_MBPS` | The line |
+| 68 | `python3 -m tools.trialbox backup-nightly --deploy deploy` to the USB disk | It ends with a good backup on `/mnt/e/trialbox`; no step "stopped as hung" | Its duration; the file's size; any step that was cut |
+| 69 | **With nobody signed in.** Restart Windows, do not sign in, wait for the night's backup time (or set the schedule a few minutes ahead before restarting). Then sign in and look at the target and at `deploy/site/backup-last.json` | A new backup on the USB disk: the drive was reachable from the boot task's session | Whether `/mnt/e` existed in that session. This decides whether an outside drive works unattended at all |
+| 70 | The same as line 69 with the file share (`mount -t drvfs '\\server\share' /mnt/share` as root, target `/mnt/share/trialbox`) | Expected to **fail** when nobody is signed in: the boot task's sign-in (S4U) carries no network credentials, so Windows cannot reach the share for it | What happened, with the error. If it fails, the share is mounted another way (CIFS inside WSL2 with a credentials file kept in `/etc`, root only), which is a card of its own |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -169,3 +223,24 @@ Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). Af
   restart (line 44). `verdict=OUT`: the egress rule moves to Windows Firewall, or the port proxy is built as a card
   of its own. Line 38 wrong: the fix is in the box plan's network detection (lane D), not in the form.
 - Line 14: the address NEW-WIN-4 must make work from another PC.
+- Line 46 or 47 wrong: the policy values are not the ones Windows 11 reads on this edition; the window is then set
+  by the site's IT, and the installer only checks.
+- Line 48 or 50 "shut down still possible": the user right did not take (a domain policy sets it back, or secedit's
+  form is wrong); line 49 is a separate value and is read separately.
+- Line 51 "a restart outside the window": active hours do not bind a scheduled install the way D-606 point 2
+  assumes; the next form to try is Windows' maintenance windows (24H2), else "notify only" (hospital IT starts
+  installs).
+- Line 53 "the driver changed": the exclusion does not hold the driver; `wsl2_versions` then fails by design, and
+  the driver is held another way (a device-installation restriction for the card's hardware id).
+- Line 57 "the first number does not grow": WSL2 does not see Windows programs' card memory; the health line
+  `desktop_gpu` then cannot work from inside WSL2 and must read Windows (line 59's counters, through the boot task).
+- Line 59 "N near zero": the per-program line is corrected to say only what Windows programs hold.
+- Line 60 decides the handbook's NVIDIA step: kept, or struck when it has no effect on WSL2.
+- Line 62 "a standard account stopped WSL2": owner decision needed; the distribution would then run under a
+  service account no desktop user shares a session with.
+- Line 63 "the USB media's letter is among them", or line 64's mount line reads differently: the rule of D-608
+  point 2 is corrected to what Windows really prints before any site relies on an outside drive.
+- Line 66 gives the first measured speed of a backup path through Windows; `TB_BACKUP_MIN_MBPS`'s default for
+  the Windows form is set from it.
+- Lines 69 and 70 decide which off-box target a site can use unattended: the outside drive, the share, or the
+  share mounted by CIFS inside WSL2.

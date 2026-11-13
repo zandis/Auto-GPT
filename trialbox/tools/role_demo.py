@@ -219,7 +219,7 @@ class InprocBackend:
         from console.backend import Refused
         from tb_contracts import dump
 
-        payload = dump(body) if body is not None else None
+        payload = body if body is None or isinstance(body, dict) else dump(body)
         headers = sign(method, path, payload) if sign else None
         r = self.c.get(path) if method == "GET" else self.c.post(path, json=payload, headers=headers)
         if r.status_code in (400, 403, 404, 422, 429):
@@ -236,13 +236,16 @@ class InprocBackend:
 
         return [RegistryEntry.model_validate(r) for r in self._call("GET", f"/registry/{ruleset}")]
 
-    def registry_update(self, ruleset: str, upd: Any, sign: Any = None) -> Any:
+    def registry_update(self, ruleset: str, upd: Any, sign: Any) -> Any:
+        from console.backend import registry_update_body
         from tb_contracts import RegistryEntry
 
-        return RegistryEntry.model_validate(self._call("POST", f"/registry/{ruleset}", upd, sign))
+        return RegistryEntry.model_validate(self._call("POST", f"/registry/{ruleset}", registry_update_body(upd), sign))
 
-    def registry_promote(self, ruleset: str, req: Any) -> int:
-        return int(self._call("POST", f"/registry/{ruleset}/promote", req)["added"])
+    def registry_promote(self, ruleset: str, req: Any, sign: Any) -> int:
+        from console.backend import registry_promote_body
+
+        return int(self._call("POST", f"/registry/{ruleset}/promote", registry_promote_body(req), sign)["added"])
 
     def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes:
         from console.backend import Refused
@@ -348,10 +351,18 @@ def seed_activity(work: Path, bk: InprocBackend) -> None:
     ]
     for m in marks:
         store.mark("GZQO", m)
+
+    def as_crc(method: str, path: str, body: Any) -> dict[str, str]:
+        """T-715b (D-550): the registry takes its person from a signed claim; the demo's coordinator seeds it."""
+        from tb_common import actor_v3
+
+        return {actor_v3.HEADER: actor_v3.mint(sub="console:crc", role="coordinator", action="request.prepare",
+                                               method=method, path=path, body=body, study="GZQO")}  # fmt: skip
+
     try:
-        bk.registry_promote("GZQO", RegistryPromote(by="crc"))
-        bk.registry_update("GZQO", RegistryUpdate(pid=pids[4], status="contacted", by="crc"))
-        bk.registry_update("GZQO", RegistryUpdate(pid=pids[5], status="consented", by="crc"))
+        bk.registry_promote("GZQO", RegistryPromote(by="crc"), as_crc)
+        bk.registry_update("GZQO", RegistryUpdate(pid=pids[4], status="contacted", by="crc"), as_crc)
+        bk.registry_update("GZQO", RegistryUpdate(pid=pids[5], status="consented", by="crc"), as_crc)
     except Exception as exc:
         print(f"demo registry seed skipped: {exc}")
 

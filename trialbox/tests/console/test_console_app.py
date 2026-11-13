@@ -302,14 +302,11 @@ class FakeBackend:
         return [e for (rs, _), e in self.registry.items() if rs == ruleset]
 
     def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Any = None) -> RegistryEntry:
-        if (
-            upd.mrn and sign is None
-        ):  # T-719 (D-487): as the orchestrator, no pseudonym by chart number for a bare token
-            raise Refused("the signed-in person is refused: a chart number needs a verified person")
-        if upd.mrn:
-            from tb_contracts import dump
+        if sign is None:  # T-715b (D-550): as the orchestrator, no registry change for a bare token
+            raise Refused("the signed-in person is refused: a registry change needs a verified person")
+        from console.backend import registry_update_body
 
-            sign("POST", f"/registry/{ruleset}", dump(upd))  # the console's own check (the matrix, the study)
+        sign("POST", f"/registry/{ruleset}", registry_update_body(upd))  # the console's own check (matrix, study)
         if upd.mrn == "nope":
             raise Refused("that does not look like a chart number of this site")
         pid = upd.pid or ("ab" * 16 if upd.mrn == "A1001" else "cd" * 16)
@@ -329,7 +326,12 @@ class FakeBackend:
         self.registry[(ruleset, pid)] = e
         return e
 
-    def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
+    def registry_promote(self, ruleset: str, req: RegistryPromote, sign: Any = None) -> int:
+        if sign is None:
+            raise Refused("the signed-in person is refused: a registry change needs a verified person")
+        from console.backend import registry_promote_body
+
+        sign("POST", f"/registry/{ruleset}/promote", registry_promote_body(req))
         n = 0
         for pid in ("11" * 16, "22" * 16):
             if (ruleset, pid) not in self.registry:

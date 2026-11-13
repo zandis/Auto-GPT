@@ -124,7 +124,58 @@ Fact "wu_au_options" (RegValue $au "AUOptions")
 Fact "wu_scheduled_install_day" (RegValue $au "ScheduledInstallDay")
 Fact "wu_scheduled_install_time" (RegValue $au "ScheduledInstallTime")
 Fact "wu_mdm_allow_auto_update" (RegValue "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Update" "AllowAutoUpdate")
+# NEW-WIN-5 (D-606): the update window the installer set, Windows' active hours, drivers from Windows Update
+$wu = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+Fact "update_window" (RegValue "HKLM:\SOFTWARE\TrialBox" "update_window")
+Fact "wu_set_active_hours" (RegValue $wu "SetActiveHours")
+Fact "wu_active_hours_start" (RegValue $wu "ActiveHoursStart")
+Fact "wu_active_hours_end" (RegValue $wu "ActiveHoursEnd")
+Fact "wu_exclude_drivers" (RegValue $wu "ExcludeWUDriversInQualityUpdate")
+# values that take restarts out of the active hours' hands (Microsoft, "Manage device restarts after updates")
+Fact "wu_no_auto_reboot_logged_on" (RegValue $au "NoAutoRebootWithLoggedOnUsers")
+Fact "wu_always_reboot_at_scheduled" (RegValue $au "AlwaysAutoRebootAtScheduledTime")
+Fact "wu_compliance_deadline" (RegValue $wu "SetComplianceDeadline")
+Fact "wu_deadline_quality" (RegValue $wu "ConfigureDeadlineForQualityUpdates")
+Fact "wu_deadline_feature" (RegValue $wu "ConfigureDeadlineForFeatureUpdates")
+# whether the sign-in screen offers shutting down. The user right "Shut down the system" itself is not read here
+# (Windows gives it only through secedit's export to a file, and this script writes nothing): the installer sets
+# and logs it, and puts it right at every start
+Fact "shutdown_at_sign_in" (RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ShutdownWithoutLogon")
 Fact "wu_reboot_pending" ([int](Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
+
+# NEW-WIN-6 (D-607): the card shared with the desktop. The card's memory by program, from Windows' own counters
+# (a CIM class, the same name in every display language); WSL2's virtual machine is the process vmmem or vmmemWSL
+$gp = @(Get-CimInstance -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory)
+if ($gp.Count -eq 0) {
+  Fact "gpu_programs_known" 0
+} else {
+  Fact "gpu_programs_known" 1
+  $by = @{}
+  foreach ($r in $gp) {
+    if ([string]$r.Name -match "^pid_(\d+)_") { $id = [int]$Matches[1]; $by[$id] = [long]$by[$id] + [long]$r.DedicatedUsage }
+  }
+  $wslBytes = [long]0; $other = @{}
+  foreach ($id in @($by.Keys)) {
+    $n = [string](Get-Process -Id $id).ProcessName
+    if (-not $n) { $n = "unknown" }
+    if ($n -like "vmmem*") { $wslBytes += $by[$id] } else { $other[$n] = [long]$other[$n] + $by[$id] }
+  }
+  $sum = [long]0; foreach ($v in $other.Values) { $sum += $v }
+  Fact "gpu_wsl_mib" ([long]($wslBytes / 1MB))
+  Fact "gpu_outside_mib" ([long]($sum / 1MB))
+  Fact "gpu_outside_top" ((@($other.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 5 |
+        ForEach-Object { "{0}:{1}" -f ($_.Key -replace "[,:=]", "_"), [long]($_.Value / 1MB) }) -join ","))
+}
+# who is an administrator of this workstation: a number, no names. The built-in account counts when it is enabled
+$adminCount = ""
+$members = @(Get-LocalGroupMember -SID "S-1-5-32-544" | Where-Object { $_.ObjectClass -eq "User" })
+if ($members.Count -gt 0) {
+  $adminCount = 0
+  foreach ($m in $members) {
+    if ([string]$m.PrincipalSource -eq "Local") { if ((Get-LocalUser -SID $m.SID).Enabled) { $adminCount++ } } else { $adminCount++ }
+  }
+}
+Fact "admin_accounts" $adminCount
 
 # the start-at-boot task that keeps WSL2 running whether or not anyone is signed in (register_keepalive.ps1)
 Fact "keepalive_task_name" $TaskName

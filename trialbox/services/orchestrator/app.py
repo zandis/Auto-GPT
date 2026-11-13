@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
@@ -191,8 +191,13 @@ def _claim(request: Request, fallback: str | None = None) -> Actor:
         if "no signed-in user" in str(exc):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         caller = getattr(request.state, "tb_caller", None) or "-"
-        orch().audit.append("actor.refused", actor=f"service:{caller}",
-                            detail={"path": request.url.path[:80], "reason": str(exc)[:120]})  # fmt: skip
+        path, reason = request.url.path[:80], str(exc)[:120]
+        # the refusal stands when its record cannot be written (the same rule as the newer check's)
+        route_actor.record_refusal(
+            lambda: orch().audit.append("actor.refused", actor=f"service:{caller}",
+                                        detail={"path": path, "reason": reason}),
+            route=route_actor.template(request), reason=reason,
+        )  # fmt: skip
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
@@ -271,6 +276,8 @@ def models() -> dict[str, Any]:
         **judging_info(judge),
         "canary": canary_gate.status(),
         "optout_worker": optout_status(),  # D-441: the health line turns red on a stale or failed tick
+        # refusals whose audit record could not be written since this process started (count, by route)
+        "refusals_not_written": route_actor.lost_refusals(),
         "derive_batch": derive_status(o),  # D-442: the derive batch of the served snapshot
     }
 
@@ -807,9 +814,38 @@ def registry_events(ruleset: str, pid: str | None = None) -> list[RegistryEvent]
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/registry/{ruleset}", dependencies=REPORT)
-def registry_update(ruleset: str, upd: RegistryUpdate, request: Request) -> RegistryEntry:
+class RegistryUpdateBody(BaseModel):
+    """One registry row's change as the console sends it (T-715b, D-550). No field names a person: the acting
+    person is the verified one of the call. A field the route does not know (a typed ``by``) is refused."""
+
+    model_config = ConfigDict(extra="forbid")
+    pid: str | None = None
+    mrn: str | None = None
+    status: str
+    reason: str | None = Field(None, max_length=500)
+    source: str | None = None
+    source_job: str | None = None
+
+
+class RegistryPromoteBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tiers: list[str] = ["high", "review"]
+
+
+AS_REQUESTER = route_actor.require_actor("request.prepare")
+
+
+@app.post("/registry/{ruleset}")
+def registry_update(
+    ruleset: str, body: RegistryUpdateBody, request: Request, claim: Claim = AS_REQUESTER
+) -> RegistryEntry:
     o = orch()
+    try:  # the contract's own rules (the statuses, the sources) on what was sent, under the verified person
+        upd = RegistryUpdate.model_validate({**body.model_dump(exclude_none=True), "by": claim.sub})
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422, detail=json.loads(exc.json(include_url=False, include_input=False))
+        ) from exc
     # T-719 (D-487): a row by chart number answers with the pseudonym, so it needs the verified person of the call
     door = (
         identifiers.admit(request, ruleset.strip().upper(), o.db, o.audit, _now(o), actions=("request.prepare",))
@@ -825,11 +861,17 @@ def registry_update(ruleset: str, upd: RegistryUpdate, request: Request) -> Regi
     return entry
 
 
-@app.post("/registry/{ruleset}/promote", dependencies=REPORT)
-def registry_promote(ruleset: str, req: RegistryPromote) -> dict[str, int]:
+@app.post("/registry/{ruleset}/promote")
+def registry_promote(ruleset: str, body: RegistryPromoteBody, claim: Claim = AS_REQUESTER) -> dict[str, int]:
     o = orch()
     from tb_common.ruleset import RulesetNotApproved, load_approved
 
+    try:
+        req = RegistryPromote.model_validate({"by": claim.sub, "tiers": body.tiers})
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422, detail=json.loads(exc.json(include_url=False, include_input=False))
+        ) from exc
     # D-476 (review of T-707): only pool rows evaluated on the criteria version in force are promoted; with no
     # approved version there is none ("": no row matches)
     in_force = ""

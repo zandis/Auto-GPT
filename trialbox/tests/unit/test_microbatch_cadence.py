@@ -152,8 +152,11 @@ class _Box:
         ]  # fmt: skip
         return SimpleNamespace(to_pylist=lambda: rows)
 
-    def run_screen(self, ctx: Any, rs: Any, run_date: date, snapshot: str, select: Any = None) -> Any:
-        picked = select(list(self.scope))
+    def run_screen(
+        self, ctx: Any, rs: Any, run_date: date, snapshot: str, select: Any = None, scope: Any = None
+    ) -> Any:
+        self.scope_given = scope  # D-646: the weekly run hands the scope it counted in
+        picked = select(list(self.scope if scope is None else scope))  # D-646: the scope may be handed in
         self.screened += [s.pid for s in picked]
         stamp = "2026-10-07T03:00:00+09:00"
         rows = [
@@ -180,6 +183,7 @@ class _Box:
             ("drop_opted_out", lambda ctx, scoped: scoped),
             ("evaluate_scope", self.evaluate_scope),
             ("run_screen", self.run_screen),
+            ("screen_scope", lambda ctx, rs, run_date, snapshot: list(self.scope)),  # D-646
             ("persist_pool", self.persist),
             ("practitioners_of", lambda ctx, rs: ["D1"]),
             ("deliver_lists", self.deliver),

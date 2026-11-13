@@ -76,6 +76,26 @@ closed). Checks:
   when a compose file is missing or a cap is not a size; WARN when a service has no cap or no ``--env-file`` was
   given; PASS on a plain Linux host.
 
+* ``update_window`` (NEW-WIN-5, D-606): on a WSL2 kernel, the hours in which Windows Update may restart the
+  workstation (``TB_WIN_UPDATE_WINDOW_START`` and ``TB_WIN_UPDATE_WINDOW_HOURS``, the installer's
+  ``-UpdateWindowStart`` and ``-UpdateWindowHours``) against the night's start (``data_source.nightly_at``). FAIL
+  when the night starts inside the window. Otherwise WARN, naming the time between the night's start and the
+  window: no record of a night's measured length exists on the box yet, so "the night ends before the window" is
+  not claimed. The window is the one the Windows installer recorded (``deploy/site/box/windows-update-window``);
+  without that file the declared one, said as unconfirmed; "kept" (the site's IT holds the policy) is a WARN. That
+  Windows really holds this window is judged from Windows' side by ``deploy/windows/wsl2_policy.py``.
+* ``backup_speed`` (NEW-WIN-7, D-608; D-455): on a WSL2 kernel, ``TB_BACKUP_MIN_MBPS`` (the speed below which a
+  backup step counts as hung) against the write speed measured for each target's path
+  (``deploy/windows/wsl-setup.sh backup-speed``, ``deploy/site/box/backup-speed``): a path through Windows is far
+  slower than a box disk. FAIL when the setting is above the measured speed, WARN when it is above a tenth of it
+  (D-455's margin) or a target was not measured; PASS on a plain Linux host.
+* ``wsl2_versions`` (NEW-WIN-5, D-606): on a WSL2 kernel, the NVIDIA driver the card answers with against the
+  driver of the box's serving record (``TB_GPU_PROFILE``'s, else the one naming that card; ``deploy/site`` before
+  ``deploy/measured``; WARN when there is none or two, so the check says nothing until a record exists): FAIL
+  when they differ (Windows Update or a person changed the driver the box was measured with), or when the card
+  does not answer. The WSL2 kernel against the record's ``wsl_kernel``: FAIL when they differ, WARN while the
+  record names none. PASS on a plain Linux host.
+
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
@@ -157,6 +177,7 @@ class DoctorInputs:
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
     timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
     proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
+    gpu_query: Callable[[], tuple[str, str] | None] | None = None  # NEW-WIN-5: (card, driver); None: nvidia-smi
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -869,6 +890,74 @@ def check_backup(inp: DoctorInputs) -> Check:
     return Check("backup", "PASS", facts)
 
 
+def _tenth_below(speed: float) -> str:
+    """A tenth of ``speed`` rounded DOWN to two significant digits: a value that, once set, clears the warning."""
+    import math
+
+    tenth = speed / 10
+    if tenth <= 0:
+        return "0"
+    step = 10 ** (math.floor(math.log10(tenth)) - 1)
+    return f"{math.floor(tenth / step) * step:.10g}"
+
+
+def check_backup_speed(inp: DoctorInputs) -> Check:
+    """NEW-WIN-7 (D-608; D-455): under WSL2 a backup step's time limit must fit the measured speed of its path."""
+    from tb_common.config import DECLARED
+
+    name = "backup_speed"
+    if not _wsl2_kernel(inp):
+        return Check(name, "PASS", "not WSL2: the backup paths are the box's own disks and mounts (D-455)")
+    if inp.deploy is None:
+        return Check(name, "WARN", "WSL2: the backup paths were not judged: give --env-file <deploy/.env>")
+    from tools.trialbox import backup_schedule as bs
+
+    cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
+    bad = [e for e in cfg.setting_errors if "TB_BACKUP_MIN_MBPS" in e]
+    if bad:
+        return Check(name, "FAIL", "; ".join(bad))
+    if not cfg.targets:
+        return Check(name, "WARN", "WSL2: no backup target (TB_BACKUP_TARGETS): no path to measure")
+    raw = str(inp.env.get("TB_BACKUP_SPEED_TEST_MIB") or DECLARED["TB_BACKUP_SPEED_TEST_MIB"].default).strip()
+    least = int(raw) if raw.isascii() and raw.isdigit() else int(DECLARED["TB_BACKUP_SPEED_TEST_MIB"].default)
+    speeds = bs.measured_speeds(inp.deploy)
+    fails: list[str] = []
+    warns: list[str] = []
+    good: list[str] = []
+    for target in cfg.targets:
+        try:
+            real = str(target.resolve())
+        except OSError:
+            real = str(target)
+        got = speeds.get(real, speeds.get(str(target)))
+        how = f"wsl-setup.sh backup-speed {target} {least}"
+        if got is None:
+            warns.append(f"{target}: not measured ({how})")
+            continue
+        speed, written = got
+        to = _tenth_below(speed)
+        if written < least:
+            # a small write ends in the write cache and reads far too fast: never the ground for a PASS
+            warns.append(
+                f"{target}: measured with {written} MiB only, which the write cache hides: measure again ({how})"
+            )
+        elif cfg.min_mbps > speed:
+            # the limit assumes the path is faster than it is: every large step would be stopped as hung
+            fails.append(f"{target}: measured {speed:g} MB/s, and TB_BACKUP_MIN_MBPS is {cfg.min_mbps:g}: a backup "
+                         f"step would be stopped as hung. Set it to {to} (a tenth, D-455)")  # fmt: skip
+        elif cfg.min_mbps > speed / 10:
+            warns.append(f"{target}: measured {speed:g} MB/s; TB_BACKUP_MIN_MBPS {cfg.min_mbps:g} is more than a "
+                         f"tenth of it (D-455): a slow night could be stopped. Set it to {to}")  # fmt: skip
+        else:
+            good.append(f"{target} {speed:g} MB/s")
+    if fails:
+        return Check(name, "FAIL", "; ".join(fails + warns))
+    if warns:
+        return Check(name, "WARN", "; ".join(warns))
+    return Check(name, "PASS", f"TB_BACKUP_MIN_MBPS {cfg.min_mbps:g} is at most a tenth of each path's measured "
+                 f"speed ({', '.join(good)}). Measure again when a share or a drive is changed")  # fmt: skip
+
+
 def check_key_custody(inp: DoctorInputs) -> Check:
     """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
     from tb_common import kek
@@ -1209,6 +1298,137 @@ def _compose_file(deploy: Path, entry: str) -> Path:
     return path
 
 
+def _wsl2_kernel(inp: DoctorInputs) -> str:
+    """The kernel's release when it is a WSL2 kernel, else ``""``."""
+    try:
+        kernel = (inp.proc / "sys/kernel/osrelease").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return kernel if "microsoft" in kernel.lower() and "wsl2" in kernel.lower() else ""
+
+
+def check_update_window(inp: DoctorInputs) -> Check:
+    """NEW-WIN-5 (D-606): Windows Update may restart the workstation only in a window the night does not start in."""
+    from tb_common.config import DECLARED
+
+    name = "update_window"
+    if not _wsl2_kernel(inp):
+        return Check(name, "PASS", "not WSL2: no Windows Update under the box")
+    # what the Windows installer set (deploy/windows/wsl-setup.sh update-window): the window, or "kept"
+    told = ""
+    if inp.deploy is not None:
+        try:
+            told = (inp.deploy / "site" / "box" / "windows-update-window").read_text(encoding="utf-8").strip()
+        except OSError:
+            told = ""
+    if told == "kept":
+        return Check(name, "WARN", "the site's IT holds the Windows Update policy (the Windows installer kept it): "
+                     "the restart hours were not judged against the night here; the host check shows them")  # fmt: skip
+    m = re.fullmatch(r"([0-9]{1,2})\+([0-9]{1,2})", told)
+    if m:
+        raw = {"TB_WIN_UPDATE_WINDOW_START": m.group(1), "TB_WIN_UPDATE_WINDOW_HOURS": m.group(2)}
+        confirmed = True
+    else:
+        raw = {key: str(inp.env.get(key) or DECLARED[key].default).strip()
+               for key in ("TB_WIN_UPDATE_WINDOW_START", "TB_WIN_UPDATE_WINDOW_HOURS")}  # fmt: skip
+        confirmed = False
+    figures: dict[str, int] = {}
+    for key, low, high in (("TB_WIN_UPDATE_WINDOW_START", 0, 23), ("TB_WIN_UPDATE_WINDOW_HOURS", 6, 23)):
+        if not re.fullmatch(r"[0-9]{1,2}", raw[key]) or not low <= int(raw[key]) <= high:
+            return Check(name, "FAIL", f"{key}='{raw[key]}' is not a whole number from {low} to {high}")
+        figures[key] = int(raw[key])
+    start, hours = figures["TB_WIN_UPDATE_WINDOW_START"], figures["TB_WIN_UPDATE_WINDOW_HOURS"]
+    end = (start + hours) % 24
+    window = f"Windows Update may restart the workstation from {start:02d}:00 to {end:02d}:00"
+    if not confirmed:
+        window += (" (the declared window: the Windows installer has not said which window Windows holds; start it "
+                   "once more)")  # fmt: skip
+    source = inp.settings.get("data_source") if isinstance(inp.settings, Mapping) else None
+    at = str(source.get("nightly_at") or "") if isinstance(source, Mapping) else ""
+    night_at = re.fullmatch(r"([01][0-9]|2[0-3]):([0-5][0-9])", at)
+    if not night_at:
+        why = f"nightly_at '{at}' is not HH:MM" if at else "the settings name no nightly_at"
+        return Check(name, "WARN", f"{window}; {why}, so the night was not judged against it")
+    night = int(night_at.group(1)) * 60 + int(night_at.group(2))
+    if (night - start * 60) % 1440 < hours * 60:
+        return Check(name, "FAIL", f"{window}, and the night starts at {at}, inside it: a restart would cut the "
+                     "night. Move the window (start the Windows installer again with -UpdateWindowStart) or "
+                     "nightly_at")  # fmt: skip
+    room = (start * 60 - night) % 1440
+    # the night starts outside the window; whether it also ends before the window opens cannot be said: no record
+    # of a night's measured length exists on the box yet. Never a PASS on half the question
+    return Check(name, "WARN", f"{window}; the night starts at {at}, {room // 60} h {room % 60:02d} min before the "
+                 "window opens. The night's measured length is not recorded on the box: keep it shorter")  # fmt: skip
+
+
+def _nvidia_smi() -> tuple[str, str] | None:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.strip().splitlines()[0] if out.returncode == 0 and out.stdout.strip() else ""
+    name, _, driver = line.partition(",")
+    return (name.strip(), driver.strip()) if driver.strip() else None
+
+
+def check_wsl2_versions(inp: DoctorInputs) -> Check:
+    """NEW-WIN-5 (D-606): the NVIDIA driver and the WSL2 kernel are the ones the serving record was measured with."""
+    name = "wsl2_versions"
+    kernel = _wsl2_kernel(inp)
+    if not kernel:
+        return Check(name, "PASS", "not WSL2: the driver is the Linux host's own (check_host.sh)")
+    if inp.deploy is None:
+        return Check(name, "WARN", "WSL2: the driver was not judged: give --env-file <deploy/.env>")
+    got = (inp.gpu_query or _nvidia_smi)()
+    if got is None:
+        return Check(name, "FAIL", "WSL2: the card does not answer (nvidia-smi): the Windows NVIDIA driver is missing, "
+                     "was replaced, or Windows needs a restart after a driver change")  # fmt: skip
+    card, driver = got  # the first card nvidia-smi lists
+    # the record of the box's profile (TB_GPU_PROFILE), the site's own first: as deploy/install.sh picks it.
+    # Without a profile: the records of this card by name, and never a guess between two
+    profile = str(inp.env.get("TB_GPU_PROFILE") or "").strip()
+    folders = (inp.deploy / "site", inp.deploy / "measured")
+    found: list[tuple[Path, Mapping[str, Any]]] = []
+    for folder in folders:
+        pattern = f"serving_config.{profile}.json" if profile and profile != "auto" else "serving_config.*.json"
+        for path in sorted(folder.glob(pattern)):
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(doc, dict) and isinstance(doc.get("card"), dict) and doc["card"].get("name") == card:
+                found.append((path, doc))
+        if found:
+            break  # the site's folder wins over the vendor's
+    if not found:
+        return Check(name, "WARN", f"WSL2: no serving record for the card '{card}' (deploy/site, deploy/measured): "
+                     f"driver {driver} and kernel {kernel} were compared with nothing")  # fmt: skip
+    if len(found) > 1:
+        names = ", ".join(p.name for p, _ in found)
+        return Check(name, "WARN", f"WSL2: {len(found)} serving records name the card '{card}' ({names}) and "
+                     f"TB_GPU_PROFILE does not say which is the box's: driver {driver} was not compared")  # fmt: skip
+    path, doc = found[0]
+    where = f"{path.parent.name}/{path.name}"
+    measured = str(doc["card"].get("driver") or "").strip()
+    if measured != driver:
+        return Check(name, "FAIL", f"the NVIDIA driver is {driver}; the serving record ({where}) was measured with "
+                     f"{measured or 'no driver named'}. Put the measured driver back (the offline media, "
+                     "windows/nvidia), or measure again with this one (tools/serving_config.py measured)")  # fmt: skip
+    measured_kernel = str(doc.get("wsl_kernel") or "")
+    if not measured_kernel:
+        return Check(name, "WARN", f"NVIDIA driver {driver} as measured ({where}); the record names no WSL2 kernel, "
+                     f"so the kernel {kernel} was compared with nothing")  # fmt: skip
+    if measured_kernel != kernel:
+        return Check(name, "FAIL", f"the WSL2 kernel is {kernel}; the serving record ({where}) was measured with "
+                     f"{measured_kernel}: WSL was updated. Measure again (tools/serving_config.py)")  # fmt: skip
+    return Check(name, "PASS", f"NVIDIA driver {driver} and WSL2 kernel {kernel}, as measured ({where})")
+
+
 def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, Any] | None] | None = None) -> Check:
     """T-712 (D-481; D-378): a service container holds its own database role's password and no other.
 
@@ -1417,6 +1637,9 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_memory_caps,
     check_db_passwords,
     check_wsl2_memory,
+    check_update_window,
+    check_wsl2_versions,
+    check_backup_speed,
 )
 
 

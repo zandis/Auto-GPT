@@ -28,6 +28,7 @@ from typing import Any
 
 from criteria_compiler.compile_sql.overlay import safe_sql
 from tb_common.authz import norm
+from tb_common.csvfile import for_spreadsheet
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_contracts import CohortTable, schema_errors
@@ -174,12 +175,15 @@ def table_rows(
 
 # ------------------------------------------------------------------------------------------------------ alliance CSV
 def to_csv(rows: Iterable[dict[str, Any]]) -> bytes:
+    """The alliance table as the file the job publishes: UTF-8 with the byte order mark, so a spreadsheet on a
+    Japanese or Chinese Windows reads it as UTF-8 (:func:`tb_common.csvfile.for_spreadsheet`). The ledger's hash
+    is of these bytes; :func:`parse_csv` reads the file with or without the mark."""
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=list(COLUMNS), lineterminator="\n")
     w.writeheader()
     for r in rows:
         w.writerow({k: r[k] for k in COLUMNS})
-    return buf.getvalue().encode("utf-8")
+    return for_spreadsheet(buf.getvalue())
 
 
 def _count(v: str) -> int | str:

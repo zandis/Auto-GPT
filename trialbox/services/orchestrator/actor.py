@@ -90,12 +90,43 @@ def _same_target(claimed: str, request: Request) -> bool:
     return actor_v3.target_of(method, unquote(path) + (sep + query if sep else "")) == _target(request)
 
 
+#: refusals whose ``actor.refused`` record could not be written since this process started, by route. The record
+#: is not owed later (nothing replays it): the count is what remains, shown in the orchestrator's status
+#: (``refusals_not_written``) beside the ERROR line of each.
+LOST: Counter[str] = Counter()
+
+
+def record_refusal(write: Callable[[], Any], *, route: str, reason: str, action: str = "") -> None:
+    """Write a refusal's audit record. When it cannot be written (the box's database does not answer), the person
+    is refused all the same: a refusal must never become a server error because its record was lost. The loss is
+    counted (:data:`LOST`) and is an ERROR line with the route, the reason and the error's type, none of which
+    holds a value of the request."""
+    try:
+        write()
+    except Exception as exc:
+        with _lock:
+            LOST[route] += 1
+        lost = {"route": route, "reason": reason, "action": action, "error": type(exc).__name__}
+        log.error("actor.refused: not written to the audit trail", extra=lost)
+
+
+def lost_refusals() -> dict[str, Any]:
+    with _lock:
+        return {"count": sum(LOST.values()), "routes": dict(sorted(LOST.items()))}
+
+
 def _refuse(request: Request, action: str, reason: str, who: str | None, study: str | None) -> HTTPException:
-    """The refusal of a person on a route: the ``actor.refused`` event is written, the 403 is returned to raise."""
+    """The refusal of a person on a route: the ``actor.refused`` event is written, the 403 is returned to raise.
+
+    A record that cannot be written never turns the refusal into a server error (:func:`record_refusal`)."""
     if _audit is not None:
-        _audit().append("actor.refused", actor=who, ruleset=study or None,
-                        detail={"reason": reason, "route": _template(request), "action": action,
-                                "caller": getattr(request.state, "tb_caller", None) or ""})  # fmt: skip
+        route, audit = _template(request), _audit
+        record_refusal(
+            lambda: audit().append("actor.refused", actor=who, ruleset=study or None,
+                                   detail={"reason": reason, "route": route, "action": action,
+                                           "caller": getattr(request.state, "tb_caller", None) or ""}),
+            route=route, reason=reason, action=action,
+        )  # fmt: skip
     return HTTPException(status_code=403, detail={"code": "ACTOR", "reason": reason,
                                                   "message": f"the signed-in person is refused: {reason}"})  # fmt: skip
 
@@ -150,7 +181,8 @@ def require_actor(action: str, *, service: bool = False, study_in_handler: bool 
 
 
 def _study(request: Request) -> str | None:
-    return str(request.path_params.get("rs") or "").strip().upper() or None
+    """The study a `refuse` route's path names: ``{rs}``, or ``{ruleset}`` on the registry's routes (T-715b)."""
+    return _named_study(request) or None
 
 
 def _named_study(request: Request) -> str | None:
@@ -326,8 +358,10 @@ def route_problems(app: Any, group_of: Callable[[str], str | None], table: dict[
                 bad.append(f"{key}: require_actor names {action!r}, which is not a row of the matrix")
             if person:
                 bad.append(f"{key}: the request still names a person ({', '.join(person)})")
-            params = re.findall(r"/studies/\{([^}:]+)", path)
-            if params and params[0] != "rs":  # the dependency reads the study from `{rs}`
+            # the dependency reads the study from `{rs}` (or `{ruleset}`, the registry's): a study under another
+            # name would not be held against the claim's
+            params = re.findall(r"/(?:studies|registry)/\{([^}:]+)", path)
+            if params and params[0] not in ("rs", "ruleset"):
                 bad.append(f"{key}: the study of the path is {{{params[0]}}}; require_actor reads {{rs}}")
         elif changing and want == "refuse":
             bad.append(f"{key}: a changing route of a refuse group without require_actor")
