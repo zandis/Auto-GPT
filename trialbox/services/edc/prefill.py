@@ -10,6 +10,8 @@ site's confirmed facts) and returns one :class:`Draft` per mapped item. The rule
 * **Unknown never excludes.** No record means *unknown*, never "No": a ``presence`` item is drafted only as its yes
   code, and the absence of a diagnosis or a medicine leaves it blank for the coordinator.
 * **Two records that disagree on the chosen day** leave the item unknown (``conflict``); TrialBox never picks one.
+* **A code counts only under its code system** (D-598): a lab, vital sign or diagnosis row whose code is of another
+  system than the item's, or of none, is not a record for the item, whatever its code reads.
 * A value in another unit than the item's is not converted; it is skipped (``unit``). A censored result
   (``<0.3``) is never a value (``censored``). Every value is checked against the field (type, range, choice); a value
   that fails is not drafted (``invalid``).
@@ -29,7 +31,7 @@ from typing import Any, Protocol
 from datacore.forms import Field, problem
 from tb_common.quotes import quote_in
 
-from edc.mapping import ItemMap, unit_key
+from edc.mapping import ItemMap, systems_of, unit_key
 
 WHY = ("no_record", "only_proposed", "conflict", "unit", "censored", "invalid", "out_of_window", "quote_not_found",
        "not_mapped", "no_model")  # fmt: skip
@@ -62,9 +64,10 @@ class Facts(Protocol):
 
 
 _SQL = {
-    "observation": "SELECT oid AS row, code, CAST(effective AS DATE) AS d, value_num, unit, value_code, "
-    "coalesce(value_cmp, '') AS cmp FROM observation WHERE pid = $1",
-    "condition": "SELECT cid AS row, code, coalesce(onset, recorded) AS d, status FROM condition WHERE pid = $1",
+    "observation": "SELECT oid AS row, code, coalesce(system, '') AS system, CAST(effective AS DATE) AS d, "
+    "value_num, unit, value_code, coalesce(value_cmp, '') AS cmp FROM observation WHERE pid = $1",
+    "condition": "SELECT cid AS row, code, coalesce(system, '') AS system, coalesce(onset, recorded) AS d, "
+    "status FROM condition WHERE pid = $1",
     "medication": "SELECT mid AS row, coalesce(atc, '') AS code, coalesce(nhi_code, '') AS code2, "
     "coalesce(start, authored) AS d, name, status FROM medication WHERE pid = $1",
 }
@@ -134,6 +137,11 @@ def _void(row: dict[str, Any]) -> bool:
 
 
 def _matches(m: ItemMap, row: dict[str, Any]) -> bool:
+    # D-598: a code counts only under the item's code system. A hospital's own code that reads like a LOINC or an
+    # ICD-10 code is another code; a row that names no system is of none. A medicine is read by column (no system)
+    want = systems_of(m)
+    if want and str(row.get("system") or "") not in want:
+        return False
     if m.source == "observation":
         return str(row.get("code") or "") in m.codes
     codes = {_norm_code(c) for c in m.codes}

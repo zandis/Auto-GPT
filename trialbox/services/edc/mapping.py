@@ -15,6 +15,11 @@ identifier or link field, a numeric item without a unit, a coded source without 
 "yes" code is not a choice of the field, an item tagged as the CTCAE grade (``AE.AETOXGR``) that is not a choice of
 grades 1 to 5 (D-396). A ``presence`` item is only ever drafted as its yes code: the absence of a
 record never becomes "No" (unknown never excludes).
+
+D-598: a lab, vital sign or diagnosis item reads only records whose code is of the item's code system
+(:func:`systems_of`): the one the row names, else the box's own for that source (:data:`SYSTEMS`). A system the box
+does not read for that source is refused by :func:`check`; a medicine is read by column (ATC, the hospital's drug
+code), so its row needs none.
 """
 
 from __future__ import annotations
@@ -28,6 +33,13 @@ from typing import Any
 from datacore.forms import Field
 
 from edc import cdash
+
+# D-598: the code systems a record's code may be of, by source; the first is what a row with no ``system`` reads
+# together with the others (a diagnosis is ICD-10-CM at a Taiwan site and WHO ICD-10 at a Japan site)
+SYSTEMS: dict[str, tuple[str, ...]] = {
+    "observation": (cdash.LOINC,),
+    "condition": ("http://hl7.org/fhir/sid/icd-10-cm", "http://hl7.org/fhir/sid/icd-10"),
+}
 
 SOURCES = ("patient", "observation", "condition", "medication", "note", "none")
 WHAT: dict[str, tuple[str, ...]] = {
@@ -86,6 +98,13 @@ class ItemMap:
     @property
     def drafted(self) -> bool:
         return self.source != "none"
+
+
+def systems_of(m: ItemMap) -> tuple[str, ...]:
+    """The code systems a record must be of to count for this item (D-598); empty = the source is not read by a
+    code with a system (a medicine, the patient row, a note)."""
+    known = SYSTEMS.get(m.source, ())
+    return (m.system,) if m.system and known else known
 
 
 def dumps(items: list[ItemMap]) -> str:
@@ -175,6 +194,8 @@ def check(items: list[ItemMap], fields: dict[str, Field], protected: set[str]) -
             not m.codes or any(not _CODE.match(c) for c in m.codes)
         ):
             no(m.item, "codes")
+        if m.system and m.source in SYSTEMS and m.system not in SYSTEMS[m.source]:
+            no(m.item, "system")  # D-598: a system the box never reads would leave the item silently empty
         if m.what in ("birth_date", "date", "start") and f.kind != "date":
             no(m.item, "kind")
         if m.source == "observation" and m.what == "value":
