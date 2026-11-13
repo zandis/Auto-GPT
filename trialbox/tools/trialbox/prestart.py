@@ -67,6 +67,14 @@ def _model_key(box: ComposeBox) -> str:
     return "made now" if box.ensure_model_key() else "in place, or not a GPU box"
 
 
+def _actor_key(box: ComposeBox) -> str:
+    """T-717 (D-485), T-717b (D-547): the console's signing key and the orchestrator's keys file. Harmless to the
+    release before, which makes the same two files; a release from before T-717 is excluded by
+    ``min_installed_version``."""
+    made = box.ensure_actor_key()
+    return "no per-service tokens on this box" if made is None else ("made now" if made else "in place")
+
+
 def _fhir_password(box: ComposeBox) -> str:
     """D-541 (NEW-TRUST-1): the FHIR store's own database role needs a password in ``.env`` before the database
     container is put on this release's settings (``DB_STEPS``: the role script reads it from the container's
@@ -78,6 +86,7 @@ def _fhir_password(box: ComposeBox) -> str:
 STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
     ("image pins", _image_pins),
     ("model key", _model_key),
+    ("actor signing key", _actor_key),
     ("FHIR store password", _fhir_password),
 ]
 

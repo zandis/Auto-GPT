@@ -96,8 +96,10 @@ def test_this_tree_states_its_floor_where_signing_reads_it() -> None:
 #: tools/trialbox/prestart.py to the ``release_seq`` of the first release that has the command. If no box has a
 #: release yet, 0 stays. Then write the new names and the floor here.
 PINNED = {
-    "pre-start": ["image pins", "model key"],
-    "db-up": ["database", "service roles", "owned schemas"],
+    # T-717b (D-547) and NEW-TRUST-1 (D-541): two host-side steps and one guard. The floor stays 0: no box has a
+    # release yet, so none is on a release without the two commands (lane D's word, 2026-11-13).
+    "pre-start": ["image pins", "model key", "actor signing key", "FHIR store password"],
+    "db-up": ["FHIR store password is set", "database", "service roles", "owned schemas"],
     "floor": 0,
 }
 
