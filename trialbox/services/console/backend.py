@@ -9,6 +9,7 @@ unchanged. The console adds its own audit events (``console.*``) to the same has
 from __future__ import annotations
 
 import json
+import re
 import smtplib
 from collections import deque
 from collections.abc import Callable
@@ -47,6 +48,21 @@ class Refused(RuntimeError):
 
 class Unavailable(RuntimeError):
     """A service the console needs did not answer."""
+
+
+_FAILED = re.compile(r"^([a-z][a-z0-9_-]{0,31}) returned (\d{3})\b")
+_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,39}$")
+
+
+def service_and_status(exc: Exception) -> str:
+    """What a page may say of a call that failed (NEW-TRUST-3, D-555): the service and its status
+    ("orchestrator (500)"), or a refusal's code, never the text the service answered with: that text can repeat
+    what was sent (a record, a chart number in a path). "-" when the error names neither."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and _CODE.match(code):
+        return code
+    m = _FAILED.match(str(exc))
+    return f"{m.group(1)} ({m.group(2)})" if m else "-"
 
 
 class Problem(Refused):

@@ -226,7 +226,7 @@ class CandidateRegistry:
 def check_ruleset(ruleset: str) -> str:
     r = (ruleset or "").upper()
     if not _RULESET.match(r):
-        raise RegistryError(f"invalid ruleset id {ruleset!r}")
+        raise RegistryError("that is not a ruleset id")  # the id is the caller's text: not repeated (D-555)
     return r
 
 

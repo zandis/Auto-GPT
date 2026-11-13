@@ -368,6 +368,10 @@ def _rs(rs: str) -> str:
     return rid
 
 
+#: D-555: the one thing a ValueError of these two routes says (``StudyStore.token_path``), as a fixed sentence
+TOKEN_NAME = "a token name is lower-case letters, digits, - and _"
+
+
 def _fail(exc: RcError | LinkError) -> HTTPException:
     status = exc.status if isinstance(exc, RcError) else 409
     fields = exc.fields if isinstance(exc, LinkError) else []
@@ -435,7 +439,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             url = api_url(body.url)[: -len("/api")]
             token = check_token(body.token) if body.token else None
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": str(exc)}) from exc
+            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": TOKEN_NAME}) from exc
         except RcError as exc:
             raise _fail(exc) from exc
         if token is None and svc.store.token(ref) is None:
@@ -461,7 +465,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             get().store.token_path(ref)  # a token name, never a path
             return get().dictionary(ref)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": str(exc)}) from exc
+            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": TOKEN_NAME}) from exc
         except RcError as exc:
             raise _fail(exc) from exc
 

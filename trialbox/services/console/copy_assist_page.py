@@ -39,7 +39,7 @@ from tb_common.service_auth import actor_header
 from console import i18n_copyassist, s28
 from console.api_first import before_body
 from console.auth import Session
-from console.backend import Problem, Unavailable
+from console.backend import Problem, Unavailable, service_and_status
 from console.edc_pages import err_of, item_words
 from console.home import Helpers
 from console.i18n import CATALOGUES, translate
@@ -232,7 +232,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Problem as exc:
             raise h.problem(409, "request.refused", code=exc.code, reason=exc.message, fields="") from exc
         except Unavailable as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
         name = f"{rid}-copy-assist{'-' + rec if rec else ''}.csv"
         record_export(au, channel="console_download", filename=name, data=data, identifier_level="pseudonymised",
                       approval=f"console role {sess.user.role}; {VIEW} of study {rid} (copy-assist, signed values)",
@@ -250,7 +250,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(status, "request.refused", code=exc.code, reason=exc.message,
                             fields=", ".join(exc.fields)) from exc  # fmt: skip
         except Unavailable as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
 
     def api_sess(request: Request) -> Session:
         assert h.api_session is not None
