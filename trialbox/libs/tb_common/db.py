@@ -112,9 +112,26 @@ class MigrationOrderError(MigrationError):
 #: D-378: the group role that owns a store's schema on the box is ``tbs_<schema>``; a service role that is a member
 #: works in the schema as the group (see ``deploy/docker/db-init/30-service-roles.sh``)
 GROUP_PREFIX = "tbs_"
+
+
+class _NotOurs(Exception):
+    """A missing schema that has an owner role this session is not a member of (D-486)."""
+
+
+# the owner role of a schema exists in this cluster and the session's user is not a member of it
+_NOT_OWNER_SQL = "SELECT 1 FROM pg_roles WHERE rolname = %s AND NOT pg_has_role(session_user, oid, 'MEMBER')"
 _GROUP_SQL = (
     "SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner "
     "WHERE n.nspname = %s AND r.rolname = %s AND pg_has_role(current_user, r.oid, 'MEMBER')"
+)
+#: D-486 (T-718): a schema on the role script's ``owned`` list belongs to ``tbo_<schema>`` (its one member is
+#: ``trialbox``); a service is a member of ``tbw_<schema>`` (rows) or ``tbr_<schema>`` (reads) and makes nothing there
+OWNER_PREFIX = "tbo_"
+WRITER_PREFIX = "tbw_"
+READER_PREFIX = "tbr_"
+_OWNER_SQL = (
+    "SELECT r.rolname, pg_has_role(session_user, r.oid, 'MEMBER') FROM pg_namespace n "
+    "JOIN pg_roles r ON r.oid = n.nspowner WHERE n.nspname = ?"
 )
 #: the PostgreSQL extensions the box's ``db`` image provides (D-204; ``deploy/docker/db-init/``)
 IMAGE_EXTENSIONS = ("vector", "pgroonga")
@@ -297,6 +314,10 @@ class Database:
             raise DatabaseError(f"cannot reach the trial database: {type(e).__name__}") from e
         try:
             if con.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (schema,)).fetchone() is None:
+                # D-486: a schema with an owner role in this cluster is made by that owner (the install step), never
+                # by a service: a service that made it would own its tables and their triggers
+                if con.execute(_NOT_OWNER_SQL, ((OWNER_PREFIX + schema)[:63],)).fetchone() is not None:
+                    raise _NotOurs(schema)
                 con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
             con.execute(f'SET search_path TO "{schema}"')
             # D-378: a schema owned by its group role (tbs_<schema>, deploy/docker/db-init/30-service-roles.sh) is
@@ -304,6 +325,17 @@ class Database:
             group = (GROUP_PREFIX + schema)[:63]
             if con.execute(_GROUP_SQL, (schema, group)).fetchone() is not None:
                 con.execute(f'SET ROLE "{group}"')
+            # D-486: a schema with an owner role of its own. The host tools' admin (a member) works as the owner, so
+            # the migrate step's tables are the owner's; a service (no member) stays itself and makes nothing
+            owner = (OWNER_PREFIX + schema)[:63]
+            if con.execute(_GROUP_SQL, (schema, owner)).fetchone() is not None:
+                con.execute(f'SET ROLE "{owner}"')
+        except _NotOurs as e:
+            con.close()
+            raise DatabaseError(
+                f"the schema {e} is missing and is not this role's to make: run `trialbox migrate` "
+                "(after a restore: the role script first)"
+            ) from None
         except Exception as e:
             con.close()
             raise DatabaseError(f"cannot use the trial database: {type(e).__name__}") from e
@@ -383,8 +415,100 @@ class Database:
         with self.transaction() as tx:
             return tx.fetchdicts(text, params)
 
+    def owner_role(self) -> str | None:
+        """The owner role of this schema (``tbo_<schema>``, D-486) when it has one and this connection is not it:
+        the schema's tables, triggers and versions are then the install step's to make, not this caller's. None for
+        a schema this connection may migrate (its group's, its own, or as the owner role itself)."""
+        row = self.fetchone(_OWNER_SQL, (self.schema,))
+        if row is None or not str(row[0]).startswith(OWNER_PREFIX) or bool(row[1]):
+            return None
+        return str(row[0])
+
+    def writer_role(self) -> str | None:
+        """``tbw_<schema>`` when this schema has an owner role and that writer role exists (D-486), else None."""
+        name = (WRITER_PREFIX + self.schema)[:63]
+        owned = self.fetchval(
+            "SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner WHERE n.nspname = ? AND r.rolname = ?",
+            (self.schema, (OWNER_PREFIX + self.schema)[:63]),
+        )
+        return name if owned and self.fetchval("SELECT 1 FROM pg_roles WHERE rolname = ?", (name,)) else None
+
+    def adopt(self) -> int:
+        """The install step's first act on a schema with an owner role (D-486), as the box's admin: what a restore
+        or an earlier release left in the schema under the admin's own name becomes the owner role's, and the
+        writer's and reader's rights are given again (a restore without privileges drops them). Returns how many
+        objects moved; 0 and nothing done on a schema without an owner role, or for a caller who is not a member."""
+        owner = (OWNER_PREFIX + self.schema)[:63]
+        if self.fetchval("SELECT current_user") != owner:
+            return 0
+        moved = 0
+        with self.transaction() as tx:
+            tx.execute("RESET ROLE")  # the admin owns what the restore made; only an owner gives an object away
+            try:
+                kinds = {"v": "VIEW", "m": "MATERIALIZED VIEW", "S": "SEQUENCE", "f": "FOREIGN TABLE"}
+                for name, kind in tx.fetchall(
+                    "SELECT c.relname, c.relkind FROM pg_class c WHERE c.relnamespace = ?::regnamespace "
+                    "AND c.relowner = session_user::regrole AND (c.relkind IN ('r', 'p', 'v', 'm', 'f') OR "
+                    "(c.relkind = 'S' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass "
+                    "AND d.objid = c.oid AND d.deptype IN ('a', 'i'))))",
+                    (self.schema,),
+                ):
+                    tx.execute(f'ALTER {kinds.get(str(kind), "TABLE")} "{self.schema}"."{name}" OWNER TO "{owner}"')
+                    moved += 1
+                for (sig,) in tx.fetchall(
+                    "SELECT p.oid::regprocedure::text FROM pg_proc p WHERE p.pronamespace = ?::regnamespace "
+                    "AND p.proowner = session_user::regrole",
+                    (self.schema,),
+                ):
+                    tx.execute(f'ALTER ROUTINE {sig} OWNER TO "{owner}"')
+                    moved += 1
+            finally:
+                tx.execute(f'SET ROLE "{owner}"')
+            for prefix, rights in ((WRITER_PREFIX, "SELECT, INSERT, UPDATE, DELETE"), (READER_PREFIX, "SELECT")):
+                role = (prefix + self.schema)[:63]
+                if tx.fetchval("SELECT 1 FROM pg_roles WHERE rolname = ?", (role,)):
+                    tx.execute(f'GRANT {rights} ON ALL TABLES IN SCHEMA "{self.schema}" TO "{role}"')
+                    if prefix == WRITER_PREFIX:
+                        tx.execute(f'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "{self.schema}" TO "{role}"')
+        return moved
+
+    def _check_versions(self, migs: Sequence[Migration], owner: str) -> int:
+        """What a service does in place of migrating a schema it does not own (D-486): the applied versions must be
+        the ones this release carries, by checksum. It makes and changes nothing."""
+        try:
+            rows = self.fetchall("SELECT version, sha256, script_name FROM _schema_version ORDER BY version")
+        except Exception as exc:
+            raise MigrationError(
+                self.schema, f"has no version table yet: its owner ({owner}) makes it; run `trialbox migrate` (D-486)"
+            ) from exc
+        applied = [int(r[0]) for r in rows]
+        if applied != list(range(1, len(applied) + 1)):
+            gap = next(n for n, v in enumerate(applied, start=1) if v != n)
+            raise MigrationOrderError(
+                self.schema, f"applied versions {applied} skip version {gap}: a script was applied out of order"
+            )
+        for (n, recorded, name), mig in zip(rows, migs, strict=False):
+            if recorded is None:
+                raise MigrationError(
+                    self.schema,
+                    f"schema version {n} has no checksum: run `trialbox migrate` as the box's admin (D-486)",
+                )
+            if recorded != mig.sha256:
+                raise MigrationChanged(self.schema, int(n), name, str(recorded), mig.sha256)
+        if len(applied) < len(migs):
+            raise MigrationError(
+                self.schema,
+                f"is at version {len(applied)} and this release needs {len(migs)}: its owner ({owner}) applies them; "
+                "run `trialbox migrate` (D-486)",
+            )
+        return len(migs)
+
     def migrate(self, versions: Sequence[str | Migration]) -> int:
         """Apply the schema versions not yet applied; return ``len(versions)``.
+
+        D-486 (T-718): on a schema with an owner role this connection is not a member of, nothing is applied: the
+        versions are checked against this release (:meth:`_check_versions`) and a schema that is behind is refused
+        with what to run.
 
         Versions are append-only: ``versions[0]`` is version 1. A script is split on ``;`` and run statement by
         statement (so no ``;`` inside a literal or a ``$$`` body). The whole call is one transaction under a per-schema
@@ -396,6 +520,9 @@ class Database:
         from tb_common.migration_baseline import baseline_for
 
         migs = as_migrations(versions, self.schema)
+        owner = self.owner_role()
+        if owner is not None:
+            return self._check_versions(migs, owner)
         with self.transaction() as tx:
             # one migrator at a time per schema (two services starting together)
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (self.schema,))

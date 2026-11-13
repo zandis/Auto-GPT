@@ -39,6 +39,10 @@ COUNTER_STRIDE = 10_000_000  # per-chunk id counter base: ids stay unique while 
 PROFILES: dict[str, dict[str, Any]] = {
     "ci": {"sites": "jp-a:JP:2500,tw-a:TW:2500", "tolerance": 0.05},
     "full": {"sites": "jp-head:JP:300000,tw-a:TW:200000", "tolerance": 0.02},
+    # the demo's site in one language (DEMO-JA, TB_DEMO_SITE_LANG): the ci hospital's size and two campuses, both
+    # Japanese-style (records and notes in Japanese and English) or both Taiwanese-style (zh-TW and English)
+    "ci-ja": {"sites": "jp-a:JP:2500,jp-b:JP:2500", "tolerance": 0.05},
+    "ci-zh-TW": {"sites": "tw-a:TW:2500,tw-b:TW:2500", "tolerance": 0.05},
     # scenario J1 (T-503): one Japanese site with a memory clinic (``ad`` patients), notes in Japanese and English
     # only, for the trial AD-MAB and the registry NEUR-COH. ``site:style:patients:mix`` names the rates.yaml mix.
     "jp-ad": {

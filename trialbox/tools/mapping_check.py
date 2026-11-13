@@ -129,7 +129,7 @@ def unit_pairs(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) -> list[
             "lookup_unit": expected,
             "rows": n,
         }
-        agree = labvalue.units_agree(unit, expected, _loinc(hit) or None) if col else None
+        agree = labvalue.units_agree(m.unit_as_code(unit), expected, _loinc(hit) or None) if col else None
         if agree is None:
             item["read"] = "no unit: read in the lookup's unit" if col else "not checked: no unit_column"
         elif agree:
@@ -137,10 +137,10 @@ def unit_pairs(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) -> list[
         else:
             item["read"] = "unit_mismatch: no value"
             to = hit.get("ucum") or expected  # the unit the lookup writes
-            k = labvalue.conversion(unit, to, _loinc(hit)) if to else None
+            k = labvalue.conversion(m.unit_as_code(unit), to, _loinc(hit)) if to else None
             item["factor"] = k
             item["proposal"] = (
-                f"if {code} is reported in {unit}: source_unit {unit}, factor {k} (then ucum {to})"
+                f"if {code} is reported in {unit}: source_unit {m.unit_as_code(unit)}, factor {k} (then ucum {to})"
                 if k is not None
                 else "no tested factor: the lab team fixes the export or the lookup"
             )

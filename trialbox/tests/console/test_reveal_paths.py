@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from tb_common import authz
 from tb_common import service_auth as sa
 
+from tests.actor3 import reveal_headers
 from tests.console.test_console_app import PILOT_ENV, _done_screen, _ulid, box, login, name_pi  # noqa: F401 - fixture
 from tests.console.test_role_pages import PW, _csrf, _user
 from tests.console.test_team_pages import _events, _log_pi_and_sub
@@ -80,7 +81,7 @@ def test_every_surface_reveals_for_the_pi_with_one_audit_shape(box: dict[str, An
     assert [e["detail"]["cap"] for e in ev] == [f"{n}/60" for n in range(1, 6)]
     assert [e["detail"]["purpose"] for e in ev] == ["patient", "screening_list", "contact", "referral", "patient"]
     # the purpose and the reason travel to the back end, signed with the account's own role
-    assert box["backend"].signed[-5:] == [("reveal", "investigator", "*")] * 5
+    assert box["backend"].signed[-5:] == [("reveal", "investigator", "GZQO")] * 5
     assert not _events(box, "console.reveal_refused")
 
 
@@ -474,7 +475,7 @@ def test_the_orchestrator_asks_the_matrix_row() -> None:
 
     for role in authz.MATRIX_ROLES:
         assert oapp.id_authority(role) == authz.permit(role, "id.reveal").allowed, role
-    assert oapp.id_authority(authz.BREAK_GLASS_ROLE)
+    assert not oapp.id_authority("breakglass")  # T-716 (D-484): a grant is a row the reveal route reads, not a role
     assert not oapp.id_authority("") and not oapp.id_authority("superuser")
     assert not hasattr(oapp, "ID_ROLES")
 
@@ -496,19 +497,20 @@ def test_the_orchestrators_cap_survives_a_restart_and_records_the_purpose(
     monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
     client = TestClient(oapp.app)
-    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:crc1", role="coordinator", scope="*")}
-    body = {"pid": "PID-00000001", "purpose": "contact", "reason": "consent"}
-    assert client.post("/jobs/J1/reveal", json=body, headers=h).status_code == 200
+
+    def post(body: dict[str, Any]) -> Any:  # each call its own assertion, for exactly this body (T-716: v3)
+        h = {sa.TOKEN_HEADER: TOKEN, **reveal_headers("RS", "J1", body, sub="console:crc1")}
+        return client.post("/jobs/J1/reveal", json=body, headers=h)
+
+    assert post({"pid": "PID-00000001", "purpose": "contact", "reason": "consent"}).status_code == 200
     ev = events[-1]
     assert (
         ev["kind"] == "screen.reveal" and ev["detail"]["purpose"] == "contact" and ev["detail"]["reason"] == "consent"
     )
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())  # a restart: a new limiter, the same store
-    # D-447: an assertion is accepted once, so each call signs again (``resign``), as the console does
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=sa.resign(h)).status_code == 429
+    assert post({"pid": "PID-00000002"}).status_code == 429
     assert events[-1]["detail"]["reason"] == "rate limit"
-    bad = {"pid": "PID-00000001", "purpose": "Not A Purpose"}
-    assert client.post("/jobs/J1/reveal", json=bad, headers=sa.resign(h)).status_code == 422
+    assert post({"pid": "PID-00000001", "purpose": "Not A Purpose"}).status_code == 422
 
 
 def test_a_token_holder_signing_new_names_meets_the_services_total_cap(
@@ -531,8 +533,9 @@ def test_a_token_holder_signing_new_names_meets_the_services_total_cap(
     client = TestClient(oapp.app)
     codes = []
     for name in ("console:a1", "console:a2", "console:a3"):
-        h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header(name, role="coordinator", scope="*")}
-        codes.append(client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h).status_code)
+        body = {"pid": "PID-00000001"}
+        h = {sa.TOKEN_HEADER: TOKEN, **reveal_headers("RS", "J1", body, sub=name)}
+        codes.append(client.post("/jobs/J1/reveal", json=body, headers=h).status_code)
     assert codes == [200, 200, 429]
     assert events[-1]["kind"] == "screen.reveal_refused" and events[-1]["detail"]["reason"] == "service rate limit"
 
@@ -556,10 +559,13 @@ def test_the_whole_registry_export_is_never_given_to_a_break_glass_grant(
     monkeypatch.setattr(oapp, "orch", lambda: fake)
     monkeypatch.setattr(oapp, "registry_of", lambda _o: SimpleNamespace(export_xlsx=lambda _rs, _site: b"PK-xlsx"))
     client = TestClient(oapp.app)
-    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:it1", role=authz.BREAK_GLASS_ROLE, scope="*")}
+    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:it1", role="breakglass", scope="*")}
     r = client.get("/registry/GZQO/export.xlsx", headers=h)
     assert r.status_code == 403 and events[-1]["kind"] == "registry.export_refused"
-    assert events[-1]["detail"]["reason"].startswith("break-glass")
+    assert events[-1]["detail"]["reason"] == "role"  # T-716 (D-484): there is no such role to sign
+    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:it1", role="admin", scope="*")}  # a grant holder's own
+    r = client.get("/registry/GZQO/export.xlsx", headers=h)  # role: the export takes no grant at all
+    assert r.status_code == 403 and events[-1]["detail"]["reason"] == "role"
     h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:crc1", role="coordinator", scope="*")}
     assert client.get("/registry/GZQO/export.xlsx", headers=sa.resign(h)).status_code == 200
 
@@ -641,5 +647,12 @@ def test_the_demo_back_end_sends_the_purpose_and_reason() -> None:
 
     bk = InprocBackend.__new__(InprocBackend)
     bk.c = SimpleNamespace(post=post)
-    assert bk.reveal("J1", "PID-00000001", "console:crc1", role="coordinator", purpose="contact", reason="consent")
+    signed: list[tuple[str, str, Any]] = []
+
+    def sign(method: str, path: str, body: Any) -> dict[str, str]:  # the console's signer (T-716, D-484)
+        signed.append((method, path, body))
+        return {"X-TB-Actor-Assertion": "v3.x.y"}
+
+    assert bk.reveal("J1", "PID-00000001", sign, purpose="contact", reason="consent")
     assert sent == [{"pid": "PID-00000001", "purpose": "contact", "reason": "consent"}]
+    assert signed == [("POST", "/jobs/J1/reveal", sent[0])]  # the assertion is for exactly what is sent

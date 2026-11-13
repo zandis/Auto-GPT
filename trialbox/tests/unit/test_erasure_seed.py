@@ -45,7 +45,6 @@ KNOWN_OWED = frozenset(
         "site.pi_marks", "site.screening_no", "site.weekly_seen", "sitesetup.check_item", "sitesetup.fact",
         "sitesetup.fix", "sitesetup.input", "study.rc_record", "study.rc_write", "team.approach_overrides",
         "team.candidate_views", "team.referral_events", "team.referrals", "trace.traces", "tuned.tuned_patients",
-        "wf.outbox", "wf.steps",
     }
 )  # fmt: skip
 

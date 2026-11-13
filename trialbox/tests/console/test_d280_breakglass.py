@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from tb_common import authz
 from tb_common import service_auth as sa
 
+from tests.actor3 import reveal_headers
 from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture by name
 from tests.console.test_role_pages import _csrf, _user
 
@@ -130,7 +131,8 @@ def test_a_patient_grant_opens_one_patient_for_60_minutes(box: dict[str, Any]) -
     r = admin.post(f"/studies/GZQO/patients/{A}/reveal", data={"csrf": _csrf(p.text), "reason": "other",
                                                              "note": "support call, chart check"})  # fmt: skip
     assert r.status_code == 200 and "MRN-000123" in r.text
-    assert box["backend"].signed == [("reveal", authz.BREAK_GLASS_ROLE, "*")]  # never "admin"
+    # T-716 (D-484): the administrator's own role and the grant's id: the right is the row the orchestrator reads
+    assert box["backend"].signed == [("reveal", "admin", "GZQO")] and box["backend"].grants[0].isdigit()
     opened = _events(box, "console.breakglass_open")
     assert len(opened) == 1 and opened[0]["detail"]["pid"] == A and opened[0]["detail"]["reason"] == "support"
     gid = opened[0]["detail"]["grant"]
@@ -159,7 +161,7 @@ def test_a_job_grant_opens_that_jobs_list_only(box: dict[str, Any]) -> None:  # 
     assert 'data-testid="screen-rows"' not in admin.get(f"/pilot/jobs/{other}").text
     r = admin.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": _csrf(page), "pid": A, "reason": "contact"})
     assert r.status_code == 200 and "MRN-000123" in r.text
-    assert box["backend"].signed == [("reveal", authz.BREAK_GLASS_ROLE, "*")]
+    assert box["backend"].signed == [("reveal", "admin", "GZQO")] and box["backend"].grants[0].isdigit()
     r = admin.post(f"/pilot/jobs/{other}/reveal", data={"csrf": _csrf(page), "pid": A, "reason": "contact"})
     assert r.status_code == 403
     # a new grant ends the one before: one patient or one job at a time
@@ -221,9 +223,20 @@ def test_the_orchestrator_gives_no_chart_number_to_the_admin_role(
     monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
     client = TestClient(oapp.app)
-    assert not oapp.id_authority("admin") and oapp.id_authority(authz.BREAK_GLASS_ROLE)  # T-103: the matrix row
-    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:it1", role="admin", scope="*")}
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h)
-    assert r.status_code == 403 and events[-1]["detail"]["reason"] == "role"
-    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:it1", role=authz.BREAK_GLASS_ROLE, scope="*")}
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h).status_code == 200
+    # T-716 (D-484), the old acceptance inverted: neither the administrator's role nor the word "breakglass"
+    # is identifier authority; under break-glass the right is a grant row the orchestrator reads
+    assert not oapp.id_authority("admin") and not oapp.id_authority("breakglass")
+    body = {"pid": "PID-00000001"}
+
+    def post(role: str, grant: dict[str, Any] | None = None) -> Any:
+        h = {sa.TOKEN_HEADER: TOKEN, **reveal_headers("RS", "J1", body, sub="console:it1", role=role, grant=grant)}
+        return client.post("/jobs/J1/reveal", json=body, headers=h)
+
+    for role in ("admin", "breakglass"):
+        r = post(role)
+        assert r.status_code == 403 and events[-1]["kind"] == "actor.refused", role
+        assert events[-1]["detail"]["reason"] == "right"
+    r = post("admin", {"id": "4242"})  # a grant id with no row: the word for a grant opens nothing either
+    assert r.status_code == 403 and events[-1]["kind"] == "screen.reveal_refused"
+    assert events[-1]["detail"]["reason"] == "break-glass grant: no such grant"
+    assert not any(e["kind"] == "screen.reveal" for e in events)

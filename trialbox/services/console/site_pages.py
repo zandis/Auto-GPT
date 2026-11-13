@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import re
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -33,8 +34,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import permit
+from tb_common.verdict_word import shown_of
 
-from console import demo_guard, s28
+from console import actor, demo_guard, s28
 from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
@@ -165,6 +167,11 @@ def register(app: FastAPI, h: Helpers) -> None:
     def post(path: str, body: dict[str, Any]) -> Any:
         return s28.call(bk, "POST", path, body)
 
+    def signed_post(sess: Session, path: str, body: dict[str, Any]) -> Any:
+        """T-719 (D-487): a chart or a sheet turns chart numbers into pseudonyms at the orchestrator, which asks
+        for the verified person of the call (`site.setup`, the row `need_change` asked)."""
+        return actor.call(h, sess, "site.setup", None, "POST", path, body)
+
     def q(ws: str, rs: str, **more: str) -> str:
         return urlencode({"ws": ws, "study": rs, **{k: v for k, v in more.items() if v}})
 
@@ -192,7 +199,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             body |= {"name": name[:200], "b64": base64.b64encode(data).decode("ascii")}
         else:
             body |= {"text": text[:60_000]}
-        out = dict(post(f"/setup/{ws}/charts", body))
+        out = dict(signed_post(sess, f"/setup/{ws}/charts", body))
         out.pop("pid", None)  # never the pseudonym back to the caller (the box's own audit event keeps it)
         au.append("console.chart_lookup", actor=h.actor(sess),
                   detail={"for": "chart", "ws": ws, "input": out.get("input"), "role": sess.user.role})  # fmt: skip
@@ -338,14 +345,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 labels = {}
             for r in (bundle.get("cl") or {}).get("rows") or []:
                 if r.get("pid") == pid:
-                    return [
-                        {
-                            "label": labels.get(v.get("id"), v.get("id")),
-                            "verdict": v.get("verdict"),
-                            "reason": (v.get("evidence") or {}).get("reason") or "",
-                        }
-                        for v in r.get("criteria") or []
-                    ]
+                    return trail_rows(r.get("criteria") or [], labels)
         if not site_wide(sess.user):  # D-179: the site-wide patient check is not a study-scoped account's
             return None
         try:
@@ -620,7 +620,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             iid = str(form.get("input") or "")
             if iid.isdigit():  # new column roles for a sheet already in
                 roles = {str(k)[5:]: str(v) for k, v in form.items() if str(k).startswith("role:") and v in ROLES}
-                post(f"/setup/{w}/sheets/{iid}/roles", {"roles": roles, "by": h.actor(sess)})
+                signed_post(sess, f"/setup/{w}/sheets/{iid}/roles", {"roles": roles, "by": h.actor(sess)})
             else:
                 up = form.get("file")
                 if up is None or isinstance(up, str) or not getattr(up, "filename", None):
@@ -628,7 +628,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 demo_guard.guard(request, h.problem)  # T-502: no upload in demo mode
                 data = await up.read(MAX_UPLOAD + 1)
                 kind = "dump" if str(form.get("kind") or "") == "dump" else "sheet"
-                post(
+                signed_post(
+                    sess,
                     f"/setup/{w}/sheets",
                     {
                         "kind": kind,
@@ -884,6 +885,23 @@ def register(app: FastAPI, h: Helpers) -> None:
 
 def _args(m: dict[str, Any]) -> dict[str, Any]:
     return {k: m[k] for k in ("n", "rows", "pct", "of", "tables") if k in m}
+
+
+def trail_rows(criteria: Sequence[Mapping[str, Any]], labels: Mapping[str, str]) -> list[dict[str, Any]]:
+    """One patient's verdicts as the "why" answer reads them: the label, the word a person reads and its reason.
+    D-478 (review of T-709): a "not met" that was not allowed to exclude (one model's, or given while notes could
+    not exclude) is an open point with that reason, never "not matched"."""
+    out = []
+    for v in criteria:
+        word, why = shown_of(v)
+        out.append(
+            {
+                "label": labels.get(str(v.get("id")), str(v.get("id"))),
+                "verdict": word,
+                "reason": why or (v.get("evidence") or {}).get("reason") or "",
+            }
+        )
+    return out
 
 
 def t_reason(lang: str, code: str) -> str:

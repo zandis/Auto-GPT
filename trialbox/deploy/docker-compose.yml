@@ -65,7 +65,7 @@ x-no-db-passwords: &nodb
 services:
   db:
     # One PostgreSQL server for the box (TB-PLAN-03 step 6, D-121): database `hapi` for the FHIR store and
-    # `trialbox_wf` for durable steps, outbox and recall ledger (spec v4 §11.0), made by db-init on first start.
+    # `trialbox_wf` for every store TrialBox owns (D-126), made by db-init on first start.
     # Multi-arch index digest (linux/amd64 and linux/arm64 manifests). One volume, one backup, one restore.
     # D-187 (WS-08.6): WAL compressed with zstd, TOAST with lz4 (PG 16 offers pglz and lz4 only); new clusters get
     # data checksums. WAL archiving to pgBackRest (point-in-time restore) is off until the site turns it on: it needs

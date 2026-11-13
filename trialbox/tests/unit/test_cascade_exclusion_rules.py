@@ -252,7 +252,7 @@ def test_not_met_is_not_final_when_the_budget_left_evidence_out(lake: LakeLocal)
     assert sorted(seen) == [1, 2]  # P-MANY: two of six notes
     assert _kept_for_review(res, "P-MANY", INC.id)
     why = res.traces["P-MANY"].outcomes[INC.id].reason
-    assert why.startswith("not judged: 4 evidence note(s)") and code_of(why, "unknown") == "notes_over_budget"
+    assert why.startswith("not judged: 4 note(s) of the window") and code_of(why, "unknown") == "notes_over_budget"
     assert verdicts_of(rs, res.traces["P-MANY"]).tier == "review"
     met = _run(lake, rs, ["P-MANY"], ScriptedJudge(quoting("pass", FLARE)))
     assert met.traces["P-MANY"].outcomes[INC.id].status == "pass"
