@@ -278,8 +278,12 @@ def check_keepalive(facts: Facts, v: Verdicts) -> None:
         problems.append(f"runs only for a signed-in user (logon {facts.get('keepalive_task_logon_type') or '?'})")
     if facts.get("keepalive_task_state", "") == "Disabled":
         problems.append("disabled")
-    if TASK_ACTION not in facts.get("keepalive_task_action", "").lower():
+    action = facts.get("keepalive_task_action", "")
+    if TASK_ACTION not in action.lower():
         problems.append("does not start wsl.exe")
+    elif facts.get("distro") and f"-d {facts['distro']} " not in action + " ":
+        # NEW-WIN-2 (D-602): a task for another distribution keeps the wrong system alive, or none
+        problems.append(f"starts another distribution than '{facts['distro']}'")
     if problems:
         v.policy(f"start-at-boot task '{name}': {'; '.join(problems)}")
     else:

@@ -23,8 +23,11 @@
 #                     the media's linux/debs
 #   10 gpu-container  a container started with --gpus all sees the card
 #   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over an existing one)
-#   12 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
-#                     the owner. Its window is never written to the log
+#   12 boot-task      start without a person (NEW-WIN-2, D-602): hibernation and sleep off; the task TrialBox-WSL2
+#                     (register_keepalive.ps1) starts the distribution at boot, signed in or not
+#   13 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
+#                     the owner. Its window is never written to the log. Then: Docker and the stack are enabled
+#                     to start with the distribution
 # It never removes a distribution, a virtual disk or a file it did not write: a distribution of the same name that
 # this install did not import, or a virtual disk already in the data folder, stops it (D-600).
 # The log, in English, for the install record: %ProgramData%\TrialBox\box-install\box-install.log. No secret is
@@ -58,11 +61,12 @@ param(
 $script:TbShareDefault = $DesktopSharePercent
 $script:TbShareGiven = $PSBoundParameters.ContainsKey("DesktopSharePercent")
 $script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
-  "packages", "gpu-container", "host-tree", "linux-install")
+  "packages", "gpu-container", "host-tree", "boot-task", "linux-install")
 $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", "EnterpriseS", "Education",
   "ProfessionalEducation")
 $script:TbFeatures = @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")
 $script:TbResumeTask = "TrialBox-Install-Resume"
+$script:TbBootTask = "TrialBox-WSL2"  # the name host_facts.ps1 and wsl2_policy.py look for (D-421)
 $script:TbRestartExit = 3010  # the exit code Windows installers use for "restart needed"
 
 # ------------------------------------------------------------------------------------------------ seams (Windows)
@@ -157,6 +161,10 @@ function Unregister-TbResumeTask {
     Unregister-ScheduledTask -TaskName $script:TbResumeTask -Confirm:$false
   }
 }
+function Register-TbBootTask([string]$Account, [string]$Distro, [string]$TaskName) {
+  # one definition of the task for the installer and for a person at a terminal: register_keepalive.ps1
+  & (Join-Path $PSScriptRoot "register_keepalive.ps1") -User $Account -Distro $Distro -TaskName $TaskName | Out-Null
+}
 function Find-TbMedia {
   # a TrialBox media at the root of a drive, or one folder below it (TRIALBOX-<version>)
   foreach ($d in @(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
@@ -166,6 +174,13 @@ function Find-TbMedia {
     }
   }
   return ""
+}
+function Get-TbBootTaskInfo([string]$TaskName) {
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($null -eq $task) { return $null }
+  $info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
+  return @{ State = [string]$task.State; LastResult = [string]$info.LastTaskResult
+    Action = ((@($task.Actions) | ForEach-Object { "{0} {1}" -f $_.Execute, $_.Arguments }) -join " ; ") + " " }
 }
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
@@ -302,7 +317,7 @@ function Step-Media {
     if ($ln -match "^([0-9a-fA-F]{64})\s+\*?(.+)$") { $sums[($Matches[2].Trim() -replace "\\", "/")] = $Matches[1].ToLower() }
   }
   $check = @($script:TbFiles.Msi, $script:TbFiles.RootFs, $script:TbFiles.Setup, $script:TbFiles.HostTar,
-    $script:TbFiles.Bundle, $script:TbFiles.PubKey)
+    $script:TbFiles.Bundle, $script:TbFiles.PubKey, (Find-TbOne $win "register_keepalive.ps1" ""))
   $check += @(Get-ChildItem -LiteralPath $script:TbFiles.Debs -Filter *.deb -File | ForEach-Object { $_.FullName })
   if (-not (Test-TbMsiSignature $script:TbFiles.Msi)) { Stop-TbStep "msi_unsigned" @($script:TbFiles.Msi) }
   $rootLen = $m.TrimEnd("\", "/").Length + 1
@@ -370,7 +385,7 @@ function Step-WslEnable {
     # the copy the task runs must not depend on the media's drive letter after the restart
     $copy = Join-Path $script:TbStateDir "scripts"
     Protect-TbDirectory $copy $script:TbFacts.Account
-    foreach ($n in @("box-install.ps1", "box-install.messages.json")) {
+    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1")) {
       $from = Join-Path $PSScriptRoot $n; $to = Join-Path $copy $n
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
@@ -496,6 +511,31 @@ function Step-HostTree {
     (ConvertTo-TbWslPath (Join-Path $script:TbStage "vendor_ed25519.pub")))
   foreach ($ln in @($r.Output | Where-Object { $_ -like "vendor key*" })) { Say "vendor_key" @($ln) }
 }
+function Set-TbBootTask {
+  # The task is registered once. One that is there and starts this distribution is kept as it is: registering it
+  # again would start it again beside a live keep-alive. Returns "kept", "registered" or "restored".
+  $info = Get-TbBootTaskInfo $script:TbBootTask
+  $wanted = "-d " + $script:TbState.distro + " "
+  if ($null -ne $info -and $info.State -ne "Disabled" -and ([string]$info.Action).Contains($wanted)) { return "kept" }
+  Register-TbBootTask $script:TbFacts.Account $script:TbState.distro $script:TbBootTask
+  if ($null -eq $info) { return "registered" } else { return "restored" }
+}
+function Step-BootTask {
+  # A workstation that sleeps or hibernates serves nobody, and hiberfil.sys would hold WSL2's memory (D-421).
+  # What is set: hibernation off, and the idle timers of the current power plan to never, on mains and on battery.
+  # A power setting Windows refuses (a machine with no hibernation support) is told and does not stop the install:
+  # hibernation is judged again by the host check.
+  foreach ($a in @(@("/hibernate", "off"), @("/change", "standby-timeout-ac", "0"), @("/change", "hibernate-timeout-ac", "0"),
+      @("/change", "standby-timeout-dc", "0"), @("/change", "hibernate-timeout-dc", "0"))) {
+    $r = Invoke-TbNative "powercfg.exe" $a
+    if ($r.ExitCode -ne 0) { Say "power_failed" @(($a -join " "), $r.ExitCode) }
+  }
+  try { $did = Set-TbBootTask }
+  catch { Stop-TbStep "boot_task_failed" @([string]$_.Exception.Message) }
+  $info = Get-TbBootTaskInfo $script:TbBootTask
+  Write-TbLog ("    task {0}: {1}; state {2}; last result {3}" -f $script:TbBootTask, $did, $info.State, $info.LastResult)
+  Say "boot_task" @($script:TbBootTask)
+}
 function Step-LinuxInstall {
   Say "linux_install" @()
   $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
@@ -506,6 +546,7 @@ function Step-LinuxInstall {
   $r = Invoke-TbSetup "state" @()
   $line = [string](@($r.Output) | Select-Object -Last 1)
   if ($line -ne "installed=1") { Stop-TbStep "linux_install_stopped" @($code) }
+  [void](Assert-TbSetup "boot-check" @())  # Docker and the stack start with the distribution, with nobody there
   if ($code -ne 0) { Say "host_check_fails" @() }
   $script:TbState.finished = $true
 }
@@ -555,6 +596,9 @@ function Invoke-TbInstall {
       if ([string]$_.Exception.Message -like "TBSTOP*" -and $null -ne $script:TbStop) { Say $script:TbStop.Key $script:TbStop.Values }
       else { Say "unexpected" @([string]$_.Exception.Message) }
     }
+    # and the start-at-boot task, when it was deleted or disabled by hand (D-602)
+    try { if ((Set-TbBootTask) -ne "kept") { Say "boot_task_restored" @($script:TbBootTask) } }
+    catch { Say "boot_task_failed" @([string]$_.Exception.Message) }
     Save-TbState
     Say "already_installed" @($script:TbLogPath)
     return 0

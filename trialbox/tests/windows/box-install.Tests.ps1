@@ -14,7 +14,7 @@ BeforeAll {
     $media = Join-Path $base "media"
     foreach ($d in @("windows/wsl", "linux/debs")) { New-Item -ItemType Directory -Force -Path (Join-Path $media $d) | Out-Null }
     $files = @(
-      "windows/box-install.ps1", "windows/box-install.messages.json", "windows/wsl-setup.sh",
+      "windows/box-install.ps1", "windows/box-install.messages.json", "windows/wsl-setup.sh", "windows/register_keepalive.ps1",
       "windows/wsl/wsl.2.4.13.0.x64.msi", "windows/wsl/ubuntu-24.04-wsl-amd64.tar.gz",
       "linux/debs/docker-ce_27.deb", "linux/trialbox-host.tar", "linux/trialbox-1.0.0.tar", "linux/vendor_ed25519.pub"
     )
@@ -22,7 +22,7 @@ BeforeAll {
     foreach ($f in $files) {
       $p = Join-Path $media $f
       $src = Join-Path $script:Root ("deploy/windows/" + (Split-Path -Leaf $f))
-      if ($f -like "windows/box-install.*" -or $f -like "windows/wsl-setup.sh") { Copy-Item -LiteralPath $src -Destination $p }
+      if ($f -like "windows/box-install.*" -or $f -like "windows/wsl-setup.sh" -or $f -like "windows/register_keepalive.ps1") { Copy-Item -LiteralPath $src -Destination $p }
       else { Set-Content -LiteralPath $p -Value ("content of " + $f) -NoNewline }
       $sums += ("{0}  {1}" -f (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLower(), $f)
     }
@@ -35,6 +35,7 @@ BeforeAll {
       FeatureRestart = $true; WslInstalled = $false; Distros = @(); WinGpu = $true
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
+      BootInfo = $null; BootRegistered = 0
       Restarted = 0; ResumeTask = $false; FoundMedia = ""; ImportDies = $false; Said = New-Object System.Collections.ArrayList
     }
     New-Item -ItemType Directory -Force -Path $s.Data | Out-Null
@@ -70,6 +71,11 @@ Describe "box-install.ps1" {
     Mock Register-TbResumeTask { $script:S.ResumeTask = $true; $script:S.ResumeMore = $More; $script:S.ResumeScript = $ScriptPath }
     Mock Unregister-TbResumeTask { $script:S.ResumeTask = $false }
     Mock Restart-TbComputer { $script:S.Restarted++ }
+    Mock Register-TbBootTask {
+      $script:S.BootTask = "$Account|$Distro|$TaskName"; $script:S.BootRegistered++
+      $script:S.BootInfo = @{ State = "Running"; LastResult = "267009"; Action = "wsl.exe -d $Distro --exec /bin/sh -c 'exec sleep infinity' " }
+    }
+    Mock Get-TbBootTaskInfo { return $script:S.BootInfo }
     Mock Find-TbMedia { return [string]$script:S.FoundMedia }
     Mock Start-TbSleep { }
     Mock Read-TbLine { return "" }
@@ -172,6 +178,7 @@ Describe "box-install.ps1" {
       # the copy the task runs after the restart does not depend on the media's drive letter
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.ps1") | Should -BeTrue
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.messages.json") | Should -BeTrue
+      Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/register_keepalive.ps1") | Should -BeTrue
       $script:S.ResumeScript | Should -Be (Join-Path $script:S.StateDir "scripts/box-install.ps1")
     }
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
@@ -233,7 +240,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $calls = $script:S.Calls -join "`n"
       $calls | Should -Match "wsl\.exe --import TrialBox \S+wsl \S+ubuntu-24\.04-wsl-amd64\.tar\.gz --version 2"
-      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "state")
+      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "state", "boot-check")
       $script:S.Console.Count | Should -Be 1
       $script:S.Console[0] | Should -Match "wsl\.exe -d TrialBox -u root .*wsl-setup\.sh install \S+/linux/trialbox-1\.0\.0\.tar"
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
@@ -315,6 +322,61 @@ Describe "box-install.ps1" {
       ($script:S.Calls -join "`n") | Should -Not -Match "--import"
       Get-Log | Should -Match "STOP step 6/\d+ wslconfig"
     }
+    It "registers the start-at-boot task for this account and distribution, with sleep and hibernation off, before the Linux installer waits" {
+      Invoke-Run | Should -Be 0
+      $script:S.BootTask | Should -Be "BOX\owner|TrialBox|TrialBox-WSL2"
+      $calls = $script:S.Calls -join "`n"
+      $calls | Should -Match "powercfg\.exe /hibernate off"
+      foreach ($t in @("standby-timeout-ac", "hibernate-timeout-ac", "standby-timeout-dc", "hibernate-timeout-dc")) {
+        $calls | Should -Match ("powercfg\.exe /change " + $t + " 0")
+      }
+      Get-Log | Should -Match "task TrialBox-WSL2: registered; state Running"
+      $log = Get-Log
+      $log.IndexOf("boot-task: ok") | Should -BeLessThan $log.IndexOf("linux-install: start")
+    }
+    It "stops when the task cannot be registered, before the Linux installer runs" {
+      Mock Register-TbBootTask { throw "Access is denied." }
+      Invoke-Run | Should -Be 1
+      $script:S.Console.Count | Should -Be 0
+      Get-Log | Should -Match "STOP step 12/\d+ boot-task: .*Access is denied"
+    }
+    It "says so and goes on when Windows refuses a power setting (review M4)" {
+      Mock Invoke-TbNative { return @{ ExitCode = 1; Output = @("Hibernation is not supported") } } -ParameterFilter { $Exe -eq "powercfg.exe" -and ($Arguments -join " ") -eq "/hibernate off" }
+      Invoke-Run | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Match "did not accept a power setting \(powercfg /hibernate off, exit 1\)"
+    }
+    It "keeps a task that is there and starts this distribution: it is not registered or started again (review M6)" {
+      $script:S.SetupFail["gpu"] = "interrupted"
+      $script:S.BootInfo = @{ State = "Running"; LastResult = "267009"; Action = "wsl.exe -d TrialBox --exec /bin/sh -c 'exec sleep infinity' " }
+      Invoke-Run | Should -Be 1
+      $script:S.SetupFail = @{}
+      Invoke-Run | Should -Be 0
+      $script:S.BootRegistered | Should -Be 0
+      Get-Log | Should -Match "task TrialBox-WSL2: kept"
+    }
+    It "registers the task again when it is for another distribution or disabled (review M3)" {
+      $script:S.BootInfo = @{ State = "Ready"; LastResult = "0"; Action = "wsl.exe -d Ubuntu-24.04 --exec /bin/sh -c 'exec sleep infinity' " }
+      Invoke-Run | Should -Be 0
+      $script:S.BootTask | Should -Be "BOX\owner|TrialBox|TrialBox-WSL2"
+      Get-Log | Should -Match "task TrialBox-WSL2: restored"
+    }
+    It "puts the task back on a finished install when it was deleted, and changes nothing else (review M6)" {
+      Invoke-Run | Should -Be 0
+      $n = $script:S.Calls.Count
+      $script:S.BootInfo = $null; $script:S.BootRegistered = 0
+      Invoke-Run | Should -Be 0
+      $script:S.BootRegistered | Should -Be 1
+      ($script:S.Said -join "`n") | Should -Match "registered again"
+      $script:S.Calls.Count | Should -Be $n
+      $script:S.Console.Count | Should -Be 1
+    }
+    It "is not finished while Docker or the stack would not start with the distribution" {
+      $script:S.SetupFail["boot-check"] = "not enabled to start with the distribution: trialbox.service"
+      Invoke-Run | Should -Be 1
+      $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
+      $state.finished | Should -BeFalse
+      Get-Log | Should -Match "STOP step 13/\d+ linux-install: .*trialbox\.service"
+    }
     It "does nothing on a second run of a finished install" {
       Invoke-Run | Should -Be 0
       $n = $script:S.Calls.Count
@@ -388,7 +450,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 1
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeFalse
-      Get-Log | Should -Match "STOP step 12/\d+ linux-install"
+      Get-Log | Should -Match "STOP step 13/\d+ linux-install"
     }
     It "counts an install whose host check still has FAIL lines as installed, and says so" {
       $script:S.InstallExit = 1
@@ -411,7 +473,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $log = Get-Log
       foreach ($name in @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
-          "packages", "gpu-container", "host-tree", "linux-install")) { $log | Should -Match ("step \d+/12 " + $name + ": ok") }
+          "packages", "gpu-container", "host-tree", "boot-task", "linux-install")) { $log | Should -Match ("step \d+/13 " + $name + ": ok") }
       Should -Invoke Invoke-TbNative -Times 0 -ParameterFilter { ($Arguments -join " ") -match "wsl-setup\.sh install" }
     }
   }

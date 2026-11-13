@@ -15,6 +15,7 @@ TRIALBOX-<version>/                      one folder per release, read-only on th
     box-install.ps1                      deploy/windows/box-install.ps1, the installer (NEW-WIN-1)
     box-install.messages.json            its messages in en, ja and zh-TW
     wsl-setup.sh                         its steps inside WSL2
+    register_keepalive.ps1               the start-at-boot task the installer registers (NEW-WIN-2)
     preflight.ps1, host_facts.ps1        deploy/windows/: the read-only checks (D-421)
     wsl/wsl.<version>.x64.msi            WSL itself, signed by Microsoft (the Store is not used); exactly one
     wsl/ubuntu-24.04-wsl-amd64.tar.gz    the Linux root file system, imported with `wsl --import`; exactly one

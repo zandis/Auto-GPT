@@ -218,5 +218,25 @@
     "en": "The earlier .wslconfig was kept as {0}. The new figures apply when WSL2 next starts: restart Windows at a time when no night job runs.",
     "ja": "以前の .wslconfig は {0} として残しました。新しい値は WSL2 の次回起動時から有効になります。夜間ジョブが動いていない時間に Windows を再起動してください。",
     "zh-TW": "先前的 .wslconfig 已保留為 {0}。新的數值在 WSL2 下次啟動時生效：請在沒有夜間工作執行的時間重新啟動 Windows。"
+  },
+  "boot_task": {
+    "en": "Hibernation is off, and this PC no longer goes to sleep by itself (the current power plan). The task {0} is registered to start TrialBox when Windows starts, whether or not anyone signs in.",
+    "ja": "休止状態を無効にし、この PC が自動でスリープしないようにしました（現在の電源プラン）。タスク {0} を登録しました。Windows の起動時に、サインインの有無にかかわらず TrialBox を起動するためのものです。",
+    "zh-TW": "已關閉休眠，這台電腦也不會再自動進入睡眠（目前的電源計畫）。已登錄工作 {0}，用於在 Windows 啟動時啟動 TrialBox，不論是否有人登入。"
+  },
+  "boot_task_failed": {
+    "en": "Windows could not register the start-at-boot task: {0}",
+    "ja": "Windows が起動時タスクを登録できませんでした: {0}",
+    "zh-TW": "Windows 無法登錄開機啟動工作：{0}"
+  },
+  "power_failed": {
+    "en": "Warning: Windows did not accept a power setting (powercfg {0}, exit {1}). The install goes on; if this PC sleeps or hibernates, TrialBox stops answering until it wakes.",
+    "ja": "注意: Windows が電源設定を受け付けませんでした（powercfg {0}、終了コード {1}）。インストールは続行します。この PC がスリープまたは休止状態になると、復帰するまで TrialBox は応答しません。",
+    "zh-TW": "警告：Windows 未接受電源設定（powercfg {0}，結束代碼 {1}）。安裝會繼續；若這台電腦進入睡眠或休眠，TrialBox 在喚醒前不會回應。"
+  },
+  "boot_task_restored": {
+    "en": "The start-at-boot task {0} was missing, disabled or for another system: it was registered again.",
+    "ja": "起動時タスク {0} が存在しないか、無効か、別のシステム用になっていたため、登録し直しました。",
+    "zh-TW": "開機啟動工作 {0} 不存在、已停用或指向其他系統：已重新登錄。"
   }
 }
