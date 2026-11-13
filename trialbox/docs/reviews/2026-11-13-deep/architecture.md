@@ -33,7 +33,9 @@ of one job on one runner.
    stayed in the lake and the embed input. Fixed here (AR-01).
 8. **Module boundaries keep eroding**: the orchestrator now imports the console's stores; no import-direction test
    exists (AR-04). `TB_ENV` is read by hand in 35 places with four rules (AR-02).
-9. **Tests**: see §4 (test quality).
+9. **Three safety tests could not see a defect** they exist to catch (an audit rewrite past the head anchor,
+   REDCap duplicate screening numbers, a backup hash with no order); fixed here. The mutation "safety core" leaves
+   out the modules that now decide exclusion, permission, audit and opt-out (TQ-01).
 10. **The train loses most time on the slowest shard and on "one train a day"** (§5.4), not on CI cost.
 
 ## 2. Ranked list: most quality and speed for the least work
@@ -54,6 +56,10 @@ of one job on one runner.
 | 12 | Import-direction test with an allow-list of today's edges (AR-04) | stops new reverse edges | S | C2 | proposed |
 | 13 | One `TB_ENV` reader; a test that forbids `os.environ.get("TB_ENV"` (AR-02) | removes a class of environment mix-ups | M | D, C2 | proposed |
 | 14 | Changed files only for the data scan on a draft (CI-04) | about 30 % of a draft push's minutes | S | D | owner's decision |
+| 15 | Three safety tests that could not fail on a defect (TQ-02, TQ-03, TQ-05) | an audit rewrite, a duplicate REDCap write, a row-order hash are caught | S | C2, E, D | **done here** |
+| 16 | Add decision, verdict, authz, audit, opt-out, pid map, write-back and two-phase modules to the mutation safety core (TQ-01) | the nightly mutation run covers the rules that decide | S | D | proposed |
+| 17 | Run the CQL-engine tests in `differential` with skip-means-fail (TQ-04) | three rulesets and the leap-day case proved in CI | S | B2, E | proposed |
+| 18 | Faster slow tests (TQ-09) | 10 minutes or more off the train | S | D, B2 | proposed |
 
 Size: S under half a session-day, M one to two.
 
@@ -166,7 +172,31 @@ the train's full tier is the proof, but it is a reason not to rerun a card's fas
 
 ## 6. Test quality
 
-The test-quality reviewer's results are added in the second push of this pull request.
+Method: an AST scan of `tests/` for tests that cannot fail, coverage of the safety modules, and mutation: a defect
+put by hand into a copy of the code under test, then the test file run against it. If the tests still pass, they
+cannot see that defect. The slow-test list is CI's own `--durations=30` of the six unit shards of train 8.
+
+| Id | Sev. | Finding | Evidence | Fix | Owner |
+| --- | --- | --- | --- | --- | --- |
+| TQ-02 | High | **A rewritten last audit event plus one appended event passed `verify()`.** The crash allowance (a chain one event longer than its head anchor) did not need that event to chain to the anchored one in any test: removing `and last_prev == res.head["hash"]` (`libs/tb_common/audit.py:516`) passed all 17 anchor tests. The "not canonical JSON" error (`:486`) has no test either. | Verified by mutation (reproduced by the lead). | **Fixed here** (a test; the code was right): `test_one_event_past_the_anchor_must_chain_to_the_anchored_event` fails under the mutant. A test for `:486` remains. | C2 |
+| TQ-01 | High | **The mutation and coverage "safety core" leaves out the modules that now decide exclusion, permission, audit and opt-out.** `tools/mutation.toml` lists 18 files and mutates 7; missing are `services/matching/decision.py` (T-709's one place where a verdict becomes a status), `matching/verdict.py`, `tb_common/verdict_word.py`, `tb_common/authz.py` (D-366), `tb_common/audit.py`, `tb_common/optout.py`, `adapter/pidmap.py`, `rc_bridge/writeback.py`, `orchestrator/twophase.py`. The coverage ratchet's 95 % line and 90 % branch rule applies only to the list. The mutation floor is 60 %. | Verified: `grep -c` gives 0 for each. Mutants in these modules found real survivors (TQ-02, TQ-03, TQ-05). | Add them to `[safety_core]` and as targets, after measuring their coverage (a file under its floor would turn `unit` red); then raise the floor. Not done here for that reason. | D |
+| TQ-03 | Medium | **REDCap write-back: three mutants survived all 6 tests.** Dropping the case and space normalisation of the screening number (`rc_bridge/writeback.py:77,108`) hides a duplicate, so one of two records is written; counting a row whose REDCap record was deleted as "unchanged" (`:83`) means it is never re-linked. | Verified by mutation (test-quality reviewer). | **Fixed here** (a test): `test_plan_matches_screening_numbers_whatever_their_case_and_spaces`. | E |
+| TQ-05 | Medium | **A backup assertion compared a value with itself** (`tests/unit/test_backup.py:686-688`); removing `ORDER BY` from the md5 row hash still passed. | Verified by mutation. | **Fixed here**: the md5 hash of two tables with the same rows in other orders must be equal. | D |
+| TQ-04 | Medium | **CI never runs the tests that need the local CQL engine**: they skip in every unit shard (`test_boundary_table:88`, `test_cql_eval:29,41`, `test_standards_conformance:138`, `test_derived_rest:566`). `differential` runs the boundary table, but no CI job runs `cql_eval.check` for RA-COH, RA-BIO or GZQO, or the leap-day CQL case. A skip-means-fail switch exists; only the nightly compose job uses it. | Verified from the shards' skip lines. | Run these files in `differential` (it has the engine) with the skip-means-fail switch. | B2, E |
+| TQ-06 | Medium | **The opt-out clear of the vector store never runs in CI** (`test_erasure_seed:227` skips: no pgvector on the runner), and unit tests connect as the superuser, so the opt-out worker's "permission denied for schema omop" of the 2026-11-12 nightly was invisible to them. | Verified. | Install pgvector in `tools/ci_postgres.sh`; one opt-out test that connects as the worker's own role. | B2 |
+| TQ-07 | Medium | **`decision.basis_of` is dead code; the pair or single basis rule is written three times** (`matching/decision.py:71`, `screen_cascade.py:179`, `scenarios/evaluate.py:572`). Two of them can drift. | Verified by import graph and reading. | Call `basis_of` from both engines; delete the copies. | A2 |
+| TQ-08 | Medium | **A golden can be regenerated with any reason text** (the README says a decision number is required), and the SCREEN golden reduces all patients' verdicts to counts plus one hash, so two patients swapping verdicts shows only as a changed hash. `goldens` is not a required check (CI-05). The goldens are small (24 files, about 330 KB). | Verified. | `tools.goldens` refuses a reason without `D-nnn`; the SCREEN golden keeps one line per patient (pseudonym, verdict), so a diff shows who moved. | D |
+| TQ-09 | Medium | **Slowest tests.** Shard 1 took 27 min 24 s, shard 4 12 min 12 s. `test_recall_ledger` 208 s (300 repeats through the database); three `tests/integration/test_list_demo.py` tests about 175 s each run inside the unit shards; the gcloud credentials test waits the default 30 s `GC_TIMEOUT_S`; nine `time.sleep(1.1)` in two files. | CI `--durations=30` of run 43444135883. | 300 repeats in memory, about 20 through the database; one box per module for the demo tests, or mark them `integration`; `GC_TIMEOUT_S=2` in that test; explicit timestamps instead of sleeps. With CI-03 this shortens the train by 10 minutes or more. | D, B2 |
+| TQ-10 | Low | **Flakiness.** The scale kit's restart watcher still polls a log file (its unit test passed 25 of 25 under load; the one-second window of the 200-patient test remains a likely race). 21 hard-coded `/nonexistent` paths in 10 test files (one machine has that directory). Test-order dependence has not been checked since 2026-11-10 (the random-order run was cancelled at its limit; sharded by D-560, tonight's run will show). | Verified and by reading. | Watch an event, not a log line; one helper that returns a path that cannot exist under `tmp_path`. | B2, D |
+| TQ-11 | Low | `assert … or True` at `tests/unit/test_feas_unit.py:52`; the confidence-equal-to-threshold boundary is not pinned; the pid-map alias cycle check (`pidmap.py:131`) has no test (the one surviving mutant of `merge`). | Verified. | Three small tests. | A2, C2 |
+| TQ-12 | Low | The path-independence property test depends on the PDF fonts (276 errors without `.cache/fonts`). | Verified. | Let the report step render without fonts in that test, or fail with one line naming `make fonts`. | D |
+
+**Found clean:** no test asserts only on a mock for safety behaviour; no test swallows `AssertionError`; no empty
+parametrize list; no non-strict expected failure. `decision.py` and `status_of` kill every mutant that can change a
+result; `pair.py` and `verdict.py` have 100 % branch coverage; the permission checks (D-366) and opt-out (D-147,
+D-441) killed every mutant tried. The strict known-failure lists catch stale entries (path-independence `KNOWN`;
+judge-in-loop and scale-gate `EXPECTED` are empty). Test isolation (a ruleset snapshot, one database prefix per test,
+the shard record) is sound.
 
 ## 7. What is good, and where the project carries needless weight
 
@@ -207,6 +237,7 @@ Each has a test that fails on `master` and passes here; none weakens or skips a 
 | 2, 5 | CI-02 | Image gates: a `proved` job on a push to master; `tools/ci_proved_tree.py --image-legs` also needs a passed image leg (the adversarial reviewer found that the hadolint job named `images` met the rule alone) | `tests/unit/test_ci_tiers.py`, `tests/unit/test_ci_proved_tree.py` |
 | 3 | AR-01 | Note mask falls back to the contract pattern outside DEV and TEST | `tests/unit/test_phi_guard_site_rule_fallback.py` |
 | 4 | ARCH-003 | Opt-out worker's scheduler with `SCHEDULER_JOB_DEFAULTS` | `tests/unit/test_optout_worker_misfire.py` |
+| 7 | TQ-02, TQ-03, TQ-05 | Tests only: each kills a mutant that survived the whole file | `test_audit_anchor.py`, `test_rc_writeback.py`, `test_backup.py` |
 
 The CI fixes prove themselves only on GitHub: the image-gate change at the next train's master push, the branch
 coverage at the next scheduled nightly quality run (00:47 Taipei). Lane D reads both.
