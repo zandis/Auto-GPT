@@ -259,8 +259,12 @@ def test_the_stack_does_not_start_on_an_unfinished_update(tmp_path: Path, unfini
     ran on half-migrated tables, and the rollback the runbook then asks for discards every row written since. The
     unit now refuses to start while ``deploy/updates/IN_PROGRESS.json`` exists, and stops the containers Docker's
     restart policy started on its own."""
+    from tools import update_status
+
     script = _guard_script()
     assert "%" not in script and "$" not in script  # nothing systemd would expand
+    # the marker update_status check reads; a file test, so a host without python3 still starts (no python3 on PATH)
+    assert f"@TB_ROOT@/deploy/updates/{update_status.MARKER}" in script and "python" not in script
     deploy = tmp_path / "deploy"
     (deploy / "updates").mkdir(parents=True)
     if unfinished:
@@ -270,7 +274,6 @@ def test_the_stack_does_not_start_on_an_unfinished_update(tmp_path: Path, unfini
     log = tmp_path / "docker.log"
     (bin_dir / "docker").write_text(f'#!/bin/sh\necho "$@" >> {log}\n')
     (bin_dir / "docker").chmod(0o755)
-    (bin_dir / "python3").symlink_to(sys.executable)
     run = subprocess.run(
         ["/bin/sh", "-c", script.replace("@TB_ROOT@/deploy", str(deploy))],
         cwd=ROOT,

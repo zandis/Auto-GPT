@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -236,13 +236,50 @@ def after_ingest(orch: Orchestrator, timed: bool = False, chained: bool = False)
         return []
 
 
-def _timer_ingest_since(orch: Orchestrator, since: datetime) -> bool:
-    """True when a timer's ingest (``timer=1``) was received at or after ``since``."""
-    return any(j.received_at >= since for j in orch.db.with_option("INGEST", "timer", "1"))
-
-
 #: the options of the timer's ingest: the timer's own, and the start of the night's chain (T-726)
 TIMER_INGEST = {"timer": "1", "chain": "1"}
+#: the environments whose missed ingest is caught up at start (a test stack started at night must not ingest)
+CATCH_UP_ENVIRONMENTS = ("PRODUCTION", "VALIDATION")
+
+
+def _ingest_trigger(orch: Orchestrator) -> Any:
+    from apscheduler.triggers.cron import CronTrigger
+
+    sch = getattr(orch.cfg.settings, "schedule", None) if orch.cfg.settings is not None else None
+    spec = str(getattr(sch, "ingest", None) or "02:00")
+    return CronTrigger(timezone=ZoneInfo(orch.cfg.env.tz), **cron_kwargs(spec))
+
+
+def _last_fire(orch: Orchestrator, now: datetime) -> datetime | None:
+    """The latest fire time of the timer's ingest at or before ``now``, within the misfire grace (F-14)."""
+    from tb_common.config import SCHEDULER_JOB_DEFAULTS
+
+    trigger = _ingest_trigger(orch)
+    grace = timedelta(seconds=float(SCHEDULER_JOB_DEFAULTS["misfire_grace_time"]))
+    # in UTC: an aware datetime plus a timedelta is wall-clock arithmetic, and on the night a daylight-saving clock
+    # goes back "the second 02:30 plus one second" is earlier than the second 02:30 (the loop never ended)
+    last, t = None, trigger.get_next_fire_time(None, now.astimezone(UTC) - grace)
+    while t is not None and t.astimezone(UTC) <= now.astimezone(UTC):  # same-zone comparison ignores the fold
+        last, t = t, trigger.get_next_fire_time(t, t.astimezone(UTC) + timedelta(seconds=1))
+    return last
+
+
+def _fire_key(fire: datetime) -> str:
+    """A fire time as the site's wall clock: the two 02:30s of a night a daylight-saving clock goes back are one."""
+    return fire.replace(tzinfo=None).isoformat(timespec="minutes")
+
+
+def _fired(orch: Orchestrator, fire: datetime) -> bool:
+    """True when the scheduler's own ingest for this fire time exists (an administrator's retry, which copies the
+    options, is not the timer's run). A job from before ``fire`` was recorded counts when received after it."""
+    key = _fire_key(fire)
+    for j in orch.db.with_option("INGEST", "timer", "1"):
+        if getattr(j, "requested_by", "scheduler") != "scheduler":
+            continue
+        got = (j.options or {}).get("fire")
+        if got == key or (got is None and j.received_at.astimezone(UTC) >= fire.astimezone(UTC)):
+            return True
+    return False
 
 
 def timed_ingest(
@@ -252,36 +289,33 @@ def timed_ingest(
     options: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> bool:
-    """The timer's ingest, at most once per site day (deep review 2026-11-13): on the night a daylight-saving clock
-    goes back the cron time comes twice, and a catch-up after a restart may meet a run that did happen. True when
-    submitted."""
+    """The timer's ingest, once per fire time (deep review 2026-11-13): on the night a daylight-saving clock goes
+    back the cron time comes twice, and a catch-up after a restart may meet a run that did happen. The job carries
+    its fire time (option ``fire``, the site's wall clock). True when submitted."""
     tz = ZoneInfo(orch.cfg.env.tz)
     now = (now or datetime.now(tz)).astimezone(tz)
-    midnight = datetime.combine(now.date(), time(0), tzinfo=tz)
-    if _timer_ingest_since(orch, midnight):
-        log.info("the timer's ingest of %s has run already: not again", now.date())
+    fire = _last_fire(orch, now) or now
+    if _fired(orch, fire):
+        log.info("the timer's ingest of %s has run already: not again", _fire_key(fire))
         return False
-    _submit(orch, jtype, ruleset, dict(options or TIMER_INGEST))
+    _submit(orch, jtype, ruleset, {**(options or TIMER_INGEST), "fire": _fire_key(fire)})
     return True
 
 
-def catch_up_ingest(orch: Orchestrator, spec: str, now: datetime | None = None) -> bool:
+def catch_up_ingest(orch: Orchestrator, now: datetime | None = None) -> bool:
     """F-14 (D-130), made true at start: the scheduler's job store is in memory, so a restarted process does not
-    know a fire time it missed while it was down. When the ingest's time (``spec``, as ``settings.schedule``)
-    passed within the misfire grace and no timer's ingest was received since, it is submitted now. True when
+    know a fire time it missed while it was down. On a PRODUCTION or VALIDATION box, when the ingest's time passed
+    within the misfire grace and the scheduler's ingest for it does not exist, it is submitted now. True when
     submitted. Never raises: the scheduler starts without it."""
-    from apscheduler.triggers.cron import CronTrigger
-    from tb_common.config import SCHEDULER_JOB_DEFAULTS
+    from tb_common.config import environment_name
 
     try:
+        if environment_name(getattr(orch.cfg.env, "extra", None) or {}) not in CATCH_UP_ENVIRONMENTS:
+            return False
         tz = ZoneInfo(orch.cfg.env.tz)
         now = (now or datetime.now(tz)).astimezone(tz)
-        trigger = CronTrigger(timezone=tz, **cron_kwargs(spec))
-        grace = timedelta(seconds=float(SCHEDULER_JOB_DEFAULTS["misfire_grace_time"]))
-        missed, t = None, trigger.get_next_fire_time(None, now - grace)
-        while t is not None and t <= now:
-            missed, t = t, trigger.get_next_fire_time(t, t + timedelta(seconds=1))
-        if missed is None or _timer_ingest_since(orch, missed):
+        missed = _last_fire(orch, now)
+        if missed is None or _fired(orch, missed):
             return False
         log.warning("the timer's ingest of %s was missed while the box was down: running it now", missed)
         return timed_ingest(orch, now=now)
@@ -396,8 +430,7 @@ def start(orch: Orchestrator) -> Any:
             sched.add_job(cohort, "cron", id="cohort", **kw)
         else:  # D-397: the timer's ingest; the night's chain follows it
             sched.add_job(timed_ingest, "cron", id="ingest", args=[orch, "INGEST", None, dict(TIMER_INGEST)], **kw)
-            ingest_at = str(getattr(orch.cfg.settings.schedule, "ingest", None) or "02:00")
-            catch_up_ingest(orch, ingest_at)
+            catch_up_ingest(orch)
     from orchestrator import night
 
     def go_on(_job: Any = None) -> None:

@@ -29,7 +29,7 @@ Ten things matter most. Five are fixed on this branch, each with a test that fai
 | # | Finding | Severity | State |
 | --- | --- | --- | --- |
 | 1 | A power cut during an update booted the half-applied release; the later rollback discards every row written since boot | High | **Fixed** (OPS13-01) |
-| 2 | A same-date lake rebuild skips the drop check, and nothing on the night path is fsynced: a table emptied by a power cut can be served, so an exclusion diagnosis can go missing | High (Critical if it happens: a wrong inclusion) | Open, lane B2 (OPS13-10) |
+| 2 | One request the model server always answers with an error is resent every few seconds until the job's whole outage allowance is spent; then the whole job stops and every other patient of the night is left unscreened | High | Open, lane A2 (OPS13-20) |
 | 3 | The gateway let 16 calls through per endpoint on every form: 4 times the rtx5090 server's sequences, twice the GB10's | High | **Fixed** (OPS13-02) |
 | 4 | Model-guard keeps a request running on vLLM for up to 900 s after the gateway gave up at 180 s, so vLLM holds more requests than the gateway's slots | High | Open, lane D (OPS13-11) |
 | 5 | A timer's ingest missed while the box was down never ran, though F-14 / D-130 say it does | Medium | **Fixed** (OPS13-03) |
@@ -38,6 +38,8 @@ Ten things matter most. Five are fixed on this branch, each with a test that fai
 | 8 | The 2,000-patient night budget is not derived, and it starves excluded patients more than capacity does | Medium | Open, owner's decision (OPS13-14) |
 | 9 | A crash-looping service is never acted on or reported; the watchdog's "gave up" is in the audit only | Medium | Open, lane D (OPS13-15) |
 | 10 | The nightly end-to-end workflow is red on every scheduled run and tells nobody; its update and backup drills pass with their real cases skipped | Medium | Open, lane D (OPS13-16) |
+
+Also open and worth a card: a same-date lake rebuild skips the drop check and nothing on the night path is fsynced (OPS13-10, Medium).
 
 Also fixed: the second model server's logs were filed as TrialBox's own scrubbed logs (OPS13-06); a half-open probe that raised an unexpected error shut its endpoint until a restart (OPS13-07); a job's outputs were not on disk when the job said done (OPS13-08).
 
@@ -49,9 +51,9 @@ Each fix has a test that fails on master and passes here.
 
 | Id | Defect | Root cause | Fix | Test |
 | --- | --- | --- | --- | --- |
-| OPS13-01 | After a power cut during an update, `trialbox.service` started the half-applied release (`deploy/systemd/trialbox.service:15`); Docker's `restart: unless-stopped` started recreated containers too. The night ran on half-migrated tables; the runbook's rollback then restores the pre-update dumps and discards every row written since. | `update_status check` was documented as the start guard (D-210; runbook §5 line 55) and called by nothing | `ExecStartPre` runs `update_status check`; on exit 3 it stops the project's containers and the unit fails. Runbook §5 says so | `tests/unit/test_systemd_units.py::test_the_stack_does_not_start_on_an_unfinished_update` |
+| OPS13-01 | After a power cut during an update, `trialbox.service` started the half-applied release (`deploy/systemd/trialbox.service:15`); Docker's `restart: unless-stopped` started recreated containers too. The night ran on half-migrated tables; the runbook's rollback then restores the pre-update dumps and discards every row written since. | `update_status check` was documented as the start guard (D-210; runbook §5 line 55) and called by nothing | `ExecStartPre` tests for the marker `update_status check` reads (a file test: a host without `python3` still starts); when it exists it stops the project's containers and the unit fails. Runbook §5 says so | `tests/unit/test_systemd_units.py::test_the_stack_does_not_start_on_an_unfinished_update` |
 | OPS13-02 | The gateway's slots per endpoint were 16 on every form. The rtx5090 servers run 4 sequences, GB10 8, the base form 64 | `load.py:183-184` reads `TB_SERVING_RECORD`, else `TB_GATEWAY_SLOTS`, else 16; no compose file passed either | Each GPU overlay sets `TB_GATEWAY_SLOTS` to the judge server's `--max-num-seqs` expression | `tests/unit/test_gateway_slots_follow_the_server.py` |
-| OPS13-03 | A timer's ingest missed while the orchestrator was down (a reboot across 02:00) never ran: no ingest, no chain, that night. On the fall-back night of a daylight-saving zone the timer fired twice | The job store is in memory: `misfire_grace_time` (`config.py:305`) covers a delay inside a live process only. The ingest job had no once-a-day rule | `scheduler.catch_up_ingest` at start runs an ingest whose time passed within the grace when no timer's ingest was received since; `timed_ingest` runs at most once per site day | `tests/unit/test_scheduler_missed_ingest.py` (3 tests) |
+| OPS13-03 | A timer's ingest missed while the orchestrator was down (a reboot across 02:00) never ran: no ingest, no chain, that night. On the fall-back night of a daylight-saving zone the timer fired twice | The job store is in memory: `misfire_grace_time` (`config.py:305`) covers a delay inside a live process only. The ingest job had no once-a-day rule | `scheduler.catch_up_ingest` at start, on a PRODUCTION or VALIDATION box only, runs an ingest whose time passed within the grace when the scheduler's ingest for that fire time does not exist; `timed_ingest` runs once per fire time, recorded on the job as the site's wall clock (option `fire`), so the two 02:30s of a fall-back night are one. An administrator's retry, which copies the options, does not count as the timer's run | `tests/unit/test_scheduler_missed_ingest.py` (6 tests) |
 | OPS13-04 | The canary gate stayed open on a pass stamped while the clock ran ahead: its age read negative, so a note answer could exclude past `TB_CANARY_MAX_AGE_H` | `age = (time.time() - at) / 3600` (`canary_gate.py:115`) with no lower bound | A pass dated later than now (beyond the stamp's 0.1 s rounding) is `stale`: the gate closes, a note answer goes to review | `tests/unit/test_canary_gate.py::test_a_canary_stamped_in_the_future_does_not_hold_the_gate_open` |
 | OPS13-05 | The night chain picked "the newest night" by the job's wall-clock `received_at`; one ingest received while the clock ran ahead stayed newest after the clock was put right: no micro-batch, NAV or retention, and no message | `JobDB.chained_ingest` ordered by `received_at` (`db.py:363-367`) | Order by the job store's `seq`; page back by job id | `tests/unit/test_night_order_not_clock.py` (2 tests, PostgreSQL) |
 | OPS13-06 | The second model server (`llm-verifier`) and the rtx5090 swap helpers run the vLLM image, but their logs went into `services/`, the tree the support bundle copies. OPS-035 had come back in part | `THIRD_PARTY` in `tools/trialbox/logs.py:70` was a hand list | The set names every service on an image TrialBox does not build; the test reads the compose files, so a new one fails CI | `tests/unit/test_logs_third_party.py::test_every_service_on_an_image_trialbox_does_not_build_is_collected_apart` |
@@ -64,13 +66,15 @@ What the fixes change for patients and the night (called out for the integrator)
 - OPS13-03 can start one ingest at start-up that did not start before. It runs only within the declared misfire grace and only when no timer's ingest of that night exists.
 - OPS13-05 changes which ingest is "the night" only when the clock and the store's order disagree.
 
+The adversarial review (a fresh reviewer, read the diff and ran the tests and its own scripts) passed fixes 01, 02, 04 to 08. It broke the first form of OPS13-03 in two cases, both fixed before the second push: a dedupe counted from site midnight let a late ingest time (23:30) caught up after midnight take the next night's run, and an administrator's retry before 02:00 blocked that night's timer; it also showed that a test stack started at night would ingest at start. Testing the reworked rule found a third: the first form's search for the last fire time added a second to an aware time, which Python does on the wall clock, so on a fall-back night the loop never ended (it would have hung the scheduler's thread); the search now runs in UTC. It asked for the guard of OPS13-01 not to need `python3`. Left as findings: on shared-quota the verifier's sequences are set apart from the judge's, so `TB_GATEWAY_SLOTS` (one number) can exceed the verifier's (OPS13-29); with the slots now equal to the screening's calls in flight (4 and 4 on rtx5090), an interactive call during a micro-batch hears `model_busy` after 0.5 s instead of queueing inside vLLM, which is D-445's intent but a change people will notice; a canary run at start before the time service corrected a fast clock closes the gate for about a day (availability, not safety), and the health mail shows `stale` as "too long ago"; an update marker left at step `finished` (only the clean-up was cut) also keeps the box down until `rollback` (OPS13-30).
+
 ## 4. Open findings
 
 Severity: Critical is a wrong exclusion or inclusion of a patient, data loss, a secret or patient data exposed, or who may act broken. "Locked" means an open pull request touches the file, so this branch did not edit it.
 
 ### 4.1 Power loss, disk, database
 
-**OPS13-10. A same-date lake rebuild is served unchecked; the night's files are not fsynced.** High (Critical when it happens: a wrong inclusion). Lane B2.
+**OPS13-10. A same-date lake rebuild is served unchecked; the night's files are not fsynced.** Medium (a wrong inclusion when it happens; the adversarial review lowered it from High: it needs a same-date rebuild over an NDJSON folder a power cut damaged, and ext4's `auto_da_alloc` covers a file renamed over an old one). Lane B2.
 
 - Symptom: `Lake._check_drop` returns at once when the rebuilt snapshot is the current one (`services/lake/store.py:977-978`), which is the site publish's rebuild (`services/sitesetup/service.py:463`). The adapter and the lake fsync none of the night's NDJSON, `publish.json` or `passed.json`. A type file emptied by a power cut is then served, delta nights merge onto it, and the drop guard compares against it.
 - Evidence: confirmed by running a test that builds a lake, empties `condition` and rebuilds the same date: before `{'patient': 10, 'condition': 10}`, after `{'patient': 10, 'condition': 0}`, served with no error. That ext4 leaves a zero-length file after a cut is inferred.
@@ -104,9 +108,9 @@ What holds (do not change): a failed or timed-out model call becomes `unknown`, 
 - Evidence: confirmed by running that the guard's upstream socket stays open 3 s after the client left; vLLM's abort-on-disconnect is inferred.
 - Fix: set the guard's timeout from `TB_GATEWAY_UPSTREAM_READ_S` plus a margin in compose; close the upstream when the downstream socket closes.
 
-**OPS13-20. One request the server always fails is resent for the whole outage allowance.** Medium. Lane A2 (`libs/tb_llm`).
+**OPS13-20. One request the server always fails is resent for the whole outage allowance, then the whole job stops.** High (raised by the adversarial review). Lane A2 (`libs/tb_llm`).
 
-- Every 5xx after the gateway's own retry is `upstream_down`; `wait_and_retry` resends it with no per-call cap (`libs/tb_llm/outage.py:141-160`). A simulation: 361 sends, 722 model calls in 1,800 s for one request, then `OutageExhausted`: the job stops saying the model did not answer.
+- Every 5xx after the gateway's own retry is `upstream_down`, a model fault (`libs/tb_llm/outage.py:28`); `wait_and_retry` resends it with no per-call cap (`:141-160`); while it waits, `_once` gives the job's breaker back instead of counting a failure (`services/orchestrator/jobs.py:553`). A simulation: 361 sends, 722 model calls in 1,800 s for one request, then `OutageExhausted`: the whole job stops with `ModelOutage` (`jobs.py:512`), saying the model did not answer, and every other patient of that night is left unscreened. Each resend also adds two gateway breaker failures; when the other calls drain, the endpoint opens for interactive users too.
 - Fix: a per-call resend cap (a declared setting), then that pair is `unknown` (`upstream_failed`).
 
 **OPS13-21. The rtx5090 swap puts a model to sleep with calls to it in flight.** Medium, by reading. Lane D.
@@ -117,6 +121,8 @@ What holds (do not change): a failed or timed-out model call becomes `unknown`, 
 Low: `failure()` while open moves `opened_at` forward and a stale `cancel()` lets a second half-open probe out (`services/gateway/load.py:99-118`; confirmed by running); a `ConnectTimeout` ends as final `upstream_failed` though nothing was sent (`core.py:790-798`), while `timeouts.dropped()` calls it safe to resend; the retry delay has no jitter; 429 and 408 reset the failure count (`core.py:819`); nothing checks that the caller's timeout (240 s) exceeds the call budget (210 s) and the read limit (180 s); a body with `NaN` is accepted and ends as HTTP 500 with no audit record (LLM-5). `TB_GATEWAY_SLOTS` is one number for both endpoints: right while both servers default to the same sequences (the new test holds that); a per-endpoint value needs a declared setting.
 
 Known and still open, not repeated: F-13 / PERF-013 (T-698), a batch call's slot wait comes out of its call budget and its read timeout counts as a breaker failure.
+
+**OPS13-29. One slot number for two servers.** Low. Lane D. `TB_GATEWAY_SLOTS` applies to every endpoint; on shared-quota `JUDGE_MAX_SEQS` and `VERIFIER_MAX_SEQS` are both required and may differ, so a verifier with fewer sequences gets the judge's count. Fix: per-endpoint slots (a declared setting, D-TBD), or the serving record mounted and `TB_SERVING_RECORD` set, as D-445 describes.
 
 ### 4.3 The night, its scheduler and capacity
 
@@ -184,6 +190,8 @@ Only the box form sizes caps from RAM (`tools/box/plan.py:314`); `install.sh` si
 
 - `services/console/firstrun.py:211-223` creates the owner accounts, then writes the answers (with the key passphrase) to tmpfs `/run/trialbox-firstrun`. A reboot, `wsl --shutdown` or a Windows restart clears `/run`; the first-run pages answer 404 because accounts exist; `trialbox-firstrun.service` waits forever (`box-install.sh:143`). No runbook covers it.
 - Fix: detect "accounts exist, no answers" and stop with a recovery instruction.
+
+**OPS13-30. An update marker at step `finished` keeps the box down.** Low. Lane D. `update.py:823` writes step `finished` before the clean-up; a cut there leaves the marker, and the new start guard (OPS13-01) keeps the stack down until `rollback`, which would undo a completed update. Fix: `status` says a marker at `finished` needs only `clean`, and the guard lets that step through (`update_status check` and the unit's file test then differ: one rule in one place).
 
 **OPS13-28. The rtx4090 verifier at boot** (the frozen finding, `box-install.sh:176`, `update.py:1365`) has a third place: `deploy/systemd/trialbox.service`'s `up -d` starts it on every reboot. Even with `--scale llm-verifier=0`, `model-swap-init` depends on a healthy verifier and `judge-wake-init` on it (`docker-compose.rtx5090.yml:151`, `:164`): the judge may never wake (inferred). Better: an rtx4090 overlay without the verifier and the swap helpers.
 
