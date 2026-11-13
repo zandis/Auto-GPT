@@ -78,20 +78,27 @@ def _git(*args: str) -> str | None:
 
 def tree_changes(root: Path | None = None) -> list[str]:
     """What makes the checkout of ``root`` differ from its commit (D-631): every changed, staged or untracked (not
-    ignored) file of the project folder, as ``git status --porcelain`` names it. Empty: the tree is its commit. A
-    folder that is no checkout is not a commit either. ``tools/make_bundle.sh`` asks git the same question and
+    ignored) file of the project folder, as ``git status --porcelain`` names it, and every file git was told not to
+    look at (``assume-unchanged``, ``skip-worktree``: ``git status`` is silent on those). Empty: the tree is its
+    commit. A folder that is no checkout is not a commit either. ``tools/make_bundle.sh`` asks git the same and
     refuses to build; the host tree is packed from the files on disk, untracked ones included."""
     root = root or ROOT
+    git = ["git", "-C", str(root), "-c", "core.quotePath=false"]
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all", "--", "."],
-            capture_output=True, text=True, check=False,
-        )  # fmt: skip
+        st = subprocess.run([*git, "status", "--porcelain", "--untracked-files=all", "--", "."],
+                            capture_output=True, text=True, check=False)  # fmt: skip
+        hid = subprocess.run([*git, "ls-files", "-v", "--", "."], capture_output=True, text=True, check=False)
     except OSError:
-        proc = None
-    if proc is None or proc.returncode != 0:
         return ["not a git checkout: a release is built from a commit"]
-    return [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    if st.returncode != 0 or hid.returncode != 0:
+        return ["not a git checkout: a release is built from a commit"]
+    out = [ln for ln in st.stdout.splitlines() if ln.strip()]
+    out += [
+        f"{ln}   (hidden from git: assume-unchanged or skip-worktree)"
+        for ln in hid.stdout.splitlines()
+        if re.match(r"([a-z]|S) ", ln)
+    ]
+    return out
 
 
 def source(v: str) -> dict[str, Any]:

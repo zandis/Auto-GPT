@@ -120,3 +120,61 @@ def test_the_release_record_counts_an_untracked_file_as_dirty(repo: Path, monkey
     assert release.source("1.0.0")["dirty"] is False
     (repo / "tools" / "left_here.py").write_text("x = 1\n", encoding="utf-8")
     assert release.source("1.0.0")["dirty"] is True
+
+
+# ---------------------------------------------------------------------------------------------- from the review
+@pytest.mark.parametrize("flag", ["--skip-worktree", "--assume-unchanged"])
+def test_review_a_file_git_was_told_not_to_look_at_is_a_change(repo: Path, tmp_path: Path, flag: str) -> None:
+    """`git status` prints nothing for such a file, and the host tree packs it from disk as it stands."""
+    (repo / "pyproject.toml").write_text('[project]\nname = "trialbox"\nversion = "6.6.6"\n', encoding="utf-8")
+    _git(repo, "update-index", flag, "pyproject.toml")
+    said = "\n".join(release.tree_changes(repo))
+    assert "pyproject.toml" in said and "hidden from git" in said
+    res = _bundle(repo, tmp_path)
+    assert res.returncode == 2 and "pyproject.toml" in res.stderr and "differs from its commit" in res.stderr
+
+
+def test_review_a_long_list_still_ends_in_the_refusal(repo: Path, tmp_path: Path) -> None:
+    """`printf | head` under pipefail died of SIGPIPE (141) before the refusal's own exit."""
+    for i in range(6000):
+        (repo / "tools" / f"left_{i:04d}_{'x' * 40}.py").write_text("", encoding="utf-8")
+    res = _bundle(repo, tmp_path)
+    assert res.returncode == 2, res.returncode
+    assert "... and 5980 more" in res.stderr
+    forced = _bundle(repo, tmp_path, "--allow-dirty", "a rehearsal")
+    assert forced.returncode != 141 and "NOT a release" in forced.stderr
+
+
+def test_review_allow_dirty_needs_its_reason_and_a_flag_is_not_one(repo: Path, tmp_path: Path) -> None:
+    last = _bundle(repo, tmp_path, "--allow-dirty")
+    assert last.returncode == 2 and "reason" in last.stderr
+    flag = _bundle(repo, tmp_path, "--allow-dirty", "--no-third-party")
+    assert flag.returncode == 2 and "reason" in flag.stderr
+
+
+def test_review_names_are_printed_as_they_are_and_gits_own_error_is_kept(repo: Path, tmp_path: Path) -> None:
+    (repo / "tools" / "übrig.py").write_text("", encoding="utf-8")
+    res = _bundle(repo, tmp_path)
+    assert "übrig.py" in res.stderr
+    bare = tmp_path / "bare" / "trialbox"
+    shutil.copytree(repo, bare, ignore=shutil.ignore_patterns(".git"))
+    res = subprocess.run(
+        ["bash", str(bare / "tools" / "make_bundle.sh"), "--key", str(tmp_path / "key"), "--id", "x", "--release-seq", "1",
+         "--out", str(tmp_path / "o.tar"), "--gates", str(tmp_path / "gates.json"), "--sbom-dir", str(tmp_path / "sbom")],
+        capture_output=True, text=True, timeout=60, check=False, env={**os.environ, "GIT_CEILING_DIRECTORIES": str(tmp_path)},
+    )  # fmt: skip
+    assert res.returncode == 2 and "not a git" in res.stderr.lower()
+
+
+def test_review_the_tree_is_looked_at_again_after_the_host_tree_is_packed() -> None:
+    """Exporting the images takes minutes: a file changed meanwhile would be packed after a check that passed."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    pack = text.index("-m tools.host_tree pack")
+    assert text.index("tree_changes", pack) > pack
+    assert text[pack:].index("changed while the bundle was built") > 0
+
+
+def test_review_the_record_says_what_the_check_cannot_cover() -> None:
+    rec = next((ROOT / "docs" / "decisions").glob("D-631-*.md")).read_text(encoding="utf-8")
+    for word in ("--models", "--rulesets", "--refdata", "images", "skip-worktree"):
+        assert word in rec, word

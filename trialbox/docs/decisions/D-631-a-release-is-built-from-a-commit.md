@@ -22,6 +22,14 @@ bundle whose record named a commit that does not hold it.
 2. `--allow-dirty "<reason>"` builds all the same, for a rehearsal or a test: the reason is printed, and
    `release.json` says `dirty: true`. The box rehearsal passes it. A release for a site is built without it.
 3. `release.json`'s `dirty` now counts untracked files too, so the record agrees with what was packed.
+4. A file git was told not to look at (`git update-index --assume-unchanged` or `--skip-worktree`) counts as a
+   change: `git status` is silent on it, and the pack reads it from disk.
+5. The tree is looked at twice: before anything is exported, and again when the host tree has been packed
+   (exporting the images takes minutes). A change in between stops the build before anything is signed.
+
+**What the check cannot cover.** The folders and files given by `--models`, `--rulesets` and `--refdata` are
+outside the commit by nature; the weights have their pins. The images were built earlier, from whatever tree
+their build ran in; the gate record holds them by image id, not by commit.
 
 ## Consequences
 
