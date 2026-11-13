@@ -31,6 +31,11 @@ LISTED: dict[str, tuple[int, str]] = {
         "adapter: _other_generation(exc) reads the lake's refusal by its words ('built again since') to try a "
         "promotion again; theirs",
     ),
+    "services/adapter/validate/validator.py": (
+        2,
+        "adapter (D-669): the first line of a validation error is shown only when it is pydantic's count line "
+        "('1 validation error for Patient'), else the error's type; a choice of what to show, theirs",
+    ),
     "services/console/entry_pages.py": (
         1,
         "console: err_of(exc) builds the page's error from the EDC error's typed fields; no decision",
@@ -49,8 +54,9 @@ LISTED: dict[str, tuple[int, str]] = {
         "orchestrator: 'classic' in the EDC adapter's own error message (a REDCap project without arms)",
     ),
     "services/sitesetup/service.py": (
-        2,
-        "site set-up: the lake's refusal of a rebuild by its type, its 409 and header, then the answer's words",
+        3,
+        "site set-up: the lake's refusal of a rebuild by its type, its 409 and header, then the answer's words "
+        "(2); lake_down(exc) reads the error's type and status, no text (1)",
     ),
 }
 
