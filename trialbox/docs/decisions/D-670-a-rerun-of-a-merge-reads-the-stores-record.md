@@ -3,7 +3,7 @@
 - **Task:** NEW-B-29 (the owner's ask that D-666's stated cost be remedied for good; lane A2 built the record,
   D-648; placed by the integrator on 2026-11-13)
 - **PR:** this branch (`agent/NEW-B-29-rerun-reads-the-merges-store-record`), cut from lane A2's #508
-  (`979f89d5`), which is stacked on #489
+  (`979f89d5`), with lane A2's fix #522 (`cef44179`) and master after trains 10 and 11 merged in
 - **Date:** 2026-11-13
 - **Status:** accepted
 - **Builds on:** D-648 (the alliance store records each table it stores, and each merge's read, in the
@@ -45,18 +45,17 @@ stopped at an unrecorded point still makes its re-run "cannot". No such job exis
 that reads after the update is re-run from the record, whatever happened to the merges before it: D-666's cost 1
 no longer grows.
 
-From the record itself (D-648's, in `scenarios/cohort.py`, lane A2's; found by this card's review by running, and
-sent to the integrator, not changed here):
+From the record itself (D-648, `scenarios/cohort.py`, lane A2's):
 
-- **Unsure is asked per site, not per table.** Another job that stored a table of the same site for *another*
-  quarter between this merge's store and its read makes the re-run "cannot", although the re-run's own store
-  replaces only the merge's own (site, disease, quarter, definition) groups. On this card's base the same re-run
-  was identical. Needs two jobs storing the same site's tables at the same time.
-- **A merge that ended `done` through a race in its own check** (`merge_refusal` runs outside the store's lock:
-  another sender stored the site between the check and the store) is re-run as `rerun failed: No valid alliance
-  table ...`: the replay stores the other sender's table first, and the re-run's check then refuses. The first
-  run's acceptance was the race; the re-run is the one that follows the rule.
+- **Unsure**: between this merge's store of a table and its read, another job stored the **same table** (site,
+  disease, quarter, definition). Two merges at once on the same table.
 - **A record that was changed** (`RecordChanged`).
+
+Two more were found by this card's review by running, on its first base, and are closed by lane A2's #522, which
+this branch now sits on: the record asked "unsure" per site, so another job's table of the site's other quarter
+stopped the re-run (now asked per table; an end-to-end test here); and a merge's sender check ran outside the
+store's lock, so two senders could both store a site and the merge's re-run then failed (the check is now inside
+the store's transaction).
 
 ## Tests
 

@@ -242,3 +242,26 @@ def test_an_error_nobody_expected_leaves_no_scratch_schema_and_no_work_folder(
     with pytest.raises(KeyError):
         rr.rerun(b.orch, job_id)
     assert _scratch_schemas(b) == before and _work_dirs() == dirs_before
+
+
+def test_another_jobs_table_of_the_same_site_for_another_quarter_does_not_stop_the_rerun(
+    box: Callable[[], _Box],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Found by this card's review on its first base: the record asked "the same site?", and a table of the site's
+    OTHER quarter, stored by another job before this merge read, made the re-run "cannot". The record now asks per
+    table (lane A2's #522); through ``rerun()`` the merge gives its first run's bytes."""
+    b = box()
+    job_id = b.merge([_table("HOSP-B", n=12, quarter="2026Q3")])
+    real = b.db.cohort_read
+
+    def another_store_first(*a: Any, **kw: Any) -> Any:
+        b.db.cohort_store(_table("HOSP-B", n=99, quarter="2026Q1"), "J-OTHER", SENDER)
+        return real(*a, **kw)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(b.db, "cohort_read", another_store_first)
+        b.orch.run(job_id)
+    assert b.db.get(job_id).state == "done"  # type: ignore[union-attr]
+    got = rr.rerun(b.orch, job_id)
+    assert got.error is None and got.identical, got
