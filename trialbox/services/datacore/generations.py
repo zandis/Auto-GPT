@@ -9,6 +9,8 @@ data.
 * :meth:`Built.finish` marks it finished only while the row still names that generation, with what the build made
   (``ref``: the derive batch's run id), so a reader takes that and no other.
 * :meth:`Built.readable` is the one answer to "may a job pinned to generation G read this artefact".
+* :meth:`Built.kept` (NEW-B-4, D-525) answers for a generation the artefact is no longer built from, where the
+  artefact's store keeps its history (``derived``): what that generation's finished build made.
 * :func:`guarded` wraps a builder: begin, run, finish; a refused build does not run. **Builds of one artefact are
   serial from begin to finish** (:meth:`Built.building`, a session lock in the database): an older build that is
   still writing when a newer one arrives ends first, and the newer one then builds over it; the same generation
@@ -35,6 +37,12 @@ log = logging.getLogger("datacore.generations")
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+#: The artefacts whose store keeps its history, so a finished generation can still be read after a newer one is
+#: built (D-525). The derived rows are read "as of" a batch. The twins, the vectors and the FHIR store hold one
+#: state: an older generation of those is gone when a newer one is built.
+KEPT = ("derived",)
 
 
 class Overtaken(RuntimeError):
@@ -121,12 +129,36 @@ class Built:
         that build's own finish counts)."""
         self._check(artefact)
         gen = generation if isinstance(generation, Generation) else Generation.parse(generation)
+        at = _now()
         with self._db.transaction() as tx:
             n = tx.execute(
                 "UPDATE built SET state = ?, finished_at = ?, ref = ? WHERE artefact = ? AND snapshot = ? AND seq = ?",
-                (FINISHED, _now(), ref, artefact, gen.snapshot, gen.seq),
+                (FINISHED, at, ref, artefact, gen.snapshot, gen.seq),
             )
+            if n and artefact in KEPT and ref:
+                # D-525: with the same step, so "finished" and "may still be read later" are never one without
+                # the other; the same generation built again: its newest finished build is the one kept
+                tx.execute(
+                    "INSERT INTO built_kept (artefact, snapshot, seq, finished_at, ref) VALUES (?,?,?,?,?) "
+                    "ON CONFLICT (artefact, snapshot, seq) DO UPDATE SET finished_at = excluded.finished_at, "
+                    "ref = excluded.ref",
+                    (artefact, gen.snapshot, gen.seq, at, ref),
+                )
         return bool(n)
+
+    def kept(self, artefact: str, generation: Generation | str) -> str | None:
+        """What the newest finished build of ``artefact`` from exactly ``generation`` made (its ``ref``), or None
+        when there is none or the artefact keeps no history (D-525). It answers for a generation the artefact is
+        no longer built from: a job pinned to yesterday's night reads yesterday's batch."""
+        self._check(artefact)
+        if artefact not in KEPT:
+            return None
+        gen = generation if isinstance(generation, Generation) else Generation.parse(generation)
+        row = self._db.fetchone(
+            "SELECT ref FROM built_kept WHERE artefact = ? AND snapshot = ? AND seq = ?",
+            (artefact, gen.snapshot, gen.seq),
+        )
+        return str(row[0]) if row else None
 
     def readable(self, artefact: str, pinned: Generation | str) -> Verdict:
         """May a job pinned to ``pinned`` read ``artefact``? Only when it is finished and built from exactly that

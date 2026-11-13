@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-220 entries: 85 erase, 27 keep, 108 no patient data. 59 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+221 entries: 85 erase, 27 keep, 109 no patient data. 59 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -135,6 +135,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `dataops.batch` | ingest batches and their steps: counts |
 | `dataops.batch_step` | ingest batches and their steps: counts |
 | `dataops.built` | which generation each derived artefact is built from: names, states and times (D-491) |
+| `dataops.built_kept` | the finished generations of the derived rows and their batch ids: no patient (D-525) |
 | `derived.definition` | score definitions |
 | `edc.item_map` | settings and configuration, no patient |
 | `edc.map_event` | settings and configuration, no patient |
