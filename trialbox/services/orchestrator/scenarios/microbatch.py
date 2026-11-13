@@ -100,6 +100,7 @@ from orchestrator.scenarios.screen import (
     screen_scope,
     small_cell,
     threshold,
+    values_not_read,
 )
 from orchestrator.scheduler import require_open
 
@@ -634,7 +635,10 @@ def run(ctx: Ctx) -> Outcome:
         run_date=run_date,
         scope=ScreenRunScope(departments=[], window_days=window, n_scoped=used + len(screened)),
         rows=listed,
-        summary=TierSummary(**{k: sum(1 for r in everyone if r.tier == k) for k in ("high", "review", "excluded")}),
+        summary=TierSummary(
+            **{k: sum(1 for r in everyone if r.tier == k) for k in ("high", "review", "excluded")},
+            coded_values_not_read=values_not_read(everyone),  # D-653: carried rows keep it, rows read again lose it
+        ),
         judging=Judging(**judging) if judging else None,
     )
     body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")

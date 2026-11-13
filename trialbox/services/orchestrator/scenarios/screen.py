@@ -724,9 +724,15 @@ def candidate_list(run: ScreenRun) -> CandidateList:
             n_scoped=len(run.scoped),
         ),
         rows=listed,
-        summary=TierSummary(**tiers),
+        summary=TierSummary(**tiers, coded_values_not_read=values_not_read(run.rows)),
         judging=Judging(**run.judging) if run.judging else None,
     )
+
+
+def values_not_read(rows: list[CandidateRow]) -> int | None:
+    """How many rows of a run say the values behind their coded answers were not read (D-653); None for none, so a
+    run that read everything writes its summary as before."""
+    return sum(1 for r in rows if r.coded_values == "not read") or None
 
 
 def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str] | None:
