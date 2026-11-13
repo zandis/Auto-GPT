@@ -36,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -154,30 +155,58 @@ class Stalled(RuntimeError):
     """A part of the gate made no progress for the stall limit (D-674): the gate ends here, with its report."""
 
 
-#: the samplers of the gate's live processes: progress anywhere among them is progress of the gate (a part that
-#: waits for the lake service is not stalled while the lake works)
+#: D-674: when is a process "working"? An idle server is never at zero: a web server that waits for requests
+#: uses a clock tick every few seconds (measured on the lake's kind of server: 21 ticks in 90 s, under 0.3 % of
+#: one processor), and so would hide a dead part beside it for ever. A part that works uses a whole processor or
+#: several. The line between them: a twentieth of one processor, taken over ten seconds so that one sample's
+#: jitter does not decide. Not limits of the product: the definition of "progress" in this gate.
+IDLE_SHARE = 0.05
+RATE_WINDOW_S = 10.0
+_TICKS_PER_S = os.sysconf("SC_CLK_TCK")
+
+#: the samplers of the gate's live processes: work anywhere among them is progress of the gate (a part that waits
+#: for the lake service is not stalled while the lake works)
 _LIVE: set[TreeSampler] = set()
 
 
+class Watch:
+    """What a waiting loop watches of the thing it waits for (a count of calls, a state): a change is progress."""
+
+    def __init__(self) -> None:
+        self._value: object = object()
+        self._changed = time.monotonic()
+        self.last = ""
+
+    def seen(self, value: object) -> None:
+        if value != self._value:
+            self._value, self._changed = value, time.monotonic()
+        self.last = repr(value)[:200]
+
+    def quiet_s(self) -> float:
+        return time.monotonic() - self._changed
+
+
 def quiet() -> tuple[float, str]:
-    """How long none of the gate's live processes has used processor time or written to its log, and what each
-    was last seen at. ``(0, "")`` when there is none."""
+    """How long none of the gate's live processes has worked (used more than an idle server's share of a
+    processor) or written to its log, and what each was last seen at. ``(0, "")`` when there is none."""
     live = [t for t in list(_LIVE) if t.is_alive()]
     if not live:
         return 0.0, ""
     return min(t.quiet_s() for t in live), "; ".join(t.seen() for t in live)
 
 
-def stall_check(part: str, stall_s: float, watched: str = "") -> None:
-    """Raise :class:`Stalled` when the gate's processes have been quiet for ``stall_s`` (0: never). ``watched``:
-    what the waiting loop last saw of the thing it waits for."""
+def stall_check(part: str, stall_s: float, watch: Watch | None = None) -> None:
+    """Raise :class:`Stalled` when for ``stall_s`` (0: never) none of the gate's processes has worked or written
+    its log, and what the waiting loop watches (``watch``) has not changed either."""
     if stall_s <= 0:
         return
     for_s, seen = quiet()
+    if watch is not None:
+        for_s = min(for_s, watch.quiet_s())
     if for_s > stall_s:
         raise Stalled(
-            f"{part}: no progress for {for_s:.0f} s (TB_SCALE_STALL_S={stall_s:g}): no processor time used and no "
-            f"log written by the gate's processes ({seen})" + (f"; last seen: {watched}" if watched else "")
+            f"{part}: no progress for {for_s:.0f} s (TB_SCALE_STALL_S={stall_s:g}): none of the gate's processes "
+            f"worked or wrote its log ({seen})" + (f"; what the wait watched last: {watch.last}" if watch else "")
         )
 
 
@@ -203,25 +232,35 @@ class TreeSampler(threading.Thread):
         self._halt = threading.Event()
         self._ticks, self._bytes = -1, -1
         self._changed = time.monotonic()
+        self._recent: deque[tuple[float, int]] = deque()  # (when, ticks) of the last RATE_WINDOW_S
+        self._share = 0.0
         self.quiet_max_s = 0.0
 
     def quiet_s(self) -> float:
         return time.monotonic() - self._changed
 
     def seen(self) -> str:
-        return f"{self.name_ or self.pid}: processor time {self._ticks} ticks, log {max(self._bytes, 0)} bytes"
+        return (
+            f"{self.name_ or self.pid}: {self._share:.1%} of a processor over the last {RATE_WINDOW_S:g} s, "
+            f"log {max(self._bytes, 0)} bytes"
+        )
 
     def _progress(self, pids: Sequence[int]) -> None:
-        ticks = cpu_ticks(pids)
+        now, ticks = time.monotonic(), cpu_ticks(pids)
         try:
             size = self.log.stat().st_size if self.log is not None else 0
         except OSError:
             size = 0
-        if (ticks, size) != (self._ticks, self._bytes):
-            self._ticks, self._bytes = ticks, size
-            self._changed = time.monotonic()
+        self._recent.append((now, ticks))
+        while now - self._recent[0][0] > RATE_WINDOW_S:
+            self._recent.popleft()
+        then, before = self._recent[0]
+        self._share = (ticks - before) / _TICKS_PER_S / (now - then) if now > then else 0.0
+        if self._share >= IDLE_SHARE or size != self._bytes:
+            self._changed = now  # it works, or it writes its log
         else:
             self.quiet_max_s = max(self.quiet_max_s, self.quiet_s())
+        self._ticks, self._bytes = ticks, size
 
     def run(self) -> None:
         _LIVE.add(self)
@@ -364,16 +403,28 @@ class Enforcer:
             run.tail = _tail(log)
 
     def run(
-        self, name: str, service: str, cap: int, argv: Sequence[str], env: Mapping[str, str], cwd: Path, log: Path
+        self,
+        name: str,
+        service: str,
+        cap: int,
+        argv: Sequence[str],
+        env: Mapping[str, str],
+        cwd: Path,
+        log: Path,
+        watch: Callable[[], object] | None = None,
     ) -> PhaseRun:
-        """A process under the cap, to its end."""
+        """A process under the cap, to its end. ``watch`` (D-674): what its progress shows in besides its own work
+        (the calls a model stand-in has seen): a change of its value is progress."""
+        seen = Watch() if watch is not None else None
         with self.start(name, service, cap, argv, env, cwd, log) as (proc, run):
             while True:
                 try:
                     proc.wait(timeout=STALL_POLL_S if self.stall_s > 0 else None)
                     break
                 except subprocess.TimeoutExpired:
-                    stall_check(name, self.stall_s)  # raises: the block's end stops the process and fills the run
+                    if seen is not None and watch is not None:
+                        seen.seen(watch())
+                    stall_check(name, self.stall_s, seen)  # raises: the block's end stops the process
             rc = proc.returncode
         run.rc = rc
         run.oom = run.oom or rc in (-signal.SIGKILL, 128 + signal.SIGKILL)
@@ -491,6 +542,15 @@ class SlowModel:
                 for m in _CHAT.finditer(log.read_text(errors="replace")):
                     out.append(int(m.group(1)))
         return out
+
+    def log_bytes(self) -> int:
+        """The size of its access logs: grows with every call it sees (D-674: the screen's sign of progress; cheap
+        to read, where counting the calls reads the whole log)."""
+        total = 0
+        for log in self._logs:
+            with contextlib.suppress(OSError):
+                total += log.stat().st_size
+        return total
 
     def calls(self) -> int:
         """Chat calls the stand-in answered or refused, over all its processes."""

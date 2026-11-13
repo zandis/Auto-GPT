@@ -64,25 +64,42 @@ The 900 s was never meant for the gate. The job's own comment says the night is 
 "No limit" must not mean that a hung part burns the nightly job's 340 minutes: the owner pays for them. So the
 gate has a **no-progress cut, not a duration budget**:
 
-- **What is watched**: the processor time used by every process the gate has started that is still alive (each
-  process's whole tree: the lake's build child, the adapter's validator), and the size of each one's log. The
-  gate's sampler already visits those trees for their memory.
-- **The rule**: when none of them has used processor time or written to its log for `TB_SCALE_STALL_S`, the gate
-  ends: `Stalled`, naming the part, how long, what each process was last seen at, and what the waiting loop last
-  saw of the thing it waited for. The report is written once more (item 4).
+- **What counts as progress**, any one of:
+  - a process the gate started **works**: its whole tree (the lake's build child, the adapter's validator) used
+    more than a twentieth of one processor over the last ten seconds;
+  - a process the gate started **writes its log**;
+  - **what the wait watches changes**: for the screen, the calls the model stand-in has seen (the size of its
+    access log); for the site publish, what its ticks say, how many rebuilds started, whether it is recorded.
+- **Why "works" and not "used any processor time"** (found by this card's second review, by running): an idle
+  web server is never at zero. The lake's kind of server used a clock tick every 1.5 to 7 s while it waited
+  (21 ticks in 90 s, under 0.3 % of a processor), and the lake service is alive through the publish and the
+  screen: counted as progress, it hid a dead screen for ever. A part that works uses a whole processor or more.
+  The line, a twentieth of a processor over ten seconds, is the definition of "progress" in this gate
+  (`IDLE_SHARE`, `RATE_WINDOW_S` in `tb_testkit/scale.py`), not a limit of the product.
+- **The rule**: when nothing of the above has happened for `TB_SCALE_STALL_S`, the gate ends: `Stalled`, naming
+  the part, how long, what share of a processor each process last used, and the last value of what the wait
+  watched. The report is written once more (item 4).
 - **Where**: every process the gate runs to its end (`Enforcer.run`: generate, the ingests, the screen), and the
   site publish's two waits, which are the loops that could wait six hours each.
-- **A slow night still runs to its end**: a part that works, however long, uses processor time. Progress
-  anywhere counts, so a screen that waits for the lake is not stalled while the lake works.
+- **A slow night still runs to its end**: a part that works, however long, is progress. Work anywhere counts,
+  so a screen that waits for the lake is not stalled while the lake works, and a screen that waits for a slow
+  model is not stalled while the model's calls go on.
 - **The default is 600 s**, a declared setting. Its reason: the longest quiet interval the gate has by design is
-  the screen waiting through the model stand-in's outage and restart (the nightly job: 40 s and 30 s); ten
-  minutes is an order above that, and a dead part then costs ten of the 340 minutes. **No quiet interval was
-  measured on a schedule before this card**: tonight's run left no report, and its log does not show one. The
-  report now holds each process's longest quiet interval (`longest_quiet_s`), so the default can be set from
-  nights and not from design. 0 turns the cut off.
-- **What the watch does not see**: work done by a process the gate did not start. The test database server is
-  one: a part that waits on a long statement in it looks quiet. The gate's statements are short and the default
-  leaves room; said here so a false stall is recognised if one comes.
+  the screen waiting through the model stand-in's outage and restart (the nightly job: 40 s and 30 s, no call
+  seen meanwhile); ten minutes is an order above that, and a dead part then costs ten of the 340 minutes. **No
+  quiet interval was measured on a schedule before this card**: tonight's run left no report, and its log does
+  not show one. The report now holds each process's longest quiet interval (`longest_quiet_s`), so the default
+  can be set from nights and not from design. 0 turns the cut off.
+- **What the watch does not see, and can get wrong**:
+  - work done by a process the gate did not start. The test database server is one (it is started detached): a
+    part that waits on a long statement in it looks quiet. The gate's statements were not timed; the default
+    leaves room, and a false stall would name the part and show every process idle.
+  - a part whose honest work stays under a twentieth of a processor for ten minutes, writes no log and has
+    nothing watched. None is known.
+  - a part that spins without ending is working by this rule: only the job's own limit ends it.
+  - in the nightly's `cgroup` mode the process tree hangs under `sudo` and `systemd-run`; that the tree and the
+    stop reach the capped process there is what the memory peak already relies on, and was not run here (no
+    systemd on the build machine).
 
 ## What bounds the gate now, said plainly
 
@@ -124,5 +141,8 @@ that is not a number is refused. **Interrupt:** the cut is an error that is no `
 is; and the report as a kill would leave it is read inside the part, before the cut.
 `tests/unit/test_scale_gate_stall.py`: a process that does nothing is ended within its stall limit and named; one
 that works, and one that only writes its log, run to their end; no stall limit waits as before; the longest quiet
-interval is in the report; a site publish that stops moving ends the gate with its report in seconds, not its
-six-hour guard; the setting is declared, has its default, and a negative value is refused.
+interval is in the report; **an idle server beside a dead part does not hide it**; a working service beside a
+waiting part is progress; what a part watches is progress, and its last value is said when it stalls; a site
+publish that stops moving ends the gate with its report in seconds, not its six-hour guard; the setting is
+declared, has its default, and a negative value is refused. The stall limits in these tests are 5 s against
+12 s of work, wide beside a loaded machine's pauses.

@@ -22,29 +22,66 @@ from tools import scale_gate as sg
 
 GIB = 1 << 30
 SLEEPS = "import time; time.sleep(600)"
-BUSY = "import time; t = time.monotonic()\nwhile time.monotonic() - t < 3: pass"
-TALKS = "import sys, time\nfor i in range(10):\n    print(i, flush=True); time.sleep(0.3)"
+BUSY = "import time; t = time.monotonic()\nwhile time.monotonic() - t < 12: pass"
+TALKS = "import sys, time\nfor i in range(120):\n    print(i, flush=True); time.sleep(0.1)"
+#: an idle server: it wakes a few times a second and does next to nothing, as a web server that waits for requests
+IDLES = "import time\nwhile True:\n    time.sleep(0.2); sum(range(500))"
+STALL = 5.0  # seconds: wide beside the samplers' 0.2 s and a loaded machine's pauses
 
 
-def _run(tmp_path: Path, script: str, stall_s: float) -> scale.PhaseRun:
+def _enforcer(stall_s: float) -> scale.Enforcer:
     enf = scale.Enforcer.detect("measure")
     enf.stall_s = stall_s
-    return enf.run("part", "adapter", GIB, [sys.executable, "-c", script], {}, tmp_path, tmp_path / "part.log")
+    return enf
+
+
+def _run(tmp_path: Path, script: str, stall_s: float, watch: Any = None) -> scale.PhaseRun:
+    argv = [sys.executable, "-c", script]
+    return _enforcer(stall_s).run("part", "adapter", GIB, argv, {}, tmp_path, tmp_path / "part.log", watch=watch)
 
 
 def test_a_process_that_does_nothing_is_ended_and_named(tmp_path: Path) -> None:
     t0 = time.monotonic()
     with pytest.raises(scale.Stalled) as got:
-        _run(tmp_path, SLEEPS, stall_s=1.0)
-    assert time.monotonic() - t0 < 30  # not the 600 s the process would have slept
+        _run(tmp_path, SLEEPS, stall_s=STALL)
+    assert time.monotonic() - t0 < 120  # not the 600 s the process would have slept
     said = str(got.value)
     assert "part" in said and "no progress" in said and "TB_SCALE_STALL_S" in said
-    assert "processor time" in said and "log" in said  # what was watched, and what it last saw
+    assert "of a processor" in said and "log" in said  # what was watched, and what it last saw
 
 
 def test_a_process_that_works_or_writes_its_log_runs_to_its_end(tmp_path: Path) -> None:
-    assert _run(tmp_path, BUSY, stall_s=1.0).rc == 0  # three seconds of work with a one-second stall limit
-    assert _run(tmp_path, TALKS, stall_s=1.0).rc == 0  # mostly asleep, but its log grows
+    assert _run(tmp_path, BUSY, stall_s=STALL).rc == 0  # twelve seconds of work with a five-second stall limit
+    assert _run(tmp_path, TALKS, stall_s=STALL).rc == 0  # mostly asleep, but its log grows for twelve seconds
+
+
+def test_an_idle_server_beside_a_dead_part_does_not_hide_it(tmp_path: Path) -> None:
+    """Found by this card's review by running: an idle web server uses a clock tick every few seconds, and "any
+    processor time is progress" let the lake service hide a dead screen for ever."""
+    enf = _enforcer(STALL)
+    idle = [sys.executable, "-c", IDLES]
+    with enf.start("lake", "lake", GIB, idle, {}, tmp_path, tmp_path / "lake.log") as (proc, _):
+        t0 = time.monotonic()
+        with pytest.raises(scale.Stalled, match="screen"):
+            enf.run("screen", "orchestrator", GIB, [sys.executable, "-c", SLEEPS], {}, tmp_path, tmp_path / "s.log")
+        assert time.monotonic() - t0 < 120 and proc.poll() is None  # the idle server was alive all along
+
+
+def test_a_working_service_beside_a_waiting_part_is_progress(tmp_path: Path) -> None:
+    """A part that waits for the lake is not stalled while the lake works."""
+    enf = _enforcer(STALL)
+    wait = [sys.executable, "-c", "import time; time.sleep(12)"]
+    with enf.start("lake", "lake", GIB, [sys.executable, "-c", BUSY], {}, tmp_path, tmp_path / "lake.log"):
+        assert enf.run("screen", "orchestrator", GIB, wait, {}, tmp_path, tmp_path / "s.log").rc == 0
+
+
+def test_what_a_part_watches_is_progress_too(tmp_path: Path) -> None:
+    """The screen waits for a model that is slow: every call the stand-in sees is progress, whoever is idle."""
+    calls = iter(range(10**9))
+    wait = "import time; time.sleep(12)"
+    assert _run(tmp_path, wait, stall_s=STALL, watch=lambda: next(calls)).rc == 0  # the watched count moves
+    with pytest.raises(scale.Stalled, match="watched last: 7"):
+        _run(tmp_path, SLEEPS, stall_s=STALL, watch=lambda: 7)  # it does not: stalled, and the last value is said
 
 
 def test_no_stall_limit_waits_as_before(tmp_path: Path) -> None:
@@ -54,8 +91,8 @@ def test_no_stall_limit_waits_as_before(tmp_path: Path) -> None:
 
 def test_the_longest_quiet_interval_of_each_process_is_in_the_report(tmp_path: Path) -> None:
     """What a later default can be chosen from: the report says how long each process was quiet at most."""
-    run = _run(tmp_path, "import time; time.sleep(1.2)", stall_s=0)
-    assert 0.8 <= run.quiet_max_s <= 5
+    run = _run(tmp_path, "import time; time.sleep(3)", stall_s=0)
+    assert 1.5 <= run.quiet_max_s <= 30
     rep = sg.Report(sg.Params(patients=1, out=tmp_path, caps={"adapter": GIB, "lake": GIB, "orchestrator": GIB}), "m")
     rep.runs.append(run)
     assert rep.to_json()["runs"][0]["longest_quiet_s"] == round(run.quiet_max_s, 1)

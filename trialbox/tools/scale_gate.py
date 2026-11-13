@@ -57,6 +57,7 @@ from tb_testkit.scale import (  # noqa: E402
     PhaseRun,
     SlowModel,
     Stalled,
+    Watch,
     compose_caps,
     compose_setting,
     free_port,
@@ -102,11 +103,12 @@ EXPECTED: dict[str, Expected] = {
 
 
 #: D-674: the default of ``TB_SCALE_STALL_S``. Not a budget for a part's length: the longest time the gate goes on
-#: while NONE of its processes uses processor time or writes to its log. The longest quiet interval the gate has
-#: by design is the screen waiting through the model stand-in's outage and restart (the nightly job: 40 s and
-#: 30 s); ten minutes is an order above that, and a dead part then costs ten of the job's 340 minutes. No quiet
-#: interval was measured on a schedule before this card; the report now holds each process's longest one
-#: (``longest_quiet_s``), which is what a later default is chosen from.
+#: while NONE of its processes works or writes its log and nothing a wait watches changes
+#: (``tb_testkit.scale.stall_check``). The longest quiet interval the gate has by design is the screen waiting
+#: through the model stand-in's outage and restart (the nightly job: 40 s and 30 s); ten minutes is an order above
+#: that, and a dead part then costs ten of the job's 340 minutes. No quiet interval was measured on a schedule
+#: before this card; the report now holds each process's longest one (``longest_quiet_s``), which is what a later
+#: default is chosen from.
 STALL_S = 600.0
 PUBLISH = "site publish and lake rebuild"
 
@@ -663,6 +665,7 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
     t0 = time.monotonic()
     ticks: list[str] = []
     first: float | None = None
+    moved = Watch()  # D-674: what the publish's ticks say, how many rebuilds started, whether it is recorded
     while time.monotonic() - t0 < p.publish_wait_s and alive():
         try:
             out = svc.flush("main")
@@ -673,8 +676,9 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
             first = time.monotonic() - t0
         if st.pub is not None or lake.started >= 2:
             break
-        # D-674: a publish that does not move while the lake does nothing ends the gate, not the job's own limit
-        stall_check(PUBLISH, p.stall_s, f"publish ticks {ticks[-3:]}, rebuilds started {lake.started}")
+        # D-674: a publish that does not move while the lake does no work ends the gate, not the job's own limit
+        moved.seen((ticks[-1], lake.started, st.pub is not None))
+        stall_check(PUBLISH, p.stall_s, moved)
         time.sleep(p.publish_poll_s)
     took = time.monotonic() - t0
     snap_built = False
@@ -710,7 +714,8 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
                     return True
             except Exception:
                 pass
-            stall_check(PUBLISH, p.stall_s, f"waiting for the lake to serve {SNAPSHOT}; publish ticks {ticks[-3:]}")
+            moved.seen(("waiting for the lake to serve", SNAPSHOT))
+            stall_check(PUBLISH, p.stall_s, moved)
             time.sleep(p.publish_poll_s)
         return False
     return True
@@ -742,6 +747,7 @@ def _screen(
             _env(TB_SERVICE_TOKEN=token),
             ROOT,
             logs / "screen.log",
+            watch=model.log_bytes,  # D-674: every call the stand-in sees is the screen's progress
         )
     finally:
         done.set()
