@@ -18,8 +18,9 @@ plan is TB-PLAN-06 (`docs/plan/28-master-plan-v6.md`); its §6.1 holds the full 
 
 * One decision is one file: `docs/decisions/D-<nnn>-<slug>.md`. Its first line names the number (`**D-nnn Title.**`
   or `# D-nnn Title`) and its first lines name the card (`T-nnn`).
-* Take the next free number from `docs/decisions/REGISTRY.md` (new numbers start at D-300) and add its row, or
-  write "decision number needed" in the pull request. No need to wait for the integrator (D-311).
+* Use a number from the block your lane's brief gives you and add its row to `docs/decisions/REGISTRY.md`. With no
+  block, write `D-TBD` in the file name and the pull request; the integrator assigns the number (the owner's rule,
+  2026-11-13: two sessions taking "the next free number" at once renumbered D-584 to D-589 on 2026-11-12).
 * `docs/DECISIONS.md` is frozen: it keeps D-01 to D-270 as they are and takes no new entry.
 * `python -m tools.decisions_index --check` (CI job `checks`) fails only on a number written twice; registry
   bookkeeping is printed as notes. `python -m tools.decisions_index` prints the index.
@@ -59,18 +60,24 @@ engine-agreement tests) and one automated adversarial review; no named human rev
 
 ## Checks before a push
 
-From `trialbox/`, after `make venv`:
+From `trialbox/`, after `make venv`, one command runs every step of CI's fast tier and the security scans, each into
+a log file (`tools/prepush.py`; `tests/unit/test_prepush.py` keeps it equal to CI's `checks` job):
 
 ```
-.venv/bin/python -m ruff check .
-.venv/bin/python -m ruff format --check .
-.venv/bin/python -m tools.doclint
-.venv/bin/python -m tools.decisions_index --check
-.venv/bin/python -m tools.data_scan
-TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m pytest <the tests you touched> -p no:cacheprovider -n 0
+.venv/bin/python -m tools.prepush --tests <the test files you touched>
 ```
 
-The full suite (`make test`) is run by CI and the integrator, one run at a time on the shared machine.
+Exit 0: all passed. Exit 2: a step was skipped because this machine lacks its tool; name it in the pull request. Once
+per card, also the whole unit suite (`make cross-card PYTEST_N=auto CROSS_CARD_TESTS="tests/unit"`, output to a
+file). A single test run names a time zone (D-315):
+
+```
+TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m pytest <tests> -p no:cacheprovider -n 0
+```
+
+When the card is done and pushed, `.venv/bin/python -m tools.train_ready --pr <n>` checks the head (pushed, clean,
+the two closing lines in every commit, no model name, no merge of master, a complete prepush run on it) and prints
+the `train-ready` line.
 
 ## Development gates (D-311)
 

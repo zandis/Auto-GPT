@@ -3,7 +3,7 @@ Synthetic or public data only. No secret, key or real identifier in the body. De
 
 ## Card
 
-<!-- The card id and its row in trialbox/docs/plan/28-master-plan-v6.md §6.2, or "none" with a reason. -->
+<!-- The card id and its row in trialbox/docs/plan/33-plan-v7.md, or "none" with a reason. -->
 
 ## Summary
 
@@ -17,7 +17,8 @@ adversarial review (D-311). -->
 
 ## Decision
 
-<!-- D-nnn and its file under trialbox/docs/decisions/, or "none". -->
+<!-- D-nnn from your lane's block and its file under trialbox/docs/decisions/, D-TBD (the integrator assigns it), or
+"none". -->
 
 ## Acceptance
 
@@ -27,8 +28,8 @@ adversarial review (D-311). -->
 
 ## Checks run
 
-<!-- From trialbox/: ruff check, ruff format --check, doclint, data_scan, decisions_index --check, the security scans
-if you touched dependencies or code they read (python -m tools.security_scan secrets|sast), and the tests you ran. -->
+<!-- From trialbox/: `.venv/bin/python -m tools.prepush --tests <files>` (CI's fast tier and the security scans):
+its result line, and any step it skipped on this machine. The whole unit suite once per card. -->
 
 ## Problems closed or opened
 
@@ -40,3 +41,9 @@ verifying test) or opens. A new ignore in trialbox/tools/security_scan_ignores.y
 ## Remains
 
 ## Dropped (D-311)
+
+## For the owner
+
+<!-- One line per question only the owner can answer, with your recommendation and any cost. "none" if none. -->
+
+<!-- The body ends with the Claude Code line and your session URL. No model name anywhere in the title or body. -->
