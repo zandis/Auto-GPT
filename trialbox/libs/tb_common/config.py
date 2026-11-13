@@ -746,6 +746,10 @@ DECLARED: dict[str, Declared] = {
         "float", "", "complete-run estimate: override of G-3's measured gain, min(N, this) (unset: the curve)"
     ),
     "TB_BUCKET": Declared("str", "", "complete-run: gs:// bucket for the code and results (unset: through the door)"),
+    "TB_START_RETRIES": Declared(
+        "int", "3", "complete-run: retries of a VM start refused for a stockout (no other refusal is retried)"
+    ),
+    "TB_START_RETRY_SECONDS": Declared("int", "240", "complete-run: seconds between those retries of a VM start"),
     "TB_DOOR_DIRECT": Declared(
         "bool", "", "complete-run: launch in door mode though HTTPS_PROXY is set (this host reaches the VM directly)"
     ),

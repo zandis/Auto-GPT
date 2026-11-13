@@ -176,6 +176,57 @@ def test_g4_against_the_stand_in(standin: Any, tmp_path: Path, monkeypatch: pyte
     assert gp.run_g4(argparse.Namespace(dir=tmp_path, live_record=None, judge_url=""))["not_run"] == "no judge server"
 
 
+def test_each_schema_failure_keeps_why_it_stopped_its_tokens_and_its_opening() -> None:
+    """2026-11-13: G-4 counted the answers outside the schema and nothing else, so a cut at max_tokens could not be
+    told from a fenced or wordy answer."""
+    long = "x" * 500
+    res: list[dict[str, Any]] = [{"status": 200, "seconds": 1.0, "in_schema": True, "finish_reason": "stop",
+                                  "completion_tokens": 40, "content": None}]  # fmt: skip
+    res += [{"status": 200, "seconds": 1.0, "in_schema": False, "finish_reason": "length", "completion_tokens": 512,
+             "content": long} for _ in range(gp.SCHEMA_FAILURE_EXAMPLES + 2)]  # fmt: skip
+    res.append({"status": 200, "seconds": 1.0, "in_schema": False, "finish_reason": "stop", "completion_tokens": 60,
+                "content": "Here is the answer: {...}"})  # fmt: skip
+    s = gp.decoding_summary(res, 1.0)
+    assert s["schema_failures"] == gp.SCHEMA_FAILURE_EXAMPLES + 3
+    assert s["schema_failures_by_finish_reason"] == {"length": gp.SCHEMA_FAILURE_EXAMPLES + 2, "stop": 1}
+    ex = s["schema_failure_examples"]
+    assert len(ex) == gp.SCHEMA_FAILURE_EXAMPLES  # capped per setting
+    assert ex[0] == {"finish_reason": "length", "completion_tokens": 512, "content_head": "x" * gp.EXAMPLE_CHARS}
+    assert gp.EXAMPLE_CHARS == 200
+    clean = gp.decoding_summary(res[:1], 1.0)
+    assert clean["schema_failure_examples"] == [] and clean["schema_failures_by_finish_reason"] == {}
+
+
+def test_g4_records_the_failures_of_each_setting(standin: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guided off answers wrapped in a fence with prose and cut at max_tokens (finish_reason length): each kept as an
+    example of its setting; guided on, in the schema, keeps none."""
+    _, base = standin
+    monkeypatch.setattr(cr, "JUDGE", "local/judge")
+    monkeypatch.setenv("TB_GPU_KEY", KEY)
+    real = gp.post_json
+
+    def post(url: str, body: dict[str, Any], *a: Any, **kw: Any) -> tuple[int, Any]:
+        status, got = real(url, body, *a, **kw)
+        if url.endswith("/chat/completions") and "response_format" not in body and isinstance(got, dict):
+            choice = got["choices"][0]
+            choice["message"]["content"] = "Sure, here it is:\n```json\n" + choice["message"]["content"][:20]
+            choice["finish_reason"] = "length"
+        return status, got
+
+    monkeypatch.setattr(gp, "post_json", post)
+    b = gp.run_g4(argparse.Namespace(dir=tmp_path, live_record=None, judge_url=f"{base}/v1"))["decoding"]
+    on, off = b["guided_on"], b["guided_off"]
+    assert on["schema_failures"] == 0 and on["schema_failure_examples"] == []
+    assert off["schema_failures"] == 64 and off["schema_failures_by_finish_reason"] == {"length": 64}
+    ex = off["schema_failure_examples"]
+    assert len(ex) == gp.SCHEMA_FAILURE_EXAMPLES and ex[0]["finish_reason"] == "length"
+    assert ex[0]["content_head"].startswith("Sure, here it is:\n```json\n") and len(ex[0]["content_head"]) <= 200
+    assert isinstance(ex[0]["completion_tokens"], int)
+    text = "\n".join(gp.report_lines({"parts": [{"tag": "g4-decoding", "decoding": b}]}))
+    assert "guided off: answers outside the schema by finish_reason: length 64" in text
+    assert "- length, " in text and "\\u0060\\u0060\\u0060json" in text and "guided on: answers" not in text
+
+
 # ---------------------------------------------------------------- G-5
 def test_token_summary_fits_or_names_the_safety_it_needs() -> None:
     rows = {"ja": [{"real": 105, "budget": 100, "cascade": 100}, {"real": 50, "budget": 50, "cascade": 40}]}

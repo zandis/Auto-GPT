@@ -9,7 +9,9 @@ functions and the gateway built as an installed box builds it (``tools.scenarios
     containers' command lines; vLLM's ``/server_info`` when the server answers it). Guided decoding on and off: the
     judge prompt (the product's ``judge`` prompt, rendered by ``tb_common.llm.render``) over a fixed synthetic excerpt
     set, sent straight to the judge server with and without the prompt's ``response_format``, at the judge's
-    ``max_num_seqs`` in flight; calls per second each way and the answers outside the judge schema. Eager start on and
+    ``max_num_seqs`` in flight; calls per second each way and the answers outside the judge schema (each way: their
+    count by ``finish_reason`` and the first few with their completion tokens and opening text, so a cut at
+    ``max_tokens`` is told from a fenced or wordy answer). Eager start on and
     off needs the servers restarted (``--enforce-eager`` is a start flag of vLLM): not run, recorded as such; the part
     never restarts a server.
 ``g5-tokens`` (G-5)
@@ -58,6 +60,12 @@ N_EXCERPTS = 200
 # G-4: each of the judge's slots answers this many calls per setting, so calls per second is a rate over several
 # rounds of a full batch, not one round's latency (the slots are the serving record's max_num_seqs)
 DECODING_ROUNDS = 4
+# G-4: per setting (guided on, guided off), the answers outside the judge schema kept as examples, and how much of each
+# answer's text: enough to tell a cut at max_tokens (finish_reason "length", the JSON unclosed) from a whole answer
+# in a markdown fence or with prose around it, without copying every answer into the report (the prompts are
+# synthetic, so the text is safe to keep)
+SCHEMA_FAILURE_EXAMPLES = 5
+EXAMPLE_CHARS = 200
 # G-5's pass rule (deep review 06-llm.md, test G-05): the largest measured ratio, with 5 % for what the sample did not
 # see, must fit in the budget's safety share (1 / tb_llm.budget.SAFETY)
 RATIO_MARGIN = 1.05
@@ -239,15 +247,31 @@ def answer_in_schema(content: Any, schema_name: str) -> bool:
     return not schema_errors(schema_name, null_absent(load_schema(schema_name), data))
 
 
+def failure_example(r: dict[str, Any]) -> dict[str, Any]:
+    """One answer outside the schema as the report keeps it: why the model stopped, its tokens, its first
+    :data:`EXAMPLE_CHARS` characters."""
+    content = r.get("content")
+    return {"finish_reason": r.get("finish_reason"), "completion_tokens": r.get("completion_tokens"),
+            "content_head": content[:EXAMPLE_CHARS] if isinstance(content, str) else content}  # fmt: skip
+
+
 def decoding_summary(results: Sequence[dict[str, Any]], seconds: float) -> dict[str, Any]:
-    """One setting's calls: answered, errors, schema failures, calls per second over the wall time, p50 / p95."""
+    """One setting's calls: answered, errors, schema failures, calls per second over the wall time, p50 / p95; the
+    schema failures by finish_reason and the first :data:`SCHEMA_FAILURE_EXAMPLES` of them (:func:`failure_example`)."""
     ok = [r for r in results if r.get("status") == 200]
     lat = [float(r["seconds"]) for r in ok]
+    bad = [r for r in ok if not r.get("in_schema")]
+    why: dict[str, int] = {}
+    for r in bad:
+        k = str(r.get("finish_reason"))
+        why[k] = why.get(k, 0) + 1
     return {"calls": len(results), "answered": len(ok), "errors": len(results) - len(ok),
-            "schema_failures": sum(1 for r in ok if not r.get("in_schema")), "seconds": round(seconds, 2),
+            "schema_failures": len(bad), "seconds": round(seconds, 2),
             "calls_per_second": round(len(ok) / seconds, 3) if seconds > 0 else None,
             "p50_s": _round(percentile(lat, 50)), "p95_s": _round(percentile(lat, 95)),
-            "completion_tokens": sum(int(r.get("completion_tokens") or 0) for r in ok)}  # fmt: skip
+            "completion_tokens": sum(int(r.get("completion_tokens") or 0) for r in ok),
+            "schema_failures_by_finish_reason": why,
+            "schema_failure_examples": [failure_example(r) for r in bad[:SCHEMA_FAILURE_EXAMPLES]]}  # fmt: skip
 
 
 def faster_setting(on: dict[str, Any], off: dict[str, Any]) -> str:
@@ -290,9 +314,12 @@ def run_g4(a: Any) -> dict[str, Any]:
         took = time.perf_counter() - t
         if status != 200 or not isinstance(got, dict):
             return {"status": status, "seconds": took, "error": str(got)[:120]}
-        content = ((got.get("choices") or [{}])[0].get("message") or {}).get("content")
-        return {"status": 200, "seconds": took, "in_schema": answer_in_schema(content, p.meta.output_schema),
-                "completion_tokens": (got.get("usage") or {}).get("completion_tokens")}  # fmt: skip
+        choice = (got.get("choices") or [{}])[0]
+        content = (choice.get("message") or {}).get("content")
+        ok = answer_in_schema(content, p.meta.output_schema)
+        return {"status": 200, "seconds": took, "in_schema": ok, "finish_reason": choice.get("finish_reason"),
+                "completion_tokens": (got.get("usage") or {}).get("completion_tokens"),
+                "content": None if ok or not isinstance(content, str) else content[:EXAMPLE_CHARS]}  # fmt: skip
 
     def setting(guided: bool) -> dict[str, Any]:
         t = time.perf_counter()
@@ -748,6 +775,11 @@ def report_lines(rep: dict[str, Any]) -> list[str]:
     return out
 
 
+def _shown(text: Any) -> str:
+    """An answer's opening as one JSON string on one line, for a markdown code span (a backtick as \\u0060)."""
+    return json.dumps(text, ensure_ascii=False).replace("`", "\\u0060")
+
+
 def _section(tag: str, b: dict[str, Any]) -> list[str]:
     out: list[str] = []
     if tag == G4:
@@ -761,6 +793,17 @@ def _section(tag: str, b: dict[str, Any]) -> list[str]:
             out.append(f"| {k.replace('_', ' ')} | {s['calls']} | {s['answered']} | {s['calls_per_second']} | "
                        f"{s['p50_s']} | {s['p95_s']} | {s['schema_failures']} |")  # fmt: skip
         out += ["", f"Profile: {b['profile']} ({b['in_flight']} in flight, {b['prompts']} prompts each way)."]
+        for k in ("guided_on", "guided_off"):
+            ex = b[k].get("schema_failure_examples") or []
+            if not ex:
+                continue
+            why = ", ".join(f"{r} {n}" for r, n in (b[k].get("schema_failures_by_finish_reason") or {}).items())
+            name = k.replace("_", " ")
+            out += ["", f"{name}: answers outside the schema by finish_reason: {why or '?'}; the first {len(ex)} "
+                    f"(finish_reason, completion tokens, the first {EXAMPLE_CHARS} characters):", ""]  # fmt: skip
+            for e in ex:
+                head = _shown(e.get("content_head"))
+                out.append(f"- {e.get('finish_reason')}, {e.get('completion_tokens')} tokens: `{head}`")
     elif tag == G5:
         out += ["| language | estimator | n | p50 | p95 | max |", "| --- | --- | --- | --- | --- | --- |"]
         for lang, per in b["per_language"].items():
