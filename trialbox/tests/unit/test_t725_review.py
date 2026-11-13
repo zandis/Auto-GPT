@@ -157,7 +157,10 @@ def test_a_job_reads_the_batch_of_its_generation_not_the_first_batch_of_its_date
         assert first is not None
         got = job_on(f"{NEW}.g1").batch(NEW)
         assert got is not None and got.run_id > first.run_id  # the batch built from generation 1
-        assert job_on(NEW).batch(NEW) is None  # the rows are of generation 1 now
+        # the rows are of generation 1 now. A job pinned to the date's first generation read "unknown" here until
+        # NEW-B-4 (D-525, the owner's ruling): it reads the batch its own generation made, the first one
+        back = job_on(NEW).batch(NEW)
+        assert back is not None and back.run_id == first.run_id
     finally:
         st.close()
 

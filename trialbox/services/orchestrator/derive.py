@@ -70,13 +70,23 @@ class GenerationReader:
                 with Built(self._url) as ledger:
                     why = ledger.readable("derived", generation)
                     ref = ledger.ref("derived") if why.ok else ""
+                    # NEW-B-4 (D-525): the rows are built from another generation now, or a build of them runs.
+                    # The store keeps its rows as of a batch, so the batch this job's generation made can still
+                    # be read: that batch by its run id, never "a finished batch of the date"
+                    old = None if why.ok else ledger.kept("derived", generation)
             except Exception as exc:  # the ledger cannot be read: unknown, never "as if finished"
                 log.warning("stored scores unknown: the generation ledger cannot be read (%s)", type(exc).__name__)
                 self._seen[key] = (False, "")
             else:
-                self._seen[key] = (why.ok, ref)
-                if not why.ok:
-                    log.info("stored scores read as unknown: %s", why.reason)
+                if old is not None and old.isdigit():
+                    log.info(
+                        "stored scores read from the batch of %s (%s; the rows are built anew since)", generation, old
+                    )
+                    self._seen[key] = (True, old)
+                else:
+                    self._seen[key] = (why.ok, ref)
+                    if not why.ok:
+                        log.info("stored scores read as unknown: %s", why.reason)
         return self._seen[key]
 
     def batch(self, snapshot: str) -> Any:
