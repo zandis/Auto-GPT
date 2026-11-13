@@ -53,7 +53,7 @@ def run(ctx: Ctx) -> Outcome:
     try:
         lookback = int(opts.get("lookback") or (feas_scope.lookback_months if feas_scope else None) or 36)
     except ValueError as exc:
-        raise StepFailed("running", f"lookback must be a number of months (got {opts.get('lookback')!r})") from exc
+        raise StepFailed("running", "lookback must be a number of months") from exc
     if not 1 <= lookback <= 120:
         raise StepFailed("running", "lookback must be between 1 and 120 months")
     if opts.get("dept"):
@@ -124,7 +124,7 @@ def run(ctx: Ctx) -> Outcome:
         )
     except Exception as exc:
         ctx.orch.audit.append(
-            "feas.profile_skipped", job_id=job.job_id, actor="orchestrator", detail={"reason": str(exc)[:200]}
+            "feas.profile_skipped", job_id=job.job_id, actor="orchestrator", detail={"reason": type(exc).__name__}
         )
     sim = result.simulation
     lang = meta.locale

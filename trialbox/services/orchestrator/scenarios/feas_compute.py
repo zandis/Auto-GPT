@@ -146,7 +146,7 @@ def _numbers(spec: str) -> list[float]:
             try:
                 vals.append(float(tok))
             except ValueError as exc:
-                raise FeasError(f"variant value {tok!r} is not a number") from exc
+                raise FeasError("a variant value is not a number") from exc
     return vals
 
 
@@ -154,7 +154,7 @@ def parse_variant_option(value: str) -> dict[str, str]:
     """``bmi:24,25,27`` -> ``{"bmi": "24,25,27"}``."""
     key, sep, vals = value.partition(":")
     if not sep or not key or not vals:
-        raise FeasError(f"variant must look like key:v1,v2 (got {value!r})")
+        raise FeasError("variant must look like key:v1,v2")
     return {key.lower() if "-" not in key else key.upper(): vals}
 
 
@@ -170,7 +170,7 @@ def build_variants(rs: Ruleset, spec: dict[str, str], applied: list[Step]) -> li
         if "-" in key:
             cid = key if key.startswith(f"{rs.id}-") else f"{rs.id}-{key}"
             if cid not in by_id:
-                raise FeasError(f"variant {key}: no applied structured criterion {cid}")
+                raise FeasError("variant: no applied structured criterion of that id")
             targets = [by_id[cid]]
         else:
             targets = [
@@ -182,7 +182,7 @@ def build_variants(rs: Ruleset, spec: dict[str, str], applied: list[Step]) -> li
                 )
             ]
             if not targets:
-                raise FeasError(f"variant {key}: no applied criterion uses derived value {key!r}")
+                raise FeasError("variant: no applied criterion uses that derived value")
         for st in sorted(targets, key=lambda s: s.id):
             for num in nums:
                 logic = st.criterion.logic.model_dump(mode="json", by_alias=True, exclude_none=True)

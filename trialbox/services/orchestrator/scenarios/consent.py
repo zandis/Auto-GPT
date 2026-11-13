@@ -136,7 +136,7 @@ def parse_langs(raw: str | None) -> list[str]:
     for tok in raw.split(","):
         code = {"en": "en", "ja": "ja", "jp": "ja", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW"}.get(tok.lower())
         if code is None:
-            raise StepFailed("received", f"lang={tok}: supported languages are en, ja, zh-TW")
+            raise StepFailed("received", "lang=: supported languages are en, ja, zh-TW")
         if code not in out:
             out.append(code)
     return out
@@ -146,7 +146,7 @@ def ids(raw: str | None) -> list[str]:
     out = [t.strip().upper() for t in (raw or "").split(",") if t.strip()]
     bad = [t for t in out if not _ID.match(t)]
     if bad:
-        raise StepFailed("release", f"unknown item id(s) {', '.join(bad)}: use the ids on the review sheet (I03, Q2)")
+        raise StepFailed("release", f"{len(bad)} item id(s) are not ids: use the ids on the review sheet (I03, Q2)")
     return out
 
 

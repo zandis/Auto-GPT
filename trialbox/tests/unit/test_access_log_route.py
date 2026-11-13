@@ -173,3 +173,19 @@ def test_the_route_that_takes_the_method_is_named_before_one_that_only_fits_the_
     c = TestClient(app, raise_server_exceptions=False)
     assert c.post("/jobs/cancel").status_code in (401, 403)
     assert _paths(lines) == ["/jobs/cancel"]
+
+
+def test_an_unhandled_errors_line_holds_its_type_and_where_not_its_text(monkeypatch: pytest.MonkeyPatch,
+                                                                         lines: _Lines) -> None:  # fmt: skip
+    """NEW-TRUST-5 (D-557): the line logged the whole traceback, whose last line is the error's own text: a
+    database error quotes its values, a validation error prints its input, an f-string holds a path's value. The
+    line now holds the error's type (and its cause's), and the frames: file, line, function."""
+    c = _client(monkeypatch)
+    assert c.get("/boom/Q9Z-77-Q").status_code == 500
+    (err,) = [r for r in lines.records if r.getMessage() == "unhandled error"]
+    assert getattr(err, "error", None) == "RuntimeError" and err.exc_info is None
+    trace = str(getattr(err, "trace", ""))
+    assert "in boom" in trace and "test_access_log_route.py" in trace and "RuntimeError" in trace
+    whole = " ".join(str(v) for v in err.__dict__.values())
+    # the frame shows the line of code (its f-string as written), never what the f-string made of it
+    assert "Q9Z-77-Q" not in whole and "no row for Q9Z" not in whole and "no row for {what}" in whole
