@@ -744,12 +744,12 @@ G8_JOB_ID = "01JG8000000000000000000000"  # one compile per work folder: the job
 # ---------------------------------------------------------------- the estimate and the report
 def estimate_rows(only: Sequence[str], seqs: int, folder: Path | None = None) -> list[dict[str, Any]]:
     """The estimate's rows of the probes ``only`` names. Every request (a chat call or a ``/tokenize``) is counted at
-    G1's single-call rate (``complete_run.G1_CALLS_PER_SECOND``, 0.78/s): an upper bound. Plus
+    the measured rate at one call in flight (``complete_run.SINGLE_CALL_CPS``, 0.403/s): an upper bound. Plus
     :data:`PART_START_SECONDS`; G-8 adds the gateway's read limit for each protocol's extraction call and one call per
     eligibility line (its concept mapping) of the protocols in the folder."""
     from tb_llm.timeouts import UPSTREAM_READ_S
 
-    from tools.complete_run import G1_CALLS_PER_SECOND as RATE
+    from tools.complete_run import SINGLE_CALL_CPS as RATE
 
     calls = {G4: 2 * n_decoding_prompts(seqs), G5: 2 * 2 * N_EXCERPTS, G7: len(clip_cases()) * 2 * 4}
     rows = []

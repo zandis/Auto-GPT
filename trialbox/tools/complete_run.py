@@ -1612,7 +1612,8 @@ def _priced(e: dict[str, Any], rows: list[dict[str, Any]], hours: float) -> dict
     for r in rows:
         r["usd"] = round(r["hours"] * price, 2)
     cap = cap_hours(rows, hours)
-    return {**e, "rows": rows, "hours": round(hours, 2), "usd": round(hours * price, 2), "cap_hours": cap,
+    # US$ from the hours as printed (two decimals), so a reader's hours x price is the US$ shown
+    return {**e, "rows": rows, "hours": round(hours, 2), "usd": round(round(hours, 2) * price, 2), "cap_hours": cap,
             "cap_usd": round(cap * price, 2), "provisioning": model, "price_per_hour": price}  # fmt: skip
 
 
@@ -1623,47 +1624,100 @@ S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient 
 PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
-# A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (G1, run 20261111T183639Z-986d91c9,
-# commit 986d91c): hospital-ja's wall_seconds 17,960 at 50,000 patients, of which the screening stage 8,584 s; the
-# rest is prepare's lake at 50,000 and the other 19 stages. Source: docs/plan/measurements/g1-2026-11-11/
-# hospital-ja.json (wall_seconds; stage "15 delegation, candidates and referral"). The old estimate counted only the
-# screening (2.14 h) and made the hard cap stop an --only run mid-part (G1 bug A4). OD-10: scaled with the patients
-# the part reads; a newer measurement replaces these two numbers.
-HOSPITAL_PART_SECONDS = 17960.0
-HOSPITAL_PART_PATIENTS = 50000
-# The same measurement's model time: 6,704 calls in the 8,584 s of the screening stage, one call in flight (G1 ran
-# with TB_SCREEN_LLM_CONCURRENCY unset): 0.78 calls per second. With N calls in flight the screening time is the
-# calls over that rate times the gain at N (:func:`llm_speedup`); the rest of the part does not change with N.
-G1_SCREEN_SECONDS = 8584.0
-G1_SCREEN_CALLS = 6704
-G1_CALLS_PER_SECOND = G1_SCREEN_CALLS / G1_SCREEN_SECONDS  # 0.78 at N = 1
-# OD-10, measured: review test G-3's curve, run 20261112T165042Z-931a0f79 (commit 931a0f7), hospital-ja at 5,000
-# patients, judge and verifier on one RTX PRO 6000: calls per second (over the seconds a call was in flight, the
-# gateway's audit) at N calls in flight. Source: that run's report.json, "throughput". The estimate takes from it only
-# the GAIN, rate(N) / rate(1) (2.60x at 4, 4.44x at 16, 4.87x at 48), and keeps G1's 0.78 calls/s as the rate at 1:
-# G1's 0.78 is calls over the screening stage's wall seconds at 50,000 patients, measured in the same run as the part
-# time this estimate scales (17,960 s); G-3's 0.40 at 1 is calls over busy seconds at 5,000 patients on another commit,
-# a different quantity, so it is not mixed in. A ratio of two rates of one run cancels what differs between the runs.
-# Between measured points the gain is interpolated linearly in log2(N) (8 and 32 lie between); above 48 it is held at
-# 48's (the curve has flattened: 4.44x at 16, 4.87x at 48), below 1 it is 1. Not yet measured: zh-TW and 50,000
-# patients (G-3 runs them next); a newer curve replaces these numbers. TB_ESTIMATE_LLM_SPEEDUP stays as the owner's
-# override, with its old meaning: the gain is then min(N, that factor) (1 is the strict bound, no gain at any N).
-G3_CALLS_PER_SECOND: dict[int, float] = {1: 0.400, 4: 1.041, 16: 1.774, 48: 1.947}
-G3_RUN = "20261112T165042Z-931a0f79"
+# A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (OD-10: the estimator's source data;
+# a newer measurement replaces these rows). Each row is one part result, ``parts/<tag>.json`` of the run named:
+#   patients, n          the hospital's patients and the model calls in flight (TB_SCREEN_LLM_CONCURRENCY)
+#   wall                 the part's wall_seconds
+#   calls, cps           the whole part's model calls and calls/s ("throughput": over the seconds a call was in flight)
+#   screen_calls, screen_cps   the main SCREEN job's own ("throughput_screen", its window only)
+# 2026-11-13, commit c25cea6 (run 20261113T085509Z-c25cea6b): both languages at 50,000 patients, 16 in flight.
+# 2026-11-13, run 20261113T044219Z-2b9eec74: both languages at 5,000 patients, 1, 4 and 16 in flight (G-3's curve).
+# The estimate before these (G1's 17,960 s at 50,000 and one in flight, commit 986d91c, scaled by G-3's 5,000-patient
+# gain) said 3.14 h per hospital part at 16 in flight; the part took 2,986 s (ja) and 2,991 s (zh-TW).
+HOSPITAL_RUN_50K = "20261113T085509Z-c25cea6b"
+HOSPITAL_RUN_CURVE = "20261113T044219Z-2b9eec74"
+HOSPITAL_MEASURED: tuple[dict[str, Any], ...] = (
+    {"run": HOSPITAL_RUN_50K, "lang": "ja", "patients": 50000, "n": 16, "wall": 2986.1, "calls": 6568, "cps": 3.876,
+     "screen_calls": 3226, "screen_cps": 4.447},
+    {"run": HOSPITAL_RUN_50K, "lang": "zh-TW", "patients": 50000, "n": 16, "wall": 2990.7, "calls": 6550,
+     "cps": 3.934, "screen_calls": 3217, "screen_cps": 4.558},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "ja", "patients": 5000, "n": 1, "wall": 1685.5, "calls": 606, "cps": 0.402,
+     "screen_calls": 244, "screen_cps": 0.385},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "ja", "patients": 5000, "n": 4, "wall": 734.1, "calls": 597, "cps": 1.046,
+     "screen_calls": 244, "screen_cps": 1.435},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "ja", "patients": 5000, "n": 16, "wall": 501.5, "calls": 603, "cps": 1.779,
+     "screen_calls": 246, "screen_cps": 4.391},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "zh-TW", "patients": 5000, "n": 1, "wall": 1655.8, "calls": 600,
+     "cps": 0.404, "screen_calls": 243, "screen_cps": 0.388},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "zh-TW", "patients": 5000, "n": 4, "wall": 791.5, "calls": 602,
+     "cps": 0.958, "screen_calls": 246, "screen_cps": 1.432},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "zh-TW", "patients": 5000, "n": 16, "wall": 507.9, "calls": 600,
+     "cps": 1.741, "screen_calls": 244, "screen_cps": 4.613},
+)  # fmt: skip
+# the size whose rows span several N: the gain of calls/s with the calls in flight comes from it
+HOSPITAL_CURVE_PATIENTS = 5000
+# The model, per language (a language with no row: every row): a part's wall time is three times, each scaled with the
+# patients (linear between the two measured sizes; proportional beyond them, from the nearer one):
+#   non-LLM   wall - the seconds a call was in flight (calls / cps); does not change with N (mean over the size's rows)
+#   main SCREEN   screen_calls / screen_cps at N
+#   other calls   (calls - screen_calls) / their own rate: the canary, stages 15 and 17, the rest of the part
+# A rate at an N the size did not measure: the measured N nearest in log2 at that size, times the curve's gain from
+# that N to the asked one (5,000-patient rows, each kind of call its own curve; interpolated in log2(N), held above
+# 16 and at 1 below 1). Below 5,000 patients the old floor stays (the canary, the stub time and the note-stage model
+# time do not shrink with the patients). TB_ESTIMATE_LLM_SPEEDUP keeps its meaning: the gain at N is then min(N,
+# that factor) for both kinds of call (1: one call in flight's rate at every N).
+SINGLE_CALL_CPS = round(sum(r["cps"] for r in HOSPITAL_MEASURED if r["n"] == 1) /
+                        sum(1 for r in HOSPITAL_MEASURED if r["n"] == 1), 3)  # fmt: skip
 
 
-def measured_gain(n: int) -> float:
-    """G-3's measured gain at ``n`` calls in flight: rate(n) / rate(1) of :data:`G3_CALLS_PER_SECOND`, interpolated
-    linearly in log2(n) between the measured points, held at the last point above it, 1 at or below 1."""
-    pts = sorted(G3_CALLS_PER_SECOND.items())
-    base = G3_CALLS_PER_SECOND[1]
+def _mean(xs: Iterable[float]) -> float:
+    v = list(xs)
+    return sum(v) / len(v)
+
+
+def _hospital_rows(lang: str = "") -> list[dict[str, Any]]:
+    rows = [r for r in HOSPITAL_MEASURED if r["lang"] == lang]
+    return rows or list(HOSPITAL_MEASURED)
+
+
+def _kind_rate(r: dict[str, Any], kind: str) -> float:
+    """Calls/s of one kind of call in a measured row: ``main`` (the main SCREEN) or ``other`` (the rest)."""
+    if kind == "main":
+        return float(r["screen_cps"])
+    other_busy = r["calls"] / r["cps"] - r["screen_calls"] / r["screen_cps"]
+    return (r["calls"] - r["screen_calls"]) / other_busy
+
+
+def _kind_calls(r: dict[str, Any], kind: str) -> float:
+    return float(r["screen_calls"] if kind == "main" else r["calls"] - r["screen_calls"])
+
+
+def rate_curve(kind: str, lang: str = "") -> dict[int, float]:
+    """Calls/s of ``kind`` at each N measured at :data:`HOSPITAL_CURVE_PATIENTS` (mean over the rows)."""
+    by: dict[int, list[float]] = {}
+    for r in _hospital_rows(lang):
+        if r["patients"] == HOSPITAL_CURVE_PATIENTS:
+            by.setdefault(int(r["n"]), []).append(_kind_rate(r, kind))
+    return {n: _mean(v) for n, v in sorted(by.items())}
+
+
+def curve_gain(curve: dict[int, float], n: int) -> float:
+    """rate(n) / rate(1) of ``curve``, interpolated linearly in log2(n) between its points, held above the last
+    point, 1 at or below 1."""
+    pts = sorted(curve.items())
+    base = curve[pts[0][0]]
     if n <= pts[0][0]:
         return 1.0
     for (n0, r0), (n1, r1) in itertools.pairwise(pts):
         if n <= n1:
             f = (math.log2(n) - math.log2(n0)) / (math.log2(n1) - math.log2(n0))
-            return round((r0 + f * (r1 - r0)) / base, 3)
-    return round(pts[-1][1] / base, 3)
+            return (r0 + f * (r1 - r0)) / base
+    return pts[-1][1] / base
+
+
+def measured_gain(n: int) -> float:
+    """The main SCREEN's measured gain at ``n`` calls in flight, both languages' mean (the G-3 table's figure)."""
+    return round(_mean(curve_gain(rate_curve("main", lang), n) for lang in LANGS), 3)
 
 
 def speedup_override() -> float | None:
@@ -1681,7 +1735,7 @@ def speedup_override() -> float | None:
 
 
 def llm_speedup(n: int) -> float:
-    """What the estimate divides the single-call screening time by at ``n`` calls in flight: G-3's measured gain
+    """The gain the estimate gives ``n`` calls in flight over one: the main SCREEN's measured gain
     (:func:`measured_gain`), or ``min(n, TB_ESTIMATE_LLM_SPEEDUP)`` when the owner set it; never below 1."""
     factor = speedup_override()
     if factor is not None:
@@ -1689,15 +1743,77 @@ def llm_speedup(n: int) -> float:
     return max(1.0, measured_gain(n))
 
 
-def hospital_seconds(patients: int, n: int = 1, gain: bool = True) -> float:
-    """A hospital part's wall seconds at ``patients`` with ``n`` model calls in flight: G1's measurement scaled with
-    the patients, its screening share (the calls at 0.78 per second) divided by :func:`llm_speedup`. At ``n`` 1 it
-    is the measurement itself."""
-    scale = patients / HOSPITAL_PART_PATIENTS
-    div = llm_speedup(n) if gain else 1.0
-    return (HOSPITAL_PART_SECONDS - G1_SCREEN_SECONDS) * scale + G1_SCREEN_SECONDS * scale / div
+def _gain(curve: dict[int, float], n: int) -> float:
+    factor = speedup_override()
+    return max(1.0, min(float(n), factor)) if factor is not None else curve_gain(curve, n)
 
 
+def _size_split(lang: str, size: int, n: int) -> dict[str, float]:
+    """The three times of a part at a measured ``size`` with ``n`` in flight (see :data:`HOSPITAL_MEASURED`)."""
+    rows = [r for r in _hospital_rows(lang) if r["patients"] == size]
+    ns = sorted({int(r["n"]) for r in rows})
+    m = min(ns, key=lambda x: (abs(math.log2(x) - math.log2(max(1, n))), x))
+    at_m = [r for r in rows if r["n"] == m]
+    out = {"non_llm": _mean(r["wall"] - r["calls"] / r["cps"] for r in rows)}
+    for kind in ("main", "other"):
+        curve = rate_curve(kind, lang)
+        one = _mean(_kind_rate(r, kind) for r in at_m) / curve_gain(curve, m)  # this size's rate at 1 in flight
+        rate = one * _gain(curve, n) if (n != m or speedup_override() is not None) else _mean(
+            _kind_rate(r, kind) for r in at_m)  # fmt: skip
+        calls = _mean(_kind_calls(r, kind) for r in rows)
+        out[f"{kind}_calls"], out[kind] = calls, calls / rate
+    return out
+
+
+def hospital_split(patients: int, n: int = 1, lang: str = "") -> dict[str, Any]:
+    """A hospital part at ``patients`` with ``n`` calls in flight: ``non_llm``, ``main`` (the main SCREEN's calls),
+    ``other`` (the part's other calls) seconds and their sum ``seconds``, the calls of each kind, whether ``n`` was
+    measured at the sizes used (``measured``) and the runs the figures come from (``runs``)."""
+    rows = _hospital_rows(lang)
+    sizes = sorted({int(r["patients"]) for r in rows})
+    lo = max([s for s in sizes if s <= patients] or [sizes[0]])
+    hi = min([s for s in sizes if s >= patients] or [sizes[-1]])
+    a, b = _size_split(lang, lo, n), _size_split(lang, hi, n)
+    if lo == hi:
+        f = patients / lo
+        mix = {k: v * f for k, v in a.items()}
+    else:
+        t = (patients - lo) / (hi - lo)
+        mix = {k: a[k] + t * (b[k] - a[k]) for k in a}
+    used = {lo, hi}
+    measured = all(any(r["patients"] == s and r["n"] == n for r in rows) for s in used)
+    # the runs the figures come from: the sizes used, and the curve's run when its gain carried a rate to this N
+    runs = sorted(
+        {
+            str(r["run"])
+            for r in rows
+            if r["patients"] in used or (not measured and r["patients"] == HOSPITAL_CURVE_PATIENTS)
+        }
+    )
+    return {"non_llm": mix["non_llm"], "main": mix["main"], "other": mix["other"],
+            "calls": round(mix["main_calls"] + mix["other_calls"]), "main_calls": round(mix["main_calls"]),
+            "seconds": mix["non_llm"] + mix["main"] + mix["other"], "measured": measured, "runs": runs,
+            "sizes": sorted(used)}  # fmt: skip
+
+
+def hospital_seconds(patients: int, n: int = 1, gain: bool = True, lang: str = "") -> float:
+    """A hospital part's wall seconds at ``patients`` with ``n`` model calls in flight (:func:`hospital_split`);
+    ``gain`` False: at one call in flight."""
+    return float(hospital_split(patients, n if gain else 1, lang)["seconds"])
+
+
+def hospital_floor_n(patients: int, n: int, lang: str = "") -> int:
+    """The calls in flight the hard cap's floor assumes: the largest N up to ``n`` measured at every size the estimate
+    of ``patients`` uses, else 1 (no gain the measurements did not show at that size)."""
+    s = hospital_split(patients, n, lang)
+    rows = _hospital_rows(lang)
+    common = set.intersection(*({int(r["n"]) for r in rows if r["patients"] == z} for z in s["sizes"]))
+    return max([x for x in common if x <= n] or [1])
+
+
+# the 50,000-patient part at one call in flight (both languages' rows): derived, as no run measured it directly
+HOSPITAL_PART_PATIENTS = 50000
+HOSPITAL_PART_SECONDS = round(hospital_seconds(HOSPITAL_PART_PATIENTS, 1), 1)
 # the benches (owner's approval of 2026-11-09; no card measurement yet, so set high): the embedding comparison is two
 # small models over about 7,000 notes plus the weights' download; the profile stand-in samples ``--profile-patients``
 # at 2 s each on the card's batch (16 sequences) plus a sequential latency sample and its synthetic hospital
@@ -1714,11 +1830,11 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
              local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
              profile_patients: int = 400, llm_concurrency: tuple[int, ...] = (1,)) -> dict[str, Any]:  # fmt: skip
-    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the G1
-    measurement (:data:`HOSPITAL_PART_SECONDS` at :data:`HOSPITAL_PART_PATIENTS`) scaled with ``patients``, never
-    below its model time. ``llm_concurrency``: the model calls in flight (:func:`hospital_seconds`; the default 1 is
-    what G1 measured); several values: one hospital part per value and language, tagged ``hospital-<lang>@c<N>``
-    (review G-3's curve). Model time: note-stage patients
+    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the measured parts
+    of :data:`HOSPITAL_MEASURED` (:func:`hospital_split`: non-LLM time, the main SCREEN's calls and the other calls,
+    each scaled with ``patients``), at the ``llm_concurrency`` model calls in flight; several values: one hospital
+    part per value and language, tagged ``hospital-<lang>@c<N>`` (review G-3's curve). Its ``model_items`` are the
+    part's model calls. The other scenarios' model time: note-stage patients
     times the measured 6.3 s per patient on the RTX PRO 6000 (VALIDATION §3; a chart read counts as one), criterion
     checks at 0.3 s each, the canary once per box with the pair. Other time: the part's stub time on the local run,
     scaled with its patients. The walk, backup, update and scale run after the VM has stopped: no card time.
@@ -1747,17 +1863,23 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     for lang in langs if g1 else ():
         notes = S3_SHARE * patients
         for n in lc:
-            # the G1 measurement scaled with the patients (G1 bug A4) and the calls in flight; never below the model
-            # time of the old sum at that concurrency, which is most of a small hospital (the canary, the stub time)
-            measured = hospital_seconds(patients, n)
+            # the measured parts (HOSPITAL_MEASURED) scaled with the patients and the calls in flight: non-LLM time,
+            # the main SCREEN's calls and the other calls, each on its own. Below the smallest measured hospital the
+            # old sum stays as a floor (the canary and the stub time do not shrink with the patients)
+            split = hospital_split(patients, n, lang)
+            small = patients < min(int(r["patients"]) for r in HOSPITAL_MEASURED)
             model = notes * sec / llm_speedup(n) + CANARY_SECONDS + other("hospital", patients, local_patients)
             many = len(lc) > 1
-            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''})", patients, notes,
-                            max(measured, model), (f"hospital-{lang}" + (f"@c{n}" if many else ""),)))  # fmt: skip
-            # the cap's floor: the same part with no gain at all from the calls in flight (the curve is measured at
-            # 5,000 ja only; a cap below the part stops it mid-run, G1 bug A4)
-            no_gain = notes * sec + CANARY_SECONDS + other("hospital", patients, local_patients)
-            rows[-1]["floor_seconds"] = max(hospital_seconds(patients, 1, gain=False), no_gain)
+            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''})", patients, split["calls"],
+                            max(split["seconds"], model) if small else split["seconds"],
+                            (f"hospital-{lang}" + (f"@c{n}" if many else ""),)))  # fmt: skip
+            rows[-1]["split"] = {k: round(float(split[k]), 1) for k in ("non_llm", "main", "other")}
+            rows[-1]["source"] = split["runs"]
+            # the cap's floor: the same part with no gain the measurements did not show at its size (a cap below
+            # the part stops it mid-run, G1 bug A4)
+            fn = hospital_floor_n(patients, n, lang)
+            no_gain = notes * sec / llm_speedup(fn) + CANARY_SECONDS + other("hospital", patients, local_patients)
+            rows[-1]["floor_seconds"] = max(hospital_seconds(patients, fn, lang=lang), no_gain if small else 0.0)
         rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
     for name in scenarios.SCENARIOS if g1 else ():
         t = (f"scenario-{name}",)
@@ -1787,6 +1909,8 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     head = {"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts), "llm_concurrency": list(lc),
             "llm_speedup": [llm_speedup(n) for n in lc], "llm_speedup_override": speedup_override(),
             "max_num_seqs": record_max_seqs()}  # fmt: skip
+    if g1 and langs:
+        head["hospital_source"] = sorted({x for r in rows for x in r.get("source") or []})
     return _priced(head, rows, hours)
 
 
@@ -1853,7 +1977,7 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
         model = provisioning(tags)  # D-468: on demand for a VM with a hospital part, spot for the others
         price = price_per_hour(model)
         shards.append({"shard": i + 1, "tags": tags, "rows": [r["scenario"] for r in b], "hours": round(h, 2),
-                       "usd": round(h * price, 2), "cap_hours": cap, "cap_usd": round(cap * price, 2),
+                       "usd": round(round(h, 2) * price, 2), "cap_hours": cap, "cap_usd": round(cap * price, 2),
                        "provisioning": model, "price_per_hour": price})  # fmt: skip
     total = sum(x["hours"] for x in shards)
     return {"vms": len(shards), "shards": shards, "wall_hours": max(x["hours"] for x in shards),
@@ -2250,13 +2374,16 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
     if any(n > 1 for n in lc):
         gains = ", ".join(f"{n}: {g:g}x" for n, g in zip(lc, e.get("llm_speedup") or [], strict=False) if n > 1)
         if e.get("llm_speedup_override"):
-            out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, divided by min(N, "
-                       f"{e['llm_speedup_override']:g}) (TB_ESTIMATE_LLM_SPEEDUP, the owner's override of G-3's "
-                       f"measured curve; {gains})")  # fmt: skip
+            out.append(f"  model time at N in flight: one call in flight's rate times min(N, "
+                       f"{e['llm_speedup_override']:g}) (TB_ESTIMATE_LLM_SPEEDUP, the owner's override of the measured "
+                       f"curve; {gains})")  # fmt: skip
         else:
-            out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, times the gain G-3 "
-                       f"measured at N in flight (run {G3_RUN}, hospital-ja at 5,000; {gains}; between points "
-                       "interpolated, above 48 held at 48's)")  # fmt: skip
+            top = max(n for r in HOSPITAL_MEASURED if r["patients"] == HOSPITAL_CURVE_PATIENTS for n in [r["n"]])
+            out.append(
+                f"  model time at N in flight: the rates measured at that N where a run measured it, else the "
+                f"gain of the curve measured in run {HOSPITAL_RUN_CURVE} ({HOSPITAL_CURVE_PATIENTS:,} patients, "
+                f"ja and zh-TW; main SCREEN {gains}; between points interpolated, above {top} held at {top}'s)"
+            )
     order = e.get("llm_concurrency_order") or {}
     if order.get("seed") is not None:
         out.append(f"  order: randomised with seed {order['seed']} (given: {', '.join(map(str, order['given']))}; "
@@ -2276,6 +2403,28 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
     return out
 
 
+def hospital_source_lines(e: dict[str, Any]) -> list[str]:
+    """The estimate's lines naming the measured runs a hospital part's figures come from."""
+    runs = e.get("hospital_source") or []
+    if not any(r["tags"] and r["tags"][0].startswith("hospital-") for r in e.get("rows") or []):
+        return []
+    out = [f"hospital parts: from the measured runs {', '.join(runs)} (each part's non-LLM time, its main SCREEN calls "
+           "and its other calls, each scaled with the patients):"]  # fmt: skip
+    for r in HOSPITAL_MEASURED:
+        if r["run"] in runs:
+            out.append(f"  {r['run']} hospital-{r['lang']} {r['patients']:,} patients, {r['n']} in flight: wall "
+                       f"{r['wall']:,.0f} s, {r['calls']:,} calls at {r['cps']}/s, main SCREEN {r['screen_calls']:,} "
+                       f"calls at {r['screen_cps']}/s")  # fmt: skip
+    for r in e["rows"]:
+        if r["tags"] and r["tags"][0].startswith("hospital-") and r.get("split"):
+            x = r["split"]
+            out.append(
+                f"  {r['tags'][0]}: non-LLM {x['non_llm']:,.0f} s + main SCREEN {x['main']:,.0f} s + other "
+                f"calls {x['other']:,.0f} s; the cap's floor {float(r.get('floor_seconds', 0)):,.0f} s"
+            )
+    return out
+
+
 def print_estimate(e: dict[str, Any]) -> str:
     lines = [f"TrialBox complete run on the RTX PRO 6000: {e['patients']:,} patients, US${e['price_per_hour']}/h, "
              f"{e['seconds_per_note_patient']} s per note-stage patient (VALIDATION §3)", "",
@@ -2285,7 +2434,9 @@ def print_estimate(e: dict[str, Any]) -> str:
             f"{r['scenario']:<42}{r['patients']:>10,}{r['model_items']:>13,}{r['hours']:>8.2f}{r['usd']:>9.2f}"
         )
     lines += ["", f"{'total':<42}{'':>10}{'':>13}{e['hours']:>8.2f}{e['usd']:>9.2f}", *concurrency_lines(e),
-              f"hard cap (estimate x 1.3, rounded up): {e['cap_hours']} h, at most US${e['cap_usd']}",
+              *hospital_source_lines(e),
+              f"hard cap (estimate x 1.3, rounded up, never below each hospital part's floor): {e['cap_hours']} h, "
+              f"at most US${e['cap_usd']}",
               f"one VM: {'on demand (a hospital part, D-468)' if e.get('provisioning') == 'STANDARD' else 'spot'}, "
               f"US${e['price_per_hour']}/h",
               f"a bounded run: only {' '.join(e['only'])}" if e.get("only") else

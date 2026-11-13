@@ -27,7 +27,7 @@ never in the metadata); reach them with `gcloud compute ssh tb-gpu-sim --zone as
 | 32 GB-capped pair (the 5090 stand-in) | `deploy/gcp/gpu-sim-startup.sh` (the usual startup script) | per run |
 | serving record with hashes | `deploy/gcp/capture-serving-config.sh prepare`, start, `fetch`, stop | 0.5 h |
 | N-12 on the deployed files (done 2026-11-08) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
-| the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate` (each hospital part from G1's measured 17,960 s at 50,000 patients, scaled with `--patients`); D-141 |
+| the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate` (each hospital part from the measured parts of 2026-11-13, scaled with `--patients`; the output names the runs); D-141 |
 | the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | about 5.5 h (a hospital part is 5.0 h, measured in G1), US$46; D-148 |
 
 **The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour;
@@ -202,12 +202,16 @@ time" is the parts' times summed; every failed check's whole detail is in `repor
 not record it); not offered yet: repeats per setting and a model-server restart between settings.
 Limits to know before reading a curve:
 
-* The estimate's screening time is G1's 0.78 calls/s at one call in flight times the gain G-3 measured on 2026-11-12
-  (run 20261112T165042Z-931a0f79, hospital-ja at 5,000: 0.40, 1.04, 1.77, 1.95 calls/s at 1, 4, 16, 48, so 2.6x,
-  4.4x, 4.9x; 8 and 32 interpolated, above 48 held). Only the ratio is taken: G1's 0.78 is over the screening stage's
-  wall time at 50,000 (the part time the estimate scales), G-3's 0.40 over busy seconds at 5,000 on another commit
-  (OD-10, the comment in `tools/complete_run.py`). `TB_ESTIMATE_LLM_SPEEDUP` overrides it with min(N, factor). The hard
-  cap never drops below the run with no gain at all (zh-TW and 50,000 are not measured yet).
+* A hospital part's estimate comes from the measured parts (`HOSPITAL_MEASURED` in `tools/complete_run.py`, OD-10):
+  run 20261113T085509Z-c25cea6b (50,000 patients, 16 in flight: 2,986 s ja, 2,991 s zh-TW; main SCREEN 3,226 calls
+  at 4.447/s and 3,217 at 4.558/s) and run 20261113T044219Z-2b9eec74 (5,000 patients at 1, 4, 16 in flight, both
+  languages). Three times, each scaled with the patients (linear between the sizes, proportional beyond): non-LLM
+  time (wall minus the seconds a call was in flight), the main SCREEN's calls over its calls/s, the part's other calls
+  over theirs. A setting a size did not measure takes that size's nearest measured setting times the 5,000-patient
+  curve's gain (above 16 held). The output names the runs. `TB_ESTIMATE_LLM_SPEEDUP` overrides the gain with
+  min(N, factor). The hard cap (x 1.3) never drops below the part at the largest setting measured at its size (1 in
+  flight when none is at or below the asked one). The old estimate (G1's 17,960 s at one in flight times the
+  2026-11-12 gain) said 3.14 h per 50,000-patient part at 16 in flight: about 3.6x the measured part.
 * The report's candidate list per part is the main SCREEN's (the job whose funnel it shows), compared across the
   settings by pseudonymous id; when they differ the report names each id and its tier at every setting (M1: the
   2026-11-12 report compared a later stage's one-patient list and called 54, 54, 55, 55 identical). The throughput

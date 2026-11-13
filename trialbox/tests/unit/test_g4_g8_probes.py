@@ -40,14 +40,14 @@ def test_each_probe_is_a_part_named_only_by_only() -> None:
     assert tags == ["g5-tokens", "g8-protocols"]
 
 
-def test_the_estimate_has_a_row_per_probe_derived_from_g1s_rate(
+def test_the_estimate_has_a_row_per_probe_derived_from_the_single_call_rate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TB_G8_PROTOCOLS_DIR", str(tmp_path / "none"))  # a folder with no protocol: G-8's row says so
     e = cr.restrict(cr.estimate(5000), PARTS)
     rows = {r["tags"][0]: r for r in e["rows"] if r["tags"]}
     assert list(rows) == PARTS
-    rate = cr.G1_CALLS_PER_SECOND
+    rate = cr.SINGLE_CALL_CPS
     assert rows["g4-decoding"]["model_items"] == 2 * gp.DECODING_ROUNDS * 16  # the record's 16 slots, both ways
     assert rows["g4-decoding"]["seconds"] == pytest.approx(gp.PART_START_SECONDS + 128 / rate, abs=0.1)
     assert rows["g5-tokens"]["model_items"] == 800 and rows["g7-clipped"]["model_items"] == 16
@@ -67,7 +67,7 @@ def test_a_protocol_folder_sizes_the_g8_row(tmp_path: Path) -> None:
     from tb_llm.timeouts import UPSTREAM_READ_S
 
     assert row["model_items"] == 5 and "1 public protocol" in row["scenario"]
-    assert row["seconds"] == pytest.approx(gp.PART_START_SECONDS + UPSTREAM_READ_S + 5 / cr.G1_CALLS_PER_SECOND, 0.1)
+    assert row["seconds"] == pytest.approx(gp.PART_START_SECONDS + UPSTREAM_READ_S + 5 / cr.SINGLE_CALL_CPS, 0.1)
 
 
 def test_the_dry_run_plans_the_probes_on_one_spot_vm(tmp_path: Path) -> None:
@@ -82,11 +82,11 @@ def test_the_dry_run_plans_the_probes_on_one_spot_vm(tmp_path: Path) -> None:
     plan = json.loads((tmp_path / "out" / "plan.json").read_text(encoding="utf-8"))
     rows = [r["scenario"] for r in plan["rows"] if r["tags"]]
     assert [x.split(" ", 1)[0] for x in rows] == ["G-4", "G-5", "G-7", "G-8"] and "no fixture: not run" in rows[3]
-    assert "0.97" in r.stdout and "g4-decoding" in r.stdout
+    assert "1.28" in r.stdout and "g4-decoding" in r.stdout
     meta = next(ln for ln in r.stdout.splitlines() if "add-metadata" in ln and "tb-run-id=" in ln)
     assert sorted(meta.split("tb-only=")[1].split(",")[0].split()) == sorted(PARTS)
     sched = next(ln for ln in r.stdout.splitlines() if "set-scheduling" in ln and "max-run-duration=" in ln)
-    assert "--provisioning-model=SPOT" in sched and "--max-run-duration=2h" in sched  # 0.97 h x 1.3
+    assert "--provisioning-model=SPOT" in sched and "--max-run-duration=2h" in sched  # 1.28 h x 1.3
     report = next(ln for ln in r.stdout.splitlines() if "--report-only" in ln)
     assert all(p in report for p in PARTS)
 
