@@ -22,8 +22,9 @@ library does that with a typed reason.
    `-`, `@`, a tab or a carriage return is written with a leading quote. `no_formulas(workbook)`: every formula
    cell of a workbook becomes a text cell with the same characters; called once, just before the save.
 2. **The feedback export** passes every cell through `csv_cell`.
-3. **The screening log's workbooks and the registry export** call `no_formulas` before each save. They hold no
-   formula of their own, so none is lost.
+3. **The screening log's workbooks, the registry export, the enrolment report and the EDC data workbook** call
+   `no_formulas` before each save. They hold no formula of their own, so none is lost. The enrolment report's
+   CSV passes its text cells through `csv_cell`.
 4. **A new maker of a workbook must be named.** `tests/unit/test_formula_guard.py` lists every module of
    `services/` that makes a workbook: guarded here, or outside this card. A new one fails the test until it is
    put on one of the two lists.
@@ -32,13 +33,31 @@ library does that with a typed reason.
 
 - **The audit report and the copy-assist sheet keep their own guard** (the same rule, written twice before this
   card). Moving them onto the shared one changes no byte and can follow.
-- **Files made outside the console and the registry are not judged here**, only listed (by reading, not by
-  running): the data core's exports (`datacore/export.py`, `forms.py`, `sources.py`: typed EDC values), the
-  enrolment report (`orchestrator/lifecycle_api.py`, CSV and workbook), the cohort CSV
-  (`orchestrator/scenarios/cohort.py`), the orchestrator's report workbooks, the criteria review workbook, site
-  set-up's files. Reported to the integrator; the data core's are lane E's.
+- **Not judged here, only listed** (by reading, not by running; reported to the integrator): the data core's
+  REDCap CSV (`datacore/export.py: redcap_csv`: a REDCap import reads that file, so a leading quote would change
+  data: lane E's decision), `datacore/forms.py` and `sources.py`, the cohort CSV
+  (`orchestrator/scenarios/cohort.py`: ids, counts and ruleset text), the orchestrator's report workbooks and
+  the criteria review workbook (job outputs the console serves), site set-up's templates.
 - **In a workbook a text that begins with `+`, `-` or `@` was a text cell already**; a spreadsheet does not run a
   text cell. In the CSV the leading quote is in the file: a program that reads the export sees it on such a cell.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer; verdict: merge, no HIGH. It opened the files in a spreadsheet program
+(LibreOffice): a guarded workbook shows `=1+1` as text where an unguarded one shows `2`; a delimiter or a quote
+in a comment cannot break out of its cell; a later line of a cell that begins with `=` stays text.
+
+- **Two more files the console serves had the same defect** and are guarded now: the enrolment report (CSV and
+  workbook: a withdrawal's reason is typed) and the EDC data workbook (`datacore/export.py: xlsx`, one line in
+  lane E's file, named in the pull request). Test first.
+- **`csv_cell` looked at the first character only.** It now looks past blanks and invisible characters and
+  reads a full-width sign as its plain form (a Japanese or Chinese keyboard types `＝`; whether Excel runs it on
+  opening a CSV was not tested, so it is quoted).
+- **The test that names every maker saw no CSV.** A second test holds every console module that writes a CSV
+  to the shared cell (or to its own older rule, by name).
+- **Left as limits:** the check that each save is guarded counts calls in the file's text; it does not follow
+  which workbook is saved. A text that begins with `-`, `+` or `@` (a comment that opens with a dash) shows its
+  leading quote in the CSV; no numeric column of the feedback export is affected.
 
 ## Reuse check
 

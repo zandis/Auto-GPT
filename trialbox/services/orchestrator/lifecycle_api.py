@@ -43,6 +43,7 @@ from datacore.store import DataCore
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from rc_bridge.client import RedcapClient
+from tb_common import sheets
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
@@ -395,7 +396,10 @@ def report_files(rep: dict[str, Any], rs: str, at: str) -> dict[str, Any]:
     rows += [["screen_fail_reason", k, "screen_fail", v] for k, v in rep["screen_fail_reasons"].items()]
     rows += [["withdrawal", w["record"], w["day"], w["reason"]] for w in rep["withdrawals"]]
     buf = io.StringIO()
-    csv.writer(buf, lineterminator="\n").writerows(rows)
+    # NEW-CSV-1 (D-549): a withdrawal's reason is typed; no text cell runs as a formula in a spreadsheet
+    csv.writer(buf, lineterminator="\n").writerows(
+        [sheets.csv_cell(c) if isinstance(c, str) else c for c in row] for row in rows
+    )
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
@@ -424,6 +428,7 @@ def report_files(rep: dict[str, Any], rs: str, at: str) -> dict[str, Any]:
     for sheet in (ws, mo, sf, wd):
         for c in sheet[1]:
             c.font = Font(bold=True)
+    sheets.no_formulas(wb)  # NEW-CSV-1 (D-549)
     out = io.BytesIO()
     wb.save(out)
     return {"csv": buf.getvalue(), "xlsx": normalize_ooxml(out.getvalue())}

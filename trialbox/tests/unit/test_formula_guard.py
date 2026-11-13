@@ -18,6 +18,19 @@ from tb_common import sheets
 
 ROOT = Path(__file__).resolve().parents[2]
 BAD = ["=1+1", "+1+1", "-1+1", "@SUM(A1)", "\t=1+1", "\r=1+1", '=HYPERLINK("http://example.test","x")']
+# the review: what a spreadsheet may still read as a formula although the first character is another: blanks or an
+# invisible character before the sign, and the full-width signs a Japanese or Chinese keyboard types
+SLY = [
+    " =1+1",
+    "\n=1+1",
+    "\u3000=1+1",
+    "\u200b=1+1",
+    "\ufeff=1+1",
+    "\uff1d1+1",
+    "\uff0b1+1",
+    "\uff0d1+1",
+    "\uff20SUM(1)",
+]
 
 pytestmark = pytest.mark.nodb
 
@@ -43,6 +56,9 @@ def test_plain_cells_are_left_as_they_are() -> None:
     assert row["comment"] == "the list was slow on Monday" and row["rating"] == "" and row["id"] == "1"
     assert sheets.csv_cell(None) == "" and sheets.csv_cell(12) == "12" and sheets.csv_cell("a=b") == "a=b"
     assert [sheets.csv_cell(b) for b in BAD] == ["'" + b for b in BAD]
+    assert [sheets.csv_cell(b) for b in SLY] == ["'" + b for b in SLY]
+    for plain in ("a - b", "1 + 1 = 2", "  two blanks then words", "\u3000name", "x@y.test"):
+        assert sheets.csv_cell(plain) == plain
 
 
 def test_a_workbook_keeps_typed_text_as_text() -> None:
@@ -62,18 +78,48 @@ def test_a_workbook_keeps_typed_text_as_text() -> None:
     assert cells[1].value == "=1+1" and cells[1 + len(BAD)].value == 3
 
 
+def test_the_data_export_workbook_and_the_enrolment_report_keep_typed_text_as_text() -> None:
+    """The review: two more files the console serves. An EDC text value and a withdrawal reason are typed."""
+    from orchestrator import lifecycle_api
+
+    typed = '=HYPERLINK("http://example.test","open")'
+    rep = {"counts": dict.fromkeys(lifecycle_api.lc.STATES, 0), "ever": dict.fromkeys(lifecycle_api.lc.STATES, 0),
+           "months": [], "screen_fail_reasons": {typed: 1, "+other": 2},
+           "withdrawals": [{"record": "S-001", "day": "2026-11-01", "reason": typed}]}  # fmt: skip
+    files = lifecycle_api.report_files(rep, "GZQO", "2026-11-13T00:00:00+00:00")
+    for row in csv.reader(io.StringIO(files["csv"])):
+        assert not [c for c in row if c.startswith(sheets.FORMULA_START)], row
+    wb = load_workbook(io.BytesIO(files["xlsx"]))
+    cells = [c for ws in wb.worksheets for r in ws.iter_rows() for c in r]
+    assert not [c.coordinate for c in cells if c.data_type == "f"] and sum(c.value == typed for c in cells) == 2
+    text = (ROOT / "services/datacore/export.py").read_text(encoding="utf-8")
+    assert "sheets.no_formulas(wb)" in text.split("def xlsx(")[1]  # the EDC data workbook; its own test runs it
+
+
+def test_every_csv_the_console_writes_is_guarded() -> None:
+    """The review: the workbook scan saw no CSV. A console module that writes one uses the shared cell, or is one
+    of the two that had the same rule of their own before this card."""
+    own_rule = {"audit_page.py", "copy_assist_page.py"}
+    for f in sorted((ROOT / "services" / "console").glob("*.py")):
+        text = f.read_text(encoding="utf-8")
+        if "csv.writer(" in text or "csv.DictWriter(" in text:
+            assert "sheets.csv_cell(" in text or f.name in own_rule, f.name
+
+
 #: a module that makes a workbook: the guard, or why none is needed. Read once, by a person.
 WORKBOOKS = {
     "services/console/screening_log.py": "guard",
     "services/orchestrator/candidates.py": "guard",
+    "services/orchestrator/lifecycle_api.py": "guard",  # the enrolment report
+    "services/datacore/export.py": "guard",  # the EDC data workbook (lane E's file: one line)
 }
 #: makers of a workbook or a CSV outside this card (the orchestrator's reports, the data core's exports, site
 #: set-up's templates): reported to the integrator on 2026-11-13, by reading; not judged here
 NOT_THIS_CARD = {
     "services/deliverables/render.py", "services/orchestrator/reports/feasibility_xlsx.py",
     "services/orchestrator/reports/nav_xlsx.py", "services/orchestrator/reports/trial_sim_xlsx.py",
-    "services/orchestrator/reports/candidate_xlsx.py", "services/orchestrator/lifecycle_api.py",
-    "services/sitesetup/help.py", "services/criteria_compiler/review.py", "services/datacore/export.py",
+    "services/orchestrator/reports/candidate_xlsx.py", "services/sitesetup/help.py",
+    "services/criteria_compiler/review.py",
 }  # fmt: skip
 
 

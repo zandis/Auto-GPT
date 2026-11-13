@@ -12,20 +12,27 @@ Standard library only (``openpyxl`` is the caller's).
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+_SIGNS = ("=", "+", "-", "@")
+_BLANK = " \t\r\n\u3000\u00a0\ufeff\u200b"  # blanks, the ideographic blank, a byte-order mark, a zero-width blank
 
 
 def csv_cell(value: Any) -> str:
-    """``value`` as a CSV cell a spreadsheet will not run."""
+    """``value`` as a CSV cell a spreadsheet will not run. The sign is looked for past blanks and invisible
+    characters, and in its full-width form too (a Japanese or Chinese keyboard types ``＝``; some spreadsheets read
+    it as ``=``): the caller need not have trimmed the text."""
     text = "" if value is None else str(value)
-    return "'" + text if text.startswith(FORMULA_START) else text
+    head = unicodedata.normalize("NFKC", text.lstrip(_BLANK)[:1])
+    return "'" + text if head in _SIGNS or text.startswith(("\t", "\r")) else text
 
 
 def no_formulas(workbook: Any) -> int:
     """Every formula cell of the workbook becomes a text cell with the same characters; how many were changed.
-    Call it once, just before the workbook is saved."""
+    Call it once, just before the workbook is saved: a value set after it is a formula again. For the workbooks
+    TrialBox fills with ``append`` (plain values, no array formula, not write-only)."""
     changed = 0
     for ws in workbook.worksheets:
         for row in ws.iter_rows():
