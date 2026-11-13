@@ -37,6 +37,11 @@ closes them. The tests build hundreds of apps in one process.
    desk's call asks for the interactive wait and never the batch budget; once the breaker is open the call does
    not queue at all).
 
+5. A third one of the same kind, lane G's `tests/unit/test_cloud_run.py` heartbeat test (named here because the
+   file is not lane D's; the integrator asked for it in this card): it slept 1.2 s and assumed the child had
+   started. It is now ordered by events: the child says when it has started, the test counts the heartbeat's own
+   CPU checks, and the idle child blocks on its input, using no CPU at all. `tools/complete_run.py` is unchanged.
+
 ## Consequences
 
 - A worker's cluster holds only the connections of the test that is running, plus those of wide fixtures.
