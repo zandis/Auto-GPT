@@ -3,8 +3,8 @@
 * :meth:`Guard.detect` runs every recogniser and merges overlapping spans (longest wins).
 * :meth:`Guard.redact` replaces each span with a type tag (``[TW_NATIONAL_ID]``); the trace store calls it at write.
 * :meth:`Guard.tripwire` is the independent check the gateway runs (LLM-15, PRIV-29): a hit from these recognisers
-  or from the v1 :func:`tb_common.phi_guard.scan` blocks, whatever the class label says. A Chinese or Japanese
-  NAME finding gets a second look first (:mod:`guard.names`, D-647): the patterns alone refused ordinary text.
+  or from the v1 :func:`tb_common.phi_guard.scan` blocks, whatever the class label says. A NAME finding on a
+  Japanese line gets a second look first (:mod:`guard.names`, D-647): the patterns alone refused ordinary text.
 * :meth:`Guard.screen` is the planted-instruction screen (T-606, D-359; :mod:`guard.injection`): it flags text written
   as an instruction to a model. It never blocks a call; the caller decides what a flag does.
 """
@@ -47,8 +47,8 @@ _CJK = re.compile(r"[぀-ヿ㐀-鿿]")
 
 
 def _unconfirmed(text: str, f: Finding, look: names.Look) -> bool:
-    """A NAME finding in Chinese or Japanese writing that the second look takes away. A name in Latin letters
-    (``Mr. Chen``) is not looked at again: it stands."""
+    """A NAME finding in Japanese or Chinese characters that the second look takes away (only on a line with
+    kana, D-647). A name in Latin letters (``Mr. Chen``) is not looked at again: it stands."""
     return f.kind == "NAME" and bool(_CJK.search(text[f.start : f.end])) and not look.stands(text, f.start, f.end)
 
 
@@ -83,8 +83,9 @@ class Guard:
             return cls(None)
 
     def detect(self, text: str, second_look: bool = False) -> list[Finding]:
-        """``second_look`` (the tripwire, D-647): a Chinese or Japanese NAME finding stands only if
-        :func:`guard.names.stands` says so. Redaction does not take it: masking too much costs readability only."""
+        """``second_look`` (the tripwire, D-647): a NAME finding stands unless :mod:`guard.names` takes it away
+        (ordinary Japanese text on a line with kana). Redaction does not take it: masking too much costs
+        readability only."""
         found: list[Finding] = []
         for _name, rec in self._recognisers:
             found.extend(f for f in rec(text) if f.end > f.start)
@@ -118,7 +119,7 @@ class Guard:
 
     def tripwire(self, text: str, second_look: bool = True) -> Verdict:
         """``second_look=False``: every pattern match counts, as before D-647 (the document parser's mask of a
-        protocol's contact and subject lines: its review found subject lines the look would let through)."""
+        protocol's contact and subject lines keeps the stricter look, as the trace store's redaction does)."""
         spans = self.detect(text, second_look=second_look)
         v1 = phi_guard.scan(text, self.mrn_regex, cjk_names=_standing_names if second_look else None)
         kinds = sorted({f.kind for f in spans} | {k.upper() for k, _ in v1.findings})

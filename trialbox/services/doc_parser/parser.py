@@ -335,7 +335,7 @@ def mask_contacts(text: str, guard: Guard) -> tuple[str, list[str]]:
     lines = []
     for line in text.split("\n"):
         # every pattern match, without the tripwire's second look (D-647): a subject or contact line of a protocol
-        # holds a name more often than a note line does, and the look let some through (受試者…簽名)
+        # holds a name more often than a note line does; masking too much costs readability only
         v = guard.tripwire(line, second_look=False)
         if v.hit:
             kinds.update(v.kinds)

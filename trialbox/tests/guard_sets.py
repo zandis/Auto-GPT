@@ -1,9 +1,10 @@
-"""Synthetic name sets for the tripwire's second look (D-647): every name is a listed surname joined to a made-up
-given name, set into the shapes notes and protocol contact lines use. Nothing here is a person.
+"""Synthetic name sets for the tripwire's standing gate (D-647): every name is a listed surname joined to a
+made-up given name, set into the shapes notes, contact lines and subject lines use. Nothing here is a person.
 
 The first sets of the card were too easy (most names ended at a boundary; a dozen given names, none a common
-word; no compound surname, no line mixing Chinese and kana): its review measured 7 % to 40 % of names let through
-in shapes those sets did not hold. These are the review's shapes.
+word; no compound surname, no line mixing Chinese and kana), and two reviews in a row measured 7 % to 40 % of
+names let through in shapes those sets did not hold. These are the reviews' shapes. A new rule for the tripwire is
+measured on all of them, per shape, before anyone is asked to approve it.
 """
 
 from __future__ import annotations
