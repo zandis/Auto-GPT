@@ -198,8 +198,10 @@ CALLERS: dict[tuple[str, str], str] = {
     ("orchestrator/scenarios/screen.py", "practitioner_names"): OPEN + "no names (the settings' ids are shown)",
     ("orchestrator/scenarios/screen.py", "confirmed_facts"): OPEN + "no confirmed fact",
     ("patient_profile/twin.py", "lake_schema"): OPEN + "a snapshot of schema 1",
-    ("sitesetup/readiness.py", "unknown_share"): OPEN + "(0, 0), a lake with no diagnosis",
-    ("sitesetup/readiness.py", "feed_loaded"): OPEN + "no feed loaded",
+    # closed by NEW-SITE-2/3/5 (D-709, D-712, D-715): a 5xx is "the lake could not be read" (the readiness answer
+    # says so), a 4xx goes on as the fault of the question it is
+    ("sitesetup/readiness.py", "unknown_share"): "handler: a 5xx is raised as LakeUnread, never (0, 0); a 4xx goes on",
+    ("sitesetup/readiness.py", "feed_loaded"): "handler: a 5xx is raised as LakeUnread, never no feed; a 4xx goes on",
 }
 
 

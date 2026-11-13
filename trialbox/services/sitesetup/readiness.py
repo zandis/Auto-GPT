@@ -44,21 +44,26 @@ UNREAD = (*LAKE_DOWN, LakeUnread)
 
 
 def is_unread(exc: BaseException) -> bool:
-    """NEW-SITE-3 (D-712): is this the lake not read, and not a fault to show as one?
+    """Is this the lake not read, and not a fault to show as one? (D-712; narrowed by NEW-SITE-5, D-715.)
 
-    * a reader's ``LakeUnread``, or the lake failing or not answering (``lake_down``);
-    * a query the lake did not answer with a table (``LakeQueryFailed``, D-673), **whatever its status but 400**:
-      the lake answers its own failures of a query with 404 and 422 (a snapshot file gone or damaged, a snapshot
-      replaced under the query, a limit), never 5xx, and the status does not tell those from the engine's
-      complaint about the question, which is 422 too. 400 is the lake rejecting the statement itself
-      (``SqlRejected``): a fault of the criteria's SQL or of this code, which goes on.
-
-    Another service's error is not "the lake could not be read": it goes on."""
-    from lake.client import LakeQueryFailed
-
-    if isinstance(exc, LakeQueryFailed):
-        return exc.status != 400  # the one status that is the statement's fault
+    A reader's ``LakeUnread``, or the lake failing or not answering (``lake_down``). With D-675 the status of a
+    failed query says who failed: **500 and above is the lake** (it cannot serve the snapshot, it met a limit, it
+    broke), which ``lake_down`` reads for every error of the lake's service. Below 500 the lake answered and the
+    question is at fault (400: the statement refused; 422: the engine's complaint), or the caller's set-up (401,
+    403: the service-token check): those go on as errors, and so does another service's error."""
     return isinstance(exc, LakeUnread) or lake_down(exc)
+
+
+def _query_failed(exc: Exception) -> LakeUnread | None:
+    """For a reader whose query of a snapshot the lake named has failed: the ``LakeUnread`` to raise when the
+    lake failed, None when the question is at fault (the error then goes on as it is). Through the lake's client
+    the status decides (:func:`is_unread`); a library lake (a space other than the hospital's) raises the lake's
+    own classes, and the lake's own rule decides the same way (``lake.store.query_failure_status``, D-675)."""
+    from lake.store import query_failure_status
+
+    if isinstance(exc, UNREAD):
+        return LakeUnread(type(exc).__name__) if is_unread(exc) else None
+    return LakeUnread(type(exc).__name__) if query_failure_status(exc) >= 500 else None
 
 
 UNKNOWN_SQL = """
@@ -78,8 +83,11 @@ def unknown_share(svc: SiteSetup, ws: str) -> tuple[int, int]:
         return 0, 0
     try:
         row = lake.query(UNKNOWN_SQL, [ICD10CM]).to_pylist()[0]
-    except Exception as exc:  # it serves a snapshot and could not be asked about it
-        raise LakeUnread(type(exc).__name__) from exc
+    except Exception as exc:  # it serves a snapshot; did the lake fail, or is this question at fault (D-715)?
+        unread = _query_failed(exc)
+        if unread is None:
+            raise
+        raise unread from exc
     return int(row["n"] or 0), int(row["unknown"] or 0)
 
 
@@ -184,8 +192,11 @@ def feed_loaded(svc: SiteSetup, batch: Any = None) -> dict[str, Any] | None:
         return None
     try:
         docs = int(lake.query(DOCS_SQL, []).to_pylist()[0]["n"] or 0)
-    except Exception as exc:  # it serves a snapshot and could not be asked about it
-        raise LakeUnread(type(exc).__name__) from exc
+    except Exception as exc:  # it serves a snapshot; did the lake fail, or is this question at fault (D-715)?
+        unread = _query_failed(exc)
+        if unread is None:
+            raise
+        raise unread from exc
     out: dict[str, Any] = {"snapshot": str(snap), "tier": "notes" if docs else "structured", "documents": docs}
     if batch is not None:
         out["night"] = {"snapshot": batch.snapshot, "state": batch.state, "attempt": batch.attempt}
