@@ -374,6 +374,22 @@ def test_a_repeated_evidence_sentence_is_still_shown_once_before_any_second_copy
         assert daily in clip(_n("n", "2026-10-01", text), [daily, *once], cap).split("\n"), cap
 
 
+def test_with_room_for_one_line_more_the_lead_in_goes_before_the_heading() -> None:
+    """D-645: the heading was taken first; with room for one of the two the excerpt read "[...] 【過去病史】 [...]
+    肺結核。": the denied list under the title of the patient's own history."""
+    text = "【過去病史】\n" + "高血壓。\n" * 40 + "病人否認下列病史：\n肺結核。\nB型肝炎。"
+    note = _n("n", "2026-10-01", text)
+    lead_in_alone = []
+    for cap in range(note_tokens("肺結核。"), 200):
+        lines = clip(note, ["肺結核。"], cap).split("\n")
+        if "【過去病史】" in lines:  # never the title of the history without the line that denies the list
+            assert "病人否認下列病史：" in lines, cap
+        elif "病人否認下列病史：" in lines:
+            assert lines[lines.index("病人否認下列病史：") + 1] == "肺結核。"
+            lead_in_alone.append(cap)
+    assert lead_in_alone  # and there are budgets with room for one of the two: the lead-in is the one
+
+
 def test_one_line_longer_than_the_cap_is_cut_in_a_few_steps_whatever_it_holds() -> None:
     """Review of D-645: the cut of an over-long line walked at character costs of its own (a digit a quarter) and
     then dropped one character at a time, each with a count of the whole text: minutes for a long run of digits."""

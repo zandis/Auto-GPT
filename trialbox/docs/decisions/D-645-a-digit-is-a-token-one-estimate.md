@@ -50,6 +50,12 @@ full-width punctuation (，：（）) as a quarter token: its range of "CJK" end
    - one line longer than the cap was cut by a walk with character costs of its own, then one character at a
      time: minutes for a long run of digits. It is cut by halving.
 
+5. Found by the whole unit suite on this card (the clipped-note cases of lane G's run, #439): with the larger
+   count, at a budget of 90 the zh-TW denied list was shown as "[…] 【過去病史】 […] 肺結核。": the heading was
+   taken before the line right above the evidence, and there was room for one of the two. `clip` now takes the
+   evidence's lead-in (the line right above it when it ends in a colon) before the heading, and shows no heading
+   across the cut for an evidence sentence whose lead-in did not fit. (NEW-LLM-1, D-641, took the heading first.)
+
 ## What this changes for a site
 
 Prompts with numbers are estimated larger, and the cascade counts each note's date and type, so slightly fewer
