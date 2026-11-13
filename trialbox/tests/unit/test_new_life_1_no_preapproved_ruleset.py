@@ -21,7 +21,7 @@ from criteria_compiler.repo import RulesetRepo
 from orchestrator import scheduler
 from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
 
-from tests.rulesets_guard import RULESETS, copy_rulesets
+from tests.rulesets_guard import RULESETS, approve_at_site, copy_rulesets
 
 SHIPPED = ["AD-MAB", "GOUT-COH", "GZQO", "NEUR-COH", "ONC-OSI", "RA-BIO", "RA-COH", "RA-JAK"]
 SITE = ["PRODUCTION", "VALIDATION", None, "production", "STAGING"]  # None: unset is PRODUCTION (D-127)
@@ -127,13 +127,81 @@ def test_the_sites_own_approval_and_an_installed_update_stand(
         load_approved(tmp_path / "repo", "GZQO")  # its neighbour is still the seeded one
 
 
-def test_a_ruleset_without_a_repository_that_is_not_a_shipped_one_is_read_as_before(
+def test_without_a_repository_nothing_is_approved_on_a_site_box(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only the shipped example is refused: a folder some tool materialized (no repository) with another manifest
-    keeps the rule it had (status approved)."""
+    """Review of #412 (M1): a box seeded by an earlier release holds manifests that differ from today's image by a
+    byte (D-103 re-approved them in place). An approval is a tag of the repository; a folder without one holds
+    none, whatever its manifests say. A DEV or TEST box reads such a folder as before."""
     rulesets = copy_rulesets(tmp_path / "copied")
+    for rid, change in (("ONC-OSI", b"\n"), ("RA-BIO", None)):
+        manifest = rulesets / rid / "manifest.yaml"
+        data = manifest.read_bytes()
+        manifest.write_bytes(data + change if change else data.replace(b"\n", b"\r\n"))
     manifest = rulesets / "RA-JAK" / "manifest.yaml"
     manifest.write_text(manifest.read_text(encoding="utf-8").replace("（合成）", "（本院）"), encoding="utf-8")
-    _env(monkeypatch, "PRODUCTION")
+    _env(monkeypatch, "TEST")
     assert load_approved(rulesets, "RA-JAK").id == "RA-JAK"
+    _env(monkeypatch, "PRODUCTION")
+    for rid in ("ONC-OSI", "RA-BIO", "RA-JAK"):
+        with pytest.raises(RulesetNotApproved, match="not approved at this site"):
+            load_approved(rulesets, rid)
+    assert scheduler.nav_rulesets(_orch(rulesets)) == []  # type: ignore[arg-type]
+
+
+def test_a_tag_that_names_nobody_is_no_approval_on_a_site_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review of #412 (L1): a bare (lightweight) tag has no message, so nobody is named: not an approval."""
+    repo = RulesetRepo(tmp_path / "repo", RULESETS)
+    commit = repo.ref("refs/tags/RA-BIO/v1.0.0")
+    assert commit is not None
+    repo.refs[b"refs/tags/RA-BIO/v1.0.0"] = commit
+    _env(monkeypatch, "PRODUCTION")
+    with pytest.raises(RulesetNotApproved, match="not approved at this site"):
+        load_approved(tmp_path / "repo", "RA-BIO")
+
+
+def test_a_broken_repository_stops_no_timer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review of #412 (L2): the timers now open the repository. A tag that points at nothing is a ruleset the
+    timer does not start, not an exception in the scheduler; its neighbour still runs."""
+    repo = RulesetRepo(tmp_path / "repo", RULESETS)
+    approve_at_site(tmp_path / "repo")
+    repo.refs[b"refs/tags/ONC-OSI/v1.0.0"] = b"0" * 40
+    _env(monkeypatch, "PRODUCTION")
+    assert scheduler.nav_rulesets(_orch(tmp_path / "repo")) == ["RA-BIO"]  # type: ignore[arg-type]
+    _env(monkeypatch, "TEST")  # a TEST box does not read the tag (as before): the job itself would
+    assert scheduler.nav_rulesets(_orch(tmp_path / "repo")) == ["ONC-OSI", "RA-BIO"]  # type: ignore[arg-type]
+
+
+def test_an_update_installed_over_a_seeded_example_is_the_operators_act(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #412 (M2): the import said "installed" over a seeded tag of the same content and left the seeded
+    tag, so the ruleset stayed refused. The operator's install is recorded on the tag (D-77) and stands."""
+    import io
+    import zipfile
+
+    from criteria_compiler.import_ruleset import install
+
+    repo = RulesetRepo(tmp_path / "repo", RULESETS)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for f in sorted((RULESETS / "RA-JAK").rglob("*")):
+            if f.is_file():
+                z.write(f, f"RA-JAK/{f.relative_to(RULESETS / 'RA-JAK').as_posix()}")
+    _env(monkeypatch, "PRODUCTION")
+    with pytest.raises(RulesetNotApproved):
+        load_approved(tmp_path / "repo", "RA-JAK")
+    assert install(repo, buf.getvalue(), "update:2026.11-1") == "RA-JAK/v1.0.0"
+    assert repo.tag_message("RA-JAK/v1.0.0") == "RA-JAK/v1.0.0 (offline update, update:2026.11-1)"
+    assert load_approved(tmp_path / "repo", "RA-JAK").version == "1.0.0"
+    assert install(repo, buf.getvalue(), "update:2026.11-2") == "RA-JAK/v1.0.0"  # again: nothing to do, tag kept
+    assert repo.tag_message("RA-JAK/v1.0.0").endswith("update:2026.11-1)")
+
+
+def test_the_fixture_of_a_production_box_approves_its_studies_the_sites_way(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    RulesetRepo(tmp_path / "repo", RULESETS)
+    assert len(approve_at_site(tmp_path / "repo")) == len(SHIPPED) and approve_at_site(tmp_path / "repo") == []
+    _env(monkeypatch, "PRODUCTION")
+    assert [load_approved(tmp_path / "repo", rid).id for rid in SHIPPED] == SHIPPED

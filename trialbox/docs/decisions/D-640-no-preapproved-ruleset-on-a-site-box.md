@@ -25,22 +25,37 @@ by the installer.
 2. **Both seeders ask it.** `seed_working_copy` (console, orchestrator) copies nothing on a site box. The criteria
    compiler builds its repository through `criteria_compiler.app.ruleset_repo`, which gives a new repository no
    seed on a site box: it starts with its README and no ruleset.
-3. **A box seeded before this card.** Its working copy holds the examples already. There the approval that came from
-   seeding is no approval: `load_approved` refuses the ruleset on a site box ("a shipped example, not approved at
-   this site"). Every job reads its ruleset through `load_approved`, and the console lists a ruleset it refuses as
-   not approved. How a seeded approval is told (`seeded_approval`):
-   - with the compiler's repository, the version's approval tag is the one the first start wrote, "(vendor-shipped,
-     approved)". The site's own approval writes "approved by <who>" and an installed update writes "(offline update,
-     <by>)" (D-77): those stand, whatever the manifest says;
-   - without a repository (the copy `seed_working_copy` made; no approval ever tagged it), the manifest is the
-     shipped one byte for byte.
+3. **A box seeded before this card.** Its working copy holds the examples already. On a site box an approval is
+   an annotated tag of the compiler's repository that says who gave it: the site's own approval writes "approved by
+   <who>", an installed update writes "(offline update, <by>)" (D-77). `load_approved` refuses, on a site box, a
+   version whose approval names nobody (`seeded_approval`):
+   - the tag the compiler's first start wrote on a seeded example, "(vendor-shipped, approved)";
+   - a bare tag (no message);
+   - a folder with no repository at all (the copy `seed_working_copy` made): nothing in it is approved, whatever
+     its manifests say. The first version of this card compared the manifest with the shipped one byte for byte;
+     the review showed a box seeded by an earlier release differs by bytes (D-103 re-approved manifests in place).
+   Every job reads its ruleset through `load_approved`, and the console lists a ruleset it refuses as not approved.
    Nothing is deleted from a box: the files stay, the study pages show them as not approved, and the site approves
-   its own version or removes them.
+   its own version, installs an update, or removes them.
 4. **The timers ask the same question.** `scheduler.nav_rulesets` and `cohort_rulesets` read the manifest's status
    themselves; they now also ask `approved_here` (`load_approved`), so a timer starts no job for a ruleset the job
-   would refuse. (Two lines in lane B's file.)
+   would refuse. (Two lines in lane B's file.) A ruleset that cannot be read (a tag that points at nothing) is
+   skipped with a warning; the timer goes on.
+5. **An update installed over a seeded example** of the same content used to say "installed" and leave the seeded
+   tag. `import_ruleset.install` now writes the operator's install on the tag (`RulesetRepo.retag`; the commit is
+   not moved).
+6. **Test boxes.** A fixture that builds a PRODUCTION box on the synthetic studies approves them the site's way
+   (`tests.rulesets_guard.approve_at_site`, used by `tests/orch_box.py`).
 
 ## What this does not do
+
+- **The compose test and POC stacks** (`deploy/docker-compose.test.yml`, lane D) leave `TB_ENV` unset for the
+  criteria compiler and the orchestrator, which is PRODUCTION, while their console and gateway are TEST. With this
+  card those two services hold no example study. The stack needs `TB_ENV: TEST` for both (as D-560 did for the
+  embed service) or an import step; that is with the integrator and lane D, and was not run here.
+- The compiler's own "previous approved version" (`service.py` `_approved`, used by compile reuse and `diff`) and
+  `omop/vocab_load.py` still read a seeded example's manifest status. Neither runs a study; reused criteria go back
+  to draft for the PI.
 
 - The images still carry `/app/rulesets` (`deploy/docker/python.Dockerfile:34`, lane D). The review asks for the
   three synthetic trials to ship only in the demo image and the test tree; with this card they are inert on a site
@@ -58,5 +73,8 @@ by the installer.
 `tests/unit/test_new_life_1_no_preapproved_ruleset.py`: a site box (PRODUCTION, VALIDATION, unset, lower case, an
 unknown name) seeds nothing by either seeder; DEV and TEST are seeded as before; on a box seeded before, by the copy
 or by the compiler, every shipped ruleset is refused by `load_approved`, the timers list none and the console shows
-none as approved; the site's own approval tag and an installed update's tag stand; a folder without a repository
-whose manifest is not the shipped one is read as before.
+none as approved; the site's own approval tag and an installed update's tag stand. From the review: a folder with
+no repository approves nothing on a site box (a manifest changed by a byte, CRLF, another title); a bare tag is no
+approval; a tag that points at nothing stops no timer; an update installed over a seeded example stands and its
+tag says so; the fixture's site approval. `tests/console/test_backend_contract.py` and the other tests on
+`tests/orch_box.py` failed on the first version of this card and pass.

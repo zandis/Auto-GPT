@@ -13,6 +13,7 @@ Layout::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 from collections.abc import Callable, Mapping
@@ -42,6 +43,9 @@ SEEDED_TAG = "(vendor-shipped, approved)"
 def examples_allowed(env: Mapping[str, str] | None = None) -> bool:
     """Whether this box may hold and run the shipped example rulesets (``TB_ENV`` DEV or TEST; D-640)."""
     return environment_name(os.environ if env is None else env) in EXAMPLE_ENVS
+
+
+log = logging.getLogger(__name__)
 
 
 class RulesetNotApproved(RuntimeError):
@@ -153,7 +157,8 @@ def load_approved(
         raise RulesetNotApproved(f"ruleset {ruleset_id} v{rs.version} has no approval tag")
     if not examples_allowed() and seeded_approval(rulesets_dir, ruleset_id, rs.version):
         raise RulesetNotApproved(
-            f"ruleset {ruleset_id} v{rs.version} is a shipped example, not approved at this site (D-640)"
+            f"ruleset {ruleset_id} v{rs.version} is not approved at this site: its approval names nobody here "
+            "(a shipped example, or a folder with no approval tag; D-640)"
         )
     if terminology is not None:
         try:
@@ -260,39 +265,39 @@ def _has_tag(repo_dir: Path, tag: str) -> bool:
     return f"refs/tags/{tag}".encode() in refs
 
 
-def seeded_approval(rulesets_dir: Path, ruleset_id: str, version: str, seed: Path | None = None) -> bool:
-    """Whether the approval of ``ruleset_id`` v``version`` in this working copy came from seeding the shipped
-    examples and from nobody at the site (D-640): a box started before NEW-LIFE-1 holds them.
+def seeded_approval(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
+    """Whether the approval of ``ruleset_id`` v``version`` in this working copy names nobody who gave it at this
+    site (D-640): what seeding the shipped examples left on a box started before NEW-LIFE-1.
 
-    With the compiler's repository: the version's approval tag is the one its first start wrote
-    (:data:`SEEDED_TAG`); a tag the site's approval or an installed update (D-77) wrote names who. Without a
-    repository (the copy ``seed_working_copy`` made, which no approval ever tagged): the manifest is the shipped
-    one, byte for byte."""
-    if (rulesets_dir / ".git").exists():
-        from dulwich.objects import Tag
-        from dulwich.repo import Repo
+    An approval is an annotated tag of the compiler's repository that says who: the site's approval writes
+    "approved by <who>", an installed update "(offline update, <by>)" (D-77). The tag the first start wrote on a
+    seeded example (:data:`SEEDED_TAG`) names nobody, and neither does a bare tag. Without a repository (the copy
+    ``seed_working_copy`` made) there is no tag at all: nothing in such a folder is approved, whatever its
+    manifests say (a box seeded by an earlier release holds manifests that differ from today's image)."""
+    if not (rulesets_dir / ".git").exists():
+        return True
+    from dulwich.objects import Tag
+    from dulwich.repo import Repo
 
-        repo = Repo(str(rulesets_dir))
-        refs: Any = repo.refs
-        tag = f"refs/tags/{ruleset_id}/v{version}".encode()
-        if tag not in refs:
-            return False
-        obj: Any = repo[refs[tag]]
-        return isinstance(obj, Tag) and SEEDED_TAG in obj.message.decode("utf-8", "replace")
-    shipped = (SEED_RULESETS if seed is None else seed) / ruleset_id / "manifest.yaml"
-    here = rulesets_dir / ruleset_id / "manifest.yaml"
-    try:
-        return shipped.is_file() and here.read_bytes() == shipped.read_bytes()
-    except OSError:
-        return False
+    repo = Repo(str(rulesets_dir))
+    refs: Any = repo.refs
+    tag = f"refs/tags/{ruleset_id}/v{version}".encode()
+    if tag not in refs:
+        return True
+    obj: Any = repo[refs[tag]]
+    return not isinstance(obj, Tag) or SEEDED_TAG in obj.message.decode("utf-8", "replace")
 
 
 def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:
     """Whether ``ruleset_id`` has an approved version this box may run (:func:`load_approved` without a run date or
-    a terminology check): what a timer asks before it starts a job for it."""
+    a terminology check): what a timer asks before it starts a job for it. A ruleset that cannot be read (a broken
+    manifest, a tag that points at nothing) is one the timer does not start; the timer goes on to the next."""
     try:
         load_approved(rulesets_dir, ruleset_id)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except RulesetNotApproved:
+        return False
+    except Exception as exc:  # the scheduler's loop must outlive one unreadable ruleset
+        log.warning("ruleset %s cannot be read, no job is started for it: %s", ruleset_id, type(exc).__name__)
         return False
     return True
 
