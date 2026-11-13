@@ -218,3 +218,42 @@ def test_a_vector_answer_without_its_model_is_the_fallback_not_an_error_of_the_r
     assert _lake({"/vec/s2b": {"state": "vec", "ranked": ["d1"]}}).vec_s2b("p1", ["d1"], "q")["state"] == "fallback"
     whole = {"state": "vec", "ranked": ["d1"], "model": "hash"}
     assert _lake({"/vec/s2b": whole}).vec_s2b("p1", ["d1"], "q") == whole
+
+
+# ------------------------------------------------------------------------------------------- a query that failed
+@pytest.mark.parametrize(
+    ("status", "body", "said"),
+    [
+        (
+            422,
+            {"detail": "CatalogException: Catalog Error: Table with name site_fact does not exist!"},
+            "Table with name site_fact does not exist!",
+        ),
+        (422, {"detail": "LakeLimitError: LAKE-LIMIT: the result is larger than the limit"}, "LAKE-LIMIT"),
+        (404, {"detail": "no lake snapshot 2026-10-04"}, "no lake snapshot 2026-10-04"),
+        (500, {"error": "internal error"}, "500"),
+        (502, "<html>a proxy's page</html>", "502"),
+        (503, "", "503"),
+    ],
+)
+def test_a_query_the_lake_did_not_answer_is_an_error_of_the_lake_service_with_its_status(
+    status: int, body: Any, said: str
+) -> None:
+    """Found by the review of the site set-up card (D-709): a failed query was a plain ``RuntimeError``, which a
+    caller cannot tell from a fault of the code; a route that could say "the lake is not answering" said 500."""
+    with pytest.raises(ServiceError) as got:
+        _lake({"/query": body}, status=status).query("SELECT 1")
+    assert got.value.service == "lake" and got.value.status == status
+    assert said in str(got.value) and "proxy" not in str(got.value)
+    assert isinstance(got.value, RuntimeError)  # the callers that catch RuntimeError still catch it
+
+
+def test_the_callers_that_read_the_engines_sentence_in_a_failed_query_still_find_it() -> None:
+    from matching.cascade.engine import missing_table
+
+    with pytest.raises(ServiceError) as got:
+        _lake(
+            {"/query": {"detail": "CatalogException: Catalog Error: Table with name document does not exist!"}},
+            status=422,
+        ).query("SELECT 1")
+    assert missing_table(got.value, "document") and not missing_table(got.value, "site_fact")

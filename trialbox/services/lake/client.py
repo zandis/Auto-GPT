@@ -53,6 +53,16 @@ class LakeBadAnswer(ServiceError):
         super().__init__("lake", status, f"its answer {what}; this is not the lake's answer to the call")
 
 
+class LakeQueryFailed(ServiceError):
+    """A query the lake service did not answer with a table (D-673): a failure of the lake service with its
+    status, so a caller can tell it from a fault of the code (it was a plain ``RuntimeError``). Its words are as
+    before, ``lake query failed (<status>): <the lake's sentence>``: callers read the engine's sentence in them."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__("lake", status, detail)
+        self.args = (f"lake query failed ({status}): {detail}",)
+
+
 _MISSING: Any = object()
 
 
@@ -110,7 +120,7 @@ class LakeHttp:
         body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day))
         resp = self.client.post(f"{self.base}/query", json=body, headers=headers)
         if resp.status_code != 200:
-            raise RuntimeError(f"lake query failed ({resp.status_code}): {_detail(resp)}")
+            raise LakeQueryFailed(resp.status_code, _detail(resp))
         return _table(resp)
 
     def chunks_search(

@@ -36,7 +36,12 @@ A 200 of the wrong shape is what a proxy, a half-deployed service or another res
    that was not JSON raised into the run).
 5. **A rebuild job's state** (`start_rebuild`, `rebuild_state`) must be an object; its keys are the job's own
    and are read by `follow_rebuild`, which already raises on a state it does not know.
-6. A refusal of the lake (4xx, 5xx) raises as before; this card is about 200 answers.
+6. A refusal of the lake (4xx, 5xx) raises as before, with one change: **a query that failed is
+   `LakeQueryFailed`, a `ServiceError` of the lake with the status** (found by the review of the site set-up
+   card, D-709). It was a plain `RuntimeError`, which a caller cannot tell from a fault of the code: a route
+   that could say "the lake is not answering" said 500. Its words are unchanged (`lake query failed (<status>):
+   <the lake's sentence>`), and it is still a `RuntimeError` for the callers that catch one. Where it reaches the
+   job runner, the job now ends "The lake service failed." with the status, where it read "Internal error".
 7. **The adapter's own client reads the same way** (`adapter.cli.HttpLakeStep`, found by this card's review: it
    is the client the night's publish really uses; nothing calls `LakeHttp.promote`). Its `promote` read a 200
    without `promoted` as False, and its rebuild start took any JSON. Both now go through `_object` / `_key`.
@@ -76,5 +81,6 @@ parses the body another way gets past it, and the behaviour tests per reader are
 answers each raise `LakeBadAnswer` (not JSON, not an object, an object without the key); eleven answers with the
 key of another kind; the lake's own "no" and "not known"; a refusal raises as before; the vector ranking falls
 back, also on a ranking without its model; a query's answer that is not a table; the test over the client's
-source; the adapter's own client (its promote's yes and no, ten wrong answers, its rebuild start). No state
+source; a failed query is the lake's service error with its status and its old words, and the cascade's reader
+of "table does not exist" still finds it; the adapter's own client (its promote's yes and no, ten wrong answers, its rebuild start). No state
 change is added.
