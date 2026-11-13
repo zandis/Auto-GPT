@@ -47,7 +47,7 @@ class SignedClient(TestClient):
         self.sub, self.role = sub, role
         self._actions = [
             (m, re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", p) + "$"), action,
-             p.split("/").index("{rs}") if "{rs}" in p.split("/") else -1)
+             next((p.split("/").index(n) for n in ("{rs}", "{ruleset}") if n in p.split("/")), -1))
             for m, p, stage, action, _ in walk(app) if stage == "refuse"
         ]  # fmt: skip
 

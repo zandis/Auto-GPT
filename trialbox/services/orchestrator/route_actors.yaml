@@ -20,9 +20,9 @@ refuse:
   - lifecycle
   - sponsor
   - job_reveal            # a chart number: the grant and the delegation log are read by the orchestrator (T-716, D-484)
+  - registry              # T-715b (D-550): a status change and a promotion, by the verified requester
 
 report:
-  - registry
   - study
   - datacore
   - setup

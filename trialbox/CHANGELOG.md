@@ -12,6 +12,8 @@ new heading with the version and date, in the same pull request that sets the ve
 
 - Exports and typed text (NEW-CSV-1, D-549): a comment or a reason that begins with `=`, `+`, `-` or `@` is no
   longer a formula in the feedback export, the screening log's workbooks or the registry export.
+- The candidate registry and the acting person (T-715b, D-550): a status change or a promotion is recorded under
+  the signed-in person the orchestrator verified (`console:<username>`), never under a name sent in the request.
 - The FHIR store's database sign-in (NEW-TRUST-1, D-541): the FHIR store no longer holds the database
   superuser's password. It signs in as `tb_fhir_store`, which owns the database `hapi` only, with
   `TB_DB_PW_FHIR_STORE`. `install.sh` and `trialbox update` make the password and move the existing tables (an

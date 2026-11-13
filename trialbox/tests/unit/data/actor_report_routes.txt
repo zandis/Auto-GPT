@@ -3,8 +3,6 @@
 DELETE /studies/{rs}/sources/redcap
 POST /assist
 POST /redcap/connections/{ref}/test
-POST /registry/{ruleset}
-POST /registry/{ruleset}/promote
 POST /setup/practice/load
 POST /setup/practice/reset
 POST /setup/pseudonym

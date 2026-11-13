@@ -1206,6 +1206,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         days = [local_date(o.at, site_zone(bk)) for o in store.outcomes(rid, pid) if o.outcome in CONTACT_ATTEMPTS]
         return contact_check(days, int(r["max_attempts"]), int(r["min_days"]), today)
 
+    def registry_signer(sess: Session, rid: str) -> Any:
+        """T-715b (D-550): a contact outcome moves the registry's row, and the registry takes its person from the
+        signed claim of the call: this person's, for this study and this request (`request.prepare`, the right
+        the outcome already asks)."""
+        from console import actor as acting
+
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:
+            return acting.assert_for(h, sess, "request.prepare", rid, method, path, body)
+
+        return sign
+
     def apply_outcome(
         sess: Session, path: str, rs: str, pid: str, outcome: str, retry: str, note: str
     ) -> tuple[str, str | None]:
@@ -1271,6 +1282,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                         source="manual",
                         source_job=wk["job"].job_id,
                     ),
+                    registry_signer(sess, rid),
                 )
             except Refused as exc:
                 raise h.problem(409, "request.refused", reason=str(exc)) from exc
@@ -1302,7 +1314,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             try:
                 bk.registry_update(rid, RegistryUpdate(pid=pid, status=cast(Any, back_to_status),
                                                        reason="contact outcome undone", by=h.actor(sess),
-                                                       source="manual", source_job=job_id))  # fmt: skip
+                                                       source="manual", source_job=job_id),
+                                   registry_signer(sess, rid))  # fmt: skip
             except Refused as exc:  # the outcome stays in force: the registry and the outcomes never disagree
                 store.restore_outcome(rid, undone, now)
                 raise h.problem(409, "request.refused", reason=str(exc)) from exc

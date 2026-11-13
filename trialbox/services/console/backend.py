@@ -145,11 +145,20 @@ class Backend(Protocol):
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str: ...
     def registry_summaries(self) -> list[RegistrySummary]: ...
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
-    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer | None = None) -> RegistryEntry: ...
-    def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer) -> RegistryEntry: ...
+    def registry_promote(self, ruleset: str, req: RegistryPromote, sign: Signer) -> int: ...
     def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
     def reveal(self, job_id: str, pid: str, sign: Signer, purpose: str = "", reason: str = "") -> str | None: ...
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
+
+
+def registry_update_body(upd: RegistryUpdate) -> dict[str, Any]:
+    """What the orchestrator's registry route takes (T-715b, D-550): the change, without a person."""
+    return {k: v for k, v in dump(upd).items() if k != "by"}
+
+
+def registry_promote_body(req: RegistryPromote) -> dict[str, Any]:
+    return {"tiers": list(req.tiers)}
 
 
 def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, Any]]:
@@ -483,17 +492,16 @@ class HttpBackend:
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]:
         return [RegistryEntry.model_validate(r) for r in self._registry_call("GET", f"/registry/{ruleset}")]
 
-    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer | None = None) -> RegistryEntry:
-        """One registry row. T-719 (D-487): a row given by chart number (``upd.mrn``) is a lookup of a pseudonym, so
-        it carries the v3 assertion ``sign`` mints for exactly this request; the orchestrator refuses it without
-        one (403) and caps it per person (429), and both are a refusal here."""
-        path, body = f"/registry/{ruleset}", dump(upd)
-        return RegistryEntry.model_validate(
-            self._registry_call("POST", path, body, sign("POST", path, body) if sign else None)
-        )
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer) -> RegistryEntry:
+        """One registry row. T-715b (D-550): every change carries the v3 assertion ``sign`` mints for exactly this
+        request; the orchestrator takes the acting person from it and refuses a call without one (403). ``upd.by``
+        does not travel. T-719 (D-487): a row by chart number is also capped per person (429)."""
+        path, body = f"/registry/{ruleset}", registry_update_body(upd)
+        return RegistryEntry.model_validate(self._registry_call("POST", path, body, sign("POST", path, body)))
 
-    def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
-        return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
+    def registry_promote(self, ruleset: str, req: RegistryPromote, sign: Signer) -> int:
+        path, body = f"/registry/{ruleset}/promote", registry_promote_body(req)
+        return int(self._registry_call("POST", path, body, sign("POST", path, body))["added"])
 
     def reveal(self, job_id: str, pid: str, sign: Signer, purpose: str = "", reason: str = "") -> str | None:
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the

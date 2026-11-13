@@ -150,7 +150,8 @@ def require_actor(action: str, *, service: bool = False, study_in_handler: bool 
 
 
 def _study(request: Request) -> str | None:
-    return str(request.path_params.get("rs") or "").strip().upper() or None
+    """The study a `refuse` route's path names: ``{rs}``, or ``{ruleset}`` on the registry's routes (T-715b)."""
+    return _named_study(request) or None
 
 
 def _named_study(request: Request) -> str | None:
@@ -326,8 +327,10 @@ def route_problems(app: Any, group_of: Callable[[str], str | None], table: dict[
                 bad.append(f"{key}: require_actor names {action!r}, which is not a row of the matrix")
             if person:
                 bad.append(f"{key}: the request still names a person ({', '.join(person)})")
-            params = re.findall(r"/studies/\{([^}:]+)", path)
-            if params and params[0] != "rs":  # the dependency reads the study from `{rs}`
+            # the dependency reads the study from `{rs}` (or `{ruleset}`, the registry's): a study under another
+            # name would not be held against the claim's
+            params = re.findall(r"/(?:studies|registry)/\{([^}:]+)", path)
+            if params and params[0] not in ("rs", "ruleset"):
                 bad.append(f"{key}: the study of the path is {{{params[0]}}}; require_actor reads {{rs}}")
         elif changing and want == "refuse":
             bad.append(f"{key}: a changing route of a refuse group without require_actor")
