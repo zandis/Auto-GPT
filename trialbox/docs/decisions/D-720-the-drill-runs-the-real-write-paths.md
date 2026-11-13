@@ -40,7 +40,7 @@ roles: each service's real write paths run as its own role (D-720) -> FAIL
    a temporary table: 66 more store connections the same
    the OMOP load as tb_adapter: InsufficientPrivilege: permission denied to create temporary tables in database "trialbox_wf"
    the OMOP export as of a time as tb_lake: RuntimeError: its two loads did not run (InsufficientPrivilege: permission denied to create temporary tables in database "trialbox_wf")
-   the opt-out tick as tb_orchestrator: RuntimeError: the tick did not run (failed ['tick']): nothing logged
+   the opt-out tick as tb_orchestrator: RuntimeError: the tick did not run (failed ['tick']): InsufficientPrivilege: permission denied for schema omop
 ```
 
 That is the drill's own proof of lane E's two findings: after `SET ROLE` to a store's group no service can make a
