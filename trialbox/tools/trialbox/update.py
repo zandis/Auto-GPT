@@ -1215,7 +1215,10 @@ class ComposeBox(_DockerImages):
             return None
         from tools.trialbox import svc_secrets
 
-        return svc_secrets.ensure_actor_sign_key(self.deploy)
+        try:
+            return svc_secrets.ensure_actor_sign_key(self.deploy)
+        except (OSError, svc_secrets.SecretsError) as e:  # a step fails by UpdateFailed: the operator reads why
+            raise UpdateFailed(f"the console's signing key could not be written: {e}") from e
 
     def set_roles(self) -> None:
         """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box

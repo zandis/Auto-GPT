@@ -47,7 +47,8 @@ def _model_key(box: ComposeBox) -> str:
 
 def _actor_key(box: ComposeBox) -> str:
     """T-717 (D-485), T-717b (D-547): the console's signing key and the orchestrator's keys file. Harmless to the
-    release before: it reads neither file."""
+    release before, which makes the same two files; a release from before T-717 is excluded by
+    ``min_installed_version``."""
     made = box.ensure_actor_key()
     return "no per-service tokens on this box" if made is None else ("made now" if made else "in place")
 

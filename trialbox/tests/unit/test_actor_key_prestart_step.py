@@ -83,3 +83,28 @@ def test_a_tree_from_before_the_command_still_gets_the_key(tmp_path: Path, monke
     assert not (deploy.parent / "tools" / "trialbox" / "prestart.py").exists()
     box.pre_start()
     assert sx.actor_sign_key_path(deploy).exists()
+
+
+def test_a_key_that_cannot_be_written_stops_the_update_with_its_reason(tmp_path: Path) -> None:
+    """The review: a step fails by raising ``UpdateFailed`` (the contract), so the operator reads the step and the
+    reason, not the tail of a traceback."""
+    deploy = _old_box(tmp_path)
+    sx.actor_sign_key_path(deploy).mkdir()  # the write cannot succeed
+    with pytest.raises(up.UpdateFailed, match="the console's signing key could not be written"):
+        up.ComposeBox(deploy).ensure_actor_key()
+    r = _command(deploy)
+    assert r.returncode == 1 and "Traceback" not in r.stderr
+    assert "pre-start: failed: the console's signing key could not be written" in r.stderr
+
+
+def test_the_step_is_what_calls_the_key_maker() -> None:
+    """The older pin (``test_actor_key_apart``) reads the updater's text; this one holds the step to the call."""
+    made: list[str] = []
+
+    class Box:
+        def ensure_actor_key(self) -> bool:
+            made.append("asked")
+            return True
+
+    step = dict(prestart.STEPS)[STEP]
+    assert step(Box()) == "made now" and made == ["asked"]  # type: ignore[arg-type]

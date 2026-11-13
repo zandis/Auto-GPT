@@ -22,8 +22,10 @@ place, or not a GPU box" on a box where a signing key had just been made, and th
 2. `prestart.STEPS` has a third step, `actor signing key`, after the two every release ran. Its line is in the
    operator's log. A fresh install runs the same command (`deploy/install.sh`).
 3. The updater's fallback for a host tree without the command runs it too, in its own process.
-4. The step keeps the contract: safe to run again, works with the stack down, and what it leaves is harmless to
-   the release before, which reads neither file.
+4. The step keeps the contract: safe to run again, works with the stack down, fails by `UpdateFailed` with its
+   reason (a key that cannot be written), and what it leaves is harmless to the release before, which makes the
+   same two files. A release from before T-717 reads the orchestrator's keys file with the token-derived key in
+   it; a rollback to such a release is excluded by `min_installed_version`.
 
 ## What it does not do
 
@@ -31,6 +33,14 @@ place, or not a GPU box" on a box where a signing key had just been made, and th
   second hook "after the database is up", which is lane D's with this lane.
 - The first release with the pre-start command cannot be helped by it (lane D's record): D-485's sentence about
   the update that brings the key stays true for a box updated from a release before the command.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer. Verdict: merge; no HIGH or MED. No path that made the key lost it (the step, the
+fallback, `install.sh`'s `secrets init`); ownership and mode are as before. From its LOW points: a key that
+cannot be written was a traceback in the operator's log and is now `UpdateFailed` with the reason (test first);
+point 4 above said the release before reads neither file, which was wrong, and is corrected; one more test holds
+the step to the call.
 
 ## Reuse check
 
