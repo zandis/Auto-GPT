@@ -23,6 +23,17 @@ here is not written a second time there.
 The first release with this command cannot be helped by it: the release installed before it restarts the stack
 the old way. A release that adds a step therefore names, as its ``min_installed_version``, a release that has
 this command; the verifier refuses the bundle on an older box before anything is changed.
+
+**After the database is up** (UPDATE-DBUP, D-624) there is a second list, :data:`DB_STEPS`, and a second command:
+
+    python3 -m tools.trialbox db-up --deploy deploy        # after pre-start, before the services start
+
+It is for what needs the database and must be done before a service connects: the services' roles, the schemas
+no service owns, a grant a later release adds. The contract is the one above with one difference: the database is
+up (the ``db`` service, healthy) and no other service of the stack is; a step must not wait for one. A step that
+only needs the host belongs in :data:`STEPS`. ``ComposeBox.db_up`` runs the command on an update and
+``deploy/install.sh`` on an install; a release that adds a step here names a release that has ``db-up`` as its
+``min_installed_version``.
 """
 
 from __future__ import annotations
@@ -52,23 +63,57 @@ STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
 ]
 
 
-def run(deploy: Path) -> list[str]:
-    """Every step, in order; the lines for the log. Raises ``UpdateFailed`` at the first step that fails."""
+def _database(box: ComposeBox) -> str:
+    return box.db_on_new_settings()
+
+
+def _service_roles(box: ComposeBox) -> str:
+    return "set by the role script" if box.set_roles() else "no database step on this box"
+
+
+def _owned_schemas(box: ComposeBox) -> str:
+    return "made by the box's admin" if box.migrate_owned() else "no database step on this box"
+
+
+#: name, step; in the order they run, once the database is up and before any other service starts (D-624). The
+#: database comes first: the role script reads each service's password from the database container's environment,
+#: so a release that adds a role needs the container on its own settings before the script runs.
+DB_STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
+    ("database", _database),
+    ("service roles", _service_roles),
+    ("owned schemas", _owned_schemas),
+]
+
+#: command -> its steps
+PHASES = {"pre-start": STEPS, "db-up": DB_STEPS}
+
+
+def _run(deploy: Path, phase: str, box: ComposeBox | None) -> list[str]:
     from tools.trialbox.update import ComposeBox, UpdateFailed
 
     if not deploy.is_dir():
         raise UpdateFailed(f"no deploy folder {deploy}")
-    box = ComposeBox(deploy)
-    return [f"pre-start: {name}: {step(box)}" for name, step in STEPS]
+    box = box or ComposeBox(deploy)
+    return [f"{phase}: {name}: {step(box)}" for name, step in PHASES[phase]]
 
 
-def main(deploy: Path) -> int:
+def run(deploy: Path, box: ComposeBox | None = None) -> list[str]:
+    """Every step, in order; the lines for the log. Raises ``UpdateFailed`` at the first step that fails."""
+    return _run(deploy, "pre-start", box)
+
+
+def run_db(deploy: Path, box: ComposeBox | None = None) -> list[str]:
+    """Every step of :data:`DB_STEPS`, in order; as :func:`run`."""
+    return _run(deploy, "db-up", box)
+
+
+def main(deploy: Path, phase: str = "pre-start") -> int:
     from tools.trialbox.update import UpdateFailed
 
     try:
-        for line in run(deploy):
+        for line in _run(deploy, phase, None):
             print(line)
     except UpdateFailed as exc:
-        print(f"pre-start: failed: {exc}", file=sys.stderr)
+        print(f"{phase}: failed: {exc}", file=sys.stderr)
         return 1
     return 0

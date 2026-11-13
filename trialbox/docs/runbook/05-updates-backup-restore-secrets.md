@@ -29,6 +29,11 @@ release installed before this command existed cannot run it, so a bundle that ad
 the command as its `min_installed_version`; the verifier then refuses the bundle on an older box before anything
 changes, and the box takes the release in between first.
 
+The same holds once the database is up and before the services start: the updater runs the new release's
+`python3 -m tools.trialbox db-up` (the list `DB_STEPS` in the same file). This release's steps there are: the
+database container on the new release's settings, the services' database roles, the schemas no service owns.
+A fresh install runs both commands too.
+
 **Model weights against their pins** (T-677, D-393). On a GPU box the update's check step runs
 `trialbox doctor --weights` first: every pinned build's weights in the models folder must still hash to their pin.
 A difference writes `deploy/site/weights_changed.json`, the gateway refuses every model call (`weights_changed`) and
