@@ -41,8 +41,9 @@ def test_the_export_buttons_say_which_file_is_for_redcap_and_which_for_a_person(
         said = str(escape(cat["dc.export.files"]))
         assert 'data-testid="dc-export-files"' in sec, (lang, path)
         assert said in sec, (lang, path)
-        # under the buttons, so it is read with them
-        assert sec.index('data-testid="export-xlsx"') < sec.index(said), (lang, path)
+        # under the buttons, all of them: the forms page has a CDISC button after the workbook's
+        end = sec.index("</p>", sec.index('class="exports"'))
+        assert end < sec.index(said), (lang, path)
         # the links are the same files as before
         assert 'href="/studies/GZQO/export.csv"' in sec and 'href="/studies/GZQO/export.xlsx"' in sec
         assert check_page(sec) == [], (lang, path)
@@ -52,4 +53,7 @@ def test_the_words_name_both_files_in_each_language() -> None:
     for lang in LANGS:
         text = CATALOGUES[lang]["dc.export.files"]
         assert "REDCap" in text and "Excel" in text, lang
+        # the line adds to the two already there; it does not say which file a REDCap project takes (the ODM
+        # help line above the buttons and the CDISC line below it say that)
+        assert "是匯入 REDCap 用的檔案" not in text and "ファイルです。表計算" not in text, lang
         assert check_page(f"<p>{text}</p>") == [], lang
