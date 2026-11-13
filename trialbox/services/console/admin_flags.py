@@ -18,6 +18,7 @@ from typing import Any, TypeVar
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from tb_common.authz import permit
 from tb_common.flags import DECLARED, MAX_REASON, Flags, check_value
 
 from console import i18n_flags
@@ -25,6 +26,7 @@ from console.home import Helpers
 from console.i18n import CATALOGUES, LANGS, translate
 
 log = logging.getLogger("console.flags")
+HOLD = "screening.after_restore"  # the hold after a restore (D-522)
 T = TypeVar("T")
 
 for _lang, _cat in (("en", i18n_flags.EN), ("ja", i18n_flags.JA), ("zh-TW", i18n_flags.ZH)):
@@ -46,14 +48,21 @@ def seed_at_start(h: Helpers) -> list[dict[str, Any]]:
 def register(app: FastAPI, h: Helpers) -> None:
     seed_at_start(h)
 
-    def admin(request: Request, csrf: str | None = None) -> Any:
+    def admin(request: Request, csrf: str | None = None, name: str | None = None) -> Any:
+        """The session of an account that may open the page, and change flag ``name`` when one is given. The
+        administrator: every flag. NEW-FLAG-1 (D-706): an account with the matrix row ``restore.release`` (the data
+        steward, whom D-455 names for re-applying what a restore lost): the hold after a restore, and no other."""
         sess = h.need(request)
         if csrf is not None and not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.is_admin:
+        ok = sess.user.is_admin or (only_hold(sess) and name in (None, HOLD))
+        if not ok:
             h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         return sess
+
+    def only_hold(sess: Any) -> bool:
+        return not sess.user.is_admin and permit(sess.user.role, "restore.release").allowed
 
     def stored(fn: Callable[[], T]) -> T:
         """A read or a change of the flag store; a store that does not answer is a 503 page. A ``ValueError`` (a
@@ -71,6 +80,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = admin(request)
         store = Flags()
         flags, events = stored(lambda: (store.all(), store.events(limit=50)))
+        if only_hold(sess):  # the steward's page is this one flag's: its value, and its own changes
+            flags = [f for f in flags if f["name"] == HOLD]
+            events = stored(lambda: store.events(HOLD, limit=50))
         return h.page(request, "ops_flags.html", sess, flags=flags, events=events)
 
     @app.post("/ops/flags")
@@ -83,7 +95,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         confirm: str = Form(""),
         old: str = Form(""),
     ) -> Response:
-        sess = admin(request, csrf)
+        sess = admin(request, csrf, name)
         if name not in DECLARED:
             raise h.problem(400, "flags.err.undeclared", flag=name[:60])
         try:
