@@ -15,9 +15,9 @@ from console.i18n import CATALOGUES
 from markupsafe import escape
 from tb_common.wording import check_page
 
+from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
 from tests.console.test_data_pages import PW, dcb  # noqa: F401 - the fixture is used by name
 from tests.console.test_entry_pages import _builtin, _numbers
-from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
 
 LANGS = ("en", "ja", "zh-TW")
 
