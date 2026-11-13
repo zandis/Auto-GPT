@@ -199,11 +199,12 @@ def test_merge_refuses_tables_for_other_sites(boxes: dict[str, Box]) -> None:
     assert b_rows and a_rows
     forged_a = [{**r, "n": 0} for r in a_rows]
     forged_b = [{**r, "n": 0} for r in b_rows]
-    for rows, needle in ((forged_a, "this box's own table"), (forged_b, "contributes from trialbox@hospb.test")):
+    for rows, needle in ((forged_a, "this box's own table"), (forged_b, "sends its table from another address")):
         a.mail("COHORT MERGE", attachments=(("cohort_table_x.csv", to_csv(rows)),), sender="crc1@hospa.test")
         a.orch.drain()
         job = a.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
         assert job.state == "failed" and job.error is not None and needle in job.error.message, job.error
+        assert "hospb.test" not in job.error.message  # D-555: the refusal names the site, never another's address
     assert a.orch.db.cohort_rows("gout", "2026Q3") == before  # nothing overwritten
 
 
