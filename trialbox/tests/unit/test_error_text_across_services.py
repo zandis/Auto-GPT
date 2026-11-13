@@ -231,6 +231,9 @@ HANDED_MINE: dict[tuple[str, str], tuple[int, str]] = {
 HANDED_THEIRS: dict[tuple[str, str], int] = {
     ("adapter/app.py", "failure.log_failure"): 2, ("adapter/app.py", "failure.words"): 2,
     ("adapter/backfill.py", "failure.log_failure"): 1, ("adapter/backfill.py", "failure.words"): 1,
+    # lane B2's #516 (adapter/failure.py local_lake): `error_answer` (D-664) turns anything that is not the lake's
+    # own refusal into an answer without the error's text; `log_failure` logs the type and the frames, never the text
+    ("adapter/failure.py", "error_answer"): 1, ("adapter/failure.py", "log_failure"): 1,
     ("adapter/pipeline.py", "failure.log_failure"): 2, ("adapter/pipeline.py", "failure.words"): 2,
     ("adapter/pipeline.py", "reject_key"): 1,
     ("adapter/publish.py", "_other_generation"): 1, ("adapter/publish.py", "_said"): 1,
