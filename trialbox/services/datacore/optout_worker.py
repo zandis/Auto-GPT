@@ -70,6 +70,8 @@ class WorkerEnv:
     not_opened: frozenset[str] = frozenset()
     #: D-685: the box's other OMOP stores, open, by schema name (``omop_<hash>``: a lake that is not the box's own)
     omop_more: dict[str, Any] = field(default_factory=dict)
+    #: OMOP stores that opened and whose clear raised in this tick, by name (written by ``clear_omop``)
+    not_cleared: list[str] = field(default_factory=list)
 
 
 def clear_pool(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
@@ -129,20 +131,29 @@ def _omop_open(env: WorkerEnv) -> list[tuple[str, Any]]:
 
 
 def _omop_not_opened(env: WorkerEnv) -> list[str]:
-    return sorted(n for n in env.not_opened if OMOP_STORE.fullmatch(n))
+    return sorted(n for n in env.not_opened if OMOP_STORE.fullmatch(n.split("@", 1)[0]))
 
 
 def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
-    """D-685: the patient is withheld in every OMOP store the box holds. The stores that opened are cleared first;
-    then one that is there and was not opened fails the clear (D-683): failed, never "no store"."""
-    from omop.load import withhold
+    """D-685: the patient is withheld in every OMOP store the box holds. Every store that opened is tried, each on
+    its own: one whose clear raises is named (``not_cleared``) and does not keep the later ones from being
+    cleared. Then a store that failed, or one that is there and was not opened (D-683), fails the clear: failed,
+    never "no store". The counts are sums over the stores (``withheld`` counts a patient once per store);
+    ``stores`` says how many."""
+    from omop import load
 
     stores = _omop_open(env)
     total: dict[str, int] = {}
-    for _name, db in stores:
-        for k, n in withhold(db, pids, ACTOR).as_dict().items():
+    for name, db in stores:
+        try:
+            counts = load.withhold(db, pids, ACTOR).as_dict()
+        except Exception as exc:
+            log.error("opt-out worker: the OMOP store %s was not cleared (%s)", name, type(exc).__name__)
+            env.not_cleared.append(name)
+            continue
+        for k, n in counts.items():
             total[k] = total.get(k, 0) + int(n)
-    if _omop_not_opened(env):
+    if env.not_cleared or _omop_not_opened(env):
         raise StoreNotOpened("omop")
     if not stores:
         return {"skipped": 1}
@@ -350,6 +361,8 @@ def run_once(env: WorkerEnv) -> dict[str, Any]:
             out["failed"].append(c.name)
     if env.not_opened:  # which stores: schema names, never a patient's
         out["not_opened"] = sorted(env.not_opened)
+    if env.not_cleared:
+        out["not_cleared"] = sorted(env.not_cleared)
     env.audit.append("optout.worker", actor=ACTOR, detail=out)
     return out
 
@@ -402,19 +415,27 @@ def _omop_stores(reg: OptOutRegister) -> tuple[Any | None, dict[str, Any], froze
     except Exception as exc:  # D-683: one store that cannot be opened does not stop the tick; it is named
         log.error("opt-out worker: the OMOP store was not opened (%s)", type(exc).__name__)
         not_opened.add("omop")
-    url = os.environ.get("TB_OMOP_DB_URL") or str(reg.db.url)
+    # the database the load writes to (TB_OMOP_DB_URL when the box names one) and the register's own: a store in
+    # either holds the patient (the review: only the first was listed)
+    first = os.environ.get("TB_OMOP_DB_URL") or str(reg.db.url)
+    urls = [first] + ([str(reg.db.url)] if str(reg.db.url) != first else [])
     more: dict[str, Any] = {}
-    try:
-        names = [n for n in omop_store_names(url) if n != "omop"]
-    except Exception as exc:  # the catalog did not answer: no store can be called absent
-        log.error("opt-out worker: the OMOP stores were not listed (%s)", type(exc).__name__)
-        return box, more, frozenset(not_opened | {"omop"})
-    for name in names:
+    for i, url in enumerate(urls):
         try:
-            more[name] = schema.connect(url, name)
-        except Exception as exc:
-            log.error("opt-out worker: the OMOP store %s was not opened (%s)", name, type(exc).__name__)
-            not_opened.add(name)
+            names = [n for n in omop_store_names(url) if i or n != "omop"]  # the first one's `omop` is the box's
+        except Exception as exc:  # the catalog did not answer: no store can be called absent
+            log.error("opt-out worker: the OMOP stores were not listed (%s)", type(exc).__name__)
+            not_opened.add("omop")
+            continue
+        for name in names:
+            key = name if not i and name not in more else f"{name}@register"
+            try:
+                if not store_has(url, name, "tb_record"):
+                    continue  # gone since it was listed: opening it would make it (the worker makes no store)
+                more[key] = schema.connect(url, name)
+            except Exception as exc:
+                log.error("opt-out worker: the OMOP store %s was not opened (%s)", key, type(exc).__name__)
+                not_opened.add(key)
     return box, more, frozenset(not_opened)
 
 

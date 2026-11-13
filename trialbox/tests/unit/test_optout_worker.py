@@ -705,9 +705,12 @@ def test_the_worker_knows_every_name_an_omop_store_can_have() -> None:
         assert OMOP_STORE.fullmatch(schema.schema_for(path)), path
     root = Path(__file__).resolve().parents[2]
     callers: dict[str, list[str]] = {}
-    for top in ("services", "tools"):
+    for top in ("services", "tools", "libs"):
         for f in sorted((root / top).rglob("*.py")):
             for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.ImportFrom) and node.module == "omop.schema":
+                    # the store is opened as `schema.connect(...)` everywhere, so this scan sees every opener
+                    assert "connect" not in {a.name for a in node.names}, f
                 if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "connect"
                         and isinstance(node.func.value, ast.Name) and node.func.value.id == "schema"):  # fmt: skip
                     name = node.args[1] if len(node.args) > 1 else None
@@ -724,3 +727,90 @@ def test_the_worker_knows_every_name_an_omop_store_can_have() -> None:
         "tools/codemap_release.py": ["omop"],
         "tools/omop_parity.py": ["schema.schema_for(lake_dir)"],
     }
+
+
+# ------------------------------------------------------------------------------------------------ D-685: the review
+def test_a_store_whose_clear_fails_does_not_keep_the_later_stores_from_being_cleared(
+    db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review: a withhold that raised in one store ended the loop, so a store that fails every tick starved
+    every store after it. Each store is tried; the clear fails after all of them."""
+    from datacore import optout_worker as w
+    from omop import load, schema
+
+    last = "omop_fedcba9876"
+    _two_stores(db_url)
+    db = schema.connect(db_url, last)
+    load.load_batch(db, "feed", "2026-10-04", _batch([A, B]), tz="Asia/Taipei")
+    db.close()
+    real = load.withhold
+
+    def withhold(store: Any, pids: Any, actor: str = "x") -> Any:
+        if store.schema.endswith(SITE_STORE):
+            raise RuntimeError(f"deadlock while withholding {A}")
+        return real(store, pids, actor)
+
+    monkeypatch.setattr(load, "withhold", withhold)
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)
+    stores = {n: schema.connect(db_url, n) for n in ("omop", SITE_STORE, last)}
+    try:
+        out = w.run_once(_env(reg, omop=stores["omop"], omop_more={SITE_STORE: stores[SITE_STORE], last: stores[last]}))
+        assert out["failed"] == ["omop"] and "omop" not in out["stores"] and A not in str(out)
+        assert out["not_cleared"] == [SITE_STORE]
+        assert (_live(stores["omop"], A), _live(stores[SITE_STORE], A), _live(stores[last], A)) == (0, 3, 0)
+    finally:
+        for s in stores.values():
+            s.close()
+        reg.close()
+
+
+def test_omop_stores_in_both_databases_are_cleared_when_the_box_names_two(
+    db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review: with ``TB_OMOP_DB_URL`` only that database was listed; a store under the register's own URL
+    kept the patient and the tick said nothing failed. Stood in for here by a second ``tb_prefix``."""
+    from datacore import optout_worker as w
+    from omop import schema
+    from omop.load import load_batch
+
+    other = db_url + ("&" if "?" in db_url else "?") + "tb_prefix=" if "tb_prefix=" not in db_url else db_url
+    other = db_url.replace("tb_prefix=", "tb_prefix=second_") if "tb_prefix=" in db_url else other + "second_"
+    for url, name in ((other, "omop"), (db_url, SITE_STORE)):
+        db = schema.connect(url, name)
+        load_batch(db, "feed", "2026-10-04", _batch([A, B]), tz="Asia/Taipei")
+        db.close()
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    monkeypatch.setenv("TB_OMOP_DB_URL", other)
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)
+    reg.close()
+    orch = SimpleNamespace(
+        cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Taipei")), audit=Audit(),
+        services=SimpleNamespace(lake=Lake([])), db=Jobs(),
+    )  # fmt: skip
+    out = w.tick(orch)
+    assert out is not None and out["failed"] == [] and out["stores"]["omop"]["stores"] == 2
+    for url, name in ((other, "omop"), (db_url, SITE_STORE)):
+        db = schema.connect(url, name)
+        try:
+            assert _live(db, A) == 0, name
+        finally:
+            db.close()
+
+
+def test_the_worker_never_makes_a_store_it_was_told_of(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The review: a store listed and gone before it was opened was made anew by opening it, and counted."""
+    from datacore import optout_worker as w
+    from tb_common.db import Database
+
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    monkeypatch.setattr(w, "omop_store_names", lambda url: ["omop_0000000000"])
+    reg = OptOutRegister()
+    try:
+        box, more, not_opened = w._omop_stores(reg)
+        assert (box, more, not_opened) == (None, {}, frozenset())
+    finally:
+        reg.close()
+    with Database.connect(db_url, "optout") as db:
+        assert db.fetchval("SELECT count(*) FROM pg_namespace WHERE nspname LIKE '%omop\\_0000000000'") == 0

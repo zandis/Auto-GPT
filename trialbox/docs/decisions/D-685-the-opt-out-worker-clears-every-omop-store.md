@@ -46,9 +46,32 @@ worker finds it, cannot open it, **and says so every tick** (`failed`, `not_open
 fail-closed half. The other half is lane D's D-721 (a service refuses to make an OMOP store that is not its own
 to make); lane C2 makes Reset drop a space's store and names it in the erasure registry. Neither is in this card.
 
+## The adversarial review (by running) and what it changed
+
+- **A store whose clear raised ended the loop** (medium): the stores after it were not cleared in that tick, and
+  a store that fails every tick would starve them. Each store is now tried on its own; the failed one is named
+  (`not_cleared`) and the clear fails after all were tried.
+- **Only one database was listed** (medium): with `TB_OMOP_DB_URL`, a store under the register's own URL kept the
+  patient and the tick said nothing failed. Both are listed and cleared when they differ.
+- **Opening a store that was listed and has gone made it anew** (low). It is looked for again just before it is
+  opened and passed over when gone: the worker makes no store.
+- **The enumerating test saw only `schema.connect(...)`** (low): it now also scans `libs/` and fails on an import
+  of `connect` from `omop.schema`.
+- **Kept, and said here:**
+  - The counts are sums over the stores: `withheld` counts a patient once per store, `stores` says how many.
+  - A schema named like a store whose `tb_record` is not a store's is listed and cannot be opened: the tick is
+    red until someone removes it. Deliberately so: requiring more tables before a schema counts would pass over a
+    real store of an older shape in silence.
+  - **A store made after the opt-out holds the patient until the next tick** (at most one interval, five minutes
+    by default): `tb_withheld` is per store and a new store starts empty; the load reads it, not the register (the
+    adapter's role may not read the register). Owed: the load asks the register where its role may.
+  - One connection per store is held for the tick (seven stores: seven connections, 0.22 s, none left after).
+  - `not_opened` and `not_cleared` carry `omop_<10 hex of a lake's path>`: not a patient's; a guessed path can be
+    confirmed from it, not recovered.
+
 ## Evidence
 
-`tests/unit/test_optout_worker.py` (five cases, each failed before): the names found; a patient out of two stores
+`tests/unit/test_optout_worker.py` (five cases, each failed before; three more from the review, each failed before its fix): the names found; a patient out of two stores
 in one tick; one store that cannot be opened is named and the other is cleared; a row left in the second store is
 reported by its name; the enumerating test. `tests/unit/test_optout_every_omop_store_roles.py`: the same under the
 real role script, with a store of the orchestrator's own (cleared) and one of another service's (named).
