@@ -543,6 +543,12 @@ DECLARED: dict[str, Declared] = {
     "TB_HEALTH_CERT_RED_DAYS": Declared("int", "30", "health: certificate red within these days (D-379)"),
     "TB_HEALTH_CERT_WARN_DAYS": Declared("int", "45", "health: certificate warn within these days (D-379)"),
     "TB_HEALTH_DISKS": Declared("str", "", "health: extra disks to watch, comma-separated (D-379)"),
+    "TB_HEALTH_DESKTOP_GPU_RED": Declared(
+        "int", "85", "health: red when desktop programs hold over this percent of the card's spare memory (D-607)"
+    ),
+    "TB_HEALTH_DESKTOP_GPU_WARN": Declared(
+        "int", "70", "health: warn over this percent of the card's spare memory; until P-11 measures it (D-607)"
+    ),
     "TB_HEALTH_DISK_RED": Declared("int", "85", "health: disk red over this percent (D-379)"),
     "TB_HEALTH_DISK_WARN": Declared("int", "70", "health: disk warn over this percent (D-379)"),
     "TB_HEALTH_MAIL_AT": Declared("str", "07:00", "health: daily admin health mail time (D-379)"),
