@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from tb_contracts import dump
@@ -34,6 +35,15 @@ class ServiceError(RuntimeError):
         self.detail = detail
         #: the refusal's response headers, lower-cased names (a 409 that names what is running: ``x-tb-run``)
         self.headers: dict[str, str] = {k.lower(): v for k, v in (headers or {}).items()}
+
+
+async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
+    """The 422 answer to a request of the wrong shape (NEW-TRUST-2, D-551): where it is wrong and why, never what
+    was sent. The framework's own answer repeats the input (a body with a chart number came back with it), and a
+    client that logs a refusal then logs it. ``ctx`` is dropped with it: it can hold the value too."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    detail = [{"type": e.get("type"), "loc": list(e.get("loc") or ()), "msg": e.get("msg")} for e in errors]
+    return JSONResponse({"detail": detail}, status_code=422)
 
 
 def make_app(
@@ -57,6 +67,7 @@ def make_app(
     answer (a refusal), None lets the call through. One place per app decides which service reaches which route."""
     log = setup_logging(service, level)
     app = FastAPI(title=f"trialbox-{service}", version=VERSION, lifespan=lifespan)
+    app.add_exception_handler(RequestValidationError, validation_answer)  # D-551: no value of the request
     health_checks = list(checks or [])
     app.state.health_checks = health_checks
 
