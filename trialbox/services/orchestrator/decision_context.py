@@ -36,6 +36,8 @@ from tb_common import optout as _optout  # by module: a test that replaces the r
 from tb_common.optout import RegistryState
 from tb_common.ruleset import Ruleset
 
+from orchestrator.clients import StepFailed
+
 if TYPE_CHECKING:
     from orchestrator.scenarios.evaluate import NoteJudge
 
@@ -144,13 +146,18 @@ class DecisionContext:
     # ------------------------------------------------------------------------------------ consent
     def consent(self, day: date | None = None, snapshot: str | None = None) -> RegistryState | None:
         """What the hospital's registry says per patient as of ``day`` (the run date) on the job's snapshot, by the
-        one rule. None: the lake has no consent table (the registry was never ingested). Any other failure raises
-        (D-127)."""
+        one rule. None: the lake has no consent table (the registry was never ingested), on a DEV or TEST box; on
+        a PRODUCTION box that stops the job (D-654). Any other failure raises (D-127)."""
         if self.lake is None:
             return None  # no lake: no registry was ingested
         key = (snapshot, (day or self.run_date).isoformat())
         if key not in self._consent:
-            self._consent[key] = _optout.registry_state(self.lake, snapshot, key[1])
+            try:
+                self._consent[key] = _optout.registry_state(self.lake, snapshot, key[1])
+            except _optout.NoRegistryTable as exc:
+                # D-654: a PRODUCTION box and a snapshot without a consent table. The job stops with the sentence
+                # (a general error would show only "Internal error"); nothing is cached, the next read asks again
+                raise StepFailed("running", str(exc)) from exc
         return self._consent[key]
 
     def refused(self) -> frozenset[str]:
