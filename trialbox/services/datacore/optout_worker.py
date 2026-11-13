@@ -367,8 +367,12 @@ def start(orch: Any, production: bool = False) -> Any | None:
         log.info("opt-out worker off (%s=0)", MINUTES_ENV)
         return None
     from apscheduler.schedulers.background import BackgroundScheduler
+    from tb_common.config import SCHEDULER_JOB_DEFAULTS
 
-    sched = BackgroundScheduler(timezone=orch.cfg.env.tz)
+    # the box's misfire grace (review F-14, D-130), as the night's and the console's schedulers have it: with
+    # APScheduler's own one second, a tick the scheduler's thread reaches late under load is dropped, and the opt-out
+    # waits a whole interval more (deep review `architecture`, ARCH-003)
+    sched = BackgroundScheduler(timezone=orch.cfg.env.tz, job_defaults=SCHEDULER_JOB_DEFAULTS)
     sched.add_job(
         lambda: tick(orch),
         "interval",
