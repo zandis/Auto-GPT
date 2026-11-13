@@ -10,6 +10,7 @@
 #               tb-demo-password; the VM's own service account reads it) into a root-only env file. It is never in
 #               the metadata (a secret-looking metadata key stops this script), never on a command line, never in
 #               this log: TB_DEMO_PASSWORD is set, so the demo does not print it either.
+#   demo mode   TB_DEMO_MODE=on seeds the audited flag demo.mode on the first start (banner, uploads refused)
 #   the model   TB_LLM_MODE=stub, TB_DEMO_TOOL=demo: fixed here; no metadata key changes them (tb-llm-* stops it)
 #   TLS         Caddy (pinned by digest, as deploy/gcp/hosted-demo-startup.sh) with `tls internal` for the VM's own
 #               external address: the browser warns once. Only :443 is bound (no :80 listener, no redirect). The
@@ -140,6 +141,7 @@ else
 fi
 DEMO_ENV="TB_DEMO_TOOL=demo
 TB_LLM_MODE=stub
+TB_DEMO_MODE=on
 TB_DEMO_LANG=$LANG_UI
 TB_CONSOLE_SECURE_COOKIE=1
 TB_CONSOLE_PUBLIC_URL=https://$IP${SITE_LANG:+

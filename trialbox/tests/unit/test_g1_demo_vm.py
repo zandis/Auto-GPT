@@ -374,6 +374,17 @@ def test_boot_dry_run_fixes_the_stub_model_and_arms_the_hard_stop(tmp_path: Path
     assert "DEMO-VM-DRY-RUN-DONE" in out
 
 
+def test_boot_turns_demo_mode_on_with_a_value_the_flag_accepts(tmp_path: Path) -> None:
+    """The hosted demo shows the synthetic-data banner and refuses uploads (deep review CON-DEMO-2)."""
+    from tb_common.flags import DECLARED
+
+    rc, out = _boot(tmp_path, "--dry-run")
+    assert rc == 0, out
+    flag = DECLARED["demo.mode"]
+    assert flag.seed_env == "TB_DEMO_MODE"
+    assert f"{flag.seed_env}=on" in out and "on" in flag.values
+
+
 def test_boot_caddyfile_is_tls_internal_on_443_only(tmp_path: Path) -> None:
     rc, out = _boot(tmp_path, "--print-caddyfile")
     assert rc == 0, out
