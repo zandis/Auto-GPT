@@ -931,12 +931,20 @@ def _run_ingest(
         omop_load, fhir_loaded, fhir_deleted, lake_result = pub.omop, pub.fhir_loaded, pub.fhir_deleted, pub.lake
     at["step"] = "report"
     passed = not errors
+    ended = datetime.now(zone)
+    # NEW-B-20 (D-661): how long the night took, for the host's doctor (the Windows update window is placed outside
+    # it). ``finished``: it ended published, the whole of a night; a held or failed night measures only its part
+    from adapter import night_runs
+    from adapter.publish import read_record
+
+    night_runs.record(cfg.lake_dir, snap, started, ended, finished=passed and not held,
+                      steps_at=read_record(out_dir).get("at"))  # fmt: skip
     report = IngestReport(
         snapshot=date.fromisoformat(snap),
         source=source_kind,
         since=since,
         started_at=started,
-        finished_at=datetime.now(zone),
+        finished_at=ended,
         counts=counts if not since else full_counts,
         missing_required=dict(missing),
         validation=vsum,
