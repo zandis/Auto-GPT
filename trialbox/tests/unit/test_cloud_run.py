@@ -105,9 +105,13 @@ def test_the_heartbeat_follows_the_part_working_not_its_output(
     checks = [0]
     real = cr._tree_cpu
 
+    seen: list[Any] = []  # what each of the heartbeat's looks read: the child's CPU so far
+
     def counted(pid: int) -> Any:
         checks[0] += 1
-        return real(pid)
+        value = real(pid)
+        seen.append(value)
+        return value
 
     monkeypatch.setattr(cr, "_tree_cpu", counted)
 
@@ -120,8 +124,22 @@ def test_the_heartbeat_follows_the_part_working_not_its_output(
 
     p = subprocess.Popen([sys.executable, "-c", code, str(ready), str(stop)], stdin=subprocess.PIPE)
     beat = cr.Heartbeat(str(hb), p.pid, every=0.1)
+
+    def blocked() -> bool:
+        # the idle child is asleep in its read (state S in /proc/<pid>/stat)
+        try:
+            return (Path("/proc") / str(p.pid) / "stat").read_text().rsplit(")", 1)[1].split()[0] == "S"
+        except (OSError, IndexError):
+            return True  # no /proc: nothing is asserted below either
+
+    def settled() -> bool:
+        # the heartbeat's own last three looks read the same CPU: the child's start-up is over. "It has started"
+        # and "it sleeps" were not enough: on a loaded machine the little CPU the child still owed after saying so
+        # crossed a clock tick several looks later and was counted as work
+        return len(seen) >= 3 and seen[-1] == seen[-2] == seen[-3]
+
     try:
-        while not ready.exists():
+        while not ready.exists() or not (busy or (blocked() and settled())):
             time.sleep(0.01)
         after(2)  # the checks that still saw the child's start-up are behind us
         os.utime(hb, (0, 0))
@@ -129,13 +147,16 @@ def test_the_heartbeat_follows_the_part_working_not_its_output(
         after(4)
         beats = beat.beats - before
     finally:
+        # the heartbeat first, then the child: an idle child wakes up to end, and that CPU is work to a heartbeat
+        # that is still looking (the last cause of this test failing on a loaded machine)
+        beat.close()
+        touched = hb.stat().st_mtime > 0
         stop.touch()
         assert p.stdin is not None
         p.stdin.close()
         p.wait()
-        beat.close()
     if Path("/proc").exists():
-        assert (beats > 0) is busy and (hb.stat().st_mtime > 0) is busy
+        assert (beats > 0) is busy and touched is busy
 
 
 @pytest.mark.skipif(not Path("/proc").is_dir(), reason="the CPU check reads /proc (Linux)")
