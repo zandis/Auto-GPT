@@ -24,7 +24,8 @@ class _Lake:
 
     def __init__(self, site_fact: bool, text: str | None = None) -> None:
         self.con = duckdb.connect(":memory:")
-        self.text, self.asked = text, []
+        self.text = text
+        self.asked: list[str] = []
         if site_fact:
             self.con.execute(
                 "CREATE TABLE site_fact (fid TEXT, pid TEXT, domain TEXT, code TEXT, system TEXT, d DATE, basis TEXT)"
