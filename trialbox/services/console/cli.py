@@ -37,13 +37,22 @@ from console.auth import AuthError, UserStore, random_password
 
 def _audit(event: str, **fields: Any) -> None:
     from tb_common.audit_writer import open_audit
-    from tb_common.config import site_tz
+    from tb_common.config import environment_name, site_tz
 
     directory = Path(os.environ.get("TB_AUDIT_DIR", "/data/audit"))
     try:
         open_audit(directory, site_tz()).append(event, actor="console-cli", **fields)
-    except OSError as exc:  # no audit volume (developer shell): say so, never fail silently
-        print(f"warning: audit not written ({exc})", file=sys.stderr)
+    except OSError as exc:
+        if environment_name(os.environ) in ("DEV", "TEST"):  # a developer shell with no audit volume: say so
+            print(f"warning: audit not written ({exc})", file=sys.stderr)
+            return
+        # security review 2026-11-13: on a box an account change with no audit event is not a quiet success; the
+        # command says what was done and exits non-zero so the operator records it by hand and fixes the trail
+        raise AuditNotWritten(f"{event} {fields.get('detail', {})}: {type(exc).__name__}") from exc
+
+
+class AuditNotWritten(RuntimeError):
+    """The change was made and its audit event could not be written (exit 3)."""
 
 
 def _password(args: argparse.Namespace) -> tuple[str, bool]:
@@ -197,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
             pw, generated = _password(args)
             # D-279: a printed password has been seen on a screen; one typed on stdin is the administrator's own
             store.create(args.username, "admin", pw, args.mailbox or None, must_change=generated)
-            _audit("console.user", detail={"action": "create", "role": "admin"})
+            _audit("console.user", detail={"action": "create", "user": args.username, "role": "admin"})
             print(
                 f"console: administrator '{args.username}' created"
                 + (f" (mailbox {args.mailbox})" if args.mailbox else "")
@@ -207,20 +216,20 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "add-user":
             pw, generated = _password(args)
             store.create(args.name, args.role, pw, args.mailbox or None, must_change=True)  # D-279
-            _audit("console.user", detail={"action": "create", "role": args.role})
+            _audit("console.user", detail={"action": "create", "user": args.name, "role": args.role})
             print(f"console: user '{args.name}' ({args.role}) created")
             if generated:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "reset-password":
             pw, generated = _password(args)
             store.set_password(args.name, pw, must_change=True)  # D-279: someone else set it
-            _audit("console.user", detail={"action": "reset-password"})
+            _audit("console.user", detail={"action": "reset-password", "user": args.name})
             print(f"console: password of '{args.name}' changed; all sessions ended")
             if generated:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "disable":
             store.disable(args.name)
-            _audit("console.user", detail={"action": "disable"})
+            _audit("console.user", detail={"action": "disable", "user": args.name})
             print(f"console: '{args.name}' disabled")
         elif args.cmd == "list-users":
             for u in store.users():
@@ -245,6 +254,9 @@ def main(argv: list[str] | None = None) -> int:
     except AuthError as exc:
         print(f"console: {exc}", file=sys.stderr)
         return 2
+    except AuditNotWritten as exc:
+        print(f"console: done, but its audit event was NOT written ({exc}); record it by hand", file=sys.stderr)
+        return 3
     return 0
 
 
