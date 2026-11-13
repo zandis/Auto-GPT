@@ -28,11 +28,11 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
+from tb_common.http import validation_answer
 
 API = "/api/v1/"
 CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -116,7 +116,7 @@ async def validation_first(request: Request, exc: Exception) -> Response:
                     return await handler(request, refusal)  # type: ignore[no-any-return]
             raise
     assert isinstance(exc, RequestValidationError)
-    return await request_validation_exception_handler(request, exc)
+    return await validation_answer(request, exc)  # NEW-TRUST-2 (D-551): where and why, never what was sent
 
 
 def install(app: FastAPI) -> None:
