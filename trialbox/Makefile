@@ -140,7 +140,8 @@ test-locked:
 # the cross-card tests (T-747, D-475; CI job `cross-card`): the tests that fail only when two cards meet (an audit
 # event without a label, a route without a permit row or a role label, a table without an inventory row or a migration
 # hash, a setting not declared, a schema without its data class, a decision number twice, a forbidden word, a direct
-# model call, a test that leaks state). CI runs them first, in minutes, with no coverage; the unit shards run them too.
+# model call, a test that leaks state; D-623: a database opened under a run-time name, a runbook command no test runs).
+# CI runs them first, in minutes, with no coverage; the unit shards run them too.
 CROSS_CARD_TESTS = \
 	tests/console/test_audit_browser.py::test_every_event_the_code_writes_has_a_label \
 	tests/unit/test_erasure_registry.py \
@@ -154,7 +155,9 @@ CROSS_CARD_TESTS = \
 	tests/unit/test_decisions_index.py \
 	tests/unit/test_wording.py \
 	tests/unit/test_no_direct_model_calls.py \
-	tests/unit/test_test_isolation.py
+	tests/unit/test_test_isolation.py \
+	tests/unit/test_db_schemas_enumerated.py \
+	tests/unit/test_runbook_install_commands.py
 cross-card: venv-check
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-locked TESTS="$(CROSS_CARD_TESTS)"; rc=$$?; \

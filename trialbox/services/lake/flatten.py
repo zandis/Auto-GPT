@@ -414,6 +414,23 @@ class NotWesternYear(ValueError):
     names no value."""
 
 
+#: The ATC classification's code system (WHO Collaborating Centre), as FHIR names it, and its OID
+ATC_SYSTEM = "http://www.whocc.no/atc"
+_ATC_NAMES = frozenset({"www.whocc.no/atc", "urn:oid:2.16.840.1.113883.6.73"})
+
+
+def is_atc_system(system: object) -> bool:
+    """Whether a coding's ``system`` IS the ATC system (NEW-B-16, D-536): its address, whatever the scheme, the
+    letter case or a trailing slash, or its OID. Until then any system that merely held the letters "atc" counted
+    (``.../CodeSystem/batch-catalog``), and a house code landed in the lake's ``atc`` column, where it is matched
+    by prefix as ATC."""
+    text = str(system or "").strip().lower().rstrip("/")
+    for scheme in ("http://", "https://"):
+        if text.startswith(scheme):
+            text = text[len(scheme) :]
+    return text in _ATC_NAMES
+
+
 class Flattener:
     def __init__(self, tz: str | None = None, earliest_year: int | None = None) -> None:
         from tb_common.config import site_zone
@@ -621,7 +638,7 @@ class Flattener:
         cc = self.medication_concept(r)
         nhi = atc = None
         for c in cc.get("coding") or []:
-            if "atc" in (c.get("system") or ""):
+            if is_atc_system(c.get("system")):
                 atc = c.get("code")
             elif nhi is None:
                 nhi = c.get("code")

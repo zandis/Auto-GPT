@@ -424,5 +424,276 @@ def test_the_task_script_and_the_judge_name_the_boxs_own_distribution() -> None:
         assert v.lines[0].startswith("PASS" if good else "FAIL"), v.lines
 
 
+def _policy() -> object:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("wsl2_policy_w8", WIN / "wsl2_policy.py")
+    assert spec and spec.loader
+    pol = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pol)
+    return pol
+
+
+BITLOCKER_C = {
+    "system_drive": "C:",
+    "bitlocker_C_status": "FullyEncrypted",
+    "bitlocker_C_protection": "On",
+    "bitlocker_C_method": "XtsAes256",
+}
+
+
+@pytest.mark.parametrize(
+    ("unlock", "protectors", "verdict", "says"),
+    [
+        # the box's setting tpm (D-494 point 6): the TPM alone opens the drive, and that is what was chosen
+        ("tpm", "Tpm,RecoveryPassword", "PASS", "starts with nobody there"),
+        ("tpm", "TpmNetworkKey,TpmPin,RecoveryPassword", "PASS", "starts with nobody there"),
+        # review L1: a drive that asks for a PIN does not "start with nobody there", whatever the setting says
+        ("tpm", "TpmPin,RecoveryPassword", "FAIL", "asks for a PIN or a key at start"),
+        ("tpm", "Tpm,ExternalKey,RecoveryPassword", "PASS", "starts with nobody there"),
+        ("tpm", "ExternalKey,RecoveryPassword", "FAIL", "the TPM does not open the drive"),
+        ("tpm", "Password,RecoveryPassword", "FAIL", "the TPM does not open the drive"),
+        ("tpm", "RecoveryPassword", "FAIL", "the TPM does not open the drive"),
+        # tpm_pin, and no setting at all (not a box install): D-421's rule stands, the TPM alone is refused
+        ("tpm_pin", "Tpm,RecoveryPassword", "FAIL", "the TPM alone opens it"),
+        ("tpm_pin", "TpmPin,RecoveryPassword", "PASS", "unlock TpmPin"),
+        ("", "Tpm,RecoveryPassword", "FAIL", "the TPM alone opens it"),
+        ("TPM", "Tpm,RecoveryPassword", "PASS", "starts with nobody there"),  # the registry value's case
+    ],
+)
+def test_the_disk_unlock_setting_decides_whether_the_tpm_alone_is_enough(
+    unlock: str, protectors: str, verdict: str, says: str
+) -> None:
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    facts = {**BITLOCKER_C, "bitlocker_C_protectors": protectors}
+    if unlock:
+        facts["bitlocker_unlock"] = unlock
+    pol.check_bitlocker(facts, v)  # type: ignore[attr-defined]
+    assert v.lines[0].startswith(verdict) and says in v.lines[0], v.lines
+
+
+def test_an_unknown_unlock_setting_is_said_and_judged_as_the_strict_one() -> None:
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    facts = {**BITLOCKER_C, "bitlocker_C_protectors": "Tpm,RecoveryPassword", "bitlocker_unlock": "none"}
+    pol.check_bitlocker(facts, v)  # type: ignore[attr-defined]
+    text = " | ".join(v.lines)
+    assert "unknown bitlocker_unlock 'none'" in text and "the TPM alone opens it" in text
+    assert all(ln.startswith("FAIL") for ln in v.lines)
+
+
+@pytest.mark.parametrize(
+    ("auto", "verdict"),
+    [("True", "PASS"), ("False", "FAIL"), ("", "PASS"), ("false", "FAIL"), ("0", "FAIL"), ("Unknown", "WARN")],
+)
+def test_the_data_drive_must_open_with_the_system_drive(auto: str, verdict: str) -> None:
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    facts = {
+        **BITLOCKER_C,
+        "bitlocker_C_protectors": "Tpm,RecoveryPassword",
+        "bitlocker_unlock": "tpm",
+        "vhdx_drive": "D:",
+        "bitlocker_D_status": "FullyEncrypted",
+        "bitlocker_D_protection": "On",
+        "bitlocker_D_method": "XtsAes256",
+    }
+    if auto:
+        facts["bitlocker_D_autounlock"] = auto
+    pol.check_bitlocker(facts, v)  # type: ignore[attr-defined]
+    line = next(ln for ln in v.lines if "BitLocker on D:" in ln)
+    assert line.startswith(verdict), v.lines
+    assert ("unlocks with the system drive" in line) is (auto == "True")
+
+
+def test_the_owners_confirmation_at_the_install_answers_where_the_recovery_key_is_kept() -> None:
+    """Review L3: a box set up by the installer must not fail "say where the recovery password is kept"."""
+    facts = (WIN / "host_facts.ps1").read_text(encoding="utf-8")
+    assert 'RegValue "HKLM:\\SOFTWARE\\TrialBox" "RecoveryKeyKeptBy"' in facts
+    assert 'Set-TbMachineSetting "RecoveryKeyKeptBy"' in PS1.read_text(encoding="utf-8")
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    kept = "the box owner (each key shown and confirmed at the install)"
+    facts_c = {**BITLOCKER_C, "bitlocker_C_protectors": "Tpm,RecoveryPassword", "recovery_escrow": kept}
+    pol.check_recovery(facts_c, v)  # type: ignore[attr-defined]
+    assert v.lines[0].startswith("PASS") and "the box owner" in v.lines[0]
+
+
+def test_host_facts_prints_the_unlock_setting_and_the_installer_records_it_where_only_administrators_write() -> None:
+    facts = (WIN / "host_facts.ps1").read_text(encoding="utf-8")
+    ps1 = PS1.read_text(encoding="utf-8")
+    assert 'Fact "bitlocker_unlock" (RegValue "HKLM:\\SOFTWARE\\TrialBox" "BitlockerUnlock")' in facts
+    assert 'Fact "bitlocker_${tag}_autounlock"' in facts
+    assert '$key = "HKLM:\\SOFTWARE\\TrialBox"' in ps1 and 'Set-TbMachineSetting "BitlockerUnlock" $unlock' in ps1
+
+
+def test_the_installer_never_turns_bitlocker_off_and_never_logs_or_stores_a_recovery_key() -> None:
+    ps1 = PS1.read_text(encoding="utf-8")
+    assert not re.search(
+        r"Disable-BitLocker|Suspend-BitLocker|Remove-BitLockerKeyProtector|Clear-BitLockerAutoUnlock|manage-bde", ps1
+    )
+    # the key's variable reaches the window and the printer only: no log line, no state field, no Say (Say logs)
+    lines = [ln for ln in ps1.splitlines() if "$secret" in ln]
+    assert len(lines) >= 4
+    for line in lines:
+        assert not re.search(r"Write-TbLog|Say |TbState\.|Set-Content|WriteAllText|Out-File|Invoke-TbNative", line), (
+            line
+        )
+    # the same for the pair the seam returns (its Password field): handed to Confirm-TbRecoveryKey and nowhere else
+    uses = [ln.strip() for ln in ps1.splitlines() if "$rp.Password" in ln]
+    assert uses == ["Confirm-TbRecoveryKey $drv $rp.Password"], uses
+
+
+def test_the_key_probe_handles_a_dummy_value_only_and_uses_the_boot_tasks_sign_in() -> None:
+    """key-probe.ps1 runs in no test (Windows stores, the Task Scheduler): this holds what it must not do."""
+    probe = (WIN / "key-probe.ps1").read_text(encoding="utf-8")
+    assert probe.isascii()
+    assert "RandomNumberGenerator" in probe and "$dummy" in probe
+    # nothing of TrialBox's is read: no secrets folder, no key file, no .env, no site folder
+    assert not re.search(r"secrets|\.env|site[/\\]|kek|vendor_ed25519|\.pem|RecoveryPassword", probe, re.I)
+    # the same principal as the boot task
+    keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")
+    assert "-LogonType S4U -RunLevel Highest" in probe and "-LogonType S4U -RunLevel Highest" in keep
+    # the value reaches WSL2 on standard input, never as an argument of wsl.exe; no tool beyond the base system
+    hand = next(ln for ln in probe.splitlines() if "wsl.exe -d $Distro" in ln)
+    assert hand.strip().startswith("$out = $hex | & wsl.exe") and "$hex" not in hand.split("wsl.exe", 1)[1]
+    assert "xxd" not in probe
+
+
+def test_the_key_probe_decides_at_startup_with_nobody_signed_in_and_leaves_no_task() -> None:
+    """Review of NEW-WIN-8, H3 and L6: the run that decides is the one at startup, as the boot task runs."""
+    probe = (WIN / "key-probe.ps1").read_text(encoding="utf-8")
+    assert "New-ScheduledTaskTrigger -AtStartup" in probe and "[switch]$Collect" in probe
+    assert "desktop_shells_running=" in probe and "ran_at=" in probe
+    # the on-demand task is removed also when the run dies; the startup task is removed by -Collect
+    assert re.search(r"\} finally \{[^}]*Unregister-ScheduledTask -TaskName \$TaskName", probe, re.S)
+    collect = probe[probe.index("if ($Collect) {") : probe.index("$dummy = New-Object byte[] 32")]
+    assert "Unregister-ScheduledTask -TaskName $TaskName" in collect
+    # the task runs a copy in the installer's closed folder, not a path on the media, and the folder is not a parameter
+    assert "$copy = Join-Path $ProbeDir" in probe and "$PSCommandPath, $mode" not in probe
+    assert "[string]$ProbeDir" not in probe
+    sheet = (ROOT / "docs/handover/P-0-windows-rehearsal.md").read_text(encoding="utf-8")
+    assert "key-probe.ps1 -AtStartup" in sheet and "key-probe.ps1 -Collect" in sheet
+
+
+def test_the_network_mode_is_asked_of_wsl_and_unknown_without_wslinfo(box: Box) -> None:
+    assert box.run("network-mode").stdout.strip() == "unknown"  # no wslinfo on this machine: an old WSL
+    box.stub("wslinfo", "printf 'mirrored\\r\\n'")
+    assert box.run("network-mode").stdout.strip() == "mirrored"
+
+
+def test_egress_check_wants_the_unit_active_and_the_table_loaded(box: Box) -> None:
+    box.stub("systemctl", "echo inactive; exit 3")
+    box.stub("nft", "exit 0")
+    out = box.run("egress-check")
+    assert out.returncode == 1 and "trialbox-egress.service is not active" in out.stderr
+    box.stub("systemctl", "echo active")
+    box.stub("nft", "exit 1")
+    out = box.run("egress-check")
+    assert out.returncode == 1 and "trialbox_egress is not loaded" in out.stderr
+    box.stub("nft", "exit 0")
+    assert box.run("egress-check").returncode == 0
+    assert "nft list table inet trialbox_egress" in box.log()
+
+
+def test_the_installer_opens_the_one_port_the_box_form_publishes_and_names_the_real_egress_table() -> None:
+    ps1 = PS1.read_text(encoding="utf-8")
+    port = re.search(r"\$script:TbConsolePort = (\d+)", ps1)
+    assert port
+    # every compose file the box form adds to the base (install.sh): one published port among them, and it is the
+    # one the firewall admits; the base's own console port is reset by the identity file
+    published: list[str] = []
+    for name in ("identity", "box", "secrets", "rtxpro6000"):
+        text = (ROOT / f"deploy/docker-compose.{name}.yml").read_text(encoding="utf-8")
+        for entry in re.findall(r"^\s*ports:\s*(.+)$", text, re.M):
+            if "!reset" not in entry:
+                published += re.findall(r":(\d+):\d+", entry)
+        assert not re.search(r"^\s*ports:\s*$", text, re.M), name  # no multi-line port list this test would not read
+    assert published == [port.group(1)]
+    assert "ports: !reset []" in (ROOT / "deploy/docker-compose.identity.yml").read_text(encoding="utf-8")
+    # the rule admits the workstation's own subnet only, inbound, for WSL's virtual machines; nothing wider
+    rule = ps1[ps1.index("function Write-TbConsoleFirewallRule") : ps1.index("function Set-TbConsoleFirewall")]
+    assert (
+        'RemoteAddresses = "LocalSubnet"' in rule and 'Direction = "Inbound"' in rule and "LocalPorts = $Port" in rule
+    )
+    assert "DefaultInboundAction Block" in ps1 and '"Any"' not in rule and "Disable-NetFirewall" not in ps1
+    table = re.search(r'^TABLE = "([a-z_]+)"', (ROOT / "deploy/egress.py").read_text(encoding="utf-8"), re.M)
+    assert table and f"nft list table inet {table.group(1)}" in SH.read_text(encoding="utf-8")
+
+
+def _egress_box(box: Box, *, connects: bool, counts: bool) -> None:
+    (box.tmp / "denied").write_text("5\n")
+    box.stub(
+        "docker",
+        f"""case "$1 $2" in
+  "network ls") echo trialbox_trialbox-net; echo trialbox_egress-net ;;
+  "ps --filter") echo trialbox-gateway-1 ;;
+esac
+case "$1" in exec) {"echo 12 > $TB_FAKE/denied;" if counts else ""} exit {0 if connects else 1} ;; esac""",
+    )
+    box.stub(
+        "nft",
+        """n=$(cat "$TB_FAKE/denied")
+echo '    ip saddr { 172.30.0.0/24 } counter packets 3 bytes 180 drop comment "trialbox no direct access"'
+echo "    ip saddr { 172.30.0.0/24 } counter packets $n bytes 600 drop comment \"trialbox default deny\"" """,
+    )
+
+
+@pytest.mark.parametrize(
+    ("connects", "counts", "verdict"),
+    [
+        (False, True, "verdict=held"),
+        (True, False, "verdict=OUT"),
+        (True, True, "verdict=OUT"),
+        (False, False, "verdict=inconclusive"),
+    ],
+)
+def test_the_egress_proof_reads_the_tables_own_counter(box: Box, connects: bool, counts: bool, verdict: str) -> None:
+    """Review of NEW-WIN-4, H1: a failed connection alone proves nothing; the table's dropped-packet counter must
+    rise, and a connection that succeeds is never a pass."""
+    _egress_box(box, connects=connects, counts=counts)
+    out = box.run("egress-proof")
+    assert out.returncode == 0 and out.stdout.strip().splitlines()[-1].startswith(verdict), out.stdout + out.stderr
+    log = box.log()
+    assert "docker ps --filter network=trialbox_egress-net" in log  # a container that HAS a route out
+    assert "docker exec trialbox-gateway-1 python3 -c" in log and "192.0.2.1" in log
+    assert "denied_before=5" in out.stdout
+
+
+def test_the_egress_proof_is_inconclusive_without_a_stack(box: Box) -> None:
+    box.stub("docker", "exit 0")
+    assert box.run("egress-proof").stdout.strip().startswith("verdict=inconclusive")
+
+
+@pytest.mark.parametrize(
+    ("ranges", "addr", "ok"),
+    [
+        ("192.0.2.0/24", "192.0.2.10/24", True),
+        ("10.255.255.254/32", "192.0.2.10/24", False),  # review M2: the loopback's address was taken for the network
+        ("198.51.100.0/24", "192.0.2.10/24", False),  # a VPN adapter's subnet
+        ("192.0.2.10/32", "192.0.2.10/24", False),  # the PC itself only: no other computer is admitted
+        ("192.0.2.0/24 2001:db8::/64", "192.0.2.10/24", True),
+        ("", "192.0.2.10/24", False),
+    ],
+)
+def test_the_lan_check_compares_the_boxs_firewall_with_this_pcs_real_network(
+    box: Box, ranges: str, addr: str, ok: bool
+) -> None:
+    site = box.root / "deploy/site"
+    site.mkdir(parents=True)
+    (site / "hardening.conf").write_text(f'KEK_BACKEND=passphrase\nCLINIC_RANGES="{ranges}"\nSSH=off\n')
+    box.stub(
+        "ip",
+        f"""case "$*" in
+  *"route show default"*) echo 'default via 192.0.2.1 dev eth0 proto kernel' ;;
+  *"addr show dev eth0"*) echo '2: eth0    inet {addr} brd 192.0.2.255 scope global eth0' ;;
+esac""",
+    )
+    out = box.run("lan-check")
+    assert (out.returncode == 0) is ok, out.stdout + out.stderr
+    assert f"this PC's network address '{addr}'" in out.stdout
+
+
 def test_an_unknown_step_is_an_error(box: Box) -> None:
     assert box.run("format-disk").returncode == 1
