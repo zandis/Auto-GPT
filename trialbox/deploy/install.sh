@@ -485,13 +485,23 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
     || die "the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
-"${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
-  || die "the database roles could not be set (docker compose logs db)"
-# D-486 (T-718): the schemas no service owns (edc) are made now, by the box's admin, before the services start; the
-# admin's URL goes in the environment, not on the command line
-TB_DB_URL="postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" "${COMPOSE[@]}" run --rm --no-deps -T -e TB_DB_URL \
-  orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
-  || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
+"${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
+# D-624: this release's steps once the database is up (tools/trialbox/prestart.py DB_STEPS: the roles of D-378, the
+# schemas no service owns of D-486, whatever a later release adds), by the same command an update runs and with the
+# compose files and profile an update uses (COMPOSE_FILE and COMPOSE_PROFILES in deploy/.env, written above)
+if command -v python3 >/dev/null; then
+  TB_INSTALL_PULL="$PULL" python3 -m tools.trialbox db-up --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+    || die "a database step of this release failed (db-up above; docker compose logs db)"
+else
+  echo "    note: no python3 on this host: the release's database steps (tools.trialbox db-up) were not run; the roles and the schemas are set by the installer" >&2
+  "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
+    || die "the database roles could not be set (docker compose logs db)"
+  # D-486 (T-718): the schemas no service owns (edc), by the box's admin; the admin's URL goes in the environment,
+  # not on the command line
+  TB_DB_URL="postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" "${COMPOSE[@]}" run --rm --no-deps -T -e TB_DB_URL \
+    orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
+    || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
+fi
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
