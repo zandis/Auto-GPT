@@ -4,6 +4,7 @@ Schema ``orch`` of the trial database (PostgreSQL ``trialbox_wf``, D-126; :mod:`
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from collections.abc import Iterator
@@ -161,6 +162,38 @@ SCHEMA_NAME = "orch"
 TERMINAL = ("done", "failed")
 
 
+class JobLeased(RuntimeError):
+    """Another live worker runs this job (its lease is held): it is not run or queued a second time."""
+
+
+class JobLease:
+    """One run's lease (D-532): a session lock of the database, two keys (the schema, the job) so that two jobs
+    never share one. Not timed (OD-10): it lives exactly as long as its holder's connection."""
+
+    def __init__(self, url: str, name: str, schema: str, job_id: str) -> None:
+        self.job_id = job_id
+        self._keys = (f"{schema}:job-run", job_id)
+        self._db = Database.connect(url, name)
+        try:
+            row = self._db.fetchone("SELECT pg_try_advisory_lock(hashtext(?), hashtext(?))", self._keys)
+        except BaseException:
+            self._db.close()
+            raise
+        if not (row and row[0]):
+            self._db.close()
+            raise JobLeased(f"job {job_id} is being run by another worker")
+
+    def release(self) -> None:
+        with contextlib.suppress(Exception):  # a lost connection has given it up already
+            self._db.fetchone("SELECT pg_advisory_unlock(hashtext(?), hashtext(?))", self._keys)
+        self.drop_connection()
+
+    def drop_connection(self) -> None:
+        """What a dying holder does without meaning to: the connection goes, and the lease with it."""
+        with contextlib.suppress(Exception):
+            self._db.close()
+
+
 class JobDB:
     def __init__(self, url: str | None = None, *, schema: str = SCHEMA_NAME) -> None:
         """``url``: the trial database (``TB_DB_URL`` when None; :class:`tb_common.db.DatabaseError` if unset).
@@ -316,6 +349,21 @@ class JobDB:
             (type_, key, value),
         )
         return [Job.model_validate_json(r[0]) for r in rows]
+
+    # ------------------------------------------------------------------ the run's lease (NEW-B-11, D-532)
+    def lease(self, job_id: str) -> JobLease:
+        """The lease of the worker that runs ``job_id``: held from the run's start to its end, on a connection of
+        its own, given up with that connection (a worker that dies holds nothing). :class:`JobLeased` when another
+        worker, in this process or any other on the database, holds it."""
+        return JobLease(self.url, self._db.store, self._db.schema, job_id)
+
+    def leased(self, job_id: str) -> bool:
+        """Whether a live worker runs ``job_id`` now (asked without taking the lease)."""
+        with self.tx() as con:
+            row = con.fetchone(
+                "SELECT pg_try_advisory_xact_lock(hashtext(?), hashtext(?))", (f"{self._db.schema}:job-run", job_id)
+            )
+        return not (row and row[0])
 
     def claim(self, only: tuple[str, ...] = ()) -> str | None:
         """Take the oldest queued job; ``only``: of these types (T-704, D-458: the worker kept for the ingest)."""

@@ -53,7 +53,7 @@ from tb_contracts import (
 
 from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
-from orchestrator.db import TERMINAL, JobDB
+from orchestrator.db import TERMINAL, JobDB, JobLeased
 from orchestrator.jobs import guarded_services, max_restarts, pinned_services, release_hold
 
 if TYPE_CHECKING:
@@ -497,6 +497,20 @@ class Orchestrator:
             raise KeyError(job_id)
         if job.state in TERMINAL:
             return job
+        # NEW-B-11 (D-532): one worker runs a job at a time, in every process on this database. The lease is the
+        # run's; it ends with the run, or with the worker's connection when the worker dies
+        try:
+            lease = self.db.lease(job_id)
+        except JobLeased:
+            log.warning("job %s is being run by another worker: not run a second time", job_id)
+            return job
+        try:
+            return self._run(job)
+        finally:
+            lease.release()
+
+    def _run(self, job: Job) -> Job:
+        job_id = job.job_id
         t0 = time.perf_counter()
         if job.run_date is None:  # not a state change: no audit event; the "running" transition follows
             job = job.model_copy(update={"run_date": self.today()})
@@ -626,6 +640,11 @@ class Orchestrator:
         for jid in self.db.interrupted():  # restart recovery: run again from the start (scenarios are idempotent)
             job = self.db.get(jid)
             if job is None:
+                continue
+            if self.db.leased(jid):
+                # D-532: not interrupted: another orchestrator process on this database is running it now (an
+                # update that starts the new container before the old one stopped). It is left to its worker
+                log.warning("job %s is being run by another orchestrator: not queued again", jid)
                 continue
             # T-689 (D-456, review F-28): the restart is counted; the answers the job's models already gave are
             # kept and replayed (orchestrator.jobs.KeptAnswers), so the run does not start its model work at zero
