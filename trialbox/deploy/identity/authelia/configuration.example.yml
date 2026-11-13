@@ -40,6 +40,8 @@ authentication_backend:
     implementation: activedirectory
     address: ldaps://dc01.hospital.example:636                    # SITE: a domain controller, LDAPS only
     timeout: 5s
+    # D-722: the certificate of the domain controller is verified against the hospital's directory CA only
+    # (TB_LDAP_CA in deploy/.env, mounted as the container's whole root list); no public root is trusted
     tls:
       server_name: dc01.hospital.example                          # SITE
       minimum_version: TLS1.2

@@ -1169,6 +1169,61 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
 
 
+#: where a host keeps its public root list (the files and folders Go's crypto/x509 looks in): never the hospital's CA
+PUBLIC_ROOTS = (
+    "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/ca-bundle.pem",
+    "/etc/pki/tls/cacert.pem", "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", "/etc/ssl/cert.pem",
+    "/etc/ssl/certs", "/etc/pki/tls/certs", "/usr/share/ca-certificates", "/usr/local/share/ca-certificates",
+)  # fmt: skip
+
+
+def check_ldap_ca(inp: DoctorInputs) -> Check:
+    """AUTHELIA-CA (D-722): with the hospital sign-in on, Authelia's whole root list is the file ``TB_LDAP_CA``
+    (the identity overlay mounts it and points Go's certificate lookup at it). FAIL in VALIDATION and PRODUCTION
+    (WARN elsewhere) when it is not set, is not there, holds no certificate, or is the host's public root list: the
+    first three mean no hospital account can sign in (Authelia trusts nothing), the last undoes the card. The
+    file's form is read, never a key's content."""
+    import base64
+
+    name = "ldap_ca"
+    if (inp.env.get("TB_OIDC_ENABLED") or "").strip().lower() not in ("1", "true", "on", "yes"):
+        return Check(name, "PASS", "the hospital sign-in is off: Authelia does not run")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    bad: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    given = (inp.env.get("TB_LDAP_CA") or "").strip()
+    if not given:
+        return Check(name, bad, "the hospital sign-in is on and TB_LDAP_CA is not set: Authelia trusts nothing, so "
+                                "no hospital account signs in. Set it in deploy/.env to the hospital's directory CA "
+                                "chain, one PEM file (RUNBOOK section 12, D-722)")  # fmt: skip
+    plain = given.rstrip("/")
+    if plain in PUBLIC_ROOTS or any(plain.startswith(p + "/") for p in PUBLIC_ROOTS if "." not in Path(p).name):
+        return Check(name, bad, f"TB_LDAP_CA={given} is the host's public root list: Authelia would trust every "
+                                "public certificate authority for the directory's name. Give it the hospital's own "
+                                "directory CA chain (D-722)")  # fmt: skip
+    path = Path(given)
+    if not path.is_absolute():
+        path = (inp.deploy or ROOT / "deploy") / path
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return Check(name, bad, f"TB_LDAP_CA={given} cannot be read ({type(exc).__name__}): Authelia trusts nothing")
+    if "PRIVATE KEY-----" in text:
+        return Check(name, bad, f"TB_LDAP_CA={given} holds a private key: it is the CA's certificates only (a key "
+                                "never belongs in this file)")  # fmt: skip
+    certs = 0
+    for block in text.split("-----BEGIN CERTIFICATE-----")[1:]:
+        body = block.split("-----END CERTIFICATE-----")[0]
+        try:
+            certs += bool(base64.b64decode("".join(body.split()), validate=True))
+        except ValueError:
+            continue
+    if not certs:
+        return Check(name, bad, f"TB_LDAP_CA={given} holds no certificate (PEM, BEGIN CERTIFICATE): Authelia "
+                                "trusts nothing")  # fmt: skip
+    return Check(name, "PASS", f"Authelia's only roots are the {certs} certificate(s) of TB_LDAP_CA: no public root "
+                               "is trusted for LDAPS")  # fmt: skip
+
+
 def check_memory_caps(inp: DoctorInputs) -> Check:
     """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
     (``tools.trialbox.memcaps``)."""
@@ -1655,6 +1710,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_channel_engine,
     check_secure_cookie,
     check_console_mfa,
+    check_ldap_ca,
     check_publish_gate,
     check_note_block,
     check_judge_route,

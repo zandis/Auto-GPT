@@ -82,6 +82,12 @@ sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lo
    `TB_OIDC_CLIENT_SECRET`, `TB_OIDC_LOGOUT_URL=https://<TB_AUTH_HOSTNAME>/logout`, `TB_OIDC_CA` (the internal root
    from TLS step 3, or the hospital's CA chain) and `TB_OIDC_GROUP_ROLES`, for example
    `TB-Coordinators:coordinator,TB-Investigators:investigator,TB-Monitors:cro,TB-Admins:admin`.
+   Also `TB_LDAP_CA`: the hospital's directory CA chain as one PEM file (the CA that issued the domain
+   controller's certificate, with its intermediates). It is the only root list Authelia has (D-722): no public
+   certificate authority is trusted for LDAPS, so a certificate for the directory's name from anyone but the
+   hospital's CA is refused. Without the file Authelia trusts nothing and no hospital account signs in;
+   `trialbox doctor` (`ldap_ca`) fails a box whose hospital sign-in is on without it, or with the host's public
+   root list in its place.
 4. Open LDAPS for Authelia only: add `authelia=<domain controller>:636` to `EGRESS_EXTRA` and run
    `deploy/network.sh apply` ([Security §2](../SECURITY.md#2-network)).
 5. `docker compose --profile oidc up -d --wait`. The sign-in page shows **Sign in with the hospital account**.

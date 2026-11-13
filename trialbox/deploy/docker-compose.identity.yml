@@ -67,8 +67,15 @@ services:
       AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /run/authelia/storage_key
       AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE: /run/authelia/oidc_hmac
       AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE: /run/authelia/ldap_password
+      # D-722: the container's whole root list is the hospital's directory CA (the mount below). Go's crypto/x509
+      # reads SSL_CERT_FILE instead of the image's bundle of public roots, and SSL_CERT_DIR instead of its
+      # certificate folders: a path nothing is ever mounted at. So no public root or intermediate is trusted for
+      # LDAPS, the one outbound connection Authelia has. Unset, the file is /dev/null: it trusts nothing.
+      SSL_CERT_FILE: /run/tb-ldap-ca.pem
+      SSL_CERT_DIR: /run/tb-no-other-roots
     volumes:
       - ${TB_AUTHELIA_CONFIG:-./site/authelia/configuration.yml}:/config/configuration.yml:ro
+      - ${TB_LDAP_CA:-/dev/null}:/run/tb-ldap-ca.pem:ro   # D-722: the hospital's directory CA chain, PEM
       - ./secrets/authelia:/run/authelia:ro
       - authelia-data:/data
     networks:

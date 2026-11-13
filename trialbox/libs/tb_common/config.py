@@ -665,6 +665,7 @@ DECLARED: dict[str, Declared] = {
     "TB_OIDC_CLIENT_ID": Declared("str", "", "OIDC: client id"),
     "TB_OIDC_CLIENT_SECRET_FILE": Declared("path", "", "OIDC: file with the client secret"),
     "TB_OIDC_ENABLED": Declared("bool", "0", "OIDC sign-in on"),
+    "TB_LDAP_CA": Declared("str", "", "the hospital's directory CA chain (PEM): Authelia's only roots (D-722)"),
     "TB_OIDC_GROUPS_CLAIM": Declared("str", "groups", "OIDC: groups claim"),
     "TB_OIDC_GROUP_ROLES": Declared("str", "", "OIDC: group to role map"),
     "TB_OIDC_ISSUER": Declared("str", "", "OIDC: issuer"),
