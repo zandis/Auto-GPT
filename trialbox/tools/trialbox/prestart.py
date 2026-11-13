@@ -17,8 +17,9 @@ folder, its ``.env``) and returns one line for the log. The contract:
 * what it leaves on the host must be harmless to the previous release: a rollback puts back the databases, the
   images, the models and the host tree, not ``deploy/.env`` and not ``deploy/secrets``.
 
-A fresh install runs the same command: ``deploy/install.sh`` calls it before it starts the stack, so a step that is
-here is not written a second time there.
+A fresh install runs the same command: ``deploy/install.sh`` calls it before it starts the stack. The installer
+still has shell copies of some of this for a host without python3 (the service passwords in ``deploy/.env``, the
+role script, the migrate step); a step added here is not run on such a host, and the installer says so.
 
 The first release with this command cannot be helped by it: the release installed before it restarts the stack
 the old way. A release that adds a step therefore names, as its ``min_installed_version``, a release that has

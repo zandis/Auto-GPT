@@ -236,6 +236,47 @@ def test_review_the_pages_do_not_say_every_service_is_stopped() -> None:
     assert "fhir-store" in rec
 
 
+@pytest.mark.parametrize("mounted", ["previous", "current", "unknown", "none"])
+def test_review_the_database_container_is_made_again_when_it_holds_another_releases_scripts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mounted: str
+) -> None:
+    """``deploy/docker`` is a link through ``current`` (tools/host_tree.py), and a bind mount is resolved when the
+    container is made: a container the previous release started keeps the PREVIOUS release's db-init folder, so a
+    release that changes only the role script would run the old one, and compose leaves a container whose settings
+    did not change. The step makes it again then, and when it cannot tell; not when the folder is this release's
+    (a fresh install: the container was made a moment ago and may still be filling an empty volume)."""
+    deploy = tmp_path / "deploy"
+    for rel in ("releases/old/db-init", "releases/new/db-init"):
+        (tmp_path / rel).mkdir(parents=True)
+    (deploy / "docker").mkdir(parents=True)
+    (deploy / "docker" / "db-init").symlink_to(tmp_path / "releases" / "new" / "db-init")
+    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake(argv: Sequence[str], **_kw: Any) -> str:
+        calls.append(list(argv))
+        if argv[-2:] == ["-q", "db"]:
+            return "" if mounted == "none" else "abc123\n"
+        if "inspect" in argv:
+            if mounted == "unknown":
+                raise up.UpdateFailed("docker inspect exit 1")
+            return str(tmp_path / "releases" / ("old" if mounted == "previous" else "new") / "db-init") + "\n"
+        return ""
+
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    line = up.ComposeBox(deploy, run=fake).db_on_new_settings()
+    up_db = next(c for c in calls if c[:3] == ["dc", "up", "-d"] and c[-1] == "db")
+    assert ("--force-recreate" in up_db) == (mounted in ("previous", "unknown")), (mounted, up_db)
+    assert ("made again" in line) == (mounted in ("previous", "unknown"))
+    assert "resolved when the container is made" in " ".join((up.ComposeBox.db_on_new_settings.__doc__ or "").split())
+
+
+def test_review_the_page_does_not_say_install_writes_no_step_twice() -> None:
+    """install.sh keeps shell copies for a host without python3 (the password of a new role among them)."""
+    doc = " ".join((prestart.__doc__ or "").split())
+    assert "is not written a second time there" not in doc and "without python3" in doc
+
+
 # ------------------------------------------------------------------------------------------- install and the pages
 def test_a_fresh_install_runs_the_same_command_after_the_database_is_up() -> None:
     text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")

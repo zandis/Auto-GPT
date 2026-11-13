@@ -12,9 +12,10 @@
 D-620 gave a release a place for what its stack needs on the host before it starts. Two more things happen
 between that and the start of the services, and both need the database: the role script
 (`deploy/docker/db-init/30-service-roles.sh`) and the schemas no service owns (`python -m orchestrator.migrate`).
-The updater that runs them is the installed, older release's. The script it runs is the new one (the folder is
-part of the host tree), but which commands run, in what order and with what around them is the old release's
-knowledge. A release that needs one more command there (a second script, a grant that must follow the migrate
+The updater that runs them is the installed, older release's: which commands run, in what order and with what
+around them is the old release's knowledge. The script is not the new one either, although its folder is part
+of the host tree: the running container still holds the folder of the release that made it (found by lane C2's
+review). A release that needs one more command there (a second script, a grant that must follow the migrate
 step) cannot have it on an update.
 
 One fault is in today's order, found by reading: the role script takes each service's password from the database
@@ -28,7 +29,9 @@ without a password, the new service cannot sign in, and the update is rolled bac
    `python3 -m tools.trialbox db-up --deploy <dir>` runs it. A step has the contract of D-620's steps, with one
    difference: the database is up and no other service of the stack is.
 2. The steps of this release, in order: `database` (the `db` service is brought to the new release's settings:
-   `up -d --wait db`, which recreates the container when its settings changed and does nothing otherwise),
+   `up -d --wait db`, which recreates the container when its settings changed; and when the container holds
+   another release's db-init folder it is made again, because `deploy/docker` is a link through `current` and a
+   bind mount is resolved when the container is made, so the role script inside it would be the old one),
    `service roles` (the role script), `owned schemas` (the migrate step). A box with no `TB_DB_URL` in
    `deploy/.env` never ran the installer's database step: each step says so and does nothing, as before.
 3. The updater's restart runs the new tree's `db-up` as a process of its own after `pre-start` and before the
