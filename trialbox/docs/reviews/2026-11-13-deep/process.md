@@ -20,7 +20,7 @@ loop of an adversarial review. I adapted both into one project skill, with the M
 | --- | --- | --- | --- | --- |
 | 1 | No local command equals CI's fast tier; each written list misses steps | verified | `tools/prepush.py` + parity test | yes |
 | 2 | The owner's rules live only in briefs; repository docs contradict two of them | verified | root `CLAUDE.md`; CONTRIBUTING fixed | yes |
-| 3 | Six of ten red CI runs on 2026-11-13 were GitHub refusing to start jobs (billing or spending limit) | verified | owner checks the limit | no (owner) |
+| 3 | Six of the first ten red CI runs on 2026-11-13 were GitHub refusing to start jobs (billing or spending limit), and the same refusal hit the supply-chain and identity workflows | verified | owner checks the limit | no (owner) |
 | 4 | Eleven open draft pull requests are already on master | verified | close them; a helper command | listed |
 | 5 | Cloud sessions lack PostgreSQL on PATH, shellcheck and CI's uv version, so cross-card, shellcheck and lock-check fail or are skipped locally | verified | session-start hook | yes |
 | 6 | A head is handed over with no check of the push rules | verified (no tool) | `tools/train_ready.py` | yes |
@@ -91,7 +91,9 @@ about 30 minutes of wall time, plus the lane's and integrator's turns.
 * **Six of the ten red runs that day were not code.** Runs `43378478894`, `43378764091`, `43379606688`,
   `43379981893`, `43384415146`, `43384753962` failed in the `changes` job with no step run; the annotation reads
   "The job was not started because recent account payments have failed or your spending limit needs to be
-  increased." Later runs passed, so it was a window around 07:18 UTC. A lane that reads only "red" can lose a turn
+  increased." The reviewer found the same message on runs of the supply-chain and identity workflows
+  (`43384415089`, `43384415093`, `43379606476`, `43378478885`), so the count across workflows is higher than six.
+  Later runs passed, so it was a window from about 07:00 to 08:50 UTC. A lane that reads only "red" can lose a turn
   chasing a fault that is not there.
 * The other four reds: `cross-card` on a card (#429, the card that added two cross-card tests), a shard and a demo
   walk on train 5, the demo image build on train 7, the coverage ratchet on train 8. The first could have been seen
@@ -101,10 +103,11 @@ about 30 minutes of wall time, plus the lane's and integrator's turns.
 
 43 pull requests are open, all drafts. Eleven of them (#377, #378, #412, #419, #422, #426, #431, #437, #448, #458,
 #466) have their head commit already on `origin/master` (`git merge-base --is-ancestor`), most from train 5 or 8,
-yet GitHub shows them open. The other card pull requests of the same trains show as merged. *Inferred cause:* the
-lane pushed its head after the train had merged an earlier head, or the train merged a later sha than the pull
-request's head at that moment; GitHub marks a pull request merged only when its head is in the pushed base at that
-push. Effect: the integrator and the owner see 43 open items where 32 are live; old ones (#3, #6, #22, #71, #246,
+yet GitHub shows them open. Cause (verified for five, by the reviewer for all eleven): they are stacked pull
+requests whose base is not `master` but a train (`#412`, `#419`: `train/4`) or another card's branch (`#458`:
+`agent/NEW-WIN-5-windows-update`, `#466`, `#377`). GitHub marks a pull request merged only when its head lands in
+its own base branch; these heads reached master through other pull requests. A card pull request should always
+target `master` (the template and the skill now say "from `origin/master`"). Effect: the integrator and the owner see 43 open items where 32 are live; old ones (#3, #6, #22, #71, #246,
 #278, #324, #354) add more. The command to list them:
 
 ```sh
@@ -185,15 +188,37 @@ skills and 9 slash commands; its four hooks are optional and wired by hand. I ra
 | File | What it does | Tested |
 | --- | --- | --- |
 | `CLAUDE.md` (root) | the owner's 11 standing rules once; the push rules; where things are. A brief may add, nothing relayed may relax. Changes only with the owner's yes | read against the brief and the handover |
-| `trialbox/tools/prepush.py` | every step of CI's `checks` job, the fast-tier jobs, the offline supply-chain steps and the security scans; each into a log; every step runs after a failure; exit 0 / 1 failed / 2 skipped; writes `summary.json` for the head | `tests/unit/test_prepush.py` (15): fails when CI's `checks` job or fast tier gains a step the list lacks, or a command differs |
-| `trialbox/tools/train_ready.py` | refuses a head that is dirty, unpushed, lacks the two closing lines, names a model, merges master, or has no complete passing prepush run; else prints `train-ready: #<n> <sha>` | `tests/unit/test_train_ready.py` (13), on throwaway repositories |
+| `trialbox/tools/prepush.py` | every step of CI's `checks` job and fast-tier jobs with CI's own command line and environment, the offline supply-chain steps, the security scans and `--tests`; each into a log; every step runs after a failure; does not inherit a `TB_ENV`/`TB_TZ` set by hand; exit 0 / 1 failed / 2 skipped; writes `summary.json` for the head | `tests/unit/test_prepush.py` (15): fails when the step names, a command line or a job's environment differ from CI's; three mutations of the workflow checked to fail it |
+| `trialbox/tools/train_ready.py` | refuses a head that has uncommitted or untracked files, is not what `origin/<branch>` holds, has a lane commit without the exact two closing lines or naming a model (capitalised names, model ids), merges master in by either parent, or lacks a complete prepush run with no failure (and with `--tests` when Python changed). Commits a `train/*` branch holds are the integrator's and are not judged. Prints the line with the steps this machine skipped | `tests/unit/test_train_ready.py` (21), on throwaway repositories, including a train tip that holds a merge of master |
 | `.claude/skills/trialbox-card/SKILL.md` | how a card lands: claim, test first (Prove-It), one adversarial review (extract, doubt, reconcile, stop), the local set, hand-over. So the lane brief can shrink to the lane, its block and its first cards | read |
 | `.claude/skills/NOTICE.md` | the MIT notice of the two adapted ideas | text compared with upstream |
-| `.claude/hooks/session-start.sh`, `.claude/settings.json` | cloud sessions only: uv at CI's pin, shellcheck, PostgreSQL 16 on PATH, the venv when the lock changed. 6 s first run, 0.06 s after | run twice, run after a lock change, run outside the cloud (does nothing) |
-| `trialbox/CONTRIBUTING.md`, `docs/DEVELOPING.md` | `D-TBD` instead of "the next free number"; `TB_TZ`; one prepush command instead of partial lists | doclint |
+| `.claude/hooks/session-start.sh`, `.claude/settings.json` | cloud sessions only: the venv first (when the lock changed), uv at CI's pin, PostgreSQL 16 on PATH, shellcheck. Each install that fails is named and skipped; the session starts either way; timeout 300 s. 6 s first run here, 0.06 s after | run twice, after a lock change, outside the cloud (does nothing), with apt failing and shellcheck hidden (names it, exit 0); passes shellcheck |
+| `trialbox/CONTRIBUTING.md`, `docs/DEVELOPING.md` | a number from the lane's block, else the decision headed `D-TBD` in the pull request with no file (a `D-TBD-...` file fails `decisions_index`), instead of "the next free number"; `TB_TZ`; one prepush command instead of partial lists | doclint, decisions index |
 | `.github/PULL_REQUEST_TEMPLATE.md` | plan v7, `D-TBD`, the prepush line, a "For the owner" section, the closing line | read |
 
 My own local set on the final head: see the pull request body.
+
+### The adversarial review of this pull request
+
+A fresh subagent was given the files, the owner's rules and the contract, not my conclusions, and asked to refute
+them. It confirmed by running 14 of its 21 findings. What changed because of it:
+
+| Finding | Severity | Done |
+| --- | --- | --- |
+| A `D-TBD-...` decision file, as my first wording asked, fails `decisions_index --check` | 1 | wording changed: no file until the integrator numbers it |
+| The parity test matched by prefix and substring; six kinds of drift passed it | 1 | exact names, exact command lines, job environments; mutation-checked |
+| A broken `tools.cql_eval` import showed `differential` as "skipped" | 1 | readiness tests no longer import project code (tested) |
+| A merge with master as the first parent passed; untracked files were ignored | 1 | both refused (tested) |
+| Skipped steps passed silently | 1 | printed on the train-ready line for the integrator |
+| Merging a train tip that holds the integrator's merge of master was refused | 2 | commits held by a `train/*` branch are not judged (tested) |
+| "fable-review-..." and "magnum opus" were refused as model names | 2 | names only when capitalised, plus model ids (tested) |
+| A branch pushed without `-u` was refused; loose trailer and URL checks | 2 | compares with `origin/<branch>`; exact lines; a claude.ai session URL |
+| prepush inherited `TB_ENV`/`TB_TZ`/`PYTHONPATH` and lacked cross-card's `TB_DATA_DIR`; braces in a command crashed it | 3 | fixed (tested) |
+| The hook claimed shellcheck when apt failed; a failed step stopped the venv | 3 | fixed (tested) |
+
+Open, by choice: local actionlint and shellcheck are not CI's pinned versions, and the Pester modules are not
+installed (a local result can differ; CI is the judge); the hook installs packages as root in cloud sessions only;
+`train_ready` does not read the pull request's title or body (it has no GitHub access).
 
 ## 6. Proposals, ranked by benefit for the work
 
@@ -231,12 +256,14 @@ Savings are estimates from the numbers in section 3.
 | The GitHub spending limit or payment state (six runs refused at about 07:18 UTC on 2026-11-13) | check it in Billing; nothing for the sessions to do |
 | Is the root `CLAUDE.md` your standing rules as you mean them? It changes only with your yes | read its eleven rules once; correct any word |
 | `D-TBD`: lanes run `tools.prepush` before a push and `tools.train_ready` before a hand-over | yes; the integrator numbers it |
+| `D-TBD`: D-311 lets a session take the next free decision number without waiting; your rule for this review says the integrator assigns them. CONTRIBUTING now follows your rule (a lane's block, else `D-TBD` in the pull request) | confirm, so D-311 is superseded on this point by a numbered decision |
+| Stacked pull requests (based on a train or another card) never show as merged: should every card pull request target `master`? | yes |
 | Lane briefs shrink to lane, block and first cards, with `CLAUDE.md` and the skill | yes |
 | The integrator opens lanes itself so it can message them (proposal 8) | yes |
 | A nightly reader session (proposal 9) | yes, if its allowance cost is acceptable to you |
 
 ## 9. Limits of this review
 
-I could not read the lane brief itself (lane A2's session is not reachable from here); I used this session's brief
+The reviewer's billing count is from a later moment than mine. I could not read the lane brief itself (lane A2's session is not reachable from here); I used this session's brief
 as the sample. I could not see billed minutes, only job durations. I read the 100 newest CI runs, not all 1,532.
 The cause of the eleven stale pull requests is inferred. The allowance figures are from the brief.

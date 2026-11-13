@@ -17,8 +17,8 @@ adversarial review (D-311). -->
 
 ## Decision
 
-<!-- D-nnn from your lane's block and its file under trialbox/docs/decisions/, D-TBD (the integrator assigns it), or
-"none". -->
+<!-- D-nnn from your lane's block and its file under trialbox/docs/decisions/; or the decision's text here headed
+D-TBD, with no file (the integrator assigns the number); or "none". -->
 
 ## Acceptance
 

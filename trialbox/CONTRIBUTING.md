@@ -19,8 +19,9 @@ plan is TB-PLAN-06 (`docs/plan/28-master-plan-v6.md`); its §6.1 holds the full 
 * One decision is one file: `docs/decisions/D-<nnn>-<slug>.md`. Its first line names the number (`**D-nnn Title.**`
   or `# D-nnn Title`) and its first lines name the card (`T-nnn`).
 * Use a number from the block your lane's brief gives you and add its row to `docs/decisions/REGISTRY.md`. With no
-  block, write `D-TBD` in the file name and the pull request; the integrator assigns the number (the owner's rule,
-  2026-11-13: two sessions taking "the next free number" at once renumbered D-584 to D-589 on 2026-11-12).
+  block, write the decision in the pull request under "Decision", headed `D-TBD`, and add no decision file (a file
+  named `D-TBD-...` fails `decisions_index --check`); the integrator assigns the number and adds the file. Never take
+  "the next free number": two sessions doing so at once renumbered D-584 to D-589 on 2026-11-12.
 * `docs/DECISIONS.md` is frozen: it keeps D-01 to D-270 as they are and takes no new entry.
 * `python -m tools.decisions_index --check` (CI job `checks`) fails only on a number written twice; registry
   bookkeeping is printed as notes. `python -m tools.decisions_index` prints the index.

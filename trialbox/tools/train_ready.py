@@ -3,11 +3,14 @@
 The integrator merges a lane's head into ``train/<n>`` and the full tier runs once on the train. A head that breaks a
 standing rule costs a train rebuild or a relay round through the owner. This tool checks, on the branch you are on:
 
-* the working tree has no uncommitted change, and HEAD is what the branch's upstream holds (pushed, nothing after);
-* every commit since ``origin/master`` ends with exactly the two lines ``Co-Authored-By: Claude
-  <noreply@anthropic.com>`` and ``Claude-Session: <session URL>``, and names no model;
-* no commit merges ``origin/master`` into the branch (the push rule; a merge of a train's tip is allowed);
-* ``python -m tools.prepush`` ran complete on this HEAD with every step passed (skips are listed).
+* the working tree has no uncommitted or untracked file, and HEAD is what ``origin/<branch>`` holds (pushed);
+* every commit of the lane since ``origin/master`` (commits that a ``train/*`` branch already holds are the
+  integrator's) ends with exactly the two lines ``Co-Authored-By: Claude <noreply@anthropic.com>`` and
+  ``Claude-Session: https://claude.ai/code/session_...``, and names no model;
+* no commit of the lane merges ``origin/master`` into the branch, whichever parent it is (the push rule; a merge of
+  a train's tip is allowed);
+* ``python -m tools.prepush`` ran complete on this HEAD with no step failed, and with ``--tests`` when a Python file
+  changed. A step skipped because this machine lacks its tool is printed on the train-ready line, for the integrator.
 
     python -m tools.train_ready --pr 512          # prints the train-ready line, or what is wrong; exit 1 if wrong
 """
@@ -23,9 +26,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CO_AUTHOR = "Co-Authored-By: Claude <noreply@anthropic.com>"
-SESSION = re.compile(r"^Claude-Session: https://\S+$")
-#: model family names and model ids; the owner's rule: none in a commit, a pull request title or body
-MODEL_NAME = re.compile(r"\b(opus|sonnet|haiku|fable)\b|\bclaude-[a-z0-9.-]*\d", re.IGNORECASE)
+SESSION = re.compile(r"^Claude-Session: https://claude\.ai/code/session_[A-Za-z0-9]+$")
+#: model family names as names (capitalised: a file called fable-review-... is not a model name) and model ids;
+#: the owner's rule: none in a commit, a pull request title or body
+MODEL_NAME = re.compile(r"\b(Opus|Sonnet|Haiku|Fable)\b")
+MODEL_ID = re.compile(r"\bclaude-[a-z]+-\d", re.IGNORECASE)
 
 
 def git(*args: str, cwd: Path = ROOT) -> str:
@@ -34,35 +39,45 @@ def git(*args: str, cwd: Path = ROOT) -> str:
 
 def message_problems(message: str) -> list[str]:
     """What is wrong with one commit message under the owner's rules (an empty list when nothing)."""
-    lines = [ln.rstrip() for ln in message.strip().splitlines()]
+    lines = message.rstrip("\n").splitlines()
     problems = []
     if len(lines) < 2 or lines[-2] != CO_AUTHOR or not SESSION.match(lines[-1]):
         problems.append(f"does not end with the two lines `{CO_AUTHOR}` and `Claude-Session: <session URL>`")
-    names = sorted({m.group(0) for m in MODEL_NAME.finditer(message)})
+    names = sorted({m.group(0) for r in (MODEL_NAME, MODEL_ID) for m in r.finditer(message)})
     if names:
         problems.append(f"names a model: {', '.join(names)}")
     return problems
 
 
-def check(base: str = "origin/master", cwd: Path = ROOT, prepush_dir: Path | None = None) -> tuple[str, list[str]]:
-    """HEAD's sha and the list of problems that stop a train-ready line."""
+def lane_commits(base: str, cwd: Path) -> list[str]:
+    """The commits of ``base..HEAD`` that no ``train/*`` branch holds: the lane's own."""
+    trains = git("for-each-ref", "--format=%(objectname)", "refs/remotes/origin/train/", cwd=cwd).split()
+    return git("rev-list", f"{base}..HEAD", *(["--not", *trains] if trains else []), cwd=cwd).split()
+
+
+def check(
+    base: str = "origin/master", cwd: Path = ROOT, prepush_dir: Path | None = None
+) -> tuple[str, list[str], list[str]]:
+    """HEAD's sha, the problems that stop a train-ready line, and the steps skipped on this machine."""
     head = git("rev-parse", "HEAD", cwd=cwd)
     problems: list[str] = []
-    if git("status", "--porcelain", "--untracked-files=no", cwd=cwd):
-        problems.append("the working tree has uncommitted changes")
-    upstream = git("rev-parse", "--verify", "-q", "@{upstream}", cwd=cwd)
-    if not upstream:
-        problems.append("the branch has no upstream: push it first")
-    elif upstream != head:
-        problems.append(f"HEAD {head[:8]} is not what the upstream holds ({upstream[:8]})")
-    for sha in git("rev-list", f"{base}..HEAD", cwd=cwd).split():
+    if git("status", "--porcelain", cwd=cwd):
+        problems.append("the working tree has uncommitted or untracked files (git status)")
+    branch = git("branch", "--show-current", cwd=cwd)
+    pushed = git("rev-parse", "--verify", "-q", f"origin/{branch}", cwd=cwd) if branch else ""
+    if not pushed:
+        problems.append(f"origin/{branch or '<detached HEAD>'} does not exist: push the branch first")
+    elif pushed != head:
+        problems.append(f"HEAD {head[:8]} is not what origin/{branch} holds ({pushed[:8]})")
+    for sha in lane_commits(base, cwd):
         for p in message_problems(git("log", "-1", "--format=%B", sha, cwd=cwd)):
             problems.append(f"commit {sha[:8]} {p}")
-        merged_in = git("rev-list", "--parents", "-n", "1", sha, cwd=cwd).split()[2:]  # a merge's other parents
-        for p in merged_in:
+        parents = git("rev-list", "--parents", "-n", "1", sha, cwd=cwd).split()[1:]
+        for p in parents if len(parents) > 1 else []:
             if subprocess.run(["git", "merge-base", "--is-ancestor", p, base], cwd=cwd, check=False).returncode == 0:
                 problems.append(f"commit {sha[:8]} merges {base} into the branch (the push rule)")
     summary = (prepush_dir or cwd / ".cache" / "prepush" / head) / "summary.json"
+    skipped: list[str] = []
     if not summary.is_file():
         problems.append(f"no prepush run on this HEAD: run python -m tools.prepush ({summary} is missing)")
     else:
@@ -74,9 +89,10 @@ def check(base: str = "origin/master", cwd: Path = ROOT, prepush_dir: Path | Non
             problems.append("the prepush run was partial (--only or --quick)")
         problems += [f"prepush {k}: {v}" for k, v in bad.items() if not v.startswith("skipped")]
         skipped = [k for k, v in bad.items() if v.startswith("skipped")]
-        if skipped:
-            print(f"train-ready: note: not run here (CI runs them): {', '.join(skipped)}", file=sys.stderr)
-    return head, problems
+        changed_py = [f for f in git("diff", "--name-only", f"{base}...HEAD", cwd=cwd).split() if f.endswith(".py")]
+        if changed_py and not s.get("tests"):
+            problems.append("the prepush run had no --tests, and the branch changes Python files")
+    return head, problems, skipped
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -84,11 +100,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pr", type=int, required=True, help="the card's pull request number")
     ap.add_argument("--base", default="origin/master")
     args = ap.parse_args(argv)
-    head, problems = check(args.base)
+    head, problems, skipped = check(args.base)
     if problems:
         print("not train-ready:", *(f"  - {p}" for p in problems), sep="\n")
         return 1
-    print(f"train-ready: #{args.pr} {head}")
+    note = f" (not run on this machine, CI runs them: {', '.join(skipped)})" if skipped else ""
+    print(f"train-ready: #{args.pr} {head}{note}")
     return 0
 
 
