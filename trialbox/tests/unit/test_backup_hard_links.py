@@ -11,6 +11,7 @@ import hashlib
 import os
 import tarfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -92,7 +93,7 @@ def test_only_a_second_name_of_a_file_that_verifies_is_read_so(tmp_path: Path) -
     (tmp_path / "alone").write_bytes(b"x")  # the same bytes, but a file of its own: not a second name
     (tmp_path / "c").write_bytes(b"y")
     os.link(tmp_path / "c", tmp_path / "d")  # a second name of a file that does NOT verify
-    m = {
+    m: dict[str, dict[str, Any]] = {
         "files": {"a": good, "b": nothing, "alone": nothing, "c": good, "d": nothing, "e": good},
         "sizes": {"a": 1, "b": 0, "alone": 0, "c": 1, "d": 0, "e": 1},
     }
