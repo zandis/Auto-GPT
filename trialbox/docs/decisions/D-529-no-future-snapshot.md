@@ -34,6 +34,21 @@ a newer night is already served", an error of the night. What was left is the ca
    itself does not refuse a future name: it has no clock of its own to trust over its caller's, and its callers
    are the adapter (point 1) and the site set-up, which rebuilds the served date.
 
+5. **The publish refuses it too** (`adapter.publish.publish_night`): a steward's accept of a night held under a
+   future name (left on disk from before this rule) ends "not published", nothing built or served.
+6. **The refusal is recorded.** The ingest writes the audit event `ingest.failed` with `refused: future_night`
+   and the reason, as a refused site key does; the command line prints the reason and ends with 2.
+7. **A box whose day is pinned is not judged at the pin.** `TB_TODAY` (the test stack) pins the orchestrator's
+   day behind the feed on purpose; there a served night after that day is 0 days old, as before.
+
+## What this does not prevent
+
+A host clock that is **ahead** names tonight's night after its own wrong today and accepts it: the adapter has no
+second clock to ask. The night is served. When the clock is corrected the pin refuses it (point 3) and every later
+night says "not published: a newer night is already served" (D-489): loud, and stuck. **There is no command that
+takes one served night back** (the lake, the FHIR store, the OMOP store and the pid map all hold it); the runbook
+says to restore from the last backup before that night. Such a command is a card of its own.
+
 ## Consequences
 
 - A re-run with a mistyped future date ends at once with a plain message instead of being served.
