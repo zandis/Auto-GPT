@@ -15,7 +15,7 @@
   the start of the day, OPS-034). A gap makes ``collect`` and ``daily`` exit 1 with what to raise. The numbers are
   the measurement the caps are re-sized from (G1 is parked: the caps are unmeasured until then).
 * **third-party logs** (T-209c, D-406, review OPS-035): the services TrialBox does not write itself
-  (:data:`THIRD_PARTY`: PostgreSQL, the HAPI FHIR store, the model server, the identity provider, Caddy, Prometheus)
+  (:data:`THIRD_PARTY`: PostgreSQL, the HAPI FHIR store, the model servers, the identity provider, Caddy, Prometheus)
   are not scrubbed: a failed SQL statement or a request body may carry patient values. Their days go apart, into
   ``TB_LOG_DIR/third-party/<day>/`` (0600, folder 0700) with a ``CLASS`` file that marks them D3: never forwarded to
   the hospital's SIEM, never put in a support bundle, kept ``retention.third_party_logs_days`` (30) days. The
@@ -66,8 +66,29 @@ NIGHT_ESTIMATE_BYTES = 50_000 * 20 * 300  # unmeasured (review 09-operations, OP
 JSON_LINE_OVERHEAD = 64  # {"log":"...","stream":"stdout","time":"2026-11-08T00:00:00.000000000Z"}
 HEADROOM_WARN = 0.75  # a day that used three quarters of the cap: raise the cap before it becomes a gap
 DEFAULT_THIRD_PARTY_DAYS = 30
-#: compose services whose logs TrialBox does not scrub (OPS-035): collected apart, class D3
-THIRD_PARTY = frozenset({"db", "fhir-store", "llm-service", "authelia", "caddy", "prometheus"})
+#: compose services whose logs TrialBox does not scrub (OPS-035): collected apart, class D3. The rule is the image: a
+#: service that does not run a TrialBox-built image is here (deep review 2026-11-13: the second model server and the
+#: rtx5090 swap helpers run the vLLM image and were missing; ``test_logs_third_party`` reads the compose files)
+THIRD_PARTY = frozenset(
+    {
+        "db",
+        "fhir-store",
+        "llm-service",
+        "llm-verifier",
+        "judge-sleep-init",
+        "model-swap-init",
+        "judge-wake-init",
+        "authelia",
+        "caddy",
+        "prometheus",
+        # the acceptance and test stacks' directory and mail servers
+        "acceptance-directory",
+        "acceptance-directory-seed",
+        "acceptance-mail",
+        "greenmail",
+        "mailpit",
+    }
+)
 THIRD_PARTY_CLASS = (
     "D3: third-party service logs, not scrubbed (they may hold patient values from a failed statement or a "
     "request). Never forward them, never put them in a support bundle; deleted after "

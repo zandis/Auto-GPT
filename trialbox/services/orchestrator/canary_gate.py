@@ -40,6 +40,9 @@ WAKE_MIN_CORRECT = 5  # of the six wake cases
 MAX_AGE_H = 36.0
 
 
+#: the resolution of a pass's ``at_epoch`` (``selftest.preflight`` rounds it to a tenth of a second)
+STAMP_RESOLUTION_S = 0.1
+
 def gate_on(env: dict[str, str] | None = None) -> bool:
     e = os.environ if env is None else env
     v = (e.get("TB_CANARY_GATE") or "").strip().lower()
@@ -113,6 +116,10 @@ class Gate:
         if not rep.get("pair"):
             return False, "single", "the last model self-test checked one model, not the pair"
         age = (time.time() - (at or 0)) / 3600
+        # stamped while the clock ran ahead, then stepped back: its age is unknown (review 2026-11-13). The stamp is
+        # rounded to STAMP_RESOLUTION_S (selftest), so a pass made just now may read up to that much ahead
+        if age * 3600 < -STAMP_RESOLUTION_S:
+            return False, "stale", "the last passing model self-test is dated later than now: the clock was moved"
         if age > _max_age_h():
             return False, "stale", f"the last passing model self-test is {age:.0f} h old (at most {_max_age_h():.0f} h)"
         return True, "ok", ""

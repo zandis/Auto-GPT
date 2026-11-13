@@ -103,3 +103,35 @@ def test_the_support_bundle_refuses_the_third_party_folder(tmp_path: Path) -> No
     f.write_bytes(b"x")
     assert sb.refusal(f, deploy, {})
     assert sb.refusal(f, deploy, {"TB_LOG_DIR": str(deploy / "logs")})
+
+
+def _compose_images() -> dict[str, set[str]]:
+    """Every service of every compose file with the images it runs (a custom tag such as ``!reset`` read as none)."""
+
+    class Loader(yaml.SafeLoader):
+        pass
+
+    Loader.add_multi_constructor("!", lambda loader, suffix, node: None)
+    out: dict[str, set[str]] = {}
+    for f in sorted((ROOT / "deploy").glob("docker-compose*.yml")):
+        body = yaml.load(f.read_text(encoding="utf-8"), Loader=Loader) or {}
+        for svc, spec in (body.get("services") or {}).items():
+            image = str((spec or {}).get("image") or "")
+            if image:
+                out.setdefault(svc, set()).add(image)
+    return out
+
+
+def test_every_service_on_an_image_trialbox_does_not_build_is_collected_apart() -> None:
+    """Deep review 2026-11-13 (operations): OPS-035 came back in part. The second model server (``llm-verifier``)
+    and the three swap helpers of the rtx5090 form run the vLLM image, whose log may carry a prompt, yet
+    ``THIRD_PARTY`` named only ``llm-service``: their lines went into the ``services`` tree, which the support
+    bundle copies. The rule is the image: a service that does not run a TrialBox-built image is third-party."""
+    ours = ("trialbox-", "${TB_IMAGE", "${TB_EMBED_IMAGE", "${TB_DB_IMAGE")
+    foreign = {
+        svc
+        for svc, images in _compose_images().items()
+        if any(not any(img.startswith(p) or p.strip("${") in img for p in ours) for img in images)
+    }
+    assert {"llm-service", "llm-verifier"} <= foreign  # the rule sees the model servers
+    assert foreign - tl.THIRD_PARTY == set()

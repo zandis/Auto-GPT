@@ -190,3 +190,16 @@ def test_models_endpoint_carries_the_gate_and_run_now_starts_it(
     fake.services.llm = Oracle("J")
     r = c.post("/models/canary")
     assert r.status_code == 200 and r.json()["started"] is True
+
+
+def test_a_canary_stamped_in_the_future_does_not_hold_the_gate_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deep review 2026-11-13 (operations, FAIL-3): the gate ages the last pass by the wall clock. A pass stamped
+    while the clock ran ahead (a WSL2 clock after sleep, an NTP step back) read as a negative age, so the gate let a
+    note answer exclude past ``TB_CANARY_MAX_AGE_H``. A pass dated after now is not a fresh pass: it is stale."""
+    monkeypatch.setenv("TB_CANARY_GATE", "on")
+    g = Gate()
+    g.record({"ok": True, "pair": {"judge": "a", "verifier": "b"}, "at_epoch": time.time() + 10 * 86400})
+    ok, code, why = g.check()
+    assert (ok, code) == (False, "stale") and "later than" in why
+    g.record({"ok": True, "pair": {"judge": "a", "verifier": "b"}, "at_epoch": time.time() - 60})
+    assert g.check()[:2] == (True, "ok")  # a pass a minute old still opens it

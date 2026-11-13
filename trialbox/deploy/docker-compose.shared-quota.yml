@@ -87,6 +87,7 @@ services:
   gateway:
     environment:
       TB_MODEL_SWAP: "off"   # both resident, each on its own instance: no sleep, no hold
+      TB_GATEWAY_SLOTS: "${JUDGE_MAX_SEQS:?measured on the partition (shared-quota serving record)}"   # calls at once per endpoint: the servers' --max-num-seqs (D-445; review 2026-11-13)
       TB_PROFILE: P-SHARED-QUOTA
       TB_MIG_PROFILE: "${TB_MIG_PROFILE:?the MIG profile the partition was granted}"
 

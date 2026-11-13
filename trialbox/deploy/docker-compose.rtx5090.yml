@@ -167,6 +167,7 @@ services:
   gateway:
     environment:
       TB_MODEL_SWAP: "${TB_MODEL_SWAP:-sleep}"
+      TB_GATEWAY_SLOTS: "${JUDGE_MAX_SEQS:-4}"   # calls at once per endpoint: the servers' --max-num-seqs (D-445; review 2026-11-13)
 
   model-guard:
     environment:

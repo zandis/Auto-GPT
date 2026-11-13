@@ -89,6 +89,7 @@ services:
   gateway:
     environment:
       TB_MODEL_SWAP: "off"   # both resident: no sleep, no hold (services/gateway/swap.py)
+      TB_GATEWAY_SLOTS: "${JUDGE_MAX_SEQS:-16}"   # calls at once per endpoint: the servers' --max-num-seqs (D-445; review 2026-11-13)
       TB_PROFILE: P-PRO6000
 
   orchestrator:
