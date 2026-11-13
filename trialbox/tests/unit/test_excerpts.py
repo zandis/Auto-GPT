@@ -355,6 +355,42 @@ def test_a_line_the_chunk_shares_with_the_whole_note_does_not_crowd_out_its_own_
     assert missing == []
 
 
+def test_a_repeated_evidence_sentence_is_still_shown_once_before_any_second_copy() -> None:
+    """Review of D-645: "once before repeated" by the total count dropped a decisive line the note says twice
+    (a chunk's line also written elsewhere), and a lexicon hit a daily note repeats. One copy of every distinct
+    evidence sentence goes first; second copies after."""
+    lines = [f"Line {i} of the stay, nothing new." for i in range(400)]
+    lines[5] = lines[200] = "Tophus on the left ear."
+    note = _n("n", "2026-10-01", "\n".join(lines))
+    chunk = "\n".join(lines[190:230])
+    missing = [b for b in range(120, 1800, 10)
+               if "Tophus on the left ear." not in build([note], {"n": [chunk]}, b).shown[0]["text"]]  # fmt: skip
+    assert missing == []
+    # the cascade's shape: exact sentences; one hit repeated daily beside sixty hits said once
+    daily = "痛風発作あり。"
+    once = [f"痛風発作の既往{i}回目を確認した。" for i in range(60)]
+    text = "\n".join(x for i in range(60) for x in (daily, once[i], "経過良好。"))
+    for cap in (100, 200, 400, 800, 1250):
+        assert daily in clip(_n("n", "2026-10-01", text), [daily, *once], cap).split("\n"), cap
+
+
+def test_one_line_longer_than_the_cap_is_cut_in_a_few_steps_whatever_it_holds() -> None:
+    """Review of D-645: the cut of an over-long line walked at character costs of its own (a digit a quarter) and
+    then dropped one character at a time, each with a count of the whole text: minutes for a long run of digits."""
+    calls = 0
+
+    def counted(text: str) -> int:
+        nonlocal calls
+        calls += 1
+        return note_tokens(text)
+
+    for line in ("7" * 200_000, "あ" * 200_000, "x" * 200_000, "7あx " * 50_000):
+        calls = 0
+        got = clip(_n("n", "2026-10-01", line), [], 1250, counted)
+        assert got and line.startswith(got) and note_tokens(got) <= 1250 < note_tokens(line[: len(got) + 8])
+        assert calls <= 60, calls
+
+
 def test_clip_and_sentences_are_the_cascades_own() -> None:
     assert sentences("痛風発作。再診予定！\nUric acid 9.1? ok") == ["痛風発作。", "再診予定！", "Uric acid 9.1?", "ok"]
     assert cascade_engine.sentences is sentences  # type: ignore[attr-defined]  # one splitter

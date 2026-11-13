@@ -13,11 +13,14 @@ every estimate the product makes of a text.
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
+from matching.cascade import engine as cascade_engine
 from matching.cascade.judge import expected_tokens
-from tb_llm.budget import SAFETY, estimate_tokens
+from matching.excerpts import sentences
+from tb_llm.budget import SAFETY, estimate_tokens, excerpt_tokens
 
 DOC = json.loads((Path(__file__).resolve().parents[1] / "fixtures/llm/token_counts_cjk.json").read_text("utf-8"))
 ROWS = [dict(zip(DOC["columns"], r, strict=True)) for r in DOC["rows"]]
@@ -54,3 +57,14 @@ def test_a_digit_counts_as_a_token_and_the_cascade_uses_the_one_estimate() -> No
     assert estimate_tokens("abcdefgh") == 2 + 1  # other text as before: four characters per token
     text = "壓痛關節數22處，腫脹關節數25處：（左）"
     assert expected_tokens([{"text": text}]) == 300 + estimate_tokens(text)
+
+
+@pytest.mark.parametrize("text", ["Stable. No change today.", "著変なし。"])
+def test_the_cascades_excerpt_set_fits_its_budget_as_the_prompt_counts_it(text: str) -> None:
+    """Review of D-645: the cascade sized its set on the notes' text alone; the prompt shows each note with its
+    date and type as JSON. Hundreds of short notes passed as "all shown, none left out" and the gateway then
+    refused the whole call as too long. The set is sized with the count the prompt is sized with."""
+    notes = [cascade_engine._Note(f"d{i}", date(2026, 1, 1), "progress", text, sentences(text)) for i in range(400)]
+    shown, left_out = cascade_engine._Run.excerpt_set(notes, {}, budget=cascade_engine.EXCERPT_TOKENS)
+    assert sum(excerpt_tokens(e) for e in shown) <= cascade_engine.EXCERPT_TOKENS
+    assert left_out == 400 - len(shown) > 0

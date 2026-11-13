@@ -38,10 +38,23 @@ full-width punctuation (，：（）) as a quarter token: its range of "CJK" end
    existing test passed at a budget of 400 and would not have at 410, 420, 440 or 800). Now a sentence the note
    says once is taken before one it repeats.
 
+4. From the review of this card:
+   - the first form of item 3 ordered by how often the note says a sentence, and so dropped a decisive line the
+     note says twice (a chunk's line also written elsewhere; a lexicon hit a daily note repeats). The order is:
+     one copy of every distinct evidence sentence, then second copies;
+   - the cascade sized its excerpt set on the notes' text alone, while the prompt shows each note with its date
+     and type as JSON: a window of some hundreds of short notes passed as "all shown, none left out" and the
+     gateway then refused the whole call as too long (the pair's answer was unknown: it went to review; before
+     this card from about 280 notes, with item 1 from about 225). The cascade's set is now sized with the count
+     the prompt is sized with (`excerpts.note_tokens`), as the other two paths are;
+   - one line longer than the cap was cut by a walk with character costs of its own, then one character at a
+     time: minutes for a long run of digits. It is cut by halving.
+
 ## What this changes for a site
 
-Prompts with numbers are estimated larger, so slightly fewer notes fit one judge prompt and a night's token budget
-counts more per call. A note that no longer fits is left out and counted so (D-479): the answer goes to review,
+Prompts with numbers are estimated larger, and the cascade counts each note's date and type, so slightly fewer
+notes fit one judge prompt, and a night's token budget (when one is set) counts about 4 % (ja) to 9 % (zh-TW)
+more per call. A note that no longer fits is left out and counted so (D-479): the answer goes to review,
 never to a silent exclusion.
 
 ## What this does not do
