@@ -94,15 +94,21 @@ Severity: **Critical** = a wrong exclusion or inclusion of a patient; **High**; 
   weight), or of the same test in another unit (urate's 14933-6, creatinine's 14682-9, HbA1c's IFCC 59261-8,
   glucose's 14749-6 and 15074-8), is kept only on a line whose term names that test, and is then stored as the
   test's own code in the unit it is converted to. On any other line it is dropped and the fact stays uncoded, for a
-  person to map. Any other LOINC the model gave is kept as given (fasting glucose, urine creatinine, pleural
-  glucose, an OGTT value). A term that names another specimen or another quantity (尿 but not 尿酸, a urinalysis
-  line "UA-PRO", pleural fluid, CSF, 体重変化, 出生体重, a ratio) never gets a serum code. A code of another system is
-  not kept on a lab fact. A made-up code is kept as given: it matches no shipped value set, so the patient stays
-  "needs information".
+  person to map. On a line that names a stored test, only that test's codes and a short list of its variants
+  (fasting glucose 1558-6, glucose in blood, HbA1c by HPLC, creatinine in blood, measured body weight) are kept;
+  any other code becomes the test's own ("Cre 1.2" with the CRP code is creatinine, not CRP). On a line that names
+  no stored test, the model's LOINC is kept as given (urine creatinine, pleural glucose, an OGTT value). A term
+  that names another specimen or another quantity (尿 but not 尿酸, urinary, a urinalysis line "UA-PRO", pleural,
+  peritoneal, synovial and dialysis fluids, CSF in ja and zh-TW, OGTT, 体重変化, 出生体重, a ratio) never gets a
+  serum code. A code of another system is not kept on a lab fact.
 - **Review.** The first version of this fix was broken by the adversarial reviewer: it re-coded urine creatinine
   as serum creatinine (an eGFR near 0 after Confirm), "UA-PRO 30" as urate 30, and fasting, OGTT and pleural glucose
-  as plain glucose. Those cases are tests now. Test file `tests/unit/test_chart_fact_codes.py`: 33 of 49 cases fail
-  on master, all pass on the branch.
+  as plain glucose. Its second pass found no regression against master, and two holes that master shares: English
+  and Chinese specimen words ("Urinary creatinine", 胸腔積液, 腦脊髓液, synovial, dialysate) still got the serum code,
+  and "Cre 1.2" with the CRP code 1988-5 was kept as CRP, which RA-BIO's CRP and DAS28 value sets read. Both are
+  closed and tested. Test file `tests/unit/test_chart_fact_codes.py`, 61 cases, all pass on the branch.
+- **Left as is.** A term with 比 or 変化 beside a serum value ("前回比") loses its code: the patient stays "needs
+  information", never decided.
 - **Not fixed (same family).** The sheet path has the same specimen gap (SCR-12). A lab fact whose term names an
   analyte but has a missing or unknown unit is dropped, not kept for a person (unchanged).
 
@@ -291,10 +297,10 @@ with a server restart between, and record whether any `GET /v1/models` failed.
 
 | Run | Result |
 | --- | --- |
-| `tests/unit/test_chart_fact_codes.py` | before the fix 13 failed; after it all pass |
+| `tests/unit/test_chart_fact_codes.py` | 61 cases; on master 33 of the first 49 failed; all pass on the branch |
 | `tests/unit/test_undated_lab_values.py` | 1 passed, 1 expected failure (SCR-03) |
 | `tests/unit/test_context_unknown_not_kept.py` | before the fix 1 failed; after it both pass |
-| 35 unit files importing `sitesetup` | 766 passed, 3 skipped |
+| 35 unit files importing `sitesetup`, with the three new files | 797 passed, 3 skipped, 1 expected failure |
 | `make cross-card` | 229 passed |
 | ruff, ruff format, mypy (touched files), doclint, decisions index, data scan, `security_scan sast` | clean |
 | `tests/integration/test_e2e_simple.py` | not passed here: CQL translator jars unavailable (§6) |

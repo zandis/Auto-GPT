@@ -48,7 +48,8 @@ LOINC_ANALYTE = {a.loinc: name for name, a in messy.ANALYTES.items()}
 # a term that names the analyte but not its serum result: another specimen (尿クレアチニン, 尿中尿酸, a urinalysis
 # line "UA-PRO", pleural fluid, CSF) or another quantity (体重変化, 出生体重, a ratio). 尿酸 itself is urate
 _NOT_SERUM = re.compile(
-    r"尿(?!酸)|urine|\bU[-\s]|\bUA[-\s]|胸水|腹水|髄液|脳脊髄|pleural|ascit|\bCSF\b|透析液"
+    r"尿(?!酸)|urin|\bU-|\bUA-|\bUA\s+(?=[^\s(（])|胸水|腹水|髄液|髓液|腦脊|脳脊|胸腔|肋膜|積液|穿刺|関節液|關節液"
+    r"|pleural|peritoneal|ascit|synovial|\bCSF\b|透析|dialysate|OGTT|負荷"
     r"|変化|減少|増加|出生|change|loss|gain|\bbirth|比|ratio",
     re.I,
 )
@@ -59,6 +60,14 @@ SAME_TEST = {
     "59261-8": "hba1c",
     "14749-6": "glucose",
     "15074-8": "glucose",
+}
+# LOINCs of a variant of a stored test that a criterion may name on its own (fasting glucose, glucose in blood, HbA1c
+# by HPLC, creatinine in blood, body weight measured): kept as the model gave them on a line that names the test
+VARIANTS = {
+    "glucose": {"1558-6", "2339-0", "41653-7"},
+    "hba1c": {"17856-6"},
+    "creatinine": {"38483-4"},
+    "weight": {"3141-9"},
 }
 LANGUAGE_NAMES = {"ja": "Japanese", "zh-TW": "Traditional Chinese", "en": "English"}
 
@@ -206,12 +215,15 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
         # another unit, such as urate's moles code 14933-6) is kept only on a line that names that test, and is then
         # stored as the code of the unit it is converted to; on any other line it is dropped (the fact stays
         # uncoded: a person maps it). Before, a creatinine code on a urate line stored the urate value as creatinine,
-        # and urate's moles code on a value stored in mg/dL hid it from a mass-code criterion (lane G, P5). Any other
-        # LOINC the model gave (fasting glucose, urine creatinine, a pleural fluid) is kept as it is
+        # and urate's moles code on a value stored in mg/dL hid it from a mass-code criterion (lane G, P5). On a line
+        # that names a stored test only its variants (VARIANTS) keep their own code; on any other line the model's
+        # LOINC is kept as given (urine creatinine, a pleural fluid, an OGTT value)
         named = None if _NOT_SERUM.search(term) else messy.analyte_of(term)
         of_code = (LOINC_ANALYTE.get(code) or SAME_TEST.get(code)) if system == LOINC else None
         if system != LOINC or (of_code is not None and of_code != named):
             code = ""
+        if named and code not in VARIANTS.get(named, ()):
+            code, of_code = "", named  # on a line that names a stored test, only that test's own codes are kept
         analyte = named or ""
         unit = messy.norm_unit(str(raw.get("unit") or "")) or cell_unit
         conv = messy.convert(analyte, num, unit) if unit else None

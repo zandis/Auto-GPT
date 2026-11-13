@@ -113,8 +113,24 @@ def test_the_same_test_in_another_unit_is_stored_under_the_analytes_own_code() -
     assert got is not None and got["code"] == "3084-1" and got["value"] == "8.41"
 
 
-def test_a_loinc_trialbox_does_not_know_is_kept_as_given_and_decides_nothing_it_should_not() -> None:
-    """A code TrialBox has no table for may be right (a specific method) or made up: it is kept, so the fact matches
-    only a criterion that lists that code; on a serum urate criterion the patient stays "needs information"."""
-    got = _obs("尿酸", "9999-9")
-    assert got is not None and got["code"] == "9999-9"
+@pytest.mark.parametrize(("term", "guess", "want"), [("尿酸", "9999-9", "3084-1"), ("尿酸", "2161-8", "3084-1"),
+                                                     ("Cre", "1988-5", "2160-0")])  # fmt: skip
+def test_on_a_line_that_names_a_stored_test_another_tests_code_is_not_kept(term: str, guess: str, want: str) -> None:
+    """Second review: "Cre 1.2" with the CRP code was stored as CRP 1.2, which RA-BIO's CRP and DAS28 sets read."""
+    got = _obs(term, guess, "1.2")
+    assert got is not None and got["code"] == want
+
+
+@pytest.mark.parametrize(
+    "term",
+    ["Urinary creatinine", "Urinary uric acid", "Dialysate creatinine", "胸腔積液 glucose", "腦脊髓液 glucose",
+     "關節液 glucose", "Synovial fluid glucose", "Peritoneal fluid glucose", "OGTT 2h glucose"],
+)  # fmt: skip
+def test_other_specimens_named_in_english_and_chinese_never_get_the_serum_code(term: str) -> None:
+    got = _obs(term, "", "60")
+    assert got is None or got["code"] not in ("3084-1", "2160-0", "2345-7")
+
+
+def test_uric_acid_written_ua_with_its_name_is_still_urate() -> None:
+    got = _obs("UA (uric acid)", "3084-1")
+    assert got is not None and got["code"] == "3084-1"
