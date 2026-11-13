@@ -203,6 +203,34 @@ EOP
     printf '%s\n' "$1" > "$(dirname "$DONE_MARK")/windows-update-window"
     echo "update window recorded for the host check: $1"
     ;;
+  windows-drives)
+    # NEW-WIN-7 (D-608): the letters of the workstation's own drives (the system drive, the data drive, every disk
+    # that is not on USB), for the backup check: a Windows drive that is none of them is an outside drive
+    [[ "${1:-}" =~ ^[A-Z](,[A-Z])*$ ]] || die "windows-drives: want drive letters, as C,D"
+    mkdir -p "$(dirname "$DONE_MARK")"
+    printf '%s\n' "$1" > "$(dirname "$DONE_MARK")/windows-drives"
+    echo "this PC's own drives recorded for the backup check: $1"
+    ;;
+  backup-speed)
+    # NEW-WIN-7 (D-608): how fast this box writes to a backup path, in MB/s, measured by writing <MiB> of zeros
+    # there and waiting until they are on the disk. A path through Windows (/mnt/<drive>, a share) is far slower
+    # than WSL2's own disk; TB_BACKUP_MIN_MBPS (D-455) must stay below it, and trialbox doctor checks that.
+    #   wsl-setup.sh backup-speed <target folder> <MiB to write>
+    dir="${1:-}"; mib="${2:-}"
+    [ -d "$dir" ] || die "backup-speed: no such folder: $dir"
+    [[ "$mib" =~ ^[1-9][0-9]*$ ]] || die "backup-speed: want the MiB to write, a whole number (1024 is a fair test)"
+    case "$dir" in *$'\t'*|*$'\n'*) die "backup-speed: a folder name with a tab or a line break cannot be recorded" ;; esac
+    f="$dir/.trialbox-speed-test.$$"
+    trap 'rm -f "$f"' EXIT
+    t0="$(date +%s.%N)"
+    dd if=/dev/zero of="$f" bs=1M count="$mib" conv=fsync status=none || die "backup-speed: writing to $dir failed"
+    t1="$(date +%s.%N)"
+    rm -f "$f"; trap - EXIT
+    mbps="$(python3 -c 'import sys; a, b, n = float(sys.argv[1]), float(sys.argv[2]), int(sys.argv[3]); print(f"{n * 1.048576 / max(b - a, 1e-3):.1f}")' "$t0" "$t1" "$mib")"
+    mkdir -p "$(dirname "$DONE_MARK")"
+    printf '%s\t%s\n' "$mbps" "$(cd "$dir" && pwd -P)" >> "$(dirname "$DONE_MARK")/backup-speed"
+    echo "mbps=$mbps path=$dir written_mib=$mib"
+    ;;
   network-mode)
     # wslinfo comes with WSL 2.0 and later; without it the mode cannot be mirrored
     if command -v wslinfo >/dev/null 2>&1; then wslinfo --networking-mode | tr -d '\r' | tail -1; else echo unknown; fi

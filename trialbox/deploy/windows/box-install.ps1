@@ -353,6 +353,16 @@ function Write-TbShutdownRight([string]$Sid) {
   if ($LASTEXITCODE -ne 0) { throw ("secedit /configure ended with code " + $LASTEXITCODE) }
   Set-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ShutdownWithoutLogon" -Value 0 -Type DWord
 }
+function Get-TbOwnDrives {
+  # NEW-WIN-7 (D-608): the drive letters on this PC's own disks: every disk that is not on USB
+  $out = @()
+  foreach ($d in @(Get-Disk | Where-Object { $_.BusType -ne "USB" })) {
+    foreach ($p in @(Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue | Where-Object { $_.DriveLetter })) {
+      $out += ([string]$p.DriveLetter).ToUpper()
+    }
+  }
+  return $out
+}
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -439,7 +449,7 @@ function Save-TbState {
 }
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
-    desktop_share_pct = -1; update_window = ""; update_window_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
+    desktop_share_pct = -1; update_window = ""; update_window_told = ""; drives_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
     restart_pending = $false; finished = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -832,6 +842,22 @@ function Set-TbShutdownRight {
   }
   return "written"
 }
+function Set-TbOwnDrives {
+  # The backup check inside WSL2 counts a Windows drive as off-box only when it is none of this PC's own: the box
+  # is told the letters of its own drives (the system drive and the data drive always; every other disk that is
+  # not on USB), once, and again when they change. A failure is logged and stops nothing: without the record no
+  # Windows drive counts as off-box, which is the safe side.
+  try {
+    $own = @(Get-TbOwnDrives)
+    foreach ($x in @([string]$script:TbFacts.SystemDrive, [string]$script:TbState.data_drive)) {
+      if ($x -match "^([A-Za-z]):") { $own += $Matches[1].ToUpper() }
+    }
+    $tell = (@($own | Where-Object { $_ -match "^[A-Z]$" } | Sort-Object -Unique) -join ",")
+    if ($tell -and $script:TbSetupWsl -and [string]$script:TbState.drives_told -ne $tell) {
+      if ((Invoke-TbSetup "windows-drives" @($tell)).ExitCode -eq 0) { $script:TbState.drives_told = $tell }
+    }
+  } catch { Write-TbLog ("    this PC's own drives could not be recorded for the backup check: " + [string]$_.Exception.Message) }
+}
 function Set-TbUnattended([bool]$Quiet) {
   # Neither part stops the install: a PC whose policy cannot be written still runs TrialBox, and the host check
   # (deploy/windows/wsl2_policy.py) fails it by name. $Quiet: a finished install says only what changed.
@@ -866,6 +892,7 @@ function Step-BootTask {
   Write-TbLog ("    task {0}: {1}; state {2}; last result {3}" -f $script:TbBootTask, $did, $info.State, $info.LastResult)
   Say "boot_task" @($script:TbBootTask)
   Set-TbUnattended $false
+  Set-TbOwnDrives
 }
 function Step-Network {
   # the form is mirrored networking (.wslconfig, step 6): the workstation's own address is WSL2's, so the box sees
@@ -977,6 +1004,7 @@ function Invoke-TbInstall {
     catch { Say "boot_task_failed" @([string]$_.Exception.Message) }
     # and the update window and the shutdown right (D-606): an install made before NEW-WIN-5 gets them here
     Set-TbUnattended $true
+    Set-TbOwnDrives
     Save-TbState
     Say "already_installed" @($script:TbLogPath)
     return 0

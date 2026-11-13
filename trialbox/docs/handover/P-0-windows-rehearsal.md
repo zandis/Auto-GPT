@@ -172,6 +172,22 @@ whether each reading works, not whether the real pair has room. That is P-11, on
 | 61 | Start a GPU program on the Windows desktop that takes most of the spare card memory (a game or a renderer). Look at the health line after two minutes | "red", naming how much programs outside TrialBox hold; line 59 names the program | The line; the minutes it took to turn |
 | 62 | The host check's line "administrator accounts". Then create a standard account (Settings, Accounts, Other users), sign in with it, and try: `wsl --shutdown`, `wsl -l -v`, opening `<data drive>\TrialBox` in Explorer | "administrator accounts: one"; the standard account sees no TrialBox distribution (`wsl -l -v` lists none of the owner's), cannot stop it, and Explorer refuses the folder | Each answer. If `wsl --shutdown` by a standard account stops the owner's distribution, rule 5 of the plan does not hold on this Windows |
 
+## Part 8: NEW-WIN-7, backup paths (D-608)
+
+Needs a USB disk (BitLocker on it or not) and, if there is one, a file share the rehearsal PC can reach. Every
+mount line below is as Microsoft documents WSL2 to print it; none has been seen.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 63 | After the install: `wsl -d TrialBox -u root -- cat /opt/trialbox/deploy/site/box/windows-drives`, and the log's line "this PC's own drives recorded" | The letters of the system drive, the data drive and every other internal disk; **not** the media's letter when the media is a USB disk | The line; `Get-Disk \| Format-Table Number, BusType, FriendlyName` beside it. A USB disk that Windows lists with another BusType than USB breaks the rule: write its BusType down |
+| 64 | Plug in the USB disk (say it becomes `E:`). Inside WSL2: `ls /mnt/e` | The disk's files. If `/mnt/e` is not there: `mkdir -p /mnt/e && mount -t drvfs E: /mnt/e`, and note that a drive plugged in after WSL2 started is not mounted by itself | Whether it was there by itself; `grep -E " /mnt/[a-z] " /proc/mounts` whole (this is the line the backup check reads: the source `E:\` or `drvfs`, the type `9p`, `path=E:\` in the options) |
+| 65 | Set `TB_BACKUP_TARGETS=/mnt/e/trialbox` in `deploy/.env`, make the folder, then `python3 -m tools.trialbox doctor --env-file deploy/.env`, the `backup` line | The target counted as off-box ("1 off-box") | The line whole. With `/mnt/d/...` (the data drive) instead: "no off-box backup target" |
+| 66 | `bash /opt/trialbox/deploy/windows/wsl-setup.sh backup-speed /mnt/e/trialbox 1024`, and the same for a folder inside WSL2 (`/opt/trialbox/deploy/backups`) | `mbps=...` for each; the test file is gone | Both speeds: this is the figure nobody has for a path through Windows |
+| 67 | `doctor`'s `backup_speed` line | PASS, or the value to set for `TB_BACKUP_MIN_MBPS` | The line |
+| 68 | `python3 -m tools.trialbox backup-nightly --deploy deploy` to the USB disk | It ends with a good backup on `/mnt/e/trialbox`; no step "stopped as hung" | Its duration; the file's size; any step that was cut |
+| 69 | **With nobody signed in.** Restart Windows, do not sign in, wait for the night's backup time (or set the schedule a few minutes ahead before restarting). Then sign in and look at the target and at `deploy/site/backup-last.json` | A new backup on the USB disk: the drive was reachable from the boot task's session | Whether `/mnt/e` existed in that session. This decides whether an outside drive works unattended at all |
+| 70 | The same as line 69 with the file share (`mount -t drvfs '\\server\share' /mnt/share` as root, target `/mnt/share/trialbox`) | Expected to **fail** when nobody is signed in: the boot task's sign-in (S4U) carries no network credentials, so Windows cannot reach the share for it | What happened, with the error. If it fails, the share is mounted another way (CIFS inside WSL2 with a credentials file kept in `/etc`, root only), which is a card of its own |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -219,3 +235,9 @@ whether each reading works, not whether the real pair has room. That is P-11, on
 - Line 60 decides the handbook's NVIDIA step: kept, or struck when it has no effect on WSL2.
 - Line 62 "a standard account stopped WSL2": owner decision needed; the distribution would then run under a
   service account no desktop user shares a session with.
+- Line 63 "the USB media's letter is among them", or line 64's mount line reads differently: the rule of D-608
+  point 2 is corrected to what Windows really prints before any site relies on an outside drive.
+- Line 66 gives the first measured speed of a backup path through Windows; `TB_BACKUP_MIN_MBPS`'s default for
+  the Windows form is set from it.
+- Lines 69 and 70 decide which off-box target a site can use unattended: the outside drive, the share, or the
+  share mounted by CIFS inside WSL2.

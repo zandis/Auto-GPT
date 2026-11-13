@@ -65,6 +65,7 @@ def test_default_install_passes() -> None:
         "wsl2_memory",
         "update_window",
         "wsl2_versions",
+        "backup_speed",
     }
 
 

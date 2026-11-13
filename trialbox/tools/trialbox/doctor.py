@@ -84,6 +84,11 @@ closed). Checks:
   not claimed. The window is the one the Windows installer recorded (``deploy/site/box/windows-update-window``);
   without that file the declared one, said as unconfirmed; "kept" (the site's IT holds the policy) is a WARN. That
   Windows really holds this window is judged from Windows' side by ``deploy/windows/wsl2_policy.py``.
+* ``backup_speed`` (NEW-WIN-7, D-608; D-455): on a WSL2 kernel, ``TB_BACKUP_MIN_MBPS`` (the speed below which a
+  backup step counts as hung) against the write speed measured for each target's path
+  (``deploy/windows/wsl-setup.sh backup-speed``, ``deploy/site/box/backup-speed``): a path through Windows is far
+  slower than a box disk. FAIL when the setting is above the measured speed, WARN when it is above a tenth of it
+  (D-455's margin) or a target was not measured; PASS on a plain Linux host.
 * ``wsl2_versions`` (NEW-WIN-5, D-606): on a WSL2 kernel, the NVIDIA driver the card answers with against the
   driver of the box's serving record (``TB_GPU_PROFILE``'s, else the one naming that card; ``deploy/site`` before
   ``deploy/measured``; WARN when there is none or two, so the check says nothing until a record exists): FAIL
@@ -885,6 +890,47 @@ def check_backup(inp: DoctorInputs) -> Check:
     return Check("backup", "PASS", facts)
 
 
+def check_backup_speed(inp: DoctorInputs) -> Check:
+    """NEW-WIN-7 (D-608; D-455): under WSL2 a backup step's time limit must fit the measured speed of its path."""
+    name = "backup_speed"
+    if not _wsl2_kernel(inp):
+        return Check(name, "PASS", "not WSL2: the backup paths are the box's own disks and mounts (D-455)")
+    if inp.deploy is None:
+        return Check(name, "WARN", "WSL2: the backup paths were not judged: give --env-file <deploy/.env>")
+    from tools.trialbox import backup_schedule as bs
+
+    cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
+    if not cfg.targets:
+        return Check(name, "WARN", "WSL2: no backup target (TB_BACKUP_TARGETS): no path to measure")
+    speeds = bs.measured_speeds(inp.deploy)
+    fails: list[str] = []
+    warns: list[str] = []
+    good: list[str] = []
+    for target in cfg.targets:
+        try:
+            real = str(target.resolve())
+        except OSError:
+            real = str(target)
+        speed = speeds.get(real, speeds.get(str(target)))
+        if speed is None:
+            warns.append(f"{target}: not measured (wsl-setup.sh backup-speed {target} <MiB>)")
+        elif cfg.min_mbps > speed:
+            # the limit assumes the path is faster than it is: every large step would be stopped as hung
+            fails.append(f"{target}: measured {speed:g} MB/s, and TB_BACKUP_MIN_MBPS is {cfg.min_mbps:g}: a backup "
+                         f"step would be stopped as hung. Set it to {speed / 10:.2g} (a tenth, D-455)")  # fmt: skip
+        elif cfg.min_mbps > speed / 10:
+            warns.append(f"{target}: measured {speed:g} MB/s; TB_BACKUP_MIN_MBPS {cfg.min_mbps:g} is more than a "
+                         f"tenth of it (D-455): a slow night could be stopped. Set it to {speed / 10:.2g}")  # fmt: skip
+        else:
+            good.append(f"{target} {speed:g} MB/s")
+    if fails:
+        return Check(name, "FAIL", "; ".join(fails + warns))
+    if warns:
+        return Check(name, "WARN", "; ".join(warns))
+    return Check(name, "PASS", f"TB_BACKUP_MIN_MBPS {cfg.min_mbps:g} is at most a tenth of each path's measured "
+                 f"speed ({', '.join(good)})")  # fmt: skip
+
+
 def check_key_custody(inp: DoctorInputs) -> Check:
     """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
     from tb_common import kek
@@ -1566,6 +1612,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_wsl2_memory,
     check_update_window,
     check_wsl2_versions,
+    check_backup_speed,
 )
 
 
