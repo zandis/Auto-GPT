@@ -30,6 +30,7 @@ Each check is listed in :data:`CHECKS`; today's failures are strict expected fai
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import secrets
@@ -98,6 +99,10 @@ EXPECTED: dict[str, Expected] = {
 }
 
 
+#: the gate's report, in the order ``Report.write`` writes it
+REPORT_FILES = ("scale_gate.json", "scale_gate.md")
+
+
 @dataclass
 class Params:
     patients: int
@@ -138,10 +143,17 @@ class Report:
         self.write()
 
     def write(self) -> None:
+        """Both report files, each replaced whole: a cut in the middle of a write leaves the report before it."""
         out = self.params.out
         out.mkdir(parents=True, exist_ok=True)
-        (out / "scale_gate.json").write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
-        (out / "scale_gate.md").write_text(self.markdown(), encoding="utf-8")
+        texts = (json.dumps(self.to_json(), indent=1), self.markdown())
+        for name, text in zip(REPORT_FILES, texts, strict=True):
+            tmp = out / f".{name}.tmp"
+            try:
+                tmp.write_text(text, encoding="utf-8")
+                tmp.replace(out / name)
+            finally:
+                tmp.unlink(missing_ok=True)
 
     def check(self, cid: str, passed: bool | None, detail: str, blocked_by: str = "") -> None:
         assert cid in CHECKS, cid
@@ -167,8 +179,9 @@ class Report:
             return markdown(self.rows(), head, self.runs)
         head.append(
             f"**NOT FINISHED: {self.unfinished}.** This report was written when the gate entered that part. If it "
-            "is the last report of a run, the gate was cut there (a time limit, a kill): the rows below are what "
-            "was measured till then, a check without a row was not reached, and a process shown as still running "
+            "is the last report of a run, the gate ended there: cut (a time limit, a kill), or by an error of its "
+            "own, which a note above then names. The rows below are what was measured till then; a check without "
+            "a row was not made (some are made only at the end of their part); a process shown as still running "
             "has no result and no peak yet."
         )
         body = markdown(self.rows(), head, self.runs).rstrip("\n").split("\n")
@@ -329,9 +342,26 @@ def _over(run: PhaseRun) -> str:
 
 # ------------------------------------------------------------------------------------------------ the gate
 def run(p: Params) -> Report:
+    for name in REPORT_FILES:  # D-674: an earlier run's report goes before anything here can fail
+        (p.out / name).unlink(missing_ok=True)
     p.caps = p.caps or compose_caps()
     enf = Enforcer.detect(p.enforce)
     rep = Report(p, enf.mode)
+    try:
+        _parts(p, rep, enf)
+    except BaseException as exc:
+        # D-674: the gate ended on an error of its own, or was cut where the cut raises here (a time limit's signal,
+        # an interrupt). The processes it started are stopped by now and have their results: write once more
+        rep.notes.append(f"the gate ended by {type(exc).__name__} in: {rep.unfinished or 'its last lines'}")
+        with contextlib.suppress(Exception):
+            rep.write()
+        raise
+    rep.unfinished = ""
+    rep.write()
+    return rep
+
+
+def _parts(p: Params, rep: Report, enf: Enforcer) -> None:
     work = p.out / "work"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
@@ -416,9 +446,6 @@ def run(p: Params) -> Report:
         _lake_parts(p, rep, enf, work, logs, token)
     rep.progress("backup (nightly steps)")
     _backup(p, rep, work, db_url)
-    rep.unfinished = ""
-    rep.write()
-    return rep
 
 
 def _db_url(work: Path) -> str:
@@ -922,7 +949,15 @@ def limit_s() -> float:
     night, and a night is measured, not budgeted. The nightly job's own ``timeout-minutes`` ends a hang; a person
     who wants a bound on their own machine sets the variable."""
     raw = os.environ.get("TB_SCALE_LIMIT_S", "").strip()
-    return float(raw) if raw else 0.0
+    if not raw:
+        return 0.0
+    try:
+        limit = float(raw)
+    except ValueError:
+        limit = -1.0
+    if limit < 0:
+        raise ValueError(f"TB_SCALE_LIMIT_S={raw!r}: give a number of seconds, or leave it empty for no limit")
+    return limit
 
 
 def params_from_env(out: Path, patients: int | None = None, profile: str | None = None) -> Params:
