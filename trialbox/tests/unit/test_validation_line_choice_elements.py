@@ -72,7 +72,33 @@ def test_a_choice_element_is_named_as_the_validator_writes_it(place: str) -> Non
         "ofType(Quantity).value",  # a path starts with a resource's name
         "Observation..value",
         "Observation.value.",
+        "Observation.value.ofType(王小明)",  # letters are the plain ones
+        "Observation.value.ofType(WANG_XIAOMING)",
+        "Observation.王小明",
+        "Observation.value[x][0]",
+        "Observation.value.ofType(Quantity)[0]",
+        "Observation.value.ofType(Quantity)[x]",
+        "Observation.valueofType(Quantity)",
+        "Observation.value[٣]",  # a numbered place is written in plain digits
+        "Observation.value[１]",
+        "Observation.value.ofType(Quantity).ofType(Range)",  # a type is named once
     ],
 )
 def test_any_other_form_of_an_element_is_still_a_question_mark(place: str) -> None:
     assert _line(place) == "r00000-Observation.json ?: invalid"
+
+
+def test_the_publishs_words_for_a_refusal_never_repeat_a_body_that_is_not_the_lakes() -> None:
+    """Found by this card's review: with no ``detail`` in the answer the whole body was put before the error."""
+    import httpx
+    from adapter.publish import _said
+
+    request = httpx.Request("POST", "http://lake/promote")
+    page = httpx.Response(502, text=f"<html>Bad Gateway {VALUE}</html>", request=request)
+    said = _said(httpx.HTTPStatusError("502 Bad Gateway for url http://lake/promote", request=request, response=page))
+    assert VALUE not in said and "502" in said
+    lake = httpx.Response(409, json={"detail": "lake snapshot 2026-10-04 was built again since"}, request=request)
+    said = _said(httpx.HTTPStatusError("409 Conflict for url http://lake/promote", request=request, response=lake))
+    assert said.startswith("lake snapshot 2026-10-04 was built again since (409 Conflict")
+    odd = httpx.Response(409, json={"detail": {"x": VALUE}}, request=request)
+    assert VALUE not in _said(httpx.HTTPStatusError("409 Conflict", request=request, response=odd))

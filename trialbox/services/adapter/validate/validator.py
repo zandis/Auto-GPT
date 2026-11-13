@@ -291,11 +291,12 @@ class Hl7Validator:
 
 _FILE = re.compile(r"r\d{5,}-[A-Za-z]+\.json")
 # An element as the validator writes it (D-669, D-671): names joined by dots, each with at most one numbered place
-# (``coding[0]``) or the choice mark (``value[x]``), and the validator's own way to name a choice's type
-# (``value.ofType(Quantity)``). Names and a type's name are single words of letters and digits: no value of a row.
+# (``coding[0]``) or the choice mark (``value[x]``), and after a name the validator's own way to name a choice's
+# type, once (``value.ofType(Quantity)``). A name and a type's name are one word of the plain letters and digits
+# (A-Z, a-z, 0-9), a place is a number in plain digits: no value of a row.
 _NAME = r"[A-Za-z][A-Za-z0-9]*"
-_ELEMENT = rf"{_NAME}(?:\[\d+\]|\[x\])?"
-_PLACE = re.compile(rf"{_ELEMENT}(?:\.(?:ofType\({_NAME}\)|{_ELEMENT}))*")
+_ELEMENT = rf"{_NAME}(?:\[[0-9]+\]|\[x\])?(?:\.ofType\({_NAME}\))?"
+_PLACE = re.compile(rf"{_ELEMENT}(?:\.{_ELEMENT})*")
 _KIND = re.compile(r"[a-z][a-z-]*")
 _MESSAGE_ID = re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")
 _MESSAGE_ID_URL = "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id"
