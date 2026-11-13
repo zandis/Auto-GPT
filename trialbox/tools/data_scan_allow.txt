@@ -53,3 +53,5 @@ value | * | 0466-12-3456 | a placeholder Japanese landline with a four-digit are
 value | tw_phone | 063922676 | a numeric article id inside a news URL cited in spec/archive (not a phone)
 value | tw_phone | 0494577805 | a synthetic hospital patient's hashed id (10 hex digits, all numeric) in the G1 measurements of 2026-11-11, not a phone
 path | data_file | docs/plan/measurements/g1-2026-11-12/parts/* | the GPU and vLLM sample tables of the paid run of 2026-11-12 (timestamps, utilization, memory, queue gauges): machine readings of a synthetic-data run, no patient or site data
+path | data_file | docs/plan/measurements/g3-2026-11-13/parts/* | the GPU and vLLM sample tables and the main SCREEN's lists (hashed ids of synthetic patients, tiers) of the paid run 20261113T044219Z: machine readings of a synthetic-data run, no patient or site data
+path | data_file | docs/plan/measurements/g7-2026-11-13/parts/* | the GPU and vLLM sample tables of the paid run 20261113T081311Z: machine readings of a synthetic-data run, no patient or site data

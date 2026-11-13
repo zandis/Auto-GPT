@@ -58,7 +58,7 @@ def test_complete_run(tmp_path: Path) -> None:
     assert [s["in_flight"] for s in g3["settings"]] == SETTINGS
     assert "Candidate list: **IDENTICAL** at 1, 4, 16, 48 in flight." in readme
     assert g3["chosen_in_flight"] == 16 and "**PASS: meets the window.**" in readme
-    assert "| 16 | PASSED | 2.42 | 1655.0 | 5.9 | 11.8 | 93.0 | 63600.0 | 97887.0 | 0 | 3 |" in readme
+    assert "| 16 | PASSED | whole part | 2.42 | 1655.0 | 5.9 | 11.8 | 93.0 | 63600.0 | 97887.0 | 0 | 3 |" in readme
     assert "No part that ran failed" in defects and "### D1." not in defects
     # the capacity inputs: per setting, with the run id and the commit
     assert cap["schema"] == "tb-capacity-inputs/1" and cap["complete"] is True
@@ -305,3 +305,18 @@ def test_the_screen_decides_the_candidate_comparison_not_the_candidates_block(tm
     assert lists["status"] == "DIFFERENT"
     assert lists["reference_settings"] == [1, 4] and [d["candidates"] for d in lists["differing"]] == [55, 55]
     assert "**FAIL: the candidate list at 16 in flight differs from the list at 1, 4.**" in readme
+
+
+def test_the_main_screen_window_is_the_rate_when_the_part_recorded_it(tmp_path: Path) -> None:
+    """Run 20261113T044219Z: a part holds ``throughput`` (the whole part, with the canary's serial calls) and
+    ``throughput_screen`` (the main SCREEN's own window). The reader reports the second and says so; a part without
+    it is labelled whole part."""
+    part = {"wall_seconds": 500.0, "llm_concurrency": 16,
+            "throughput": {"calls": 606, "calls_per_second": 1.779, "breaker_opens": {"serving": 0}},
+            "throughput_screen": {"calls": 246, "calls_per_second": 4.391, "p50_s": 2.845}}  # fmt: skip
+    run = {"plan": {}, "parts": {"hospital-ja@c16": part, "hospital-ja@c1": {"throughput": {"calls_per_second": 0.4}}}}
+    row = {"status": rr.PASSED, "file": "parts/x.json"}
+    got = rr.setting_row("hospital-ja@c16", row, run)
+    assert got["calls_per_second"] == 4.391 and got["measured_over"] == "main SCREEN" and got["breaker_opens"] == 0
+    old = rr.setting_row("hospital-ja@c1", row, run)
+    assert old["calls_per_second"] == 0.4 and old["measured_over"] == "whole part"

@@ -40,7 +40,10 @@ def test_each_probe_is_a_part_named_only_by_only() -> None:
     assert tags == ["g5-tokens", "g8-protocols"]
 
 
-def test_the_estimate_has_a_row_per_probe_derived_from_g1s_rate() -> None:
+def test_the_estimate_has_a_row_per_probe_derived_from_g1s_rate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TB_G8_PROTOCOLS_DIR", str(tmp_path / "none"))  # a folder with no protocol: G-8's row says so
     e = cr.restrict(cr.estimate(5000), PARTS)
     rows = {r["tags"][0]: r for r in e["rows"] if r["tags"]}
     assert list(rows) == PARTS
@@ -48,7 +51,10 @@ def test_the_estimate_has_a_row_per_probe_derived_from_g1s_rate() -> None:
     assert rows["g4-decoding"]["model_items"] == 2 * gp.DECODING_ROUNDS * 16  # the record's 16 slots, both ways
     assert rows["g4-decoding"]["seconds"] == pytest.approx(gp.PART_START_SECONDS + 128 / rate, abs=0.1)
     assert rows["g5-tokens"]["model_items"] == 800 and rows["g7-clipped"]["model_items"] == 16
-    assert "no fixture: not run" in rows["g8-protocols"]["scenario"]  # master has no RA / early-AD protocol
+    assert "no fixture: not run" in rows["g8-protocols"]["scenario"]
+    monkeypatch.delenv("TB_G8_PROTOCOLS_DIR")  # master's own folder: lane A's two public protocols (train 6)
+    with_fixtures = {r["tags"][0]: r for r in cr.restrict(cr.estimate(5000), PARTS)["rows"] if r["tags"]}
+    assert "2 public protocol(s)" in with_fixtures["g8-protocols"]["scenario"]
     assert e["hours"] == pytest.approx(0.5 + sum(r["seconds"] for r in rows.values()) / 3600, abs=0.02)
     with pytest.raises(ValueError, match="no such part"):
         cr.restrict(cr.estimate(5000), ["g6-night"])
@@ -67,8 +73,9 @@ def test_a_protocol_folder_sizes_the_g8_row(tmp_path: Path) -> None:
 def test_the_dry_run_plans_the_probes_on_one_spot_vm(tmp_path: Path) -> None:
     env = dict(os.environ, TB_COMPLETE_DIR=str(tmp_path / "out"), PY=str(ROOT / ".venv" / "bin" / "python"),
                TB_RUN_ID="R")  # fmt: skip
-    for k in ("TB_ZONES", "TB_ESTIMATE_LLM_SPEEDUP", "TB_PROVISIONING", "TB_G8_PROTOCOLS_DIR"):
+    for k in ("TB_ZONES", "TB_ESTIMATE_LLM_SPEEDUP", "TB_PROVISIONING"):
         env.pop(k, None)
+    env["TB_G8_PROTOCOLS_DIR"] = str(tmp_path / "none")  # no protocol there: the plan's figures do not move with master
     r = subprocess.run([str(GCP / "complete-run.sh"), "--dry-run", "--patients", "5000", "--only", ",".join(PARTS)],
                        cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=300)  # fmt: skip
     assert r.returncode == 0, r.stderr[-800:]
@@ -353,7 +360,9 @@ def test_public_protocols_are_read_from_json_or_text(tmp_path: Path) -> None:
     assert gp.protocol_files(tmp_path) == [tmp_path / "early-ad.txt"] and gp.protocol_files(tmp_path / "x") == []
     assert gp.protocols_dir({}) == ROOT / "tests" / "fixtures" / "public_protocols"
     assert gp.protocols_dir({"TB_G8_PROTOCOLS_DIR": str(tmp_path)}) == tmp_path
-    assert not gp.protocol_files(gp.protocols_dir({}))  # master has no public RA / early-AD protocol (the plan's)
+    on_master = gp.protocol_files(gp.protocols_dir({}))  # lane A's two public protocols (train 6): RA, early AD
+    assert [f.name for f in on_master] == ["NCT02629159.json", "NCT03887455.json"]
+    assert all(gp.read_protocol(f)["text"].lstrip().lower().startswith(("inclusion", "core study")) for f in on_master)
 
 
 def test_g8_compiles_a_folder_with_the_judge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -256,14 +256,19 @@ def setting_row(tag: str, row: dict[str, Any], run: dict[str, Any]) -> dict[str,
     res = run["parts"].get(tag)
     if res is None or row["status"] in (PENDING, MISSING):
         return out
-    t, metrics, cand = res.get("throughput") or {}, res.get("metrics") or {}, res.get("candidates") or {}
+    whole, metrics, cand = res.get("throughput") or {}, res.get("metrics") or {}, res.get("candidates") or {}
+    # the main SCREEN's own window when the part recorded it (measuring fix of 2026-11-13): the whole part also holds
+    # the canary's serial calls and the later stages, which understated run 20261112T165042Z's rates
+    main = res.get("throughput_screen") or {}
+    t = main if main.get("calls_per_second") is not None else whole
     cand = screen_candidates(res) or cand
     gpu = metrics.get("gpu") or {}
     patients = part_patients(res, run)
     wall, busy = res.get("wall_seconds"), t.get("busy_seconds")
-    opens = t.get("breaker_opens")
+    opens = whole.get("breaker_opens")
     out.update({
         "in_flight": out["in_flight"] or res.get("llm_concurrency"), "file": row["file"],
+        "measured_over": "main SCREEN" if t is main else "whole part",
         "calls": t.get("calls"), "cached_calls": t.get("cached"), "calls_per_second": t.get("calls_per_second"),
         "tokens_per_second": t.get("tokens_per_second"), "tokens_in_per_second": t.get("tokens_in_per_second"),
         "tokens_out_per_second": t.get("tokens_out_per_second"), "p50_s": t.get("p50_s"), "p95_s": t.get("p95_s"),
@@ -424,9 +429,9 @@ def money(v: Any) -> str:
 
 def g3_lines(lang: str, g: dict[str, Any]) -> list[str]:
     out = ["", f"### hospital-{lang}", ""]
-    out += table(["in flight", "status", "calls/s", "tokens/s", "p50 s", "p95 s", "GPU % mean", "GPU MiB peak",
-                  "GPU MiB total", "breaker opened", "listed", "list sha256"],
-                 [[s["in_flight"] or "default", s["status"], s.get("calls_per_second"),
+    out += table(["in flight", "status", "measured over", "calls/s", "tokens/s", "p50 s", "p95 s", "GPU % mean",
+                  "GPU MiB peak", "GPU MiB total", "breaker opened", "listed", "list sha256"],
+                 [[s["in_flight"] or "default", s["status"], s.get("measured_over"), s.get("calls_per_second"),
                    s.get("tokens_per_second"), s.get("p50_s"),
                    s.get("p95_s"), s.get("gpu_util_mean_pct"), s.get("gpu_memory_peak_mib"),
                    s.get("gpu_memory_total_mib"), s.get("breaker_opens"), s.get("candidates"),
