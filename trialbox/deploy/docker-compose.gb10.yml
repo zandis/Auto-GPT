@@ -140,6 +140,7 @@ services:
     mem_limit: 2g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
       TB_MODEL_SWAP: "off"   # both resident (services/gateway/swap.py)
+      TB_GATEWAY_SLOTS: "${JUDGE_MAX_SEQS:-8}"   # calls at once per endpoint: the servers' --max-num-seqs (D-445; review 2026-11-13)
       TB_PROFILE: P-GB10
   llm-stub: {<<: *arm, mem_limit: 1g}
   console: {<<: *arm, mem_limit: 2g}

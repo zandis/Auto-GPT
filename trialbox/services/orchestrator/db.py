@@ -358,12 +358,14 @@ class JobDB:
         return [Job.model_validate_json(r[0]) for r in rows]
 
     def chained_ingest(self, before: str | None = None) -> Job | None:
-        """The newest ingest that passed and carries the chain's option, received before ``before`` (none: the
-        newest of all)."""
+        """The newest ingest that passed and carries the chain's option, stored before the job ``before`` (a job id;
+        none: the newest of all). Newest is the store's order (``seq``), not ``received_at``: a job received while
+        the clock ran ahead must not stay the newest night once the clock is put right (deep review 2026-11-13)."""
         row = self._db.fetchone(
             "SELECT data FROM jobs WHERE type = 'INGEST' AND state = 'done' "
-            "AND (data::jsonb)->'options'->>'chain' = '1' AND (? = '' OR received_at < ?) "
-            "ORDER BY received_at DESC, seq DESC LIMIT 1",
+            "AND (data::jsonb)->'options'->>'chain' = '1' "
+            "AND (? = '' OR seq < (SELECT b.seq FROM jobs b WHERE b.job_id = ?)) "
+            "ORDER BY seq DESC LIMIT 1",
             (before or "", before or ""),
         )
         return Job.model_validate_json(row[0]) if row else None

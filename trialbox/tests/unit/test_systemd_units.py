@@ -240,3 +240,50 @@ def test_refresh_skips_an_unchanged_table_and_never_opens_a_stopped_box(
     assert eg.main(args) == 0
     assert "trialbox default deny" in nft.loaded[-1] and "tcp dport" not in nft.loaded[-1]
     assert state.read_text(encoding="utf-8") == saved  # the subnets a boot restores are kept
+
+
+# ------------------------------------------------------------------------------------ the unfinished-update guard
+
+
+def _guard_script() -> str:
+    raw = (UNITS / STACK_UNIT).read_text(encoding="utf-8")
+    pre = [ln.partition("=")[2] for ln in raw.splitlines() if ln.startswith("ExecStartPre=")]
+    assert len(pre) == 1 and pre[0].startswith("/bin/sh -c '") and pre[0].endswith("'"), pre
+    return pre[0][len("/bin/sh -c '") : -1]
+
+
+@pytest.mark.parametrize("unfinished", [True, False])
+def test_the_stack_does_not_start_on_an_unfinished_update(tmp_path: Path, unfinished: bool) -> None:
+    """Deep review 2026-11-13 (operations): ``update_status check`` was documented as the start guard (D-210) but
+    nothing called it. After a power cut during an update the box booted into the half-applied release: the night
+    ran on half-migrated tables, and the rollback the runbook then asks for discards every row written since. The
+    unit now refuses to start while ``deploy/updates/IN_PROGRESS.json`` exists, and stops the containers Docker's
+    restart policy started on its own."""
+    from tools import update_status
+
+    script = _guard_script()
+    assert "%" not in script and "$" not in script  # nothing systemd would expand
+    # the marker update_status check reads; a file test, so a host without python3 still starts (no python3 on PATH)
+    assert f"@TB_ROOT@/deploy/updates/{update_status.MARKER}" in script and "python" not in script
+    deploy = tmp_path / "deploy"
+    (deploy / "updates").mkdir(parents=True)
+    if unfinished:
+        (deploy / "updates" / "IN_PROGRESS.json").write_text('{"bundle_id": "b-2", "step": "migrate"}')
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "docker.log"
+    (bin_dir / "docker").write_text(f'#!/bin/sh\necho "$@" >> {log}\n')
+    (bin_dir / "docker").chmod(0o755)
+    run = subprocess.run(
+        ["/bin/sh", "-c", script.replace("@TB_ROOT@/deploy", str(deploy))],
+        cwd=ROOT,
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if unfinished:
+        assert run.returncode == 3 and "unfinished" in run.stderr
+        assert log.read_text().split() == ["compose", "--project-directory", str(deploy), "stop"]
+    else:
+        assert run.returncode == 0 and not log.exists(), run.stderr
