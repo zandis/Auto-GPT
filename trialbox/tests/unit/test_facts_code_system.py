@@ -88,3 +88,36 @@ def test_a_das28_component_is_read_with_its_system() -> None:
         lake.add("observation", oid, "P1", code, system, None, value, "mm/h" if code == "4537-7" else None, when)
     f = facts.collect(lake, RA_BIO, "P1", RUN)  # type: ignore[arg-type]
     assert f.das28[0]["tjc"] == "4" and f.das28[0]["date"] == "2026-09-20"
+
+
+# ------------------------------------------------------------------------------------------------ review of #426
+def test_the_twpas_bundles_own_lookups_match_the_system_too() -> None:
+    """H1: weight, height and the EGFR mutation result of a TWPAS bundle were read by code alone
+    (``twpas._latest``). A newer house row with the code string of body weight gave 6.1 kg for 61 kg; a house
+    "EGFR-MUT" alone gave "mutation present"."""
+    from types import SimpleNamespace
+
+    from orchestrator.scenarios import twpas
+
+    onc = Ruleset.load(ROOT / "rulesets" / "ONC-OSI")
+    egfr_system = onc.valuesets["VS_EGFR_MUTATION"]["compose"]["include"][0]["system"]
+    lake = _Lake()
+    lake.add("observation", "w1", "P1", "29463-7", LOINC, None, 61.0, "kg", "2026-08-01 09:00:00")
+    lake.add("observation", "w2", "P1", "29463-7", HOUSE, None, 6.1, "kg", "2026-09-01 09:00:00")
+    lake.add("observation", "e1", "P1", "EGFR-MUT", HOUSE, "LA9633-4", None, None, "2026-09-01 09:00:00")
+    ctx = SimpleNamespace(services=SimpleNamespace(lake=lake))
+    assert twpas._latest(ctx, "P1", LOINC, "29463-7", RUN) == (61.0, "2026-08-01")  # type: ignore[arg-type]
+    assert twpas._latest(ctx, "P1", egfr_system, "EGFR-MUT", RUN, "value_code") == (None, None)  # type: ignore[arg-type]
+    lake.add("observation", "e2", "P1", "EGFR-MUT", egfr_system, "LA9634-2", None, None, "2026-08-15 09:00:00")
+    got = twpas._latest(ctx, "P1", egfr_system, "EGFR-MUT", RUN, "value_code")  # type: ignore[arg-type]
+    assert got == ("LA9634-2", "2026-08-15")
+    assert (egfr_system, "EGFR-MUT") == twpas.EGFR_MUT  # the bundle reads the result the criteria read
+
+
+def test_a_value_set_include_with_no_system_matches_nothing() -> None:
+    """L3: an include without a system gave the pair "|code", which a lake row with an empty system matched."""
+    import copy
+
+    rs = copy.deepcopy(RA_BIO)
+    del rs.valuesets["VS_HBSAG"]["compose"]["include"][0]["system"]
+    assert facts._pairs(rs, "VS_HBSAG") == []

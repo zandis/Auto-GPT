@@ -48,8 +48,9 @@ def _pairs(rs: Ruleset, vs_name: str) -> list[str]:
     if not vs:
         return []
     return [
-        _pair(str(inc.get("system") or ""), c["code"])
+        _pair(str(inc["system"]), c["code"])
         for inc in vs["compose"]["include"]
+        if inc.get("system")  # an include that names no system names no record
         for c in inc.get("concept", [])
     ]
 
