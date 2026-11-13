@@ -191,8 +191,8 @@ def service_embedder(environ: Mapping[str, str] | None = None) -> Embedder:
     raw = env.get("TB_EMBED_MODE") or ("model" if production else "hash")
     try:
         mode = normalise_mode(raw)
-    except ValueError as exc:
-        raise EmbedderRefused(str(exc)) from exc
+    except ValueError:  # D-636: the service's own sentence, written here; never an error's text
+        raise EmbedderRefused(f"unknown TB_EMBED_MODE {raw!r}; use one of {', '.join(MODES)}") from None
     if mode == "http":
         raise EmbedderRefused("TB_EMBED_MODE http is the client of this service, not a mode it serves")
     if mode == "hash":

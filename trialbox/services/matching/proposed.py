@@ -44,11 +44,57 @@ WHERE basis IN ('proposed', 'suspected')
   AND (CAST($1 AS VARCHAR[]) IS NULL OR list_contains(CAST($1 AS VARCHAR[]), pid))
 ORDER BY pid, fid
 """
+#: is there a ``site_fact`` table (or view) in the snapshot: one row, one number
+TABLE_SQL = (
+    "SELECT (SELECT count(*) FROM duckdb_tables() WHERE lower(table_name) = 'site_fact') + "
+    "(SELECT count(*) FROM duckdb_views() WHERE lower(view_name) = 'site_fact') AS n"
+)
 DEMOGRAPHIC_CODES = {"birth_date": "age", "sex": "sex"}
 
 
 class _Lake(Protocol):
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any: ...
+
+
+def _no_site_facts(lake: _Lake, snapshot: str | None) -> bool:
+    """After a query of ``site_fact`` failed: True only when the lake answers that the snapshot has no such table
+    (it was built before step 5b and holds no site fact). Asked of the lake, not read out of the failure's text
+    (NEW-TRUST-6, D-649): an error's text is whatever its author put in it. Anything but one row with the number
+    0, and a failure of the question itself, is False: the caller's failure then stops the run (D-127, F-04: a list
+    must never silently drop the rule)."""
+    try:
+        rows = lake.query(TABLE_SQL, [], snapshot).to_pylist()
+    except Exception:
+        return False
+    return len(rows) == 1 and type(rows[0].get("n")) is int and rows[0]["n"] == 0
+
+
+def _site_fact_rows(lake: _Lake, sql: str, params: list[Any], snapshot: str | None) -> list[dict[str, Any]] | None:
+    """The rows of a query of ``site_fact``; None when the snapshot has no such table (:func:`_no_site_facts`); any
+    other failure is raised.
+
+    With no snapshot named, a failed query and the question after it would each read "current", which can move in
+    between (the review of D-649). So after a failure the lake is asked once which snapshot is current, and the
+    query is put again, and then the question, to that name. A stand-in that cannot name its snapshot is asked the
+    question as it was asked the query."""
+    try:
+        return list(lake.query(sql, params, snapshot).to_pylist())
+    except Exception:
+        name = snapshot
+        current = getattr(lake, "snapshot", None)
+        if name is None and callable(current):
+            name = current()
+            if name is None:
+                raise
+            try:
+                return list(lake.query(sql, params, name).to_pylist())
+            except Exception:
+                if _no_site_facts(lake, name):
+                    return None
+                raise
+        if _no_site_facts(lake, name):
+            return None
+        raise
 
 
 @dataclass(frozen=True)
@@ -107,17 +153,13 @@ class Proposed:
         scope = None if pids is None else sorted(set(pids))
         if scope is not None and not scope:
             return cls(valuesets=valuesets or {})
-        try:
-            table = lake.query(SQL, [scope], snapshot)
-        except Exception as exc:
-            # a snapshot built before step 5b has no site_fact table: it holds no proposed fact. Any other failure
-            # stops the run (D-127, F-04): a list must never silently drop the rule.
-            msg = str(exc)
-            if "site_fact" in msg and ("exist" in msg or "Catalog" in msg):
-                return cls(valuesets=valuesets or {})
-            raise
+        # a snapshot built before step 5b has no site_fact table: it holds no proposed fact. Any other failure
+        # stops the run (D-127, F-04): a list must never silently drop the rule.
+        found = _site_fact_rows(lake, SQL, [scope], snapshot)
+        if found is None:
+            return cls(valuesets=valuesets or {})
         out: dict[str, list[FactRow]] = {}
-        for r in table.to_pylist():
+        for r in found:
             out.setdefault(str(r["pid"]), []).append(
                 FactRow(
                     str(r["fid"]),
@@ -200,16 +242,21 @@ BASIS_SQL = "SELECT DISTINCT pid, basis FROM site_fact WHERE basis IN ('proposed
 def site_basis(lake: _Lake, snapshot: str | None) -> tuple[set[str], set[str]]:
     """``(patients with a confirmed fact, patients with a proposed fact)`` of one snapshot (empty for a snapshot
     built before step 5b, which has no site facts)."""
-    try:
-        rows = lake.query(BASIS_SQL, [], snapshot).to_pylist()
-    except Exception as exc:
-        msg = str(exc)
-        if "site_fact" in msg and ("exist" in msg or "Catalog" in msg):
-            return set(), set()
-        raise
+    rows = _site_fact_rows(lake, BASIS_SQL, [], snapshot)
+    if rows is None:
+        return set(), set()
     confirmed = {str(r["pid"]) for r in rows if r["basis"] == "confirmed"}
     proposed = {str(r["pid"]) for r in rows if r["basis"] == "proposed"}
     return confirmed, proposed
 
 
-__all__ = ["PROPOSED_FACT", "SQL", "SUSPECTED_DIAGNOSIS", "FactRow", "Proposed", "signed_atoms", "site_basis"]
+__all__ = [
+    "PROPOSED_FACT",
+    "SQL",
+    "SUSPECTED_DIAGNOSIS",
+    "TABLE_SQL",
+    "FactRow",
+    "Proposed",
+    "signed_atoms",
+    "site_basis",
+]

@@ -79,7 +79,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/jobs` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/metrics` | Y | - | - | - | - | - | - | - | - |
 | GET | `/notices/received` | Y | Y | Y | Y | Y | - | Y | Y | Y |
-| GET | `/ops/flags` | Y | - | - | - | - | - | - | - | - |
+| GET | `/ops/flags` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
 | GET | `/ops/users` | Y | - | - | - | - | - | - | - | - |
 | GET | `/pilot/cascade` | Y | Y | Y | Y | - | - | - | Y | Y |

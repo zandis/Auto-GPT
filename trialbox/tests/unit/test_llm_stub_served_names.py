@@ -106,3 +106,24 @@ def test_the_personas_give_the_contested_answers() -> None:
     for name in ("stub-dissent", "stub-badquote", "stub-olddate"):
         d = _client(name).chat_json("judge", silent).data
         assert d["verdict"] == "unknown" and d.get("quote") is None
+
+
+def test_a_stub_handler_that_cannot_read_its_messages_answers_a_fixed_sentence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-636: a fixed sentence and the error's type; the handler's own text is not in the answer. Here, because this
+    file is the one allowed to drive the stub app in-process (tests/unit/test_no_direct_model_calls.py)."""
+
+    from fastapi.testclient import TestClient
+    from llm_stub import app as stub_app
+    from llm_stub import handlers
+
+    def broken(_messages: list[Any]) -> Any:
+        raise ValueError(f"cannot read {'WORDS-ONLY-THE-ERROR-KNEW-51c2'}")
+
+    monkeypatch.setitem(handlers.MESSAGE_HANDLERS, "broken_v1", broken)
+    r = TestClient(stub_app.app).post(
+        "/v1/chat/completions",
+        json={"model": "stub", "messages": [{"role": "user", "content": "x"}]},
+        headers={"x-tb-prompt-id": "broken_v1"},
+    )
+    assert r.status_code == 400 and "WORDS-ONLY-THE-ERROR-KNEW-51c2" not in r.text
+    assert "ValueError" in r.text and "handler" in r.text

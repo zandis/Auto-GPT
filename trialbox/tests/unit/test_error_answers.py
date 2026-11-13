@@ -41,9 +41,9 @@ OWN_TEXT: dict[str, frozenset[str]] = {
             "', '.join(unknown)",
             "='No valid alliance table:\\n' + '\\n'.join((f'- {p}' for p in problems[:20]))",
             "='No valid rows: ' + '; '.join(errors[:10])",
-            "='Not submitted to NHI — ' + '; '.join(gaps) + '.'",
-            "='The bundle did not pass validation/pre-check and will not be submitted:\\n' + "
-            "'\\n'.join((f'- {p}' for p in problems[:20]))",
+            "='Not submitted to NHI — ' + '; '.join(gaps) + '.'",  # D-707: the gaps hold no engine's words
+            "len(problems)",
+            "rep.filename",
             "=RESTORE_HELD",
             "=_ingest_ended(st)",
             "=_ingest_errors(report)",
@@ -106,6 +106,8 @@ OWN_TEXT: dict[str, frozenset[str]] = {
         }
     ),
     "FeasError": frozenset({"key", "len(hits)", "rs.id"}),
+    # D-705: the re-run's own refusal (D-666). Its sentences are written in rerun.py and name the earlier job.
+    "ReplayUnknown": frozenset({"job.job_id"}),
 }
 #: where those classes are raised (rule 2 reads every file of these). The two library files raise ActorError;
 #: ``service_auth`` has a RegistryError of its own (the token registry's), which no answer repeats.
@@ -123,8 +125,6 @@ KNOWN = {
     ("datacore_api.py", "ValueError"): "datacore.forms' CTCAE check: a fixed sentence that lists the versions",
     ("migrate.py", "DatabaseError"): "the migration tool's own stderr",
     ("migrate.py", "EdcError"): "the migration tool's own stderr",
-    ("rerun.py", "ReplayUnknown"): "the re-run's own refusal (D-666): its sentences are written in rerun.py and "
-    "name job ids only",
     # the scenarios (D-557): another error's text inside a failed job's record, each an error written in this
     # repository about the study's own files (a prompt registry, a cascade, an approval workbook, a routing table)
     ("approve.py", "ValueError"): "the approval workbook's own reading errors (tb_common.ruleset)",
