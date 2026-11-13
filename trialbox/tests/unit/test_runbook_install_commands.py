@@ -293,6 +293,36 @@ def run_memcaps_write(tmp: Path) -> None:
     assert "TB_MEM_ADAPTER=" in env and "TB_MEM_LAKE=" in env
 
 
+def run_import_example(tmp: Path) -> None:
+    """D-640: the example study an operator installs on a PRODUCTION box for a synthetic run. ``docker compose exec
+    criteria-compiler sh -c '...'`` needs the running stack: the shell line inside it runs here as written, with
+    the image's ``/app/rulesets`` as this checkout's folder, the zip in a temporary folder and a name for
+    ``<who>``, on an empty working copy of a box that says PRODUCTION. Then the study is approved there and its
+    tag names the operator."""
+    cmd = next(c for c in commands() if "criteria_compiler.import_ruleset" in c)
+    inner = re.fullmatch(r"docker compose exec criteria-compiler sh -c '(.+)'", cmd)
+    assert inner is not None, cmd
+    line = (
+        inner.group(1).replace("/app/rulesets", str(ROOT / "rulesets")).replace("/tmp/GZQO.zip", str(tmp / "GZQO.zip"))
+    )
+    line = line.replace("<who>", "runbook-test")
+    data = tmp / "data"
+    box = {"TB_ENV": "PRODUCTION", "TB_DATA_DIR": str(data), "TB_RULESETS_DIR": str(data / "rulesets"),
+           "TB_DOTENV": str(tmp / "no.env"), "TB_SETTINGS_FILE": str(ROOT / "deploy/settings.example.yaml")}  # fmt: skip
+    out = _run(["sh", "-c", line], cwd=ROOT, stdin=None, **box)
+    assert out.returncode == 0 and json.loads(out.stdout.strip().splitlines()[-1]) == {"installed": "GZQO/v1.0.0"}, (
+        out.stdout + out.stderr
+    )
+    check = (
+        "import sys; from pathlib import Path; from tb_common.ruleset import list_rulesets, load_approved; "
+        "from criteria_compiler.repo import RulesetRepo; d = Path(sys.argv[1]); "
+        "print(list_rulesets(d), load_approved(d, 'GZQO').version, RulesetRepo(d).tag_message('GZQO/v1.0.0'))"
+    )
+    seen = _run([sys.executable, "-c", check, str(data / "rulesets")], cwd=ROOT, stdin=None, **box)
+    assert seen.returncode == 0, seen.stderr
+    assert seen.stdout.strip() == "['GZQO'] 1.0.0 GZQO/v1.0.0 (offline update, synthetic-run:runbook-test)"
+
+
 # command (as §1 writes it, a regular expression) -> its runner
 RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"tools/serving_config\.py measured", run_serving_measured),
@@ -324,6 +354,7 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"systemctl enable trialbox-.*", run_systemctl_enable),
     (r"python -m tools\.trialbox\.memcaps --measure", run_memcaps_measure),
     (r"python -m tools\.trialbox\.memcaps --env-file deploy/\.env --write", run_memcaps_write),
+    (r"docker compose exec criteria-compiler sh -c 'cd /app/rulesets && python -m zipfile .*", run_import_example),
 ]
 
 
