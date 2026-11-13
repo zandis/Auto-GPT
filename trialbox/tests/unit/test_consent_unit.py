@@ -47,7 +47,7 @@ def test_languages_and_ids() -> None:
     with pytest.raises(StepFailed, match="supported languages"):
         c.parse_langs("en,fr")
     assert c.ids("i03, q2") == ["I03", "Q2"]
-    with pytest.raises(StepFailed, match="unknown item"):
+    with pytest.raises(StepFailed, match="are not ids"):
         c.ids("I3")
     assert c.detect_language(ICF) == "en"
     assert c.detect_language("本研究的目的是了解每週一次的藥物是否能降低尿酸。" * 3) == "zh-TW"

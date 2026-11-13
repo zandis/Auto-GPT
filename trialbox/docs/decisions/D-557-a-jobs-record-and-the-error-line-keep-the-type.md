@@ -26,10 +26,12 @@ D-555 held the orchestrator's answers. Three more places keep or show an error's
 ## The decision
 
 1. **The job's record keeps the type of an unexpected error** (`RuntimeError`), nothing of its text. The text is
-   in the log line of the failure, under the log's rules. The same for an ingest the adapter reports as failed
-   (its detail is a type and up to 500 characters of text: the record keeps the type), for an ingest that
-   finished with errors (the record says how many and names the published report), and for a step another
-   service refused: its own message when the answer has the shape of one, else which service and what status.
+   in the log line of the failure, under the log's rules. The same for an ingest the adapter records as a failure
+   it did not expect (a type and up to 500 characters of text: the record keeps the type; the adapter's own
+   sentences, "the source folder is empty", "night refused: ...", stay), for an ingest that finished with errors
+   (the record says how many and names the published report), and for a step another service did not do: its
+   own message when the answer has the shape of one or is a refusal's sentence, else which service and what
+   status (never a 5xx's body or a body that is not the service's JSON).
 2. **The job errors the scenarios write name only the box's own words.** `StepFailed` and `FeasError` join the
    classes of D-555's test, each with the list of what a text may be built from: the study and its version, the
    job's type, state and ids, a limit, the name of an option (never its value), the name of a file the sender
@@ -83,6 +85,9 @@ One review by a fresh reviewer, on a copy of the commit, with mutations. Verdict
 - **The test's rule had two holes**: an f-string anywhere in an argument hid the rest of it, and the three
   classes made from `StepFailed` were not read. Both closed, with a test of the rule itself.
 - The trace keeps the last 30 frames of each error and five errors of a chain, so one line stays a line.
+- After the first whole-suite run: three tests showed the cut was too wide. The adapter's own sentences and a
+  refusal's sentence ("an ingest is already running") are the service's words for the operator and stay; only
+  the unexpected failure's text and unshaped bodies are left out.
 - **Checked and sound:** no local values in the trace; the text is absent for chained errors, notes and grouped
   errors; nothing parses a job's `error.detail` or the changed messages; the console maps the data source's code
   to its own sentence.

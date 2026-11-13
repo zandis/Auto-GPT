@@ -61,21 +61,33 @@ class AdapterAPI(Protocol):
     def run(self, req: IngestRequest) -> IngestReport: ...
 
 
-_TYPE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.]{0,60}):")
+#: the adapter's record of a failure it did not expect: an error's type, a colon, up to 500 characters of its text
+_UNEXPECTED = re.compile(r"^([A-Za-z_][A-Za-z0-9_.]*[A-Z][A-Za-z0-9_]*|[A-Z][A-Za-z0-9_.]*[a-z][A-Za-z0-9_]*): ")
 
 
 def _ingest_ended(st: dict[str, Any]) -> str:
-    kind = _TYPE.match(str(st.get("detail") or ""))
+    """Why an ingest that is not done ended, for the job's record (D-557). The adapter's own sentence when it wrote
+    one ("the source folder is empty", "night refused: ..."): those are its words for the operator. Its record of
+    a failure it did not expect is an error's type and up to 500 characters of the error's text (a cast error
+    quotes the value it could not cast): the job's record keeps the type, the adapter's log has the rest."""
+    detail = str(st.get("detail") or "").strip()
+    kind = _UNEXPECTED.match(detail)
+    if kind:
+        return f"The nightly ingest failed ({kind.group(1)}); the adapter's log has it."
+    if detail:
+        return detail
     state = str(st.get("state") or "")
-    state = state if state in ("failed", "interrupted", "cancelled", "held") else "not done"
-    return f"The nightly ingest ended {state}" + (f" ({kind.group(1)})" if kind else "") + "; the adapter's log has it."
+    return "the ingest ended " + (
+        state if state in ("failed", "interrupted", "cancelled", "refused", "held") else "not done"
+    )
 
 
 def _step_error(exc: ServiceError, default_step: str) -> StepFailed:
-    """A service's refusal of a step as the job's error. The message is the service's own when the answer has the
-    shape of one (``{"detail": {"step", "message"}}``, written by that service for the person); any other answer
-    (a framework's text, a body of up to 2,000 characters, "unreachable: ...") is not kept in the job's record:
-    the record says which service and with what status (D-557)."""
+    """A service's refusal of a step as the job's error (D-557). The message is the service's own when the answer
+    has the shape of one: ``{"detail": {"step", "message"}}``, or a refusal (4xx) with a sentence as its detail
+    ("an ingest is already running"). Anything else (a 5xx, a body that is not the service's JSON, up to 2,000
+    characters of it, "unreachable: ...") is not kept in the job's record: it says which service did not do the
+    step, and the detail says with what status."""
     step, message = default_step, f"The {exc.service} service did not do this step."
     try:
         body = json.loads(exc.detail)
@@ -83,6 +95,8 @@ def _step_error(exc: ServiceError, default_step: str) -> StepFailed:
         if isinstance(detail, dict) and detail.get("message"):
             step = str(detail.get("step") or default_step)
             message = str(detail["message"])
+        elif isinstance(detail, str) and detail and 400 <= exc.status < 500:
+            message = detail[:300]
     except (ValueError, AttributeError):
         pass
     return StepFailed(step, message, f"{exc.service} HTTP {exc.status}")

@@ -335,11 +335,19 @@ def test_an_ingest_that_failed_leaves_the_errors_type_in_the_jobs_record() -> No
     from orchestrator.clients import ServiceError, _ingest_ended, _step_error
 
     said = _ingest_ended({"state": "failed", "detail": f"ConversionException: Could not convert '{CHART}' to INT32"})
-    assert said == "The nightly ingest ended failed (ConversionException); the adapter's log has it."
-    assert CHART not in _ingest_ended({"state": CHART, "detail": CHART})
-    # another service's answer: its own message when it has the shape of one, else which service and what status
+    assert said == "The nightly ingest failed (ConversionException); the adapter's log has it."
+    assert CHART not in _ingest_ended({"state": "failed", "detail": f"duckdb.ConversionException: bad {CHART}"})
+    assert CHART not in _ingest_ended({"state": "failed", "detail": f"KeyError: '{CHART}'"})
+    # the adapter's own sentences stay: they are its words for the operator
+    assert _ingest_ended({"state": "failed", "detail": "the source folder is empty"}) == "the source folder is empty"
+    assert "site key" in _ingest_ended({"state": "refused", "detail": "night refused: the site key changed"})
+    assert _ingest_ended({"state": CHART}) == "the ingest ended not done"
+    # another service's answer: its own message when it has the shape of one, else which service did not do it
     own = _step_error(ServiceError("parser", 422, '{"detail": {"step": "parsing", "message": "no text layer"}}'), "x")
     assert (own.step, own.message) == ("parsing", "no text layer")
-    raw = _step_error(ServiceError("parser", 500, f"Traceback ... {CHART}"), "parsing")
-    assert CHART not in raw.message and raw.message == "The parser service did not do this step."
-    assert CHART not in _step_error(ServiceError("parser", 400, f'{{"detail": "bad {CHART}"}}'), "parsing").message
+    busy = _step_error(ServiceError("adapter", 409, '{"detail": "an ingest is already running"}'), "ingest")
+    assert busy.message == "an ingest is already running"
+    for status, body in ((500, f"Traceback ... {CHART}"), (500, f'{{"detail": "no row for {CHART}"}}'),
+                         (0, f"unreachable: http://x/{CHART}"), (400, f"plain text {CHART}")):  # fmt: skip
+        raw = _step_error(ServiceError("parser", status, body), "parsing")
+        assert raw.message == "The parser service did not do this step." and CHART not in raw.message
