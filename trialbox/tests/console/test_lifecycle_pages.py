@@ -159,7 +159,8 @@ def test_lifecycle_path_on_the_console(lb: dict[str, Any]) -> None:
     assert "Declined: <b>1</b>" in page and f'data-testid="wd-{no}"' in page
     x = c.get("/studies/GZQO/enrolment.xlsx")
     assert x.status_code == 200 and load_workbook(io.BytesIO(x.content)).sheetnames[0] == "states"
-    assert "state,now,withdrawn,1" in c.get("/studies/GZQO/enrolment.csv").text
+    f = c.get("/studies/GZQO/enrolment.csv")
+    assert "state,now,withdrawn,1" in f.text and f.content.startswith(b"\xef\xbb\xbf")  # the byte order mark
     assert CHART_NO not in page and CHART_NO not in x.text
     events = {e.event for e in lb["backend"].audit(None, 500)}
     assert {"console.life_step", "console.life_schedule", "console.export"} <= events
