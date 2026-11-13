@@ -143,7 +143,8 @@ def test_an_unpinned_run_whose_lake_cannot_name_a_snapshot_stops_on_the_first_fa
 
     class Lake:
         def __init__(self, name: Any, again: str = "lake query failed (504)") -> None:
-            self.name, self.again, self.asked = name, again, []
+            self.name, self.again = name, again
+            self.asked: list[tuple[str, str | None]] = []
 
         def snapshot(self) -> Any:
             if isinstance(self.name, Exception):

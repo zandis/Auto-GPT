@@ -115,7 +115,7 @@ def decisions_by_text(root: Path) -> list[str]:
                         targets = n.targets if isinstance(n, ast.Assign) else [n.target]
                         tainted |= {t.id for tg in targets for t in ast.walk(tg) if isinstance(t, ast.Name)}
             for n in body:
-                tests: list[ast.AST] = []
+                tests: list[ast.expr] = []
                 if isinstance(n, ast.If | ast.While | ast.IfExp | ast.Assert):
                     tests.append(n.test)
                 elif isinstance(n, ast.Compare | ast.BoolOp):

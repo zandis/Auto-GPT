@@ -148,7 +148,12 @@ def test_the_opt_out_worker_reports_the_registry_as_not_read_and_still_runs_ever
         return {"t": 1}
 
     one = SimpleNamespace(name="a-store", resolve=lambda: (clear, lambda pids, _env: {"t": 0}))
-    monkeypatch.setattr(optout_worker, "sync_registry", lambda *a, **k: synced.append(a) or (0, 0))
+
+    def sync(*a: Any, **_k: Any) -> tuple[int, int]:
+        synced.append(a)
+        return 0, 0
+
+    monkeypatch.setattr(optout_worker, "sync_registry", sync)
     monkeypatch.setattr("tb_common.erasure.clears", lambda: [one])
     out = optout_worker.run_once(env)
     # before the change the worker read "no registry": nothing failed, nothing synced, and it said so to nobody
