@@ -4,6 +4,8 @@
 - **PR:** this branch (`agent/T-624-screening-cadence`)
 - **Date:** 2026-11-11
 - **Status:** accepted
+- **Changed by:** D-642 (2026-11-13): item 3's "a patient excluded by SCREEN is not screened again until the next
+  SCREEN" no longer holds; the weekly run screens excluded patients again
 - **Closes:** LIFE-014 (new patients enter the candidate pool once a month)
 - **Builds on:** D-383 (each job pins one lake snapshot), D-386 (lists only for an open study), D-147 (opt-out),
   D-82 (byte-identical re-run)
