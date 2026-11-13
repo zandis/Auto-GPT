@@ -43,6 +43,7 @@ MAX_AGE_H = 36.0
 #: the resolution of a pass's ``at_epoch`` (``selftest.preflight`` rounds it to a tenth of a second)
 STAMP_RESOLUTION_S = 0.1
 
+
 def gate_on(env: dict[str, str] | None = None) -> bool:
     e = os.environ if env is None else env
     v = (e.get("TB_CANARY_GATE") or "").strip().lower()
