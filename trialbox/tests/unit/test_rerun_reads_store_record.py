@@ -8,7 +8,9 @@ table as it stores it and each merge's read. The re-run reads that record."""
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,9 +22,23 @@ from tests.unit.test_cohort_store_record import SENDER, _Box, _fault, _run, _tab
 
 
 def _scratch_schemas(b: _Box) -> list[str]:
+    """The scratch schemas of this box's re-runs. A test run's schemas carry the run's prefix before their name
+    (the box's own is ``<prefix>orch_rec_<n>``), so another test running beside this one is not counted."""
+    prefix = b.db.schema.split("orch_rec_")[0]
     with b.db.tx() as tx:
-        rows = tx.fetchall("SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'orch_rerun_%'")
-    return sorted(r[0] for r in rows)
+        rows = tx.fetchall("SELECT schema_name FROM information_schema.schemata")
+    return sorted(r[0] for r in rows if r[0].startswith(f"{prefix}orch_rerun_"))
+
+
+@pytest.fixture(autouse=True)
+def _work_in_this_tests_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A re-run's work folder is made in the system's temporary folder; here, in this test's own."""
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
+
+
+def _work_dirs() -> set[str]:
+    return {p.name for p in Path(tempfile.gettempdir()).glob("tb-rerun-*")}
 
 
 def _first_run_bytes(b: _Box, job: Any) -> dict[str, bytes]:
@@ -159,3 +175,70 @@ def test_a_merge_with_no_recorded_read_is_run_again_the_old_way_or_says_it_canno
     monkeypatch.setattr(rr, "_replay_alliance_tables", unknown)
     got = rr.rerun(b.orch, job_id)
     assert got.error == "this job cannot be re-run: the merge J-OLD stopped at a point that was not recorded"
+
+
+def test_the_check_for_scratch_schemas_sees_one_while_a_rerun_runs(
+    box: Callable[[], _Box],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check the other tests rely on is itself checked: in the middle of a re-run there is one."""
+    b = box()
+    job_id = b.merge([_table("HOSP-B", n=12)])
+    b.orch.run(job_id)
+    seen: list[list[str]] = []
+    dirs: list[set[str]] = []
+    before, dirs_before = _scratch_schemas(b), _work_dirs()
+    real = cohort.replay_stored
+
+    def look(record: JobDB, into: JobDB, jid: str) -> bool:
+        seen.append(_scratch_schemas(b))
+        dirs.append(_work_dirs())
+        return real(record, into, jid)
+
+    monkeypatch.setattr(cohort, "replay_stored", look)
+    assert rr.rerun(b.orch, job_id).identical
+    assert len(seen[0]) == len(before) + 1 and len(dirs[0]) == len(dirs_before) + 1
+    assert _scratch_schemas(b) == before and _work_dirs() == dirs_before
+
+
+@pytest.mark.parametrize("where", ["the record", "the record, after it stored a table", "the old way", "the run"])
+def test_an_error_nobody_expected_leaves_no_scratch_schema_and_no_work_folder(
+    box: Callable[[], _Box],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    where: str,
+) -> None:
+    from orchestrator.core import Orchestrator
+
+    b = box()
+    job_id = b.merge([_table("HOSP-B", n=12)])
+    b.orch.run(job_id)
+    before, dirs_before = _scratch_schemas(b), _work_dirs()
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise KeyError("an error nobody expected")
+
+    if where == "the record":
+        monkeypatch.setattr(cohort, "replay_stored", boom)
+    elif where == "the record, after it stored a table":
+        real = cohort.replay_until
+
+        def stored_then_boom(record: JobDB, into: JobDB, upto: int) -> None:
+            real(record, into, upto)
+            boom()
+
+        monkeypatch.setattr(cohort, "replay_until", stored_then_boom)
+    elif where == "the old way":
+        monkeypatch.setattr(cohort, "replay_stored", lambda *_a: False)
+        monkeypatch.setattr(rr, "_replay_alliance_tables", boom)
+    else:
+        real_run = Orchestrator.run
+
+        def run(self: Orchestrator, jid: str) -> Any:
+            if self is b.orch:
+                return real_run(self, jid)
+            boom()
+
+        monkeypatch.setattr(Orchestrator, "run", run)
+    with pytest.raises(KeyError):
+        rr.rerun(b.orch, job_id)
+    assert _scratch_schemas(b) == before and _work_dirs() == dirs_before

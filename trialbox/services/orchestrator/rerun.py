@@ -15,8 +15,10 @@ LLM-backed steps are reproducible when the model is (stub, or vLLM with temperat
 
 from __future__ import annotations
 
+import contextlib
 import json
 import secrets
+import shutil
 import tempfile
 from dataclasses import dataclass, replace
 from datetime import date, datetime
@@ -120,53 +122,57 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
     work = Path(tempfile.mkdtemp(prefix="tb-rerun-"))
     # a scratch copy of the job tables in a schema of its own, dropped when the re-run ends
     db = JobDB(orch.db.url, schema=f"orch_rerun_{secrets.token_hex(4)}")
-    fresh = original.model_copy(
-        update={"state": "received", "outputs": [], "error": None, "metrics": None, "updated_at": None}
-    )
-    db.put(Job.model_validate(fresh.model_dump()), queued=False)
-    for p in orch.db.pool(original.ruleset or "") if original.type == "MICROBATCH" else []:
-        db.pool_upsert(original.ruleset or "", p["version"], [p], p["job_id"], p["last_eval"])
-    if original.type == "COHORT":  # trial drafts come from the compile cache (no new compiles)
-        for row in orch.db.trial_cache_all():
-            db.trial_cache_put(row)
-        if (original.ruleset or "").upper() == "MERGE":
-            from orchestrator.scenarios import cohort
+    try:
+        fresh = original.model_copy(
+            update={"state": "received", "outputs": [], "error": None, "metrics": None, "updated_at": None}
+        )
+        db.put(Job.model_validate(fresh.model_dump()), queued=False)
+        for p in orch.db.pool(original.ruleset or "") if original.type == "MICROBATCH" else []:
+            db.pool_upsert(original.ruleset or "", p["version"], [p], p["job_id"], p["last_eval"])
+        if original.type == "COHORT":  # trial drafts come from the compile cache (no new compiles)
+            for row in orch.db.trial_cache_all():
+                db.trial_cache_put(row)
+            if (original.ruleset or "").upper() == "MERGE":
+                from orchestrator.scenarios import cohort
 
-            try:
-                # D-670: the store's own record of what it stored and when this merge read (D-648) rebuilds the
-                # tables as the first run read them. No recorded read (the merge read before the record began):
-                # what is left is how the earlier jobs ended (D-666)
-                if not cohort.replay_stored(orch.db, db, original.job_id):
-                    _replay_alliance_tables(orch, db, original.job_id)
-            except (ReplayUnknown, cohort.ReplayUnsure, cohort.RecordChanged) as exc:
-                # a replay gives what the first run gave, or says that it cannot (D-666)
-                db.drop()
-                return RerunResult(job_id, original.type, False, [], f"this job cannot be re-run: {exc}")
-    snap = original.snapshot_date.isoformat() if original.snapshot_date else None
-    services = replace(orch.services, lake=PinnedLake(orch.services.lake, snap), mail=NullMail())
-    clone = Orchestrator(
-        orch.cfg,
-        db,
-        ScratchStore(orch.store),
-        NullAudit(),  # type: ignore[arg-type]
-        services,
-        orch.scenarios,
-        orch.rulesets_dir,
-        work,
-        today=lambda: _local_date(orch, received),
-        workers=0,
-        async_notify=False,
-    )
-    clone._now = lambda: received.astimezone(_zone(orch))  # type: ignore[method-assign]
-    done = clone.run(job_id)
-    before = {o.filename: o.sha256 for o in original.outputs or []}
-    after = {o.filename: o.sha256 for o in done.outputs or []}
-    files = [
-        {"filename": f, "original": before.get(f), "rerun": after.get(f), "same": before.get(f) == after.get(f)}
-        for f in sorted(set(before) | set(after))
-    ]
-    db.drop()
-    err = None if done.state == "done" else f"rerun {done.state}: {done.error.message if done.error else ''}"
+                try:
+                    # D-670: the store's own record of what it stored and when this merge read (D-648) rebuilds the
+                    # tables as the first run read them. No recorded read (the merge read before the record began):
+                    # what is left is how the earlier jobs ended (D-666)
+                    if not cohort.replay_stored(orch.db, db, original.job_id):
+                        _replay_alliance_tables(orch, db, original.job_id)
+                except (ReplayUnknown, cohort.ReplayUnsure, cohort.RecordChanged) as exc:
+                    # a replay gives what the first run gave, or says that it cannot (D-666)
+                    return RerunResult(job_id, original.type, False, [], f"this job cannot be re-run: {exc}")
+        snap = original.snapshot_date.isoformat() if original.snapshot_date else None
+        services = replace(orch.services, lake=PinnedLake(orch.services.lake, snap), mail=NullMail())
+        clone = Orchestrator(
+            orch.cfg,
+            db,
+            ScratchStore(orch.store),
+            NullAudit(),  # type: ignore[arg-type]
+            services,
+            orch.scenarios,
+            orch.rulesets_dir,
+            work,
+            today=lambda: _local_date(orch, received),
+            workers=0,
+            async_notify=False,
+        )
+        clone._now = lambda: received.astimezone(_zone(orch))  # type: ignore[method-assign]
+        done = clone.run(job_id)
+        before = {o.filename: o.sha256 for o in original.outputs or []}
+        after = {o.filename: o.sha256 for o in done.outputs or []}
+        files = [
+            {"filename": f, "original": before.get(f), "rerun": after.get(f), "same": before.get(f) == after.get(f)}
+            for f in sorted(set(before) | set(after))
+        ]
+        err = None if done.state == "done" else f"rerun {done.state}: {done.error.message if done.error else ''}"
+    finally:
+        # D-670: on every path, also an error nobody expected: the scratch schema and the work folder go
+        with contextlib.suppress(Exception):
+            db.drop()
+        shutil.rmtree(work, ignore_errors=True)
     return RerunResult(job_id, original.type, err is None and all(x["same"] for x in files), files, err)
 
 
