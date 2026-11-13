@@ -35,6 +35,11 @@ up (the ``db`` service, healthy) and no other service of the stack is; a step mu
 only needs the host belongs in :data:`STEPS`. ``ComposeBox.db_up`` runs the command on an update and
 ``deploy/install.sh`` on an install; a release that adds a step here names a release that has ``db-up`` as its
 ``min_installed_version``.
+
+**The floor.** :data:`MIN_INSTALLED_SEQ` is the lowest ``release_seq`` a box may be at to take this tree by update
+(D-625). ``tools/sign_bundle.py`` reads it from the bundle's host payload and refuses to sign a bundle whose
+``min_installed_version`` is below it, so the sentence above about ``min_installed_version`` cannot be forgotten.
+A card that adds a step decides the number; ``tests/unit/test_update_minseq.py`` says how.
 """
 
 from __future__ import annotations
@@ -46,6 +51,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tools.trialbox.update import ComposeBox
+
+
+#: the lowest release_seq a box may be at to take this tree by update; 0 while no release has reached a box.
+#: Written as a plain whole number on this line: tools/sign_bundle.py reads the line, it does not import this file.
+MIN_INSTALLED_SEQ = 0
 
 
 def _image_pins(box: ComposeBox) -> str:
