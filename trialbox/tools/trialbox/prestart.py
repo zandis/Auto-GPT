@@ -94,7 +94,13 @@ def _run(deploy: Path, phase: str, box: ComposeBox | None) -> list[str]:
     if not deploy.is_dir():
         raise UpdateFailed(f"no deploy folder {deploy}")
     box = box or ComposeBox(deploy)
-    return [f"{phase}: {name}: {step(box)}" for name, step in PHASES[phase]]
+    lines = []
+    for name, step in PHASES[phase]:
+        try:
+            lines.append(f"{phase}: {name}: {step(box)}")
+        except UpdateFailed as exc:  # the step's name first: the runner's message shows a command's first words only
+            raise UpdateFailed(f"{name}: {exc}") from exc
+    return lines
 
 
 def run(deploy: Path, box: ComposeBox | None = None) -> list[str]:

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -170,6 +171,69 @@ def test_the_pull_setting_is_checked_as_at_the_restart(tmp_path: Path, monkeypat
     monkeypatch.setenv("TB_INSTALL_PULL", "always")
     with pytest.raises(up.UpdateFailed, match="TB_INSTALL_PULL"):
         _steps(tmp_path, monkeypatch, "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n")
+
+
+# ---------------------------------------------------------------------------------------------- from the review
+def test_review_a_failed_step_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The installer's compose command is long and the runner's message shows only its first words: without the
+    step's name the operator could not tell the roles from the schemas."""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n", encoding="utf-8")
+
+    def fake(argv: Sequence[str], **_kw: Any) -> str:
+        if "orchestrator.migrate" in argv:
+            raise up.UpdateFailed("docker compose --project-directory deploy -f a -f b exit 1: boom")
+        return ""
+
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    with pytest.raises(up.UpdateFailed, match=r"^owned schemas: .*boom"):
+        prestart.run_db(deploy, up.ComposeBox(deploy, run=fake))
+
+
+def test_review_the_real_command_names_its_three_steps(tmp_path: Path) -> None:
+    """The parser and the command of THIS tree, as a process: a box with no database step is left alone."""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text("TB_SITE_ID=T\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, "-m", "tools.trialbox", "db-up", "--deploy", str(deploy)],
+                       capture_output=True, text=True, cwd=ROOT, check=False)  # fmt: skip
+    assert r.returncode == 0, r.stderr
+    names = [ln.split(":")[1].strip() for ln in r.stdout.splitlines() if ln.startswith("db-up: ")]
+    assert names == ["database", "service roles", "owned schemas"]
+
+
+def test_review_the_install_gives_the_command_no_compose_line_of_its_own() -> None:
+    """A compose command quoted by bash does not always read back in Python (a path that is not ASCII); the
+    installer has written COMPOSE_FILE and COMPOSE_PROFILES to deploy/.env by then, which is what an update uses."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    call = text.index('python3 -m tools.trialbox db-up --deploy "$ROOT/deploy"')
+    assert "TB_COMPOSE=" not in text[call - 200 : call]
+    assert text.index("COMPOSE_FILE=$FILES") < call and text.index("COMPOSE_PROFILES=$MODE") < call
+
+
+def test_review_the_parent_waits_as_long_as_the_steps_may_take(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each step has its own limit from TB_INSTALL_UP_TIMEOUT; the updater must not stop the command before them."""
+    box, _, _ = _box(tmp_path, monkeypatch, tree="db-up")
+    seen: list[int] = []
+
+    def fake(argv: Sequence[str], **kw: Any) -> str:
+        if "db-up" in argv:
+            seen.append(int(kw["timeout"]))
+        return ""
+
+    box.run = fake
+    monkeypatch.setenv("TB_INSTALL_UP_TIMEOUT", "2000")
+    box.db_up()
+    assert seen and seen[0] >= (2000 + 120) + 2000 + 900
+
+
+def test_review_the_pages_do_not_say_every_service_is_stopped() -> None:
+    """fhir-store is not stopped by an update, and nothing is with --no-backup: the database restarts under them."""
+    rec = (ROOT / "docs" / "decisions" / "D-624-steps-after-the-database-is-up.md").read_text(encoding="utf-8")
+    code = (ROOT / "tools" / "trialbox" / "update.py").read_text(encoding="utf-8")
+    assert "stopped either way" not in code and "are stopped at that point in both orders" not in rec
+    assert "fhir-store" in rec
 
 
 # ------------------------------------------------------------------------------------------- install and the pages

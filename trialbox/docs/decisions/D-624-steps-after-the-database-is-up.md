@@ -43,5 +43,9 @@ without a password, the new service cannot sign in, and the update is rolled bac
 
 - Lane C2 adds its step as one line in `DB_STEPS`; nothing in the updater changes for it.
 - The database container is recreated earlier in an update when its settings changed (it was recreated by the
-  final `up` before). The services are stopped at that point in both orders.
+  final `up` before). The Python services are stopped by then unless the update ran with `--no-backup`;
+  `fhir-store` is never stopped by an update. What still runs loses its connections a little earlier than
+  before and is recreated by the final `up`, as before.
+- Not changed, and open: when the new database image never becomes healthy, the rollback restores the dumps
+  into that container before the restart puts the old one back. The same happened at the final `up` before.
 - For lane G: on a box, an update to a release that adds a service role ends with that service signed in.

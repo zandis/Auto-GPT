@@ -1221,7 +1221,8 @@ class ComposeBox(_DockerImages):
         """D-624: the ``db`` service on the settings of the release now in force, before anything is run in it. The
         role script reads each service's password from the container's environment, and until here the container is
         the one the previous release started. Compose recreates it when its settings changed and leaves it
-        otherwise; the services are stopped either way."""
+        otherwise. The final ``up`` did the same before; what is still running then (``fhir-store`` always, every
+        service with ``--no-backup``) loses its connections a little earlier and is recreated by that ``up``."""
         if not self.env.get("TB_DB_URL", ""):  # as set_roles
             return "no database step on this box"
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
@@ -1271,8 +1272,10 @@ class ComposeBox(_DockerImages):
         python = sys.executable or "python3"
         argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', f"tb-{cmd}", str(root),
                 python, "-m", "tools.trialbox", cmd, "--deploy", str(deploy)]  # fmt: skip
+        # never shorter than the steps' own limits (the database's wait, the role script, the migrate step)
+        t = int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900"))
         try:
-            out = self.run(argv, timeout=3600)
+            out = self.run(argv, timeout=max(3600, 2 * t + 1200))
         except UpdateFailed as exc:
             # the reason the step gave, not the command line around it
             said = [ln.strip() for ln in str(exc).splitlines() if ln.strip().startswith(cmd)]

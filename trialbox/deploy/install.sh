@@ -487,10 +487,10 @@ fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
 # D-624: this release's steps once the database is up (tools/trialbox/prestart.py DB_STEPS: the roles of D-378, the
-# schemas no service owns of D-486, whatever a later release adds), by the same command an update runs
+# schemas no service owns of D-486, whatever a later release adds), by the same command an update runs and with the
+# compose files and profile an update uses (COMPOSE_FILE and COMPOSE_PROFILES in deploy/.env, written above)
 if command -v python3 >/dev/null; then
-  TB_COMPOSE="$(printf '%q ' "${COMPOSE[@]}")" TB_INSTALL_PULL="$PULL" \
-    python3 -m tools.trialbox db-up --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+  TB_INSTALL_PULL="$PULL" python3 -m tools.trialbox db-up --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
     || die "a database step of this release failed (db-up above; docker compose logs db)"
 else
   echo "    note: no python3 on this host: the release's database steps (tools.trialbox db-up) were not run; the roles and the schemas are set by the installer" >&2
