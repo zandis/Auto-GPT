@@ -142,3 +142,31 @@ def test_b7_the_rehearsals_bucket_check() -> None:
     why = check.bucket_poweroff_problems(con.replace("TB-BUCKET-DONE: x\n", ""), late)  # type: ignore[attr-defined]
     assert any("not the VM's TB-BUCKET-DONE" in w for w in why) and any("360 s after" in w for w in why)
     assert check.bucket_poweroff_problems(con, []) == ["no power-off recorded"]  # type: ignore[attr-defined]
+
+
+def test_b7_a_bucket_left_in_the_metadata_by_an_earlier_run_is_not_this_runs(tmp_path: Path) -> None:
+    """Metadata stays on a VM between runs: the rehearsal's door-mode case after the bucket case found tb-bucket still
+    set and, with B7, powered off as a bucket run. The driver now always sets tb-bucket ("none" in door mode) and the
+    VM takes only a gs:// value as its bucket."""
+    env = dict(os.environ, TB_COMPLETE_DIR=str(tmp_path / "out"), PY=PY, TB_RUN_ID="R")
+    for k in ("TB_ZONES", "TB_BUCKET", "TB_ESTIMATE_LLM_SPEEDUP", "TB_PROVISIONING"):
+        env.pop(k, None)
+    r = subprocess.run([str(GCP / "complete-run.sh"), "--dry-run", "--patients", "500", "--only", "scenario-it-dump"],
+                       cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=300)  # fmt: skip
+    assert r.returncode == 0, r.stderr[-800:]
+    meta = next(ln for ln in r.stdout.splitlines() if "add-metadata" in ln and "tb-run-id=" in ln)
+    assert meta.rstrip().endswith("tb-bucket=none")
+    vm = VM_SCRIPT.read_text(encoding="utf-8")
+    line = next(ln for ln in vm.splitlines() if ln.startswith('case "$BUCKET" in gs://*)'))
+    for value, want in (("none", ""), ("", ""), ("gs://tb-runs", "gs://tb-runs")):
+        out = subprocess.run(["bash", "-c", f'BUCKET="$1"; {line}; printf %s "$BUCKET"', "_", value],
+                             capture_output=True, text=True, check=True).stdout  # fmt: skip
+        assert out == want
+    assert vm.index("BUCKET=$(md tb-bucket || true)") < vm.index(line)
+
+
+def test_a_cut_node_download_is_made_again_not_kept_half() -> None:
+    vm = VM_SCRIPT.read_text(encoding="utf-8")
+    block = vm[vm.index("NODE_V=v") : vm.index("ln -sf /opt/node-$NODE_V")]
+    assert "[ ! -e /opt/node-$NODE_V-linux-x64/bin/npm ]" in block and "for _ in 1 2 3" in block
+    assert block.index("rm -rf /opt/node-$NODE_V-linux-x64") < block.index("curl -fsSL")

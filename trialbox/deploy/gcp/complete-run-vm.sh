@@ -136,6 +136,9 @@ REPEATS=$(md tb-repeats || true); ORDER_SEED=$(md tb-order-seed || true)
 case "$REPEATS" in ''|*[!0-9]*|0) REPEATS=1 ;; esac
 case "$ORDER_SEED" in *[!0-9]*) ORDER_SEED="" ;; esac   # "none": the order given (a metadata value is never empty)
 BUCKET=$(md tb-bucket || true)
+# metadata stays on a VM between runs: only a gs:// value is this run's bucket (the driver sets "none" in door mode,
+# so a bucket an earlier run left there is never used, and never ends a door-mode run early: B7)
+case "$BUCKET" in gs://*) ;; *) BUCKET="" ;; esac
 SRC_SHA=$(md tb-src-sha256 || true)
 REC=/root/record
 VLLM=vllm/vllm-openai:v0.32.0
@@ -460,9 +463,17 @@ command -v uv >/dev/null || setup_failed "uv"
 [ -x .venv/bin/python ] || setup_failed "no .venv/bin/python"
 # Ubuntu's own Node.js is too old for Playwright (the third cloud run stopped on it): the pinned LTS from nodejs.org
 NODE_V=v22.23.4
-if [ ! -x /opt/node-$NODE_V-linux-x64/bin/node ]; then
-  { curl -fsSL "https://nodejs.org/dist/$NODE_V/node-$NODE_V-linux-x64.tar.xz" | tar -xJ -C /opt; } >>"$LOG" 2>&1 \
-    || setup_failed "node $NODE_V"
+# a download cut short (the rehearsal of 2026-11-13: curl 18, a partial file) leaves a half tree on the kept disk, with
+# node and without npm: both must be there, else the tree goes and the download is made again (3 tries)
+if [ ! -x /opt/node-$NODE_V-linux-x64/bin/node ] || [ ! -e /opt/node-$NODE_V-linux-x64/bin/npm ]; then
+  ok=0
+  for _ in 1 2 3; do
+    rm -rf /opt/node-$NODE_V-linux-x64
+    if { curl -fsSL "https://nodejs.org/dist/$NODE_V/node-$NODE_V-linux-x64.tar.xz" | tar -xJ -C /opt; } >>"$LOG" 2>&1 \
+      && [ -e /opt/node-$NODE_V-linux-x64/bin/npm ]; then ok=1; break; fi
+    sleep 10
+  done
+  [ "$ok" = 1 ] || { rm -rf /opt/node-$NODE_V-linux-x64; setup_failed "node $NODE_V"; }
 fi
 ln -sf /opt/node-$NODE_V-linux-x64/bin/node /opt/node-$NODE_V-linux-x64/bin/npm /opt/node-$NODE_V-linux-x64/bin/npx /usr/local/bin/
 mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 && npx playwright install --with-deps chromium) \

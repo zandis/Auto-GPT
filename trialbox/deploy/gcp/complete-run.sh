@@ -610,7 +610,7 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     read -r P_REP P_SEED <<< "$(plan_rep)"   # B5: repeats per setting, the seed of their order (with repeats only)
     gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
       "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-door-cert=$SH/door.crt" \
-      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-repeats=${P_REP:-1},tb-order-seed=${P_SEED:-none},tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}" \
+      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-repeats=${P_REP:-1},tb-order-seed=${P_SEED:-none},tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30,tb-bucket=${BUCKET:-none}" \
       || { echo "$VM: not started: its metadata could not be set" >&2; door_retire; return 3; }
     # every give-up from here destroys the door versions it made (A8): a failed start, no door, a failed upload, and
     # (the trap) any other exit or signal before the upload is accepted: an error, Ctrl-C, a lost shell
