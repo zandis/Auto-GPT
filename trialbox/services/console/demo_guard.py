@@ -296,7 +296,14 @@ def _db_texts(url: str, seen: set[str] | None = None, unread: set[str] | None = 
             if seen is not None:
                 seen.add(f"{schema[len(prefix) :]}.{table}.{column}")
             q = f'SELECT "{column}"::text FROM "{schema}"."{table}" WHERE "{column}" IS NOT NULL'
-            for (value,) in con.execute(q):  # the names come from the catalogue
+            try:
+                rows = con.execute(q).fetchall()  # the names come from the catalogue
+            except psycopg.errors.InsufficientPrivilege:  # listed for another right (INSERT) and not readable
+                if unread is None:
+                    raise
+                unread.add(schema[len(prefix) :])
+                continue
+            for (value,) in rows:
                 if value:
                     yield f"db:{schema}.{table}.{column}", str(value)
 

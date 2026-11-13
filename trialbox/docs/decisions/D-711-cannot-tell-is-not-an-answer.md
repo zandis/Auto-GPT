@@ -34,7 +34,6 @@
 
 - The verification itself is unchanged: with an anchor folder set and no head read, `tb_common.audit.verify`
   reports what it reported before. Only what the page says about the folder changes.
-- The folder's `keys/` are read as before; a `keys/` that cannot be listed is not judged here.
 - The scan does not take another role by itself: it has the URL it is given. A partial scan was refused rather
   than allowed with a switch (no speculative option); if the PoC needs a scan of the console's stores alone,
   that is the owner's to ask.
@@ -42,9 +41,27 @@
   console's own `TB_DB_URL` on a box with roles; it needs the admin role's URL. That is the point of the
   change, and it changes a step a person performs.
 
-## Review
+## What the adversarial review changed
 
-See "What the adversarial review changed" when the review is in.
+One review by a fresh reviewer, who ran the folder cases as a user without rights and the scan under the real
+role script. Verdict: fix first, one gap of the same family; the rest sound.
+
+- **Head files that cannot be read still read as "no signed head yet"** (`heads/` listable, its files mode 000):
+  the reader gives an empty record for each, and the page fell to "no head". A folder whose every head is
+  unreadable is not reachable, and its empty records no longer reach the verification (which had said "signed
+  head None ... not a trusted key"). By test.
+- **A `keys/` or a key file that cannot be read made the page answer 500** (so on master). The keys are read
+  folder by folder; a folder whose keys cannot be read is not reachable. By test.
+- A `heads` that is a link to nowhere is not reachable. By test.
+- The scan: a table listed for another right and not readable (INSERT without SELECT) raised before the scan
+  could name it; its store is named with the others.
+- Ran and sound: the catalogue question's patterns (a store named `pgx` is not passed over; another prefix is
+  not named); partitioned tables; a column-only grant; the admin role reads the owned stores too without taking
+  a role; with stores unread nothing goes to standard output and no baseline is written.
+- Said, not changed: as the admin role, a table of another owner in `public` or a foreign schema is named and
+  the scan exits 1 (true: it was not read); hits in the stores that were read are not printed when others are
+  unread (the scan is run again as the right role); views are in neither list, as before.
+- Not checked by the reviewer: a real stale network mount; the real box and its container.
 
 ## Reuse check
 

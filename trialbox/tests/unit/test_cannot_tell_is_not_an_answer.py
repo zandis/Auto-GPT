@@ -59,6 +59,49 @@ def test_an_anchor_folder_with_no_head_yet_is_reachable_and_one_that_is_gone_is_
     assert [(a["name"], a["reachable"], a["count"]) for a in got["anchors"]] == [("empty", True, 0), ("gone", False, 0)]
 
 
+def test_head_files_that_cannot_be_read_do_not_read_as_no_head_yet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review's case: ``heads/`` can be listed, its files cannot be read (mode 000, or a folder without the
+    search right). The reader gives an empty record for each; the folder is not reachable."""
+    log, share = _signed(tmp_path)
+    real = Path.read_text
+
+    def refused(self: Path, *a: Any, **k: Any) -> str:
+        if self.parent == share / "heads":
+            raise PermissionError(13, "Permission denied")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", refused)
+    got = audit_page.verify_now(Path(log.directory), [share])
+    assert got["anchors"] == [{"name": "share", "reachable": False, "newest": None, "count": 0}]
+    assert got["ok"] is False and "None" not in " ".join(str(e) for e in got.get("errors", []))
+
+
+def test_a_keys_folder_that_cannot_be_read_breaks_no_page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    log, share = _signed(tmp_path)
+    real = Path.read_bytes
+
+    def refused(self: Path) -> bytes:
+        if self.parent == share / "keys":
+            raise PermissionError(13, "Permission denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", refused)
+    got = audit_page.verify_now(Path(log.directory), [share])  # it raised, and the page answered 500
+    assert got["ok"] is False and got["anchors"][0]["reachable"] is False
+
+
+def test_a_heads_link_that_points_nowhere_is_not_reachable(tmp_path: Path) -> None:
+    log = AuditLog(tmp_path / "audit", "UTC")
+    log.append("synthetic.event", actor="test", detail={})
+    share = tmp_path / "share"
+    share.mkdir()
+    (share / "heads").symlink_to(tmp_path / "nowhere")
+    got = audit_page.verify_now(Path(log.directory), [share])
+    assert got["anchors"][0]["reachable"] is False
+
+
 # ------------------------------------------------------------------ 2. the scan of stored demo input
 def test_the_scan_names_the_stores_its_role_may_not_read(
     roles_cluster: tuple[Path, str],  # noqa: F811

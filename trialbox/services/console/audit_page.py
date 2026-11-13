@@ -317,7 +317,7 @@ def _listable(target: Path) -> bool:
         if not target.is_dir():
             return False
         heads = target / "heads"
-        if heads.exists():
+        if heads.is_symlink() or heads.exists():  # a link that points nowhere raises below
             next(iter(heads.iterdir()), None)
         return True
     except OSError:
@@ -331,11 +331,21 @@ def verify_now(directory: Path, targets: list[Path] | None = None) -> dict[str, 
     targets = tb_audit.anchor_targets() if targets is None else targets
     anchors: list[dict[str, Any]] = []
     heads: list[dict[str, Any]] = []
+    trusted: dict[str, bytes] = {}
     for t in targets:
         if not _listable(t):
             anchors.append({"name": t.name or str(t), "reachable": False, "newest": None, "count": 0})
             continue
+        gone = {"name": t.name or str(t), "reachable": False, "newest": None, "count": 0}
         got = tb_audit.read_signed_heads(t)
+        if got and not any(got):  # every head file was unreadable (an empty record each): not read, not "no head"
+            anchors.append(gone)
+            continue
+        try:  # D-711: the folder's keys are read here, so a keys/ that cannot be read is said, not a failed page
+            trusted.update(tb_audit.read_public_keys([t / "keys"] if (t / "keys").is_dir() else []))
+        except OSError:
+            anchors.append(gone)
+            continue
         heads.extend(got)
         newest = got[-1] if got else None
         anchors.append({"name": t.name or str(t), "reachable": True, "count": len(got),
@@ -343,8 +353,6 @@ def verify_now(directory: Path, targets: list[Path] | None = None) -> dict[str, 
     signed = None
     notes: list[str] = []
     if targets:
-        keys = [t / "keys" for t in targets if (t / "keys").is_dir()]
-        trusted = tb_audit.read_public_keys(keys)
         res = tb_audit.verify(directory, signed_heads=heads, trusted_keys=trusted)
         notes.append("keys")
         good = [h for h in heads if isinstance(h.get("lines"), int)]
