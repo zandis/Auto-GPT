@@ -183,7 +183,8 @@ def resolve_subject(ctx: Ctx, mrn: str | None) -> Subject:
         return Subject(note="no chart number given: structured criteria answered from the chart text")
     rx = ctx.cfg.settings.mrn_regex
     if rx and not re.match(rx, chartno.normalise(None, mrn)):  # NEW-DIN-3c (D-546): as the site writes it
-        raise StepFailed("received", f"mrn={mrn!r} does not look like a chart number of this site")
+        # D-557: the number that was sent is not kept in the job's record
+        raise StepFailed("received", "mrn= does not look like a chart number of this site")
     if not identifiers.has_site_key(ctx.cfg.env.secrets_dir):  # plain or wrapped under the KEK (T-210b)
         return Subject(note="the box has no site key yet (no ingest): structured criteria answered from the chart")
     pid = identifiers.pid_of(ctx.cfg.env.secrets_dir, mrn)
@@ -351,7 +352,7 @@ def pick_lang(ctx: Ctx, chart_text: str | None = None) -> str:
     raw = (ctx.job.options or {}).get("lang")
     if raw:
         if raw not in LANGS:
-            raise StepFailed("received", f"lang={raw!r}: use one of en, ja, zh-TW")
+            raise StepFailed("received", "lang=: use one of en, ja, zh-TW")
         return str(raw)
     if chart_text and chart_text.strip():
         return detect_lang(chart_text)

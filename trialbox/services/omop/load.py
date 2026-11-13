@@ -466,7 +466,10 @@ class _Builder:
             elif nhi is None:
                 nhi, nhi_sys = c.get("code"), c.get("system")
         if (nhi, atc) != (m["nhi_code"], m["atc"]):  # the two readings must agree
-            raise OmopError(f"medication {r.get('id')}: codes read differently from the lake's flattener")
+            # D-681: the resource type and the feed line, not the record's id nor a code of the row
+            raise OmopError(
+                f"{out.rtype} line {out.source_row}: the medication's codes read differently from the lake's flattener"
+            )
         is_atc = m["atc"] is not None
         code, system = (m["atc"], atc_sys) if is_atc else (m["nhi_code"], nhi_sys)
         out.row = {
@@ -966,7 +969,8 @@ def _route(tx: Any, recs: list[Rec], rep: LoadReport) -> None:
 def _to_observation(r: Rec) -> None:
     """The record's row, written as an OBSERVATION row: each column by its role; the measurement operator, which
     OBSERVATION has no column for, is kept with the record (read back as the lake's ``value_cmp``)."""
-    home, to = ROLE[str(r.table)], ROLE["observation"]
+    home_table = str(r.table)
+    home, to = ROLE[home_table], ROLE["observation"]
     row: dict[str, Any] = {}
     for role, col in home.items():
         if col in r.row:
@@ -978,7 +982,10 @@ def _to_observation(r: Rec) -> None:
     if op:
         r.extra["value_cmp"] = vocab.OPERATOR_CODE.get(op)
     if r.row:
-        raise OmopError(f"{r.rtype} {r.srcid}: no OBSERVATION column for {sorted(r.row)}")
+        # D-681: column names are the schema's; the record's id and the values under them stay out of the text
+        raise OmopError(
+            f"{r.rtype} line {r.source_row} ({home_table}): no OBSERVATION column for {', '.join(sorted(r.row))}"
+        )
     r.row, r.table = row, "observation"
 
 
@@ -1466,7 +1473,8 @@ def set_status(db: Database, key: tuple[str, str, str, int], to: str, by: str, r
             key,
         )
         if row is None:
-            raise OmopError(f"no record {key}")
+            # D-681: the caller holds the key it asked with; the text names the kind and the resource type only
+            raise OmopError(f"no {key[0]} {key[1]} record of that id and part")
         rk, frm = int(row[0]), str(row[1])
         if to not in TRANSITIONS[frm]:
             raise OmopError(f"a {frm} record cannot become {to}")

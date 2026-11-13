@@ -48,6 +48,7 @@ EN: dict[str, str] = {
     "edc.err.odm.unknown_subject": "The file names a subject who is not in this study. Nothing was imported.",
     "edc.err.odm.study": "The file is for another study. Nothing was imported.",
     "edc.err.odm.size": "Choose an ODM file of at most 5 MB.",
+    "edc.err.odm.encoding": "The ODM file's character set cannot be told for certain. Export it again as UTF-8. Nothing was imported.",
     "log.xlsx_sponsor": "XLSX in the sponsor's columns",
 }
 
@@ -93,6 +94,7 @@ JA: dict[str, str] = {
     "edc.err.odm.unknown_subject": "この試験にいない被験者がファイルにあります。何も取り込まれませんでした。",
     "edc.err.odm.study": "ファイルは別の試験のものです。何も取り込まれませんでした。",
     "edc.err.odm.size": "5 MB 以下の ODM ファイルを選んでください。",
+    "edc.err.odm.encoding": "ODM ファイルの文字コードを確実に特定できません。UTF-8 で出力し直してください。何も取り込まれませんでした。",
     "log.xlsx_sponsor": "治験依頼者の列の XLSX",
 }
 
@@ -138,5 +140,6 @@ ZH: dict[str, str] = {
     "edc.err.odm.unknown_subject": "檔案中有不屬於本試驗的受試者。未匯入任何資料。",
     "edc.err.odm.study": "此檔案屬於其他試驗。未匯入任何資料。",
     "edc.err.odm.size": "請選擇 5 MB 以下的 ODM 檔。",
+    "edc.err.odm.encoding": "無法確定 ODM 檔的字元編碼。請以 UTF-8 重新匯出。未匯入任何資料。",
     "log.xlsx_sponsor": "依試驗委託者欄位的 XLSX",
 }

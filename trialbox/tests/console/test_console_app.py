@@ -198,6 +198,12 @@ class FakeBackend:
         assert self.audit_dir is not None
         return read_audit(self.audit_dir, job_id, limit)
 
+    def recheck_share(self, job_id: str) -> dict[str, Any] | None:
+        from console.backend import read_recheck_share
+
+        assert self.audit_dir is not None
+        return read_recheck_share(self.audit_dir, job_id)
+
     def rulesets(self) -> list[RulesetInfo]:
         return [RulesetInfo("GZQO", "1.0.0", "approved", "trial"), RulesetInfo("RA-BIO", "1.0.0", "approved", "nhi")]
 
@@ -298,7 +304,7 @@ class FakeBackend:
 
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]:
         if ruleset == "BAD":
-            raise Refused("invalid ruleset id 'BAD'")
+            raise Refused("that is not a ruleset id")
         return [e for (rs, _), e in self.registry.items() if rs == ruleset]
 
     def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Any = None) -> RegistryEntry:
@@ -709,7 +715,7 @@ def test_state_badges_are_translated_but_keep_the_machine_state(box: dict[str, A
 
 
 def test_orchestrator_refusal_is_shown_and_audited(box: dict[str, Any]) -> None:
-    box["backend"].refuse = "admin@hospa.test is not permitted to run SCREEN"
+    box["backend"].refuse = "this sender is not permitted to run SCREEN"
     c, csrf = login(box["app"])
     r = c.post("/pilot/request", data={"csrf": csrf, "kind": "SCREEN", "ruleset": "GZQO", "version": "1.0.0"})
     assert r.status_code == 403 and "The mailbox admin@hospa.test may not start SCREEN" in r.text

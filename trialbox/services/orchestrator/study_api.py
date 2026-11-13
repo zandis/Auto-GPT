@@ -17,6 +17,7 @@ Routes (the console edits S-28 only through these):
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -36,7 +37,7 @@ from tb_contracts import RegistryUpdate
 
 from orchestrator import actor as route_actor
 from orchestrator.candidates import FORWARD, CandidateRegistry, RegistryError
-from orchestrator.studystore import StudyStore
+from orchestrator.studystore import TOKEN_NAME, StudyStore
 
 STUDY_TYPES = ("trial", "registry", "observational")
 COHORT_KINDS = ("enrolled", "dynamic")
@@ -45,6 +46,7 @@ CONSENT_SCOPES = ("opt-in", "opt-out", "waiver")
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _PREFIX = re.compile(r"^[A-Za-z0-9_-]{0,16}$")
 OVERLAP = timedelta(days=1)  # the R7 watermark goes back a day so clock or zone skew never loses a change
+log = logging.getLogger("orchestrator")
 BOT = "rc-bridge"
 
 
@@ -203,8 +205,10 @@ class StudyService:
 
         try:
             out = refresh(LifeHost(self.datacore(), self.registry, self.audit, self.now), rs, screening, by)
-        except Exception as exc:
-            return {"error": str(exc)[:200]}
+        except Exception as exc:  # D-555: an error's text can hold a record key; the answer and the read log
+            # (which stores this) carry its type, the traceback goes to the log
+            log.warning("the lifecycle was not refreshed after a REDCap read", exc_info=True)
+            return {"error": type(exc).__name__}
         return {"made": len(out["made"]), "held": out["held"]}
 
     def read(
@@ -443,7 +447,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             url = api_url(body.url)[: -len("/api")]
             token = check_token(body.token) if body.token else None
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": str(exc)}) from exc
+            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": TOKEN_NAME}) from exc
         except RcError as exc:
             raise _fail(exc) from exc
         if token is None and svc.store.token(ref) is None:
@@ -468,9 +472,10 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
     def dictionary(ref: str) -> dict[str, Any]:
         try:
             get().store.token_path(ref)  # a token name, never a path
-            return get().dictionary(ref)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": str(exc)}) from exc
+            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": TOKEN_NAME}) from exc
+        try:
+            return get().dictionary(ref)
         except RcError as exc:
             raise _fail(exc) from exc
 

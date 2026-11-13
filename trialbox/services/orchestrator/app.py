@@ -327,7 +327,9 @@ def ruleset_detail(ruleset: str) -> dict[str, Any]:
     try:
         rs = load_approved(orch().rulesets_dir, rid)
     except (RulesetNotApproved, FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # D-555: the error's own text names a folder of the box or the version asked for; the answer is fixed
+        log.info("ruleset detail: %s has no approved version to show (%s)", rid, type(exc).__name__)
+        raise HTTPException(status_code=404, detail="no approved version of that ruleset on this box") from exc
     m = rs.manifest
     return {
         "ruleset": rs.id,
@@ -549,7 +551,8 @@ def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
     o = orch()
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
-        raise HTTPException(status_code=400, detail=f"notices go to hospital addresses only, not {external[0]}")
+        # D-557: the address that was sent is not repeated
+        raise HTTPException(status_code=400, detail="notices go to hospital addresses only")
     from orchestrator.core import send_key
 
     day = o._now().date().isoformat()
