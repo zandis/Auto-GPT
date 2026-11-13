@@ -152,7 +152,8 @@ def test_a_failing_lake_read_changes_nothing() -> None:
             raise OSError("lake down")
 
     vs = [verdict(BMI, "pass", ["o-bmi-2"])]
-    assert cv.attach(Down(), [BMI], {"P1": vs}, RUN, None) == 0
+    # D-652: None, not 0: "not read" is not "none found"; the caller says so in its output
+    assert cv.attach(Down(), [BMI], {"P1": vs}, RUN, None) is None
     assert coded(vs[0]) is None
 
 
