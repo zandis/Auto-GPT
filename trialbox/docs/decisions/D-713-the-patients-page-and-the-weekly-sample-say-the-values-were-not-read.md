@@ -26,23 +26,43 @@ to say why: a run that could not read looked like a record with nothing in it.
 
 ## What it does not do
 
+- **While an after-ingest or weekly run (`MICROBATCH`) is the study's latest run, nothing is said.** Such a run
+  writes a candidate list and no "not matched" list and records no flag; its list mixes rows carried from the
+  earlier screening with rows it read again. The patient's page reads the latest run, so the sentence lasts
+  until the next such run, though carried rows still have no values; and a run of that kind whose own read
+  failed is not said at all. Saying the earlier run's flag instead would be wrong for the rows read again with
+  their values. The remedy is in the orchestrator (that run records the flag, per run or per row): not this
+  lane's file, sent to the integrator. The page "Criteria not matched" and the weekly sample read the screening
+  run's own list and still say it. Pinned by test.
 - **The weekly list's side panel** shows no coded value (only the verdict and its source), so it has no
   sentence.
 - The flag is the run's, not one answer's: the sentence stands above the table and is not repeated per row.
 - A list from before D-652 cannot say whether its values were read; nothing is said for it (by test). That is
   "not known", shown as silence: the run did not record it, and no page can tell.
 - The team's candidate page gets the sentence through the shared table and context; it has no test of its own
-  here (the patient page's test covers the shared part).
+  here (the reviewer ran it).
 - No new words: the sentence is D-652's.
 
-## Review
+## What the adversarial review changed
 
-See "What the adversarial review changed" when the review is in.
+One review by a fresh reviewer, with variant tests in a detached copy. Verdict: fix first, one finding.
+
+- **The limit above was not named**: with a `MICROBATCH` as the latest run the sentence is missing. It is named
+  and pinned by a test now, and the remedy is sent on; it is not closed here.
+- **Every view of the weekly list's side panel read and parsed the run's whole stored list** for a flag that
+  panel does not use (it shares the patient's context). The answer of the last run asked is kept; a finished
+  run's list does not change. By test (three views, one read).
+- The sentence had a class with no style of its own; it uses the pages' warning style.
+- Ran and sound: the team's candidate page shows it (with a purpose given) and nothing for a run that read;
+  every render of the table goes through the same context; it is never shown wrongly, because a screening run's
+  listed and excluded rows share the one flag; held, empty and a gone run on the sample show nothing.
+- Said, not changed: the `/api/v1` twins of the two pages do not carry the flag; a store that raises an
+  unexpected error fails the page, as the candidate list's own read does.
 
 ## Reuse check
 
 `ex.unread.values` (D-652), the console's own loader of a run's stored document (`home.load`), the sample's
-`run_doc`. One small function is added (`values_unread`).
+`run_doc`. One small function is added (`values_unread`), with the last run's answer kept.
 
 ## Dropped (D-311)
 

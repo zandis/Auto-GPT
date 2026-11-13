@@ -14,7 +14,7 @@
 <p data-testid="nm-counter"><strong>{{ t('nm.sample.counter', a=ws.answered, n=ws.n, week=ws.week) }}</strong>{% if ws.back %} · {{ t('nm.sample.back_n', n=ws.back) }}{% endif %}</p>
 <p class="hint" data-testid="nm-totals">{{ t('nm.sample.totals', weeks=ws.totals.weeks, n=ws.totals.sampled, back=ws.totals.sent_back) }} · {{ t('nm.sample.run', snapshot=ws.snapshot) }}</p>
 {% if ws.removed %}<p class="hint" data-testid="nm-removed">{{ t('nm.sample.removed', n=ws.removed) }}</p>{% endif %}
-{% if ws.values_unread %}<p class="attention" data-testid="nm-values-unread">{{ t('ex.unread.values') }}</p>{% endif %}{# D-713 #}
+{% if ws.values_unread %}<p class="warn" data-testid="nm-values-unread">{{ t('ex.unread.values') }}</p>{% endif %}{# D-713 #}
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="nm-sample">
 <thead><tr><th scope="col">{{ t('ex.col.patient') }}</th><th scope="col">{{ t('ex.col.criterion') }}</th><th scope="col">{{ t('ex.col.evidence') }}</th><th scope="col">{{ t('nm.col.answer') }}</th></tr></thead>
 <tbody>{% for r in ws.rows %}<tr id="s-{{ r.short }}" data-testid="nm-{{ r.short }}">

@@ -86,3 +86,47 @@ def test_the_weekly_sample_of_a_run_that_read_them_says_nothing(box: dict[str, A
     pi, _ = _pi(box)
     page = pi.get("/studies/GZQO/not-matched/sample")
     assert page.status_code == 200 and "nm-counter" in page.text and "nm-values-unread" not in page.text
+
+
+def test_a_later_run_that_keeps_no_flag_is_silent_and_the_not_matched_page_still_says_it(
+    box: dict[str, Any],  # noqa: F811
+) -> None:
+    """The limit, pinned (the review ran it): an after-ingest or weekly run (MICROBATCH) writes a candidate list
+    and no "not matched" list, and records no flag. While it is the study's latest run the patient's page says
+    nothing, also for rows carried from the run that could not read. Saying the earlier run's flag would be wrong
+    for the rows the later run read again; the remedy is for that run to record it (sent to the integrator)."""
+    from datetime import timedelta
+
+    jid = _run(box, {**DOC, "coded_values": "not read"})
+    bk = box["backend"]
+    first = bk.jobs[jid]
+    later = _done_screen(bk, _ulid(972))
+    bk.jobs[later.job_id] = later.model_copy(update={
+        "type": "MICROBATCH",
+        "outputs": [o for o in later.outputs or [] if not o.filename.startswith("excluded_")],
+        "updated_at": first.updated_at + timedelta(days=1), "received_at": first.received_at + timedelta(days=1),
+    })  # fmt: skip
+    pi, _ = _pi(box)
+    page = pi.get(f"/studies/GZQO/patients/{A}")
+    assert page.status_code == 200 and "values-unread" not in page.text
+    assert 'data-testid="ex-values-unread"' in pi.get("/studies/GZQO/not-matched").text
+
+
+def test_the_runs_list_is_read_once_for_views_of_the_same_run(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _run(box, {**DOC, "coded_values": "not read"})
+    backend = type(box["backend"])
+    asked: list[str] = []
+    real = backend.get_object
+
+    def counted(self: Any, key: str) -> bytes:
+        asked.append(key)
+        return real(self, key)
+
+    monkeypatch.setattr(backend, "get_object", counted)
+    pi, _ = _pi(box)  # signing in opens the weekly list, whose side panel shares the patient's context
+    for _ in range(3):
+        assert "values-unread" in pi.get(f"/studies/GZQO/patients/{A}").text
+    assert sum(1 for k in asked if "/excluded_" in k) == 1, asked
