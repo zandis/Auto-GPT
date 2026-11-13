@@ -1685,7 +1685,7 @@ def _kind_rate(r: dict[str, Any], kind: str) -> float:
     if kind == "main":
         return float(r["screen_cps"])
     other_busy = r["calls"] / r["cps"] - r["screen_calls"] / r["screen_cps"]
-    return (r["calls"] - r["screen_calls"]) / other_busy
+    return float(r["calls"] - r["screen_calls"]) / float(other_busy)
 
 
 def _kind_calls(r: dict[str, Any], kind: str) -> float:

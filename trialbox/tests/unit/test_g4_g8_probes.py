@@ -50,7 +50,8 @@ def test_the_estimate_has_a_row_per_probe_derived_from_the_single_call_rate(
     rate = cr.SINGLE_CALL_CPS
     assert rows["g4-decoding"]["model_items"] == 2 * gp.DECODING_ROUNDS * 16  # the record's 16 slots, both ways
     assert rows["g4-decoding"]["seconds"] == pytest.approx(gp.PART_START_SECONDS + 128 / rate, abs=0.1)
-    assert rows["g5-tokens"]["model_items"] == 800 and rows["g7-clipped"]["model_items"] == 16
+    assert rows["g5-tokens"]["model_items"] == 1200 and rows["g7-clipped"]["model_items"] == 16  # 3 x 200 x 2
+    assert "3 x 200 excerpts" in rows["g5-tokens"]["scenario"]
     assert "no fixture: not run" in rows["g8-protocols"]["scenario"]
     monkeypatch.delenv("TB_G8_PROTOCOLS_DIR")  # master's own folder: lane A's two public protocols (train 6)
     with_fixtures = {r["tags"][0]: r for r in cr.restrict(cr.estimate(5000), PARTS)["rows"] if r["tags"]}
@@ -82,11 +83,11 @@ def test_the_dry_run_plans_the_probes_on_one_spot_vm(tmp_path: Path) -> None:
     plan = json.loads((tmp_path / "out" / "plan.json").read_text(encoding="utf-8"))
     rows = [r["scenario"] for r in plan["rows"] if r["tags"]]
     assert [x.split(" ", 1)[0] for x in rows] == ["G-4", "G-5", "G-7", "G-8"] and "no fixture: not run" in rows[3]
-    assert "1.28" in r.stdout and "g4-decoding" in r.stdout
+    assert "1.56" in r.stdout and "g4-decoding" in r.stdout
     meta = next(ln for ln in r.stdout.splitlines() if "add-metadata" in ln and "tb-run-id=" in ln)
     assert sorted(meta.split("tb-only=")[1].split(",")[0].split()) == sorted(PARTS)
     sched = next(ln for ln in r.stdout.splitlines() if "set-scheduling" in ln and "max-run-duration=" in ln)
-    assert "--provisioning-model=SPOT" in sched and "--max-run-duration=2h" in sched  # 1.28 h x 1.3
+    assert "--provisioning-model=SPOT" in sched and "--max-run-duration=3h" in sched  # 1.56 h x 1.3
     report = next(ln for ln in r.stdout.splitlines() if "--report-only" in ln)
     assert all(p in report for p in PARTS)
 
@@ -117,6 +118,18 @@ def test_the_synthetic_excerpts_are_fixed_cjk_and_of_many_sizes() -> None:
         assert len({len(x) for x in xs}) > 50 and max(map(len, xs)) > 5 * min(map(len, xs))
     assert gp.synthetic_excerpts("ja")[:5] != gp.synthetic_excerpts("zh-TW")[:5]
     assert any("結核" in x for x in gp.synthetic_excerpts("ja"))  # the imaging sentences are in the pool
+
+
+def test_g5_has_english_excerpts_from_the_english_note_templates() -> None:
+    """G-5 measures en too (2026-11-13): synthetic English sentences of ``tools.synth.notes_en``, no CJK, spaced."""
+    from tools.synth import notes_en
+
+    assert gp.G5_LANGS == ("ja", "zh-TW", "en")
+    xs = gp.synthetic_excerpts("en")
+    assert len(xs) == 200 and xs == gp.synthetic_excerpts("en") and len({len(x) for x in xs}) > 50
+    assert not any(ord(c) > 0x2E80 for x in xs for c in x)  # English only
+    assert any(f.strip() in x for x in xs for f in notes_en.FILLER) and any("tuberculosis" in x for x in xs)
+    assert not any(".V" in x or ".N" in x for x in xs)  # sentences joined by a space
 
 
 # ---------------------------------------------------------------- G-4
@@ -251,7 +264,9 @@ def test_g5_against_the_stand_in(standin: Any, tmp_path: Path, monkeypatch: pyte
     monkeypatch.setattr(cr, "JUDGE", "local/judge")
     res = gp.run_g5(argparse.Namespace(dir=tmp_path, live_record=None, judge_url=f"{base}/v1"))
     t = res["tokens"]
-    assert t["counted"] == {"ja": 200, "zh-TW": 200} and t["excerpts"] == {"ja": 200, "zh-TW": 200}
+    every = {"ja": 200, "zh-TW": 200, "en": 200}
+    assert t["counted"] == every and t["excerpts"] == every and list(t["per_language"]) == ["ja", "zh-TW", "en"]
+    assert t["per_language"]["en"]["budget"]["n"] == 200 and t["per_language"]["en"]["prompt"]["n"] == 200
     ja = t["per_language"]["ja"]
     assert ja["budget"]["n"] == 200 and ja["prompt"]["n"] == 200
     # the stand-in counts one token per character: the budget's CJK rule of one per character is close to it
@@ -398,5 +413,9 @@ def test_the_report_has_a_section_per_probe() -> None:
     text = "\n".join(gp.report_lines({"parts": rows}))
     assert "### G-4 (g4-decoding)" in text and "**xgrammar**" in text and "| guided off | 64 | 64 | 3.2" in text
     assert "### G-5 (g5-tokens)" in text and "**fits**" in text
+    assert "| ja | budget | 1 |" in text and "| en | - | not measured |" in text  # an older result: ja only
+    en = gp.token_summary({x: [{"real": 9, "budget": 10, "cascade": 10}] for x in ("en", "ja", "zh-TW")}, {}, 0.85)
+    table = "\n".join(gp._section("g5-tokens", en))
+    assert table.index("| ja |") < table.index("| zh-TW |") < table.index("| en | budget | 1 | 0.9 | 0.9 | 0.9 |")
     assert "### G-8 (g8-protocols)" in text and "Not run: no fixture on master." in text
     assert "### G-7" not in text and gp.report_lines({"parts": [{"tag": "hospital-ja"}]}) == []

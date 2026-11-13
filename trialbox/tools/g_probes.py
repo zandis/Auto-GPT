@@ -15,7 +15,8 @@ functions and the gateway built as an installed box builds it (``tools.scenarios
     off needs the servers restarted (``--enforce-eager`` is a start flag of vLLM): not run, recorded as such; the part
     never restarts a server.
 ``g5-tokens`` (G-5)
-    200 ja and 200 zh-TW synthetic excerpts (``tools.synth.notes_ja``, ``tools.synth.notes``): the judge server's
+    200 ja, 200 zh-TW and 200 en synthetic excerpts (``tools.synth.notes_ja``, ``tools.synth.notes``,
+    ``tools.synth.notes_en``): the judge server's
     real count (``POST /tokenize``) against the product's two estimates (``tb_llm.budget.estimate_tokens`` and the
     cascade's ``matching.cascade.judge.expected_tokens``), and the rendered judge prompt against
     ``tb_llm.budget.estimate_messages``. The ratio real / estimate: p50, p95, max per language and estimator.
@@ -55,8 +56,10 @@ TESTS = {G4: "G-4", G5: "G-5", G7: "G-7", G8: "G-8"}
 REPORT_KEYS = {G4: "decoding", G5: "tokens", G7: "clipped", G8: "protocols"}
 
 # OD-10, each with its reason:
-# G-5's sample: the plan's own number (plan v7 §7.1 G-5: "200 ja and 200 zh-TW excerpts").
+# G-5's sample: the plan's own number (plan v7 §7.1 G-5: "200 ja and 200 zh-TW excerpts"), and as many en (the
+# owner's addition of 2026-11-13: English notes are budgeted by the same estimators, at another characters-per-token)
 N_EXCERPTS = 200
+G5_LANGS = ("ja", "zh-TW", "en")
 # G-4: each of the judge's slots answers this many calls per setting, so calls per second is a rate over several
 # rounds of a full batch, not one round's latency (the slots are the serving record's max_num_seqs)
 DECODING_ROUNDS = 4
@@ -98,21 +101,24 @@ def _round(x: float | None) -> float | None:
 
 
 def synthetic_excerpts(lang: str, n: int = N_EXCERPTS, seed: int = SEED) -> list[str]:
-    """``n`` fictional note excerpts in ``lang`` (ja or zh-TW) from the synthetic hospital's sentence sets: filler,
+    """``n`` fictional note excerpts in ``lang`` (ja, zh-TW or en) from the synthetic hospital's sentence sets: filler,
     flares, joint counts, response figures, imaging; 1 to 12 sentences each, so the sizes span short excerpts to
     the long ones the budget clips. Deterministic for a seed."""
     from tools.synth import notes as zh
+    from tools.synth import notes_en as en
     from tools.synth import notes_ja as ja
 
     rng = random.Random(f"{seed}:{lang}")
-    m: Any = ja if lang == "ja" else zh
-    when = ["2026年3月14日", "令和8年2月3日", "2025年12月1日"] if lang == "ja" else ["民國115年3月14日", "2026年2月3日"]
+    m: Any = {"ja": ja, "en": en}.get(lang, zh)
+    dates = {"ja": ["2026年3月14日", "令和8年2月3日", "2025年12月1日"], "zh-TW": ["民國115年3月14日", "2026年2月3日"],
+             "en": ["14 March 2026", "3 Feb 2026", "1 Dec 2025"]}  # fmt: skip
+    when = dates.get(lang, dates["zh-TW"])
 
     def domain() -> str:
         d, j = rng.choice(when), rng.choice(m.JOINTS)
         pick = rng.randrange(8)
         if pick == 0:
-            return str(m.flare_sentence(d, j) if lang == "ja" else m.flare_sentence(date(2026, 3, 14), j, d))
+            return str(m.flare_sentence(d, j) if lang in ("ja", "en") else m.flare_sentence(date(2026, 3, 14), j, d))
         if pick == 1:
             return str(m.ra_assessment_sentence(rng.randint(0, 28), rng.randint(0, 28), rng.randint(0, 100)))
         if pick == 2:
@@ -124,7 +130,9 @@ def synthetic_excerpts(lang: str, n: int = N_EXCERPTS, seed: int = SEED) -> list
     for _ in range(n):
         k = rng.randint(1, 12)
         parts = [rng.choice(m.FILLER) if rng.random() < 0.6 else domain() for _ in range(k)]
-        out.append("".join(parts))
+        if lang == "en":  # English sentences are joined by a space (a few templates end without one)
+            parts = [p if p.endswith(" ") else p + " " for p in parts]
+        out.append("".join(parts).strip() if lang == "en" else "".join(parts))
     return out
 
 
@@ -395,7 +403,7 @@ def run_g5(a: Any) -> dict[str, Any]:
     p = load_prompt("judge", "PRODUCTION")
     rows: dict[str, list[dict[str, Any]]] = {}
     prompts: dict[str, list[tuple[int | None, int]]] = {}
-    for lang in ("ja", "zh-TW"):
+    for lang in G5_LANGS:
         texts = synthetic_excerpts(lang)
         rows[lang] = count_rows(texts, lambda t: tokenize(root, JUDGE, key, text=t))
         msgs = [judge_messages(t, lang, p, i) for i, t in enumerate(texts)]
@@ -410,7 +418,7 @@ def run_g5(a: Any) -> dict[str, Any]:
         }
     )
     checks: list[tuple[str, bool, Any]] = [
-        (f"/tokenize counted all {N_EXCERPTS} ja and {N_EXCERPTS} zh-TW excerpts",
+        (f"/tokenize counted all {N_EXCERPTS} excerpts of each language ({', '.join(G5_LANGS)})",
          all(counted[lang] == N_EXCERPTS for lang in counted), counted),
         (f"the largest real / estimated ratio x {RATIO_MARGIN} fits the budget's share (1 / SAFETY = {1 / SAFETY:.3f})",
          bool(s["fits"]), {"max_ratio": s["max_ratio"], "safety_from_measurement": s["safety_from_measurement"]}),
@@ -751,7 +759,8 @@ def estimate_rows(only: Sequence[str], seqs: int, folder: Path | None = None) ->
 
     from tools.complete_run import SINGLE_CALL_CPS as RATE
 
-    calls = {G4: 2 * n_decoding_prompts(seqs), G5: 2 * 2 * N_EXCERPTS, G7: len(clip_cases()) * 2 * 4}
+    # G-5: per language, each excerpt and its rendered judge prompt are counted (two /tokenize requests)
+    calls = {G4: 2 * n_decoding_prompts(seqs), G5: 2 * len(G5_LANGS) * N_EXCERPTS, G7: len(clip_cases()) * 2 * 4}
     rows = []
     for part in (G4, G5, G7, G8):
         if part not in only:
@@ -765,7 +774,7 @@ def estimate_rows(only: Sequence[str], seqs: int, folder: Path | None = None) ->
             n = calls[part]
             seconds = PART_START_SECONDS + n / RATE
             what = {G4: f"{TESTS[G4]} decoding: guided on/off, {seqs} in flight",
-                    G5: f"{TESTS[G5]} token counts, 2 x {N_EXCERPTS} excerpts",
+                    G5: f"{TESTS[G5]} token counts, {len(G5_LANGS)} x {N_EXCERPTS} excerpts",
                     G7: f"{TESTS[G7]} clipped against whole note"}[part]  # fmt: skip
         rows.append({"scenario": what, "patients": 0, "model_items": n, "seconds": round(seconds, 1),
                      "tags": [part], "hours": round(seconds / 3600, 2)})  # fmt: skip
@@ -820,8 +829,11 @@ def _section(tag: str, b: dict[str, Any]) -> list[str]:
                 out.append(f"- {e.get('finish_reason')}, {e.get('completion_tokens')} tokens: `{head}`")
     elif tag == G5:
         out += ["| language | estimator | n | p50 | p95 | max |", "| --- | --- | --- | --- | --- | --- |"]
-        for lang, per in b["per_language"].items():
+        langs = [*[x for x in G5_LANGS if x in b["per_language"]], *[x for x in b["per_language"] if x not in G5_LANGS]]
+        for lang in langs:
+            per = b["per_language"][lang]
             out += [f"| {lang} | {est} | {s['n']} | {s['p50']} | {s['p95']} | {s['max']} |" for est, s in per.items()]
+        out += [f"| {lang} | - | not measured | - | - | - |" for lang in G5_LANGS if lang not in b["per_language"]]
         out += ["", f"Largest ratio {b['max_ratio']} x {b['margin']} against 1 / SAFETY = {b['limit']}: "
                 f"**{'fits' if b['fits'] else 'DOES NOT FIT'}**; SAFETY from this measurement: "
                 f"{b['safety_from_measurement']}."]  # fmt: skip
