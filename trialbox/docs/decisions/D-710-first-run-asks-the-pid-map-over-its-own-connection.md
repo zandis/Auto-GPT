@@ -28,8 +28,9 @@ connection).
   store opened (the console's login role is a member of its group), and the two tables are asked there.
 - **"Cannot tell" is said.** When the answer is None the rule is still not offered (another rule on a box that
   does hold patients gives every patient a second pseudonym), but the page says that whether the box holds
-  patients could not be read, that finishing without the rule is safe (the numbers are kept as written), and
-  what to do if the rule is needed. An answer posted all the same is refused with the same reason, not with
+  patients could not be read, and what to do: not to finish the page yet if the rule is needed (have the
+  database checked, load the page again), and that finishing without it keeps the numbers as written and
+  closes the page for good. An answer posted all the same is refused with the same reason, not with
   "this TrialBox already holds patients".
 - English, Japanese and Traditional Chinese.
 
@@ -43,9 +44,20 @@ connection).
   of other services are not scanned by it, and it does not say so.
 - The role script and the console's list of stores are unchanged (`pidmap` was already on it).
 
-## Review
+## What the adversarial review changed
 
-See "What the adversarial review changed" when the review is in.
+One review by a fresh reviewer, in a detached copy. Verdict: sound; one wording point, fixed.
+
+- **The first wording told the reader to finish the page and open it again later.** A finished first-run page
+  cannot be opened again (its code is removed and an account exists). The line now says not to finish yet if the
+  rule is needed, and that finishing without it closes the page; by test.
+- Ran and sound: the new test fails on the old function and the page test fails on the old template; a login
+  role that is not in the map's group gets "cannot tell" and the page says so (fail closed); with a schema
+  prefix the name checked is the name opened and nothing is created; a first night staged in `pending` counts.
+- Said, not changed (each was so before this card): only `pid_map` and `pending` are asked; a first run opened
+  again on a box whose settings already carry a rule; the time between the page's check and the box's apply is
+  covered by the apply's own refusal.
+- Not checked by the reviewer: a real box.
 
 ## Reuse check
 
