@@ -14,7 +14,7 @@
 <section class="card" data-testid="dataops-sources">
 <h2>{{ t('dataops.sources.title') }}</h2>
 {% if not sources %}<p class="empty">{{ t('dataops.sources.none') }}</p>{% else %}
-<ul class="plain">{% for s in sources %}<li data-testid="source" data-source="{{ s.source }}" data-light="{{ s.light }}">{{ pill(s.light) }} <span class="mono">{{ s.source }}</span> · {{ s.snapshot }} · {{ t('dataops.state.' + s.state) }}</li>{% endfor %}</ul>
+<ul class="plain">{% for s in sources %}<li data-testid="source" data-source="{{ s.source }}" data-light="{{ s.light }}">{{ pill(s.light) }} <span class="mono">{{ s.source }}</span> · {{ s.snapshot }} · {{ t('dataops.state.' + s.state) }}{% if s.unmapped %} · <a href="/data-ops/batches/{{ s.id }}" data-testid="source-unmapped">{{ t('dataops.unmapped.mark', n='{:,}'.format(s.unmapped)) }}</a>{% endif %}</li>{% endfor %}</ul>
 <p class="hint" data-testid="dataops-counts">{% for st, n in counts|dictsort %}{{ t('dataops.state.' + st) }}: {{ n }}{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
 {% endif %}
 </section>
