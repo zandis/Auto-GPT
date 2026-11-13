@@ -691,7 +691,7 @@ def _run_ingest(
                 if n_bad * 100 > REJECT_MAX_PCT * len(rows):
                     errors.append(f"{table}: {n_bad} of {len(rows)} rows rejected (over {REJECT_MAX_PCT:g} %): {why}")
             rows.discard()
-        # NEW-DIN-6 (D-580): rows dropped for a code the look-up does not know, per table (codes and counts only)
+        # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (codes and counts only)
         for table, by_lookup in mapper.unmapped_summary().items():
             tables[table]["unmapped"] = by_lookup
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
@@ -794,9 +794,8 @@ def _run_ingest(
             json.dumps(unmapped_codes, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
         for table, by_lookup in sorted(unmapped_codes.items()):
-            log.warning("%s: %d rows dropped: %d values have no look-up row with a code (%s)", table,
-                        sum(sum(c.values()) for c in by_lookup.values()), sum(len(c) for c in by_lookup.values()),
-                        UNMAPPED_CODES)  # fmt: skip
+            for line in unmapped_lines(table, by_lookup, UNMAPPED_CODES):
+                log.warning("%s", line)
     else:  # an earlier attempt of this night may have left one
         (out_dir / UNMAPPED_CODES).unlink(missing_ok=True)
     if gaps:
@@ -982,7 +981,7 @@ def _run_ingest(
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
                 "orphans": completeness["orphans"] or None,
-                # NEW-DIN-6 (D-580): rows dropped for a code no look-up knows, per table (the codes: the file)
+                # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (the codes: the file)
                 "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
                 or None,
                 # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
@@ -1252,6 +1251,28 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+
+
+def unmapped_lines(table: str, by_kind: dict[str, dict[str, int]], file: str) -> list[str]:
+    """What the night's log says about D-580's counter for one table (NEW-B-8, D-530): counts and the counter's
+    own names, never a code. The counter holds rows left out (a code no look-up knows, D-580; an unknown status,
+    D-587) and rows kept without the value (a unit not read, a value implausible without a unit: D-590), so the
+    line calls none of them "dropped". Rows whose code the reference data could not be asked for (D-593:
+    ``<map>:unavailable``) get a line of their own: an outage, not a fault of the feed, and not a held night."""
+    rows = sum(sum(c.values()) for c in by_kind.values())
+    distinct = sum(len(c) for c in by_kind.values())
+    out = [
+        f"{table}: {rows} rows hold a value the mapping could not use ({distinct} distinct values): the row is "
+        f"left out or kept without that value, by the mapping's rule ({file})"
+    ]
+    down = {k.removesuffix(":unavailable"): sum(c.values()) for k, c in by_kind.items() if k.endswith(":unavailable")}
+    if down:
+        out.append(
+            f"{table}: the reference data did not answer for {sum(down.values())} rows ({', '.join(sorted(down))}): "
+            "their codes were not mapped tonight and stay so until the row is sent again or the next full load. "
+            "The night is not held for this (D-530)"
+        )
+    return out
 
 
 def reject_key(exc: BaseException) -> str:
