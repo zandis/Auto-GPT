@@ -22,6 +22,7 @@
 # Knobs (a case's faults, each a count in $TB_REH_STATE/knobs/ that the shim counts down):
 #   describe-fail   the next N status describes fail (gcloud error): the driver must take it as "unknown", not stopped
 #   start-fail      the next N `instances start` are refused (a stockout): nothing may be marked or destroyed for it
+#   start-fail-other  the next N `instances start` are refused for another reason (a quota): never retried
 #   natip-fail      the next N address describes fail (tests/unit: an error between the start and the upload)
 # $TB_REH_STATE/vm.json, when there, is the VM's describe --format=json (tests/unit: a VM holding another run)
 S=${TB_REH_STATE:?}
@@ -117,6 +118,9 @@ case "$1 $2 $3" in
     [ "$(cat "$S/status" 2>/dev/null || echo TERMINATED)" = TERMINATED ] || { echo "ERROR: the VM is not TERMINATED" >&2; exit 1; }
     if fault start-fail; then
       echo "ERROR: (gcloud.compute.instances.start) ZONE_RESOURCE_POOL_EXHAUSTED (rehearsal fault)" >&2; exit 1
+    fi
+    if fault start-fail-other; then
+      echo "ERROR: (gcloud.compute.instances.start) QUOTA_EXCEEDED: Quota 'PREEMPTIBLE_CPUS' exceeded (rehearsal fault)" >&2; exit 1
     fi
     echo RUNNING > "$S/status"
     docker exec -d "$C" /rehearsal/h/vm/boot.sh ;;

@@ -102,6 +102,10 @@
 #   * a --shard restart checks the quota of its zone; at the end of a VM's collect the VM goes back to spot and the
 #     usual startup script (as --stop does), once it has powered off;
 #   * prepare / install (run on every VM with a hospital part) merge as failed if any VM's copy failed.
+# 2026-11-13 (a spot STOCKOUT on the start):
+#   * a launch's start refused for a stockout is tried again, TB_START_RETRIES times (3) TB_START_RETRY_SECONDS apart
+#     (240 s); any other refusal is not (tools/complete_run.py start_retry, is_stockout);
+#   * a --no-wait launch exits non-zero when a VM was not started with its code (it exited 0 after a refused start).
 set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
@@ -129,7 +133,7 @@ while [ $# -gt 0 ]; do
     --teardown) TEARDOWN=1; shift ;;
     --preflight) PREFLIGHT=1; shift ;;
     --discard-previous) DISCARD_PREV=1; shift ;;
-    -h|--help) sed -n 2,105p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,109p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -498,6 +502,29 @@ give_up_started() {  # $1 why: after the start, before the code was accepted: st
   stop_vm || true; door_retire || true
   [ "$DRY" = 1 ] || echo noresults > "$SH/state"
 }
+start_vm() {  # the launch's start (not a results-only one): a start refused for a stockout (no GPU free in the zone
+  # now; 2026-11-13) is tried again, START_RETRIES times START_RETRY_S apart (TB_START_RETRIES, TB_START_RETRY_SECONDS:
+  # tools/complete_run.py start_retry); any other refusal returns at once. The VM stays TERMINATED between the tries.
+  local n=0 rc err="$SH/start.err"
+  if [ "$DRY" = 1 ]; then
+    gc compute instances start "$VM" --zone "$ZONE"
+    echo "# a start refused for a stockout is tried again: $START_RETRIES time(s), $START_RETRY_S s apart (TB_START_RETRIES, TB_START_RETRY_SECONDS)"
+    return 0
+  fi
+  while :; do
+    rc=0; gc compute instances start "$VM" --zone "$ZONE" 2> "$err" || rc=$?
+    cat "$err" >&2
+    [ "$rc" != 0 ] || { rm -f "$err"; return 0; }
+    if ! cr --is-stockout "$err"; then rm -f "$err"; return "$rc"; fi
+    if [ "$n" -ge "$START_RETRIES" ]; then
+      echo "$VM ($ZONE): the start was refused for a stockout $((n + 1)) time(s) (TB_START_RETRIES=$START_RETRIES); try another zone (--zones) or on demand (TB_PROVISIONING=STANDARD)" >&2
+      rm -f "$err"; return "$rc"
+    fi
+    n=$((n + 1))
+    echo "$VM ($ZONE): the start was refused for a stockout: retry $n of $START_RETRIES in $START_RETRY_S s" >&2
+    sleep "$START_RETRY_S"
+  done
+}
 prev_run_check() {  # $1 vm $2 zone: the run its disk holds (metadata tb-run-id) is deleted by a launch of another run
   # id (the VM keeps one run directory); refuse while that run's results are not here, unless --discard-previous
   local j prev base n st runs="${TB_RUNS_DIR:-$(dirname "$OUT")}"
@@ -519,12 +546,14 @@ print(next((x.get("value") or "" for x in items if x.get("key") == "tb-run-id"),
     return 0
   fi
   echo "$1 ($2) holds run $prev, whose results are not collected here (state: $st); a launch would delete them." \
-       "Collect them first: $0 --collect $base; or launch with --discard-previous" >&2
+       "Collect them first: $0 --collect $base; or launch with --discard-previous." \
+       "If that run was collected in another folder (this launch looks in $runs; TB_RUNS_DIR), its results are safe:" \
+       "--discard-previous is the way" >&2
   return 3
 }
 shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the cap from what is left (shard_now)
   # SH (like VM, ZONE, KEYF) is global: the EXIT trap runs after the function's locals are gone
-  local i=$1 TAGS EST_H EST_USD CAP_H PROV PRICE LEFT PREEMPT WHY_PROV s p done_seen=0
+  local i=$1 TAGS EST_H EST_USD CAP_H PROV PRICE LEFT PREEMPT WHY_PROV s p sr done_seen=0
   VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; TAGS="$(plan_get "$i" tags)"
   SH="$OUT/shard-$i"; mkdir -p "$SH"; KEYF="$SH/tb-key"
   if [ -z "$COLLECT" ]; then
@@ -545,6 +574,9 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     if [ -z "${TB_DRIVER_CHILD:-}" ]; then  # a --shard restart by hand: the quota of its zone, as a launch reads it
       quota_check 1 "$ZONE" "$([ "$PROV" = STANDARD ] && echo "$ZONE" || true)" || { echo "$VM: not started (quota)" >&2; return 4; }
     fi
+    # a start refused for a stockout is tried again (start_vm): its settings read now, before anything is changed
+    sr="$(cr --start-retry)" || { echo "$VM: not started (see above)" >&2; return 2; }
+    read -r START_RETRIES START_RETRY_S <<< "$sr"
     s="$(status)"
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
     prev_run_check "$VM" "$ZONE" || return 3
@@ -570,8 +602,7 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     # (the trap) any other exit or signal before the upload is accepted: an error, Ctrl-C, a lost shell
     trap 'give_up_started "the driver ended before the code was accepted"' EXIT
     trap 'exit 9' INT TERM HUP
-    gc compute instances start "$VM" --zone "$ZONE" \
-      || { give_up_started "the start failed"; return 3; }
+    start_vm || { give_up_started "the start failed"; return 3; }
     echo "started $VM; it stops itself (cap ${CAP_H} h, watchdog). Collect, now and later: $0 --collect $RUN_ID"
     IP="$(ip)"
     if [ -z "$BUCKET" ]; then  # 3. the code through the door (TLS) once it is up (the VM waits 30 minutes for it)
@@ -780,8 +811,9 @@ CHILD=("$0"); [ "$DRY" = 1 ] && CHILD+=(--dry-run); [ "$WAIT" = 1 ] || CHILD+=(-
 [ -n "$HOURS" ] && CHILD+=(--hours "$HOURS"); [ -n "$COLLECT" ] && CHILD+=(--collect "$COLLECT")
 [ "$DISCARD_PREV" = 1 ] && CHILD+=(--discard-previous)
 export TB_RUN_ID="$RUN_ID" TB_COMPLETE_DIR="$OUT" TB_DRIVER_CHILD=1
+CHILD_RC=0   # the first child's error: a --no-wait launch exits with it (2026-11-13: a refused start exited 0)
 if [ "$VMS" = 1 ]; then
-  "${CHILD[@]}" --shard 1 "$VM" "$ZONE" || echo "VM 1 ended with an error" >&2
+  "${CHILD[@]}" --shard 1 "$VM" "$ZONE" || { CHILD_RC=$?; echo "VM 1 ended with an error" >&2; }
 else
   pids=()
   for i in $(seq 1 "$VMS"); do
@@ -789,9 +821,16 @@ else
     pids+=($!)
     [ "$DRY" = 1 ] && wait "${pids[-1]}"  # a dry run prints the VMs in order
   done
-  for p in "${pids[@]}"; do wait "$p" || true; done
+  i=0
+  for p in "${pids[@]}"; do
+    i=$((i + 1)); rc=0; wait "$p" || rc=$?
+    [ "$rc" = 0 ] || { echo "VM $i ended with an error" >&2; [ "$CHILD_RC" != 0 ] || CHILD_RC=$rc; }
+  done
 fi
-[ "$WAIT" = 1 ] || [ -n "$COLLECT" ] || exit 0
+if [ "$WAIT" = 0 ] && [ -z "$COLLECT" ]; then
+  [ "$CHILD_RC" = 0 ] || echo "the launch failed (exit $CHILD_RC): not every VM was started with its code" >&2
+  exit "$CHILD_RC"
+fi
 
 # -------------------------------------------------------------- merge: parts and screenshots of every VM, one report
 # the stub parts belong to the complete run (g1), not to a bounded --only run

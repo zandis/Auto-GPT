@@ -48,6 +48,7 @@ import json
 import math
 import os
 import platform
+import re
 import secrets
 import shlex
 import shutil
@@ -1956,6 +1957,44 @@ def quota_check(folder: Path, zones: list[str], standard: list[str] | None = Non
     return 0
 
 
+# ---------------------------------------------------------------- a start refused for a stockout (2026-11-13)
+# A spot start in a zone that has no RTX PRO 6000 free fails at once (2026-11-13: STOCKOUT on tb-gpu-sim; the launch
+# gave up and the run was lost). Such a refusal is often gone minutes later, so the driver tries the start again;
+# every other refusal (quota, permission, a VM not TERMINATED) is not retried. OD-10, settings with a reason:
+#   TB_START_RETRIES 3          three more tries: with the wait below, about 12 minutes of a zone's spot pool turning
+#                               over before the launch gives up (the operator then picks another zone or on demand)
+#   TB_START_RETRY_SECONDS 240  four minutes between tries: longer than a typical spot reclaim or a released VM's
+#                               cleanup, short against the run itself; the VM is TERMINATED meanwhile and costs nothing
+START_RETRIES_DEFAULT = 3
+START_RETRY_SECONDS_DEFAULT = 240
+# Compute Engine's words for "no capacity in the zone now" (its error codes and messages), not for quota or rights
+STOCKOUT = re.compile(r"STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|RESOURCE_POOL_EXHAUSTED|"
+                      r"does not have enough resources available|resource availability|resources are not available",
+                      re.IGNORECASE)  # fmt: skip
+
+
+def start_retry(env: Mapping[str, str]) -> tuple[int, int]:
+    """``(retries, seconds)`` of a start refused for a stockout, from ``TB_START_RETRIES`` and
+    ``TB_START_RETRY_SECONDS`` (declared in ``tb_common.config.DECLARED``); ValueError on a value that is not a whole
+    number from 0."""
+    out = []
+    for name, default in (("TB_START_RETRIES", START_RETRIES_DEFAULT),
+                          ("TB_START_RETRY_SECONDS", START_RETRY_SECONDS_DEFAULT)):  # fmt: skip
+        raw = (env.get(name) or "").strip()
+        if not raw:
+            out.append(default)
+            continue
+        if not raw.isdigit():
+            raise ValueError(f"{name} must be a whole number from 0, not {raw!r}")
+        out.append(int(raw))
+    return out[0], out[1]
+
+
+def is_stockout(text: str) -> bool:
+    """Is a refused start's error text a stockout (no capacity in the zone now), the one refusal worth retrying?"""
+    return bool(STOCKOUT.search(text or ""))
+
+
 # ---------------------------------------------------------------- free checks before a paid start (2026-11-12: A6, A7)
 def door_reach_problem(env: Mapping[str, str]) -> str:
     """A6: the door is TLS straight to the VM's address (``door_curl --noproxy '*'``, its own pinned certificate). A
@@ -2331,6 +2370,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report-parts", nargs="*", default=[], help="--report-only: only these parts or tags")
     ap.add_argument("--pending-parts", nargs="*", default=[],
                     help="--report-only: tags whose VM still runs (pending, not 'VM stopped')")  # fmt: skip
+    ap.add_argument("--start-retry", action="store_true",
+                    help="print the retries of a start refused for a stockout, and the seconds between")  # fmt: skip
+    ap.add_argument("--is-stockout", type=Path, help="a refused start's error text: exit 0 when it is a stockout")
     ap.add_argument("--door-reach-check", action="store_true",
                     help="exit 2 with the reason when the door cannot be reached from here (A6)")  # fmt: skip
     ap.add_argument("--preflight-check", type=Path, help="a folder of read-only gcloud answers: every problem (A7)")
@@ -2346,6 +2388,15 @@ def main(argv: list[str] | None = None) -> int:
         for line in merge_parts(a.merge_parts, (a.parts_dir or [a.dir / "parts"])[0]):
             print(line)
         return 0
+    if a.start_retry:
+        try:
+            print(*start_retry(os.environ))
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        return 0
+    if a.is_stockout:
+        return 0 if is_stockout(a.is_stockout.read_text(encoding="utf-8", errors="replace")) else 1
     if a.door_reach_check:
         why = door_reach_problem(os.environ)
         if why:

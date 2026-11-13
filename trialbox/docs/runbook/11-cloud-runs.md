@@ -80,7 +80,9 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
    * probes the credential (`gc_probe`), reads the GPU and CPU quota (read-only) and refuses when the VMs cannot run,
      and refuses unless every VM is `TERMINATED`. It reads each VM's `tb-run-id`: the VM keeps one run directory and
      a launch of another run id deletes the earlier one's results, so it refuses while that run's results are not here
-     (its folder's state `done` or `noresults`); `--collect <that run>` first, or `--discard-previous`. One driver per
+     (its folder's state `done` or `noresults`); `--collect <that run>` first, or `--discard-previous`, which is also
+     the way when that run was collected in another folder (the launch looks only in its own runs folder, the
+     parent of this run's folder or `TB_RUNS_DIR`). One driver per
      run folder (`flock` on `driver.lock`) and one launch per VM (`.cache/complete-run/locks`, `TB_LOCK_DIR`): a
      second one says who holds the lock and exits. `--hours` takes whole hours only. A `--shard i` restart by hand
      reads its zone's quota as a launch does;
@@ -106,7 +108,11 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
      made (also one a retried `versions add` left), and each says "no enabled version" or names what remains (the
      report too, A8). A start that gives up (no door in 30 minutes by the clock, a failed start or upload, and any
      other exit or signal of the driver from the start until the upload is accepted: a trap) stops the VM and destroys
-     its version; without code the VM powers off at once (`TB-NO-CODE`), not after its grace (A6). The door's
+     its version; without code the VM powers off at once (`TB-NO-CODE`), not after its grace (A6). A start refused
+     for a **stockout** (no GPU free in the zone now: `ZONE_RESOURCE_POOL_EXHAUSTED`, `STOCKOUT`, "does not have
+     enough resources available") is tried again `TB_START_RETRIES` times (3), `TB_START_RETRY_SECONDS` apart
+     (240 s), the VM `TERMINATED` meanwhile; any other refusal (a quota, a permission) is not. A launch with
+     `--no-wait` whose VM was not started with its code exits non-zero (2026-11-13: it exited 0). The door's
      certificate is valid 30 days (`DOOR_CERT_DAYS`), so a late `--collect` still reaches it.
 3. On the VM: a systemd hard cap and a watchdog start first; then a pre-flight (docker with the NVIDIA runtime, the
    weights in `/models`, 50 GB free: else `TB-PREFLIGHT-FAILED`); then both model servers, which must be healthy,
