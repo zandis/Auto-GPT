@@ -48,6 +48,7 @@ process that is killed inside that step leaves the swap on disk (``ndjson-rerun/
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -264,6 +265,17 @@ def finish_served(cfg: AdapterConfig) -> bool:
     return True
 
 
+def _other_generation(exc: Exception) -> bool:
+    """The lake's refusal of a promotion that names a generation the date no longer is (``Lake.promote_built``:
+    a ValueError in process, the service's 409 over HTTP). Told by its words, which both ways carry."""
+    text = str(exc)
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        with contextlib.suppress(Exception):
+            text += " " + str(resp.text)
+    return "built again since" in text
+
+
 def publish_night(
     cfg: AdapterConfig,
     snap: str,
@@ -385,6 +397,12 @@ def publish_night(
             except Exception as exc:  # review MED-1: the lake's verdict first; no other store was touched
                 lake_error("build", exc)
                 return end()
+            # D-531: the generation this publish built; the promotion names it, also after a restart
+            built_gen = getattr(out.lake, "generation", None)
+            if built_gen:
+                rec["lake_generation"] = str(built_gen)
+            else:
+                rec.pop("lake_generation", None)
             note("build", DONE)
         else:
             note("build", SKIPPED)
@@ -409,12 +427,22 @@ def publish_night(
         aside = cfg.lake_dir / RERUN_DIR / f"{snap}.replaced"
         if two_step:
             assert cfg.promote is not None
+            mine = rec.get("lake_generation")
             try:
-                moved = cfg.promote(snap)
+                moved = cfg.promote(snap, str(mine)) if mine else cfg.promote(snap)
             except Exception as exc:
                 if _current(cfg.lake_dir) == snap:  # H1: the lake promoted it and its answer was lost
                     log.warning("the promotion of %s gave no answer (%s); CURRENT names it", snap, type(exc).__name__)
                     moved = True
+                elif mine and _other_generation(exc):
+                    # D-531: the date was built again since this publish's build. What the date names now was not
+                    # built by this publish: it is not served. The build is owed again; the next run does it
+                    out.errors.append(f"lake rebuild failed: {exc}")
+                    rec.pop("lake_generation", None)
+                    steps["build"] = PENDING
+                    note("lake", FAILED)
+                    fhir_back()
+                    return end()
                 else:
                     lake_error("lake", exc)
                     fhir_back()
