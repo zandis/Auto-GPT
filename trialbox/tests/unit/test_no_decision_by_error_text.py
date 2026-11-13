@@ -20,9 +20,10 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-#: the places found, each read (2026-11-13), with whose it is and what it does. The one decision by an error's
-#: text that could hide a failure (services/edc/prefill.py) is gone with D-684; these decide by a type, a status or a typed field inside a helper,
-#: or by a sentence of the service's own error class. A new place fails the test until it is read and listed.
+#: the places found, each read (2026-11-13), with whose it is and what it does: a type, a status or a typed field
+#: read inside a helper; a sentence of the service's own error class; or the words of another service's refusal
+#: (adapter/publish.py, sitesetup/service.py: the lake's). The one that gave "no facts" for a failure
+#: (services/edc/prefill.py) is gone with D-684. A new place fails the test until it is read and listed.
 LISTED: dict[str, tuple[int, str]] = {
     "libs/tb_common/jobpoll.py": (1, "library: no_answer(exc) reads the error's type and HTTP status, no text"),
     "libs/tb_llm/timeouts.py": (1, "models: dropped(exc) reads the error's type, no text"),

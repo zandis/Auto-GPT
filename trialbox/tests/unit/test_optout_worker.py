@@ -619,3 +619,18 @@ def test_a_lake_with_no_snapshot_yet_is_said_in_the_tick_not_passed_over(db_url:
     assert audit.events[-1][1]["detail"]["registry_not_read"] == "no snapshot"
     assert ("GZQO", A) not in jobs.pool
     reg.close()
+
+
+def test_a_snapshot_without_a_consent_table_and_a_box_without_a_lake_are_said_too(db_url: str) -> None:
+    """The review: two more ticks read no registry and said nothing. Not failures here (whether a PRODUCTION box
+    refuses a snapshot without a consent table is the owner's open question); each is named in the tick."""
+    from datacore.optout_worker import run_once
+
+    reg = OptOutRegister()
+    out = run_once(_env(reg, jobs=Jobs(), lake=Lake(None)))  # a snapshot, and no consent table in it
+    assert (out["registry"], out["failed"], out["registry_not_read"]) == (None, [], "no consent table")
+    out = run_once(_env(reg, jobs=Jobs()))  # no lake at all
+    assert (out["registry"], out["failed"], out["registry_not_read"]) == (None, [], "no lake")
+    out = run_once(_env(reg, jobs=Jobs(), lake=Lake([(B, "rejected", None, "2026-11-01")])))
+    assert out["registry"] is not None and "registry_not_read" not in out  # a registry that was read
+    reg.close()

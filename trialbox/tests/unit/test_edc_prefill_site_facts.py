@@ -5,6 +5,7 @@ Synthetic data only."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -12,6 +13,7 @@ import pytest
 from edc.prefill import LakeFacts
 
 PID = "a1b2c3d4e5f60001"
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class Lake:
@@ -79,3 +81,51 @@ def test_a_lake_that_cannot_say_whether_the_table_is_there_stops_the_draft() -> 
 
     with pytest.raises(ConnectionError):
         LakeFacts(Down(None)).site_facts(PID)
+
+
+# ------------------------------------------------------------------------------------------------ the review
+def test_a_lake_that_names_no_snapshot_gives_no_reader() -> None:
+    """Without a snapshot's name every read of one draft would go to "current", each possibly another night, and
+    the citations would name no snapshot: the reader is not built."""
+    from edc.prefill import NoSnapshot
+
+    class Unnamed(Lake):
+        def snapshot(self) -> Any:
+            return None
+
+    with pytest.raises(NoSnapshot):
+        LakeFacts(Unnamed(TABLE))
+
+
+def test_a_record_that_could_not_be_read_is_a_coded_refusal_audited_and_nothing_is_drafted(tmp_path: Any) -> None:
+    """The lake failing under a draft was a bare 500 with no audit line. It is the EDC's own refusal ``edc.lake``
+    (503), audited with the error's type only, and no draft is stored."""
+    import json
+
+    from edc.store import EdcError
+
+    from tests import edc_kit as k
+
+    class Broken(k.FakeFacts):
+        def site_facts(self, pid: str) -> list[dict[str, Any]]:
+            raise ConnectionError(f"lake down while reading {pid} site_fact")
+
+    svc, _, _ = k.service(tmp_path, facts=Broken())
+    k.ready(svc)
+    with pytest.raises(EdcError) as e:
+        svc.build(k.STUDY, k.RECORD, k.PID, "", k.VISIT_DATE, "crc")
+    assert e.value.code == "edc.lake" and e.value.status == 503
+    assert k.PID not in e.value.message and "site_fact" not in e.value.message
+    assert svc.store.drafts(k.STUDY, k.RECORD) == []
+    lines = [json.loads(x) for p in sorted((tmp_path / "audit").rglob("*")) if p.is_file()
+             for x in p.read_text(encoding="utf-8").splitlines() if x.strip().startswith("{")]  # fmt: skip
+    refused = [x["detail"] for x in lines if x.get("event") == "edc.drafts" and x["detail"].get("refused")]
+    assert [(d["refused"], d["error"]) for d in refused] == [("edc.lake", "ConnectionError")]
+    assert k.PID not in json.dumps(refused)
+
+
+def test_every_language_has_the_sentence_for_a_record_that_could_not_be_read() -> None:
+    from console import i18n_edc
+
+    text = (ROOT / "services/console/i18n_edc.py").read_text(encoding="utf-8")
+    assert text.count('"edc.err.edc.lake"') == 3 and i18n_edc is not None

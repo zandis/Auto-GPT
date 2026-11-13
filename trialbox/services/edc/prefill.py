@@ -73,12 +73,18 @@ _SQL = {
 }
 
 
+class NoSnapshot(RuntimeError):
+    """The lake names no snapshot (a box before its first night, or a lake that does not answer)."""
+
+
 class LakeFacts:
     """The subject's record in the box's lake, at the snapshot the box reads now (recorded on every citation)."""
 
     def __init__(self, lake: Any) -> None:
         self.lake = lake
         self._snap = str(lake.snapshot() or "")
+        if not self._snap:  # D-684: every read of one draft is of one named snapshot, and its citations name it
+            raise NoSnapshot("the lake names no snapshot")
 
     def snapshot(self) -> str:
         return self._snap

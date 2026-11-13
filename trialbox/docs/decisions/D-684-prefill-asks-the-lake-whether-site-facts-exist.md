@@ -35,8 +35,26 @@
    a PRODUCTION box should refuse there (as for a snapshot without a consent table) is the owner's question, open
    with the integrator; if yes, this is the one line to change.
 
+## The adversarial review (by running) and what it changed
+
+- **A reader without a snapshot's name** read every query of one draft from "current" and cited no snapshot
+  (older than this card). `LakeFacts` is no longer built when the lake names none (`prefill.NoSnapshot`).
+- **A record that could not be read was a bare 500 with no audit line** (the same for every lake read of a
+  draft). It is now the EDC's own refusal `edc.lake` (503), audited as `edc.drafts` with `refused: edc.lake` and
+  the error's type only; nothing is drafted. The sentence is in the console's three languages
+  (`services/console/i18n_edc.py`, lane C2's file: three lines).
+- **Two more ticks read no registry and said nothing**: a snapshot without a consent table, and a box without a
+  lake. Each now carries `registry_not_read` (`no consent table`, `no lake`); neither is counted as failed here
+  (the owner's open question, above).
+- **Not changed, other lanes:** `LakeHttp.snapshot()` answers "no snapshot" for a lake whose health is red or
+  that refuses the caller (lane B2 makes it raise; until then the worker's "no snapshot" line over HTTP can stand
+  for a lake that did not answer, and the prefill refuses with `edc.lake`). `orchestrator/scenarios/screen.py`
+  `confirmed_facts` swallows every failure as "no confirmed fact" and names no snapshot (confirmed by the
+  reviewer's run; the orchestrator lane's).
+
 ## Evidence
 
 `tests/unit/test_edc_prefill_site_facts.py` (six of seven cases failed before); two cases added to
 `tests/unit/test_optout_worker.py` (the "no snapshot" one failed before); `tests/unit/test_no_decision_by_error_text.py`
-with the line taken off.
+with the line taken off. The review's cases: a lake that names no snapshot, the coded and audited refusal, the
+three sentences, the two further ticks (each failed before its fix).

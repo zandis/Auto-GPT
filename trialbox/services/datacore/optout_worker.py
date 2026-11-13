@@ -290,12 +290,16 @@ def run_once(env: WorkerEnv) -> dict[str, Any]:
             state = registry_state(env.lake, snap, env.now.date().isoformat()) if snap else None
             if not snap:  # D-684: a lake with no snapshot yet has no registry to read: said, never passed over
                 out["registry_not_read"] = "no snapshot"
+            elif state is None:  # the lake's clear answer: this snapshot has no consent table
+                out["registry_not_read"] = "no consent table"
             if state is not None:
                 added, lifted = sync_registry(env.register, state, at)
                 out["registry"] = {"added": added, "lifted": lifted}
         except Exception as exc:  # the register still applies; the next tick tries the registry again
             log.error("opt-out worker: the registry was not read (%s)", type(exc).__name__)
             out["failed"].append("registry")
+    else:
+        out["registry_not_read"] = "no lake"
     pids = frozenset(env.register.effective())  # merged charts: the surviving pid too (review MED-4)
     out["opted_out"] = len(pids)
     for c in erasure.clears():
