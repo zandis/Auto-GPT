@@ -11,7 +11,7 @@ kind of finding, and every name it does not understand, stands.
   synthetic sets: 97.6 % of names kept, false refusals 72.7 % to 3.0 %.
 * **Chinese** (no kana on the line): no tokeniser. The finding stands when a boundary follows it (the end, a
   punctuation mark, a space, an honorific, a sex). Else it stands unless it begins a common word
-  (``data/zh_common_words.csv``), or its surname character is an ordinary one-character word followed by a common
+  (``data/zh_common_words.txt``), or its surname character is an ordinary one-character word followed by a common
   word, with or without a one-character verb or adverb between (曾｜使用, 曾｜有｜出現). Measured: 97.9 % of
   names kept, false refusals 100 % to 17.9 %.
 
@@ -24,6 +24,7 @@ through where it was refused before: that is the trade the owner accepted, and t
 from __future__ import annotations
 
 import csv
+import importlib
 import re
 import threading
 from functools import lru_cache
@@ -37,7 +38,7 @@ DICTIONARY = "sudachidict-core 20261015"
 #: a line longer than this is not put to the tokeniser: the finding stands. A note line or a criterion is a few
 #: hundred characters; one this long is not prose, and the tokeniser's time grows with the line
 MAX_LINE = 4000
-WORDS = Path(__file__).with_name("data") / "zh_common_words.csv"
+WORDS = Path(__file__).with_name("data") / "zh_common_words.txt"
 
 _KANA = re.compile(r"[぀-ヿ]")
 _BOUND = set("，,、。．.：:；;（()） 　\t\n！!？?／/")
@@ -91,8 +92,8 @@ class _Tagger:
             if not self._tried:
                 self._tried = True
                 try:
-                    from sudachipy import dictionary, tokenizer
-
+                    dictionary = importlib.import_module("sudachipy.dictionary")
+                    tokenizer = importlib.import_module("sudachipy.tokenizer")
                     self._tok = dictionary.Dictionary().create()
                     self._mode = tokenizer.Tokenizer.SplitMode.C
                 except Exception as exc:  # not installed, no dictionary, a dictionary of another format

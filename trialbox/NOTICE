@@ -232,6 +232,24 @@ ClinicalTrials.gov records
   Attribution: Data from ClinicalTrials.gov, U.S. National Library of Medicine. The information is provided by
     study sponsors and investigators, who are responsible for its accuracy. NLM does not endorse TrialBox.
 
+Common Chinese words (the PHI tripwire's name rule)
+  Where: services/guard/data/zh_common_words.txt (built by tools/zh_common_words.py; D-647).
+  Source: the word list of the jieba project (jieba/dict.txt of jieba 0.42.1), https://github.com/fxsjy/jieba:
+    its words that are not person names, with a frequency of 5 or more; each word also in its Traditional form,
+    made with OpenCC conversion tables (opencc-python-reimplemented 0.1.7, Apache-2.0). Neither package is in the
+    image; the list is data.
+  Licence: MIT. Copyright (c) 2013 Sun Junyi. Permission is hereby granted, free of charge, to any person
+    obtaining a copy of this software and associated documentation files (the "Software"), to deal in the
+    Software without restriction, including without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions: The above copyright notice and this permission
+    notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED
+    "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+    COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    THE SOFTWARE.
+
 NCBI TrialGPT data (SIGIR 2016 cohort, TREC CT trial corpus)
   Where: eval/criterion_ml (with its LICENSE.NCBI), eval/match_registry, eval/suites/judge_public.
   Licence: U.S. Government work, public domain notice kept (eval/criterion_ml/LICENSE.NCBI),

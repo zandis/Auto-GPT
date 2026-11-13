@@ -1391,6 +1391,19 @@ def check_chartno_rule(
     return Check(name, "PASS", said)
 
 
+def check_tripwire_names(inp: DoctorInputs) -> Check:
+    """The PHI tripwire's second look at a Chinese or Japanese name finding (D-647). Without the tokeniser or the
+    word list the findings stand as the patterns give them: ordinary text is refused more often, and no name is
+    let through, so this is a warning, never a stop."""
+    from guard import names
+
+    st = names.status()
+    if st["tokeniser"] and st["zh_words"]:
+        return Check("tripwire_names", "PASS", f"tokeniser with {st['dictionary']}; {st['zh_words']} common words")
+    why = "; ".join(x for x in (st["error"], st["zh_error"]) if x) or "not loaded"
+    return Check("tripwire_names", "WARN", f"{why}: {st['effect']}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -1417,6 +1430,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_memory_caps,
     check_db_passwords,
     check_wsl2_memory,
+    check_tripwire_names,
 )
 
 

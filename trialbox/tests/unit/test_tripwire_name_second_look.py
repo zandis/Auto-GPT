@@ -166,6 +166,29 @@ def test_redaction_keeps_masking_every_match() -> None:
 
 def test_a_date_near_an_unconfirmed_name_is_no_date_of_birth_finding() -> None:
     g = Guard()
-    assert not g.tripwire("個案曾使用任何生物製劑，2024年3月5日停藥。").hit
-    v = g.tripwire("個案丁怡君由家屬陪同就診，2024年3月5日。")
+    day = "，" + "2024年3月5日"
+    assert not g.tripwire("個案曾使用任何生物製劑" + day + "停藥。").hit
+    named = next(x for x in _rows("names_zh") if x.startswith("個案") and "陪同就診" in x)  # a synthetic name
+    v = g.tripwire(named.rstrip("。") + day + "。")
     assert v.hit and "DOB_NEAR_NAME" in v.kinds
+
+
+# ------------------------------------------------------------------------------------------------ doctor and the list
+def test_doctor_says_when_the_second_look_cannot_check(tagger: Any) -> None:
+    from tools.trialbox import doctor
+
+    tagger(absent=True)
+    c = doctor.check_tripwire_names(doctor.DoctorInputs())
+    assert (c.name, c.status) == ("tripwire_names", "WARN")
+    assert "sudachipy" in c.detail and "none is let through" in c.detail
+    tagger(tagged=())
+    c = doctor.check_tripwire_names(doctor.DoctorInputs())
+    assert c.status == "PASS" and names.DICTIONARY in c.detail
+    assert doctor.check_tripwire_names in doctor.CHECKS
+
+
+def test_the_shipped_word_list_is_the_measured_one() -> None:
+    word, one, plain = names._words()
+    assert (len(word), len(one)) == (159721, 531)
+    assert "".join(sorted(plain)) == "于何余古嚴尤戴曾涂游白許謝高黃黄"  # surnames that are ordinary words
+    assert {"使用", "出現", "血壓", "高血壓"} <= word and "有" in one

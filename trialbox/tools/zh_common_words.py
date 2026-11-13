@@ -1,10 +1,10 @@
-"""Build ``services/guard/data/zh_common_words.csv``: the common Chinese words the PHI tripwire's name rule reads
+"""Build ``services/guard/data/zh_common_words.txt``: the common Chinese words the PHI tripwire's name rule reads
 (NEW-LLM-3, D-647).
 
 A build-time tool, run by hand in a scratch environment; nothing here runs on a box and neither package is in the
 lock:
 
-    python -m tools.zh_common_words --dict <jieba>/dict.txt --out services/guard/data/zh_common_words.csv
+    python -m tools.zh_common_words --dict <jieba>/dict.txt --out services/guard/data/zh_common_words.txt
 
 * ``--dict``: the word list of the jieba project (``jieba/dict.txt``, MIT licence), read as data: one line per word,
   "word frequency part-of-speech". No tagger runs.
