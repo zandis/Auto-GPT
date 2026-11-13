@@ -115,17 +115,43 @@ PUBLIC_PAGES = [
 
 
 # ---------------------------------------------------------------- helpers
+def _iso(t: float) -> str:
+    return datetime.fromtimestamp(t, UTC).isoformat(timespec="seconds")
+
+
 def _stages(stages: list[Any]) -> list[dict[str, Any]]:
-    return [
-        {"name": st.name, "ok": st.ok, "seconds": round(st.seconds, 1), "checks": [list(c) for c in st.checks]}
-        for st in stages
-    ]
+    """The stages as a part result holds them; a stage made by :class:`_TimedStage` has its start and end too."""
+    out = []
+    for st in stages:
+        d = {"name": st.name, "ok": st.ok, "seconds": round(st.seconds, 1), "checks": [list(c) for c in st.checks]}
+        if getattr(st, "started", None):
+            d["started_at"], d["ended_at"] = _iso(st.started), _iso(st.started + st.seconds)
+        out.append(d)
+    return out
+
+
+def timed_stages(module: Any) -> Any:
+    """``module.Stage`` (a dataclass made at a stage's start, ``seconds`` set at its end) as a subclass that records
+    when it was made: each stage's start and end in the part result (the audit of 2026-11-12 could not say which
+    model calls belonged to which stage). Returns the original, to put back."""
+    orig = module.Stage
+
+    class _TimedStage(orig):  # type: ignore[misc,valid-type]
+        def __init__(self, *args: Any, **kw: Any) -> None:
+            super().__init__(*args, **kw)
+            self.started = time.time()
+
+    module.Stage = _TimedStage
+    return orig
 
 
 def _one(name: str, checks: list[tuple[str, bool, Any]], seconds: float) -> list[dict[str, Any]]:
     return [{"name": name, "ok": all(c[1] for c in checks), "seconds": round(seconds, 1), "checks": checks}]
 
 
+FAILED_DETAIL_FILE = "failed-checks.json"  # beside report.md: every failed check with its whole recorded detail
+# the report's cut of a check's detail (OD-10: a declared setting; a table row stays readable, the file has it all)
+REPORT_DETAIL_CHARS = int(os.environ.get("TB_REPORT_DETAIL_CHARS") or 300)
 DOOR_STATE = "door-secret.txt"  # complete-run.sh: the door's secret versions after a collect or stop (A8)
 HEAD_FILE = "TB_HEAD.json"  # written into the uploaded archive by the driver (git archive --add-file): the VM's HEAD
 
@@ -363,7 +389,11 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     from tools import scenarios
 
     scenarios.capture_screens()
-    out = e2e_simple.run(work, a.password, a.lang)
+    orig_stage = timed_stages(e2e_simple)
+    try:
+        out = e2e_simple.run(work, a.password, a.lang)
+    finally:
+        e2e_simple.Stage = orig_stage  # type: ignore[misc]
     stages = _stages(out["stages"])
     lst = out["result"]["list"]
     box = lst["box"]
@@ -374,6 +404,9 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     truth = scenarios.note_truth([a.dir / f"synth-{a.patients}" / x["dir"] for x in summary["sites"]], fd.KEY)
     # the main SCREEN's own verdicts (its list is the job's), not a later stage's one-patient SCREEN (M1, 2026-11-12)
     main = main_candidates(box, sj)
+    tag = _tag("hospital", a.lang, getattr(a, "variant", ""))
+    main["rows_file"] = f"parts/{tag}/screen-list.json"
+    main["rows_saved"] = save_screen_rows(box, sj, a.dir / main["rows_file"])
     ours = [c for c in scenarios.CAPTURED if c["ruleset"] == e2e_simple.TRIAL]
     same = [c for c in ours if run_metrics.candidate_list(c["results"])["sha256"] == main["sha256"]]
     cap: dict[str, Any] = (same or ours or [{}])[0 if same else -1]
@@ -384,7 +417,9 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     extra = {
         "seconds": out["seconds"],
         "chain_seconds": out["chain_seconds"],
-        "screen": {k: scr.get(k) for k in ("funnel", "tiers", "listed", "judging")},
+        # the main SCREEN job's own window (received, last updated): its calls and the card in it are the curve's
+        # figures; the canary before it and stages 15 and 17 after it (one patient at a time) are not
+        "screen": {**{k: scr.get(k) for k in ("funnel", "tiers", "listed", "judging")}, "window": screen_window(sj)},
         "canary": canary.get("status"),
         # G-3: who the main SCREEN listed (the job whose funnel is above, from its own candidate_list_*.json), with a
         # hash: the list must be the same at every TB_SCREEN_LLM_CONCURRENCY
@@ -408,6 +443,37 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     finally:
         srv.stop()
     return {"stages": stages, **extra}
+
+
+SCREEN_ROW_KEYS = ("pid", "tier", "judge", "verifier", "llm", "model", "verdict", "agree")
+
+
+def save_screen_rows(box: Any, job: Any, out: Path) -> int:
+    """The main SCREEN's per-patient list as the job's own ``candidate_list_*.json`` has it, one file per setting
+    (``parts/<tag>/screen-list.json``): the pseudonymous id, the tier and each per-model answer the product returns
+    (keys naming a judge, verifier, model or verdict), so a patient listed differently at two settings can be named
+    with what each model said. Returns the number of rows."""
+    from tools import e2e_simple
+
+    try:
+        doc = e2e_simple._json_output(box, job, "candidate_list_")
+    except StopIteration:
+        return 0
+    rows = [{k: v for k, v in r.items() if any(w in k.lower() for w in SCREEN_ROW_KEYS)}
+            for r in doc.get("rows") or [] if isinstance(r, dict)]  # fmt: skip
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"job": getattr(job, "job_id", ""), "rows": rows}, default=str, ensure_ascii=False),
+                   encoding="utf-8")  # fmt: skip
+    return len(rows)
+
+
+def screen_window(job: Any) -> dict[str, Any] | None:
+    """The SCREEN job's window as epoch seconds: ``received_at`` to ``updated_at`` (its last state change, the end
+    of a finished job); None when the job has no end."""
+    t0, t1 = getattr(job, "received_at", None), getattr(job, "updated_at", None)
+    if t0 is None or t1 is None:
+        return None
+    return {"from": t0.timestamp(), "to": t1.timestamp(), "from_at": t0.isoformat(), "to_at": t1.isoformat()}
 
 
 def main_candidates(box: Any, job: Any) -> dict[str, Any]:
@@ -718,6 +784,19 @@ def parse_concurrency(text: str | None) -> tuple[int, ...]:
     return tuple(out)
 
 
+def shuffled(lc: tuple[int, ...], seed: int) -> tuple[int, ...]:
+    """The settings in the order a seeded shuffle gives (audit e: a fixed rising order puts every later setting on a
+    warmer prefix cache and a hotter card; the seed is recorded so the order can be made again)."""
+    import random
+
+    out = list(lc)
+    random.Random(seed).shuffle(out)
+    return tuple(out)
+
+
+GATEWAY_SLOTS = 16  # the gateway's slots per endpoint (services/gateway/load.py: the serving record's max_num_seqs)
+
+
 def record_max_seqs(record: Path | None = None) -> int:
     """The judge's ``max_num_seqs`` in the serving record of this run (``--live-record``), else in the vendor's
     measured record: what compose gives SCREEN as ``TB_SCREEN_LLM_CONCURRENCY`` on an installed box (D-142), and the
@@ -856,6 +935,11 @@ def run_part(a: argparse.Namespace) -> int:
         refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began)
         if calls:
             res["throughput"] = run_metrics.call_stats(calls)
+        win = (res.get("screen") or {}).get("window")
+        if win:  # the main SCREEN only (audit a): its calls, the card and the KV cache in its window
+            inside = run_metrics.window_calls(calls, win["from"], win["to"])
+            res["throughput_screen"] = {**run_metrics.call_stats(inside),
+                                        **run_metrics.window_card(monitor.folder, win["from"], win["to"])}  # fmt: skip
         if calls or refused:  # M2: "N of M calls refused" (the PHI tripwire, the guard, ...), from the same audit
             res["refusals"] = run_metrics.refusal_stats(calls, refused)
     if a.model == "pair":
@@ -865,6 +949,7 @@ def run_part(a: argparse.Namespace) -> int:
         if "throughput" in res:
             res["throughput"]["breaker_opens"] = scenarios.breaker_opens()
     res["wall_seconds"] = round(time.perf_counter() - t0, 1)
+    res["started_at"], res["finished_at"] = began.astimezone(UTC).isoformat(timespec="seconds"), _iso(time.time())
     if a.part in NO_CONSOLE:
         url = table_page(a.shots / f"{tag}.html", f"TrialBox complete run: {tag}", res["stages"])
         got = shoot([{"name": tag, "url": url}], a.shots, a.password)
@@ -1132,10 +1217,18 @@ def run_all(a: argparse.Namespace) -> int:
 def _write_report(a: argparse.Namespace, rows: list[dict[str, Any]], head: dict[str, Any], started: datetime,
                   out: Path) -> dict[str, Any]:  # fmt: skip
     rep = report(a, rows, head, started)
+    save_report(rep, out)
+    return rep
+
+
+def save_report(rep: dict[str, Any], out: Path) -> None:
+    """report.json, report.md and, beside them, every failed check with its whole recorded detail."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
     (out / "report.md").write_text(markdown(rep), encoding="utf-8")
-    return rep
+    fails = [{"part": r["tag"], "stage": st["name"], "check": c[0], "detail": c[2]}
+             for r in rep["parts"] for st in r["stages"] for c in st["checks"] if not c[1]]  # fmt: skip
+    (out / FAILED_DETAIL_FILE).write_text(json.dumps(fails, default=str, ensure_ascii=False, indent=1), "utf-8")
 
 
 def report_only(a: argparse.Namespace) -> int:
@@ -1158,9 +1251,7 @@ def report_only(a: argparse.Namespace) -> int:
         rows.append(res)
     rep = report(a, rows, made_by(rows) or git_head(), datetime.now(UTC))
     out = a.dir / "report"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
-    (out / "report.md").write_text(markdown(rep), encoding="utf-8")
+    save_report(rep, out)
     print(f"report {rep['verdict']}: {rep['checks'] - rep['failed']}/{rep['checks']} checks; "
           f"{out / 'report.md'}")  # fmt: skip
     return 0 if rep["ok"] else 1
@@ -1245,6 +1336,18 @@ def report(
         rep["verdict"] = "INCOMPLETE" if rep["not_started"] else "PASSED"
     rep["ok"] = rep["verdict"] == "PASSED"
     rep["seconds"] = round(sum(r["seconds_total"] for r in rows), 1)
+    # the run's own times, from its parts (a report rebuilt by --collect is not the run's start); the languages that
+    # ran, not the ones the plan could have had (the audit of 2026-11-12: "Languages: ja, zh-TW" for a ja-only run)
+    ran = [r for r in rows if not r.get("state")]
+    began = sorted(str(r["started_at"]) for r in ran if r.get("started_at"))
+    ended = sorted(str(r["finished_at"]) for r in ran if r.get("finished_at"))
+    rep["report_built"] = rep["finished"]
+    rep["times_from_parts"] = bool(began and ended)
+    if began and ended:
+        rep["started"], rep["finished"] = began[0], ended[-1]
+    rep["langs_run"] = sorted(
+        {str(r["lang"]) for r in ran if r.get("part") in ("hospital", "public") and r.get("lang")}
+    )
     return rep
 
 
@@ -1293,7 +1396,9 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
             shots = sorted({st["shot"] + ("" if st.get("shot_ok") else " (missing)") for st in r["stages"]
                             if st.get("shot")})  # fmt: skip
             out.append(f"* Time: {r['seconds_total']} s. Screenshot: {', '.join(f'`{x}`' for x in shots[:3]) or '-'}")
-        out += [f"* FAILED: {c[0]}: {str(c[2])[:200]}" for c in bad]
+            # under the part that failed it (the 2026-11-12 report printed every part's under the last one)
+            out += [f"* FAILED ({r['tag']} / {st['name']}): {c[0]}: {str(c[2])[:REPORT_DETAIL_CHARS]}"
+                    for st in r["stages"] for c in st["checks"] if not c[1]]  # fmt: skip
         out.append("")
     if rep["findings"]:
         out += ["## Known findings (reported, not fixed in this run)", ""]
@@ -1319,14 +1424,20 @@ def _throughput_section(rep: dict[str, Any]) -> list[str]:
             return ", ".join(f"{k} {x}" for k, x in v.items()) or "-"
         return "-" if v is None else str(v)
 
-    keys = ("tag", "llm_concurrency", "calls", "calls_per_second", "tokens_per_second", "p50_s", "p95_s",
-            "queue_mean_s", "gpu_util_mean_pct", "gpu_memory_peak_mib", "breaker_opens", "candidates")  # fmt: skip
+    keys = ("tag", "window", "llm_concurrency", "calls", "calls_per_second", "tokens_per_second", "p50_s", "p95_s",
+            "queue_mean_s", "gpu_util_mean_pct", "gpu_util_max_pct", "kv_cache_peak", "gpu_memory_peak_mib",
+            "breaker_opens", "candidates")  # fmt: skip
     out = ["", "## Throughput (model calls through the gateway)", "",
            "Calls and tokens per second are over the seconds in which a call was in flight (the gateway's audit); the "
-           "servers' `/metrics` before and after, `gpu.csv` (every 10 s) and `vllm.csv` are in `parts/<part>/`.", "",
-           "| part | in flight | calls | calls/s | tokens/s | p50 s | p95 s | queue s (vLLM) | GPU % mean | "
-           "GPU MiB peak | breaker opened | listed | list sha256 | refused (of asked) |",
-           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
+           "servers' `/metrics` before and after, `gpu.csv` (every 10 s) and `vllm.csv` are in `parts/<part>/`. "
+           "A hospital part has two rows: **main SCREEN** (the SCREEN job's own window: the throughput of the curve) "
+           "and **whole part** (with the canary's one-at-a-time calls and stages 15 and 17). GPU % is `nvidia-smi` "
+           "utilisation, the share of time a kernel ran: not a headroom measure (a card at 100 % may take more "
+           "calls). KV peak: each server's KV-cache usage peak (vllm.csv). Not measured: the gateway's slot wait "
+           "per call (the gateway does not record it).", "",
+           "| part | window | in flight | calls | calls/s | tokens/s | p50 s | p95 s | queue s (vLLM) | GPU % mean | "
+           "GPU % max | KV peak | GPU MiB peak | breaker opened | listed | list sha256 | refused (of asked) |",
+           "|" + " --- |" * 17]  # fmt: skip
     out += ["| " + " | ".join(cell(r.get(k)) for k in keys) + f" | `{str(r.get('candidates_sha256') or '-')[:12]}` | "
             f"{run_metrics.refused_cell(r.get('refused'))} |" for r in rows]  # fmt: skip
     old = rep.get("candidates_identical") or {}
@@ -1345,6 +1456,40 @@ def _throughput_section(rep: dict[str, Any]) -> list[str]:
             out += ["", "| pid | " + " | ".join(tags) + " |", "| --- |" + " --- |" * len(tags)]
             out += [f"| `{d['pid']}` | " + " | ".join(d["tiers"].get(t, "-") for t in tags) + " |"
                     for d in c["differ"][:50]]  # fmt: skip
+    return out
+
+
+def _chat_template_section(rep: dict[str, Any]) -> list[str]:
+    """Review G-1: three separate verdicts, whether the server was started with ``--chat-template``, and every prompt
+    whose token ids differ (the work folder with both template texts and the tokenizer side's output comes back)."""
+    out: list[str] = []
+
+    def word(v: Any) -> str:
+        return "not measured" if v is None else ("identical" if v else "**DIFFERENT**")
+
+    for r in rep["parts"]:
+        b = r.get("chat_template") or {}
+        v = b.get("verdicts")
+        if not v:
+            continue
+        t = b.get("tokens") or {}
+        started = f"yes ({b.get('judge_started_with')})" if v.get("server_started_with_chat_template") else "no"
+        out += ["", f"## {r['tag']}: G-1 chat template", "",
+                f"* Passed file against the weights folder's template, text (sha256): "
+                f"{word(v.get('passed_vs_folder_text_sha256'))}",
+                f"* Passed file against the weights folder's template, token ids (the folder's tokenizer): "
+                f"{word(v.get('passed_vs_folder_token_ids'))}",
+                f"* The server against the folder's tokenizer, token ids: {word(v.get('server_vs_folder_token_ids'))}",
+                f"* The server was started with --chat-template: {started}",
+                "* The texts: `chat-template/chat_template.passed.jinja` and "
+                "`chat-template/chat_template.folder.jinja`; the tokenizer side: `chat-template/hf.json` (in the VM's "
+                "results)."]  # fmt: skip
+        for key, what in (("server_different", "server against folder"), ("passed_different", "passed against folder")):
+            d = t.get(key) or []
+            if d:
+                out.append(f"* Prompts that differ, {what} ({len(d)}): "
+                           + "; ".join(f"#{x.get('prompt')} at token {x.get('first_difference_at', '-')} "
+                                       f"(lengths {x.get('lengths')})" for x in d))  # fmt: skip
     return out
 
 
@@ -1372,14 +1517,22 @@ def markdown(rep: dict[str, Any]) -> str:
         f"Head `{g['head'][:12]}` ({g['subject'] or g.get('source', '')}){' with local changes' if g['dirty'] else ''}"
         f"{mixed}. Run: {', '.join(rep.get('run_ids') or []) or '-'}. "
         f"Model: {', '.join(rep['models'])} ({rep.get('path', '')}). Hospital: {rep['patients']:,} synthetic patients. "
-        f"Languages: {', '.join(rep['langs'])}. OCR: {rep.get('ocr', '-')}. "
+        f"Languages run: {', '.join(rep['langs_run'] if 'langs_run' in rep else rep['langs']) or '-'}. "
+        f"OCR: {rep.get('ocr', '-')}. "
         f"Model calls in flight: {', '.join(map(str, rep.get('llm_concurrency') or [])) or '-'}. "
         f"Host: {rep['host'].get('machine')}, {rep['host'].get('cpus')} CPUs.",
-        f"Started {rep['started']}, finished {rep['finished']}.",
+        (
+            f"Run started {rep['started']}, finished {rep['finished']} (the parts' own times); report built "
+            f"{rep.get('report_built', rep['finished'])}."
+            if rep.get("times_from_parts")
+            else f"Run start and end: not recorded in the parts (an older driver's results); report built "
+            f"{rep.get('report_built', rep['finished'])}."
+        ),
         "",
         f"**{rep.get('verdict') or ('PASSED' if rep['ok'] else 'FAILED')}**: {rep['checks'] - rep['failed']} of "
-        f"{rep['checks']} checks; "
-        f"{rep['shots_ok']} of {rep['shots']} screenshots; {rep['seconds'] / 60:.1f} min in all; "
+        f"{rep['checks']} checks passed ({rep['failed']} failed); "
+        f"{rep['shots_ok']} of {rep['shots']} screenshots; {rep['seconds'] / 60:.1f} min of part time (each part's "
+        "wall time, summed: parts on several VMs ran at the same time); "
         f"{len(rep.get('findings') or [])} known findings reported.{never}",
         "",
         "Screenshots are in the run's `report/shots/` folder (not committed).",
@@ -1401,8 +1554,12 @@ def markdown(rep: dict[str, Any]) -> str:
     lines += [f"| {r['tag']} | {r['seconds_total']} |" for r in rep["parts"]]
     fails = [(r["tag"], st["name"], c) for r in rep["parts"] for st in r["stages"] for c in st["checks"] if not c[1]]
     if fails:
-        lines += ["", "## Failed checks", ""]
-        lines += [f"- {t} / {s}: {c[0]}: {str(c[2])[:200]}" for t, s, c in fails]
+        lines += ["", "## Failed checks", "",
+                  f"Each detail is cut at {REPORT_DETAIL_CHARS} characters here (TB_REPORT_DETAIL_CHARS); the "
+                  f"whole detail of each is in `{FAILED_DETAIL_FILE}` beside this report (as the part recorded it).",
+                  ""]  # fmt: skip
+        lines += [f"- {t} / {s}: {c[0]}: {str(c[2])[:REPORT_DETAIL_CHARS]}" for t, s, c in fails]
+    lines += _chat_template_section(rep)
     for r in rep["parts"]:
         for key in ("screen", "canary", "walk", "scale", "embed", "profile", "chat_template"):
             if r.get(key):
@@ -2056,11 +2213,22 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
             out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, times the gain G-3 "
                        f"measured at N in flight (run {G3_RUN}, hospital-ja at 5,000; {gains}; between points "
                        "interpolated, above 48 held at 48's)")  # fmt: skip
+    order = e.get("llm_concurrency_order") or {}
+    if order.get("seed") is not None:
+        out.append(f"  order: randomised with seed {order['seed']} (given: {', '.join(map(str, order['given']))}; "
+                   "--keep-order runs them as given)")  # fmt: skip
+    elif len(lc) > 1:
+        out.append("  order: as given (--keep-order, or no seed)")
+    slots = int(seqs or GATEWAY_SLOTS)
+    queue = [n for n in lc if n > slots]
+    if queue and not seqs:
+        out.append(f"  {', '.join(map(str, queue))} in flight: above the gateway's {slots} slots per endpoint: "
+                   "measures the gateway queue, not a larger batch")  # fmt: skip
     over = [n for n in lc if seqs and n > int(seqs)]
     if over:
         out.append(f"  note: {', '.join(map(str, over))} in flight is above the servers' max_num_seqs ({seqs}) and "
-                   "the gateway's slots: the calls beyond wait in the gateway (it measures the queue, not a larger "
-                   "batch)")  # fmt: skip
+                   "the gateway's slots: the calls beyond wait in the gateway (measures the gateway queue, not a "
+                   "larger batch)")  # fmt: skip
     return out
 
 
@@ -2163,6 +2331,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--preflight-check", type=Path, help="a folder of read-only gcloud answers: every problem (A7)")
     ap.add_argument("--parts-missing", type=Path, help="a run's plan.json: print its tags with no result in "
                     "--parts-dir (A8)")  # fmt: skip
+    ap.add_argument("--order-seed", type=int, default=None,
+                    help="--estimate: run the --llm-concurrency settings in a random order from this seed (recorded in "
+                    "the plan); not given: the order given")  # fmt: skip
     ap.add_argument("--merge-parts", type=Path, help="one VM's parts/ folder: its results into --parts-dir "
                     "(prepare / install: failed if any VM's copy failed)")  # fmt: skip
     a = ap.parse_args(argv)
@@ -2203,9 +2374,15 @@ def main(argv: list[str] | None = None) -> int:
         parts = tuple(x for x in a.parts.split(",") if x)
         if not parts or set(parts) - {"g1", *BENCH_PARTS}:
             ap.error(f"--parts: g1, {', '.join(BENCH_PARTS)}")
+        given = a.lc
+        if a.order_seed is not None and len(a.lc) > 1:  # the curve's settings in a recorded random order (audit e)
+            a.lc = shuffled(a.lc, a.order_seed)
         try:
             e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc)
             e["llm_concurrency_default"] = a.lc_default
+            if len(a.lc) > 1:
+                e["llm_concurrency_order"] = ({"seed": a.order_seed, "given": list(given)} if a.order_seed is not None
+                                              else {"seed": None, "given": list(given)})  # fmt: skip
             e = restrict(e, a.only)
         except ValueError as exc:
             ap.error(str(exc))

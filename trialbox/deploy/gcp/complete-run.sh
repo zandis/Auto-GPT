@@ -12,7 +12,7 @@
 #   deploy/gcp/complete-run.sh --provision --vms N --zones z1,z2,...   # once: the clones tb-gpu-sim-2..N (they
 #                                                                      # boot, power off at once, keep their disks)
 #   deploy/gcp/complete-run.sh [--patients 50000] [--vms N] [--zones ...] [--parts ...] [--only TAG,TAG] [--hours H]
-#                              [--llm-concurrency N[,N...]] [--no-wait | --detach]
+#                              [--llm-concurrency N[,N...] [--keep-order | --order-seed S]] [--no-wait | --detach]
 #   deploy/gcp/complete-run.sh --collect <run id> [--follow]   # later, as often as wanted: see below
 #   deploy/gcp/complete-run.sh --stop [--collect <run id> | --vms N --zones ...] [VM] [ZONE]   # stop by hand
 #   deploy/gcp/complete-run.sh --teardown --vms N --zones ...   # delete the clones 2..N and their machine image
@@ -105,7 +105,7 @@
 set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
-SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0; DISCARD_PREV=0
+SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0; DISCARD_PREV=0; KEEP_ORDER=0; ORDER_SEED=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -122,6 +122,8 @@ while [ $# -gt 0 ]; do
     --zones) ZONES="$2"; shift 2 ;;
     --only) IFS=, read -r -a ONLY_TAGS <<< "$2"; shift 2 ;;
     --llm-concurrency) LLMC="$2"; shift 2 ;;
+    --keep-order) KEEP_ORDER=1; shift ;;
+    --order-seed) ORDER_SEED="$2"; shift 2 ;;
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
@@ -152,6 +154,11 @@ cd "$ROOT"
 cr() { env PYTHONPATH=libs:services:. "$PY" -m tools.complete_run "$@"; }
 ONLY_ARGS=(); [ "${#ONLY_TAGS[@]}" = 0 ] || ONLY_ARGS=(--only "${ONLY_TAGS[@]}")
 [ -z "$LLMC" ] || ONLY_ARGS+=(--llm-concurrency "$LLMC")   # the estimate and the plan: the calls in flight (G-3)
+# several settings (the curve): run them in a random order from a recorded seed (plan.json, the plan's lines), so
+# that no setting always comes after the others on a warm prefix cache and a hot card; --keep-order: as given
+case "$LLMC" in *[,\ ]*)
+  if [ "$KEEP_ORDER" = 0 ]; then ONLY_ARGS+=(--order-seed "${ORDER_SEED:-$(( (RANDOM << 15) | RANDOM ))}"); fi ;;
+esac
 plan_lc() {  # the plan's calls in flight, space separated (a metadata value holds no comma): "16" or "1 4 16 48"
   "$PY" -c 'import json,sys; print(" ".join(str(n) for n in json.load(open(sys.argv[1])).get("llm_concurrency") or []))' "$PLAN"
 }

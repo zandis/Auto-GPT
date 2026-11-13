@@ -30,7 +30,7 @@ import time
 import urllib.request
 from collections import Counter
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +168,48 @@ def gauge_summary(rows: Iterable[dict[str, str]]) -> dict[str, dict[str, float]]
             if v is not None:
                 s[f"{g}_max"] = max(s.get(f"{g}_max", 0.0), v)
     return out
+
+
+def _gpu_at(cell: str) -> float | None:
+    """``nvidia-smi``'s timestamp (``2026/11/12 17:26:37.329``, the VM's clock, UTC) as epoch seconds."""
+    try:
+        return datetime.strptime(cell.strip(), "%Y/%m/%d %H:%M:%S.%f").replace(tzinfo=UTC).timestamp()
+    except ValueError:
+        return None
+
+
+def window_card(folder: Path, t0: float, t1: float) -> dict[str, Any]:
+    """The card and the servers' gauges inside ``[t0, t1]`` (epoch seconds; the main SCREEN's own window): the
+    utilisation's mean and max over the samples in it (``nvidia-smi`` utilisation is the share of time a kernel ran,
+    not how much of the card is left: no headroom measure), and each server's KV-cache usage peak from vllm.csv."""
+    out: dict[str, Any] = {"from": t0, "to": t1}
+    g = folder / "gpu.csv"
+    if g.exists():
+        with g.open(newline="", encoding="utf-8") as fh:
+            rows = [r for r in csv.reader(fh) if r and r[0] != GPU_FIELDS[0]]
+        inside = [r for r in rows if (at := _gpu_at(r[0])) is not None and t0 <= at <= t1]
+        s = gpu_summary(inside)
+        out["gpu"] = {k: s.get(k) for k in ("samples", "util_mean_pct", "util_max_pct")}
+    v = folder / "vllm.csv"
+    if v.exists():
+        with v.open(newline="", encoding="utf-8") as fh:
+            rows2 = list(csv.DictReader(fh))
+        keep = []
+        for r in rows2:
+            try:
+                at = datetime.fromisoformat(r.get("at", "")).timestamp()
+            except ValueError:
+                continue
+            if t0 <= at <= t1:
+                keep.append(r)
+        out["kv_cache_usage_max"] = {n: s2.get("kv_cache_usage_max") for n, s2 in gauge_summary(keep).items()}
+    return out
+
+
+def window_calls(calls: list[dict[str, Any]], t0: float, t1: float) -> list[dict[str, Any]]:
+    """The calls that started and ended inside ``[t0, t1]`` (the main SCREEN's window: the canary before it and the
+    later stages' one-at-a-time calls are left out)."""
+    return [c for c in calls if c["end"] - c["latency_s"] >= t0 and c["end"] <= t1]
 
 
 class Monitor:
@@ -418,7 +460,18 @@ def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "refused": r.get("refusals"),
             "candidates": listed if listed is not None else c.get("count"),
             "candidates_sha256": c.get("sha256") if _main_list(r) else None,
+            "window": "whole part", "gpu_util_max_pct": gpu.get("util_max_pct"),
+            "kv_cache_peak": {n: g.get("kv_cache_usage_max") for n, g in (m.get("gauges") or {}).items()} or None,
         })  # fmt: skip
+        ts = r.get("throughput_screen")
+        if ts:  # audit a: the main SCREEN's own window first; the whole part (canary, stages 15 and 17) after it
+            g2 = ts.get("gpu") or {}
+            out.insert(len(out) - 1, {**out[-1], "window": "main SCREEN", "calls": ts.get("calls", 0),
+                                      "calls_per_second": ts.get("calls_per_second"),
+                                      "tokens_per_second": ts.get("tokens_per_second"), "p50_s": ts.get("p50_s"),
+                                      "p95_s": ts.get("p95_s"), "gpu_util_mean_pct": g2.get("util_mean_pct"),
+                                      "gpu_util_max_pct": g2.get("util_max_pct"),
+                                      "kv_cache_peak": ts.get("kv_cache_usage_max") or None})  # fmt: skip
     return out
 
 

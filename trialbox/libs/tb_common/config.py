@@ -732,6 +732,9 @@ DECLARED: dict[str, Declared] = {
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),
     "TB_RUN_ID": Declared("str", "", "complete-run tool: run id"),
+    "TB_REPORT_DETAIL_CHARS": Declared(
+        "int", "300", "complete-run report: a failed check's detail cut in report.md (failed-checks.json has it all)"
+    ),
     "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
     "TB_ESTIMATE_LLM_SPEEDUP": Declared(
         "float", "", "complete-run estimate: override of G-3's measured gain, min(N, this) (unset: the curve)"

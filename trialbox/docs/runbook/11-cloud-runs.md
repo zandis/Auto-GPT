@@ -179,6 +179,20 @@ a call was in flight, p50 and p95 call time, per endpoint, from the gateway's au
 peak) and, for a hospital part, `candidates` (who was listed, with a sha256). The raw files are in `parts/<part>/`:
 `vllm-<server>-before.prom`, `-after.prom`, `gpu.csv` (`nvidia-smi` every 10 s) and `vllm.csv` (running, waiting,
 KV cache every 10 s). The report has one table of them and says whether the lists are identical at every setting.
+Since the audit of that run: a list runs in a random order from a seed the plan prints and records (`--order-seed S`
+to repeat one, `--keep-order` for the order given); a value above the gateway's 16 slots per endpoint is flagged in
+the plan as "measures the gateway queue". Each stage of a hospital part has its start and end, and the part has its
+main SCREEN's window (the job's received and last-updated times): the table's **main SCREEN** row is the curve
+(calls, tokens, card utilisation mean and max, each server's KV-cache peak, inside that window only); **whole part**
+(with the canary and stages 15 and 17) is the second row. `nvidia-smi` utilisation is not a headroom measure. The
+main SCREEN's per-patient list (pseudonymous id, tier, each model's answer the product returns) is kept per setting
+in `parts/<part>/screen-list.json`; the gateway's audit (`gw-audit-<part>/`) and G-1's work folder (both template
+texts, the tokenizer side's `hf.json`) come back in `results.tgz`. G-1 reports three verdicts (the texts' sha256,
+the two templates' token ids, the server's ids against the folder tokenizer's), whether the server was started with
+`--chat-template`, and every differing prompt. The report's start and end are the parts' own times; "min of part
+time" is the parts' times summed; every failed check's whole detail is in `report/failed-checks.json`
+(`TB_REPORT_DETAIL_CHARS` cuts it in `report.md`). Not measured: the gateway's slot wait per call (the gateway does
+not record it); not offered yet: repeats per setting and a model-server restart between settings.
 Limits to know before reading a curve:
 
 * The estimate's screening time is G1's 0.78 calls/s at one call in flight times the gain G-3 measured on 2026-11-12

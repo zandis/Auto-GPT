@@ -421,7 +421,10 @@ def test_the_report_has_the_curve_and_says_whether_the_lists_agree() -> None:
         ("hospital-ja@c1", 0.78, 0), ("hospital-ja@c4", 2.9, 0)]  # fmt: skip
     md = cr.markdown(rep)
     assert "Model calls in flight: 1, 4." in md and "## Throughput (model calls through the gateway)" in md
-    assert "| hospital-ja@c4 | 4 | 670 | 2.9 | 900.0 | 1.2 | 3.4 | judge 0.4 | 91.0 | 62574.0 | 0 | 62 |" in md
+    assert (
+        "| hospital-ja@c4 | whole part | 4 | 670 | 2.9 | 900.0 | 1.2 | 3.4 | judge 0.4 | 91.0 | - | - | 62574.0 | 0 | 62 |"
+        in md
+    )
     assert "Candidate lists of hospital-ja at every setting: **identical**." in md
     rows[1]["candidates"]["sha256"] = "b" * 64
     rep = cr.report(a, rows, {"head": HEAD, "subject": "s", "dirty": False}, datetime.now(UTC))
