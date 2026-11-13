@@ -136,10 +136,11 @@ def _void(row: dict[str, Any]) -> bool:
     return str(row.get("status") or "").strip().lower() in VOID_STATUS
 
 
-def _matches(m: ItemMap, row: dict[str, Any]) -> bool:
+def _matches(m: ItemMap, row: dict[str, Any], fact: bool = False) -> bool:
     # D-598: a code counts only under the item's code system. A hospital's own code that reads like a LOINC or an
-    # ICD-10 code is another code; a row that names no system is of none. A medicine is read by column (no system)
-    want = systems_of(m)
+    # ICD-10 code is another code; a row that names no system is of none. A medicine is read by column (no system).
+    # A chart fact (``fact``) carries no system: it is matched by its code, and is never a value by itself
+    want = () if fact else systems_of(m)
     if want and str(row.get("system") or "") not in want:
         return False
     if m.source == "observation":
@@ -192,7 +193,12 @@ def _only_proposed(ctx: _Ctx, m: ItemMap) -> bool:
     for p in ctx.proposed:
         dom = {"observation": "observation", "condition": "condition", "medication": "medication"}.get(m.source)
         d = _day(p.get("d"))
-        if dom and p.get("domain") == dom and _matches(m, {"code": p.get("code")}) and (d is None or d <= ctx.visit):
+        if (
+            dom
+            and p.get("domain") == dom
+            and _matches(m, {"code": p.get("code")}, fact=True)
+            and (d is None or d <= ctx.visit)
+        ):
             return True
         if m.source == "patient" and p.get("domain") in ("demographic", m.what):
             return True

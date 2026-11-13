@@ -17,9 +17,8 @@ grades 1 to 5 (D-396). A ``presence`` item is only ever drafted as its yes code:
 record never becomes "No" (unknown never excludes).
 
 D-598: a lab, vital sign or diagnosis item reads only records whose code is of the item's code system
-(:func:`systems_of`): the one the row names, else the box's own for that source (:data:`SYSTEMS`). A system the box
-does not read for that source is refused by :func:`check`; a medicine is read by column (ATC, the hospital's drug
-code), so its row needs none.
+(:func:`systems_of`): the one the row names when the box reads it for that source, else all the box reads for that
+source (:data:`SYSTEMS`). A medicine is read by column (ATC, the hospital's drug code), so its row needs none.
 """
 
 from __future__ import annotations
@@ -31,14 +30,23 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from datacore.forms import Field
+from tb_common.derived import SCORE
 
 from edc import cdash
 
-# D-598: the code systems a record's code may be of, by source; the first is what a row with no ``system`` reads
-# together with the others (a diagnosis is ICD-10-CM at a Taiwan site and WHO ICD-10 at a Japan site)
+# D-598: the code systems a record's code may be of, by source. A lab or vital sign is LOINC, or a clinical score
+# the box codes itself (TJC28, ...); a diagnosis is ICD-10-CM (also under a TW Core edition's name, as a FHIR feed
+# may send it first) at a Taiwan site and WHO ICD-10 at a Japan site
+_TW_ICD10CM = "https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/icd-10-cm-"
 SYSTEMS: dict[str, tuple[str, ...]] = {
-    "observation": (cdash.LOINC,),
-    "condition": ("http://hl7.org/fhir/sid/icd-10-cm", "http://hl7.org/fhir/sid/icd-10"),
+    "observation": (cdash.LOINC, SCORE),
+    "condition": (
+        "http://hl7.org/fhir/sid/icd-10-cm",
+        "http://hl7.org/fhir/sid/icd-10",
+        _TW_ICD10CM + "2014-tw",
+        _TW_ICD10CM + "2021-tw",
+        _TW_ICD10CM + "2023-tw",
+    ),
 }
 
 SOURCES = ("patient", "observation", "condition", "medication", "note", "none")
@@ -102,9 +110,11 @@ class ItemMap:
 
 def systems_of(m: ItemMap) -> tuple[str, ...]:
     """The code systems a record must be of to count for this item (D-598); empty = the source is not read by a
-    code with a system (a medicine, the patient row, a note)."""
+    code with a system (a medicine, the patient row, a note). The row's own ``system`` narrows them when it is one
+    the box reads for the source. Any other (a suggestion's LOINC kept under a diagnosis, hidden on the map page; a
+    free text) is not a problem of the map and narrows nothing: the item reads the box's own systems."""
     known = SYSTEMS.get(m.source, ())
-    return (m.system,) if m.system and known else known
+    return (m.system,) if m.system in known else known
 
 
 def dumps(items: list[ItemMap]) -> str:
@@ -194,8 +204,6 @@ def check(items: list[ItemMap], fields: dict[str, Field], protected: set[str]) -
             not m.codes or any(not _CODE.match(c) for c in m.codes)
         ):
             no(m.item, "codes")
-        if m.system and m.source in SYSTEMS and m.system not in SYSTEMS[m.source]:
-            no(m.item, "system")  # D-598: a system the box never reads would leave the item silently empty
         if m.what in ("birth_date", "date", "start") and f.kind != "date":
             no(m.item, "kind")
         if m.source == "observation" and m.what == "value":
