@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import logging
 import re
 import threading
 from collections.abc import Callable
@@ -27,13 +28,39 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from tb_common import chartno, dates, instruments
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
+from tb_common.http import ServiceError
 
 from sitesetup import charts, intake, mapping, messy, publish
 from sitesetup.ocr import Ocr, default_ocr
 from sitesetup.store import COUNTED, SetupError, SetupStore
+
+log = logging.getLogger("sitesetup")
+
+#: NEW-SITE-2 (D-709): the error types a lake that cannot be asked raises; :func:`lake_down` says whether one is
+#: that, or a refusal. Never an error of this code, which goes on.
+LAKE_DOWN = (ServiceError, httpx.HTTPError)
+
+
+def lake_down(exc: BaseException) -> bool:
+    """Is this the hospital's lake failing or not answering (so a later try may work), and not a refusal? The
+    lake's health not read (``lake.client.LakeUnhealthy``, D-672, whatever its status), an answer of 500 and
+    above from the lake, or no answer at all. A 4xx of the lake (a rebuild refused: no feed folder, a bad
+    request) and any other service's error are refusals: waiting changes nothing, so they go on."""
+    from lake.client import LakeBadAnswer, LakeUnhealthy
+
+    # D-712: a 200 that is not the lake's answer to the call (D-673) is the lake failing too, whatever its status
+    if isinstance(exc, LakeUnhealthy | LakeBadAnswer):
+        return True
+    if isinstance(exc, ServiceError):
+        return exc.service == "lake" and (exc.status >= 500 or exc.status == 0)
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.HTTPError)
+
 
 _WS = re.compile(r"^[a-z][a-z0-9]{0,15}$")
 SAFE_NAME = re.compile(r"[^\w.\-]+")
@@ -211,8 +238,7 @@ class SiteSetup:
         self.store.set_input(input_id, summary=summary)
         if not first:
             self.audit.append("setup.reread", actor=by, detail={"ws": ws, "input": input_id, "rows": summary["rows"]})
-        self.publish(ws, by)
-        return {"input": input_id, **summary}
+        return self._saved(ws, by, {"input": input_id, **summary})
 
     # ------------------------------------------------------------------ charts
     def add_chart(
@@ -263,8 +289,8 @@ class SiteSetup:
                 "hidden_text": ct.hidden_chars,
             },
         )
-        self.publish(ws, by)
-        return {"input": iid, **summary}  # D-273 (PV-6): no pseudonym back for a chart number; the audit keeps it
+        # D-273 (PV-6): no pseudonym back for a chart number; the audit keeps it
+        return self._saved(ws, by, {"input": iid, **summary})
 
     # ------------------------------------------------------------------ decisions
     def decide(self, fid: int, action: str, by: str, changes: dict[str, str] | None = None) -> dict[str, Any]:
@@ -347,8 +373,7 @@ class SiteSetup:
                 "to": f"{target.get('system', '')}|{t_code}",
             },
         )
-        self.publish(ws, by)
-        return out
+        return self._saved(ws, by, out)
 
     def resolve(self, ws: str, pid: str, what: str, keep: str, by: str) -> dict[str, Any]:
         """A disagreement between inputs (two dates of birth): the value kept stays, the others are rejected."""
@@ -366,8 +391,7 @@ class SiteSetup:
                 self.store.decide(int(f["id"]), "rejected", by, at)
                 n += 1
         self.audit.append("setup.resolve", actor=by, detail={"ws": ws, "pid": pid, "what": what, "rejected": n})
-        self.publish(ws, by)
-        return {"pid": pid, "what": what, "kept": keep, "rejected": n}
+        return self._saved(ws, by, {"pid": pid, "what": what, "kept": keep, "rejected": n})
 
     # ------------------------------------------------------------------ publishing
     def chart_texts(self, ws: str) -> list[dict[str, Any]]:
@@ -398,6 +422,23 @@ class SiteSetup:
             return sum(1 for s in holds().values() if s == snap)
         except Exception:  # a lake that cannot say: the rebuild itself refuses a held snapshot (SnapshotHeld)
             return 0
+
+    def _saved(self, ws: str, by: str, out: dict[str, Any]) -> dict[str, Any]:
+        """Publish after a change that is stored and audited (an upload, a chart, a code map, a resolve), and
+        answer the change. NEW-SITE-2 (D-709): when the lake cannot be asked, the change is still saved: the answer
+        says its publish waits for the lake (``publish: waits_for_lake``; :func:`lake_down`, not a
+        refusal) and the next tick (:meth:`flush`) or the
+        next change publishes it, because what waits is the difference between the facts and the last publish.
+        A person who presses Publish calls :meth:`publish` itself and gets the error."""
+        try:
+            self.publish(ws, by)
+        except LAKE_DOWN as exc:
+            if not lake_down(exc):
+                raise
+            log.warning("a site change is saved; its publish waits for the lake (%s)", type(exc).__name__)
+            self.audit.append("setup.publish_waits", actor=by, detail={"ws": ws, "why": "lake"})
+            return {**out, "publish": "waits_for_lake"}
+        return out
 
     def flush(self, ws: str = "main", by: str = "batch") -> dict[str, Any]:
         """Apply a waiting batch of ``ws`` when its window has closed and no job holds the snapshot (the scheduler

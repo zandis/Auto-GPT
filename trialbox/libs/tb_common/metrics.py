@@ -207,6 +207,9 @@ def check_derive(info: Mapping[str, Any]) -> Check:
         return Check("derive_batch", bad, f"the derive batch of {last.get('snapshot')} did not finish")
     if current and last.get("snapshot") != current:
         return Check("derive_batch", bad, f"the served snapshot {current} has no derive batch yet")
+    if info.get("lake_unread"):  # D-709: the lake could not be asked; "finished" would claim it is the served one
+        return Check("derive_batch", WARN, "the lake could not be asked which snapshot it serves: whether the newest "
+                     f"derive batch ({last.get('snapshot')}) is for it is not known")  # fmt: skip
     if int(last.get("failed") or 0):
         return Check("derive_batch", WARN, f"the derive batch of {last.get('snapshot')} failed for {last['failed']} "
                      "patient(s): their scores read as unknown")  # fmt: skip

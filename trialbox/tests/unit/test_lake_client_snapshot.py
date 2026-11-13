@@ -133,16 +133,15 @@ CALLERS: dict[tuple[str, str], str] = {
     ("orchestrator/scenarios/nav.py", "run"): RAISES,
     ("orchestrator/scenarios/screen.py", "run"): RAISES,
     ("sitesetup/readiness.py", "feasibility"): RAISES,
-    ("sitesetup/readiness.py", "readiness"): RAISES,
     ("sitesetup/readiness.py", "patient_check"): RAISES,
     ("sitesetup/service.py", "SiteSetup.publish"): RAISES,
     ("edc/prefill.py", "LakeFacts.__init__"): RAISES,
-    # caught, and read as "nothing": OPEN, each for its own lane (D-672 lists them; this card is the client's)
-    ("orchestrator/derive.py", "status"): "OPEN: caught; the derive status line shows no current snapshot",
-    ("sitesetup/readiness.py", "unknown_share"): "OPEN: caught; answers (0, 0), as for a lake with no diagnosis",
-    ("sitesetup/readiness.py", "scores_unverified"): "OPEN: caught; answers None, as for scores that are verified",
-    ("sitesetup/readiness.py", "feed_loaded"): "OPEN: caught; answers None, which the page reads as no feed loaded",
-    # caught, and said
+    # caught, and said (D-672 left these four open, read as "nothing"; NEW-SITE-2, D-709, closed them)
+    ("orchestrator/derive.py", "status"): "caught: the status says lake_unread; the health line says not asked",
+    ("sitesetup/readiness.py", "readiness"): "caught: the answer says lake_unread; the page says could not be read",
+    ("sitesetup/readiness.py", "unknown_share"): RAISES,  # never (0, 0); `readiness` catches and says it
+    ("sitesetup/readiness.py", "scores_unverified"): "a lake's failure is raised again: never 'verified'",
+    ("sitesetup/readiness.py", "feed_loaded"): RAISES,  # never "no feed is loaded"; `readiness` catches and says it
     ("datacore/optout_worker.py", "run_once"): "caught: the registry is named as failed; the next tick tries again",
     # other objects that have a snapshot() of their own
     ("edc/prefill.py", "build"): NOT_THE_LAKE,

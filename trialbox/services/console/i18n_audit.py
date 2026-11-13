@@ -253,6 +253,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "setup.practice": ("Site practice recorded (service)", "施設の運用の記録（サービス）", "記錄院內作業方式（服務）"),
     "setup.publish": ("Site set-up published", "施設設定の公開", "發布院內設定"),
     "setup.publish_begin": ("Site set-up publishing started", "施設設定の公開開始", "開始發布院內設定"),
+    "setup.publish_waits": (
+        "Site set-up change saved; publishing waits for the patient data",
+        "施設設定の変更を保存（公開は患者データの応答待ち）",
+        "已儲存院內設定變更（發布等待病人資料回應）",
+    ),
     "setup.publish_building": (
         "Site set-up publishing waits for a rebuild in progress",
         "施設設定の公開は進行中の再構築を待機",

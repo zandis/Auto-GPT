@@ -24,6 +24,7 @@ nothing and writes nothing (the ask-the-box assistant never changes data; ``test
 from __future__ import annotations
 
 import base64
+import logging
 import re
 from collections.abc import Callable
 from typing import Any
@@ -130,6 +131,9 @@ def _intake_fail(exc: IntakeError) -> HTTPException:
     return HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "column": exc.column})
 
 
+log = logging.getLogger("orchestrator.setup")
+
+
 def router(
     get: Callable[[], SiteSetup],
     study_info: Callable[[str], dict[str, Any]],
@@ -227,7 +231,15 @@ def router(
         rs = approved(rid)
         if rs is None:
             return {"study": rid, "approved": False, "patients": []}
-        return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
+        try:
+            return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
+        except readiness.UNREAD as exc:  # D-709: said, not a 500 and not "no patients"
+            if not readiness.is_unread(exc):  # D-712: a rejected statement or another service's error goes on
+                raise
+            log.warning(
+                "site patient check: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
+            )
+            return {"study": rid, "approved": True, "patients": [], "lake_unread": True}
 
     @r.get("/setup/{ws}/feasibility")
     def get_feasibility(ws: str, study: str) -> dict[str, Any]:
@@ -236,14 +248,20 @@ def router(
         rd = readiness.readiness(svc, w, {"id": rid, "exists": True, "approved": bool(rs)}, {})
         if rs is None:
             return {"study": rid, "approved": False, "needs_bulk": not rd["bulk"], "feas": None}
+        out = {"study": rid, "approved": True, "needs_bulk": False}
+        if rd.get("lake_unread"):  # D-709: no count from a lake that cannot be asked, and not "needs a bulk input"
+            return {**out, "feas": None, "lake_unread": True}
         if not rd["bulk"]:  # D-132: say plainly what cannot be done yet instead of failing
             return {"study": rid, "approved": True, "needs_bulk": True, "feas": None}
-        return {
-            "study": rid,
-            "approved": True,
-            "needs_bulk": False,
-            "feas": readiness.feasibility(svc, w, rs, svc.today()),
-        }
+        try:
+            return {**out, "feas": readiness.feasibility(svc, w, rs, svc.today())}
+        except readiness.UNREAD as exc:
+            if not readiness.is_unread(exc):
+                raise
+            log.warning(
+                "site counts: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
+            )
+            return {**out, "feas": None, "lake_unread": True}
 
     @r.post("/setup/{ws}/sheets")
     def post_sheet(ws: str, body: SheetBody, request: Request) -> dict[str, Any]:
