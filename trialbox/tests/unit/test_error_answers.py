@@ -125,6 +125,8 @@ KNOWN = {
     ("datacore_api.py", "ValueError"): "datacore.forms' CTCAE check: a fixed sentence that lists the versions",
     ("migrate.py", "DatabaseError"): "the migration tool's own stderr",
     ("migrate.py", "EdcError"): "the migration tool's own stderr",
+    ("rerun.py", "ReplayUnsure"): "the same refusal, from the store's record (D-670, D-648): job ids and site ids",
+    ("rerun.py", "RecordChanged"): "the same: a recorded table that cannot be read, named by its job id",
     # the scenarios (D-557): another error's text inside a failed job's record, each an error written in this
     # repository about the study's own files (a prompt registry, a cascade, an approval workbook, a routing table)
     ("approve.py", "ValueError"): "the approval workbook's own reading errors (tb_common.ruleset)",
