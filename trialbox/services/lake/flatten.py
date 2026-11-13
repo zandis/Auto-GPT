@@ -856,8 +856,11 @@ def merge_patients(rows: list[Row]) -> list[Row]:
     ``sitesetup.publish`` does for disagreeing facts. The provenance columns are the first row's (the hospital's)."""
     by: dict[str, Row] = {}
     clash: dict[str, set[str]] = {}
+    deaths: dict[str, list[Any]] = {}
     for r in rows:
         pid = r["pid"]
+        if r.get("deceased_date") is not None:
+            deaths.setdefault(pid, []).append(r["deceased_date"])
         if pid not in by:
             by[pid] = dict(r)
             continue
@@ -870,4 +873,10 @@ def merge_patients(rows: list[Row]) -> list[Row]:
             elif have[k] != v:
                 have[k] = None
                 clash.setdefault(pid, set()).add(k)
+    for pid, ks in clash.items():
+        if "deceased_date" in ks:
+            # DATA-004: the sources agree the patient died and disagree on when. Deceased with no date would leave
+            # the patient out at EVERY index date, even before every claimed death (D-275: unknown never
+            # excludes). The latest claimed date leaves the patient out only where every source says they had died.
+            by[pid]["deceased_date"] = max(deaths[pid], key=str)  # ISO dates: text order is time order
     return list(by.values())

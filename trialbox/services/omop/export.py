@@ -239,10 +239,18 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         ids[str(kind)][int(oid)] = str(sid)
     person, provider, site = ids["person"], ids["provider"], ids["care_site"]
     conflicts: dict[tuple[int, str], tuple[str, str | None]] = {}
-    for pid, item, state, value in tx.fetchall(
-        "SELECT person_id, item, state, resolved_value FROM tb_conflict WHERE state <> 'withdrawn' ORDER BY conflict_id"
+    last_death: dict[int, str] = {}  # DATA-004: the latest death date any source claims, per open conflict
+    for pid, item, state, value, claims in tx.fetchall(
+        "SELECT person_id, item, state, resolved_value, claims FROM tb_conflict WHERE state <> 'withdrawn' "
+        "ORDER BY conflict_id"
     ):
         conflicts[(int(pid), str(item))] = (str(state), value)
+        if item == "deceased_date":
+            said = [str(c["value"])[:10] for c in (claims or []) if isinstance(c, dict) and c.get("value")]
+            if said:
+                last_death[int(pid)] = max(said)
+            else:
+                last_death.pop(int(pid), None)
     systems = dict(
         tx.fetchall(
             "SELECT c.concept_id, v.vocabulary_reference FROM concept c JOIN vocabulary v USING (vocabulary_id) "
@@ -276,6 +284,12 @@ def _export(tx: Any) -> dict[str, list[Row]]:
             got = conflicts.get((r["person_id"], item))
             if got:
                 row[item] = None if got[0] == "open" else _typed("patient", item, got[1])
+        if row["deceased_date"] is None and r["person_id"] in last_death:
+            # DATA-004: the sources agree the patient died and disagree on when (or the steward kept the date
+            # unknown). Deceased with no date would leave the patient out at EVERY index date, even before every
+            # claimed death (D-275: unknown never excludes). The latest claimed date leaves the patient out only
+            # where every source says they had died; before it the patient stays in, as with either date alone.
+            row["deceased_date"] = _typed("patient", "deceased_date", last_death[r["person_id"]])
         out["patient"].append(row)
     # -- practitioner
     for r in tx.fetchdicts(
