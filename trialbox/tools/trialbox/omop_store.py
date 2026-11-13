@@ -17,11 +17,16 @@ from __future__ import annotations
 from pathlib import Path
 
 
+class NotTheGroups(RuntimeError):
+    """The store's schema is there and belongs to someone other than the OMOP group."""
+
+
 def make(url: str | None, lake_dir: Path) -> str:
     """Make the OMOP store of ``lake_dir`` (schema, tables, vocabulary seed); its name. A second run changes
     nothing."""
     import psycopg
     from omop import schema
+    from psycopg import sql
     from tb_common.db import GROUP_PREFIX, split_url
 
     url = url or schema.db_url()
@@ -36,7 +41,20 @@ def make(url: str | None, lake_dir: Path) -> str:
         there = con.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (full,)).fetchone() is not None
         if has_group and not there:
             # the group owns the schema from its first moment: what the migration below makes is the group's
-            con.execute(f'CREATE SCHEMA "{full}" AUTHORIZATION "{group}"')
+            con.execute(
+                sql.SQL("CREATE SCHEMA {} AUTHORIZATION {}").format(sql.Identifier(full), sql.Identifier(group))
+            )
+        elif has_group:
+            row = con.execute("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s", (full,))
+            owner = str((row.fetchone() or ("",))[0])
+            if owner != group:
+                # made by a host tool as the admin, by a service before D-721, or by a role off the list: it is not
+                # taken from its owner here (it may be a service's own, with rows in it), and it is not called ready
+                raise NotTheGroups(
+                    f"the schema {full} is there and belongs to {owner}, not to {group}: the services that share "
+                    f"the lake {lake_dir} cannot open it. Look at what it holds; then drop it (as its owner or the "
+                    "admin) and run this again, or keep it as that role's own"
+                )
     schema.connect(url, name, lake_dir=lake_dir, admin=True).close()
     return name
 

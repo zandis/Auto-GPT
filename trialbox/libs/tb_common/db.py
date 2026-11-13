@@ -244,6 +244,23 @@ def split_url(url: str) -> tuple[str, str]:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, rest, parts.fragment)), prefix
 
 
+def ask_once(url: str, text: str, params: Sequence[Any] = ()) -> tuple[Any, ...] | None:
+    """One row of one statement on a connection of its own, as the URL's user and with no schema chosen (nothing is
+    made, no role is set): what a caller needs to know before it opens a store. None when the database cannot be
+    reached or the statement returns no row."""
+    dsn, _prefix = split_url(url)
+    try:
+        psycopg = importlib.import_module("psycopg")
+        con = psycopg.connect(dsn, autocommit=True, connect_timeout=10)
+    except Exception:
+        return None
+    try:
+        row = con.execute(text, tuple(params)).fetchone()
+        return tuple(row) if row is not None else None
+    finally:
+        con.close()
+
+
 def sql(text: str) -> str:
     """``?`` placeholders -> ``%s``; literal ``%`` escaped."""
     return text.replace("%", "%%").replace("?", "%s")

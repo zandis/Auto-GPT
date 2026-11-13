@@ -75,7 +75,7 @@ def _exists(url: str, name: str) -> bool:
     return bool(_admin(url, "SELECT count(*) FROM pg_namespace WHERE nspname = %s", name))
 
 
-@pytest.mark.parametrize("role", ON_THE_LIST)
+@pytest.mark.parametrize("role", schema.LAKE_SHARERS)
 def test_a_service_refuses_to_make_a_second_lakes_store(box: str, role: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_LAKE_DIR", "/data/lake")
     name = schema.schema_for(OTHER_LAKE)
@@ -101,6 +101,76 @@ def test_a_lake_service_started_without_its_lake_folder_refuses_and_makes_nothin
     with pytest.raises(OmopError, match="TB_LAKE_DIR is not set"):
         schema.connect(_as(box, "tb_lake"), name, lake_dir=folder)
     assert not _exists(box, name)
+
+
+def test_the_orchestrator_makes_a_site_spaces_store_and_it_is_its_own(
+    box: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found by lane B2 from the lake's side: ``SiteSetup.lake(ws)`` for a space other than ``main`` is a lake under
+    the orchestrator's data folder, rebuilt in the orchestrator's process, which has no ``TB_LAKE_DIR``. With the
+    OMOP lake source it makes ``omop_<hash>`` as ``tb_orchestrator``. Only that process reads a space's lake, so
+    the store is the orchestrator's own and it must go on making it: the refusal is not for it."""
+    import psycopg
+    from lake.source import lake_rows
+
+    monkeypatch.delenv("TB_LAKE_DIR", raising=False)
+    monkeypatch.setenv("TB_DB_URL", _as(box, "tb_orchestrator"))
+    folder = Path("/data/orch/sitesetup/practice/lake")
+    name = schema.schema_for(folder)
+    rows = lake_rows(role_paths._patient(), {}, tz="Asia/Taipei", snapshot="2000-01-02", source="omop", lake_dir=folder)
+    assert sum(len(list(v)) for v in rows.values()) > 0
+    owner = "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s"
+    assert _admin(box, owner, name) == "tb_orchestrator"
+    for other in ("tb_lake", "tb_adapter", "tb_console"):
+        with (
+            psycopg.connect(_as(box, other), autocommit=True) as con,
+            pytest.raises(psycopg.errors.InsufficientPrivilege),
+        ):
+            con.execute(f'SELECT count(*) FROM "{name}".person')
+    with psycopg.connect(_as(box, "tb_orchestrator"), autocommit=True) as con:  # what a Reset of the space owes
+        con.execute(f'DROP SCHEMA "{name}" CASCADE')
+    assert not _exists(box, name)
+
+
+@pytest.mark.parametrize("maker", ["trialbox", "tb_gateway"])
+def test_the_admins_step_does_not_call_a_store_made_by_someone_else_ready(
+    box: str, maker: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found by the review, by running: a store first opened by a host tool as the admin is the admin's; a service
+    off the list can make a schema of that name (it has CREATE on the database). The step said "the store is X"
+    and no service could open it."""
+    import psycopg
+
+    monkeypatch.setenv("TB_LAKE_DIR", "/data/lake")
+    folder = Path(f"/srv/made-by-{maker}/lake")
+    name = schema.schema_for(folder)
+    with psycopg.connect(_as(box, maker), autocommit=True) as con:
+        con.execute(f'CREATE SCHEMA "{name}"')
+    with pytest.raises(omop_store.NotTheGroups) as stop:
+        omop_store.make(box, folder)
+    said = str(stop.value)
+    assert name in said and maker in said and "tbs_omop" in said
+    assert _admin(box, "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = %s", name) == maker
+
+
+def test_the_command_exits_1_on_a_store_that_is_not_the_groups(
+    box: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import psycopg
+
+    monkeypatch.setenv("TB_LAKE_DIR", "/data/lake")
+    monkeypatch.setenv("TB_DB_URL", box)
+    folder = Path("/srv/made-by-the-lake-before-this-card/lake")
+    name = schema.schema_for(folder)
+    with psycopg.connect(_as(box, "tb_lake"), autocommit=True) as con:
+        con.execute(f'CREATE SCHEMA "{name}"')
+    assert omop_store.main_action(folder) == 1
+    assert "tb_lake" in capsys.readouterr().err
+
+
+def test_the_refusal_is_for_the_two_services_that_share_a_lake_and_no_other() -> None:
+    assert schema.LAKE_SHARERS == ("tb_lake", "tb_adapter")
+    assert set(schema.LAKE_SHARERS) <= set(ON_THE_LIST)
 
 
 def test_the_two_services_that_name_a_store_by_its_lake_say_which_folder() -> None:
@@ -177,5 +247,7 @@ def test_without_the_role_script_a_tool_makes_any_store_it_names(db_url: str) ->
         db.close()
 
 
-def test_the_drill_has_the_line_for_a_second_lakes_store() -> None:
-    assert any("a second lake's OMOP store" in name for name, _ in role_paths.PATHS)
+def test_the_drill_has_the_lines_for_a_second_lakes_store_and_a_site_spaces() -> None:
+    names = [name for name, _ in role_paths.PATHS]
+    assert any("a second lake's OMOP store" in n for n in names)
+    assert any("a site space's OMOP store as tb_orchestrator" in n for n in names)
