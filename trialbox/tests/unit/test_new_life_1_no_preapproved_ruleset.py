@@ -215,3 +215,28 @@ def test_the_synthetic_compose_stack_says_it_is_a_test_box() -> None:
     overlay = yaml.safe_load((RULESETS.parent / "deploy" / "docker-compose.test.yml").read_text(encoding="utf-8"))
     for name in ("criteria-compiler", "orchestrator"):
         assert overlay["services"][name]["environment"]["TB_ENV"] == "${TB_ENV:-TEST}", name
+
+
+def test_the_synthetic_in_process_box_names_who_approved_its_example_studies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Train 5's demo-boot: ``tools.cgmh_demo`` (and the other tools on ``tests.inproc_box.make_box``) run with no
+    ``TB_ENV``, which is PRODUCTION, on a box whose studies carried the seeded approval only, so with D-640 its
+    SCREEN failed "no approved version on this box". The synthetic box says what it is: its example studies are
+    approved by the box builder, by name, the way the site's approval writes a tag."""
+    from datetime import date
+
+    from tests.inproc_box import SYNTHETIC_APPROVER, make_box
+
+    sec = tmp_path / "sec"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"trialbox-test-site-key-0123456789abcdef")
+    box = make_box(tmp_path / "box", tmp_path / "lake", sec, date(2026, 10, 5))
+    rulesets = box.orch.rulesets_dir
+    for name in SITE:
+        _env(monkeypatch, name)
+        assert [load_approved(rulesets, rid).id for rid in SHIPPED] == SHIPPED
+    assert RulesetRepo(rulesets).tag_message("GZQO/v1.0.0") == f"GZQO v1.0.0 approved by {SYNTHETIC_APPROVER}"
+    # a box reopened on its own folder (the demo's --keep) keeps the approval it has
+    make_box(tmp_path / "box", tmp_path / "lake", sec, date(2026, 10, 5))
+    assert RulesetRepo(rulesets).tag_message("GZQO/v1.0.0") == f"GZQO v1.0.0 approved by {SYNTHETIC_APPROVER}"

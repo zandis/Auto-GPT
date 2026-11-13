@@ -45,7 +45,10 @@ by the installer.
    tag. `import_ruleset.install` now writes the operator's install on the tag (`RulesetRepo.retag`; the commit is
    not moved).
 6. **Test boxes.** A fixture that builds a PRODUCTION box on the synthetic studies approves them the site's way
-   (`tests.rulesets_guard.approve_at_site`, used by `tests/orch_box.py`).
+   (`tests.rulesets_guard.approve_at_site`, used by `tests/orch_box.py`). The synthetic in-process box itself
+   (`tests.inproc_box.make_box`, which the demo tools run with no `TB_ENV`, PRODUCTION by the one rule) names who
+   approved its example studies: the tag reads "approved by synthetic-box@hospa.test". Found on train 5, where the
+   demo image's amendment walk (`tools.cgmh_demo --walk amend`) failed "no approved version on this box".
 
 7. **Synthetic stacks.** The integrator's ruling of 2026-11-13, no owner ruling needed:
    - *The compose test and POC stacks* say they are TEST boxes: `deploy/docker-compose.test.yml` sets
