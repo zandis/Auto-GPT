@@ -87,7 +87,7 @@ def test_the_old_name_still_answers_and_the_range_passes_the_firewalls_check() -
     hw = bp.Hardware(arch="x86_64", cpu_count=8, ram_gib=64, disk_free_gib=500, lan="192.0.2.0/24 2001:db8:5::/64")
     conf = bp.hardening_conf(hw)
     assert 'CLINIC_RANGES="192.0.2.0/24 2001:db8:5::/64"' in conf
-    for r in "192.0.2.0/24 2001:db8:5::/64".split():  # deploy/hardening/apply.sh check_ranges
+    for r in ["192.0.2.0/24", "2001:db8:5::/64"]:  # deploy/hardening/apply.sh check_ranges
         assert not set(r) - set("0123456789ABCDEFabcdef.:/")
 
 
