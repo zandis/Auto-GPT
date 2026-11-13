@@ -79,8 +79,21 @@ class CsvSource:
             return None
         try:
             with path.open(encoding=codec, newline="") as fh:
-                for _ in csv.reader(fh):
-                    pass
+                reader = csv.reader(fh)
+                width = None
+                for row in reader:
+                    if not row:
+                        continue  # a blank line: DictReader skips it too
+                    if width is None:
+                        width = len(row)
+                    elif len(row) != width:
+                        # DATA-005 (deep review 2026-11-13): an export cut off mid-row gave a short row that
+                        # DictReader filled with None (an undated value of a lab, dated the load night in OMOP);
+                        # a long row put its extra cells under a None key. A row of another width is not a record.
+                        self._quarantine(
+                            path, source_name, f"line {reader.line_num} has {len(row)} fields, the header {width}"
+                        )
+                        return None
         except csv.Error as exc:
             self._quarantine(path, source_name, f"not a readable CSV ({exc})")
             return None
