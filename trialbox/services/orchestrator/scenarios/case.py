@@ -36,7 +36,7 @@ from typing import Any
 
 from matching import decision
 from matching import excerpts as excerpt_builder
-from tb_common import dates
+from tb_common import chartno, dates
 from tb_common.crypto import sha256_bytes
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
@@ -185,7 +185,7 @@ def resolve_subject(ctx: Ctx, mrn: str | None) -> Subject:
     if not mrn:
         return Subject(note="no chart number given: structured criteria answered from the chart text")
     rx = ctx.cfg.settings.mrn_regex
-    if rx and not re.match(rx, mrn):
+    if rx and not re.match(rx, chartno.normalise(None, mrn)):  # NEW-DIN-3c (D-546): as the site writes it
         raise StepFailed("received", f"mrn={mrn!r} does not look like a chart number of this site")
     if not identifiers.has_site_key(ctx.cfg.env.secrets_dir):  # plain or wrapped under the KEK (T-210b)
         return Subject(note="the box has no site key yet (no ingest): structured criteria answered from the chart")

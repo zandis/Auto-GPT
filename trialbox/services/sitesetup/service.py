@@ -100,10 +100,15 @@ class SiteSetup:
 
     def redact(self, text: str, chart_no: str = "", keep: tuple[str, ...] = ()) -> str:
         """Identifiers out of a chart text: the chart number given with it, and what the box's guard recognises
-        (names, other numbers, phones, addresses; dates of birth unless kept)."""
+        (names, other numbers, phones, addresses; dates of birth unless kept)."""  # the guard also knows the pattern
         if chart_no:
-            for v in {chart_no, messy.half_width(chart_no)}:
-                text = text.replace(v, "[MRN]")
+            # NEW-DIN-3c (D-546, the review): the number as the site writes it, which is how a chart carries it;
+            # the typed spellings only when they are as long (typed `2` for chart `00000002` must not mask every 2)
+            whole = chartno.normalise(None, chart_no)
+            typed = {chart_no.strip(), messy.half_width(chart_no).strip()}
+            for v in sorted({whole} | {t for t in typed if len(t) >= len(whole)}, key=len, reverse=True):
+                if v:
+                    text = text.replace(v, "[MRN]")
         g = self._guard()
         spans = [f for f in g.detect(text) if f.kind not in keep]
         out, pos = [], 0
@@ -217,7 +222,8 @@ class SiteSetup:
         chart_no = messy.half_width(chart_no or "").strip()
         if not chart_no:
             raise SetupError("SETUP-KEY", "give the patient's chart number: it is turned into a code at once")
-        if self.mrn_regex and not re.match(self.mrn_regex, chart_no):
+        # NEW-DIN-3c (D-546): the pattern is asked of the number as the site writes it, as it is then hashed
+        if self.mrn_regex and not re.match(self.mrn_regex, chartno.normalise(None, chart_no)):
             raise SetupError("SETUP-KEY", "this is not a chart number of this hospital")
         try:
             ct = charts.chart_text("pasted.txt" if pasted else name, data, self.ocr)

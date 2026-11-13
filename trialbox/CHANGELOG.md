@@ -16,6 +16,8 @@ new heading with the version and date, in the same pull request that sets the ve
 - The opt-out register (NEW-JRN-2, D-542): a pseudonym must be typed whole (32 characters) or the chart number
   used; the 8 characters a page shows are refused. After the save the page says whether a listed patient
   matched, or that nobody did.
+- Chart numbers typed short (NEW-DIN-3c, D-546): with a rule such as `digits:8`, a chart number typed without its
+  leading zeros or in full-width digits is accepted for a registry row, a CASE request and a chart in site set-up.
 - Database roles (T-718, D-486): the EDC schema has an owner role no service can become; the orchestrator writes its
   rows and can no longer drop, disable or alter the triggers that make its trail tables append-only. The schema's
   tables are made by the box's admin before the services start (`install.sh`, `trialbox update`, or by hand
