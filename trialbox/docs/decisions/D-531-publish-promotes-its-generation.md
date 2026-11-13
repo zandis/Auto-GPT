@@ -28,6 +28,14 @@ generation it meant: the build's answer did not carry it and `publish.json` did 
    generation and sets the `build` step back to pending. The next run of the same night builds again and promotes
    its own generation.
 
+5. **Also when the other build was promoted.** A rebuild by hand that promotes (the lake's default) makes
+   `CURRENT` name the night as well. The publish does not take that for its own promotion whose answer was lost:
+   the night's `lake` step fails with "served from a lake generation this publish did not build", the FHIR store
+   is left on the night (it is the served one), and the next run, a re-run of the served night, builds and serves
+   its own generation in one step (D-489).
+6. **The operator reads the lake's reason**, over HTTP too: the error carries the service's `detail`, not only
+   the client's "409 Conflict".
+
 ## Consequences
 
 - The contract `lake_api` gains one optional field; the generated models follow. No request changes: `POST
@@ -35,6 +43,13 @@ generation it meant: the build's answer did not carry it and `publish.json` did 
 - A rebuild by hand between a publish's two steps costs that night one more run instead of being served unseen.
 - Interrupt tests for the state changes the review of #318 listed: build to promotion (here), and in the lake a
   generation's file without its record, an adoption cut between link and record, a swap cut before the sidecar.
+
+## Deploying it
+
+The ingest report now carries `lake.generation`. The orchestrator validates the report against the contract
+(`extra: forbid`), so an orchestrator from before this card refuses the report of a night the adapter published.
+The adapter and the orchestrator run from one image (`TB_IMAGE` in `deploy/docker-compose.yml`), so an update
+moves both; a site that runs them from different images updates the orchestrator first.
 
 ## Not decided here
 

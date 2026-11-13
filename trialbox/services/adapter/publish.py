@@ -268,12 +268,20 @@ def finish_served(cfg: AdapterConfig) -> bool:
 def _other_generation(exc: Exception) -> bool:
     """The lake's refusal of a promotion that names a generation the date no longer is (``Lake.promote_built``:
     a ValueError in process, the service's 409 over HTTP). Told by its words, which both ways carry."""
+    return "built again since" in _said(exc)
+
+
+def _said(exc: Exception) -> str:
+    """The error's own words, with the service's answer when it is an HTTP refusal (its ``detail``): the client's
+    text alone is "409 Conflict for url ...", which tells the operator nothing (review MED-2)."""
     text = str(exc)
     resp = getattr(exc, "response", None)
     if resp is not None:
         with contextlib.suppress(Exception):
-            text += " " + str(resp.text)
-    return "built again since" in text
+            body = resp.json()
+            detail = body.get("detail") if isinstance(body, dict) else None
+            text = f"{detail or resp.text} ({text})"
+    return text
 
 
 def publish_night(
@@ -431,18 +439,27 @@ def publish_night(
             try:
                 moved = cfg.promote(snap, str(mine)) if mine else cfg.promote(snap)
             except Exception as exc:
-                if _current(cfg.lake_dir) == snap:  # H1: the lake promoted it and its answer was lost
-                    log.warning("the promotion of %s gave no answer (%s); CURRENT names it", snap, type(exc).__name__)
-                    moved = True
-                elif mine and _other_generation(exc):
+                if mine and _other_generation(exc):
                     # D-531: the date was built again since this publish's build. What the date names now was not
-                    # built by this publish: it is not served. The build is owed again; the next run does it
-                    out.errors.append(f"lake rebuild failed: {exc}")
+                    # built by this publish. The build is owed again; the next run does it. Asked before "the
+                    # answer was lost" (review MED-1): a rebuild by hand that promoted makes CURRENT name the
+                    # night too, and that is not this publish's promotion
+                    served_other = _current(cfg.lake_dir) == snap
+                    out.errors.append(f"lake rebuild failed: {_said(exc)}")
+                    if served_other:
+                        out.errors.append(
+                            f"night {snap} is served from a lake generation this publish did not build (it was "
+                            "rebuilt and promoted by another rebuild); run the night again to build and serve its own"
+                        )
                     rec.pop("lake_generation", None)
                     steps["build"] = PENDING
                     note("lake", FAILED)
-                    fhir_back()
+                    if not served_other:
+                        fhir_back()
                     return end()
+                if _current(cfg.lake_dir) == snap:  # H1: the lake promoted it and its answer was lost
+                    log.warning("the promotion of %s gave no answer (%s); CURRENT names it", snap, type(exc).__name__)
+                    moved = True
                 else:
                     lake_error("lake", exc)
                     fhir_back()

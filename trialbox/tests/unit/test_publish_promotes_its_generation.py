@@ -96,6 +96,65 @@ def test_a_build_step_that_names_no_generation_promotes_as_before(tmp_path: Path
     assert "lake_generation" not in _record(snapshot_dir(cfg.lake_dir, N1))
 
 
+def test_a_rebuild_by_hand_that_promoted_is_not_taken_for_the_publishs_own_promotion(tmp_path: Path) -> None:
+    """Review MED-1: the other rebuild promoted (the lake's default). CURRENT names the night, but not this
+    publish's generation: the night does not pass; run again, it builds and serves its own."""
+    lakes = _Lakes(tmp_path / "lake")
+    cfg = _cfg(tmp_path, lakes)
+    again: list[str] = []
+
+    def someone_else(snap: str) -> None:
+        if snap == N2 and not again:
+            again.append(lakes.lake.rebuild(snap, HashEmbedder()).generation)  # promote: the default
+
+    _two_step(cfg, lakes, someone_else)
+    assert run_ingest(cfg, "csv", _night(tmp_path, "n1", [_row("D1", "2026-09-01")]), snapshot=N1,
+                      load_fhir=False, validate=False).passed  # fmt: skip
+    night2 = _night(tmp_path, "n2", [_row("D1", "2026-09-01"), _row("D2", "2026-10-01")])
+    rep = run_ingest(cfg, "csv", night2, snapshot=N2, load_fhir=False, validate=False)
+    folder = snapshot_dir(cfg.lake_dir, N2)
+    assert lakes.lake.current() == N2 and lakes.lake.generation(N2) == f"{N2}.g2" == again[0]
+    assert not rep.passed and not (folder / "passed.json").exists()
+    assert any("this publish did not build" in e for e in rep.errors or []), rep.errors
+    rec = _record(folder)
+    assert rec["steps"]["lake"] == "failed" and "lake_generation" not in rec
+    rep = run_ingest(cfg, "csv", night2, snapshot=N2, load_fhir=False, validate=False)  # the served night, again
+    assert rep.passed and lakes.lake.current() == N2 and lakes.lake.generation(N2) == f"{N2}.g3"
+
+
+def test_over_http_the_lakes_reason_reaches_the_report(tmp_path: Path, monkeypatch: Any) -> None:
+    """Review MED-2: the client's error is "409 Conflict for url ..."; the report carries the lake's own words."""
+    from fastapi.testclient import TestClient
+    from lake import app as lake_app
+
+    lakes = _Lakes(tmp_path / "lake")
+    cfg = _cfg(tmp_path, lakes)
+    monkeypatch.setattr(lake_app, "lake", lambda: lakes.lake)
+    http = TestClient(lake_app.app)
+    again: list[str] = []
+
+    def build(snap: str, nd: Path) -> RebuildResult:
+        st = lakes.lake.rebuild(snap, HashEmbedder(), nd, promote=False, check=True)
+        return RebuildResult(snapshot=st.snapshot, tables=st.tables, chunks=st.chunks, embedded_new=st.embedded_new,
+                             seconds=st.seconds, generation=st.generation)  # fmt: skip
+
+    def promote(snap: str, generation: str | None = None) -> bool:
+        if snap == N2 and not again:
+            again.append(lakes.lake.rebuild(snap, HashEmbedder(), promote=False, check=True).generation)
+        resp = http.post("/promote", json={"snapshot": snap, **({"generation": generation} if generation else {})})
+        resp.raise_for_status()
+        return bool(resp.json()["promoted"])
+
+    cfg.build, cfg.promote = build, promote
+    assert run_ingest(cfg, "csv", _night(tmp_path, "n1", [_row("D1", "2026-09-01")]), snapshot=N1,
+                      load_fhir=False, validate=False).passed  # fmt: skip
+    night2 = _night(tmp_path, "n2", [_row("D1", "2026-09-01"), _row("D2", "2026-10-01")])
+    rep = run_ingest(cfg, "csv", night2, snapshot=N2, load_fhir=False, validate=False)
+    assert not rep.passed and lakes.lake.current() == N1
+    assert any("built again since" in e and f"{N2}.g1" in e for e in rep.errors or []), rep.errors
+    assert _record(snapshot_dir(cfg.lake_dir, N2))["steps"]["build"] == "pending"
+
+
 # ------------------------------------------------------------------------- each state change, interrupted once
 class _Killed(BaseException):
     """The process dies here (not an Exception: nothing on the way out may catch it as a step's failure)."""
