@@ -121,7 +121,9 @@ def test_the_jobs_decision_context_stops_and_names_nobody_as_free_to_list() -> N
     assert absent.consent() is None and absent.refused() == frozenset()  # a clear "no such table": as before
 
 
-def test_the_opt_out_worker_reports_the_registry_as_not_read_and_keeps_the_register() -> None:
+def test_the_opt_out_worker_reports_the_registry_as_not_read_and_still_runs_every_clear(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from datacore import optout_worker
 
     class Register:
@@ -135,12 +137,18 @@ def test_the_opt_out_worker_reports_the_registry_as_not_read_and_keeps_the_regis
         now=datetime(2026, 11, 13, 3, 0, tzinfo=UTC),
         lake=_Lake(consent=True, fail=RuntimeError(WORDS)),
     )
-    real = optout_worker.sync_registry
-    optout_worker.sync_registry = lambda *a, **k: synced.append(a) or (0, 0)  # type: ignore[assignment]
-    try:
-        out = optout_worker.run_once(env)
-    finally:
-        optout_worker.sync_registry = real
+    cleared: list[frozenset[str]] = []
+
+    def clear(pids: frozenset[str], _env: Any) -> dict[str, int]:
+        cleared.append(pids)
+        return {"t": 1}
+
+    one = SimpleNamespace(name="a-store", resolve=lambda: (clear, lambda pids, _env: {"t": 0}))
+    monkeypatch.setattr(optout_worker, "sync_registry", lambda *a, **k: synced.append(a) or (0, 0))
+    monkeypatch.setattr("tb_common.erasure.clears", lambda: [one])
+    out = optout_worker.run_once(env)
     # before the change the worker read "no registry": nothing failed, nothing synced, and it said so to nobody
-    assert "registry" in out["failed"] and out["registry"] is None and synced == []
-    assert out["opted_out"] == 1  # the register it already holds still applies
+    assert out["failed"] == ["registry"] and out["registry"] is None and synced == []
+    # lane E's rule: the tick goes on. The register it already holds still applies, and every clear still runs in
+    # the same tick for those patients (stopping them would leave opted-out patients un-erased)
+    assert out["opted_out"] == 1 and cleared == [frozenset({"P-KEPT"})] and out["stores"] == {"a-store": {"t": 1}}
