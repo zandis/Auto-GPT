@@ -20,7 +20,7 @@
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
 # D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-434 (T-302c), D-436 (T-303), D-440 (T-204),
-# D-443 (T-112b), D-451 (T-211c), D-474 (T-746).
+# D-443 (T-112b), D-451 (T-211c), D-474 (T-746), D-701 (T-715e).
 # D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
 # break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
 # keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
@@ -190,6 +190,15 @@ actions:
     what: change the site's set-up and confirm site facts (D-131, a CRC or admin confirms)
     admin: true
     coordinator: true
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  redcap.connection:
+    what: write and test the box's REDCap connection and its API token (D-146 J-05; T-715e, D-701, the owner 2026-11-13)
+    admin: true
+    coordinator: false
     investigator: false
     viewer: false
     cro: false
