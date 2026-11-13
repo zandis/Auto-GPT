@@ -21,7 +21,15 @@ from lake.client import LakeLocal
 from lake.flatten import BASIS, DEMOGRAPHIC
 from lake.store import Lake
 from matching.cascade.engine import CascadeConfig, run_cascade
-from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, FactRow, Proposed, signed_atoms, site_basis
+from matching.proposed import (
+    PROPOSED_FACT,
+    SUSPECTED_DIAGNOSIS,
+    TABLE_SQL,
+    FactRow,
+    Proposed,
+    signed_atoms,
+    site_basis,
+)
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from orchestrator.scenarios.feas_compute import FeasParams, compute
 from tb_common.reasons import LABELS, Reason, code_of
@@ -273,7 +281,11 @@ def test_signed_atoms_and_words() -> None:
 
 def test_a_lake_built_before_step_5b_has_no_proposed_facts() -> None:
     class OldLake:
-        def query(self, *_a: Any, **_k: Any) -> Any:
+        def query(self, sql: str, *_a: Any, **_k: Any) -> Any:
+            if sql == TABLE_SQL:  # NEW-TRUST-6: the lake is asked whether the table is there; it answers 0
+                import pyarrow as pa
+
+                return pa.table({"n": [0]})
             raise RuntimeError("lake query failed (422): CatalogException: Table with name site_fact does not exist!")
 
     assert Proposed.load(OldLake(), None, None).rows == {} and site_basis(OldLake(), None) == (set(), set())

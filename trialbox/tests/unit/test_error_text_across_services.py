@@ -50,7 +50,6 @@ THEIRS: dict[str, str] = {
     "model_guard/__init__.py": "models",
     "lake/app.py": "lake (its own card, D-664)", "lake/store.py": "lake (its own card, D-664)",
     "mail_gateway/admin.py": "mail", "mail_gateway/app.py": "mail", "mail_gateway/gateway.py": "mail",
-    "matching/proposed.py": "matching",
     "tracestore/app.py": "trace store",
 }  # fmt: skip
 
