@@ -130,6 +130,14 @@ for LAY in $("${PY[@]}" layouts); do
   JL=$!
   docker logs -f "$VC" > "$D/verifier.log" 2>&1 &
   VL=$!
+  # D-630: the run starts only when both followers are attached. A running server has written lines and
+  # `docker logs -f` prints them at once, so a log file that holds something means its follower is there
+  for _ in $(seq 150); do
+    [ -s "$D/judge.log" ] && [ -s "$D/verifier.log" ] && break
+    sleep 0.2
+  done
+  [ -s "$D/judge.log" ] && [ -s "$D/verifier.log" ] \
+    || echo "note: a server's log is still empty after 30 s ($D/judge.log, $D/verifier.log); the run goes on" >&2
   if [ -n "$QUALIFY" ]; then read -r -a QCMD <<< "$QUALIFY"; else QCMD=(python3 -m tools.trialbox eval qualify); fi
   "${QCMD[@]}" --profile shared-quota --gateway-url "$GATEWAY" --server-log "$D/judge.log" \
     --server-log "$D/verifier.log" --operator "$OPERATOR" --out "$D/qualification" ${EXTRA[@]+"${EXTRA[@]}"} || true
