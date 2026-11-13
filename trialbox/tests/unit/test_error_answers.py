@@ -41,9 +41,9 @@ OWN_TEXT: dict[str, frozenset[str]] = {
             "', '.join(unknown)",
             "='No valid alliance table:\\n' + '\\n'.join((f'- {p}' for p in problems[:20]))",
             "='No valid rows: ' + '; '.join(errors[:10])",
-            "='Not submitted to NHI — ' + '; '.join(gaps) + '.'",
-            "='The bundle did not pass validation/pre-check and will not be submitted:\\n' + "
-            "'\\n'.join((f'- {p}' for p in problems[:20]))",
+            "='Not submitted to NHI — ' + '; '.join(gaps) + '.'",  # D-707: the gaps hold no engine's words
+            "len(problems)",
+            "rep.filename",
             "=RESTORE_HELD",
             "=_ingest_ended(st)",
             "=_ingest_errors(report)",
