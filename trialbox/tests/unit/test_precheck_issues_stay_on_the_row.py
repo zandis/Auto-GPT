@@ -14,8 +14,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from orchestrator.clients import StepFailed
 from orchestrator.scenarios import submit
-from orchestrator.scenarios.submit import StepFailed
 
 PID = "ab" * 16
 VALUE = "A1234567"
