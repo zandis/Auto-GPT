@@ -323,6 +323,18 @@ def _issue_line(fname: str, issue: dict[str, Any]) -> str:
     return f"{name} {place}: {kind}" + (f" ({mid})" if mid else "")
 
 
+def _parse_problem(exc: Exception) -> str:
+    """What the night's report keeps of a resource the R4B model refused (D-669): pydantic's count line
+    ("1 validation error for Patient"), made from the error's own count and model name, never from its text (its
+    other lines quote the value); any other error is its type."""
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError) and re.fullmatch(r"[A-Za-z]+", str(exc.title)):
+        n = exc.error_count()
+        return f"{n} validation error{'' if n == 1 else 's'} for {exc.title}"
+    return type(exc).__name__
+
+
 class StructuralValidator:
     """Fallback: R4B model parsing + SPEC §3.1 required elements (no profile/terminology checks)."""
 
@@ -336,11 +348,7 @@ class StructuralValidator:
             try:
                 get_fhir_model_class(r["resourceType"]).model_validate(r)
             except Exception as exc:
-                # D-669: pydantic's first line ("1 validation error for Patient") holds no value; its other lines,
-                # and any other error's text, can
-                first = (str(exc).splitlines() or [""])[0]
-                counted = re.fullmatch(r"\d+ validation errors? for [A-Za-z]+", first)
-                problems.append(first if counted else type(exc).__name__)
+                problems.append(_parse_problem(exc))
             if problems:
                 errors += 1
                 messages.append(f"{r['resourceType']}/{r['id']}: {'; '.join(problems)}")
