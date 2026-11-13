@@ -17,7 +17,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from tb_common import chartno
+from tb_common import chartno, sheets
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
 from tb_contracts import RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
@@ -218,6 +218,7 @@ class CandidateRegistry:
             for col in range(1, sheet.max_column + 1):
                 sheet.column_dimensions[get_column_letter(col)].width = 18
         buf = io.BytesIO()
+        sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
         wb.save(buf)
         return normalize_ooxml(buf.getvalue())
 

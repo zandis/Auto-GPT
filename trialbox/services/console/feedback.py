@@ -31,6 +31,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
 from starlette.routing import Match
+from tb_common import sheets
 from tb_common.csvfile import for_spreadsheet
 
 from console import i18n_feedback
@@ -178,7 +179,8 @@ def export_csv(entries: list[Entry]) -> str:
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, lineterminator="\n")
     w.writeheader()
-    w.writerows(export_rows(entries))
+    # NEW-CSV-1 (D-549): a comment is typed text; no cell of the file runs as a formula in a spreadsheet
+    w.writerows({k: sheets.csv_cell(v) for k, v in row.items()} for row in export_rows(entries))
     return buf.getvalue()
 
 
