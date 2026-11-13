@@ -2,8 +2,9 @@
 
 - **Task:** NEW-TRUST-1 (the owner's ruling of 2026-11-12 on a finding left open by the review of T-712, #308;
   `docs/plan/33-plan-v7.md` section 5, wave 1, lane C)
-- **PR:** this branch (`agent/NEW-TRUST-1-fhir-store-role`), stacked on T-718 (#337): it uses that card's
-  `ComposeBox.ensure_fhir_password` and lane D's `db-up` steps (the update runs the role script)
+- **PR:** this branch (`agent/NEW-TRUST-1-fhir-store-role`), on lane D's UPDATE-DBUP (#433): its own
+  `ComposeBox.ensure_fhir_password` as a pre-start step, and lane D's `db-up` steps (the update runs the role
+  script)
 - **Date:** 2026-11-12
 - **Status:** proposed (merges on green CI)
 - **Builds on:** D-378 (one role per service), D-481 (a service holds its own role's password only), D-121 (one
@@ -49,6 +50,18 @@ an allowed holder.
    which BRINGS this release is run by the release before it, whose steps knew none of this. Lane D's two
    commands are the answer; a box must be on a release that has `db-up` before it takes this one
    (`min_installed_version`, lane D's rule). A new box is not affected. No box is in the field.
+   **The review of this rework (one fresh reviewer; verdict: merge, no HIGH).** It traced the update: the new
+   compose file gives the database service one more setting, so the `database` step recreates the container,
+   which then mounts this release's script and holds the password. Six planted mistakes in the order and the
+   hand-over were each caught by the tests. Changed after it: a quoted example value counts as "not set"; the
+   updater's fallback for a tree from before the commands makes no password (such a tree has no FHIR role and
+   its database container would never be given one). **Left as limits:** `db-up` run by hand without
+   `pre-start` on an older `.env` makes the role with no password and still reports the step done (the update
+   and `install.sh` always run `pre-start` first; a guard would be one more line in lane D's step list, whose
+   order its tests pin: offered to lane D). Nothing checks that the bundle names a minimum installed release
+   that has `db-up` (lane D's release rule; a box on an older release would fail at the FHIR store's health
+   check and roll back, loudly, instead of being refused first). A box whose `.env` has no admin URL gets the
+   password but no role (a stack made by hand; `install.sh` always writes the URL).
 5. **After a restore** the dump is loaded by the superuser, so the tables are the superuser's again: the role
    script is run after a restore (as D-378 already asks) and moves them.
 6. `ADMIN_HOLDERS["POSTGRES_PASSWORD"]` is the database server alone. The unit test over every compose file set

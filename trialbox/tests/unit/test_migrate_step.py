@@ -104,15 +104,23 @@ def test_the_update_gives_the_fhir_store_a_password_before_the_database_step(tmp
     assert again == made
 
 
-def test_a_placeholder_password_is_replaced_and_a_tree_without_the_command_still_gets_one(tmp_path: Path) -> None:
-    box, _calls = _box(tmp_path, "TB_DB_PW_FHIR_STORE=change-me-fhir\n")
-    assert box.ensure_fhir_password() is True
-    assert "change-me" not in (tmp_path / "deploy" / ".env").read_text()
-    (tmp_path / "b").mkdir()
-    box, _calls = _box(tmp_path / "b", "X=1\n")
+def test_a_placeholder_password_is_replaced_also_when_it_is_quoted(tmp_path: Path) -> None:
+    """The review: compose strips the quotes, so a quoted example value would have stayed the role's password."""
+    for n, line in enumerate(("TB_DB_PW_FHIR_STORE=change-me-fhir", 'TB_DB_PW_FHIR_STORE="change-me-fhir"',
+                              "TB_DB_PW_FHIR_STORE='change-me-fhir'", "TB_DB_PW_FHIR_STORE=")):  # fmt: skip
+        (tmp_path / str(n)).mkdir()
+        box, _calls = _box(tmp_path / str(n), line + "\n")
+        assert box.ensure_fhir_password() is True, line
+        assert "change-me" not in up._env_file(tmp_path / str(n) / "deploy" / ".env")["TB_DB_PW_FHIR_STORE"]
+
+
+def test_the_updaters_fallback_for_an_older_tree_makes_no_fhir_password(tmp_path: Path) -> None:
+    """The review: the fallbacks run for a tree from before the commands, which has no FHIR role and whose database
+    container would never be given the password: the step belongs to this release's tree only."""
+    box, _calls = _box(tmp_path, "X=1\n")
     box.resolve_pins = lambda: None  # type: ignore[method-assign]
-    box.pre_start()  # no host tree with the command: the updater's own fallback
-    assert "TB_DB_PW_FHIR_STORE=" in (tmp_path / "b" / "deploy" / ".env").read_text()
+    box.pre_start()
+    assert "TB_DB_PW_FHIR_STORE" not in (tmp_path / "deploy" / ".env").read_text()
 
 
 def _box_again(tmp_path: Path) -> tuple[up.ComposeBox, list[tuple[list[str], dict[str, str]]]]:

@@ -1235,6 +1235,12 @@ class ComposeBox(_DockerImages):
         self.run(self._c("up", "-d", "--pull", self._pull(), "--wait", "--wait-timeout", t, "db"), timeout=int(t) + 120)
         return "on this release's settings"
 
+    def fhir_password_set(self) -> bool:
+        """Whether ``.env`` holds a password for the FHIR store's role: not empty and not the example file's
+        placeholder, quoted or not (compose strips the quotes)."""
+        fhir = self.env.get(FHIR_PW, "").strip().strip("'\"")
+        return bool(fhir) and not fhir.startswith("change-me")
+
     def ensure_fhir_password(self) -> bool:
         """D-541 (NEW-TRUST-1): a box installed before the FHIR store had a role of its own has no password for it
         in ``.env``. Made here, a pre-start step (``tools/trialbox/prestart.py``): the database container is then
@@ -1242,8 +1248,7 @@ class ComposeBox(_DockerImages):
         environment, never from a command line. True when it was made now."""
         from tools.trialbox import svc_secrets
 
-        fhir = self.env.get(FHIR_PW, "")
-        if fhir and not fhir.startswith("change-me"):  # set; the example file's placeholder is not
+        if self.fhir_password_set():
             return False
         fhir = secrets.token_urlsafe(32)
         try:
@@ -1287,7 +1292,6 @@ class ComposeBox(_DockerImages):
         if not (root / "tools" / "trialbox" / "prestart.py").is_file():
             self.resolve_pins()
             self.ensure_model_key()
-            self.ensure_fhir_password()  # D-541: this release's own step, when the tree has no command to run it
             return
         self._new_tree("pre-start", root, deploy)
 
