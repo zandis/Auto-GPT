@@ -31,6 +31,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
 from starlette.routing import Match
+from tb_common.csvfile import for_spreadsheet
 
 from console import i18n_feedback
 from console.home import Helpers
@@ -239,7 +240,7 @@ def register(app: FastAPI, h: Helpers, store: FeedbackStore | None = None) -> Fe
         rows = fb.entries()
         h.au.append("feedback.export", actor=h.actor(sess), detail={"entries": len(rows)})
         return Response(
-            export_csv(rows),
+            for_spreadsheet(export_csv(rows)),
             media_type="text/csv; charset=utf-8",
             headers={"content-disposition": 'attachment; filename="feedback.csv"'},
         )

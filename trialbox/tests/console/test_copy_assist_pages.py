@@ -111,6 +111,7 @@ def test_copy_assist_sheet_ticks_and_file(eb: dict[str, Any]) -> None:  # noqa: 
     # the plain file: the same sheet, through the export ledger
     f = crc.get(f"/studies/GZQO/edc/copy.csv?record={NO}")
     assert f.status_code == 200 and f.headers["content-type"].startswith("text/csv")
+    assert f.content.startswith(b"\xef\xbb\xbf")  # the byte order mark: Excel reads the file as UTF-8
     rows = list(csv.DictReader(io.StringIO(f.content.decode("utf-8-sig"))))
     assert [(x["item"], x["value"]) for x in rows] == [("sex", "1"), ("weight", "72.5")]
     assert rows[0]["word"] == "Male" and rows[0]["copied_by"] == "" and rows[1]["copied_by"] == "crc"

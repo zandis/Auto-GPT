@@ -138,7 +138,8 @@ def test_exports_download_from_the_console(dcb: dict[str, Any]) -> None:
     keys = [s.get("SubjectKey") for s in root.iter("{http://www.cdisc.org/ns/odm/v1.3}SubjectData")]
     assert keys == [no] and "入院中" in r.text
     r = c.get("/studies/GZQO/export.csv")
-    rows = list(csv.DictReader(io.StringIO(r.text)))
+    assert r.content.startswith(b"\xef\xbb\xbf")  # the byte order mark: Excel reads the file as UTF-8
+    rows = list(csv.DictReader(io.StringIO(r.content.decode("utf-8-sig"))))
     assert [(x["record_id"], x["redcap_event_name"]) for x in rows] == [(no, "event_1_arm_1"), (no, "v1")]
     assert rows[1]["vs_missed_reason"] == "入院中" and CHART_NO not in r.text
     r = c.get("/studies/GZQO/export.xlsx")

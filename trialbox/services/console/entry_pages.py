@@ -30,6 +30,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import permit
+from tb_common.csvfile import for_spreadsheet
 
 from console import actor, s28
 from console.api_first import before_body, page_twin
@@ -377,6 +378,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             name, media, data = read_export(sess, rs, SUFFIX_FORMAT.get(fmt, fmt))
         except (Problem, Unavailable) as exc:
             raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+        if media.startswith("text/csv"):
+            data = for_spreadsheet(data)  # a file a person opens: Excel reads it as UTF-8 only with the mark
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.post("/studies/{rs}/forms/builtin")

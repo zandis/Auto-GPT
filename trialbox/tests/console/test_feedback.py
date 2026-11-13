@@ -58,7 +58,8 @@ def _export(b: dict[str, Any]) -> list[dict[str, str]]:
     c, _ = login(b["app"])
     r = c.get("/feedback/export.csv")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
-    return list(csv.DictReader(io.StringIO(r.text)))
+    assert r.content.startswith(b"\xef\xbb\xbf")  # the byte order mark: Excel reads the file as UTF-8
+    return list(csv.DictReader(io.StringIO(r.content.decode("utf-8-sig"))))
 
 
 # ---------------------------------------------------------------------------------------------- every page

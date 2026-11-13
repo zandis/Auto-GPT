@@ -153,10 +153,13 @@ def test_the_report_file_is_guarded_audited_and_safe_in_a_spreadsheet(box: dict[
     assert crc.get(f"/audit/patients/{A}/report.csv").status_code == 403
     r = _dpo(box).get(f"/audit/patients/{A}/report.csv", params={"kind": "reveal"})
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
-    rows = list(csv.DictReader(io.StringIO(r.text)))
+    assert r.content.startswith(b"\xef\xbb\xbf")  # the byte order mark: Excel reads the file as UTF-8
+    rows = list(csv.DictReader(io.StringIO(r.content.decode("utf-8-sig"))))
     assert {x["event"] for x in rows} == {"console.reveal_patient", "console.reveal_refused"}
     assert {x["pid"] for x in rows} == {A}
-    every = list(csv.DictReader(io.StringIO(_dpo_again(box).get(f"/audit/patients/{A}/report.csv").text)))
+    every = list(
+        csv.DictReader(io.StringIO(_dpo_again(box).get(f"/audit/patients/{A}/report.csv").content.decode("utf-8-sig")))
+    )
     bg = next(x for x in every if x["event"] == "console.breakglass_use")
     assert bg["reason"].startswith("'=")  # a formula is written as text
     assert bg["label"] == "Break-glass grant used"
