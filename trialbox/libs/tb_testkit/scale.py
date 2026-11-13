@@ -26,6 +26,7 @@ failure from its size up: it must fail, and a pass fails the gate until the line
 from __future__ import annotations
 
 import contextlib
+import csv
 import os
 import re
 import shutil
@@ -37,6 +38,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from typing import IO, Any
 
@@ -493,3 +495,136 @@ def markdown(rows: Sequence[Mapping[str, Any]], head: Sequence[str], runs: Seque
         "row turns it red).",
     ]
     return "\n".join(out) + "\n"
+
+
+# ------------------------------------------------------------------------------------------- the dense profile
+#: The dense profile (plan v7, wave 1, T-687; PERF-002): what one patient's chart holds. Not limits of the product:
+#: the definition of the test hospital the night is measured on, from the plan's own words ("about 500 records and
+#: 40 notes per patient").
+DENSE_RECORDS = 500
+DENSE_NOTES = 40
+#: The feed's tables that are the chart's structured records; ``note`` is counted apart. The others (people, staff,
+#: consent, bookings, claims) are not thickened: a patient is still one person with one consent.
+RECORD_TABLES = ("encounter", "diagnosis", "lab", "medication", "vital", "procedure", "report")
+_STEP_DAYS = 7  # a copy is whole weeks earlier: a clinic day stays a clinic day, an order of events stays an order
+_KEEP_DATES = ("birth_date", "death_date")
+
+
+def _count_rows(path: Path) -> int:
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        return max(0, sum(1 for _ in csv.reader(fh)) - 1)
+
+
+def _earlier(value: str, days: int) -> tuple[str, date] | None:
+    """``value`` (``YYYY-MM-DD`` with or without a time) ``days`` earlier, in its own form, and its day; None when
+    it is not a date."""
+    head, sep, rest = value.partition(" ")
+    try:
+        day = date.fromisoformat(head) - timedelta(days=days)
+    except ValueError:
+        return None
+    return f"{day.isoformat()}{sep}{rest}", day
+
+
+def densify(src: Path, out: Path, records: int = DENSE_RECORDS, notes: int = DENSE_NOTES) -> dict[str, Any]:
+    """Thicken the generated feed in ``src`` (the CSV tables ``tools.make_fixtures.write_site`` writes) into ``out``
+    until it has ``records`` structured records and ``notes`` notes per patient.
+
+    Every row of a chart table is written once as it is and then again as copies: copy ``c`` has the row's key with
+    ``c`` appended (three digits), every date of the row ``c`` weeks earlier, and the same patient; a row that
+    names its encounter names a copy of that encounter. A copy that would fall before the patient's birth is left
+    out, and so is a row whose encounter copy was. How many copies comes from the feed itself: the smallest number
+    that meets the target, counted, not estimated, so the profile holds for any generator and any size. In
+    streams, row by row: 50,000 dense patients are tens of millions of rows and are never held in memory. The same
+    input gives the same bytes.
+
+    Returns the facts of the result (patients, copies, records and notes per patient)."""
+    out.mkdir(parents=True, exist_ok=True)
+    with (src / "patient.csv").open(encoding="utf-8-sig", newline="") as fh:
+        born = {r["mrn"]: date.fromisoformat(r["birth_date"]) for r in csv.DictReader(fh) if r.get("birth_date")}
+    patients = max(1, len(born))
+    for needed in ("encounter", "note"):
+        if not (src / f"{needed}.csv").is_file() or not _count_rows(src / f"{needed}.csv"):
+            raise ValueError(f"the feed has no {needed} rows to thicken")
+
+    def count(tables: Sequence[str], k: int, k_enc: int) -> int:
+        gone: set[str] = set()
+        return sum(_thicken(src, None, t, k, born, k_enc, gone) for t in tables)
+
+    thin_records = count(RECORD_TABLES, 1, 1)
+    k_rec = max(1, -(-records * patients // thin_records))
+    while count(RECORD_TABLES, k_rec, k_rec) < records * patients:
+        k_rec += 1
+    k_note = max(1, -(-notes * patients // _count_rows(src / "note.csv")))
+    while count(("encounter", "note"), k_note, k_rec) - count(("encounter",), k_note, k_rec) < notes * patients:
+        k_note += 1
+    written: dict[str, int] = {}
+    gone: set[str] = set()  # encounter copies left out (before the patient's birth): no row names one
+    for table in RECORD_TABLES:  # the encounter first: the others name its copies
+        written[table] = _thicken(src, out, table, k_rec, born, k_rec, gone)
+    written["note"] = _thicken(src, out, "note", k_note, born, k_rec, gone)
+    for path in sorted(src.glob("*.csv")):
+        if path.stem not in written:
+            shutil.copyfile(path, out / path.name)
+    total = sum(written[t] for t in RECORD_TABLES)
+    return {
+        "patients": patients,
+        "record_copies": k_rec,
+        "note_copies": k_note,
+        "records": total,
+        "notes": written["note"],
+        "records_per_patient": round(total / patients, 1),
+        "notes_per_patient": round(written["note"] / patients, 1),
+    }
+
+
+def _thicken(
+    src: Path, out: Path | None, table: str, k: int, born: Mapping[str, date], k_enc: int, gone: set[str]
+) -> int:
+    """Write ``table`` with ``k`` copies per row, the original included (count only when ``out`` is None).
+    ``k_enc``: how many copies an encounter has; ``gone``: the encounter copies left out, filled while the
+    encounter table is written and read by the tables after it. Returns the rows written."""
+    path = src / f"{table}.csv"
+    if not path.is_file():
+        return 0
+    n = 0
+    with contextlib.ExitStack() as stack:
+        reader = csv.DictReader(stack.enter_context(path.open(encoding="utf-8-sig", newline="")))
+        fields = list(reader.fieldnames or [])
+        if not fields:  # a table the generator wrote without a single row has no header either
+            if out is not None:
+                shutil.copyfile(path, out / path.name)
+            return 0
+        writer = None
+        if out is not None:
+            writer = csv.DictWriter(
+                stack.enter_context((out / path.name).open("w", encoding="utf-8", newline="")), fieldnames=fields
+            )
+            writer.writeheader()
+        key = fields[0]
+        dates = [f for f in fields if f not in _KEEP_DATES and (f.endswith("_date") or f.endswith("_datetime"))]
+        for row in reader:
+            n += 1
+            if writer is not None:
+                writer.writerow(row)
+            birth = born.get(row.get("mrn", ""))
+            for c in range(1, k):
+                copy = dict(row)
+                copy[key] = f"{row[key]}{c:03d}"
+                if key != "enc_no" and copy.get("enc_no") and c % k_enc:
+                    copy["enc_no"] = f"{copy['enc_no']}{c % k_enc:03d}"
+                alive = copy.get("enc_no") not in gone or key == "enc_no"
+                for col in dates:
+                    got = _earlier(row[col], _STEP_DAYS * c) if row[col] else None
+                    if got is None:
+                        continue
+                    copy[col] = got[0]
+                    alive = alive and (birth is None or got[1] >= birth)
+                if not alive:
+                    if key == "enc_no":
+                        gone.add(copy[key])
+                    continue
+                n += 1
+                if writer is not None:
+                    writer.writerow(copy)
+    return n

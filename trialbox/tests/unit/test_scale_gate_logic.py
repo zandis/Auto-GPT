@@ -364,3 +364,23 @@ def test_a_stand_in_that_never_answers_is_an_error(tmp_path: Path, monkeypatch: 
     with pytest.raises(RuntimeError, match="did not start"):
         m.start()
     m.stop()
+
+
+def test_the_gate_with_the_dense_profile(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T-687, the dense profile: the same night on a hospital whose charts are about 500 records and 40 notes
+    thick. Small here (the nightly job runs 50,000); every part runs and the report says what was measured."""
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    rep = sg.run(_params(tmp_path, patients=30, profile="dense", outage_s=0.0, restart_after=0))
+    facts = rep.profile_facts
+    assert facts["patients"] == 30
+    assert scale.DENSE_RECORDS <= facts["records_per_patient"] < scale.DENSE_RECORDS * 1.1
+    assert scale.DENSE_NOTES <= facts["notes_per_patient"] < scale.DENSE_NOTES * 1.1
+    rows = {r["check"]: r for r in rep.rows()}
+    assert set(rows) == set(sg.CHECKS), rows
+    for cid in ("ingest.night_under_cap", "rebuild.under_cap", "publish.recorded_once", "screen.ends_under_cap",
+                "backup.ends"):  # fmt: skip
+        assert rows[cid]["state"] == scale.PASS, rows[cid]
+    assert rep.numbers["ingest"]["records"] >= facts["records"]  # the night took the whole thick feed
+    md = (tmp_path / "gate" / "scale_gate.md").read_text(encoding="utf-8")
+    assert "(dense profile)" in md and "dense profile: " in md
+    assert rep.to_json()["profile"] == "dense"
