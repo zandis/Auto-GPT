@@ -12,11 +12,12 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, feedguard, labvalue
+from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -29,7 +30,15 @@ from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import Spool, is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
-from adapter.validate.validator import Hl7Validator, Sampler, StructuralValidator, missing_required
+from adapter.validate.validator import (
+    Hl7Validator,
+    Sampler,
+    StructuralValidator,
+    capped_types,
+    missing_required,
+    sample_cap,
+    sample_size,
+)
 
 log = logging.getLogger("adapter")
 Resource = dict[str, Any]
@@ -535,6 +544,7 @@ def _run_ingest(
     fhir_profiles = ""
     source: Source | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
+    left_out: dict[str, set[str]] = {}  # D-528: type -> ids a row of a delta night no longer gives
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
@@ -571,7 +581,13 @@ def _run_ingest(
             check_delta(mapping, source_kind)
             at["step"] = "read"
         # T-106b (DATA-010): every resource carries its source row, mapping version and the night it was ingested
-        mapper = Mapper(mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz))
+        # D-593 (lane E's hunk): the mapper may ask the box's reference data (ICD-9-CM to ICD-10-CM, D-592);
+        # no pack loaded or no database answers nothing, and nothing is mapped
+        check_lookup_factors(mapping)  # D-527: a factor typed wrongly ends the night here, not row by row
+        mapper = Mapper(
+            mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
+            concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),
+        )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
@@ -656,11 +672,27 @@ def _run_ingest(
             for row in rows:
                 try:
                     mapped = list(mapper.map_table(table, iter([row])))
-                except ValueError as exc:
+                except (ValueError, ArithmeticError) as exc:
+                    # NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits:
+                    # decimal.InvalidOperation) is a row it cannot read, as a ValueError is; it ended the night before
                     rejected[reject_key(exc)] += 1
                     continue
                 for res in mapped:
                     to_spool(res)
+                if since:
+                    # NEW-B-7 (D-528): on a delta night the snapshot is the night before with tonight's records
+                    # over it. A row the mapping now leaves out (a ``where`` it no longer passes: a booking whose
+                    # status became a code the map does not know) wrote nothing and removed nothing, so its
+                    # record of the night before stayed as it was. What the row gave before and does not give
+                    # tonight is removed, a record an earlier row of this run gave included. Not a tombstone: the
+                    # source did not delete it, so it is not in tombstones.json (OMOP says "left the feed")
+                    made = {(str(res.get("resourceType")), str(res.get("id"))) for res in mapped}
+                    for rtype, rid in made:  # the last row of a key decides (DATA-017): given again, it stays
+                        if rtype in left_out:
+                            left_out[rtype].discard(rid)
+                    for rtype, rid in mapper.tombstones(table, iter([row])):
+                        if (rtype, rid) not in made:
+                            left_out.setdefault(rtype, set()).add(rid)
             if rejected:
                 n_bad = sum(rejected.values())
                 tables[table]["rejected"] = dict(sorted(rejected.items()))
@@ -712,6 +744,7 @@ def _run_ingest(
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
+    cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
     night = _NightPass(
         zone,
         unit_defaults,
@@ -720,6 +753,7 @@ def _run_ingest(
         counts,
         cfg.sample_fraction if validate else None,
         cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
+        cap,
     )
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
@@ -745,7 +779,10 @@ def _run_ingest(
         prior_record: str | None = (out_dir / PUBLISH_RECORD).read_text(encoding="utf-8")
     except OSError:
         prior_record = None
-    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night)
+    removed: dict[str, int] = {}
+    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed)
+    if removed:  # D-528: counts per record type only
+        log.info("records the feed's rows no longer give were removed: %s", dict(sorted(removed.items())))
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
     defaulted, presence_read, shifted, aliased = (
         night.defaulted,
@@ -810,7 +847,10 @@ def _run_ingest(
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
+        # T-693 (D-457): the sample is each type's share, at least 3 and at most a cap derived from the gate's own
+        # limit (settable); the report names the cap and the types it cut. Taken from the stream (T-692)
         picked = night.sample.result() if night.sample is not None else []
+        cut = capped_types(night.kept, cfg.sample_fraction, cap=cap)
         try:
             vres = chosen.validate(picked)
             vsum = ValidationSummary(
@@ -819,6 +859,8 @@ def _run_ingest(
                 error_pct=round(vres.error_pct, 3),
                 validator=vres.validator,
                 messages=vres.messages,
+                sample_cap=cap,
+                capped=cut or None,
             )
         except Exception as exc:
             errors.append(f"validation failed to run: {exc}")
@@ -1151,6 +1193,7 @@ class _NightPass:
         counts: dict[str, int],
         fraction: float | None,
         per_type: int | None,
+        cap: int | None = None,
     ) -> None:
         from lake.flatten import Unread  # the inbound FHIR contract (T-616), the lake's own reading
 
@@ -1159,8 +1202,11 @@ class _NightPass:
         self.missing: Counter[str] = Counter()
         self.unread = Unread()
         kept = {**counts, "Patient": counts.get("Patient", 0) - aliases.dropped}
+        self.kept = kept  # what the sample is taken from, by type (the report names the types the cap cut)
         self.sample = (
-            Sampler("trialbox", lambda t: max(3, round(kept.get(t, 0) * fraction))) if fraction is not None else None
+            Sampler("trialbox", lambda t: sample_size(kept.get(t, 0), fraction, 3, cap))
+            if fraction is not None
+            else None
         )
         self.jp_sample = Sampler("jp-core", lambda _t: per_type) if per_type is not None else None
 
@@ -1242,13 +1288,31 @@ def reject_key(exc: BaseException) -> str:
     first value**, never a feed value. The message is cut at its first quote mark (the mapper writes a value with
     ``repr``; everything from there on is ``<value>``, so a value that holds quote marks of both kinds cannot end
     the cut early and leave a fragment), and a run of digits before it is ``<n>`` (a number written without quote
-    marks). The key goes into ``completeness.json``, the night's error, the audit and the log."""
+    marks). An ``ArithmeticError`` has one fixed sentence (D-527). The key goes into ``completeness.json``, the
+    night's error, the audit and the log."""
+    if isinstance(exc, ArithmeticError):  # D-527: decimal's message is a list of signal classes, not a sentence
+        return f"{type(exc).__name__}: a number the mapping cannot compute"
     text = str(exc)
     head = re.split("['\"\u2018\u2019\u201c\u201d`]", text, maxsplit=1)[0]
     cut = len(head) < len(text)
     head = re.sub(r"[0-9]+(?:[.,:/-][0-9]+)*", "<n>", head).strip()
     said = f"{head} <value>".strip() if cut else head
     return f"{type(exc).__name__}: {said}" if said else type(exc).__name__
+
+
+def check_lookup_factors(mapping: Any) -> None:
+    """Every ``factor`` of every look-up row is a finite number (empty: 1), or the load ends before its first row
+    (D-527, review). The mapper parses the factor per row; with a row's ``ArithmeticError`` now a rejected row, a
+    factor typed wrongly would reject every row of its code each night under a key that blames the feed."""
+    for name, lookup in mapping.lookups.items():
+        for code, row in lookup.rows.items():
+            text = str(row.get("factor") or "1").strip()
+            try:
+                ok = Decimal(text).is_finite()
+            except ArithmeticError:
+                ok = False
+            if not ok:
+                raise ValueError(f"look-up {name}, row {code!r}: the factor {text!r} is not a number")
 
 
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)

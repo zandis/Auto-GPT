@@ -1,4 +1,4 @@
-"""RETENTION (SPEC §10.3; daily at ``settings.schedule.retention``; DECISIONS D-78).
+"""RETENTION (SPEC §10.3; every night, the last step of the night's chain: T-726, D-492; DECISIONS D-78).
 
 * inbound attachments (``attachments/``) older than ``retention.attachments_days`` and outputs (``outputs/``, plus the
   public ClinicalTrials.gov cache ``ctgov/``) older than ``retention.outputs_days`` are deleted from the object store;

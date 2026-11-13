@@ -310,7 +310,7 @@ def _orch(snapshot: date | None = date(2026, 10, 4)) -> Any:
 def test_the_weekly_job_draws_ten_per_study_once(monkeypatch: pytest.MonkeyPatch) -> None:
     from orchestrator import notmatched_sample
 
-    monkeypatch.setattr(notmatched_sample, "opted_out", lambda: frozenset({PIDS[5]}))
+    monkeypatch.setattr(notmatched_sample, "register_now", lambda: frozenset({PIDS[5]}))
     orch = _orch()
     day = date(2026, 11, 9)
     assert notmatched_sample.weekly(orch, today=day, env={"TB_ENV": "TEST"}) == {"GZQO": 10}
@@ -324,7 +324,7 @@ def test_the_weekly_job_draws_ten_per_study_once(monkeypatch: pytest.MonkeyPatch
 def test_the_weekly_job_holds_a_study_without_a_passed_check(monkeypatch: pytest.MonkeyPatch) -> None:
     from orchestrator import notmatched_sample
 
-    monkeypatch.setattr(notmatched_sample, "opted_out", frozenset)
+    monkeypatch.setattr(notmatched_sample, "register_now", frozenset)
     orch = _orch(snapshot=None)
     assert notmatched_sample.weekly(orch, today=date(2026, 11, 9), env={"TB_ENV": "PRODUCTION"}) == {}
     assert orch.audit.events == [("notmatched.held", {"ruleset": "GZQO", "detail": {"week": "2026-W46"}})]
@@ -340,7 +340,7 @@ def test_the_weekly_job_draws_nothing_when_the_register_does_not_answer(monkeypa
     def down() -> frozenset[str]:
         raise OSError("register down")
 
-    monkeypatch.setattr(notmatched_sample, "opted_out", down)
+    monkeypatch.setattr(notmatched_sample, "register_now", down)
     assert notmatched_sample.weekly(_orch(), today=date(2026, 11, 9), env={"TB_ENV": "TEST"}) == {}
     assert NotMatchedStore().sample("GZQO", "2026-W46") == []
 

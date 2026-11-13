@@ -450,6 +450,8 @@ spec:
             - {name: TB_CONSOLE_DIR, value: "/data/console"}
             - {name: TB_AUDIT_DIR, value: "/data/audit"}
             - {name: TB_RULESETS_DIR, value: "/data/rulesets"}
+            # T-717 (D-485): the console's own key that signs people (Secret trialbox-actor-sign), never its token
+            - {name: TB_ACTOR_SIGN_KEY_FILE, value: "/etc/trialbox/actor-sign/key"}
             - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
           ports: [{containerPort: 8090}]
           readinessProbe: {httpGet: {path: /healthz, port: 8090}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
@@ -464,9 +466,11 @@ spec:
             - {name: audit-data, mountPath: /data/audit}
             - {name: rulesets-data, mountPath: /data/rulesets, readOnly: true}
             - {name: objects-data, mountPath: /data/objects}
+            - {name: actor-sign, mountPath: /etc/trialbox/actor-sign, readOnly: true}
       volumes:
         - {name: settings, configMap: {name: trialbox-settings}}
         - {name: token, secret: {secretName: trialbox-token-console, defaultMode: 0440}}
+        - {name: actor-sign, secret: {secretName: trialbox-actor-sign, defaultMode: 0440}}
         - {name: token-registry, configMap: {name: trialbox-service-tokens}}
         - {name: tmp, emptyDir: {}}
         - {name: console-data, persistentVolumeClaim: {claimName: console-data}}

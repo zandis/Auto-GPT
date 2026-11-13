@@ -1,26 +1,34 @@
 # Offline media layout (D-125, D-138)
 
 The Windows workstation never reaches the internet, at install or after (D-125). Everything comes on one USB disk
-or a hospital file share, made by Aimedics from a signed release. This is the layout the offline installer will read;
-the installer itself is built after the platform (after plan v4 step 9). Until then an Aimedics engineer follows
-`WINDOWS-INSTALL-CHECKLIST.md` with these files.
+(or the same folder copied to a local drive; a mapped network drive is not used: a window that runs as
+administrator does not see another sign-in's mapped drives), made by Aimedics from a signed release. The box owner starts
+`Install-TrialBox.cmd`; `windows/box-install.ps1` reads this layout (NEW-WIN-1, D-600). It checks every file it
+uses against `SHA256SUMS` before it changes anything, and stops when one is missing, unlisted or damaged.
 
 ```
 TRIALBOX-<version>/                      one folder per release, read-only on the disk
   README.txt                             version, date, sha256 of every file below, who built it
   SHA256SUMS                             sha256 of every file; SHA256SUMS.sig: Ed25519 by the vendor key
+  Install-TrialBox.cmd                   deploy/windows/Install-TrialBox.cmd: what the box owner double-clicks
   windows/
-    preflight.ps1                        deploy/windows/preflight.ps1
-    wsl/wsl.<version>.x64.msi            WSL itself (the Store is not used)
-    wsl/ubuntu-24.04-wsl-amd64.tar.gz    the Linux root file system, imported with `wsl --import`
-    wsl/wslconfig.template               .wslconfig: memory, swap=0, processors
-    nvidia/<driver>-win11-win10-...exe   the NVIDIA Windows driver (WSL2 uses it; no Linux driver)
+    box-install.ps1                      deploy/windows/box-install.ps1, the installer (NEW-WIN-1)
+    box-install.messages.json            its messages in en, ja and zh-TW
+    wsl-setup.sh                         its steps inside WSL2
+    preflight.ps1, host_facts.ps1        deploy/windows/: the read-only checks (D-421)
+    wsl/wsl.<version>.x64.msi            WSL itself, signed by Microsoft (the Store is not used); exactly one
+    wsl/ubuntu-24.04-wsl-amd64.tar.gz    the Linux root file system, imported with `wsl --import`; exactly one
+    nvidia/<driver>-win11-win10-...exe   the NVIDIA Windows driver (WSL2 uses it). The installer does not run it:
+                                         it stops and names this folder when the driver does not answer
   linux/
     debs/                                Docker Engine, compose plugin, nvidia-container-toolkit, nftables, cron,
-                                         and their dependencies, for Ubuntu 24.04 (apt-get install ./*.deb)
-    trialbox-<version>.tar               the signed bundle of tools/make_bundle.sh (below)
+                                         and their dependencies, for Ubuntu 24.04, installed with `dpkg -i`.
+                                         No Linux NVIDIA driver package: the installer refuses the media if one is here
+    trialbox-host.tar                    the release's host tree (`python3 -m tools.host_tree pack`): the bootstrap
+                                         unpacked to /opt/trialbox; install.sh replaces it from the signed bundle
+    trialbox-<version>.tar               the signed bundle of tools/make_bundle.sh (below); exactly one
     trialbox-<version>.tar.sha256
-    vendor_ed25519.pub                   also given out of band; the installer compares both
+    vendor_ed25519.pub                   also given out of band; the installer shows its sha256 to compare
   measured/
     serving_config.<gpu>.json            the vendor's serving record of each tier's card (tools/tiers.py)
   docs/

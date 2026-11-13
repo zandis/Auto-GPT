@@ -57,6 +57,7 @@ from tb_common.authz import Standing as Grant
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
+from console import actor as acting
 from console import s28
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -247,6 +248,31 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return user.can_approve and stand(user, rid).pi
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
+
+    def pi_missing(user: User) -> list[str]:
+        """NEW-JRN-1 (D-540): the studies this account sees whose criteria wait for approval while the delegation
+        log names no PI: nobody can approve them until the steward names one (D-380)."""
+        try:
+            waiting = st.waiting_studies(bk)
+        except Exception:  # the orchestrator is down: no task shown, the pages say so themselves
+            return []
+        return [rid for rid in waiting if user.sees_study(rid) and not names_pi(rid)]
+
+    def names_pi(rid: str) -> bool:
+        """The log names a PI who can act: an entry with an account (an entry without one approves nothing)."""
+        pi = team.pi_of(rid, today())
+        return pi is not None and bool(pi.username)
+
+    def log_or_404(sess: Session, rs: str) -> str:
+        """The delegation log's own door (D-540): a known study, or one whose first criteria wait for approval."""
+        rid = rs.strip().upper()
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or not st.log_study(bk, rid):
+            if _RS.match(rid):
+                au.append("console.denied", actor=h.actor(sess), detail={"action": f"study {rid}"})
+            raise h.problem(404, "notfound")
+        return rid
+
+    h.pi_missing = pi_missing
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:
@@ -544,7 +570,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if "screen" not in stand(sess.user, rid).tasks:
             raise deny(sess, path)
         ref = team.referral(rid, ref_id)
-        if ref is None or ref.pid in optout.active():
+        if ref is None or ref.pid in optout.effective():
             raise h.problem(404, "notfound")
         return rid, ref
 
@@ -587,7 +613,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         s = stand(sess.user, rid)
         if "screen" not in s.tasks:
             raise deny(sess, request.url.path)
-        on = optout.active()
+        on = optout.effective()
         refs = [r for r in team.referrals(rid) if r.pid not in on]
         latest = team.latest_referrals(rid)
         open_refs = [r for r in refs if r.open and latest[r.pid].id == r.id]
@@ -634,7 +660,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.get("/studies/{rs}/team")
     def team_page(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        rid = study_or_404(sess, rs)
+        rid = log_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         s = stand(sess.user, rid)
@@ -645,14 +671,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                       due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
                       can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
                       can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
-                      results=CHECK_RESULTS, has_pi=team.pi_of(rid, today()) is not None)  # fmt: skip
+                      results=CHECK_RESULTS, has_pi=names_pi(rid))  # fmt: skip
 
     @app.post("/studies/{rs}/team")
     async def team_add(request: Request, rs: str) -> Response:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        rid = study_or_404(sess, rs)
+        rid = log_or_404(sess, rs)
         s = stand(sess.user, rid)
         role = str(form.get("role") or "")
         writable = log_roles_for(sess, s)
@@ -670,16 +696,20 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise refused(TeamError("a CRO account is on the log only as a monitor"))
         if role == "monitor" and (acct is None or not monitor_account(acct)):
             raise refused(TeamError("a monitor grant names a CRO account of this study"))
-        if role == "monitor" and not str(form.get("end") or "").strip():
-            raise refused(TeamError("a monitor grant ends with the visit: give the end date"))
-        if role == "monitor" and not str(form.get("training_ref") or "").strip():
-            raise refused(TeamError("a monitor grant names the monitoring visit"))
+        # DEMO-JA: the visit id has its own field ("visit"; the training-certificate field is still read for it)
+        ref = str(form.get("visit") or "").strip() if role == "monitor" else ""
+        ref = ref or str(form.get("training_ref") or "").strip()
+        if role == "monitor":
+            missing = [w for w, ok in (("the last day", str(form.get("end") or "").strip()), ("the visit id", ref))
+                       if not ok]  # fmt: skip
+            if missing:  # say which field is empty (the rehearsal's refusal named none)
+                raise refused(TeamError(f"a monitor grant needs {' and '.join(missing)} of the monitoring visit"))
         tasks = [] if role == "monitor" else form.getlist("tasks")
         try:
             eid = team.add_entry(rid, username=username, name=str(form.get("name") or "").strip() or (username or ""),
                                  role=role, tasks=tasks, start=str(form.get("start") or ""),
                                  end=str(form.get("end") or ""), training_day=str(form.get("training_day") or ""),
-                                 training_ref=str(form.get("training_ref") or ""), by=sess.user.username,
+                                 training_ref=ref, by=sess.user.username,
                                  at=now())  # fmt: skip
         except TeamError as exc:
             raise refused(exc) from exc
@@ -768,7 +798,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         rec = team.irb(rid)
-        on = optout.active()
+        on = optout.effective()
         # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
         overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
@@ -827,7 +857,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         for re-consent, with their screening numbers; opted-out patients are left out."""
         day = today()
         out = s28.call(bk, "GET", f"/studies/{rid}/subjects?today={day.isoformat()}")
-        on = optout.active()
+        on = optout.effective()
         subs = [x for x in out.get("subjects") or [] if str(x.get("pid") or "") not in on]
         due = reconsent_due(subs, [v.as_row() for v in team.icf_list(rid)], day)
         nos = store.screening_nos(rid)
@@ -958,7 +988,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return RedirectResponse(f"/site/staff?done={action}", status_code=303)
 
     # ------------------------------------------------------------------ opt-out register
-    def to_pid(chart_no: str, pid: str) -> str:
+    def to_pid(sess: Session, chart_no: str, pid: str) -> str:
         pid = pid.strip()
         if pid:
             if not _PID.match(pid):
@@ -970,7 +1000,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if not _CHART.match(chart):
             raise refused(TeamError("chart numbers are letters, digits or '-'"))
         try:  # the box turns the chart number into the pseudonym at the door; the number is never stored
-            out = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
+            # T-719 (D-487): as the signed-in keeper of the register; the box refuses the console's token alone
+            out = acting.call(h, sess, "optout.keep", None, "POST", "/setup/pseudonym", {"chart_no": chart})
         except (Problem, Unavailable) as exc:
             raise h.problem(409, "request.refused",
                             reason="the box could not turn the chart number into a pseudonym") from exc  # fmt: skip
@@ -991,7 +1022,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
-        pid = to_pid(body.chart_no, body.pid)
+        pid = to_pid(sess, body.chart_no, body.pid)
         if by_chart:
             au.append(
                 "console.chart_lookup",
@@ -1119,7 +1150,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = api(request)
         rid = study_or_404(sess, rs)
         need_task(sess, rid, "screen", request.url.path)
-        on = optout.active()
+        on = optout.effective()
         nos = store.screening_nos(rid)
         return [ref_json(r, nos) for r in team.referrals(rid) if r.pid not in on]
 

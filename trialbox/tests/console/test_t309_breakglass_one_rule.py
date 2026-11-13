@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from tb_common import authz
 from tb_common.authz import permit
 
 from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - the fixture by name
@@ -54,7 +53,8 @@ def test_one_rule_for_the_administrator_and_a_non_admin_reader(box: dict[str, An
     assert reader.get(f"/studies/GZQO/patients/{B}").status_code == 403  # that patient only
     r = reader.post(f"/studies/GZQO/patients/{A}/reveal", data={"csrf": _csrf(p.text), "reason": "contact"})
     assert r.status_code == 200 and "MRN-000123" in r.text
-    assert box["backend"].signed == [("reveal", authz.BREAK_GLASS_ROLE, "*")]  # the grant's role, never the account's
+    # T-716 (D-484): the account's own role and the grant's id; the orchestrator reads the grant row
+    assert box["backend"].signed == [("reveal", who, "GZQO")] and box["backend"].grants == [str(gid)]
     # the steward and the study's PI are told at once
     assert any(
         n[0] == "BG" and "stw1@hospa.test" in n[1] and "drsato@hospa.test" in n[1] for n in box["backend"].notices

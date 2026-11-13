@@ -40,7 +40,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.authz import sae_allowed
 
-from console import i18n_sae, s28
+from console import actor, i18n_sae, s28
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.entry_pages import record_key
@@ -351,7 +351,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         if not h.permit(sess.user, "sae.ack"):
             raise deny(sess, request.url.path)
         try:
-            out = dict(s28.call(bk, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {"by": h.actor(sess)}))
+            out = dict(actor.call(h, sess, "sae.ack", rid, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {}))
         except Problem as exc:
             if exc.status == 404:
                 raise h.problem(404, "notfound") from exc

@@ -173,38 +173,62 @@ def test_a_failed_restart_keeps_both_hashes_so_nothing_is_cut_off(box: Path) -> 
 
 
 def test_only_the_console_can_name_a_signed_in_user(box: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Review 2026-11-09 S-09 (D-143): ``X-TB-Actor`` was whatever a token holder wrote. The console signs it with a
-    key derived from its own token; the orchestrator verifies it with the key file ``init`` writes for it alone."""
-    keys = sx.actor_keys_path(box)
+    """Review 2026-11-09 S-09 (D-143): ``X-TB-Actor`` was whatever a token holder wrote. T-717 (D-485): the console
+    signs it with a key of its own that ``init`` makes (never a function of its token, which every service it
+    calls receives); the orchestrator verifies with the keys file ``init`` writes for it alone."""
+    keys, sign = sx.actor_keys_path(box), sx.actor_sign_key_path(box)
     assert stat.S_IMODE(keys.stat().st_mode) == 0o600 and stat.S_IMODE(keys.parent.stat().st_mode) == 0o700
-    assert _tok(box, "console") not in keys.read_text(encoding="utf-8")  # a derived key, never the token
+    assert stat.S_IMODE(sign.stat().st_mode) == 0o600
+    key = sign.read_text(encoding="utf-8").strip()
+    assert len(key) == 64 and keys.read_text(encoding="utf-8").split() == [key]
+    assert key != sx.actor_key_hex(_tok(box, "console")) and _tok(box, "console") not in key  # nothing of the token
     _as(monkeypatch, box, "console")
+    monkeypatch.setenv(sa.ACTOR_SIGN_KEY_ENV, str(sign))  # the console's compose secret
     signed = sa.actor_header("dr_tanaka", "sess-1")
     _as(monkeypatch, box, "mail-gateway")
-    forged = sa.actor_header("dr_tanaka", "sess-1")  # the mail gateway signs with its own token
+    monkeypatch.delenv(sa.ACTOR_SIGN_KEY_ENV)  # the mail gateway holds its token and no signing key
+    assert sa.ASSERTION_HEADER not in sa.actor_header("dr_tanaka", "sess-1")  # so it signs nobody
     monkeypatch.setenv(sa.ACTOR_KEYS_ENV, str(keys))
     who = sa.verify_actor(signed[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER])
     assert who.name == "dr_tanaka" and who.session == "sess-1" and who.verified
-    for bad in (forged[sa.ASSERTION_HEADER], "", "v1.1.x.y", signed[sa.ASSERTION_HEADER].replace("sess-1", "sess-2")):
+    # what a callee of the console could make: an assertion under the key derived from the console's token
+    exp, nonce = signed[sa.ASSERTION_HEADER].split(".")[1], signed[sa.ASSERTION_HEADER].split(".")[3]
+    old_key = bytes.fromhex(sx.actor_key_hex(_tok(box, "console")))
+    derived = f"v2.{exp}.sess-1.{nonce}.{sa._actor_mac(old_key, 'dr_tanaka', 'sess-1', int(exp), nonce)}"
+    for bad in (derived, "", "v1.1.x.y", signed[sa.ASSERTION_HEADER].replace("sess-1", "sess-2")):
         with pytest.raises(sa.ActorError):
             sa.verify_actor(signed[sa.ACTOR_HEADER], bad)
     with pytest.raises(sa.ActorError, match="expired"):  # short-lived
         sa.verify_actor(signed[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER], now=__import__("time").time() + 600)
     with pytest.raises(sa.ActorError):  # another name under the console's assertion
-        sa.verify_actor(sa.actor_header("dr_sato")[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER])
+        sa.verify_actor("dr_sato", signed[sa.ASSERTION_HEADER])
     monkeypatch.delenv(sa.ACTOR_KEYS_ENV)  # a registry and no key file: nothing verifies (fail closed)
     with pytest.raises(sa.ActorError):
         sa.verify_actor(signed[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER])
-    # a console rotation keeps the old key valid until the console restarted, then drops it
-    old = _tok(box, "console")
+    # the console's token and its signing key are two secrets: a token rotation leaves the key
     calls: list[tuple[list[str], str | None]] = []
     sx.rotate(box, ["console"], runner=_runner(calls), uid=None)
-    assert keys.read_text(encoding="utf-8").split() == [sx.actor_key_hex(_tok(box, "console"))]
-    assert sx.actor_key_hex(old) not in keys.read_text(encoding="utf-8")
-    over = yaml.safe_load((ROOT / "deploy/docker-compose.secrets.yml").read_text(encoding="utf-8"))["services"]
-    mounts = {n: [v for v in svc.get("volumes", []) if "actor" in v] for n, svc in over.items()}
+    assert keys.read_text(encoding="utf-8").split() == [key] == [sign.read_text(encoding="utf-8").strip()]
+    # `rotate --service actor`: a new key; the console and the orchestrator restart; the old key is dropped after
+    calls.clear()
+    res = sx.rotate(box, ["actor"], runner=_runner(calls), uid=None)
+    new = sign.read_text(encoding="utf-8").strip()
+    assert new != key and len(new) == 64 and keys.read_text(encoding="utf-8").split() == [new]
+    assert set(res.restarted) == {"console", "orchestrator"} and _tok(box, "console") not in new
+    assert sx.ensure_actor_sign_key(box, None) is False  # nothing to make: the key is kept
+    sign.unlink()
+    assert sx.ensure_actor_sign_key(box, None) is True and keys.read_text(encoding="utf-8").split() != [new]
+    over = yaml.safe_load((ROOT / "deploy/docker-compose.secrets.yml").read_text(encoding="utf-8"))
+    svcs = over["services"]
+    mounts = {n: [v for v in svc.get("volumes", []) if "actor" in v] for n, svc in svcs.items()}
     assert {n for n, m in mounts.items() if m} == {"orchestrator"}  # nobody else holds the verification key
-    assert over["orchestrator"]["environment"][sa.ACTOR_KEYS_ENV] == "/etc/trialbox/actor/keys"
+    assert svcs["orchestrator"]["environment"][sa.ACTOR_KEYS_ENV] == "/etc/trialbox/actor/keys"
+    # and nobody but the console holds the signing key
+    holders = {n for n, svc in svcs.items() if any(s.get("source") == "actor_sign_key" for s in svc.get("secrets", []))}
+    assert (
+        holders == {"console"} == {n for n, svc in svcs.items() if sa.ACTOR_SIGN_KEY_ENV in svc.get("environment", {})}
+    )
+    assert over["secrets"]["actor_sign_key"] == {"file": "./secrets/services/actor-sign.key"}
 
 
 def test_rotate_db_sends_the_passwords_on_stdin_only(box: Path) -> None:
@@ -242,7 +266,8 @@ def test_the_compose_overlay_gives_each_service_only_its_own_token() -> None:
             assert env["IMAP_PASS"] == env["CLOUD_LLM_API_KEY"] == env["TB_LLM_API_KEY"] == ""
             continue
         model_key = [{"source": "model_key", "target": "tb_llm_key"}] if name == "gateway" else []  # D-437
-        assert svc["secrets"] == [{"source": f"token_{name}", "target": "tb_service_token"}, *model_key]
+        sign_key = [{"source": "actor_sign_key", "target": "tb_actor_sign_key"}] if name == "console" else []  # D-485
+        assert svc["secrets"] == [{"source": f"token_{name}", "target": "tb_service_token"}, *model_key, *sign_key]
         assert over["secrets"][f"token_{name}"] == {"file": f"./secrets/services/{name}.token"}
         env = svc["environment"]
         assert env["TB_SERVICE_TOKEN"] == "" and env["TB_SERVICE_TOKEN_FILE"] == "/run/secrets/tb_service_token"

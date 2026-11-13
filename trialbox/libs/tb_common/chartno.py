@@ -19,7 +19,8 @@ The site's rule (``TB_CHARTNO_RULE``, set once at installation from the hospital
 * ``hex`` / ``hex:<width>`` / ``hex:<width>:lower``: a hexadecimal key; the case is made upper (or lower), and
   leading zeros are handled as for ``digits``.
 
-A number longer than ``<width>`` is never cut: two different chart numbers must never become one.
+A number longer than ``<width>`` is never cut and keeps its leading zeros (D-591): two different chart numbers must
+never become one.
 """
 
 from __future__ import annotations
@@ -112,10 +113,40 @@ def normalise(site_rule: Rule | str | None, value: str) -> str:
         if not _HEX.match(text):
             return text
         text = text.upper() if rule.case == "upper" else text.lower()
+    if rule.width and len(text) > rule.width:
+        # D-591: wider than the site's width, so its zeros are part of it. ``012345678`` under ``digits:8`` is not
+        # ``12345678``: that is another patient's number, and the two would share one pseudonym
+        return text
     core = text.lstrip("0") or "0"
     if rule.width and len(core) < rule.width:
         return core.zfill(rule.width)
     return core
+
+
+def same_number(site_rule: Rule | str | None, a: str, b: str) -> bool:
+    """Whether two chart numbers as written are one chart number under the rule. Decided here from the rule's
+    words alone, NOT through :func:`normalise`: the pid map uses it to check what the normaliser did (D-591), so
+    a fault in one is caught by the other. One number: the same text once full-width and blanks are folded; or,
+    under ``digits`` / ``hex``, both all digits (hexadecimal digits), neither wider than the width, and equal
+    without their leading zeros (and whatever the case of a hexadecimal key)."""
+    if isinstance(site_rule, Rule):
+        rule = site_rule
+    else:
+        rule = parse_rule(site_rule) if site_rule else _box_rule()
+    x, y = str(a).translate(_FULL).strip(), str(b).translate(_FULL).strip()
+    if x == y:
+        return True
+    if rule.kind == "asis":
+        return False
+    shape = _DIGITS if rule.kind == "digits" else _HEX
+    if not (shape.match(x) and shape.match(y)):
+        return False
+    x, y = x.upper(), y.upper()
+    if x == y:
+        return True
+    if rule.width and (len(x) > rule.width or len(y) > rule.width):
+        return False
+    return (x.lstrip("0") or "0") == (y.lstrip("0") or "0")
 
 
 # FIT-U09 (T-629, D-415): a chart-number column that Excel turned into numbers is refused at import, never read.

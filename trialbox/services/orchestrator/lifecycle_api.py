@@ -43,8 +43,20 @@ from datacore.store import DataCore
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from rc_bridge.client import RedcapClient
+from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
+
+from orchestrator.actor import require_actor
+
+# T-715 (D-483): the matrix rows the console asks before it calls these routes; the dependency asks them again
+ENTER = "study.setup"  # who records the participants' steps, the schedule and the study's rules (the coordinator)
+ACK = "sae.ack"  # the investigator has seen a serious adverse event
+READ = "phi.view"  # the enrolment report as a file (it is audited with the person who took it)
+AS_ENTER = require_actor(ENTER)
+AS_ENTER_OR_TIMER = require_actor(ENTER, service=True)  # the participants' refresh: also the console's notice timer
+AS_ACK = require_actor(ACK)
+AS_READ = require_actor(READ)
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -87,7 +99,6 @@ class LifeHost:
 
 class RefreshBody(BaseModel):
     screening: dict[str, str] = Field(default_factory=dict)  # screening number -> pseudonym
-    by: str
 
 
 class StepBody(BaseModel):
@@ -95,7 +106,6 @@ class StepBody(BaseModel):
     on_day: str = ""
     reason: str = Field(default="", max_length=40)
     note: str = Field(default="", max_length=300)
-    by: str
     today: str = ""
     criterion: str = Field(default="", max_length=48)  # D-387: the criterion not met, on a "not_eligible" failure
     criteria_version: str = Field(default="", max_length=24)
@@ -103,7 +113,6 @@ class StepBody(BaseModel):
 
 class UndoBody(BaseModel):
     note: str = Field(default="", max_length=300)
-    by: str
 
 
 class VisitBody(BaseModel):
@@ -117,23 +126,20 @@ class VisitBody(BaseModel):
 
 class ScheduleBody(BaseModel):
     visits: list[VisitBody]
-    by: str
     effective_from: str = ""  # D-364: the first visit day this version applies to; empty = from the start
 
 
 class AckBody(BaseModel):
-    by: str
+    """Nothing: the person who acknowledges is the verified one (T-715, D-483)."""
 
 
 class SaeRuleBody(BaseModel):
     rule_set: str
-    by: str
 
 
 class ContactRuleBody(BaseModel):
     max_attempts: int
     min_days: int
-    by: str
 
 
 class DeviationCallBody(BaseModel):
@@ -141,7 +147,6 @@ class DeviationCallBody(BaseModel):
     key: str = Field(max_length=80)
     decision: str
     reason: str = ""
-    by: str
     today: str = ""
     icf: str = Field("", max_length=40)
 
@@ -149,7 +154,6 @@ class DeviationCallBody(BaseModel):
 class ScheduleRedcapBody(BaseModel):
     token_ref: str
     anchor: str = "enrolment"
-    by: str
 
 
 def _rs(rs: str) -> str:
@@ -430,10 +434,10 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
     r = APIRouter()
 
     @r.post("/studies/{rs}/subjects/refresh")
-    def post_refresh(rs: str, body: RefreshBody) -> dict[str, Any]:
+    def post_refresh(rs: str, body: RefreshBody, who: Claim = AS_ENTER_OR_TIMER) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         nos = {k.strip().upper(): v.strip().lower() for k, v in body.screening.items() if _REC.match(k.strip())}
-        return refresh(svc, rid, nos, body.by)
+        return refresh(svc, rid, nos, who.name)
 
     @r.get("/studies/{rs}/subjects")
     def get_subjects(rs: str, today: str = "") -> dict[str, Any]:
@@ -467,37 +471,37 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         }
 
     @r.post("/studies/{rs}/subjects/{record}/step")
-    def post_step(rs: str, record: str, body: StepBody) -> dict[str, Any]:
+    def post_step(rs: str, record: str, body: StepBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life = Lifecycle(svc.dc)
         before = life.subject(rid, rec)
         try:
-            sub = life.step(rid, rec, body.to, by=body.by, at=svc.stamp(), on_day=body.on_day, reason=body.reason,
+            sub = life.step(rid, rec, body.to, by=who.name, at=svc.stamp(), on_day=body.on_day, reason=body.reason,
                             note=body.note, today=_today(svc, body.today), criterion=body.criterion,
                             criteria_version=body.criteria_version)  # fmt: skip
         except LifeError as exc:
-            svc.audit.append("life.refused", ruleset=rid, actor=body.by,
+            svc.audit.append("life.refused", ruleset=rid, actor=who.name,
                              detail={"record": rec, "to": body.to, "why": exc.why})  # fmt: skip
             raise _refused(exc) from exc
-        why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), body.by, svc.now())
+        why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), who.name, svc.now())
         crit = {"criterion": body.criterion.strip(), "criteria_version": body.criteria_version.strip()}
-        svc.audit.append("life.step", ruleset=rid, actor=body.by,
+        svc.audit.append("life.step", ruleset=rid, actor=who.name,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],
                                  "reason": body.reason, "source": "manual",
                                  **(crit if crit["criterion"] else {})})  # fmt: skip
         return {"subject": sub, "screening_log": why or "ok"}
 
     @r.post("/studies/{rs}/subjects/{record}/undo")
-    def post_undo(rs: str, record: str, body: UndoBody) -> dict[str, Any]:
+    def post_undo(rs: str, record: str, body: UndoBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life = Lifecycle(svc.dc)
         before = life.subject(rid, rec)
         try:
-            sub = life.undo(rid, rec, by=body.by, at=svc.stamp(), note=body.note)
+            sub = life.undo(rid, rec, by=who.name, at=svc.stamp(), note=body.note)
         except LifeError as exc:
             raise _refused(exc) from exc
-        why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), body.by, svc.now())
-        svc.audit.append("life.step", ruleset=rid, actor=body.by,
+        why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), who.name, svc.now())
+        svc.audit.append("life.step", ruleset=rid, actor=who.name,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],
                                  "source": "undo"})  # fmt: skip
         return {"subject": sub, "screening_log": why or "ok"}
@@ -523,13 +527,13 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
                 "effective_from": effective_from.strip()}  # fmt: skip
 
     @r.put("/studies/{rs}/schedule")
-    def put_schedule(rs: str, body: ScheduleBody) -> dict[str, Any]:
+    def put_schedule(rs: str, body: ScheduleBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         visits = [Visit(v.visit.strip().lower(), v.day, v.before, v.after, v.anchor, dict(v.labels))
                   for v in body.visits]  # fmt: skip
-        return put(_rs(rs), visits, "trialbox", body.by, body.effective_from)
+        return put(_rs(rs), visits, "trialbox", who.name, body.effective_from)
 
     @r.post("/studies/{rs}/schedule/redcap")
-    def schedule_from_redcap(rs: str, body: ScheduleRedcapBody) -> dict[str, Any]:
+    def schedule_from_redcap(rs: str, body: ScheduleRedcapBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         """REDCap's arms and events become the schedule: the event's unique name is the visit, ``day_offset`` the
         day, ``offset_min`` and ``offset_max`` the window. Arm 1 only (one schedule per study in v1)."""
         from rc_bridge.client import RcError
@@ -555,7 +559,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
             visits.append(Visit(name, round(float(e.get("day_offset") or 0)), round(float(e.get("offset_min") or 0)),
                                 round(float(e.get("offset_max") or 0)), body.anchor,
                                 {"en": str(e.get("event_name") or name)}))  # fmt: skip
-        return put(rid, visits, "redcap", body.by)
+        return put(rid, visits, "redcap", who.name)
 
     @r.get("/studies/{rs}/visits")
     def get_visits(rs: str, today: str = "") -> dict[str, Any]:
@@ -589,17 +593,17 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return {"study": rid, "rule_set": str(row.get("rule_set") or ""), "rules": sae_rules(svc, rid), "sets": sets}
 
     @r.put("/studies/{rs}/sae-rule")
-    def put_sae_rule(rs: str, body: SaeRuleBody) -> dict[str, Any]:
+    def put_sae_rule(rs: str, body: SaeRuleBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         """The study's SAE rule set (D-277); the person who saves it confirms it. Audited ``life.sae_rule``."""
         svc, rid = get(), _rs(rs)
         life = Lifecycle(svc.dc)
         old = str((life.sae_rule(rid) or {}).get("rule_set") or "")
         try:
-            row = life.set_sae_rule(rid, body.rule_set, body.by, svc.stamp())
+            row = life.set_sae_rule(rid, body.rule_set, who.name, svc.stamp())
         except LifeError as exc:
             raise HTTPException(status_code=409, detail={"code": exc.code, "why": exc.why,
                                                          "message": exc.message}) from exc  # fmt: skip
-        svc.audit.append("life.sae_rule", ruleset=rid, actor=body.by,
+        svc.audit.append("life.sae_rule", ruleset=rid, actor=who.name,
                          detail={"old": old, "new": body.rule_set, "at": row["confirmed_at"]})  # fmt: skip
         return {"study": rid, "rule_set": row["rule_set"], "rules": sae_rules(svc, rid, life)}
 
@@ -610,15 +614,15 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return {"study": rid, **Lifecycle(get().dc).contact_rule(rid)}
 
     @r.put("/studies/{rs}/contact-rule")
-    def put_contact_rule(rs: str, body: ContactRuleBody) -> dict[str, Any]:
+    def put_contact_rule(rs: str, body: ContactRuleBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         life = Lifecycle(svc.dc)
         old = life.contact_rule(rid)
         try:
-            row = life.set_contact_rule(rid, body.max_attempts, body.min_days, body.by, svc.stamp())
+            row = life.set_contact_rule(rid, body.max_attempts, body.min_days, who.name, svc.stamp())
         except LifeError as exc:
             raise _refused(exc) from exc
-        svc.audit.append("life.contact_rule", ruleset=rid, actor=body.by,
+        svc.audit.append("life.contact_rule", ruleset=rid, actor=who.name,
                          detail={"old": [old["max_attempts"], old["min_days"]],
                                  "new": [row["max_attempts"], row["min_days"]]})  # fmt: skip
         return {"study": rid, **row}
@@ -633,33 +637,33 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
                 "open": sum(1 for x in rows if x["state"] == "open")}  # fmt: skip
 
     @r.post("/studies/{rs}/deviations/possible")
-    def post_deviation_call(rs: str, body: DeviationCallBody) -> dict[str, Any]:
+    def post_deviation_call(rs: str, body: DeviationCallBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         """Confirm (a deviation entry is written) or dismiss (with a reason) one possible deviation; audited
         ``life.deviation_call``."""
         svc, rid, rec = get(), _rs(rs), _rec(body.record)
         try:
             out = Lifecycle(svc.dc).decide_deviation(rid, rec, body.key, body.decision, reason=body.reason,
-                                                     by=body.by, at=svc.stamp(), today=_today(svc, body.today),
+                                                     by=who.name, at=svc.stamp(), today=_today(svc, body.today),
                                                      icf_version=body.icf)  # fmt: skip
         except LifeError as exc:
-            svc.audit.append("life.refused", ruleset=rid, actor=body.by,
+            svc.audit.append("life.refused", ruleset=rid, actor=who.name,
                              detail={"record": rec, "deviation": body.key[:80], "why": exc.why})  # fmt: skip
             raise _refused(exc) from exc
-        svc.audit.append("life.deviation_call", ruleset=rid, actor=body.by,
+        svc.audit.append("life.deviation_call", ruleset=rid, actor=who.name,
                          detail={"record": rec, "key": out["key"], "decision": body.decision,
                                  "event": out["event"]})  # fmt: skip
         return {"study": rid, "row": out}
 
     @r.post("/studies/{rs}/aes/{record}/{event}/ack")
-    def post_ack(rs: str, record: str, event: str, body: AckBody) -> dict[str, Any]:
+    def post_ack(rs: str, record: str, event: str, body: AckBody, who: Claim = AS_ACK) -> dict[str, Any]:
         """The investigator has seen this serious AE (P-02, D-143): one tap, who and when, audited."""
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life = Lifecycle(svc.dc)
         one = next((e for e in life.entries(rid, rec, AE_EVENT) if e["event"] == event), None)
         if one is None or not lc.is_serious(one):
             raise HTTPException(status_code=404, detail={"code": "LIFE-SAE", "message": "no such serious AE"})
-        ack = life.ack(rid, rec, event, body.by, svc.stamp())
-        svc.audit.append("life.sae_ack", ruleset=rid, actor=body.by,
+        ack = life.ack(rid, rec, event, who.name, svc.stamp())
+        svc.audit.append("life.sae_ack", ruleset=rid, actor=who.name,
                          detail={"record": rec, "event": event, "at": ack["at"], "by": ack["who"],
                                  "outcome": one.get("ae_outcome", "")})  # fmt: skip
         return {"study": rid, "record": rec, "event": event, "ack_by": ack["who"], "ack_at": ack["at"]}
@@ -671,14 +675,14 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return {"study": rid, **lc.report(life.subjects(rid), life.steps(rid))}
 
     @r.get("/studies/{rs}/report/{fmt}")
-    def get_report_file(rs: str, fmt: str, by: str = "") -> dict[str, Any]:
+    def get_report_file(rs: str, fmt: str, who: Claim = AS_READ) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         if fmt not in ("csv", "xlsx"):
             raise HTTPException(status_code=404, detail={"code": "LIFE-REPORT", "message": "csv or xlsx"})
         life = Lifecycle(svc.dc)
         files = report_files(lc.report(life.subjects(rid), life.steps(rid)), rid, svc.stamp())
         name = f"enrolment_{rid}_{svc.now().strftime('%Y%m%d')}.{fmt}"
-        svc.audit.append("life.report", ruleset=rid, actor=by or "orchestrator", detail={"format": fmt})
+        svc.audit.append("life.report", ruleset=rid, actor=who.name, detail={"format": fmt})
         if fmt == "xlsx":
             return {"name": name, "media_type": XLSX, "b64": base64.b64encode(files["xlsx"]).decode()}
         return {"name": name, "media_type": "text/csv", "text": files["csv"]}

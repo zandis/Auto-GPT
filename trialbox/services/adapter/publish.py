@@ -153,7 +153,9 @@ def _fhir_put_back(cfg: AdapterConfig, folder: Path) -> tuple[int, int]:
     ledger keeps a changed resource's old hash until a load ends, so a delta would skip exactly the resources the
     broken load changed (second review, H3): every resource is loaded."""
     assert cfg.fhir_base_url is not None
-    return sync_snapshot(cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", None, full=True)
+    # ``back``: the generation ledger (D-491) holds the broken load's night as "building"; going back to the served
+    # night over it is a put-back, not an older build (found when T-723 and T-725 met on train 4)
+    return sync_snapshot(cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", None, full=True, back=True)
 
 
 def recover(cfg: AdapterConfig, snap: str) -> str:
