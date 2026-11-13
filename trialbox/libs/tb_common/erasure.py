@@ -176,6 +176,11 @@ TABLES: dict[str, Entry] = {
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
     "orch.submissions": _owed("NAV submissions, by pseudonym"),
     "orch.cohort_tables": _none("aggregate counts per quarter and criterion"),
+    "orch.cohort_stored": _none(
+        "D-648: each alliance table as it was stored (aggregate counts per quarter and criterion, the site, the "
+        "sender's address, the job), kept so that a re-run reads the tables as they stood"
+    ),
+    "orch.cohort_stored_since": _none("D-648: the last job from before the record of stored tables (a number)"),
     "orch.id_limits": _none("the identifier caps' use rows: staff and kind only"),
     "orch.mails": _none("a mail sent: message id, job, kind, subject"),
     "orch.trial_cache": _none("the public registry cache"),

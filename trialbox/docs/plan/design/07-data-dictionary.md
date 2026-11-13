@@ -234,6 +234,10 @@ Retention R-GCP (reimbursement records: per hospital rule, at least 7 years in T
 
 Aggregates per site, disease, quarter and criterion: `site_id`, `disease`, `quarter`, `criterion_id`, `definition_version`, `criterion_label`, `n` (TEXT, may be "<10"), `n_contactable`, `received_from`, `job_id`. Class D2 (after suppression), PII —. Retention R-GCP.
 
+#### `cohort_stored`, `cohort_stored_since`
+
+D-648. `cohort_tables` holds each site's latest table; `cohort_stored` keeps every table as it was stored, one row per table, written in the transaction that stores it: `seq` (the order), `job_id`, `site_id`, `received_from`, `table_sha256`, `rows` (the table as JSON, the same cells as `cohort_tables`). A re-run of a merge reads the tables as they stood from it. `cohort_stored_since` holds one number, the last job from before the record (a box updated in place). Class D2 (after suppression), PII —. Retention R-GCP.
+
 #### `trial_cache`
 
 `nct_id`, `last_update`, `version`, `draft_zip_key`, `equivalence_pct`, `compiled_at`. Class D0. Retention R-OPS.

@@ -157,10 +157,36 @@ CREATE TABLE IF NOT EXISTS judge_answers (
   PRIMARY KEY (job_id, key)
 );
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3)
+# D-648: what the alliance store was given, table by table. ``cohort_tables`` holds a site's latest table only; a
+# re-run of a merge needs the tables as they stood then, and what an earlier job stored was read from how that job
+# ended, which a stopped job does not say. ``cohort_stored``: one row per table stored, written in the transaction
+# that stores it (the job, the site, who sent it, the table's hash and the table itself; ``seq`` is the order).
+# ``cohort_stored_since``: the last job (``jobs.seq``) from before this record, so that "no row" reads as "stored
+# nothing" only for the jobs after it.
+SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS cohort_stored (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  job_id TEXT NOT NULL,
+  site_id TEXT NOT NULL,
+  received_from TEXT NOT NULL,
+  table_sha256 TEXT NOT NULL,
+  rows TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cohort_stored_job ON cohort_stored (job_id, seq);
+CREATE TABLE IF NOT EXISTS cohort_stored_since (jobs_seq BIGINT NOT NULL);
+INSERT INTO cohort_stored_since (jobs_seq) SELECT COALESCE(MAX(seq), 0) FROM jobs
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
+
+
+def cohort_table_hash(rows: list[dict[str, Any]]) -> str:
+    """The hash of one alliance table (D-648): every stored column of every row, the rows in a fixed order, so the
+    same table has the same hash whatever order its file gave the rows in."""
+    cells = sorted(json.dumps([r[c] for c in JobDB._COHORT_COLS], ensure_ascii=False) for r in rows)
+    return hashlib.sha256("\n".join(cells).encode("utf-8")).hexdigest()
 
 
 class JobLeased(RuntimeError):
@@ -790,8 +816,14 @@ class JobDB:
     )
 
     def cohort_store(self, rows: list[dict[str, Any]], job_id: str, received_from: str) -> None:
-        """Replace a site's table for each (disease, quarter, definition) it contains, then insert the rows."""
+        """Replace a site's table for each (disease, quarter, definition) it contains, then insert the rows, and
+        record what was stored (D-648): one ``cohort_stored`` row per site in ``rows``, in this transaction, so the
+        record and the tables cannot differ however the caller ends. One store at a time (the lock), so the
+        record's order is the order the tables were committed in."""
+        if not rows:
+            return
         with self.tx() as con:
+            con.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"{self.schema}:cohort_store",))
             for site, disease, quarter, version in {
                 (r["site_id"], r["disease"], r["quarter"], r["definition_version"]) for r in rows
             }:
@@ -816,6 +848,36 @@ class JobDB:
                         job_id,
                     ),
                 )
+            for site in sorted({r["site_id"] for r in rows}):
+                table = [{c: r[c] for c in self._COHORT_COLS} for r in rows if r["site_id"] == site]
+                con.execute(
+                    "INSERT INTO cohort_stored (job_id, site_id, received_from, table_sha256, rows) VALUES (?,?,?,?,?)",
+                    (job_id, site, received_from, cohort_table_hash(table), json.dumps(table, ensure_ascii=False)),
+                )
+
+    _STORED_COLS = ("seq", "job_id", "site_id", "received_from", "table_sha256", "rows")
+
+    def _stored(self, where: str, args: tuple[Any, ...]) -> list[dict[str, Any]]:
+        got = self._db.fetchall(f"SELECT {', '.join(self._STORED_COLS)} FROM cohort_stored {where} ORDER BY seq", args)
+        out = [dict(zip(self._STORED_COLS, r, strict=True)) for r in got]
+        for d in out:
+            d["rows"] = json.loads(d["rows"])
+        return out
+
+    def cohort_stored(self, job_id: str) -> list[dict[str, Any]] | None:
+        """The tables the job ``job_id`` stored, in the order it stored them (D-648): the site, who sent it, the
+        table's hash and the table. Empty: it stored nothing. None: the record cannot say, because the job is not
+        in this store or is from before the record began (a box updated in place)."""
+        row = self._db.fetchone(
+            "SELECT j.seq > (SELECT MAX(jobs_seq) FROM cohort_stored_since) FROM jobs j WHERE j.job_id = ?", (job_id,)
+        )
+        if not (row and row[0]):
+            return None
+        return self._stored("WHERE job_id = ?", (job_id,))
+
+    def cohort_stored_all(self) -> list[dict[str, Any]]:
+        """Every recorded store of a table, in order (D-648)."""
+        return self._stored("", ())
 
     def cohort_senders(self, site_id: str) -> set[str]:
         """Who has contributed tables for ``site_id`` (``self:<site>`` for the root's own runs)."""

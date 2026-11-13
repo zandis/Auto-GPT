@@ -346,6 +346,29 @@ def merge_refusal(db: JobDB, rows: list[dict[str, Any]], sender: str, own_site: 
     return None
 
 
+class RecordChanged(RuntimeError):
+    """A recorded table is not the table its hash was taken of: the record was altered after it was written."""
+
+
+def replay_stored(record: JobDB, into: JobDB, job_id: str) -> bool:
+    """Store into ``into`` the tables the job ``job_id`` stored, in the order it stored them, from the record the
+    store wrote with each table (D-648). For a re-run, which rebuilds the alliance tables as they stood: it needs
+    neither the job's files nor today's reader, and not how the job ended. A job that was stopped while it ran
+    stored exactly its recorded tables. False, and nothing stored: the record cannot say (the job is from before
+    the record began); the caller then has only how the job ended (D-666)."""
+    from orchestrator.db import cohort_table_hash
+
+    stored = record.cohort_stored(job_id)
+    if stored is None:
+        return False
+    for t in stored:
+        if cohort_table_hash(t["rows"]) != t["table_sha256"]:
+            raise RecordChanged(f"the recorded table of site {t['site_id']} stored by job {job_id} was altered")
+    for t in stored:
+        into.cohort_store(t["rows"], job_id, t["received_from"])
+    return True
+
+
 def run_merge(ctx: Ctx) -> Outcome:
     job = ctx.job
     cs = ctx.cfg.settings.cohort
