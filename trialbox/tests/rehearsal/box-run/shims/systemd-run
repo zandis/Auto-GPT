@@ -1,0 +1,25 @@
+#!/bin/bash
+# Box-run rehearsal shim for systemd-run: --unit NAME [--on-active=<N>s|<N>min] [--property=Restart=on-failure] CMD...
+# becomes a background process of the "VM" (a timer unit sleeps first; Restart=on-failure starts it again).
+unit=""; delay=0; restart=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --unit) unit=$2; shift 2 ;;
+    --on-active=*s) v=${1#--on-active=}; delay=${v%s}; shift ;;
+    --on-active=*min) v=${1#--on-active=}; delay=$(( ${v%min} * 60 )); shift ;;
+    --description) shift 2 ;;
+    --property=Restart=on-failure) restart=1; shift ;;
+    --property=*) shift ;;
+    *) break ;;
+  esac
+done
+mkdir -p "$BR_S/units"
+echo "unit=$unit delay=${delay}s restart=$restart cmd=$(basename "$1")" >> "$BR_S/units.log"
+if [ "$delay" -gt 0 ]; then
+  nohup bash -c "sleep $delay; exec \"\$@\"" _ "$@" > "$BR_S/units/$unit.log" 2>&1 &
+elif [ "$restart" = 1 ]; then
+  nohup bash -c 'until "$@"; do echo "restart $(date -u +%T)"; sleep 1; done' _ "$@" > "$BR_S/units/$unit.log" 2>&1 &
+else
+  nohup "$@" > "$BR_S/units/$unit.log" 2>&1 &
+fi
+echo "Running as unit: $unit.service"
