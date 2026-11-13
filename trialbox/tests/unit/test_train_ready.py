@@ -14,7 +14,8 @@ from tools import train_ready
 
 pytestmark = pytest.mark.nodb
 
-GOOD_END = "\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_x1"
+SESSION_LINE = "Claude-Session: https://claude.ai/code/session_x1"
+GOOD_END = "\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n" + SESSION_LINE
 OK_PREPUSH = {"ruff": "passed", "pwsh": "skipped: pwsh not installed"}
 
 
@@ -52,7 +53,13 @@ def _prepush(
 ) -> Path:
     out = repo.parent / "pp"
     out.mkdir(exist_ok=True)
-    summary = {"head": "x", "dirty": dirty, "complete": complete, "tests": ["t.py"] if tests else [], "results": results}
+    summary = {
+        "head": "x",
+        "dirty": dirty,
+        "complete": complete,
+        "tests": ["t.py"] if tests else [],
+        "results": results,
+    }
     (out / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
     return out
 

@@ -83,7 +83,11 @@ STEPS: tuple[Step, ...] = (
         "D-471)",
         f"{PATHS} {PY} -m tools.limits_lint",
     ),
-    Step("contracts", "checks:generated contracts are what the schemas generate (no hand edit)", "make contracts-check"),
+    Step(
+        "contracts",
+        "checks:generated contracts are what the schemas generate (no hand edit)",
+        "make contracts-check",
+    ),
     Step(
         "rulesets",
         "checks:shipped rulesets are what the compiler gives (ValueSets, SQL, CQL; T-613a, D-322)",
