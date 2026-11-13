@@ -112,3 +112,17 @@ def test_the_audit_filter_row_wraps(box: dict) -> None:  # noqa: F811
     assert 'class="inline filters" data-testid="audit-filter"' in page
     css = stw.get("/static/console.css").text
     assert re.search(r"form\.inline\.filters\s*\{[^}]*flex-wrap:\s*wrap", css)
+
+
+def test_the_evidence_line_writes_a_unit_as_people_read_it() -> None:
+    """CON-UX-3: the PI's evidence line printed the UCUM code (``187 mm[Hg]``, ``10*9/L``). The stored unit is
+    unchanged; only the shown text is the printed form."""
+    from console import coded_view
+
+    def shown(unit: str) -> str:
+        return str(coded_view.line({"value": 187, "unit": unit, "date": "2026-09-05"})["value"])
+
+    assert shown("mm[Hg]") == "187 mmHg"
+    assert shown("10*9/L") == "187 10^9/L"
+    assert shown("[iU]/L") == "187 IU/L"
+    assert shown("mg/dL") == "187 mg/dL"

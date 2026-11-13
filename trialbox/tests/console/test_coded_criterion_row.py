@@ -169,7 +169,7 @@ def test_the_not_matched_list_shows_the_coded_values_and_labels_the_test_model(
     page = c.get("/studies/GZQO/excluded").text
     assert 'data-testid="coded-dddddddd-1"' in page and "ICD-10-CM E10.9" in page and "2024-06-30" in page
     assert page.index("2024-06-30") < page.index("2023-01-15")
-    assert "172 mm[Hg]" in page and "LOINC 8480-6" in page and "2026-09-30" in page
+    assert "172 mmHg" in page and "LOINC 8480-6" in page and "2026-09-30" in page
     # a list from before T-514 keeps its record count; a row with values shows them instead
     assert 'data-testid="coded-ffffffff-1"' not in page
     for pid in ("ffffffff", "dddddddd"):
