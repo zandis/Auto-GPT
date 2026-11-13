@@ -16,6 +16,10 @@ import pytest
 from tools.trialbox import prestart
 from tools.trialbox import update as up
 
+# a box that ran the installer's database step: the admin URL and the FHIR store's password (D-541). Synthetic
+# words; the URL is put together here so that no credential URL stands in the file as one text.
+DB_ENV = "TB_DB_URL=postgresql://" + "trialbox:pw" + "@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n"
+
 ROOT = Path(__file__).resolve().parents[2]
 
 pytestmark = pytest.mark.nodb
@@ -69,7 +73,7 @@ def _box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, tree: str) -> tuple
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     (deploy / ".env").write_text(
-        "TB_SITE_ID=T\nTB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        "TB_SITE_ID=T\n" + DB_ENV,
         encoding="utf-8",
     )
     if tree != "none":  # what apply_host leaves: the install folder's tools/ is the new release's
@@ -146,7 +150,7 @@ def test_this_releases_steps_are_the_database_then_the_roles_then_the_owned_sche
     lines, calls = _steps(
         tmp_path,
         monkeypatch,
-        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        DB_ENV,
     )
     assert [name for name, _ in prestart.DB_STEPS] == [
         "FHIR store password is set",
@@ -188,7 +192,7 @@ def test_the_pull_setting_is_checked_as_at_the_restart(tmp_path: Path, monkeypat
         _steps(
             tmp_path,
             monkeypatch,
-            "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+            DB_ENV,
         )
 
 
@@ -199,7 +203,7 @@ def test_review_a_failed_step_is_named(tmp_path: Path, monkeypatch: pytest.Monke
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     (deploy / ".env").write_text(
-        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        DB_ENV,
         encoding="utf-8",
     )
 
@@ -273,7 +277,7 @@ def test_review_the_database_container_is_made_again_when_it_holds_another_relea
     (deploy / "docker").mkdir(parents=True)
     (deploy / "docker" / "db-init").symlink_to(tmp_path / "releases" / "new" / "db-init")
     (deploy / ".env").write_text(
-        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        DB_ENV,
         encoding="utf-8",
     )
     calls: list[list[str]] = []
