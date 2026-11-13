@@ -229,7 +229,9 @@ def router(
             return {"study": rid, "approved": False, "patients": []}
         try:
             return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
-        except readiness.UNREAD:  # D-709: said, not a 500 and not "no patients"
+        except readiness.UNREAD as exc:  # D-709: said, not a 500 and not "no patients"
+            if not readiness.is_unread(exc):  # D-712: a refused query or another service's error goes on
+                raise
             return {"study": rid, "approved": True, "patients": [], "lake_unread": True}
 
     @r.get("/setup/{ws}/feasibility")
@@ -246,7 +248,9 @@ def router(
             return {"study": rid, "approved": True, "needs_bulk": True, "feas": None}
         try:
             return {**out, "feas": readiness.feasibility(svc, w, rs, svc.today())}
-        except readiness.UNREAD:
+        except readiness.UNREAD as exc:
+            if not readiness.is_unread(exc):
+                raise
             return {**out, "feas": None, "lake_unread": True}
 
     @r.post("/setup/{ws}/sheets")

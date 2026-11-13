@@ -252,3 +252,70 @@ def test_the_derive_status_says_the_lake_could_not_be_asked(monkeypatch: pytest.
     orch = SimpleNamespace(services=SimpleNamespace(lake=SimpleNamespace(snapshot=lambda: "2026-11-09")))
     got = derive.status(orch)
     assert got is not None and "lake_unread" not in got and check_derive(got).level == OK
+
+
+# ------------------------------------------------------------------ NEW-SITE-3 (D-712): the lake's own errors
+def _routes(svc: SiteSetup) -> Any:  # noqa: F811
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from orchestrator.setup_api import router as setup_router
+
+    rs = site_ruleset()
+    api = FastAPI()
+    api.include_router(setup_router(lambda: svc, lambda rid: {**STUDY, "id": rid}, lambda rid: {"forms": 7},
+                                    lambda rid: rs, lambda: False, lambda *a, **k: None))  # fmt: skip
+    return TestClient(api, raise_server_exceptions=False)
+
+
+def _halfway(svc: SiteSetup, error: Exception) -> Any:  # noqa: F811
+    """Patients in the set-up's own store (uploaded while the lake was up), then a lake that names its snapshot
+    and answers every query with ``error``."""
+    inp = help.practice_inputs()
+    svc.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
+    svc.main_lake = Halfway(error)
+    return _routes(svc)
+
+
+def test_the_patient_check_says_lake_unread_when_the_lakes_queries_fail(svc: SiteSetup) -> None:  # noqa: F811
+    """D-709 left this open: the client raised a plain RuntimeError for a failed query. With D-673 it is the lake's
+    service error, with its status."""
+    from lake.client import LakeBadAnswer, LakeQueryFailed
+
+    up = svc.main_lake
+    c = _halfway(svc, LakeQueryFailed(503, "the lake is restarting"))
+    want = {"study": "SITE5B", "approved": True, "patients": [], "lake_unread": True}
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 200 and r.json() == want, r.text[:300]
+    r = c.get(f"/setup/{MAIN}/feasibility?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["feas"] is None
+    svc.main_lake = Halfway(LakeBadAnswer(200, "is not a table"))  # a 200 that is not the lake's answer
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 200 and r.json() == want, r.text[:300]
+    svc.main_lake = up
+
+
+def test_a_query_the_lake_refuses_is_not_the_lake_being_unread(svc: SiteSetup) -> None:  # noqa: F811
+    """A 400 is the engine's complaint about the question (a fault of the criteria's SQL or of this code): "could
+    not be read, try again" would be untrue of it, and would hide it."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    c = _halfway(svc, LakeQueryFailed(400, "Binder Error: column not found"))
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 500 and "lake_unread" not in r.text
+    svc.main_lake = up
+
+
+def test_another_services_error_at_the_routes_is_not_the_lake_being_unread(
+    svc: SiteSetup,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def other(*a: Any, **k: Any) -> Any:
+        raise ServiceError("embed", 503, "x")
+
+    c = _routes(svc)
+    inp = help.practice_inputs()
+    svc.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
+    monkeypatch.setattr(readiness, "patient_check", other)
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 500 and "lake_unread" not in r.text

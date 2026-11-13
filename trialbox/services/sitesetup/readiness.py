@@ -31,7 +31,7 @@ from tb_common.db import ENV as DB_ENV
 from tb_common.db import DatabaseError
 
 from sitesetup import publish
-from sitesetup.service import LAKE_DOWN, SiteSetup
+from sitesetup.service import LAKE_DOWN, SiteSetup, lake_down
 
 
 class LakeUnread(RuntimeError):
@@ -39,8 +39,16 @@ class LakeUnread(RuntimeError):
     client raises a plain error for a query that does not answer 200). Not "nothing there"."""
 
 
-#: what a reader of the lake raises when the lake could not be read
+#: the error types a reader of the lake raises when the lake could not be read; :func:`is_unread` says whether one is
 UNREAD = (*LAKE_DOWN, LakeUnread)
+
+
+def is_unread(exc: BaseException) -> bool:
+    """NEW-SITE-3 (D-712): is this the lake not read (it fails or does not answer: ``lake_down``; or a reader's
+    ``LakeUnread``), and not a refusal? A query the lake refuses with a 4xx (the engine's complaint about the
+    question) and another service's error are not "could not be read": they go on."""
+    return isinstance(exc, LakeUnread) or lake_down(exc)
+
 
 UNKNOWN_SQL = """
 SELECT count(*) AS n, count(*) FILTER (WHERE coalesce(code, '') = '' OR coalesce(system, '') <> $1) AS unknown
@@ -178,7 +186,9 @@ def _or_unread(read: Any, unread: list[bool]) -> Any:
     away after the first question, or names its snapshot and fails the query)."""
     try:
         return read()
-    except UNREAD:
+    except UNREAD as exc:
+        if not is_unread(exc):
+            raise
         unread.append(True)
         return None
 

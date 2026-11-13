@@ -50,9 +50,10 @@ def lake_down(exc: BaseException) -> bool:
     lake's health not read (``lake.client.LakeUnhealthy``, D-672, whatever its status), an answer of 500 and
     above from the lake, or no answer at all. A 4xx of the lake (a rebuild refused: no feed folder, a bad
     request) and any other service's error are refusals: waiting changes nothing, so they go on."""
-    from lake.client import LakeUnhealthy
+    from lake.client import LakeBadAnswer, LakeUnhealthy
 
-    if isinstance(exc, LakeUnhealthy):
+    # D-712: a 200 that is not the lake's answer to the call (D-673) is the lake failing too, whatever its status
+    if isinstance(exc, LakeUnhealthy | LakeBadAnswer):
         return True
     if isinstance(exc, ServiceError):
         return exc.service == "lake" and (exc.status >= 500 or exc.status == 0)
