@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from tests.console.test_api_identity import ON, _api_login, _client
+from tests.console.test_console_app import box  # noqa: F401 - the fixture by name
 from tests.console.test_console_app import VIEWER_PW
 from tests.console.test_identity import Clock, _app
 
@@ -56,3 +57,25 @@ def test_every_role_has_its_own_help_text_in_every_language() -> None:
     assert "audit" not in CATALOGUES["en"]["help.role.viewer"]
     assert "監査" not in CATALOGUES["ja"]["help.role.viewer"]
     assert "稽核" not in CATALOGUES["zh-TW"]["help.role.viewer"]
+
+
+def test_the_administrators_study_view_lists_no_patient_task(box: dict) -> None:  # noqa: F811
+    """CON-ROLE-1: D-280 keeps patient rows off the administrator's study view (``/home?view=studies``), but its task
+    list still named each patient a PI had marked "Need info" and linked the patient panel, which then answered 403.
+    The coordinator still gets the task."""
+    from tests.console.test_amendment_rescreen import _csrf
+    from tests.console.test_console_app import _done_screen, _ulid, login, login_crc, name_pi
+
+    _done_screen(box["backend"], _ulid(9931))
+    box["users"].create("pi", "investigator", "review-console-pi-0001", "pi@hospa.test")
+    name_pi(box, "pi")
+    pi, _ = login(box["app"], "pi", "review-console-pi-0001")
+    week = pi.get("/studies/GZQO/week").text
+    pid = __import__("re").search(r"pid=([0-9a-f]{32})", week).group(1)
+    r = pi.post(f"/studies/GZQO/patients/{pid}/mark", data={"csrf": _csrf(week), "mark": "need_info"})
+    assert r.status_code in (200, 303)
+    crc, _ = login_crc(box)
+    assert f"pid={pid}" in crc.get("/home").text  # the coordinator's task is there
+    admin, _ = login(box["app"])
+    home = admin.get("/home?view=studies").text
+    assert f"pid={pid}" not in home and pid[:8] not in home

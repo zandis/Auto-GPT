@@ -72,6 +72,7 @@ _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 SCREEN_TYPES = ("MICROBATCH", "SCREEN")
 
 
+PATIENT_TASKS = frozenset({"call", "info", "prepare", "refer"})  # home tasks that name one patient
 STALE_DAYS = 2  # FIT-U01: a list whose data is older than this many days is shown amber
 # FIT-U03 (T-629): another study's registry status, as this study's list says it
 OTHER_STATE = {"candidate": "candidate", "contacted": "candidate", "consented": "enrolled", "enrolled": "enrolled"}
@@ -517,9 +518,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
         jobs = bk.list_jobs(limit=500)
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
-        tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
-        clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
         phi = sess.user.can_view_phi  # D-280 (CR-023): the administrator's study view carries no patient row
+        # review 2026-11-13 (CON-ROLE-1): nor a patient's task (it named the patient and linked a page that is 403)
+        tasks = sorted((tk for c in cards for tk in c["tasks"] if phi or tk["kind"] not in PATIENT_TASKS),
+                       key=lambda tk: (tk["due"], tk["rs"]))  # fmt: skip
+        clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
