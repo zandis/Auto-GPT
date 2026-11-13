@@ -1,0 +1,102 @@
+"""NEW-TRUST-6 (D-700), lane A2's place: a snapshot built before the site facts is told by asking the lake, not by
+reading an error's text.
+
+``Proposed.load`` and ``site_basis`` took a failed query for "this snapshot has no ``site_fact`` table" when the
+error's text held certain words. An error's text is whatever its author put in it. Now a failed query is followed
+by one question the lake answers with a number: is there such a table. Only a clear "no" gives "no proposed fact";
+everything else stops the run, as before (D-127: the rule is never dropped silently)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import duckdb
+import pyarrow as pa
+import pytest
+from lake.sqlguard import check_select
+from matching import proposed
+from matching.proposed import Proposed, site_basis
+
+
+class _Lake:
+    """A lake stand-in over a DuckDB in memory, behind the lake's own query guard."""
+
+    def __init__(self, site_fact: bool, text: str | None = None) -> None:
+        self.con = duckdb.connect(":memory:")
+        self.text, self.asked = text, []
+        if site_fact:
+            self.con.execute(
+                "CREATE TABLE site_fact (fid TEXT, pid TEXT, domain TEXT, code TEXT, system TEXT, d DATE, basis TEXT)"
+            )
+
+    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
+        check_select(sql)
+        self.asked.append(sql)
+        try:
+            return self.con.execute(sql, params or []).to_arrow_table()
+        except duckdb.Error as exc:
+            # as the lake's client raises it, or with a text of the stand-in's choosing
+            raise RuntimeError(self.text or f"lake query failed (422): {type(exc).__name__}: {exc}") from exc
+
+
+def test_a_snapshot_without_the_table_has_no_proposed_fact_whatever_the_errors_text() -> None:
+    for text in (None, "lake query failed (422)", "boom", "表がありません"):
+        lake = _Lake(site_fact=False, text=text)
+        assert Proposed.load(lake, None, None).rows == {}
+        assert site_basis(lake, None) == (set(), set())
+        assert proposed.TABLE_SQL in lake.asked
+
+
+def test_an_errors_text_that_names_the_table_does_not_drop_the_rule_when_the_table_is_there() -> None:
+    """The words the old check looked for, in the text of another failure, on a snapshot that has the table."""
+
+    class Failing(_Lake):
+        def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
+            if sql != proposed.TABLE_SQL:
+                raise RuntimeError("lake query failed (503): Catalog busy; site_fact does not exist in the cache")
+            return super().query(sql, params, snapshot)
+
+    lake = Failing(site_fact=True)
+    with pytest.raises(RuntimeError, match="503"):
+        Proposed.load(lake, ["P1"], None)
+    with pytest.raises(RuntimeError, match="503"):
+        site_basis(lake, None)
+
+
+def test_when_the_question_itself_fails_the_first_failure_stops_the_run() -> None:
+    class Down:
+        def query(self, sql: str, *_a: Any, **_k: Any) -> Any:
+            raise RuntimeError("lake query failed (503)" if sql != proposed.TABLE_SQL else "the question failed")
+
+    with pytest.raises(RuntimeError, match="503"):
+        Proposed.load(Down(), None, None)
+    with pytest.raises(RuntimeError, match="503"):
+        site_basis(Down(), None)
+
+
+@pytest.mark.parametrize("answer", [[], [{"n": None}], [{"n": "0"}], [{"x": 0}], [{"n": 1}], [{"n": 0}, {"n": 0}]])
+def test_only_a_clear_no_counts(answer: list[dict[str, Any]]) -> None:
+    class Odd:
+        def query(self, sql: str, *_a: Any, **_k: Any) -> Any:
+            if sql != proposed.TABLE_SQL:
+                raise RuntimeError("lake query failed (422): Table with name site_fact does not exist!")
+            return pa.Table.from_pylist(answer) if answer else pa.table({"n": pa.array([], pa.int64())})
+
+    with pytest.raises(RuntimeError, match="422"):
+        Proposed.load(Odd(), None, None)
+
+
+def test_a_snapshot_with_the_table_is_read_and_the_question_is_not_asked() -> None:
+    lake = _Lake(site_fact=True)
+    lake.con.execute("INSERT INTO site_fact VALUES ('F1','P1','condition','M10','icd10',DATE '2026-01-02','proposed')")
+    assert list(Proposed.load(lake, ["P1"], None).rows) == ["P1"]
+    assert site_basis(lake, None) == (set(), {"P1"})
+    assert proposed.TABLE_SQL not in lake.asked
+
+
+def test_the_question_passes_the_lakes_query_guard_and_sees_a_view_too() -> None:
+    check_select(proposed.TABLE_SQL)
+    con = duckdb.connect(":memory:")
+    assert con.execute(proposed.TABLE_SQL).fetchall() == [(0,)]
+    con.execute("CREATE VIEW site_fact AS SELECT 1 AS pid")
+    assert con.execute(proposed.TABLE_SQL).fetchall() == [(1,)]
