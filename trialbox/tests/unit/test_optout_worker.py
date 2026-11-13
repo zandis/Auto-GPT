@@ -579,3 +579,148 @@ def test_low_b_the_first_tick_runs_at_start(monkeypatch: pytest.MonkeyPatch) -> 
         assert ran, "the first tick waits for one interval"
     finally:
         sched.shutdown(wait=False)
+
+
+# ------------------------------------------------------------------------------------------------ D-685: every OMOP store
+SITE_STORE = "omop_0123456789"  # as omop.schema.schema_for names the store of a lake that is not the box's own
+
+
+def _two_stores(db_url: str) -> None:
+    from omop import schema
+    from omop.load import load_batch
+
+    for name in ("omop", SITE_STORE):
+        db = schema.connect(db_url, name)
+        load_batch(db, "feed", "2026-10-04", _batch([A, B]), tz="Asia/Taipei")
+        db.close()
+
+
+def test_the_worker_finds_every_omop_store_the_database_holds(db_url: str) -> None:
+    from datacore.optout_worker import omop_store_names
+    from omop import schema
+    from tb_common.db import Database
+
+    assert omop_store_names(db_url) == []
+    _two_stores(db_url)
+    with Database.connect(db_url, "omop_notastore") as other:  # a schema that only looks alike is not a store
+        other.execute("CREATE TABLE tb_record (k INT)")
+    with Database.connect(db_url, "omop_abcdef0123") as empty:  # the name of a store, and no store in it
+        empty.execute("CREATE TABLE something_else (k INT)")
+    assert omop_store_names(db_url) == ["omop", SITE_STORE]
+    assert schema.schema_for(None) == "omop"
+
+
+def test_a_patient_is_taken_out_of_every_omop_store_in_one_tick(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A practice site's own lake has its own OMOP store (``omop_<hash>``). The worker cleared the box's store
+    only: an opted-out patient stayed live in the other, and the tick said nothing had failed."""
+    from datacore import optout_worker as w
+    from omop import schema
+
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    _two_stores(db_url)
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)
+    reg.close()
+    orch = SimpleNamespace(
+        cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Taipei")), audit=Audit(),
+        services=SimpleNamespace(lake=Lake([])), db=Jobs(),
+    )  # fmt: skip
+    out = w.tick(orch)
+    assert out is not None and out["failed"] == [], out
+    assert out["stores"]["omop"]["tombstoned"] == 6 and out["stores"]["omop"]["stores"] == 2
+    for name in ("omop", SITE_STORE):
+        db = schema.connect(db_url, name)
+        try:
+            assert _live(db, A) == 0 and _live(db, B) > 0, name
+            assert db.fetchval("SELECT count(*) FROM tb_withheld WHERE pid = ?", (A,)) == 1, name
+        finally:
+            db.close()
+
+
+def test_one_omop_store_that_cannot_be_opened_is_named_and_the_others_are_cleared(
+    db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datacore import optout_worker as w
+    from omop import schema
+
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    _two_stores(db_url)
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)
+    reg.close()
+    real = schema.connect
+
+    def connect(url: str | None = None, name: str = "omop") -> Any:
+        if name == SITE_STORE:
+            raise RuntimeError(f"permission denied for {A}")
+        return real(url, name)
+
+    monkeypatch.setattr(schema, "connect", connect)
+    orch = SimpleNamespace(
+        cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Taipei")), audit=Audit(),
+        services=SimpleNamespace(lake=Lake([])), db=Jobs(),
+    )  # fmt: skip
+    out = w.tick(orch)
+    assert out is not None and out["failed"] == ["omop"]
+    assert out["not_opened"] == [SITE_STORE]  # which store: a schema's name, never a patient's
+    assert "omop" not in out["stores"] and A not in str(out) and A not in str(orch.audit.events)
+    monkeypatch.undo()
+    box, site = real(db_url, "omop"), real(db_url, SITE_STORE)
+    try:
+        assert _live(box, A) == 0  # the store that opened was cleared in the same tick
+        assert _live(site, A) > 0  # the other is not reported as cleared
+    finally:
+        box.close()
+        site.close()
+
+
+def test_a_row_left_in_a_second_omop_store_fails_the_tick_by_that_stores_name(db_url: str) -> None:
+    from datacore.optout_worker import verify_omop
+    from omop import schema
+
+    _two_stores(db_url)
+    reg = OptOutRegister()
+    box, site = schema.connect(db_url, "omop"), schema.connect(db_url, SITE_STORE)
+    try:
+        left = verify_omop(frozenset({A}), _env(reg, omop=box, omop_more={SITE_STORE: site}))
+        assert left["omop.person"] == 1 and left[f"{SITE_STORE}.person"] == 1
+        assert left["omop.tb_withheld"] == 1 and left[f"{SITE_STORE}.tb_withheld"] == 1
+    finally:
+        box.close()
+        site.close()
+        reg.close()
+
+
+def test_the_worker_knows_every_name_an_omop_store_can_have() -> None:
+    """A new kind of OMOP store fails here until the worker finds it: every name ``omop.schema.schema_for`` gives
+    is one ``omop_store_names`` looks for, and every caller that opens a store names it with the box's own name
+    or with ``schema_for`` (listed; a new caller fails until it is read)."""
+    import ast
+    from pathlib import Path
+
+    from datacore.optout_worker import OMOP_STORE
+    from omop import schema
+
+    for path in (None, Path("/data/lake"), Path("/srv/practice/a/lake"), Path("relative/lake"), Path("/")):
+        assert OMOP_STORE.fullmatch(schema.schema_for(path)), path
+    root = Path(__file__).resolve().parents[2]
+    callers: dict[str, list[str]] = {}
+    for top in ("services", "tools"):
+        for f in sorted((root / top).rglob("*.py")):
+            for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "connect"
+                        and isinstance(node.func.value, ast.Name) and node.func.value.id == "schema"):  # fmt: skip
+                    name = node.args[1] if len(node.args) > 1 else None
+                    callers.setdefault(str(f.relative_to(root)), []).append(ast.unparse(name) if name else "omop")
+    assert callers == {
+        "services/adapter/dual_write.py": ["name"],  # schema.schema_for(cfg.lake_dir)
+        "services/console/conflicts_page.py": ["omop"],
+        "services/criteria_compiler/terminology/resolver.py": ["omop"],
+        "services/datacore/optout_worker.py": ["omop", "name"],  # the box's own, then every name it found
+        "services/lake/source.py": ["schema.schema_for(lake_dir)"],
+        "services/omop/__main__.py": ["omop"],
+        "services/omop/catalogue_load.py": ["omop"],
+        "tools/backup_drill.py": ["omop"],
+        "tools/codemap_release.py": ["omop"],
+        "tools/omop_parity.py": ["schema.schema_for(lake_dir)"],
+    }
