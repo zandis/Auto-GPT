@@ -380,9 +380,11 @@ def _fail(exc: RcError | LinkError) -> HTTPException:
 
 
 #: T-715d (D-554): the study's own set-up is one study's (``study.setup``); the box's REDCap connections are the
-#: site's, so their claim names no study and asks ``site.setup``. The read keeps the action the derived steps use.
+#: box's, so their claim names no study. T-715e (D-701, the owner 2026-11-13): they ask a row of their own,
+#: ``redcap.connection``, the administrator's alone, as the console's page is (``site.setup`` is a coordinator's
+#: too). The read keeps the action the derived steps use.
 AS_STUDY = route_actor.require_actor("study.setup")
-AS_SITE = route_actor.require_actor("site.setup")
+AS_SITE = route_actor.require_actor("redcap.connection")
 AS_READER = route_actor.require_actor("request.prepare", service=True)
 
 

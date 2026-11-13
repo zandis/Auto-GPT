@@ -1413,8 +1413,40 @@ def create_app(
             consent=_consent_card(job),
             case=case,
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
+            recheck=_recheck_share(job, sess, bg=grant is not None),
             breakglass=grant,
         )
+
+    def _recheck_share(job: Job, sess: Session, bg: bool = False) -> dict[str, Any] | None:
+        """NEW-RUN-1 (D-558): how far a finished weekly screening run got with the patients whose records did not
+        match a criterion before (D-646's share of the night budget), from the run's ``microbatch.budget`` event.
+        For the accounts that read the study's list (the rule of the screening card's rows). None when the run was
+        not a weekly one, is not finished, wrote no such event, or had none of those patients in scope.
+
+        The sentences follow the run's own cases (``orchestrator.scenarios.microbatch``): the places kept are the
+        smaller of the share of what was left of the night budget and the patients waiting, so the share is said
+        as a limit, not as what the places amount to; with no night budget there is no share to say; the number of
+        runs is said only when somebody was carried over and it is more than one (the run writes 1 whenever nobody
+        was carried, whatever the share)."""
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
+            return None
+        if not (helpers.reads(sess.user, job.ruleset) or bg):
+            return None
+        ev = bk.recheck_share(job.job_id)
+        if ev is None or ev.get("trigger") != "weekly":
+            return None
+        scope, again = ev.get("excluded_in_scope"), ev.get("excluded_rescreened")
+        if scope is None or again is None or (scope == 0 and again == 0):
+            return None
+        carried = max(scope - again, 0)
+        percent, kept, runs = ev.get("excluded_percent"), ev.get("excluded_kept"), ev.get("excluded_full_pass_runs")
+        budgeted = ev.get("left") is not None and percent is not None
+        share = None if not budgeted else "none" if percent == 0 else "kept" if kept is not None else None
+        after = None
+        if carried and share == "kept":
+            after = "nopass" if runs is None else "pass" if runs > 1 else None
+        return {"n": again, "scope": scope, "carried": carried, "share": share, "kept": kept, "percent": percent,
+                "after": after, "runs": runs}  # fmt: skip
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 

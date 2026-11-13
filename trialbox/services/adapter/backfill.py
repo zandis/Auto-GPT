@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import IO, Any
 from zoneinfo import ZoneInfo
 
-from tb_common import feedguard, refdata
+from tb_common import feedguard
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
 
@@ -68,6 +68,7 @@ from adapter.pipeline import (
     ingest_instant,
     make_source,
     merge_base,
+    reference_maps,
     refuse_future_night,
 )
 from adapter.sources.base import has_table
@@ -212,6 +213,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     rows_by_table: dict[str, int] = {}
     tables: dict[str, dict[str, Any]] = {}  # D-535: per source table, what the night's completeness record holds
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}
+    maps_not_loaded: list[str] = []  # D-665: filled as the rows are mapped
     pm = cfg.pidmap()
     try:
         aliases = pm.aliases()
@@ -239,9 +241,12 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
             mapping = Mapping.load(cfg.mapping_path)
             unit_defaults = mapping.unit_defaults
             check_lookup_factors(mapping)  # D-527
+            asks = reference_maps(mapping, cfg.db_url)
+            maps_not_loaded = asks.not_loaded  # type: ignore[attr-defined]
             mapper = Mapper(
                 mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
-                concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),  # D-593
+                # D-593: the box's reference data (refdata.map_targets_or_none); D-665: a map not loaded is "not asked"
+                concept_map=asks,
             )  # fmt: skip
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():
@@ -320,7 +325,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     finally:
         sp.close()
         pm.close()
-    return {"rejected": rejected, "rows": rows_by_table, "tables": tables, "unmapped_codes": unmapped_codes}
+    return {"rejected": rejected, "rows": rows_by_table, "tables": tables, "unmapped_codes": unmapped_codes,
+            "maps_not_loaded": maps_not_loaded}  # fmt: skip
 
 
 def _sort_bucket(spool: Path, runs: Path, bucket: str) -> dict[str, Any]:
@@ -506,10 +512,17 @@ def backfill(
                 k.removesuffix(":unavailable"): sum(c.values()) for k, c in by.items() if k.endswith(":unavailable")
             }
             if down:
+                missing = [str(x) for x in got.get("maps_not_loaded") or []]
+                what = (
+                    f"The reference map from {'; '.join(missing)} is not loaded: load the reference pack, then run "
+                    "the back-fill again (D-665)"
+                    if missing  # D-665: not an outage to wait for: a pack to load
+                    else "Run the back-fill again when the reference data answers (D-660)"
+                )
                 out.append(
                     f"{table}: the reference data did not answer for {sum(down.values())} rows "
                     f"({', '.join(sorted(down))}): the history would be published without their mapped codes and is "
-                    "read only once. Run the back-fill again when the reference data answers (D-660)"
+                    f"read only once. {what}"
                 )
         return out
 
@@ -631,7 +644,10 @@ def _publish(
             if v.error_pct > cfg.validation_max_pct:
                 errors.append(f"validation error rate {v.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
         except Exception as exc:
-            errors.append(f"validation failed to run: {exc}")
+            from adapter import failure
+
+            failure.log_failure(log, "validation failed to run", exc)
+            errors.append(f"validation failed to run: {failure.words(exc)}")  # D-668
     last_good = merge_base(cfg.lake_dir, snap)
     if last_good is not None and last_good != snap:  # D-271: never (nearly) empty a kind of record
         try:

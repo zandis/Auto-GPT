@@ -249,6 +249,30 @@ def test_nobody_but_the_superuser_creates_a_database_and_passwords_come_from_the
     assert set_pw.split(",") == sorted([*(r for r in ACCESS if r != "tb_gateway"), "tb_fhir_store"])
 
 
+def test_d683_every_store_group_may_make_temporary_tables_and_nothing_more_on_the_database(
+    roles_cluster: tuple[Path, str],
+) -> None:
+    """A store's connection works as its group (``tbs_<schema>``); a store that works in temporary tables (the OMOP
+    load) needs the right there. TEMPORARY only: no group creates a schema, PUBLIC holds nothing, and the roles of
+    an owned schema (owner, writer, reader) get nothing."""
+    rows = _superuser(
+        roles_cluster[0],
+        "SELECT rolname || ':' || has_database_privilege(rolname, 'trialbox_wf', 'TEMPORARY') || ':' || "
+        "has_database_privilege(rolname, 'trialbox_wf', 'CREATE') FROM pg_roles "
+        "WHERE rolname ~ '^tb[sowr]_' ORDER BY 1",
+    ).splitlines()
+    got = {r.split(":")[0]: (r.split(":")[1] == "true", r.split(":")[2] == "true") for r in rows}
+    groups = {f"tbs_{s}" for s in SCHEMAS if s not in OWNED}
+    assert groups <= set(got)
+    for role, (temp, create) in got.items():
+        assert not create, role
+        assert temp == (role in groups), role
+    acl = _superuser(
+        roles_cluster[0], "SELECT coalesce(datacl::text, '') FROM pg_database WHERE datname = 'trialbox_wf'"
+    )
+    assert "{=" not in acl and ",=" not in acl  # PUBLIC has no entry
+
+
 # ------------------------------------------------------------------------------------------------ T-718 (D-486)
 EDC_KEY = b"synthetic-edc-sign-key-0123456789"  # a test string, not a secret
 TRAIL = "switch_event"  # one of edc.store.APPEND_ONLY

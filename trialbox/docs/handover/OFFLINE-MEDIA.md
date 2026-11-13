@@ -35,8 +35,11 @@ TRIALBOX-<version>/                      one folder per release, read-only on th
   measured/
     serving_config.<gpu>.json            the vendor's serving record of each tier's card (tools/tiers.py)
   docs/
-    network-sheet.{en,ja,zh-TW}.html     docs/handover/, printed for the hospital's IT
-    RUNBOOK.pdf, WINDOWS-INSTALL-CHECKLIST.pdf
+    windows-owner.{en,ja,zh-TW}.md       the owner's pages: the set-up day, a normal day, when something is wrong
+    desktop-use.{en,ja,zh-TW}.md         what a desktop user may run on this PC, and may not
+    WINDOWS-INSTALL-CHECKLIST.md         the set-up, line by line; WINDOWS-BACKUP-RESTORE.md; the P-0 sheet
+    network-sheet.{en,ja,zh-TW}.html     docs/handover/, printed for the hospital's IT (added by the release's steps)
+    RUNBOOK.pdf                          (added by the release's steps)
 ```
 
 **Making the media** (NEW-WIN-9, D-605, D-609). Three steps, on a Linux machine that may go online (Debian or

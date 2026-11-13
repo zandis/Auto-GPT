@@ -23,7 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.app import StartCheck, create_app
 from gateway.core import Gateway, GatewayConfig
-from gateway.load import Breaker, LoadControl, record_slots
+from gateway.load import INTERACTIVE_SLOT_WAIT_S, Breaker, LoadControl, record_slots
 from gateway.policy import RoutingPolicy
 from guard.guard import Guard
 from llm_stub.app import app as stub
@@ -101,6 +101,17 @@ def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
     silent = Silent()
     gw = _silent_gw(tmp_path, silent.port)
     app = create_app(gw)
+    # what each call asked the endpoint's queue for (D-635: the test says what it means by orderings and by what the
+    # gateway asked for, not by wall-clock bounds, which measured the runner: 1.06 s against 1.0 s on a loaded one)
+    lane = gw.load.get("stub")
+    waits: list[float] = []
+    real_acquire = lane.acquire
+
+    def acquire(wait_s: float) -> int | None:
+        waits.append(wait_s)
+        return real_acquire(wait_s)
+
+    lane.acquire = acquire  # type: ignore[method-assign]
     stop = threading.Event()
     threading.Thread(target=gw.load.loop, args=(stop,), daemon=True).start()  # the lifespan's watch thread
     base_threads = threading.active_count()
@@ -115,13 +126,12 @@ def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
             ]
             await asyncio.sleep(0.3)  # the calls are in flight now
             peak["threads"] = max(peak["threads"], threading.active_count())
-            t = time.monotonic()
             health = await c.get("/healthz")
             ready = await c.get("/readyz")
-            health_s = time.monotonic() - t
-            t = time.monotonic()
+            hanging = sum(1 for call in calls if not call.done())  # health answered while calls still hang
+            n = len(waits)
             busy = await c.post("/v1/chat/completions", json=CHAT_BODY, headers=FRONT)
-            busy_s = time.monotonic() - t
+            busy_waits = waits[n:]
             opened_at = None
             while time.monotonic() - t0 < 10:
                 r = (await c.get("/readyz")).json()
@@ -130,24 +140,23 @@ def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
                     opened_at = time.monotonic() - t0
                     break
                 await asyncio.sleep(0.05)
-            t = time.monotonic()
+            n = len(waits)
             after = await c.post("/v1/chat/completions", json=CHAT_BODY, headers=FRONT)
-            after_s = time.monotonic() - t
+            after_waits = waits[n:]
             done = await asyncio.gather(*calls)
             # the 100 are over; the breaker is still open: a batch call is not sent either
             batch_after = await c.post("/v1/chat/completions", json=_judge_body(), headers=H())
             return {
                 "health": health,
                 "ready": ready,
-                "health_s": health_s,
+                "hanging": hanging,
                 "busy": busy,
-                "busy_s": busy_s,
+                "busy_waits": busy_waits,
                 "opened_at": opened_at,
                 "after": after,
-                "after_s": after_s,
+                "after_waits": after_waits,
                 "batch_after": batch_after,
                 "done": done,
-                "total_s": time.monotonic() - t0,
             }
 
     try:
@@ -157,21 +166,22 @@ def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
         silent.close()
     # no thread exhaustion: health answers at once while 100 calls hang; the threads stay bounded
     assert out["health"].status_code == 200 and out["ready"].status_code == 200
-    assert out["health_s"] < 1.0, out["health_s"]
+    assert out["hanging"] > 0, "health did not answer while calls were hanging"
     assert peak["threads"] - base_threads <= 64 + 8, peak
-    # the front desk: model_busy in under a second, before and after the breaker opens
+    # the front desk: model_busy after the short interactive wait for a slot, never the batch budget; and at once,
+    # without queueing at all, once the breaker is open
     assert out["busy"].status_code == 503 and out["busy"].json()["error"]["code"] == "model_busy"
-    assert out["busy_s"] < 1.0 and out["busy"].headers["retry-after"]
+    assert out["busy_waits"] == [INTERACTIVE_SLOT_WAIT_S] and out["busy"].headers["retry-after"]
+    assert float(SCALED["TB_GATEWAY_CALL_BUDGET_S"]) / 2 > INTERACTIVE_SLOT_WAIT_S
     # /readyz shows the open breaker (60 s on a box; scaled here: stall 0.5 s, watch 0.1 s)
-    assert out["opened_at"] is not None and out["opened_at"] < 5.0, out["opened_at"]
-    assert out["after"].json()["error"]["code"] == "model_busy" and out["after_s"] < 1.0
+    assert out["opened_at"] is not None  # within the loop's ten seconds
+    assert out["after"].json()["error"]["code"] == "model_busy" and out["after_waits"] == []
     assert out["batch_after"].status_code == 503
     assert out["batch_after"].json()["error"]["code"] == "model_unavailable"
     # every call ended within its budget: refused at once, out of slots, or timed out; none answered
     codes = sorted({r.json()["error"].get("code", "") for r in out["done"]})
     assert {r.status_code for r in out["done"]} <= {502, 503}, codes
     assert "model_busy" in codes  # the calls beyond the thread limit were told at once
-    assert out["total_s"] < 15, out["total_s"]
     ready = out["ready"].json()
     assert ready["max_in_flight"] == 64 and ready["endpoints"]["stub"]["slots"] == 16
 

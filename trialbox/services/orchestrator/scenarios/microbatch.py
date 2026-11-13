@@ -582,10 +582,22 @@ def run(ctx: Ctx) -> Outcome:
     ctx.metrics(patients_scoped=used + len(screened))
     night_done(ctx, used + len(screened))  # T-704 (D-458): what this job did not use is the next one's
     over = len(due) - len(recheck)
-    # D-646: weekly runs until every excluded patient in scope has been screened again once, at the share kept
-    # for them (None: nothing is kept, so no run is sure to reach them; 1: no night budget, or all reached now)
-    per_run = out_in_scope if left is None else left * excluded_percent(ctx) // 100
-    full_pass = None if on_ingest else 1 if not back_carried else -(-out_in_scope // per_run) if per_run else None
+    # D-646 (8): weekly runs for a full pass of the excluded patients in scope, as this night went. Nobody carried:
+    # the pass was made tonight (1). Somebody carried: what a run keeps once all of them are counted at its start
+    # (the share of the allowance, at most the number in scope), and at least 2. Not tonight's kept places: those
+    # were counted before the run's own re-check added to the excluded, the next run counts them all (lane C2's
+    # finding: "1 run" while some were carried; the review's: "7 runs" where the truth was 2, and a figure that
+    # gave away how many had been counted). None: nobody is in scope, or somebody is carried and no place is kept
+    full_pass: int | None
+    per_run = out_in_scope if left is None else min(left * excluded_percent(ctx) // 100, out_in_scope)
+    if on_ingest or not out_in_scope:
+        full_pass = None
+    elif not back_carried:
+        full_pass = 1
+    elif not per_run:
+        full_pass = None
+    else:
+        full_pass = max(-(-out_in_scope // per_run), 2)
     ctx.orch.audit.append(
         "microbatch.budget",
         job_id=job.job_id,
@@ -664,8 +676,8 @@ def run(ctx: Ctx) -> Outcome:
                 # an aggregate output: with the places a run keeps, the figure gives the count away, so it is
                 # printed only where the count itself is (review of D-646; the audit holds it either way)
                 lines.append(
-                    f"At the share of the night budget kept for them ({excluded_percent(ctx)} %), a full pass "
-                    f"takes {full_pass} weekly runs."
+                    f"With {excluded_percent(ctx)} % of the night budget kept for them, a full pass takes "
+                    f"{full_pass} weekly runs."
                 )
     if behind:
         lines.append(

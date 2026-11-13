@@ -86,6 +86,12 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+HANDOVER_DOCS = (
+    "P-0-windows-rehearsal.md",
+    "WINDOWS-INSTALL-CHECKLIST.md",
+    "WINDOWS-BACKUP-RESTORE.md",
+    *(f"{stem}.{lang}.md" for stem in ("windows-owner", "desktop-use") for lang in ("en", "ja", "zh-TW")),
+)
 OS_RELEASE_FILES = ("etc/os-release", "usr/lib/os-release")  # the first that is a file
 DPKG_STATUS = "var/lib/dpkg/status"
 
@@ -311,9 +317,12 @@ def _lay_out(
     if measured is not None and measured.is_dir():
         for p in sorted(measured.glob("serving_config.*.json")):
             _put(p, media / "measured" / p.name, False)
-    sheet = source / "docs/handover/P-0-windows-rehearsal.md"
-    if sheet.is_file():
-        _put(sheet, media / "docs" / sheet.name, False)
+    # the pages a person on site reads, beside the installer (NEW-WIN-9, D-611): the owner's, the desktop user's,
+    # the checklist, backups, and the rehearsal sheet
+    for doc in HANDOVER_DOCS:
+        page = source / "docs/handover" / doc
+        if page.is_file():
+            _put(page, media / "docs" / doc, False)
     readme = [
         f"TrialBox {version}: offline media for a Windows workstation.",
         f"Built {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')} by tools/windows_media.py.",

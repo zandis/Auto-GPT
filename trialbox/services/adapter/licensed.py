@@ -182,8 +182,10 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
     k = KINDS.get(kind)
     if k is None:
         raise LicensedError("LIC-KIND", f"unknown list {kind!r}: one of {', '.join(KINDS)}")
-    enc = detect_encoding(data)
-    text = data.decode(enc)
+    try:  # the strict read: a file that already holds U+FFFD is refused with its line, as the sheet reader does
+        text, enc = encoding.decode(data, ("cp932",))
+    except encoding.EncodingRefused as exc:
+        raise LicensedError("LIC-ENCODING", str(exc)) from exc
     first = text.split("\n", 1)[0]
     delim = _sniff(first)
     rows = list(csv.reader(io.StringIO(text), delimiter=delim))
