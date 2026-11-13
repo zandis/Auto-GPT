@@ -28,7 +28,9 @@ CHART = "A1234567"
 GENERAL = {"Exception", "BaseException", "ValueError", "KeyError", "FileNotFoundError", "OSError", "RuntimeError",
            "TypeError", "LookupError", "AttributeError", "IndexError"}  # fmt: skip
 
-#: this lane's places (the console, the orchestrator, the site set-up):
+LANE = ("console", "orchestrator", "sitesetup", "mail_gateway")
+
+#: this lane's places (the console, the orchestrator, the site set-up, the mail gateway):
 #: (file, the general errors caught) -> (how many statements, what it is). Exact.
 MINE: dict[tuple[str, str], tuple[int, str]] = {
     ("console/app.py", "RuntimeError"): (1, "the cascade runs' own refusal: 'a cascade run is already running'"),
@@ -39,6 +41,11 @@ MINE: dict[tuple[str, str], tuple[int, str]] = {
     ("orchestrator/datacore_api.py", "ValueError"): (1, "the CTCAE check's sentence that lists the versions (D-555)"),
     ("orchestrator/reports/twpas_bundle.py", "Exception"): (1, "the first line of the FHIR validator's message"),
     ("orchestrator/scenarios/approve.py", "ValueError"): (1, "the approval workbook's own reading errors (D-557)"),
+    # NEW-TRUST-8 (D-704): the mail gateway, placed with this lane by the integrator
+    ("mail_gateway/admin.py", "KeyError"): (
+        1,
+        "the mail tool's stderr: the gateway's own sentence about a held message",
+    ),
 }
 #: other lanes' services, by reading, not judged here: file -> whose. Theirs to take off; the integrator has them.
 THEIRS: dict[str, str] = {
@@ -49,7 +56,6 @@ THEIRS: dict[str, str] = {
     "embed_service/embedder.py": "models", "gateway/app.py": "models", "llm_stub/app.py": "models",
     "model_guard/__init__.py": "models",
     "lake/app.py": "lake (its own card, D-664)", "lake/store.py": "lake (its own card, D-664)",
-    "mail_gateway/admin.py": "mail", "mail_gateway/app.py": "mail", "mail_gateway/gateway.py": "mail",
     "matching/proposed.py": "matching",
     "tracestore/app.py": "trace store",
 }  # fmt: skip
@@ -82,7 +88,7 @@ def test_a_general_errors_text_is_used_only_in_the_listed_places() -> None:
 def test_this_lanes_places_are_exactly_the_listed_ones() -> None:
     """By file, the errors caught and how many statements: a new statement in a listed file fails too (the review:
     the first list was exact by file only, and the console's largest file has one listed place)."""
-    found = {k: n for k, n in _found().items() if k[0].split("/")[0] in ("console", "orchestrator", "sitesetup")}
+    found = {k: n for k, n in _found().items() if k[0].split("/")[0] in LANE}
     listed = {k: n for k, (n, _) in MINE.items()}
     assert found == listed, sorted(set(found.items()) ^ set(listed.items()))
     # the two this card took off
@@ -192,3 +198,21 @@ def test_a_command_line_that_cannot_be_read_is_refused_without_repeating_what_wa
     with pytest.raises(GrammarError) as said:
         _study(f"{CHART}!")
     assert CHART not in str(said.value)
+
+
+def test_a_held_mail_and_a_missing_attachment_name_the_errors_type() -> None:
+    """NEW-TRUST-8 (D-704): the mail gateway kept an error's text in the reason of a held message (shown to the
+    person who decides it) and answered a missing attachment with the storage key. Read from the code: the three
+    statements take the error's type now."""
+    import inspect
+
+    from mail_gateway import app as mail_app
+    from mail_gateway import gateway
+
+    src = inspect.getsource(gateway)
+    assert 'f"prepare: {exc}"' not in src
+    # one place keeps a text on purpose: what the mail server answered when it refused the message before
+    # anything left (``_not_sent``), for the person who decides the held message (D-704, "Kept")
+    assert src.count('f"{type(exc).__name__}: {exc}"') == 1 and "def _not_sent" in src
+    assert "after the message left: {type(exc).__name__}: {exc}" not in src
+    assert "attachment not found: {exc}" not in inspect.getsource(mail_app)
