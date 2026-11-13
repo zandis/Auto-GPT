@@ -16,12 +16,21 @@
 | its dictionary | sudachidict-core | Apache-2.0 | 20261015 | a wheel in the lock; nothing downloaded at run time |
 | Chinese common words | the jieba project's word list, read as data at build time; Traditional forms by OpenCC | MIT; Apache-2.0 | jieba 0.42.1, opencc-python-reimplemented 0.1.7 | `services/guard/data/zh_common_words.txt`; neither package is in the lock or an image |
 
+**Rebuilding the word list** (`python -m tools.zh_common_words --dict <jieba>/dict.txt --out ...`, in a scratch
+environment with opencc-python-reimplemented 0.1.7): from `jieba/dict.txt` of jieba 0.42.1, sha256
+`7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8`, the tool writes
+`services/guard/data/zh_common_words.txt` with sha256
+`d2526b597a5f1866af08c447bedefb78fdc34cd166679b27b83cf4f9cbcc6c62` (161,585 rows; rebuilt and compared on
+2026-11-13). A test holds the file's hash and that neither jieba nor opencc is in a lock.
+
 Not taken: fugashi with UniDic (measured; dictionary terms and a native build), jieba as a run-time tokeniser
 (measured: 94.8 % of names kept, worse than the rule below), Presidio (a yardstick outside the lock only).
 
 **What the gates said** (by running, before the lock changed): `make lock-check` PASS with uv 0.13.7; allow-list
 check PASS, no entry needed; pip-audit "No known vulnerabilities found", gate PASS; the licence gate on the lock's
-SBOM PASS, both packages Apache-2.0. Installed size: the dictionary 193 MB, the tokeniser 4.9 MB.
+SBOM PASS, both packages Apache-2.0. Installed size: the dictionary 193 MB, the tokeniser 4.9 MB (wheels 76.9 MB
+and 1.8 MB): about +198 MB in the one Python image, the bundle and the media (for lane D). They are base
+dependencies: there is one Python image for the services (the integrator's ruling).
 
 ## Context
 

@@ -8,7 +8,7 @@ gates: a change of the rule, the word list or the dictionary that moves them is 
 
 from __future__ import annotations
 
-import importlib.util
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +17,7 @@ from guard import names
 from guard.guard import Guard
 
 SETS = Path(__file__).resolve().parents[1] / "fixtures" / "guard"
-HAS_TOKENISER = importlib.util.find_spec("sudachipy") is not None
-needs_tokeniser = pytest.mark.skipif(not HAS_TOKENISER, reason="SudachiPy is not in this environment")
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _rows(name: str) -> list[str]:
@@ -134,7 +133,6 @@ def test_an_error_inside_the_second_look_leaves_the_finding_standing(monkeypatch
         names._words.cache_clear()
 
 
-@needs_tokeniser
 def test_the_japanese_sets_hold_the_measured_figures() -> None:
     ordinary, with_names = _rows("ordinary_ja"), _rows("names_ja")
     g = Guard(r"^\d{8}$")
@@ -192,3 +190,19 @@ def test_the_shipped_word_list_is_the_measured_one() -> None:
     assert (len(word), len(one)) == (159721, 531)
     assert "".join(sorted(plain)) == "于何余古嚴尤戴曾涂游白許謝高黃黄"  # surnames that are ordinary words
     assert {"使用", "出現", "血壓", "高血壓"} <= word and "有" in one
+
+
+def test_the_word_list_is_the_built_one_and_its_sources_are_in_no_lock() -> None:
+    """D-647: the list is data, rebuilt by ``tools/zh_common_words.py`` from the named dictionary file; the
+    packages it is built with are build-time tools and never reach a lock or an image."""
+    assert hashlib.sha256(names.WORDS.read_bytes()).hexdigest() == (
+        "d2526b597a5f1866af08c447bedefb78fdc34cd166679b27b83cf4f9cbcc6c62"
+    )
+    locks = [ROOT / "uv.lock", *sorted((ROOT / "deploy").glob("*.lock")), ROOT / "tools/supply_chain/pip-audit.lock"]
+    assert len(locks) >= 3
+    for lock in locks:
+        text = lock.read_text(encoding="utf-8").lower()
+        assert "jieba" not in text and "opencc" not in text, lock.name
+    pinned = (ROOT / "deploy/requirements.lock").read_text(encoding="utf-8")
+    assert "sudachipy==0.7.0" in pinned and "sudachidict-core==20261015" in pinned
+    assert names.DICTIONARY == "sudachidict-core 20261015"

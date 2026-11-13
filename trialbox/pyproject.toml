@@ -36,6 +36,10 @@ dependencies = [
   "markdown>=3.7",
   "dulwich>=0.22",
   "zstandard>=0.23",  # .tbbak compression, zstd -3 multi-threaded (dataflow review P0-3, D-149)
+  # the PHI tripwire's second look at a Japanese name finding (NEW-LLM-3/4, D-647): pinned exactly, since the
+  # dictionary is what the decision's figures were measured with; a change is a re-measurement
+  "sudachipy==0.7.0",
+  "sudachidict-core==20261015",
 ]
 
 [project.optional-dependencies]
