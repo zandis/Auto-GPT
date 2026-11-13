@@ -71,7 +71,7 @@ def test_a_malformed_row_is_written_marked_and_the_next_rows_follow(tmp_path: Pa
     events = [json.loads(x) for f in sorted(tmp_path.glob("*.jsonl")) for x in f.read_text().splitlines()]
     events = [e for e in events if e.get("journal")]
     assert [e["event"] for e in events] == ["console.login", "mail.received", "console.denied"]
-    assert events[1]["journal"]["unreadable"], events[1]
+    assert events[1]["journal"]["unreadable"] and "unreadable" in events[1]["journal"]["flag"], events[1]
     assert "unreadable" not in events[0]["journal"] and "unreadable" not in events[2]["journal"]
 
 
@@ -84,3 +84,15 @@ def test_a_well_formed_row_is_written_as_before(tmp_path: Path) -> None:
     ev = next(e for e in events if e.get("event") == "console.login")
     assert ev["actor"] == "console:a" and ev["detail"] == {"k": 1} and ev["journal"]["seq"] == 1
     assert "unreadable" not in ev["journal"]
+
+
+def test_a_planted_sent_time_does_not_hide_the_time_that_was_sent(tmp_path: Path) -> None:
+    """The adversarial review: the text of a malformed time is kept in the drain's own record, never under a key of
+    ``detail`` that the sender could have set first."""
+    rows = [(1, AT, "tb_console", "console.login", "yesterday", {"detail": {"sent_ts": "2026-11-12T09:00:00+00:00"}})]
+    drain = Drain("postgresql://x@h/db", tmp_path, "Asia/Taipei", connect=lambda: _Con(rows))
+    drain.open()
+    assert drain.run(once=True, alive=None) == 1
+    events = [json.loads(x) for f in sorted(tmp_path.glob("*.jsonl")) for x in f.read_text().splitlines()]
+    ev = next(e for e in events if e.get("event") == "console.login")
+    assert ev["journal"]["sent_ts"] == "yesterday" and ev["journal"]["unreadable"] == ["time"]

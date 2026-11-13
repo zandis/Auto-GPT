@@ -396,9 +396,7 @@ def _readable(at: Any, ts: Any, fields: Any) -> tuple[dict[str, Any], datetime, 
         if stamp.tzinfo is None:
             raise ValueError("no zone")
     except (TypeError, ValueError):
-        stamp = datetime.fromisoformat(_iso(at))  # the journal's own time of the row
-        detail.setdefault("sent_ts", str(ts)[:64])
-        f["detail"] = detail
+        stamp = datetime.fromisoformat(_iso(at))  # the journal's own time of the row; the sent text goes in journal
         problem.append("time")
     return f, stamp, problem
 
@@ -458,9 +456,12 @@ class Drain:
             journal: dict[str, Any] = {"seq": int(seq), "role": role, "at": _iso(at)}
             if problem:  # security review 2026-11-13: a malformed row is written, marked; it never stops the drain
                 journal["unreadable"] = problem
+                if "time" in problem:  # the time the sender wrote, where the sender cannot write
+                    journal["sent_ts"] = str(ts)[:64]
             # T-721 (D-488): who may say what, and when. The mark is part of the record the event is written in,
             # so there is no moment at which the event is in the chain without it.
-            if marks := flags_of(str(role), str(event), stamp, at):
+            marks = flags_of(str(role), str(event), stamp, at) + (["unreadable"] if problem else [])
+            if marks:  # an unreadable row is flagged too, so `flagged()` and `audit_verify --foreign` list it
                 journal["flag"] = marks
                 # the event's name is the sender's own text: it stays in the record, not in the log line
                 log.warning("audit journal row %s from %s marked %s", seq, role, ", ".join(marks))

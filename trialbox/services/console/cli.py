@@ -191,9 +191,15 @@ def main(argv: list[str] | None = None) -> int:
         from tb_common.audit_writer import open_audit
 
         backend = HttpBackend(cfg, from_config(), open_audit(cfg.env.audit_path, cfg.env.tz))
-        _audit("console.operate", detail={"action": "ingest"})
-        rep = backend.ingest()
-        _audit("console.operate", detail={"action": "ingest.done", "reason": "passed" if rep.get("passed") else "no"})
+        try:
+            _audit("console.operate", detail={"action": "ingest"})
+            rep = backend.ingest()
+            _audit(
+                "console.operate", detail={"action": "ingest.done", "reason": "passed" if rep.get("passed") else "no"}
+            )
+        except AuditNotWritten as exc:
+            print(f"console: its audit event was NOT written ({exc}); record it by hand", file=sys.stderr)
+            return 3
         print({k: rep.get(k) for k in ("passed", "snapshot", "counts", "fhir_loaded")})
         return 0 if rep.get("passed") else 1
 
