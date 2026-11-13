@@ -29,6 +29,14 @@ closes them. The tests build hundreds of apps in one process.
    app cannot bring the leak back.
 3. `max_connections` of the throwaway cluster stays 300. Raising it would move the wall, not remove the slope.
 
+4. In the same card, asked by the integrator: two tests of the gateway held a wall-clock bound that a loaded
+   runner broke once each on 2026-11-13 (1.06 s against "under 1 s"; 386 ms against "under 250 ms"). The bound
+   measured the machine. Each now says what it means with no real-time bound: the slot-wait test gives the
+   gateway a clock the test moves (the wait is exactly 250 ms, the server's time exactly 0); the load test
+   asserts orderings and what the gateway asked its queue for (health answers while calls still hang; the front
+   desk's call asks for the interactive wait and never the batch budget; once the breaker is open the call does
+   not queue at all).
+
 ## Consequences
 
 - A worker's cluster holds only the connections of the test that is running, plus those of wide fixtures.
