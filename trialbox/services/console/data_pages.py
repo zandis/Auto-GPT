@@ -35,7 +35,7 @@ from tb_common import encoding
 from console import s28
 from console.api_first import before_body, page_twin
 from console.auth import Session
-from console.backend import Problem, Unavailable
+from console.backend import Problem, Unavailable, service_and_status
 from console.home import Helpers
 from console.i18n import translate
 from console.studies import known_study
@@ -460,7 +460,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(status, "request.refused", code=exc.code, reason=exc.message,
                             fields=", ".join(exc.fields)) from exc  # fmt: skip
         except Unavailable as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
 
     # T-657 (D-444): the actions' own first checks, run before the body is read (console.api_first)
     def first_change(sess: Session, request: Request) -> None:

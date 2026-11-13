@@ -309,7 +309,7 @@ class Orchestrator:
                 if not role_allowed(role, jtype):
                     raise Rejected(f"the {role} role may not run {jtype}")
             elif not allowed(self.cfg.settings, jtype, sender):
-                raise Rejected(f"{sender} is not permitted to run {jtype}")
+                raise Rejected(f"this sender is not permitted to run {jtype}")  # D-555: the address is not repeated
             limit = daily_limit(self.cfg.settings, jtype)  # D-146 (J-02): heavy job types only, each on its own
             since = (self._now() - timedelta(days=1)).isoformat()
             if limit is not None and self.db.count_since(sender, since, jtype) >= limit:
@@ -395,9 +395,9 @@ class Orchestrator:
         if failed is None:
             raise KeyError(job_id)
         if failed.state != "failed":
-            raise NotRetryable(f"job {job_id} has not failed")
+            raise NotRetryable("the job has not failed")
         if self.scheduled_root(failed) is None:
-            raise NotRetryable(f"job {job_id} was not started by the box's scheduler")
+            raise NotRetryable("the job was not started by the box's scheduler")
         sender = norm(reply_to)
         if not sender or sender in SYSTEM_SENDERS or "@" not in sender:
             raise Rejected("a retry names the administrator's mailbox (console.cli set-mailbox)")

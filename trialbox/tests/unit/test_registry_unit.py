@@ -63,7 +63,7 @@ def test_add_by_chart_number_stores_only_the_pseudonym(reg: CandidateRegistry) -
         reg.update("GZQO", _upd(mrn="10000001", pid="ab" * 16), NOW)
     with pytest.raises(RegistryError, match="hex"):
         reg.update("GZQO", _upd(pid="zz"), NOW)
-    with pytest.raises(RegistryError, match="invalid ruleset"):
+    with pytest.raises(RegistryError, match="not a ruleset id"):  # D-555: the id that was sent is not repeated
         reg.update("bad id!", _upd(mrn="10000001"), NOW)
 
 

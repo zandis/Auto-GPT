@@ -123,6 +123,10 @@ def _select(table: str) -> str:
     return f"SELECT {', '.join(_COLS[table])} FROM {table}"
 
 
+#: what a refused token name is told (the routes answer with this sentence, not with an error's text: D-555)
+TOKEN_NAME = "a token name is lower-case letters, digits, - and _"
+
+
 class StudyStore:
     """One store per trial database: the tables are keyed by study (``ruleset``) already."""
 
@@ -206,8 +210,9 @@ class StudyStore:
 
     # ------------------------------------------------------------------ REDCap connections (FR-PLAT-10, S36)
     def token_path(self, token_ref: str) -> Path:
+        """Where the token of this name is kept; ``ValueError(TOKEN_NAME)`` for a name that is not one."""
         if not _REF.match(token_ref):
-            raise ValueError("a token name is lower-case letters, digits, - and _")
+            raise ValueError(TOKEN_NAME)
         return self.secrets_dir / "redcap" / token_ref
 
     def put_token(self, token_ref: str, token: str) -> None:

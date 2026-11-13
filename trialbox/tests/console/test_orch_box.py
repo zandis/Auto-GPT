@@ -204,10 +204,12 @@ def test_a_console_job_is_authorised_by_the_signed_role(site: dict[str, Any], mo
     assert made and made[0]["detail"]["by"] == "console:crc" and made[0]["detail"]["role"] == "coordinator"
     with pytest.raises(Refused, match="the viewer role may not run FEAS"):
         bk.create_job(req, by="console:viewer", role="viewer")
-    with pytest.raises(Refused, match="nobody@hospa.test is not permitted to run FEAS"):
+    # D-555: the refusal says "this sender", not the address it was sent
+    with pytest.raises(Refused, match="this sender is not permitted to run FEAS") as said:
         bk.create_job(req)  # no person: the mailbox rules of the settings
+    assert "nobody@hospa.test" not in str(said.value)
     _drop_in_backend(monkeypatch, site, "role")  # a console that loses role= in create_job
-    with pytest.raises(Refused, match="nobody@hospa.test is not permitted"):
+    with pytest.raises(Refused, match="this sender is not permitted"):
         bk.create_job(req, by="console:crc", role="coordinator")
     with pytest.raises(Refused, match="internal_principal"):
         bk.create_job(JobCreate(type="FEAS", ruleset=STUDY, requested_by="scheduler", options={}))  # D-464

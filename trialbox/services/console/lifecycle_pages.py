@@ -35,7 +35,7 @@ from tb_common.csvfile import for_spreadsheet
 from console import actor, s28
 from console.api_first import before_body, page_twin
 from console.auth import Session
-from console.backend import Problem, Unavailable
+from console.backend import Problem, Unavailable, service_and_status
 from console.data_pages import err_of
 from console.entry_pages import can_enter, record_key
 from console.home import Helpers
@@ -542,7 +542,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             name, media, data = read_report_file(sess, rs, fmt)
         except (Problem, Unavailable) as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
         if media.startswith("text/csv"):
             data = for_spreadsheet(data)  # a file a person opens: Excel reads it as UTF-8 only with the mark
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
