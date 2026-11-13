@@ -98,3 +98,17 @@ def test_every_link_of_my_account_page_opens_for_its_role(box: dict, role: str) 
         if href.startswith(("/static/", "/logout")):
             continue
         assert c.get(href).status_code != 403, (role, href)
+
+
+def test_the_audit_filter_row_wraps(box: dict) -> None:  # noqa: F811
+    """CON-UX-2: the audit browser's seven filters sat in one inline-flex row that never wrapped, so the steward's
+    page scrolled sideways by 188 to 713 px at 1366 px (measured in Chromium, en, ja and zh-TW). The row wraps."""
+    import re
+
+    from tests.console.test_role_pages import _user
+
+    stw = _user(box, "stw-audit", "steward")
+    page = stw.get("/audit").text
+    assert 'class="inline filters" data-testid="audit-filter"' in page
+    css = stw.get("/static/console.css").text
+    assert re.search(r"form\.inline\.filters\s*\{[^}]*flex-wrap:\s*wrap", css)
