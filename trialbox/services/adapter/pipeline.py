@@ -1389,7 +1389,7 @@ def completeness_check(
     problems: list[str] = []
     optional = set(cfg.optional_tables)
     # NEW-DIN-8 (D-583): a table no earlier good night had rows of has no baseline to be compared with: the first
-    # night, the first night after a first load (the back-fill writes no completeness record), a table an override
+    # night, the first night after a first load made before D-535 (it wrote no completeness record), a table an override
     # once let through empty. So on a full night such a table must be there with live rows, unless the site lists
     # it as optional; else a table missing on go-live night would never be asked for again.
     for t in sorted(set(tables) | set(cfg.required_tables)):
