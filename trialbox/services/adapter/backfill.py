@@ -52,8 +52,10 @@ from tb_common.crypto import pid_for_mrn
 
 from adapter.ndjson import is_deleted_flag, snapshot_dir
 from adapter.pipeline import (
+    COMPLETENESS,
     PASSED,
     REJECT_MAX_PCT,
+    UNMAPPED_CODES,
     AdapterConfig,
     _current,
     _type_counts,
@@ -62,10 +64,12 @@ from adapter.pipeline import (
     apply_unit_defaults,
     check_lookup_factors,
     check_site_key,
+    completeness_check,
     ingest_instant,
     make_source,
     merge_base,
 )
+from adapter.sources.base import has_table
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
 
 log = logging.getLogger("adapter")
@@ -109,6 +113,9 @@ class BackfillReport:
     published: list[list[str]] = field(default_factory=list)  # the buckets of each publish
     counts: dict[str, int] = field(default_factory=dict)  # records per type in the last publish
     rejected: dict[str, int] = field(default_factory=dict)  # source rows the mapping could not read, per table
+    # D-535: rows with a value the mapping could not use, per table (the codes: unmapped_codes.json)
+    unmapped: dict[str, int] = field(default_factory=dict)
+    incomplete: list[str] = field(default_factory=list)  # the completeness gate's problems (the load is held)
     errors: list[str] = field(default_factory=list)
     spool_reused: bool = False
     seconds: float = 0.0
@@ -202,6 +209,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     sp = _Spool(root, snap[:4])
     rejected: dict[str, int] = {}
     rows_by_table: dict[str, int] = {}
+    tables: dict[str, dict[str, Any]] = {}  # D-535: per source table, what the night's completeness record holds
+    unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}
     pm = cfg.pidmap()
     try:
         aliases = pm.aliases()
@@ -252,9 +261,11 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 pairs: list[tuple[str, str]] = []
                 idents: list[tuple[str, dict[str, str]]] = []
                 n_rows = 0
+                n_read = 0
                 bad: Counter[str] = Counter()
                 for raw in src.rows(table, src_name, None, None):
                     row = mapping.normalize(table, raw)
+                    n_read += 1
                     if dcol in row and is_deleted_flag(row[dcol]):
                         continue  # a deleted row is a tombstone on a delta night; in a first load it is no record
                     n_rows += 1
@@ -283,6 +294,20 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 rows_by_table[table] = n_rows
                 if bad:
                     rejected[table] = sum(bad.values())
+                # D-535: the facts the night keeps per table (pipeline.completeness_check reads them). Duplicate keys
+                # are not counted by the first load (the night does, in a pass of its own): said by the flag
+                tables[table] = {
+                    "present": has_table(src, src_name),
+                    "rows": n_read,
+                    "rows_live": n_rows,
+                    "duplicate_keys": 0,
+                    "duplicates_counted": False,
+                }
+                if bad:
+                    tables[table]["rejected"] = {"rejected": sum(bad.values())}
+            for table, by_lookup in mapper.unmapped_summary().items():  # NEW-DIN-6 (D-580), as the night
+                tables.setdefault(table, {})["unmapped"] = by_lookup
+            unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
         if patients:
             held = {"Patient": [r for _, r in patients]}
             apply_aliases(held, aliases)
@@ -293,7 +318,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
     finally:
         sp.close()
         pm.close()
-    return {"rejected": rejected, "rows": rows_by_table}
+    return {"rejected": rejected, "rows": rows_by_table, "tables": tables, "unmapped_codes": unmapped_codes}
 
 
 def _sort_bucket(spool: Path, runs: Path, bucket: str) -> dict[str, Any]:
@@ -461,6 +486,18 @@ def backfill(
         facts = {"fingerprint": fp, **_spool(cfg, source_kind, source_path, snap, spool, key)}
         _atomic_json(marker, facts)
     rep.rejected = dict(facts.get("rejected") or {})
+    # D-535: the first load is a hospital's first night. The night's completeness gate is asked of its tables before
+    # a year is published (a required table missing or empty; with ``first_night_all_tables``, any table of the
+    # mapping that is not optional), and what it knows is kept as the snapshot's completeness record, so the next
+    # night has a baseline. A spool from before this card has no table facts: nothing is asked of it
+    tables = {str(t): dict(v) for t, v in (facts.get("tables") or {}).items()}
+    codes = facts.get("unmapped_codes") or {}
+    rep.unmapped = {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(codes.items())}
+    if tables:
+        rep.incomplete, _ = completeness_check(cfg, tables, work / "none", None, full=True)
+        rep.errors += rep.incomplete
+    for table, n in rep.unmapped.items():
+        log.warning("%s: %d rows hold a value no look-up knows (%s)", table, n, UNMAPPED_CODES)
     for table, n_bad in sorted(rep.rejected.items()):
         n_rows = int((facts.get("rows") or {}).get(table) or 0)
         if n_bad * 100 > REJECT_MAX_PCT * max(1, n_rows):
@@ -496,6 +533,15 @@ def backfill(
     return rep
 
 
+def _spool_facts(work: Path) -> dict[str, Any]:
+    """What the spool phase recorded beside its spool (``spool/done.json``), or {} (a spool of an older version)."""
+    try:
+        got = json.loads((work / "spool" / "done.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
 def _publish(
     cfg: AdapterConfig,
     rep: BackfillReport,
@@ -516,6 +562,17 @@ def _publish(
     counts = _write_merged(runs, buckets, stage)
     years = [b for b in buckets if b != BASE]
     _atomic_json(stage / REPORT, {"snapshot": snap, "years": years, "complete": final})
+    # D-535: the snapshot's completeness record and its unknown codes, as a night's snapshot has them. The table
+    # facts are the spool's (kept beside it: a run started again writes the same); the orphan counts are read from
+    # the records of this publish
+    facts = _spool_facts(work)
+    tables = {str(t): dict(v) for t, v in (facts.get("tables") or {}).items()}
+    if tables:
+        _, completeness = completeness_check(cfg, tables, stage, None, full=True)
+        completeness["first_load"] = {"years": years, "complete": final}
+        _atomic_json(stage / COMPLETENESS, completeness)
+    if facts.get("unmapped_codes"):
+        _atomic_json(stage / UNMAPPED_CODES, facts["unmapped_codes"])
     errors: list[str] = []
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
