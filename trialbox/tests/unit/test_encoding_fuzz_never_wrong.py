@@ -127,3 +127,96 @@ def test_a_vendor_master_named_as_shift_jis_is_still_read_where_a_rival_ties() -
     assert encoding.detect(data, ("cp932",))[0] == "cp932"
     with pytest.raises(encoding.EncodingRefused):
         encoding.detect(data)
+
+
+# ------------------------------------------------------------------------------------------------ the review
+FR = [
+    "sévère",
+    "décès",
+    "œdème",
+    "fièvre",
+    "nausée",
+    "état",
+    "général",
+    "éruption",
+    "cutanée",
+    "hémorragie",
+    "diarrhée",
+]
+DE = ["Müdigkeit", "Übelkeit", "Schwäche", "Größe", "Blutdruck", "erhöht", "Kopfschmerzen", "Rötung", "Ödem"]
+PT = ["ATENÇÃO", "NÃO", "infecção", "reação", "pressão", "coração", "náusea", "DOR", "AÇÃO", "febre"]
+PL = ["GORĄCZKA", "nudności", "ból", "głowy", "zmęczenie", "ŻÓŁTACZKA", "wysypka", "duszność"]
+RU = ["рвота", "тошнота", "боль", "головная", "слабость", "сыпь", "давление", "лихорадка"]
+HK = ["食咗藥", "冇發燒", "唔舒服", "睇醫生", "嘔吐", "頭痛"]
+SYMBOLS = ["ID,temp\n1,37.2 °C\n2,38.1 °C\n", "ID,dose\n1,½ tablet\n2,1 tablet\n", "ID,r\n1,5 ± 2\n",
+           "ID,AE\n1,ŒDÈME\n", "Dose: 5 µg\n", "Area 1.73 m²\n", "ID,x\n1,¼ dose\n"]  # fmt: skip
+
+
+def _western(rng: random.Random) -> Iterator[tuple[str, str, str]]:
+    sets = ((FR, ("cp1252", "mac_roman", "cp437"), "fr"), (DE, ("cp1252", "mac_roman", "cp437"), "de"),
+            (PT, ("cp1252", "mac_roman"), "pt"), (PL, ("cp1250",), "pl"), (RU, ("koi8_r", "cp1251"), "ru"),
+            (HK, ("big5hkscs",), "hk"))  # fmt: skip
+    for words, codecs, name in sets:
+        for codec in codecs:
+            for _ in range(40):
+                line = " ".join(rng.choice(words) for _ in range(rng.randint(1, 3)))
+                yield f"{name}/{codec}", line, codec
+                yield f"{name}/{codec}", f"AE: {line}\n", codec
+                yield f"{name}/{codec}", f"ID,AE\n1,{line}\n2,{rng.choice(words)}\n", codec
+    for text in SYMBOLS:
+        yield "symbols/cp1252", text, "cp1252"
+    for text in ("ID,note\n1,ok\n", "Dx: gout\n"):
+        yield "utf-16 without a mark", text, "utf-16-le"
+        yield "utf-16 without a mark", text, "utf-16-be"
+    # two lowercase letters and one character whose legacy bytes are C3 A0 to C3 BF, a western letter in UTF-8:
+    # `icf簽` in Big5 was read as `icfñ` by a first version of this card
+    for codec in ("big5", "gb18030", "euc_jp", "euc_kr"):
+        for low in range(0xA0, 0xC0):
+            try:
+                ch = bytes((0xC3, low)).decode(codec)
+            except UnicodeDecodeError:
+                continue
+            for wrap in ("ID,note\n1,icf{}\n", "consent{}", "Dx: gout{}\n", "ID,x\n1,ok{}\n"):
+                yield f"a word and one character/{codec}", wrap.format(ch), codec
+
+
+@pytest.mark.parametrize("reader", sorted(READERS))
+def test_western_cyrillic_and_cantonese_text_is_read_right_or_refused(reader: str) -> None:
+    """French, German, Portuguese and Polish in the single-byte sets a western file may be in, Russian, Cantonese
+    in Big5-HKSCS (read: it is of the Big5 family), sheets of symbols, UTF-16 without its mark. Not in the ceiling,
+    and said so in D-680: Thai (TIS-620), whose words are the same bytes as runs of half-width kana."""
+    rng = random.Random(3)
+    wrong: dict[str, tuple[str, str]] = {}
+    seen = 0
+    for shape, truth, codec in _western(rng):
+        try:
+            data = truth.encode(codec)
+        except UnicodeEncodeError:
+            continue
+        seen += 1
+        try:
+            got = READERS[reader](data)[0]
+        except encoding.EncodingRefused:
+            continue
+        if got != truth:
+            wrong.setdefault(shape, (truth, got))
+    assert seen > 1_500
+    assert wrong == {}, f"{len(wrong)} shape(s) read as wrong text, e.g. {next(iter(wrong.items()))}"
+
+
+def test_a_japanese_note_is_read_in_either_of_its_two_sets() -> None:
+    """The SS-MIX2 notes: the caller names Shift_JIS and EUC-JP, both Japanese. A rival of another language must
+    read the note better to refuse it, as before (the first version of this card refused 57 % of EUC-JP notes)."""
+    rng = random.Random(9)
+    read = {"cp932": 0, "euc_jp": 0}
+    for _ in range(200):
+        lines = ["".join(rng.choice(JA) for _ in range(rng.randint(2, 6))) + "。" for _ in range(rng.randint(1, 20))]
+        note = "\n".join(lines) + "\n"
+        for codec in read:
+            try:
+                got = encoding.decode(note.encode(codec), ("cp932", "euc_jp"))[0]
+            except encoding.EncodingRefused:
+                continue
+            assert got == note
+            read[codec] += 1
+    assert read["cp932"] >= 196 and read["euc_jp"] >= 190, read
