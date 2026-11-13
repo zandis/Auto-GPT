@@ -8,6 +8,7 @@ with five long notes on a 32k build).
 from __future__ import annotations
 
 from datetime import date
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -165,19 +166,114 @@ def test_the_two_notes_of_the_review_are_not_stitched() -> None:
     assert _adjacent_or_marked(got, zh) and note_tokens(got) <= 1250
 
 
-def test_a_lead_in_too_far_above_is_shown_with_the_gap_marked_and_never_crosses_a_heading() -> None:
+def test_a_lead_in_is_shown_only_joined_to_its_evidence_and_never_across_a_heading() -> None:
+    """Review of #419 (H1, M2): the first version showed a colon line above the evidence across a gap. A "none of
+    the following:" far above then sat right over a positive finding it does not govern. A colon line is shown
+    only when every line between it and the evidence is shown; a bracketed heading may stand across a gap."""
     items = [f"項目{i}の既往。" for i in range(300)]
     text = "【既往歴】\n以下の既往なし：\n" + "\n".join(items) + "\n肺結核"
     got = clip(_n("n", "2026-10-01", text), ["肺結核"], 120)
     lines = got.split("\n")
-    assert (
-        lines[:3] == ["【既往歴】", "以下の既往なし：", GAP] and lines[-1] == "肺結核"
-    )  # heading, lead-in, the gap said
-    assert _adjacent_or_marked(got, text) and note_tokens(got) <= 120
+    assert lines[:2] == ["【既往歴】", GAP] and lines[-1] == "肺結核"  # the heading; the cut said; the list's end
+    assert "以下の既往なし：" not in got and _adjacent_or_marked(got, text) and note_tokens(got) <= 120
     # a heading between the lead-in and the evidence ends the lead-in's scope: it is not carried over
     text = "以下の既往なし：\n糖尿病\n" + "経過良好。\n" * 400 + "【家族歴】\n肺結核"
     got = clip(_n("n", "2026-10-01", text), ["肺結核"], 120)
     assert "【家族歴】\n肺結核" in got and "以下の既往なし：" not in got
+
+
+def _colon_before_gap(part: str, evidence: list[str]) -> list[str]:
+    lines = part.split("\n")
+    return [
+        a for a, b in pairwise(lines)
+        if b == GAP and a.endswith(("：", ":")) and a not in evidence
+    ]  # fmt: skip
+
+
+def test_a_soap_diary_is_shown_as_context_not_as_a_column_of_colon_lines() -> None:
+    """Review of #419 (H1), by running: 150 days of S：/O：/A：/P： gave 244 colon lines, 245 marks and one line."""
+    days = "".join(
+        f"S：\n{d}日目、咳あり。\nO：\n体温37.{d % 10}度。\nA：\n経過観察{d}。\nP：\n継続{d}。\n" for d in range(150)
+    )
+    text = days + "A：\n肺結核の疑い。\nP：\n喀痰検査。"
+    got = clip(_n("n", "2026-10-01", text), ["肺結核の疑い。"], 300)
+    assert "A：\n肺結核の疑い。" in got and got.count(GAP) == 1 and _adjacent_or_marked(got, text)
+    assert _colon_before_gap(got, ["肺結核の疑い。"]) == [] and note_tokens(got) <= 300
+    assert len([x for x in got.split("\n") if not x.endswith("：") and x != GAP]) > 20  # context, not an outline
+
+
+def test_a_denial_far_above_is_not_put_over_a_positive_finding() -> None:
+    """Review of #419 (H1): vitals lines, a denied list, a bare heading, prose, then a diagnosis."""
+    text = (
+        "バイタル：\n" * 260 + "以下の既往なし：\n糖尿病\n喘息\n現病歴\n"
+        + "".join(f"第{i}病日、咳が続く。\n" for i in range(40)) + "喀痰培養で肺結核と診断した。"
+    )  # fmt: skip
+    for cap in (60, 120, 300):
+        got = clip(_n("n", "2026-10-01", text), ["喀痰培養で肺結核と診断した。"], cap)
+        assert "以下の既往なし：" not in got or "以下の既往なし：\n糖尿病\n喘息\n現病歴\n第0病日" in got, cap
+        assert _colon_before_gap(got, []) == [] and _adjacent_or_marked(got, text)
+
+
+@pytest.mark.parametrize("bullet", ["● ", "■ ", "#", "・", "- ", "□ "])
+def test_the_items_of_a_bulleted_list_are_not_headings(bullet: str) -> None:
+    """Review of #419 (M1): "● 糖尿病" was read as a heading, so the lead-in of a ● list was cut off from it."""
+    text = "経過良好。\n" * 400 + "【既往歴】\n病人否認下列病史：\n" + "".join(f"{bullet}項目{i}\n" for i in range(200))
+    text += f"{bullet}肺結核\n" + "経過良好。\n" * 400
+    got = clip(_n("n", "2026-10-01", text), [f"{bullet}肺結核"], 120)
+    # the list is longer than the cap: its section's heading still stands above it (the item before is no heading)
+    assert "【既往歴】" in got and f"{bullet}項目199\n{bullet}肺結核" in got and _adjacent_or_marked(got, text)
+    # and a symbol-led line that stands alone is still a heading
+    text = "経過良好。\n" * 400 + "■ 家族歴\n" + "".join(f"所見{i}。\n" for i in range(200)) + "肺結核。"
+    got = clip(_n("n", "2026-10-01", text), ["肺結核。"], 120)
+    assert "■ 家族歴" in got and _adjacent_or_marked(got, text)
+
+
+def test_a_quote_is_never_found_across_a_cut_or_in_the_mark_itself() -> None:
+    """Review of #419 (M3): the quote check folds "…" to "..." and joined the lines on both sides of a mark, so
+    "[…]", "..." and a quote running over a cut verified although none is in the note."""
+    from matching.cascade.judge import JudgeReply, verify_span
+    from tb_common.quotes import quote_in
+
+    part = f"【既往歴】\n高血圧。\n{GAP}\n【家族歴】\n肺結核。"
+    for bad in (
+        GAP,
+        "...",
+        "…",
+        "[...]",
+        f"{GAP}【家族歴】",
+        "高血圧。【家族歴】",
+        f"高血圧。{GAP}【家族歴】",
+        "高血圧。...【家族歴】",
+    ):
+        assert not quote_in(bad, part), bad
+    for good in ("肺結核。", "【家族歴】 肺結核。", "【既往歴】高血圧。"):  # inside one run, over its line break
+        assert quote_in(good, part), good
+    assert quote_in("経過観察...", "所見。\n経過観察...\n以上。")  # dots the note itself holds are still a quote
+    ex = [{"did": "d", "date": "2026-10-01", "text": part}]
+    lo, hi = date(2026, 1, 1), date(2026, 12, 31)
+
+    def span(quote: str) -> Any:
+        reply = JudgeReply(verdict="fail", confidence=0.9, quote=quote, quote_date=None, reason="")
+        return verify_span(reply, ex, lo, hi)
+
+    assert span(GAP) is None and span("高血圧。【家族歴】") is None and span("...") is None
+    got = span("【家族歴】肺結核。")
+    assert got is not None and got["did"] == "d"
+
+
+def test_with_almost_no_room_the_first_evidence_sentence_that_fits_is_shown() -> None:
+    """Review of #419 (L1): only the first evidence sentence was tried; then the note's first characters."""
+    text = (
+        "経過良好。\n" * 50
+        + "長い長い長い長い長い長い長い長い長い長い長い長い所見の肺結核。\n"
+        + "経過良好。\n" * 50
+        + "肺結核。"
+    )
+    cap = note_tokens("肺結核。") + 2
+    got = clip(
+        _n("n", "2026-10-01", text), ["長い長い長い長い長い長い長い長い長い長い長い長い所見の肺結核。", "肺結核。"], cap
+    )
+    assert got == "肺結核。"
 
 
 def test_two_pieces_of_evidence_far_apart_are_two_windows_with_the_gap_between() -> None:
@@ -219,7 +315,9 @@ def test_any_clip_fits_its_cap_and_is_never_stitched() -> None:
         got = clip(note, ev, cap)
         assert note_tokens(got) <= cap, (case, cap, got)
         assert _adjacent_or_marked(got, text), (case, got)
-        assert all(x in got for x in ev) or GAP in got  # the evidence, or a cut that is said
+        assert _colon_before_gap(got, ev) == [], (case, got)  # no lead-in left hanging over a cut
+        if ev and cap - note_tokens("") > 80:
+            assert any(x in got.split("\n") for x in ev), (case, got)  # room for a sentence: evidence is shown
 
 
 def test_a_cut_note_in_the_cascade_shows_its_heading_and_is_still_left_out() -> None:

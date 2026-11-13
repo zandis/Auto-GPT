@@ -18,8 +18,8 @@ excluded a patient whose decisive note they never saw (review H4).
 It shows whole notes, the evidence notes first and then the rest of the window, newest first, while they fit.
 A window note with no text is not shown and counts as left out. An
 evidence note longer than half the budget is cut to that half, so one long note never hides the others (D-142,
-review A-06): windows of whole sentences around its evidence, each under its heading and the lead-in of its list,
-with ``[…]`` wherever sentences were left out and nothing stitched (:func:`clip`; NEW-LLM-1, D-641). Any other note
+review A-06): windows of whole sentences around its evidence, each under its heading, with ``[…]`` wherever
+sentences were left out and nothing stitched (:func:`clip`; NEW-LLM-1, D-641). Any other note
 that does not fit is skipped.
 
 **``left_out`` counts every window note not shown in full**: skipped, or clipped. Both models read the one set, so
@@ -34,16 +34,16 @@ import re
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from itertools import pairwise
 from typing import Any
 
+from tb_common.quotes import CUT
 from tb_llm.budget import excerpt_tokens
 
 #: the budget when no client can tell its context: what fits beside the judge prompt and its answer on the smallest
 #: registered build (8k, T-603). A known context replaces it; it is the one fixed number of this module (OD-10)
 DEFAULT_TOKENS = 2500
 #: what an excerpt shows where sentences of its note were left out (NEW-LLM-1, D-641)
-GAP = "[…]"
+GAP = CUT
 _SENT = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 
 
@@ -84,25 +84,27 @@ class ExcerptSet:
     cut: list[str] = field(default_factory=list)
 
 
-# a line that is a heading by its brackets (【既往歴】, [Family history], ■ 家族歴), and a line that ends in a colon: a
-# heading written that way (家族歴：) or the lead-in of a list (以下の既往なし：, 病人否認下列病史：, "Denies:")
-_HEADING = re.compile(
-    r"^(?:【[^】]+】|［[^］]+］|\[[^\]]+\]|〈[^〉]+〉|《[^》]+》|<[^>]+>|[■□◆◇●○▼▽◎＃#]+\s*\S.*)\s*[:：]?$"
+# a line that is a heading by its brackets (【既往歴】, 〔家族歴〕, [Family history]): it must hold a letter, so "[1]",
+# "<5>" and the cut mark are none. A line led by a list symbol (■ 家族歴) is a heading only when it stands alone:
+# next to another line led the same way it is an item of a list (review of #419: "● 糖尿病" is no heading)
+_BRACKETED = re.compile(
+    r"^(?:【[^】]+】|〔[^〕]+〕|［[^］]+］|＜[^＞]+＞|〈[^〉]+〉|《[^》]+》|\[[^\]]+\]|<[^>]+>)\s*[:：]?$"
 )
-_LEAD_IN = re.compile(r"[:：]$")
+_SYMBOL = re.compile(r"^[■□◆◇●○▼▽◎＃#]")
+_LETTER = re.compile(r"[^\W\d_]")
+_COLON = re.compile(r"[:：]$")
 
 
-def _outline(sents: Sequence[str], at: int) -> list[int]:
-    """What governs sentence ``at``, nearest first: the lines ending in a colon above it, up to and with the nearest
-    bracketed heading. A heading ends the scope of every lead-in above it."""
-    out: list[int] = []
-    for i in range(at - 1, -1, -1):
-        if _HEADING.match(sents[i]):
-            out.append(i)
-            break
-        if _LEAD_IN.search(sents[i]):
-            out.append(i)
-    return out
+def _is_heading(sents: Sequence[str], i: int) -> bool:
+    line = sents[i]
+    if line == GAP or not _LETTER.search(line):
+        return False
+    if _BRACKETED.match(line):
+        return True
+    if not _SYMBOL.match(line):
+        return False
+    near = [sents[k] for k in (i - 1, i + 1) if 0 <= k < len(sents)]
+    return not any(x[:1] == line[:1] for x in near)
 
 
 def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], int] = note_tokens) -> str:
@@ -114,10 +116,12 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
     stitched (before, the evidence sentences and the note's start were joined with nothing between, so a list under
     "family history" or under "denies the following" read as the patient's own history).
 
-    What is shown, in this order while it fits: each evidence sentence; above each, what governs it
-    (:func:`_outline`: its heading and the lead-in of its list); the sentences between that and the evidence, from
-    the evidence upwards; then each window grows by one sentence down and one up in turn. A direction ends at the
-    first sentence that does not fit: nothing is skipped to fit a later, shorter one.
+    What is shown, in this order while it fits: each evidence sentence; above each, the nearest heading
+    (:func:`_is_heading`), which may stand across a cut; then each window grows by one sentence up and one down in
+    turn, so the lines just above the evidence (the lead-in of its list, a heading written with a colon) are shown
+    joined to it or not at all. A direction ends at the first sentence that does not fit: nothing is skipped to
+    fit a later, shorter one. A window never ends on a line that ends in a colon or on a heading of other text:
+    such a line would read as governing what follows the cut.
 
     ``evidence``: sentences of the note, or longer fragments (a retrieved chunk) whose sentences count; with none
     found in the note, the note's start is the window."""
@@ -128,69 +132,76 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
     # + 1: the line break that joins a line to the next, and the rounding of a sum
     cost = [tokens(x) - overhead + 1 for x in sents]
     gap = tokens(GAP) - overhead + 1
+    last = len(sents) - 1
     chosen: set[int] = set()
     used = 0
+    pieces = 0  # runs of chosen sentences next to each other
 
-    def gaps(have: set[int]) -> int:
-        order = sorted(have)
-        inner = sum(1 for a, b in pairwise(order) if b != a + 1)
-        return inner + (order[0] != 0) + (order[-1] != len(sents) - 1)
+    def marks(n_pieces: int, have: set[int], i: int) -> int:
+        """Cut marks of ``have`` plus sentence ``i``: between the runs, and at either end the note goes beyond."""
+        return (n_pieces - 1) + (0 not in have and i != 0) + (last not in have and i != last)
 
     def take(i: int) -> bool:
-        nonlocal used
+        nonlocal used, pieces
         if i in chosen:
             return True
-        if used + cost[i] + gap * gaps(chosen | {i}) > room:
+        after = pieces + 1 - (i - 1 in chosen) - (i + 1 in chosen)
+        if used + cost[i] + gap * marks(after, chosen, i) > room:
             return False
         chosen.add(i)
         used += cost[i]
+        pieces = after
         return True
 
     first = [i for i, x in enumerate(sents) if any(x == w or x in w for w in wanted)] or ([0] if sents else [])
     for i in first:
         take(i)
-    if not chosen and first and cost[first[0]] <= room:
-        return sents[first[0]]  # no room to mark the cut: the first evidence sentence alone
-    if not chosen:  # one sentence longer than the cap: the note's start
-        out: list[str] = []
+    if not chosen:
+        bare = next((i for i in first if cost[i] <= room), None)
+        if bare is not None:
+            return sents[bare]  # no room to mark the cut: the first evidence sentence that fits, alone
+        out: list[str] = []  # one sentence longer than the cap: the note's start
         used = 0
         for ch in note.text:
             used += 4 if "　" <= ch <= "鿿" else 1
             if used > max(0, room) * 4:
                 break
             out.append(ch)
+        while out and tokens("".join(out)) > cap:
+            out.pop()
         return "".join(out)
     centres = [i for i in first if i in chosen]
-    tops: dict[int, int] = {}  # per evidence sentence: the top of its window (its heading or lead-in, when shown)
+    heads: set[int] = set()  # the heading each evidence sentence stands under, when it is shown
     for i in centres:
-        above = _outline(sents, i)
-        kept = [a for a in above if take(a)]
-        tops[i] = min(kept, default=i)
-    for i in centres:  # the lines between what governs the evidence and the evidence, from the evidence upwards
-        for k in range(i - 1, tops[i], -1):
-            if not take(k):
-                break
+        h = next((k for k in range(i - 1, -1, -1) if _is_heading(sents, k)), None)
+        if h is not None and take(h):
+            heads.add(h)
     up = {i: i - 1 for i in centres}
     down = {i: i + 1 for i in centres}
-    open_ = {(i, d) for i in centres for d in ("down", "up")}
-    while open_:
+    growing = {(i, d) for i in centres for d in ("up", "down")}
+    while growing:
         for i in centres:
-            for d, cursor, step in (("down", down, 1), ("up", up, -1)):
-                if (i, d) not in open_:
+            for d, cursor, step in (("up", up, -1), ("down", down, 1)):
+                if (i, d) not in growing:
                     continue
                 k = cursor[i]
-                if not 0 <= k < len(sents) or not take(k):
-                    open_.discard((i, d))
+                if not 0 <= k <= last or not take(k):
+                    growing.discard((i, d))
                 else:
                     cursor[i] = k + step
+    keep = set(centres) | heads
+    for i in sorted(chosen, reverse=True):  # no window ends on a colon line or on a heading of text not shown
+        hangs = i != last and i + 1 not in chosen and i not in keep
+        if hangs and (_COLON.search(sents[i]) or _is_heading(sents, i)):
+            chosen.discard(i)
     lines: list[str] = []
-    last = -1
+    at = -1
     for i in sorted(chosen):
-        if i != last + 1:
+        if i != at + 1:
             lines.append(GAP)
         lines.append(sents[i])
-        last = i
-    if last != len(sents) - 1:
+        at = i
+    if at != last:
         lines.append(GAP)
     return "\n".join(lines)
 

@@ -28,20 +28,28 @@ a line of its own (`excerpts.GAP`). Still only whole sentences of the note, in t
 What is shown, in this order while it fits the cap:
 
 1. each evidence sentence;
-2. above each, what governs it: the lines ending in a colon above it (a heading written `家族歴：`, the lead-in of a
-   list such as `以下の既往なし：`, `病人否認下列病史：`, `Denies:`), nearest first, up to and with the nearest
-   bracketed heading (`【家族歴】`, `[Family history]`, `■ 家族歴`). A bracketed heading ends the scope of every
-   lead-in above it: a lead-in is never carried across a heading;
-3. the sentences between that and the evidence, from the evidence upwards, so that where there is room the
-   lead-in, its list and the evidence are one unbroken run; where there is not, the lead-in, `[…]`, and the lines
-   just above the evidence;
-4. then each window grows by one sentence below and one above in turn. A direction ends at the first sentence that
+2. above each, its nearest heading. A heading is a line in brackets that holds a letter (`【家族歴】`, `〔家族歴〕`,
+   `[Family history]`), or a line led by a list symbol that stands alone (`■ 家族歴`; next to another line led the
+   same way it is an item, not a heading). A heading may stand across a cut: it governs until the next heading;
+3. then each window grows by one sentence above and one below in turn. A direction ends at the first sentence that
    does not fit; nothing is skipped to fit a later, shorter line (that skipping was the stitch).
 
+**A line that ends in a colon is shown only joined to what it governs.** The lead-in of a list (`以下の既往なし：`,
+`病人否認下列病史：`, `Denies:`) and a heading written with a colon (`家族歴：`) are reached by the window growing
+upwards, so every line between them and the evidence is shown too and the model reads the scope itself. A colon
+line is never carried across a cut, and no window ends on one (or on a heading of text that is not shown): it
+would read as governing what follows the cut. The first version of this card carried every colon line above the
+evidence across cuts; the review showed a SOAP diary reduced to 244 `S：/O：/A：/P：` lines and one sentence, and a
+"none of the following:" placed right over a diagnosis it did not govern.
+
 The cost of every `[…]` is inside the cap. With no evidence sentence found in the note (a retrieved chunk that
-matches no sentence), the window is the note's start. Two cases keep their old form: a cap too small for the first
-evidence sentence and its markers gives that sentence alone, and a first sentence longer than the cap gives the
-note's first characters.
+matches no sentence), the window is the note's start. Two cases keep their old form: a cap too small for an
+evidence sentence and its marks gives the first evidence sentence that fits, alone; a first sentence longer than
+the cap gives the note's first characters, inside the cap.
+
+**The quote check knows the mark** (`tb_common.quotes`: `CUT`, `runs`, `quote_in`; `verify_span`). A quote must lie
+inside one unbroken piece of the excerpt. Before, the check joined the lines on both sides of a cut and folded `…`
+to `...`, so `[…]`, `...` and a quote running over a cut verified although none of them is in the note.
 
 No new setting and no new limit: the cap is still half the budget, and the budget is still the models' context
 (T-603, `NoteJudge.excerpt_budget`) or `DEFAULT_TOKENS`.
@@ -53,15 +61,21 @@ models and the reviewer read, not what an answer on it may do.
 
 - It does not tell the model what `[…]` means: the judge prompt is pinned by approved rulesets (D-318), and a new
   prompt version is a card of its own. The mark is the common one for omitted text.
-- A heading is told by its brackets or its colon. A heading written as a bare word on a line (`家族歴`) is not
-  seen as one; it is shown only when the window reaches it.
+- A heading written as a bare word on a line (`家族歴`, `FAMILY HISTORY`, `1. 家族歴`) is not seen as one; it is
+  shown only when the window reaches it.
+- A list longer than the cap loses its lead-in: the evidence is then shown under its heading with the list's last
+  items, and the cut is marked. With the budget taken from the models' context this is a list of hundreds of lines.
+- A note line that is itself `[…]` reads as a cut.
 - Whether the real pair answers better on these windows is not measured here (test G-03 of the review needs a GPU).
 - The line-break join of sentences that stood on one line is as before.
 
 ## Test
 
 `tests/unit/test_excerpts.py`: the two expected failures T-710 left are now plain tests (heading kept; lead-in and
-its list kept); the two notes of the review; a lead-in far above its evidence is shown with the gap marked, and
-not across a heading; two pieces of evidence far apart are two windows with `[…]` between; 200 seeded random notes
-fit their cap and are never stitched; the checker itself rejects the old stitched form; in the cascade a clipped
-note shows its heading and is still left out.
+its list kept); the two notes of the review; two pieces of evidence far apart are two windows with `[…]` between;
+200 seeded random notes fit their cap, are never stitched and leave no colon line hanging over a cut; the checker
+itself rejects the old stitched form; in the cascade a clipped note shows its heading and is still left out. From
+the review of this card: a lead-in is shown only joined to its evidence and never across a heading; a SOAP diary
+is shown as context; a denial far above is not put over a positive finding; the items of a bulleted list are not
+headings; a quote is never found across a cut or in the mark; with almost no room the first evidence sentence
+that fits is shown.
