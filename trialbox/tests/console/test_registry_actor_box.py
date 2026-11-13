@@ -43,8 +43,9 @@ def test_a_signed_call_is_recorded_under_the_verified_person_whatever_the_body_s
     typed = {**body, "by": "console:dr_tanaka"}
     r = c.post(path, json=typed, headers=signed(ACT, STUDY, "POST", path, typed, sub="console:crc"))
     assert r.status_code == 422, r.text[:300]
-    path, body = f"/registry/{STUDY}/promote", {"tiers": ["high", "review"]}
-    r = c.post(path, json=body, headers=signed(ACT, STUDY, "POST", path, body, sub="console:crc"))
+    path = f"/registry/{STUDY}/promote"
+    tiers: dict[str, Any] = {"tiers": ["high", "review"]}
+    r = c.post(path, json=tiers, headers=signed(ACT, STUDY, "POST", path, tiers, sub="console:crc"))
     assert r.status_code == 200 and r.json()["added"] >= 1, r.text[:300]
     assert {row["updated_by"] for row in _rows(orch_box)} == {"console:crc"}
     assert {e["actor"] for e in orch_box.events("registry.promote")} == {"console:crc"}
