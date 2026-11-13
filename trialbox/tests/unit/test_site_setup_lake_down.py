@@ -23,9 +23,9 @@ import httpx
 import pytest
 from lake.client import LakeUnhealthy
 from sitesetup import help, readiness
-from sitesetup.service import LAKE_DOWN, SiteSetup
-from tb_common.http import ServiceError
+from sitesetup.service import SiteSetup
 from tb_common.db import ENV as DB_ENV
+from tb_common.http import ServiceError
 
 from tests.unit.test_site_setup import STUDY, TODAY, pid, site_ruleset, svc  # noqa: F401 - the fixture, by name
 
