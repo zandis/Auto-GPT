@@ -26,6 +26,15 @@ full-width, is still "a pseudonym, not a chart number".
 - It changes no pseudonym: the box normalised a full-width number the same way; the desk only stopped refusing it.
 - The desk does not apply the site's rule (width, leading zeros, case): one place does, the box.
 
+## What the adversarial review changed
+
+One review by a fresh reviewer. Verdict: merge; no HIGH or MED. It ran the normaliser over full-width signs,
+other scripts' digits, zero-width characters and look-alikes: only full-width digits, letters and the hyphen
+newly pass, and what the box hashes is what was typed (200,000 random strings per rule). One LOW was older than
+this card and widened by it: the page cut the typed text to 40 characters before the check, so a hand-made
+request with a longer number registered its first 40 characters. The page no longer cuts it there; the shape
+check refuses it (test first). Two assertions of the tests are tighter.
+
 ## Reuse check
 
 `tb_common.chartno.normalise` covers it: one call.

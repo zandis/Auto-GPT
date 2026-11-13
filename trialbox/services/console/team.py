@@ -1151,7 +1151,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:40],
+        # NEW-DIN-3d (the review): the chart number is not cut to the field's 40 characters here; a longer one is
+        # refused by the shape check, never registered by its first 40
+        body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:256],
                          source=str(form.get("source") or "office")[:20], note=str(form.get("note") or "")[:300],
                          lift=form.get("lift") == "1",
                          unknown_reason=str(form.get("unknown_reason") or "")[:300])  # fmt: skip

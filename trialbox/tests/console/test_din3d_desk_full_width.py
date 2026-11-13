@@ -64,4 +64,22 @@ def test_a_whole_pseudonym_in_full_width_is_still_not_a_chart_number(box: dict[s
     c = _desk(box, sent)
     wide = "".join(chr(ord(ch) + 0xFEE0) for ch in B)
     r = _post(c, chart_no=wide)
-    assert r.status_code == 400 and sent == [] and "pseudonym" in r.text
+    assert r.status_code == 400 and sent == [] and "not a chart number" in r.text
+
+
+def test_a_number_longer_than_the_field_is_refused_not_cut(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review: the page cut the typed text to 40 characters before the check, so a hand-made request with a
+    longer number registered its first 40 characters: another number than the one sent."""
+    sent: list[dict[str, Any]] = []
+    c = _desk(box, sent)
+    for typed in ("１" * 41, "1" * 41, "12345678" + " " * 35 + "9"):
+        r = _post(c, chart_no=typed)
+        assert r.status_code == 400 and sent == [] and OptOutRegister().current() == [], typed
+
+
+def test_full_width_blanks_alone_are_no_chart_number_and_no_lookup(box: dict[str, Any]) -> None:  # noqa: F811
+    sent: list[dict[str, Any]] = []
+    c = _desk(box, sent)
+    r = _post(c, chart_no="\u3000\u3000")
+    assert r.status_code == 400 and sent == [] and "give a chart number or a pseudonym" in r.text
+    assert _events(box, "console.chart_lookup") == []
