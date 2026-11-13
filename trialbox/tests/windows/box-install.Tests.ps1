@@ -267,6 +267,48 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "(?m)^memory=192GB"
     }
+    It "follows the hardware on a finished install too, keeps the earlier file and says when it applies (review H2, M2, M3)" {
+      Invoke-Run | Should -Be 0
+      $p = Join-Path $script:S.Base "profile"
+      $n = $script:S.Calls.Count
+      Invoke-Run | Should -Be 0     # nothing changed: not written again, no copy
+      @(Get-ChildItem -LiteralPath $p -Force -Filter ".wslconfig.before-trialbox-*").Count | Should -Be 0
+      $script:S.MemoryGB = 256      # memory was added
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "(?m)^memory=192GB"
+      $kept = @(Get-ChildItem -LiteralPath $p -Force -Filter ".wslconfig.before-trialbox-*")
+      $kept.Count | Should -Be 1
+      (Get-Content -LiteralPath $kept[0].FullName -Raw) | Should -Match "(?m)^memory=144GB"
+      ($script:S.Said -join "`n") | Should -Match "apply when WSL2 next starts"
+      $script:S.Calls.Count | Should -Be $n   # and nothing else was touched
+    }
+    It "keeps the share this install used when it is started again without the parameter (review M2)" {
+      $script:S.SetupFail["packages"] = "interrupted"
+      $script:TbShareGiven = $true; $script:TbShareDefault = 50
+      try { Invoke-Run | Should -Be 1 } finally { $script:TbShareGiven = $false; $script:TbShareDefault = 25 }
+      $p = Join-Path $script:S.Base "profile/.wslconfig"
+      (Get-Content -LiteralPath $p -Raw) | Should -Match "(?m)^memory=96GB"
+      $script:S.SetupFail = @{}
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath $p -Raw) | Should -Match "(?m)^memory=96GB"
+    }
+    It "writes over an empty .wslconfig as over a missing one (review M1)" {
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      [IO.File]::WriteAllBytes((Join-Path $p ".wslconfig"), [byte[]]@())
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "(?m)^memory=144GB"
+    }
+    It "keeps a file in another encoding even when it starts like ours (review M3)" {
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      $f = Join-Path $p ".wslconfig"
+      [IO.File]::WriteAllText($f, "# TrialBox notes of my own`r`n[wsl2]`r`nmemory=100GB`r`n", [Text.Encoding]::Unicode)
+      $before = [IO.File]::ReadAllBytes($f)
+      Invoke-Run | Should -Be 0
+      [Convert]::ToBase64String([IO.File]::ReadAllBytes($f)) | Should -Be ([Convert]::ToBase64String($before))
+      ($script:S.Said -join "`n") | Should -Match "not computed from this machine"
+    }
     It "stops when the desktop's share leaves nothing for WSL2" {
       $script:S.MemoryGB = 1; $script:S.Processors = 1
       Invoke-Run | Should -Be 1
