@@ -1,0 +1,97 @@
+{
+ "_source": {
+  "registry": "ClinicalTrials.gov",
+  "url": "https://clinicaltrials.gov/study/NCT02629159",
+  "api": "https://clinicaltrials.gov/api/v2/studies/NCT02629159?format=json",
+  "downloaded": "2026-11-13",
+  "processed_by_clinicaltrials_gov": "2026-11-12",
+  "record_sha256": "40be3ab47fb147052c7d4929bcadc5fff772f5f3ecac5f52f066e8c3ae1d57a1",
+  "modifications": "Only protocolSection.identificationModule, statusModule, conditionsModule, eligibilityModule are kept, each unchanged; every other module and section of the record (sponsor, contacts, locations, design, arms, outcomes, results, documents, derived data) is left out. This block (_source) is added."
+ },
+ "protocolSection": {
+  "identificationModule": {
+   "nctId": "NCT02629159",
+   "orgStudyIdInfo": {
+    "id": "M14-465"
+   },
+   "secondaryIdInfos": [
+    {
+     "id": "2022-501017-31-00",
+     "type": "OTHER",
+     "domain": "EU CT"
+    }
+   ],
+   "organization": {
+    "fullName": "AbbVie",
+    "class": "INDUSTRY"
+   },
+   "briefTitle": "A Study Comparing Upadacitinib (ABT-494) to Placebo and to Adalimumab in Adults With Rheumatoid Arthritis Who Are on a Stable Dose of Methotrexate and Who Have an Inadequate Response to Methotrexate",
+   "officialTitle": "A Phase 3, Randomized, Double-Blind Study Comparing Upadacitinib (ABT-494) to Placebo and to Adalimumab in Subjects With Moderately to Severely Active Rheumatoid Arthritis Who Are on a Stable Background of Methotrexate (MTX) and Who Have an Inadequate Response to MTX (MTX-IR)",
+   "acronym": "SELECT-COMPARE"
+  },
+  "statusModule": {
+   "statusVerifiedDate": "2025-08",
+   "overallStatus": "ACTIVE_NOT_RECRUITING",
+   "expandedAccessInfo": {
+    "hasExpandedAccess": false
+   },
+   "startDateStruct": {
+    "date": "2015-12-01",
+    "type": "ACTUAL"
+   },
+   "primaryCompletionDateStruct": {
+    "date": "2017-10-27",
+    "type": "ACTUAL"
+   },
+   "completionDateStruct": {
+    "date": "2027-09-30",
+    "type": "ESTIMATED"
+   },
+   "studyFirstSubmitDate": "2015-12-10",
+   "studyFirstSubmitQcDate": "2015-12-10",
+   "studyFirstPostDateStruct": {
+    "date": "2015-12-14",
+    "type": "ESTIMATED"
+   },
+   "resultsFirstSubmitDate": "2019-09-13",
+   "resultsFirstSubmitQcDate": "2019-09-13",
+   "resultsFirstPostDateStruct": {
+    "date": "2019-10-07",
+    "type": "ACTUAL"
+   },
+   "dispFirstSubmitDate": "2018-10-01",
+   "dispFirstSubmitQcDate": "2018-10-01",
+   "dispFirstPostDateStruct": {
+    "date": "2018-10-03",
+    "type": "ACTUAL"
+   },
+   "lastUpdateSubmitDate": "2025-08-01",
+   "lastUpdatePostDateStruct": {
+    "date": "2025-08-05",
+    "type": "ACTUAL"
+   }
+  },
+  "conditionsModule": {
+   "conditions": [
+    "Rheumatoid Arthritis"
+   ],
+   "keywords": [
+    "Musculoskeletal disease",
+    "Arthritis",
+    "Joint disease",
+    "Anti-inflammatory agents",
+    "Antirheumatic agents"
+   ]
+  },
+  "eligibilityModule": {
+   "eligibilityCriteria": "Inclusion Criteria:\n\n* Adult male or female, at least 18 years old.\n* Diagnosis of RA for greater than or equal to 3 months.\n* Subjects must have been on oral or parenteral methotrexate (MTX) therapy greater than or equal to 3 months and on a stable prescription of greater than or equal to 15 to 25 mg/week (or greater than or equal to 10 mg/week in subjects intolerant of MTX at doses greater than or equal to 12.5 mg/week) for at least 4 weeks prior to the first dose of study drug. In addition all subjects should take a dietary supplement of folic acid or folinic acid throughout the study participation.\n* Meets the following minimum disease activity criteria: greater than or equal to 6 swollen joints (based on 66 joint counts) and greater than or equal to 6 tender joints (based on 68 joint counts) at Screening and Baseline Visits.\n* At least one of the following at Screening: greater than or equal to 3 bone erosions on x-ray OR greater than or equal to 1 bone erosion and a positive rheumatoid factor OR greater than or equal to 1 bone erosion and a positive anti-cyclic citrullinated peptide autoantibodies.\n* Subjects with prior exposure to only one biological disease-modifying anti-rheumatic drugs (bDMARD) (except adalimumab) may be enrolled (up to 20% of total study population) if they have documented evidence of intolerance to the bDMARD or limited exposure (less than 3 months), but required washout periods need to be satisfied.\n* Except for MTX, subject must have discontinued all conventional synthetic disease-modifying anti-rheumatic drugs (csDMARDs).\n\nExclusion Criteria:\n\n* Prior exposure to any Janus kinase (JAK) inhibitor (including but not limited to tofacitinib, baricitinib, and filgotinib).\n* Subjects who have been exposed to adalimumab or who are considered inadequate responders to bDMARD therapy as determined by the Investigator.\n* History of inflammatory joint disease other than RA. History of secondary Sjogren's Syndrome is permitted.",
+   "healthyVolunteers": false,
+   "sex": "ALL",
+   "minimumAge": "18 Years",
+   "stdAges": [
+    "ADULT",
+    "OLDER_ADULT"
+   ]
+  }
+ }
+}
