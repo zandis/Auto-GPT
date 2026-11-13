@@ -10,6 +10,11 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The FHIR store's database sign-in (NEW-TRUST-1, D-541): the FHIR store no longer holds the database
+  superuser's password. It signs in as `tb_fhir_store`, which owns the database `hapi` only, with
+  `TB_DB_PW_FHIR_STORE`. `install.sh` and `trialbox update` make the password and move the existing tables (an
+  update needs the box on a release that has the `db-up` command first); a stack started by hand from an older
+  `deploy/.env` needs the variable and one run of the role script.
 - The opt-out desk checks the chart number (NEW-DIN-3, D-544): a number that is not a patient of this box is
   refused with that message; the keeper may register it anyway with a written reason. The box's first-run page
   asks how the hospital writes chart numbers, only while the box holds no patient.

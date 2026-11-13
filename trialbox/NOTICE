@@ -225,7 +225,9 @@ fields). No licensed questionnaire text is shipped (catalogue/README.md). Two in
 eval/DATASETS.yaml names the source and licence of every data set under eval/. Those in the image:
 
 ClinicalTrials.gov records
-  Where: services/criteria_compiler/cassettes/ctgov, tests/fixtures/open_data, trial texts used by eval/.
+  Where: services/criteria_compiler/cassettes/ctgov, tests/fixtures/open_data, tests/fixtures/public_protocols
+    (NCT03887455 and NCT02629159 as processed by ClinicalTrials.gov on 2026-11-12, cut to four modules: each
+    file's _source block says what was left out), trial texts used by eval/.
   Licence: NLM terms and conditions, https://clinicaltrials.gov/about-site/terms-conditions
   Attribution: Data from ClinicalTrials.gov, U.S. National Library of Medicine. The information is provided by
     study sponsors and investigators, who are responsible for its accuracy. NLM does not endorse TrialBox.

@@ -76,6 +76,7 @@ if (-not (Test-Path $EnvFile)) {
   (Get-Content (Join-Path $Root ".env.example")) `
     -replace '^POSTGRES_PASSWORD=.*', "POSTGRES_PASSWORD=$(Rand 32)" `
     -replace '^POSTGRES_WF_PASSWORD=.*', "POSTGRES_WF_PASSWORD=$WfPw" `
+    -replace '^TB_DB_PW_FHIR_STORE=.*', "TB_DB_PW_FHIR_STORE=$(Rand 32)" `
     -replace '^TB_DB_URL=.*', "TB_DB_URL=postgresql://trialbox:$WfPw@db:5432/trialbox_wf" `
     -replace '^TB_SERVICE_TOKEN=.*', "TB_SERVICE_TOKEN=$(Rand 32)" |
     Set-Content -Encoding ascii $EnvFile

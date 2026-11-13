@@ -169,12 +169,21 @@ def test_make_test_takes_a_shard() -> None:
 
 def test_the_cross_card_list_names_existing_tests() -> None:
     names = _make_var("CROSS_CARD_TESTS").split()
-    assert len(names) >= 13
+    assert len(names) >= 15
     for n in names:
         assert (ROOT / test_shard.file_of(n)).is_file(), n
     for must in ("test_audit_browser.py::test_every_event_the_code_writes_has_a_label", "test_test_isolation.py",
                  "test_role_route_matrix.py", "test_migrations.py", "test_record_inventory.py"):  # fmt: skip
         assert any(n.endswith(must) for n in names), must
+
+
+@pytest.mark.parametrize(
+    "must", ["tests/unit/test_db_schemas_enumerated.py", "tests/unit/test_runbook_install_commands.py"]
+)
+def test_the_cross_card_list_holds_the_tests_that_caught_a_meeting_on_train_5(must: str) -> None:
+    """D-623: a database opened under a run-time name, and a runbook command no test runs, were each green on
+    their own card and red only on the train, in the unit shards."""
+    assert must in _make_var("CROSS_CARD_TESTS").split()
 
 
 # ---------------------------------------------------------------------------------------------- the workflow

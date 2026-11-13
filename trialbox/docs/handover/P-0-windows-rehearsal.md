@@ -96,6 +96,45 @@ After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WS
 | 27d | The log's lines of step 12 | No "did not accept a power setting" line. On a PC with no hibernation support such a line is expected and the install went on | The lines |
 | 27e | If the account is a domain or Microsoft Entra account: repeat line 25 and 26a with the network cable out | The same as 26a | Whether the task ran with no domain controller in reach |
 
+## Part 4: NEW-WIN-8, BitLocker and the key probe (D-603)
+
+**Choose first.** On a PC that may be encrypted (and stay so), run the installer as it is: lines 28 to 35 happen
+during Part 1, at step 4. On a PC that must stay unencrypted, add `-SkipBitLocker` to the installer's start, skip
+to line 36a, and write that you did. Never send a recovery key back; write only "shown" and "confirmed".
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 28 | Before the installer: `Get-BitLockerVolume` and `Get-Tpm` in an administrator window | (the starting point) | For each drive: VolumeStatus, ProtectionStatus, the protector types (not the key). TpmPresent, TpmReady. Whether the PC is signed in with a Microsoft account or joined to a domain |
+| 29 | At step 4, on a drive that was not encrypted | "BitLocker recovery key for drive C:" with 48 digits, the question about the printer (it names the printer), then the request for the last six digits; the window is cleared; only then does encryption start. **No restart is asked for** | Whether the key appeared BEFORE `Get-BitLockerVolume` (in another window) showed the drive encrypting; whether a restart or a "hardware test" was asked for; any red text. Not the key |
+| 29a | Close the installer's window while it waits for the six digits (once, on a drive that was not encrypted), then `Get-BitLockerVolume` | The drive is still FullyDecrypted (a recovery password protector may be listed; nothing is encrypted). Starting the installer again shows the same key | VolumeStatus; whether the same key came again (yes or no) |
+| 30 | Answer `y` to the printer question on one drive | A page with the key comes out of the printer the question named | Whether it printed; the printer's kind (beside you, shared, "print to PDF"); what the window said if it did not |
+| 31 | Type six wrong digits once, then the right ones | "Those are not the last six digits", then the window is cleared and the install goes on | Whether the key can still be scrolled back to in the window |
+| 32 | A second drive, if the PC has one and you chose it as the data drive | Its own key the same way; no "did not set it to open together with the system drive" stop | `Get-BitLockerVolume` for it right after step 4: AutoUnlockEnabled, and how many RecoveryPassword protectors it lists (two are expected). After the next restart (line 25): is the drive open before anyone signs in? |
+| 33 | On a PC that came already encrypted | The window shows the existing key and asks for its last six digits; nothing is encrypted again | Whether the key shown equals the one in your Microsoft account or on your sheet (yes or no, not the key) |
+| 34 | During and after the install: `Get-BitLockerVolume`, and the host check's lines (`wsl -d TrialBox -u root -- sh /opt/trialbox/deploy/check_host.sh`, the lines that start "BitLocker") | Both drives EncryptionInProgress, later FullyEncrypted with protection On. The host check: while encrypting "still encrypting" or a FAIL naming the state; when done "starts with nobody there (bitlocker_unlock=tpm ...)", "unlocks with the system drive" and "BitLocker recovery: password kept by the box owner" | VolumeStatus AND ProtectionStatus while it encrypts (the installer assumes protection may read Off then); the host check's lines at both times |
+| 34a | Start the installer again while a drive still encrypts | It goes on; no "suspended" stop | The window's text at step 4 |
+| 35 | Search for a recovery key where it must not be: `Select-String -Path C:\ProgramData\TrialBox\box-install\box-install.log -Pattern "\d{6}-\d{6}"`, the same on `state.json`, and `Get-ChildItem $env:USERPROFILE\Documents -Filter PowerShell_transcript* -Recurse` | No match in the two files. No transcript file (if there is one, the PC records PowerShell windows: the installer should have stopped instead of showing a key) | The three answers |
+| 35a | As a **standard** account: `Set-ItemProperty HKLM:\SOFTWARE\TrialBox -Name BitlockerUnlock -Value tpm` | Refused | The answer |
+| 36a | **The key probe, the run that decides.** After the install is finished, as the owner in an administrator window: `powershell -NoProfile -ExecutionPolicy Bypass -File <media>\windows\key-probe.ps1 -AtStartup`. Restart Windows. **Do not sign in for five minutes.** Sign in, then `... key-probe.ps1 -Collect` | Lines `mode=at_startup`, `ran_at=`, `ran_as=`, `desktop_shells_running=0`, then `dpapi_user=`, `dpapi_machine=`, `acl_file=`, `wsl_handover=`, each `ok` or `fail: <why>` | All of its lines, and the time you signed in. `ran_at` must be before your sign-in and `desktop_shells_running` 0: otherwise the run did not happen with nobody there, and it is repeated |
+| 36b | The same probe on demand, for comparison: `... key-probe.ps1` (no switch) | The same lines with `mode=on_demand` | All of its lines |
+| 36c | `Get-ScheduledTask TrialBox-Key-Probe` afterwards | No such task | The answer |
+
+## Part 5: NEW-WIN-4, the console on the site's network (D-604; the rehearsal of P-14)
+
+Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). After Part 1 is finished.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 37 | At step 13 read the window; then `wsl -d TrialBox -- wslinfo --networking-mode`, `Get-NetFirewallHyperVRule -Name TrialBox-Console` and `Get-NetFirewallHyperVVMSetting -PolicyStore ActiveStore -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}'` | "The console will answer on this PC's name, port 443 ..."; `mirrored`; the rule: inbound, TCP 443, RemoteAddresses LocalSubnet, enabled; the setting: DefaultInboundAction Block | The answers in full (LoopbackEnabled too); the PC's Windows build (`winver`), `wsl --version`, and the network's profile (`Get-NetConnectionProfile`) |
+| 38 | On this PC: `wsl -d TrialBox -- ip -j -4 addr show scope global`, `ipconfig`, and `wsl -d TrialBox -u root -- grep CLINIC_RANGES /opt/trialbox/deploy/site/hardening.conf` | WSL2 shows the PC's own network address; CLINIC_RANGES is that network. The installer's window had no "not open to the network this PC is on" warning | The three outputs. If CLINIC_RANGES is a 10.255.255.254/32 or another adapter's network, the console will not answer from other PCs: record it and go on |
+| 39 | From the **second PC**: open `https://<this PC's name>/` in a browser | The console's sign-in page (a certificate warning is expected: the box's own certificate) | Whether the name opened it; if not, whether `https://<this PC's IPv4 address>/` did; `Resolve-DnsName <this PC's name>` on the second PC (IPv4, IPv6 or both) |
+| 40 | From the second PC, in PowerShell: `443, 80, 22, 2375, 3389, 5432, 8000, 8010, 8020, 8080, 8090, 9090 \| ForEach-Object { Test-NetConnection <this PC's name> -Port $_ -WarningAction SilentlyContinue \| Select-Object RemotePort, TcpTestSucceeded }` | True for 443 only | The table. Any other True is a finding: say which port |
+| 41 | On **this PC**, signed in as a **standard** account: open `https://localhost/` and `https://<this PC's name>/`; then `8090, 8010, 9090, 5432, 2375 \| ForEach-Object { Test-NetConnection localhost -Port $_ -WarningAction SilentlyContinue \| Select-Object RemotePort, TcpTestSucceeded }` | The console opens (staff use it at the workstation). False for every other port | Which address opened the console; the table |
+| 42 | **Outward: is the egress table loaded.** `wsl -d TrialBox -u root -- bash /opt/trialbox/deploy/windows/wsl-setup.sh egress-check` | "egress table trialbox_egress loaded; trialbox-egress.service active" | The line |
+| 43 | **Outward: does it act.** `wsl -d TrialBox -u root -- bash /opt/trialbox/deploy/windows/wsl-setup.sh egress-proof` (the installer ran the same at the end of step 14) | A line naming a container, `result=no-connection`, `denied_after` larger than `denied_before`, then `verdict=held` | Both lines exactly. `verdict=OUT` means a container reached outside: the most important finding of this part. `verdict=inconclusive` is recorded as it is; it is not a pass |
+| 43a | Name lookups from a container that is allowed out: `wsl -d TrialBox -u root -- sh -c 'docker exec $(docker ps --format "{{.Names}}" \| grep -m1 mail-gateway) getent hosts localhost'` and the mail settings' test in the console, if a mail server was given | A name is answered; mail to the configured server works | What was printed (typed as shown, with single quotes outside) |
+| 44 | Restart Windows, sign in, and repeat lines 39, 40 and 43 | The same answers | Any difference after the restart |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -114,4 +153,17 @@ After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WS
 - Line 26a "no" (WSL2 started only after the sign-in): the S4U task cannot start WSL2. D-602 point 4: the fallback is
   chosen with NEW-WIN-8. This is the most important answer of the whole sheet; send it even if nothing else is done.
   Line 26b does not enter this decision: it shows what NEW-WIN-8 still has to make true.
+- Line 29 "a restart was asked for": BitLocker cannot be turned on in one pass; the installer's step must carry it
+  across a restart like step 5 does.
+- Line 32 "no": the data drive stays locked after a restart; the stack cannot come back by itself.
+- Line 29 "the drive was encrypting before the key appeared", or line 29a "the drive was encrypted": the order of
+  D-603 point 2 does not hold on Windows; BitLocker is then set up by hand until it does.
+- Line 34 "protection Off while encrypting": expected; anything else is recorded for the judge's wording.
+- Line 36a: the key back end is built on the first of `dpapi_user`, `acl_file`, `dpapi_machine` that says `ok` AT
+  STARTUP, and needs `wsl_handover=ok` there. Line 36b does not decide: a store that is `ok` only on demand is of
+  no use. All `fail` at startup with line 26a "yes": a stored password for the task, or a service (D-602 point 4).
+- Lines 39, 40, 41 and 43 decide the networking form (D-604): mirrored networking is kept when the console opens from
+  the second PC, only port 443 answers there and on localhost, and line 43 says `verdict=held`, also after the
+  restart (line 44). `verdict=OUT`: the egress rule moves to Windows Firewall, or the port proxy is built as a card
+  of its own. Line 38 wrong: the fix is in the box plan's network detection (lane D), not in the form.
 - Line 14: the address NEW-WIN-4 must make work from another PC.

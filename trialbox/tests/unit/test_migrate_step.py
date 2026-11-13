@@ -24,6 +24,9 @@ def _box(tmp_path: Path, env: str) -> tuple[up.ComposeBox, list[tuple[list[str],
         calls.append((list(argv), dict(env or {})))
         return ""
 
+    script = deploy / "docker" / "db-init" / "30-service-roles.sh"  # the release's own script, as a box has it
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
     return up.ComposeBox(deploy, run=run), calls
 
 
@@ -68,5 +71,88 @@ def test_the_update_sets_the_roles_before_it_migrates(tmp_path: Path) -> None:
     step = next(i for i, (argv, _e) in enumerate(calls) if "orchestrator.migrate" in argv)
     assert roles < step
     argv, env = calls[roles]
+    # D-541 on D-624: the script runs in the database container, which is on this release's settings by then and
+    # holds every role's password in its own environment; nothing is handed over on this call
     assert argv[-4:] == ["exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"]
-    assert env == {} and not any(WORD in a for a in argv)  # the script reads the passwords inside the container
+    assert env == {} and not any(WORD in a for a in argv)
+
+
+def test_the_update_gives_the_fhir_store_a_password_before_the_database_step(tmp_path: Path) -> None:
+    """NEW-TRUST-1 (D-541): a box installed before this card has no `TB_DB_PW_FHIR_STORE`. A pre-start step writes
+    one to `deploy/.env` (0600, never printed, never an argument, in no call's environment); the database container
+    is then put on the release's settings and the role script reads it there. A second run keeps the value."""
+    from tools.trialbox import prestart
+
+    box, calls = _box(tmp_path, f"COMPOSE_PROFILES=stub\nTB_DB_URL={URL}\nPOSTGRES_PASSWORD=synthetic-admin-000\n")
+    env_file = tmp_path / "deploy" / ".env"
+    names = [n for n, _ in prestart.STEPS]
+    assert "FHIR store password" in names  # a host-side step: before every step that needs the database
+    assert [n for n, _ in prestart.DB_STEPS][:3] == ["FHIR store password is set", "database", "service roles"]
+    lines = prestart._run(tmp_path / "deploy", "pre-start", box) + prestart._run(tmp_path / "deploy", "db-up", box)
+    made = [ln.split("=", 1)[1] for ln in env_file.read_text().splitlines() if ln.startswith("TB_DB_PW_FHIR_STORE=")]
+    assert len(made) == 1 and len(made[0]) >= 32 and made[0] != "synthetic-admin-000"
+    assert oct(env_file.stat().st_mode & 0o777) == "0o600"
+    assert "pre-start: FHIR store password: made now" in lines and not any(made[0] in ln for ln in lines)
+    assert not any(made[0] in a for argv, _e in calls for a in argv)
+    assert not any(made[0] in e.values() for _argv, e in calls)
+    db = next(i for i, (argv, _e) in enumerate(calls) if argv[-1] == "db" and "up" in argv)
+    roles = next(i for i, (argv, _e) in enumerate(calls) if argv[-1].endswith("30-service-roles.sh"))
+    assert db < roles  # the container takes the new setting before the script reads it
+    box2, _ = _box_again(tmp_path)
+    assert box2.ensure_fhir_password() is False
+    again = [ln.split("=", 1)[1] for ln in env_file.read_text().splitlines() if ln.startswith("TB_DB_PW_FHIR_STORE=")]
+    assert again == made
+
+
+def test_a_placeholder_password_is_replaced_also_when_it_is_quoted(tmp_path: Path) -> None:
+    """The review: compose strips the quotes, so a quoted example value would have stayed the role's password."""
+    for n, line in enumerate(("TB_DB_PW_FHIR_STORE=change-me-fhir", 'TB_DB_PW_FHIR_STORE="change-me-fhir"',
+                              "TB_DB_PW_FHIR_STORE='change-me-fhir'", "TB_DB_PW_FHIR_STORE=")):  # fmt: skip
+        (tmp_path / str(n)).mkdir()
+        box, _calls = _box(tmp_path / str(n), line + "\n")
+        assert box.ensure_fhir_password() is True, line
+        assert "change-me" not in up._env_file(tmp_path / str(n) / "deploy" / ".env")["TB_DB_PW_FHIR_STORE"]
+
+
+def test_the_database_steps_do_not_run_without_the_password(tmp_path: Path) -> None:
+    """The review: `db-up` run by hand on an older `.env`, without `pre-start`, made the role with no password and
+    said "set by the role script". Its first step now refuses, naming the command to run."""
+    import pytest
+
+    from tools.trialbox import prestart
+
+    assert [n for n, _ in prestart.DB_STEPS][:3] == ["FHIR store password is set", "database", "service roles"]
+    box, calls = _box(tmp_path, f"COMPOSE_PROFILES=stub\nTB_DB_URL={URL}\n")
+    with pytest.raises(up.UpdateFailed, match="FHIR store password is set: .*pre-start"):
+        prestart._run(tmp_path / "deploy", "db-up", box)
+    assert calls == []  # nothing was run in the database
+    (tmp_path / "b").mkdir()
+    box, calls = _box(tmp_path / "b", "X=1\n")  # no database step on this box: nothing to refuse
+    assert prestart._run(tmp_path / "b" / "deploy", "db-up", box)[0].endswith("no database step on this box")
+
+
+def test_the_updaters_fallback_for_an_older_tree_makes_no_fhir_password(tmp_path: Path) -> None:
+    """The review: the fallbacks run for a tree from before the commands, which has no FHIR role and whose database
+    container would never be given the password: the step belongs to this release's tree only."""
+    box, _calls = _box(tmp_path, "X=1\n")
+    box.resolve_pins = lambda: None  # type: ignore[method-assign]
+    box.pre_start()
+    assert "TB_DB_PW_FHIR_STORE" not in (tmp_path / "deploy" / ".env").read_text()
+
+
+def _box_again(tmp_path: Path) -> tuple[up.ComposeBox, list[tuple[list[str], dict[str, str]]]]:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+
+    def run(argv: Sequence[str], env: dict[str, str] | None = None, **_: Any) -> str:
+        calls.append((list(argv), dict(env or {})))
+        return ""
+
+    return up.ComposeBox(tmp_path / "deploy", run=run), calls
+
+
+def test_a_box_without_the_admin_url_still_gets_the_fhir_password(tmp_path: Path) -> None:
+    """Review L3: the compose file asks for the role's password whatever else the box has."""
+    box, calls = _box(tmp_path, "X=1\n")
+    assert box.ensure_fhir_password() is True and box.set_roles() is False
+    assert "TB_DB_PW_FHIR_STORE=" in (tmp_path / "deploy" / ".env").read_text()
+    assert calls == []  # no database step on such a box

@@ -436,6 +436,31 @@ class Mapping:
         empty = doc.get("empty_dates", [])
         if not isinstance(empty, list) or not all(isinstance(x, str) and x.strip() for x in empty):
             raise MappingError(f"{path}: empty_dates is a list of placeholder dates as the source writes them")
+        systems = doc.get("systems") or {}
+        # D-536 (lane B): the lake reads ATC only under the ATC system's own name. A mapping that writes ATC codes
+        # under an address of the site's own would pass every check and lose them from the lake's ATC column: a
+        # drug-class exclusion would stop firing for that site, and nothing would say so. One spelling only: the
+        # address is written into the feed as given, and a ruleset's value set compares it as written
+        from lake.flatten import ATC_SYSTEM
+
+        why = (
+            f"ATC codes are written under {ATC_SYSTEM} (the ATC system's own address, spelled so); under another "
+            "one the lake does not read them as ATC and a drug-class exclusion would not see them"
+        )
+        if "atc" in systems and systems["atc"] != ATC_SYSTEM:
+            raise MappingError(
+                f"{path}: systems.atc is {systems['atc']!r}: {why}. Leave systems.atc out, and give a hospital's "
+                "own drug codes another name"
+            )
+        for r in resources:
+            for element, spec in r.elements.items():
+                if not isinstance(spec, dict) or spec.get("builder") != "coding" or spec.get("column") != "atc":
+                    continue
+                if systems.get(str(spec.get("system"))) != ATC_SYSTEM:
+                    raise MappingError(
+                        f"{path}: {r.type}.{element} writes column atc under system {spec.get('system')!r}: {why}. "
+                        "Write the atc column under `system: atc`"
+                    )
         return cls(
             unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
             date_columns=date_columns,

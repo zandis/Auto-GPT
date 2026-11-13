@@ -33,10 +33,11 @@ SERVICES_DB_PW = {
     "lake": "TB_DB_PW_LAKE", "criteria-compiler": "TB_DB_PW_CRITERIA_COMPILER", "adapter": "TB_DB_PW_ADAPTER",
     "orchestrator": "TB_DB_PW_ORCHESTRATOR", "mail-gateway": "TB_DB_PW_MAIL_GATEWAY", "gateway": "TB_DB_PW_GATEWAY",
     "console": "TB_DB_PW_CONSOLE", "audit-writer": "TB_DB_PW_AUDIT_WRITER",
+    "fhir-store": "TB_DB_PW_FHIR_STORE",  # NEW-TRUST-1 (D-541): its own role, the owner of `hapi` only
 }  # fmt: skip
 #: secret -> the services that may hold it (D-450). Anything else that holds it fails the test.
 ALLOWED: dict[str, set[str]] = {
-    "POSTGRES_PASSWORD": {"db", "fhir-store"},
+    "POSTGRES_PASSWORD": {"db"},  # D-541: the server only; the FHIR store no longer holds the superuser's
     "POSTGRES_WF_PASSWORD": {"db"},
     **{pw: {"db", svc} for svc, pw in SERVICES_DB_PW.items()},
     "IMAP_PASS": {"mail-gateway"},

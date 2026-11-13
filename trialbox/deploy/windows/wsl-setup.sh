@@ -13,6 +13,11 @@
 #   wsl-setup.sh install BUNDLE [--yes]  deploy/box-install.sh in this terminal (the first-run code, the owner's wait)
 #   wsl-setup.sh state                   prints installed=1 once box-install.sh has said the box is ready
 #   wsl-setup.sh boot-check              Docker and the stack are enabled to start with the distribution (NEW-WIN-2)
+#   wsl-setup.sh network-mode            prints WSL2's networking mode: mirrored, nat, ... (NEW-WIN-4)
+#   wsl-setup.sh egress-check            the egress table of D-377 is loaded and its unit is active (NEW-WIN-4)
+#   wsl-setup.sh egress-proof            a container on the egress network is seen stopped by the table: prints
+#                                        verdict=held, verdict=OUT or verdict=inconclusive
+#   wsl-setup.sh lan-check               the box's input firewall is open to the network this PC is really on
 #
 # Every step may be run again. None removes or replaces a file it did not write.
 # Knobs for the tests only: TB_WSL_ETC (/etc), TB_WSL_PROC (/proc), TB_WSL_ROOT (/opt/trialbox), TB_WSL_SMI (the
@@ -188,6 +193,61 @@ EOP
     done
     [ -z "$off" ] || die "not enabled to start with the distribution:$off (after a restart TrialBox would stay down)"
     echo "docker.service and trialbox.service start with the distribution"
+    ;;
+  network-mode)
+    # wslinfo comes with WSL 2.0 and later; without it the mode cannot be mirrored
+    if command -v wslinfo >/dev/null 2>&1; then wslinfo --networking-mode | tr -d '\r' | tail -1; else echo unknown; fi
+    ;;
+  egress-check)
+    # deploy/egress.py: the table every TrialBox container network is behind; trialbox-egress.service loads it
+    # closed before Docker starts (D-377). Nobody had run it under WSL2 before this step
+    [ "$(systemctl is-active trialbox-egress.service 2>/dev/null || true)" = active ] \
+      || die "trialbox-egress.service is not active: the egress rules are not loaded (containers would have a way out)"
+    nft list table inet trialbox_egress >/dev/null 2>&1 \
+      || die "the nftables table inet trialbox_egress is not loaded under this WSL2 kernel and networking mode"
+    echo "egress table trialbox_egress loaded; trialbox-egress.service active"
+    ;;
+  egress-proof)
+    # Is a container really stopped from reaching outside? One on the egress network (it has a route out; the
+    # table is what stops it) tries an address that is nobody's. The proof is the table's own counter of dropped
+    # packets: it must rise. A refused or timed-out connection alone proves nothing (the site's network may have
+    # dropped it), and a connection that succeeds means the table does not act.
+    target="${TB_WSL_PROBE_ADDR:-192.0.2.1}"   # TEST-NET-1 (RFC 5737): an address that belongs to no machine
+    net="$(docker network ls --format '{{.Name}}' | grep -m1 'egress-net$' || true)"
+    [ -n "$net" ] || { echo "verdict=inconclusive: no egress network (is the stack up?)"; exit 0; }
+    c="$(docker ps --filter "network=$net" --format '{{.Names}}' | head -1)"
+    [ -n "$c" ] || { echo "verdict=inconclusive: no running container on $net"; exit 0; }
+    denied() { nft list table inet trialbox_egress 2>/dev/null | awk '/trialbox default deny/ { for (i = 1; i < NF; i++) if ($i == "packets") s += $(i + 1) } END { print s + 0 }'; }
+    before="$(denied)"
+    if docker exec "$c" python3 -c "import socket; socket.create_connection(('$target', 443), 3)" >/dev/null 2>&1; then got=connected; else got=no-connection; fi
+    after="$(denied)"
+    echo "egress_container=$c target=$target result=$got denied_before=$before denied_after=$after"
+    if [ "$got" = connected ]; then echo "verdict=OUT"
+    elif [ "$after" -gt "$before" ]; then echo "verdict=held"
+    else echo "verdict=inconclusive: no connection, but the table counted no dropped packet"; fi
+    ;;
+  lan-check)
+    # the box's own input firewall admits the console's port from CLINIC_RANGES (deploy/site/hardening.conf, written
+    # by the box plan from the network it detected). Under mirrored networking that must be this PC's real network:
+    # the one of the interface the default route uses
+    conf="$ROOT/deploy/site/hardening.conf"
+    ranges="$(sed -n 's/^CLINIC_RANGES="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$conf" 2>/dev/null | head -1)"
+    dev="$(ip -4 route show default 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')"
+    addr="$(ip -o -4 addr show dev "${dev:-none}" scope global 2>/dev/null | awk '{ print $4; exit }')"
+    python3 - "$ranges" "$addr" <<'EOP'
+import ipaddress, sys
+ranges, addr = sys.argv[1], sys.argv[2]
+said = f"firewall open to '{ranges or 'nothing'}'; this PC's network address '{addr or 'not found'}'"
+try:
+    host = ipaddress.ip_interface(addr)
+    nets = [ipaddress.ip_network(r, strict=False) for r in ranges.replace(",", " ").split()]
+except ValueError:
+    print(said)
+    sys.exit(1)
+ok = any(n.version == 4 and host.ip in n and n.prefixlen <= host.network.prefixlen for n in nets)
+print(said)
+sys.exit(0 if ok else 1)
+EOP
     ;;
   *)
     die "unknown step '${STEP}' (see the head of this file)"
