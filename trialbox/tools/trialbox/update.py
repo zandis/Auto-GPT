@@ -563,14 +563,17 @@ class Updater:
     def _from_a_commit(self, plan: Plan) -> list[str]:
         """D-633 (the owner's decision of 2026-11-13): a PRODUCTION or VALIDATION box takes only a release built
         from a commit. ``release.json`` (signed with the bundle) says ``source.dirty`` when ``tools/make_bundle.sh``
-        was run with ``--allow-dirty`` on a working tree (D-631). A bundle with no release record cannot say and is
-        taken as before, with a note; a record that does not answer is refused on such a box."""
+        was run with ``--allow-dirty`` on a working tree (D-631), and names the commit. A bundle with no release
+        record cannot say and is taken as before, with a note (the verifier refuses images without one; a host
+        tree alone can come without one, see the decision record); a record that does not answer or names no
+        commit is refused on such a box."""
+        env = self.environment()
+        strict = env in STRICT_ENVS
         if plan.release is None:
             return [
                 "the bundle has no release record (release.json): it does not say whether it was built from a commit"
             ]
-        env = self.environment()
-        if env not in STRICT_ENVS:
+        if not strict:
             return []
         source = plan.release.get("source")
         dirty = source.get("dirty") if isinstance(source, dict) else None
@@ -584,6 +587,12 @@ class Updater:
             raise UpdateRefused(
                 f"{plan.bundle_id}: its release.json does not say whether it was built from a commit "
                 f"(source.dirty is {dirty!r}): a {env} box refuses it"
+            )
+        commit = source.get("commit") if isinstance(source, dict) else None
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise UpdateRefused(
+                f"{plan.bundle_id}: its release.json names no commit (source.commit is {commit!r}; a build outside "
+                f"a git checkout): a {env} box takes only a release built from a commit"
             )
         return []
 
@@ -1883,6 +1892,13 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
         print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
         return 0
+    # D-633: a site box takes only a release built from a commit. Here, before either path: install.sh's first load
+    # below never runs the preflight, and a fresh box (no deploy/.env yet) is PRODUCTION
+    try:
+        Updater(box, updates, say=print)._from_a_commit(plan)
+    except UpdateRefused as exc:
+        print(f"update REFUSED: {exc}; nothing was changed")
+        return 1
     in_service = box_in_service(deploy, box)
     if not box.running():
         if in_service:
