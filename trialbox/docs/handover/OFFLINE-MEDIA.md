@@ -50,9 +50,10 @@ Ubuntu, with `apt-get` and `gpg`); nothing is fetched into the repository.
    - the NVIDIA driver for Windows for the workstation's card, from NVIDIA (the version the serving record names).
 2. **Work out and fetch the Ubuntu packages** (`tools/windows_media_debs.py`, D-609): Docker Engine, the compose
    plugin, the NVIDIA Container Toolkit, nftables, cron, and every package they need that the image does not
-   already hold. It asks `apt-get` against the image's own package list, in a folder of its own; this machine's
-   packages are not touched. Docker's and NVIDIA's repository keys are accepted only with the fingerprints written
-   in the tool.
+   already hold. It asks `apt-get` against the image's own package list, in a folder made new for the run and
+   with a configuration of its own; this machine's packages and apt settings are not touched. Docker's and
+   NVIDIA's repository keys are accepted only with the fingerprints written in the tool. Run it as an ordinary
+   user, not as root.
 3. **Lay the media out and check it** (`tools/windows_media.py`, which fetches nothing):
 
 ```
@@ -64,8 +65,8 @@ python3 -m tools.windows_media build --out /media/build --version <version> \
 python3 -m tools.windows_media check /media/usb/TRIALBOX-<version>     # again on the disk, after the copy
 ```
 
-The image is known by what it is, not by its name: its own `os-release` must say Ubuntu 24.04, and it is placed
-on the media under a name the installer finds. On 2026-11-13 step 2 gave 16 packages, 84 MB, against Canonical's
+The image is known by what it is, not by its name: a whole archive of Ubuntu 24.04 for amd64, placed on the
+media under a name the installer finds. On 2026-11-13 step 2 gave 16 packages, 84 MB, against Canonical's
 image of that day.
 
 `build` refuses a wrongly named input, an image that is not Ubuntu 24.04, a Linux NVIDIA driver package among the packages, packages without Docker

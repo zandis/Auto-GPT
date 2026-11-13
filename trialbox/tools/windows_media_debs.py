@@ -6,9 +6,10 @@ The Windows installer installs Docker Engine and the NVIDIA Container Toolkit in
 ``linux/debs`` with ``dpkg -i``: every package they need that the Ubuntu WSL image does not already hold must be
 there, and nothing may be missing, because the workstation is never online. This tool works that set out against
 the image itself: it reads the image's own list of installed packages (``var/lib/dpkg/status`` inside the tarball)
-and asks ``apt-get`` what installing ``PACKAGES`` on exactly that system would fetch. apt works in a folder of its
-own (``--work``, else a temporary one): this machine's packages are neither read nor changed, no container is
-needed, and it does not need root.
+and asks ``apt-get`` what installing ``PACKAGES`` on exactly that system would fetch. apt works in a folder made
+new for each run, with a configuration of its own (``APT_CONFIG``): this machine's packages and apt settings are
+neither read nor changed, no container is needed, and it does not need root (run it as an ordinary user). Only
+the files apt named for this run go to the output.
 
 This is the one media tool that goes online, and only when the vendor runs it, on a machine that may: it fetches
 the package lists and the packages from Ubuntu's archive, Docker's repository and NVIDIA's, into the folder the
@@ -39,7 +40,6 @@ PACKAGES = ("docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugi
 SUITE = "noble"  # Ubuntu 24.04, the release the installer imports
 UBUNTU_KEYRING = "usr/share/keyrings/ubuntu-archive-keyring.gpg"
 STATUS = "var/lib/dpkg/status"
-OS_RELEASE = "etc/os-release"
 # repository, the key's address, the fingerprint of its primary key (published by Docker and by NVIDIA)
 KEYS = {
     "docker": ("https://download.docker.com/linux/ubuntu/gpg", "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"),
@@ -53,20 +53,19 @@ class DebsError(Exception):
 
 
 def read_image(rootfs: Path, into: Path) -> dict[str, Path]:
-    """The three files of the image apt needs, copied under ``into``. Refuses an image that is not Ubuntu 24.04."""
-    wanted = {STATUS, UBUNTU_KEYRING, OS_RELEASE}
-    found: dict[str, Path] = {}
-    # in Canonical's image etc/os-release is a link to usr/lib/os-release: the file is read where it is
-    names = {
-        STATUS: STATUS,
-        UBUNTU_KEYRING: UBUNTU_KEYRING,
-        **dict.fromkeys(windows_media.OS_RELEASE_FILES, OS_RELEASE),
-    }
+    """The two files of the image apt needs, copied under ``into`` (fixed names; a member's own name is never used
+    as a path). Refuses an image that is not a whole Ubuntu 24.04 system for amd64 (``windows_media.rootfs_name``)."""
     try:
-        with tarfile.open(rootfs, "r:*") as tar:
+        windows_media.rootfs_name(rootfs)
+    except windows_media.MediaError as exc:
+        raise DebsError(str(exc)) from exc
+    wanted = {STATUS, UBUNTU_KEYRING}
+    found: dict[str, Path] = {}
+    try:
+        with tarfile.open(rootfs, "r:gz") as tar:
             for member in tar:
-                name = names.get(member.name.removeprefix("./"), "")
-                if name and name not in found and member.isfile():
+                name = member.name.removeprefix("./")
+                if name in wanted and name not in found and member.isfile():
                     data = tar.extractfile(member)
                     if data is None:
                         continue
@@ -76,15 +75,11 @@ def read_image(rootfs: Path, into: Path) -> dict[str, Path]:
                     found[name] = dst
                     if len(found) == len(wanted):
                         break
-    except (OSError, tarfile.TarError) as exc:
+    except (OSError, EOFError, tarfile.TarError) as exc:
         raise DebsError(f"--rootfs: {rootfs} cannot be read as a tar archive ({exc})") from exc
     missing = sorted(wanted - set(found))
     if missing:
         raise DebsError(f"--rootfs: {rootfs.name} holds no {', '.join(missing)}: not an Ubuntu root file system")
-    release = windows_media.os_release(found[OS_RELEASE].read_text(encoding="utf-8", errors="replace"))
-    if release.get("ID") != "ubuntu" or release.get("VERSION_ID") != "24.04":
-        raise DebsError(f"--rootfs: {rootfs.name} is {release.get('ID', '?')} {release.get('VERSION_ID', '?')}; "
-                        "the installer imports Ubuntu 24.04")  # fmt: skip
     return found
 
 
@@ -134,34 +129,63 @@ def sources(ubuntu_key: Path, docker_key: Path, nvidia_key: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
-def apt_options(work: Path, status: Path) -> list[str]:
-    """apt in a world of its own: the image's package state, its own lists and cache, none of this machine's."""
+def apt_config(work: Path, status: Path) -> str:
+    """apt's whole configuration for this run, as the text of the file ``APT_CONFIG`` names.
+
+    It must come by that file and not by ``-o`` options: apt reads the machine's ``/etc/apt/apt.conf.d`` before it
+    looks at its command line, so options given there come too late to keep the machine's own settings (a hook,
+    "allow unauthenticated", a default release) out. With ``Dir::Etc`` set here, apt reads nothing of the
+    machine's: its state, lists, cache, sources, preferences and trusted keys are all under ``work``, which
+    ``collect`` makes new for each run."""
     etc = work / "etc"
     pairs = {
         "Dir::State": work / "state",
         "Dir::State::status": status,
         "Dir::Cache": work / "cache",
         "Dir::Etc": etc,
+        "Dir::Etc::main": "apt.conf",
+        "Dir::Etc::parts": etc / "apt.conf.d",
         "Dir::Etc::sourcelist": etc / "sources.list",
         "Dir::Etc::sourceparts": etc / "sources.list.d",
+        "Dir::Etc::preferences": etc / "preferences",
         "Dir::Etc::preferencesparts": etc / "preferences.d",
+        "Dir::Etc::trusted": etc / "trusted.gpg",
         "Dir::Etc::trustedparts": etc / "trusted.gpg.d",
-        "Dir::Etc::parts": etc / "apt.conf.d",
+        "Dir::Etc::netrc": etc / "auth.conf",
+        "Dir::Etc::netrcparts": etc / "auth.conf.d",
         "APT::Architecture": "amd64",
         "APT::Architectures": "amd64",
-        "APT::Sandbox::User": "root",  # apt's own download user cannot read a folder of ours
+        "APT::Get::AllowUnauthenticated": "false",
+        "Acquire::AllowInsecureRepositories": "false",
+        "Acquire::AllowDowngradeToInsecureRepositories": "false",
+        "APT::Sandbox::User": "root",  # as root, apt's download user could not read a folder of ours
         "Debug::NoLocking": "1",
         "APT::Get::List-Cleanup": "0",
     }
-    out: list[str] = []
-    for key, value in pairs.items():
-        out += ["-o", f"{key}={value}"]
-    return out
+    return "".join(f'{key} "{value}";\n' for key, value in pairs.items())
 
 
-def _apt(args: list[str], what: str) -> str:
+PROXY_VARS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
+
+def apt_env(config_file: Path) -> dict[str, str]:
+    """The environment apt runs in: its configuration file, a plain PATH, and the machine's proxy if it has one
+    (a vendor's network may need it; the packages are checked by signature whatever carries them)."""
+    import os
+
+    env = {
+        "APT_CONFIG": str(config_file),
+        "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        "LC_ALL": "C",
+        "HOME": str(config_file.parent),
+    }
+    env.update({k: v for k, v in os.environ.items() if k in PROXY_VARS})
+    return env
+
+
+def _apt(args: list[str], what: str, env: dict[str, str]) -> str:
     try:
-        run = subprocess.run(["apt-get", *args], capture_output=True, text=True, check=False)
+        run = subprocess.run(["apt-get", *args], capture_output=True, text=True, check=False, env=env)
     except OSError as exc:
         raise DebsError(f"apt-get is not on this machine ({exc}): run this on Debian or Ubuntu") from exc
     if run.returncode != 0:
@@ -170,37 +194,60 @@ def _apt(args: list[str], what: str) -> str:
     return run.stdout
 
 
-def collect(rootfs: Path, out: Path, work: Path) -> list[Path]:
+def wanted_files(print_uris: str) -> list[str]:
+    """The file names apt says it would fetch (``apt-get install --print-uris``: ``'<uri>' <file> <size> <hash>``)."""
+    names = []
+    for line in print_uris.splitlines():
+        if line.startswith("'"):
+            fields = line.split()
+            if len(fields) >= 2 and fields[1].endswith(".deb") and "/" not in fields[1]:
+                names.append(fields[1])
+    return names
+
+
+def collect(rootfs: Path, out: Path, parent: Path) -> list[Path]:
+    """``parent``: where this run's working folder is made. The folder is always new: nothing an earlier run, or
+    anyone else, left behind (a list, a source, a key, a package) can reach apt or the output."""
     if out.exists() and any(out.iterdir()):
         raise DebsError(f"{out} already holds files: name an empty folder (nothing is overwritten)")
     for tool in ("apt-get", "gpg"):
         if shutil.which(tool) is None:
             raise DebsError(f"{tool} is not on this machine: run this on Debian or Ubuntu")
-    image = read_image(rootfs, work / "image")
-    for d in ("state/lists/partial", "cache/archives/partial", "etc/sources.list.d", "etc/preferences.d",
-              "etc/trusted.gpg.d", "etc/apt.conf.d", "keys"):  # fmt: skip
-        (work / d).mkdir(parents=True, exist_ok=True)
-    keys = {name: fetch_key(name, work / "keys") for name in KEYS}
-    (work / "etc/sources.list").write_text(
-        sources(image[UBUNTU_KEYRING], keys["docker"], keys["nvidia"]), encoding="utf-8"
-    )
-    opts = apt_options(work, image[STATUS])
-    _apt([*opts, "update"], "update")
-    _apt([*opts, "install", "--download-only", "-y", "--no-install-recommends", *PACKAGES], "install --download-only")
-    fetched = sorted((work / "cache/archives").glob("*.deb"))
-    if not fetched:
-        raise DebsError("apt-get fetched no package: the image already holds every one of them, or the lists are empty")
-    drivers = [p.name for p in fetched if windows_media.is_linux_driver(p.name)]
-    if drivers:
-        raise DebsError(
-            "the set holds a Linux NVIDIA driver package, which is never installed in WSL2: " + ", ".join(drivers)
+    work = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
+    try:
+        image = read_image(rootfs, work / "image")
+        for d in ("state/lists/partial", "cache/archives/partial", "etc/sources.list.d", "etc/preferences.d",
+                  "etc/trusted.gpg.d", "etc/apt.conf.d", "etc/auth.conf.d", "keys"):  # fmt: skip
+            (work / d).mkdir(parents=True, exist_ok=True)
+        keys = {name: fetch_key(name, work / "keys") for name in KEYS}
+        (work / "etc/sources.list").write_text(
+            sources(image[UBUNTU_KEYRING], keys["docker"], keys["nvidia"]), encoding="utf-8"
         )
-    out.mkdir(parents=True, exist_ok=True)
-    placed = []
-    for p in fetched:
-        shutil.copy2(p, out / p.name)
-        placed.append(out / p.name)
-    return placed
+        (work / "etc/apt.conf").write_text(apt_config(work, image[STATUS]), encoding="utf-8")
+        env = apt_env(work / "etc/apt.conf")
+        install = ["install", "-y", "--no-install-recommends", *PACKAGES]
+        _apt(["update"], "update", env)
+        wanted = wanted_files(_apt([*install, "--print-uris"], "install --print-uris", env))
+        if not wanted:
+            raise DebsError("apt-get would fetch no package: the image already holds every one of them")
+        _apt([*install, "--download-only"], "install --download-only", env)
+        # only what apt said it would fetch, each one fetched (and so checked against the signed lists) in this run
+        fetched = [work / "cache/archives" / name for name in sorted(wanted)]
+        lacking = [p.name for p in fetched if not p.is_file()]
+        if lacking:
+            raise DebsError("apt-get did not fetch: " + ", ".join(lacking))
+        drivers = [p.name for p in fetched if windows_media.is_linux_driver(p.name)]
+        if drivers:
+            raise DebsError("the set holds a Linux NVIDIA driver package, which is never installed in WSL2: "
+                            + ", ".join(drivers))  # fmt: skip
+        out.mkdir(parents=True, exist_ok=True)
+        placed = []
+        for p in fetched:
+            shutil.copy2(p, out / p.name)
+            placed.append(out / p.name)
+        return placed
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -209,18 +256,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--out", type=Path, required=True, help="an empty folder for the .deb packages (the media's --debs)"
     )
-    ap.add_argument("--work", type=Path, help="apt's own folder (lists, cache); default: a temporary one, removed")
+    ap.add_argument("--work", type=Path, help="where this run's working folder is made (new each run, removed after)")
     args = ap.parse_args(argv)
     try:
         if not args.rootfs.is_file():
             raise DebsError(f"--rootfs: no such file: {args.rootfs}")
-        if args.work is not None:
-            args.work.mkdir(parents=True, exist_ok=True)
-            placed = collect(args.rootfs, args.out, args.work.resolve())
-        else:
-            with tempfile.TemporaryDirectory(prefix="tb-media-debs-") as tmp:
-                placed = collect(args.rootfs, args.out, Path(tmp))
-    except DebsError as exc:
+        parent = args.work.resolve() if args.work is not None else Path(tempfile.gettempdir())
+        parent.mkdir(parents=True, exist_ok=True)
+        placed = collect(args.rootfs, args.out, parent)
+    except (DebsError, OSError) as exc:
         print(f"windows_media_debs: {exc}", file=sys.stderr)
         return 1
     size = sum(p.stat().st_size for p in placed)
