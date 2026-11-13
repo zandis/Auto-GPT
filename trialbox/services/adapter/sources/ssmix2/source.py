@@ -426,6 +426,12 @@ class Ssmix2Source:
         always carries its day, so an id never changes meaning when another day's file appears (D-594)."""
         return f"{sf.order}@{sf.day}" if self.order_key == "per_day" else sf.order
 
+    def _quarantine(self, typ: str, sf: StoredFile, why: str, said: str) -> None:
+        self.stats[f"{typ}:quarantined ({why})"] += 1
+        where = str(sf.path.relative_to(self.root)) if sf.path.is_relative_to(self.root) else sf.path.name
+        self.quarantined.append((typ, where, f"{why}: {said}"))
+        log.warning("ssmix2: a %s file quarantined: %s", typ, why)  # the path names a patient: kept in memory
+
     def _messages(self, typ: str) -> Iterator[tuple[StoredFile, hl7.Message]]:
         """The current messages of one type. A file no codec reads, or that is not HL7, is quarantined (STD-020):
         counted, listed, skipped; the other files go on."""
@@ -433,12 +439,12 @@ class Ssmix2Source:
             try:
                 text, codec = hl7.decode_bytes(sf.path.read_bytes())
                 msg = hl7.parse(text)
-            except (OSError, ValueError) as exc:  # hl7.Undecodable is a ValueError, as is "no MSH segment"
-                why = "unreadable bytes" if isinstance(exc, hl7.Undecodable) else "not an HL7 message"
-                self.stats[f"{typ}:quarantined ({why})"] += 1
-                where = str(sf.path.relative_to(self.root)) if sf.path.is_relative_to(self.root) else sf.path.name
-                self.quarantined.append((typ, where, f"{why}: {exc}"))
-                log.warning("ssmix2: a %s file quarantined: %s", typ, why)  # the path names a patient: kept in memory
+            except hl7.Undecodable as exc:  # the reader's own sentence (D-682): which reading failed, MSH-18's name
+                self._quarantine(typ, sf, "unreadable bytes", str(exc))
+                continue
+            except (OSError, ValueError) as exc:  # "no MSH segment" is a ValueError
+                # D-682: the error's type; an OS error's text holds the whole path
+                self._quarantine(typ, sf, "not an HL7 message", type(exc).__name__)
                 continue
             self.stats[typ] += 1
             if codec not in ("iso2022_jp", "ascii", "utf-8"):
