@@ -276,6 +276,44 @@ def _halfway(svc: SiteSetup, error: Exception) -> Any:  # noqa: F811
     return _routes(svc)
 
 
+@pytest.mark.parametrize(
+    ("status", "said"),
+    [(503, "the lake is restarting"), (404, "FileNotFoundError: snapshot"), (422, "IOException: LAKE-QUERY"),
+     (422, "LAKE-STALE: the snapshot was replaced"), (401, "service token required")],
+)  # fmt: skip
+def test_the_patient_check_says_lake_unread_for_every_way_the_lakes_query_fails(
+    svc: SiteSetup,  # noqa: F811
+    status: int,
+    said: str,
+) -> None:
+    """The real lake answers its own failures of a query with 404 and 422 (a snapshot file gone or damaged, a
+    stale snapshot), never 5xx (the review ran it): the status does not tell them from one another."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    c = _halfway(svc, LakeQueryFailed(status, said))
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["patients"] == [], r.text[:300]
+    assert said not in r.text
+    svc.main_lake = up
+
+
+def test_the_counts_route_says_lake_unread_when_its_own_question_fails(
+    svc: SiteSetup,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lake.client import LakeQueryFailed
+
+    def fails(*a: Any, **k: Any) -> Any:
+        raise LakeQueryFailed(422, "IOException: LAKE-QUERY")
+
+    inp = help.practice_inputs()
+    svc.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
+    monkeypatch.setattr(readiness, "feasibility", fails)
+    r = _routes(svc).get(f"/setup/{MAIN}/feasibility?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["feas"] is None
+
+
 def test_the_patient_check_says_lake_unread_when_the_lakes_queries_fail(svc: SiteSetup) -> None:  # noqa: F811
     """D-709 left this open: the client raised a plain RuntimeError for a failed query. With D-673 it is the lake's
     service error, with its status."""
@@ -295,12 +333,12 @@ def test_the_patient_check_says_lake_unread_when_the_lakes_queries_fail(svc: Sit
 
 
 def test_a_query_the_lake_refuses_is_not_the_lake_being_unread(svc: SiteSetup) -> None:  # noqa: F811
-    """A 400 is the engine's complaint about the question (a fault of the criteria's SQL or of this code): "could
-    not be read, try again" would be untrue of it, and would hide it."""
+    """A 400 is the lake rejecting the statement itself (``SqlRejected``: not a plain read): a fault of the
+    criteria's SQL or of this code. "Could not be read, try again" would be untrue of it, and would hide it."""
     from lake.client import LakeQueryFailed
 
     up = svc.main_lake
-    c = _halfway(svc, LakeQueryFailed(400, "Binder Error: column not found"))
+    c = _halfway(svc, LakeQueryFailed(400, "SqlRejected: only SELECT"))
     r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
     assert r.status_code == 500 and "lake_unread" not in r.text
     svc.main_lake = up

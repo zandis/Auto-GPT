@@ -44,9 +44,20 @@ UNREAD = (*LAKE_DOWN, LakeUnread)
 
 
 def is_unread(exc: BaseException) -> bool:
-    """NEW-SITE-3 (D-712): is this the lake not read (it fails or does not answer: ``lake_down``; or a reader's
-    ``LakeUnread``), and not a refusal? A query the lake refuses with a 4xx (the engine's complaint about the
-    question) and another service's error are not "could not be read": they go on."""
+    """NEW-SITE-3 (D-712): is this the lake not read, and not a fault to show as one?
+
+    * a reader's ``LakeUnread``, or the lake failing or not answering (``lake_down``);
+    * a query the lake did not answer with a table (``LakeQueryFailed``, D-673), **whatever its status but 400**:
+      the lake answers its own failures of a query with 404 and 422 (a snapshot file gone or damaged, a snapshot
+      replaced under the query, a limit), never 5xx, and the status does not tell those from the engine's
+      complaint about the question, which is 422 too. 400 is the lake rejecting the statement itself
+      (``SqlRejected``): a fault of the criteria's SQL or of this code, which goes on.
+
+    Another service's error is not "the lake could not be read": it goes on."""
+    from lake.client import LakeQueryFailed
+
+    if isinstance(exc, LakeQueryFailed):
+        return exc.status != 400  # noqa: PLR2004 - the one status that is the statement's fault
     return isinstance(exc, LakeUnread) or lake_down(exc)
 
 
