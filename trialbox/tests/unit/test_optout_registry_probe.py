@@ -78,7 +78,10 @@ def test_only_a_lake_that_answers_it_has_no_such_table_has_no_registry() -> None
     assert lake.asked[0] == REGISTRY_SQL and QUESTION in lake.asked
 
 
-@pytest.mark.parametrize("answer", [[], [{"n": None}], [{"n": "0"}], [{"x": 0}], [{"n": 1}], [{"n": 0}, {"n": 0}]])
+@pytest.mark.parametrize(
+    "answer",
+    [[], [{"n": None}], [{"n": "0"}], [{"x": 0}], [{"n": 1}], [{"n": 0}, {"n": 0}], [{"n": 0.0}], [{"n": False}]],
+)
 def test_only_a_clear_no_counts_and_a_failing_question_stops(answer: list[dict[str, Any]]) -> None:
     class Odd:
         def query(self, sql: str, *_a: Any, **_k: Any) -> Any:
@@ -100,11 +103,12 @@ def test_only_a_clear_no_counts_and_a_failing_question_stops(answer: list[dict[s
 def test_a_lake_with_a_registry_is_read_and_the_question_is_not_asked() -> None:
     lake = _Lake(consent=True)
     lake.con.execute("INSERT INTO consent VALUES ('P1', 'rejected', NULL, DATE '2026-10-01', NULL)")
-    try:
-        state = registry_state(lake, "2026-11-01", "2026-11-13")
-    except RuntimeError:  # the stand-in's table is not the lake's full one: the point is only what was asked
-        state = None
-    assert QUESTION not in lake.asked or state is None
+    lake.con.execute("INSERT INTO consent VALUES ('P2', 'active', TRUE, DATE '2026-10-02', NULL)")
+    state = registry_state(lake, "2026-11-01", "2026-11-13")
+    assert state is not None and state.refused == frozenset({"P1"})
+    assert lake.asked == [REGISTRY_SQL]
+    empty = registry_state(_Lake(consent=True), "2026-11-01", "2026-11-13")
+    assert empty is not None and empty.refused == frozenset()  # a registry with no row is a registry
 
 
 # ----------------------------------------------------------------------------------------------- every caller

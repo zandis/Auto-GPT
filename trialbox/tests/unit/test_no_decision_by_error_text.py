@@ -7,7 +7,12 @@ text going into an answer or a record; it did not see a text that only decides.
 
 This scan looks at every ``except ... as name`` under ``libs`` and ``services``: the caught error's text (``str``,
 ``repr``, ``format``, an f-string, ``%``, ``.args``, the error handed to a helper, or a name assigned from any of
-these) used in a condition. A decision by the error's type or by a typed field of it is not text."""
+these) used in a condition. A decision by the error's type or by a typed field of it is not text.
+
+What the scan does not see (the review of D-651 tried 21 spellings): ``exc.__str__()``, ``traceback.format_exc()``,
+``str(exc.__cause__)``, the error under a second name, a text tested outside the ``except`` block, a helper's result
+assigned and tested later, ``match str(exc)``. A grep of ``libs`` and ``services`` for these found one real place,
+``services/gateway/core.py`` (a model called busy by the endings of collected error texts; not about a patient)."""
 
 from __future__ import annotations
 
@@ -18,21 +23,35 @@ ROOT = Path(__file__).resolve().parents[2]
 #: the places found, each read (2026-11-13), with whose it is and what it does. One of this list is a decision by
 #: an error's text that can hide a failure; the others decide by a type, a status or a typed field inside a helper,
 #: or by a sentence of the service's own error class. A new place fails the test until it is read and listed.
-LISTED: dict[str, str] = {
-    "libs/tb_common/jobpoll.py": "library: no_answer(exc) reads the error's type and HTTP status, no text",
-    "libs/tb_llm/timeouts.py": "models: dropped(exc) reads the error's type, no text",
-    "services/adapter/publish.py": "adapter: _other_generation(exc) reads the lake's refusal by its words "
-    "('built again since') to try a promotion again; theirs",
-    "services/console/entry_pages.py": "console: err_of(exc) builds the page's error from the EDC error's typed "
-    "fields; no decision",
-    "services/edc/prefill.py": "EDC (lane E): any failure whose text names site_fact gives no site facts; the same "
-    "defect as D-649, theirs to take off",
-    "services/orchestrator/app.py": "orchestrator: one sentence of its own ActorError ('no signed-in user') picks "
-    "400 over 403",
-    "services/orchestrator/lifecycle_api.py": "orchestrator: 'classic' in the EDC adapter's own error message "
-    "(a REDCap project without arms)",
-    "services/sitesetup/service.py": "site set-up: the lake's refusal of a rebuild by its type, its 409 and header, "
-    "then the answer's words",
+LISTED: dict[str, tuple[int, str]] = {
+    "libs/tb_common/jobpoll.py": (1, "library: no_answer(exc) reads the error's type and HTTP status, no text"),
+    "libs/tb_llm/timeouts.py": (1, "models: dropped(exc) reads the error's type, no text"),
+    "services/adapter/publish.py": (
+        1,
+        "adapter: _other_generation(exc) reads the lake's refusal by its words ('built again since') to try a "
+        "promotion again; theirs",
+    ),
+    "services/console/entry_pages.py": (
+        1,
+        "console: err_of(exc) builds the page's error from the EDC error's typed fields; no decision",
+    ),
+    "services/edc/prefill.py": (
+        1,
+        "EDC (lane E): any failure whose text names site_fact gives no site facts; the same defect as D-649, "
+        "theirs to take off",
+    ),
+    "services/orchestrator/app.py": (
+        1,
+        "orchestrator: one sentence of its own ActorError ('no signed-in user') picks 400 over 403",
+    ),
+    "services/orchestrator/lifecycle_api.py": (
+        1,
+        "orchestrator: 'classic' in the EDC adapter's own error message (a REDCap project without arms)",
+    ),
+    "services/sitesetup/service.py": (
+        2,
+        "site set-up: the lake's refusal of a rebuild by its type, its 409 and header, then the answer's words",
+    ),
 }
 
 #: what reads an error's text
@@ -144,10 +163,11 @@ def test_the_scan_sees_every_spelling_and_leaves_the_type_alone(tmp_path: Path) 
 
 
 def test_no_code_decides_by_the_text_of_an_error_it_caught() -> None:
-    found: dict[str, list[str]] = {}
+    """Exact by file and by how many conditions: a new one in a listed file fails too (the review of this card)."""
+    found: dict[str, int] = {}
     for top in ("libs", "services"):
         for hit in decisions_by_text(ROOT / top):
-            found.setdefault(f"{top}/{hit.rsplit(':', 1)[0]}", []).append(hit.rsplit(":", 1)[1])
-    assert sorted(found) == sorted(LISTED), {k: v for k, v in found.items() if k not in LISTED} or sorted(
-        set(LISTED) - set(found)
-    )
+            name = f"{top}/{hit.rsplit(':', 1)[0]}"
+            found[name] = found.get(name, 0) + 1
+    listed = {name: n for name, (n, _) in LISTED.items()}
+    assert found == listed, sorted(set(found.items()) ^ set(listed.items()))

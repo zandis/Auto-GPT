@@ -46,7 +46,14 @@ edited; this note stands for the correction.
    - the cascade's S0 does not catch it: no run without the opt-out answer;
    - the decision context does not catch it: `refused()`, `no_contact()` and `consent()` raise, the job fails;
    - the opt-out worker catches it, names `registry` in `failed`, syncs nothing, and goes on with the register it
-     already holds (opt-outs already known still apply and are still erased).
+     already holds: every clear still runs in the same tick for the patients it knows (lane E's rule: stopping
+     them would leave opted-out patients un-erased), and the registry is tried again next tick.
+   The worker has two paths this card does **not** close, both found by the review by running and both lane E's
+   and the lake's to change (see "Review"): when the lake cannot name a snapshot, and when the lake truly has no
+   consent table, the tick reports nothing as failed.
+5. One more change in what a box does, from `lakeprobe` (D-650): on a read with no snapshot named, after a
+   failure the query is put once more to the snapshot the lake names as current. A passing failure can then
+   succeed; one or two more lake queries follow a failure.
 4. A test over `libs` and `services` holds that no code decides by the text of an error it caught
    (`tests/unit/test_no_decision_by_error_text.py`). It sees `str`, `repr`, `format`, an f-string, `%`, `.args`,
    `.message`, a name assigned from these, and the error handed to a helper inside a condition (how the note
@@ -64,7 +71,9 @@ table existed. On a production box that is not "this site has no registry"; it i
 there.
 
 Proposal: with `TB_ENV` PRODUCTION (also when unset), a lake without a `consent` table **stops the run** with a
-sentence that says so; None stays for DEV and TEST, where hand-made lakes are used. This card does not do it: it
+sentence that says so; None stays for DEV and TEST, where hand-made lakes are used. The refusal should cover the
+opt-out worker too (name `registry` as failed), not only the cascade and the decision context. It does not cover
+a table that is there and **empty** because a night had no Consent feed: there only the register protects. This card does not do it: it
 changes what a production box does when its registry is absent, and that is the owner's decision.
 
 ## Test
@@ -79,3 +88,25 @@ changes what a production box does when its registry is absent, and that is the 
   run. The 503 case is kept.
 - `tests/unit/test_no_decision_by_error_text.py`: the scan and a test of the scan on thirteen spellings that must
   be found and six that must not.
+
+## Review
+
+One adversarial review by running (on `16dbd29d`). Verdict: merge the fix; no HIGH; no way found to make
+`registry_state` or a caller apply no opt-out after a failure.
+
+| Finding | Confirmed | What was done |
+|---|---|---|
+| MED, not from this card, lane E's and the lake's: `LakeHttp.snapshot()` returns None for any answer without a snapshot (also a 503 of the lake's health check); the worker then takes "no snapshot" for nothing to read: the registry is not copied on that tick and `registry` is not named as failed. Nothing is lifted or erased wrongly | by running | not changed here; reported to the integrator. Smallest fix: `snapshot()` raises on an answer that is not a healthy one, or the worker names `registry` as failed |
+| MED, the open question above: a true "no consent table" is silent in the worker too | by running | part of the question put to the owner |
+| MED: the scan's list was by file; a new condition in a listed file passed | by reading | exact by file and count |
+| LOW: spellings the scan does not see; one real place (`services/gateway/core.py`, a model called busy by error texts; not about a patient) | by running 21 probes, grep | stated in the test; reported |
+| LOW: one test could not fail usefully; no test for the answers 0.0 and False | by reading | a real assertion (the registry read, the question not asked, an empty table is a registry); both answers added |
+| LOW: a stale reference to the module's old place | by reading | fixed |
+
+Held (the reviewer's runs): the real lake in process and over HTTP answers a Python int, 1 with the table and 0
+after it was dropped; every other failure, answer and odd object stops; an empty real table is an empty registry,
+not None; the cascade's supplied registry is the same function; the decision context never caches a failure; five
+ticks of the worker with a real register lift nothing wrongly; every other reader of consent goes through the
+decision context; six mutations of the fix each fail tests; `Lake.rebuild` with no Consent builds an empty
+`consent` table. Not verified: from which lake schema version the table exists (the history starts with it).
+The fixes after the review were not reviewed again.
