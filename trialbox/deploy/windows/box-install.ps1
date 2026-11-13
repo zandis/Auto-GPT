@@ -70,6 +70,9 @@ param(
   # At least 6 hours: Windows protects at most 18 hours of a day from restarts ("active hours")
   [ValidateRange(0, 23)][int]$UpdateWindowStart = 19,
   [ValidateRange(6, 23)][int]$UpdateWindowHours = 6,
+  # an outside (USB) drive that backups may go to (NEW-WIN-7, D-608): the installer checks with Windows that it is
+  # one and marks the drive. Start the installer with it once the drive is plugged in, also on a finished install
+  [ValidatePattern("^$|^[A-Za-z]:?$")][string]$BackupDrive = "",
   [switch]$Resume,
   [switch]$Yes,
   [switch]$LoadOnly
@@ -353,6 +356,26 @@ function Write-TbShutdownRight([string]$Sid) {
   if ($LASTEXITCODE -ne 0) { throw ("secedit /configure ended with code " + $LASTEXITCODE) }
   Set-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "ShutdownWithoutLogon" -Value 0 -Type DWord
 }
+function Get-TbOwnDrives {
+  # NEW-WIN-7 (D-608): the letters of this PC's own drives: every fixed drive Windows lists, less those on a disk
+  # attached by USB. A letter Windows cannot place on a disk is the PC's own (the strict side). An error is the
+  # caller's: nothing is recorded then.
+  $usb = @()
+  foreach ($d in @(Get-Disk | Where-Object { $_.BusType -eq "USB" })) {
+    foreach ($p in @(Get-Partition -DiskNumber $d.Number | Where-Object { $_.DriveLetter })) { $usb += ([string]$p.DriveLetter).ToUpper() }
+  }
+  $out = @()
+  foreach ($ld in @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3")) {
+    $l = ([string]$ld.DeviceID).Substring(0, 1).ToUpper()
+    if ($usb -notcontains $l) { $out += $l }
+  }
+  return $out
+}
+function Get-TbDriveBus([string]$Letter) { return [string]((Get-Partition -DriveLetter $Letter | Get-Disk).BusType) }
+function Write-TbOutsideMark([string]$Letter, [string[]]$Lines) {
+  # one small file at the root of the outside drive: the backup check inside WSL2 looks for it (D-608)
+  Set-Content -LiteralPath ($Letter + ":\.trialbox-outside-drive") -Value $Lines -Encoding ASCII
+}
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -439,7 +462,7 @@ function Save-TbState {
 }
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
-    desktop_share_pct = -1; update_window = ""; update_window_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
+    desktop_share_pct = -1; update_window = ""; update_window_told = ""; drives_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
     restart_pending = $false; finished = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -832,6 +855,40 @@ function Set-TbShutdownRight {
   }
   return "written"
 }
+function Set-TbOwnDrives {
+  # The backup check inside WSL2 counts a Windows drive as off-box only when it is none of this PC's own: the box
+  # is told the letters of its own drives (the system drive and the data drive always; every other disk that is
+  # not on USB), once, and again when they change. A failure is logged and stops nothing: without the record no
+  # Windows drive counts as off-box, which is the safe side.
+  try {
+    $own = @(Get-TbOwnDrives)
+    foreach ($x in @([string]$script:TbFacts.SystemDrive, [string]$script:TbState.data_drive)) {
+      if ($x -match "^([A-Za-z]):") { $own += $Matches[1].ToUpper() }
+    }
+    $tell = (@($own | Where-Object { $_ -match "^[A-Z]$" } | Sort-Object -Unique) -join ",")
+    if ($tell -and $script:TbSetupWsl -and [string]$script:TbState.drives_told -ne $tell) {
+      if ((Invoke-TbSetup "windows-drives" @($tell)).ExitCode -eq 0) { $script:TbState.drives_told = $tell }
+    }
+  } catch { Write-TbLog ("    this PC's own drives could not be recorded for the backup check: " + [string]$_.Exception.Message) }
+}
+function Set-TbBackupDrive([string]$Drive) {
+  # -BackupDrive E: marks an outside drive as a place for backups. Windows is asked what the drive is: only a disk
+  # attached by USB that is none of this PC's own drives is marked. The mark is a file on the drive itself, so it
+  # goes where the disk goes; a letter that later names another volume has none. Nothing here stops the install.
+  $l = $Drive.Substring(0, 1).ToUpper()
+  try {
+    $own = @(Get-TbOwnDrives)
+    foreach ($x in @([string]$script:TbFacts.SystemDrive, [string]$script:TbState.data_drive)) {
+      if ($x -match "^([A-Za-z]):") { $own += $Matches[1].ToUpper() }
+    }
+    if ($own -contains $l) { Say "backup_drive_own" @($l); return }
+    $bus = Get-TbDriveBus $l
+    if ($bus -ne "USB") { Say "backup_drive_not_usb" @($l, $bus); return }
+    Write-TbOutsideMark $l @("TrialBox: an outside drive for backups. Written by box-install.ps1 -BackupDrive on " + (Get-Date).ToString("yyyy-MM-dd") + ".")
+    Write-TbLog ("    drive {0}: marked as an outside drive for backups (bus {1})" -f $l, $bus)
+    Say "backup_drive_marked" @($l, ("/mnt/" + $l.ToLower()))
+  } catch { Say "backup_drive_unknown" @($l, [string]$_.Exception.Message) }
+}
 function Set-TbUnattended([bool]$Quiet) {
   # Neither part stops the install: a PC whose policy cannot be written still runs TrialBox, and the host check
   # (deploy/windows/wsl2_policy.py) fails it by name. $Quiet: a finished install says only what changed.
@@ -866,6 +923,8 @@ function Step-BootTask {
   Write-TbLog ("    task {0}: {1}; state {2}; last result {3}" -f $script:TbBootTask, $did, $info.State, $info.LastResult)
   Say "boot_task" @($script:TbBootTask)
   Set-TbUnattended $false
+  Set-TbOwnDrives
+  if ($BackupDrive) { Set-TbBackupDrive $BackupDrive }
 }
 function Step-Network {
   # the form is mirrored networking (.wslconfig, step 6): the workstation's own address is WSL2's, so the box sees
@@ -977,6 +1036,8 @@ function Invoke-TbInstall {
     catch { Say "boot_task_failed" @([string]$_.Exception.Message) }
     # and the update window and the shutdown right (D-606): an install made before NEW-WIN-5 gets them here
     Set-TbUnattended $true
+    Set-TbOwnDrives
+    if ($BackupDrive) { Set-TbBackupDrive $BackupDrive }
     Save-TbState
     Say "already_installed" @($script:TbLogPath)
     return 0

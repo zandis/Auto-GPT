@@ -29,6 +29,13 @@ folder carries a ``host/`` part (``deploy/.env``, settings, ``deploy/site``, ``d
 Authelia and Caddy volumes). ``backup-install`` (install.sh) writes the cron file, turns WAL archiving on where the
 image and an off-box share allow it, and runs the first backup; in PRODUCTION it needs an alert route.
 
+**Windows (WSL2; NEW-WIN-7, D-608).** A Windows drive mounted in WSL2 (``/mnt/e``) is off-box only when the
+Windows installer recorded the workstation's own drives (``deploy/site/box/windows-drives``), the drive is none
+of them, and its root carries the installer's mark of an outside drive (``box-install.ps1 -BackupDrive E:``). A
+share of the PC itself (``\\\\localhost``, ``\\\\wsl.localhost``) is this box. The speed of a target's path is
+measured once (``deploy/windows/wsl-setup.sh backup-speed``, recorded in ``deploy/site/box/backup-speed``) and
+``trialbox doctor`` holds ``TB_BACKUP_MIN_MBPS`` against it.
+
 **Off-box.** A target counts as off-box when it is a network share (NFS, SMB/CIFS, SSHFS ... or a Windows UNC path
 mounted in WSL2), a USB disk, or a path that hospital IT declared in ``TB_BACKUP_OFFBOX`` (e.g. an iSCSI volume in
 another room) that is on another device than the box's own disk or carries a ``.trialbox-offbox`` file. In
@@ -49,6 +56,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import re
 import shlex
@@ -347,7 +355,9 @@ def parse_snapshot(d: Path, name: str) -> dict[str, Any]:
 @dataclass(frozen=True)
 class Target:
     path: str
-    kind: str  # network share | usb disk | declared off-box | this box | declared, but on this box's disk
+    # network share | usb disk | declared off-box | this box | declared, but on this box's disk | (WSL2, NEW-WIN-7)
+    # Windows drive X:, not one of this PC's own
+    kind: str
     offbox: bool
     fstype: str = ""
 
@@ -356,7 +366,8 @@ def _unescape(s: str) -> str:
     return s.replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
 
 
-def _mounts(text: str | None) -> list[tuple[str, str, str]]:
+def _mounts(text: str | None) -> list[tuple[str, str, str, str]]:
+    """(source, mount point, file system, options) of every mount."""
     if text is None:
         try:
             text = Path("/proc/mounts").read_text(encoding="utf-8")
@@ -366,7 +377,7 @@ def _mounts(text: str | None) -> list[tuple[str, str, str]]:
     for line in text.splitlines():
         f = line.split()
         if len(f) >= 3:
-            out.append((_unescape(f[0]), _unescape(f[1]), f[2]))
+            out.append((_unescape(f[0]), _unescape(f[1]), f[2], _unescape(f[3]) if len(f) > 3 else ""))
     return out
 
 
@@ -406,35 +417,124 @@ def _is_usb(device: str, sys_block: Path) -> bool:
     return False
 
 
+SPEED_FILE = "backup-speed"  # under deploy/site/box: "<MB/s>\t<MiB written>\t<path>" per measured target path
+
+
+def measured_speeds(deploy: Path) -> dict[str, tuple[float, int]]:
+    """NEW-WIN-7 (D-608): what ``wsl-setup.sh backup-speed`` measured for each backup path: (MB/s, MiB written)."""
+    out: dict[str, tuple[float, int]] = {}
+    try:
+        lines = (deploy / "site" / "box" / SPEED_FILE).read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError):
+        return out
+    for line in lines:
+        speed, _, rest = line.partition("\t")
+        mib, _, path = rest.partition("\t")
+        try:
+            value, written = float(speed), int(mib)
+        except ValueError:
+            continue
+        if path and math.isfinite(value) and value > 0 and written > 0:
+            out[path] = (value, written)  # a later line for the same path is the newer measurement
+    return out
+
+
+WINDOWS_DRIVES_FILE = "windows-drives"  # under deploy/site/box: the letters of the workstation's own drives
+
+
+def windows_own_drives(deploy: Path) -> frozenset[str] | None:
+    """NEW-WIN-7 (D-608): the drive letters the Windows installer recorded as the workstation's own (the system
+    drive, the drive of WSL2's virtual disk, every other disk that is not on USB). ``None`` when there is no
+    record: then no Windows drive counts as off-box."""
+    try:
+        text = (deploy / "site" / "box" / WINDOWS_DRIVES_FILE).read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):  # no record, or one that is not text: no record
+        return None
+    letters = [p.strip().upper() for p in text.split(",")]
+    if not letters or not all(len(p) == 1 and "A" <= p <= "Z" for p in letters):
+        return None
+    return frozenset(letters)
+
+
+OUTSIDE_MARK = ".trialbox-outside-drive"  # at the root of an outside drive: written by box-install.ps1 -BackupDrive
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "wsl.localhost", "wsl$"})
+
+
+def _windows_path(src: str, fstype: str, options: str = "") -> tuple[str, str]:
+    """(drive letter, share host) of a Windows path mounted in WSL2; ``("", "")`` for anything else.
+
+    WSL2 mounts a Windows drive or share with the file system ``9p`` (``drvfs`` under WSL1) and writes the Windows
+    path as the source (``E:\\``, ``\\\\nas\\share``) or, with the source ``drvfs``, in the options
+    (``aname=drvfs;path=E:\\``). Where both name a path they must agree: a line that names two is believed in
+    neither (the strict side)."""
+    if fstype not in ("9p", "drvfs"):
+        return "", ""
+    named = [src] if src not in ("", "drvfs", "none") else []
+    by_option = re.search(r"(?:^|[;,])path=([^;,]*)", options)
+    if by_option and (fstype == "drvfs" or re.search(r"(?:^|[;,])aname=drvfs(?:[;,]|$)", options)):
+        named.append(by_option.group(1))
+    found: set[tuple[str, str]] = set()
+    for text in named:
+        drive = re.fullmatch(r"([A-Za-z]):[\\/]?", text)
+        share = re.match(r"(?:\\\\|//)([^\\/]+)[\\/]", text + "/")
+        found.add((drive.group(1).upper(), "") if drive else ("", share.group(1).lower()) if share else ("", ""))
+    return found.pop() if len(found) == 1 else ("", "")
+
+
 def target_kind(
     path: Path,
     mounts_text: str | None = None,
     declared: Sequence[str] = (),
     sys_block: Path = Path("/sys/class/block"),
     local: Sequence[Path] = (Path("/"),),
+    windows_own: frozenset[str] | None = None,
 ) -> Target:
     """Where ``path`` lives: on a network share, a USB disk, a declared off-box volume, or this box's own disks.
-    A declared path counts only on another device than every ``local`` path, or with a ``.trialbox-offbox`` file."""
+    A declared path counts only on another device than every ``local`` path, or with a ``.trialbox-offbox`` file.
+
+    Under WSL2 (NEW-WIN-7, D-608) a Windows drive counts as off-box only when all of this holds: the Windows
+    installer recorded the workstation's own drives (``windows_own``), the drive is none of them, and the drive's
+    own root carries the mark the installer writes on a disk it saw on USB (``box-install.ps1 -BackupDrive``).
+    The mark travels with the disk: a letter that later names another volume has none."""
     real = _resolve(Path(path))
+    best = ("", "/", "", "")
+    for src, mnt, fstype, options in _mounts(mounts_text):
+        m = Path(mnt)
+        if (real == m or m in real.parents) and len(mnt) >= len(best[1]):
+            best = (src, mnt, fstype, options)
+    src, mount_point, fstype, options = best
+    letter, host = _windows_path(src, fstype, options)
     for d in declared:
         dd = _resolve(Path(d))
         if d and (real == dd or dd in real.parents):
             here = _existing(dd)
             marked = (dd / OFFBOX_MARKER).is_file()
-            other_dev = all(here.stat().st_dev != _existing(p).stat().st_dev for p in local)
+            # a Windows drive is always "another device" than WSL2's own disk, the data drive too: it is not
+            # taken as off-box for that
+            other_dev = not letter and all(here.stat().st_dev != _existing(p).stat().st_dev for p in local)
             if marked or other_dev:
                 return Target(str(path), "declared off-box", True)
             return Target(str(path), "declared, but on this box's disk (no .trialbox-offbox file)", False)
-    best = ("", "/", "")
-    for src, mnt, fstype in _mounts(mounts_text):
-        m = Path(mnt)
-        if (real == m or m in real.parents) and len(mnt) >= len(best[1]):
-            best = (src, mnt, fstype)
-    src, _, fstype = best
-    if fstype in NETWORK_FS or src.startswith(("//", "\\\\")):  # a UNC source: a Windows share mounted in WSL2
+    if fstype in ("9p", "drvfs"):
+        unc_host = host
+    else:
+        unc = re.match(r"(?:\\\\|//)([^\\/]+)", src)
+        unc_host = unc.group(1).lower() if unc else ""
+    if unc_host in LOCAL_HOSTS:
+        return Target(str(path), "this box", False, fstype)  # a share of this PC itself, or WSL2's own files
+    if fstype in NETWORK_FS or unc_host:  # a UNC source: a Windows share mounted in WSL2
         return Target(str(path), "network share", True, fstype)
     if _is_usb(src, sys_block):
         return Target(str(path), "usb disk", True, fstype)
+    if letter and windows_own is not None and letter not in windows_own:
+        if (Path(mount_point) / OUTSIDE_MARK).is_file():
+            return Target(str(path), f"Windows drive {letter}:, an outside drive", True, fstype)
+        return Target(
+            str(path),
+            f"Windows drive {letter}:, not marked as an outside drive (box-install.ps1 -BackupDrive {letter}:)",
+            False,
+            fstype,
+        )
     return Target(str(path), "this box", False, fstype)
 
 
@@ -487,7 +587,12 @@ class Config:
         return self.deploy / "site" / "backup-alert.json"
 
     def classify(self, p: Path) -> Target:
-        return target_kind(p, declared=self.declared_offbox, local=(Path("/"), self.deploy))
+        return target_kind(
+            p,
+            declared=self.declared_offbox,
+            local=(Path("/"), self.deploy),
+            windows_own=windows_own_drives(self.deploy),
+        )
 
 
 def _split(v: str) -> list[str]:

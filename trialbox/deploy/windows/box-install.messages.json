@@ -408,5 +408,25 @@
     "en": "Warning: the rule 'only administrators shut this PC down' could not be set ({0}). The install goes on; tell the people who use this PC not to turn it off.",
     "ja": "注意:「管理者だけがこの PC をシャットダウンできる」という設定を行えませんでした（{0}）。インストールは続行します。この PC を使う人に、電源を切らないよう伝えてください。",
     "zh-TW": "警告：無法設定「只有系統管理員可以將這台電腦關機」（{0}）。安裝會繼續；請告知使用這台電腦的人不要關機。"
+  },
+  "backup_drive_marked": {
+    "en": "Drive {0}: is marked as an outside drive for backups. Inside TrialBox it is {1}; put a folder on it in the backup settings. Keep the drive away from this PC when it is not in use for a backup.",
+    "ja": "ドライブ {0}: を、バックアップ用の外付けドライブとして登録しました。TrialBox の中では {1} です。バックアップ設定で、このドライブ上のフォルダーを指定してください。バックアップに使わないときは、ドライブをこの PC とは別の場所に保管してください。",
+    "zh-TW": "磁碟機 {0}: 已標記為備份用的外接磁碟機。在 TrialBox 內它是 {1}；請在備份設定中指定其上的資料夾。不做備份時，請將磁碟機與這台電腦分開存放。"
+  },
+  "backup_drive_own": {
+    "en": "Drive {0}: is one of this PC's own drives. A backup there is lost together with the PC, so it was not marked. Use a USB disk or the hospital's file share.",
+    "ja": "ドライブ {0}: はこの PC 自身のドライブです。そこに置いたバックアップは PC と一緒に失われるため、登録しませんでした。USB ディスクまたは病院のファイル共有を使ってください。",
+    "zh-TW": "磁碟機 {0}: 是這台電腦本身的磁碟機。放在那裡的備份會和電腦一起遺失，因此未標記。請使用 USB 磁碟或醫院的檔案共用。"
+  },
+  "backup_drive_not_usb": {
+    "en": "Drive {0}: is not a disk attached by USB (Windows says: {1}), so the installer cannot tell that it is outside this PC. It was not marked. Use a USB disk or the hospital's file share.",
+    "ja": "ドライブ {0}: は USB 接続のディスクではありません（Windows の表示: {1}）。この PC の外にあるものかどうかインストーラーには分からないため、登録しませんでした。USB ディスクまたは病院のファイル共有を使ってください。",
+    "zh-TW": "磁碟機 {0}: 不是以 USB 連接的磁碟（Windows 顯示：{1}），安裝程式無法確認它在這台電腦之外，因此未標記。請使用 USB 磁碟或醫院的檔案共用。"
+  },
+  "backup_drive_unknown": {
+    "en": "Drive {0}: could not be checked or marked ({1}). Is the disk plugged in and unlocked? Nothing was changed; start the installer again with -BackupDrive when it is.",
+    "ja": "ドライブ {0}: を確認または登録できませんでした（{1}）。ディスクは接続され、ロックが解除されていますか。何も変更していません。準備ができたら、-BackupDrive を付けてインストーラーをもう一度起動してください。",
+    "zh-TW": "無法檢查或標記磁碟機 {0}:（{1}）。磁碟是否已接上並解除鎖定？未做任何變更；準備好後，請加上 -BackupDrive 再次啟動安裝程式。"
   }
 }
