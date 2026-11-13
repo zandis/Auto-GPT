@@ -175,3 +175,20 @@ def test_a_subject_that_cannot_be_read_is_refused_without_repeating_what_was_typ
         assert CHART not in str(said.value), subject
     with pytest.raises(SubjectError, match="window"):  # the option's name, which is one of the allowed
         parse_subject(f"SCREEN GZQO window={CHART}!")
+
+
+def test_a_command_line_that_cannot_be_read_is_refused_without_repeating_what_was_typed() -> None:
+    """NEW-TRUST-7 (D-702): the command grammar of the console's request box and the chat channels refused a line
+    with the typed token in the text (``'A1234567' must be key=value``, ``invalid study code 'A1234567'``), which
+    the console shows and audits. The same rule as the mail subject's (D-700)."""
+    from channels.grammar import GrammarError, _params, _study
+
+    for tokens in ([CHART], [f"{CHART}=1"], [f"window={CHART}!"]):
+        with pytest.raises(GrammarError) as said:
+            _params(tokens)
+        assert CHART not in str(said.value), tokens
+    with pytest.raises(GrammarError, match="window"):  # a parameter's name, once it is one of the allowed
+        _params([f"window={CHART}!"])
+    with pytest.raises(GrammarError) as said:
+        _study(f"{CHART}!")
+    assert CHART not in str(said.value)
