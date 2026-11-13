@@ -189,7 +189,9 @@ def test_the_generated_matrix_equals_the_design_table(box: dict[str, Any]) -> No
 ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     ("GET", "/sae"): "sae.view",
     ("GET", "/ops/users"): "ops.view",
-    ("GET", "/ops/flags"): "ops.view",
+    # NEW-FLAG-1 (D-706): the page opens for whoever may see the hold after a restore (the administrator, who sees
+    # every flag there, and the data steward, who sees that one); which flags it lists is the page's own rule
+    ("GET", "/ops/flags"): "restore.release",
     ("POST", "/studies/{rs}/patients/{pid}/reveal"): "id.reveal",
     ("GET", "/breakglass"): "breakglass.read",
     ("POST", "/studies/{rs}/patients/{pid}/mark"): "list.mark",
