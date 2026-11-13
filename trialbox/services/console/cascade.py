@@ -10,6 +10,7 @@ final list) stays on the console volume and is never listed or served.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -17,7 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tb_common.http import kept_failure, trace_of
 from tb_common.ulid import new_ulid
+
+log = logging.getLogger("console.cascade")
 
 SERVED = {
     "dl1_pdf": "dl1/DL1_{trial}.pdf",
@@ -98,7 +102,10 @@ class CascadeRuns:
         path = self._meta(run_id)
         if not path.is_file():
             return None
-        return CascadeRun(**json.loads(path.read_text(encoding="utf-8")))
+        run = CascadeRun(**json.loads(path.read_text(encoding="utf-8")))
+        if run.error:  # a run kept before D-700 holds "<Type>: <the error's text>": shown as its type
+            run.error = kept_failure(run.error)
+        return run
 
     def list(self) -> list[CascadeRun]:
         runs = [self.get(p.parent.name) for p in self.root.glob("*/run.json")]
@@ -122,7 +129,9 @@ class CascadeRuns:
                 if run.state == "failed":
                     run.error = "the end-to-end checks did not all pass (see the DL-1 pack and certificate)"
             except Exception as exc:  # report, never crash the console
-                run.state, run.error = "failed", f"{type(exc).__name__}: {exc}"[:500]
+                # D-700: the page shows the error's type; the log has the type and where it was raised (D-557)
+                log.error("cascade run failed", extra={"run": run.run_id, **trace_of(exc)})
+                run.state, run.error = "failed", type(exc).__name__
             run.seconds = round(time.monotonic() - t0, 1)
             self._save(run)
             if on_done is not None:
