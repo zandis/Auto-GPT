@@ -537,8 +537,16 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
   # runs Authelia. The facts they rest on (D-574): it listens in plain HTTP/1 on 9091 inside trialbox-net with no
   # published port and no server.tls; only Caddy and the console reach it; the only outbound connection the egress
   # rules allow it is LDAPS to the hospital's directory (its start-up time check is blocked); and the named code is or is not in the binary of the pinned image,
-  # checked on 2026-11-12. No fixed upstream image exists (4.39.28 is the newest). CVE-2026-111943 (crypto/x509) has
-  # NO entry: it cannot be argued unreachable (the LDAPS client verifies certificates) and is with the owner.
+  # checked on 2026-11-12. No fixed upstream image exists (4.39.28 is the newest). CVE-2026-111943 (crypto/x509) is
+  # the one finding that is not "not reachable": the LDAPS client verifies certificates. Its entry is the owner's
+  # ruling of 2026-11-13, for the image at the pinned digest, until the identity overlay mounts only the hospital's
+  # directory CA (card AUTHELIA-CA); that card removes the entry.
+  - id: CVE-2026-111943
+    package: stdlib
+    image: authelia/authelia
+    reason: "Accepted by the owner on 2026-11-13 for the image pinned at sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54, until the fix lands. The flaw: intermediates that crypto/x509 should no longer trust. On the box the only certificate check Authelia makes on a connection is LDAPS to the hospital's directory (the egress rules allow it no other outbound connection, and it serves plain HTTP inside trialbox-net). To use the flaw an attacker must be inside the hospital's network, between the box and the directory, and hold a certificate for the directory's name issued under one of those intermediates. The fix (card AUTHELIA-CA): the identity overlay mounts only the hospital's directory CA, so no public root or intermediate is trusted for LDAPS; that card must remove this entry."
+    review_by: 2026-12-10
+    owner: security owner (to assign)
   - id: GO-2026-5932
     package: golang-org/x/crypto
     image: authelia/authelia

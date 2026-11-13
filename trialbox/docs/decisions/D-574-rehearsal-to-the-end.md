@@ -92,6 +92,13 @@ A way to make it unreachable, not built here because it changes what a site must
 only the hospital's own CA over the image's root list, so that no public intermediate can chain to a trusted
 root.
 
+**The owner's ruling, 2026-11-13.** One dated entry for CVE-2026-111943, for the Authelia image at the pinned
+digest, review 2026-12-10, saying what it takes to reach the flaw as the box runs the image (in the entry's
+reason; it does not say "not reachable"). Condition: the fix is built as a card now (AUTHELIA-CA: the identity
+overlay mounts only the hospital's directory CA, so Authelia trusts no public root for LDAPS), and that card
+removes the entry. `tests/unit/test_authelia_x509_entry.py` keeps the entry to one, dated, and naming the lock's
+digest: a new pin fails the test and the entry is looked at again.
+
 The licence budgets: Caddy 148, Authelia 88 (the amd64 counts; the `images` job confirms arm64).
 
 ### After the adversarial review (2026-11-12)
