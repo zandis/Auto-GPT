@@ -188,7 +188,7 @@ def test_the_first_sets_hold_the_measured_figures() -> None:
     ordinary_ja, names_ja = _rows("ordinary_ja"), _rows("names_ja")
     assert sum(1 for x in ordinary_ja if g.detect(x)) == 96  # before: 72.7 % of 132
     assert _refused(ordinary_ja) <= 29  # 22.0 %
-    assert _refused(names_ja) >= 81  # 2 of 83 are let through: names that are dictionary words
+    assert _refused(names_ja) == len(names_ja) == 83
     ordinary_zh, names_zh = _rows("ordinary_zh"), _rows("names_zh")
     assert _refused(ordinary_zh) == len(ordinary_zh) == 84  # Chinese: as before, every sentence refused
     assert _refused(names_zh) == len(names_zh) == 191
@@ -210,6 +210,8 @@ def _let_through(template: str, some_names: list[str]) -> tuple[int, int]:
 _ZH = list(guard_sets.zh_names())
 _ZH_ONE = list(guard_sets.zh_names(guard_sets.ZH_GIVEN_ONE))
 _JA = list(guard_sets.ja_names())
+_JA_UNLISTED = [s + x for s in "森林" for x in guard_sets.JA_GIVEN_UNLISTED]
+_JA_KANA_GIVEN = [s + x for s in "森林" for x in guard_sets.JA_GIVEN_KANA]
 # (what, shapes, names, ceiling per shape)
 CEILINGS: list[tuple[str, dict[str, str], list[str], int]] = [
     ("Chinese, a cue or a boundary", guard_sets.ZH_CUED, _ZH, 0),
@@ -219,8 +221,14 @@ CEILINGS: list[tuple[str, dict[str, str], list[str], int]] = [
     ("Chinese, run into text on a line with kana", guard_sets.ZH_RUNNING_WITH_KANA, _ZH, 0),
     ("Chinese, the middle dot and the long vowel mark", guard_sets.ZH_DOTS, _ZH, 0),
     ("Chinese, a subject line of a protocol", guard_sets.ZH_SUBJECT, _ZH, 0),
+    ("Chinese, one-character given name, cue or boundary on a line with kana", guard_sets.ZH_WITH_KANA, _ZH_ONE, 0),
+    # the stated limit: a two-character name that is itself a word of the Japanese dictionary (白雪, 黎明, 王軍)
+    ("Chinese, one-character given name, no cue, on a line with kana", guard_sets.ZH_ONE_WITH_KANA, _ZH_ONE, 12),
     ("Japanese, no kana on the line", guard_sets.JA_NO_KANA, _JA, 0),
-    ("Japanese, kana on the line", guard_sets.JA_KANA, _JA, 1),  # 林学 ("forestry") after a label
+    ("Japanese, kana on the line", guard_sets.JA_KANA, _JA, 0),
+    ("Japanese, after a label, before a particle", guard_sets.JA_PARTICLE, _JA, 0),
+    ("Japanese, 森 and 林 with given names the dictionary does not hold", guard_sets.JA_PARTICLE, _JA_UNLISTED, 0),
+    ("Japanese, 森 and 林 with given names in kana", guard_sets.JA_PARTICLE, _JA_KANA_GIVEN, 0),
 ]
 
 
@@ -234,13 +242,28 @@ def test_no_shape_lets_more_names_through_than_was_measured(
         assert lost <= ceiling, (what, shape, lost, found)
 
 
-def test_the_stated_limit_a_name_that_is_itself_a_dictionary_word_is_let_through() -> None:
-    """What the owner's choice costs, written down as a test so it is seen when it changes: 林 with the given name
-    学 is the word 林学 (forestry) to the tokeniser; after a label and before a particle it is let through. With
-    an honorific after it, it stands."""
+def test_the_stated_limit_a_two_character_name_that_is_a_dictionary_word_is_let_through() -> None:
+    """What the owner's choice costs, written down as a test so it is seen when it changes: a surname of one
+    character with a given name of one character that together are a word of the Japanese dictionary (白雪 "white
+    snow", 黎明 "dawn", 王軍 "the king's army"), after a patient label, on a line with kana, with no cue. With a
+    cue or a boundary after it, or on a line without kana, it stands; a longer name stands."""
     g = Guard()
-    assert g.detect("患者林学は発熱のため受診した。") and not g.tripwire("患者林学は発熱のため受診した。").hit
-    assert g.tripwire("林学さんは発熱のため受診した。").hit
+    for name in ("白雪", "黎明", "王軍"):
+        text = f"患者{name}は発熱のため受診した。"
+        assert g.detect(text) and not g.tripwire(text).hit, name
+        assert g.tripwire(f"患者{name}，女，は発熱のため受診した。").hit  # a sex after it
+        assert g.tripwire(f"{name}さんは発熱のため受診した。").hit  # an honorific
+        assert g.tripwire(f"病人{name}今日回診").hit  # no kana on the line: as before the card
+    assert g.tripwire("患者林学は発熱のため受診した。").hit  # the Japanese pattern's match runs on into the particle
+    assert g.tripwire("患者白雪梅は発熱のため受診した。").hit  # three characters: no one word covers it
+
+
+def test_a_line_ends_at_every_kind_of_line_break() -> None:
+    """Third review: a vertical tab or a form feed between a Japanese line and a Chinese one made them one line,
+    and the Chinese name was judged by the Japanese rule."""
+    g = Guard()
+    for sep in ("\n", "\r\n", "\r", "\x0b", "\x0c", "\x85", "\u2028", "\u2029", "\x1e"):
+        assert g.tripwire("ロキソニン内服" + sep + "病人白雪85歲").hit, repr(sep)
 
 
 # ------------------------------------------------------------------------------------------------ doctor, the lock

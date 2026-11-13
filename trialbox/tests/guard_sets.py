@@ -161,6 +161,27 @@ JA_NO_KANA = {
 }
 
 
+#: given names the tokeniser's dictionary does not hold as names (uncommon or Chinese-style), for the Japanese
+#: one-character surnames 森 and 林, whose match runs on into the particle
+JA_GIVEN_UNLISTED = ["彥廷", "琉生", "怡婷", "秀英", "也寸", "翔真", "陽葵", "結愛", "志豪", "美玲"]
+JA_GIVEN_KANA = ["あかり", "まこと", "ひかり", "さくら", "ひろし", "あかね", "まゆみ", "ゆうこ", "ユウコ", "ケンジ"]
+#: after a label, before a particle: no cue, no boundary
+JA_PARTICLE = {
+    "wa": "患者{n}は発熱のため受診した。",
+    "ga": "患者 {n}が来院した。",
+    "no": "患者{n}の既往歴を確認した。",
+    "ni": "患者{n}に説明した。",
+}
+#: a two-character Chinese name (surname and one character) on a line with kana, no cue
+ZH_ONE_WITH_KANA = {
+    "Japanese particle": "患者{n}は発熱のため受診した。",
+    "Japanese particle 2": "患者{n}の既往歴を確認した。",
+    "kana right after": "病人{n}ロキソニン過敏",
+    "digit, kana later": "病人{n}85歲，服用ロキソニン",
+    "Latin, kana later": "病人{n}DM，服用ロキソニン",
+}
+
+
 def zh_names(given: list[str] | None = None) -> Iterator[str]:
     for s in ZH_SURNAMES:
         for x in given or ZH_GIVEN:

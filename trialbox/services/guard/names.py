@@ -9,12 +9,15 @@ holds kana**. It can only take such a NAME finding away, and only when all of th
   match as a proper noun;
 * no cue stands beside it: an honorific inside the match or right after it, a sex after it, a surname of more
   than one character;
-* the match is plainly Japanese text: one word of the tokeniser's own dictionary, longer than one character,
-  covers the match from the surname's place to its end (高血圧, 連絡), or the match itself holds kana (何かを).
+* the match is plainly a Japanese word: one word of the tokeniser's own dictionary, longer than one character,
+  covers the match from the surname's place to its end (高血圧, 連絡).
 
 Everything else stands as before this card: every finding on a line without kana (so **Chinese text is judged
 exactly as before**), every other kind of finding, a name the dictionary does not know, a Chinese name beside a
 Japanese drug name (丁子｜涵: 丁子 is a word, but it does not cover the name).
+
+**The stated limit**: a name that is itself one word of the dictionary (林学 "forestry", 白雪 "white snow", 黎明
+"dawn") is taken for that word when it follows a label on a line with kana and no cue stands beside it.
 
 **It fails closed**: when the tokeniser or its dictionary cannot be loaded, raises, or the line is longer than
 :data:`MAX_LINE`, the finding stands; :func:`status` says which, for ``doctor``. What was measured, and the wider
@@ -104,10 +107,15 @@ class _Tagger:
 _TAGGER = _Tagger()
 
 
+# what ends a line: everything ``str.splitlines`` splits on (a form feed or a vertical tab between a Japanese line
+# and a Chinese one must not make them one line)
+_BREAK = re.compile("[\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
+
+
 def _line(text: str, start: int, end: int) -> tuple[str, int, int]:
-    a = max(text.rfind("\n", 0, start), text.rfind("\r", 0, start)) + 1
-    ends = [x for x in (text.find("\n", end), text.find("\r", end)) if x >= 0]
-    b = min(ends) if ends else len(text)
+    a = max((m.end() for m in _BREAK.finditer(text, 0, start)), default=0)
+    nxt = _BREAK.search(text, end)
+    b = nxt.start() if nxt else len(text)
     return text[a:b], start - a, end - a
 
 
@@ -131,8 +139,7 @@ class Look:
                 return True
             if _cue(text, start, end):
                 return True
-            covered = any(b <= s and x >= e for b, x, kind in tokens if kind == "word" and x - b > 1)
-            return not (covered or _KANA.search(line[s:e]))
+            return not any(b <= s and x >= e for b, x, kind in tokens if kind == "word" and x - b > 1)
         except Exception:
             return True
 

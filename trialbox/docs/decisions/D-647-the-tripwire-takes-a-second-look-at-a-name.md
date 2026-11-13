@@ -36,9 +36,9 @@ A refused judge call is an unknown.
 1. **A second look at a NAME finding on a line that holds kana** (`guard.names.Look`; `Guard.tripwire`). It
    takes the finding away only when all three hold: the tokeniser (split mode C) tags no token inside the match
    as a proper noun; no cue stands beside it (an honorific inside the match or right after it, a sex after it,
-   a surname of more than one character); and the match is plainly Japanese text: one word of the tokeniser's
+   a surname of more than one character); and the match is plainly a Japanese word: one word of the tokeniser's
    own dictionary, longer than one character, covers the match from the surname's place to its end (高血圧,
-   連絡), or the match itself holds kana (何かを).
+   連絡). A line ends at every kind of line break.
 2. **Everything else stands as before.** A finding on a line without kana: so Chinese text, and a Japanese name
    on a line without kana, are judged exactly as before this card. Every other kind of finding. A name in Latin
    letters. A name the dictionary does not know. A Chinese name beside a Japanese drug name (丁子｜涵: 丁子 is a
@@ -65,29 +65,38 @@ A refused judge call is an unknown.
 after. What stays refused is text the tokeniser splits (高｜血圧｜症: no one word covers the match) or that ends at
 a cue. Chinese: 84 of 84 before and after.
 
-**Names let through** (synthetic: 115 listed Chinese surnames x 50 made-up given names, 58 Japanese x 16, in the
-shapes of notes, contact and subject lines; "let through": the patterns find the name and the tripwire no longer
-refuses the text):
+**Names let through** (synthetic; "let through": the patterns find the name and the tripwire no longer refuses
+the text). Each row is true of the set named, not beyond it:
 
-| Shapes | Names found | Let through |
+| Shapes and names | Names found | Let through |
 | --- | --- | --- |
-| Chinese name, every shape of both reviews: with a cue or a boundary (13), run into text (6), on a line with kana (8), after a middle dot, in a subject line (4) | about 210,000 | 0 |
-| the second review's own sets: Chinese names on kana lines, before は/が/の, in Simplified text, after a number, in brackets, two in a row | 12,600 and its nine rows | 0 |
-| Japanese name on a line without kana (6 shapes) | 5,568 | 0 |
-| Japanese name on a line with kana (7 shapes) | 6,496 | 3: 林学 after a label, before は / が / の |
-| the first review's Japanese sets: kanji, hiragana, katakana given names (16 shapes) | 13,108; 4,176; 2,552 | 3 (林学); 0; 0 |
+| Chinese name with a two-character given name (115 listed surnames x 50), every shape of the reviews: cue or boundary (13), run into text (6), on a line with kana (8), middle dot, subject line (4) | 5,750 per shape | 0 |
+| Chinese name with a one-character given name (115 x 12), on a line without kana, or with a cue or a boundary on a line with kana | 1,380 per shape | 0 |
+| **the same with no cue, on a line with kana** (after a label and before は / の, before kana, before a digit or Latin with kana later; 5 shapes) | 1,380 per shape | **12 (0.9 %)**: 朱華 湯華 王軍 白明 白雪 白華 白軍 簡明 蘇芳 金平 陸軍 黎明 |
+| the third review's wider pools for that shape: 132 given characters; 106 one-character surnames x 338 kanji | 13,860; 35,828 | 393 (2.8 %); 779 (2.2 %), most of them plain words (古書, 方法), 25 to 175 plausible names |
+| Japanese name, every listed surname x 16 given names: with kana on the line (7 shapes), after a label before は / が / の / に (4), without kana (6) | 928 per shape | 0 |
+| 森 and 林 with given names the dictionary does not hold, and with given names in kana, after a label before a particle (4 shapes) | 20 each | 0 |
+| surnames of more than one character (third review: kanji and kana given names) | 259,908 and 1,120 per shape | 0 |
 | the document parser's mask, the second review's 13 subject and contact shapes | 4,200 each | 0 lost |
 
 Time: 2 to 5 ms a Japanese sentence; about 1 s once per process to load the dictionary.
 
 ## The trade, and the limits
 
-- **A name that is itself one word of the dictionary is let through** when it follows a label with no cue: 林
-  with the given name 学 is 林学 ("forestry"). It was 1 name of 928 on the hard set. With an honorific after
-  it, it stands. A test holds this case so that it is seen when it changes.
+- **A two-character name that is itself a word of the Japanese dictionary is let through** when it follows a
+  patient label on a line with kana and no cue or boundary stands beside it: a surname of one character and a
+  given name of one character, 白雪 ("white snow"), 黎明 ("dawn"), 王軍, 金平. On the sets: 0.9 % of such
+  two-character names with the repository's twelve given characters, 2.2 to 2.8 % on the third review's wider
+  pools. The gain of this card comes from the same place (連絡, 方法 are such words): asking for a word of three
+  characters or more lets none of these through and gives the gain back (94 of 132 refused). With a cue, a
+  boundary, a third character, or on a line without kana, the name stands. A test holds the case.
+- The first form of option B also took away a match that itself held kana; the third review measured 11.6 % of
+  森 with an uncommon two-kanji given name let through by it (the pattern's match runs on into the particle).
+  Removed; it gained nothing on the ordinary set.
 - **Traditional Chinese is not helped**: ordinary Chinese text that matches a name pattern is refused as before
   (LLM-003 stays open for zh-TW; see "Not taken").
-- The sets are synthetic; real notes will differ.
+- The sets are synthetic; real notes will differ. Three reviews each found a shape the sets before them did not
+  hold; the table says what was measured, not what cannot happen.
 
 ## What the name patterns never find (before and after this card; by running, both reviews)
 
