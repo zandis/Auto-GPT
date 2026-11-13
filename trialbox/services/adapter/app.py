@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 from tb_common.http import make_app
 from tb_contracts import IngestRequest, dump
 
-from adapter import runs
+from adapter import failure, runs
 from adapter.cli import build_config
 from adapter.pipeline import SiteKeyError, run_ingest
 
@@ -206,7 +206,7 @@ def run(req: IngestRequest) -> JSONResponse:
             state.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             log.exception("ingest run %s failed", rid)
-            state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+            state.update(state="failed", detail=failure.words(exc, rid))  # D-668: the type, never a foreign text
         finally:
             state["ended"] = _now()
             gate.release()
@@ -311,7 +311,7 @@ def publish(body: PublishBody) -> JSONResponse:
                 state.update(state=ended, detail="; ".join(out.errors)[:500])
         except Exception as exc:
             log.exception("publish %s failed", rid)
-            state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+            state.update(state="failed", detail=failure.words(exc, rid))  # D-668
             # second review (H1): what the lake serves is read, also when the publish raised. Unreadable: it stays
             # unset, and the console keeps the accept recorded
             with contextlib.suppress(OSError):

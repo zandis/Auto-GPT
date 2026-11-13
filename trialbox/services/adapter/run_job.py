@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         from tb_common.logging import setup_logging
         from tb_contracts import dump
 
+        from adapter import failure
         from adapter.cli import build_config
         from adapter.pipeline import SiteKeyError, run_ingest
 
@@ -66,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except Exception as exc:
             log.exception("ingest run %s failed", state.get("run"))
-            end = {"state": "failed", "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
+            end = {"state": "failed", "detail": failure.words(exc, str(state.get("run") or ""))}  # D-668
         runs.write(lake_dir, {**state, **end, "ended": _now()})
         return 0
     finally:

@@ -390,7 +390,10 @@ def publish_night(
         try:
             _fhir_put_back(cfg, folder)
         except Exception as exc:
-            out.errors.append(f"fhir-store put-back failed: {exc}")
+            from adapter import failure
+
+            log.exception("fhir-store put-back failed")
+            out.errors.append(f"fhir-store put-back failed: {failure.words(exc)}")  # D-668
             note("fhir", FAILED)
             return
         if steps["fhir"] == DONE:
@@ -434,7 +437,10 @@ def publish_night(
                     cfg, night_dir, snapshot_dir(cfg.lake_dir, last_good) if last_good else None
                 )
             except Exception as exc:  # F-2: the lake is not promoted after this
-                out.errors.append(f"fhir-store load failed: {exc}")
+                from adapter import failure
+
+                log.exception("fhir-store load failed")
+                out.errors.append(f"fhir-store load failed: {failure.words(exc)}")  # D-668
                 note("fhir", FAILED)
                 fhir_back()  # what was loaded before the failure does not stay
                 return end()
