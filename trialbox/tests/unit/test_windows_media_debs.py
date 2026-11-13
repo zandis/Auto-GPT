@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from tools import fetch_pinned
 from tools import windows_media_debs as wd
 
 UBUNTU = 'NAME="Ubuntu"\nVERSION_ID="24.04"\nID=ubuntu\n'
@@ -311,39 +312,69 @@ def test_only_the_primary_keys_fingerprint_is_read_from_gpg(tmp_path: Path, monk
     assert wd.fingerprints(tmp_path / "docker.asc") == [wd.KEYS["docker"][1]]
 
 
-class _Resp(io.BytesIO):
-    def __enter__(self) -> _Resp:
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        self.close()
-
-
 @pytest.mark.parametrize(
     "got", [["0000000000000000000000000000000000000000"], [], ["9DC858229FC7DD38854AE2D88D81803C0EBFCD88", "AAAA"]]
 )
 def test_a_repository_key_with_another_fingerprint_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, got: list[str]
 ) -> None:
-    asked: list[str] = []
+    asked: list[tuple[str, str]] = []
 
-    def fake_open(url: str, timeout: float) -> _Resp:
-        asked.append(url)
-        return _Resp(b"-----BEGIN PGP PUBLIC KEY BLOCK-----")
+    def fake_fetch(url: str, out: Path, sha256: str) -> None:
+        asked.append((url, sha256))
+        out.write_bytes(b"-----BEGIN PGP PUBLIC KEY BLOCK-----")
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_open)
+    monkeypatch.setattr(fetch_pinned, "fetch", fake_fetch)
     monkeypatch.setattr(wd, "fingerprints", lambda _p: got)
     with pytest.raises(wd.DebsError, match="is not the one this tool knows"):
         wd.fetch_key("docker", tmp_path)
-    assert asked == ["https://download.docker.com/linux/ubuntu/gpg"]
+    # asked the house way: the https address with the pinned sha256 of the key file
+    assert asked == [("https://download.docker.com/linux/ubuntu/gpg", wd.KEYS["docker"][2])]
     monkeypatch.setattr(wd, "fingerprints", lambda _p: [wd.KEYS["docker"][1]])
     assert wd.fetch_key("docker", tmp_path).name == "docker.asc"
 
 
+def test_a_key_file_that_is_not_the_pinned_one_or_cannot_be_fetched_is_refused_with_its_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def other_file(url: str, out: Path, sha256: str) -> None:
+        raise fetch_pinned.PinError("sha256 abc, pinned " + sha256)
+
+    monkeypatch.setattr(fetch_pinned, "fetch", other_file)
+    with pytest.raises(wd.DebsError, match="is not the file this tool knows"):
+        wd.fetch_key("nvidia", tmp_path)
+
+    def no_network(url: str, out: Path, sha256: str) -> None:
+        raise fetch_pinned.FetchError("no answer after three tries")
+
+    monkeypatch.setattr(fetch_pinned, "fetch", no_network)
+    with pytest.raises(
+        wd.DebsError, match="could not be fetched from https://nvidia.github.io/libnvidia-container/gpgkey"
+    ):
+        wd.fetch_key("nvidia", tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_real_fetch_refuses_a_file_with_another_sha256_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through tools/fetch_pinned.py itself, with only its transfer replaced: a changed key file never lands."""
+    real = fetch_pinned.fetch
+    monkeypatch.setattr(
+        fetch_pinned,
+        "fetch",
+        lambda url, out, sha256: real(url, out, sha256, get=lambda _u: b"not the published key file"),
+    )
+    with pytest.raises(wd.DebsError, match="is not the file this tool knows"):
+        wd.fetch_key("docker", tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_every_address_is_https_or_ubuntus_signed_archive_and_the_fingerprints_are_whole() -> None:
-    for name, (url, fingerprint) in wd.KEYS.items():
+    for name, (url, fingerprint, sha256) in wd.KEYS.items():
         assert url.startswith("https://"), name
         assert len(fingerprint) == 40 and set(fingerprint) <= set("0123456789ABCDEF"), name
+        assert len(sha256) == 64 and set(sha256) <= set("0123456789abcdef"), name
     text = wd.sources(Path("/k/ubuntu.gpg"), Path("/k/docker.asc"), Path("/k/nvidia.asc"))
     for line in text.splitlines():
         assert "signed-by=/k/" in line, line  # no source without a key of its own
