@@ -60,7 +60,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1004,6 +1004,17 @@ def backup(
 
 
 # ------------------------------------------------------------------------------------------------ verify / restore
+NAMED = 10  # how many file names a refusal lists before "and N more": a line a person reads, not a limit of work
+
+
+def _named(what: str, names: Iterable[str]) -> str:
+    listed = sorted(names)
+    if not listed:
+        return ""
+    more = f" and {len(listed) - NAMED} more" if len(listed) > NAMED else ""
+    return f"; {what}: {', '.join(listed[:NAMED])}{more}"
+
+
 def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
     """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
 
@@ -1034,7 +1045,13 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
         manifest["files"]
     )
     if bad or extra:
-        raise BackupError(f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted")
+        # NEW-B-14: which files, by their path inside the backup (a name, never content): "1 changed" alone left
+        # a failed drill with nothing to look at
+        raise BackupError(
+            f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted"
+            + _named("changed", bad)
+            + _named("unlisted", extra)
+        )
     manifest["_sha256"] = hr.sha.hexdigest()
     return manifest
 
