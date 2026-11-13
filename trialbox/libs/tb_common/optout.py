@@ -237,14 +237,17 @@ def registry_rule(rows: Sequence[tuple[Any, ...]]) -> RegistryState:
 
 def registry_state(lake: Any, snapshot: str | None, day: str) -> RegistryState | None:
     """The lake's ``consent`` table read by :func:`registry_rule` as of ``day`` (ISO date). None: the lake has no
-    consent table (the site's registry was never ingested). Any other failure raises (D-127: fail closed)."""
-    try:
-        rows = lake.query(REGISTRY_SQL, [day], snapshot).to_pylist()
-    except Exception as exc:  # the cascade's own test (``matching.cascade.engine.missing_table``)
-        msg = str(exc)
-        if "consent" in msg and ("does not exist" in msg or "Catalog Error" in msg):
-            return None
-        raise
+    consent table (the site's registry was never ingested). Any other failure raises (D-127: fail closed).
+
+    Whether the lake has no such table is asked of the lake (:mod:`tb_common.lakeprobe`, D-651): after the query
+    failed, how many tables or views named ``consent`` the snapshot has, and only one row with the integer 0 is
+    "none". It used to be read from the failure's text ("consent" with "does not exist"): another failure whose
+    text held those words then read as "no registry", and every caller takes that for "no opt-out to apply"."""
+    from tb_common import lakeprobe
+
+    rows = lakeprobe.rows_or_no_table(lake, REGISTRY_SQL, [day], snapshot, "consent")
+    if rows is None:
+        return None
     return registry_rule(
         [(str(r["pid"]), str(r["status"] or ""), r["contact_ok"], bool(r.get("undated"))) for r in rows if r["pid"]]
     )

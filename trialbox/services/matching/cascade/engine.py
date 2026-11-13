@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from criteria_compiler.compile_sql.overlay import safe_sql
+from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
 from tb_common.reasons import CODES as REASON_CODES
@@ -46,7 +47,6 @@ from tb_common.timeutil import add_months, month_ends
 from tb_contracts import CriterionIR
 
 from matching import excerpts as excerpt_builder
-from matching import lakeprobe
 from matching.cascade.judge import JudgeClient, JudgeReply, expected_tokens, norm, sentence_hash, verify_span
 from matching.cascade.model import (
     STAGES,
