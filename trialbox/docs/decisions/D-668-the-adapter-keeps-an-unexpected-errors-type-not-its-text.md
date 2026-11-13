@@ -28,32 +28,44 @@ holds a row's value. Confirmed by a test in both forms of the run (thread and pr
    elsewhere. Sentences that are not exceptions ("an ingest is already running", "night refused: ...", the
    completeness lines) are not touched.
 3. **A mapping error keeps its words up to the first value**: `pipeline.reject_key`, the form D-520 decided.
-4. **Anything else is its type**, with where the rest is: `ValueError (the error's text is in the adapter's log
-   only, it can hold a row's value; run <id>)`.
-5. **The text is not lost.** Every place that now keeps the type logs the error with its traceback
-   (`log.exception`); two of them (the two "validation failed to run" lines and the two FHIR lines) did not log
-   before.
+4. **Anything else is its type**: `ValueError (the error's text is not kept, it can hold a row's value; the
+   adapter's log has where it failed; run <id>)`.
+5. **The log gets the type and the frames, not the text** (`failure.log_failure`: file, line and function of each
+   frame). "No feed value in a log" is the data-handling rule D-520 builds on, and the log line of an unexpected
+   failure broke it before this card at three places (`log.exception` in the run's thread, the night's process
+   and the publish run). The same form as the lake's build log (D-664). The four report lines (validation, JP
+   Core, FHIR load, FHIR put-back) and the back-fill's validation line did not log at all; they now log this way.
 6. **No masking, no cutting of foreign text.** D-664's review showed that a rule that tries to keep the safe part
-   of a foreign text leaks. The type is kept; the text is not looked at.
+   of a foreign text leaks. The type is kept; the text is not looked at. `words` and `log_failure` never raise.
+7. **The JP Core check's "base R4" message is the element and the kind of problem** (pydantic's `loc` and `type`),
+   not pydantic's message lines, which quote the value (`input_value='...'`). That message reached the report's
+   `errors` and `profile_validation.messages`.
 
 Places changed: `adapter/app.py` (the run in the service's thread; the publish run), `adapter/run_job.py` (the
 night's own process), `adapter/pipeline.py` (`validation failed to run`, `JP Core validation failed to run`),
-`adapter/publish.py` (`fhir-store load failed`, `fhir-store put-back failed`).
+`adapter/publish.py` (`fhir-store load failed`, `fhir-store put-back failed`), `adapter/backfill.py` (`validation
+failed to run`), `adapter/validate/jpcore.py` (`base R4: ...`).
 
 ## What this does not do
 
-- `RebuildRefused` ("the lake refused snapshot X: <the lake's answer>") is not in the own list: it carries
-  another service's text. It is kept as its type.
-- The publish module's `lake rebuild failed: <the lake's words>` lines are left as they are: over HTTP the lake's
-  answer is already D-664's. A lake run inside the adapter's process (tests, the CLI) still passes its raw text
-  there. Sent to the integrator as a finding.
-- The adapter's log holds the full text, as before. Who may read the log is not this card's.
+- **The lake's words in the adapter's lines are left as they are**: `lake rebuild failed: <the lake's words>`
+  (`publish.py`, `backfill.py`) and `RebuildRefused` ("the lake refused snapshot X: <the lake's answer>", kept
+  whole on that path). Over HTTP (`TB_ADAPTER_LAKE=http`, what the deploy sets) the lake's answer is D-664's.
+  With `TB_ADAPTER_LAKE=local` (a declared setting; tests and the CLI use it) the lake runs in the adapter's
+  process and its raw text passes. The remedy is D-664's `error_answer` at those lines, which is not on this
+  card's base yet. Sent to the integrator as a follow-up.
+- `omop.error` in the report keeps an `OmopError`'s text (the OMOP writer's own sentences; none read holds a row's
+  value). Not changed.
+- Whether the HL7 validator's diagnostics in `validation.messages` quote values was not checked here. Sent to the
+  integrator as a finding.
 
 ## Tests
 
 `tests/unit/test_adapter_failure_words.py`: six kinds of unexpected error whose text holds a value (with and
 without quote marks) keep the type only; each own class stays whole; a mapping error is cut at its first value; a
-subclass made elsewhere is not taken for an own class; the run record in the process form and in the thread form;
-a refused night keeps its sentence; the report's lines for a validator and a FHIR store that raise.
+subclass of an own class made elsewhere is not taken for it; `words` never raises; the log line holds the type and
+the frames and never the text; the run record and the log in the process form and in the thread form; a refused
+night keeps its sentence; the report's lines for a validator and a FHIR store that raise; the back-fill's line;
+the JP Core base message names the element and never the value.
 `tests/unit/test_adapter_run_job_main.py`: the body of the night's process run in the test process (four endings),
 so its lines are counted by the coverage gate (they ran only in a child before).

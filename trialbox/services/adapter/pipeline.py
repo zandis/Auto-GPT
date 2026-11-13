@@ -881,7 +881,7 @@ def _run_ingest(
         except Exception as exc:
             from adapter import failure
 
-            log.exception("validation failed to run")
+            failure.log_failure(log, "validation failed to run", exc)
             errors.append(f"validation failed to run: {failure.words(exc)}")  # D-668
     psum: ValidationSummary | None = None
     if validate and fhir_profiles == "jp-core":
@@ -890,7 +890,7 @@ def _run_ingest(
         except Exception as exc:
             from adapter import failure
 
-            log.exception("JP Core validation failed to run")
+            failure.log_failure(log, "JP Core validation failed to run", exc)
             errors.append(f"JP Core validation failed to run: {failure.words(exc)}")  # D-668
     if source is not None and hasattr(source, "stats"):
         from adapter.sources.ssmix2.source import reader_summary

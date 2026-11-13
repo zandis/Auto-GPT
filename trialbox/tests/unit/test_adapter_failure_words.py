@@ -64,10 +64,47 @@ def test_a_mapping_error_keeps_its_words_up_to_the_first_value() -> None:
 
 
 def test_a_subclass_of_an_own_class_made_elsewhere_is_not_taken_for_the_adapters_own() -> None:
-    class Odd(ValueError):
+    class Odd(pipeline.FutureNight):
         pass
 
-    assert VALUE not in failure.words(Odd(VALUE))
+    assert failure.words(Odd(VALUE)).startswith("Odd") and VALUE not in failure.words(Odd(VALUE))
+
+
+def test_words_never_raises_whatever_the_error_is() -> None:
+    class Mute(MappingError):
+        def __str__(self) -> str:
+            raise RuntimeError(VALUE)
+
+    class Meta(type):
+        def __eq__(cls, other: object) -> bool:
+            raise RuntimeError(VALUE)
+
+        __hash__ = type.__hash__
+
+    class Strange(Exception, metaclass=Meta):
+        pass
+
+    for exc in (Mute("x"), Strange(VALUE), KeyboardInterrupt(VALUE), ExceptionGroup(VALUE, [ValueError(VALUE)])):
+        assert VALUE not in failure.words(exc)
+
+
+def test_what_goes_into_the_log_is_the_type_and_where_it_failed_never_the_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    def deep() -> None:
+        raise ValueError(f"could not convert string to float: '{VALUE}'")
+
+    try:
+        deep()
+    except ValueError as exc:
+        with caplog.at_level(logging.ERROR, logger="adapter"):
+            failure.log_failure(logging.getLogger("adapter"), "ingest run ab12 failed", exc)
+    (record,) = caplog.records
+    text = record.getMessage() + str(record.__dict__)
+    assert VALUE not in text and record.exc_info is None
+    assert "ValueError" in text and "in deep" in text  # the frames: the file, the line, the function
 
 
 # ------------------------------------------------------------------------------------------- the run record, both forms
@@ -78,6 +115,7 @@ def _boom(*_a: Any, **_k: Any) -> Any:
 def test_the_run_record_of_a_night_in_its_own_process_keeps_the_type_only(
     lake_dir: Path,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr(pipeline, "run_ingest", _boom)
     argv, state = _handed(lake_dir)
@@ -86,6 +124,7 @@ def test_the_run_record_of_a_night_in_its_own_process_keeps_the_type_only(
     assert end is not None and end["state"] == "failed"
     assert VALUE not in str(end) and end["detail"].startswith("ValueError")
     assert state["run"] in end["detail"]  # the run to look for in the log
+    assert VALUE not in caplog.text and "ValueError" in caplog.text
 
 
 def test_a_refused_night_keeps_its_sentence_in_the_run_record(
@@ -106,6 +145,7 @@ def test_a_refused_night_keeps_its_sentence_in_the_run_record(
 def test_the_run_record_of_a_night_in_the_services_thread_keeps_the_type_only(
     site: dict[str, Path],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     import threading
 
@@ -129,10 +169,14 @@ def test_the_run_record_of_a_night_in_the_services_thread_keeps_the_type_only(
         threading.Event().wait(0.05)
     assert st["state"] == "failed"
     assert VALUE not in str(st) and st["detail"].startswith("ValueError") and rid in st["detail"]
+    logged = "".join(capfd.readouterr())  # the service's own log handler writes the lines out
+    assert VALUE not in logged and f"ingest run {rid} failed: ValueError" in logged
 
 
 # ------------------------------------------------------------------------------------------- the ingest report
-def test_the_reports_line_for_a_validation_that_did_not_run_keeps_the_type_only(tmp_path: Path) -> None:
+def test_the_reports_line_for_a_validation_that_did_not_run_keeps_the_type_only(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     from tests.unit.test_dataflow_lake_p0 import _cfg, _Lakes, _row
     from tests.unit.test_t723_publish_night import N1, _night
 
@@ -147,6 +191,7 @@ def test_the_reports_line_for_a_validation_that_did_not_run_keeps_the_type_only(
     lines = [e for e in rep.errors or [] if e.startswith("validation failed to run")]
     assert lines and not rep.passed
     assert VALUE not in str(rep.model_dump()) and "ValueError" in lines[0]
+    assert VALUE not in caplog.text and "ValueError" in caplog.text
 
 
 def test_the_reports_line_for_a_fhir_store_that_refused_keeps_the_type_only(
@@ -166,3 +211,29 @@ def test_the_reports_line_for_a_fhir_store_that_refused_keeps_the_type_only(
     lines = [e for e in rep.errors or [] if e.startswith("fhir-store")]
     assert lines and not rep.passed
     assert VALUE not in str(rep.model_dump()) and all("RuntimeError" in e for e in lines)
+
+
+def test_the_back_fills_line_for_a_validation_that_did_not_run_keeps_the_type_only(tmp_path: Path) -> None:
+    from adapter.backfill import backfill
+
+    from tests.unit.test_dataflow_lake_p0 import _cfg, _Lakes, _row
+    from tests.unit.test_t723_publish_night import N1, _night
+
+    class Chokes(StructuralValidator):
+        def validate(self, *_a: Any, **_k: Any) -> Any:
+            raise ValueError(f"could not convert string to float: '{VALUE}'")
+
+    cfg = _cfg(tmp_path, _Lakes(tmp_path / "lake"))
+    rep = backfill(cfg, "csv", _night(tmp_path, "n1", [_row("D1", "2026-09-01")]), snapshot=N1, validator=Chokes())
+    lines = [e for e in rep.errors or [] if e.startswith("validation failed to run")]
+    assert lines and "ValueError" in lines[0] and VALUE not in str(rep.errors)
+
+
+def test_a_resource_the_base_model_refuses_is_named_by_its_element_and_problem_never_by_its_value() -> None:
+    from adapter.validate.jpcore import JpCoreValidator, Outcome
+
+    out = Outcome("Patient/p1", "")
+    JpCoreValidator._base({"resourceType": "Patient", "id": "p1", "birthDate": VALUE}, out)
+    (issue,) = out.issues
+    assert VALUE not in issue.text and "WANG" not in str(issue)
+    assert "birthDate" in issue.text and issue.text.startswith("base R4: ")

@@ -199,6 +199,18 @@ def _split(eid: str) -> list[tuple[str, str]]:
     return out
 
 
+def _base_problem(exc: Exception) -> str:
+    """D-668: what the base model refused, as the element and the kind of problem (pydantic's ``loc`` and ``type``
+    of its first error), never its message: the message quotes the value (``input_value='...'``). An error that is
+    not pydantic's is its type."""
+    try:
+        first = exc.errors(include_input=False, include_context=False, include_url=False)[0]  # type: ignore[attr-defined]
+        where = ".".join(str(part) for part in first["loc"] if isinstance(part, str | int))
+        return f"{where}: {first['type']}"
+    except Exception:
+        return type(exc).__name__
+
+
 class JpCoreValidator:
     """Checks resources against JP Core 1.1.0 (see the module text)."""
 
@@ -238,9 +250,8 @@ class JpCoreValidator:
 
         try:
             get_fhir_model_class(str(res.get("resourceType"))).model_validate(res)
-        except Exception as exc:  # pydantic's message: the first line names the element and the problem
-            lines = [ln.strip() for ln in str(exc).splitlines() if ln.strip()]
-            out.issues.append(Issue("error", str(res.get("resourceType")), "base R4: " + " ".join(lines[1:3])[:300]))
+        except Exception as exc:
+            out.issues.append(Issue("error", str(res.get("resourceType")), "base R4: " + _base_problem(exc)))
 
     def _profile(self, res: Resource, rtype: str, elements: dict[str, _El], out: Outcome) -> None:
         def slice_members(parent: Any, name: str, sl: str, sliced_id: str) -> list[Any]:

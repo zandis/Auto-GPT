@@ -392,7 +392,7 @@ def publish_night(
         except Exception as exc:
             from adapter import failure
 
-            log.exception("fhir-store put-back failed")
+            failure.log_failure(log, "fhir-store put-back failed", exc)
             out.errors.append(f"fhir-store put-back failed: {failure.words(exc)}")  # D-668
             note("fhir", FAILED)
             return
@@ -439,7 +439,7 @@ def publish_night(
             except Exception as exc:  # F-2: the lake is not promoted after this
                 from adapter import failure
 
-                log.exception("fhir-store load failed")
+                failure.log_failure(log, "fhir-store load failed", exc)
                 out.errors.append(f"fhir-store load failed: {failure.words(exc)}")  # D-668
                 note("fhir", FAILED)
                 fhir_back()  # what was loaded before the failure does not stay

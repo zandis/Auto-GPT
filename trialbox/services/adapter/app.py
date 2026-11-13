@@ -205,7 +205,7 @@ def run(req: IngestRequest) -> JSONResponse:
         except SiteKeyError as exc:  # T-612: refused before anything was read or written
             state.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
-            log.exception("ingest run %s failed", rid)
+            failure.log_failure(log, f"ingest run {rid} failed", exc)
             state.update(state="failed", detail=failure.words(exc, rid))  # D-668: the type, never a foreign text
         finally:
             state["ended"] = _now()
@@ -310,7 +310,7 @@ def publish(body: PublishBody) -> JSONResponse:
                 ended = "busy" if out.lake_busy else "stale" if out.stale else "failed"
                 state.update(state=ended, detail="; ".join(out.errors)[:500])
         except Exception as exc:
-            log.exception("publish %s failed", rid)
+            failure.log_failure(log, f"publish {rid} failed", exc)
             state.update(state="failed", detail=failure.words(exc, rid))  # D-668
             # second review (H1): what the lake serves is read, also when the publish raised. Unreadable: it stays
             # unset, and the console keeps the accept recorded

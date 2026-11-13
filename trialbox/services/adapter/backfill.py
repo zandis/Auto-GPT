@@ -631,7 +631,10 @@ def _publish(
             if v.error_pct > cfg.validation_max_pct:
                 errors.append(f"validation error rate {v.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
         except Exception as exc:
-            errors.append(f"validation failed to run: {exc}")
+            from adapter import failure
+
+            failure.log_failure(log, "validation failed to run", exc)
+            errors.append(f"validation failed to run: {failure.words(exc)}")  # D-668
     last_good = merge_base(cfg.lake_dir, snap)
     if last_good is not None and last_good != snap:  # D-271: never (nearly) empty a kind of record
         try:

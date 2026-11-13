@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         except SiteKeyError as exc:  # T-612: refused before anything was read or written
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except Exception as exc:
-            log.exception("ingest run %s failed", state.get("run"))
+            failure.log_failure(log, f"ingest run {state.get('run')} failed", exc)
             end = {"state": "failed", "detail": failure.words(exc, str(state.get("run") or ""))}  # D-668
         runs.write(lake_dir, {**state, **end, "ended": _now()})
         return 0
