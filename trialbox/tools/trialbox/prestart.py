@@ -17,8 +17,9 @@ folder, its ``.env``) and returns one line for the log. The contract:
 * what it leaves on the host must be harmless to the previous release: a rollback puts back the databases, the
   images, the models and the host tree, not ``deploy/.env`` and not ``deploy/secrets``.
 
-A fresh install runs the same command: ``deploy/install.sh`` calls it before it starts the stack, so a step that is
-here is not written a second time there.
+A fresh install runs the same command: ``deploy/install.sh`` calls it before it starts the stack. The installer
+still has shell copies of some of this for a host without python3 (the service passwords in ``deploy/.env``, the
+role script, the migrate step); a step added here is not run on such a host, and the installer says so.
 
 The first release with this command cannot be helped by it: the release installed before it restarts the stack
 the old way. A release that adds a step therefore names, as its ``min_installed_version``, a release that has
@@ -71,6 +72,22 @@ STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
 ]
 
 
+def _fhir_password_set(box: ComposeBox) -> str:
+    """D-541: the role script gives the FHIR store's role the password the database container holds. Without one
+    the role would be made with no password and the step would still say it was set: refuse before the database
+    is touched. The update and ``install.sh`` run ``pre-start`` first, which makes it; this is for ``db-up`` run
+    by hand."""
+    from tools.trialbox.update import UpdateFailed
+
+    if not box.env.get("TB_DB_URL", ""):
+        return "no database step on this box"
+    if not box.fhir_password_set():
+        raise UpdateFailed(
+            "TB_DB_PW_FHIR_STORE is not set in deploy/.env: run `python3 -m tools.trialbox pre-start` first"
+        )
+    return "yes"
+
+
 def _database(box: ComposeBox) -> str:
     return box.db_on_new_settings()
 
@@ -87,6 +104,7 @@ def _owned_schemas(box: ComposeBox) -> str:
 #: database comes first: the role script reads each service's password from the database container's environment,
 #: so a release that adds a role needs the container on its own settings before the script runs.
 DB_STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
+    ("FHIR store password is set", _fhir_password_set),  # D-541: before the container takes its settings
     ("database", _database),
     ("service roles", _service_roles),
     ("owned schemas", _owned_schemas),

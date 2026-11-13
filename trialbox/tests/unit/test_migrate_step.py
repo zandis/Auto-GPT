@@ -87,7 +87,7 @@ def test_the_update_gives_the_fhir_store_a_password_before_the_database_step(tmp
     env_file = tmp_path / "deploy" / ".env"
     names = [n for n, _ in prestart.STEPS]
     assert "FHIR store password" in names  # a host-side step: before every step that needs the database
-    assert [n for n, _ in prestart.DB_STEPS][:2] == ["database", "service roles"]
+    assert [n for n, _ in prestart.DB_STEPS][:3] == ["FHIR store password is set", "database", "service roles"]
     lines = prestart._run(tmp_path / "deploy", "pre-start", box) + prestart._run(tmp_path / "deploy", "db-up", box)
     made = [ln.split("=", 1)[1] for ln in env_file.read_text().splitlines() if ln.startswith("TB_DB_PW_FHIR_STORE=")]
     assert len(made) == 1 and len(made[0]) >= 32 and made[0] != "synthetic-admin-000"
@@ -112,6 +112,23 @@ def test_a_placeholder_password_is_replaced_also_when_it_is_quoted(tmp_path: Pat
         box, _calls = _box(tmp_path / str(n), line + "\n")
         assert box.ensure_fhir_password() is True, line
         assert "change-me" not in up._env_file(tmp_path / str(n) / "deploy" / ".env")["TB_DB_PW_FHIR_STORE"]
+
+
+def test_the_database_steps_do_not_run_without_the_password(tmp_path: Path) -> None:
+    """The review: `db-up` run by hand on an older `.env`, without `pre-start`, made the role with no password and
+    said "set by the role script". Its first step now refuses, naming the command to run."""
+    import pytest
+
+    from tools.trialbox import prestart
+
+    assert [n for n, _ in prestart.DB_STEPS][:3] == ["FHIR store password is set", "database", "service roles"]
+    box, calls = _box(tmp_path, f"COMPOSE_PROFILES=stub\nTB_DB_URL={URL}\n")
+    with pytest.raises(up.UpdateFailed, match="FHIR store password is set: .*pre-start"):
+        prestart._run(tmp_path / "deploy", "db-up", box)
+    assert calls == []  # nothing was run in the database
+    (tmp_path / "b").mkdir()
+    box, calls = _box(tmp_path / "b", "X=1\n")  # no database step on this box: nothing to refuse
+    assert prestart._run(tmp_path / "b" / "deploy", "db-up", box)[0].endswith("no database step on this box")
 
 
 def test_the_updaters_fallback_for_an_older_tree_makes_no_fhir_password(tmp_path: Path) -> None:

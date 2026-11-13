@@ -69,7 +69,8 @@ def _box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, tree: str) -> tuple
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     (deploy / ".env").write_text(
-        "TB_SITE_ID=T\nTB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n", encoding="utf-8"
+        "TB_SITE_ID=T\nTB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        encoding="utf-8",
     )
     if tree != "none":  # what apply_host leaves: the install folder's tools/ is the new release's
         pkg = tmp_path / "tools" / "trialbox"
@@ -142,9 +143,23 @@ def _steps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str) -> tuple[l
 def test_this_releases_steps_are_the_database_then_the_roles_then_the_owned_schemas(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    lines, calls = _steps(tmp_path, monkeypatch, "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n")
-    assert [name for name, _ in prestart.DB_STEPS] == ["database", "service roles", "owned schemas"]
-    assert [ln.split(":")[1].strip() for ln in lines] == ["database", "service roles", "owned schemas"]
+    lines, calls = _steps(
+        tmp_path,
+        monkeypatch,
+        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+    )
+    assert [name for name, _ in prestart.DB_STEPS] == [
+        "FHIR store password is set",
+        "database",
+        "service roles",
+        "owned schemas",
+    ]
+    assert [ln.split(":")[1].strip() for ln in lines] == [
+        "FHIR store password is set",
+        "database",
+        "service roles",
+        "owned schemas",
+    ]
     assert all(ln.startswith("db-up: ") for ln in lines)
     # the role script reads each service's password from the database container's environment: a release that adds
     # a role needs the container on the NEW settings first, or the role is made without a password
@@ -160,7 +175,7 @@ def test_a_box_that_never_ran_the_installers_database_step_is_left_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lines, calls = _steps(tmp_path, monkeypatch, "TB_SITE_ID=T\n")
-    assert calls == [] and len(lines) == 3
+    assert calls == [] and len(lines) == len(prestart.DB_STEPS) == 4
 
 
 def test_the_command_refuses_a_deploy_folder_that_is_not_there(tmp_path: Path) -> None:
@@ -170,7 +185,11 @@ def test_the_command_refuses_a_deploy_folder_that_is_not_there(tmp_path: Path) -
 def test_the_pull_setting_is_checked_as_at_the_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_INSTALL_PULL", "always")
     with pytest.raises(up.UpdateFailed, match="TB_INSTALL_PULL"):
-        _steps(tmp_path, monkeypatch, "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n")
+        _steps(
+            tmp_path,
+            monkeypatch,
+            "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        )
 
 
 # ---------------------------------------------------------------------------------------------- from the review
@@ -179,7 +198,10 @@ def test_review_a_failed_step_is_named(tmp_path: Path, monkeypatch: pytest.Monke
     step's name the operator could not tell the roles from the schemas."""
     deploy = tmp_path / "deploy"
     deploy.mkdir()
-    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n", encoding="utf-8")
+    (deploy / ".env").write_text(
+        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        encoding="utf-8",
+    )
 
     def fake(argv: Sequence[str], **_kw: Any) -> str:
         if "orchestrator.migrate" in argv:
@@ -200,7 +222,7 @@ def test_review_the_real_command_names_its_three_steps(tmp_path: Path) -> None:
                        capture_output=True, text=True, cwd=ROOT, check=False)  # fmt: skip
     assert r.returncode == 0, r.stderr
     names = [ln.split(":")[1].strip() for ln in r.stdout.splitlines() if ln.startswith("db-up: ")]
-    assert names == ["database", "service roles", "owned schemas"]
+    assert names == ["FHIR store password is set", "database", "service roles", "owned schemas"]
 
 
 def test_review_the_install_gives_the_command_no_compose_line_of_its_own() -> None:
@@ -234,6 +256,50 @@ def test_review_the_pages_do_not_say_every_service_is_stopped() -> None:
     code = (ROOT / "tools" / "trialbox" / "update.py").read_text(encoding="utf-8")
     assert "stopped either way" not in code and "are stopped at that point in both orders" not in rec
     assert "fhir-store" in rec
+
+
+@pytest.mark.parametrize("mounted", ["previous", "current", "unknown", "none"])
+def test_review_the_database_container_is_made_again_when_it_holds_another_releases_scripts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mounted: str
+) -> None:
+    """``deploy/docker`` is a link through ``current`` (tools/host_tree.py), and a bind mount is resolved when the
+    container is made: a container the previous release started keeps the PREVIOUS release's db-init folder, so a
+    release that changes only the role script would run the old one, and compose leaves a container whose settings
+    did not change. The step makes it again then, and when it cannot tell; not when the folder is this release's
+    (a fresh install: the container was made a moment ago and may still be filling an empty volume)."""
+    deploy = tmp_path / "deploy"
+    for rel in ("releases/old/db-init", "releases/new/db-init"):
+        (tmp_path / rel).mkdir(parents=True)
+    (deploy / "docker").mkdir(parents=True)
+    (deploy / "docker" / "db-init").symlink_to(tmp_path / "releases" / "new" / "db-init")
+    (deploy / ".env").write_text(
+        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake(argv: Sequence[str], **_kw: Any) -> str:
+        calls.append(list(argv))
+        if argv[-2:] == ["-q", "db"]:
+            return "" if mounted == "none" else "abc123\n"
+        if "inspect" in argv:
+            if mounted == "unknown":
+                raise up.UpdateFailed("docker inspect exit 1")
+            return str(tmp_path / "releases" / ("old" if mounted == "previous" else "new") / "db-init") + "\n"
+        return ""
+
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    line = up.ComposeBox(deploy, run=fake).db_on_new_settings()
+    up_db = next(c for c in calls if c[:3] == ["dc", "up", "-d"] and c[-1] == "db")
+    assert ("--force-recreate" in up_db) == (mounted in ("previous", "unknown")), (mounted, up_db)
+    assert ("made again" in line) == (mounted in ("previous", "unknown"))
+    assert "resolved when the container is made" in " ".join((up.ComposeBox.db_on_new_settings.__doc__ or "").split())
+
+
+def test_review_the_page_does_not_say_install_writes_no_step_twice() -> None:
+    """install.sh keeps shell copies for a host without python3 (the password of a new role among them)."""
+    doc = " ".join((prestart.__doc__ or "").split())
+    assert "is not written a second time there" not in doc and "without python3" in doc
 
 
 # ------------------------------------------------------------------------------------------- install and the pages

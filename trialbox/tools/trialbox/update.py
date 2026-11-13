@@ -1223,17 +1223,35 @@ class ComposeBox(_DockerImages):
             raise UpdateFailed(f"TB_INSTALL_PULL must be never or missing, not {pull!r}")
         return pull
 
+    def _db_scripts_are_this_releases(self) -> bool:
+        """Whether the running ``db`` container's ``/docker-entrypoint-initdb.d`` is the db-init folder of the tree
+        now in force. No container: yes (the next ``up`` makes it from this tree). Docker does not answer: no."""
+        try:
+            cid = self.run(self._c("ps", "-q", "db")).strip()
+            if not cid:
+                return True
+            fmt = '{{range .Mounts}}{{if eq .Destination "/docker-entrypoint-initdb.d"}}{{.Source}}{{end}}{{end}}'
+            src = self.run([*self.docker, "inspect", "-f", fmt, cid.split()[0]]).strip()
+        except (UpdateFailed, OSError):
+            return False
+        return bool(src) and src == os.path.realpath(self.deploy / "docker" / "db-init")
+
     def db_on_new_settings(self) -> str:
-        """D-624: the ``db`` service on the settings of the release now in force, before anything is run in it. The
-        role script reads each service's password from the container's environment, and until here the container is
-        the one the previous release started. Compose recreates it when its settings changed and leaves it
-        otherwise. The final ``up`` did the same before; what is still running then (``fhir-store`` always, every
-        service with ``--no-backup``) loses its connections a little earlier and is recreated by that ``up``."""
+        """D-624: the ``db`` service as the release now in force makes it, before anything is run in it. Two things
+        of the container are still the previous release's until here. Its environment: the role script reads each
+        service's password from it. Its script folder: ``deploy/docker`` is a link through ``current``, and a bind
+        mount is resolved when the container is made, so the container holds the previous release's db-init folder.
+        Compose recreates a container when its settings changed and leaves it otherwise; when the folder it holds
+        is not this release's (or Docker cannot say), it is made again here. The final ``up`` recreated it before;
+        what is still running then (``fhir-store`` always, every service with ``--no-backup``) loses its
+        connections a little earlier and is recreated by that ``up``."""
         if not self.env.get("TB_DB_URL", ""):  # as set_roles
             return "no database step on this box"
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
-        self.run(self._c("up", "-d", "--pull", self._pull(), "--wait", "--wait-timeout", t, "db"), timeout=int(t) + 120)
-        return "on this release's settings"
+        again = [] if self._db_scripts_are_this_releases() else ["--force-recreate"]
+        self.run(self._c("up", "-d", "--pull", self._pull(), *again, "--wait", "--wait-timeout", t, "db"),
+                 timeout=int(t) + 120)  # fmt: skip
+        return "made again: it held another release's scripts" if again else "on this release's settings"
 
     def fhir_password_set(self) -> bool:
         """Whether ``.env`` holds a password for the FHIR store's role: not empty and not the example file's

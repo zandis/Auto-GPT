@@ -34,8 +34,9 @@ an allowed holder.
    two commands (`tools/trialbox/prestart.py`; UPDATE-PRESTART and UPDATE-DBUP, D-624):
    - `pre-start`, step `FHIR store password`: the password is written to `deploy/.env` (0600) if it is not
      there, or is still the example file's (`ComposeBox.ensure_fhir_password`);
-   - `db-up`, step `database`: the database container is put on this release's settings, so it holds the
-     password in its own environment and mounts this release's role script;
+   - `db-up`, step `FHIR store password is set`: refuses to go on without one (a `db-up` run by hand);
+   - `db-up`, step `database`: the database container is put on this release's settings and scripts, so it
+     holds the password in its own environment and mounts this release's role script;
    - `db-up`, step `service roles`: the role script runs in that container. Nothing is handed over on the
      command: psql reads the password from the container's environment (`\getenv`). It makes the role, sets
      the password, gives it the database, and inside `hapi` moves what HAPI made as the superuser: tables with
@@ -55,10 +56,12 @@ an allowed holder.
    which then mounts this release's script and holds the password. Six planted mistakes in the order and the
    hand-over were each caught by the tests. Changed after it: a quoted example value counts as "not set"; the
    updater's fallback for a tree from before the commands makes no password (such a tree has no FHIR role and
-   its database container would never be given one). **Left as limits:** `db-up` run by hand without
-   `pre-start` on an older `.env` makes the role with no password and still reports the step done (the update
-   and `install.sh` always run `pre-start` first; a guard would be one more line in lane D's step list, whose
-   order its tests pin: offered to lane D). Nothing checks that the bundle names a minimum installed release
+   its database container would never be given one). `db-up` run by hand without `pre-start` on an older `.env` made the role with no password and still
+   reported the step done: its first step, `FHIR store password is set`, now refuses and names the command
+   (one named line in lane D's `DB_STEPS`, with the step lists its tests pin updated; lane D asked for it).
+   Corrected by lane D after this review (#433, `d5467179`): a container is made with the release folder it was
+   started from, so the `database` step now makes it again whenever it holds another release's scripts, not
+   only when a setting changed. **Left as limits:** Nothing checks that the bundle names a minimum installed release
    that has `db-up` (lane D's release rule; a box on an older release would fail at the FHIR store's health
    check and roll back, loudly, instead of being refused first). A box whose `.env` has no admin URL gets the
    password but no role (a stack made by hand; `install.sh` always writes the URL).
