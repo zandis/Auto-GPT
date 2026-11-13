@@ -129,7 +129,7 @@ def test_the_readiness_answer_says_the_lake_could_not_be_read_not_that_there_is_
     rd = readiness.readiness(down, MAIN, STUDY, {"forms": 7})
     assert rd["lake_unread"] is True and rd["feed"] is None
     q = rd["questions"]["patients"]
-    assert [m["key"] for m in q["missing"]][0] == "patients.lake_unread"
+    assert q["missing"][0]["key"] == "patients.lake_unread"
     assert q["state"] == "amber" and rd["overall"] == "amber"  # not known: neither "no patients" nor "ready"
     assert "patients.unknown_share" not in {m["key"] for m in q["missing"]}
 
