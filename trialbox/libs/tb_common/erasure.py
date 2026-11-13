@@ -416,7 +416,6 @@ OUTSIDE: dict[str, Entry] = {
         "folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of "
         "the space drops it whole (D-714)",
         "the opt-out's clear in a practice space's store",
-        card="NEW-SITE-4 (a card after it)",
     ),
     "outside:audit": _keep(
         "D-394",

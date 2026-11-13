@@ -34,7 +34,8 @@ store is made.
 - **Audited.** `setup.reset` carries `omop_store`: `dropped` or `none`.
 - **The erasure registry names it**: `outside:sitesetup_space_omop`, an erase obligation that is **owed**: the
   opt-out worker's clear of OMOP rows works on the hospital's store, not on a practice space's. The generated
-  page is regenerated. The record inventory's row R-20 names the store too.
+  page is regenerated. The record inventory's row R-20 names the store too. It is on the erasure card's owed list
+  (T-206b), with the other clears not yet built (found by the whole-suite run: that list is kept exact).
 
 ## Who may open that store (as it is; not changed here)
 
