@@ -246,16 +246,47 @@ function Test-TbTranscription {
   return ($null -ne $v -and [int]$v.EnableTranscripting -eq 1)
 }
 function Clear-TbScreen { Clear-Host }
+# WSL2 with mirrored networking sits behind Windows' Hyper-V firewall. Four small seams around its cmdlets; what the
+# installer does with them is Set-TbConsoleFirewall, below.
+$script:TbWslVmId = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}"   # the id Windows gives WSL's virtual machines (Microsoft Learn)
+function Get-TbWslInboundDefault {
+  $vm = Get-NetFirewallHyperVVMSetting -PolicyStore ActiveStore -Name $script:TbWslVmId -ErrorAction SilentlyContinue
+  if ($null -eq $vm) { return "" }
+  return [string]$vm.DefaultInboundAction
+}
+function Set-TbWslInboundBlock { Set-NetFirewallHyperVVMSetting -Name $script:TbWslVmId -DefaultInboundAction Block }
+function Get-TbConsoleFirewallRule([string]$RuleName) {
+  $r = Get-NetFirewallHyperVRule -Name $RuleName -ErrorAction SilentlyContinue
+  if ($null -eq $r) { return $null }
+  return @{ Enabled = [string]$r.Enabled; Direction = [string]$r.Direction; Action = [string]$r.Action; Protocol = [string]$r.Protocol
+    LocalPorts = (@($r.LocalPorts) -join ","); RemoteAddresses = (@($r.RemoteAddresses) -join ","); VMCreatorId = [string]$r.VMCreatorId }
+}
+function Write-TbConsoleFirewallRule([string]$RuleName, [int]$Port, [bool]$Exists) {
+  $p = @{ Direction = "Inbound"; VMCreatorId = $script:TbWslVmId; Protocol = "TCP"; LocalPorts = $Port; RemoteAddresses = "LocalSubnet"
+    Action = "Allow"; Enabled = "True" }
+  if ($Exists) { Set-NetFirewallHyperVRule -Name $RuleName @p | Out-Null }
+  else { New-NetFirewallHyperVRule -Name $RuleName -DisplayName "TrialBox console (HTTPS) from the site's own network" @p | Out-Null }
+}
 function Set-TbConsoleFirewall([string]$RuleName, [int]$Port) {
-  # WSL2 with mirrored networking sits behind the Hyper-V firewall. Inbound stays closed by default; one rule lets
-  # the console's port in from the workstation's own subnet. Returns "kept" or "added".
-  $wsl = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}"   # the id Windows gives WSL's virtual machines (Microsoft Learn)
-  $vm = Get-NetFirewallHyperVVMSetting -PolicyStore ActiveStore -Name $wsl -ErrorAction SilentlyContinue
-  if ($null -eq $vm -or [string]$vm.DefaultInboundAction -ne "Block") { Set-NetFirewallHyperVVMSetting -Name $wsl -DefaultInboundAction Block }
-  if (Get-NetFirewallHyperVRule -Name $RuleName -ErrorAction SilentlyContinue) { return "kept" }
-  New-NetFirewallHyperVRule -Name $RuleName -DisplayName "TrialBox console (HTTPS) from the site's own network" `
-    -Direction Inbound -VMCreatorId $wsl -Protocol TCP -LocalPorts $Port -RemoteAddresses LocalSubnet -Action Allow | Out-Null
-  return "added"
+  # Inbound to WSL stays closed by default; one rule lets the console's port in from the workstation's own subnet.
+  # A rule of that name is ours: one that is wider, for another port or switched off is put right, not kept.
+  # Returns "kept", "added" or "corrected".
+  $before = Get-TbWslInboundDefault
+  if ($before -ne "Block") {
+    # machine-wide: it closes inbound traffic to every account's WSL distributions, not only the box's
+    Write-TbLog ("    WSL's default for inbound traffic was '{0}': set to Block (all WSL distributions on this PC)" -f $before)
+    Set-TbWslInboundBlock
+    Say "wsl_inbound_blocked" @($before)
+  }
+  $rule = Get-TbConsoleFirewallRule $RuleName
+  if ($null -eq $rule) { Write-TbConsoleFirewallRule $RuleName $Port $false; return "added" }
+  $right = ($rule.Enabled -eq "True" -and $rule.Direction -eq "Inbound" -and $rule.Action -eq "Allow" -and $rule.Protocol -eq "TCP" -and
+    $rule.LocalPorts -eq [string]$Port -and $rule.RemoteAddresses -eq "LocalSubnet" -and $rule.VMCreatorId -eq $script:TbWslVmId)
+  if ($right) { return "kept" }
+  Write-TbLog ("    rule {0} was: enabled {1}, {2} {3}, {4} ports {5}, from {6}" -f $RuleName, $rule.Enabled, $rule.Direction, $rule.Action,
+    $rule.Protocol, $rule.LocalPorts, $rule.RemoteAddresses)
+  Write-TbConsoleFirewallRule $RuleName $Port $true
+  return "corrected"
 }
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
@@ -407,7 +438,8 @@ function Step-Windows {
   $f = $script:TbFacts
   if (-not $f.IsAdmin) { Stop-TbStep "not_admin" @() }
   if ($script:TbState.account -and $script:TbState.account -ne $f.Account) { Stop-TbStep "other_account" @($script:TbState.account, $f.Account) }
-  if ($script:TbEditions -notcontains $f.EditionId -or $f.Build -lt $MinWindowsBuild) { Stop-TbStep "edition" @($f.EditionId, $f.Build) }
+  if ($script:TbEditions -notcontains $f.EditionId) { Stop-TbStep "edition" @($f.EditionId, $f.Build) }
+  if ($f.Build -lt $MinWindowsBuild) { Stop-TbStep "windows_too_old" @($f.Build, $MinWindowsBuild) }
   if (-not ($f.VirtualizationFirmware -or $f.HypervisorPresent)) { Stop-TbStep "virtualisation" @() }
   $script:TbState.account = $f.Account
 }
@@ -710,7 +742,19 @@ function Step-Network {
   try { $did = Set-TbConsoleFirewall $script:TbFirewallRule $script:TbConsolePort }
   catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
   Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did)
+  if ($did -eq "corrected") { Say "firewall_corrected" @($script:TbFirewallRule) }
   Say "network" @($script:TbConsolePort)
+}
+function Test-TbNetworkAfterInstall {
+  # with the stack up: the egress table must be seen to stop a container (not only to be loaded), and the box's own
+  # firewall must be open to the network this PC is really on
+  $r = Invoke-TbSetup "egress-proof" @()
+  $verdict = [string](@($r.Output | Where-Object { $_ -like "verdict=*" }) | Select-Object -Last 1)
+  if ($verdict -eq "verdict=OUT") { Stop-TbStep "egress_open" @() }
+  if ($verdict -ne "verdict=held") { Say "egress_unproven" @($verdict) }
+  $r = Invoke-TbSetup "lan-check" @()
+  $lan = [string](@($r.Output) | Select-Object -Last 1)
+  if ($r.ExitCode -ne 0) { Say "lan_mismatch" @($lan) }
 }
 function Step-LinuxInstall {
   Say "linux_install" @()
@@ -724,6 +768,7 @@ function Step-LinuxInstall {
   if ($line -ne "installed=1") { Stop-TbStep "linux_install_stopped" @($code) }
   [void](Assert-TbSetup "boot-check" @())  # Docker and the stack start with the distribution, with nobody there
   [void](Assert-TbSetup "egress-check" @())  # the egress table of D-377 is loaded under this networking form
+  Test-TbNetworkAfterInstall
   if ($code -ne 0) { Say "host_check_fails" @() }
   $script:TbState.finished = $true
 }
@@ -775,6 +820,17 @@ function Invoke-TbInstall {
       if ([string]$_.Exception.Message -like "TBSTOP*" -and $null -ne $script:TbStop) { Say $script:TbStop.Key $script:TbStop.Values }
       else { Say "unexpected" @([string]$_.Exception.Message) }
     }
+    # the console's firewall rule (D-604): only once WSL2 really runs with mirrored networking. An install made
+    # before NEW-WIN-4 gets the new .wslconfig above and needs one restart of Windows first
+    try {
+      $root = [string]$script:TbState.data_drive; if ($root -match "^[A-Za-z]:$") { $root = $root + "\" }
+      $script:TbSetupWsl = ConvertTo-TbWslPath (Join-Path (Join-Path (Join-Path $root "TrialBox") "install") "wsl-setup.sh")
+      $mode = [string](@((Invoke-TbSetup "network-mode" @()).Output) | Select-Object -Last 1)
+      if ($mode -eq "mirrored") {
+        $did = Set-TbConsoleFirewall $script:TbFirewallRule $script:TbConsolePort
+        if ($did -ne "kept") { Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did); Say "network" @($script:TbConsolePort) }
+      } else { Say "network_pending" @($mode) }
+    } catch { Say "firewall_failed" @([string]$_.Exception.Message) }
     # and the start-at-boot task, when it was deleted or disabled by hand (D-602)
     try { if ((Set-TbBootTask) -ne "kept") { Say "boot_task_restored" @($script:TbBootTask) } }
     catch { Say "boot_task_failed" @([string]$_.Exception.Message) }
