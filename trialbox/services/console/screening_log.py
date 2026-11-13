@@ -26,6 +26,7 @@ from typing import Any
 from datacore import sponsor
 from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
+from tb_common import sheets
 from tb_common.authz import permit
 from tb_contracts import Job
 
@@ -341,6 +342,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             )
             about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
             buf = io.BytesIO()
+            sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
             wb.save(buf)
             name = f"screening_log_{rid}_sponsor.xlsx"
             au.append("console.export", ruleset=rid, actor=h.actor(sess),
@@ -367,6 +369,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             about.append(row)
         about.append(["pre-screen log", "One row per investigator mark, approached or not (D-387)."])
         buf = io.BytesIO()
+        sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
         wb.save(buf)
         au.append("console.export", ruleset=rid, actor=h.actor(sess), detail={"filename": "screening_log.xlsx"})
         return Response(
@@ -493,6 +496,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         about.append(["small cells", f"counts between 1 and {k - 1} are shown as <{k}"])
         about.append(["made", h.clock().isoformat(timespec="seconds")])
         buf = io.BytesIO()
+        sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
         wb.save(buf)
         name = f"research_office_{y}.xlsx"
         au.append("console.export", actor=h.actor(sess), detail={"filename": name})
