@@ -307,7 +307,7 @@ def silent_case(a: argparse.Namespace, hang: bool) -> int:
         # review 3: the first results-only start was refused (a stockout): nothing marked, the next collect started it
         r.ok("a refused results-only start was said and tried again", "results-only start was refused" in drv
              and "found nothing earlier" not in drv, [ln for ln in drv.splitlines() if "refused" in ln][:2])  # fmt: skip
-    else:
+    if not hang:
         r.ok("the busy silent part was never powered off as idle", not any("no heartbeat" in x for x in run_offs),
              run_offs)  # fmt: skip
         r.ok("it finished and powered off after the grace", bool(run_offs) and "grace" in run_offs[0], run_offs[:1])
