@@ -184,9 +184,14 @@ def test_a_screen_given_its_scope_does_not_ask_the_lake_again(monkeypatch: pytes
     from tests.unit.test_microbatch_cadence import GZQO, WED
 
     asked: list[str] = []
+
+    def lake(*a: Any) -> list[Any]:
+        asked.append("lake")
+        return [_new("A", None), _new("B", None)]
+
     ctx = SimpleNamespace(job=SimpleNamespace(options={}), metrics=lambda **kw: None)
     monkeypatch.setattr(screen, "practitioners_of", lambda ctx, rs: ["D1"])
-    monkeypatch.setattr(screen, "scope_patients", lambda *a: asked.append("lake") or [_new("A", None), _new("B", None)])
+monkeypatch.setattr(screen, "scope_patients", lake)
     monkeypatch.setattr(screen, "drop_opted_out", lambda ctx, scoped: [s for s in scoped if s.pid != "B"])
     monkeypatch.setattr(screen, "judge_for", lambda ctx, rs: None)
     got = screen.screen_scope(ctx, GZQO, WED, "2026-10-06")  # type: ignore[arg-type]
