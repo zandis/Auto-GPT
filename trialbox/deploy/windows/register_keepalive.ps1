@@ -1,6 +1,6 @@
 # TrialBox: register the start-at-boot task that keeps WSL2 and the stack running (T-210a, D-421; OPS-061).
 #
-#   powershell -ExecutionPolicy Bypass -File register_keepalive.ps1 -User <windows-account> [-Distro Ubuntu-24.04]
+#   powershell -ExecutionPolicy Bypass -File register_keepalive.ps1 -User <windows-account> [-Distro TrialBox]
 #
 # Without it WSL2 stops when nobody is signed in and does not come back after a Windows Update restart. The task
 # starts at boot, runs whether or not anyone is signed in (S4U: no password is stored), keeps one wsl.exe open and
@@ -9,13 +9,15 @@
 # starts Docker and the stack (docker.service, trialbox.service).
 param(
   [Parameter(Mandatory = $true)][string]$User,
-  [string]$Distro = "Ubuntu-24.04",
+  [string]$Distro = "TrialBox",  # the distribution box-install.ps1 imports (D-600)
   [string]$TaskName = "TrialBox-WSL2"
 )
 $ErrorActionPreference = "Stop"
 $action = New-ScheduledTaskAction -Execute "wsl.exe" -Argument ("-d {0} --exec /bin/sh -c 'exec sleep infinity'" -f $Distro)
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId $User -LogonType S4U -RunLevel Highest
+# 999 restarts one minute apart: the Task Scheduler's largest count and smallest interval (Microsoft Learn,
+# New-ScheduledTaskSettingsSet); after them the task waits for the next boot
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan) -RestartCount 999 `
   -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings `

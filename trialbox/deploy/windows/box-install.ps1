@@ -169,6 +169,13 @@ function Find-TbMedia {
   }
   return ""
 }
+function Get-TbBootTaskInfo([string]$TaskName) {
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($null -eq $task) { return $null }
+  $info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
+  return @{ State = [string]$task.State; LastResult = [string]$info.LastTaskResult
+    Action = ((@($task.Actions) | ForEach-Object { "{0} {1}" -f $_.Execute, $_.Arguments }) -join " ; ") + " " }
+}
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -303,7 +310,7 @@ function Step-Media {
     if ($ln -match "^([0-9a-fA-F]{64})\s+\*?(.+)$") { $sums[($Matches[2].Trim() -replace "\\", "/")] = $Matches[1].ToLower() }
   }
   $check = @($script:TbFiles.Msi, $script:TbFiles.RootFs, $script:TbFiles.Setup, $script:TbFiles.HostTar,
-    $script:TbFiles.Bundle, $script:TbFiles.PubKey)
+    $script:TbFiles.Bundle, $script:TbFiles.PubKey, (Find-TbOne $win "register_keepalive.ps1" ""))
   $check += @(Get-ChildItem -LiteralPath $script:TbFiles.Debs -Filter *.deb -File | ForEach-Object { $_.FullName })
   if (-not (Test-TbMsiSignature $script:TbFiles.Msi)) { Stop-TbStep "msi_unsigned" @($script:TbFiles.Msi) }
   $rootLen = $m.TrimEnd("\", "/").Length + 1
@@ -480,14 +487,29 @@ function Step-HostTree {
     (ConvertTo-TbWslPath (Join-Path $script:TbStage "vendor_ed25519.pub")))
   foreach ($ln in @($r.Output | Where-Object { $_ -like "vendor key*" })) { Say "vendor_key" @($ln) }
 }
+function Set-TbBootTask {
+  # The task is registered once. One that is there and starts this distribution is kept as it is: registering it
+  # again would start it again beside a live keep-alive. Returns "kept", "registered" or "restored".
+  $info = Get-TbBootTaskInfo $script:TbBootTask
+  $wanted = "-d " + $script:TbState.distro + " "
+  if ($null -ne $info -and $info.State -ne "Disabled" -and ([string]$info.Action).Contains($wanted)) { return "kept" }
+  Register-TbBootTask $script:TbFacts.Account $script:TbState.distro $script:TbBootTask
+  if ($null -eq $info) { return "registered" } else { return "restored" }
+}
 function Step-BootTask {
-  # a workstation that sleeps or hibernates serves nobody, and hiberfil.sys would hold WSL2's memory (D-421)
-  foreach ($a in @(@("/hibernate", "off"), @("/change", "standby-timeout-ac", "0"), @("/change", "hibernate-timeout-ac", "0"))) {
+  # A workstation that sleeps or hibernates serves nobody, and hiberfil.sys would hold WSL2's memory (D-421).
+  # What is set: hibernation off, and the idle timers of the current power plan to never, on mains and on battery.
+  # A power setting Windows refuses (a machine with no hibernation support) is told and does not stop the install:
+  # hibernation is judged again by the host check.
+  foreach ($a in @(@("/hibernate", "off"), @("/change", "standby-timeout-ac", "0"), @("/change", "hibernate-timeout-ac", "0"),
+      @("/change", "standby-timeout-dc", "0"), @("/change", "hibernate-timeout-dc", "0"))) {
     $r = Invoke-TbNative "powercfg.exe" $a
-    if ($r.ExitCode -ne 0) { Stop-TbStep "power_failed" @(($a -join " "), $r.ExitCode) }
+    if ($r.ExitCode -ne 0) { Say "power_failed" @(($a -join " "), $r.ExitCode) }
   }
-  try { Register-TbBootTask $script:TbFacts.Account $script:TbState.distro $script:TbBootTask }
+  try { $did = Set-TbBootTask }
   catch { Stop-TbStep "boot_task_failed" @([string]$_.Exception.Message) }
+  $info = Get-TbBootTaskInfo $script:TbBootTask
+  Write-TbLog ("    task {0}: {1}; state {2}; last result {3}" -f $script:TbBootTask, $did, $info.State, $info.LastResult)
   Say "boot_task" @($script:TbBootTask)
 }
 function Step-LinuxInstall {
@@ -537,7 +559,13 @@ function Invoke-TbInstall {
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
   # the resume task has done its work once this run started; step 5 registers it again if Windows wants a restart
   try { Unregister-TbResumeTask } catch { Write-TbLog ("    the resume task could not be removed: " + [string]$_.Exception.Message) }
-  if ($script:TbState.finished) { Say "already_installed" @($script:TbLogPath); return 0 }
+  if ($script:TbState.finished) {
+    # the one thing a finished install still needs from Windows: the start-at-boot task (deleted or disabled by hand)
+    try { if ((Set-TbBootTask) -ne "kept") { Say "boot_task_restored" @($script:TbBootTask) } }
+    catch { Say "boot_task_failed" @([string]$_.Exception.Message) }
+    Say "already_installed" @($script:TbLogPath)
+    return 0
+  }
   # the media: the one named; else the one this script was started from; else the one of the last run; else a
   # media found on a drive (its letter may have changed over the restart)
   $here = Split-Path -Parent $PSScriptRoot

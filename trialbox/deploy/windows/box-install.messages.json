@@ -215,9 +215,9 @@
     "zh-TW": "這台機器有 {0} GB 記憶體與 {1} 個處理器：保留 {2}% 給桌面後，沒有可分配給 TrialBox 的資源。沒有做任何變更。"
   },
   "boot_task": {
-    "en": "Sleep and hibernation are off. The task {0} starts TrialBox when Windows starts, whether or not anyone signs in.",
-    "ja": "スリープと休止状態を無効にしました。タスク {0} が、Windows の起動時に、サインインの有無にかかわらず TrialBox を起動します。",
-    "zh-TW": "已關閉睡眠與休眠。工作 {0} 會在 Windows 啟動時啟動 TrialBox，不論是否有人登入。"
+    "en": "Hibernation is off, and this PC no longer goes to sleep by itself (the current power plan). The task {0} is registered to start TrialBox when Windows starts, whether or not anyone signs in.",
+    "ja": "休止状態を無効にし、この PC が自動でスリープしないようにしました（現在の電源プラン）。タスク {0} を登録しました。Windows の起動時に、サインインの有無にかかわらず TrialBox を起動するためのものです。",
+    "zh-TW": "已關閉休眠，這台電腦也不會再自動進入睡眠（目前的電源計畫）。已登錄工作 {0}，用於在 Windows 啟動時啟動 TrialBox，不論是否有人登入。"
   },
   "boot_task_failed": {
     "en": "Windows could not register the start-at-boot task: {0}",
@@ -225,8 +225,13 @@
     "zh-TW": "Windows 無法登錄開機啟動工作：{0}"
   },
   "power_failed": {
-    "en": "Windows could not change the power setting (powercfg {0}, exit {1}).",
-    "ja": "Windows が電源設定を変更できませんでした（powercfg {0}、終了コード {1}）。",
-    "zh-TW": "Windows 無法變更電源設定（powercfg {0}，結束代碼 {1}）。"
+    "en": "Warning: Windows did not accept a power setting (powercfg {0}, exit {1}). The install goes on; if this PC sleeps or hibernates, TrialBox stops answering until it wakes.",
+    "ja": "注意: Windows が電源設定を受け付けませんでした（powercfg {0}、終了コード {1}）。インストールは続行します。この PC がスリープまたは休止状態になると、復帰するまで TrialBox は応答しません。",
+    "zh-TW": "警告：Windows 未接受電源設定（powercfg {0}，結束代碼 {1}）。安裝會繼續；若這台電腦進入睡眠或休眠，TrialBox 在喚醒前不會回應。"
+  },
+  "boot_task_restored": {
+    "en": "The start-at-boot task {0} was missing, disabled or for another system: it was registered again.",
+    "ja": "起動時タスク {0} が存在しないか、無効か、別のシステム用になっていたため、登録し直しました。",
+    "zh-TW": "開機啟動工作 {0} 不存在、已停用或指向其他系統：已重新登錄。"
   }
 }

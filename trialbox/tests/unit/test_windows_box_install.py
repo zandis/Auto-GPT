@@ -396,5 +396,33 @@ def test_the_boot_task_has_one_definition_and_the_name_the_host_check_looks_for(
     assert "New-ScheduledTaskTrigger -AtStartup" not in ps1  # the installer calls the one definition
 
 
+def test_the_task_script_and_the_judge_name_the_boxs_own_distribution() -> None:
+    """Review of NEW-WIN-2, M3: run by hand as its header says, the script must not point the task at another system."""
+    import importlib.util
+
+    keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")
+    assert '[string]$Distro = "TrialBox"' in keep and "Ubuntu-24.04" not in keep
+    spec = importlib.util.spec_from_file_location("wsl2_policy_w2", WIN / "wsl2_policy.py")
+    assert spec and spec.loader
+    pol = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pol)
+    facts = {
+        "keepalive_task_found": "1",
+        "keepalive_task_triggers": "MSFT_TaskBootTrigger",
+        "keepalive_task_logon_type": "S4U",
+        "keepalive_task_state": "Running",
+        "distro": "TrialBox",
+    }
+    for action, good in (
+        ("wsl.exe -d TrialBox --exec /bin/sh -c 'exec sleep infinity'", True),
+        ("wsl.exe -d Ubuntu-24.04 --exec /bin/sh -c 'exec sleep infinity'", False),
+        ("wsl.exe -d TrialBox2 --exec /bin/sh", False),
+    ):
+        v = pol.Verdicts(strict=True)
+        pol.check_keepalive({**facts, "keepalive_task_action": action}, v)
+        assert ("another distribution" not in " ".join(v.lines)) is good, (action, v.lines)
+        assert v.lines[0].startswith("PASS" if good else "FAIL"), v.lines
+
+
 def test_an_unknown_step_is_an_error(box: Box) -> None:
     assert box.run("format-disk").returncode == 1
