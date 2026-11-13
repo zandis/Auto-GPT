@@ -23,7 +23,8 @@ store is made.
 ## The decision
 
 - **Reset drops the space's store, first.** Before the rows and the folder are deleted, `reset` drops the OMOP
-  schema named from this space's own lake folder (`omop.schema.schema_for`). If it cannot be dropped the error
+  schema named from this space's own lake folder (`omop.schema.schema_for`), in the database the OMOP stores live
+  in (`omop.schema.db_url`: `TB_OMOP_DB_URL`, else the trial database), under the lock a publish takes. If it cannot be dropped the error
   goes on and nothing of the space is deleted: a Reset that left the patients in the database must not say
   "reset".
 - **Only this space's.** The name is computed from the space's folder; the hospital's store (`omop`) is refused
@@ -54,9 +55,31 @@ is lane D's to judge (sent to the integrator with this).
   card of its own.
 - Nothing changes while `lake.source` is `legacy`.
 
-## Review
+## What the adversarial review changed
 
-See "What the adversarial review changed" when the review is in.
+One review by a fresh reviewer, by running (also the whole path under the real role script as the
+orchestrator's role). Verdict: fix first, two findings.
+
+- **With `TB_OMOP_DB_URL` set, Reset looked in the wrong database**: the publish makes the store where the OMOP
+  stores live, Reset read `TB_DB_URL` only, left the patients and audited "none". Reset asks and drops where the
+  publish made it; the question goes over a connection of its own, so it makes no schema there. By test.
+- **Reset did not take the lock a publish takes**: a publish of the same space between the drop and the deletion
+  of the rows made the store anew with the patients in it, and the audit said "dropped". Reset holds the lock
+  from first to last. By test.
+- A call that closed the space's library lake did nothing (that lake has no such call); it is gone.
+- The fail-first order (a store that cannot be dropped stops the Reset before anything is deleted) has its test.
+- Ran and sound: a root through a symlink or given as a relative path finds its store; with `TB_LAKE_DIR` equal
+  to the space's lake the hospital's store is refused and nothing is deleted; uploads work after a Reset; the
+  erasure entry is true (the opt-out worker opens only `omop`) and the generated page is current.
+
+## Open, for the owner (said, not changed)
+
+- **The drop waits for a lock without a limit.** Another session that holds a table of the store (a backup's
+  dump, an open transaction) keeps Reset waiting until it lets go; the call then finishes. A time limit with a
+  said error would be a new fixed limit; not added here.
+- **Only the practice space has a Reset route.** Any other space name can be made and published, and has no
+  Reset in the API or the console: its store (and its rows) stay until someone calls the service. Whether other
+  spaces should exist at all, or get a Reset, is the owner's to say.
 
 ## Reuse check
 
