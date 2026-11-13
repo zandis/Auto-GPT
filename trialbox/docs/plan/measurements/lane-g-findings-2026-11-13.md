@@ -95,7 +95,10 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 | Checks passed | 227/228 | 227/228 |
 
 - The rate at 16 in flight holds over a 12-minute window: 4.4 to 4.6 calls/s, as at 5,000 patients.
-- Model time is about a quarter of the part. The rest is loading, coded screening and the other stages.
+- Of the ja part's 2,986 s, the main SCREEN's model calls take 725 s (about a quarter); the part's other model
+  calls take 969 s; the rest, 1,292 s, is loading, coded screening and the other stages with no model call. All
+  model calls together are about 57 % of the part (zh-TW: 706 + 959 of 2,991 s). A night window must count the
+  whole part, not the main SCREEN alone (deep review OPS13-13).
 - The failed check in each part is P5 (stage 12). G-7 passed. G-4 and G-5 failed as in P2 and P3; this commit is
   before D-645.
 - The estimate before this run was 3.14 h for each hospital part; the part took 0.83 h. The estimator now reads
