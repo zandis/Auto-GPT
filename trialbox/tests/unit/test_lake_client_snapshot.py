@@ -124,6 +124,7 @@ CALLERS: dict[tuple[str, str], str] = {
     ("lake/client.py", "LakeHttp.generation"): RAISES,
     ("lake/client.py", "LakeHttp.site_in_sync"): RAISES,
     ("orchestrator/decision_context.py", "DecisionContext.snapshot"): RAISES,
+    ("orchestrator/jobs.py", "PinnedLake.pin"): RAISES,  # every job's lake reaches the client here (D-383)
     ("orchestrator/rerun.py", "PinnedLake.snapshot"): RAISES,
     ("orchestrator/scenarios/case.py", "resolve_subject"): RAISES,
     ("orchestrator/scenarios/cohort.py", "run_cohort"): RAISES,
@@ -151,6 +152,17 @@ CALLERS: dict[tuple[str, str], str] = {
 }
 
 
+def _asks_snapshot(n: ast.AST) -> bool:
+    """``x.snapshot()``, or ``getattr(x, "snapshot", ...)`` (the job's pinned lake reaches the client that way)."""
+    if not isinstance(n, ast.Call):
+        return False
+    if isinstance(n.func, ast.Attribute) and n.func.attr == "snapshot":
+        return not n.args and not n.keywords
+    if isinstance(n.func, ast.Name) and n.func.id == "getattr" and len(n.args) >= 2:
+        return isinstance(n.args[1], ast.Constant) and n.args[1].value == "snapshot"
+    return False
+
+
 def _callers() -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     services = ROOT / "services"
@@ -158,9 +170,7 @@ def _callers() -> set[tuple[str, str]]:
         tree = ast.parse(f.read_text(encoding="utf-8"))
         parent: dict[ast.AST, ast.AST] = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
         for n in ast.walk(tree):
-            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "snapshot"):
-                continue
-            if n.args or n.keywords:
+            if not _asks_snapshot(n):
                 continue
             fn, cls = "", ""
             p: ast.AST = n
@@ -181,7 +191,9 @@ def test_every_caller_of_snapshot_is_listed_with_what_it_does_when_the_lake_cann
 
 
 def test_the_callers_listed_as_raising_have_no_handler_around_the_call() -> None:
-    """The list says "the error goes on" only where no ``try`` stands between the call and its function."""
+    """The list says "the error goes on" only where no ``try`` with a handler and no ``suppress`` stands between
+    the call and its function. A handler in the function's own caller is not seen here: that is read by hand
+    (``SiteSetup.publish`` raises; ``flush``, one of its callers, logs the error and tries again later)."""
     services = ROOT / "services"
     wrong: list[tuple[str, str]] = []
     for (name, func), what in CALLERS.items():
@@ -190,23 +202,23 @@ def test_the_callers_listed_as_raising_have_no_handler_around_the_call() -> None
         tree = ast.parse((services / name).read_text(encoding="utf-8"))
         parent: dict[ast.AST, ast.AST] = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
         for n in ast.walk(tree):
-            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "snapshot"):
+            if not _asks_snapshot(n):
                 continue
-            if n.args or n.keywords:
-                continue
-            chain: list[ast.Try] = []
+            chain: list[ast.AST] = []
             fn, cls = "", ""
             p: ast.AST = n
             while p in parent:
                 child: ast.AST = p
                 p = parent[p]
-                if isinstance(p, ast.Try) and child in p.body and not fn:
+                if isinstance(p, ast.Try) and child in p.body and p.handlers and not fn:
+                    chain.append(p)
+                if isinstance(p, ast.With) and "suppress" in ast.unparse(p.items[0].context_expr) and not fn:
                     chain.append(p)
                 if isinstance(p, ast.FunctionDef | ast.AsyncFunctionDef) and not fn:
                     fn = p.name
                 if isinstance(p, ast.ClassDef) and not cls:
                     cls = p.name
-            if (f"{cls}.{fn}" if cls else fn) == func and any(t.handlers for t in chain):
+            if (f"{cls}.{fn}" if cls else fn) == func and chain:
                 wrong.append((name, func))
     assert wrong == [], "listed as raising, but a handler stands around the call: read it and list what it does"
 
@@ -261,3 +273,25 @@ def test_the_lakes_own_sentence_is_kept_whole_as_before() -> None:
     assert str(refused.value) == "lake snapshot 2026-10-04 would drop 9 records"
     with pytest.raises(SnapshotBuilding):
         _answers(409, {"detail": "already building"}, headers={BUSY_HEADER: "building"}).rebuild("2026-10-04")
+
+
+def test_a_job_that_meets_an_unhealthy_lake_fails_as_a_service_that_failed_not_as_an_internal_error() -> None:
+    """The job page's sentence: before this card the same lake gave "The data lake has no snapshot yet; the
+    nightly ingest must run first." (false). An error the runner does not know reads "Internal error"."""
+    from orchestrator.core import _error
+    from tb_common.http import ServiceError
+
+    with pytest.raises(LakeUnhealthy) as got:
+        _client(503, _health("degraded", **{"<lambda>": "error: OSError"})).snapshot()
+    assert isinstance(got.value, ServiceError) and got.value.service == "lake" and got.value.status == 503
+    said = _error(got.value, "running")
+    assert "lake" in said.message.lower() and "Internal error" not in said.message
+    assert "503" in f"{said.message} {said.detail}"
+
+
+def test_a_request_the_lake_refused_as_malformed_is_said_so_without_its_parts() -> None:
+    """The lake's own 422 for a request of the wrong shape carries a list, not a sentence."""
+    detail = [{"type": "date_from_datetime_parsing", "loc": ["body", "snapshot"], "msg": f"invalid date {VALUE}"}]
+    with pytest.raises(RuntimeError) as got:
+        _answers(422, {"detail": detail}).rebuild("2026-10-04")
+    assert VALUE not in str(got.value) and "422" in str(got.value) and "malformed" in str(got.value)

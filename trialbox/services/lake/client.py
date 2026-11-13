@@ -10,6 +10,7 @@ from typing import Any, Protocol
 import httpx
 import pyarrow as pa
 from embed_service.embedder import Embedder
+from tb_common.http import ServiceError
 from tb_contracts import ChunkSearchRequest, LakeQuery, dump
 
 
@@ -29,9 +30,18 @@ class LakeAPI(Protocol):
     def snapshot(self) -> str | None: ...
 
 
-class LakeUnhealthy(RuntimeError):
+class LakeUnhealthy(ServiceError):
     """The lake answered, but not with a health answer that says which snapshot it serves (D-672). Never to be read
-    as "the lake holds no data"."""
+    as "the lake holds no data". A service's failure (``tb_common.http.ServiceError``), so a job that meets it ends
+    "The lake service failed." with the status, not as an internal error."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(
+            "lake",
+            status,
+            "its health answer does not say which snapshot it serves: the lake is not healthy or could not read "
+            "its snapshot. This is not a lake without data",
+        )
 
 
 class LakeHttp:
@@ -197,10 +207,7 @@ class LakeHttp:
             return snap
         if snap == "none" and resp.status_code == 200:
             return None
-        raise LakeUnhealthy(
-            f"the lake's health answer ({resp.status_code}) does not say which snapshot it serves: the lake is not "
-            "healthy or could not read its snapshot. This is not a lake without data"
-        )
+        raise LakeUnhealthy(resp.status_code)
 
 
 class LakeLocal:
@@ -276,7 +283,7 @@ class LakeLocal:
         return self.lake.rebuild_state(snapshot)
 
 
-NOT_THE_LAKES = "an answer that is not the lake's own; its body is not kept"
+NOT_THE_LAKES = "an answer without the lake's own sentence; its body is not kept"
 
 
 def _detail(resp: httpx.Response) -> str:
@@ -288,6 +295,8 @@ def _detail(resp: httpx.Response) -> str:
     except ValueError:
         return NOT_THE_LAKES
     detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, list) and detail:  # the service's answer to a request of the wrong shape (D-551)
+        return f"the request was refused as malformed ({len(detail)} problem(s)); its parts are not repeated"
     return detail if isinstance(detail, str) and detail else NOT_THE_LAKES
 
 
