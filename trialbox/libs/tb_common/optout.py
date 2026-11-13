@@ -103,12 +103,9 @@ def with_survivors(db: Database, pids: set[str]) -> set[str]:
     if not pids:
         return pids
     schema = db.schema[: -len(SCHEMA)] + "pidmap"
-    ok = db.fetchval(
-        "SELECT has_schema_privilege(n.oid, 'USAGE') AND to_regclass(?) IS NOT NULL FROM pg_namespace n "
-        "WHERE n.nspname = ?",
-        (f'"{schema}".pid_alias', schema),
-    )
-    if not ok:
+    # DATA-002: the register's connection runs as its group role (tbs_optout, D-378), which has no right on pidmap;
+    # what counts is whether the service that logged in may read the map, and the catalogue says whether it exists
+    if not (db.table_exists(schema, "pid_alias") and db.may_use_schema(schema)):
         return pids
     pm = Database.connect(db.url, "pidmap")  # the schema exists (checked above), so nothing is created
     try:

@@ -57,21 +57,27 @@ def box_holds_patients() -> bool | None:
     """NEW-DIN-3 (D-544, D-579): whether the pid map has a row, loaded or staged for a night that is not committed
     yet. The chart-number rule may be chosen only while it has none: another rule gives every patient a second
     pseudonym. None: the map cannot be asked, which the page treats as "it holds patients". Asking creates
-    nothing: the map's schema is looked up, never opened (``tb_common.optout.with_survivors`` does the same)."""
+    nothing: the map's tables are looked up in the catalogue and the map is opened only when one exists.
+
+    DATA-003 (deep review 2026-11-13): the console's ``auth`` connection runs as ``tbs_auth`` on a box (D-378), which
+    has no right on ``pidmap``; a read through it was refused, so the page always said "it holds patients" and the
+    rule could never be chosen. The map is read on a connection of its own, as ``tbs_pidmap``."""
     import os
 
     from tb_common.db import Database
 
+    url = os.environ.get("TB_DB_URL")
     try:
-        with Database.connect(os.environ.get("TB_DB_URL"), "auth") as db:  # the console's own schema
+        with Database.connect(url, "auth") as db:  # the console's own schema
             schema = db.schema[: -len("auth")] + "pidmap"
-            for table in ("pid_map", "pending"):
-                if db.fetchone("SELECT to_regclass(?)", (f'"{schema}".{table}',)) in (None, (None,)):
-                    continue  # not made yet: nothing was ever loaded into it
-                row = db.fetchone(f'SELECT EXISTS (SELECT 1 FROM "{schema}".{table})')  # nosec B608 - our own name
-                if row and row[0]:
-                    return True
-            return False
+            tables = [t for t in ("pid_map", "pending") if db.table_exists(schema, t)]
+        if not tables:
+            return False  # not made yet: nothing was ever loaded into it
+        with Database.connect(url, "pidmap") as pm:  # it exists (above), so nothing is created
+            return any(
+                bool(pm.fetchval(f"SELECT EXISTS (SELECT 1 FROM {t})"))  # nosec B608 - our own names
+                for t in tables
+            )
     except Exception:
         return None
 

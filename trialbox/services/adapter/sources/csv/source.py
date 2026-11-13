@@ -39,6 +39,21 @@ def candidates(declared: str | None) -> tuple[str, ...]:
     return (first, *rest) if first else rest
 
 
+def _filler(cells: Sequence[str]) -> bool:
+    """A line with no record: no cell, or one cell of only spaces, tabs or the DOS end-of-file mark (Ctrl-Z)."""
+    return len(cells) <= 1 and not "".join(cells).strip(" \t\x1a")
+
+
+def _ends_with_line_end(path: Path) -> bool:
+    """Whether the file's last byte that is not a Ctrl-Z is a line end (an empty file counts as ending well)."""
+    with path.open("rb") as fh:
+        fh.seek(0, 2)
+        size = fh.tell()
+        fh.seek(max(0, size - 64))
+        tail = fh.read().rstrip(b"\x1a")
+    return not tail or tail.endswith((b"\n", b"\r"))
+
+
 class CsvSource:
     name = "csv"
 
@@ -79,10 +94,26 @@ class CsvSource:
             return None
         try:
             with path.open(encoding=codec, newline="") as fh:
-                for _ in csv.reader(fh):
-                    pass
+                reader = csv.reader(fh)
+                width = last = line = 0
+                for row in reader:
+                    if _filler(row):
+                        continue  # a blank, spaces-only or end-of-file (Ctrl-Z) line: no record
+                    width, last, line = width or len(row), len(row), reader.line_num
         except csv.Error as exc:
             self._quarantine(path, source_name, f"not a readable CSV ({exc})")
+            return None
+        if last < width and not _ends_with_line_end(path):
+            # DATA-005 (deep review 2026-11-13): the last line is short and the file stops without a line end: the
+            # export was cut off while writing it (``...,HbA1c,6`` of ``6.8,%,2026-09-01 ...``). DictReader gave it
+            # None for the missing cells: an undated lab the OMOP load dated the load night, the newest HbA1c. A
+            # short row elsewhere (an exporter that drops empty trailing cells) is read as before.
+            self._quarantine(
+                path,
+                source_name,
+                f"line {line} has {last} fields, the header {width}, and the file ends without a "
+                "line end: the export was cut off",
+            )
             return None
         self.encodings[source_name] = codec
         return codec
@@ -100,6 +131,8 @@ class CsvSource:
             fields = reader.fieldnames or []
             col = delta_column if since and delta_column and delta_column in fields else None
             for raw in reader:
+                if _filler([v for k, v in raw.items() if k is not None and v is not None]):
+                    continue  # a spaces-only or Ctrl-Z line, as in the first pass
                 row = dict(raw)
                 if col is not None and str(row.get(col) or "").strip() and not after(row.get(col), since):
                     continue

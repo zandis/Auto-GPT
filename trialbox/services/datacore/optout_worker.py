@@ -173,7 +173,7 @@ def _schema_url(env: WorkerEnv, schema: str, table: str) -> str | None:
     from tb_common.db import split_url
 
     prefix = split_url(env.register.db.url)[1]
-    if env.register.db.fetchval("SELECT to_regclass(?)", (f'"{prefix}{schema}".{table}',)) is None:
+    if not env.register.db.table_exists(prefix + schema, table):  # the catalogue: no USAGE needed (DATA-001)
         return None
     return str(env.register.db.url)
 
@@ -303,7 +303,7 @@ def _omop_store(reg: OptOutRegister) -> Any | None:
     from tb_common.db import split_url
 
     prefix = split_url(reg.db.url)[1]
-    if reg.db.fetchval("SELECT to_regclass(?)", (f'"{prefix}omop".tb_record',)) is None:
+    if not reg.db.table_exists(prefix + "omop", "tb_record"):  # the catalogue: no USAGE needed (DATA-001)
         return None
     from omop import schema
 
