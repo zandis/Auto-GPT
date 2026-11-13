@@ -100,9 +100,11 @@ def test_the_screening_runs_list_carries_the_rows_and_the_count() -> None:
         row(PatientVerdicts("P2", _answers(), "high", [], 0), None, "D1", "RHEU", "2026-10-07T03:00:00+09:00"),
     ]
     run = ScreenRun(GZQO, RUN, "2026-10-05", [], {}, rows, [], [], 7, None, coded_values_read=False)
+    out = row(PatientVerdicts("P3", list(vs), "excluded", [], 0), None, "D1", "RHEU", "2026-10-07T03:00:00+09:00")
+    run.rows.append(out)  # an excluded patient is not on the list: not in its count either
     cl = dump(screen.candidate_list(run))
     assert [r.get("coded_values") for r in cl["rows"]] == ["not read", None]
-    assert cl["summary"]["coded_values_not_read"] == 1
+    assert cl["summary"]["coded_values_not_read"] == 1 and cl["summary"]["excluded"] == 1
     clean = ScreenRun(GZQO, RUN, "2026-10-05", [], {}, rows[1:], [], [], 7, None)
     assert "coded_values_not_read" not in dump(screen.candidate_list(clean))["summary"]  # as before the card
 
@@ -134,6 +136,30 @@ def test_a_weekly_run_keeps_not_read_on_the_rows_it_carries_and_not_on_the_rows_
     by = {r["pid"]: r for r in _list(box)["rows"]}
     assert by["P1"].get("coded_values") == "not read"
     assert "coded_values" not in by["P2"] and "coded_values" not in by["N1"]
+    assert _list(box)["summary"]["coded_values_not_read"] == 1
+
+
+def test_the_weekly_re_check_does_not_take_not_read_away_from_a_row_that_still_has_no_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The review, by running on a real pool: the weekly re-check writes the coded answers of a booked patient anew
+    and reads no values; the four re-checked rows of eleven lost "not read", for good (the pool got them back
+    unmarked), though they still had none. The stand-in re-check of these tests returned no answer, so it passed."""
+
+    class ReChecks(_Box):
+        def evaluate_scope(self, ctx: Any, rs: Any, run_date: date, snap: str, scoped: list[Any], **kw: Any) -> Any:
+            self.evaluated.append([s.pid for s in scoped])
+            anew = CriterionVerdict(id=CODED.id, verdict="pass", evidence=Evidence(resource_refs=["Condition/c-2"]))
+            return {s.pid: PatientVerdicts(s.pid, [anew], "high", [], 0) for s in scoped}
+
+    box = ReChecks(pool=["P1", "P2"], booked={"P1": FRI, "P2": FRI}, scope=[])
+    box.pool = [{**_pool_row("P1"), "verdicts": _mark(_pool_row("P1")["verdicts"])}, _pool_row("P2")]
+    box.go(monkeypatch)
+    assert box.evaluated and "P1" in box.evaluated[0]  # it was re-checked
+    by = {r["pid"]: r for r in _list(box)["rows"]}
+    assert by["P1"].get("coded_values") == "not read" and "coded_values" not in by["P2"]
+    again = next(c for c in by["P1"]["criteria"] if c["id"] == CODED.id)
+    assert again["evidence"]["resource_refs"] == ["Condition/c-2"] and again["evidence"]["coded_read"] is False
     assert _list(box)["summary"]["coded_values_not_read"] == 1
 
 

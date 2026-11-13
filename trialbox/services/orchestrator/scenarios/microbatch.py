@@ -63,6 +63,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from matching import coded_values
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -427,6 +428,10 @@ def run(ctx: Ctx) -> Outcome:
                         (v.evidence.quote or "") if v.evidence else "",
                     )
                 )
+            # D-653: the re-check writes the answer anew and reads no values (it never did). An answer whose values
+            # the last read could not get still has none: it keeps saying so until a run reads them
+            if prev is not None and coded_values.unread(prev) and not (v.evidence and v.evidence.coded):
+                v = coded_values.mark_unread(v)
             new[v.id] = v
         ordered = [new[c.id] for c in rs.active() if c.id in new]
         tr, acts, n_unk = tier(rs, ordered, t, note_block=may_block)
@@ -637,7 +642,7 @@ def run(ctx: Ctx) -> Outcome:
         rows=listed,
         summary=TierSummary(
             **{k: sum(1 for r in everyone if r.tier == k) for k in ("high", "review", "excluded")},
-            coded_values_not_read=values_not_read(everyone),  # D-653: carried rows keep it, rows read again lose it
+            coded_values_not_read=values_not_read(listed),  # D-653: carried rows keep it, rows read again lose it
         ),
         judging=Judging(**judging) if judging else None,
     )

@@ -2084,7 +2084,7 @@ class TierSummary(BaseModel):
     excluded: int
     coded_values_not_read: int | None = None
     """
-    D-653: how many rows of the run (listed or not) carry coded_values 'not read'. Absent: none.
+    D-653: how many rows of this list carry coded_values 'not read'. Absent: none.
     """
 
 

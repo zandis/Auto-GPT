@@ -189,6 +189,11 @@ def unread(v: CriterionVerdict) -> bool:
     return v.evidence is not None and v.evidence.coded_read is False
 
 
+def mark_unread(v: CriterionVerdict) -> CriterionVerdict:
+    """``v`` saying that the values behind it could not be read (D-653)."""
+    return _unread(v, True)
+
+
 def _unread(v: CriterionVerdict, yes: bool) -> CriterionVerdict:
     ev = v.evidence or Evidence(resource_refs=[])
     return v.model_copy(update={"evidence": ev.model_copy(update={"coded_read": False if yes else None})})

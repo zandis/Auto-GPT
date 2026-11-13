@@ -148,7 +148,7 @@
         "high": {"type": "integer"},
         "review": {"type": "integer"},
         "excluded": {"type": "integer"},
-        "coded_values_not_read": {"type": ["integer", "null"], "description": "D-653: how many rows of the run (listed or not) carry coded_values 'not read'. Absent: none."}
+        "coded_values_not_read": {"type": ["integer", "null"], "description": "D-653: how many rows of this list carry coded_values 'not read'. Absent: none."}
       }
     }
   }
