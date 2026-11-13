@@ -17,6 +17,9 @@ Kept: words that are not person names (the tag does not start with ``nr``) with 
 * ``one``: a very common one-character verb, preposition or adverb (frequency :data:`ONE_FREQ` and up);
 * ``plain``: a one-character word of the function classes (frequency :data:`PLAIN_FREQ` and up); the guard keeps the
   ones that are also surnames (曾 "once", 高 "high", 於 "at").
+* ``given``: a character that names are made of: one that stands after the first character in at least
+  :data:`GIVEN_MIN` of the dictionary's person-name entries of two or three characters (tag ``nr``), in its
+  Traditional form. The names themselves are not kept.
 
 The frequencies are the ones the measurement of D-647 was made with; a change is a re-measurement.
 """
@@ -31,15 +34,22 @@ MIN_FREQ = 5
 ONE_FREQ = 3000
 PLAIN_FREQ = 1000
 PLAIN_TAGS = ("d", "a", "p", "c", "v", "f", "m", "r", "u")
+GIVEN_MIN = 200
 
 
 def build(dict_text: str) -> list[tuple[str, str]]:
     s2t = importlib.import_module("opencc").OpenCC("s2t")
     rows: set[tuple[str, str]] = set()
+    given: dict[str, int] = {}
     for line in dict_text.splitlines():
         word, freq, tag = ([*line.split(" "), "", ""])[:3]
         n = int(freq or 0)
-        if tag.startswith("nr") or n < MIN_FREQ:
+        if tag.startswith("nr"):
+            if 2 <= len(word) <= 3:
+                for ch in s2t.convert(word)[1:]:
+                    given[ch] = given.get(ch, 0) + 1
+            continue
+        if n < MIN_FREQ:
             continue
         for form in {word, s2t.convert(word)}:
             if 2 <= len(form) <= 4:
@@ -49,6 +59,7 @@ def build(dict_text: str) -> list[tuple[str, str]]:
                     rows.add(("one", form))
                 if tag[:1] in PLAIN_TAGS and n >= PLAIN_FREQ:
                     rows.add(("plain", form))
+    rows |= {("given", ch) for ch, k in given.items() if k >= GIVEN_MIN}
     return sorted(rows)
 
 

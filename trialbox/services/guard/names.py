@@ -6,14 +6,16 @@ honorific, a sex). In running Chinese or Japanese text that shape is everywhere 
 zh-TW, 72.7 % in Japanese. This module is the second look. It can only take a NAME finding away; every other
 kind of finding, and every name it does not understand, stands.
 
-* **Japanese** (the finding's line holds kana): the finding stands only if the tokeniser tags a token inside it as
-  a proper noun (SudachiPy, split mode C, the pinned dictionary: :data:`DICTIONARY`). Measured on the labelled
-  synthetic sets: 97.6 % of names kept, false refusals 72.7 % to 3.0 %.
-* **Chinese** (no kana on the line): no tokeniser. The finding stands when a boundary follows it (the end, a
-  punctuation mark, a space, an honorific, a sex). Else it stands unless it begins a common word
-  (``data/zh_common_words.txt``), or its surname character is an ordinary one-character word followed by a common
-  word, with or without a one-character verb or adverb between (曾｜使用, 曾｜有｜出現). Measured: 97.9 % of
-  names kept, false refusals 100 % to 17.9 %.
+* **What always keeps a finding**: an honorific inside or after it, a sex after it, a surname of more than one
+  character, or a boundary after it (the end, or any character that is not kana or Han).
+* **Else, on a line with kana**: it stands only if the tokeniser tags a token inside it as a proper noun
+  (SudachiPy, split mode C, the pinned dictionary: :data:`DICTIONARY`).
+* **Else, on a line without kana**: no tokeniser. It stands unless it reads as words
+  (``data/zh_common_words.txt``): it begins a common word, or its surname character is an ordinary
+  one-character word followed by a common word (曾｜使用, 曾｜有｜出現); never when the characters after the
+  surname are ones given names are made of.
+
+The measured figures, the sets and what the first form of this rule got wrong are in D-647.
 
 **It fails closed** (the integrator's condition): when the tokeniser or its dictionary cannot be loaded, raises, or
 the line is longer than :data:`MAX_LINE`, the finding stands, as before this card; :func:`status` says which, for
@@ -41,47 +43,77 @@ MAX_LINE = 4000
 WORDS = Path(__file__).with_name("data") / "zh_common_words.txt"
 
 _KANA = re.compile(r"[぀-ヿ]")
-_BOUND = set("，,、。．.：:；;（()） 　\t\n！!？?／/")
-_FOLLOW = re.compile(r"^\s?(?:先生|小姐|女士|太太|老先生|老太太|阿嬤|阿公|君|[，,、\s]*[（(]?(?:男|女)[)）]?)")
+_CJK = re.compile(r"[぀-ヿ㐀-鿿]")  # kana and Han: anything else after a finding is a boundary
+_HONORIFIC = re.compile(phi_guard.HONORIFIC)
+_FOLLOW = re.compile(rf"^\s?(?:{phi_guard.HONORIFIC}|[，,、\s]*[（(]?(?:男|女)[)）]?)")
 _PROPER = "固有名詞"
+# a surname of more than one character says "name" by itself: the compound Chinese ones, the Japanese ones
+_LONG_SURNAMES = tuple(
+    sorted(phi_guard.ROC_COMPOUND | {x for x in phi_guard.JP_SURNAMES if len(x) > 1}, key=len, reverse=True)
+)
 
 
-# ------------------------------------------------------------------------------------------------ Chinese
+# ------------------------------------------------------------------------------------------------ the word list
 @lru_cache(maxsize=1)
-def _words() -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+def _words() -> tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]]:
     """(common words of 2 to 4 characters, very common one-character words, surname characters that are ordinary
-    one-character words) from the shipped list."""
-    word: set[str] = set()
-    one: set[str] = set()
-    plain: set[str] = set()
+    one-character words, characters given names are made of) from the shipped list."""
+    kinds: dict[str, set[str]] = {"word": set(), "one": set(), "plain": set(), "given": set()}
     with WORDS.open(encoding="utf-8", newline="") as fh:
         for row in csv.DictReader(fh):
-            {"word": word, "one": one, "plain": plain}[row["kind"]].add(row["word"])
-    return frozenset(word), frozenset(one), frozenset(plain & phi_guard.ROC_SURNAMES)
+            kinds[row["kind"]].add(row["word"])
+    if not all(kinds.values()):
+        raise ValueError(f"{WORDS.name}: a kind of the word list is empty")
+    plain = kinds["plain"] & phi_guard.ROC_SURNAMES
+    return frozenset(kinds["word"]), frozenset(kinds["one"]), frozenset(plain), frozenset(kinds["given"])
 
 
 def _any(words: frozenset[str], text: str, at: int) -> bool:
     return any(text[at : at + n] in words for n in (4, 3, 2))
 
 
-def zh_stands(text: str, start: int, end: int) -> bool:
-    """The Chinese rule (V6 of the measurement)."""
-    if end >= len(text) or text[end] in _BOUND or _FOLLOW.match(text[end:]):
-        return True
-    word, one, plain = _words()
-    if _any(word, text, start):  # the "name" begins a common word (高血壓, 許可)
+# ------------------------------------------------------------------------------------------------ the cues
+def _cue(text: str, start: int, end: int) -> bool:
+    """What says "a name" whatever the words around it: an honorific inside the match or right after it, a sex
+    after it, a surname of more than one character."""
+    found = text[start:end]
+    return bool(_HONORIFIC.search(found) or _FOLLOW.match(text[end:]) or found.startswith(_LONG_SURNAMES))
+
+
+def _boundary(text: str, end: int) -> bool:
+    """The match ends where the writing ends: the text's end, or any character that is not kana or Han (a
+    punctuation mark, a space, a line end of any kind, a digit, a Latin letter)."""
+    return end >= len(text) or not _CJK.match(text[end])
+
+
+def _reads_as_words(text: str, start: int, end: int) -> bool:
+    """The match is ordinary words, not a name: it begins a common word (高血壓, 許可), or its surname character
+    is an ordinary one-character word with a common word after it, with or without one short word between
+    (曾｜使用, 曾｜有｜出現). Never when every character after the surname is one that given names are made of
+    (黃｜志豪, 王｜家豪: 志豪 and 王家 are words too)."""
+    word, one, plain, given = _words()
+    rest = text[start + 1 : end]
+    if rest and all(ch in given for ch in rest):
         return False
-    # 曾, 高, 於 ... as a word of its own, and a common word after it (with or without one short word between)
+    if _any(word, text, start):
+        return True
     after = _any(word, text, start + 1) or (text[start + 1 : start + 2] in one and _any(word, text, start + 2))
-    return not (text[start] in plain and after)
+    return text[start] in plain and after
+
+
+def zh_stands(text: str, start: int, end: int) -> bool:
+    """The Chinese rule: a cue or a boundary keeps the finding; else it stands unless it reads as words."""
+    return _cue(text, start, end) or _boundary(text, end) or not _reads_as_words(text, start, end)
 
 
 # ------------------------------------------------------------------------------------------------ Japanese
 class _Tagger:
-    """SudachiPy with its dictionary, loaded once, on first use. ``error``: why it is not there."""
+    """SudachiPy with its dictionary, loaded once, on first use. ``error``: why it is not there, or what its last
+    failure was (``failed``: it has failed on a text since it was loaded)."""
 
     def __init__(self) -> None:
         self.error = ""
+        self.failed = False
         self._tok: Any = None
         self._mode: Any = None
         self._lock = threading.Lock()
@@ -100,19 +132,19 @@ class _Tagger:
                     self.error = f"{type(exc).__name__}: {str(exc)[:200]}"
         return self._tok is not None
 
-    def proper_noun(self, line: str, start: int, end: int) -> bool | None:
-        """Whether a token overlapping ``line[start:end]`` is tagged a proper noun; None: could not be told."""
+    def proper_nouns(self, line: str) -> list[tuple[int, int]] | None:
+        """The spans of ``line`` the tokeniser tags as proper nouns; None: could not be told."""
         if not self.load():
             return None
         try:
             with self._lock:  # one tokeniser object; the gateway calls from several threads
-                return any(
-                    m.part_of_speech()[1] == _PROPER
+                return [
+                    (m.begin(), m.end())
                     for m in self._tok.tokenize(line, self._mode)
-                    if m.begin() < end and m.end() > start
-                )
+                    if m.part_of_speech()[1] == _PROPER
+                ]
         except Exception as exc:
-            self.error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            self.error, self.failed = f"{type(exc).__name__}: {str(exc)[:200]}", True
             return None
 
 
@@ -120,29 +152,47 @@ _TAGGER = _Tagger()
 
 
 def _line(text: str, start: int, end: int) -> tuple[str, int, int]:
-    a = text.rfind("\n", 0, start) + 1
-    b = text.find("\n", end)
-    b = len(text) if b < 0 else b
+    a = max(text.rfind("\n", 0, start), text.rfind("\r", 0, start)) + 1
+    ends = [x for x in (text.find("\n", end), text.find("\r", end)) if x >= 0]
+    b = min(ends) if ends else len(text)
     return text[a:b], start - a, end - a
 
 
-def stands(text: str, start: int, end: int) -> bool:
-    """Whether the NAME finding ``text[start:end]`` stands. Never raises: whatever goes wrong, it stands."""
-    try:
-        line, s, e = _line(text, start, end)
-        if not _KANA.search(line):
-            return zh_stands(text, start, end)
-        if len(line) > MAX_LINE:
+class Look:
+    """The second look of one tripwire call: each line is put to the tokeniser once, and nothing of the text is
+    kept after the call."""
+
+    def __init__(self) -> None:
+        self._tagged: dict[str, list[tuple[int, int]] | None] = {}
+
+    def stands(self, text: str, start: int, end: int) -> bool:
+        """Whether the NAME finding ``text[start:end]`` stands. Never raises: whatever goes wrong, it stands."""
+        try:
+            line, s, e = _line(text, start, end)
+            if not _KANA.search(line):
+                return zh_stands(text, start, end)
+            if len(line) > MAX_LINE:
+                return True
+            if line not in self._tagged:
+                self._tagged[line] = _TAGGER.proper_nouns(line)
+            spans = self._tagged[line]
+            if spans is None or any(b < e and x > s for b, x in spans):
+                return True
+            # not tagged: a Chinese name in a line with kana (a drug's name is enough) is no proper noun to a
+            # Japanese dictionary. The cues keep it, and so does a boundary after text that does not read as words
+            return _cue(text, start, end) or _boundary(text, end)
+        except Exception:
             return True
-        tagged = _TAGGER.proper_noun(line, s, e)
-        return True if tagged is None else tagged
-    except Exception:
-        return True
+
+
+def stands(text: str, start: int, end: int) -> bool:
+    """:meth:`Look.stands` for one finding."""
+    return Look().stands(text, start, end)
 
 
 def status() -> dict[str, Any]:
-    """For ``doctor`` and a service's start: is the Japanese tokeniser there, and the Chinese list?"""
-    ok = _TAGGER.load()
+    """For ``doctor`` and a service's start: is the Japanese tokeniser there and working, and the Chinese list?"""
+    ok = _TAGGER.load() and not _TAGGER.failed
     try:
         n_words = len(_words()[0])
         words_error = ""
@@ -160,4 +210,4 @@ def status() -> dict[str, Any]:
     }
 
 
-__all__ = ["DICTIONARY", "MAX_LINE", "stands", "status", "zh_stands"]
+__all__ = ["DICTIONARY", "MAX_LINE", "Look", "stands", "status", "zh_stands"]

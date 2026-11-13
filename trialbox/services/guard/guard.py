@@ -46,20 +46,21 @@ def merge(findings: list[Finding]) -> list[Finding]:
 _CJK = re.compile(r"[぀-ヿ㐀-鿿]")
 
 
-def _unconfirmed(text: str, f: Finding) -> bool:
+def _unconfirmed(text: str, f: Finding, look: names.Look) -> bool:
     """A NAME finding in Chinese or Japanese writing that the second look takes away. A name in Latin letters
     (``Mr. Chen``) is not looked at again: it stands."""
-    return f.kind == "NAME" and bool(_CJK.search(text[f.start : f.end])) and not names.stands(text, f.start, f.end)
+    return f.kind == "NAME" and bool(_CJK.search(text[f.start : f.end])) and not look.stands(text, f.start, f.end)
 
 
 def _standing_names(text: str) -> list[str]:
     """The v1 guard's Chinese and Japanese names (:func:`tb_common.phi_guard._cjk_names`) that stand at one of the
     places they are written."""
     out = []
+    look = names.Look()
     for name in phi_guard._cjk_names(text):
         at = text.find(name)
         while at >= 0:
-            if names.stands(text, at, at + len(name)):
+            if look.stands(text, at, at + len(name)):
                 out.append(name)
                 break
             at = text.find(name, at + 1)
@@ -88,7 +89,8 @@ class Guard:
         for _name, rec in self._recognisers:
             found.extend(f for f in rec(text) if f.end > f.start)
         if second_look:
-            found = [f for f in found if not _unconfirmed(text, f)]
+            look = names.Look()
+            found = [f for f in found if not _unconfirmed(text, f, look)]
         return merge(found)
 
     def redact(self, text: str) -> str:

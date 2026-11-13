@@ -16,6 +16,8 @@ import pytest
 from guard import names
 from guard.guard import Guard
 
+from tests import guard_sets
+
 SETS = Path(__file__).resolve().parents[1] / "fixtures" / "guard"
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -33,18 +35,18 @@ class _Fake:
     """A tokeniser stand-in: ``tagged`` are the substrings it calls proper nouns; ``fail``: it raises."""
 
     def __init__(self, tagged: tuple[str, ...] = (), fail: bool = False, absent: bool = False) -> None:
-        self.tagged, self.fail, self.absent, self.error, self.asked = tagged, fail, absent, "", 0
+        self.tagged, self.fail, self.absent, self.error, self.asked, self.failed = tagged, fail, absent, "", 0, False
 
     def load(self) -> bool:
-        self.error = "ModuleNotFoundError: No module named 'sudachipy'" if self.absent else ""
+        self.error = "ModuleNotFoundError: No module named 'sudachipy'" if self.absent else self.error
         return not self.absent
 
-    def proper_noun(self, line: str, start: int, end: int) -> bool | None:
+    def proper_nouns(self, line: str) -> list[tuple[int, int]] | None:
         self.asked += 1
         if self.absent or self.fail:
-            self.error = self.error or "RuntimeError: tokeniser failed"
+            self.error, self.failed = self.error or "RuntimeError: tokeniser failed", True
             return None
-        return any(t in line and line.find(t) < end and line.find(t) + len(t) > start for t in self.tagged)
+        return [(line.find(t), line.find(t) + len(t)) for t in self.tagged if t in line]
 
 
 @pytest.fixture
@@ -86,7 +88,63 @@ def test_the_chinese_sets_hold_the_measured_figures() -> None:
     g = Guard(r"^\d{8}$")
     assert all(g.detect(x) for x in ordinary)  # before the second look: every sentence refused
     assert _refused(ordinary) <= 15  # 17.9 % of 84
-    assert _refused(with_names) >= 187  # 97.9 % of 191
+    assert _refused(with_names) >= 188  # 98.4 % of 191 (the card's first, easy set)
+
+
+def _let_through(shapes: dict[str, str], some_names: Any) -> tuple[int, int]:
+    """(names the patterns find, names the tripwire then lets through) over ``shapes`` x ``some_names``."""
+    g = Guard(r"^\d{8}$")
+    found = lost = 0
+    for _shape, text in guard_sets.rows(shapes, some_names):
+        if any(f.kind == "NAME" for f in g.detect(text)):
+            found += 1
+            lost += not g.tripwire(text).hit
+    return found, lost
+
+
+def test_the_hard_name_sets_hold_the_measured_figures() -> None:
+    """The review's shapes (``tests/guard_sets.py``). A cue or a boundary always keeps a name; what is let through
+    is a Chinese name run straight into text whose characters read as common words."""
+    assert _let_through(guard_sets.ZH_CUED, guard_sets.zh_names()) == (74750, 0)
+    assert _let_through(guard_sets.ZH_WITH_KANA, guard_sets.zh_names()) == (23000, 0)
+    found, lost = _let_through(guard_sets.ZH_RUNNING, guard_sets.zh_names())
+    assert found == 34500 and lost <= 940  # 2.72 %; 3.3 % in each shape with nothing but text after the name
+    found, lost = _let_through(guard_sets.ZH_RUNNING, guard_sets.zh_names(guard_sets.ZH_GIVEN_ONE))
+    assert found == 8280 and lost <= 82  # 0.99 %
+    assert _let_through(guard_sets.JA_NO_KANA, guard_sets.ja_names()) == (5568, 0)
+    found, lost = _let_through(guard_sets.JA_KANA, guard_sets.ja_names())
+    assert found == 6496 and lost <= 5  # 0.08 %: 林愛, 林学 after a label
+
+
+def test_the_stated_limit_a_name_that_reads_as_words_and_runs_into_text_is_let_through() -> None:
+    """What the owner's trade costs, written down as a test so it is seen when it changes: the surname is an
+    ordinary one-character word (黃 "yellow"), the given name is a common word (志豪) whose characters are not
+    both among the ones names are most often made of, and text follows with no boundary. With a boundary or a
+    cue the same name stands."""
+    g = Guard()
+    assert g.detect("個案黃志豪主訴頭痛") and not g.tripwire("個案黃志豪主訴頭痛").hit
+    assert g.tripwire("個案黃志豪，主訴頭痛").hit and g.tripwire("黃志豪先生主訴頭痛").hit
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "王家豪，男，65歲，服用ロキソニン後改善",  # a Chinese name on a line with kana: the cue keeps it
+        "病人林怡君，主訴のど痛三天",
+        "林怡君さんは本日来院した。",
+        "病人歐陽志明今日回診",  # a compound surname is no common word
+        "王國華先生表示頭暈",  # an honorific inside the match
+        "聯絡人黃志豪先生將與您聯繫",
+        "病人王家豪\r\n主訴頭痛",  # a line end of any kind is a boundary
+        "病人王家豪\u00a0主訴頭痛",
+        "山口一郎様来院",  # a Japanese name on a line without kana
+        "中村健一氏同意取得済",
+        "病人高建國於門診追蹤",  # the surname is an ordinary word, the given name a common word: 建 and 國 are name characters
+    ],
+)
+def test_the_reviews_names_stand(text: str) -> None:
+    v = Guard().tripwire(text)
+    assert v.hit and "NAME" in v.kinds
 
 
 # ------------------------------------------------------------------------------------------------ Japanese
@@ -105,8 +163,8 @@ def test_without_a_working_tokeniser_every_japanese_name_finding_stands(tagger: 
     g = Guard()
     for text in ("患者 高血圧の既往あり、内服を継続している。", "患者 山田太郎さんに病状を説明した。"):
         assert g.tripwire(text).hit == bool(g.detect(text)) is True
-    st = names.status()
-    assert st["tokeniser"] is (not how.get("absent", False)) and (st["error"] or not how.get("absent"))
+    st = names.status()  # doctor's source: a tokeniser that is absent, or has failed on a text, is not "there"
+    assert st["tokeniser"] is False and st["error"] and "none is let through" in st["effect"]
 
 
 def test_a_line_too_long_for_the_tokeniser_is_not_asked_and_stands(tagger: Any) -> None:
@@ -186,8 +244,8 @@ def test_doctor_says_when_the_second_look_cannot_check(tagger: Any) -> None:
 
 
 def test_the_shipped_word_list_is_the_measured_one() -> None:
-    word, one, plain = names._words()
-    assert (len(word), len(one)) == (159721, 531)
+    word, one, plain, given = names._words()
+    assert (len(word), len(one), len(given)) == (159721, 531, 136)
     assert "".join(sorted(plain)) == "于何余古嚴尤戴曾涂游白許謝高黃黄"  # surnames that are ordinary words
     assert {"使用", "出現", "血壓", "高血壓"} <= word and "有" in one
 
@@ -196,7 +254,7 @@ def test_the_word_list_is_the_built_one_and_its_sources_are_in_no_lock() -> None
     """D-647: the list is data, rebuilt by ``tools/zh_common_words.py`` from the named dictionary file; the
     packages it is built with are build-time tools and never reach a lock or an image."""
     assert hashlib.sha256(names.WORDS.read_bytes()).hexdigest() == (
-        "d2526b597a5f1866af08c447bedefb78fdc34cd166679b27b83cf4f9cbcc6c62"
+        "7e25b2267894b3af247ed6e8d0f7eceee0305b11f8a1e195b0621dccb96654ec"
     )
     locks = [ROOT / "uv.lock", *sorted((ROOT / "deploy").glob("*.lock")), ROOT / "tools/supply_chain/pip-audit.lock"]
     assert len(locks) >= 3
