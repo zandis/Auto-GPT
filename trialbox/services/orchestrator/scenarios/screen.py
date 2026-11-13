@@ -769,7 +769,7 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
     return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
             "snapshot": run.snapshot, "judging": run.judging or {}, "rows": rows,
             "confirmed_facts": "not read" if facts is None else "read",
-            "coded_values": "read" if run.coded_values_read else "not read"}  # fmt: skip
+            "coded_values": "read" if getattr(run, "coded_values_read", True) else "not read"}  # fmt: skip
 
 
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:

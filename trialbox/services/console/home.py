@@ -829,7 +829,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         }
 
     # ------------------------------------------------------------------ excluded patients and why (P-04, D-143)
-    ex_sources = ("coded", "fact", "notes", "rule")
+    # "records": the confirmed facts could not be read on that run (D-652): from the records, confirmed or not
+    ex_sources = ("coded", "fact", "records", "notes", "rule")
 
     def excluded_bundle(rid: str) -> tuple[Job | None, dict[str, Any] | None]:
         """The latest screening run of the study that stored its excluded list (``excluded_*.json``)."""
