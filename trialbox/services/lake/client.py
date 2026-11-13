@@ -29,6 +29,11 @@ class LakeAPI(Protocol):
     def snapshot(self) -> str | None: ...
 
 
+class LakeUnhealthy(RuntimeError):
+    """The lake answered, but not with a health answer that says which snapshot it serves (D-672). Never to be read
+    as "the lake holds no data"."""
+
+
 class LakeHttp:
     def __init__(self, base_url: str, timeout: float = 330, poll: Any = None) -> None:
         self.base = base_url.rstrip("/")
@@ -53,7 +58,7 @@ class LakeHttp:
         body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day))
         resp = self.client.post(f"{self.base}/query", json=body, headers=headers)
         if resp.status_code != 200:
-            raise RuntimeError(f"lake query failed ({resp.status_code}): {resp.text[:500]}")
+            raise RuntimeError(f"lake query failed ({resp.status_code}): {_detail(resp)}")
         return pa.ipc.open_stream(resp.content).read_all()
 
     def chunks_search(
@@ -171,9 +176,31 @@ class LakeHttp:
         return {str(k): str(v) for k, v in resp.json()["holds"].items()}
 
     def snapshot(self) -> str | None:
-        body = self.client.get(f"{self.base}/healthz").json()
-        snap = body.get("checks", {}).get("snapshot")
-        return None if snap in (None, "none") else str(snap)
+        """The snapshot the lake serves, from its ``/healthz``. **None only for a healthy lake that has none**
+        (NEW-B-31, D-672): callers read None as "this lake holds no data".
+
+        * a name under ``checks.snapshot``: that name, also from a lake that answers 503 because another of its
+          checks failed (its snapshot check did not: the name is the served night);
+        * ``"none"`` from a healthy lake (200): None;
+        * anything else raises :class:`LakeUnhealthy`: the lake's snapshot check failed (``/healthz`` then answers
+          503 and names the check in place of its key), ``"none"`` from a lake that is not healthy, an answer that
+          is not the lake's health answer (a proxy's page, another status). The error carries the status, never
+          the body. A lake that cannot be reached raises the transport's error, as before."""
+        resp = self.client.get(f"{self.base}/healthz")
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        checks = body.get("checks") if isinstance(body, dict) else None
+        snap = checks.get("snapshot") if isinstance(checks, dict) else None
+        if isinstance(snap, str) and snap and snap != "none":
+            return snap
+        if snap == "none" and resp.status_code == 200:
+            return None
+        raise LakeUnhealthy(
+            f"the lake's health answer ({resp.status_code}) does not say which snapshot it serves: the lake is not "
+            "healthy or could not read its snapshot. This is not a lake without data"
+        )
 
 
 class LakeLocal:
@@ -249,14 +276,26 @@ class LakeLocal:
         return self.lake.rebuild_state(snapshot)
 
 
+NOT_THE_LAKES = "an answer that is not the lake's own; its body is not kept"
+
+
+def _detail(resp: httpx.Response) -> str:
+    """What the lake service said (NEW-B-31, D-672): its ``detail`` when the answer is the lake's own (a JSON
+    object whose ``detail`` is a sentence: D-664 made those safe). Any other body (a proxy's page, another
+    responder's trace, JSON of another shape) is not repeated: it is not the lake's, and it can hold anything."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return NOT_THE_LAKES
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return detail if isinstance(detail, str) and detail else NOT_THE_LAKES
+
+
 def _refusal(resp: httpx.Response, snapshot: str) -> Exception:
     """The lake service's answer to a rebuild it would not start, as the in-process lake raises it (D-462, D-271)."""
     from lake.store import BUSY_HEADER, RebuildError, SnapshotBuilding, SnapshotHeld
 
-    try:
-        detail = str(resp.json().get("detail"))
-    except ValueError:
-        detail = resp.text[:500]
+    detail = _detail(resp)
     if resp.status_code == 409:
         busy = resp.headers.get(BUSY_HEADER)
         if busy == "building":
