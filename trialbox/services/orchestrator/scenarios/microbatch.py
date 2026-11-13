@@ -117,6 +117,14 @@ def _set_option(ctx: Ctx, key: str, value: str) -> None:
     ctx.update(options={**(ctx.job.options or {}), key: value})
 
 
+#: an "unknown" that says nothing about the patient: the model was not asked or did not answer
+NOT_ASKED = (Reason.NOT_EVALUATED.value, Reason.MODEL_DOWN.value)
+
+
+def _not_asked(v: CriterionVerdict) -> bool:
+    return v.verdict == "unknown" and v.evidence is not None and v.evidence.reason in NOT_ASKED
+
+
 def night_budget(ctx: Ctx) -> int:
     """The configured night budget in patients (0: no limit)."""
     return int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
@@ -235,6 +243,7 @@ class Seen:
     excluded: set[str] = field(default_factory=set)  # on SCREEN's excluded list
     earlier: set[str] = field(default_factory=set)  # screened by an earlier micro-batch (its record)
     again: dict[str, str] = field(default_factory=dict)  # pid -> the day a weekly run last screened it again
+    out: set[str] = field(default_factory=set)  # screened by a weekly run and not listed (a record from D-642 on)
 
     @property
     def everyone(self) -> set[str]:
@@ -248,6 +257,7 @@ def read_sources(ctx: Ctx, keys: list[str]) -> Seen:
         if "pids" in doc:  # a micro-batch record
             out.earlier |= {str(p) for p in doc["pids"]}
             out.again.update({str(p): str(d) for p, d in (doc.get("again") or {}).items()})
+            out.out |= {str(p) for p in doc.get("out") or []}
         for r in doc.get("rows") or []:
             # a candidate list's row carries its tier; a row of the excluded list carries the failing criteria
             (out.listed if "tier" in r else out.excluded).add(str(r.get("pid")))
@@ -264,15 +274,19 @@ def pool_as_received(ctx: Ctx, rs: Ruleset, keys: list[str]) -> list[dict[str, A
     """The pool as it stood when the job was received. A row this job wrote after its receipt that no earlier run
     listed is one of this job's own new patients (a resumed job, or a re-run on the pool the original left; a
     re-run's copy of the pool keeps no first-added time): it is not the pool's. Neither is the row this job wrote
-    for a patient SCREEN had excluded (D-642): it is one this job brought back, and is screened again as on the
-    first run."""
+    for a patient an earlier run had excluded (D-642): it is one this job brought back, and is screened again as
+    on the first run."""
     got = ctx.job.received_at
     rows = ctx.orch.db.pool(rs.id)
     mine = [p for p in rows if p.get("job_id") == ctx.job.job_id and (_aware(p.get("added_at")) or got) >= got]
     if not mine:
         return rows
+    # the pool's: on SCREEN's candidate list, or screened and listed by an earlier weekly run. Not the pool's: one
+    # SCREEN excluded, or an earlier weekly run screened and did not list (the record's ``out``, D-642): the row
+    # this job wrote for him is one it brought back. (A row's first-added time cannot tell: a re-run's copy of the
+    # pool stamps it with the row's last evaluation.)
     src = read_sources(ctx, keys)
-    listed = src.listed | src.earlier
+    listed = src.listed | (src.earlier - src.out)
     drop = {p["pid"] for p in mine if p["pid"] not in listed}
     return [p for p in rows if p["pid"] not in drop]
 
@@ -360,6 +374,8 @@ def run(ctx: Ctx) -> Outcome:
             if v.id not in ts:
                 continue
             prev = old.get(v.id)
+            if prev is not None and prev.verdict in ("pass", "fail") and _not_asked(v):
+                continue  # D-642: nobody was asked (a hold, no judge, the model down): the stored answer stands
             if prev is None or prev.verdict != v.verdict:
                 changed.append(v.id)
                 changes.append(
@@ -454,6 +470,8 @@ def run(ctx: Ctx) -> Outcome:
             src = read_sources(ctx, keys)
             earlier = src.earlier
             seen = src.everyone | pool_pids
+            # pool rows that are excluded as this run leaves them (not the ones of another version: screened above)
+            pool_out = {r.pid for r in pool_rows if r.tier == "excluded"}
 
             def select(scope: list[Scoped]) -> list[Scoped]:
                 nonlocal carried, back_carried
@@ -468,9 +486,10 @@ def run(ctx: Ctx) -> Outcome:
                 carried = len(cand) - len(take)
                 if on_ingest:  # the after-ingest run looks at new booked patients only
                     return take
-                # NEW-LIFE-4 (D-642): looked at before, not in the pool, still in scope: excluded by SCREEN or by
-                # an earlier weekly run. The one screened again longest ago first (never: first), then by visit
-                out = [s for s in scope if s.pid in seen and s.pid not in pool_pids]
+                # NEW-LIFE-4 (D-642): looked at before, not listed, still in scope: excluded by SCREEN or by an
+                # earlier weekly run, or an excluded row of the pool (a re-check or a version re-screen left it).
+                # The one screened again longest ago first (never: first), then by visit
+                out = [s for s in scope if s.pid in seen and (s.pid not in pool_pids or s.pid in pool_out)]
                 out.sort(
                     key=lambda s: (
                         src.again.get(s.pid, ""),
@@ -486,7 +505,6 @@ def run(ctx: Ctx) -> Outcome:
 
             srun = run_screen(ctx, rs, run_date, snapshot, select=select)
             screened = [s.pid for s in srun.scoped]
-            back = [p for p in back if p in set(screened)]  # the register may have taken one out of the run
             if screened:
                 judging = srun.judging
             new_rows = [
@@ -494,6 +512,10 @@ def run(ctx: Ctx) -> Outcome:
             ]
             persist_pool(ctx, rs, new_rows)
             back_rows = [r for r in new_rows if r.pid in set(back)]
+            # one who was an excluded row of the pool and is listed again has one row: the new one
+            again_listed = {r.pid for r in back_rows}
+            pool_rows = [r for r in pool_rows if r.pid not in again_listed]
+            week_rows = [r for r in week_rows if r.pid not in again_listed]
             cascade_runs.append(srun)
             looked = {**src.again, **dict.fromkeys(back, run_date.isoformat())}
             record = {
@@ -501,6 +523,9 @@ def run(ctx: Ctx) -> Outcome:
                 "run_date": run_date.isoformat(),
                 "pids": sorted(earlier | set(screened)),
                 "again": dict(sorted(looked.items())),
+                # screened by a weekly run and not listed, as this run leaves it: a later job that brings one back
+                # knows the row is its own (pool_as_received)
+                "out": sorted((src.out | set(screened)) - {r.pid for r in new_rows}),
             }
             body = json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
             ctx.publish(f"{NEW_DOC}{rs.id}_v{rs.version}.json", body, "phi", [])  # the console and the next run only

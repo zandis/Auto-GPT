@@ -28,8 +28,9 @@ Screening over time had two holes, one failure seen from two sides.
    is re-checked. Who is re-checked is unchanged: pool patients with a visit in the window, nearest first, inside
    the night budget.
 2. **Excluded patients are screened again by the weekly run.** An excluded patient is one in the study's scope (the
-   scope query of SCREEN, today) whom a run has looked at since the last SCREEN and who is not in the pool: on that
-   SCREEN's excluded list, or screened and not listed by an earlier weekly run. They are screened in full (the same
+   scope query of SCREEN, today) whom a run has looked at since the last SCREEN and who is not listed: on that
+   SCREEN's excluded list, screened and not listed by an earlier weekly run, or an excluded row of the pool (a
+   re-check or a version re-screen leaves one; the review of this card found "not in the pool" missed it). They are screened in full (the same
    `run_screen` as a new patient: the opt-out register and the consent rule apply), after the re-checks, the rows
    of another criteria version and the new patients, inside the night budget.
 3. **Fair under a small budget.** The micro-batch record (`new_screened_*.json`) gains `again`: pid to the day a
@@ -40,8 +41,17 @@ Screening over time had two holes, one failure seen from two sides.
    as a new candidate is. One who stays excluded is recorded as looked at and is not listed.
 5. **Not after an ingest, not with `incident=0`.** The after-ingest run still looks only at new booked patients,
    and `incident=0` is still a re-check only.
-6. **A resumed job** screens again the patient it brought back, as it does its own new patients: the pool row this
-   job wrote for a patient on SCREEN's excluded list is not counted as the pool's (`pool_as_received`).
+6. **A resumed job** screens again the patient it brought back, as it does its own new patients. The record gains
+   `out`: the patients a weekly run screened and did not list, as that run left them. The pool's own rows are the
+   ones on SCREEN's candidate list, or screened and listed by an earlier weekly run; a row this job wrote for
+   anybody else is one it brought back (`pool_as_received`). A row's first-added time cannot tell this: a re-run's
+   copy of the pool stamps it with the row's last evaluation (found when the byte-identical re-run test failed on
+   the first attempt at this fix). A record written before this card has no `out`: its patients count as listed,
+   as before.
+8. **A model that was not asked changes nothing.** The wider re-check asks the model for a mixed criterion the
+   codes do not settle. Under a hold, with no judge, or with the model down, the answer is "unknown" with the
+   reason `not_evaluated` or `model_down`: it says nothing about the patient. Such an answer no longer replaces a
+   stored pass or fail and is not a change on the list. An unknown the data gives (a data gap) still does.
 7. **What the run says.** The summary's second line counts new patients as before; a third line says how many
    earlier excluded patients were screened again and how many are back on the list. The audit event
    `microbatch.budget` gains `excluded_rescreened`, `excluded_back`, `excluded_carried`; its `new_screened` counts
@@ -56,9 +66,16 @@ No new setting and no new limit: the bound is the night budget (`TB_MICROBATCH_N
   codes do not settle it asks the model, as at SCREEN; an excluded patient screened again may reach the note
   stage. With the default budget of 2,000 patients a night the work is bounded; with the budget set to 0 (no
   limit) every excluded patient in scope is screened every week.
-- A patient the earlier weekly run brought back, in a job resumed after that write: where the patient was in an
-  earlier record and not on SCREEN's excluded list, the resumed job counts the row as the pool's (it is on the
-  list; it is not shown as "changed" again).
+- **Excluded patients come last in the night.** A study whose share of the budget is used up every week by
+  re-checks and new patients never reaches them; the summary and the audit say how many were carried over. No
+  slice is reserved for them: that would be a new limit, and its size is the owner's to set once the cost is known.
+- **A whole-hospital scope.** Where SCREEN's scope is most of the hospital, nearly all of it is "excluded", so every
+  weekly run fills what is left of its share with full screens, note stage included, week after week. That is what
+  the night budget is for, but it is new load from the first run after this card.
+- A patient SCREEN took out by the consent rule is on its excluded list, so the weekly run looks at him again each
+  week (and takes him out again): a budget slot, and a count in "screened again".
+- The record's `again` is never pruned (as its `pids` never was): the same object, class and erasure rule.
+- Two weekly jobs of one study in one night: the second does not see the first's record (as before this card).
 - The week page does not yet show "last full screen: N days ago" (the console, lane C).
 - A pool patient with no visit in the window is still not re-checked (as before).
 - Not every exclusion can end; this card does not tell which. Each excluded patient in scope is screened again.
@@ -70,5 +87,7 @@ plus the flagged ones; RA-JAK has no flag and "serious infection" is in its set;
 had not flagged takes a pool patient off the week's list; a patient excluded at SCREEN and in scope is screened
 again, one out of scope is not; one an earlier weekly run excluded comes back; the budget holds and the order is
 never, then oldest; nobody comes back after an ingest or with `incident=0`; one who stays excluded is recorded and
-not listed; a resumed job. Two cases of `tests/unit/test_microbatch_cadence.py` asserted the old rule and are
-changed on purpose, each saying why.
+not listed; a resumed job. From the review: a resumed job of a later week; a model that was not asked does not
+replace a stored answer, an unknown from the data does; an excluded row of the pool comes back and is listed
+once. Two cases of `tests/unit/test_microbatch_cadence.py` asserted the old rule and are changed on purpose, each
+saying why.

@@ -172,3 +172,109 @@ def test_a_resumed_job_screens_again_the_one_it_brought_back(monkeypatch: pytest
 
 def test_the_stand_in_verdicts_of_this_file_are_the_cadence_tests_own() -> None:
     assert {v.id for v in _verdicts()} == {c.id for c in GZQO.active()}
+
+
+# ------------------------------------------------------------------------------------------------ review of #422
+def test_a_resumed_job_of_a_later_week_also_screens_again_the_one_it_brought_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M1: after one weekly run screened X1 again, X1 is in the record's ``pids``; the next week's job, resumed
+    after it wrote X1's pool row, counted that row as the pool's: nobody "came back", ``again`` kept the old day."""
+    from datetime import timedelta
+
+    from tests.unit.test_microbatch_cadence import RECEIVED, _pool_row
+
+    def box() -> _Box:
+        b = _Box(pool=["P1"], booked={}, scope=[_new("X1", FRI)], excluded_at_screen=("X1",),
+                 options={"seen_from": "k-excl,k-prev", "night_left": "-1"})  # fmt: skip
+        b.store["k-prev"] = json.dumps({"pids": ["X1"], "again": {"X1": "2026-09-30"}, "out": ["X1"]}).encode()
+        return b
+
+    first = box()
+    first.go(monkeypatch)
+    resumed = box()
+    resumed.pool.append(_pool_row("X1") | {"job_id": "J-MB", "added_at": (RECEIVED + timedelta(minutes=5)).isoformat()})
+    resumed.go(monkeypatch)
+    assert first.screened == resumed.screened == ["X1"]
+    record = json.loads(resumed.published[RECORD])
+    assert record["again"] == {"X1": WED.isoformat()} and record["out"] == []  # listed now: no longer out
+    assert resumed.budget_event()["excluded_back"] == first.budget_event()["excluded_back"] == 1
+
+
+def test_the_record_says_whom_the_weekly_run_did_not_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _HalfOut(_Box):
+        def run_screen(self, ctx: Any, rs: Any, run_date: Any, snapshot: str, select: Any = None) -> Any:
+            got = super().run_screen(ctx, rs, run_date, snapshot, select)
+            got.rows = [r.model_copy(update={"tier": "excluded"}) if r.pid != "N1" else r for r in got.rows]
+            return got
+
+    box = _HalfOut(pool=["P1"], booked={}, scope=[_new("N1", FRI), _new("N2", FRI), _new("X1", FRI)],
+                   excluded_at_screen=("X1",))  # fmt: skip
+    box.go(monkeypatch)
+    record = json.loads(box.published[RECORD])
+    assert record["pids"] == ["N1", "N2", "X1"] and record["out"] == ["N2", "X1"]
+
+
+class _NotAsked(_Box):
+    """A box whose re-check could not ask the model: ``cid`` comes back unknown with ``reason``."""
+
+    cid = ""
+    reason = "not_evaluated"
+
+    def evaluate_scope(self, ctx: Any, rs: Any, run_date: Any, snap: str, scoped: list[Any], **kw: Any) -> Any:
+        self.evaluated.append([s.pid for s in scoped])
+        fresh = [
+            CriterionVerdict(id=self.cid, verdict="unknown", evidence=Evidence(resource_refs=[], reason=self.reason))
+        ]
+        return {s.pid: PatientVerdicts(s.pid, fresh, "review", [], 1) for s in scoped}
+
+
+@pytest.mark.parametrize("reason", ["not_evaluated", "model_down"])
+def test_a_model_that_was_not_asked_does_not_replace_a_stored_answer(
+    monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    """M2: every mixed criterion is now re-checked, and one the codes do not settle asks the model. Under a hold,
+    with no judge or with the model down the answer is "unknown: not evaluated": it said nothing about the patient,
+    so the stored answer stands and nothing is reported as a change."""
+    mixed = next(
+        c.id for c in GZQO.active() if c.class_ == "structured" and c.kind == "exclusion"
+    )  # any re-checked one
+    box = _NotAsked(pool=["P1"], booked={"P1": FRI}, scope=[])
+    box.cid, box.reason = mixed, reason
+    out = box.go(monkeypatch)
+    cl = json.loads(box.published["candidate_list_GZQO_v" + GZQO.version + ".json"])
+    stored = next(v for v in cl["rows"][0]["criteria"] if v["id"] == mixed)
+    assert stored["verdict"] == "pass" and cl["rows"][0]["tier"] == "high"
+    assert "Verdict changes: 0" in out.summary_md
+
+
+def test_an_unknown_the_data_gives_still_replaces_a_stored_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only "nobody was asked" is ignored: an unknown that says something (a data gap) is the new answer."""
+    coded = next(c.id for c in GZQO.active() if c.class_ == "structured" and c.kind == "inclusion")
+    box = _NotAsked(pool=["P1"], booked={"P1": FRI}, scope=[])
+    box.cid, box.reason = coded, "data_gap"
+    out = box.go(monkeypatch)
+    assert "Verdict changes: 1" in out.summary_md
+
+
+def test_a_pool_row_that_is_excluded_comes_back_too_and_is_listed_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M3: a re-check or a version re-screen leaves an excluded row in the pool. "Not in the pool" missed it, so
+    that patient was never screened again in full. He is now; one who is listed again has one row on the list."""
+    box = _Box(pool=["P1", "P-OUT"], booked={"P-OUT": FRI}, scope=[_new("P-OUT", FRI), _new("P1", None)], options={})
+    out_row = next(p for p in box.pool if p["pid"] == "P-OUT")
+    out_row["tier"] = "excluded"
+    fail = next(c.id for c in GZQO.active() if c.class_ == "structured" and c.kind == "exclusion")
+    for v in out_row["verdicts"]:
+        if v["id"] == fail:
+            v["verdict"], v["final"] = "fail", True
+
+    def nothing_new(ctx: Any, rs: Any, run_date: Any, snap: str, scoped: list[Any], **kw: Any) -> Any:
+        box.evaluated.append([s.pid for s in scoped])
+        return {}
+
+    box.evaluate_scope = nothing_new  # type: ignore[method-assign]
+    box.go(monkeypatch)
+    assert box.screened == ["P-OUT"]  # P1 is listed: not screened again
+    cl = json.loads(box.published["candidate_list_GZQO_v" + GZQO.version + ".json"])
+    assert sorted(r["pid"] for r in cl["rows"]) == ["P-OUT", "P1"] and cl["summary"]["excluded"] == 0
+    assert box.delivered == [["P-OUT"]] and box.budget_event()["excluded_back"] == 1
