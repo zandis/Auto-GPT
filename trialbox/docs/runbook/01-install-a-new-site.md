@@ -66,6 +66,11 @@ for every image a bundle carries; the dated exceptions and open findings are in 
    and container toolkit when there is a GPU (GB10: driver 580.142, held). See [Security §1](../SECURITY.md#1-the-host).
 2. **Images.** `tools/apply_update.sh trialbox-<version>.tar` loads images, models and approved rulesets. A
    development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10).
+   A new box holds **no study**: the shipped example rulesets are seeded only where `TB_ENV` is DEV or TEST
+   (D-640). The site's first study is compiled and approved in the console. For a synthetic run on a PRODUCTION
+   box (never beside real patients), an operator installs an example after the stack is up:
+   `docker compose exec criteria-compiler sh -c 'cd /app/rulesets && python -m zipfile -c /tmp/GZQO.zip GZQO &&
+   python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by "synthetic-run:<who>"'`.
    The embedder's folder is `deploy/models/embedder`: the whole folder of the release (the registry's
    `e-embed-1` row: the publisher's revision without its three pickle files; README and images included), because
    its pin is the digest of every file in it (ENG-003, D-563). The judge's chat template goes beside the weights, at
