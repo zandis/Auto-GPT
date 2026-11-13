@@ -182,15 +182,17 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
         return note.text[:lo]
     centres = sorted(i for i in first if i in chosen)
     # the lead-in of the evidence's list ("denies the following:"), the line right above it, before the heading:
-    # it says most about the evidence, and with room for one of the two the heading alone, across a cut, would
-    # read as the list's title (D-645: seen on the denied-list case at a budget of 90)
-    no_head: set[int] = set()  # evidence whose lead-in did not fit: no heading across the cut for it either
+    # it says most about the evidence, and with room for one of the two the heading alone, across a cut, read as
+    # the list's title (D-645: the denied-list case at a budget of 90). When the lead-in does not fit the heading
+    # is still shown: under "family history" it is the context, and bare evidence says no more of a denial than
+    # the heading does (second review of D-645). Only the line right above: a colon line further up is not
+    # carried across a cut (D-641), so the second and later items of such a list are as before
     for i in centres:
-        if i > 0 and _COLON.search(sents[i - 1]) and not take(i - 1):
-            no_head.add(i)
+        if i > 0 and _COLON.search(sents[i - 1]):
+            take(i - 1)
     heads: set[int] = set()  # the heading each evidence sentence stands under, when it is shown
     for i in centres:
-        h = None if i in no_head else next((k for k in range(i - 1, -1, -1) if _is_heading(sents, k)), None)
+        h = next((k for k in range(i - 1, -1, -1) if _is_heading(sents, k)), None)
         if h is not None and take(h):
             heads.add(h)
     up = {i: i - 1 for i in centres}

@@ -376,18 +376,19 @@ def test_a_repeated_evidence_sentence_is_still_shown_once_before_any_second_copy
 
 def test_with_room_for_one_line_more_the_lead_in_goes_before_the_heading() -> None:
     """D-645: the heading was taken first; with room for one of the two the excerpt read "[...] 【過去病史】 [...]
-    肺結核。": the denied list under the title of the patient's own history."""
+    肺結核。": the denied list under the title of the patient's own history. From the first budget that holds the
+    lead-in with its evidence, the lead-in is shown; below it the heading may still stand (second review: under
+    "family history" it is the context, and hiding it gains nothing)."""
     text = "【過去病史】\n" + "高血壓。\n" * 40 + "病人否認下列病史：\n肺結核。\nB型肝炎。"
     note = _n("n", "2026-10-01", text)
-    lead_in_alone = []
-    for cap in range(note_tokens("肺結核。"), 200):
-        lines = clip(note, ["肺結核。"], cap).split("\n")
-        if "【過去病史】" in lines:  # never the title of the history without the line that denies the list
-            assert "病人否認下列病史：" in lines, cap
-        elif "病人否認下列病史：" in lines:
-            assert lines[lines.index("病人否認下列病史：") + 1] == "肺結核。"
-            lead_in_alone.append(cap)
-    assert lead_in_alone  # and there are budgets with room for one of the two: the lead-in is the one
+    shown = {cap: clip(note, ["肺結核。"], cap).split("\n") for cap in range(note_tokens("肺結核。"), 200)}
+    with_lead_in = [cap for cap, lines in shown.items() if "病人否認下列病史：" in lines]
+    assert with_lead_in == list(range(with_lead_in[0], 200))  # once it fits, always
+    assert all(shown[c][shown[c].index("病人否認下列病史：") + 1] == "肺結核。" for c in with_lead_in)
+    assert "【過去病史】" not in shown[with_lead_in[0]]  # room for one of the two: the lead-in is the one
+    family = "【既往歴】\n" + "高血圧症。\n" * 20 + "【家族歴】\n" + "父：" + "あ" * 40 + "：\n肺結核。\n糖尿病。"
+    cut = clip(_n("n", "2026-10-01", family), ["肺結核。"], 60).split("\n")
+    assert "【家族歴】" in cut and "肺結核。" in cut  # a lead-in too long to fit does not hide the heading
 
 
 def test_one_line_longer_than_the_cap_is_cut_in_a_few_steps_whatever_it_holds() -> None:

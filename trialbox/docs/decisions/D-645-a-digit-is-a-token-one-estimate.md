@@ -53,8 +53,19 @@ full-width punctuation (，：（）) as a quarter token: its range of "CJK" end
 5. Found by the whole unit suite on this card (the clipped-note cases of lane G's run, #439): with the larger
    count, at a budget of 90 the zh-TW denied list was shown as "[…] 【過去病史】 […] 肺結核。": the heading was
    taken before the line right above the evidence, and there was room for one of the two. `clip` now takes the
-   evidence's lead-in (the line right above it when it ends in a colon) before the heading, and shows no heading
-   across the cut for an evidence sentence whose lead-in did not fit. (NEW-LLM-1, D-641, took the heading first.)
+   evidence's lead-in (the line right above it when it ends in a colon) before the heading. (NEW-LLM-1, D-641,
+   took the heading first.)
+6. From the second review (of item 5 alone, by running, 29,647 clips of random notes against the parent: no
+   property of D-641 lost):
+   - a first form also hid the heading when the lead-in did not fit. Under 【家族歴】 that removed true context
+     (the excerpt read as the patient's own history), and in the denial case bare evidence says no more of the
+     denial than the heading did. Removed: the heading is shown as before when the lead-in does not fit;
+   - **limits, as before this card:** the lead-in is taken only when it is the line right above the evidence. For
+     the second and later items of a denied list, at caps of about 40 to 105 tokens, the heading can still stand
+     across a cut without the denial line (a colon line further up is not carried across a cut: D-641's review).
+     A colon written as U+FE30 or U+FE55, or a lead-in without a colon, is not seen as a lead-in. A label line
+     ("処方：") right above the evidence is taken as its lead-in. The cap is half the budget and the smallest real
+     budget is 2,500 tokens; a clipped note is left out and its answer never final, whatever the clip shows.
 
 ## What this changes for a site
 
