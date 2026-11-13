@@ -50,19 +50,24 @@ class Unavailable(RuntimeError):
     """A service the console needs did not answer."""
 
 
-_FAILED = re.compile(r"^([a-z][a-z0-9_-]{0,31}) returned (\d{3})\b")
-_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,39}$")
+_CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,30}$")
+
+
+def failed(exc: ServiceError) -> Unavailable:
+    """A call to a service that failed, as the console keeps it (NEW-TRUST-3, D-555): the service and its status
+    ("orchestrator returned 500"). Not the text the service answered with: that text can repeat what was sent (a
+    record, a chart number of a path), and an ``Unavailable`` is shown on pages and in ``/api/v1`` answers."""
+    return Unavailable(f"{exc.service} returned {exc.status}")
 
 
 def service_and_status(exc: Exception) -> str:
-    """What a page may say of a call that failed (NEW-TRUST-3, D-555): the service and its status
-    ("orchestrator (500)"), or a refusal's code, never the text the service answered with: that text can repeat
-    what was sent (a record, a chart number in a path). "-" when the error names neither."""
+    """What a page may say of a call that failed or was refused: a refusal's code when it has the shape of one of
+    the orchestrator's codes (``RC-FIELD``), else the error's own text when it is an ``Unavailable`` (which never
+    holds a service's text, see :func:`failed`), else "-"."""
     code = getattr(exc, "code", None)
     if isinstance(code, str) and _CODE.match(code):
         return code
-    m = _FAILED.match(str(exc))
-    return f"{m.group(1)} ({m.group(2)})" if m else "-"
+    return str(exc)[:80] if isinstance(exc, Unavailable) else "-"
 
 
 class Problem(Refused):
@@ -96,7 +101,7 @@ def problem_of(status: int, text: str) -> Exception:
             detail,
         )
     if status == 0 or status >= 500:
-        return Unavailable(text[:200])
+        return Unavailable(f"orchestrator returned {status}" if status else "orchestrator did not answer")
     return Problem(status, "REFUSED", str(detail or text)[:200])
 
 
@@ -314,7 +319,7 @@ class HttpBackend:
         try:
             data = self.orch.get_json(f"/jobs?limit={limit}" + (f"&state={state}" if state else ""))
         except ServiceError as exc:
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         return [Job.model_validate(j) for j in data]
 
     def waiting_studies(self) -> list[str]:
@@ -323,7 +328,7 @@ class HttpBackend:
         try:
             data = self.orch.get_json("/jobs/waiting-studies")
         except ServiceError as exc:
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         return [str(s) for s in data]
 
     def get_job(self, job_id: str) -> Job | None:
@@ -332,7 +337,7 @@ class HttpBackend:
         except ServiceError as exc:
             if exc.status == 404:
                 return None
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
 
     def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job:
         """``POST /jobs``. ``by`` and ``role``: the signed-in person (D-146, review J-01); the orchestrator then
@@ -348,7 +353,7 @@ class HttpBackend:
                 except (ValueError, AttributeError):
                     detail = exc.detail
                 raise Refused(detail) from exc
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
 
     def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Job:
         """T-746 (D-474): ``POST /jobs/{job_id}/retry``. The orchestrator copies the failed scheduler job; the call
@@ -362,7 +367,7 @@ class HttpBackend:
                 except (ValueError, AttributeError):
                     detail = exc.detail
                 raise Refused(detail) from exc
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         return Job.model_validate(resp.json())
 
     def cancel_job(self, job_id: str, by: str) -> Job:
@@ -375,7 +380,7 @@ class HttpBackend:
         except ServiceError as exc:
             if exc.status == 404:
                 raise Refused("no such job") from exc
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         return Job.model_validate(resp.json())
 
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> JobFile:
@@ -472,7 +477,7 @@ class HttpBackend:
         try:
             resp = self.adapter.post_raw("/run", {"source": "csv", "snapshot": snapshot})
         except ServiceError as exc:
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         body = resp.json()  # T-690 (D-472): 202, the run id and "running"; the night's end is the adapter's audit
         return {"run": str(body.get("run") or ""), "state": str(body.get("state") or "")}
 
@@ -483,7 +488,7 @@ class HttpBackend:
         try:
             data = self.orch.post_raw("/patients/deceased", {"pids": list(pids)}).json()
         except ServiceError as exc:
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         return {str(p) for p in (data.get("deceased") or [])} if isinstance(data, dict) else set()
 
     # ------------------------------------------------------------------ candidate registry (D-92)
@@ -500,7 +505,7 @@ class HttpBackend:
                 except (ValueError, AttributeError):
                     detail = exc.detail
                 raise Refused(detail) from exc
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
 
     def registry_summaries(self) -> list[RegistrySummary]:
         return [RegistrySummary.model_validate(s) for s in self._registry_call("GET", "/registry")]
@@ -535,7 +540,7 @@ class HttpBackend:
                 return None
             if exc.status in (400, 403, 409, 422, 429):
                 raise Refused(exc.detail) from exc
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         mrn = data.get("mrn") if isinstance(data, dict) else None
         return str(mrn) if mrn else None
 
@@ -547,7 +552,7 @@ class HttpBackend:
         except ServiceError as exc:
             if exc.status in (400, 422):
                 raise Refused(exc.detail) from exc
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
         return str(data.get("message_id") or "")
 
     def study_api(self, method: str, path: str, body: dict[str, Any] | None = None,
@@ -571,7 +576,7 @@ class HttpBackend:
         except ServiceError as exc:
             if exc.status in (403, 429):
                 raise Refused(exc.detail) from exc
-            raise Unavailable(str(exc)) from exc
+            raise failed(exc) from exc
 
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str:
         """Test profile only (GreenMail): what a staff mail client would send. The ``Authentication-Results`` header
@@ -594,5 +599,5 @@ class HttpBackend:
             with smtplib.SMTP(host, int(port or 25), timeout=30) as s:
                 s.send_message(m)
         except OSError as exc:
-            raise Unavailable(f"test mail server: {exc}") from exc
+            raise Unavailable(f"test mail server: {type(exc).__name__}") from exc
         return mid
