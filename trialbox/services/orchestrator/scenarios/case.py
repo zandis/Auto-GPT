@@ -67,6 +67,7 @@ from orchestrator.scenarios.evaluate import (
 )
 from orchestrator.scenarios.review import require_approved
 from orchestrator.scenarios.screen import judge_for, threshold
+from orchestrator.scenarios.upload_text import upload_text
 
 SCHEMA = "trialbox.case@1"
 CHART_EXT = (".pdf", ".docx", ".txt", ".md")
@@ -145,11 +146,7 @@ def read_charts(ctx: Ctx) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     total = 0
     for f in sorted(files, key=lambda x: x.filename):
         data = ctx.input_bytes(f)
-        if f.filename.lower().endswith((".txt", ".md")):
-            text = data.decode("utf-8-sig", errors="replace")
-        else:
-            parsed = ctx.services.parser.parse(ParseRequest(minio_key=f.minio_key, job_id=ctx.job.job_id))
-            text = "\n\n".join((f"# {s.title}\n\n" if s.title else "") + s.text for s in parsed.sections)
+        text = file_text(ctx, f, data)
         total += len(text)
         if total > MAX_CHART_CHARS:
             raise StepFailed(
@@ -363,6 +360,15 @@ def pick_lang(ctx: Ctx, chart_text: str | None = None) -> str:
 
 
 # ------------------------------------------------------------------------------------------------ scenario
+def file_text(ctx: Ctx, f: Any, data: bytes) -> str:
+    """The text of one attached chart file: a text file through the one decoder (UX-004: before, as UTF-8 with
+    what could not be read replaced, so a Shift_JIS chart reached the model as U+FFFD); a PDF or DOCX parsed."""
+    if f.filename.lower().endswith((".txt", ".md")):
+        return upload_text(data, f.filename, "parsing")
+    parsed = ctx.services.parser.parse(ParseRequest(minio_key=f.minio_key, job_id=ctx.job.job_id))
+    return "\n\n".join((f"# {s.title}\n\n" if s.title else "") + s.text for s in parsed.sections)
+
+
 def run(ctx: Ctx) -> Outcome:
     from orchestrator.scheduler import require_released
 
