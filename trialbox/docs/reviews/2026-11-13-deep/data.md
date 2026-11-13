@@ -39,7 +39,9 @@
 7. **Restore** drops file owners and does not stop the services (DATA-010, DATA-011).
 8. **Derived rows** of patients who left the feed or opted out are kept and served (DATA-008, the old CR-119).
 9. Closed items are mostly closed in code: CR-053, CR-056, CR-057, CR-085, DI-12. DI-11 stays open by design.
-10. SCALE: see section 5.
+10. **Scale:** one patient's ruleset query costs almost a whole-hospital run (11 s against 30 s at 20,000
+    patients); kept snapshots have no byte budget and pass the 2 TB disk; the OMOP loader holds every record in memory
+    (4.5 GiB at 4.4 M rows); the goldens and the contracts let real breaking changes through (section 5).
 
 ## 3. Findings
 
@@ -71,6 +73,17 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
 | DATA-021 | Low | A restore can lift its own hold while the reference pack is missing | open (file held by #473) | D |
 | DATA-022 | Low | PR #278 (T-206b, erasure) holds no code and predates the erasure registry | open | C2 |
 | DATA-023 | Low | The roles test cluster made first in a fresh test root breaks the rest of the run | open | C2 |
+| DATA-024 | High | One patient's ruleset query scans every fact table: 11 s for 1 pid against 30 s for all at 20,000 patients | open | A2 (compiler) |
+| DATA-025 | High | Kept snapshots have no byte budget; month-ends keep their NDJSON; no free-space check before a build | open | B2 |
+| DATA-026 | High | The OMOP loader holds every record in memory: 4.5 GiB at 4.4 M rows (PERF-027, behind its flag) | open (file held by #493) | B2 |
+| DATA-027 | Medium | Per (patient, criterion) note reads and a new lake connection per call | open | B2 |
+| DATA-028 | Medium | Half of each DuckDB snapshot is the FTS input column and free blocks | open | B2 |
+| DATA-029 | Medium | The OMOP load rewrites and re-checks whole tables every night; the export spills at default `work_mem` | open | B2, D (settings) |
+| DATA-030 | Medium | Provenance outweighs the data (810 bytes per clinical row); `tb_record_event.at` has no index | open | B2 |
+| DATA-031 | Medium | The goldens did not catch dropped lab comparators ("<0.3" read as 0.3) | open | E |
+| DATA-032 | Medium | The lake reader never compares the table layout's hash within a version | open | B2 |
+| DATA-033 | Medium | The contracts check accepts a new required field in stored documents | open | D |
+| DATA-034 | Low | The limits lint does not see `timeout_s`, the spill ceiling or `RANKING_CHUNKS` | open | D |
 
 ### DATA-001 (Critical, fixed): the opt-out worker clears nothing on a box
 
@@ -236,7 +249,29 @@ fixes are PERF-010 and PERF-011 (an incremental lake; pgBackRest as the nightly)
 
 ## 5. Scale, plans, contracts
 
-SCALE-PLACEHOLDER
+Measured on this machine: the scale gate at 2,000 dense patients (522 records and 40.6 notes each); the OMOP store
+built by its own migrations with 20,000 persons and 4.4 M clinical rows in 19 year partitions; the lake at 20,000
+patients (the 2,000-patient snapshot copied ten times with new ids, 11 M records). All synthetic; scratch deleted.
+
+| Id | Evidence | Fix |
+| --- | --- | --- |
+| DATA-024 | `rulesets/RA-JAK/sql/RA-JAK.sql`: 1 pid 1.8 s / all 2.4 s at 2,000; 11.2 s / 30.0 s at 20,000; about 28 s per patient at 50,000 and 280 s at 500,000, at the 300 s lake limit. The pid filter applies to `base` only (`RA-JAK.sql:9-14`); every fact subquery reads its whole table first. `evaluate_case` (`case.py:286`) and small batches (`evaluate.py:132`) pay it. (Verified.) | The compiler filters each fact table by the pids: tried on 36 references, 1 pid 11.2 s → 2.9 s, 30 pids 14.6 s → 4.9 s, results identical on 8 pids. Sort lake tables by pid at build. |
+| DATA-025 | Per dense patient: NDJSON 0.55 MB, Parquet 0.05 MB, DuckDB 0.23 MB per snapshot. Kept: 3 nightly + up to 36 month-ends (`pipeline.py:68-69`); pruning drops NDJSON only of snapshots not kept (`pipeline.py:1560-1572`). One snapshot: about 41 GB at 50,000, 415 GB at 500,000; 39 snapshots: 1.6 TB and 16 TB against a 2 TB disk. No `disk_usage` check before a build. (Measured, then arithmetic.) | Month-ends as Parquet only, or NDJSON gzipped (263 MB → 23 MB measured); a byte budget derived from the disk; refuse a build below the measured snapshot size. |
+| DATA-026 | `omop/load.py:1060-1067` reads every `tb_record` into a dict: 4.42 M rows, 13 s, 1,078 bytes a row, peak 4.5 GiB; about 28 GB at 50,000 against the adapter's 6 GiB. The dual write reports "failed" and does not hold the night. (Verified.) | Diff in SQL: COPY the batch's keys and hashes into a temp table and join. |
+| DATA-027 | `Lake.connect` about 80 ms a call; `evaluate_patients` (`evaluate.py:758-770`) runs `window()` per (patient, criterion), two lake calls each (`DOCUMENT_SQL` 236 ms at 2,000). The cascade's `NOTES_SQL` already reads a batch. (Verified.) | Read notes per batch of pids; reuse the connection per worker. |
+| DATA-028 | A 438 MiB snapshot uses 1,208 of 1,752 blocks; `document_chunk.tok` is 92 MiB and is read only by `create_fts_index` (`store.py:1360`). Note text is held 6–7 times a night. (Verified.) | Drop `tok` after the index; write the file compacted; keep Parquet only where it is read. |
+| DATA-029 | `observation_period` rebuilt from all tables every load (1.25 s, `load.py:1343-1356`); `fact_relationship` too; 175 relational checks in 6.1 s, twice per feed load; the export join spills 108 MB at the default 4 MB `work_mem`. PERF-014 open. (Verified at 4.4 M rows.) | Recompute for changed persons only; check changed rows only; set `work_mem` from RAM in the `db` service. |
+| DATA-030 | `tb_record` 513 bytes a row, `tb_record_event` 138, clinical rows about 160; `tb_record_event` grows for ever; `at > ?` is a sequential scan (240 ms at 4.4 M). (Verified.) | An index on `tb_record_event (at)`; a retention rule for before-images (with T-206b). |
+| DATA-031 | A scratch change made `_value` drop `value_cmp`: `tools.goldens --check --profile ci` said "IDENTICAL: 23 goldens"; unit tests caught it (7 failures). The ci data has no censored value. (Verified.) | Plant censored values, unit variants, missing dates and text results in the ci data; list which data set covers which mapping branch. |
+| DATA-032 | Renaming `observation.value_cmp` without a version bump: `Lake.connect` accepted the old snapshot, the query failed later with a BinderException. `make goldens REASON=<any>` rewrites the layout file. (Verified.) | Refuse a snapshot whose layout hash differs within a version; a test that requires a version bump when the hash changes. |
+| DATA-033 | A new required field in `job.schema.json` or `ingest_report`: `gen_contracts.py --check` and `criterion_ir --check` return 0; old stored jobs then fail `model_validate_json` on read (`orchestrator/db.py:280-378`, `clients.py:186`). (Verified.) | Validate committed samples of earlier documents against the current schemas; a new required field needs a default or a migration. |
+| DATA-034 | `Lake.query(..., timeout_s=300)` (`store.py:1507`) is not matched by the lint (it looks for `timeout`); the 50 GB spill ceiling and 25 % share (`store.py:620-633`) and `RANKING_CHUNKS = 5` are not declared. `limits_lint`: "101 literals, clean". (Verified.) | Widen the pattern; derive the query limit from the job and the lake size. |
+
+Checked and fine: snapshot generations are hard links, not copies; timestamps are naive site time, so date casts
+carry no zone error; the lake rebuild streams row groups (2.83 GiB peak at 2,000 dense patients); DuckDB memory and
+spill caps come from the cgroup; the vector search by patient is exact on a btree. Year partitions make a lookup by id
+probe 20 partitions (34 ms for 1,000 ids): acceptable. PERF-009 is fixed (`store.py:449`). Still open: PERF-010,
+PERF-014, PERF-023, PERF-027 (measured, DATA-026).
 
 ## 6. What is good and should not be changed
 
@@ -267,6 +302,8 @@ SCALE-PLACEHOLDER
 - `recover_all(cfg)` runs twice on each delta night; `_Aliases` and `apply_aliases` are the same logic twice.
 - `backup-verify` unpacks the whole box only to hash it; three scans of the audit folder at restore.
 - 59 "owed" erasure entries point to a card (T-206b) with no code.
+- In each DuckDB snapshot, the FTS input column and free blocks (about half the file); Parquet beside DuckDB for every
+  kept snapshot; uncompressed NDJSON for every month-end.
 
 ## 8. What was not run, and why
 
