@@ -678,6 +678,8 @@ def test_the_row_hash_builds_no_string_over_a_table_and_ignores_row_order(db_url
     src = bk.db_sources({"TB_DB_URL": db_url})[0]
     h = bk.row_counts(src)
     assert h[f"{a.schema}.marks"] == h[f"{b.schema}.marks"] and h[f"{a.schema}.marks"][1].startswith("rs1:")
+    md5 = bk.row_counts(src, scheme="md5")  # the old form ignores row order too (its ORDER BY), for old restores
+    assert md5[f"{a.schema}.marks"] == md5[f"{b.schema}.marks"] and md5[f"{a.schema}.marks"][1] != bs.EMPTY_HASH["md5"]
     b.execute("UPDATE marks SET mark = ? WHERE pid = ?", ("not_now", "P2"))
     h2 = bk.row_counts(src)
     assert (

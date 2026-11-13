@@ -151,3 +151,20 @@ def test_write_error_keeps_the_read(tmp_path: Path) -> None:
         with pytest.raises(LinkError):  # the dictionary changed: the link check stops the run before any write
             svc.read("GZQO", {"GZQO-0901": PIDS["GZQO-0901"]}, "crc")
         assert svc.store.link("GZQO")["enabled"] is False
+
+
+def test_plan_matches_screening_numbers_whatever_their_case_and_spaces() -> None:
+    """A screening number typed in REDCap in lower case or with a space is the same number: one record is updated,
+    two records that carry it are a duplicate and nothing is written. A record gone from REDCap since the last write
+    is not "unchanged": it waits for its record again."""
+    link = ProjectLink.from_dict({**WRITE_A, "ruleset": "GZQO"})
+    rows = [{"record_id": "5", link.link_field: " gzqo-0777"}, {"record_id": "6", link.link_field: "GZQO-0777 "},
+            {"record_id": "1", link.link_field: "gzqo-0901"}]  # fmt: skip
+    existing = writeback.existing_index(rows, link, "record_id")
+    assert existing == {"GZQO-0777": ["5", "6"], "GZQO-0901": ["1"]}
+    entries = [writeback.Entry(" gzqo-0901 ", "2026-10-01", "enrolled", "2026-10-21"),
+               writeback.Entry("GZQO-0777", "2026-11-01", "contacted", "2026-11-02")]  # fmt: skip
+    wp = writeback.plan(link, entries, existing, {}, "record_id")
+    assert [u["record_id"] for u in wp.updates] == ["1"] and wp.skipped_dup == ["GZQO-0777"] and not wp.creates
+    gone = writeback.plan(link, entries[:1], {}, {"GZQO-0901": wp.hashes["GZQO-0901"]}, "record_id")
+    assert gone.unchanged == 0 and gone.waiting == ["GZQO-0901"]
