@@ -681,6 +681,12 @@ class Gateway:
                 return None
         try:
             resp = self._send(call, ep.name, url, upstream, headers, interactive, lane, errors)
+        except BaseException:
+            # an error _send does not expect told the breaker nothing: give a half-open probe back, or the endpoint
+            # stays shut until a restart (deep review 2026-11-13)
+            if lane is not None:
+                lane.breaker.cancel()
+            raise
         finally:
             if lane is not None and ticket is not None:
                 lane.release(ticket)

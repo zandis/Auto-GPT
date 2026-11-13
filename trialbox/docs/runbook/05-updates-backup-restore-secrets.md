@@ -52,7 +52,7 @@ update or its rollback completed; while it exists no other update starts. After 
 | `tools/apply_update.sh status` | the bundle, the step it stopped at, running or interrupted, the installed `release_seq`, the trusted keys |
 | `tools/apply_update.sh rollback <bundle>` | puts the box back as before that update (or only restarts the services, if it stopped before the rollback point), audits it, removes the marker |
 | `tools/apply_update.sh clean` | removes left-over rollback points of finished updates |
-| `python3 -m tools.update_status check` | exit 3 while an update is unfinished (a start guard) |
+| `python3 -m tools.update_status check` | exit 3 while an update is unfinished. `trialbox.service` runs it before the stack starts: after a power cut during an update the stack stays down (and the containers Docker restarted are stopped) until `status` and `rollback` have finished the update |
 
 **Older releases.** A bundle with a `release_seq` not above the installed one is refused. Only on the vendor's written
 instruction: `tools/apply_update.sh <bundle> --allow-downgrade "<ticket and reason>"`; the audit gets

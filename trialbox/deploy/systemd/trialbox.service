@@ -1,6 +1,9 @@
 # The TrialBox stack after a host restart (T-108b, D-377; OPS-064). Installed by deploy/install.sh. Starts only after
 # the egress table is loaded (trialbox-egress.service), brings the stack up with the compose files and profile kept
 # in deploy/.env (COMPOSE_FILE, COMPOSE_PROFILES), then opens the allowed egress pairs for the new addresses.
+# The start guard (D-210; deep review 2026-11-13): while an update is unfinished (deploy/updates/IN_PROGRESS.json,
+# after a power cut during an update) the stack is not started, and the containers Docker's restart policy started
+# on its own are stopped: the runbook's `tools/apply_update.sh status` and `rollback` finish it (RUNBOOK §5).
 [Unit]
 Description=TrialBox stack (docker compose)
 Documentation=file://@TB_ROOT@/docs/runbook/01-install-a-new-site.md
@@ -12,6 +15,7 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=@TB_ROOT@
+ExecStartPre=/bin/sh -c 'python3 -m tools.update_status --deploy @TB_ROOT@/deploy check || { docker compose --project-directory @TB_ROOT@/deploy stop; exit 3; }'
 ExecStart=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy up -d --pull never --wait --wait-timeout 900
 ExecStartPost=@TB_ROOT@/deploy/network.sh apply
 ExecStop=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy stop
