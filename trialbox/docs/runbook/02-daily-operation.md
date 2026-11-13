@@ -3,7 +3,7 @@
 | When | What | Where to look |
 | --- | --- | --- |
 | 00:20 | `trialbox logs daily` (cron on the host): collect yesterday's service logs, prune, archive the audit | `/var/log/trialbox-retention.log` |
-| after it | `trialbox audit-sign` (the same cron line; D-562): checks the audit chain against every earlier signed head, then signs where the chain stands and writes the signed head, write-once, to every folder of `TB_AUDIT_ANCHOR_TARGETS` (a folder off the box, such as the hospital's share). A chain that does not agree is not signed again: the log says so, and `tools/audit_verify.py <audit folder> --heads <anchor folder>` shows where. `trialbox doctor` (check `audit_heads`) FAILs in PRODUCTION when no folder is set, the audit key is missing or the newest signed head is older than `TB_AUDIT_HEAD_MAX_AGE_H` (36 hours), or when the last night was refused. A box installed before D-562 gets the cron line and the audit key when `deploy/install.sh` (or `sh deploy/hardening/seal_keys.sh --secrets <the secrets volume>`) runs again | `/var/log/trialbox-retention.log`; `deploy/logs/audit-sign.json`; event `audit.head_signed` The console reads the same folders: the installer mounts each folder of `TB_AUDIT_ANCHOR_TARGETS` into the console, read-only (`deploy/site/compose.anchors.yml`, D-638), so the audit page's Verify checks the chain against the signed heads. After the folders change in `deploy/.env`, run `deploy/install.sh` again; `trialbox doctor` (`anchor_mount`) warns until then. The folder must be there before the install (mount the hospital's share first) and readable by the console's user. |
+| after it | `trialbox audit-sign` (the same cron line; D-562): checks the audit chain against every earlier signed head, then signs where the chain stands and writes the signed head, write-once, to every folder of `TB_AUDIT_ANCHOR_TARGETS` (a folder off the box, such as the hospital's share). A chain that does not agree is not signed again: the log says so, and `tools/audit_verify.py <audit folder> --heads <anchor folder>` shows where. `trialbox doctor` (check `audit_heads`) FAILs in PRODUCTION when no folder is set, the audit key is missing or the newest signed head is older than `TB_AUDIT_HEAD_MAX_AGE_H` (36 hours), or when the last night was refused. A box installed before D-562 gets the cron line and the audit key when `deploy/install.sh` (or `sh deploy/hardening/seal_keys.sh --secrets <the secrets volume>`) runs again | `/var/log/trialbox-retention.log`; `deploy/logs/audit-sign.json`; event `audit.head_signed` |
 | 02:00 | INGEST: adapter to FHIR store and lake, validator sample (1 % of each resource type, at least 3 and at most a cap: 4,975 at the default limit, `TB_VALIDATION_SAMPLE_CAP`; D-457), snapshot pruning | job list, `ingest_report.json` (`validation.sample_cap`, `validation.capped`) |
 | 03:00 | REDCap read-back (console timer) | the study's Sources page |
 | before the night's model jobs | the pair canary (54 questions); model jobs start only when it passes | `selftest.passed` in the audit |
@@ -12,6 +12,16 @@
 | Mon 06:00 | the weekly PI sample of ten "criteria not matched" patients per study (orchestrator, `schedule.not_matched_sample`; D-446) | `notmatched.sample` in the audit |
 | 1st of the month 05:30 | CALIBRATION | `calibration.json` |
 | quarterly 04:00 | COHORT tables | mail |
+
+**The console reads the same folders (D-638).** The installer mounts each folder of `TB_AUDIT_ANCHOR_TARGETS` into the
+console, read-only (`deploy/site/compose.anchors.yml`), so the audit page's Verify checks the chain against the
+signed heads. The folder must be there before the install (mount the hospital's share first) and readable by the
+console's user; the installer stops with the folder's name when it is not. After the folders change in
+`deploy/.env`, run `deploy/install.sh` again; `trialbox doctor` (`anchor_mount`) warns until then. From then on the
+console needs the folder at every start: with the share not mounted, the console does not start (docker does not
+make the folder: an empty folder on the box's own disk would take the night's signed heads and no one would see
+it). Mount the share at boot, before docker. Name a folder below the share's mount point, one that holds the signed
+heads only.
 
 The console's timers run when `TB_ENV` is VALIDATION or PRODUCTION (`TB_CONSOLE_TIMERS=on|off` forces it;
 `TB_NOTICE_N1_AT`, `TB_NOTICE_N2_AT`, `TB_REDCAP_READ_AT` move them). Everything is a job: see it on the

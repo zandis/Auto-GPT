@@ -26,14 +26,21 @@ auditor looks.
    at `/anchors/<n>/<the folder's name>`: never over a folder of the image, and the page still shows the folder's
    name. The console gets the name with the paths inside. The shipped compose file still clears the name, so a
    box without the file says "no anchor folder" on the page, not "broken".
-3. **A folder that is not there stops the install** with its name. `create_host_path: false`: docker never makes
-   an empty folder where the hospital's share should be mounted (the page would then read "no signed heads").
-4. **What is refused:** a folder that is not a plain absolute path ('.', '..', a control character). A `$` in a
-   name is written so that compose does not read a variable.
+3. **A folder that is not there, or that the console cannot read, stops the install** with its name. The folder
+   is looked for by its whole name (a shell would read `?` in it as a search), and the console's own image is
+   asked whether its user can read the folder, `heads/` and `keys/`. `create_host_path: false`: docker never
+   makes an empty folder where the hospital's share should be mounted. An empty folder on the box's own disk
+   would take the night's signed heads, and nobody would see that they never left the box.
+4. **What is refused:** a folder that is not a plain absolute path ('.', '..'), or whose name has a control or
+   invisible character or a space other than the plain one (compose read a next-line character as a space: the
+   console would have read another folder than the night writes). A `$` in a name is written so that compose
+   does not read a variable; other letters are written as `\uXXXX`, which every reader reads alike.
 5. **Doctor, `anchor_mount`, WARN:** folders are set and the file is missing (a box installed before this
-   release), not in `COMPOSE_FILE`, or written for other folders. WARN, not FAIL: the night
+   release), is not an entry of `COMPOSE_FILE`, or does not say what the installer writes for these folders
+   (compared by content, so a later release may word the comment otherwise). WARN, not FAIL: the night
    (`trialbox audit-sign`) and `tools/audit_verify.py --heads` still check every head; what is missing is the
    check on the page.
+6. **No python3 on the host:** the installer says that the page will not check the heads, and goes on.
 
 Also in this card, asked by the integrator for `tools/`: when the backup drill's first step (the box ran the whole
 path, `e2e_simple`) fails, the drill lists the failing checks of `e2e_simple` with their whole detail, stops, and
@@ -51,9 +58,23 @@ says where the work folder is. Before, it kept one bool and went on to wipe the 
 
 ## Consequences
 
+- **The console now needs the folder at every start**, not only at the install: with the share not mounted
+  (after a reboot, an update, a secrets rotate) docker does not create the console. That is the price of point 3
+  and is accepted here: the other choice lets the box write its signed heads to its own disk unseen. The runbook
+  says to mount the share at boot, before docker, and to name a folder below the mount point. If the folder named
+  is the mount point itself and the share is mounted after the console started, the console keeps seeing the
+  empty folder until it is started again (not tried: no docker daemon in this session).
 - A box installed before this release keeps working and gets the doctor line until `install.sh` runs again.
 - Changing the folders means running the installer again (the doctor line says so).
-- The console's user must be able to read the folder; a share only root can read shows as "not reachable" on
-  the page. Not checked by doctor (it runs as another user): open.
+- Between the first start and the first signed head (the installer signs it right after the start), and whenever
+  a mounted folder holds no head, the page's Verify says "no signed heads found" where it said "no anchor
+  folder" before. That is what `tools/audit_verify.py --heads` says of the same box.
+- For lane C2 (the page, `services/console/audit_page.py`, not changed here): a folder whose `heads/` the
+  console's user cannot read is shown as reachable with no head; `is_dir()` is true and the listing is empty
+  without an error. The installer now refuses such a folder, but permissions can change later. The page should
+  count an unreadable `heads/` as not reachable.
+- Doctor does not look at the running console's mounts: a file written and listed while the console was never
+  started again passes. Open.
 - Not proven here: a start of the real stack with the mount (no docker daemon in this session). The merged file
-  was rendered with `docker compose config`: the two mounts are on the console only, read-only.
+  was rendered with `docker compose config`, alone and with the GPU, identity and box files: the mounts are on
+  the console only, read-only, `create_host_path` false.
