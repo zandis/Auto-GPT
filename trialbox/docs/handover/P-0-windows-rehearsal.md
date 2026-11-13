@@ -119,6 +119,22 @@ to line 36a, and write that you did. Never send a recovery key back; write only 
 | 36b | The same probe on demand, for comparison: `... key-probe.ps1` (no switch) | The same lines with `mode=on_demand` | All of its lines |
 | 36c | `Get-ScheduledTask TrialBox-Key-Probe` afterwards | No such task | The answer |
 
+## Part 5: NEW-WIN-4, the console on the site's network (D-604; the rehearsal of P-14)
+
+Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). After Part 1 is finished.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 37 | At step 13 read the window; then `wsl -d TrialBox -- wslinfo --networking-mode`, `Get-NetFirewallHyperVRule -Name TrialBox-Console` and `Get-NetFirewallHyperVVMSetting -PolicyStore ActiveStore -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}'` | "The console will answer on this PC's name, port 443 ..."; `mirrored`; the rule: inbound, TCP 443, RemoteAddresses LocalSubnet, enabled; the setting: DefaultInboundAction Block | The answers in full (LoopbackEnabled too); the PC's Windows build (`winver`), `wsl --version`, and the network's profile (`Get-NetConnectionProfile`) |
+| 38 | On this PC: `wsl -d TrialBox -- ip -j -4 addr show scope global`, `ipconfig`, and `wsl -d TrialBox -u root -- grep CLINIC_RANGES /opt/trialbox/deploy/site/hardening.conf` | WSL2 shows the PC's own network address; CLINIC_RANGES is that network. The installer's window had no "not open to the network this PC is on" warning | The three outputs. If CLINIC_RANGES is a 10.255.255.254/32 or another adapter's network, the console will not answer from other PCs: record it and go on |
+| 39 | From the **second PC**: open `https://<this PC's name>/` in a browser | The console's sign-in page (a certificate warning is expected: the box's own certificate) | Whether the name opened it; if not, whether `https://<this PC's IPv4 address>/` did; `Resolve-DnsName <this PC's name>` on the second PC (IPv4, IPv6 or both) |
+| 40 | From the second PC, in PowerShell: `443, 80, 22, 2375, 3389, 5432, 8000, 8010, 8020, 8080, 8090, 9090 \| ForEach-Object { Test-NetConnection <this PC's name> -Port $_ -WarningAction SilentlyContinue \| Select-Object RemotePort, TcpTestSucceeded }` | True for 443 only | The table. Any other True is a finding: say which port |
+| 41 | On **this PC**, signed in as a **standard** account: open `https://localhost/` and `https://<this PC's name>/`; then `8090, 8010, 9090, 5432, 2375 \| ForEach-Object { Test-NetConnection localhost -Port $_ -WarningAction SilentlyContinue \| Select-Object RemotePort, TcpTestSucceeded }` | The console opens (staff use it at the workstation). False for every other port | Which address opened the console; the table |
+| 42 | **Outward: is the egress table loaded.** `wsl -d TrialBox -u root -- bash /opt/trialbox/deploy/windows/wsl-setup.sh egress-check` | "egress table trialbox_egress loaded; trialbox-egress.service active" | The line |
+| 43 | **Outward: does it act.** `wsl -d TrialBox -u root -- bash /opt/trialbox/deploy/windows/wsl-setup.sh egress-proof` (the installer ran the same at the end of step 14) | A line naming a container, `result=no-connection`, `denied_after` larger than `denied_before`, then `verdict=held` | Both lines exactly. `verdict=OUT` means a container reached outside: the most important finding of this part. `verdict=inconclusive` is recorded as it is; it is not a pass |
+| 43a | Name lookups from a container that is allowed out: `wsl -d TrialBox -u root -- sh -c 'docker exec $(docker ps --format "{{.Names}}" \| grep -m1 mail-gateway) getent hosts localhost'` and the mail settings' test in the console, if a mail server was given | A name is answered; mail to the configured server works | What was printed (typed as shown, with single quotes outside) |
+| 44 | Restart Windows, sign in, and repeat lines 39, 40 and 43 | The same answers | Any difference after the restart |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -146,4 +162,8 @@ to line 36a, and write that you did. Never send a recovery key back; write only 
 - Line 36a: the key back end is built on the first of `dpapi_user`, `acl_file`, `dpapi_machine` that says `ok` AT
   STARTUP, and needs `wsl_handover=ok` there. Line 36b does not decide: a store that is `ok` only on demand is of
   no use. All `fail` at startup with line 26a "yes": a stored password for the task, or a service (D-602 point 4).
+- Lines 39, 40, 41 and 43 decide the networking form (D-604): mirrored networking is kept when the console opens from
+  the second PC, only port 443 answers there and on localhost, and line 43 says `verdict=held`, also after the
+  restart (line 44). `verdict=OUT`: the egress rule moves to Windows Firewall, or the port proxy is built as a card
+  of its own. Line 38 wrong: the fix is in the box plan's network detection (lane D), not in the form.
 - Line 14: the address NEW-WIN-4 must make work from another PC.

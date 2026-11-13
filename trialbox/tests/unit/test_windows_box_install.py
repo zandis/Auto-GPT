@@ -577,5 +577,123 @@ def test_the_key_probe_decides_at_startup_with_nobody_signed_in_and_leaves_no_ta
     assert "key-probe.ps1 -AtStartup" in sheet and "key-probe.ps1 -Collect" in sheet
 
 
+def test_the_network_mode_is_asked_of_wsl_and_unknown_without_wslinfo(box: Box) -> None:
+    assert box.run("network-mode").stdout.strip() == "unknown"  # no wslinfo on this machine: an old WSL
+    box.stub("wslinfo", "printf 'mirrored\\r\\n'")
+    assert box.run("network-mode").stdout.strip() == "mirrored"
+
+
+def test_egress_check_wants_the_unit_active_and_the_table_loaded(box: Box) -> None:
+    box.stub("systemctl", "echo inactive; exit 3")
+    box.stub("nft", "exit 0")
+    out = box.run("egress-check")
+    assert out.returncode == 1 and "trialbox-egress.service is not active" in out.stderr
+    box.stub("systemctl", "echo active")
+    box.stub("nft", "exit 1")
+    out = box.run("egress-check")
+    assert out.returncode == 1 and "trialbox_egress is not loaded" in out.stderr
+    box.stub("nft", "exit 0")
+    assert box.run("egress-check").returncode == 0
+    assert "nft list table inet trialbox_egress" in box.log()
+
+
+def test_the_installer_opens_the_one_port_the_box_form_publishes_and_names_the_real_egress_table() -> None:
+    ps1 = PS1.read_text(encoding="utf-8")
+    port = re.search(r"\$script:TbConsolePort = (\d+)", ps1)
+    assert port
+    # every compose file the box form adds to the base (install.sh): one published port among them, and it is the
+    # one the firewall admits; the base's own console port is reset by the identity file
+    published: list[str] = []
+    for name in ("identity", "box", "secrets", "rtxpro6000"):
+        text = (ROOT / f"deploy/docker-compose.{name}.yml").read_text(encoding="utf-8")
+        for entry in re.findall(r"^\s*ports:\s*(.+)$", text, re.M):
+            if "!reset" not in entry:
+                published += re.findall(r":(\d+):\d+", entry)
+        assert not re.search(r"^\s*ports:\s*$", text, re.M), name  # no multi-line port list this test would not read
+    assert published == [port.group(1)]
+    assert "ports: !reset []" in (ROOT / "deploy/docker-compose.identity.yml").read_text(encoding="utf-8")
+    # the rule admits the workstation's own subnet only, inbound, for WSL's virtual machines; nothing wider
+    rule = ps1[ps1.index("function Write-TbConsoleFirewallRule") : ps1.index("function Set-TbConsoleFirewall")]
+    assert (
+        'RemoteAddresses = "LocalSubnet"' in rule and 'Direction = "Inbound"' in rule and "LocalPorts = $Port" in rule
+    )
+    assert "DefaultInboundAction Block" in ps1 and '"Any"' not in rule and "Disable-NetFirewall" not in ps1
+    table = re.search(r'^TABLE = "([a-z_]+)"', (ROOT / "deploy/egress.py").read_text(encoding="utf-8"), re.M)
+    assert table and f"nft list table inet {table.group(1)}" in SH.read_text(encoding="utf-8")
+
+
+def _egress_box(box: Box, *, connects: bool, counts: bool) -> None:
+    (box.tmp / "denied").write_text("5\n")
+    box.stub(
+        "docker",
+        f"""case "$1 $2" in
+  "network ls") echo trialbox_trialbox-net; echo trialbox_egress-net ;;
+  "ps --filter") echo trialbox-gateway-1 ;;
+esac
+case "$1" in exec) {"echo 12 > $TB_FAKE/denied;" if counts else ""} exit {0 if connects else 1} ;; esac""",
+    )
+    box.stub(
+        "nft",
+        """n=$(cat "$TB_FAKE/denied")
+echo '    ip saddr { 172.30.0.0/24 } counter packets 3 bytes 180 drop comment "trialbox no direct access"'
+echo "    ip saddr { 172.30.0.0/24 } counter packets $n bytes 600 drop comment \"trialbox default deny\"" """,
+    )
+
+
+@pytest.mark.parametrize(
+    ("connects", "counts", "verdict"),
+    [
+        (False, True, "verdict=held"),
+        (True, False, "verdict=OUT"),
+        (True, True, "verdict=OUT"),
+        (False, False, "verdict=inconclusive"),
+    ],
+)
+def test_the_egress_proof_reads_the_tables_own_counter(box: Box, connects: bool, counts: bool, verdict: str) -> None:
+    """Review of NEW-WIN-4, H1: a failed connection alone proves nothing; the table's dropped-packet counter must
+    rise, and a connection that succeeds is never a pass."""
+    _egress_box(box, connects=connects, counts=counts)
+    out = box.run("egress-proof")
+    assert out.returncode == 0 and out.stdout.strip().splitlines()[-1].startswith(verdict), out.stdout + out.stderr
+    log = box.log()
+    assert "docker ps --filter network=trialbox_egress-net" in log  # a container that HAS a route out
+    assert "docker exec trialbox-gateway-1 python3 -c" in log and "192.0.2.1" in log
+    assert "denied_before=5" in out.stdout
+
+
+def test_the_egress_proof_is_inconclusive_without_a_stack(box: Box) -> None:
+    box.stub("docker", "exit 0")
+    assert box.run("egress-proof").stdout.strip().startswith("verdict=inconclusive")
+
+
+@pytest.mark.parametrize(
+    ("ranges", "addr", "ok"),
+    [
+        ("192.0.2.0/24", "192.0.2.10/24", True),
+        ("10.255.255.254/32", "192.0.2.10/24", False),  # review M2: the loopback's address was taken for the network
+        ("198.51.100.0/24", "192.0.2.10/24", False),  # a VPN adapter's subnet
+        ("192.0.2.10/32", "192.0.2.10/24", False),  # the PC itself only: no other computer is admitted
+        ("192.0.2.0/24 2001:db8::/64", "192.0.2.10/24", True),
+        ("", "192.0.2.10/24", False),
+    ],
+)
+def test_the_lan_check_compares_the_boxs_firewall_with_this_pcs_real_network(
+    box: Box, ranges: str, addr: str, ok: bool
+) -> None:
+    site = box.root / "deploy/site"
+    site.mkdir(parents=True)
+    (site / "hardening.conf").write_text(f'KEK_BACKEND=passphrase\nCLINIC_RANGES="{ranges}"\nSSH=off\n')
+    box.stub(
+        "ip",
+        f"""case "$*" in
+  *"route show default"*) echo 'default via 192.0.2.1 dev eth0 proto kernel' ;;
+  *"addr show dev eth0"*) echo '2: eth0    inet {addr} brd 192.0.2.255 scope global eth0' ;;
+esac""",
+    )
+    out = box.run("lan-check")
+    assert (out.returncode == 0) is ok, out.stdout + out.stderr
+    assert f"this PC's network address '{addr}'" in out.stdout
+
+
 def test_an_unknown_step_is_an_error(box: Box) -> None:
     assert box.run("format-disk").returncode == 1

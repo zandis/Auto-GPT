@@ -35,7 +35,8 @@ BeforeAll {
       FeatureRestart = $true; WslInstalled = $false; Distros = @(); WinGpu = $true
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
-      BootInfo = $null; BootRegistered = 0
+      BootInfo = $null; BootRegistered = 0; NetMode = "mirrored"; Firewall = @(); FwDefault = "Block"; FwRule = $null; FwBlockSet = 0
+      EgressVerdict = "verdict=held"; LanLine = "firewall open to '192.0.2.0/24'; this PC's network address '192.0.2.10/24'"
       Tpm = @{ Present = $true; Ready = $true }; BLCalls = New-Object System.Collections.ArrayList
       Asked = New-Object System.Collections.ArrayList; Answers = New-Object System.Collections.ArrayList
       Printed = New-Object System.Collections.ArrayList; Machine = @{}
@@ -81,6 +82,15 @@ Describe "box-install.ps1" {
     Mock Register-TbResumeTask { $script:S.ResumeTask = $true; $script:S.ResumeMore = $More; $script:S.ResumeScript = $ScriptPath }
     Mock Unregister-TbResumeTask { $script:S.ResumeTask = $false }
     Mock Restart-TbComputer { $script:S.Restarted++ }
+    # the Hyper-V firewall (NEW-WIN-4): WSL's default for inbound traffic and the one rule, as plain values
+    Mock Get-TbWslInboundDefault { return [string]$script:S.FwDefault }
+    Mock Set-TbWslInboundBlock { $script:S.FwDefault = "Block"; $script:S.FwBlockSet++ }
+    Mock Get-TbConsoleFirewallRule { return $script:S.FwRule }
+    Mock Write-TbConsoleFirewallRule {
+      $script:S.Firewall += ,"$RuleName|$Port|exists=$Exists"
+      $script:S.FwRule = @{ Enabled = "True"; Direction = "Inbound"; Action = "Allow"; Protocol = "TCP"; LocalPorts = [string]$Port
+        RemoteAddresses = "LocalSubnet"; VMCreatorId = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}" }
+    }
     Mock Register-TbBootTask {
       $script:S.BootTask = "$Account|$Distro|$TaskName"; $script:S.BootRegistered++
       $script:S.BootInfo = @{ State = "Running"; LastResult = "267009"; Action = "wsl.exe -d $Distro --exec /bin/sh -c 'exec sleep infinity' " }
@@ -129,6 +139,9 @@ Describe "box-install.ps1" {
         elseif ($step -eq "pid1") { $r.Output = @($s.Pid1) }
         elseif ($step -eq "wslconf") { $r.Output = @("changed") }
         elseif ($step -eq "state") { $r.Output = @($s.StateLine) }
+        elseif ($step -eq "network-mode") { $r.Output = @($s.NetMode) }
+        elseif ($step -eq "egress-proof") { $r.Output = @("egress_container=trialbox-gateway-1 target=192.0.2.1", $s.EgressVerdict) }
+        elseif ($step -eq "lan-check") { $r.Output = @($s.LanLine) }
         elseif ($step -eq "gpu") { $r.Output = @("NVIDIA RTX PRO 6000 Blackwell, 581.15, 97887 MiB") }
         elseif ($step -eq "host-tree") { $r.Output = @("unpacked: /opt/trialbox", "vendor key sha256 0123abcd") }
       }
@@ -152,6 +165,12 @@ Describe "box-install.ps1" {
       $script:S.Build = 19045
       Invoke-Run | Should -Be 1
       Get-Log | Should -Match "STOP step 2/\d+ windows"
+    }
+    It "tells a Windows 11 before 22H2 which build it needs, not which edition (NEW-WIN-4, review L10)" {
+      $script:S.Build = 22000
+      Invoke-Run | Should -Be 1
+      Should -Invoke Enable-TbFeature -Times 0
+      Get-Log | Should -Match "STOP step 2/\d+ windows: This Windows is build 22000. TrialBox needs build 22621"
     }
     It "refuses a machine without virtualisation" {
       $script:S.VirtFirmware = $false; $script:S.Hypervisor = $false
@@ -212,7 +231,7 @@ Describe "box-install.ps1" {
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
       $MinFreeGB = 200; $script:S.FreeGB = 250
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22621 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -268,7 +287,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $calls = $script:S.Calls -join "`n"
       $calls | Should -Match "wsl\.exe --import TrialBox \S+wsl \S+ubuntu-24\.04-wsl-amd64\.tar\.gz --version 2"
-      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "state", "boot-check")
+      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "network-mode", "state", "boot-check", "egress-check", "egress-proof", "lan-check")
       $script:S.Console.Count | Should -Be 1
       $script:S.Console[0] | Should -Match "wsl\.exe -d TrialBox -u root .*wsl-setup\.sh install \S+/linux/trialbox-1\.0\.0\.tar"
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
@@ -283,6 +302,7 @@ Describe "box-install.ps1" {
       $cfg | Should -Match "(?m)^processors=24"       # 32 logical processors less 25 percent
       $cfg | Should -Match "(?m)^defaultVhdSize=4000787030016"
       $cfg | Should -Match "(?m)^sparseVhd=true"
+      $cfg | Should -Match "(?m)^networkingMode=mirrored"   # NEW-WIN-4 (D-604)
       $log = Get-Log
       $log.IndexOf("wslconfig: ok") | Should -BeLessThan $log.IndexOf("import: start")
     }
@@ -315,7 +335,8 @@ Describe "box-install.ps1" {
       $kept.Count | Should -Be 1
       (Get-Content -LiteralPath $kept[0].FullName -Raw) | Should -Match "(?m)^memory=144GB"
       ($script:S.Said -join "`n") | Should -Match "apply when WSL2 next starts"
-      $script:S.Calls.Count | Should -Be $n   # and nothing else was touched
+      # nothing else was touched: the only commands are the read-only question for WSL2's networking mode (NEW-WIN-4)
+      @($script:S.Calls | Select-Object -Skip $n | Where-Object { $_ -notmatch "wsl-setup\.sh network-mode$" }).Count | Should -Be 0
     }
     It "keeps the share this install used when it is started again without the parameter (review M2)" {
       $script:S.SetupFail["packages"] = "interrupted"
@@ -395,21 +416,98 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $script:S.BootRegistered | Should -Be 1
       ($script:S.Said -join "`n") | Should -Match "registered again"
-      $script:S.Calls.Count | Should -Be $n
+      @($script:S.Calls | Select-Object -Skip $n | Where-Object { $_ -notmatch "wsl-setup\.sh network-mode$" }).Count | Should -Be 0   # only the read-only question for the networking mode (NEW-WIN-4)
       $script:S.Console.Count | Should -Be 1
+    }
+    It "opens the console's one port to the site's own network, once, before the Linux installer runs (NEW-WIN-4)" {
+      Invoke-Run | Should -Be 0
+      $script:S.Firewall | Should -Be @("TrialBox-Console|443|exists=False")
+      $script:S.FwBlockSet | Should -Be 0      # the default was Block already: not touched
+      $log = Get-Log
+      $log.IndexOf("network: ok") | Should -BeLessThan $log.IndexOf("linux-install: start")
+      $log | Should -Match "firewall rule TrialBox-Console: added"
+      ($script:S.Said -join "`n") | Should -Match "port 443, to computers on the same network"
+    }
+    It "keeps its rule on a second run and writes nothing (review L14)" {
+      $script:S.SetupFail["gpu"] = "interrupted"   # stops before step 13 the first time? no: gpu is step 10, so stop, then run again
+      Invoke-Run | Should -Be 1
+      $script:S.SetupFail = @{}
+      Invoke-Run | Should -Be 0
+      Invoke-Run | Should -Be 0                    # the finished install is started once more
+      $script:S.Firewall.Count | Should -Be 1
+      Get-Log | Should -Not -Match "firewall rule TrialBox-Console: corrected"
+    }
+    It "puts a rule of its name right when it is wider, for another port or switched off (review M4)" {
+      foreach ($bad in @(@{ RemoteAddresses = "Any" }, @{ LocalPorts = "443,8090" }, @{ Enabled = "False" }, @{ Action = "Block" })) {
+        New-Scenario | Out-Null
+        $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }; $script:S.WslInstalled = $true
+        $rule = @{ Enabled = "True"; Direction = "Inbound"; Action = "Allow"; Protocol = "TCP"; LocalPorts = "443"; RemoteAddresses = "LocalSubnet"; VMCreatorId = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}" }
+        foreach ($k in $bad.Keys) { $rule[$k] = $bad[$k] }
+        $script:S.FwRule = $rule
+        Invoke-Run | Should -Be 0 -Because ($bad.Keys -join ",")
+        $script:S.Firewall | Should -Be @("TrialBox-Console|443|exists=True") -Because ($bad.Keys -join ",")
+        ($script:S.Said -join "`n") | Should -Match "was there but wider than it should be"
+        Get-Log | Should -Match "rule TrialBox-Console was: enabled"
+      }
+    }
+    It "closes WSL's default for inbound traffic when it was open, and says that this is for every WSL system (review M5)" {
+      $script:S.FwDefault = "Allow"
+      Invoke-Run | Should -Be 0
+      $script:S.FwBlockSet | Should -Be 1
+      Get-Log | Should -Match "default for inbound traffic was 'Allow': set to Block"
+      ($script:S.Said -join "`n") | Should -Match "every WSL system on this PC"
+    }
+    It "is not finished when a container could reach outside, and says the box must not get real data (review H1)" {
+      $script:S.EgressVerdict = "verdict=OUT"
+      Invoke-Run | Should -Be 1
+      (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).finished | Should -BeFalse
+      Get-Log | Should -Match "STOP step 14/\d+ linux-install: A TrialBox container could reach an outside address"
+    }
+    It "finishes with a plain warning when the egress table was not seen to act, or the box's firewall is open to another network" {
+      $script:S.EgressVerdict = "verdict=inconclusive: no connection, but the table counted no dropped packet"
+      $script:S.SetupFail["lan-check"] = "firewall open to '10.255.255.254/32'; this PC's network address '192.0.2.10/24'"
+      Invoke-Run | Should -Be 0
+      $said = $script:S.Said -join "`n"
+      $said | Should -Match "could not show that a container is stopped from reaching outside \(verdict=inconclusive"
+      $said | Should -Match "not open to the network this PC is on"
+    }
+    It "tells an install made before this card to restart, then adds the rule on the next start (review M6)" {
+      Invoke-Run | Should -Be 0
+      $script:S.Firewall = @(); $script:S.FwRule = $null     # as on a box finished before NEW-WIN-4
+      $script:S.NetMode = "nat"                              # WSL2 still runs with the earlier networking
+      Invoke-Run | Should -Be 0
+      $script:S.Firewall.Count | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Match "Restart Windows, then start the installer once more"
+      $script:S.NetMode = "mirrored"                         # after the restart
+      Invoke-Run | Should -Be 0
+      $script:S.Firewall | Should -Be @("TrialBox-Console|443|exists=False")
+    }
+    It "stops when WSL2 does not run with mirrored networking, and opens nothing" {
+      $script:S.NetMode = "nat"
+      Invoke-Run | Should -Be 1
+      $script:S.Firewall.Count | Should -Be 0
+      $script:S.Console.Count | Should -Be 0
+      Get-Log | Should -Match "STOP step 13/\d+ network: .*it reports: nat"
+    }
+    It "is not finished while the egress table is not loaded under WSL2" {
+      $script:S.SetupFail["egress-check"] = "the nftables table inet trialbox_egress is not loaded"
+      Invoke-Run | Should -Be 1
+      $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
+      $state.finished | Should -BeFalse
+      Get-Log | Should -Match "STOP step 14/\d+ linux-install: .*trialbox_egress"
     }
     It "is not finished while Docker or the stack would not start with the distribution" {
       $script:S.SetupFail["boot-check"] = "not enabled to start with the distribution: trialbox.service"
       Invoke-Run | Should -Be 1
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeFalse
-      Get-Log | Should -Match "STOP step 13/\d+ linux-install: .*trialbox\.service"
+      Get-Log | Should -Match "STOP step 14/\d+ linux-install: .*trialbox\.service"
     }
     It "does nothing on a second run of a finished install" {
       Invoke-Run | Should -Be 0
       $n = $script:S.Calls.Count
       Invoke-Run | Should -Be 0
-      $script:S.Calls.Count | Should -Be $n
+      @($script:S.Calls | Select-Object -Skip $n | Where-Object { $_ -notmatch "wsl-setup\.sh network-mode$" }).Count | Should -Be 0   # only the read-only question for the networking mode (NEW-WIN-4)
       $script:S.Console.Count | Should -Be 1
     }
     It "refuses a distribution of that name it did not import, and never removes one" {
@@ -478,7 +576,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 1
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeFalse
-      Get-Log | Should -Match "STOP step 13/\d+ linux-install"
+      Get-Log | Should -Match "STOP step 14/\d+ linux-install"
     }
     It "counts an install whose host check still has FAIL lines as installed, and says so" {
       $script:S.InstallExit = 1
@@ -501,7 +599,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $log = Get-Log
       foreach ($name in @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
-          "packages", "gpu-container", "host-tree", "boot-task", "linux-install")) { $log | Should -Match ("step \d+/13 " + $name + ": ok") }
+          "packages", "gpu-container", "host-tree", "boot-task", "network", "linux-install")) { $log | Should -Match ("step \d+/14 " + $name + ": ok") }
       Should -Invoke Invoke-TbNative -Times 0 -ParameterFilter { ($Arguments -join " ") -match "wsl-setup\.sh install" }
     }
   }
