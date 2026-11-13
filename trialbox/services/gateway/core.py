@@ -181,6 +181,7 @@ class _Call:
     tokens_in: int = 0
     tokens_out: int = 0
     latency_ms: float = 0.0
+    slot_wait_ms: float = 0.0  # D-627: waiting for an endpoint slot, summed over the endpoints tried
     cost: float = 0.0
     cache: str = "miss"
     output_sha: str = ""
@@ -670,7 +671,10 @@ class Gateway:
         ticket = None
         if lane is not None:
             left = call.deadline - time.monotonic()
+            t_slot = time.perf_counter()
             ticket = lane.acquire(INTERACTIVE_SLOT_WAIT_S if interactive else left)
+            # D-627: the queue in front of the server, apart from latency_ms (the server's own time); got or not
+            call.slot_wait_ms = round(call.slot_wait_ms + (time.perf_counter() - t_slot) * 1000, 2)
             if ticket is None:
                 lane.breaker.cancel()
                 errors.append(f"{ep.name}{_BUSY}")  # every slot taken: model_busy (T-608)
@@ -903,6 +907,7 @@ class Gateway:
             "tokens_in": call.tokens_in,
             "tokens_out": call.tokens_out,
             "latency_ms": call.latency_ms,
+            "slot_wait_ms": call.slot_wait_ms,
             "cost": call.cost,
             "cache": call.cache,
             "guard": call.guard,
