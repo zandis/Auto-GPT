@@ -296,6 +296,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    from tests.settings_kept import SettingsKept
+
+    config.pluginmanager.register(SettingsKept(), "tb-settings-kept")  # D-637
     if config.getoption("--shard", None):  # T-747: after every other selection (-m, -k), only this shard's files
         from tools import test_shard
 
