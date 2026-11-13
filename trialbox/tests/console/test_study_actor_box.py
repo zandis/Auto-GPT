@@ -19,7 +19,7 @@ from tests.console.test_orch_box import site  # noqa: F401  (the console of the 
 from tests.orch_box import STUDY, OrchBox
 
 SETUP = "study.setup"
-SITE = "site.setup"
+SITE = "redcap.connection"  # T-715e (D-701): the administrator's alone, as the console's page is
 READ = "request.prepare"
 SETTINGS: dict[str, Any] = {"study_type": "trial", "cohort_kind": "enrolled",
                             "not_suitable_reasons": ["stage", "other"], "screening_no_format": "GZ-"}  # fmt: skip
@@ -64,9 +64,9 @@ def test_a_signed_call_is_recorded_under_the_verified_person(orch_box: OrchBox) 
     assert [e["actor"] for e in orch_box.events("study.screen_scope")] == ["console:crc"]
     # the connection is the box's: the claim names no study, and asks the site's own row of the matrix
     path = "/redcap/connections/rc1"
-    r = c.put(path, json=CONN, headers=signed(SITE, "", "PUT", path, CONN, sub="console:crc"))
+    r = c.put(path, json=CONN, headers=signed(SITE, "", "PUT", path, CONN, sub="console:admin", role="admin"))
     assert r.status_code == 200, r.text[:300]
-    assert [e["actor"] for e in orch_box.events("redcap.connection")] == ["console:crc"]
+    assert [e["actor"] for e in orch_box.events("redcap.connection")] == ["console:admin"]
     # a `by` in the body is not a field of the request any more: it is refused, not ignored (the body is signed)
     typed = {**SETTINGS, "by": "console:dr_tanaka"}
     path = f"/studies/{STUDY}/settings"
@@ -107,3 +107,28 @@ def test_the_consoles_own_pages_still_save_the_study(site: Any, orch_box: OrchBo
     r = c.post(f"/studies/{STUDY}/setup/scope", data={"csrf": csrf, "mode": "hospital"})
     assert r.status_code in (200, 303), r.text[:300]
     assert [e["actor"] for e in orch_box.events("study.screen_scope")] == ["console:crc"]
+
+
+def test_only_the_administrator_writes_or_tests_the_boxs_redcap_connection(orch_box: OrchBox) -> None:
+    """T-715e (D-701, the owner's decision of 2026-11-13): the console's page for the box's REDCap connection and
+    its token is the administrator's alone; the routes asked ``site.setup``, which a coordinator holds too, so the
+    orchestrator was wider than the page. They ask a row of their own now."""
+    from tb_common.authz import permit
+
+    assert {r for r in ("admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy")
+            if permit(r, SITE).allowed} == {"admin"}  # fmt: skip
+    c = orch_box.client("console")
+    for method, path, body in (("PUT", "/redcap/connections/rc1", CONN), ("POST", "/redcap/connections/rc1/test", None)):
+        kw: dict[str, Any] = {} if body is None else {"json": body}
+        # a coordinator, signed for this very request: the matrix refuses the role
+        crc = signed(SITE, "", method, path, body, sub="console:crc", role="coordinator")
+        r = c.request(method, path, headers=crc, **kw)
+        assert r.status_code == 403 and "right" in r.text, (path, r.text[:200])
+        # the row the routes asked before is not this route's action any more
+        old = signed("site.setup", "", method, path, body, sub="console:crc", role="coordinator")
+        r = c.request(method, path, headers=old, **kw)
+        assert r.status_code == 403 and "action" in r.text, (path, r.text[:200])
+    assert orch_box.events("redcap.connection") == []
+    r = c.put("/redcap/connections/rc1", json=CONN,
+              headers=signed(SITE, "", "PUT", "/redcap/connections/rc1", CONN, sub="console:admin", role="admin"))  # fmt: skip
+    assert r.status_code == 200, r.text[:300]

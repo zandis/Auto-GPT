@@ -66,7 +66,8 @@ found.
 
 ## Open with the owner
 
-- **Who may write the box's REDCap token at the orchestrator.** The console's page for it is the administrator's
+- **Closed by D-701 (T-715e): the owner decided 2026-11-13 that it is the administrator's alone; the routes ask
+  the row `redcap.connection`.** As it stood: who may write the box's REDCap token at the orchestrator. The console's page for it is the administrator's
   alone (D-146, review J-05). The route asks `site.setup`, which the matrix gives the administrator and the
   coordinator, so the orchestrator is wider than the page. Nothing reaches it today (only the console signs, and
   both call sites are behind the administrator check), but a later console path that signs `site.setup` for a

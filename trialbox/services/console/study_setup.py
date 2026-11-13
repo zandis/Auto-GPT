@@ -53,7 +53,7 @@ from console.studies import known_study
 from console.timefmt import site_zone
 
 SETUP = "study.setup"  # T-715d (D-554): the study's own set-up
-SITE = "site.setup"  # the box's REDCap connections are the site's, not one study's
+SITE = "redcap.connection"  # T-715e (D-701): the box's REDCap connection and its token, the administrator's alone
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
