@@ -193,7 +193,7 @@ def test_a_master_push_a_train_proved_does_not_build_the_images_again() -> None:
     proved = jobs["proved"]
     assert proved["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/master'"
     assert proved["permissions"] == {"contents": "read", "checks": "read", "pull-requests": "read"}
-    assert any("tools/ci_proved_tree.py" in str(s.get("run", "")) for s in proved["steps"])
+    assert any("tools/ci_proved_tree.py --image-legs" in str(s.get("run", "")) for s in proved["steps"])
     assert proved["steps"][0]["with"]["fetch-depth"] == 0  # the tool compares the trees of both parents
     images = jobs["images"]
     assert images["needs"] == "proved"

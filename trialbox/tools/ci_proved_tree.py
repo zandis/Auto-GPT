@@ -1,6 +1,7 @@
 """Did a merge train already prove the tree of the commit just pushed to master? (CI-COST, D-578)
 
     python3 trialbox/tools/ci_proved_tree.py        # prints "true" or "false"; the reason goes to stderr
+    python3 trialbox/tools/ci_proved_tree.py --image-legs   # the image gates' question: also a passed image leg
 
 A train's pull request runs the full tier on its head. When the train is merged with a merge commit and master had
 nothing the train lacked, the merge commit's tree is the train head's tree, byte for byte: the full tier of the push
@@ -31,6 +32,7 @@ APP = "github-actions"
 TRAIN_PREFIX = "train/"
 BASE = "master"
 PAGE = 100
+IMAGE_LEG = "images ("  # a leg of trialbox-images.yml; the CI gate's hadolint job is plain `images`
 MAX_PAGES = 10  # 1,000 check runs on one commit: more than that and the answer is "false"
 
 
@@ -47,8 +49,14 @@ def proved(
     repo: str,
     pulls: list[dict[str, Any]],
     runs: list[dict[str, Any]],
+    image_legs: bool = False,
 ) -> tuple[bool, str]:
-    """The rule on plain data: (proved, why)."""
+    """The rule on plain data: (proved, why).
+
+    ``image_legs``: the image gates ask (trialbox-images.yml). The CI gate's hadolint job is also named ``images``, so
+    the full-tier rule alone would be met on a train whose image gates never ran; the image gates also need at least
+    one leg of their own (``images (<runner>, <platform>)``) on the train's head, every one passed (adversarial review
+    of the deep review `architecture`)."""
     if len(parents) != 2:
         return False, f"not a merge of two ({len(parents)} parent(s))"
     if not head_tree or head_tree != train_tree:
@@ -81,6 +89,8 @@ def proved(
         bad = sorted({str(r.get("conclusion")) for r in of_job if r.get("conclusion") != "success"})
         if bad:
             return False, f"{job} was {', '.join(bad)} on the train's head"
+    if image_legs and not any(str(r.get("name", "")).startswith(IMAGE_LEG) for r in ours):
+        return False, "no image-gate leg ran on the train's head"
     return True, f"proved by {refs[0]}"
 
 
@@ -103,7 +113,8 @@ def _check_runs(repo: str, sha: str) -> list[dict[str, Any]]:
     raise ValueError("too many check runs")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    legs = "--image-legs" in (sys.argv[1:] if argv is None else argv)
     try:
         parents = _git("rev-list", "--parents", "-n", "1", "HEAD").split()[1:]
         head_tree = _git("rev-parse", "HEAD^{tree}")
@@ -117,7 +128,8 @@ def main() -> int:
                 ok, why = proved(head_tree, parents, train_tree, inside.returncode == 0, repo, [], [])
             else:
                 pulls = list(_api(f"repos/{repo}/commits/{parents[1]}/pulls"))
-                ok, why = proved(head_tree, parents, train_tree, True, repo, pulls, _check_runs(repo, parents[1]))
+                runs = _check_runs(repo, parents[1])
+                ok, why = proved(head_tree, parents, train_tree, True, repo, pulls, runs, image_legs=legs)
     except (OSError, KeyError, ValueError, AttributeError, TypeError, subprocess.CalledProcessError) as exc:
         ok, why = False, f"could not ask ({type(exc).__name__}); the full tier runs"
     print(f"ci_proved_tree: {why}", file=sys.stderr)
