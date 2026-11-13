@@ -130,9 +130,16 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
         for row in orch.db.trial_cache_all():
             db.trial_cache_put(row)
         if (original.ruleset or "").upper() == "MERGE":
+            from orchestrator.scenarios import cohort
+
             try:
-                _replay_alliance_tables(orch, db, original.job_id)
-            except ReplayUnknown as exc:  # D-666: a replay gives what the first run gave, or says that it cannot
+                # D-670: the store's own record of what it stored and when this merge read (D-648) rebuilds the
+                # tables as the first run read them. No recorded read (the merge read before the record began):
+                # what is left is how the earlier jobs ended (D-666)
+                if not cohort.replay_stored(orch.db, db, original.job_id):
+                    _replay_alliance_tables(orch, db, original.job_id)
+            except (ReplayUnknown, cohort.ReplayUnsure, cohort.RecordChanged) as exc:
+                # a replay gives what the first run gave, or says that it cannot (D-666)
                 db.drop()
                 return RerunResult(job_id, original.type, False, [], f"this job cannot be re-run: {exc}")
     snap = original.snapshot_date.isoformat() if original.snapshot_date else None
