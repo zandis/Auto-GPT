@@ -23,6 +23,9 @@ def _load(tmp_path: Path, systems: str) -> Mapping:
 @pytest.mark.parametrize("address", [
     "http://hospital.example/fhir/CodeSystem/atc", "https://his.example/atc-codes", "urn:oid:1.2.3.4", "atc",
     "http://www.whocc.no/atc/2024", "",
+    # the review: another spelling of the ATC system is read by the lake, not by the readers that compare the
+    # address as written (a value set of a ruleset, the JP Core check): one spelling only
+    "https://www.whocc.no/atc/", "HTTP://WWW.WHOCC.NO/ATC", "urn:oid:2.16.840.1.113883.6.73", " http://www.whocc.no/atc ",
 ])  # fmt: skip
 def test_an_atc_address_of_the_site_s_own_is_refused_with_the_reason(tmp_path: Path, address: str) -> None:
     with pytest.raises(MappingError) as e:
@@ -32,12 +35,30 @@ def test_an_atc_address_of_the_site_s_own_is_refused_with_the_reason(tmp_path: P
     assert "site.yaml" in said
 
 
-@pytest.mark.parametrize("address", [
-    "http://www.whocc.no/atc", "https://www.whocc.no/atc/", "HTTP://WWW.WHOCC.NO/ATC", "urn:oid:2.16.840.1.113883.6.73",
+def test_the_atc_system_as_the_box_writes_it_loads(tmp_path: Path) -> None:
+    m = _load(tmp_path, 'systems:\n  atc: "http://www.whocc.no/atc"\n')
+    assert m.systems["atc"] == "http://www.whocc.no/atc" and is_atc_system(m.systems["atc"])
+
+
+OVERLAY = """tables:
+  medication: {{source: medication, key: rx_no}}
+overlay:
+  - type: MedicationRequest
+    table: medication
+    elements:
+      medicationCodeableConcept.coding[1]: {{builder: coding, column: atc, system: {key}}}
+"""
+
+
+@pytest.mark.parametrize(("systems", "key"), [
+    ('systems:\n  who_atc: "http://hospital.example/atc"\n', "who_atc"),   # a key of the site's own
+    ("", "nhi_drug"),                                                       # a key the base has for another code
 ])  # fmt: skip
-def test_the_atc_system_under_any_of_its_names_loads(tmp_path: Path, address: str) -> None:
-    m = _load(tmp_path, f'systems:\n  atc: "{address}"\n')
-    assert is_atc_system(m.systems["atc"])
+def test_the_atc_column_written_under_another_system_is_refused(tmp_path: Path, systems: str, key: str) -> None:
+    """The review: the address of one key was checked, not what the ATC column is written under."""
+    with pytest.raises(MappingError) as e:
+        _load(tmp_path, systems + OVERLAY.format(key=key))
+    assert "column atc" in str(e.value) and "exclusion" in str(e.value)
 
 
 def test_a_site_that_overrides_another_system_keeps_the_base_s_atc(tmp_path: Path) -> None:
