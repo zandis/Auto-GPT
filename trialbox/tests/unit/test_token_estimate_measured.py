@@ -13,6 +13,7 @@ every estimate the product makes of a text.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -25,7 +26,7 @@ from tb_llm.budget import SAFETY, estimate_tokens, excerpt_tokens
 DOC = json.loads((Path(__file__).resolve().parents[1] / "fixtures/llm/token_counts_cjk.json").read_text("utf-8"))
 ROWS = [dict(zip(DOC["columns"], r, strict=True)) for r in DOC["rows"]]
 MARGIN = 1.05  # G-5's: for what a sample of 400 did not see
-ESTIMATES = {
+ESTIMATES: dict[str, Callable[[str], int]] = {
     "budget": estimate_tokens,
     "cascade": lambda text: expected_tokens([{"text": text}]) - 300,  # minus its fixed share for the prompt
 }
