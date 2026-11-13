@@ -74,8 +74,14 @@ def test_an_opt_out_under_a_merged_chart_hides_the_survivor(merged: str, role: s
 def test_the_worker_tick_as_the_orchestrator_runs(merged: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from datacore import optout_worker as w
     from omop import schema as omop_schema
+    from tb_common.optout import OptOutRegister
 
     omop_schema.connect(merged).close()  # the box's OMOP store, made by the admin's migrate step
+    admin = OptOutRegister(merged)  # this test's own opt-out, under the merged-away chart
+    try:
+        admin.add(OLD, "office", "", "console:office1", "2026-11-01T00:00:00+00:00")
+    finally:
+        admin.close()
     monkeypatch.setenv("TB_DB_URL", _as(merged, "tb_orchestrator"))
     events: list[tuple[str, Any]] = []
     removed: list[set[str]] = []

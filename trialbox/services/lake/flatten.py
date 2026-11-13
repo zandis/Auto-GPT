@@ -875,8 +875,9 @@ def merge_patients(rows: list[Row]) -> list[Row]:
                 clash.setdefault(pid, set()).add(k)
     for pid, ks in clash.items():
         if "deceased_date" in ks:
-            # DATA-004: the sources agree the patient died and disagree on when. Deceased with no date would leave
-            # the patient out at EVERY index date, even before every claimed death (D-275: unknown never
-            # excludes). The latest claimed date leaves the patient out only where every source says they had died.
-            by[pid]["deceased_date"] = max(deaths[pid], key=str)  # ISO dates: text order is time order
+            # DATA-004: the sources agree the patient died and disagree on when. Deceased with no date left the
+            # patient out at EVERY index date, even before every claimed death. The earliest claimed date keeps the
+            # patient in before any source says they died, and out from the first claim on: a death fails closed
+            # (D-400) in the window the sources dispute.
+            by[pid]["deceased_date"] = min(deaths[pid], key=str)  # ISO dates: text order is time order
     return list(by.values())
