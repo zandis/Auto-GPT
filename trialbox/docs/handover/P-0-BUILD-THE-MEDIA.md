@@ -106,8 +106,8 @@ so whether the media is nearer 5 GB or 13 GB.
    sheet line by line. Write the "Record" column down as you go. Never write a recovery key down for us: only
    "shown" and "confirmed".
 4. Stage A: when the window stops at step 14 with the Linux installer's message about the bundle, that is the
-   expected end. Go on with Part 2, Part 3 (lines 24, 25, 26a, 27a, 27b, 27d), Part 4, Part 6 and Part 8 as listed
-   above. In the sheet's line 13, "Step 12" is step 14 of the installer today.
+   expected end (the sheet's line 13). Go on with Part 2, Part 3 (lines 24, 25, 26a, 27a, 27b, 27d), Part 4,
+   Part 6 and Part 8 as listed above.
 5. Send back: the sheet with its Record column, and the log
    `C:\ProgramData\TrialBox\box-install\box-install.log` (it holds no secret; line 35 checks that).
 
