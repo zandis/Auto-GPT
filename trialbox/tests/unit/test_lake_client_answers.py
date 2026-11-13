@@ -144,7 +144,7 @@ def test_the_vector_ranking_falls_back_on_any_answer_it_cannot_read() -> None:
     for wrong in WRONG:
         out = _lake({"/vec/s2b": wrong}).vec_s2b("p1", ["d1"], "q")
         assert out["state"] == "fallback", wrong
-    ranked = {"state": "vec", "ranked": ["d1"]}
+    ranked = {"state": "vec", "ranked": ["d1"], "model": "hash"}
     assert _lake({"/vec/s2b": ranked}).vec_s2b("p1", ["d1"], "q") == ranked
 
 
@@ -173,3 +173,48 @@ def test_every_method_of_the_client_reads_its_answer_through_the_one_reader() ->
     public = {n.name for n in cls.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")}
     assert public == listed, f"a method of the client that is not listed with its answer: {sorted(public ^ listed)}"
     assert reads >= listed - {"rebuild"}, sorted(listed - {"rebuild"} - reads)
+
+
+# ------------------------------------------------------------------------------------------- the adapter's own client
+def _adapter_step(monkeypatch: pytest.MonkeyPatch, answer: Any, status: int = 200) -> Any:
+    """``adapter.cli.HttpLakeStep``: the client the night's publish really uses (found by this card's review:
+    nothing calls ``LakeHttp.promote``). It asks through ``httpx``'s module calls."""
+    from adapter.cli import HttpLakeStep
+
+    def call(url: str, **_kw: Any) -> httpx.Response:
+        request = httpx.Request("POST", url)
+        if isinstance(answer, str):
+            return httpx.Response(status, text=answer, request=request)
+        return httpx.Response(status, json=answer, request=request)
+
+    monkeypatch.setattr(httpx, "post", call)
+    monkeypatch.setattr(httpx, "get", call)
+    return HttpLakeStep("http://lake")
+
+
+def test_the_publishs_own_promote_reads_the_lakes_yes_and_no(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _adapter_step(monkeypatch, {"promoted": True, "current": NIGHT}).promote(NIGHT, f"{NIGHT}.g2") is True
+    assert _adapter_step(monkeypatch, {"promoted": False, "current": "2026-10-05"}).promote(NIGHT) is False
+
+
+@pytest.mark.parametrize("wrong", [*WRONG, {"promoted": "yes"}, {"promoted": None}], ids=lambda w: repr(w)[:24])
+def test_the_publishs_own_promote_never_reads_a_wrong_answer_as_a_newer_night_is_served(
+    monkeypatch: pytest.MonkeyPatch, wrong: Any
+) -> None:
+    with pytest.raises(LakeBadAnswer):
+        _adapter_step(monkeypatch, wrong).promote(NIGHT)
+
+
+@pytest.mark.parametrize("wrong", [w for w in WRONG if not isinstance(w, dict)], ids=lambda w: repr(w)[:24])
+def test_the_publishs_own_rebuild_start_is_an_object_or_an_error_of_the_lake(
+    monkeypatch: pytest.MonkeyPatch, wrong: Any
+) -> None:
+    with pytest.raises(LakeBadAnswer):
+        _adapter_step(monkeypatch, wrong)._call("post", "/rebuild", json={"snapshot": NIGHT})
+
+
+def test_a_vector_answer_without_its_model_is_the_fallback_not_an_error_of_the_run() -> None:
+    """The cascade reads ``answer["model"]`` of a "vec" answer."""
+    assert _lake({"/vec/s2b": {"state": "vec", "ranked": ["d1"]}}).vec_s2b("p1", ["d1"], "q")["state"] == "fallback"
+    whole = {"state": "vec", "ranked": ["d1"], "model": "hash"}
+    assert _lake({"/vec/s2b": whole}).vec_s2b("p1", ["d1"], "q") == whole

@@ -145,8 +145,9 @@ class LakeHttp:
             out: dict[str, Any] = _object(resp)
         except LakeBadAnswer:  # D-673: an answer that cannot be read is no answer: the fallback, as the docstring says
             return fallback(f"{UNAVAILABLE} (lake answered something else)")
-        if not isinstance(out.get("state"), str):
-            return fallback(f"{UNAVAILABLE} (lake answered something else)")
+        ranked = out.get("state") == "vec"
+        if not isinstance(out.get("state"), str) or (ranked and not isinstance(out.get("model"), str)):
+            return fallback(f"{UNAVAILABLE} (lake answered something else)")  # the cascade reads a ranking's model
         return out
 
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:

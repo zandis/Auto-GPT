@@ -60,14 +60,19 @@ class HttpLakeStep:
     def __init__(self, lake_url: str, poll: Any = None) -> None:
         self.base, self.poll = lake_url.rstrip("/"), poll
 
-    def _call(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+    def _ask(self, method: str, path: str, **kw: Any) -> Any:
         import httpx
         from tb_common.service_auth import auth_headers
 
         resp = getattr(httpx, method)(f"{self.base}{path}", timeout=60, headers=auth_headers(), **kw)
         resp.raise_for_status()
-        body: dict[str, Any] = resp.json()
-        return body
+        return resp
+
+    def _call(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+        """The lake's answer, a JSON object, or ``lake.client.LakeBadAnswer`` (D-673): never another body."""
+        from lake.client import _object
+
+        return _object(self._ask(method, path, **kw))
 
     def rebuild(self, snapshot: str, promote: bool = True) -> dict[str, Any]:
         from lake.client import follow_rebuild
@@ -84,7 +89,10 @@ class HttpLakeStep:
         """T-723 (D-489): the publish's last step: the built night becomes the served one (False: a newer one is).
         ``generation`` (D-531): the one this publish built; the lake refuses (409) when the date is another now."""
         body = {"snapshot": snapshot, **({"generation": generation} if generation else {})}
-        return bool(self._call("post", "/promote", json=body).get("promoted"))
+        from lake.client import _key
+
+        # D-673: a 200 without ``promoted`` is an error of the lake, not "a newer night is served"
+        return bool(_key(self._ask("post", "/promote", json=body), "promoted", (bool,)))
 
 
 def http_rebuild(lake: Any, snapshot: str, promote: bool = True) -> RebuildResult:
