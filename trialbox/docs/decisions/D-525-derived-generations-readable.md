@@ -31,7 +31,10 @@ The derived store does not forget: its rows are read "as of" a batch (`DerivedSt
    from the job's generation now. When they are not, it asks for the batch that generation's build made
    (`Built.kept`) and reads that batch by its id. Never "a finished batch of the date".
 4. **Still unknown**: a generation whose build never ended; a kept batch the store no longer has; a ledger that
-   cannot be read; a build that finished without saying what it made.
+   cannot be read; a build that finished without saying what it made; and **the job's own generation while it is
+   being built again, or after that build died** (a second passed ingest of the same night is new content under
+   the same name: the earlier build's batch is not what the lake holds). The kept batch is only ever read by a
+   job whose generation is not the one the rows are built from now.
 5. **`built` is unchanged**: one row per artefact, the order of generations, the refusal of an older build. A
    build of an older generation is still refused: this card lets a job *read* yesterday's batch, it does not let
    anything *write* yesterday's rows over today's.
@@ -46,6 +49,12 @@ The derived store does not forget: its rows are read "as of" a batch (`DerivedSt
   (`tests/unit/test_t725_review.py`).
 - A box updated to this card keeps generations from its next finished build on; nights finished before the update
   read as before (unknown once a newer build began).
+
+- **A job that pinned no generation** reads under the bare date, which is generation 0 of that date: the date's
+  content before the lake had generations. After a first numbered generation of the date is built, such a job
+  reads the batch built under the bare date, if one was ever finished. Jobs pin a generation since T-724.
+- Read "as of" has the resolution of the batch's time stamp (a second): a recompute landing in the same second
+  as an older batch's end would be read by it. As before this card (D-442); nights are hours apart.
 
 ## Not decided here
 

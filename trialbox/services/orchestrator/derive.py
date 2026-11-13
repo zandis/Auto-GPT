@@ -65,6 +65,7 @@ class GenerationReader:
         key = (snapshot, generation)
         if key not in self._seen:
             from datacore.generations import Built
+            from tb_common.generation import Generation
 
             try:
                 with Built(self._url) as ledger:
@@ -73,7 +74,12 @@ class GenerationReader:
                     # NEW-B-4 (D-525): the rows are built from another generation now, or a build of them runs.
                     # The store keeps its rows as of a batch, so the batch this job's generation made can still
                     # be read: that batch by its run id, never "a finished batch of the date"
-                    old = None if why.ok else ledger.kept("derived", generation)
+                    # Only when the rows are built from ANOTHER generation: a build of the job's own generation that
+                    # runs again, or died, means the lake's content under that name is new and its rows are not
+                    # there yet: unknown, as before (review of NEW-B-4)
+                    now = ledger.state("derived")
+                    mine = Generation.parse(generation)
+                    old = None if why.ok or now is None or now[0] == mine else ledger.kept("derived", generation)
             except Exception as exc:  # the ledger cannot be read: unknown, never "as if finished"
                 log.warning("stored scores unknown: the generation ledger cannot be read (%s)", type(exc).__name__)
                 self._seen[key] = (False, "")
