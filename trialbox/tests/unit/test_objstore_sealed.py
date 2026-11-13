@@ -196,3 +196,22 @@ def test_the_inventory_names_the_object_key(capsys: pytest.CaptureFixture[str]) 
     rc, out = _cli(capsys, "inventory", "--json")
     row = next(r for r in json.loads(out) if r["key"] == "objects.key")
     assert rc == 0 and "wrapped" in row["where"] and row["rotation"] and row["compromise"]
+
+
+def test_a_put_is_on_disk_before_it_returns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deep review 2026-11-13 (operations, FAIL-7): a job's outputs were written as a temporary file and renamed, with
+    no fsync of the file or of its folder, while the job's ``done`` is durable at the database's commit. A power cut
+    a few seconds after a screening ended left a done job whose candidate list was empty or missing. Both the
+    object's bytes and the folder entry that names it are synced before ``put`` returns."""
+    synced: list[str] = []
+    real = os.fsync
+
+    def fsync(fd: int) -> None:
+        synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    O.FsStore(tmp_path / "obj").put("outputs/job1/candidates.json", b'{"rows": []}')
+    folder = tmp_path / "obj" / "outputs" / "job1"
+    assert str(folder / "candidates.json.tmp") in synced and str(folder) in synced
+    assert (folder / "candidates.json").read_bytes() == b'{"rows": []}'

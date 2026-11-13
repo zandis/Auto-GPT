@@ -151,8 +151,18 @@ class FsStore:
                 data = seal_bytes(self._key(seal), key, data)
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_suffix(p.suffix + ".tmp")
-        tmp.write_bytes(data)
+        # durable before put returns: a job's done is durable at the database's commit, so its outputs must be on
+        # disk by then (a power cut after a screening left a done job with no list; deep review 2026-11-13)
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, p)
+        fd = os.open(p.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
     def get(self, key: str) -> bytes:
         p = self._path(key)
