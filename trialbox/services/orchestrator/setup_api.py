@@ -227,7 +227,10 @@ def router(
         rs = approved(rid)
         if rs is None:
             return {"study": rid, "approved": False, "patients": []}
-        return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
+        try:
+            return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
+        except readiness.LAKE_DOWN:  # D-709: said, not a 500 and not "no patients"
+            return {"study": rid, "approved": True, "patients": [], "lake_unread": True}
 
     @r.get("/setup/{ws}/feasibility")
     def get_feasibility(ws: str, study: str) -> dict[str, Any]:
@@ -236,14 +239,15 @@ def router(
         rd = readiness.readiness(svc, w, {"id": rid, "exists": True, "approved": bool(rs)}, {})
         if rs is None:
             return {"study": rid, "approved": False, "needs_bulk": not rd["bulk"], "feas": None}
+        out = {"study": rid, "approved": True, "needs_bulk": False}
+        if rd.get("lake_unread"):  # D-709: no count from a lake that cannot be asked, and not "needs a bulk input"
+            return {**out, "feas": None, "lake_unread": True}
         if not rd["bulk"]:  # D-132: say plainly what cannot be done yet instead of failing
             return {"study": rid, "approved": True, "needs_bulk": True, "feas": None}
-        return {
-            "study": rid,
-            "approved": True,
-            "needs_bulk": False,
-            "feas": readiness.feasibility(svc, w, rs, svc.today()),
-        }
+        try:
+            return {**out, "feas": readiness.feasibility(svc, w, rs, svc.today())}
+        except readiness.LAKE_DOWN:
+            return {**out, "feas": None, "lake_unread": True}
 
     @r.post("/setup/{ws}/sheets")
     def post_sheet(ws: str, body: SheetBody, request: Request) -> dict[str, Any]:

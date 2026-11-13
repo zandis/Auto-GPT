@@ -9,6 +9,7 @@
 {{ site_nav(ws, rs, qs) }}
 <p class="hint">{{ t('site.patients.help') }}</p>
 {% if not out.approved %}<p class="hint" data-testid="pc-not-approved">{{ t('site.feas.not_approved') }}</p>
+{% elif out.lake_unread %}<p class="warn" data-testid="pc-lake-unread">{{ t('site.lake_unread') }}</p>{# D-709 #}
 {% elif not out.patients %}<p class="empty" data-testid="pc-none">{{ t('site.people.none') }}</p>{% endif %}
 {% for p in out.patients %}<article class="card" id="p-{{ p.short }}" data-testid="pc-{{ p.short }}" data-state="{{ p.state }}">
 <p><span class="mono">{{ p.short }}</span> <span class="pill pc-{{ p.state }}">{{ t('site.pc.' + p.state) }}</span>
