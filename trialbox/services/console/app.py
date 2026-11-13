@@ -1413,8 +1413,26 @@ def create_app(
             consent=_consent_card(job),
             case=case,
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
+            recheck=_recheck_share(job, sess, bg=grant is not None),
             breakglass=grant,
         )
+
+    def _recheck_share(job: Job, sess: Session, bg: bool = False) -> dict[str, Any] | None:
+        """NEW-RUN-1 (D-558): how far a weekly screening run got with the patients whose criteria were not matched
+        before (D-646's share of the night allowance), from the run's ``microbatch.budget`` event. For the accounts
+        that read the study's list (as the rows of the screening card): the figures are patient counts, and those
+        accounts see the list itself, so nothing is suppressed. None when the run was not a weekly one, wrote no
+        such event, or had none of those patients in scope."""
+        if job.type not in ("SCREEN", "MICROBATCH") or not (helpers.reads(sess.user, job.ruleset) or bg):
+            return None
+        ev = bk.recheck_share(job.job_id)
+        if ev is None or ev.get("trigger") != "weekly":
+            return None
+        scope, again = ev.get("excluded_in_scope"), ev.get("excluded_rescreened")
+        if scope is None or again is None or (scope == 0 and again == 0):
+            return None
+        return {"n": again, "scope": scope, "kept": ev.get("excluded_kept"), "percent": ev.get("excluded_percent"),
+                "runs": ev.get("excluded_full_pass_runs"), "carried": ev.get("excluded_carried")}  # fmt: skip
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 

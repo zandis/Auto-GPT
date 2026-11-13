@@ -135,6 +135,7 @@ class Backend(Protocol):
     def get_object(self, key: str) -> bytes: ...
     def thread(self, job_id: str) -> list[MailItem]: ...
     def audit(self, job_id: str | None = None, limit: int = 200) -> list[AuditRecord]: ...
+    def recheck_share(self, job_id: str) -> dict[str, Any] | None: ...
     def rulesets(self) -> list[RulesetInfo]: ...
     def health(self) -> list[Health]: ...
     def models(self) -> dict[str, Any] | None: ...
@@ -212,6 +213,37 @@ _SHOWN_DETAIL = (
     "source", "validation_error_pct", "intent",  # S24 ingest rows, the header command field (step 4)
     "via", "purpose",  # T-103 (D-438): where a chart number was shown and what for
 )  # fmt: skip
+
+
+#: NEW-RUN-1 (D-558): the figures of a weekly run's ``microbatch.budget`` event the run page says in words. They
+#: are patient counts, so they are NOT among the keys every reader of the audit table sees (``_SHOWN_DETAIL``): the
+#: page asks for them here and shows them only to an account that reads the study's list.
+RECHECK_SHARE = ("excluded_in_scope", "excluded_rescreened", "excluded_kept", "excluded_percent",
+                 "excluded_full_pass_runs", "excluded_carried")  # fmt: skip
+
+
+def read_recheck_share(directory: Path, job_id: str) -> dict[str, Any] | None:
+    """The last ``microbatch.budget`` event of a job: its trigger and the whole numbers of :data:`RECHECK_SHARE`
+    (a figure that is absent or not a whole number is left out). None when the job wrote no such event."""
+    found: dict[str, Any] | None = None
+    for path in sorted(directory.glob("*.jsonl")) if directory.is_dir() else []:
+        with path.open(encoding="utf-8") as fh:
+            for raw in fh:
+                if '"microbatch.budget"' not in raw:
+                    continue
+                try:
+                    rec = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                det = rec.get("detail")
+                if rec.get("event") != "microbatch.budget" or rec.get("job_id") != job_id or not isinstance(det, dict):
+                    continue
+                found = {"trigger": str(det.get("trigger") or "")}
+                for key in RECHECK_SHARE:
+                    v = det.get(key)
+                    if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+                        found[key] = v
+    return found
 
 
 def read_audit(directory: Path, job_id: str | None = None, limit: int = 200) -> list[AuditRecord]:
@@ -380,6 +412,9 @@ class HttpBackend:
 
     def audit(self, job_id: str | None = None, limit: int = 200) -> list[AuditRecord]:
         return read_audit(self.audit_log.directory, job_id, limit)
+
+    def recheck_share(self, job_id: str) -> dict[str, Any] | None:
+        return read_recheck_share(self.audit_log.directory, job_id)
 
     def rulesets(self) -> list[RulesetInfo]:
         return ruleset_infos(self.cfg.env.rulesets_path)

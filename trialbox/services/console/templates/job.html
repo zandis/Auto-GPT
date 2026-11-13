@@ -56,6 +56,16 @@
 </section>
 {% endif %}
 
+{% if recheck %}
+<section class="card" data-testid="recheck-share">
+<h2>{{ t('job.recheck.title') }}</h2>
+<p>{{ t('job.recheck.reached', n=recheck.n, scope=recheck.scope) }}</p>
+{% if recheck.kept is not none and recheck.percent is not none %}<p>{{ t('job.recheck.kept', kept=recheck.kept, percent=recheck.percent) }}</p>{% endif %}
+{% if recheck.runs is not none %}<p>{{ t('job.recheck.pass', runs=recheck.runs) }}</p>{% elif recheck.scope > recheck.n %}<p class="hint">{{ t('job.recheck.nopass') }}</p>{% endif %}
+{% if recheck.carried %}<p class="hint">{{ t('job.recheck.carried', n=recheck.carried) }}</p>{% endif %}
+</section>
+{% endif %}
+
 {% if screen %}
 <section class="card attention" data-testid="screen">
 <h2>{{ t('job.screen') }}</h2>
