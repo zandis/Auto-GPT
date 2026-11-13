@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from llm_stub.app import app as stub
 
@@ -29,21 +30,41 @@ def test_a_call_with_a_free_slot_waited_next_to_nothing(tmp_path: Path) -> None:
     assert isinstance(wait, (int, float)) and 0 <= wait < 500
 
 
-def test_the_time_in_the_queue_is_recorded_and_is_not_the_servers_time(tmp_path: Path) -> None:
+class _Clock:
+    """The gateway's clock for one test: ``perf_counter`` moves only when the test moves it; the rest is the real
+    ``time`` module. A bound in real milliseconds measured the machine (386 ms on a loaded runner), not the gateway."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def perf_counter(self) -> float:
+        return self.now
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(time, name)
+
+
+def test_the_time_in_the_queue_is_recorded_and_is_not_the_servers_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import gateway.core as core
+
+    clock = _Clock()
+    monkeypatch.setattr(core, "time", clock)
     gw = _silent_gw(tmp_path, 9)
     gw.http = TestClient(stub)
     lane = gw.load.get("stub")
     real = lane.acquire
 
-    def slow(wait_s: float) -> int | None:
-        time.sleep(0.25)  # the queue in front of the server
+    def queued(wait_s: float) -> int | None:
+        clock.now += 0.25  # a quarter of a second in the queue in front of the server
         return real(wait_s)
 
-    lane.acquire = slow  # type: ignore[method-assign]
+    lane.acquire = queued  # type: ignore[method-assign]
     assert gw.chat(FRONT, CHAT_BODY).status == 200
     d = _calls(tmp_path)[-1]["detail"]
-    assert d["slot_wait_ms"] >= 250
-    assert d["latency_ms"] < 250  # the stub answers at once: the wait is not counted as the server's time
+    assert d["slot_wait_ms"] == 250.0
+    assert d["latency_ms"] == 0.0  # no time passed at the server: the wait is not counted as the server's time
 
 
 def test_a_call_sent_away_busy_says_how_long_it_waited(tmp_path: Path) -> None:
