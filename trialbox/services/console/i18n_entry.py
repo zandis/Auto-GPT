@@ -169,7 +169,7 @@ ZH: dict[str, str] = {
     "dc.export.odm": "CDISC ODM 1.3 格式",
     "dc.export.csv": "REDCap CSV 格式",
     "dc.export.xlsx": "Excel 活頁簿",
-    "dc.export.files": "REDCap CSV 請直接匯入 REDCap，不要先用試算表軟體開啟再存檔。Excel 活頁簿是供人開啟閱讀的檔案，欄位與 CSV 相同，第二張工作表為資料字典。",
+    "dc.export.files": "REDCap CSV 請直接匯入 REDCap，不要先用試算表軟體開啟再存檔。Excel 活頁簿是供人開啟閱讀的檔案，欄位與 CSV 相同，第二個分頁為資料字典。",
     "dc.builtin.title": "TrialBox 內建表單",
     "dc.builtin.help": "七份可立即使用的表單,提供日文、繁體中文與英文:篩選紀錄、受試者同意、收案、訪視、不良事件、偏差與退出。不良事件依原文記錄,不會自動分級。",
     "dc.builtin.go": "加入內建表單",
