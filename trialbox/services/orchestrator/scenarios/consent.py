@@ -136,7 +136,7 @@ def parse_langs(raw: str | None) -> list[str]:
     for tok in raw.split(","):
         code = {"en": "en", "ja": "ja", "jp": "ja", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW"}.get(tok.lower())
         if code is None:
-            raise StepFailed("received", f"lang={tok}: supported languages are en, ja, zh-TW")
+            raise StepFailed("received", "lang=: supported languages are en, ja, zh-TW")
         if code not in out:
             out.append(code)
     return out

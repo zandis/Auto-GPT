@@ -805,9 +805,9 @@ def _error(exc: Exception, state: str) -> JobError:
         return JobError(step="routing", message=f"Output routing refused: {exc}.")
     if isinstance(exc, ServiceError):
         return JobError(step=state, message=f"The {exc.service} service failed.", detail=f"HTTP {exc.status}")
-    return JobError(
-        step=state, message="Internal error while processing the job.", detail=f"{type(exc).__name__}: {str(exc)[:300]}"
-    )
+    # D-557: the record keeps the error's type; its own text (a database error quotes its values, a validation
+    # error prints its input) is in the log line of the failure, where the log's rules apply, not on the job page
+    return JobError(step=state, message="Internal error while processing the job.", detail=type(exc).__name__)
 
 
 def job_markdown(job: Job) -> str:

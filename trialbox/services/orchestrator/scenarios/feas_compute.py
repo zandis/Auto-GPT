@@ -146,7 +146,7 @@ def _numbers(spec: str) -> list[float]:
             try:
                 vals.append(float(tok))
             except ValueError as exc:
-                raise FeasError(f"variant value {tok!r} is not a number") from exc
+                raise FeasError("a variant value is not a number") from exc
     return vals
 
 
@@ -154,7 +154,7 @@ def parse_variant_option(value: str) -> dict[str, str]:
     """``bmi:24,25,27`` -> ``{"bmi": "24,25,27"}``."""
     key, sep, vals = value.partition(":")
     if not sep or not key or not vals:
-        raise FeasError(f"variant must look like key:v1,v2 (got {value!r})")
+        raise FeasError("variant must look like key:v1,v2")
     return {key.lower() if "-" not in key else key.upper(): vals}
 
 

@@ -42,7 +42,7 @@ def amendment_options(options: dict[str, str]) -> dict[str, Any]:
             try:
                 out[field] = date.fromisoformat(options[key])
             except ValueError as exc:
-                raise StepFailed("approve", f"{key}= must be a date YYYY-MM-DD, not {options[key]!r}") from exc
+                raise StepFailed("approve", f"{key}= must be a date YYYY-MM-DD") from exc
     if options.get("irb"):
         out["irb_reference"] = options["irb"]
     return out

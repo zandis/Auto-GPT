@@ -551,7 +551,8 @@ def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
     o = orch()
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
-        raise HTTPException(status_code=400, detail=f"notices go to hospital addresses only, not {external[0]}")
+        # D-557: the address that was sent is not repeated
+        raise HTTPException(status_code=400, detail="notices go to hospital addresses only")
     from orchestrator.core import send_key
 
     day = o._now().date().isoformat()

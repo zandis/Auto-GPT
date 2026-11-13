@@ -9,6 +9,7 @@ import logging
 import os
 import socket
 import time
+import traceback
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from typing import Any, TypeVar, get_args
 from urllib.parse import urlparse
@@ -98,6 +99,24 @@ async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
         msg = "the value was refused by a rule of this field" if kind in _OWN_TEXT else e.get("msg")
         detail.append({"type": kind, "loc": loc, "msg": msg})
     return JSONResponse({"detail": detail}, status_code=422)
+
+
+def trace_of(exc: BaseException) -> dict[str, str]:
+    """An error for the log without its own text (D-557): ``error`` is its type, ``trace`` the frames it passed
+    (file, line, function, the line of code) and the types of the errors it came from.
+
+    An error's text is whatever its author put in it: a database error quotes its statement's values, a validation
+    error prints its input, an f-string holds a value of the path. The log's scrubber knows the shapes of a chart
+    number and a secret, not every value, so the text is left out and the type and the place are kept."""
+    parts: list[str] = []
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        frames = "".join(traceback.format_tb(cur.__traceback__))
+        parts.append(f"{frames}{type(cur).__name__}")
+        cur = cur.__cause__ or (None if cur.__suppress_context__ else cur.__context__)
+    return {"error": type(exc).__name__, "trace": "\n-- raised while handling --\n".join(parts)}
 
 
 NO_ROUTE = "(no route)"
@@ -249,8 +268,9 @@ def make_app(
         t0 = time.perf_counter()
         try:
             response = await call_next(request)
-        except Exception:
-            log.exception("unhandled error", extra={"path": route_of(request)})
+        except Exception as exc:
+            # D-557: the error's type and where it was raised, not its own text
+            log.error("unhandled error", extra={"path": route_of(request), **trace_of(exc)})
             return JSONResponse({"error": "internal error"}, status_code=500)
         if request.url.path != "/healthz":
             log.info(

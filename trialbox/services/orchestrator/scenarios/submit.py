@@ -174,7 +174,7 @@ def run(ctx: Ctx) -> Outcome:
     try:  # the receipt is phi: the requester must be on the ruleset's list_to — checked before anything is sent
         check("phi", [norm(job.requested_by)], rs.manifest.routing, ctx.cfg.settings.internal_domains)
     except RoutingViolation as exc:
-        raise StepFailed("received", f"{job.requested_by} is not a list recipient of {ruleset}: {exc}") from exc
+        raise StepFailed("received", f"the sender is not a list recipient of {ruleset}: {exc}") from exc
     if nav.state != "done":
         raise StepFailed("received", f"NAV job {nav.job_id} is {nav.state}, not done.")
     if nav.received_at.date() < ctx.today() - timedelta(days=MAX_AGE_DAYS):

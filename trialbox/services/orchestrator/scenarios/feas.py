@@ -124,7 +124,7 @@ def run(ctx: Ctx) -> Outcome:
         )
     except Exception as exc:
         ctx.orch.audit.append(
-            "feas.profile_skipped", job_id=job.job_id, actor="orchestrator", detail={"reason": str(exc)[:200]}
+            "feas.profile_skipped", job_id=job.job_id, actor="orchestrator", detail={"reason": type(exc).__name__}
         )
     sim = result.simulation
     lang = meta.locale
