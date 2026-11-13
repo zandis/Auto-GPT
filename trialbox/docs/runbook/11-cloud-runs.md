@@ -50,13 +50,14 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 | `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM (its first results-only start is refused, as in a stockout: said, nothing marked, the next `--collect` starts it) |
 | `hang-driven` | the same stuck part with a driver following it (wait mode, a poll every minute; one status describe fails on the way): the poll touches the VM's `driver-alive`, not the run's heartbeat, so the VM powers off within the idle limit; "unknown" is not the end of the run; the driver then collects results-only and sets the VM back to spot |
 | `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
-| `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door |
+| `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door; the VM powers off at once after its last upload (`TB-BUCKET-DONE`, B7), not after its grace |
 | `preempt` | three short parts done, the VM pre-empted while a fourth runs; `--collect` gets the three from the stopped VM and removes none; the same run started again (`--shard 1`) keeps them (`--resume`) and runs only the fourth (G1 bug A1) |
 
 In every case the door is TLS on 443 with the driver's pinned certificate, the key and the TLS key come from the
 Secret Manager stand-in (never the metadata) and their version is destroyed once collected, and `run-a`, `run-b`
 and `bucket` capture the serving record on the "VM" (`docker inspect` of the two stand-ins, the weight hashes;
-T-119). Some cases only: `make rehearse CASES=run-a,bucket`.
+T-119; the record's `wsl_kernel` is null there, the kernel release under WSL2). Some cases only:
+`make rehearse CASES=run-a,bucket`.
 
 It needs docker (it starts a private `dockerd` when none answers and stops it afterwards), about 4 GB of disk and
 the ports 443 and 8080 free; the evidence of each case stays in `$TB_REHEARSAL_DIR/evidence/<case>/`. Model quality
@@ -128,7 +129,8 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
    tokenizer run, and the card's utilisation, so a long silent SCREEN stays alive and a stuck one does not; the
    driver's poll touches `driver-alive`, never this heartbeat, so a driver following a stuck part cannot keep it alive
    to its cap), and 30 minutes after the done marker (5 after a failure marker, `tb-fail-grace`; at once when the
-   driver has collected). Every boot writes `TB-IMAGES` (the vLLM and nginx images present or missing) to its serial
+   driver has collected; with `TB_BUCKET` at once when its last `results.tgz` upload went through, `TB-BUCKET-DONE`:
+   the driver reads the bucket, not the VM, B7). Every boot writes `TB-IMAGES` (the vLLM and nginx images present or missing) to its serial
    console, which `--preflight` reads for a stopped VM; the model servers run with `HF_HUB_OFFLINE=1`; apt waits up to
    10 minutes for the dpkg lock. With `TB_BUCKET` the VM tries the results upload three times; one that still fails
    (`TB-UPLOAD-FAILED`) leaves the archive on the disk, and `--collect` fetches it by a results-only start through
@@ -171,7 +173,9 @@ then the full plan.
 `--llm-concurrency N` sets `TB_SCREEN_LLM_CONCURRENCY` for every part on the VM; not given, the run takes the judge's
 `max_num_seqs` from the serving record (16), as an installed box does, and the plan prints it (G1's hospital-ja ran
 with 1: pass `--llm-concurrency 1` to repeat it). A list is G-3's curve in one VM run: the hospital part runs once
-per value, as its own part `hospital-<lang>@c<N>`, on one prepared hospital. `chat-template` in `--only` adds G-1
+per value, as its own part `hospital-<lang>@c<N>`, on one prepared hospital; `--repeats N` runs each value N times,
+each its own part `hospital-<lang>@c<N>#r<k>`, every (value, repeat) in the seeded order (B5), and the report gives
+each value's mean, min and max of the main SCREEN's calls/s. `chat-template` in `--only` adds G-1
 (`tools/chat_template_check.py`): the sha256 of the template the serving configuration passes (the registry row's
 file, fetched from the developer's repository at the registry's revision when it is not on the disk) against the
 weights folder's own, and token identity on 20 synthetic prompts (the judge's `/tokenize` against the folder's
@@ -199,7 +203,7 @@ the two templates' token ids, the server's ids against the folder tokenizer's), 
 `--chat-template`, and every differing prompt. The report's start and end are the parts' own times; "min of part
 time" is the parts' times summed; every failed check's whole detail is in `report/failed-checks.json`
 (`TB_REPORT_DETAIL_CHARS` cuts it in `report.md`). Not measured: the gateway's slot wait per call (the gateway does
-not record it); not offered yet: repeats per setting and a model-server restart between settings.
+not record it); not offered: a model-server restart between settings or repeats (not in scope).
 Limits to know before reading a curve:
 
 * A hospital part's estimate comes from the measured parts (`HOSPITAL_MEASURED` in `tools/complete_run.py`, OD-10):
@@ -219,9 +223,10 @@ Limits to know before reading a curve:
 * The VM starts both servers with `--max-num-seqs 16` and the gateway gives an endpoint 16 slots. A value above 16
   (48) measures the queue in the gateway, not a larger batch; the plan says so. A point beyond 16 sequences needs
   the servers started with more, which this driver does not do.
-* Each repeat is a whole hospital part (data in to re-run), not the SCREEN alone; `throughput` counts only the time
-  a call was in flight. The repeats send the same prompts in the order of the list, and the servers are not
-  restarted between them: what a server's prefix cache still holds from the repeat before is in the later points.
+* Each setting, and each of its repeats, is a whole hospital part (data in to re-run), not the SCREEN alone;
+  `throughput` counts only the time a call was in flight. The parts send the same prompts, and the servers are not
+  restarted between them: what a server's prefix cache still holds from the part before is in the later points (the
+  seeded order spreads it over the settings; `--repeats` shows the spread).
 
 **Several VMs at once** (D-148). `--vms N` splits the run into N shards of whole parts (no part is split, so the
 merged report is the single-VM report); VM 1 is `tb-gpu-sim` in the first zone, VM i is `tb-gpu-sim-i` in zone i of

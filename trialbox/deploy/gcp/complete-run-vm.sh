@@ -11,6 +11,8 @@
 #   tb-only           the parts of this VM (complete_run --only tags; a shard of a parallel run, D-148); empty: all
 #   tb-llm-concurrency  the model calls in flight (TB_SCREEN_LLM_CONCURRENCY): one value for every part, or several
 #                     ("1 4 16 48": the hospital part once per value, review test G-3); empty: the record's max_num_seqs
+#   tb-repeats, tb-order-seed  each value that many times (hospital-<lang>@c<N>#r<k>, B5), every (value, repeat) in
+#                     the order the seed gives (the plan's); default 1, no seed
 #   tb-src-sha256     the sha256 of the code the driver uploads: anything else is refused before it is unpacked
 #   tb-max-minutes    hard cap of this boot (the driver sets the cloud cap too: max-run-duration, action STOP)
 #   tb-idle-minutes   the watchdog's idle limit in the run phase (default 20); tb-done-grace (default 30);
@@ -28,7 +30,7 @@
 #      its processes' CPU, a part's container's CPU or the card busy; D-150 / review H-03). The driver's poll touches
 #      driver-alive, never the heartbeat: a driver that follows a stuck part must not keep it alive to the cap. The
 #      done marker older than tb-done-grace (tb-fail-grace after a failure marker; at once once the driver says it
-#      collected the results);
+#      collected the results; with tb-bucket at once once the last results.tgz is in the bucket, B7);
 #   3. every failure ends with the done marker and a results.tgz that says why (TB-PREFLIGHT-FAILED,
 #      TB-SERVING-FAILED, TB-NO-CODE, TB-UPLOAD-REJECTED, TB-SETUP-FAILED), so a failed boot costs minutes, not hours
 #      (TB-NO-CODE powers off at once, without the grace: no code, nothing for a driver to wait for; A6).
@@ -130,6 +132,9 @@ RUN="$TB/runs/$RUN_ID"
 PATIENTS=$(md tb-patients || echo 50000)
 ONLY=$(md tb-only || true)
 LLMC=$(md tb-llm-concurrency || true)
+REPEATS=$(md tb-repeats || true); ORDER_SEED=$(md tb-order-seed || true)
+case "$REPEATS" in ''|*[!0-9]*|0) REPEATS=1 ;; esac
+case "$ORDER_SEED" in *[!0-9]*) ORDER_SEED="" ;; esac   # "none": the order given (a metadata value is never empty)
 BUCKET=$(md tb-bucket || true)
 SRC_SHA=$(md tb-src-sha256 || true)
 REC=/root/record
@@ -167,12 +172,24 @@ if [ -n "$bucket" ]; then  # 3 tries (30 s, 60 s apart): a failed upload leaves 
 fi
 EOS
 chmod 0755 /usr/local/sbin/tb-pack
+bucket_done() {  # B7: with tb-bucket the driver reads the results from the bucket, never from this VM, and its door
+  # call "collected" may never come (a driver behind a proxy: the reason for the bucket). Once the last results.tgz is
+  # in the bucket (tb-pack left no upload-failed marker) nothing is left to wait for: power off now, not after the
+  # grace. A failed upload keeps the VM to its grace: the archive is on this disk only, for a results-only collect.
+  # Door mode (no bucket) is unchanged: the driver's "collected", else the grace.
+  [ -n "$BUCKET" ] && [ ! -f "$TB/out/upload-failed" ] || return 1
+  touch "$TB/collected"
+  echo "TB-BUCKET-DONE: results.tgz is in $BUCKET/runs/$(basename "$RUN")/ and the driver reads the bucket: powering off now" \
+    | tee -a "$LOG"
+  systemctl poweroff; exit "${1:-0}"
+}
 finish() {  # $1 marker line, $2 phase: say why (run log, console), pack what there is, DONE; the watchdog does the rest
   # after a failure the grace is tb-fail-grace (5 min), not tb-done-grace: nothing ran, a driver collects at its next poll
   echo "$1" | tee -a "$LOG"; phase "$2"
   /usr/local/sbin/tb-pack "$RUN" "$BUCKET"
   [ "$FAILGRACE" -lt "$GRACE" ] && echo "$FAILGRACE" > "$TB/grace"
-  touch "$DONE"; echo COMPLETE-RUN-DONE; exit 1
+  touch "$DONE"; echo COMPLETE-RUN-DONE
+  bucket_done 1; exit 1
 }
 
 if [ "$COLLECT_ONLY" != 1 ]; then
@@ -358,11 +375,31 @@ for pair in "judge $JS" "verifier $VS"; do
   [ "$code" = 401 ] || serving_failed "$1: a call without the key answered HTTP $code, not 401"
   echo "TB-SERVING ok: $1 serves $2, one chat call answered, no key refused"
 done
+wsl_kernel_into() {  # $1 a serving record (tb-serving-config/1) this script wrote; [$2 /proc/version, $3 the release]
+  # The record's wsl_kernel (the owner's ask of 2026-11-13, for another lane's version check): the kernel release
+  # (uname -r) when /proc/version or the release says WSL2 ("microsoft" or "WSL2"), else null. The schema's validate
+  # allows a field it does not name; nothing else of the record changes. A record that is not there is left alone.
+  "${PY:-python3}" - "$1" "${2:-/proc/version}" "${3:-$(uname -r)}" <<'WSLPY'
+import json, os, re, sys
+rec_path, version_file, release = sys.argv[1], sys.argv[2], sys.argv[3].strip()
+if os.path.isfile(rec_path):
+    try:
+        text = open(version_file, encoding="utf-8", errors="replace").read()
+    except OSError:
+        text = ""
+    rec = json.load(open(rec_path, encoding="utf-8"))
+    rec["wsl_kernel"] = release if re.search(r"microsoft|wsl2", f"{text} {release}", re.I) else None
+    with open(rec_path + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=1)
+    os.replace(rec_path + ".tmp", rec_path)
+WSLPY
+}
 SC=$(md tb-serving-config || true)
 if [ -n "$SC" ]; then
   printf '%s\n' "$SC" > /root/serving_config.py
   python3 /root/serving_config.py capture --container judge=judge --container verifier=verifier --models-dir /models \
     --notes "rtxpro6000 profile (D-124): complete run ${RUN_ID}" --out $REC/serving_config.json || true
+  wsl_kernel_into $REC/serving_config.json || true
   chmod 644 $REC/serving_config.json 2>/dev/null || true
 fi
 echo PRO6000-RUN-READY | tee -a "$LOG"
@@ -464,10 +501,12 @@ NODE_PATH=/opt/node-tools/node_modules TB_GPU_KEY="$KEY" TB_ENV=DEV PYTHONPATH=l
   .venv/bin/python -m tools.complete_run --dir "$RUN" --run-id "$RUN_ID" --model pair --patients "$PATIENTS" \
   --ocr tesseract --judge-url http://127.0.0.1:8080/judge/v1 --verifier-url http://127.0.0.1:8080/verifier/v1 \
   --live-record $REC/serving_config.json --skip walk backup update scale --resume --heartbeat "$HB" \
-  --after-part "/usr/local/sbin/tb-pack $RUN $BUCKET" ${LLMC:+--llm-concurrency "$LLMC"} ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
+  --after-part "/usr/local/sbin/tb-pack $RUN $BUCKET" ${LLMC:+--llm-concurrency "$LLMC"} --repeats "$REPEATS" \
+  ${ORDER_SEED:+--order-seed "$ORDER_SEED"} ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
 echo "TB-RUN-EXIT $?" | tee -a "$LOG"
 touch "$TB/run-ended"
 /usr/local/sbin/tb-pack "$RUN" "$BUCKET"
 phase "done"
 touch "$DONE"
 echo COMPLETE-RUN-DONE
+bucket_done 0   # tb-bucket and the upload went through: off now (B7); else the watchdog: "collected" or the grace

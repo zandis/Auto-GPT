@@ -24,6 +24,7 @@
 #   run-b      the same disk, a new run (scenario-gateway scenario-it-dump): nothing kept from run-a (H-01), a fresh
 #              log (M-01), the report's HEAD is the launched commit (M-02);
 #   bucket     the same disk, TB_BUCKET set (T-119): the code and the results go through the bucket, not the door;
+#              the VM powers off at once after its last upload (TB-BUCKET-DONE, B7), not after its grace;
 # In every case the door is TLS on 443 with the driver's pinned certificate, the key comes from "Secret Manager" (never
 # the metadata), its version is destroyed once collected, and the serving record is captured (T-119).
 #   served     the judge serves a wrong name: the boot stops before any part with TB-SERVING-FAILED, results say why;

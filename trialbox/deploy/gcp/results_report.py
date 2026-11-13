@@ -248,11 +248,16 @@ def screen_candidates(res: dict[str, Any]) -> dict[str, Any] | None:
     return {"count": listed, "sha256": hashlib.sha256(blob.encode()).hexdigest(), "list": None}
 
 
+HOSPITAL_TAG = re.compile(r"hospital-(.+?)(?:@c(\d+))?(?:#r(\d+))?")  # hospital-<lang>[@c<N>[#r<k>]] (B5: repeats)
+
+
 def setting_row(tag: str, row: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
-    m = re.fullmatch(r"hospital-(.+?)(?:@c(\d+))?", tag)
+    m = HOSPITAL_TAG.fullmatch(tag)
     assert m is not None  # the caller filters on the prefix
-    out: dict[str, Any] = {"tag": tag, "lang": m.group(1), "status": row["status"],
+    repeat = int(m.group(3)) if m.group(3) else None
+    out: dict[str, Any] = {"tag": tag, "lang": m.group(1), "status": row["status"], "repeat": repeat,
                            "in_flight": int(m.group(2)) if m.group(2) else row.get("in_flight")}  # fmt: skip
+    out["label"] = f"{out['in_flight']}#r{repeat}" if repeat else out["in_flight"]  # how a setting is named
     res = run["parts"].get(tag)
     if res is None or row["status"] in (PENDING, MISSING):
         return out
@@ -287,22 +292,42 @@ def setting_row(tag: str, row: dict[str, Any], run: dict[str, Any]) -> dict[str,
     return out
 
 
+def _label(s: dict[str, Any]) -> Any:
+    """A setting's name: its calls in flight, ``16#r2`` for a repeat (B5)."""
+    return s.get("label", s.get("in_flight"))
+
+
+def repeat_stats(settings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """B5: per calls-in-flight setting run more than once, its repeats' calls/s: mean, min, max (empty: no repeat)."""
+    by: dict[Any, list[dict[str, Any]]] = {}
+    for s in settings:
+        if s.get("repeat"):
+            by.setdefault(s["in_flight"], []).append(s)
+    out = []
+    for n, ss in by.items():
+        rates = [float(s["calls_per_second"]) for s in ss if s.get("calls_per_second") is not None]
+        out.append({"in_flight": n, "repeats": len(ss), "measured": len(rates),
+                    "mean": round(sum(rates) / len(rates), 3) if rates else None,
+                    "min": min(rates) if rates else None, "max": max(rates) if rates else None})  # fmt: skip
+    return out
+
+
 def list_verdict(settings: list[dict[str, Any]]) -> dict[str, Any]:
     """Is the candidate list the same at every setting? The reference is the list most settings share (the lowest
     setting's on a tie); a setting with another list is named."""
     have = [s for s in settings if s.get("candidates_sha256")]
-    waiting = [s["in_flight"] or "the default" for s in settings if not s.get("candidates_sha256")]
+    waiting = [_label(s) or "the default" for s in settings if not s.get("candidates_sha256")]
     if len(have) < 2:
         return {"status": "NOT JUDGED", "note": "fewer than two settings have a candidate list", "waiting": waiting}
     count = Counter(s["candidates_sha256"] for s in have)
     top = max(count.values())
     ref = next(s for s in have if count[s["candidates_sha256"]] == top)
-    same = [s["in_flight"] for s in have if s["candidates_sha256"] == ref["candidates_sha256"]]
+    same = [_label(s) for s in have if s["candidates_sha256"] == ref["candidates_sha256"]]
     differing = []
     for s in have:
         if s["candidates_sha256"] == ref["candidates_sha256"]:
             continue
-        d: dict[str, Any] = {"in_flight": s["in_flight"], "candidates": s.get("candidates")}
+        d: dict[str, Any] = {"in_flight": _label(s), "candidates": s.get("candidates")}
         if s.get("_list") is not None and ref.get("_list") is not None:
             d.update(only_here=len(s["_list"] - ref["_list"]), not_here=len(ref["_list"] - s["_list"]))
         differing.append(d)
@@ -346,19 +371,27 @@ def g3(run: dict[str, Any], rows: dict[str, dict[str, Any]], args: argparse.Name
             by_lang.setdefault(s["lang"], []).append(s)
     out: dict[str, Any] = {}
     for lang, settings in by_lang.items():
-        settings.sort(key=lambda s: (s["in_flight"] is None, s["in_flight"] or 0))
+        settings.sort(key=lambda s: (s["in_flight"] is None, s["in_flight"] or 0, s.get("repeat") or 0))
         lists = list_verdict(settings)
         good = [s for s in settings if s.get("calls_per_second") is not None and not s.get("breaker_opens")
-                and (s["in_flight"] in lists.get("reference_settings", [s["in_flight"]]))]  # fmt: skip
+                and (_label(s) in lists.get("reference_settings", [_label(s)]))]  # fmt: skip
+        reps = repeat_stats(settings)
         chosen, how = None, "no setting has a measured rate, the reference list and no breaker opening"
         if args.chosen is not None:
-            chosen = next((s for s in settings if s["in_flight"] == args.chosen), None)
+            at = [s for s in settings if s["in_flight"] == args.chosen]
+            # a setting run several times: its slowest repeat with a rate is the window's figure (B5)
+            chosen = min((s for s in at if s.get("calls_per_second") is not None),
+                         key=lambda s: s["calls_per_second"], default=at[0] if at else None)  # fmt: skip
             how = "given with --chosen" if chosen else f"--chosen {args.chosen} is not a setting of this run"
         elif good:
-            chosen = max(good, key=lambda s: s["calls_per_second"])
+            mean = {x["in_flight"]: x["mean"] for x in reps if x["mean"] is not None}
+            best = max(good, key=lambda s: mean.get(s["in_flight"], s["calls_per_second"]))["in_flight"]
+            chosen = min((s for s in good if s["in_flight"] == best), key=lambda s: s["calls_per_second"])
             how = "the highest calls/s among the settings with the reference list and no breaker opening"
+            if best in mean:
+                how += " (repeats: the highest mean; its slowest repeat is the window's figure)"
         out[lang] = {"settings": settings, "lists": lists, "chosen": chosen and chosen["in_flight"], "chosen_how": how,
-                     "window": window(args, run["plan"], chosen)}  # fmt: skip
+                     "repeats": reps, "window": window(args, run["plan"], chosen)}  # fmt: skip
     return out
 
 
@@ -431,13 +464,20 @@ def g3_lines(lang: str, g: dict[str, Any]) -> list[str]:
     out = ["", f"### hospital-{lang}", ""]
     out += table(["in flight", "status", "measured over", "calls/s", "tokens/s", "p50 s", "p95 s", "GPU % mean",
                   "GPU MiB peak", "GPU MiB total", "breaker opened", "listed", "list sha256"],
-                 [[s["in_flight"] or "default", s["status"], s.get("measured_over"), s.get("calls_per_second"),
+                 [[_label(s) or "default", s["status"], s.get("measured_over"), s.get("calls_per_second"),
                    s.get("tokens_per_second"), s.get("p50_s"),
                    s.get("p95_s"), s.get("gpu_util_mean_pct"), s.get("gpu_memory_peak_mib"),
                    s.get("gpu_memory_total_mib"), s.get("breaker_opens"), s.get("candidates"),
                    f"`{s['candidates_sha256'][:12]}`" if s.get("candidates_sha256") else None]
                   for s in g["settings"]])  # fmt: skip
     lists, w = g["lists"], g["window"]
+    if g.get("repeats"):  # B5: --repeats
+        out += ["", "Repeats: each setting ran several times as its own part (`hospital-<lang>@c<N>#r<k>`), the order "
+                "of every (setting, repeat) randomised from the recorded seed. The model servers were not restarted "
+                "between settings or repeats (not in scope).", ""]  # fmt: skip
+        out += table(["in flight", "repeats", "measured", "calls/s mean", "min", "max"],
+                     [[x["in_flight"], x["repeats"], x["measured"], x["mean"], x["min"], x["max"]]
+                      for x in g["repeats"]])  # fmt: skip
     out.append("")
     if lists["status"] == "DIFFERENT":
         ref = ", ".join(str(n) for n in lists["reference_settings"])
@@ -552,7 +592,7 @@ def capacity(v: dict[str, Any]) -> dict[str, Any]:
             "parts": {r["tag"]: r["status"] for r in v["rows"]},
             "g1": {k: x for k, x in v["g1"].items() if k != "file"},
             "g3": {lang: {"chosen_in_flight": g["chosen"], "chosen_how": g["chosen_how"],
-                          "candidate_lists": g["lists"], "window": g["window"],
+                          "candidate_lists": g["lists"], "window": g["window"], "repeats": g.get("repeats") or [],
                           "settings": [clean(s) for s in g["settings"]]} for lang, g in v["g3"].items()},
             "cost": v["cost"]}  # fmt: skip
 

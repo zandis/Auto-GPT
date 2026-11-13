@@ -499,9 +499,29 @@ step_resolve() {
 }
 
 # ------------------------------------------------------------------ the serving record and vLLM host RSS
+wsl_kernel_into() {  # $1 a serving record (tb-serving-config/1) this script wrote; [$2 /proc/version, $3 the release]
+  # The record's wsl_kernel (the owner's ask of 2026-11-13, for another lane's version check): the kernel release
+  # (uname -r) when /proc/version or the release says WSL2 ("microsoft" or "WSL2"), else null. The schema's validate
+  # allows a field it does not name; nothing else of the record changes. A record that is not there is left alone.
+  "${PY:-python3}" - "$1" "${2:-/proc/version}" "${3:-$(uname -r)}" <<'WSLPY'
+import json, os, re, sys
+rec_path, version_file, release = sys.argv[1], sys.argv[2], sys.argv[3].strip()
+if os.path.isfile(rec_path):
+    try:
+        text = open(version_file, encoding="utf-8", errors="replace").read()
+    except OSError:
+        text = ""
+    rec = json.load(open(rec_path, encoding="utf-8"))
+    rec["wsl_kernel"] = release if re.search(r"microsoft|wsl2", f"{text} {release}", re.I) else None
+    with open(rec_path + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=1)
+    os.replace(rec_path + ".tmp", rec_path)
+WSLPY
+}
 step_serving() {
   local c pid
   need "the serving capture" d_capture "$REC/serving_config.json" || return 1
+  wsl_kernel_into "$REC/serving_config.json" >> "$STEP_LOG" 2>&1 || true
   for c in "$JUDGE_C" "$VERIFIER_C"; do
     pid=$(docker inspect --format '{{.State.Pid}}' "$c" 2>> "$STEP_LOG")
     [ -n "$pid" ] && [ "$pid" != 0 ] || { STOP="no running container '$c' (tb-judge-container, tb-verifier-container)"; return 1; }

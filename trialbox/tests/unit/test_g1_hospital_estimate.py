@@ -61,7 +61,7 @@ def test_an_unmeasured_setting_takes_the_curves_gain_and_names_its_run() -> None
     assert not s1["measured"] and s1["runs"] == [RUN_CURVE, RUN_50K]
     assert s1["non_llm"] == s16["non_llm"]  # the non-LLM time does not change with the calls in flight
     assert s1["main"] == pytest.approx(s16["main"] * 4.391 / 0.385, rel=1e-3)  # the curve's main SCREEN gain (ja)
-    assert cr.HOSPITAL_PART_SECONDS == pytest.approx(cr.hospital_seconds(50000, 1), abs=0.1)
+    assert abs(cr.HOSPITAL_PART_SECONDS - cr.hospital_seconds(50000, 1)) <= 0.1
     # above the largest measured N: held, never extrapolated
     assert cr.hospital_seconds(50000, 48, lang="ja") == pytest.approx(s16["seconds"])
 

@@ -761,14 +761,44 @@ def _tag(part: str, lang: str = "", scenario: str = "") -> str:
         return f"scenario-{scenario}"
     if part == "selftest":
         return f"selftest-{scenario}"
-    if part == "hospital" and scenario:  # a repeat at its own concurrency (G-3): hospital-ja@c4
+    if part == "hospital" and scenario:  # a run at its own concurrency (G-3): hospital-ja@c4, its repeat @c4#r2
         return f"hospital-{lang}@{scenario}"
     return part + (f"-{lang}" if part in ("hospital", "public") and lang else "")
 
 
 def base_tag(tag: str) -> str:
-    """``hospital-ja@c4`` -> ``hospital-ja``: the part a repeat at its own concurrency belongs to."""
+    """``hospital-ja@c4`` or ``hospital-ja@c4#r2`` -> ``hospital-ja``: the part a setting or a repeat belongs to."""
     return tag.split("@", 1)[0]
+
+
+def setting_tag(tag: str) -> str:
+    """``hospital-ja@c4#r2`` -> ``hospital-ja@c4``: the setting a repeat belongs to (B5)."""
+    return tag.split("#", 1)[0]
+
+
+def variant_concurrency(variant: str) -> int:
+    """``c16`` or ``c16#r2`` -> 16."""
+    return int(variant.removeprefix("c").split("#", 1)[0])
+
+
+def hospital_variants(lc: tuple[int, ...], repeats: int = 1, seed: int | None = None) -> list[str]:
+    """The hospital part's variants in run order (G-3; B5). One setting, one run: ``[""]`` (the tag hospital-<lang>).
+    Several settings, once each: ``c<N>`` in the order of ``lc`` (the estimate has already put them in the seeded
+    order). ``repeats`` above 1: each setting ``repeats`` times as its own part, ``c<N>#r<k>``, every (setting,
+    repeat) pair in the order a shuffle with ``seed`` gives (the seed is recorded; None: settings as given, repeat by
+    repeat)."""
+    import random
+
+    if repeats <= 1:
+        return [f"c{n}" for n in lc] if len(lc) > 1 else [""]
+    pairs = [(n, k) for k in range(1, repeats + 1) for n in lc]
+    if seed is not None:
+        random.Random(seed).shuffle(pairs)
+    return [f"c{n}#r{k}" for n, k in pairs]
+
+
+def repeats_of(a: argparse.Namespace) -> int:
+    return max(1, int(getattr(a, "repeats", 1) or 1))
 
 
 # ---------------------------------------------------------------- model calls in flight (review G-3, D-142)
@@ -976,9 +1006,10 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
     out += [(G1_CHECK, "", "")] if G1_CHECK in (a.only or []) else []  # G-1 before the parts that depend on it
     out += [(p, "", "") for p in g_probes.PARTS if p in (a.only or [])]  # G-4, G-5, G-7, G-8: only when named
     # several --llm-concurrency values: the hospital part once per value, as hospital-<lang>@c<N> (G-3's curve);
-    # each repeat reads the same prepared hospital
-    lc = concurrency_of(a)
-    variants = [f"c{n}" for n in lc] if len(lc) > 1 else [""]
+    # --repeats N: each value N times, hospital-<lang>@c<N>#r<k>, in the seeded order (B5); each reads the same
+    # prepared hospital
+    reps = repeats_of(a)
+    variants = hospital_variants(concurrency_of(a), reps, getattr(a, "order_seed", None) if reps > 1 else None)
     out += [("hospital", lang, v) for lang in a.langs for v in variants]
     out += [("public", lang, "") for lang in a.langs]
     out += [("scenario", a.langs[0], sc) for sc in (a.scenarios or scenarios.SCENARIOS)]
@@ -987,7 +1018,8 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
     out += [("selftest", "", s) for s in SELFTESTS if f"selftest-{s}" in (a.only or [])]
     keep = [p for p in out if p[0] not in a.skip]
     if a.only:
-        keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only or base_tag(_tag(*p)) in a.only]
+        keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only or base_tag(_tag(*p)) in a.only
+                or setting_tag(_tag(*p)) in a.only]  # fmt: skip
     return keep
 
 
@@ -997,8 +1029,8 @@ def _cmd(a: argparse.Namespace, part: str, lang: str, scenario: str, shots: Path
     if lang:
         cmd += ["--lang", lang]
     lc = concurrency_of(a)
-    if part == "hospital" and scenario:  # a repeat at its own concurrency: the variant c<N>
-        cmd += ["--variant", scenario, "--llm-concurrency", scenario.removeprefix("c")]
+    if part == "hospital" and scenario:  # a run at its own concurrency: the variant c<N> (a repeat: c<N>#r<k>)
+        cmd += ["--variant", scenario, "--llm-concurrency", str(variant_concurrency(scenario))]
     else:
         cmd += ["--scenario", scenario] if scenario else []
         cmd += ["--llm-concurrency", str(lc[0])] if lc else []
@@ -1313,6 +1345,7 @@ def report(
     rep["llm_concurrency"] = sorted({int(r["llm_concurrency"]) for r in rows
                                      if r.get("llm_concurrency") and r.get("part") in MODEL_PARTS})  # fmt: skip
     rep["throughput"] = run_metrics.curve(rows)
+    rep["repeats"] = run_metrics.repeat_summary(rows)
     rep["candidates_compare"] = run_metrics.lists_compare(rows)
     rep["candidates_identical"] = {lang: v["identical"] for lang, v in rep["candidates_compare"].items()}
     # A8: the door's secret after the collect (complete-run.sh writes door-secret.txt): none enabled, or what remains
@@ -1444,6 +1477,15 @@ def _throughput_section(rep: dict[str, Any]) -> list[str]:
            "|" + " --- |" * 17]  # fmt: skip
     out += ["| " + " | ".join(cell(r.get(k)) for k in keys) + f" | `{str(r.get('candidates_sha256') or '-')[:12]}` | "
             f"{run_metrics.refused_cell(r.get('refused'))} |" for r in rows]  # fmt: skip
+    reps = run_metrics.repeat_summary(rep.get("parts") or [])
+    if reps:  # B5: a setting run several times: the main SCREEN's calls/s of its repeats
+        out += ["", "Repeats (`--repeats`): the main SCREEN's calls/s per setting, over its repeats. The model servers "
+                "are not restarted between settings or repeats (not in scope); the order of every (setting, repeat) "
+                "is randomised from the recorded seed.", "",
+                "| hospital | in flight | repeats | measured | main SCREEN calls/s mean | min | max |",
+                "| --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
+        out += [f"| {x['lang']} | {x['llm_concurrency']} | {x['repeats']} | {x['measured']} | {cell(x['mean'])} | "
+                f"{cell(x['min'])} | {cell(x['max'])} |" for x in reps]  # fmt: skip
     old = rep.get("candidates_identical") or {}
     cmp = rep.get("candidates_compare") or {lang: {"identical": v, "differ": [], "why": ""} for lang, v in old.items()}
     for lang, c in cmp.items():
@@ -1829,7 +1871,8 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
 
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
              local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
-             profile_patients: int = 400, llm_concurrency: tuple[int, ...] = (1,)) -> dict[str, Any]:  # fmt: skip
+             profile_patients: int = 400, llm_concurrency: tuple[int, ...] = (1,), repeats: int = 1,
+             order_seed: int | None = None) -> dict[str, Any]:  # fmt: skip
     """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the measured parts
     of :data:`HOSPITAL_MEASURED` (:func:`hospital_split`: non-LLM time, the main SCREEN's calls and the other calls,
     each scaled with ``patients``), at the ``llm_concurrency`` model calls in flight; several values: one hospital
@@ -1860,19 +1903,23 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     ]
     g1 = "g1" in parts
     lc = tuple(llm_concurrency) or (1,)
+    reps = max(1, int(repeats))
+    variants = hospital_variants(lc, reps, order_seed)
     for lang in langs if g1 else ():
         notes = S3_SHARE * patients
-        for n in lc:
+        for v in variants:
+            n = variant_concurrency(v) if v else lc[0]
             # the measured parts (HOSPITAL_MEASURED) scaled with the patients and the calls in flight: non-LLM time,
             # the main SCREEN's calls and the other calls, each on its own. Below the smallest measured hospital the
             # old sum stays as a floor (the canary and the stub time do not shrink with the patients)
             split = hospital_split(patients, n, lang)
             small = patients < min(int(r["patients"]) for r in HOSPITAL_MEASURED)
             model = notes * sec / llm_speedup(n) + CANARY_SECONDS + other("hospital", patients, local_patients)
-            many = len(lc) > 1
-            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''})", patients, split["calls"],
+            many = len(lc) > 1 or reps > 1
+            again = f", repeat {v.split('#r', 1)[1]}" if "#r" in v else ""
+            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''}{again})", patients, split["calls"],
                             max(split["seconds"], model) if small else split["seconds"],
-                            (f"hospital-{lang}" + (f"@c{n}" if many else ""),)))  # fmt: skip
+                            (_tag("hospital", lang, v),)))  # fmt: skip
             rows[-1]["split"] = {k: round(float(split[k]), 1) for k in ("non_llm", "main", "other")}
             rows[-1]["source"] = split["runs"]
             # the cap's floor: the same part with no gain the measurements did not show at its size (a cap below
@@ -1907,6 +1954,7 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
         r["hours"] = round(r["seconds"] / 3600, 2)
     hours = sum(r["seconds"] for r in rows) / 3600
     head = {"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts), "llm_concurrency": list(lc),
+            "repeats": reps,
             "llm_speedup": [llm_speedup(n) for n in lc], "llm_speedup_override": speedup_override(),
             "max_num_seqs": record_max_seqs()}  # fmt: skip
     if g1 and langs:
@@ -1923,12 +1971,14 @@ def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
     selftests = [f"selftest-{s}" for s in SELFTESTS if f"selftest-{s}" in only]  # the rehearsal's (tests/rehearsal)
     tags = {t for r in e["rows"] for t in r["tags"]}
     # a hospital part named without its concurrency (hospital-ja) is every repeat of it (hospital-ja@c1, @c4 ...)
-    known = tags | {base_tag(t) for t in tags} | {"install", "prepare", G1_CHECK, *selftests, *g_probes.PARTS}
+    known = tags | {base_tag(t) for t in tags} | {setting_tag(t) for t in tags}
+    known |= {"install", "prepare", G1_CHECK, *selftests, *g_probes.PARTS}
     unknown = sorted(set(only) - known)
     if unknown:
         raise ValueError(f"--only: no such part in the plan: {' '.join(unknown)}")
     rows = [dict(r) for r in e["rows"]
-            if not r["tags"] or set(r["tags"]) & set(only) or {base_tag(t) for t in r["tags"]} & set(only)]  # fmt: skip
+            if not r["tags"] or set(r["tags"]) & set(only) or {base_tag(t) for t in r["tags"]} & set(only)
+            or {setting_tag(t) for t in r["tags"]} & set(only)]  # fmt: skip
     fixed = [r for r in rows if not r["tags"]]
     extra = [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17}
              for t in selftests]  # fmt: skip
@@ -2005,8 +2055,12 @@ def shard_now(doc: dict[str, Any], i: int, dirs: list[Path], run_id: str, head: 
     is left, and spot once its hospital parts are done. Nothing known (no results, no HEAD): the whole shard."""
     s = doc["plan"]["shards"][i - 1]
     left = [t for t in s["tags"] if not (head and _done(dirs, t, f"{run_id}-s{i}", head))]
-    e = estimate(int(doc["patients"]), parts=tuple(doc.get("parts") or ("g1",)),
-                 llm_concurrency=tuple(doc.get("llm_concurrency") or (1,)))  # fmt: skip
+    e = estimate(
+        int(doc["patients"]),
+        parts=tuple(doc.get("parts") or ("g1",)),
+        llm_concurrency=tuple(doc.get("llm_concurrency") or (1,)),
+        repeats=int(doc.get("repeats") or 1),
+    )
     now = restrict(e, left or ["install"])  # nothing left: the start and setup rows only
     return {"left": left, "done": [t for t in s["tags"] if t not in left], "hours": now["hours"], "usd": now["usd"],
             "cap_hours": now["cap_hours"], "cap_usd": now["cap_usd"], "provisioning": provisioning(left),
@@ -2367,10 +2421,13 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
     if not lc:
         return []
     seqs = e.get("max_num_seqs")
+    reps = int(e.get("repeats") or 1)
     out = [f"model calls in flight (TB_SCREEN_LLM_CONCURRENCY): {', '.join(map(str, lc))}"
            + (f" (not given: the serving record's max_num_seqs, {seqs})" if e.get("llm_concurrency_default") else "")
            + ("; the hospital part runs once per value (hospital-<lang>@c<N>), on one prepared hospital"
-              if len(lc) > 1 else "")]  # fmt: skip
+              if len(lc) > 1 and reps == 1 else "")
+           + (f"; the hospital part runs {reps} times per value, each its own part (hospital-<lang>@c<N>#r<k>), on "
+              "one prepared hospital" if reps > 1 else "")]  # fmt: skip
     if any(n > 1 for n in lc):
         gains = ", ".join(f"{n}: {g:g}x" for n, g in zip(lc, e.get("llm_speedup") or [], strict=False) if n > 1)
         if e.get("llm_speedup_override"):
@@ -2378,7 +2435,7 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
                        f"{e['llm_speedup_override']:g}) (TB_ESTIMATE_LLM_SPEEDUP, the owner's override of the measured "
                        f"curve; {gains})")  # fmt: skip
         else:
-            top = max(n for r in HOSPITAL_MEASURED if r["patients"] == HOSPITAL_CURVE_PATIENTS for n in [r["n"]])
+            top = max(int(r["n"]) for r in HOSPITAL_MEASURED if r["patients"] == HOSPITAL_CURVE_PATIENTS)
             out.append(
                 f"  model time at N in flight: the rates measured at that N where a run measured it, else the "
                 f"gain of the curve measured in run {HOSPITAL_RUN_CURVE} ({HOSPITAL_CURVE_PATIENTS:,} patients, "
@@ -2386,10 +2443,16 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
             )
     order = e.get("llm_concurrency_order") or {}
     if order.get("seed") is not None:
-        out.append(f"  order: randomised with seed {order['seed']} (given: {', '.join(map(str, order['given']))}; "
-                   "--keep-order runs them as given)")  # fmt: skip
-    elif len(lc) > 1:
+        every = " every (setting, repeat) pair" if reps > 1 else ""
+        out.append(f"  order:{every} randomised with seed {order['seed']} (given: "
+                   f"{', '.join(map(str, order['given']))}; --keep-order runs them as given)")  # fmt: skip
+    elif len(lc) > 1 or reps > 1:
         out.append("  order: as given (--keep-order, or no seed)")
+    if order.get("runs") and reps > 1:
+        out.append(f"  run order: {' '.join(order['runs'])}")
+    if len(lc) > 1 or reps > 1:
+        out.append("  the model servers are not restarted between settings or repeats (not in scope): a later run "
+                   "may find a warm prefix cache")  # fmt: skip
     slots = int(seqs or GATEWAY_SLOTS)
     queue = [n for n in lc if n > slots]
     if queue and not seqs:
@@ -2482,6 +2545,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--profile-workers", type=int, default=16, help="profile bench: parallel calls (vLLM batch)")
     ap.add_argument("--run-id", default=os.environ.get("TB_RUN_ID", ""),
                     help="the run's id: --resume keeps only parts of this run id and HEAD (H-01)")  # fmt: skip
+    ap.add_argument("--repeats", type=int, default=1, metavar="N",
+                    help="each --llm-concurrency setting runs N times, each its own hospital part "
+                    "hospital-<lang>@c<N>#r<k>, every (setting, repeat) in the --order-seed order (B5)")  # fmt: skip
+    ap.add_argument("--order-seed", type=int, default=None,
+                    help="run the --llm-concurrency settings (with --repeats: every setting and repeat) in a random "
+                    "order from this seed (recorded in the plan); not given: the order given")  # fmt: skip
     ap.add_argument("--llm-concurrency", default="", metavar="N[,N...]",
                     help="model calls in flight (TB_SCREEN_LLM_CONCURRENCY) for every part; several values: the "
                     "hospital part once per value, as hospital-<lang>@c<N> (review G-3). Not given with --model "
@@ -2493,6 +2562,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.add_argument("--variant", default="", help="a hospital part's repeat, c<N>: the tag hospital-<lang>@c<N>")
         ap.add_argument("--shots", type=Path, required=True)
         a = ap.parse_args(argv[1:])
+        if a.repeats < 1:
+            ap.error("--repeats: a whole number from 1")
         return run_part(a)
     ap.add_argument("--langs", nargs="+", default=list(LANGS), choices=["ja", "zh-TW", "en"])
     ap.add_argument("--skip", nargs="*", default=[], choices=sorted(set(PARTS) - {"prepare"}))
@@ -2529,12 +2600,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--preflight-check", type=Path, help="a folder of read-only gcloud answers: every problem (A7)")
     ap.add_argument("--parts-missing", type=Path, help="a run's plan.json: print its tags with no result in "
                     "--parts-dir (A8)")  # fmt: skip
-    ap.add_argument("--order-seed", type=int, default=None,
-                    help="--estimate: run the --llm-concurrency settings in a random order from this seed (recorded in "
-                    "the plan); not given: the order given")  # fmt: skip
     ap.add_argument("--merge-parts", type=Path, help="one VM's parts/ folder: its results into --parts-dir "
                     "(prepare / install: failed if any VM's copy failed)")  # fmt: skip
     a = ap.parse_args(argv)
+    if a.repeats < 1:
+        ap.error("--repeats: a whole number from 1")
     if a.merge_parts:
         for line in merge_parts(a.merge_parts, (a.parts_dir or [a.dir / "parts"])[0]):
             print(line)
@@ -2582,14 +2652,17 @@ def main(argv: list[str] | None = None) -> int:
         if not parts or set(parts) - {"g1", *BENCH_PARTS}:
             ap.error(f"--parts: g1, {', '.join(BENCH_PARTS)}")
         given = a.lc
-        if a.order_seed is not None and len(a.lc) > 1:  # the curve's settings in a recorded random order (audit e)
+        # the curve's settings in a recorded random order (audit e); with --repeats every (setting, repeat) pair is
+        # shuffled instead, from the same recorded seed, on the VM as here (hospital_variants)
+        if a.order_seed is not None and len(a.lc) > 1 and a.repeats == 1:
             a.lc = shuffled(a.lc, a.order_seed)
+        seed = a.order_seed if a.repeats > 1 else None
         try:
-            e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc)
+            e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc, a.repeats, seed)
             e["llm_concurrency_default"] = a.lc_default
-            if len(a.lc) > 1:
-                e["llm_concurrency_order"] = ({"seed": a.order_seed, "given": list(given)} if a.order_seed is not None
-                                              else {"seed": None, "given": list(given)})  # fmt: skip
+            if len(a.lc) > 1 or a.repeats > 1:
+                e["llm_concurrency_order"] = {"seed": a.order_seed, "given": list(given),
+                                              "runs": hospital_variants(a.lc, a.repeats, seed)}  # fmt: skip
             e = restrict(e, a.only)
         except ValueError as exc:
             ap.error(str(exc))

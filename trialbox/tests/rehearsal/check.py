@@ -128,6 +128,9 @@ def check_record(r: Result, res: dict[str, bytes]) -> None:
             bool(s.get("image")) and bool(s.get("vllm_version")),
         )
     r.ok("serving record: no API key in it", "api-key" not in json.dumps(rec), "")
+    wsl = rec.get("wsl_kernel", "absent")  # 2026-11-13: the WSL2 kernel's release, null on any other kernel
+    r.ok("serving record: wsl_kernel recorded (null off WSL2)",
+         wsl is None or (isinstance(wsl, str) and re.search(r"microsoft|wsl2", wsl, re.I) is not None), wsl)  # fmt: skip
 
 
 def check_measured(r: Result, rep: dict[str, Any], res: dict[str, bytes], vm: str) -> None:
@@ -231,8 +234,36 @@ def run_case(a: argparse.Namespace) -> int:
         f"{sorted({b[2][:60] for b in bad if b not in other})[:8]}"
     )
     offs = poweroffs(e)
-    r.ok("the VM powered off once the driver collected", bool(offs) and "results collected" in offs[-1], offs[-1:])
+    if a.case == "bucket":  # B7: the driver reads the bucket; the VM powers off once its last upload went through
+        why = bucket_poweroff_problems(con, offs)
+        r.ok("bucket: the VM powered off at once after its last upload (TB-BUCKET-DONE, no grace)", not why, why)
+    else:
+        r.ok("the VM powered off once the driver collected", bool(offs) and "results collected" in offs[-1], offs[-1:])
     return r.done()
+
+
+BUCKET_OFF_S = 90  # B7: the last pack's upload to its power-off: the console's 1 s and the shim's own second, with room
+
+
+def bucket_poweroff_problems(con: str, offs: list[str]) -> list[str]:
+    """B7: why a bucket-mode VM did not power off promptly after its last upload; empty when it did. The last
+    power-off must be the VM's own TB-BUCKET-DONE (not the watchdog's grace, not the driver's "collected"), at most
+    :data:`BUCKET_OFF_S` after the run's ``TB-PHASE done``, and only one power-off in the run boot."""
+    out: list[str] = []
+    if not offs:
+        return ["no power-off recorded"]
+    last = offs[-1]
+    if "TB-BUCKET-DONE" not in last:
+        out.append(f"the last power-off is not the VM's TB-BUCKET-DONE: {last[:200]}")
+    if "TB-BUCKET-DONE" not in con:
+        out.append("console: no TB-BUCKET-DONE")
+    done = next((_at(ln) for ln in reversed(con.splitlines()) if "TB-PHASE done" in ln), None)
+    off = _at(last)
+    if done is None or off is None:
+        out.append("no time for the end of the run or the power-off")
+    elif (off - done).total_seconds() > BUCKET_OFF_S:
+        out.append(f"powered off {(off - done).total_seconds():.0f} s after the run's end (at most {BUCKET_OFF_S})")
+    return out
 
 
 def served_case(a: argparse.Namespace) -> int:

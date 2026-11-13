@@ -7,12 +7,13 @@
 #   export TB_SA_KEY_FILE=<the service account key file>   # every command activates from it (its path, to gcloud)
 #   gcloud config set project trialbox-demo                # once, in that config
 #   deploy/gcp/complete-run.sh --estimate [--patients 50000] [--vms N] [--parts g1,embed,profile] [--only TAG,TAG]
-#                              [--llm-concurrency N[,N...]]
+#                              [--llm-concurrency N[,N...]] [--repeats N]
 #   deploy/gcp/complete-run.sh --dry-run [--vms N] [--zones z1,z2] [--parts ...] [--only TAG,TAG] [VM] [ZONE]
 #   deploy/gcp/complete-run.sh --provision --vms N --zones z1,z2,...   # once: the clones tb-gpu-sim-2..N (they
 #                                                                      # boot, power off at once, keep their disks)
 #   deploy/gcp/complete-run.sh [--patients 50000] [--vms N] [--zones ...] [--parts ...] [--only TAG,TAG] [--hours H]
-#                              [--llm-concurrency N[,N...] [--keep-order | --order-seed S]] [--no-wait | --detach]
+#                              [--llm-concurrency N[,N...] [--repeats N] [--keep-order | --order-seed S]]
+#                              [--no-wait | --detach]
 #   deploy/gcp/complete-run.sh --collect <run id> [--follow]   # later, as often as wanted: see below
 #   deploy/gcp/complete-run.sh --stop [--collect <run id> | --vms N --zones ...] [VM] [ZONE]   # stop by hand
 #   deploy/gcp/complete-run.sh --teardown --vms N --zones ...   # delete the clones 2..N and their machine image
@@ -44,8 +45,11 @@
 # A list (1,4,16,48) is the review's test G-3: the hospital part runs once per value, as its own part
 # hospital-<lang>@c<N>, on one prepared hospital, so one VM run makes the whole curve. Every model part records its
 # calls and tokens per second, p50 / p95 call time, the servers' /metrics before and after and the card every 10 s
-# (parts/<part>/gpu.csv). The estimate's screening time is G1's 0.78 calls/s at N = 1, divided by min(N, 2)
-# (TB_ESTIMATE_LLM_SPEEDUP): an upper bound for N > 1 until G-3 has measured it.
+# (parts/<part>/gpu.csv). The estimate of a hospital part comes from the measured parts of 2026-11-13 and names their
+# runs (tools/complete_run.py HOSPITAL_MEASURED); TB_ESTIMATE_LLM_SPEEDUP overrides the measured gain.
+# --repeats N (B5): each value N times, each its own part hospital-<lang>@c<N>#r<k>; every (setting, repeat) pair runs
+# in a random order from the recorded seed (as a list of values does); the report gives each setting's mean, min and
+# max of the main SCREEN's calls/s. The model servers are not restarted between settings or repeats (not in scope).
 #
 # Parallel (D-148): --vms N splits the run into N shards of whole parts (complete_run --only tags; longest first onto
 # the least-loaded VM, tools/complete_run.py shard_plan): no part is split, so the merged report is the single-VM
@@ -84,7 +88,8 @@
 # door_firewall_check). A door that does not answer in 30 minutes: the driver stops the VM (it does not wait for the
 # VM's own watchdog), and the VM itself powers off at once with TB-NO-CODE when no code came (A6).
 # Optional TB_BUCKET=gs://<bucket>: code and results go through the bucket (the VM's service account needs storage
-# access); without it they go through the door.
+# access); without it they go through the door. With the bucket the VM powers itself off as soon as its last
+# results.tgz upload went through (B7: it stayed up about 5 minutes after the last --collect, until --stop).
 # Hardening (independent review, 2026-11-12):
 #   * the poll's POST /tb/heartbeat touches the VM's driver-alive, never the run's heartbeat: a driver that follows a
 #     stuck part (wait mode, --follow, --detach, frequent --collect) cannot keep it alive to its cap;
@@ -110,6 +115,7 @@ set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
 SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0; DISCARD_PREV=0; KEEP_ORDER=0; ORDER_SEED=""
+REPEATS=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -127,6 +133,7 @@ while [ $# -gt 0 ]; do
     --only) IFS=, read -r -a ONLY_TAGS <<< "$2"; shift 2 ;;
     --llm-concurrency) LLMC="$2"; shift 2 ;;
     --keep-order) KEEP_ORDER=1; shift ;;
+    --repeats) REPEATS="$2"; shift 2 ;;
     --order-seed) ORDER_SEED="$2"; shift 2 ;;
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
@@ -138,6 +145,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$VMS" in ''|*[!0-9]*|0) echo "--vms: a whole number from 1" >&2; exit 2 ;; esac
+case "$REPEATS" in ''|*[!0-9]*|0) echo "--repeats: a whole number from 1" >&2; exit 2 ;; esac
 # the cap is whole hours (max-run-duration ${H}h, tb-max-minutes H*60-5): refuse 2.5 before anything is made
 [ -z "$HOURS" ] || case "$HOURS" in *[!0-9]*|0) echo "--hours: a whole number of hours from 1 (got '$HOURS')" >&2; exit 2 ;; esac
 VM="${1:-tb-gpu-sim}"; ZONE="${2:-asia-east1-a}"
@@ -160,11 +168,16 @@ ONLY_ARGS=(); [ "${#ONLY_TAGS[@]}" = 0 ] || ONLY_ARGS=(--only "${ONLY_TAGS[@]}")
 [ -z "$LLMC" ] || ONLY_ARGS+=(--llm-concurrency "$LLMC")   # the estimate and the plan: the calls in flight (G-3)
 # several settings (the curve): run them in a random order from a recorded seed (plan.json, the plan's lines), so
 # that no setting always comes after the others on a warm prefix cache and a hot card; --keep-order: as given
-case "$LLMC" in *[,\ ]*)
-  if [ "$KEEP_ORDER" = 0 ]; then ONLY_ARGS+=(--order-seed "${ORDER_SEED:-$(( (RANDOM << 15) | RANDOM ))}"); fi ;;
-esac
+# --repeats N (B5): every (setting, repeat) pair in that seeded order, here and on the VM (tb-order-seed)
+[ "$REPEATS" = 1 ] || ONLY_ARGS+=(--repeats "$REPEATS")
+MANY=0; case "$LLMC" in *[,\ ]*) MANY=1 ;; esac; [ "$REPEATS" = 1 ] || MANY=1
+if [ "$MANY" = 1 ] && [ "$KEEP_ORDER" = 0 ]; then ONLY_ARGS+=(--order-seed "${ORDER_SEED:-$(( (RANDOM << 15) | RANDOM ))}"); fi
 plan_lc() {  # the plan's calls in flight, space separated (a metadata value holds no comma): "16" or "1 4 16 48"
   "$PY" -c 'import json,sys; print(" ".join(str(n) for n in json.load(open(sys.argv[1])).get("llm_concurrency") or []))' "$PLAN"
+}
+plan_rep() {  # the plan's repeats per setting (B5) and, with more than one, the seed of its order: "1" or "3 12345"
+  "$PY" -c 'import json,sys; e=json.load(open(sys.argv[1])); r=int(e.get("repeats") or 1)
+s=(e.get("llm_concurrency_order") or {}).get("seed"); print(r, "" if r == 1 or s is None else s)' "$PLAN"
 }
 
 if [ "$ESTIMATE" = 1 ]; then
@@ -594,9 +607,10 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     else door_make "$SH" || { echo "$VM: the door's key or certificate could not be made (openssl)" >&2; return 3; }; fi
     door_secret_add || { echo "$VM: not started: its door is not in Secret Manager" >&2; return 3; }
     rm -f "$SH/results.tgz" "$SH/results.final" "$SH/collect-boot" "$SH/state"
+    read -r P_REP P_SEED <<< "$(plan_rep)"   # B5: repeats per setting, the seed of their order (with repeats only)
     gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
       "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-door-cert=$SH/door.crt" \
-      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}" \
+      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-repeats=${P_REP:-1},tb-order-seed=${P_SEED:-none},tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}" \
       || { echo "$VM: not started: its metadata could not be set" >&2; door_retire; return 3; }
     # every give-up from here destroys the door versions it made (A8): a failed start, no door, a failed upload, and
     # (the trap) any other exit or signal before the upload is accepted: an error, Ctrl-C, a lost shell
@@ -840,6 +854,8 @@ G1=0; case ",$PARTS," in *,g1,*) [ "${#ONLY_TAGS[@]}" = 0 ] && G1=1 ;; esac
 STUB=(--patients "$PATIENTS" --ocr tesseract --run-id "$RUN_ID")   # as on the VM (review M-02)
 # the report's plan has the hospital part once per value of the run's --llm-concurrency list (G-3), as the VM's had
 LC="$(plan_lc 2>/dev/null || true)"; LCR=(); [ -z "$LC" ] || LCR=(--llm-concurrency "$LC")
+read -r REP_N REP_SEED <<< "$(plan_rep 2>/dev/null || echo 1)"   # B5: the repeats' tags in the report's plan
+[ "${REP_N:-1}" = 1 ] || LCR+=(--repeats "$REP_N" ${REP_SEED:+--order-seed "$REP_SEED"})
 if [ "$DRY" = 1 ]; then
   for i in $(seq 1 "$VMS"); do echo "+ tar -xzf $OUT/shard-$i/results.tgz -C $OUT/shard-$i; parts/ and report/shots/ into $OUT"; done
   echo "# every part of the plan here: each VM's door version is destroyed (and a VM still running powers off)"

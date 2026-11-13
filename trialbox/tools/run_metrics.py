@@ -475,6 +475,30 @@ def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def repeat_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """B5 (``--repeats``): per hospital language and calls-in-flight setting run more than once
+    (``hospital-<lang>@c<N>#r<k>``), the main SCREEN's calls/s of each repeat, their mean, min and max. A repeat with no
+    main SCREEN measured counts in ``repeats`` but not in the figures."""
+    by: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for r in rows:
+        tag = str(r.get("tag") or "")
+        if r.get("part") == "hospital" and "#r" in tag:
+            by.setdefault((_lang(r), tag.split("#", 1)[0]), []).append(r)
+    out = []
+    for (lang, setting), rs in sorted(by.items(), key=lambda kv: (kv[0][0], _in_flight(kv[0][1]))):
+        rates = [float(x) for r in rs if (x := (r.get("throughput_screen") or {}).get("calls_per_second")) is not None]
+        out.append({"lang": lang, "setting": setting, "llm_concurrency": _in_flight(setting), "repeats": len(rs),
+                    "measured": len(rates), "tags": [str(r.get("tag")) for r in rs],
+                    "mean": round(sum(rates) / len(rates), 3) if rates else None,
+                    "min": min(rates) if rates else None, "max": max(rates) if rates else None})  # fmt: skip
+    return out
+
+
+def _in_flight(setting: str) -> int:
+    tail = setting.rsplit("@c", 1)[-1] if "@c" in setting else ""
+    return int(tail) if tail.isdigit() else 0
+
+
 def _lang(r: dict[str, Any]) -> str:
     return str(r.get("lang") or str(r.get("tag", "")).split("@", 1)[0].removeprefix("hospital-"))
 
