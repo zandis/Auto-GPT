@@ -1418,8 +1418,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "account.must_change")
         token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en", via)
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": via})
+        # review 2026-11-13 (CON-API-2): the session's absolute end (UTC) and its idle limit; the Session object has no
+        # end of its own, so this answered null for every session
+        ends = (h.users.clock() + h.users.absolute).replace(microsecond=0)
         return {"token": token, "username": user.username, "role": user.role,
-                "expires": getattr(sess, "expires", None)}  # fmt: skip
+                "expires": ends.isoformat(), "idle_minutes": int(h.users.idle / timedelta(minutes=1))}  # fmt: skip
 
     @app.delete("/api/v1/session")
     def api_logout(request: Request) -> dict[str, bool]:
