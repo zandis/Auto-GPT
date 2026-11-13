@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 from embed_service.embedder import HashEmbedder
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from lake.client import LakeLocal
 from lake.store import Lake
 from orchestrator.clients import StepFailed
@@ -25,6 +24,7 @@ from tb_common import authz
 from tb_common import service_auth as sa
 from tb_contracts import JobCreate
 
+from tests.actor3 import SignedClient
 from tests.unit.test_orchestrator_unit import make  # noqa: F401 - the fixture is used by name
 from tests.unit.test_site_setup import svc  # noqa: F401 - the fixture is used by name
 
@@ -159,7 +159,7 @@ def test_the_study_set_up_decides_who_a_screening_run_looks_at(db_url: str, tmp_
     fake = SimpleNamespace(store=store, audit=SimpleNamespace(append=lambda *a, **k: None), stamp=lambda: "2026-11-09")
     api = FastAPI()
     api.include_router(router(lambda: fake))  # type: ignore[arg-type,return-value]
-    c = TestClient(api)
+    c = SignedClient(api)  # T-715d (D-554): the scope's route takes the signed person; a `by` here is who signs
     assert c.get("/studies/NEW1/screen-scope").json()["mode"] is None
     rs = SimpleNamespace(id="NEW1", manifest=SimpleNamespace(scopes=None))
 

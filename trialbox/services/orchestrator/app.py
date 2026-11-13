@@ -632,7 +632,9 @@ def study_service_of(o: Orchestrator) -> StudyService:
     return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o), core_of(o))
 
 
-app.include_router(study_router(lambda: study_service_of(orch())), dependencies=REPORT)
+# T-715d (D-554): the study router's changing routes carry their own `require_actor`; its GET routes need no
+# stage dependency (the report stage counts changing calls only)
+app.include_router(study_router(lambda: study_service_of(orch())))
 
 # ---------------------------------------------------------------------------- TrialBox's own data core (D-123)
 _cores: dict[str, Any] = {}
