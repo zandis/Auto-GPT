@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 from datacore.forms import fields_of, titles_of
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common import encoding
@@ -435,7 +436,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if len(data) > MAX_DICTIONARY:
             return forms_page(request, sess, rid, err={"code": "FORM-SIZE", "fields": ""})
         try:  # UX-004: the one decoder (D-215): a Shift_JIS or Big5 dictionary keeps its labels, or is refused
-            text = encoding.decode(data)[0]
+            text = (await run_in_threadpool(encoding.decode_upload, data))[0]  # a legacy file takes seconds
         except encoding.EncodingRefused:
             return forms_page(request, sess, rid, err={"code": "FORM-ENCODING", "fields": ""})
         try:

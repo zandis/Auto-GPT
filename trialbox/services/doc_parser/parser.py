@@ -206,9 +206,9 @@ def _lite_xlsx(data: bytes) -> _Doc:
 
 
 def _text(data: bytes) -> _Doc:
-    # UX-004: the one decoder (D-215). UTF-8, Shift_JIS and Big5 are read as what they are; a file whose character
-    # set cannot be told is refused, never read with what does not fit replaced by U+FFFD on its way to the model
-    text, _ = encoding.decode(data)
+    # UX-004: the one decoder (D-215). Valid UTF-8 is UTF-8, as always; a Shift_JIS or Big5 file is read as what it
+    # is; any other is refused, never read with what does not fit replaced by U+FFFD on its way to the model
+    text, _ = encoding.decode_upload(data)
     lines = []
     for raw in text.splitlines():
         line = raw.strip()
@@ -385,9 +385,9 @@ def parse(data: bytes, filename: str, ie_locator: IeLocator | None = None, backe
             doc = _text(data)
     except encoding.EncodingRefused as exc:
         raise UnreadableDocument(
-            f"{filename}: its character set cannot be told for certain ({exc.message}"
-            + (f", line {exc.line}" if exc.line else "")
-            + "); save it as UTF-8 and send it again"
+            f"{filename} is not UTF-8 text and its character set cannot be told for certain"
+            + (f" (line {exc.line})" if exc.line else "")
+            + ": save it as UTF-8"
         ) from exc
     except Exception as exc:  # corrupt, truncated or mislabelled file: a reason for the requester, not a 500
         raise UnreadableDocument(f"{filename} could not be read as {kind.upper()} ({type(exc).__name__})") from exc

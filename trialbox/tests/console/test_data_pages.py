@@ -267,8 +267,18 @@ def test_a_dictionary_whose_character_set_cannot_be_told_is_refused_on_the_page(
     r = c.post(
         "/studies/GZQO/forms/dictionary", data={"csrf": csrf}, files={"dictionary": ("d.csv", ja + zh, "text/csv")}
     )
-    assert 'data-testid="dc-error"' in r.text and "FORM-ENCODING" in r.text
+    assert 'data-testid="dc-error"' in r.text and str(escape(DC_EN["dc.err.FORM-ENCODING"])) in r.text
     assert not [c_ for c_ in dcb["calls"] if c_[0] != "GET"]  # nothing was sent on
+
+
+@pytest.mark.parametrize("label", ["Temperature (\u00b0C)", "BMI (kg/m\u00b2)", "Sj\u00f6gren (y/n)"])
+def test_a_utf8_dictionary_with_one_western_symbol_is_read_as_before(dcb: dict[str, Any], label: str) -> None:
+    c, csrf = login(dcb["app"], "crc", PW)
+    files = {"dictionary": ("dict.csv", _labelled(label, "utf-8"), "text/csv")}
+    r = c.post("/studies/GZQO/forms/dictionary", data={"csrf": csrf, "record_field": "record_id"}, files=files,
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303
+    assert label in json.dumps([c_[2] for c_ in dcb["calls"] if c_[0] != "GET"], ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------------------------- roles
