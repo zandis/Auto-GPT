@@ -112,11 +112,34 @@ def content_sha(doc: Mapping[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- the lake read
+_NO_VERSION = 'Referenced column "schema_version" not found'  # the engine's sentence, kept whole by the lake (D-664)
+
+
+def _no_version_column(exc: Exception) -> bool:
+    """Is ``exc`` the engine refusing the question because the snapshot has no version column (schema 1)?
+
+    NEW-B-35 (D-676): only a fault of the question (D-675: 422, the engine's "wrong statement" group) with the
+    engine's own sentence about that column. A lake that failed (5xx: no such snapshot, a limit, an I/O error) is
+    never an older snapshot, whatever its words."""
+    if _NO_VERSION not in str(exc):
+        return False
+    status = getattr(exc, "status", None)  # the lake service's answer (``LakeQueryFailed``)
+    if status is None:  # the lake as a library: the error's own class, placed by the lake's rule
+        from lake.store import query_failure_status
+
+        status = query_failure_status(exc)
+    return bool(status == 422)
+
+
 def lake_schema(lake: LakeReader, snapshot: str) -> int:
+    """The layout version of ``snapshot``; 1 for a snapshot built before the version was recorded. Any other error
+    goes on and stops the build: twins built on a guess of the layout would lose the provenance of their rows."""
     try:
         rows = lake.query("SELECT schema_version FROM lake_meta", [], snapshot).to_pylist()
-    except Exception:  # a snapshot of schema 1 has no schema_version column
-        return 1
+    except Exception as exc:
+        if not _no_version_column(exc):
+            raise
+        return 1  # a snapshot of schema 1 has no schema_version column
     v = rows[0].get("schema_version") if rows else None
     return int(v) if v is not None else 1
 

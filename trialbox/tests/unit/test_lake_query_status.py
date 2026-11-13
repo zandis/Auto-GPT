@@ -155,6 +155,10 @@ def test_a_generation_header_that_is_none_is_the_requests_fault_not_a_broken_lak
 GOES_ON = "no handler: the error goes on and the job or the request fails (5xx: the lake failed; 4xx: the code)"
 RERAISES = "handler: a missing table of an older snapshot (a 4xx sentence) is read as none; anything else goes on"
 NOT_THE_LAKE = "not the lake's client"
+#: NEW-B-35 (D-676)
+OLD_LAYOUT = (
+    "handler: the version column a schema-1 snapshot lacks (a 4xx sentence) is read as 1; anything else goes on"
+)
 OPEN = "OPEN (its lane): catches every error, a 5xx too, and reads it as "
 
 #: (file under services/, function) -> what it does when the lake's query() raises. A new caller must be put here
@@ -197,7 +201,7 @@ CALLERS: dict[tuple[str, str], str] = {
     + "a lake without the fact tables, for its facts query (the report says so); its other two queries go on",
     ("orchestrator/scenarios/screen.py", "practitioner_names"): OPEN + "no names (the settings' ids are shown)",
     ("orchestrator/scenarios/screen.py", "confirmed_facts"): OPEN + "no confirmed fact",
-    ("patient_profile/twin.py", "lake_schema"): OPEN + "a snapshot of schema 1",
+    ("patient_profile/twin.py", "lake_schema"): OLD_LAYOUT,
     ("sitesetup/readiness.py", "unknown_share"): OPEN + "(0, 0), a lake with no diagnosis",
     ("sitesetup/readiness.py", "feed_loaded"): OPEN + "no feed loaded",
 }
