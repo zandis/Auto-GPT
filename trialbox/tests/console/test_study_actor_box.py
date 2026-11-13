@@ -118,7 +118,10 @@ def test_only_the_administrator_writes_or_tests_the_boxs_redcap_connection(orch_
     assert {r for r in ("admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy")
             if permit(r, SITE).allowed} == {"admin"}  # fmt: skip
     c = orch_box.client("console")
-    for method, path, body in (("PUT", "/redcap/connections/rc1", CONN), ("POST", "/redcap/connections/rc1/test", None)):
+    for method, path, body in (
+        ("PUT", "/redcap/connections/rc1", CONN),
+        ("POST", "/redcap/connections/rc1/test", None),
+    ):
         kw: dict[str, Any] = {} if body is None else {"json": body}
         # a coordinator, signed for this very request: the matrix refuses the role
         crc = signed(SITE, "", method, path, body, sub="console:crc", role="coordinator")
