@@ -342,6 +342,72 @@ def test_a_retrieved_chunk_is_evidence_for_the_sentences_it_holds() -> None:
     assert key in got.shown[0]["text"] and got.left_out == 1
 
 
+def test_a_line_the_chunk_shares_with_the_whole_note_does_not_crowd_out_its_own_sentence() -> None:
+    """D-645: a chunk holds a line the note repeats (a daily "no change"): every copy counted as evidence and was
+    taken first, in the note's order, so whether the chunk's own sentence was shown hung on the tokens left over
+    (the test above passed at 400 and would not have at 410, 420, 440 or 800). The sentence the note says once
+    goes first, at every budget that forces a cut."""
+    key = "Tophus on the left ear."
+    long = FILLER * 300 + key + "\n" + FILLER * 300
+    chunk = FILLER + key + "\n" + FILLER
+    missing = [b for b in range(120, 3000, 10)
+               if key not in build([_n("n", "2026-10-01", long)], {"n": [chunk]}, b).shown[0]["text"]]  # fmt: skip
+    assert missing == []
+
+
+def test_a_repeated_evidence_sentence_is_still_shown_once_before_any_second_copy() -> None:
+    """Review of D-645: "once before repeated" by the total count dropped a decisive line the note says twice
+    (a chunk's line also written elsewhere), and a lexicon hit a daily note repeats. One copy of every distinct
+    evidence sentence goes first; second copies after."""
+    lines = [f"Line {i} of the stay, nothing new." for i in range(400)]
+    lines[5] = lines[200] = "Tophus on the left ear."
+    note = _n("n", "2026-10-01", "\n".join(lines))
+    chunk = "\n".join(lines[190:230])
+    missing = [b for b in range(120, 1800, 10)
+               if "Tophus on the left ear." not in build([note], {"n": [chunk]}, b).shown[0]["text"]]  # fmt: skip
+    assert missing == []
+    # the cascade's shape: exact sentences; one hit repeated daily beside sixty hits said once
+    daily = "痛風発作あり。"
+    once = [f"痛風発作の既往{i}回目を確認した。" for i in range(60)]
+    text = "\n".join(x for i in range(60) for x in (daily, once[i], "経過良好。"))
+    for cap in (100, 200, 400, 800, 1250):
+        assert daily in clip(_n("n", "2026-10-01", text), [daily, *once], cap).split("\n"), cap
+
+
+def test_with_room_for_one_line_more_the_lead_in_goes_before_the_heading() -> None:
+    """D-645: the heading was taken first; with room for one of the two the excerpt read "[...] 【過去病史】 [...]
+    肺結核。": the denied list under the title of the patient's own history. From the first budget that holds the
+    lead-in with its evidence, the lead-in is shown; below it the heading may still stand (second review: under
+    "family history" it is the context, and hiding it gains nothing)."""
+    text = "【過去病史】\n" + "高血壓。\n" * 40 + "病人否認下列病史：\n肺結核。\nB型肝炎。"
+    note = _n("n", "2026-10-01", text)
+    shown = {cap: clip(note, ["肺結核。"], cap).split("\n") for cap in range(note_tokens("肺結核。"), 200)}
+    with_lead_in = [cap for cap, lines in shown.items() if "病人否認下列病史：" in lines]
+    assert with_lead_in == list(range(with_lead_in[0], 200))  # once it fits, always
+    assert all(shown[c][shown[c].index("病人否認下列病史：") + 1] == "肺結核。" for c in with_lead_in)
+    assert "【過去病史】" not in shown[with_lead_in[0]]  # room for one of the two: the lead-in is the one
+    family = "【既往歴】\n" + "高血圧症。\n" * 20 + "【家族歴】\n" + "父：" + "あ" * 40 + "：\n肺結核。\n糖尿病。"
+    cut = clip(_n("n", "2026-10-01", family), ["肺結核。"], 60).split("\n")
+    assert "【家族歴】" in cut and "肺結核。" in cut  # a lead-in too long to fit does not hide the heading
+
+
+def test_one_line_longer_than_the_cap_is_cut_in_a_few_steps_whatever_it_holds() -> None:
+    """Review of D-645: the cut of an over-long line walked at character costs of its own (a digit a quarter) and
+    then dropped one character at a time, each with a count of the whole text: minutes for a long run of digits."""
+    calls = 0
+
+    def counted(text: str) -> int:
+        nonlocal calls
+        calls += 1
+        return note_tokens(text)
+
+    for line in ("7" * 200_000, "あ" * 200_000, "x" * 200_000, "7あx " * 50_000):
+        calls = 0
+        got = clip(_n("n", "2026-10-01", line), [], 1250, counted)
+        assert got and line.startswith(got) and note_tokens(got) <= 1250 < note_tokens(line[: len(got) + 8])
+        assert calls <= 60, calls
+
+
 def test_clip_and_sentences_are_the_cascades_own() -> None:
     assert sentences("痛風発作。再診予定！\nUric acid 9.1? ok") == ["痛風発作。", "再診予定！", "Uric acid 9.1?", "ok"]
     assert cascade_engine.sentences is sentences  # type: ignore[attr-defined]  # one splitter
