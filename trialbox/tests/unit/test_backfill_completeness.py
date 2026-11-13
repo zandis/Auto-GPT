@@ -91,3 +91,45 @@ def test_the_first_load_counts_the_codes_no_look_up_knows(tmp_path: Path, db_url
     # a run started again (the spool is reused) says the same: the counts are kept with the spool
     again = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
     assert again.spool_reused and again.unmapped == rep.unmapped
+
+
+# ------------------------------------------------------------------------------------------- the review of NEW-B-13
+def test_a_held_load_goes_through_once_the_missing_table_is_supplied(tmp_path: Path, db_url: str) -> None:
+    """Review HIGH: the load was held for a missing table; the site puts the table into the folder and runs the
+    load again. The kept spool (same source, same mapping) said "missing" for ever: the source is read again."""
+    feed = _feed(tmp_path)
+    kept = tmp_path / "lab.csv.kept"
+    (feed / "lab.csv").rename(kept)
+    cfg = dataclasses.replace(_cfg(tmp_path, "lake"), first_night_all_tables=True)
+    rep = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
+    assert rep.state == "held" and any(e.startswith("lab: table missing") for e in rep.errors)
+    kept.rename(feed / "lab.csv")
+    rep = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
+    assert rep.state == "published" and not rep.spool_reused, rep.errors
+    comp = json.loads((snapshot_dir(cfg.lake_dir, SNAP) / COMPLETENESS).read_text(encoding="utf-8"))
+    assert comp["tables"]["lab"]["present"] is True and comp["reference"]["lab"] > 0
+
+
+def test_a_spool_of_an_older_version_is_read_again_not_published_without_the_gate(tmp_path: Path, db_url: str) -> None:
+    """Review MED: a load begun before this card kept a spool without table facts. Reusing it skipped the gate and
+    wrote no baseline, silently."""
+    feed = _feed(tmp_path)
+    cfg = _cfg(tmp_path, "lake")
+    assert backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False).state == "published"
+    marker = cfg.lake_dir / "backfill" / SNAP / "spool" / "done.json"
+    old = json.loads(marker.read_text(encoding="utf-8"))
+    for k in ("tables", "unmapped_codes"):
+        old.pop(k)
+    marker.write_text(json.dumps(old), encoding="utf-8")  # as the version before D-535 wrote it
+    (snapshot_dir(cfg.lake_dir, SNAP) / COMPLETENESS).unlink()
+    rep = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
+    assert rep.state == "published" and not rep.spool_reused
+    assert (snapshot_dir(cfg.lake_dir, SNAP) / COMPLETENESS).is_file()
+
+
+def test_a_required_table_is_asked_of_the_first_load_too(tmp_path: Path, db_url: str) -> None:
+    feed = _feed(tmp_path)
+    (feed / "claim.csv").unlink()
+    cfg = dataclasses.replace(_cfg(tmp_path, "lake"), required_tables=("claim",))
+    rep = backfill(cfg, "csv", str(feed), snapshot=SNAP, validate=False, rebuild_lake=False)
+    assert rep.state == "held" and any(e.startswith("claim: required table missing") for e in rep.errors), rep.errors

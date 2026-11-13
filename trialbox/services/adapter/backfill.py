@@ -306,7 +306,8 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 if bad:
                     tables[table]["rejected"] = {"rejected": sum(bad.values())}
             for table, by_lookup in mapper.unmapped_summary().items():  # NEW-DIN-6 (D-580), as the night
-                tables.setdefault(table, {})["unmapped"] = by_lookup
+                if table in tables:  # only a table that was read has an entry (its rows, its presence)
+                    tables[table]["unmapped"] = by_lookup
             unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
         if patients:
             held = {"Patient": [r for _, r in patients]}
@@ -477,25 +478,42 @@ def backfill(
     fp = _fingerprint(cfg, source_kind, source_path, snap)
     marker = spool / SPOOL_DONE
     done_spool = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
-    if done_spool and done_spool.get("fingerprint") == fp:
-        rep.spool_reused = True
-        facts = done_spool
-    else:
+
+    def read_source() -> dict[str, Any]:
         _progress(work, rep, "spool")
         shutil.rmtree(runs, ignore_errors=True)  # runs of another source are void
-        facts = {"fingerprint": fp, **_spool(cfg, source_kind, source_path, snap, spool, key)}
-        _atomic_json(marker, facts)
+        got = {"fingerprint": fp, **_spool(cfg, source_kind, source_path, snap, spool, key)}
+        _atomic_json(marker, got)
+        return got
+
+    def gate(got: dict[str, Any]) -> list[str]:
+        # D-535: the first load is a hospital's first night. The night's completeness gate is asked of its tables
+        # before a year is published (a required table missing or empty; with ``first_night_all_tables``, any
+        # table of the mapping that is not optional). A source without tables (a FHIR bulk export) is asked with
+        # none, as the night asks it
+        tables = {str(t): dict(v) for t, v in (got.get("tables") or {}).items()}
+        return completeness_check(cfg, tables, work / "none", None, full=True)[0]
+
+    # a spool is reused when it is of the same source, mapping and snapshot AND holds the table facts (a spool
+    # written before D-535 has none: the source is read again, or the gate and the baseline would be skipped)
+    if done_spool and done_spool.get("fingerprint") == fp and "tables" in done_spool:
+        rep.spool_reused = True
+        facts = done_spool
+        if gate(facts):
+            # the load was held for its tables and is run again: the site may have supplied what was missing (the
+            # fingerprint does not see a table added to the folder). Read the source again, once, before holding
+            log.warning("back-fill %s: the kept spool's tables are incomplete; the source is read again", snap)
+            rep.spool_reused = False
+            facts = read_source()
+    else:
+        if done_spool and done_spool.get("fingerprint") == fp:
+            log.warning("back-fill %s: the kept spool has no table facts (an older version's); read again", snap)
+        facts = read_source()
     rep.rejected = dict(facts.get("rejected") or {})
-    # D-535: the first load is a hospital's first night. The night's completeness gate is asked of its tables before
-    # a year is published (a required table missing or empty; with ``first_night_all_tables``, any table of the
-    # mapping that is not optional), and what it knows is kept as the snapshot's completeness record, so the next
-    # night has a baseline. A spool from before this card has no table facts: nothing is asked of it
-    tables = {str(t): dict(v) for t, v in (facts.get("tables") or {}).items()}
     codes = facts.get("unmapped_codes") or {}
     rep.unmapped = {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(codes.items())}
-    if tables:
-        rep.incomplete, _ = completeness_check(cfg, tables, work / "none", None, full=True)
-        rep.errors += rep.incomplete
+    rep.incomplete = gate(facts)
+    rep.errors += rep.incomplete
     for table, n in rep.unmapped.items():
         log.warning("%s: %d rows hold a value no look-up knows (%s)", table, n, UNMAPPED_CODES)
     for table, n_bad in sorted(rep.rejected.items()):
@@ -567,7 +585,7 @@ def _publish(
     # the records of this publish
     facts = _spool_facts(work)
     tables = {str(t): dict(v) for t, v in (facts.get("tables") or {}).items()}
-    if tables:
+    if "tables" in facts:  # always, since the load reads its source again for a spool without them
         _, completeness = completeness_check(cfg, tables, stage, None, full=True)
         completeness["first_load"] = {"years": years, "complete": final}
         _atomic_json(stage / COMPLETENESS, completeness)

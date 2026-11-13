@@ -35,8 +35,13 @@ a night, and wrote neither of the two records a night writes about them:
    counts only, by the mapper's own rule for what looks like a code), the rows per table in the load's report
    (`unmapped`) and a line in the log.
 4. **The facts are kept with the spool** (`spool/done.json`), so a load started again says the same without
-   reading the source again. A spool written before this card has none: nothing is asked of it and no record is
-   written (the load goes on as before).
+   reading the source again, with two exceptions where it **does** read the source again, once:
+   - the kept spool's tables do not pass the gate (the load was held for them and is run again: the site may have
+     put the missing table into the folder, which the spool's fingerprint does not see);
+   - the kept spool has no table facts (it was written by a version before this card): reusing it would skip the
+     gate and leave no baseline.
+5. **A source without tables** (a FHIR bulk export) is asked with none, as the night asks it: only
+   `required_tables` can hold it.
 
 ## Consequences
 
