@@ -49,6 +49,7 @@ COMPOSE = ROOT / "deploy" / "docker-compose.yml"
 _SIZE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)i?b?\s*$", re.IGNORECASE)
 _VAR = re.compile(r"^\$\{(\w+)(?::?-([^}]*))?\}$")
 STOP_GRACE_S = 30.0  # as `docker compose stop`'s default grace before SIGKILL (10 s) and then some
+STALL_POLL_S = 0.5  # how often a wait for a process looks whether the gate still makes progress (D-674)
 _CHAT = re.compile(r"\"path\": \"/v1/chat/completions\", \"status\": (\d+)")
 _UNIT = {"": 1, "k": 2**10, "m": 2**20, "g": 2**30, "t": 2**40}
 
@@ -136,22 +137,105 @@ def rss(pids: Sequence[int]) -> int:
     return total
 
 
+def cpu_ticks(pids: Sequence[int]) -> int:
+    """The processor time ``pids`` have used so far, in the kernel's clock ticks (user and system, summed)."""
+    total = 0
+    for p in pids:
+        try:
+            stat = Path(f"/proc/{p}/stat").read_text()
+            fields = stat[stat.rindex(")") + 2 :].split()
+            total += int(fields[11]) + int(fields[12])  # utime, stime
+        except (OSError, ValueError, IndexError):
+            continue
+    return total
+
+
+class Stalled(RuntimeError):
+    """A part of the gate made no progress for the stall limit (D-674): the gate ends here, with its report."""
+
+
+#: the samplers of the gate's live processes: progress anywhere among them is progress of the gate (a part that
+#: waits for the lake service is not stalled while the lake works)
+_LIVE: set[TreeSampler] = set()
+
+
+def quiet() -> tuple[float, str]:
+    """How long none of the gate's live processes has used processor time or written to its log, and what each
+    was last seen at. ``(0, "")`` when there is none."""
+    live = [t for t in list(_LIVE) if t.is_alive()]
+    if not live:
+        return 0.0, ""
+    return min(t.quiet_s() for t in live), "; ".join(t.seen() for t in live)
+
+
+def stall_check(part: str, stall_s: float, watched: str = "") -> None:
+    """Raise :class:`Stalled` when the gate's processes have been quiet for ``stall_s`` (0: never). ``watched``:
+    what the waiting loop last saw of the thing it waits for."""
+    if stall_s <= 0:
+        return
+    for_s, seen = quiet()
+    if for_s > stall_s:
+        raise Stalled(
+            f"{part}: no progress for {for_s:.0f} s (TB_SCALE_STALL_S={stall_s:g}): no processor time used and no "
+            f"log written by the gate's processes ({seen})" + (f"; last seen: {watched}" if watched else "")
+        )
+
+
 class TreeSampler(threading.Thread):
     """Samples the resident memory of a process tree; in ``measure`` mode it kills the tree at the cap, as the
-    kernel kills a container at its ``mem_limit``."""
+    kernel kills a container at its ``mem_limit``. D-674: it also notes when the tree last used processor time or
+    its log last grew, which is the gate's sign of progress."""
 
-    def __init__(self, pid: int, cap: int | None, kill_at_cap: bool, every_s: float = 0.2) -> None:
+    def __init__(
+        self,
+        pid: int,
+        cap: int | None,
+        kill_at_cap: bool,
+        every_s: float = 0.2,
+        name: str = "",
+        log: Path | None = None,
+    ) -> None:
         super().__init__(daemon=True)
         self.pid, self.cap, self.kill_at_cap, self.every_s = pid, cap, kill_at_cap, every_s
+        self.name_, self.log = name, log
         self.peak = 0
         self.killed = False
         self._halt = threading.Event()
+        self._ticks, self._bytes = -1, -1
+        self._changed = time.monotonic()
+        self.quiet_max_s = 0.0
+
+    def quiet_s(self) -> float:
+        return time.monotonic() - self._changed
+
+    def seen(self) -> str:
+        return f"{self.name_ or self.pid}: processor time {self._ticks} ticks, log {max(self._bytes, 0)} bytes"
+
+    def _progress(self, pids: Sequence[int]) -> None:
+        ticks = cpu_ticks(pids)
+        try:
+            size = self.log.stat().st_size if self.log is not None else 0
+        except OSError:
+            size = 0
+        if (ticks, size) != (self._ticks, self._bytes):
+            self._ticks, self._bytes = ticks, size
+            self._changed = time.monotonic()
+        else:
+            self.quiet_max_s = max(self.quiet_max_s, self.quiet_s())
 
     def run(self) -> None:
+        _LIVE.add(self)
+        try:
+            self._sample()
+        finally:
+            _LIVE.discard(self)
+
+    def _sample(self) -> None:
         while not self._halt.is_set():
             pids = tree(self.pid)
             now = rss(pids)
             self.peak = max(self.peak, now)
+            self._progress(pids)
             if self.kill_at_cap and self.cap is not None and now > self.cap:
                 self.killed = True
                 for p in reversed(pids):
@@ -178,6 +262,7 @@ class PhaseRun:
     peak: int = 0
     oom: bool = False
     tail: str = ""
+    quiet_max_s: float = 0.0  # D-674: the longest time it used no processor time and wrote no log
 
     @property
     def ok(self) -> bool:
@@ -215,6 +300,9 @@ class Enforcer:
     """Runs a command under a memory cap: ``cgroup`` (systemd-run, the kernel enforces) or ``measure``."""
 
     mode: str
+    #: D-674: a process that is run to its end is ended, and the gate with it, when nothing the gate started has
+    #: made progress for this long (0: never; the gate sets it from ``TB_SCALE_STALL_S``)
+    stall_s: float = 0.0
 
     @classmethod
     def detect(cls, require: str = "") -> Enforcer:
@@ -248,7 +336,7 @@ class Enforcer:
         proc = subprocess.Popen(
             self.argv(argv, cap), cwd=cwd, env=dict(env), stdout=fh, stderr=subprocess.STDOUT, start_new_session=True
         )
-        sampler = TreeSampler(proc.pid, cap, kill_at_cap=self.mode == "measure")
+        sampler = TreeSampler(proc.pid, cap, kill_at_cap=self.mode == "measure", name=name, log=log)
         sampler.start()
         try:
             yield proc, run
@@ -269,6 +357,7 @@ class Enforcer:
             fh.close()
             run.seconds = time.monotonic() - t0
             run.peak = sampler.peak
+            run.quiet_max_s = sampler.quiet_max_s
             rc = proc.returncode
             run.oom = sampler.killed or (not stopped and rc in (-signal.SIGKILL, 128 + signal.SIGKILL))
             run.rc = 0 if stopped else rc  # stopped by the gate: it lived to the end
@@ -279,7 +368,12 @@ class Enforcer:
     ) -> PhaseRun:
         """A process under the cap, to its end."""
         with self.start(name, service, cap, argv, env, cwd, log) as (proc, run):
-            proc.wait()
+            while True:
+                try:
+                    proc.wait(timeout=STALL_POLL_S if self.stall_s > 0 else None)
+                    break
+                except subprocess.TimeoutExpired:
+                    stall_check(name, self.stall_s)  # raises: the block's end stops the process and fills the run
             rc = proc.returncode
         run.rc = rc
         run.oom = run.oom or rc in (-signal.SIGKILL, 128 + signal.SIGKILL)

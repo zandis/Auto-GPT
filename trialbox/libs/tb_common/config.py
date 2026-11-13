@@ -780,6 +780,11 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_SCALE_OUTAGE_AFTER": Declared("int", "0", "scale gate: the call from which the stand-in answers 502 (T-687)"),
     "TB_SCALE_OUTAGE_S": Declared("float", "0", "scale gate: seconds of the stand-in's outage (T-687)"),
+    "TB_SCALE_STALL_S": Declared(
+        "float",
+        "600",
+        "scale gate: seconds without progress of any of its processes that end the gate (0: never; D-674)",
+    ),
     "TB_SCALE_PATIENTS": Declared("int", "300", "scale gate: synthetic patients (the nightly job: 50000; T-687)"),
     "TB_SCALE_PROFILE": Declared(
         "str", "thin", "scale gate: thin (the generator's hospital) or dense (about 500 records, 40 notes; T-687)"

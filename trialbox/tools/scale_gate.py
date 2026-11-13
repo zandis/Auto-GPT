@@ -56,12 +56,14 @@ from tb_testkit.scale import (  # noqa: E402
     Expected,
     PhaseRun,
     SlowModel,
+    Stalled,
     compose_caps,
     compose_setting,
     free_port,
     gate_ok,
     gib,
     markdown,
+    stall_check,
     verdict,
     wait_http,
 )
@@ -99,6 +101,15 @@ EXPECTED: dict[str, Expected] = {
 }
 
 
+#: D-674: the default of ``TB_SCALE_STALL_S``. Not a budget for a part's length: the longest time the gate goes on
+#: while NONE of its processes uses processor time or writes to its log. The longest quiet interval the gate has
+#: by design is the screen waiting through the model stand-in's outage and restart (the nightly job: 40 s and
+#: 30 s); ten minutes is an order above that, and a dead part then costs ten of the job's 340 minutes. No quiet
+#: interval was measured on a schedule before this card; the report now holds each process's longest one
+#: (``longest_quiet_s``), which is what a later default is chosen from.
+STALL_S = 600.0
+PUBLISH = "site publish and lake rebuild"
+
 #: the gate's report, in the order ``Report.write`` writes it
 REPORT_FILES = ("scale_gate.json", "scale_gate.md")
 
@@ -121,6 +132,7 @@ class Params:
     publish_poll_s: float = 5.0
     backup_quiesce: str = ""  # "" : the box's default (D-455: off); "pause": D-274's pause, to show the gate sees it
     publish_wait_s: float = 6 * 3600.0  # a guard for a hung lake; the CI job's own timeout is the real bound
+    stall_s: float = 600.0  # TB_SCALE_STALL_S (STALL_S): no progress for this long ends the gate (0: never)
     caps: dict[str, int] = field(default_factory=dict)
 
 
@@ -208,6 +220,7 @@ class Report:
                     "oom": r.oom,
                     "peak": r.peak,
                     "seconds": round(r.seconds, 1),
+                    "longest_quiet_s": round(r.quiet_max_s, 1),
                 }
                 for r in self.runs
             ],
@@ -346,6 +359,7 @@ def run(p: Params) -> Report:
         (p.out / name).unlink(missing_ok=True)
     p.caps = p.caps or compose_caps()
     enf = Enforcer.detect(p.enforce)
+    enf.stall_s = p.stall_s
     rep = Report(p, enf.mode)
     try:
         _parts(p, rep, enf)
@@ -353,6 +367,8 @@ def run(p: Params) -> Report:
         # D-674: the gate ended on an error of its own, or was cut where the cut raises here (a time limit's signal,
         # an interrupt). The processes it started are stopped by now and have their results: write once more
         rep.notes.append(f"the gate ended by {type(exc).__name__} in: {rep.unfinished or 'its last lines'}")
+        if isinstance(exc, Stalled):
+            rep.notes.append(str(exc))  # which part made no progress, for how long, and what was last seen
         with contextlib.suppress(Exception):
             rep.write()
         raise
@@ -488,7 +504,7 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
             ):
                 rep.check(cid, None, "the lake service did not start", blocked_by="rebuild")
             return
-        rep.progress("site publish and lake rebuild")
+        rep.progress(PUBLISH)
         built = _publish(p, rep, url, alive, token)
         lake_died = not alive()
         if lake_died:
@@ -657,6 +673,8 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
             first = time.monotonic() - t0
         if st.pub is not None or lake.started >= 2:
             break
+        # D-674: a publish that does not move while the lake does nothing ends the gate, not the job's own limit
+        stall_check(PUBLISH, p.stall_s, f"publish ticks {ticks[-3:]}, rebuilds started {lake.started}")
         time.sleep(p.publish_poll_s)
     took = time.monotonic() - t0
     snap_built = False
@@ -692,6 +710,7 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
                     return True
             except Exception:
                 pass
+            stall_check(PUBLISH, p.stall_s, f"waiting for the lake to serve {SNAPSHOT}; publish ticks {ticks[-3:]}")
             time.sleep(p.publish_poll_s)
         return False
     return True
@@ -969,6 +988,9 @@ def params_from_env(out: Path, patients: int | None = None, profile: str | None 
         return float(raw) if raw.strip() else default
 
     lt = e.get("TB_SCALE_LAKE_TIMEOUT_S", "").strip()
+    stall = f("TB_SCALE_STALL_S", STALL_S)
+    if stall < 0:
+        raise ValueError(f"TB_SCALE_STALL_S={stall:g}: give a number of seconds, or 0 for no stall cut")
     return Params(
         patients=patients or int(f("TB_SCALE_PATIENTS", 300)),
         out=out,
@@ -981,6 +1003,7 @@ def params_from_env(out: Path, patients: int | None = None, profile: str | None 
         restart_after=int(f("TB_SCALE_RESTART_AFTER", 0)),
         restart_gap_s=f("TB_SCALE_RESTART_GAP_S", 0.0),
         lake_timeout_s=float(lt) if lt else None,
+        stall_s=stall,
     )
 
 

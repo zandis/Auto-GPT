@@ -28,8 +28,8 @@ The 900 s was never meant for the gate. The job's own comment says the night is 
 ## Decision
 
 1. **The gate's test has its own limit, declared: `TB_SCALE_LIMIT_S`, empty by default, which is no limit.**
-   `tests/perf/test_scale_gate.py` carries `pytest.mark.timeout(sg.limit_s())`. What ends a hang is the nightly
-   job's `timeout-minutes` and the guards the gate's parts already have. A person who wants a bound on their own
+   `tests/perf/test_scale_gate.py` carries `pytest.mark.timeout(sg.limit_s())`. What ends a hang is the
+   no-progress cut below, the guards the gate's parts already have, and last the nightly job's `timeout-minutes`. A person who wants a bound on their own
    machine sets the variable.
 2. **No limit computed from the site's size.** The integrator's note asked for one "from the site's size and the
    adapter's own cap". The adapter's cap is a memory cap and says nothing about time. For a time limit from the
@@ -59,21 +59,47 @@ The 900 s was never meant for the gate. The job's own comment says the night is 
 7. The nightly workflow is not changed: it prints `scale_gate.md` into the job's summary and keeps it as an
    artifact, whatever the test's exit code.
 
+## A part that makes no progress ends the gate (the integrator's condition, the same day)
+
+"No limit" must not mean that a hung part burns the nightly job's 340 minutes: the owner pays for them. So the
+gate has a **no-progress cut, not a duration budget**:
+
+- **What is watched**: the processor time used by every process the gate has started that is still alive (each
+  process's whole tree: the lake's build child, the adapter's validator), and the size of each one's log. The
+  gate's sampler already visits those trees for their memory.
+- **The rule**: when none of them has used processor time or written to its log for `TB_SCALE_STALL_S`, the gate
+  ends: `Stalled`, naming the part, how long, what each process was last seen at, and what the waiting loop last
+  saw of the thing it waited for. The report is written once more (item 4).
+- **Where**: every process the gate runs to its end (`Enforcer.run`: generate, the ingests, the screen), and the
+  site publish's two waits, which are the loops that could wait six hours each.
+- **A slow night still runs to its end**: a part that works, however long, uses processor time. Progress
+  anywhere counts, so a screen that waits for the lake is not stalled while the lake works.
+- **The default is 600 s**, a declared setting. Its reason: the longest quiet interval the gate has by design is
+  the screen waiting through the model stand-in's outage and restart (the nightly job: 40 s and 30 s); ten
+  minutes is an order above that, and a dead part then costs ten of the 340 minutes. **No quiet interval was
+  measured on a schedule before this card**: tonight's run left no report, and its log does not show one. The
+  report now holds each process's longest quiet interval (`longest_quiet_s`), so the default can be set from
+  nights and not from design. 0 turns the cut off.
+- **What the watch does not see**: work done by a process the gate did not start. The test database server is
+  one: a part that waits on a long statement in it looks quiet. The gate's statements are short and the default
+  leaves room; said here so a false stall is recognised if one comes.
+
 ## What bounds the gate now, said plainly
 
 Before, the suite's 900 s bounded the whole fixture (and cut every night of this size). Now:
 
 - bounded by their own guards: the wait for a service to answer (120 s, 60 s), the stand-in's restart watcher,
   a service's stop, the backup's steps (a time from the data's size);
-- **bounded only by the nightly job's 340 minutes**: a child process that never ends (`generate`, the ingests,
-  the screen), and the site publish's two waits (`publish_wait_s`, 6 hours each, more than the job has);
+- **bounded by the no-progress cut**: a child process that hangs (`generate`, the ingests, the screen), and the
+  site publish's two waits;
+- **bounded only by the nightly job's 340 minutes**: a part that keeps using processor time for ever without
+  ending (a loop), and the backup's own steps beyond their size-derived times;
 - in each of those the last report names the part. One gap: while the lake service starts (up to 120 s) the
   report still names the part before it.
 - **Not verified:** what GitHub does when the job's own limit ends it. The line that prints the report into
   the summary is in the same step as the test and probably does not run then; whether the artifact step
-  (`if: always()`) still uploads the files after a job-level time-out was not checked. If it does not, a night
-  that hangs for 340 minutes leaves its report only on the runner. Changing that is the workflow's, which this
-  card does not touch.
+  (`if: always()`) still uploads the files after a job-level time-out was not checked. Changing that is the
+  workflow's, which this card does not touch.
 
 ## What this does not do
 
@@ -96,3 +122,7 @@ lake's result and peak and a note of what ended it; a failure of the gate's own 
 report is gone before anything can fail; a cut in the middle of a write leaves the report before it; a limit
 that is not a number is refused. **Interrupt:** the cut is an error that is no `Exception`, as a time limit's
 is; and the report as a kill would leave it is read inside the part, before the cut.
+`tests/unit/test_scale_gate_stall.py`: a process that does nothing is ended within its stall limit and named; one
+that works, and one that only writes its log, run to their end; no stall limit waits as before; the longest quiet
+interval is in the report; a site publish that stops moving ends the gate with its report in seconds, not its
+six-hour guard; the setting is declared, has its default, and a negative value is refused.
