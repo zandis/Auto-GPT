@@ -23,7 +23,8 @@ box's data) and over every text column of the trial database (``TB_DB_URL``, all
 and the pattern and shows the value masked, as the repository scan does. ``--write-baseline FILE`` after seeding the
 demo records what the synthetic seed itself holds; ``--baseline FILE`` after a session reports only what is new.
 Exit 0 clean, 2 on a hit. The columns of :data:`MUST_SCAN` (the free-text fields testers type into, such as the
-feedback comment of T-510) must be among those read: when one is missing the scan says so and exits 1.
+feedback comment of T-510) must be among those read: when one is missing the scan says so and exits 1. So does
+it when the database holds a store its role may not read (D-711): it names them; the box's admin role reads all.
 """
 
 from __future__ import annotations
@@ -260,14 +261,28 @@ def register(app: FastAPI, h: Helpers, read_flag: Callable[[], bool] = flag_on) 
 
 
 # ---------------------------------------------------------------------------------------------- the scan
-def _db_texts(url: str, seen: set[str] | None = None) -> Iterator[tuple[str, str]]:
-    """``(place, text)`` for every non-empty text, varchar and JSON value in every schema of the database. ``seen``
-    collects every column read, as ``schema.table.column`` without the ``tb_prefix``."""
+def _db_texts(url: str, seen: set[str] | None = None, unread: set[str] | None = None) -> Iterator[tuple[str, str]]:
+    """``(place, text)`` for every non-empty text, varchar and JSON value in every schema of the database that this
+    database role may read. ``seen`` collects every column read, as ``schema.table.column`` without the
+    ``tb_prefix``.
+
+    NEW-FR-2 (D-711): ``unread`` collects the stores (schemas, without the prefix) that hold a table this role may
+    not read. ``information_schema`` lists only what the role has a right on, so on a box with service roles a
+    scan as the console's role read the console's own stores and passed over the rest without a word."""
     import psycopg
     from tb_common.db import split_url
 
     dsn, prefix = split_url(url)
     with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
+        if unread is not None:  # the catalogue itself is readable by every role
+            rows = con.execute(
+                "SELECT DISTINCT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relkind IN ('r', 'p') AND n.nspname LIKE %s AND n.nspname NOT LIKE 'pg\\_%%' "
+                "AND n.nspname <> 'information_schema' AND NOT (has_schema_privilege(n.oid, 'USAGE') "
+                "AND has_table_privilege(c.oid, 'SELECT'))",
+                (prefix.replace("_", "\\_") + "%",),
+            ).fetchall()
+            unread.update(str(r[0])[len(prefix) :] for r in rows)
         cols = con.execute(
             "SELECT c.table_schema, c.table_name, c.column_name FROM information_schema.columns c "
             "JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
@@ -286,17 +301,20 @@ def _db_texts(url: str, seen: set[str] | None = None) -> Iterator[tuple[str, str
                     yield f"db:{schema}.{table}.{column}", str(value)
 
 
-def scan_stored(paths: list[Path], db_url: str | None = None, seen: set[str] | None = None) -> list[Any]:
+def scan_stored(
+    paths: list[Path], db_url: str | None = None, seen: set[str] | None = None, unread: set[str] | None = None
+) -> list[Any]:
     """The data-handling scan over stored demo input: the files under ``paths`` and, with ``db_url``, every text
-    value of the trial database. A database value is placed by its column and a short hash of the value. ``seen``
-    collects the database columns read (:data:`MUST_SCAN`)."""
+    value of the trial database that its role may read. A database value is placed by its column and a short hash
+    of the value. ``seen`` collects the database columns read (:data:`MUST_SCAN`); ``unread`` the stores the role
+    may not read (D-711)."""
     from tools import data_scan as ds
 
     patterns, allow = ds.load_patterns(), ds.load_allow()
     files = ds._expand(paths)
     hits = list(ds.run(files, ds.ROOT, patterns, allow, in_repo=False))
     if db_url:
-        for place, text in _db_texts(db_url, seen):
+        for place, text in _db_texts(db_url, seen, unread):
             tag = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
             hits += ds.scan_text(text, f"{place}#{tag}", patterns, allow)
     return sorted(set(hits))
@@ -318,7 +336,12 @@ def main(argv: list[str] | None = None) -> int:
         print("demo_guard scan: --db needs TB_DB_URL", file=sys.stderr)
         return 1
     seen: set[str] = set()
-    hits = [str(x) for x in scan_stored(a.paths, url, seen)]
+    unread: set[str] = set()
+    hits = [str(x) for x in scan_stored(a.paths, url, seen, unread)]
+    if unread:  # D-711: never "clean" for stores that were not read
+        print(f"demo_guard scan: not read, this database role may not: {', '.join(sorted(unread))}. "
+              "Run the scan with the box's admin role (trialbox) in TB_DB_URL.", file=sys.stderr)  # fmt: skip
+        return 1
     missing = [c for c in MUST_SCAN if c not in seen] if url else []
     if missing:
         print(f"demo_guard scan: not scanned: {', '.join(missing)} (has the console started on this database?)",

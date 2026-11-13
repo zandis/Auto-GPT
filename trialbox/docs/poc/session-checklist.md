@@ -20,6 +20,9 @@ the repository, an issue, a chat or this checklist.
       names the trial database; `--db` adds every text column of it to the data folders):
       `python -m console.demo_guard scan --db <data folders> --write-baseline <baseline file>`
       The baseline file stays on the host, outside the repository. Re-write it only after a reseed.
+      `TB_DB_URL` must carry the box's admin role (`trialbox`), which reads every store. With a service's own
+      role (the console's, inside its container) the scan reads that service's stores only: it names the stores it
+      could not read and exits 1, and writes no baseline (D-711).
 - [ ] Smoke test: the front door lets in only the testers' and the owner's addresses; `/login` answers over HTTPS;
       an upload is refused with "Not accepted in the demonstration".
 - [ ] The data-handling statement ([data-handling.en.md](data-handling.en.md) or its translation), the notice on the
@@ -48,7 +51,7 @@ the repository, an issue, a chat or this checklist.
 
 - [ ] Run the stored-input scan against the baseline:
       `python -m console.demo_guard scan --db <data folders> --baseline <baseline file>`
-      Exit 0 is clean. Exit 2 is a new hit (printed masked, with its place): treat it as real data entered (purge,
+      Exit 0 is clean. Exit 1 means something was not scanned (the message names it). Exit 2 is a new hit (printed masked, with its place): treat it as real data entered (purge,
       record without the content, tell the tester). Exit 1 means `TB_DB_URL` was not set, or a column
       the scan must read (the feedback comment, T-510) was not reached: fix and run again.
 - [ ] Export the in-product feedback (`/feedback/export.csv` as an admin, or `python -m console.feedback export`)

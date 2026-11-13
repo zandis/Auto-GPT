@@ -309,6 +309,21 @@ def csv_lines(rows: Iterator[Row], label: Any) -> Iterator[str]:
 
 
 # ------------------------------------------------------------------------------------------------ verify
+def _listable(target: Path) -> bool:
+    """Can this anchor folder be read: it is a folder, and its ``heads/`` (when there is one) can be listed.
+    NEW-FR-2 (D-711): a ``heads/`` the console may not list read as "no signed head yet", because a glob passes
+    over a folder it may not read. A folder with no ``heads/`` yet has no head and is reachable."""
+    try:
+        if not target.is_dir():
+            return False
+        heads = target / "heads"
+        if heads.exists():
+            next(iter(heads.iterdir()), None)
+        return True
+    except OSError:
+        return False
+
+
 def verify_now(directory: Path, targets: list[Path] | None = None) -> dict[str, Any]:
     """The existing verification (``tb_common.audit.verify``) with the signed heads of every off-box anchor folder,
     as ``tools/audit_verify.py --heads`` runs it; the trusted keys are the anchor folders' ``keys/`` (a note says
@@ -317,7 +332,7 @@ def verify_now(directory: Path, targets: list[Path] | None = None) -> dict[str, 
     anchors: list[dict[str, Any]] = []
     heads: list[dict[str, Any]] = []
     for t in targets:
-        if not t.is_dir():
+        if not _listable(t):
             anchors.append({"name": t.name or str(t), "reachable": False, "newest": None, "count": 0})
             continue
         got = tb_audit.read_signed_heads(t)
