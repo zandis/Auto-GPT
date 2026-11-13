@@ -231,8 +231,10 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
             request,
             "dataops.html",
             sess,
-            sources=[{**b.as_dict(), "light": light(b.state), "unmapped": sum(n for _, n in unmapped_of(b.detail))}
-                     for b in sources],  # fmt: skip
+            sources=[
+                {**b.as_dict(), "light": light(b.state), "unmapped": sum(n for _, n in unmapped_of(b.detail))}
+                for b in sources
+            ],
             waiting=waiting,
             rows=rows,
             counts=read(ops.counts),
