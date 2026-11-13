@@ -47,12 +47,32 @@ by the installer.
 6. **Test boxes.** A fixture that builds a PRODUCTION box on the synthetic studies approves them the site's way
    (`tests.rulesets_guard.approve_at_site`, used by `tests/orch_box.py`).
 
+7. **Synthetic stacks.** The integrator's ruling of 2026-11-13, no owner ruling needed:
+   - *The compose test and POC stacks* say they are TEST boxes: `deploy/docker-compose.test.yml` sets
+     `TB_ENV: "${TB_ENV:-TEST}"` for the criteria compiler and the orchestrator, as D-560 did for the embed
+     service (the console, the gateway and the mail gateway of that stack already said so). Unset was PRODUCTION,
+     where that stack would now hold no example study. This also turns off, for that stack's orchestrator, what
+     PRODUCTION turns on; those rules are held elsewhere: the canary gate by `tests/unit/test_canary_gate.py` and
+     `tests/unit/test_g1_review_2026_11_12.py`, the opt-out worker by `tests/unit/test_optout_worker.py` and the
+     journey step J-PRV-03, and a whole PRODUCTION orchestrator by the tests on `tests/orch_box.py`.
+   - *An installed PRODUCTION box that is to run a synthetic study* (the product-on-GPU run of plan section 7.1, a
+     rehearsal) gets it by an operator's act, the offline-update path of D-77, after the stack is up. The tag then
+     reads "(offline update, <by>)". For the example GZQO, from the host's `deploy/` folder:
+
+     ```
+     docker compose exec criteria-compiler sh -c 'cd /app/rulesets && python -m zipfile -c /tmp/GZQO.zip GZQO \
+       && python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by "synthetic-run:<who>"'
+     ```
+
+     It prints `{"installed": "GZQO/v1.0.0"}`. Tried here without Docker, as the two Python commands on an empty
+     folder under `TB_ENV=PRODUCTION`: the ruleset is listed, approved, and its tag names the operator. Never on a
+     box that holds real patients: the examples are synthetic sponsor trials.
+   - Not chosen: a switch that lets a PRODUCTION box keep the examples. It would re-open LIFE-001 on a real box.
+
 ## What this does not do
 
-- **The compose test and POC stacks** (`deploy/docker-compose.test.yml`, lane D) leave `TB_ENV` unset for the
-  criteria compiler and the orchestrator, which is PRODUCTION, while their console and gateway are TEST. With this
-  card those two services hold no example study. The stack needs `TB_ENV: TEST` for both (as D-560 did for the
-  embed service) or an import step; that is with the integrator and lane D, and was not run here.
+- The compose stack was not started here (no Docker daemon): CI's e2e and demo-boot jobs on the train are its proof.
+
 - The compiler's own "previous approved version" (`service.py` `_approved`, used by compile reuse and `diff`) and
   `omop/vocab_load.py` still read a seeded example's manifest status. Neither runs a study; reused criteria go back
   to draft for the PI.
@@ -65,8 +85,6 @@ by the installer.
   does not change D-77.
 - It does not check that the approver of a tagged version is an account of this box (the review's third proposal):
   that needs the account store, which is lane C's.
-- A site-box run on synthetic data that wants an example study (a GPU run, a rehearsal) gets it by `TB_ENV=TEST`,
-  by the console's approval journey, or by `criteria_compiler.import_ruleset`; it no longer finds one at start.
 
 ## Test
 

@@ -205,3 +205,13 @@ def test_the_fixture_of_a_production_box_approves_its_studies_the_sites_way(
     assert len(approve_at_site(tmp_path / "repo")) == len(SHIPPED) and approve_at_site(tmp_path / "repo") == []
     _env(monkeypatch, "PRODUCTION")
     assert [load_approved(tmp_path / "repo", rid).id for rid in SHIPPED] == SHIPPED
+
+
+def test_the_synthetic_compose_stack_says_it_is_a_test_box() -> None:
+    """Review of #412 (H2): the test overlay left TB_ENV unset for the compiler and the orchestrator, which is
+    PRODUCTION: with D-640 that stack would hold no example study. The services that seed or run rulesets say TEST."""
+    import yaml
+
+    overlay = yaml.safe_load((RULESETS.parent / "deploy" / "docker-compose.test.yml").read_text(encoding="utf-8"))
+    for name in ("criteria-compiler", "orchestrator"):
+        assert overlay["services"][name]["environment"]["TB_ENV"] == "${TB_ENV:-TEST}", name
