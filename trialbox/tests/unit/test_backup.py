@@ -709,3 +709,27 @@ def test_the_host_part_is_in_the_backup_and_restored_only_where_named(box: dict[
     where = tmp_path / "host-restored"
     out = bk.restore(f, box["priv"], env=_env(box), dirs={**box["dirs"], "host": where}, no_copy=True)  # type: ignore[dict-item,arg-type]
     assert (where / "deploy.env").read_text() == "TB_SITE_ID=CGMH\n" and out["host"].startswith("restored to")
+
+
+def test_a_backup_that_does_not_match_its_manifest_names_the_files(
+    box: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NEW-B-14: the nightly backup drill of 2026-11-12 failed with "1 changed, 0 unlisted" and nothing said which
+    file. The refusal names the files (paths inside the backup: never content), the first few and how many more."""
+    f = _backup(box, tmp_path)[0]
+    real = bk._sha_file
+
+    def one_differs(path: Path) -> str:
+        return "0" * 64 if path.name == "patient.parquet" else real(path)
+
+    monkeypatch.setattr(bk, "_sha_file", one_differs)
+    with pytest.raises(bk.BackupError) as got:
+        bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
+    text = str(got.value)
+    assert "1 changed, 0 unlisted" in text and "changed: dirs/lake/patient.parquet" in text
+    # many: the first NAMED of them, in order, and the count of the rest
+    monkeypatch.setattr(bk, "_sha_file", lambda path: "0" * 64)
+    with pytest.raises(bk.BackupError) as many:
+        bk.unpack(f, box["priv"], tmp_path / "y")  # type: ignore[arg-type]
+    listed = str(many.value).split("changed: ", 1)[1]
+    assert listed.count(",") <= bk.NAMED and ("more" in listed or listed.count(",") < bk.NAMED)

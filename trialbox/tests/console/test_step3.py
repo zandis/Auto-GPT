@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from orchestrator.study_api import router
 
+from tests.actor3 import SignedClient
 from tests.console.test_console_app import ADMIN_PW, box, login  # noqa: F401 - the fixture is used by name
 from tests.rc_kit import LINK_A, TOKEN_A, sim_edit, study_service
 
@@ -31,11 +32,13 @@ def b3(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
     with study_service(tmp_path / "orch") as (svc, sim, clock):
         api = FastAPI()
         api.include_router(router(lambda: svc))
-        oc = TestClient(api)
+        coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
         bk = box["backend"]
 
-        def study_api(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-            r = oc.request(method, path, json=body) if body is not None else oc.request(method, path)
+        def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                      headers: dict[str, str] | None = None) -> Any:  # fmt: skip
+            kw: dict[str, Any] = {"headers": headers} if headers else {}  # T-715: the signed person goes with the call
+            r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
             if r.status_code >= 400:
                 raise problem_of(r.status_code, r.text)
             return r.json()

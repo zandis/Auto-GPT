@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -13,9 +13,17 @@ from fastapi.testclient import TestClient
 from tb_common import service_auth as sa
 from tb_common.http import ServiceClient
 
+from tests.actor3 import log_pi, reveal_headers
 from tests.service_tokens import per_service_tokens, token_of
 
 TOKEN = token_of("console")
+
+
+def _reveal(client: TestClient, pid: str, sub: str = "console:crc1", role: str = "coordinator", **kw: Any) -> Any:
+    """``POST /jobs/J1/reveal`` (job J1 of study RS) as a signed person (T-716, D-484: a v3 assertion)."""
+    body = {"pid": pid}
+    headers = {sa.TOKEN_HEADER: TOKEN, **reveal_headers("RS", "J1", body, sub=sub, role=role, **kw)}
+    return client.post("/jobs/J1/reveal", json=body, headers=headers)
 
 
 @pytest.fixture
@@ -116,6 +124,7 @@ def _fake_box(events: list[dict[str, Any]]) -> SimpleNamespace:
     return SimpleNamespace(
         db=SimpleNamespace(get=lambda _id: job, url=None, take_limit=limits_store().take_limit),
         _now=lambda: datetime.now(UTC),
+        today=lambda: date(2026, 11, 12),  # the site's day, for the delegation log (T-716)
         cfg=SimpleNamespace(env=SimpleNamespace(secrets_dir="/nonexistent")),
         audit=SimpleNamespace(append=lambda kind, **kw: events.append({"kind": kind, **kw})),
         store=SimpleNamespace(get=lambda key: lists[key]),
@@ -136,16 +145,14 @@ def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
-    # D-447 (SEC-17): an assertion is accepted once, so each call signs again (``resign``), as the console does
-    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc1", role="coordinator", scope="*")}
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-99999999"}, headers=sa.resign(h))
+    # each call carries its own assertion (an assertion is accepted once, D-447)
+    r = _reveal(client, "PID-99999999")
     assert r.status_code == 403 and events[-1]["kind"] == "screen.reveal_refused"
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=sa.resign(h)).status_code == 200
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=sa.resign(h)).status_code == 200
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=sa.resign(h))
+    assert _reveal(client, "PID-00000001").status_code == 200
+    assert _reveal(client, "PID-00000002").status_code == 200
+    r = _reveal(client, "PID-00000001")
     assert r.status_code == 429 and events[-1]["detail"]["reason"] == "rate limit"
-    other = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc2", role="coordinator", scope="*")}
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=other).status_code == 200
+    assert _reveal(client, "PID-00000001", sub="console:crc2").status_code == 200  # the cap is per person
 
 
 def test_reveal_audits_the_header_actor_not_the_body(
@@ -160,13 +167,18 @@ def test_reveal_audits_the_header_actor_not_the_body(
     fake = _fake_box(events)
     monkeypatch.setattr(oapp, "orch", lambda: fake)
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
-    ok = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("山田 花子", role="investigator", scope="RS")}
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001", "by": "someone-else"}, headers=ok)
+    log_pi("山田花子", "RS")  # T-716: an investigator's own right is the delegation log's, read by the orchestrator
+    r = _reveal(client, "PID-00000001", sub="console:山田花子", role="investigator")
     assert r.status_code == 200 and r.json()["mrn"] == "MRN-1"
-    assert events[-1]["actor"] == "山田 花子"  # from the authenticated header, the body's "by" is ignored
-    # a token holder that names no user is refused, and nothing is revealed
+    assert events[-1]["actor"] == "console:山田花子"  # the verified person of the assertion
+    # a body that names somebody is another body than the signed one: refused
+    body = {"pid": "PID-00000001"}
+    signed = {sa.TOKEN_HEADER: TOKEN, **reveal_headers("RS", "J1", body, sub="console:山田花子", role="investigator")}
+    r = client.post("/jobs/J1/reveal", json={**body, "by": "someone-else"}, headers=signed)
+    assert r.status_code == 403 and r.json()["detail"]["reason"] == "body"
+    # a token holder that names no user is refused, and nothing more is revealed
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001", "by": "x"}, headers={sa.TOKEN_HEADER: TOKEN})
-    assert r.status_code == 400 and len(events) == 1
+    assert r.status_code == 403 and [e["kind"] for e in events] == ["screen.reveal", "actor.refused", "actor.refused"]
 
 
 def test_service_client_sends_the_token_to_every_trialbox_service(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,13 +220,14 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     unsigned = {sa.TOKEN_HEADER: TOKEN, sa.ACTOR_HEADER: "dr_tanaka"}
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=unsigned)
     assert r.status_code == 403 and events[-1]["kind"] == "actor.refused"
-    # D-447 (SEC-17): each call carries its own assertion (``resign``); the person and session stay the same
-    signed = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s1", role="investigator", scope="GZQO,RS")}
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=sa.resign(signed)).status_code == 200
+    log_pi("dr_tanaka", "RS")
+    as_dr: dict[str, Any] = {"sub": "console:dr_tanaka", "role": "investigator"}
+    assert _reveal(client, "PID-00000001", session="s1", **as_dr).status_code == 200
     assert events[-1]["detail"]["session"] == "s1" and events[-1]["detail"]["verified"] is True
     # a new session is the same person
-    again = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s2", role="investigator", scope="GZQO,RS")}
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=again).status_code == 429
+    assert _reveal(client, "PID-00000002", session="s2", **as_dr).status_code == 429
+    # the whole-list export is still the older assertion (a name, a session, a role, a study list)
+    signed = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s1", role="investigator", scope="GZQO,RS")}
     monkeypatch.setattr(oapp, "registry_of", lambda _o: SimpleNamespace(export_xlsx=lambda _rs, _site: b"PK-xlsx"))
     fake.cfg = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(id="S1")), env=fake.cfg.env)
     assert client.get("/registry/GZQO/export.xlsx", headers={sa.TOKEN_HEADER: TOKEN}).status_code == 400

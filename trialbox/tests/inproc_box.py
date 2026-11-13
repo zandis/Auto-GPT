@@ -35,11 +35,15 @@ from tb_common.llm import LlmClient
 from tb_common.objstore import FsStore
 from tb_common.subject import is_job_mail
 
-from tests.rulesets_guard import copy_rulesets
+from tests.rulesets_guard import approve_at_site, copy_rulesets
 from tests.unit.test_compiler_service import FakeGate, FakeTranslator
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTH = "mx.hospa.test; spf=pass smtp.mailfrom=hospa.test; dkim=pass header.d=hospa.test; dmarc=pass"
+
+
+#: who approved the example studies of a synthetic in-process box (D-640; the tag reads "... approved by <this>")
+SYNTHETIC_APPROVER = "synthetic-box@hospa.test"
 
 
 @dataclass
@@ -161,10 +165,16 @@ def make_box(
             shutil.copy2(f, seed / "profiles" / f.name)
     llm = LlmClient("http://stub/v1", "stub", audit=audit)
     llm.http = TestClient(stub)
+    repo = RulesetRepo(tmp_path / "repo", seed)
+    # D-640: a box that is not DEV or TEST runs no study on the approval seeding left. The demo tools run this
+    # synthetic box with no TB_ENV (PRODUCTION by the one rule), so the box says who approved its example studies:
+    # this builder, by name, on the tag, as a site's approval is written. Never a product path: a real box is not
+    # built here. A box reopened on its own folder keeps the tags it has.
+    approve_at_site(tmp_path / "repo", by=SYNTHETIC_APPROVER)
     comp = Compiler(
         CompilerDeps(
             store=store,
-            repo=RulesetRepo(tmp_path / "repo", seed),
+            repo=repo,
             llm=llm,
             term=Terminology(),
             settings_thresholds={"equivalence_min_pct": 98.0},

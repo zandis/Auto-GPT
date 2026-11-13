@@ -360,6 +360,7 @@ DECLARED_FAMILIES: dict[str, str] = {
 
 DECLARED: dict[str, Declared] = {
     "TB_ACTOR_KEYS_FILE": Declared("path", "", "file of keys that sign the console's user assertions (S-09)"),
+    "TB_ACTOR_SIGN_KEY_FILE": Declared("path", "", "the console's own key that signs people (T-717, D-485)"),
     "TB_ADAPTER_LAKE": Declared("str", "http", "adapter CLI: write to the lake over http or in process"),
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),
@@ -367,6 +368,9 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_HEAD_MAX_AGE_H": Declared("float", "36", "doctor: the newest signed audit head may be this old (D-562)"),
     "TB_AUDIT_HOST_DIR": Declared("path", "", "host path of the audit volume (logs archive-audit)"),
     "TB_AUDIT_MIN_FREE_MB": Declared("int", "64", "audit refuses to write below this free space"),
+    "TB_AUDIT_TS_MAX_SKEW_S": Declared(
+        "float", "300", "seconds an event's own time may differ from the journal's; a slow transaction (D-488)"
+    ),
     "TB_AUDIT_WRITER": Declared("str", "file", "db: send audit events to the journal (D-394); file: write the chain"),
     "TB_AUDIT_WRITER_ALIVE": Declared("path", "", "the audit drain's heartbeat file (default in the temp folder)"),
     "TB_AUTH_HOSTNAME": Declared("str", "", "compose: the identity provider's DNS name (network sheet, T-632)"),
@@ -414,7 +418,10 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
-    "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number pattern for the scrubber"),
+    "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
+    "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
+    "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
+    "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
@@ -474,6 +481,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_OPINIONS": Declared("str", "", "demo: recorded first and second checks"),
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
+    "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
     "TB_DEMO_WAIT_S": Declared("float", "900", "demo: seconds to wait for health"),
     "TB_DIRECTORY_URL": Declared("str", "", "platform check: directory URL"),
     "TB_DOCKER": Declared("str", "docker", "the docker command"),
@@ -593,6 +601,7 @@ DECLARED: dict[str, Declared] = {
     "TB_LINK_PORT": Declared("int", "", "two-device link: this device's port"),
     "TB_LINK_ROLE": Declared("str", "", "two-device link: this device's role"),
     "TB_LLM_API_KEY": Declared("str", "", "gateway: key of the model admin endpoints (secret)"),
+    "TB_LLM_STUB_NOTE_LANGS": Declared("str", "", "stub model: note languages it reads besides zh-TW (ja; demo only)"),
     "TB_LLM_API_KEY_FILE": Declared(
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
@@ -762,6 +771,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCALE_OUTAGE_AFTER": Declared("int", "0", "scale gate: the call from which the stand-in answers 502 (T-687)"),
     "TB_SCALE_OUTAGE_S": Declared("float", "0", "scale gate: seconds of the stand-in's outage (T-687)"),
     "TB_SCALE_PATIENTS": Declared("int", "300", "scale gate: synthetic patients (the nightly job: 50000; T-687)"),
+    "TB_SCALE_PROFILE": Declared(
+        "str", "thin", "scale gate: thin (the generator's hospital) or dense (about 500 records, 40 notes; T-687)"
+    ),
     "TB_SCALE_RESTART_AFTER": Declared("int", "0", "scale gate: the call after which the stand-in restarts (T-687)"),
     "TB_SCALE_RESTART_GAP_S": Declared("float", "0", "scale gate: seconds the stand-in is down at its restart (T-687)"),
     "TB_SCALE_VALIDATE": Declared("bool", "1", "scale gate: the HL7 validator in the night (T-687)"),
@@ -833,14 +845,23 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or hospital)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
+    "TB_TO_PID_MAX_PER_HOUR": Declared(
+        "int", "", "pseudonym lookups by chart number per signed name per hour (D-487); unset: TB_REVEAL_MAX_PER_HOUR"
+    ),
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),
+    "TB_WSL_DESKTOP_SHARE_PCT": Declared(
+        "int", "25", "Windows box: percent of memory and processors kept for the desktop; WSL2 gets the rest (D-601)"
+    ),
     "TB_UPDATE_BACKUP_CMD": Declared("str", "", "update: backup command"),
     "TB_UPDATE_CHECK_CMD": Declared("str", "", "update: health check command"),
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),
     "TB_UPDATE_INCOMING": Declared("str", "", "update: incoming bundle folder"),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
+    "TB_VALIDATION_SAMPLE_CAP": Declared(
+        "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"
+    ),
     "TB_VALIDATOR_IGS": Declared("str", "tw.gov.mohw.twcore#1.0.0", "FHIR validator: guides loaded"),
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),

@@ -31,7 +31,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from console import s28
+from console import actor, s28
 from console.api_first import before_body, page_twin
 from console.auth import Session
 from console.backend import Problem, Unavailable
@@ -42,6 +42,8 @@ from console.i18n import translate
 from console.screening_log import criteria_choices
 from console.studies import known_study
 from console.timefmt import local_today, site_zone
+
+ENTER = "study.setup"  # the matrix row of who records the participants (T-715, D-483: signed with every call)
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -125,8 +127,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         page this is the coordinator's (who records); an investigator, an administrator or a reader only reads."""
         if sess is not None and not can_enter(sess.user):
             return
+        path, body = f"/studies/{rid}/subjects/refresh", {"screening": screening(rid)}
         with contextlib.suppress(Problem, Unavailable):
-            s28.call(bk, "POST", f"/studies/{rid}/subjects/refresh", {"screening": screening(rid), "by": by})
+            if sess is not None:  # T-715 (D-483): the person signed; the notice timer as its own principal
+                actor.call(h, sess, ENTER, rid, "POST", path, body)
+            else:
+                s28.call(bk, "POST", path, body, headers=actor.assert_service(by, ENTER, rid, "POST", path, body))
 
     def get(path: str) -> Any:
         return s28.call(bk, "GET", path)
@@ -143,8 +149,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record_key(record)
         if not _REC.match(rec) or (on_day and not _DAY.match(on_day)):
             raise Problem(400, "LIFE-STEP", "bad record or day", ["day"], detail={"why": "day"})
-        body = {"to": to, "on_day": on_day, "reason": reason, "note": note[:300], "by": h.actor(sess),
-                "today": today().isoformat()}  # fmt: skip
+        body = {"to": to, "on_day": on_day, "reason": reason, "note": note[:300], "today": today().isoformat()}
         # D-387 (LIFE-016): "not eligible" names the criterion not met, from the latest list's approved criteria;
         # the criteria version is the list's, never typed
         criterion = criterion.strip()
@@ -158,7 +163,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                               detail={"why": "criterion"})  # fmt: skip
             if criterion:
                 body.update({"criterion": criterion, "criteria_version": version})
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/subjects/{quote(rec)}/step", body))
+        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/subjects/{quote(rec)}/step", body))
         au.append("console.life_step", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "to": to, **({"criterion": criterion} if criterion else {})})  # fmt: skip
         return out
@@ -167,22 +172,22 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
         rec = record_key(record)
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/subjects/{quote(rec)}/undo", {"by": h.actor(sess)}))
+        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/subjects/{quote(rec)}/undo", {}))
         au.append("console.life_step", ruleset=rid, actor=h.actor(sess), detail={"record": rec, "to": "undo"})
         return out
 
     def apply_schedule(sess: Session, path: str, rs: str, visits: list[dict[str, Any]]) -> dict[str, Any]:
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
-        out = dict(s28.call(bk, "PUT", f"/studies/{rid}/schedule", {"visits": visits, "by": h.actor(sess)}))
+        out = dict(actor.call(h, sess, ENTER, rid, "PUT", f"/studies/{rid}/schedule", {"visits": visits}))
         au.append("console.life_schedule", ruleset=rid, actor=h.actor(sess), detail={"visits": len(visits)})
         return out
 
     def apply_schedule_redcap(sess: Session, path: str, rs: str, token_ref: str) -> dict[str, Any]:
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/schedule/redcap", {"token_ref": token_ref,
-                                                                             "by": h.actor(sess)}))  # fmt: skip
+        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/schedule/redcap",
+                              {"token_ref": token_ref}))  # fmt: skip
         au.append("console.life_schedule", ruleset=rid, actor=h.actor(sess), detail={"origin": "redcap"})
         return out
 
@@ -190,7 +195,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if fmt not in ("csv", "xlsx"):
             raise h.problem(404, "notfound")
-        out = s28.call(bk, "GET", f"/studies/{rid}/report/{fmt}?by={quote(h.actor(sess))}")
+        out = actor.call(h, sess, "phi.view", rid, "GET", f"/studies/{rid}/report/{fmt}")
         data = base64.b64decode(out["b64"]) if "b64" in out else str(out.get("text") or "").encode("utf-8")
         au.append("console.export", ruleset=rid, actor=h.actor(sess), detail={"filename": str(out["name"])})
         return str(out["name"]), str(out["media_type"]), data
@@ -244,7 +249,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def life_mail(rid: str, day: date) -> dict[str, Any]:
         """N1/N2 (D-134): the study's visits on ``day`` and its serious AEs, by pseudonym (the mail adds the screening
         number beside it, D-136; never a chart number in mail)."""
-        refresh(rid, "console:notify")
+        refresh(rid, actor.NOTIFY)
         if h.sae_sync is not None:
             h.sae_sync(rid)  # D-277: the daily job writes what reached the data core another way (REDCap, the API)
         v = visits_of(rid, day)
@@ -280,7 +285,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec, ev = record_key(record[:64]), event.strip().lower()
         if not _REC.match(rec) or not re.fullmatch(r"ae\d{1,3}", ev):
             raise h.problem(404, "notfound")
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {"by": h.actor(sess)}))
+        out = dict(actor.call(h, sess, "sae.ack", rid, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {}))
         au.append("console.sae_ack", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "event": ev, "at": out.get("ack_at")})  # fmt: skip
         if h.sae_sync is not None:
@@ -481,8 +486,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not _REC.match(rec):
             raise h.problem(404, "notfound")
         body = {"record": rec, "key": key[:80], "decision": decision, "reason": reason.strip()[:300],
-                "by": h.actor(sess), "today": today().isoformat(), "icf": icf_in_force(rid)}  # fmt: skip
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/deviations/possible", body))
+                "today": today().isoformat(), "icf": icf_in_force(rid)}  # fmt: skip
+        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/deviations/possible", body))
         au.append("console.deviation_call", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "key": key[:80], "decision": decision,
                           "event": str((out.get("row") or {}).get("event") or "")})  # fmt: skip

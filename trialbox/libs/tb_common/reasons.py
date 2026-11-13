@@ -28,6 +28,8 @@ class Reason(StrEnum):
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
     DISAGREE = "disagree"  # the two models gave different answers
     LOW_CONFIDENCE = "low_confidence"  # the answer was below the minimum confidence
+    SINGLE_MODEL = "single_model"  # one model's "not met" with no second model that agreed: a person looks (D-478)
+    NOT_FINAL = "not_final"  # a "not met" given while a note answer was not allowed to exclude (D-476, D-478)
     MODEL_DOWN = "model_down"  # a model did not answer (outage, timeout, out of schema)
     REFUSED = "refused"  # the gateway refused the call (policy)
     HUMAN = "human"  # a person decides this criterion
@@ -142,6 +144,16 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "not certain enough: please look",
         "ja": "確度が低い：確認してください",
         "zh-TW": "把握度不足：請查看",
+    },
+    "single_model": {
+        "en": "one check only, no second check agreed: please look",
+        "ja": "確認は1回のみ（二次確認の一致なし）：確認してください",
+        "zh-TW": "僅一次確認（無第二次確認一致）：請查看",
+    },
+    "not_final": {
+        "en": "the second check was not in force on that run: please look",
+        "ja": "その回は二次確認が有効ではありませんでした：確認してください",
+        "zh-TW": "該次執行未啟用第二次確認：請查看",
     },
     "model_down": {"en": "not checked (system busy)", "ja": "未確認（システム混雑）", "zh-TW": "未確認（系統忙碌）"},
     "refused": {

@@ -51,6 +51,8 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     # S20: both drafts were approved by the investigator on one page; the trial's new exclusion was amber
     assert res["versions"] == {"GOUT-COH": "1.1.0", "GZQO": "1.1.0"}
     assert "GZQO-EXC-15" in res["approvals"]["GZQO"]["amber"]
+    # DEMO-JA: the investigator's label is the shipped rulesets' own words, never a "<id> label" placeholder
+    assert "GZQO-EXC-15 label" not in res["patient_html"] and "30日以内の他の介入研究参加" in res["patient_html"]
     assert res["approvals"]["GOUT-COH"]["amber"] == ["GOUT-COH-INC-01"]
     assert all(v["feas_state"] == "done" for v in res["approvals"].values())
     html = res["approvals"]["GOUT-COH"]["html"]

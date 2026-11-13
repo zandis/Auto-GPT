@@ -1,4 +1,4 @@
-"""The limits lint (T-687, D-471; OD-10 of TB-PLAN-06.1): every fixed time limit over 60 s and every fixed row count in
+"""The limits lint (T-687, D-471, D-534; OD-10 of TB-PLAN-06.1): every fixed time limit and every fixed row count in
 ``services/`` is listed, with a reason, in ``tools/limits_allow.yaml``.
 
 OD-10: every time limit, memory cap and count in the product is derived from the hardware, the model's measured speed
@@ -11,7 +11,8 @@ rebuild, the newest 500 jobs of the box as "this study's latest".
 What counts (Python's own parser, so comments and docstrings never count):
 
 * ``timeout``: a ``timeout=<number>`` keyword, a parameter named ``timeout`` (or ``*_timeout``) whose default is a
-  number, or ``Timeout(<number>, ...)``, when the number is over :data:`TIMEOUT_FLOOR_S` seconds;
+  number, or ``Timeout(<number>, ...)``, whatever the number (D-534: until then only above 60 s, so a 45 s limit
+  around a model call was never listed);
 * ``limit``: a ``limit=<integer>`` keyword or a parameter named ``limit`` with an integer default, and ``LIMIT <n>`` in
   a string (SQL), whatever the number.
 
@@ -38,7 +39,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOW = ROOT / "tools" / "limits_allow.yaml"
-TIMEOUT_FLOOR_S = 60  # the card's line: a wait of a minute or less is a call, not work that grows with the hospital
 _SQL_LIMIT = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
 _SQL_HINT = re.compile(r"\b(SELECT|FROM|WHERE|ORDER BY)\b", re.IGNORECASE)
 # a reason names a finding, a card, a decision, or says why the count is not a cut
@@ -89,7 +89,7 @@ def scan_source(text: str, path: str) -> Iterator[Literal]:
     docs = _docstrings(tree)
 
     def timeout(node: ast.AST, v: float | None) -> Iterator[Literal]:
-        if v is not None and v > TIMEOUT_FLOOR_S:
+        if v is not None and v > 0:  # 0 or less is "do not wait", not a limit
             yield Literal(path, getattr(node, "lineno", 0), "timeout", _fmt(v))
 
     def limit(node: ast.AST, v: float | None) -> Iterator[Literal]:

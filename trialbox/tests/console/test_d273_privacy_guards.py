@@ -136,7 +136,7 @@ def test_the_job_reveal_follows_the_delegation_log(box: dict[str, Any]) -> None:
     form["csrf"] = _csrf(pi.get("/home").text)
     r = pi.post(f"/pilot/jobs/{jid}/reveal", data=form)
     assert r.status_code == 200 and "MRN-000123" in r.text
-    assert box["backend"].signed == [("reveal", "investigator", "*")]
+    assert box["backend"].signed == [("reveal", "investigator", "GZQO")]  # T-716: the one study, not a list
     ev = _events(box, "console.reveal_patient")
     assert len(ev) == 1 and ev[0]["detail"]["via"] == "job" and ev[0]["detail"]["reason"] == "contact"
 
@@ -158,7 +158,7 @@ def test_the_opt_out_door_gives_no_pseudonym_back_and_caps_chart_lookups(
 ) -> None:
     def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
         if path == "/setup/pseudonym":
-            return {"pid": B}
+            return {"pid": B, "known": True}  # NEW-DIN-3 (D-544): a patient of this box
         raise Unavailable("no study store in this test")
 
     monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)

@@ -45,6 +45,7 @@ import csv
 import hashlib
 import hmac
 import json
+import math
 import re
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -56,6 +57,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
+from tb_common import dates as tb_dates
 from tb_common import labvalue
 from tb_common.crypto import pid_for_mrn
 
@@ -85,6 +87,102 @@ LATEST_YEARS_AHEAD = 10
 _COMPACT_FORMS = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
 _DIGIT_RUN_RE = re.compile(r"\d+")
 _FRACTION_RE = re.compile(r"\.\d+")
+# NEW-DIN-1 (D-589): the calendars a site may declare for a date column (``tables.<t>.dates: {col: roc}``)
+CALENDARS = ("western", "roc", "era")
+DATE_TYPES = ("date", "datetime", "instant")
+_NOT_CALENDAR = "\x00not-a-date-of:"  # what ``normalize`` leaves for the date readers to refuse, with the value
+_CLOCK = r"(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
+# Digits only: YYYMMDD, alone or with hhmm or hhmmss. A two-digit year (YYMMDD, 6, 10 or 12 digits) is not read:
+# the same digits are a western date (260512, 201208151000), and a declared column must never read one as ROC
+_ROC_COMPACT_LENGTHS = (7, 11, 13)
+# written with separators: the year has three digits (049/03/12), or fewer only when 民國 stands before it
+_ROC_WRITTEN = re.compile(
+    rf"(?:(?:民國|民国|中華民國)\s*(\d{{1,3}})|(\d{{3}}))\s*[年./\-]\s*(\d{{1,2}})\s*[月./\-]\s*(\d{{1,2}})\s*日?{_CLOCK}"
+)
+_MIDNIGHT = re.compile(r"[ T]00:00(?::00(?:\.0+)?)?$")
+_ERA_WRITTEN = re.compile(rf"(.*?){_CLOCK}")
+# a western date-time with a time of day, the seconds' fraction allowed (DIN-014)
+_WESTERN_CLOCK = re.compile(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}) +(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?")
+
+
+def _clock(h: str | None, mi: str | None, sec: str | None) -> str | None:
+    """`` hh:mm:ss`` of a time the clock has, "" for no time, None for one it does not have (24:00, a minute 60)."""
+    if h is None or mi is None:
+        return ""
+    hh, mm, ss = int(h), int(mi), int(sec or 0)
+    return f" {hh:02d}:{mm:02d}:{ss:02d}" if hh < 24 and mm < 60 and ss < 60 else None
+
+
+def to_western(raw: str, calendar: str) -> str | None:
+    """A date (or date and time) written in ``calendar`` as ``YYYY-MM-DD[ hh:mm:ss]``; None when ``raw`` is not a
+    date of that calendar (D-589). Nothing is guessed: a western date in a ``roc`` column is None."""
+    text = raw.strip()
+    day: date | None = None
+    clock: str | None = ""
+    if calendar == "roc":
+        if text.isascii() and text.isdigit():
+            if len(text) not in _ROC_COMPACT_LENGTHS:
+                return None
+            d, t = text[:7], text[7:]
+            if int(d[:-4]) < 1:
+                return None
+            day = tb_dates.minguo_date(int(d[:-4]), int(d[-4:-2]), int(d[-2:]))
+            clock = _clock(t[:2], t[2:4], t[4:6] or None) if t else ""
+        elif (m := _ROC_WRITTEN.fullmatch(text)) and int(m.group(1) or m.group(2)) >= 1:
+            day = tb_dates.minguo_date(int(m.group(1) or m.group(2)), int(m.group(3)), int(m.group(4)))
+            clock = _clock(m.group(5), m.group(6), m.group(7))
+    elif calendar == "era":
+        m = _ERA_WRITTEN.fullmatch(text)
+        cell = tb_dates.CELL_ERA.match(m.group(1).strip()) if m else None
+        if m and cell:
+            got, inside = tb_dates.era_date(cell.group(1), cell.group(2), int(cell.group(3)), int(cell.group(4)))
+            day = got if inside else None
+            clock = _clock(m.group(2), m.group(3), m.group(4))
+    if day is None or clock is None:
+        return None
+    return day.isoformat() + clock
+
+
+def declared_and_unread(value: Any) -> tuple[str, str] | None:
+    """``(calendar, the value as fed)`` when ``normalize`` could not read ``value`` in its declared calendar. A
+    source value that only imitates the marker names no calendar of ours and is an ordinary value."""
+    if isinstance(value, str) and value.startswith(_NOT_CALENDAR):
+        calendar, _, raw = value[len(_NOT_CALENDAR) :].partition("\x00")
+        if calendar in CALENDARS:
+            return calendar, raw
+    return None
+
+
+def _refuse_declared(raw: Any) -> None:
+    """``normalize`` could not read a value in its column's declared calendar: the row is refused here, where
+    every refused row is counted."""
+    unread = declared_and_unread(raw)
+    if unread:
+        raise MappingError(f"not a {unread[0]} calendar date {unread[1]!r}")
+
+
+def _date_columns(resources: list[ResourceSpec], table: str) -> frozenset[str]:
+    """The canonical columns the resources of ``table`` read as a date (an element's ``type``, a period's ends, a
+    date bound of a condition)."""
+    out: set[str] = set()
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            if x.get("type") in DATE_TYPES or x.get("builder") == "period" or "add_minutes" in x:
+                out.update(x[k] for k in ("column", "start", "end") if isinstance(x.get(k), str))
+            if ("date_before" in x or "date_from" in x) and isinstance(x.get("column"), str):
+                out.add(x["column"])
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+
+    for r in resources:
+        if r.table == table:
+            walk(r.elements)
+            walk(r.where)
+    return frozenset(out)
 
 
 class MappingError(ValueError):
@@ -186,8 +284,57 @@ class Mapping:
     unit_defaults: dict[str, str] = field(default_factory=dict)
     # NEW-STD-1 (D-586): what a site states once and conditions read as ``{param: name}`` (``icd9cm_before``)
     params: dict[str, str] = field(default_factory=dict)
+    # NEW-DIN-9 (D-590): the site's own unit spellings, each the UCUM code it stands for (``萬/μL: 10*4/uL``)
+    unit_spellings: dict[str, str] = field(default_factory=dict)
+    # NEW-DIN-1 (D-589): per table, the date columns, the calendar a site declared for some; the placeholder dates
+    date_columns: dict[str, frozenset[str]] = field(default_factory=dict)
+    calendars: dict[str, dict[str, str]] = field(default_factory=dict)
+    empty_dates: frozenset[str] = frozenset()
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
+
+    @staticmethod
+    def _plausible_of(lk: dict[str, Any]) -> tuple[float, float] | None:
+        """A look-up row's own ``plausible_low`` / ``plausible_high``: both or neither, two finite numbers, low not
+        over high. Anything else is a ``MappingError``."""
+        low, high = (lk.get("plausible_low") or "").strip(), (lk.get("plausible_high") or "").strip()
+        if not low and not high:
+            return None
+        try:
+            span = float(low), float(high)
+        except ValueError:
+            span = float("nan"), float("nan")
+        if not (math.isfinite(span[0]) and math.isfinite(span[1]) and span[0] <= span[1]):
+            raise MappingError(
+                f"the plausible range of {lk.get('local_code')!r} needs two numbers, low then high "
+                "(plausible_low, plausible_high)"
+            )
+        return span
+
+    @staticmethod
+    def _unit_spellings(path: Path, doc: Any) -> dict[str, str]:
+        """``unit_spellings: {<as the source writes it>: <UCUM code>}``. The code must be one the shared unit table
+        knows, and a spelling the table already reads must not be given another meaning: the mapping does not
+        load. The rule "a value only when both units are one UCUM code" (D-215) stands; the site adds spellings."""
+        if doc is None:
+            return {}
+        if not isinstance(doc, dict):
+            raise MappingError(f"{path}: unit_spellings is a map of a unit as the source writes it to its UCUM code")
+        out: dict[str, str] = {}
+        for spelling, code in doc.items():
+            key, known = labvalue.written(spelling), labvalue.ucum(code)
+            if not key or known is None:
+                raise MappingError(f"{path}: unit_spellings {spelling!r}: {code!r} is not a UCUM code the box knows")
+            if labvalue.ucum(spelling) not in (None, known):
+                raise MappingError(f"{path}: unit_spellings {spelling!r} already means {labvalue.ucum(spelling)}")
+            if out.get(key, known) != known:  # two spellings that fold to one cannot mean two units
+                raise MappingError(f"{path}: unit_spellings {spelling!r} is declared twice, as {out[key]} and {known}")
+            out[key] = known
+        return out
+
+    def unit_as_code(self, unit: Any) -> Any:
+        """The UCUM code of a site spelling (``unit_spellings``), else the unit as it came."""
+        return self.unit_spellings.get(labvalue.written(unit), unit) if self.unit_spellings else unit
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any]:
@@ -215,6 +362,8 @@ class Mapping:
             merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
             merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
             merged["params"] = {**(base.get("params") or {}), **(doc.get("params") or {})}
+            if isinstance(base.get("unit_spellings"), dict) and isinstance(doc.get("unit_spellings") or {}, dict):
+                merged["unit_spellings"] = {**base["unit_spellings"], **(doc.get("unit_spellings") or {})}  # D-590
             merged["lookups"] = {**(base.get("lookups") or {}), **(doc.get("lookups") or {})}
             lookup_dirs = {
                 **{n: base_path.parent for n in (base.get("lookups") or {})},
@@ -249,7 +398,49 @@ class Mapping:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
+        for name, lk in lookups.items():  # D-590: a range stated badly is found now, not row by row at night
+            for row in lk.rows.values():
+                try:
+                    cls._plausible_of(row)
+                except MappingError as exc:
+                    raise MappingError(f"{path}: look-up {name}: {exc}") from exc
+                # D-596: a factor of 0 turns every result of its analyte into 0, a wrong result, not a missing one
+                text = str(row.get("factor") or "1").strip()
+                try:
+                    # as a float too: 1e-400 is above zero as written and 0.0 in every result; 1e400 is infinite
+                    good = Decimal(text).is_finite() and math.isfinite(float(text)) and float(text) > 0
+                except (ArithmeticError, ValueError):
+                    good = False
+                if not good:
+                    code = row.get(lk.key)
+                    raise MappingError(
+                        f"{path}: look-up {name}, row {code!r}: the factor {text!r} must be a number above 0"
+                    )
+        date_columns = {t: _date_columns(resources, t) for t in (doc.get("tables") or {})}
+        calendars: dict[str, dict[str, str]] = {}
+        for word in ("dates", "date", "calendars"):  # a declaration in the wrong place would be ignored without a word
+            if word in doc:
+                raise MappingError(f"{path}: {word} belongs on a table (tables.<table>.dates), not at the top")
+        for t, tspec in (doc.get("tables") or {}).items():
+            for word in ("date", "calendars", "calendar", "empty_dates"):
+                if word in (tspec or {}):
+                    raise MappingError(f"{path}: {t}.{word}: a table declares `dates`; `empty_dates` is at the top")
+            if not isinstance((tspec or {}).get("dates") or {}, dict):
+                raise MappingError(f"{path}: {t}.dates is a map of date column to calendar ({', '.join(CALENDARS)})")
+            for col, cal in ((tspec or {}).get("dates") or {}).items():
+                if cal not in CALENDARS:
+                    raise MappingError(f"{path}: {t}.dates.{col}: the calendar is one of {', '.join(CALENDARS)}")
+                if col not in date_columns[t]:
+                    raise MappingError(f"{path}: {t}.dates.{col}: not a date column of a resource of {t}")
+                calendars.setdefault(t, {})[str(col)] = str(cal)
+        empty = doc.get("empty_dates", [])
+        if not isinstance(empty, list) or not all(isinstance(x, str) and x.strip() for x in empty):
+            raise MappingError(f"{path}: empty_dates is a list of placeholder dates as the source writes them")
         return cls(
+            unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
+            date_columns=date_columns,
+            calendars=calendars,
+            empty_dates=frozenset(x.strip() for x in empty),
             name=doc.get("name", path.stem),
             tz=_zone(path, doc.get("tz")),
             systems=doc.get("systems") or {},
@@ -310,6 +501,18 @@ class Mapping:
                 out[col] = table_codes[str(v)]
             elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
                 out[col] = table_codes[str(v).strip()]
+        calendars = self.calendars.get(table) or {}
+        if calendars or self.empty_dates:  # D-589: a declared placeholder is empty; a declared calendar made western
+            for col in self.date_columns.get(table, ()):
+                text = "" if out.get(col) is None else str(out[col]).strip()
+                if not text:
+                    continue
+                if text in self.empty_dates or _MIDNIGHT.sub("", text) in self.empty_dates:
+                    out[col] = ""  # the placeholder, also when a date-time column adds its midnight
+                elif calendars.get(col, "western") != "western":
+                    western = to_western(text, calendars[col])
+                    # not raised here: the row is refused where refused rows are counted (the date readers)
+                    out[col] = western if western is not None else f"{_NOT_CALENDAR}{calendars[col]}\x00{text}"
         return out
 
     def source_column(self, table: str, canonical: str | None) -> str | None:
@@ -349,10 +552,25 @@ def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
     walk(r.elements)
 
 
+# D-593: an all-numeric ICD-9-CM code, with its dot (three places, then one or two) or without (three to five)
+_ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
+
+
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
-    def __init__(self, mapping: Mapping, site_key: bytes, site_id: str, ingest_time: str | None = None) -> None:
+    def __init__(
+        self,
+        mapping: Mapping,
+        site_key: bytes,
+        site_id: str,
+        ingest_time: str | None = None,
+        concept_map: Callable[[str, str], list[dict[str, Any]] | None] | None = None,
+    ) -> None:
+        # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
+        # back-fill pass the box's own; without it ``mapped_coding`` maps nothing
+        self.concept_map = concept_map
+        self._mapped: dict[tuple[str, str, str], str | None] = {}  # (from, to, code) → the one code, asked once
         self.m = mapping
         self.key = site_key
         self.site_id = site_id
@@ -361,6 +579,7 @@ class Mapper:
             "lab_value": self._b_lab_value,
             "coding": self._b_coding,
             "period": self._b_period,
+            "mapped_coding": self._b_mapped_coding,
         }
         # NEW-DIN-6 (D-580): rows a resource's ``where`` dropped because the look-up has no row for their code,
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
@@ -372,6 +591,7 @@ class Mapper:
         """A source date-time. One that states its offset keeps it (the same instant, the same offset: T-616,
         STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``. A value that is
         not a western calendar date-time is refused on every form (DIN-001)."""
+        _refuse_declared(raw)
         try:
             return self._read_dt(raw)
         except DateRangeError:
@@ -394,6 +614,14 @@ class Mapper:
             except ValueError:
                 continue
             return self._western(got, raw).replace(tzinfo=self.m.tz)
+        timed = _WESTERN_CLOCK.fullmatch(text)
+        if timed:  # DIN-014: a fraction of a second keeps the time; 24:00 or a minute 60 is no time (it was midnight)
+            clock = _clock(timed.group(2), timed.group(3), timed.group(4))
+            if clock is None:
+                raise ValueError(f"no such time of day in {raw!r}")
+            at = self._western(datetime.strptime(timed.group(1).replace("/", "-"), "%Y-%m-%d"), raw)
+            hh, mm, ss = (int(x) for x in clock.split(":"))
+            return at.replace(hour=hh, minute=mm, second=ss, tzinfo=self.m.tz)
         d = self._parse_date(raw)
         return datetime(d.year, d.month, d.day, tzinfo=self.m.tz)
 
@@ -433,6 +661,7 @@ class Mapper:
         compact form on a Republic-of-China date (`1150501`) or a two-digit year (`640715`) used to give the year
         1150 or 6407 and the night passed. The compact form needs 8 digits (or the 12 or 14 of a date-time), and a
         year outside ``EARLIEST_YEAR`` to ``LATEST_YEARS_AHEAD`` years from now is not a patient's date."""
+        _refuse_declared(raw)
         text = raw.strip()
         compact = cls._compact(text.replace("T", " "), raw)
         if compact is not None:
@@ -626,6 +855,21 @@ class Mapper:
         return True
 
     # ------------------------------------------------------------------ builders
+    @staticmethod
+    def _plausible(lk: dict[str, Any]) -> tuple[float, float] | None:
+        """The range a unit-less value of this look-up row may have, in the unit the look-up writes: the row's own
+        ``plausible_low`` / ``plausible_high`` (the site's data), else the built-in one for its LOINC code."""
+        own = Mapping._plausible_of(lk)
+        if own is not None:
+            return own
+        loinc = lk.get("code") if lk.get("system") == "loinc" else None
+        return labvalue.plausible_range(loinc, lk.get("ucum"))
+
+    def _lab_code(self, lk: dict[str, Any], row: Row, args: dict[str, Any]) -> str:
+        """The look-up's own spelling of the lab code (one count per analyte, not per spelling of its code)."""
+        key = self.m.lookups[args["lookup"]].key
+        return str(lk.get(key) or row.get(args["key"]) or "").strip()
+
     def _b_lab_value(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
         """``value[x]`` from a lab result using the lookup's ucum/factor/value_type/answers columns. With
         ``unit_column`` the row's own unit is checked against the unit the lookup says the source reports (its
@@ -642,8 +886,9 @@ class Mapper:
                 raise MappingError(f"{rs.type} from {rs.table}: unit_column {column!r} is not a column of the source")
             source_unit = lk.get("source_unit") or (lk.get("ucum") if Decimal(lk.get("factor") or "1") == 1 else None)
             loinc = lk.get("code") if lk.get("system") == "loinc" else None  # NEW-STD-4: IU/L as U/L for enzymes
-            checked = labvalue.read(raw, row[column], source_unit, loinc)
+            checked = labvalue.read(raw, self.m.unit_as_code(row[column]), source_unit, loinc)
             if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
+                self._note_unmapped(rs.table, "unit_mismatch", self._lab_code(lk, row, args))  # D-590
                 return {
                     "dataAbsentReason": {
                         "coding": [{"system": DATA_ABSENT, "code": "error"}],
@@ -684,10 +929,29 @@ class Mapper:
                 return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
+        # D-596: the arithmetic comes before the plausibility check, so a number the mapping cannot compute (thirty
+        # digits) has one outcome with and without a unit: the ``ArithmeticError`` that makes it a rejected row
+        # (D-527). Without a unit it used to be called implausible and kept
+        number: float | int = float(val) if val % 1 else int(val)
+        # D-590 (DIN-017): a value that came with no unit is read in the look-up's unit (D-149) only when it can be
+        # a value in that unit: else it stays text (unknown to the engines) and is counted
+        column = args.get("unit_column")
+        if not (column and str(row.get(column) or "").strip()):
+            span = self._plausible(lk)
+            if span is not None and not span[0] <= float(val) <= span[1]:
+                self._note_unmapped(rs.table, "no_unit_implausible", self._lab_code(lk, row, args))
+                # no value[x], as for a unit mismatch: a text value would be read back as a number by the lake
+                return {
+                    "dataAbsentReason": {
+                        "coding": [{"system": DATA_ABSENT, "code": "error"}],
+                        "text": labvalue.NO_UNIT_IMPLAUSIBLE,
+                    },
+                    "note": [{"text": str(raw).strip()}],
+                }
         # NEW-STD-4 (D-585): the unit is stored as its UCUM code, never as the spelling the look-up was typed in
         # (``×10^3/μL``): the engines read the code, not the spellings of the feed
         unit = labvalue.ucum(lk.get("ucum")) or lk.get("ucum") or ""
-        q: dict[str, Any] = {"value": float(val) if val % 1 else int(val), "unit": unit}
+        q: dict[str, Any] = {"value": number, "unit": unit}
         if comparator:
             q["comparator"] = comparator
         if unit:
@@ -703,6 +967,48 @@ class Mapper:
         if "display_column" in args and row.get(args["display_column"]):
             coding["display"] = str(row[args["display_column"]])
         return coding
+
+    def _b_mapped_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
+        """D-593: the coding of a column's code in another system (``from`` → ``to``, names of ``systems``), only
+        when the reference data's map has exactly one row for the code into that system and the row says the two
+        are the same (``equivalent`` / ``equal``). An approximate entry, alternatives, a combination or no entry
+        give nothing, and the row is counted (``map:<from>-><to>``, the value as fed): never a guess.
+
+        ``dotted: icd9``: only an all-numeric ICD-9-CM code is looked up, with its dot (``7140`` is ``714.0``). A
+        code that starts with a letter is never looked up: ``E03.0`` and ``V12.5`` are codes of both editions, and
+        a site that wrote ICD-10-CM in its ICD-9-CM years would get another disease's code.
+
+        A map that could not be asked (``None``) is not "no entry": nothing is mapped, the row is counted under
+        ``…:unavailable`` and the next row asks again. Without a ``concept_map`` nothing is mapped or counted."""
+        raw = row.get(args["column"])
+        if self.concept_map is None or raw is None or not str(raw).strip():
+            return None
+        fed = str(raw).strip().upper()
+        name = f"map:{args['from']}->{args['to']}"
+        code: str | None = fed
+        if args.get("dotted") == "icd9":
+            m = _ICD9_NUMERIC.fullmatch(fed)
+            code = None if m is None else (m.group(1) + (f".{m.group(2)}" if m.group(2) else "") if m.group(1)
+                                           else f"{m.group(3)[:3]}.{m.group(3)[3:]}")  # fmt: skip
+        if code is None:
+            self._note_unmapped(rs.table, name, fed)
+            return None
+        key = (str(args["from"]), str(args["to"]), code)
+        if key not in self._mapped:
+            target = self.m.systems[args["to"]]
+            asked = self.concept_map(self.m.systems[args["from"]], code)
+            if asked is None:
+                self._note_unmapped(rs.table, f"{name}:unavailable", fed)
+                return None
+            rows = [t for t in asked if t.get("target_system") == target]
+            same = len(rows) == 1 and rows[0].get("relation") in ("equivalent", "equal") and rows[0].get("target_code")
+            self._mapped[key] = str(rows[0]["target_code"]) if same else None
+        hit = self._mapped[key]
+        if hit is None:
+            self._note_unmapped(rs.table, name, fed)  # as fed, so the count's own filter sees what it was
+            return None
+        # userSelected false: not the code the hospital recorded, the one the map says it is
+        return {"system": self.m.systems[args["to"]], "code": hit, "userSelected": False}
 
     def _b_period(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
         typ = args.get("type", "date")
@@ -779,6 +1085,8 @@ class Mapper:
                     continue
 
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
+        for v in row.values():  # D-589: an unread date of a declared calendar refuses the row, whoever reads it
+            _refuse_declared(v)
         if rs.where and not self.cond(rs.where, row):
             self._count_unmapped(rs, row)
             return None

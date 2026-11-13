@@ -48,6 +48,12 @@ closed). Checks:
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
   ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
+* ``chartno_rule`` (D-621): every service of the box that can make a pseudonym is started with one chart-number
+  rule (``TB_CHARTNO_RULE``, read from the rendered compose files and from the running containers), and it is the
+  rule the pid map recorded (D-595). FAIL when a service differs, a rule cannot be read, or the rule is not the pid
+  map's: an opt-out registered by such a service would be filed under a pseudonym the feed never produces. Where
+  the running containers or the pid map were not read (no docker, no database from here) the line says NOT CHECKED
+  and is a WARN on a box that may hold real data; ``deploy/check_host.sh`` hands both in to the doctor's container;
 * ``key_custody`` (T-210b, CR-041, D-347): the site keys are wrapped under the KEK (``tb_common.kek``). FAIL when a key
   is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
   folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
@@ -61,6 +67,14 @@ closed). Checks:
   another role), from the box's compose files rendered with the box's values (``COMPOSE_FILE``;
   ``tools/trialbox/db_secrets.py``) and from the environment of the containers that run now. FAIL in VALIDATION and
   PRODUCTION, WARN in DEV and TEST; not judged without ``--env-file``. No password is printed.
+
+* ``wsl2_memory`` (NEW-WIN-3, D-601): on a WSL2 kernel, the sum of the memory caps of the services that run (the
+  box's ``COMPOSE_FILE`` read as compose reads it: a later file overrides, a service behind a profile counts only
+  when ``COMPOSE_PROFILES`` names it, each ``${TB_MEM_*:-default}`` from ``--env-file``; the model servers at their
+  caps, since no serving record carries their measured host memory yet) against the memory WSL2 was given
+  (``.wslconfig``, read as ``MemTotal``). FAIL when the caps do not fit (the kernel would kill a service at night),
+  when a compose file is missing or a cap is not a size; WARN when a service has no cap or no ``--env-file`` was
+  given; PASS on a plain Linux host.
 
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
@@ -102,6 +116,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import sys
 import tempfile
 import urllib.error
@@ -141,6 +156,7 @@ class DoctorInputs:
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
     timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
+    proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -750,6 +766,30 @@ def check_flags(inp: DoctorInputs) -> Check:
     return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
 
 
+def check_restore_hold(inp: DoctorInputs) -> Check:
+    """NEW-B-3 (D-522): a restore that was not complete holds the box's list jobs until a person releases the hold
+    (the flag ``screening.after_restore``). A held box makes no patient list, which an operator must know: WARN,
+    with the reason the restore gave (counts and times)."""
+    url = inp.env.get("TB_DB_URL", "")
+    if not url:
+        return Check("restore_hold", "PASS", "no trial database configured here (TB_DB_URL): the hold was not read")
+    try:
+        from tb_common.flags import Flags
+
+        flags = Flags(url=url)
+        if flags.row("screening.after_restore") != "held":
+            return Check("restore_hold", "PASS", "no restore is waiting for its events to be re-applied")
+        why = next((str(e.get("reason") or "") for e in flags.events("screening.after_restore", limit=1)), "")
+    except Exception as e:  # the flag lives on the box: unreadable from here is worth a look, not a failure
+        return Check("restore_hold", "WARN", f"cannot read the hold after a restore ({type(e).__name__})")
+    return Check(
+        "restore_hold",
+        "WARN",
+        f"the box's list jobs are held after a restore ({why}): re-apply the events the restore listed, then set "
+        "screening.after_restore to released on /ops/flags with the reason (RUNBOOK §5)",
+    )
+
+
 def check_site_key(inp: DoctorInputs) -> Check:
     """T-612 (DATA-004): the site key is in the secrets folder and is the key the box's data was made with (the
     fingerprint in ``<lake>/site_key.json`` and in the pid map's ``site_key`` table). Shows the fingerprint, never
@@ -1052,6 +1092,106 @@ def check_memory_caps(inp: DoctorInputs) -> Check:
     return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
 
 
+_MEM_SIZE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([kmg]?)b?$", re.IGNORECASE)
+_MEM_VAR = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}$")
+
+
+def _mem_gib(raw: str) -> float:
+    """A compose memory size in GiB: plain bytes, or a number with k, m or g (an optional b; any case)."""
+    m = _MEM_SIZE.match(raw.strip())
+    if not m:
+        raise ValueError(raw)
+    return float(m.group(1)) * {"": 1.0, "k": 1024.0, "m": 1024.0**2, "g": 1024.0**3}[m.group(2).lower()] / 1024.0**3
+
+
+_COMPOSE_TAG = re.compile(r"(?<=[\s:\[,])!(?:reset|override)\b")  # compose's own YAML tags: the value below is plain
+
+
+def _service_caps(files: list[Path], env: Mapping[str, str]) -> tuple[dict[str, float], list[str], list[str]]:
+    """(the memory cap in GiB of each service that runs, the services with no cap, problems) over the compose files,
+    read as compose reads them: a later file's service overrides the same key of an earlier one, a service behind a
+    profile counts only when ``COMPOSE_PROFILES`` names it, a ``${VAR:-default}`` takes the box's value."""
+    merged: dict[str, dict[str, Any]] = {}
+    for f in files:
+        doc = yaml.safe_load(_COMPOSE_TAG.sub("", f.read_text(encoding="utf-8"))) or {}
+        for svc, body in (doc.get("services") or {}).items():
+            if isinstance(body, dict):
+                merged.setdefault(svc, {}).update(body)
+    active = {p.strip() for p in (env.get("COMPOSE_PROFILES") or "").split(",") if p.strip()}
+    caps: dict[str, float] = {}
+    uncapped: list[str] = []
+    problems: list[str] = []
+    for svc, body in sorted(merged.items()):
+        profiles = body.get("profiles") or []
+        if profiles and not active.intersection(profiles):
+            continue
+        limits = ((body.get("deploy") or {}).get("resources") or {}).get("limits") or {}
+        raw = body.get("mem_limit", limits.get("memory"))
+        if raw is None:
+            uncapped.append(svc)
+            continue
+        text = str(raw).strip()
+        var = _MEM_VAR.match(text)
+        if var:
+            text = (env.get(var.group(1)) or "").strip() or (var.group(2) or "").strip()
+        try:
+            caps[svc] = _mem_gib(text)
+        except ValueError:
+            problems.append(f"{svc}: '{raw}' is not a memory size" + (f" ({var.group(1)}={text!r})" if var else ""))
+    return caps, uncapped, problems
+
+
+def check_wsl2_memory(inp: DoctorInputs) -> Check:
+    """NEW-WIN-3 (D-601): under WSL2 the compose memory caps must fit the memory ``.wslconfig`` gave WSL2."""
+    from tb_common.config import DECLARED
+
+    name = "wsl2_memory"
+    try:
+        kernel = (inp.proc / "sys/kernel/osrelease").read_text(encoding="utf-8").strip().lower()
+    except OSError:
+        kernel = ""
+    if "microsoft" not in kernel or "wsl2" not in kernel:
+        return Check(name, "PASS", "not WSL2: the machine's whole memory is the box's")
+    if inp.deploy is None:
+        return Check(name, "WARN", "WSL2: the memory caps were not judged: give --env-file <deploy/.env>")
+    total = 0.0
+    try:
+        for line in (inp.proc / "meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                total = int(line.split()[1]) / 1048576
+    except (OSError, ValueError, IndexError):
+        total = 0.0
+    if total <= 0:
+        return Check(name, "FAIL", f"WSL2's memory could not be read from {inp.proc}/meminfo")
+    entries = [e for e in (inp.env.get("COMPOSE_FILE") or "docker-compose.yml").split(":") if e]
+    files = [_compose_file(inp.deploy, e) for e in entries]
+    missing = [str(f) for f in files if not f.is_file()]
+    if missing:  # never a pass on a part of the box: a file that cannot be read may hold the largest cap
+        return Check(name, "FAIL", f"compose file(s) not readable, the caps were not summed: {', '.join(missing)}")
+    try:
+        caps, uncapped, problems = _service_caps(files, inp.env)
+    except yaml.YAMLError as exc:
+        return Check(name, "FAIL", f"a compose file does not parse, the caps were not summed: {exc}")
+    if problems:
+        return Check(name, "FAIL", "; ".join(problems))
+    need = sum(caps.values())
+    said = (
+        f"the memory caps of the {len(caps)} services that run sum to {need:.1f} GiB (the model servers at their caps)"
+    )
+    if uncapped:
+        said += f"; no cap on {', '.join(uncapped)}"
+    if need > total:
+        share = DECLARED["TB_WSL_DESKTOP_SHARE_PCT"].default
+        top = ", ".join(f"{k} {v:.1f}" for k, v in sorted(caps.items(), key=lambda kv: -kv[1])[:3])
+        return Check(name, "FAIL", f"{said}; WSL2 has {total:.1f} GiB (.wslconfig): a service would be killed. "
+                     f"Largest: {top}. Start the Windows installer again (it sets .wslconfig from the hardware; the "
+                     f"desktop's share is {share} percent unless the installer was given another, "
+                     "TB_WSL_DESKTOP_SHARE_PCT), then restart Windows")  # fmt: skip
+    if uncapped:
+        return Check(name, "WARN", f"{said}; WSL2 has {total:.1f} GiB")
+    return Check(name, "PASS", f"{said}; WSL2 has {total:.1f} GiB")
+
+
 def _compose_file(deploy: Path, entry: str) -> Path:
     """One entry of ``COMPOSE_FILE`` as this process can read it. ``install.sh`` writes the host's absolute paths
     (``$ROOT/deploy/...``); the doctor may run in the box's image, where the same folder is mounted elsewhere
@@ -1109,6 +1249,148 @@ def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, 
     return Check(name, "PASS", f"{len(roles)} service roles, each container its own password only; {seen}")
 
 
+def _pid_map_rule(url: str, site_id: str) -> tuple[bool, str | None]:
+    """(the pid map has a row for the site, the chart-number rule it recorded) (``adapter.pidmap``, D-595)."""
+    from tb_common.db import Database
+
+    with Database.connect(url, "pidmap") as db:
+        row = db.fetchone("SELECT chartno_rule FROM site_key WHERE site_id = ?", (site_id,))
+    return (row is not None, str(row[0]) if row is not None and row[0] is not None else None)
+
+
+def _handed_in_containers(inp: DoctorInputs) -> Mapping[str, Any] | None:
+    """The running containers' environment as the host check hands it in (``TB_DOCTOR_RUNNING_INSPECT=stdin``:
+    ``docker inspect`` of the project's containers on standard input; a pipe, because it holds passwords). The
+    doctor's own container has no docker and no network (``deploy/check_host.sh``)."""
+    from tools.trialbox import db_secrets as ds
+
+    if inp.env.get("TB_DOCTOR_RUNNING_INSPECT") != "stdin":
+        return None
+    text = sys.stdin.read()
+
+    def run(argv: list[str]) -> str:
+        return "handed-in" if argv[:2] == ["docker", "ps"] else text
+
+    return ds.running_config("handed-in", run=run)
+
+
+def check_chartno_rule(
+    inp: DoctorInputs,
+    running: Callable[[str], Mapping[str, Any] | None] | None = None,
+    pid_map_rule: Callable[[str, str], tuple[bool, str | None]] = _pid_map_rule,
+) -> Check:
+    """D-621: one chart-number rule in every service of the box, and it is the pid map's.
+
+    The adapter refuses a night under another rule than the one it recorded (D-595). The other makers of
+    pseudonyms (the orchestrator's set-up and opt-out desk, candidates, the data core API) use their own process's
+    ``TB_CHARTNO_RULE`` and ask nobody. Read here: the box's compose files rendered with the box's values (as
+    ``db_passwords`` reads them), the environment of the containers that run now, and the pid map's record. A
+    service is one of ours when it is started with ``TB_SITE_ID``; no rule and ``asis`` are the same rule.
+
+    The rendered files alone cannot differ between services (one env file), so what finds a real difference is
+    the running containers and the pid map. Where they were not read the line says so, and on a box that may hold
+    real data it is a WARN, never a PASS. The host check hands both in to a doctor that runs in a container
+    (``TB_DOCTOR_RUNNING_INSPECT``, ``TB_DOCTOR_PIDMAP_ROW``)."""
+    from tb_common import chartno
+    from tb_common.config import environment_name
+
+    from tools.trialbox import db_secrets as ds
+
+    name = "chartno_rule"
+    strict = environment_name(inp.env) in ("VALIDATION", "PRODUCTION")
+    if inp.deploy is None and inp.compose_config is None:
+        return Check(name, "FAIL" if strict else "WARN",
+                     "the services' chart-number rule was not judged: give --env-file <deploy/.env>")  # fmt: skip
+    deploy = inp.deploy or ROOT / "deploy"
+    config = inp.compose_config
+    if config is None:
+        listed = [f for f in inp.env.get("COMPOSE_FILE", "").split(":") if f]
+        files = [_compose_file(deploy, f) for f in listed] or [deploy / "docker-compose.yml"]
+        gone = [str(f) for f in files if not f.exists()]
+        if gone:
+            return Check(name, "FAIL", f"compose file(s) not found: {', '.join(gone)} (COMPOSE_FILE in deploy/.env)")
+        config = ds.render(files, inp.env, project_dir=deploy)
+
+    def rules(cfg: Mapping[str, Any], label: str) -> tuple[dict[str, str], list[str]]:
+        got: dict[str, str] = {}
+        bad: list[str] = []
+        for svc, body in sorted((cfg.get("services") or {}).items()):
+            env = (body or {}).get("environment") or {}
+            if isinstance(env, list):
+                env = dict(str(item).partition("=")[::2] for item in env)
+            if "TB_SITE_ID" not in env:
+                continue  # not one of ours (the database, the FHIR store, the TLS front)
+            try:
+                got[f"{label}{svc}"] = str(chartno.parse_rule(str(env.get("TB_CHARTNO_RULE") or "")))
+            except ValueError as exc:
+                bad.append(f"{label}{svc}: {exc}")
+        return got, bad
+
+    seen, bad = rules(config, "")
+    counted = len(seen) + len(bad)
+    notes: list[str] = []  # what was not read: never part of a PASS on a box that may hold real data
+    if running is not None:
+        live = running(inp.env.get("COMPOSE_PROJECT_NAME", "trialbox"))
+    else:
+        live = _handed_in_containers(inp) or ds.running_config(inp.env.get("COMPOSE_PROJECT_NAME", "trialbox"))
+    if live is not None:
+        more, worse = rules(live, "running: ")
+        seen.update(more)
+        bad += worse
+        ran = f"{len(more) + len(worse)} running container(s) of ours read"
+    else:
+        ran = "the running containers were not read"
+        notes.append(ran)
+    if not counted:
+        return Check(name, "FAIL" if strict else "WARN",
+                     "no service of the box was judged (none is started with TB_SITE_ID): the chart-number rule "
+                     "of the services is not known")  # fmt: skip
+    stored: str | None = None
+    has_row = False
+    asked = False
+    site_id = str((inp.settings.get("site") or {}).get("id") or inp.env.get("TB_SITE_ID") or "")
+    handed = inp.env.get("TB_DOCTOR_PIDMAP_ROW", "").strip()
+    url = inp.env.get("TB_DB_URL", "")
+    try:
+        if handed:  # the host check asked the box's database: "none", or "<fingerprint>|<rule>"
+            asked = True
+            if handed != "none":
+                has_row = True
+                raw = handed.partition("|")[2].strip()
+                stored = str(chartno.parse_rule(raw)) if raw else None
+        elif url and site_id:
+            has_row, raw_rule = pid_map_rule(url, site_id)
+            asked = True
+            stored = str(chartno.parse_rule(raw_rule)) if raw_rule is not None else None
+        else:
+            notes.append("the pid map was not asked (no TB_DB_URL or no site id here)")
+    except Exception as e:  # the pid map lives on the box: unreadable from here is said, never passed over
+        asked = False
+        notes.append(f"the pid map's record cannot be read ({type(e).__name__})")
+    distinct = sorted(set(seen.values()))
+    meaning = "an opt-out or a set-up sheet filed by such a service gets a pseudonym the feed never produces"
+    if len(distinct) > 1:
+        by_rule = "; ".join(f"{r}: {', '.join(k for k, v in seen.items() if v == r)}" for r in distinct)
+        bad.append(f"the services run under {len(distinct)} chart-number rules ({by_rule})")
+    if stored is not None and distinct != [stored]:
+        bad.append(f"the pid map was built with {stored}, the services run under {', '.join(distinct)}")
+    if bad:
+        fix = "TB_CHARTNO_RULE is set in deploy/.env only; start every container again (deploy/install.sh)"
+        return Check(name, "FAIL", f"{'; '.join(bad)}: {meaning}. {fix}")
+    rule = distinct[0]
+    said = f"{rule} in {counted} services; {ran}"
+    if asked and has_row and stored is None:
+        why = "the adapter has not adopted one (D-595), so the rule the patients were loaded under is not known"
+        return Check(name, "WARN", f"{said}; the pid map holds the site's key and no rule: {why}")
+    if asked:
+        said += (
+            "; the same as the pid map" if stored is not None else "; no night has recorded a rule in the pid map yet"
+        )
+    if notes:
+        return Check(name, "WARN" if strict else "PASS", f"{said}; NOT CHECKED: {'; '.join(notes)}")
+    return Check(name, "PASS", said)
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -1124,7 +1406,9 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_registry_pins,
     check_site_tz,
     check_flags,
+    check_restore_hold,
     check_site_key,
+    check_chartno_rule,
     check_backup,
     check_key_custody,
     check_clock,
@@ -1132,6 +1416,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_audit_heads,
     check_memory_caps,
     check_db_passwords,
+    check_wsl2_memory,
 )
 
 

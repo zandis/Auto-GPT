@@ -60,7 +60,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -614,6 +614,11 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             why = "lake snapshot being built"  # D-462: the build file and the Parquet stage, swapped in when done
         elif name == "lake" and parts[:2] == ("db", ".open"):
             why = "lake reader links (the same files as db/)"  # D-462: hard links, taken once as db/<snapshot>.duckdb
+        elif name == "lake" and parts[:2] == ("db", "gen") and not rel.endswith(".json"):
+            # T-724 (D-490): each date's newest generation is its own file db/<snapshot>.duckdb, taken once; an older
+            # generation is only a running job's. The generations' records (names, numbers and hashes; no patient
+            # data) are kept: a restored date gets the name its bytes had, and a number is never given twice
+            why = "lake generations (the newest is db/<snapshot>.duckdb)"
         elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
                 and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip
             why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
@@ -999,6 +1004,17 @@ def backup(
 
 
 # ------------------------------------------------------------------------------------------------ verify / restore
+NAMED = 10  # how many file names a refusal lists before "and N more": a line a person reads, not a limit of work
+
+
+def _named(what: str, names: Iterable[str]) -> str:
+    listed = sorted(names)
+    if not listed:
+        return ""
+    more = f" and {len(listed) - NAMED} more" if len(listed) > NAMED else ""
+    return f"; {what}: {', '.join(listed[:NAMED])}{more}"
+
+
 def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
     """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
 
@@ -1029,7 +1045,13 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
         manifest["files"]
     )
     if bad or extra:
-        raise BackupError(f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted")
+        # NEW-B-14: which files, by their path inside the backup (a name, never content): "1 changed" alone left
+        # a failed drill with nothing to look at
+        raise BackupError(
+            f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted"
+            + _named("changed", bad)
+            + _named("unlisted", extra)
+        )
     manifest["_sha256"] = hr.sha.hexdigest()
     return manifest
 
@@ -1304,6 +1326,63 @@ def fail_running_jobs(src: DbSource, when: datetime, made: str) -> list[dict[str
     return sorted(({"job_id": str(j), "type": str(t), "step": str(st)} for j, t, st in rows), key=lambda r: r["job_id"])
 
 
+HOLD_FLAG = "screening.after_restore"  # tb_common.flags: the hold a restore that is not complete leaves (D-522)
+
+
+def _hold_flags(env: Mapping[str, str], audit_dir: Path | None) -> Any:
+    from tb_common.audit import AuditLog
+    from tb_common.flags import Flags
+
+    log = None
+    if audit_dir is not None:
+        log = AuditLog(Path(audit_dir), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(audit_dir))
+    return Flags(url=env.get("TB_DB_URL"), audit=log)
+
+
+def hold_standing(env: Mapping[str, str]) -> bool:
+    """Whether the box is held now (read before the trial database is replaced). A hold that cannot be read is
+    taken as standing: the restore then leaves the box held, and a person releases it."""
+    try:
+        return bool(_hold_flags(env, None).row(HOLD_FLAG) == "held")
+    except LookupError:  # no trial database configured: nothing was held
+        return False
+    except Exception:
+        return True
+
+
+def hold_screening(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
+    """NEW-B-3 (D-522): hold the box's list jobs (the audited flag ``screening.after_restore``, set to ``held``)
+    until the restore ends complete or a person releases the hold with a reason. Returns ``held``, or ``NOT set:
+    <why>`` when the flag could not be written (no audit directory: a flag change must be audited; a database
+    error). Never raises: the restore's own report says what happened. ``reason`` holds counts and times only."""
+    if audit_dir is None:
+        return "NOT set: no audit directory in the layout (or TB_AUDIT_DIR); a hold must be audited"
+    try:
+        flags = _hold_flags(env, audit_dir)
+        if flags.row(HOLD_FLAG) != "held":  # held already (the backup was taken under a hold): it stays
+            try:
+                flags.set(HOLD_FLAG, "held", actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", reason=reason)
+            except ValueError:
+                if flags.row(HOLD_FLAG) != "held":  # not "already held" (set by another writer meanwhile)
+                    raise
+        return "held"
+    except Exception as exc:
+        return f"NOT set: {type(exc).__name__}"
+
+
+def release_own_hold(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
+    """The restore ended complete and the hold is its own (none stood before it, no earlier restore's set-aside
+    copy is on the box): the restore takes it off again. Returns ``released``, or ``held`` when it could not (the
+    box then stays held, which is the safe side)."""
+    try:
+        _hold_flags(env, audit_dir).set(
+            HOLD_FLAG, "released", actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", reason=reason
+        )
+        return "released"
+    except Exception:
+        return "held"
+
+
 def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
     """Append ``event`` to the box's audit log (the ``audit`` directory, else ``TB_AUDIT_DIR``); returns where, or
     why not."""
@@ -1448,6 +1527,18 @@ def restore(
         roles: dict[str, str] = {"state": "not_restored"}  # D-573: no trial database in this backup, nothing to move
         jobs_failed: list[dict[str, str]] = []
         checked = {}
+        # NEW-B-3 (D-522, review H1): what stands before the trial database is replaced. A hold that stands, or an
+        # earlier restore's set-aside audit chain on the box (its events may not be re-applied yet, and this run
+        # will not see them), is never taken off by this restore: only a person releases it
+        hold_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
+        carried = hold_standing(env) or bool(
+            hold_dir is not None and list(Path(hold_dir).parent.glob(f"{Path(hold_dir).name}.pre-restore-*"))
+        )
+        hold = "not needed"
+        hold_reason = (
+            f"restore of the backup of {manifest['created_at']}: held until the restore ends complete or a person "
+            "releases it (audit: backup.restored, backup.restore_reapply)"
+        )
         try:
             for name, want in manifest["databases"].items():
                 restore_db(srcs[name], work / "db" / f"{name}.dump", env)
@@ -1474,6 +1565,11 @@ def restore(
                     warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
                 checked[name] = sum(r[0] for r in got.values())
             if "trialbox_wf" in manifest["databases"]:  # T-728 (D-493, F-11): after the rows were checked
+                # NEW-B-3 (D-522, review H1, M1): held from here on, before anything else can stop the restore
+                # or a folder is set aside (the flag is a row of the restored database, so it is written after
+                # the rows were compared with the backup's). Taken off at the end only when the restore is
+                # complete and nothing was carried
+                hold = hold_screening(env, hold_dir, hold_reason)
                 try:
                     jobs_failed = fail_running_jobs(srcs["trialbox_wf"], when, manifest["created_at"])
                 except Exception as e:  # the queue could not be changed: the restore says so and stops
@@ -1496,6 +1592,8 @@ def restore(
             if wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
                 with contextlib.suppress(Exception):
                     keep()
+                if hold != "held":  # NEW-B-3: the database is replaced and the restore stops: the box is held
+                    hold = hold_screening(env, hold_dir, hold_reason)
             with contextlib.suppress(Exception):
                 _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
             back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
@@ -1556,17 +1654,28 @@ def restore(
             if HOST in targets and HOST in manifest["dirs"]
             else ("in the backup; not restored (--dir host=<folder> writes it)" if HOST in manifest["dirs"] else "none")
         )
+        # D-573 (lane D): a restore whose service roles were not put back is not complete either (the hold stays)
+        complete = not reapply and optouts_ok(lost) and roles_ok(roles, env)
+        # NEW-B-3 (D-522; D-455's open item): a restore that is not complete leaves the box's list jobs held until
+        # a person releases the hold. The restore takes its own hold off only when it is complete and nothing was
+        # carried (a hold that stood before, an earlier restore's set-aside chain)
+        if hold == "held" and complete and not carried:
+            hold = release_own_hold(
+                env,
+                audit_dir,
+                f"the restore of the backup of {manifest['created_at']} is complete: nothing to re-apply",
+            )
         audited = _audit(targets, env, "backup.restored", sha, {
             **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
             "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
-            "service_roles": roles["state"]})  # fmt: skip
+            "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
             "host": host, "lake_check": lake,
             "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"),
             "optouts_after_backup": lost, "jobs_failed": jobs_failed, "service_roles": roles,
-            "complete": not reapply and optouts_ok(lost) and roles_ok(roles, env), "audit": audited}  # fmt: skip
+            "complete": complete, "hold": hold, "audit": audited}  # fmt: skip
 
 
 _safe = _sched.safe

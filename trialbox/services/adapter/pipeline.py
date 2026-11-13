@@ -12,11 +12,12 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, feedguard, labvalue
+from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -29,7 +30,15 @@ from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import Spool, is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
-from adapter.validate.validator import Hl7Validator, Sampler, StructuralValidator, missing_required
+from adapter.validate.validator import (
+    Hl7Validator,
+    Sampler,
+    StructuralValidator,
+    capped_types,
+    missing_required,
+    sample_cap,
+    sample_size,
+)
 
 log = logging.getLogger("adapter")
 Resource = dict[str, Any]
@@ -50,7 +59,9 @@ class AdapterConfig:
     # T-723 (D-489): the lake in two steps, so a publish promotes last: ``build`` builds and judges a night without
     # serving it, ``promote`` makes it the served one (False: a newer night is served). Both None: ``rebuild`` alone
     build: Callable[[str, Path], RebuildResult] | None = None
-    promote: Callable[[str], bool] | None = None
+    # called as promote(night) or promote(night, generation) (D-531): a callable of either shape, so not typed
+    # more closely than this
+    promote: Callable[..., bool] | None = None
     # settings.registry_source: None = the data source's own ``registry`` table; ("none", "") = no registry;
     # ("csv", "/path/registry.csv") or ("sql", dsn) = a separate consent registry
     registry: tuple[str, str] | None = None
@@ -493,6 +504,18 @@ def _run_ingest(
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
     snap = snapshot or started.date().isoformat()
+    try:  # D-529: before a row, a folder or a lake build exists for it
+        refuse_future_night(snap, started.date())
+    except FutureNight as exc:
+        log.error("night refused: %s", exc)
+        if cfg.audit_dir:  # as a refused site key: the reason is in the audit, not only in the caller's hands
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "ingest.failed",
+                snapshot=snap,
+                actor="adapter",
+                detail={"source": source_kind, "refused": "future_night", "reason": str(exc)},
+            )
+        raise
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
@@ -523,6 +546,7 @@ def _run_ingest(
     fhir_profiles = ""
     source: Source | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
+    left_out: dict[str, set[str]] = {}  # D-528: type -> ids a row of a delta night no longer gives
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
@@ -559,7 +583,13 @@ def _run_ingest(
             check_delta(mapping, source_kind)
             at["step"] = "read"
         # T-106b (DATA-010): every resource carries its source row, mapping version and the night it was ingested
-        mapper = Mapper(mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz))
+        # D-593 (lane E's hunk): the mapper may ask the box's reference data (ICD-9-CM to ICD-10-CM, D-592);
+        # no pack loaded or no database answers nothing, and nothing is mapped
+        check_lookup_factors(mapping)  # D-527: a factor typed wrongly ends the night here, not row by row
+        mapper = Mapper(
+            mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
+            concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),
+        )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
@@ -644,11 +674,27 @@ def _run_ingest(
             for row in rows:
                 try:
                     mapped = list(mapper.map_table(table, iter([row])))
-                except ValueError as exc:
+                except (ValueError, ArithmeticError) as exc:
+                    # NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits:
+                    # decimal.InvalidOperation) is a row it cannot read, as a ValueError is; it ended the night before
                     rejected[reject_key(exc)] += 1
                     continue
                 for res in mapped:
                     to_spool(res)
+                if since:
+                    # NEW-B-7 (D-528): on a delta night the snapshot is the night before with tonight's records
+                    # over it. A row the mapping now leaves out (a ``where`` it no longer passes: a booking whose
+                    # status became a code the map does not know) wrote nothing and removed nothing, so its
+                    # record of the night before stayed as it was. What the row gave before and does not give
+                    # tonight is removed, a record an earlier row of this run gave included. Not a tombstone: the
+                    # source did not delete it, so it is not in tombstones.json (OMOP says "left the feed")
+                    made = {(str(res.get("resourceType")), str(res.get("id"))) for res in mapped}
+                    for rtype, rid in made:  # the last row of a key decides (DATA-017): given again, it stays
+                        if rtype in left_out:
+                            left_out[rtype].discard(rid)
+                    for rtype, rid in mapper.tombstones(table, iter([row])):
+                        if (rtype, rid) not in made:
+                            left_out.setdefault(rtype, set()).add(rid)
             if rejected:
                 n_bad = sum(rejected.values())
                 tables[table]["rejected"] = dict(sorted(rejected.items()))
@@ -657,7 +703,7 @@ def _run_ingest(
                 if n_bad * 100 > REJECT_MAX_PCT * len(rows):
                     errors.append(f"{table}: {n_bad} of {len(rows)} rows rejected (over {REJECT_MAX_PCT:g} %): {why}")
             rows.discard()
-        # NEW-DIN-6 (D-580): rows dropped for a code the look-up does not know, per table (codes and counts only)
+        # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (codes and counts only)
         for table, by_lookup in mapper.unmapped_summary().items():
             tables[table]["unmapped"] = by_lookup
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
@@ -700,6 +746,7 @@ def _run_ingest(
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
+    cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
     night = _NightPass(
         zone,
         unit_defaults,
@@ -708,6 +755,7 @@ def _run_ingest(
         counts,
         cfg.sample_fraction if validate else None,
         cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
+        cap,
     )
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
@@ -733,7 +781,10 @@ def _run_ingest(
         prior_record: str | None = (out_dir / PUBLISH_RECORD).read_text(encoding="utf-8")
     except OSError:
         prior_record = None
-    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night)
+    removed: dict[str, int] = {}
+    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed)
+    if removed:  # D-528: counts per record type only
+        log.info("records the feed's rows no longer give were removed: %s", dict(sorted(removed.items())))
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
     defaulted, presence_read, shifted, aliased = (
         night.defaulted,
@@ -755,9 +806,8 @@ def _run_ingest(
             json.dumps(unmapped_codes, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
         for table, by_lookup in sorted(unmapped_codes.items()):
-            log.warning("%s: %d rows dropped: %d values have no look-up row with a code (%s)", table,
-                        sum(sum(c.values()) for c in by_lookup.values()), sum(len(c) for c in by_lookup.values()),
-                        UNMAPPED_CODES)  # fmt: skip
+            for line in unmapped_lines(table, by_lookup, UNMAPPED_CODES):
+                log.warning("%s", line)
     else:  # an earlier attempt of this night may have left one
         (out_dir / UNMAPPED_CODES).unlink(missing_ok=True)
     if gaps:
@@ -798,7 +848,10 @@ def _run_ingest(
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
+        # T-693 (D-457): the sample is each type's share, at least 3 and at most a cap derived from the gate's own
+        # limit (settable); the report names the cap and the types it cut. Taken from the stream (T-692)
         picked = night.sample.result() if night.sample is not None else []
+        cut = capped_types(night.kept, cfg.sample_fraction, cap=cap)
         try:
             vres = chosen.validate(picked)
             vsum = ValidationSummary(
@@ -807,6 +860,8 @@ def _run_ingest(
                 error_pct=round(vres.error_pct, 3),
                 validator=vres.validator,
                 messages=vres.messages,
+                sample_cap=cap,
+                capped=cut or None,
             )
         except Exception as exc:
             errors.append(f"validation failed to run: {exc}")
@@ -938,7 +993,7 @@ def _run_ingest(
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
                 "orphans": completeness["orphans"] or None,
-                # NEW-DIN-6 (D-580): rows dropped for a code no look-up knows, per table (the codes: the file)
+                # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (the codes: the file)
                 "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
                 or None,
                 # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
@@ -1139,6 +1194,7 @@ class _NightPass:
         counts: dict[str, int],
         fraction: float | None,
         per_type: int | None,
+        cap: int | None = None,
     ) -> None:
         from lake.flatten import Unread  # the inbound FHIR contract (T-616), the lake's own reading
 
@@ -1147,8 +1203,11 @@ class _NightPass:
         self.missing: Counter[str] = Counter()
         self.unread = Unread()
         kept = {**counts, "Patient": counts.get("Patient", 0) - aliases.dropped}
+        self.kept = kept  # what the sample is taken from, by type (the report names the types the cap cut)
         self.sample = (
-            Sampler("trialbox", lambda t: max(3, round(kept.get(t, 0) * fraction))) if fraction is not None else None
+            Sampler("trialbox", lambda t: sample_size(kept.get(t, 0), fraction, 3, cap))
+            if fraction is not None
+            else None
         )
         self.jp_sample = Sampler("jp-core", lambda _t: per_type) if per_type is not None else None
 
@@ -1206,18 +1265,77 @@ PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night p
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
 
 
+def unmapped_lines(table: str, by_kind: dict[str, dict[str, int]], file: str) -> list[str]:
+    """What the night's log says about D-580's counter for one table (NEW-B-8, D-530): counts and the counter's
+    own names, never a code. The counter holds rows left out (a code no look-up knows, D-580; an unknown status,
+    D-587) and rows kept without the value (a unit not read, a value implausible without a unit: D-590), so the
+    line calls none of them "dropped". Rows whose code the reference data could not be asked for (D-593:
+    ``<map>:unavailable``) get a line of their own: an outage, not a fault of the feed, and not a held night."""
+    rows = sum(sum(c.values()) for c in by_kind.values())
+    distinct = sum(len(c) for c in by_kind.values())
+    out = [
+        f"{table}: {rows} rows hold a value the mapping could not use ({distinct} distinct values): the row is "
+        f"left out or kept without that value, by the mapping's rule ({file})"
+    ]
+    down = {k.removesuffix(":unavailable"): sum(c.values()) for k, c in by_kind.items() if k.endswith(":unavailable")}
+    if down:
+        out.append(
+            f"{table}: the reference data did not answer for {sum(down.values())} rows ({', '.join(sorted(down))}): "
+            "their codes were not mapped tonight and stay so until the row is sent again or the next full load. "
+            "The night is not held for this (D-530)"
+        )
+    return out
+
+
+class FutureNight(ValueError):
+    """A night dated after the site's today (D-529): refused, nothing read or written."""
+
+
+def refuse_future_night(snap: str, today: date) -> None:
+    """NEW-PERF-3 (D-529; PERF-009): a night dated after the site's today is refused. Once served, every later
+    night is older than it and is never served ("the box never moves back in time"), and the lake's age check read
+    a future night as 0 days old. A name that is not a date (a tool's, a test's) has no place in time: not judged."""
+    try:
+        night = date.fromisoformat(snap[:10])
+    except ValueError:
+        return
+    if night > today:
+        raise FutureNight(
+            f"night {snap} is dated after today ({today.isoformat()} at the site): it is not ingested. Check the "
+            "date given to the run and the box's clock"
+        )
+
+
 def reject_key(exc: BaseException) -> str:
     """The key a rejected row is counted under (STD-025; D-520): the exception's type and its message **up to the
     first value**, never a feed value. The message is cut at its first quote mark (the mapper writes a value with
     ``repr``; everything from there on is ``<value>``, so a value that holds quote marks of both kinds cannot end
     the cut early and leave a fragment), and a run of digits before it is ``<n>`` (a number written without quote
-    marks). The key goes into ``completeness.json``, the night's error, the audit and the log."""
+    marks). An ``ArithmeticError`` has one fixed sentence (D-527). The key goes into ``completeness.json``, the
+    night's error, the audit and the log."""
+    if isinstance(exc, ArithmeticError):  # D-527: decimal's message is a list of signal classes, not a sentence
+        return f"{type(exc).__name__}: a number the mapping cannot compute"
     text = str(exc)
     head = re.split("['\"\u2018\u2019\u201c\u201d`]", text, maxsplit=1)[0]
     cut = len(head) < len(text)
     head = re.sub(r"[0-9]+(?:[.,:/-][0-9]+)*", "<n>", head).strip()
     said = f"{head} <value>".strip() if cut else head
     return f"{type(exc).__name__}: {said}" if said else type(exc).__name__
+
+
+def check_lookup_factors(mapping: Any) -> None:
+    """Every ``factor`` of every look-up row is a finite number (empty: 1), or the load ends before its first row
+    (D-527, review). The mapper parses the factor per row; with a row's ``ArithmeticError`` now a rejected row, a
+    factor typed wrongly would reject every row of its code each night under a key that blames the feed."""
+    for name, lookup in mapping.lookups.items():
+        for code, row in lookup.rows.items():
+            text = str(row.get("factor") or "1").strip()
+            try:
+                ok = Decimal(text).is_finite()
+            except ArithmeticError:
+                ok = False
+            if not ok:
+                raise ValueError(f"look-up {name}, row {code!r}: the factor {text!r} is not a number")
 
 
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
@@ -1271,7 +1389,7 @@ def completeness_check(
     problems: list[str] = []
     optional = set(cfg.optional_tables)
     # NEW-DIN-8 (D-583): a table no earlier good night had rows of has no baseline to be compared with: the first
-    # night, the first night after a first load (the back-fill writes no completeness record), a table an override
+    # night, the first night after a first load made before D-535 (it wrote no completeness record), a table an override
     # once let through empty. So on a full night such a table must be there with live rows, unless the site lists
     # it as optional; else a table missing on go-live night would never be asked for again.
     for t in sorted(set(tables) | set(cfg.required_tables)):
@@ -1408,6 +1526,8 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
                     shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
                     shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
                     for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
+                        f.unlink(missing_ok=True)
+                    for f in (cfg.lake_dir / "db" / "gen").glob(f"{s}.g*"):  # T-724 (D-490): its generations
                         f.unlink(missing_ok=True)
                     drop_reader_links(cfg.lake_dir, s)
             except SnapshotBuilding:

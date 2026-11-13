@@ -22,7 +22,7 @@ from datetime import date
 from typing import Any, Protocol
 
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
-from tb_common.quotes import quote_key
+from tb_common.quotes import quote_in, quote_key
 
 JUDGE_PROMPT = "judge"
 
@@ -58,6 +58,10 @@ class JudgeClient(Protocol):
         step_id: str,
         purpose: str,
     ) -> JudgeReply: ...
+
+
+#: the fields of an excerpt a model is shown (D-644; ``orchestrator.scenarios.evaluate`` sends the same three)
+SHOWN = ("date", "note_type", "text")
 
 
 @dataclass
@@ -105,7 +109,9 @@ class GatewayJudge:
             "criterion_text": criterion_text,
             "note_question": note_question,
             "index_date": index_date.isoformat(),
-            "excerpts": excerpts,
+            # D-644: what a model reads of an excerpt, as NoteJudge sends it. Never the record's id (``did``): an
+            # identifier has no place in a prompt, and a hex id holds digit runs the PHI tripwire refuses
+            "excerpts": [{k: e.get(k) for k in SHOWN} for e in excerpts],
         }
         labels = CallLabels(
             data_class=data_class,
@@ -247,9 +253,10 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
         return None
     q = quote_key(reply.quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
     for ex in excerpts:
-        text = quote_key(str(ex.get("text", "")))
+        raw = str(ex.get("text", ""))
+        text = quote_key(raw)
         start = text.find(q)
-        if start < 0:
+        if start < 0 or not quote_in(reply.quote, raw):  # D-641: never across a cut of the excerpt, never the mark
             continue
         d = date.fromisoformat(str(ex["date"])[:10])
         if not lo <= d <= hi:

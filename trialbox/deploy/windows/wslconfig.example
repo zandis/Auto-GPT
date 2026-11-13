@@ -1,10 +1,12 @@
-# TrialBox: %USERPROFILE%\.wslconfig of the Windows user who runs WSL2 (T-210a, D-421). Copy it, set memory, then
-# wsl --shutdown. preflight.ps1 and check_host.sh --wsl2 check swap and sparseVhd.
+# TrialBox: the form of %USERPROFILE%\.wslconfig that deploy/windows/box-install.ps1 writes (NEW-WIN-3, D-601; D-421).
+# An example only: the installer computes memory and processors from the installed hardware less the desktop's
+# share (TB_WSL_DESKTOP_SHARE_PCT) and the disk limit from the data drive. The figures below are of no machine.
 [wsl2]
-# what WSL2 is given; preflight.sh wants 32 GB or more
-memory=64GB
+memory=<installed GB less the desktop's share>GB
+processors=<logical processors less the desktop's share>
 # no swap: patient data must never page to a disk file (CR-041, OPS-061)
 swap=0
+defaultVhdSize=<the data drive's size in bytes>
 
 [experimental]
 # the disk file gives back freed space instead of only growing (OPS-061; WSL 2.0 and later)

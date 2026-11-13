@@ -22,9 +22,26 @@ def quote_key(text: str) -> str:
     return _SPACE_BY_CJK.sub("", t)
 
 
+#: what an excerpt shows, on a line of its own, where sentences of its note were left out (NEW-LLM-1, D-641)
+CUT = "[…]"
+
+
+def runs(text: str) -> list[str]:
+    """The parts of an excerpt between two :data:`CUT` lines: each is one unbroken piece of the note."""
+    out: list[list[str]] = [[]]
+    for line in text.split("\n"):
+        if line.strip() == CUT:
+            out.append([])
+        else:
+            out[-1].append(line)
+    return ["\n".join(r) for r in out if r]
+
+
 def quote_in(quote: str, text: str) -> bool:
+    """Whether ``quote`` is a contiguous part of ``text``. In an excerpt with cuts (D-641) it must lie inside one
+    unbroken piece: text on both sides of a cut is not next to each other in the note, and the mark is not in it."""
     q = quote_key(quote)
-    return bool(q) and q in quote_key(text)
+    return bool(q) and any(q in quote_key(r) for r in runs(text))
 
 
-__all__ = ["quote_in", "quote_key"]
+__all__ = ["CUT", "quote_in", "quote_key", "runs"]

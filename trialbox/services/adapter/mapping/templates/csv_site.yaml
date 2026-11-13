@@ -13,6 +13,13 @@
 # 5. settings.yaml: data_source: {type: csv, path: <export dir>, mapping: mapping/tw_core/<site>.yaml}
 #    (add `encoding: big5` or `encoding: cp932` when the HIS does not export UTF-8: it is tried first).
 # `delta: updated_at` is the row's change time (`--since` nights); map the HIS column that changes on every edit.
+# Dates (D-589): a column written in the Republic-of-China calendar (1150501, 115/05/01) or a Japanese era is
+# declared on its table, e.g. `dates: {sample_datetime: roc}` (words: roc, era; undeclared: western). Nothing is
+# detected from the values; a value of another form in a declared column is a refused row. Placeholder dates the
+# source writes for "none" are listed once at the top, as written: `empty_dates: ["9999-12-31", "99991231"]`.
+# Units (D-590): a spelling of a known unit that the box does not read yet is declared once at the top, e.g.
+# `unit_spellings: {"萬/μL": "10*4/uL"}` (spelling as the source writes it -> UCUM code). The night counts results
+# that lost their value to a unit (`unit_mismatch`) per lab code; mapping_check lists the pairs.
 version: 1
 name: SITE_his
 extends: ../tw_core/demo_his.yaml

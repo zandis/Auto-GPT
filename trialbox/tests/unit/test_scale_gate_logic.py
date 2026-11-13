@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -185,7 +186,9 @@ def _params(tmp_path: Path, **kw: Any) -> sg.Params:
         "latency_s": 0.05,
         "outage_after": 2,
         "outage_s": 1.0,
-        "restart_after": 4,
+        # the restart after the THIRD call: calls 2 and 3 are the outage's 502 answers, so the restart falls into the
+        # outage's own second, while the screen waits, and not into the 0.15 s its last three calls take (train 5)
+        "restart_after": 3,
         "publish_poll_s": 0.5,
         "publish_wait_s": 300.0,
     }
@@ -364,3 +367,43 @@ def test_a_stand_in_that_never_answers_is_an_error(tmp_path: Path, monkeypatch: 
     with pytest.raises(RuntimeError, match="did not start"):
         m.start()
     m.stop()
+
+
+def test_the_gate_with_the_dense_profile(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T-687, the dense profile: the same night on a hospital whose charts are about 500 records and 40 notes
+    thick. Small here (the nightly job runs 50,000); every part runs and the report says what was measured."""
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    rep = sg.run(_params(tmp_path, patients=30, profile="dense", outage_s=0.0, restart_after=0))
+    facts = rep.profile_facts
+    assert facts["patients"] == 30
+    assert scale.DENSE_RECORDS <= facts["records_per_patient"] < scale.DENSE_RECORDS * 1.1
+    assert scale.DENSE_NOTES <= facts["notes_per_patient"] < scale.DENSE_NOTES * 1.1
+    rows = {r["check"]: r for r in rep.rows()}
+    assert set(rows) == set(sg.CHECKS), rows
+    for cid in ("ingest.night_under_cap", "rebuild.under_cap", "publish.recorded_once", "screen.ends_under_cap",
+                "backup.ends"):  # fmt: skip
+        assert rows[cid]["state"] == scale.PASS, rows[cid]
+    assert rep.numbers["ingest"]["records"] >= facts["records"]  # the night took the whole thick feed
+    md = (tmp_path / "gate" / "scale_gate.md").read_text(encoding="utf-8")
+    assert "(dense profile)" in md and "dense profile: " in md
+    assert rep.to_json()["profile"] == "dense"
+
+
+def test_the_restart_watcher_sees_the_call_before_a_short_screen_ends(tmp_path: Path) -> None:
+    """Train 5's CI (unit shard 4/6): "2 outage answers (502), 0 restart(s) in 7 calls". The screen makes the same
+    7 calls on every run; the restart "after call 4" was a thread that looked at the stand-in's call count every
+    half second, and the three calls left take 0.15 s at 0.05 s a call: when the screen ended inside one look,
+    the restart never happened. The watcher looks twice per call of the stand-in (its interval is the stand-in's
+    own seconds per call, halved), so the call is seen while at least one more is still being answered."""
+    m = scale.SlowModel(tmp_path, latency_s=0.05)
+    seen = {"calls": 0, "restarts": 0}
+    m.calls = lambda: seen["calls"]  # type: ignore[method-assign]
+    m.restart = lambda: seen.__setitem__("restarts", seen["restarts"] + 1)  # type: ignore[method-assign]
+    done = threading.Event()
+    watcher = m.restart_after(4, done)
+    time.sleep(0.1)  # the watcher has looked, and waits
+    seen["calls"] = 4  # the fourth call is answered ...
+    time.sleep(3 * 0.05)  # ... and the screen's last three calls take three times the stand-in's latency
+    done.set()
+    watcher.join(5)
+    assert seen["restarts"] == 1

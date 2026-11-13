@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import smtplib
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import EmailMessage
@@ -26,7 +27,16 @@ from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
 from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
 from tb_common.service_auth import actor_header
-from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
+from tb_contracts import (
+    Job,
+    JobCreate,
+    JobFile,
+    RegistryEntry,
+    RegistryPromote,
+    RegistrySummary,
+    RegistryUpdate,
+    dump,
+)
 
 from console import ruleset_labels
 
@@ -111,8 +121,14 @@ class AuditRecord:
     detail: dict[str, Any] = field(default_factory=dict)
 
 
+#: T-716 (D-484): how a backend gets the header of a call that names a person: ``(method, path, body)`` to the
+#: headers of ``console.actor.assert_for``. The backend builds the request; the console's one minting place signs it.
+Signer = Callable[[str, str, Any], dict[str, str]]
+
+
 class Backend(Protocol):
-    def list_jobs(self, limit: int = 100) -> list[Job]: ...
+    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]: ...
+    def waiting_studies(self) -> list[str]: ...
     def get_job(self, job_id: str) -> Job | None: ...
     def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job: ...
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> JobFile: ...
@@ -129,11 +145,10 @@ class Backend(Protocol):
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str: ...
     def registry_summaries(self) -> list[RegistrySummary]: ...
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
-    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer | None = None) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
     def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
-               reason: str = "") -> str | None: ...  # fmt: skip
+    def reveal(self, job_id: str, pid: str, sign: Signer, purpose: str = "", reason: str = "") -> str | None: ...
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
@@ -268,12 +283,23 @@ class HttpBackend:
         if gateway_url:
             self.services["gateway"] = gateway_url.removesuffix("/v1")
 
-    def list_jobs(self, limit: int = 100) -> list[Job]:
+    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]:
+        """The newest ``limit`` jobs; ``state``: of that state only (the orchestrator filters, so a job that
+        waits behind many newer ones is still found)."""
         try:
-            data = self.orch.get_json(f"/jobs?limit={limit}")
+            data = self.orch.get_json(f"/jobs?limit={limit}" + (f"&state={state}" if state else ""))
         except ServiceError as exc:
             raise Unavailable(str(exc)) from exc
         return [Job.model_validate(j) for j in data]
+
+    def waiting_studies(self) -> list[str]:
+        """NEW-JRN-1b (D-545): the studies with a job waiting for approval, as the orchestrator counts them (one
+        row per study; no listing of jobs is read, so none is cut)."""
+        try:
+            data = self.orch.get_json("/jobs/waiting-studies")
+        except ServiceError as exc:
+            raise Unavailable(str(exc)) from exc
+        return [str(s) for s in data]
 
     def get_job(self, job_id: str) -> Job | None:
         try:
@@ -436,15 +462,16 @@ class HttpBackend:
         return {str(p) for p in (data.get("deceased") or [])} if isinstance(data, dict) else set()
 
     # ------------------------------------------------------------------ candidate registry (D-92)
-    def _registry_call(self, method: str, path: str, body: Any = None) -> Any:
+    def _registry_call(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> Any:
         try:
             if method == "GET":
                 return self.orch.get_json(path)
-            return self.orch.post_raw(path, body).json()
+            return self.orch.post_raw(path, body, headers).json()
         except ServiceError as exc:
-            if exc.status in (400, 404, 422):
+            if exc.status in (400, 403, 404, 422, 429):
                 try:
-                    detail = str(json.loads(exc.detail).get("detail"))
+                    detail = json.loads(exc.detail).get("detail")
+                    detail = str(detail.get("message") if isinstance(detail, dict) else detail)
                 except (ValueError, AttributeError):
                     detail = exc.detail
                 raise Refused(detail) from exc
@@ -456,21 +483,29 @@ class HttpBackend:
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]:
         return [RegistryEntry.model_validate(r) for r in self._registry_call("GET", f"/registry/{ruleset}")]
 
-    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
-        return RegistryEntry.model_validate(self._registry_call("POST", f"/registry/{ruleset}", upd))
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Signer | None = None) -> RegistryEntry:
+        """One registry row. T-719 (D-487): a row given by chart number (``upd.mrn``) is a lookup of a pseudonym, so
+        it carries the v3 assertion ``sign`` mints for exactly this request; the orchestrator refuses it without
+        one (403) and caps it per person (429), and both are a refusal here."""
+        path, body = f"/registry/{ruleset}", dump(upd)
+        return RegistryEntry.model_validate(
+            self._registry_call("POST", path, body, sign("POST", path, body) if sign else None)
+        )
 
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
-               reason: str = "") -> str | None:  # fmt: skip
+    def reveal(self, job_id: str, pid: str, sign: Signer, purpose: str = "", reason: str = "") -> str | None:
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
-        box has no pid map for it. D-273: the person's role and studies travel signed, and the orchestrator checks
-        them; its refusal (403: role, study, opted out, not listed; 429: its cap) is a refusal here. T-103 (D-438):
-        the purpose and reason go with the request into the orchestrator's audit record."""
+        box has no pid map for it. T-716 (D-484): the call carries the v3 assertion ``sign`` mints for exactly this
+        request (the person, the role, the study, the standing, a break-glass grant's id); the orchestrator reads
+        the grant and the delegation log itself, and its refusal (403: right, study, grant, opted out, not listed;
+        429: its cap) is a refusal here. T-103 (D-438): the purpose and reason go with the request into the
+        orchestrator's audit record."""
+        path = f"/jobs/{job_id}/reveal"
         body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
         try:
-            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", body, actor_header(by, role=role, scope=scope)).json()
+            data = self.orch.post_raw(path, body, sign("POST", path, body)).json()
         except ServiceError as exc:
             if exc.status == 404:
                 return None

@@ -210,7 +210,8 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_the_weekly_run_screens_new_patients_on_any_week(monkeypatch: pytest.MonkeyPatch) -> None:
     """LIFE-014: a Wednesday run (not the first Monday) screens the new in-scope patients and adds them to the pool;
-    the pool, SCREEN's excluded patients and the previous record are not screened again."""
+    the pool is not screened again. D-642 (NEW-LIFE-4) changed the rest on purpose: the patient SCREEN excluded,
+    still in scope, is screened again after the new ones (before, never until the next SCREEN: review LIFE-004)."""
     box = _Box(
         pool=["P-POOL"],
         booked={"P-POOL": "2026-10-08T09:00:00+09:00"},
@@ -218,26 +219,32 @@ def test_the_weekly_run_screens_new_patients_on_any_week(monkeypatch: pytest.Mon
         excluded_at_screen=("P-EXCL",),
     )
     out = box.go(monkeypatch)
-    assert box.screened == ["P-NEW", "P-LATER"]  # nearest visit first, no visit last
-    assert box.evaluated == [["P-POOL"]]  # the pool's time-sensitive re-check
+    assert box.screened == ["P-NEW", "P-LATER", "P-EXCL"]  # new: nearest visit first, no visit last; then excluded
+    assert box.evaluated == [["P-POOL"]]  # the pool's re-check
     assert {"P-POOL", "P-NEW", "P-LATER"} <= set(box.persisted)
     record = json.loads(box.published["new_screened_GZQO_v" + GZQO.version + ".json"])
-    assert record["pids"] == ["P-LATER", "P-NEW"]
+    assert record["pids"] == ["P-EXCL", "P-LATER", "P-NEW"] and record["again"] == {"P-EXCL": WED.isoformat()}
     cl = json.loads(box.published["candidate_list_GZQO_v" + GZQO.version + ".json"])
-    assert {r["pid"] for r in cl["rows"]} == {"P-POOL", "P-NEW", "P-LATER"}  # the console's whole list
-    assert box.delivered == [["P-POOL", "P-NEW"]]  # the week's list: visits in the window
-    assert "new patients screened: 2" in out.summary_md
-    assert box.job.metrics.patients_scoped == 3
+    # the console's whole list; the stand-in screen lists everybody, so the one who came back is on it
+    assert {r["pid"] for r in cl["rows"]} == {"P-POOL", "P-NEW", "P-LATER", "P-EXCL"}
+    assert box.delivered == [["P-POOL", "P-EXCL", "P-NEW"]]  # the week's list: visits in the window
+    assert "new patients screened: 2" in out.summary_md  # the new ones are still counted as two
+    assert "Earlier excluded patients screened again: 1" in out.summary_md
+    assert box.job.metrics.patients_scoped == 4  # the night budget counts the one screened again
 
 
-def test_a_previous_micro_batch_record_is_not_screened_again(monkeypatch: pytest.MonkeyPatch) -> None:
-    box = _Box(pool=["P-POOL"], booked={}, scope=[_new("P-A", FRI), _new("P-B", FRI)])
-    box.store["k-prev"] = json.dumps({"pids": ["P-A"]}).encode()
+def test_a_previous_micro_batch_record_is_not_screened_as_new(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Was "... is not screened again". D-642 (NEW-LIFE-4): P-A is in the earlier record and not in the pool, so
+    that run excluded it; it is no new patient (it does not take a new patient's place), and it is screened again
+    after them. One the earlier run listed (P-L, in the pool) is not screened again."""
+    box = _Box(pool=["P-POOL", "P-L"], booked={}, scope=[_new("P-A", FRI), _new("P-B", FRI), _new("P-L", FRI)])
+    box.store["k-prev"] = json.dumps({"pids": ["P-A", "P-L"]}).encode()
     box.job.options = {"seen_from": "k-excl,k-prev"}  # as a first run would have fixed it
     box.go(monkeypatch)
-    assert box.screened == ["P-B"]
+    assert box.screened == ["P-B", "P-A"]
     record = json.loads(box.published["new_screened_GZQO_v" + GZQO.version + ".json"])
-    assert record["pids"] == ["P-A", "P-B"]  # cumulative: the next run reads one record
+    assert record["pids"] == ["P-A", "P-B", "P-L"]  # cumulative: the next run reads one record
+    assert box.budget_event()["new_screened"] == 1 and box.budget_event()["excluded_rescreened"] == 1
 
 
 def test_after_an_ingest_only_new_booked_patients_are_screened(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -387,11 +394,14 @@ def test_the_timer_marks_its_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("apscheduler.schedulers.background.BackgroundScheduler", _Sched)
     monkeypatch.setattr("tb_common.config.schedule_on_demand", lambda settings, env: False)
+    monkeypatch.setattr("orchestrator.night.advance", lambda orch: [])
     orch: Any = SimpleNamespace(
-        cfg=SimpleNamespace(settings=SimpleNamespace(schedule=None), env=SimpleNamespace(tz="Asia/Tokyo", extra={}))
+        cfg=SimpleNamespace(settings=SimpleNamespace(schedule=None), env=SimpleNamespace(tz="Asia/Tokyo", extra={})),
+        on_terminal=[],
     )
     scheduler.start(orch)
-    assert added["ingest"][1:] == ["INGEST", None, {"timer": "1"}]
+    # T-726 (D-492): the timer's ingest is also the start of the night's chain
+    assert added["ingest"][1:] == ["INGEST", None, {"timer": "1", "chain": "1"}]
 
 
 def test_a_passed_ingest_is_followed_by_the_micro_batch(monkeypatch: pytest.MonkeyPatch) -> None:
