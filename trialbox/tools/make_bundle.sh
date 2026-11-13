@@ -6,6 +6,7 @@
 #   tools/make_bundle.sh --key keys/vendor_ed25519.key --id 2026.11-1 --release-seq 3 --out dist/trialbox-2026.11-1.tar \
 #       --gates build/supply-chain/gates.json [--sbom-dir dist/sbom] [--models deploy/models] [--rulesets dist/rulesets] \
 #       [--refdata dist/trialbox-refdata-<date>.tar ...] [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
+#       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
 #
 # The release gates are not optional (T-110b, D-340; CR-046): --gates names the passing record of `make release-gates`
 # (D-186), and the bundle is refused unless every image it carries is a passing image of that record (Trivy, SBOM and
@@ -24,7 +25,7 @@
 # /opt/trialbox/releases/<id> and switch /opt/trialbox/current to it; a rollback switches back.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""
+KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""
 IMAGES=(); REFDATA=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,7 +40,8 @@ while [ $# -gt 0 ]; do
     --gates) GATES="$2"; shift ;;
     --sbom-dir) SBOM_DIR="$2"; shift ;;
     --release-seq) SEQ="$2"; shift ;;
-    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
+    --allow-dirty) DIRTY=1; DIRTY_WHY="${2:-}"; shift ;;
+    -h|--help) sed -n 2,25p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -53,6 +55,25 @@ GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
 SBOM_DIR="${SBOM_DIR:-$ROOT/dist/sbom}"
 [ -d "$SBOM_DIR" ] || { echo "make_bundle: no SBOM folder $SBOM_DIR (make release-gates writes it)" >&2; exit 2; }
 [ -f "$KEY" ] || { echo "make_bundle: no such key $KEY" >&2; exit 2; }
+# D-631: a release is built from a commit. The host tree is packed from the files on disk (untracked ones too), so a
+# checkout that differs from its commit is refused before anything is exported; --allow-dirty "<reason>" is for a
+# rehearsal or a test, and release.json then says dirty
+if [ "$DIRTY" = 1 ] && [ -z "$DIRTY_WHY" ]; then
+  echo "make_bundle: --allow-dirty needs a reason (--allow-dirty \"a rehearsal\")" >&2; exit 2
+fi
+CHANGES="$(git -C "$ROOT" status --porcelain --untracked-files=all -- . 2>/dev/null)" \
+  || CHANGES="not a git checkout: a release is built from a commit"
+if [ -n "$CHANGES" ]; then
+  if [ "$DIRTY" = 1 ]; then
+    { echo "make_bundle: NOT a release: built from a working tree ($DIRTY_WHY); release.json says dirty. Differs from the commit:"
+      printf '%s\n' "$CHANGES" | head -20 | sed 's/^/    /'; } >&2
+  else
+    { echo "make_bundle: this checkout differs from its commit; a release is built from a commit (commit or remove these, or --allow-dirty \"<reason>\" for a rehearsal):"
+      printf '%s\n' "$CHANGES" | head -20 | sed 's/^/    /'
+      n="$(printf '%s\n' "$CHANGES" | wc -l)"; [ "$n" -le 20 ] || echo "    ... and $((n - 20)) more"; } >&2
+    exit 2
+  fi
+fi
 command -v docker >/dev/null || { echo "make_bundle: docker is needed to export images" >&2; exit 2; }
 PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
 

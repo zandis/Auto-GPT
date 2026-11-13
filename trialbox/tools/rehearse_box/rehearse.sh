@@ -149,6 +149,7 @@ media() (  # a subshell: set -e stops the step, not the run
   tools/make_bundle.sh --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
     --out "$MEDIA/linux/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
     --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
+    --allow-dirty "a rehearsal of the working tree" \
     || { echo "the bundle was not built"; return 1; }
   [ -s "$MEDIA/linux/$BUNDLE_NAME" ] || { echo "no bundle at $MEDIA/linux/$BUNDLE_NAME"; return 1; }
   cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
