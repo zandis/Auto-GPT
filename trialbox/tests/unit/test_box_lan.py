@@ -101,3 +101,91 @@ def test_detect_reads_the_routes_and_both_families() -> None:
 def test_the_plan_says_when_no_network_was_found() -> None:
     assert "127.0.0.1/32" in bp.hardening_conf(bp.Hardware(arch="x86_64", cpu_count=8, ram_gib=64, disk_free_gib=500))
     assert "CLINIC_RANGES" in bp.LAN_UNKNOWN and "443" in bp.LAN_UNKNOWN
+
+
+# ---------------------------------------------------------------------------------------------- from the review
+@pytest.mark.parametrize(
+    ("ip", "n"),
+    [
+        ("192.168.1.5", 0),  # odd JSON: 0.0.0.0/0 would open 443 to everyone
+        ("192.168.1.5", 1),
+        ("10.1.2.3", 8),  # wider than a site's network
+        ("8.8.4.4", 16),  # a public address straight on the uplink
+        ("100.64.0.9", 10),  # carrier-grade NAT / an overlay
+        ("0.1.2.3", 8),
+        ("224.0.0.5", 24),
+    ],
+)
+def test_review_a_network_too_wide_or_not_private_is_never_written(ip: str, n: int) -> None:
+    assert _lan([_if("eth0", ("inet", ip, n))], _routes(("eth0", 100))) == ""
+
+
+def test_review_ipv6_is_admitted_only_beside_a_private_ipv4_or_as_a_local_prefix() -> None:
+    """Before this card 443 over IPv6 answered nobody. A global /64 on a card with no private IPv4 can be an ISP's
+    shared segment."""
+    alone = _if("eth0", ("inet6", "2600:1f18:1::5", 64))
+    assert _lan([alone], "[]", _routes(("eth0", 1))) == ""
+    ula = _if("eth0", ("inet6", "fd12:3456:789a:1::5", 64))
+    assert _lan([ula], "[]", _routes(("eth0", 1))) == "fd12:3456:789a:1::/64"
+    wide = _if("eth0", ("inet", "192.168.1.5", 24), ("inet6", "2600:1f18::5", 3), ("inet6", "ff02::5", 64))
+    assert _lan([wide], _routes(("eth0", 1))) == "192.168.1.0/24"
+    beside = _if("eth0", ("inet", "192.168.1.5", 24), ("inet6", "2600:1f18:1::5", 64))
+    assert _lan([beside], _routes(("eth0", 1))) == "192.168.1.0/24 2600:1f18:1::/64"
+    public = _if("eth0", ("inet", "8.8.4.4", 24), ("inet6", "2600:1f18:1::5", 64))
+    assert _lan([public], _routes(("eth0", 1))) == ""
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        [{"ifname": "eth0", "flags": 5, "addr_info": 5}],
+        [{"ifname": "eth0", "addr_info": [{"family": "inet", "local": "192.168.1.5", "prefixlen": "x"}]}],
+        [{"ifname": 7, "addr_info": [None, 3, {"family": "inet"}]}],
+        [3, None, "eth0"],
+        {"ifname": "eth0"},
+    ],
+)
+def test_review_odd_shapes_never_raise(bad: Any) -> None:
+    for routes in ("[]", json.dumps([{"dst": "default", "dev": "eth0", "metric": "abc"}]),
+                   json.dumps([{"dst": "default", "dev": ["eth0"], "metric": {"a": 1}}]), "5", "null"):  # fmt: skip
+        assert bp.clinic_ranges(json.dumps(bad), routes, routes) == ""
+    good = [_if("eth0", ("inet", "192.168.1.5", 24))]
+    assert _lan(good, json.dumps([{"dst": "default", "dev": "eth0", "metric": "abc"}])) == "192.168.1.0/24"
+
+
+def test_review_a_tunnel_by_its_flag_and_a_loopback_by_its_kind() -> None:
+    nord = _if("nordlynx", ("inet", "10.5.0.2", 24), flags=("POINTOPOINT", "NOARP", "UP"), kind="none")
+    loop = _if("lo", ("inet", "10.9.9.9", 24), flags=("LOOPBACK", "UP"), kind="loopback")
+    odd = _if("dummy7", ("inet", "10.9.8.7", 24), kind="loopback")
+    inner = _if("eth0", ("inet", "192.168.1.5", 24))
+    assert _lan([nord, loop, odd]) == ""
+    assert _lan([nord, loop, odd, inner], _routes(("nordlynx", 1))) == "192.168.1.0/24"
+
+
+def test_review_a_route_with_several_next_hops_and_one_with_no_metric() -> None:
+    a, b = _if("eth0", ("inet", "192.168.1.5", 24)), _if("eth1", ("inet", "192.168.2.5", 24))
+    multi = json.dumps(
+        [{"dst": "default", "nexthops": [{"gateway": "x", "dev": "eth1"}, {"gateway": "y", "dev": "eth9"}]}]
+    )
+    assert _lan([a, b], multi) == "192.168.2.0/24"
+    assert _lan([a, b], json.dumps([{"dst": "default", "dev": "eth0"}])) == "192.168.1.0/24"
+
+
+@pytest.mark.parametrize("name", ["lxcbr0", "lxdbr0", "incusbr0", "vboxnet0", "vmnet8", "cni0", "podman1"])
+def test_review_more_bridges_of_container_and_vm_tools_are_no_candidates(name: str) -> None:
+    assert _lan([_if(name, ("inet", "10.0.3.1", 24)), _if("eth0", ("inet", "192.168.1.5", 24))]) == "192.168.1.0/24"
+    assert _lan([_if("br0", ("inet", "192.168.1.5", 24))]) == "192.168.1.0/24"  # a bridge holding the real card
+
+
+def test_review_the_plan_warns_when_it_writes_no_network() -> None:
+    from tests.unit.test_box_plan import _answers, _hw
+
+    assert bp.LAN_UNKNOWN in bp.plan(_answers(), _hw(lan="")).warnings
+    assert bp.LAN_UNKNOWN not in bp.plan(_answers(), _hw()).warnings
+
+
+def test_review_the_record_says_what_the_code_does_about_a_vpn_and_a_second_card() -> None:
+    rec = (Path(bp.__file__).resolve().parents[2] / "docs" / "decisions").glob("D-629-*.md")
+    text = " ".join(next(rec).read_text(encoding="utf-8").split())
+    assert "behind a full-tunnel VPN, or" not in text  # it said such a box is not guessed; one card left IS taken
+    assert "uplink" in text and "private" in text

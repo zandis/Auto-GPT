@@ -180,14 +180,23 @@ def parse_lsblk(text: str) -> tuple[Disk, ...]:
     return tuple(x for x in out if x.path)
 
 
-#: D-629: never the clinic's network: a container bridge, a tunnel
-_BRIDGES = ("docker", "br-", "veth", "virbr", "cni", "podman")
+#: D-629: never the clinic's network: a bridge of a container or VM tool, a tunnel
+_BRIDGES = ("docker", "br-", "veth", "virbr", "cni", "podman", "lxcbr", "lxdbr", "incusbr", "vboxnet", "vmnet")
 _TUNNELS = ("tun", "tap", "wg", "ppp", "tailscale", "zt", "utun", "ipsec")
+#: the IPv4 networks a site uses inside (RFC 1918), and the three of RFC 5737 that the examples and the tests use
+#: (never routed). A public network, carrier-grade NAT (100.64.0.0/10) and everything else is not written (D-629)
+_SITE_V4 = tuple(
+    ipaddress.IPv4Network(n)
+    for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
+)
+#: IPv6 that is local by its prefix: unique local addresses, and the documentation prefix of the examples
+_SITE_V6 = (ipaddress.IPv6Network("fc00::/7"), ipaddress.IPv6Network("2001:db8::/32"))
+MIN_PREFIX_V4, MIN_PREFIX_V6 = 16, 48  # nothing wider than a site's network is ever written
 #: the plan's warning when no network could be told (D-629)
 LAN_UNKNOWN = (
-    "network: the clinic's network could not be told from this machine (no default route and not exactly one "
-    "network card, or only a VPN): CLINIC_RANGES in deploy/site/hardening.conf is the box itself, so port 443 "
-    "answers nobody else until the range is written there"
+    "network: the clinic's network could not be told from this machine (no private network on the card the "
+    "default route uses, or no default route and not exactly one network card): CLINIC_RANGES in "
+    "deploy/site/hardening.conf is the box itself, so port 443 answers nobody else until the range is written there"
 )
 
 
@@ -200,47 +209,80 @@ def _json_list(text: str) -> list[dict[str, Any]]:
 
 
 def _networks(link: dict[str, Any]) -> list[str]:
-    """The networks of one interface that could be the clinic's (D-629): none for a loopback interface, a container
-    bridge or a tunnel; of its addresses, not a loopback, link-local or host (/32, /128) address."""
-    name = str(link.get("ifname", ""))
-    flags = {str(f) for f in link.get("flags") or ()}
+    """The networks of one interface that could be the clinic's (D-629). None for a loopback interface, a bridge of
+    a container or VM tool, or a tunnel. Of its addresses: IPv4 only a site's private network, /16 or narrower;
+    IPv6 /48 or narrower, and only a prefix that is local by itself or one beside a private IPv4 network on the
+    same card (the same segment); never a loopback, link-local, multicast or host (/32, /128) address."""
+    name = link.get("ifname")
+    flags = link.get("flags")
+    flags = {str(f) for f in flags} if isinstance(flags, list) else set()
     if (
-        name == "lo"
+        not isinstance(name, str)
+        or name == "lo"
         or name.startswith((*_BRIDGES, *_TUNNELS))
         or flags & {"LOOPBACK", "POINTOPOINT"}
         or link.get("link_type") == "loopback"
     ):
         return []
     v4: list[str] = []
-    v6: list[str] = []
-    for a in link.get("addr_info") or ():
-        if not isinstance(a, dict) or a.get("family") not in ("inet", "inet6") or not a.get("local"):
+    v6: list[tuple[str, bool]] = []
+    info = link.get("addr_info")
+    for a in info if isinstance(info, list) else ():
+        if not isinstance(a, dict) or a.get("family") not in ("inet", "inet6") or not isinstance(a.get("local"), str):
             continue
         try:
-            ifc = ipaddress.ip_interface(f"{a['local']}/{a.get('prefixlen', 24 if a['family'] == 'inet' else 64)}")
-        except ValueError:
+            ifc = ipaddress.ip_interface(f"{a['local']}/{int(a['prefixlen'])}")
+        except (KeyError, TypeError, ValueError):
             continue
-        if ifc.ip.is_loopback or ifc.ip.is_link_local or ifc.network.prefixlen == ifc.ip.max_prefixlen:
+        net, ip = ifc.network, ifc.ip
+        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
             continue
-        out = v4 if ifc.version == 4 else v6
-        if str(ifc.network) not in out:
-            out.append(str(ifc.network))
-    return v4 + v6
+        if net.prefixlen == ip.max_prefixlen:
+            continue
+        if isinstance(net, ipaddress.IPv4Network):
+            if net.prefixlen >= MIN_PREFIX_V4 and any(net.subnet_of(s) for s in _SITE_V4) and str(net) not in v4:
+                v4.append(str(net))
+        elif (
+            isinstance(net, ipaddress.IPv6Network)
+            and net.prefixlen >= MIN_PREFIX_V6
+            and str(net) not in [n for n, _ in v6]
+        ):
+            v6.append((str(net), any(net.subnet_of(s) for s in _SITE_V6)))
+    return v4 + [n for n, local in v6 if local or v4]
+
+
+def _route_devs(routes: str) -> list[str]:
+    """The interfaces of the default routes, lowest metric first; a route with several next hops gives each."""
+    rows = []
+    for r in _json_list(routes):
+        if r.get("dst") not in ("default", "0.0.0.0/0", "::/0"):
+            continue
+        try:
+            metric = int(r.get("metric") or 0)
+        except (TypeError, ValueError):
+            metric = 0
+        hops = r.get("nexthops")
+        devs = [r.get("dev"), *(h.get("dev") for h in (hops if isinstance(hops, list) else ()) if isinstance(h, dict))]
+        rows += [(metric, d) for d in devs if isinstance(d, str)]
+    return [d for _, d in sorted(rows, key=lambda x: x[0])]
 
 
 def clinic_ranges(addrs: str, routes4: str = "", routes6: str = "") -> str:
     """The box's network for ``CLINIC_RANGES`` (who reaches port 443), from ``ip -j addr show scope global`` and
-    ``ip -j [-6] route show default`` (D-629): the IPv4 and IPv6 networks of the interface the default route uses,
-    lowest metric first, IPv4's route before IPv6's. A route through an interface that cannot be the clinic's (see
-    :func:`_networks`) is passed over. With no route to go by, the one interface that could be the clinic's; with
-    several, or none, the empty string: it decides who reaches the console, so it is not guessed."""
-    nets = {str(link.get("ifname", "")): _networks(link) for link in _json_list(addrs)}
-    nets = {name: found for name, found in nets.items() if name and found}
+    ``ip -j [-6] route show default`` (D-629): the networks (see :func:`_networks`) of the interface the default
+    route uses, lowest metric first, IPv4's route before IPv6's. A route through an interface that has no such
+    network (a tunnel, a public uplink) is passed over. With no route to go by, the one interface that could be the
+    clinic's; with several, or none, the empty string: it decides who reaches the console, so it is not guessed.
+    Never raises: text that is not what ``ip`` prints gives the empty string."""
+    nets: dict[str, list[str]] = {}
+    for link in _json_list(addrs):
+        found = _networks(link)
+        if found:
+            nets[str(link["ifname"])] = found
     for routes in (routes4, routes6):
-        rows = [r for r in _json_list(routes) if r.get("dst") in ("default", "0.0.0.0/0", "::/0")]
-        for r in sorted(rows, key=lambda r: int(r.get("metric") or 0)):
-            if str(r.get("dev", "")) in nets:
-                return " ".join(nets[str(r["dev"])])
+        for dev in _route_devs(routes):
+            if dev in nets:
+                return " ".join(nets[dev])
     return " ".join(next(iter(nets.values()))) if len(nets) == 1 else ""
 
 

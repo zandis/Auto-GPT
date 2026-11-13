@@ -22,21 +22,33 @@ This decides who reaches the console, so a wrong guess must not be written as if
 
 ## Decision
 
-1. The range is the network of **the interface the default route uses**: its IPv4 network and, when it has a
-   global IPv6 address, that network too (`CLINIC_RANGES` takes both). The routes are read for both families;
-   the lowest metric wins.
+1. The range is the network of **the interface the default route uses**: its private IPv4 network and, beside
+   it, its IPv6 network (`CLINIC_RANGES` takes both). The routes are read for both families; the lowest metric
+   wins; a route with several next hops gives each of its interfaces.
 2. Never taken as the clinic's network: a loopback address or interface, a host address (/32, /128), a
-   link-local address, a container bridge, and a tunnel (`tun`, `tap`, `wg`, `ppp`, `tailscale`, `zt`, or a
-   point-to-point link). When the default route goes through one of these, the next route is looked at.
-3. With no default route to go by, the range is taken only when exactly one interface is left that could be the
+   link-local or multicast address, a bridge of a container or VM tool, and a tunnel (`tun`, `tap`, `wg`, `ppp`,
+   `tailscale`, `zt`, or a point-to-point link). When the default route goes through one of these, the next
+   route is looked at.
+3. **Only a site's own network is ever written.** IPv4: a private network (RFC 1918), /16 or narrower; a public
+   network, carrier-grade NAT, or anything wider is not a candidate. IPv6: /48 or narrower, and only a prefix
+   that is local by itself (unique local) or one that stands beside a private IPv4 network on the same card,
+   which is then the same segment. Before this card 443 over IPv6 answered nobody; a global IPv6 prefix on a
+   card with no private IPv4 can be a provider's shared segment and stays closed.
+4. With no default route to go by, the range is taken only when exactly one interface is left that could be the
    clinic's. Several, or none: the plan writes no network (the loopback range, as before when nothing was
-   found) and says so; the owner or IT names the range. A box with no gateway and one network card is the
-   common hospital case and is still found.
-4. `Hardware.lan` stays one string; it may now hold two ranges separated by a space.
+   found) and warns; the owner or IT names the range. A box with no gateway and one network card is the common
+   hospital case and is still found.
+5. `Hardware.lan` stays one string; it may now hold two ranges separated by a space. The detection never raises
+   on text that is not what `ip` prints.
 
 ## Consequences
 
-- A box behind a full-tunnel VPN, or with two clinic networks and no default route, is not guessed: its console
-  answers only the box itself until the range is named.
+- A box whose only default route goes through a VPN and which has one network card: that card's private
+  network is taken (the tunnel is passed over, one candidate is left). With two cards it is not guessed.
+- Known and not solved here: a box with two cards where the default route uses the hospital uplink and the
+  clinic sits on the second card with no gateway gets the uplink's private network. The first code took
+  whichever was listed first. IT names the range in `deploy/site/hardening.conf` on such a box.
+- A real network card named like a tunnel (`tap0`) is passed over: the plan warns and writes no network.
 - For lane W and lane G: on WSL2 mirrored networking and on a box with a VPN up, `python3 -m tools.box detect`
-  prints the clinic's network or nothing, never the loopback /32 or the VPN's.
+  prints the clinic's network or nothing, never the loopback /32 or the VPN's. The shape of `ip -j` there was
+  not seen by lane D.
