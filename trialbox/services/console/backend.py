@@ -218,7 +218,7 @@ _SHOWN_DETAIL = (
 #: NEW-RUN-1 (D-558): the figures of a weekly run's ``microbatch.budget`` event the run page says in words. They
 #: are patient counts, so they are NOT among the keys every reader of the audit table sees (``_SHOWN_DETAIL``): the
 #: page asks for them here and shows them only to an account that reads the study's list.
-RECHECK_SHARE = ("excluded_in_scope", "excluded_rescreened", "excluded_kept", "excluded_percent",
+RECHECK_SHARE = ("left", "excluded_in_scope", "excluded_rescreened", "excluded_kept", "excluded_percent",
                  "excluded_full_pass_runs", "excluded_carried")  # fmt: skip
 
 

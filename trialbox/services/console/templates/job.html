@@ -59,10 +59,10 @@
 {% if recheck %}
 <section class="card" data-testid="recheck-share">
 <h2>{{ t('job.recheck.title') }}</h2>
-<p>{{ t('job.recheck.reached', n=recheck.n, scope=recheck.scope) }}</p>
-{% if recheck.kept is not none and recheck.percent is not none %}<p>{{ t('job.recheck.kept', kept=recheck.kept, percent=recheck.percent) }}</p>{% endif %}
-{% if recheck.runs is not none %}<p>{{ t('job.recheck.pass', runs=recheck.runs) }}</p>{% elif recheck.scope > recheck.n %}<p class="hint">{{ t('job.recheck.nopass') }}</p>{% endif %}
-{% if recheck.carried %}<p class="hint">{{ t('job.recheck.carried', n=recheck.carried) }}</p>{% endif %}
+<p data-testid="recheck-reached">{{ t('job.recheck.reached', n=recheck.n, scope=recheck.scope) }}{% if not recheck.carried %} {{ t('job.recheck.all') }}{% endif %}</p>
+{% if recheck.share == 'kept' %}<p data-testid="recheck-kept">{{ t('job.recheck.kept', kept=recheck.kept, percent=recheck.percent) }}</p>
+{% elif recheck.share == 'none' %}<p data-testid="recheck-noshare">{{ t('job.recheck.noshare') }}</p>{% endif %}
+{% if recheck.carried %}<p data-testid="recheck-carried">{{ t('job.recheck.carried', n=recheck.carried) }}{% if recheck.after == 'pass' %} {{ t('job.recheck.pass', runs=recheck.runs) }}{% elif recheck.after == 'nopass' %} {{ t('job.recheck.nopass') }}{% endif %}</p>{% endif %}
 </section>
 {% endif %}
 
