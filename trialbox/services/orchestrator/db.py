@@ -298,6 +298,16 @@ class JobDB:
         rows = self._db.fetchall(sql, [*args, limit])
         return [Job.model_validate_json(r[0]) for r in rows]
 
+    def waiting_rulesets(self) -> list[str]:
+        """NEW-JRN-1b (D-545): the studies with a job waiting for approval, the one with the newest such job first.
+        One row per study, so nothing is cut: a study behind any number of other waiting jobs is named."""
+        rows = self._db.fetchall(
+            "SELECT ruleset FROM jobs WHERE state = ? AND ruleset IS NOT NULL AND trim(ruleset) <> '' "
+            "GROUP BY ruleset ORDER BY max(received_at) DESC, ruleset",
+            ("awaiting_approval",),
+        )
+        return [str(r[0]) for r in rows]
+
     # ------------------------------------------------------------------ the night's chain (T-726, D-492)
     def scheduler_jobs(
         self,

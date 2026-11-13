@@ -362,6 +362,13 @@ def create_job(req: JobCreate, request: Request) -> Job:
     return job
 
 
+@app.get("/jobs/waiting-studies")  # declared before /jobs/{job_id}, or it is read as a job's id
+def waiting_studies() -> list[str]:
+    """NEW-JRN-1b (D-545): the studies with criteria waiting for approval, the newest first. The console asks this
+    instead of reading a listing of jobs, which is cut at its limit."""
+    return orch().db.waiting_rulesets()
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)
