@@ -129,12 +129,16 @@ def build_config() -> tuple[AdapterConfig, str, str]:
             from embed_service.embedder import from_env as embedder_from_env
             from lake.store import Lake
 
-            st = Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).rebuild(
-                snapshot,
-                embedder_from_env(os.environ.get("TB_LAKE_EMBEDDER", "hash")),
-                ndjson_dir,
-                promote=promote,
-                check=not promote,
+            from adapter import failure
+
+            st = failure.local_lake(  # D-669: an engine error leaves as the lake's safe answer, as over HTTP
+                lambda: Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).rebuild(
+                    snapshot,
+                    embedder_from_env(os.environ.get("TB_LAKE_EMBEDDER", "hash")),
+                    ndjson_dir,
+                    promote=promote,
+                    check=not promote,
+                )
             )
             return RebuildResult(
                 snapshot=st.snapshot,
@@ -154,7 +158,11 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         if os.environ.get("TB_ADAPTER_LAKE", "http") == "local":
             from lake.store import Lake
 
-            return Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).promote_built(snapshot, generation)
+            from adapter import failure
+
+            return failure.local_lake(  # D-669
+                lambda: Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).promote_built(snapshot, generation)
+            )
         return HttpLakeStep(cfg.env.lake_url).promote(snapshot, generation)
 
     ret = cfg.settings.retention
