@@ -1,4 +1,5 @@
-"""Back-fill memory (T-305b, D-403; TST-PERF-01): the back-fill's peak memory does not grow with the years of history.
+"""Back-fill memory (T-305b, D-403; TST-PERF-01): the back-fill's peak memory does not grow with the years of history,
+and since T-692 (D-473) the nightly full load's does not either.
 
 Marker ``perf``: not in the unit run. ``TB_BACKFILL_SCALES`` (default ``1,4``) names how many copies of the synthetic
 site A (600 fictional patients over 13 years) are stacked, each copy 28 years further back in time (the 28-year
@@ -47,8 +48,10 @@ if mode == "backfill":
 else:
     rep = run_ingest(cfg, "csv", feed, snapshot="2026-11-10", load_fhir=False, rebuild_lake=False, validate=False)
     ok, counts, years = rep.passed, rep.counts, 0
+from adapter.ndjson import snapshot_dir
+written = sum(f.stat().st_size for f in snapshot_dir(cfg.lake_dir, "2026-11-10").glob("*.ndjson"))
 print(json.dumps({"mode": mode, "ok": ok, "records": sum(counts.values()), "years": years,
-                  "seconds": round(time.perf_counter() - t0, 1),
+                  "seconds": round(time.perf_counter() - t0, 1), "ndjson_mb": round(written / 2**20, 1),
                   "peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)}))
 """
 
@@ -107,4 +110,12 @@ def test_backfill_memory_stays_flat_as_history_grows(tmp_path: Path, db_url: str
     grow_ni = ni[-1]["peak_rss_mb"] - ni[0]["peak_rss_mb"]
     assert bf[-1]["records"] == ni[-1]["records"]
     if len(scales) > 1:
-        assert grow_bf < grow_ni / 2, (grow_bf, grow_ni)  # the nightly load grows with the history, the back-fill not
+        # NEW-B-9: the test compared the two loads ("the nightly grows with the history, the back-fill less than
+        # half as much"). Since T-692 (D-473) the nightly load streams too and grows by next to nothing, so the
+        # comparison failed while both were flat. Each load is now held to the claim itself: its peak memory grows
+        # by less than half of what the added history takes as NDJSON on disk (holding the history in memory
+        # costs more than its bytes). No fixed number: the bound is measured in the same run (OD-10)
+        added = bf[-1]["ndjson_mb"] - bf[0]["ndjson_mb"]
+        assert added > 0 and ni[-1]["ndjson_mb"] == bf[-1]["ndjson_mb"], rows
+        assert grow_bf < added / 2, (grow_bf, added)  # the back-fill does not hold the history
+        assert grow_ni < added / 2, (grow_ni, added)  # nor does the nightly full load (T-692)
