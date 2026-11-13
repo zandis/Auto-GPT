@@ -35,7 +35,7 @@ BeforeAll {
       FeatureRestart = $true; WslInstalled = $false; Distros = @(); WinGpu = $true
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
-      BootInfo = $null; BootRegistered = 0
+      BootInfo = $null; BootRegistered = 0; NetMode = "mirrored"; Firewall = @()
       Tpm = @{ Present = $true; Ready = $true }; BLCalls = New-Object System.Collections.ArrayList
       Asked = New-Object System.Collections.ArrayList; Answers = New-Object System.Collections.ArrayList
       Printed = New-Object System.Collections.ArrayList; Machine = @{}
@@ -81,6 +81,7 @@ Describe "box-install.ps1" {
     Mock Register-TbResumeTask { $script:S.ResumeTask = $true; $script:S.ResumeMore = $More; $script:S.ResumeScript = $ScriptPath }
     Mock Unregister-TbResumeTask { $script:S.ResumeTask = $false }
     Mock Restart-TbComputer { $script:S.Restarted++ }
+    Mock Set-TbConsoleFirewall { $script:S.Firewall += ,"$RuleName|$Port"; if ($script:S.Firewall.Count -gt 1) { return "kept" }; return "added" }
     Mock Register-TbBootTask {
       $script:S.BootTask = "$Account|$Distro|$TaskName"; $script:S.BootRegistered++
       $script:S.BootInfo = @{ State = "Running"; LastResult = "267009"; Action = "wsl.exe -d $Distro --exec /bin/sh -c 'exec sleep infinity' " }
@@ -129,6 +130,7 @@ Describe "box-install.ps1" {
         elseif ($step -eq "pid1") { $r.Output = @($s.Pid1) }
         elseif ($step -eq "wslconf") { $r.Output = @("changed") }
         elseif ($step -eq "state") { $r.Output = @($s.StateLine) }
+        elseif ($step -eq "network-mode") { $r.Output = @($s.NetMode) }
         elseif ($step -eq "gpu") { $r.Output = @("NVIDIA RTX PRO 6000 Blackwell, 581.15, 97887 MiB") }
         elseif ($step -eq "host-tree") { $r.Output = @("unpacked: /opt/trialbox", "vendor key sha256 0123abcd") }
       }
@@ -212,7 +214,7 @@ Describe "box-install.ps1" {
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
       $MinFreeGB = 200; $script:S.FreeGB = 250
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22621 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -268,7 +270,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $calls = $script:S.Calls -join "`n"
       $calls | Should -Match "wsl\.exe --import TrialBox \S+wsl \S+ubuntu-24\.04-wsl-amd64\.tar\.gz --version 2"
-      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "state", "boot-check")
+      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "network-mode", "state", "boot-check", "egress-check")
       $script:S.Console.Count | Should -Be 1
       $script:S.Console[0] | Should -Match "wsl\.exe -d TrialBox -u root .*wsl-setup\.sh install \S+/linux/trialbox-1\.0\.0\.tar"
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
@@ -283,6 +285,7 @@ Describe "box-install.ps1" {
       $cfg | Should -Match "(?m)^processors=24"       # 32 logical processors less 25 percent
       $cfg | Should -Match "(?m)^defaultVhdSize=4000787030016"
       $cfg | Should -Match "(?m)^sparseVhd=true"
+      $cfg | Should -Match "(?m)^networkingMode=mirrored"   # NEW-WIN-4 (D-604)
       $log = Get-Log
       $log.IndexOf("wslconfig: ok") | Should -BeLessThan $log.IndexOf("import: start")
     }
@@ -398,12 +401,34 @@ Describe "box-install.ps1" {
       $script:S.Calls.Count | Should -Be $n
       $script:S.Console.Count | Should -Be 1
     }
+    It "opens the console's one port to the site's own network, once, before the Linux installer runs (NEW-WIN-4)" {
+      Invoke-Run | Should -Be 0
+      $script:S.Firewall | Should -Be @("TrialBox-Console|443")
+      $log = Get-Log
+      $log.IndexOf("network: ok") | Should -BeLessThan $log.IndexOf("linux-install: start")
+      $log | Should -Match "firewall rule TrialBox-Console: added"
+      ($script:S.Said -join "`n") | Should -Match "port 443, to computers on the same network"
+    }
+    It "stops when WSL2 does not run with mirrored networking, and opens nothing" {
+      $script:S.NetMode = "nat"
+      Invoke-Run | Should -Be 1
+      $script:S.Firewall.Count | Should -Be 0
+      $script:S.Console.Count | Should -Be 0
+      Get-Log | Should -Match "STOP step 13/\d+ network: .*it reports: nat"
+    }
+    It "is not finished while the egress table is not loaded under WSL2" {
+      $script:S.SetupFail["egress-check"] = "the nftables table inet trialbox_egress is not loaded"
+      Invoke-Run | Should -Be 1
+      $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
+      $state.finished | Should -BeFalse
+      Get-Log | Should -Match "STOP step 14/\d+ linux-install: .*trialbox_egress"
+    }
     It "is not finished while Docker or the stack would not start with the distribution" {
       $script:S.SetupFail["boot-check"] = "not enabled to start with the distribution: trialbox.service"
       Invoke-Run | Should -Be 1
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeFalse
-      Get-Log | Should -Match "STOP step 13/\d+ linux-install: .*trialbox\.service"
+      Get-Log | Should -Match "STOP step 14/\d+ linux-install: .*trialbox\.service"
     }
     It "does nothing on a second run of a finished install" {
       Invoke-Run | Should -Be 0
@@ -478,7 +503,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 1
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeFalse
-      Get-Log | Should -Match "STOP step 13/\d+ linux-install"
+      Get-Log | Should -Match "STOP step 14/\d+ linux-install"
     }
     It "counts an install whose host check still has FAIL lines as installed, and says so" {
       $script:S.InstallExit = 1
@@ -501,7 +526,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $log = Get-Log
       foreach ($name in @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
-          "packages", "gpu-container", "host-tree", "boot-task", "linux-install")) { $log | Should -Match ("step \d+/13 " + $name + ": ok") }
+          "packages", "gpu-container", "host-tree", "boot-task", "network", "linux-install")) { $log | Should -Match ("step \d+/14 " + $name + ": ok") }
       Should -Invoke Invoke-TbNative -Times 0 -ParameterFilter { ($Arguments -join " ") -match "wsl-setup\.sh install" }
     }
   }

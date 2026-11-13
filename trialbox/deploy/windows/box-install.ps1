@@ -27,7 +27,9 @@
 #   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over an existing one)
 #   12 boot-task      start without a person (NEW-WIN-2, D-602): hibernation and sleep off; the task TrialBox-WSL2
 #                     (register_keepalive.ps1) starts the distribution at boot, signed in or not
-#   13 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
+#   13 network        the console on the site's network (NEW-WIN-4, D-604): WSL2 runs with mirrored networking, and
+#                     one firewall rule admits the console's port from the site's own network, nothing else
+#   14 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
 #                     the owner. Its window is never written to the log. Then: Docker and the stack are enabled
 #                     to start with the distribution
 # It never removes a distribution, a virtual disk or a file it did not write: a distribution of the same name that
@@ -46,8 +48,9 @@ param(
   # room the data drive must have: the figure preflight.ps1 and preflight.sh already declare (D-125: images and
   # models about 40 GB; the lake, the databases and the local backup copies are the rest)
   [int]$MinFreeGB = 500,
-  # the first build of Windows 11 (WSL2 with systemd and GPU support in its supported form)
-  [int]$MinWindowsBuild = 22000,
+  # Windows 11 22H2: the first build with WSL2's mirrored networking, the form the console is served in
+  # (NEW-WIN-4, D-604); systemd and GPU support in WSL2 are older
+  [int]$MinWindowsBuild = 22621,
   # how long a stopped distribution may take to start again with systemd as PID 1
   [int]$StartWaitSeconds = 120,
   # percent of the installed memory and processors kept for Windows and the desktop user; WSL2 gets the rest.
@@ -71,11 +74,13 @@ $script:TbShareGiven = $PSBoundParameters.ContainsKey("DesktopSharePercent")
 $script:TbUnlockDefault = $BitLockerUnlock
 $script:TbUnlockGiven = $PSBoundParameters.ContainsKey("BitLockerUnlock")
 $script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
-  "packages", "gpu-container", "host-tree", "boot-task", "linux-install")
+  "packages", "gpu-container", "host-tree", "boot-task", "network", "linux-install")
 $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", "EnterpriseS", "Education",
   "ProfessionalEducation")
 $script:TbFeatures = @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")
 $script:TbResumeTask = "TrialBox-Install-Resume"
+$script:TbConsolePort = 443  # the one port the stack publishes (deploy/docker-compose.identity.yml; a test holds the two together)
+$script:TbFirewallRule = "TrialBox-Console"
 $script:TbBootTask = "TrialBox-WSL2"  # the name host_facts.ps1 and wsl2_policy.py look for (D-421)
 $script:TbRestartExit = 3010  # the exit code Windows installers use for "restart needed"
 
@@ -241,6 +246,17 @@ function Test-TbTranscription {
   return ($null -ne $v -and [int]$v.EnableTranscripting -eq 1)
 }
 function Clear-TbScreen { Clear-Host }
+function Set-TbConsoleFirewall([string]$RuleName, [int]$Port) {
+  # WSL2 with mirrored networking sits behind the Hyper-V firewall. Inbound stays closed by default; one rule lets
+  # the console's port in from the workstation's own subnet. Returns "kept" or "added".
+  $wsl = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}"   # the id Windows gives WSL's virtual machines (Microsoft Learn)
+  $vm = Get-NetFirewallHyperVVMSetting -PolicyStore ActiveStore -Name $wsl -ErrorAction SilentlyContinue
+  if ($null -eq $vm -or [string]$vm.DefaultInboundAction -ne "Block") { Set-NetFirewallHyperVVMSetting -Name $wsl -DefaultInboundAction Block }
+  if (Get-NetFirewallHyperVRule -Name $RuleName -ErrorAction SilentlyContinue) { return "kept" }
+  New-NetFirewallHyperVRule -Name $RuleName -DisplayName "TrialBox console (HTTPS) from the site's own network" `
+    -Direction Inbound -VMCreatorId $wsl -Protocol TCP -LocalPorts $Port -RemoteAddresses LocalSubnet -Action Allow | Out-Null
+  return "added"
+}
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -296,6 +312,7 @@ function Get-TbWslConfigText([int]$MemoryGB, [int]$Processors, [int]$SharePercen
     "# TrialBox: written by box-install.ps1 from this machine's hardware (NEW-WIN-3, D-601). Run the installer",
     ("# again after a hardware change. Installed: {0} GB, {1} logical processors; {2} percent kept for the desktop." -f $MemoryGB, $Processors, $SharePercent),
     "[wsl2]", ("memory={0}GB" -f $mem), ("processors={0}" -f $cpu),
+    "# the workstation's own network address is WSL2's (NEW-WIN-4, D-604)", "networkingMode=mirrored",
     "# no swap: patient data never pages to a disk file (D-421)", "swap=0")
   if ($DiskBytes -gt 0) { $lines += @("# the virtual disk may grow to the data drive's size", ("defaultVhdSize={0}" -f $DiskBytes)) }
   $lines += @("[experimental]", "# the disk file gives back freed space (D-421)", "sparseVhd=true", "")
@@ -684,6 +701,17 @@ function Step-BootTask {
   Write-TbLog ("    task {0}: {1}; state {2}; last result {3}" -f $script:TbBootTask, $did, $info.State, $info.LastResult)
   Say "boot_task" @($script:TbBootTask)
 }
+function Step-Network {
+  # the form is mirrored networking (.wslconfig, step 6): the workstation's own address is WSL2's, so the box sees
+  # the site's real network and the console answers on the workstation's name
+  $r = Invoke-TbSetup "network-mode" @()
+  $mode = [string](@($r.Output) | Select-Object -Last 1)
+  if ($r.ExitCode -ne 0 -or $mode -ne "mirrored") { Stop-TbStep "not_mirrored" @($mode) }
+  try { $did = Set-TbConsoleFirewall $script:TbFirewallRule $script:TbConsolePort }
+  catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
+  Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did)
+  Say "network" @($script:TbConsolePort)
+}
 function Step-LinuxInstall {
   Say "linux_install" @()
   $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
@@ -695,6 +723,7 @@ function Step-LinuxInstall {
   $line = [string](@($r.Output) | Select-Object -Last 1)
   if ($line -ne "installed=1") { Stop-TbStep "linux_install_stopped" @($code) }
   [void](Assert-TbSetup "boot-check" @())  # Docker and the stack start with the distribution, with nobody there
+  [void](Assert-TbSetup "egress-check" @())  # the egress table of D-377 is loaded under this networking form
   if ($code -ne 0) { Say "host_check_fails" @() }
   $script:TbState.finished = $true
 }

@@ -13,6 +13,8 @@
 #   wsl-setup.sh install BUNDLE [--yes]  deploy/box-install.sh in this terminal (the first-run code, the owner's wait)
 #   wsl-setup.sh state                   prints installed=1 once box-install.sh has said the box is ready
 #   wsl-setup.sh boot-check              Docker and the stack are enabled to start with the distribution (NEW-WIN-2)
+#   wsl-setup.sh network-mode            prints WSL2's networking mode: mirrored, nat, ... (NEW-WIN-4)
+#   wsl-setup.sh egress-check            the egress table of D-377 is loaded and its unit is active (NEW-WIN-4)
 #
 # Every step may be run again. None removes or replaces a file it did not write.
 # Knobs for the tests only: TB_WSL_ETC (/etc), TB_WSL_PROC (/proc), TB_WSL_ROOT (/opt/trialbox), TB_WSL_SMI (the
@@ -188,6 +190,19 @@ EOP
     done
     [ -z "$off" ] || die "not enabled to start with the distribution:$off (after a restart TrialBox would stay down)"
     echo "docker.service and trialbox.service start with the distribution"
+    ;;
+  network-mode)
+    # wslinfo comes with WSL 2.0 and later; without it the mode cannot be mirrored
+    if command -v wslinfo >/dev/null 2>&1; then wslinfo --networking-mode | tr -d '\r' | tail -1; else echo unknown; fi
+    ;;
+  egress-check)
+    # deploy/egress.py: the table every TrialBox container network is behind; trialbox-egress.service loads it
+    # closed before Docker starts (D-377). Nobody had run it under WSL2 before this step
+    [ "$(systemctl is-active trialbox-egress.service 2>/dev/null || true)" = active ] \
+      || die "trialbox-egress.service is not active: the egress rules are not loaded (containers would have a way out)"
+    nft list table inet trialbox_egress >/dev/null 2>&1 \
+      || die "the nftables table inet trialbox_egress is not loaded under this WSL2 kernel and networking mode"
+    echo "egress table trialbox_egress loaded; trialbox-egress.service active"
     ;;
   *)
     die "unknown step '${STEP}' (see the head of this file)"

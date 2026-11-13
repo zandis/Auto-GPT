@@ -577,5 +577,39 @@ def test_the_key_probe_decides_at_startup_with_nobody_signed_in_and_leaves_no_ta
     assert "key-probe.ps1 -AtStartup" in sheet and "key-probe.ps1 -Collect" in sheet
 
 
+def test_the_network_mode_is_asked_of_wsl_and_unknown_without_wslinfo(box: Box) -> None:
+    assert box.run("network-mode").stdout.strip() == "unknown"  # no wslinfo on this machine: an old WSL
+    box.stub("wslinfo", "printf 'mirrored\\r\\n'")
+    assert box.run("network-mode").stdout.strip() == "mirrored"
+
+
+def test_egress_check_wants_the_unit_active_and_the_table_loaded(box: Box) -> None:
+    box.stub("systemctl", "echo inactive; exit 3")
+    box.stub("nft", "exit 0")
+    out = box.run("egress-check")
+    assert out.returncode == 1 and "trialbox-egress.service is not active" in out.stderr
+    box.stub("systemctl", "echo active")
+    box.stub("nft", "exit 1")
+    out = box.run("egress-check")
+    assert out.returncode == 1 and "trialbox_egress is not loaded" in out.stderr
+    box.stub("nft", "exit 0")
+    assert box.run("egress-check").returncode == 0
+    assert "nft list table inet trialbox_egress" in box.log()
+
+
+def test_the_installer_opens_the_one_port_the_stack_publishes_and_names_the_real_egress_table() -> None:
+    ps1 = PS1.read_text(encoding="utf-8")
+    port = re.search(r"\$script:TbConsolePort = (\d+)", ps1)
+    assert port
+    published = re.findall(r'ports: \["[^"]*:(\d+):\d+"\]', (ROOT / "deploy/docker-compose.identity.yml").read_text())
+    assert published == [port.group(1)]  # one published port in the stack, and it is the one the firewall admits
+    # the rule admits the workstation's own subnet only, inbound, for WSL's virtual machines; nothing wider
+    rule = ps1[ps1.index("function Set-TbConsoleFirewall") : ps1.index("function Restart-TbComputer")]
+    assert "-RemoteAddresses LocalSubnet" in rule and "-Direction Inbound" in rule and "-LocalPorts $Port" in rule
+    assert "DefaultInboundAction Block" in rule and "Any" not in rule and "Disable-NetFirewall" not in ps1
+    table = re.search(r'^TABLE = "([a-z_]+)"', (ROOT / "deploy/egress.py").read_text(encoding="utf-8"), re.M)
+    assert table and f"nft list table inet {table.group(1)}" in SH.read_text(encoding="utf-8")
+
+
 def test_an_unknown_step_is_an_error(box: Box) -> None:
     assert box.run("format-disk").returncode == 1

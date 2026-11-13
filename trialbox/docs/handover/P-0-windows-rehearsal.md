@@ -119,6 +119,22 @@ to line 36a, and write that you did. Never send a recovery key back; write only 
 | 36b | The same probe on demand, for comparison: `... key-probe.ps1` (no switch) | The same lines with `mode=on_demand` | All of its lines |
 | 36c | `Get-ScheduledTask TrialBox-Key-Probe` afterwards | No such task | The answer |
 
+## Part 5: NEW-WIN-4, the console on the site's network (D-604; the rehearsal of P-14)
+
+Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). After Part 1 is finished.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 37 | At step 13 read the window; then `wsl -d TrialBox -- wslinfo --networking-mode` and `Get-NetFirewallHyperVRule -Name TrialBox-Console` | "The console will answer on this PC's name, port 443 ..."; `mirrored`; the rule exists: inbound, TCP 443, RemoteAddresses LocalSubnet | The three answers; the PC's Windows build (`winver`) and `wsl --version` |
+| 38 | On this PC: `wsl -d TrialBox -- hostname -I` and `ipconfig` | WSL2 shows the PC's own network address (not a 172.x address of its own) | Both address lists |
+| 39 | From the **second PC**: open `https://<this PC's name>/` in a browser | The console's sign-in page (a certificate warning is expected: the box's own certificate) | Whether the name opened it; if not, whether `https://<this PC's address>/` did; the browser's message |
+| 40 | From the second PC, in PowerShell: `443, 80, 22, 5432, 8000, 8080, 2375, 3389 \| ForEach-Object { Test-NetConnection <this PC's name> -Port $_ -WarningAction SilentlyContinue \| Select-Object RemotePort, TcpTestSucceeded }` | True for 443 only | The table. Any other True is a finding: say which port |
+| 41 | From a PC on **another** network, if one is at hand (a phone's hotspot counts): the same test of port 443 | False | The answer, or "no other network at hand" |
+| 42 | **Outward.** On this PC: `wsl -d TrialBox -u root -- sh -c "systemctl is-active trialbox-egress.service; nft list table inet trialbox_egress \| head -20"` | `active`, and the table's first lines | The output |
+| 43 | A container must have no way out: `wsl -d TrialBox -u root -- sh -c "docker exec $(docker ps --format '{{.Names}}' \| grep -m1 lake) python3 -c \"import socket; s=socket.create_connection(('1.1.1.1', 443), 5); print('OUT')\""` | An error (timed out or refused), not `OUT` | What was printed. `OUT` means the egress table does not hold under this form: the most important finding of this part |
+| 44 | Restart Windows, sign in, and repeat lines 39, 40 and 43 | The same answers | Any difference after the restart |
+| 45 | **The other form, by hand, for comparison only** (do this last; it changes `.wslconfig`): write down the answers above; in `C:\Users\<you>\.wslconfig` change `networkingMode=mirrored` to `networkingMode=nat`; `wsl --shutdown`; start WSL (`wsl -d TrialBox -- true`); note WSL2's address (`wsl -d TrialBox -- hostname -I`); as administrator: `netsh interface portproxy add v4tov4 listenport=443 listenaddress=0.0.0.0 connectport=443 connectaddress=<that address>` and `New-NetFirewallRule -DisplayName TrialBox-Console-Proxy -Direction Inbound -Protocol TCP -LocalPort 443 -RemoteAddress LocalSubnet -Action Allow`. Repeat lines 39, 40 and 43. Then put it back: `netsh interface portproxy delete v4tov4 listenport=443 listenaddress=0.0.0.0`, `Remove-NetFirewallRule -DisplayName TrialBox-Console-Proxy`, `networkingMode=mirrored` again, `wsl --shutdown` | (a comparison) | The same three answers under this form, and that everything was put back |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -146,4 +162,8 @@ to line 36a, and write that you did. Never send a recovery key back; write only 
 - Line 36a: the key back end is built on the first of `dpapi_user`, `acl_file`, `dpapi_machine` that says `ok` AT
   STARTUP, and needs `wsl_handover=ok` there. Line 36b does not decide: a store that is `ok` only on demand is of
   no use. All `fail` at startup with line 26a "yes": a stored password for the task, or a service (D-602 point 4).
+- Lines 39, 40 and 43 decide the networking form (D-604): mirrored networking is kept when the console opens from the
+  second PC, only port 443 answers and the container has no way out, also after the restart (line 44). If line 43
+  prints `OUT` under mirrored networking and not under line 45's form, the port proxy is built; if under both, the
+  egress rule moves to Windows Firewall.
 - Line 14: the address NEW-WIN-4 must make work from another PC.

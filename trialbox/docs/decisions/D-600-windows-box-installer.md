@@ -86,7 +86,7 @@ data, so the rules below say what the installer may touch.
     features, and the P-0 rehearsal is "any Windows 11 PC", most of which run Pro. Home is refused (no BitLocker
     management, no policy). The owner ruled for the wider list on 2026-11-12.
 12. **Figures.** `-MinFreeGB` (500, the figure `preflight.ps1` and `preflight.sh` declare, D-125),
-    `-MinWindowsBuild` (22000, the first Windows 11) and `-StartWaitSeconds` (120, how long a restarted
+    `-MinWindowsBuild` (22000, the first Windows 11; raised to 22621 by D-604) and `-StartWaitSeconds` (120, how long a restarted
     distribution may take to show systemd) are declared parameters with their reasons in the script. `.wslconfig`
     gets `swap=0` and no memory or processor figure: those come from the hardware in NEW-WIN-3.
 

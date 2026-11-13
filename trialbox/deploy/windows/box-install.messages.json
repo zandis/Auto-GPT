@@ -333,5 +333,20 @@
     "en": "Note: this install turned BitLocker on for {0}. That stays, whether or not the install is finished; you hold the recovery keys.",
     "ja": "ご注意: 今回のインストールで {0} の BitLocker を有効にしました。インストールが完了してもしなくても、そのまま残ります。回復キーはお手元にあります。",
     "zh-TW": "注意：這次安裝已為 {0} 開啟 BitLocker。無論安裝是否完成，它都會保留；修復金鑰在您手上。"
+  },
+  "not_mirrored": {
+    "en": "WSL2 is not running with mirrored networking (it reports: {0}). TrialBox needs it so that the console answers on this PC's name. If another .wslconfig was kept at step 6, add networkingMode=mirrored under [wsl2] in it, restart Windows, and start the installer again.",
+    "ja": "WSL2 がミラーモードのネットワークで動いていません（報告値: {0}）。この PC の名前でコンソールが応答するために必要です。手順 6 で別の .wslconfig を残した場合は、その [wsl2] の下に networkingMode=mirrored を追加し、Windows を再起動してから、もう一度インストーラーを起動してください。",
+    "zh-TW": "WSL2 未以鏡像網路模式執行（回報值：{0}）。TrialBox 需要此模式，主控台才能以這台電腦的名稱回應。若第 6 步保留了其他 .wslconfig，請在其中的 [wsl2] 下加入 networkingMode=mirrored，重新啟動 Windows 後再啟動安裝程式。"
+  },
+  "firewall_failed": {
+    "en": "Windows did not accept the firewall rule for the console: {0}",
+    "ja": "Windows がコンソール用のファイアウォール規則を受け付けませんでした: {0}",
+    "zh-TW": "Windows 未接受主控台的防火牆規則：{0}"
+  },
+  "network": {
+    "en": "The console will answer on this PC's name, port {0}, to computers on the same network as this PC. Nothing else of TrialBox is reachable from the network.",
+    "ja": "コンソールは、この PC と同じネットワーク上のコンピューターに対して、この PC の名前とポート {0} で応答します。TrialBox のそれ以外の部分にはネットワークから到達できません。",
+    "zh-TW": "主控台會以這台電腦的名稱與連接埠 {0}，回應與這台電腦位於同一網路的電腦。TrialBox 的其他部分無法從網路連入。"
   }
 }
