@@ -65,3 +65,26 @@ def test_the_model_guards_refusals_are_its_own_class_and_its_own_sentences(
     monkeypatch.setattr(mg, "build", other)
     with pytest.raises(ValueError, match="something else"):
         mg.main([])  # an error nobody wrote is not printed as the guard's sentence: it fails loudly, with its trace
+
+
+def test_the_gateway_decides_busy_from_a_kind_not_from_how_a_text_ends() -> None:
+    """Found by reading (lane A2): "busy" was decided by the endings of the collected error texts. Harmless there
+    (the texts are the gateway's own), but a decision read from wording all the same."""
+    from pathlib import Path
+
+    from gateway import core
+
+    plain = ["serving: HTTP 500 from a server whose message ends: busy", "x: unavailable (breaker open)"]
+    assert not core.only_kinds(plain, {"busy"}) and not core.only_kinds(plain, {"busy", "open"})
+    typed = [core.Upstream("serving: busy", "busy"), core.Upstream("verifier: busy", "busy")]
+    assert core.only_kinds(typed, {"busy"})
+    mixed = [*typed, core.Upstream("x: unavailable (breaker open)", "open")]
+    assert not core.only_kinds(mixed, {"busy"}) and core.only_kinds(mixed, {"busy", "open"})
+    assert not core.only_kinds([], {"busy"})  # nothing tried is not "all busy"
+    assert str(typed[0]) == "serving: busy" and isinstance(typed[0], str)  # still the text in the audit and the answer
+    src = Path(core.__file__).read_text(encoding="utf-8")
+    assert ".endswith((_BUSY" not in src and ".endswith(_BUSY" not in src
+    # every place that writes one of the three marked texts gives it its kind: none is left a plain text
+    for line in src.splitlines():
+        if "errors.append(" in line and any(mark in line for mark in ("_BUSY", "_OPEN", "_RETRIED")):
+            assert "Upstream(" in line, line.strip()

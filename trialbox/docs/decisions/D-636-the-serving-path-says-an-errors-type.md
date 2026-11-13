@@ -25,6 +25,12 @@ the log only.
 | `llm_stub/app.py`, a stub handler that cannot read its messages | the `ValueError`'s text as the answer's detail | a fixed sentence and the type |
 | `model_guard/__init__.py`, the guard's own settings at start | a `ValueError` caught as such | the guard's own error class for its three refusals, so its sentences are its own and any other `ValueError` is not printed as one |
 
+In the same card, found by lane A2 by reading: `gateway/core.py` decided "busy", "unavailable" and "down" from
+the endings of the error texts it had collected for the attempts. The texts are the gateway's own, so nothing
+wrong was decided, but it was a decision read from wording. Each collected error now carries a kind (`busy`,
+`open`, `retried`, `other`) beside its text, and the answer is decided from the kinds; the texts are unchanged
+in the audit and in the answer.
+
 The four files leave D-700's list of other lanes' places; a test holds them at zero.
 
 ## Consequences
