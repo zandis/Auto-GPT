@@ -126,6 +126,7 @@ class Helpers:
     pi_missing: Callable[..., list[str]] | None = None
     reveal: Any = None  # set by register(): console.reveal.Reveal, the one reveal path (T-103, D-438)
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
+    pid_match_per_hour: int = 0  # set by console.team (NEW-JRN-2): the match note's limit per person and hour
     irb_gate: bool = False  # set by console.team (D-395): the candidate view waits for the study's IRB-text record
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     ops_status: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages: the host runner's status

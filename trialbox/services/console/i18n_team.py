@@ -176,6 +176,10 @@ EN: dict[str, str] = {
     "team.optout.done.added": "Recorded: the patient opted out. The patient is removed from screening, lists and later exports.",
     "team.optout.done.lifted": "Recorded: the patient took the opt-out back.",
     "team.optout.done.same": "No change: the patient was already in that state.",
+    "team.optout.matched": "A patient with this pseudonym was on a list or registry of this box.",
+    "team.optout.nomatch": "No patient with this pseudonym is on a list or registry of this box today. The opt-out is "
+    "kept and applies if the patient is listed later. If you meant a patient who is listed now, check the pseudonym, "
+    "or enter the chart number instead.",
     "team.optout.add": "Record an opt-out",
     "team.optout.chart": "Chart number",
     "team.optout.pid": "Pseudonym",
@@ -383,6 +387,10 @@ JA: dict[str, str] = {
     "team.optout.done.added": "記録しました：患者がオプトアウトしました。スクリーニング、リスト、以後の出力から外れます。",
     "team.optout.done.lifted": "記録しました：患者がオプトアウトを取り消しました。",
     "team.optout.done.same": "変更なし：患者はすでにその状態です。",
+    "team.optout.matched": "この仮名IDの患者は、このTrialBoxの一覧または登録に載っていました。",
+    "team.optout.nomatch": "この仮名IDの患者は、本日このTrialBoxのどの一覧・登録にも載っていません。"
+    "オプトアウトは保存され、今後一覧に載る場合に適用されます。現在一覧にいる患者のつもりであれば、"
+    "仮名IDを確認するか、カルテ番号で入力してください。",
     "team.optout.add": "オプトアウトを登録",
     "team.optout.chart": "カルテ番号",
     "team.optout.pid": "仮名ID",
@@ -590,6 +598,9 @@ ZH: dict[str, str] = {
     "team.optout.done.added": "已記錄：病人拒絕研究使用。該病人已自篩選、名單與之後的匯出中移除。",
     "team.optout.done.lifted": "已記錄：病人取消拒絕（病人改變意願）。",
     "team.optout.done.same": "沒有變更：病人已是該狀態。",
+    "team.optout.matched": "此假名代碼的病人原本列於這台 TrialBox 的名單或登錄中。",
+    "team.optout.nomatch": "今天這台 TrialBox 的任何名單或登錄中都沒有此假名代碼的病人。此退出紀錄已保存，"
+    "日後該病人被列入時即適用。若您指的是目前名單上的病人，請確認假名代碼，或改以病歷號輸入。",
     "team.optout.add": "登記拒絕",
     "team.optout.chart": "病歷號",
     "team.optout.pid": "假名代碼",
