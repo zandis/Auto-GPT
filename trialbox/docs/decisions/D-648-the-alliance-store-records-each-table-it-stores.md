@@ -48,11 +48,18 @@ Two more ways the reading from the ending can be wrong were found while building
    case left; a go-live install has no such job.
 5. **One store or read at a time.** `cohort_store` and `cohort_read` take one lock for their transaction, so
    `seq` is the order in which tables were committed and a read point falls between two stores, never inside one.
-6. **What the record cannot settle is refused, not guessed.** If, between a merge's store of a site's table and
-   its read, another job stored a table of the same site, the first run read the other job's table; the re-run
-   would store its own over it. `replay_stored` raises `ReplayUnsure` (two merges with the same site's table
-   from the same sender, running at the same time). A recorded table that cannot be read or does not match its
-   hash raises `RecordChanged`, before anything is stored.
+6. **What the record cannot settle is refused, not guessed.** A store replaces a site's rows for one disease,
+   quarter and definition. If, between a merge's store of such a table and its read, another job stored that
+   same table, the first run read the other job's; the re-run would store its own over it. `replay_stored` raises
+   `ReplayUnsure` (two merges with the same table from the same sender, running at the same time). Another job's
+   table of the same site for another quarter does not matter: the re-run does not touch it. A recorded table
+   that cannot be read or does not match its hash raises `RecordChanged`, before anything is stored.
+7. **Who may send a site's table is asked where it is stored.** The rule (a site's table comes only from the
+   address that first sent it, never the root's own site) was checked before the store, outside its lock: another
+   sender's store of the same site between the check and the write let both in, the merge ended done, and its
+   re-run failed on the same check. `cohort_store(refuse=...)` asks the rule inside its transaction, under the
+   lock, with the senders as they stand there; a refusal stores nothing. The refusal's sentence names the site
+   and no address (D-555): it goes back to whoever mailed the table and into the job's record.
 
 ## Changed from the design as asked, and why
 
@@ -121,3 +128,10 @@ schema (by reading). Not verified by anyone: a restore end to end, the owner-rol
 - `rerun.py` reading the record (lane B2). Until it does, a re-run still reads the endings.
 - The re-run through `rerun()` end to end with the record: lane B2's test, with their change. Here the same steps
   are run by the test itself (the replay into a store of its own, then the job).
+
+## Second review (of lane B2's re-run built on this record; two findings here, by running)
+
+| Finding | What was done |
+|---|---|
+| `ReplayUnsure` was asked per site: another job's table of the same site for another quarter made the re-run "cannot" | asked per table (site, disease, quarter, definition), item 6; test |
+| the sender check ran outside the store's lock: two senders of one site could both get in; the refusal's sentence carried two mail addresses | the check is made in the store's transaction, item 7; the sentence names the site only; tests |
