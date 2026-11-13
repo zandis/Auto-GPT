@@ -425,7 +425,8 @@ class SiteSetup:
     def _saved(self, ws: str, by: str, out: dict[str, Any]) -> dict[str, Any]:
         """Publish after a change that is stored and audited (an upload, a chart, a code map, a resolve), and
         answer the change. NEW-SITE-2 (D-709): when the lake cannot be asked, the change is still saved: the answer
-        says its publish waits for the lake (``publish: waits_for_lake``; :func:`lake_down`, not a refusal) and the next tick (:meth:`flush`) or the
+        says its publish waits for the lake (``publish: waits_for_lake``; :func:`lake_down`, not a
+        refusal) and the next tick (:meth:`flush`) or the
         next change publishes it, because what waits is the difference between the facts and the last publish.
         A person who presses Publish calls :meth:`publish` itself and gets the error."""
         try:
