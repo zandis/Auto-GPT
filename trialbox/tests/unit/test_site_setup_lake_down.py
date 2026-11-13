@@ -339,6 +339,22 @@ def test_the_readiness_readers_tell_a_failed_lake_from_a_fault_of_their_own_ques
     svc.main_lake = up
 
 
+def test_the_readiness_route_fails_visibly_when_its_own_question_is_wrong(svc: SiteSetup) -> None:  # noqa: F811
+    """Through the route: a fault of a fixed question is a 500, not a page that says "could not be read"; a lake
+    that failed is still the page that says so."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    c = _routes(svc)
+    svc.main_lake = Halfway(LakeQueryFailed(422, "Binder Error: Referenced column x not found"))
+    r = c.get(f"/setup/{MAIN}/readiness?study=SITE5B")
+    assert r.status_code == 500 and "lake_unread" not in r.text
+    svc.main_lake = Halfway(LakeQueryFailed(503, "LAKE-STALE"))
+    r = c.get(f"/setup/{MAIN}/readiness?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True
+    svc.main_lake = up
+
+
 def test_a_library_lake_that_broke_is_unread_and_a_wrong_statement_on_it_is_a_fault(svc: SiteSetup) -> None:  # noqa: F811
     """A space other than the hospital's reads its lake as a library, which raises the lake's own classes, not a
     status: the lake's own rule (``lake.store.query_failure_status``) decides the same way."""
