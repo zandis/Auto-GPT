@@ -47,7 +47,7 @@ def test_csv_round_trip_and_schema() -> None:
     rows = [_row("DEMO-A", "GOUT-COH-INC-01", 154, 98), _row("DEMO-A", "GOUT-COH-INC-02", "<5", "n/a")]
     CohortTable.model_validate({"schema_version": "alliance-v1", "rows": rows})
     data = cohort.to_csv(rows)
-    assert data.decode().splitlines()[0] == ",".join(cohort.COLUMNS)
+    assert data.decode("utf-8-sig").splitlines()[0] == ",".join(cohort.COLUMNS)  # the file starts with the mark
     back, errors = cohort.parse_csv(data)
     assert errors == [] and back == rows
     bad = data.decode().replace("2026Q3", "2026-Q3", 1).encode()
@@ -233,3 +233,17 @@ def test_two_statements_on_one_day_are_read_fail_closed(first: bool) -> None:
     rows += [("P2", "active", True, "2026-03-01"), ("P2", "active", False, "2026-03-01")]
     lake = _ConsentLake(rows if first else rows[::-1])
     assert cohort.contactable_pids(_ctx(lake), date(2026, 6, 30)) == set()
+
+
+def test_a_cohort_table_leaves_the_box_with_the_byte_order_mark() -> None:
+    """Plan v7, wave 4: Excel on a Japanese or Chinese Windows reads a CSV as UTF-8 only with the mark. The
+    cohort table is mailed to people and merged by the alliance: the mark is on the bytes the job publishes (the
+    ledger's hash is of those bytes), once, and the reader takes the file with or without it."""
+    rows = [_row("DEMO-A", "GOUT-COH-INC-01", 12)]
+    data = cohort.to_csv(rows)
+    assert data.startswith(b"\xef\xbb\xbf") and not data[3:].startswith(b"\xef\xbb\xbf")
+    assert data[3:].decode("utf-8").startswith(",".join(cohort.COLUMNS) + "\n")
+    back, errors = cohort.parse_csv(data)
+    assert errors == [] and len(back) == 1
+    assert cohort.parse_csv(data[3:]) == (back, [])  # a table made before this card, or by another program
+    assert cohort.to_csv(back) == data  # merged again: still one mark
