@@ -28,7 +28,7 @@ def _obs(term: str, code: str, value: str = "8.1", unit: str = "mg/dL") -> dict[
     )
 
 
-@pytest.mark.parametrize("guess", ["14933-6", "2160-0", "9999-9", "3084-1", ""])
+@pytest.mark.parametrize("guess", ["14933-6", "2160-0", "2345-7", "3084-1", ""])
 @pytest.mark.parametrize("term", ["尿酸", "uric acid", "UA"])
 def test_a_urate_line_is_stored_as_serum_urate_whatever_code_the_model_guessed(term: str, guess: str) -> None:
     got = _obs(term, guess)
@@ -77,3 +77,44 @@ def test_a_code_of_another_system_is_not_kept_on_a_lab_fact() -> None:
         }
     )
     assert got is not None and got["code"] == "" and got["system"] == ""
+
+
+# the adversarial review of this fix: a model's specific LOINC was overwritten by the generic serum code
+@pytest.mark.parametrize(
+    ("term", "code", "unit"),
+    [
+        ("尿クレアチニン", "2161-8", "mg/dL"),
+        ("尿肌酸酐", "2161-8", "mg/dL"),
+        ("UA-PRO", "2888-6", "mg/dL"),
+        ("UA 蛋白", "2888-6", "mg/dL"),
+        ("UA glucose", "25428-4", "mg/dL"),
+        ("胸水 glucose", "2342-4", "mg/dL"),
+        ("空腹時血糖", "1558-6", "mg/dL"),
+        ("75gOGTT 2時間値 血糖", "20438-8", "mg/dL"),
+    ],
+)
+def test_a_specific_loinc_the_model_gave_is_kept(term: str, code: str, unit: str) -> None:
+    got = _obs(term, code, "80", unit)
+    assert got is not None and got["code"] == code
+
+
+@pytest.mark.parametrize(
+    "term", ["尿クレアチニン", "UA-PRO", "胸水 glucose", "尿酸クレアチニン比", "体重変化", "出生体重"]
+)
+def test_a_line_that_is_not_the_serum_result_is_never_given_the_serum_code(term: str) -> None:
+    got = _obs(term, "", "3", "mg/dL" if "体重" not in term else "kg")
+    assert got is None or got["code"] not in ("3084-1", "2160-0", "2345-7", "29463-7")
+
+
+def test_the_same_test_in_another_unit_is_stored_under_the_analytes_own_code() -> None:
+    got = _obs("HbA1c", "59261-8", "48", "mmol/mol")
+    assert got is not None and got["code"] == "4548-4" and got["value"] == "6.54" and got["unit"] == "%"
+    got = _obs("Uric acid", "14933-6", "500", "µmol/L")
+    assert got is not None and got["code"] == "3084-1" and got["value"] == "8.41"
+
+
+def test_a_loinc_trialbox_does_not_know_is_kept_as_given_and_decides_nothing_it_should_not() -> None:
+    """A code TrialBox has no table for may be right (a specific method) or made up: it is kept, so the fact matches
+    only a criterion that lists that code; on a serum urate criterion the patient stays "needs information"."""
+    got = _obs("尿酸", "9999-9")
+    assert got is not None and got["code"] == "9999-9"
