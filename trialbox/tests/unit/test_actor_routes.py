@@ -140,6 +140,24 @@ def test_the_walk_fails_on_each_defect(defect: str, says: str) -> None:
     assert ra.route_problems(_toy("none"), lambda key: "g", TOY_TABLE) == []
 
 
+def test_every_console_call_that_changes_the_registry_passes_a_signer() -> None:
+    """T-715b (the review): the registry's backend methods take the signer as their third argument, and the
+    console's backend object is untyped where pages use it, so a call without one is found only when it runs:
+    a contact outcome was such a call. Every call in the console's code is read here."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "services" / "console"
+    calls = []
+    for f in sorted(root.glob("*.py")):
+        for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr in ("registry_update", "registry_promote")):  # fmt: skip
+                calls.append((f.name, n.lineno, len(n.args) + len(n.keywords)))
+    assert len(calls) >= 4, calls  # the registry page's two, a contact outcome and its undo
+    assert [c for c in calls if c[2] < 3] == []
+
+
 def test_the_walk_fails_on_a_refuse_route_whose_study_is_not_rs() -> None:
     """Review M2: ``require_actor`` reads the study from ``{rs}``; a route that names it otherwise would be checked
     against no study."""

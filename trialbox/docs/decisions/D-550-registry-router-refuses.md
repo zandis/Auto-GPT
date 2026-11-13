@@ -27,8 +27,8 @@ row said `updated_by: console:dr_tanaka`. The registry's export and the audit tr
    tiers) still decide what is valid.
 3. **The study of a registry route is its `{ruleset}`.** `require_actor` reads the study from `{rs}` or
    `{ruleset}`, as the report stage already did.
-4. **The console signs both calls** (`console.app`: `request.prepare`, the right its registry page already
-   asked) and the backend sends the change without `by` (`registry_update_body`, `registry_promote_body`).
+4. **The console signs every registry change**: the registry page's two calls (`console.app`) and a contact
+   outcome and its undo (`console.home`), each as `request.prepare`, the right those pages already asked, and the backend sends the change without `by` (`registry_update_body`, `registry_promote_body`).
    D-487's door on a row by chart number stays: it now always finds the verified person the stage admitted.
 5. **The list of report routes shrinks by two** (`tests/unit/data/actor_report_routes.txt`: 30 left).
 
@@ -46,6 +46,30 @@ row said `updated_by: console:dr_tanaka`. The registry's export and the audit tr
 - Study, data core and site set-up stay in stage `report` (30 changing routes): one card per router.
 - The registry's export route (`GET .../export.xlsx`) is not a changing route; it keeps its v2 check (D-438).
 - A row a person changes by mail or a scenario does not come through these routes.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer, on the real orchestrator. Verdict: fix first, one HIGH on the console's side.
+The orchestrator's side held: unsigned, another study, body, path or action, a viewer, both console timers, a
+foreign service token, a typed `by` or any unknown field were each refused with nothing written; the door on
+a chart number refuses once and records once.
+
+- **HIGH, two callers were missed.** A contact outcome and its undo (`console.home`) move the registry's row
+  and called the backend without a signer. On a box that is an error on every outcome that changes a status;
+  the type check could not see it (the backend object is untyped there). Both sign now. A test reads every
+  call of the two backend methods in the console's code and fails on one without a signer.
+- **The test client that signs for tests** read the study from `{rs}` only: it reads `{ruleset}` too.
+- **The walk** flags a refuse route under `/registry/` whose study parameter has another name, as it did under
+  `/studies/`.
+- **One test had lost its message check** in this card and has it back.
+- **Left as they were, not regressions** (the old route took the same): a signed requester may send `source`
+  and `source_job` as they like (the console's form fixes `manual`; a contact outcome names its job); the
+  framework's own answer to a body that fails its shape echoes that body to its signed sender, a chart number
+  included (the orchestrator logs the path and the status only); an unsigned body that is not JSON is 422
+  before the stage is asked, with no `actor.refused`; the demo tool prints and goes on when its registry
+  seeding is refused. The first two are worth a card each.
+- **Not built:** a test of a contact outcome on the real orchestrator; the stand-in refuses an unsigned change
+  as the orchestrator does, and the scan above covers the class.
 
 ## Reuse check
 

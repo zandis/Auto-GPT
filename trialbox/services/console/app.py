@@ -1946,7 +1946,7 @@ def create_app(
             raise _Problem(
                 400, "request.refused", reason="record consent on the participant page: it opens the consent form"
             )
-        who = sess.user.mailbox or sess.user.username
+        who = actor(sess)  # T-715b (D-550): for this object only; the orchestrator takes the person from the claim
         upd = RegistryUpdate(
             pid=pid.strip() or None,
             mrn=re.sub(r"\s+", "", mrn) or None,
@@ -1980,7 +1980,7 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
-        who = sess.user.mailbox or sess.user.username
+        who = actor(sess)  # T-715b (D-550): for this object only; the orchestrator takes the person from the claim
         from console import actor as acting
 
         def sign(method: str, path: str, body: Any) -> dict[str, str]:

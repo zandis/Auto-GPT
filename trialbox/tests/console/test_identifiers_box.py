@@ -94,12 +94,12 @@ def test_the_consoles_backend_signs_a_row_by_chart_number(orch_box: OrchBox) -> 
     bk = orch_box.backend()
     (mrn, pid), (_m, pid2) = _pairs(orch_box, 2)
     upd = RegistryUpdate(mrn=mrn, status="candidate", by="crc1@hospa.test", source="manual")
-    with pytest.raises(Refused):  # a signer that signs nothing: the orchestrator refuses the call
+    with pytest.raises(Refused, match="no signed-in user"):  # a signer that signs nothing
         bk.registry_update(STUDY, upd, lambda *_a: {})
     assert bk.registry_update(STUDY, upd, signer(STUDY, action="request.prepare")).pid == pid
     assert [e["detail"]["pid"] for e in orch_box.events("screen.to_pid")] == [pid]
     by_pid = RegistryUpdate(pid=pid2, status="candidate", by="crc1@hospa.test", source="manual")
-    with pytest.raises(Refused):  # T-715b (D-550): a row by pseudonym needs the person too
+    with pytest.raises(Refused, match="no signed-in user"):  # T-715b (D-550): a row by pseudonym too
         bk.registry_update(STUDY, by_pid, lambda *_a: {})
     assert bk.registry_update(STUDY, by_pid, signer(STUDY, action="request.prepare")).pid == pid2
 
