@@ -1,0 +1,41 @@
+{
+ "stages": [
+  {
+   "name": "synthetic hospital",
+   "ok": true,
+   "seconds": 1.4,
+   "checks": [
+    [
+     "synthetic hospital generated, TB-DS-21 §6 checks pass",
+     true,
+     ""
+    ],
+    [
+     "5000 patients in two sites (JP and TW style)",
+     true,
+     5000
+    ]
+   ],
+   "shot": "prepare.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "patients": 5000,
+ "run": {
+  "id": "20261112T165042Z-931a0f79-s1",
+  "head": "931a0f79540ca8e80de546f6a56021b5f00b9184",
+  "subject": "Merge master into fix/g1-canary-rehearsal",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 1,
+ "wall_seconds": 2.9
+}

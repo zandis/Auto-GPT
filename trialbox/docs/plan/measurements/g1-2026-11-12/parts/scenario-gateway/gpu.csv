@@ -1,0 +1,3 @@
+timestamp,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw
+2026/11/12 18:00:29.706,0,62592,97887,39,91.48
+2026/11/12 18:00:34.641,0,62592,97887,39,134.80

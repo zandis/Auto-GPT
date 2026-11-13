@@ -1,0 +1,171 @@
+{
+ "patients": 5000,
+ "seconds_per_note_patient": 6.3,
+ "parts": [
+  "g1"
+ ],
+ "llm_concurrency": [
+  1,
+  4,
+  16,
+  48
+ ],
+ "llm_speedup": [
+  1.0,
+  2.0,
+  2.0,
+  2.0
+ ],
+ "max_num_seqs": 16,
+ "rows": [
+  {
+   "scenario": "VM start, both models resident",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "VM setup: packages, venv, browser, fonts",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "G-1 chat template (sha256, token identity)",
+   "patients": 0,
+   "model_items": 20,
+   "seconds": 300.0,
+   "tags": [
+    "chat-template"
+   ],
+   "hours": 0.08,
+   "usd": 0.22
+  },
+  {
+   "scenario": "db-csv (ja, 1 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1796.0,
+   "tags": [
+    "hospital-ja@c1"
+   ],
+   "hours": 0.5,
+   "usd": 1.37
+  },
+  {
+   "scenario": "db-csv (ja, 4 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1366.8000000000002,
+   "tags": [
+    "hospital-ja@c4"
+   ],
+   "hours": 0.38,
+   "usd": 1.04
+  },
+  {
+   "scenario": "db-csv (ja, 16 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1366.8000000000002,
+   "tags": [
+    "hospital-ja@c16"
+   ],
+   "hours": 0.38,
+   "usd": 1.04
+  },
+  {
+   "scenario": "db-csv (ja, 48 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1366.8000000000002,
+   "tags": [
+    "hospital-ja@c48"
+   ],
+   "hours": 0.38,
+   "usd": 1.04
+  },
+  {
+   "scenario": "emr-fhir",
+   "patients": 500,
+   "model_items": 9,
+   "seconds": 381.96,
+   "tags": [
+    "scenario-emr-fhir"
+   ],
+   "hours": 0.11,
+   "usd": 0.3
+  },
+  {
+   "scenario": "gateway",
+   "patients": 2,
+   "model_items": 2,
+   "seconds": 2.0,
+   "tags": [
+    "scenario-gateway"
+   ],
+   "hours": 0.0,
+   "usd": 0.0
+  }
+ ],
+ "hours": 2.33,
+ "usd": 6.38,
+ "cap_hours": 4,
+ "cap_usd": 10.96,
+ "provisioning": "SPOT",
+ "price_per_hour": 2.74,
+ "llm_concurrency_default": false,
+ "only": [
+  "install",
+  "hospital-ja",
+  "scenario-gateway",
+  "scenario-emr-fhir",
+  "chat-template"
+ ],
+ "plan": {
+  "vms": 1,
+  "shards": [
+   {
+    "shard": 1,
+    "tags": [
+     "install",
+     "prepare",
+     "chat-template",
+     "hospital-ja@c1",
+     "hospital-ja@c16",
+     "hospital-ja@c4",
+     "hospital-ja@c48",
+     "scenario-emr-fhir",
+     "scenario-gateway"
+    ],
+    "rows": [
+     "db-csv (ja, 1 in flight)",
+     "db-csv (ja, 16 in flight)",
+     "db-csv (ja, 4 in flight)",
+     "db-csv (ja, 48 in flight)",
+     "emr-fhir",
+     "G-1 chat template (sha256, token identity)",
+     "gateway"
+    ],
+    "hours": 2.33,
+    "usd": 6.38,
+    "cap_hours": 4,
+    "cap_usd": 10.96,
+    "provisioning": "SPOT",
+    "price_per_hour": 2.74,
+    "vm": "tb-gpu-sim",
+    "zone": "asia-east1-a"
+   }
+  ],
+  "wall_hours": 2.33,
+  "hours": 2.33,
+  "usd": 6.38,
+  "cap_usd": 10.96
+ }
+}

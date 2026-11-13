@@ -1,0 +1,50 @@
+{
+ "patients": 5000,
+ "price_per_hour": 8.22,
+ "llm_concurrency": [
+  1,
+  4,
+  16,
+  48
+ ],
+ "hours": 2.9,
+ "usd": 23.84,
+ "cap_hours": 4,
+ "cap_usd": 32.88,
+ "only": [
+  "chat-template",
+  "install",
+  "prepare",
+  "hospital-ja@c1",
+  "hospital-ja@c4",
+  "hospital-ja@c16",
+  "hospital-ja@c48",
+  "scenario-gateway",
+  "scenario-emr-fhir"
+ ],
+ "plan": {
+  "vms": 1,
+  "shards": [
+   {
+    "shard": 1,
+    "tags": [
+     "chat-template",
+     "install",
+     "prepare",
+     "hospital-ja@c1",
+     "hospital-ja@c4",
+     "hospital-ja@c16",
+     "hospital-ja@c48",
+     "scenario-gateway",
+     "scenario-emr-fhir"
+    ],
+    "hours": 2.9,
+    "usd": 23.84,
+    "cap_hours": 4,
+    "cap_usd": 32.88,
+    "vm": "fixture-vm",
+    "zone": "fixture-zone"
+   }
+  ]
+ }
+}
