@@ -142,7 +142,9 @@ def test_after_an_ingest_and_with_incident_0_nobody_comes_back(monkeypatch: pyte
 
 def test_one_who_stays_excluded_is_not_listed_and_is_recorded_as_looked_at(monkeypatch: pytest.MonkeyPatch) -> None:
     class _StillOut(_Box):
-        def run_screen(self, ctx: Any, rs: Any, run_date: Any, snapshot: str, select: Any = None) -> Any:
+        def run_screen(
+            self, ctx: Any, rs: Any, run_date: Any, snapshot: str, select: Any = None, scope: Any = None
+        ) -> Any:
             got = super().run_screen(ctx, rs, run_date, snapshot, select)
             got.rows = [r.model_copy(update={"tier": "excluded"}) for r in got.rows]
             return got
@@ -203,7 +205,9 @@ def test_a_resumed_job_of_a_later_week_also_screens_again_the_one_it_brought_bac
 
 def test_the_record_says_whom_the_weekly_run_did_not_list(monkeypatch: pytest.MonkeyPatch) -> None:
     class _HalfOut(_Box):
-        def run_screen(self, ctx: Any, rs: Any, run_date: Any, snapshot: str, select: Any = None) -> Any:
+        def run_screen(
+            self, ctx: Any, rs: Any, run_date: Any, snapshot: str, select: Any = None, scope: Any = None
+        ) -> Any:
             got = super().run_screen(ctx, rs, run_date, snapshot, select)
             got.rows = [r.model_copy(update={"tier": "excluded"}) if r.pid != "N1" else r for r in got.rows]
             return got

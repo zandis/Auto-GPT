@@ -36,6 +36,15 @@ the summary and the audit (``microbatch.budget``) say how many (never a silent c
 job's first run (option ``night_left``), as is the baseline (option ``seen_from``), so a resumed job and a re-run
 make the same list.
 
+**The excluded patients' share** (``TB_MICROBATCH_EXCLUDED_PERCENT``, default 25; D-646, the owner's ruling of
+2026-11-13): of a weekly job's allowance that part is kept for screening its excluded patients again, so the
+re-checks and the new patients cannot use it all (measured: a study whose re-checks fill its allowance never reached
+them). Kept only as far as excluded patients are in scope (counted before the allowance is spent), never for
+nobody; a place kept and not needed goes to a waiting new patient (not back to a re-check: those are done by
+then; it returns to the night). The number kept is fixed on the job's first run (option ``excluded_kept``).
+The summary and the audit say how many were
+reached, how many are in scope and how many weekly runs a full pass takes at that share.
+
 **Version and basis** (T-707, D-476): a pool row stored under another criteria version is never re-tiered. It is
 screened again in full (after the re-checks, before the new patients, inside the night budget) and its pool row is
 replaced; a row the run does not reach keeps its stored version and is listed as ``review`` with every criterion
@@ -88,6 +97,7 @@ from orchestrator.scenarios.screen import (
     publish_s2b_source,
     report_meta,
     run_screen,
+    screen_scope,
     small_cell,
     threshold,
 )
@@ -103,6 +113,7 @@ GROUP BY pid ORDER BY pid
 """
 NEW_DOC = "new_screened_"  # the micro-batch's record of the new patients it screened (cumulative since SCREEN)
 DEFAULT_NIGHT_BUDGET = 2000  # patients a night (libs/tb_common/config.py, TB_MICROBATCH_NIGHT_BUDGET)
+DEFAULT_EXCLUDED_PERCENT = 25  # of a weekly job's allowance (config.py, TB_MICROBATCH_EXCLUDED_PERCENT; D-646)
 LISTED = ("high", "review")
 
 
@@ -131,6 +142,11 @@ def night_budget(ctx: Ctx) -> int:
 
 
 TERMINAL = ("done", "failed")
+
+
+def excluded_percent(ctx: Ctx) -> int:
+    """The part of a weekly job's allowance kept for its excluded patients, in percent (D-646)."""
+    return int(getattr(ctx.cfg.env, "microbatch_excluded_percent", DEFAULT_EXCLUDED_PERCENT))
 
 
 def _reserved(job: Any) -> int | None:
@@ -338,6 +354,29 @@ def run(ctx: Ctx) -> Outcome:
     stale_pids = {p["pid"] for p in stale}
     pool = [p for p in pool if p["pid"] not in stale_pids]
     week = {s.pid: s for s in every if s.pid in kept and s.pid in appts}
+    # D-646: places of the allowance kept for the excluded patients in scope, counted before anything is spent
+    incident = on_ingest or opts.get("incident", "auto") != "0"
+    scope: list[Scoped] | None = None
+    held = 0
+    fixed = opts.get("excluded_kept")  # fixed on the job's first run, as the allowance is (review of D-646)
+    if fixed is not None:
+        held = int(fixed)
+    if left is not None and incident and not on_ingest and excluded_percent(ctx) > 0:
+        try:
+            scope = screen_scope(ctx, rs, run_date, snapshot)
+        except StepFailed:
+            scope = None  # nobody the study screens is set: the screen below says so, and nothing is kept
+        if scope is not None:
+            before = read_sources(ctx, keys).everyone | pool_pids
+            out_rows = {p["pid"] for p in pool if p.get("tier") == "excluded"}
+            waiting = sum(1 for s in scope if s.pid in before and (s.pid not in pool_pids or s.pid in out_rows))
+            if fixed is None:
+                held = min(left * excluded_percent(ctx) // 100, waiting)
+    if fixed is None:
+        # the count reads the pool's stored tiers, which this job's own re-check rewrites: a resumed job and a
+        # re-run keep what the first run kept, so they re-check the same patients (D-642, D-458)
+        _set_option(ctx, "excluded_kept", str(held))
+    front = None if left is None else left - held  # what the re-checks and the new patients may use
     ts = recheck_ids(rs)  # NEW-LIFE-3 (D-642): by rule, not by the model's flag
     # the re-check: the nearest visits first, within the night budget (the after-ingest run re-checks nobody)
     due = (
@@ -345,7 +384,7 @@ def run(ctx: Ctx) -> Outcome:
         if ts and not on_ingest
         else []
     )
-    recheck = due if left is None else due[:left]
+    recheck = due if front is None else due[:front]
     fresh = evaluate_scope(ctx, rs, run_date, snapshot, recheck, only=ts, all_candidates=True) if recheck else {}
     t = threshold(ctx, rs)
     # the same note-block decision as SCREEN: no verifier, one model twice or a shut canary gate never exclude
@@ -426,7 +465,7 @@ def run(ctx: Ctx) -> Outcome:
     )
     again: list[Scoped] = []
     if behind and not on_ingest:  # the after-ingest run re-checks nobody: the weekly run screens them again
-        again = behind if left is None else behind[: max(0, left - used)]
+        again = behind if front is None else behind[: max(0, front - used)]
     version_rows: list[CandidateRow] = []
     cascade_runs: list[Any] = []  # the full screens of this job, for the one S2b source file (D-449)
     if again:
@@ -460,8 +499,10 @@ def run(ctx: Ctx) -> Outcome:
     back_carried = 0
     back_rows: list[CandidateRow] = []
     skipped = ""
-    if on_ingest or opts.get("incident", "auto") != "0":
-        room = None if left is None else max(0, left - used)
+    out_in_scope = 0  # excluded patients in the study's scope as this run finds them (D-646)
+    if incident:
+        room = None if left is None else max(0, left - used)  # for the new and the excluded together
+        new_room = None if front is None else max(0, front - used)
         try:
             practitioners_of(ctx, rs)  # who the study screens: unset means no new-patient screen, not a failed run
         except StepFailed as exc:
@@ -474,7 +515,7 @@ def run(ctx: Ctx) -> Outcome:
             pool_out = {r.pid for r in pool_rows if r.tier == "excluded"}
 
             def select(scope: list[Scoped]) -> list[Scoped]:
-                nonlocal carried, back_carried
+                nonlocal carried, back_carried, out_in_scope
                 cand = [
                     s for s in scope
                     if s.pid not in seen
@@ -482,7 +523,7 @@ def run(ctx: Ctx) -> Outcome:
                                            and date.fromisoformat(s.next_appointment[:10]) <= horizon))
                 ]  # fmt: skip
                 cand.sort(key=lambda s: (s.next_appointment is None, s.next_appointment or "", s.pid))
-                take = cand if room is None else cand[:room]
+                take = cand if new_room is None else cand[:new_room]
                 carried = len(cand) - len(take)
                 if on_ingest:  # the after-ingest run looks at new booked patients only
                     return take
@@ -499,11 +540,15 @@ def run(ctx: Ctx) -> Outcome:
                     )
                 )
                 more = out if room is None else out[: max(0, room - len(take))]
+                out_in_scope = len(out)
                 back_carried = len(out) - len(more)
                 back.extend(s.pid for s in more)
+                if room is not None and carried:  # a place kept for an excluded patient and not needed (D-646)
+                    take = cand[: len(take) + max(0, room - len(take) - len(more))]
+                    carried = len(cand) - len(take)
                 return take + more
 
-            srun = run_screen(ctx, rs, run_date, snapshot, select=select)
+            srun = run_screen(ctx, rs, run_date, snapshot, select=select, scope=scope)
             screened = [s.pid for s in srun.scoped]
             if screened:
                 judging = srun.judging
@@ -537,6 +582,10 @@ def run(ctx: Ctx) -> Outcome:
     ctx.metrics(patients_scoped=used + len(screened))
     night_done(ctx, used + len(screened))  # T-704 (D-458): what this job did not use is the next one's
     over = len(due) - len(recheck)
+    # D-646: weekly runs until every excluded patient in scope has been screened again once, at the share kept
+    # for them (None: nothing is kept, so no run is sure to reach them; 1: no night budget, or all reached now)
+    per_run = out_in_scope if left is None else left * excluded_percent(ctx) // 100
+    full_pass = None if on_ingest else 1 if not back_carried else -(-out_in_scope // per_run) if per_run else None
     ctx.orch.audit.append(
         "microbatch.budget",
         job_id=job.job_id,
@@ -554,6 +603,10 @@ def run(ctx: Ctx) -> Outcome:
             "excluded_rescreened": len(back),
             "excluded_back": len(back_rows),
             "excluded_carried": back_carried,
+            "excluded_in_scope": out_in_scope,
+            "excluded_percent": excluded_percent(ctx),
+            "excluded_kept": held,
+            "excluded_full_pass_runs": full_pass,
         },
     )
 
@@ -594,9 +647,26 @@ def run(ctx: Ctx) -> Outcome:
         ]
         if back or back_carried:
             lines.append(
-                f"Earlier excluded patients screened again: {suppress(len(back), cell)}; "
-                f"back on the list: {suppress(len(back_rows), cell)}."
+                f"Earlier excluded patients screened again: {suppress(len(back), cell)} of "
+                f"{suppress(out_in_scope, cell)} in scope; back on the list: {suppress(len(back_rows), cell)}."
             )
+            if back_carried and excluded_percent(ctx) == 0:
+                lines.append(
+                    "No share of the night budget is kept for them (TB_MICROBATCH_EXCLUDED_PERCENT is 0): they are "
+                    "reached only when the re-checks and the new patients leave room."
+                )
+            elif back_carried and full_pass is None:
+                lines.append(
+                    f"Tonight's allowance was too small to keep a place for them ({excluded_percent(ctx)} % of it "
+                    "is less than one patient)."
+                )
+            elif back_carried and str(suppress(out_in_scope, cell)) == str(out_in_scope):
+                # an aggregate output: with the places a run keeps, the figure gives the count away, so it is
+                # printed only where the count itself is (review of D-646; the audit holds it either way)
+                lines.append(
+                    f"At the share of the night budget kept for them ({excluded_percent(ctx)} %), a full pass "
+                    f"takes {full_pass} weekly runs."
+                )
     if behind:
         lines.append(
             f"Criteria version {rs.version}: {suppress(len(again), cell)} pool patients last evaluated against an "
