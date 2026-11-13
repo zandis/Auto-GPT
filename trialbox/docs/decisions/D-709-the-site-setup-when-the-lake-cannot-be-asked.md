@@ -76,6 +76,8 @@ three places, each of which also went wrong before for a lake that could not be 
 - `services/sitesetup/service.py`, `services/sitesetup/readiness.py` (placed with this lane by the integrator);
 - `services/orchestrator/setup_api.py` (two routes), `services/orchestrator/derive.py` (the status);
 - `libs/tb_common/metrics.py` (`check_derive`: one branch);
+- `tests/unit/test_readiness_feed.py`: one line pinned "a lake that names its snapshot and fails the query has
+  no feed loaded"; it now expects the error the readiness answer catches (found by the whole-suite run);
 - `tests/unit/test_lake_client_snapshot.py` (lane B2's list of callers): the four entries D-672 marked OPEN, and
   `readiness`, now say what they do.
 

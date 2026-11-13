@@ -56,7 +56,10 @@ def test_the_tier_is_read_from_what_is_loaded(tmp_path: Path) -> None:
     assert s == {"snapshot": "2026-11-10", "tier": "structured", "documents": 0}
     n = readiness.feed_loaded(_Svc(_Lake("2026-11-10", docs=12), tmp_path))  # type: ignore[arg-type]
     assert n is not None and n["tier"] == "notes" and n["documents"] == 12
-    assert readiness.feed_loaded(_Svc(_Lake("2026-11-10", broken=True), tmp_path)) is None  # type: ignore[arg-type]
+    # NEW-SITE-2 (D-709): a lake that names its snapshot and cannot be asked about it is not "no feed is loaded"
+    # (this line pinned None before); the readiness answer catches it and says the lake could not be read
+    with pytest.raises(readiness.LakeUnread):
+        readiness.feed_loaded(_Svc(_Lake("2026-11-10", broken=True), tmp_path))  # type: ignore[arg-type]
 
 
 def test_the_light_and_the_night_come_from_dataops(tmp_path: Path) -> None:
