@@ -7,6 +7,7 @@ import contextlib
 import ipaddress
 import logging
 import os
+import re
 import socket
 import time
 import traceback
@@ -99,6 +100,21 @@ async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
         msg = "the value was refused by a rule of this field" if kind in _OWN_TEXT else e.get("msg")
         detail.append({"type": kind, "loc": loc, "msg": msg})
     return JSONResponse({"detail": detail}, status_code=422)
+
+
+#: a failure a service recorded without expecting it: the error's type, a colon, some of the error's text
+_RECORDED = re.compile(r"^((?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*[a-z][A-Za-z0-9_]*): ")
+
+
+def kept_failure(detail: str) -> str:
+    """What to keep of a failure another service recorded, in a record a person reads (D-557, D-700).
+
+    A service's own sentence ("the source folder is empty", "night refused: ...") is kept: it is its word for the
+    operator. A record of the shape ``"<ErrorType>: <text>"`` is a failure it did not expect, and the text is the
+    error's own (an engine quotes the value it could not cast): the type is kept, the service's log has the rest."""
+    text = str(detail or "").strip()
+    kind = _RECORDED.match(text)
+    return kind.group(1) if kind else text
 
 
 TRACE_FRAMES = 30  # of each error of the chain, so that one line of the log stays a line

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from tb_common.http import ServiceClient, ServiceError
+from tb_common.http import ServiceClient, ServiceError, kept_failure
 from tb_contracts import (
     ApproveRequest,
     ApproveResult,
@@ -61,19 +60,16 @@ class AdapterAPI(Protocol):
     def run(self, req: IngestRequest) -> IngestReport: ...
 
 
-#: the adapter's record of a failure it did not expect: an error's type, a colon, up to 500 characters of its text
-_UNEXPECTED = re.compile(r"^([A-Za-z_][A-Za-z0-9_.]*[A-Z][A-Za-z0-9_]*|[A-Z][A-Za-z0-9_.]*[a-z][A-Za-z0-9_]*): ")
-
-
 def _ingest_ended(st: dict[str, Any]) -> str:
     """Why an ingest that is not done ended, for the job's record (D-557). The adapter's own sentence when it wrote
     one ("the source folder is empty", "night refused: ..."): those are its words for the operator. Its record of
     a failure it did not expect is an error's type and up to 500 characters of the error's text (a cast error
-    quotes the value it could not cast): the job's record keeps the type, the adapter's log has the rest."""
+    quotes the value it could not cast): the job's record keeps the type (``tb_common.http.kept_failure``), the
+    adapter's log has the rest."""
     detail = str(st.get("detail") or "").strip()
-    kind = _UNEXPECTED.match(detail)
-    if kind:
-        return f"The nightly ingest failed ({kind.group(1)}); the adapter's log has it."
+    kept = kept_failure(detail)
+    if kept != detail:
+        return f"The nightly ingest failed ({kept}); the adapter's log has it."
     if detail:
         return detail
     state = str(st.get("state") or "")

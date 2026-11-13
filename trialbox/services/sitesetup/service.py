@@ -30,6 +30,7 @@ from typing import Any
 from tb_common import chartno, dates, instruments
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
+from tb_common.http import kept_failure
 
 from sitesetup import charts, intake, mapping, messy, publish
 from sitesetup.ocr import Ocr, default_ocr
@@ -523,7 +524,8 @@ class SiteSetup:
             out = self._done(ws, str(rec["snapshot"]), str(rec["digest"]), dict(rec.get("counts") or {}), by)
             return out if rec.get("digest") == dg else None
         if state in ("refused", "failed"):
-            detail = str(st.get("detail") or state)[:300]
+            # D-700: a rebuild the lake records as "<ErrorType>: <the engine's text>" keeps its type on the page
+            detail = kept_failure(str(st.get("detail") or state))[:300]
             self._set_record(ws, {**rec, "state": "failed", "detail": detail})
             self.audit.append("setup.publish_failed", actor=by,
                               detail={"ws": ws, "snapshot": rec["snapshot"], "state": state})  # fmt: skip

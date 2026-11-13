@@ -10,6 +10,7 @@ final list) stays on the console volume and is never listed or served.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.ulid import new_ulid
+
+log = logging.getLogger("console.cascade")
 
 SERVED = {
     "dl1_pdf": "dl1/DL1_{trial}.pdf",
@@ -122,7 +125,9 @@ class CascadeRuns:
                 if run.state == "failed":
                     run.error = "the end-to-end checks did not all pass (see the DL-1 pack and certificate)"
             except Exception as exc:  # report, never crash the console
-                run.state, run.error = "failed", f"{type(exc).__name__}: {exc}"[:500]
+                # D-700: the page shows the error's type; its own text is in the log, under the log's rules
+                log.exception("cascade run %s failed", run.run_id)
+                run.state, run.error = "failed", type(exc).__name__
             run.seconds = round(time.monotonic() - t0, 1)
             self._save(run)
             if on_done is not None:
