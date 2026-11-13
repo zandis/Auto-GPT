@@ -128,8 +128,11 @@ def test_the_builder_looks_for_the_same_files_as_step_1_of_the_installer() -> No
     assert set(re.findall(r'Join-Path \$(?:win|lin|m) "([^"]+)"', PS1)) <= {
         "wsl", "nvidia", "debs", "windows", "linux", "SHA256SUMS",
     }  # fmt: skip
-    # the installer copies these beside itself for the run after the restart, and reads its messages from there
-    for name in re.findall(r"foreach \(\$n in @\(([^)]*)\)\)", PS1)[0].replace('"', "").split(", "):
+    # the installer copies these beside itself for the run after the restart, and reads its messages from there:
+    # the one list that names its own script (other lists in the installer name registry values, not files)
+    lists = [m for m in re.findall(r"foreach \(\$n in @\(([^)]*)\)\)", PS1) if '"box-install.ps1"' in m]
+    assert len(lists) == 1
+    for name in lists[0].replace('"', "").split(", "):
         assert name in wm.INSTALLER_FILES, name
 
 

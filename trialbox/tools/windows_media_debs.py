@@ -13,8 +13,9 @@ the files apt named for this run go to the output.
 
 This is the one media tool that goes online, and only when the vendor runs it, on a machine that may: it fetches
 the package lists and the packages from Ubuntu's archive, Docker's repository and NVIDIA's, into the folder the
-vendor names (never into the repository). The two repository keys are fetched too and are accepted only when their
-fingerprints are the ones written here (``KEYS``); Ubuntu's archive key is the image's own.
+vendor names (never into the repository). The two repository keys are fetched too (``tools/fetch_pinned.py``) and
+are accepted only when the file and the fingerprint of its key are the ones written here (``KEYS``); Ubuntu's
+archive key is the image's own.
 
 Needs ``apt-get`` and ``gpg`` on this machine (any Debian or Ubuntu). ``tools.windows_media build --debs`` then
 refuses the set if a Linux NVIDIA driver slipped in or Docker or the toolkit is missing.
@@ -28,10 +29,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import urllib.request
 from pathlib import Path
 
-from tools import windows_media
+from tools import fetch_pinned, windows_media
 
 # what the Windows installer's package step needs (deploy/windows/wsl-setup.sh: docker, nvidia-ctk) and what the
 # box's host side uses (deploy/egress.py: nft; the backup schedule: cron)
@@ -40,12 +40,23 @@ PACKAGES = ("docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugi
 SUITE = "noble"  # Ubuntu 24.04, the release the installer imports
 UBUNTU_KEYRING = "usr/share/keyrings/ubuntu-archive-keyring.gpg"
 STATUS = "var/lib/dpkg/status"
-# repository, the key's address, the fingerprint of its primary key (published by Docker and by NVIDIA)
+# repository: the key file's address, the fingerprint of its primary key (published by Docker and by NVIDIA), and
+# the sha256 of the key file as both published it on 2026-11-13. The file is fetched the house way
+# (tools/fetch_pinned.py, D-632: https only, written only when its sha256 is the pinned one); the fingerprint is
+# then read from it as well. A publisher that issues the same key as another file changes the pin here, on purpose.
 KEYS = {
-    "docker": ("https://download.docker.com/linux/ubuntu/gpg", "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"),
-    "nvidia": ("https://nvidia.github.io/libnvidia-container/gpgkey", "C95B321B61E88C1809C4F759DDCAE044F796ECB0"),
+    "docker": (
+        "https://download.docker.com/linux/ubuntu/gpg",
+        "9DC858229FC7DD38854AE2D88D81803C0EBFCD88",
+        "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
+    ),
+    "nvidia": (
+        "https://nvidia.github.io/libnvidia-container/gpgkey",
+        "C95B321B61E88C1809C4F759DDCAE044F796ECB0",
+        "c880576d6cf75a48e5027a871bac70fd0421ab07d2b55f30877b21f1c87959c9",
+    ),
 }
-TIMEOUT_S = 60
+TIMEOUT_S = 60  # gpg reading one key file
 
 
 class DebsError(Exception):
@@ -104,12 +115,16 @@ def fingerprints(key_file: Path) -> list[str]:
 
 
 def fetch_key(name: str, into: Path) -> Path:
-    url, want = KEYS[name]
+    url, want, sha256 = KEYS[name]
     dst = into / f"{name}.asc"
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT_S) as resp:  # a fixed https address, above
-            dst.write_bytes(resp.read())
-    except OSError as exc:
+        fetch_pinned.fetch(url, dst, sha256)
+    except fetch_pinned.PinError as exc:
+        raise DebsError(
+            f"the {name} repository key at {url} is not the file this tool knows ({exc}). Nothing was fetched with "
+            "it. If the publisher issued a new key file, its pin here is changed by a card"
+        ) from exc
+    except (fetch_pinned.FetchError, OSError, ValueError) as exc:
         raise DebsError(f"the {name} repository key could not be fetched from {url}: {exc}") from exc
     got = fingerprints(dst)
     if got != [want]:

@@ -332,6 +332,20 @@ class Mapping:
             out[key] = known
         return out
 
+    def concept_maps(self) -> list[tuple[str, str]]:
+        """The reference maps this mapping asks for (D-593): ``(from system, to system)`` addresses of every
+        ``mapped_coding`` element of its resources, overlays included, each once, in order. A load checks that they
+        are loaded before it starts (``tb_common.refdata.has_map_or_none``): started before the reference pack is
+        in, every such code would be published as "no entry"."""
+        out: list[tuple[str, str]] = []
+        for r in self.resources:
+            for spec in r.elements.values():
+                if isinstance(spec, dict) and spec.get("builder") == "mapped_coding":
+                    pair = (self.systems[spec["from"]], self.systems[spec["to"]])
+                    if pair not in out:
+                        out.append(pair)
+        return out
+
     def unit_as_code(self, unit: Any) -> Any:
         """The UCUM code of a site spelling (``unit_spellings``), else the unit as it came."""
         return self.unit_spellings.get(labvalue.written(unit), unit) if self.unit_spellings else unit

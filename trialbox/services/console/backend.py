@@ -174,8 +174,9 @@ class Backend(Protocol):
 
 
 def registry_update_body(upd: RegistryUpdate) -> dict[str, Any]:
-    """What the orchestrator's registry route takes (T-715b, D-550): the change, without a person."""
-    return {k: v for k, v in dump(upd).items() if k != "by"}
+    """What the orchestrator's registry route takes (T-715b, D-550): the change, without a person; and without a
+    source (T-715c, D-552): the route sets it."""
+    return {k: v for k, v in dump(upd).items() if k not in ("by", "source")}
 
 
 def registry_promote_body(req: RegistryPromote) -> dict[str, Any]:

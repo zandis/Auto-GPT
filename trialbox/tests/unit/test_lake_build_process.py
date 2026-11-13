@@ -240,3 +240,25 @@ def test_two_starts_at_once_do_not_trip_over_a_finished_build(api: Any, monkeypa
     r = api.post("/rebuild", json={"snapshot": NEXT})
     assert r.status_code == 202 and r.json()["state"] == "running"
     assert _wait(lambda: api.get(f"/rebuild/{NEXT}").json())["state"] == "done"
+
+
+def test_the_builds_process_imports_what_the_service_imports(api: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found on train 8: with no ``PYTHONPATH`` in the environment (a test runner that sets its import path in
+    process) and an interpreter whose installed packages point at another checkout, the child imported that
+    checkout's ``lake`` (no ``lake.build`` there) and every build ended ``failed`` with exit code 1. The child is
+    handed the service's own import path, whatever put it there."""
+    import sys
+
+    seen: dict[str, Any] = {}
+    real = subprocess.Popen
+
+    def popen(*a: Any, **kw: Any) -> Any:
+        seen.update(kw)
+        return real(*a, **kw)
+
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    _patients(api.lake_dir, NEXT, 5)
+    assert api.post("/rebuild", json={"snapshot": NEXT}).status_code == 202
+    assert _wait(lambda: api.get(f"/rebuild/{NEXT}").json())["state"] == "done"
+    assert seen["env"]["PYTHONPATH"].split(os.pathsep) == [p for p in sys.path if p]

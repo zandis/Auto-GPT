@@ -9,7 +9,9 @@ person, right, study, request or body is refused on the real app in the producti
 
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -39,12 +41,13 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     rows = ra.walk(app)
     refuse = [r for r in rows if r[2] == "refuse"]
     report = [r for r in rows if r[2] == "report" and r[0] not in sa.SAFE_METHODS]
-    assert len(refuse) >= 15 and len(report) == 30  # lifecycle, sponsor and the registry converted; the rest counted
+    # lifecycle, sponsor, the registry and the study router converted; the rest counted
+    assert len(refuse) >= 22 and len(report) == 23
     assert {r[3] for r in refuse} <= set(MATRIX) and all(r[4] == () for r in refuse)
     # the stage is the group's: every changing lifecycle and sponsor route, and no other, refuses
     groups = {CALLER_GATE.table.group_of(f"{m} {p}") for m, p, *_ in refuse}
-    # T-716: the chart number; T-715b (D-550): the registry
-    assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal", "registry"}
+    # T-716: the chart number; T-715b (D-550): the registry; T-715d (D-554): the study router
+    assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal", "registry", "study"}
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
     assert all(r[2] or CALLER_GATE.table.group_of(f"{r[0]} {r[1]}") in (*ra.TABLE["v2"], *ra.TABLE["no_person"])
                for r in changing)  # fmt: skip
@@ -236,6 +239,76 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, li
     return client, events
 
 
+class _Lines(logging.Handler):
+    """The orchestrator's own log lines, read at the logger itself: the app's logging set-up decides whether a
+    line travels further (to pytest's capture), and that depends on which test built the app first."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.fixture
+def lines() -> Iterator[_Lines]:
+    h, lg = _Lines(), logging.getLogger("orchestrator")
+    lg.addHandler(h)
+    try:
+        yield h
+    finally:
+        lg.removeHandler(h)
+
+
+def test_a_refusal_stays_a_refusal_when_its_record_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lines: _Lines
+) -> None:
+    """Train 8: an unsigned registry change on a box whose database did not answer was a 500 ("internal error"),
+    because writing the ``actor.refused`` record raised and the refusal was lost with it. The person is refused
+    all the same (403, the same body), and the record that could not be written is an ERROR line of the log."""
+    from orchestrator import app as oapp
+
+    per_service_tokens(tmp_path, monkeypatch)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+
+    def no_box() -> Any:
+        raise RuntimeError("cannot reach the trial database: OperationalError")
+
+    monkeypatch.setattr(oapp, "orch", no_box)
+    client = TestClient(oapp.app, headers={sa.TOKEN_HEADER: token_of("console")}, raise_server_exceptions=False)
+    r = client.post("/registry/GZQO", json={"pid": "ab" * 16, "status": "contacted"})
+    assert r.status_code == 403, r.text[:200]
+    assert "no signed-in user" in _refused(r)
+    lost = [x for x in lines.records if x.getMessage() == "actor.refused: not written to the audit trail"]
+    assert len(lost) == 1 and getattr(lost[0], "route", "") == "POST /registry/{ruleset}"
+    assert getattr(lost[0], "reason", "") and getattr(lost[0], "error", "") == "RuntimeError"
+    assert ra.lost_refusals()["routes"].get("POST /registry/{ruleset}", 0) >= 1  # counted: the status shows it
+
+
+def test_the_older_checks_refusal_stays_one_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lines: _Lines) -> None:
+    """The same fault in the older signed-person check (``orchestrator.app._claim``: a job's retry, cancel, the
+    notices, the EDC): a person named without a valid assertion was a 500 when the record could not be written."""
+    from orchestrator import app as oapp
+
+    per_service_tokens(tmp_path, monkeypatch)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+
+    def no_box() -> Any:
+        raise RuntimeError("cannot reach the trial database: OperationalError")
+
+    monkeypatch.setattr(oapp, "orch", no_box)
+    headers = {sa.TOKEN_HEADER: token_of("console"), sa.ACTOR_HEADER: "console:dr_tanaka",
+               sa.ROLE_HEADER: "admin", sa.ASSERTION_HEADER: "not-a-signature"}  # fmt: skip
+    client = TestClient(oapp.app, headers=headers, raise_server_exceptions=False)
+    before = ra.lost_refusals()["count"]
+    r = client.post("/jobs/01HZZZZZZZZZZZZZZZZZZZZZZZ/retry", json={"reply_to": "it@hospa.test"})
+    assert r.status_code == 403 and "dr_tanaka" not in r.text, r.text[:200]
+    lost = [x for x in lines.records if x.getMessage() == "actor.refused: not written to the audit trail"]
+    assert len(lost) == 1 and getattr(lost[0], "route", "") == "POST /jobs/{job_id}/retry"
+    assert ra.lost_refusals()["count"] == before + 1
+
+
 def _refused(r: Any) -> str:
     """The dependency's reason, "" when the call was not refused by it."""
     try:
@@ -290,17 +363,20 @@ def test_every_refuse_route_refuses_an_unsigned_call_and_a_role_without_the_righ
 
     client, events = box
     routes = [(m, p, a) for m, p, stage, a, _ in ra.walk(app) if stage == "refuse"]
-    assert len(routes) >= 13
+    assert len(routes) >= 20
     for method, template, action in routes:
         path = template.replace("{rs}", "GZQO").replace("{record}", "GZQO-0001").replace("{event}", "ae1")
         path = path.replace("{ruleset}", "GZQO")  # T-715b: the registry names its study so
-        path = path.replace("{fmt}", "csv").replace("{job_id}", "J1")
+        path = path.replace("{fmt}", "csv").replace("{job_id}", "J1").replace("{ref}", "rc1")
+        # T-715d (D-554): a route of the whole box (a REDCap connection) is claimed with no study
+        named = "{rs}" in template or "{ruleset}" in template
+        study = "GZQO" if named else ""
         body = None if method == "GET" else {"x": 1}
         kw = {} if body is None else {"json": body}
         assert "no signed-in user" in _refused(client.request(method, path, **kw)), template
-        wrong = signed(action, "GZQO", method, path, body, role="viewer")
+        wrong = signed(action, study, method, path, body, role="viewer")
         assert _refused(client.request(method, path, headers=wrong, **kw)) == "right", template
-        if "{rs}" in template or "{ruleset}" in template:  # a job's route has none: its handler compares it
+        if named:  # a job's route has none: its handler compares it
             other = signed(action, "OTHER", method, path, body)
             assert _refused(client.request(method, path, headers=other, **kw)) == "study", template
     with_study = sum("{rs}" in template or "{ruleset}" in template for _, template, _ in routes)
@@ -342,21 +418,22 @@ def test_the_standing_in_the_claim_is_what_the_matrix_is_asked_with() -> None:
 # ------------------------------------------------------------------------------------------------ report stage
 def test_a_report_route_counts_an_unsigned_call_and_lets_it_through(box: Any) -> None:
     client, events = box
-    path, body = "/studies/GZQO/settings", {"study_type": "trial", "by": "dr_tanaka"}
-    key = "PUT /studies/{rs}/settings"
+    # T-715d (D-554): the settings route this test used refuses now; the data core's own forms route still reports
+    path, body = "/studies/GZQO/forms/builtin", {"by": "dr_tanaka"}
+    key = "POST /studies/{rs}/forms/builtin"
     before = sum(n for (route, _), n in ra.UNSIGNED.items() if route == key)
-    r = client.put(path, json=body)
+    r = client.post(path, json=body)
     assert _refused(r) == "" and not [e for e in events if e["kind"] == "actor.refused"]  # let through: report
     assert sum(n for (route, _), n in ra.UNSIGNED.items() if route == key) == before + 1
     assert ra.UNSIGNED[(key, "no v3 assertion")] >= 1
     # a valid assertion for this request is not counted; one for another body is
-    client.put(path, json=body, headers=signed("study.setup", "GZQO", "PUT", path, body))
+    client.post(path, json=body, headers=signed("study.setup", "GZQO", "POST", path, body))
     assert sum(n for (route, _), n in ra.UNSIGNED.items() if route == key) == before + 1
-    client.put(path, json=body, headers=signed("study.setup", "GZQO", "PUT", path, {"other": 1}))
+    client.post(path, json=body, headers=signed("study.setup", "GZQO", "POST", path, {"other": 1}))
     assert ra.UNSIGNED[(key, "body")] >= 1
     assert (
-        client.get(path).status_code != 403
-        and ra.UNSIGNED.get(("GET /studies/{rs}/settings", "no v3 assertion")) is None
+        client.get("/studies/GZQO/forms").status_code != 403
+        and ra.UNSIGNED.get(("GET /studies/{rs}/forms", "no v3 assertion")) is None
     )
 
 
@@ -364,15 +441,15 @@ def test_a_report_route_counts_a_claim_for_another_study_or_without_the_right(bo
     """Review M1: in stage `report` a claim counts as a verified person only when it is for this study and the
     matrix allows its own action to its role; the first of each route and reason is in the audit trail."""
     client, events = box
-    path, body = "/studies/GZQO/settings", {"study_type": "trial", "by": "dr_tanaka"}
-    key = "PUT /studies/{rs}/settings"
+    path, body = "/studies/GZQO/forms/builtin", {"by": "dr_tanaka"}  # T-715d: the settings route refuses now
+    key = "POST /studies/{rs}/forms/builtin"
     for reason, headers in (
-        ("study", signed("study.setup", "OTHER", "PUT", path, body)),
-        ("right", signed("sae.ack", "GZQO", "PUT", path, body, role="viewer")),
-        ("principal", signed("sae.ack", "GZQO", "PUT", path, body, sub="service:console-notify", role="service")),
+        ("study", signed("study.setup", "OTHER", "POST", path, body)),
+        ("right", signed("sae.ack", "GZQO", "POST", path, body, role="viewer")),
+        ("principal", signed("sae.ack", "GZQO", "POST", path, body, sub="service:console-notify", role="service")),
     ):
         before = ra.UNSIGNED[(key, reason)]
-        assert _refused(client.put(path, json=body, headers=headers)) == ""  # let through: report
+        assert _refused(client.post(path, json=body, headers=headers)) == ""  # let through: report
         assert ra.UNSIGNED[(key, reason)] == before + 1, reason
     seen = [(e["detail"]["route"], e["detail"]["reason"]) for e in events if e["kind"] == "actor.unsigned"]
     assert len(seen) == len(set(seen))  # once per route and reason in a process

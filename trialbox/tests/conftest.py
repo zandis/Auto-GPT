@@ -17,6 +17,9 @@ os.environ.setdefault("TB_TZ", "Asia/Taipei")
 # them the build stays a thread of the service. tests/unit/test_lake_build_process.py runs the box's way.
 # Set, not defaulted: a shell that exports the box's value must not change what these tests drive.
 os.environ["TB_LAKE_BUILD"] = "thread"
+# D-663: the same for the adapter's ingest: most tests hand the adapter a configuration in memory (``build_config``
+# replaced); tests/unit/test_adapter_run_process.py runs the box's way, with real processes.
+os.environ["TB_ADAPTER_RUN"] = "thread"
 
 
 @pytest.fixture
