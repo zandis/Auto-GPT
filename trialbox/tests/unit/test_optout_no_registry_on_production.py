@@ -61,7 +61,13 @@ def test_the_job_stops_with_the_sentence(monkeypatch: pytest.MonkeyPatch) -> Non
     for read in (d.refused, d.no_contact, d.consent):
         with pytest.raises(StepFailed) as got:
             read()
-        assert got.value.message == optout.NO_REGISTRY_TABLE
+        assert got.value.message == optout.NO_REGISTRY_TABLE and got.value.step == "running"
+    # the step is the one the job is in (CASE reads the registry while it is still parsing)
+    ctx.job = SimpleNamespace(state="parsing")
+    with pytest.raises(StepFailed) as got:
+        DecisionContext(ctx).consent()
+    assert got.value.step == "parsing"
+    del ctx.job
     monkeypatch.setenv("TB_ENV", "TEST")
     test_box = DecisionContext(ctx)
     assert test_box.consent() is None and test_box.refused() == frozenset()

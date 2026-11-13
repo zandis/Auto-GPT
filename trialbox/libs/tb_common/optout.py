@@ -240,8 +240,9 @@ NO_REGISTRY_TABLE = (
     "The lake snapshot has no consent table. A snapshot built by TrialBox always has one, so this snapshot was made "
     "by hand or by other software. The run stops: without the table no opt-out could be applied."
 )
-#: the boxes on which a snapshot without a consent table still reads as "no registry": the two names the settings
-#: define beside PRODUCTION (``TB_ENV``; unset is PRODUCTION). Tests and tools build small lakes there.
+#: the boxes on which a snapshot without a consent table still reads as "no registry" (``TB_ENV``): tests and tools
+#: build small lakes there. Every other name refuses: PRODUCTION, VALIDATION, unset (which is PRODUCTION) and any
+#: name this code does not know.
 NO_REGISTRY_ALLOWED = ("DEV", "TEST")
 
 

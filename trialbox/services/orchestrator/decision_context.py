@@ -27,6 +27,7 @@ per context either way). Code outside a job (a route, a timer) uses :func:`regis
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -45,6 +46,8 @@ if TYPE_CHECKING:
 REFUSED_REASON = "research-use opt-out (FHIR Consent rejected)"
 #: the action of a patient whose latest statement denies contact: never on a list (D-441)
 NO_CONTACT_ACTION = "contact: deny (FHIR Consent) — never listed"
+
+log = logging.getLogger("orchestrator.decision")
 
 
 @dataclass(frozen=True)
@@ -156,8 +159,11 @@ class DecisionContext:
                 self._consent[key] = _optout.registry_state(self.lake, snapshot, key[1])
             except _optout.NoRegistryTable as exc:
                 # D-654: a PRODUCTION box and a snapshot without a consent table. The job stops with the sentence
-                # (a general error would show only "Internal error"); nothing is cached, the next read asks again
-                raise StepFailed("running", str(exc)) from exc
+                # (a general error would show only "Internal error"), at the step it is in; nothing is cached, the
+                # next read asks again. Logged here: a step failure is not logged where the job ends
+                step = str(getattr(getattr(self._ctx, "job", None), "state", "") or "running")
+                log.error("job stopped at %s: the lake snapshot has no consent table (D-654)", step)
+                raise StepFailed(step, str(exc)) from exc
         return self._consent[key]
 
     def refused(self) -> frozenset[str]:
