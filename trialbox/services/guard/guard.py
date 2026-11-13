@@ -116,9 +116,11 @@ class Guard:
             return [self.redact_obj(v) for v in obj]
         return obj
 
-    def tripwire(self, text: str) -> Verdict:
-        spans = self.detect(text, second_look=True)
-        v1 = phi_guard.scan(text, self.mrn_regex, cjk_names=_standing_names)
+    def tripwire(self, text: str, second_look: bool = True) -> Verdict:
+        """``second_look=False``: every pattern match counts, as before D-647 (the document parser's mask of a
+        protocol's contact and subject lines: its review found subject lines the look would let through)."""
+        spans = self.detect(text, second_look=second_look)
+        v1 = phi_guard.scan(text, self.mrn_regex, cjk_names=_standing_names if second_look else None)
         kinds = sorted({f.kind for f in spans} | {k.upper() for k, _ in v1.findings})
         hit = bool(spans) or v1.hit
         return Verdict(hit, tuple(kinds), len(spans) + len(v1.findings), spans)

@@ -119,6 +119,26 @@ ZH_WITH_KANA = {
     "line end, kana earlier": "ロキソニン過敏 病人：{n}",
     "Japanese honorific": "{n}さんは本日来院した。",
 }
+#: a Chinese name run into text on a line that holds kana, with no cue and no boundary (the second review)
+ZH_RUNNING_WITH_KANA = {
+    "text after, kana later": "病人{n}今日回診，服用ロキソニン後改善",
+    "kana earlier, text after": "ロキソニン過敏，病人{n}今日回診",
+    "Japanese particle after": "患者{n}は発熱のため受診した。",
+    "Japanese particle 2": "患者{n}の既往歴を確認した。",
+}
+#: the middle dot and the long vowel mark after a name: punctuation, not text
+ZH_DOTS = {
+    "middle dot": "病人{n}・主訴頭痛",
+    "long vowel mark": "病人{n}ー主訴頭痛",
+    "dot, second name": "病人{n}・{n}今日回診",
+}
+#: subject lines of a protocol or a consent form
+ZH_SUBJECT = {
+    "signature": "受試者{n}簽名",
+    "signed": "受試者{n}已簽署同意書",
+    "agrees": "受試者：{n}同意參加本試驗",
+    "physician of": "病人{n}之主治醫師",
+}
 #: a Japanese name on a line with kana
 JA_KANA = {
     "name, san": "{n}さんは本日来院した。",
