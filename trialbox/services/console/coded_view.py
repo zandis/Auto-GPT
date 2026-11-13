@@ -62,6 +62,15 @@ def number(v: float) -> str:
     return text if text not in ("", "-0") else "0"
 
 
+# review 2026-11-13 (CON-UX-3): the printed form of the UCUM codes a page shows most; the stored unit is unchanged
+SHOWN_UNIT = {"mm[Hg]": "mmHg", "[iU]/L": "IU/L", "[IU]/L": "IU/L", "10*9/L": "10^9/L", "10*12/L": "10^12/L",
+              "10*3/uL": "10^3/uL", "10*6/uL": "10^6/uL"}  # fmt: skip
+
+
+def shown_unit(unit: str) -> str:
+    return SHOWN_UNIT.get(unit, unit)
+
+
 def line(cv: Mapping[str, Any]) -> dict[str, Any]:
     """One coded record as the page shows it: the value (number, comparator and unit, or a coded answer), the age or
     the sex of a demographic answer, the date, and the code with its system's short name."""
@@ -78,7 +87,12 @@ def line(cv: Mapping[str, Any]) -> dict[str, Any]:
         return out
     if cv.get("value") is not None:
         out["value"] = " ".join(
-            x for x in (f"{cv.get('comparator') or ''}{number(float(cv['value']))}", str(cv.get("unit") or "")) if x
+            x
+            for x in (
+                f"{cv.get('comparator') or ''}{number(float(cv['value']))}",
+                shown_unit(str(cv.get("unit") or "")),
+            )
+            if x
         )
     elif cv.get("value_code"):
         out["value"] = str(cv["value_code"])

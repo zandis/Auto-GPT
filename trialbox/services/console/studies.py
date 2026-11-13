@@ -14,6 +14,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from tb_common.config import environment_name
 from tb_common.verdict_word import shown_of
@@ -22,6 +23,9 @@ from tb_contracts import Job
 from console import coded_view
 from console.recorded_opinions import view
 from console.sitestore import DEFAULT_REASONS, Mark, SiteProfile, StudySettings
+from console.timefmt import local_date
+
+_UTC_ZONE = ZoneInfo("UTC")  # feas_report's default zone: the stored times are UTC
 
 TERMINAL_REGISTRY = frozenset({"screen_fail", "declined", "withdrawn"})
 STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "set_aside", "closed")
@@ -176,6 +180,7 @@ def feas_report(
     crit: Mapping[str, CriterionMeta],
     *,
     sponsor: bool = False,
+    zone: ZoneInfo = _UTC_ZONE,
 ) -> dict[str, Any]:
     """The sections of the feasibility report, in order (D-104 §2). Counts are the published (rounded,
     small-cell-suppressed) counts of the feasibility JSON, so the same view is safe for the sponsor copy; the sponsor
@@ -310,7 +315,8 @@ def feas_report(
         "capabilities": caps,
         "competing": list(site.competing),
         "comment": site.comment if (not sponsor or site.comment_to_sponsor) else "",
-        "entered": {"by": site.entered_by, "at": site.entered_at[:10] if site.entered_at else ""},
+        # review 2026-11-13 (CON-TZ-1): the site's calendar date of the stored UTC time, not its first ten characters
+        "entered": {"by": site.entered_by, "at": local_date(site.entered_at, zone) if site.entered_at else ""},
         "facts": facts,
         "assumptions": [
             ("reach", sim.get("reach_rate"), sim.get("source") or "default"),

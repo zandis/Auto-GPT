@@ -31,7 +31,7 @@
 </section>
 
 <section class="card" data-testid="audit-browser">
-<form method="get" action="/audit" class="inline" data-testid="audit-filter">
+<form method="get" action="/audit" class="inline filters" data-testid="audit-filter">
 <label for="f-kind">{{ t('audit.filter.kind') }}</label> <select id="f-kind" name="kind"><option value="">{{ t('audit.filter.all') }}</option>{% for k in kinds %}<option value="{{ k }}"{% if k == f.kind %} selected{% endif %}>{{ t('audit.kind.' + k) }}</option>{% endfor %}</select>
 <label for="f-event">{{ t('audit.filter.event') }}</label> <select id="f-event" name="event"><option value="">{{ t('audit.filter.all') }}</option>{% for e in events %}<option value="{{ e }}"{% if e == f.event %} selected{% endif %}>{{ t_or('audit.ev.' + e, e) }}</option>{% endfor %}</select>
 <label for="f-who">{{ t('audit.filter.who') }}</label> <input id="f-who" name="who" value="{{ f.who }}" maxlength="80">

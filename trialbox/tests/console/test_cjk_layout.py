@@ -246,6 +246,10 @@ def test_screenshots_ja_and_zh_tw_no_one_character_wrapping(box: dict[str, Any],
             DESKTOP,
             ["row-first-screen", "worklist-fits"],
         )
+        # review 2026-11-13 (UX-001, still open then): a patient opened on the desktop week list has its mark bar
+        # on the screen, not 2,000 px down under the criteria
+        put(pi, f"pi-{lang}-sheet-desktop.html", f"/studies/GZQO/week?pid={B}", lang, DESKTOP,
+            ["markbar-first-screen", "reason-above-dock"])  # fmt: skip
         put(pi, f"pi-{lang}-week-phone.html", "/studies/GZQO/week", lang, PHONE, [])
         put(pi, f"pi-{lang}-sheet-phone.html", f"/studies/GZQO/week?pid={B}", lang, PHONE, [])
         put(pi, f"pi-{lang}-patient-phone.html", f"/studies/GZQO/patients/{B}", lang, PHONE, ["markbar-first-screen"])
