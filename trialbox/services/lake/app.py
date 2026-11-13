@@ -88,8 +88,9 @@ def _named(snapshot: date | None, generation: str | None) -> str | None:
 
 @app.post("/query")
 def query(req: LakeQuery, x_tb_lake_generation: str | None = Header(default=None)) -> Response:
+    named = _named(req.snapshot, x_tb_lake_generation)  # its 400 (a generation header that is none) is the request's
     try:
-        table = lake().query(req.sql, list(req.params or []), _named(req.snapshot, x_tb_lake_generation), req.timeout_s)
+        table = lake().query(req.sql, list(req.params or []), named, req.timeout_s)
     except SqlRejected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:  # D-675: a snapshot that is not there is the lake not serving it: 503

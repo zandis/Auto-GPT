@@ -139,6 +139,18 @@ def test_a_real_lake_answers_a_wrong_question_with_422_and_a_snapshot_that_is_no
     assert gone.value.status == 503 and "no lake snapshot 2031-01-01" in str(gone.value)
 
 
+def test_a_generation_header_that_is_none_is_the_requests_fault_not_a_broken_lake(tmp_path: Path) -> None:
+    """Found by this card's review by running: the route's own 400 was raised inside the handler that turns every
+    error into the lake's, and came out as 500 "the lake broke" (422 before this card)."""
+    client = TestClient(lake_app.app)
+    for headers, body in (
+        ({"X-TB-Lake-Generation": "x"}, {"sql": "SELECT 1", "snapshot": "2026-10-04"}),
+        ({"X-TB-Lake-Generation": "2"}, {"sql": "SELECT 1"}),  # a generation without its date
+    ):
+        r = client.post("/query", json=body, headers=headers)
+        assert r.status_code == 400, (headers, r.status_code, r.text)
+
+
 # ------------------------------------------------------------------------------------------- every caller of query()
 GOES_ON = "no handler: the error goes on and the job or the request fails (5xx: the lake failed; 4xx: the code)"
 RERAISES = "handler: a missing table of an older snapshot (a 4xx sentence) is read as none; anything else goes on"
@@ -149,6 +161,9 @@ OPEN = "OPEN (its lane): catches every error, a 5xx too, and reads it as "
 #: by someone who read what it does with a 5xx (never "no data") and with a 4xx (a fault of the code: it stops).
 CALLERS: dict[tuple[str, str], str] = {
     ("lake/app.py", "query"): "the route: answers the status this card is about",
+    ("tb_common/optout.py", "registry_state"): RERAISES,
+    ("tb_common/derived_store.py", "rows_from_lake"): GOES_ON,
+    ("tb_common/derived_store.py", "mapping_version_of"): GOES_ON,
     ("lake/client.py", "LakeLocal.query"): GOES_ON,
     ("lake/store.py", "Lake.vec_s2b"): GOES_ON,
     ("orchestrator/jobs.py", "PinnedLake.query"): GOES_ON,
@@ -178,7 +193,8 @@ CALLERS: dict[tuple[str, str], str] = {
     ("matching/proposed.py", "Proposed.load"): RERAISES,
     ("matching/proposed.py", "site_basis"): RERAISES,
     ("matching/coded_values.py", "attach"): OPEN + "no coded value to show (display only; the answers stand)",
-    ("orchestrator/scenarios/feas_profile.py", "build"): OPEN + "a lake without the fact tables (the report says so)",
+    ("orchestrator/scenarios/feas_profile.py", "build"): OPEN
+    + "a lake without the fact tables, for its facts query (the report says so); its other two queries go on",
     ("orchestrator/scenarios/screen.py", "practitioner_names"): OPEN + "no names (the settings' ids are shown)",
     ("orchestrator/scenarios/screen.py", "confirmed_facts"): OPEN + "no confirmed fact",
     ("patient_profile/twin.py", "lake_schema"): OPEN + "a snapshot of schema 1",
@@ -188,10 +204,12 @@ CALLERS: dict[tuple[str, str], str] = {
 
 
 def _query_callers() -> dict[tuple[str, str], bool]:
-    """Every ``x.query(...)`` call in ``services/``: (file, function) -> a ``try`` with a handler stands around it."""
+    """Every ``x.query(...)`` call in ``services/`` and ``libs/``: (file under it, function) -> a ``try`` with a
+    handler stands around at least one of the function's calls. The tools (``tools/``) are not listed: each fails
+    with the error."""
     found: dict[tuple[str, str], bool] = {}
-    services = ROOT / "services"
-    for f in sorted(services.rglob("*.py")):
+    files = [(f, root) for root in (ROOT / "services", ROOT / "libs") for f in sorted(root.rglob("*.py"))]
+    for f, root in files:
         tree = ast.parse(f.read_text(encoding="utf-8"))
         parent: dict[ast.AST, ast.AST] = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
         for n in ast.walk(tree):
@@ -210,7 +228,7 @@ def _query_callers() -> dict[tuple[str, str], bool]:
                     fn = p.name
                 if isinstance(p, ast.ClassDef) and not cls:
                     cls = p.name
-            key = (f.relative_to(services).as_posix(), f"{cls}.{fn}" if cls else fn or "<module>")
+            key = (f.relative_to(root).as_posix(), f"{cls}.{fn}" if cls else fn or "<module>")
             found[key] = found.get(key, False) or handled
     return found
 

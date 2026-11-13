@@ -278,7 +278,7 @@ def test_the_generation_travels_over_http_beside_the_date(tmp_path: Path, monkey
     http.release("01HTTP")
     http.release("01BYDATE")
     _publish(lake_dir)
-    with pytest.raises(RuntimeError, match="404"):
+    with pytest.raises(RuntimeError, match=r"\(503\): no lake generation"):  # D-675: the lake cannot serve it
         _rows(http, gen)  # the generation is gone: said, never another one's rows
 
 

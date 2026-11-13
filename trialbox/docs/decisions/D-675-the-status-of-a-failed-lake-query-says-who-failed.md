@@ -40,26 +40,31 @@ its status but 400" as the lake failing.
    and a fixed sentence. Only the status moves.
 4. **The client carries the status** (`LakeQueryFailed.status`, D-673). A caller's rule: `exc.status >= 500` is
    "the lake failed".
-5. **A snapshot that is not there is 503, not 404.** The caller asked for a night the lake does not hold (it was
+5. **The request's own fault is answered before the lake is asked**: a generation header that is none is 400.
+   It was raised inside the handler that turns every error into the lake's, and came out as 422, then as 500
+   (found by this card's review by running).
+6. **A snapshot that is not there is 503, not 404.** The caller asked for a night the lake does not hold (it was
    never built, or it is gone): the lake cannot serve the question. It is not a fault of the question's text, and
    a caller that pinned a snapshot must not take it for one.
 
 ## Every caller of query(), and what it does
 
-`tests/unit/test_lake_query_status.py` finds every `.query(` call in `services/` and fails when one is not on its
-list, or when the list and the code disagree about a handler around the call.
+`tests/unit/test_lake_query_status.py` finds every `.query(` call in `services/` and `libs/` and fails when one is
+not on its list, or when the list and the code disagree about a handler around the call. The tools (`tools/`)
+are not listed: each fails with the error.
 
 - **No handler: the error goes on** and the job or the request fails. With D-673 a job then ends "The lake
   service failed." with the status; a 4xx there is a fault of the code and shows as one. Twenty-five callers:
   the job scenarios and their helpers, the cascade's stages, the twin's reader, the vector indexer, the
   equivalence gate, the EDC prefill, the lake's own uses.
 - **A handler that reads one thing and lets the rest go on** (`cascade._Run.notes`, `Proposed.load`,
-  `site_basis`): a missing table of an older snapshot (a 4xx sentence) is read as none; anything else, every 5xx
+  `site_basis`, `tb_common.optout.registry_state`): a missing table of an older snapshot (a 4xx sentence) is read as none; anything else, every 5xx
   with it, goes on.
 - **Open, not changed here (each is another lane's file; sent to the integrator): a handler that catches every
   error, a 5xx too, and reads it as something else:**
   - `matching/coded_values.attach`: no coded value to show (display only; the answers stand);
-  - `scenarios/feas_profile.build`: a lake without the fact tables (the report says so);
+  - `scenarios/feas_profile.build`: a lake without the fact tables, for its facts query (the report says so);
+    its other two queries have no handler and go on;
   - `scenarios/screen.practitioner_names`: no names (the settings' ids are shown);
   - `scenarios/screen.confirmed_facts`: no confirmed fact;
   - `patient_profile/twin.lake_schema`: a snapshot of schema 1;
@@ -73,6 +78,18 @@ list, or when the list and the code disagree about a handler around the call.
   there for a caller that wants the same rule.
 - The other routes of the lake (`/chunks/search`, `/vec/s2b`, the holds, the rebuild) keep their statuses.
 - The list sees a handler around the call, not one in the function's caller.
+- **The status is the lake's word only when the lake answered.** The service-token check in front of every
+  service answers 401 or 403 for a caller it does not know, and 503 when the box has no token configured: a 4xx
+  there is the box's set-up, not the question, and that 503 is not the lake's data failing. Unchanged by this
+  card; a caller that must tell them apart reads the sentence.
+- `LAKE-STALE` is raised where a job pins its snapshot, not by a query; its 503 is the rule for the day a query
+  raises it.
+
+## What a person sees differently now
+
+A failed job's detail reads `HTTP 503` or `HTTP 500` where it read `HTTP 404` or `HTTP 422`. Nothing waits or
+retries that failed at once before (checked by the review: no caller branches on the old statuses, and the
+job-follower that waits through 5xx answers is not on the query's path).
 
 ## Tests
 
@@ -80,5 +97,15 @@ list, or when the list and the code disagree about a handler around the call.
 and twelve failures of the lake (503, 500), each through the real route and the client, none repeating a value;
 every error class of the engine placed by its group; a real small lake (a wrong column and a value that does not
 convert: 422; a statement the guard refuses: 400; a snapshot that is not there: 503); the list of callers and the
-check of handlers. `tests/unit/test_lake_error_answers.py` (D-664's): one expected status moves from 422 to 503
-for the lake's own limit, with the same words. No state change is added.
+check of handlers; a generation header that is none is 400. **Expected statuses moved in three existing tests,
+each with the same words asserted**: `tests/unit/test_lake_error_answers.py` (D-664's: the lake's own limit, 422
+to 503), `tests/unit/test_t724_generations.py` (a generation that is gone, 404 to 503: found failing by this
+card's review; its match is now the status and the sentence), and two mocked answers in
+`tests/unit/test_lake_client_answers.py` (D-673's), so they describe the service as it answers now. No state
+change is added.
+
+Seen against the real service by the review (a real small lake): a missing column, a missing function, an
+overflow, a failed cast, a wrong number or kind of parameters: 422; a statement the guard cannot read: 400; a
+query cut at its time limit, the memory limit, a snapshot or generation that is not there, a deleted database
+file, a newer layout: 503; a truncated database file: 500; a dropped `document` table: 422 with the sentence the
+cascade reads.
