@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import codecs
 import itertools
+import re
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
@@ -78,7 +79,9 @@ def _hw_run_ok(text: str, i: int) -> bool:
     return text[j] not in _HW_NOT_FIRST
 
 
-_LATIN1_SYMBOLS = set("µ°±×÷²³¹·§©®¼½¾«»¢£¥¬¦¯´¸ªº¿¡")
+# D-599: the Latin-1 symbols that count as usual wherever they stand (a urine protein column of ±). The others are,
+# as two bytes, frequent hanzi (¾ 職, ² 簡, ½ 翻, § 禮): a column of one of those is not certain UTF-8
+_LATIN1_SURE = set("µ°±×")
 
 
 def _weight_utf8(ch: str) -> float:
@@ -91,7 +94,7 @@ def _weight_utf8(ch: str) -> float:
     if 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF or 0x2000 <= o <= 0x27BF or 0x3200 <= o <= 0x33FF:
         return 0.9
     if 0xA0 <= o <= 0xFF:
-        return 0.9 if ch in _LATIN1_SYMBOLS else 0.6
+        return 0.9 if ch in _LATIN1_SURE else 0.6
     if 0x370 <= o <= 0x3FF or 0x1E00 <= o <= 0x1EFF or 0xAC00 <= o <= 0xD7AF:
         return 0.6
     if 0x400 <= o <= 0x4FF:
@@ -101,35 +104,29 @@ def _weight_utf8(ch: str) -> float:
     return 0.5
 
 
-_GLUE = "-/().'\u2019"  # what joins a western word or a unit: TNF-α, kg/m², Sjögren's
-LEGACY_OVER_UTF8 = 3  # CJK characters a legacy reading must show before it is taken for bytes that are valid UTF-8
+# D-599: what only western text looks like, each with an ASCII letter or digit in a fixed place beside it. No
+# Japanese or Chinese text has a half-width kana pair or one hanzi standing so: inside a word between letters, as
+# the degree of a temperature, the micro of a unit, the square of a metre, between two numbers, hyphened to a word
+_WESTERN = re.compile(
+    "|".join(
+        (
+            r"(?<=[A-Za-z])[\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u00ff]{1,2}(?=[a-z])",  # Sjögren, Ménière, naïve
+            r"(?<=[0-9])\u00b0(?=[CF](?![A-Za-z]))|(?<=[0-9] )\u00b0(?=[CF](?![A-Za-z]))",  # 38°C, 37.5 °C
+            r"(?<![A-Za-z])[\u00b5\u03bc](?=(?:mol|kat|IU|Eq|[glLmMsU])(?![a-z]))",  # µg, µmol/L, μL
+            r"(?<=m)[\u00b2\u00b3](?![A-Za-z0-9])",  # m², cm³
+            r"(?<=[0-9])\u00b1(?=[0-9])|(?<=[0-9] )\u00b1(?= [0-9])",  # 5±2, 5 ± 2
+            r"(?<=[A-Za-z]{2}-)[\u03b1-\u03c9](?![A-Za-z])|(?<![A-Za-z])[\u03b1-\u03c9](?=-[A-Za-z]{2})",  # TNF-α
+        )
+    )
+)
 
 
-def _western(text: str, i: int) -> bool:
-    """Whether the non-ASCII character at ``i`` stands in a western word or beside a number: ``Sjögren``, ``38°C``,
-    ``TNF-α``, ``m²``, ``see § 4.2``. A run of at most two such characters that touches an ASCII letter or digit,
-    through a hyphen, a slash, a bracket or an apostrophe; a Latin-1 symbol (``°``, ``±``, ``§``, ``µ``) also
-    through one space. Two legacy bytes that are valid UTF-8 by chance stand alone in their cell (a hanzi, two
-    kana), not inside ``Sj..gren``."""
-    if _cjk(text[i]):
-        return False
-    lo = hi = i
-    while lo > 0 and not text[lo - 1].isascii() and hi - lo < 2:
-        lo -= 1
-    while hi + 1 < len(text) and not text[hi + 1].isascii() and hi - lo < 2:
-        hi += 1
-    if hi - lo > 1 or any(_cjk(c) for c in text[lo : hi + 1]):
-        return False
-    spaced = all(c in _LATIN1_SYMBOLS for c in text[lo : hi + 1])
-
-    def touches(j: int, step: int) -> bool:
-        if spaced and 0 <= j < len(text) and text[j] == " ":
-            j += step
-        while 0 <= j < len(text) and text[j] in _GLUE:
-            j += step
-        return 0 <= j < len(text) and text[j].isascii() and text[j].isalnum()
-
-    return touches(lo - 1, -1) or touches(hi + 1, 1)
+def _western_only(text: str) -> bool:
+    """Whether every non-ASCII character of ``text`` stands in one of the :data:`_WESTERN` places."""
+    covered: set[int] = set()
+    for m in _WESTERN.finditer(text):
+        covered.update(range(m.start(), m.end()))
+    return all(i in covered for i, ch in enumerate(text) if not ch.isascii())
 
 
 def _weight(codec: str, ch: str, text: str, i: int) -> float:
@@ -303,7 +300,7 @@ def detect(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, float]
     allowed = {m for c in candidates for m in _FAMILY.get(c, (c,))} | {"utf-8"}
     rivals = [r for r in RIVALS if r not in candidates]
     scored = _scores(data, [*candidates, *rivals])
-    valid_utf8: float | None = None  # the score of the UTF-8 reading, when the bytes are valid UTF-8 and weighed
+    valid_utf8 = False  # the bytes are valid UTF-8 and their reading is weighed against the legacy ones
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -312,22 +309,15 @@ def detect(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, float]
             raise EncodingRefused("the file mixes two character sets", mixed) from None
     else:
         utf8 = score("utf-8", text)
-        sample = text[:_SAMPLE]
-        marks = [i for i, ch in enumerate(sample) if not ch.isascii()]
-        western = {i for i in marks if _western(sample, i)}
-        # usual in a site's UTF-8 file: CJK, kana, full-width forms; a Latin-1 symbol only where it stands as one
-        # (µmol, 38°C): four hanzi side by side can be valid UTF-8 too, as "¾ñ²½"
-        usual = sum(
-            1 for i in marks if _weight_utf8(sample[i]) >= 0.9 and (sample[i] not in _LATIN1_SYMBOLS or i in western)
-        )
+        usual = sum(1 for ch in text[:_SAMPLE] if not ch.isascii() and _weight_utf8(ch) >= 0.9)
         if usual >= UTF8_SURE or not scored or text.isascii():
             return "utf-8", 1.0
-        if len(western) == len(marks):  # every non-ASCII character is part of a western word or a unit
+        if _western_only(text[:_SAMPLE]):  # D-599: every non-ASCII character is in a western word or a unit
             return "utf-8", 1.0
         # a few non-ASCII characters only: valid UTF-8 by chance (Big5 職 is C2 BE, also UTF-8 ¾)? Weighed against
         # the legacy readings, with a head start for being valid UTF-8
         scored = sorted([*scored, (min(1.0, utf8 + UTF8_HEAD_START), "utf-8")], reverse=True)
-        valid_utf8 = utf8
+        valid_utf8 = True
     if not any(c in allowed for _, c in scored):
         names = ", ".join(("UTF-8", *candidates))
         raise EncodingRefused(f"the file is not text in any of {names}", _first_bad_line(data, candidates))
@@ -339,12 +329,11 @@ def detect(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, float]
     if confidence < THRESHOLD:
         others = ", ".join(f"{c} {s:.2f}" for s, c in scored)
         raise EncodingRefused(f"the character set cannot be told for certain ({others})")
-    if valid_utf8 is not None and codec != "utf-8":
-        # bytes that are valid UTF-8 are read as a legacy character set only when UTF-8 makes of them text nobody
-        # writes AND the legacy reading is CJK text, not one hanzi or two kana: a line "Я" (D0 AF) is not "ﾐｯ"
-        legacy = data.decode(codec)
-        if valid_utf8 > UTF8_IMPLAUSIBLE or sum(1 for ch in legacy[:_SAMPLE] if _cjk(ch)) < LEGACY_OVER_UTF8:
-            raise EncodingRefused("the file is valid UTF-8 and too short to tell from Shift_JIS or Big5")
+    if valid_utf8 and codec != "utf-8":
+        # D-599: bytes that are valid UTF-8 are read as UTF-8 or refused, never as a legacy character set. Kana or a
+        # hanzi that happen to be valid UTF-8 and a word of another script are the same bytes (D0 AF is "Я" and
+        # "ﾐｯ"): too little to tell, whichever reading weighs more
+        raise EncodingRefused("the file is valid UTF-8 and too short to tell from Shift_JIS or Big5")
     return codec, round(confidence, 3)
 
 

@@ -37,30 +37,67 @@ def test_no_single_character_makes_a_utf8_file_read_as_shift_jis_or_big5() -> No
 
 
 @pytest.mark.parametrize("cell", [
-    "Body temperature > 38°C", "Sjögren syndrome", "TNF-α inhibitor", "β-blocker",
-    "eGFR < 30 mL/min/1.73 m²", "Ménière disease", "treatment-naïve", "see § 4.2",
-    "dose 5 µg", "5 ± 2", "José", "37.5 °C",
+    "Body temperature > 38\u00b0C", "Sj\u00f6gren syndrome", "TNF-\u03b1 inhibitor", "\u03b2-blocker",
+    "eGFR < 30 mL/min/1.73 m\u00b2", "M\u00e9ni\u00e8re disease", "treatment-na\u00efve", "dose 5 \u00b5g",
+    "5 \u00b1 2", "37.5 \u00b0C", "480 \u00b5mol/L",
 ])  # fmt: skip
-def test_a_western_word_or_unit_in_a_utf8_sheet_is_utf8(cell: str) -> None:
-    """A non-ASCII character that stands in a western word or beside a number is not a stray kanji: read, not refused."""
+def test_an_unmistakably_western_word_or_unit_in_a_utf8_sheet_is_utf8(cell: str) -> None:
+    """An accented letter inside a word, a degree before C, a micro before a unit, a square after m, a plus-minus
+    between numbers, a Greek letter hyphened to a word: no Japanese or Chinese text looks like these. Read."""
     assert _answer((BASE + f"3,{cell}\n").encode("utf-8")) == "utf-8"
 
 
+HEAD = "ID,item,value\n1,WBC,5.1\n"
+
+
 @pytest.mark.parametrize(("cell", "codec"), [
-    ("ﾐｷ", "cp932"), ("ﾏｷ", "cp932"), ("ﾕｷ", "cp932"),   # two half-width kana: D0 B7 ...
-    ("職", "big5"), ("簽", "big5"), ("簡", "big5"),                        # one hanzi that is also ¾ ñ ²
+    ("\uff90\uff77", "cp932"), ("\uff8f\uff77", "cp932"), ("\uff95\uff77", "cp932"),   # two half-width kana: D0 B7 ...
+    ("\u8077", "big5"), ("\u7c3d", "big5"), ("\u7c21", "big5"),                        # one hanzi that is also ¾ ñ ²
+    # the review of the first version: the same cells beside a letter or a digit, as names and codes stand
+    ("\uff90\uff771", "cp932"), ("\uff95\uff77A", "cp932"), ("A-\uff90\uff77", "cp932"), ("\uff90\uff77(1)", "cp932"),
+    ("\uff8f\uff7b\uff95\uff771", "cp932"), ("\uff83\uff7d\uff84\u524d", "cp932"), ("\uff82\uff77 1", "cp932"),
+    ("\uff85\uff7c1", "cp932"),
+    ("\u80771", "big5"), ("No.\u8077", "big5"), ("\u7c3d1", "big5"), ("\u7f85A", "big5"), ("A\u7c21", "big5"),
+    ("\u79ae3", "big5"), ("\u7ffb\u8b6f1", "big5"),
 ])  # fmt: skip
 def test_a_legacy_cell_whose_bytes_are_also_utf8_is_never_read_as_utf8(cell: str, codec: str) -> None:
-    """The other side, as before: two kana or one hanzi alone in a cell can be valid UTF-8 by chance (a Cyrillic
-    letter, ``¾``). Too little to tell: the legacy reading or a refusal, never the UTF-8 one."""
-    data = ("ID,x\n1," + cell + "\n").encode(codec)
+    """The other side: kana or a hanzi, alone or beside a letter or a digit, can be valid UTF-8 by chance (a
+    Cyrillic letter, ``¾``). Too little to tell: the legacy reading or a refusal, never the UTF-8 one."""
+    data = (HEAD + "2," + cell + ",x\n").encode(codec)
     data.decode("utf-8")  # the premise: these bytes are valid UTF-8 too
     assert _answer(data) in (codec, "cp950", "refused")
+    many = (HEAD + "".join(f"{n},{cell},x\n" for n in range(2, 62))).encode(codec)
+    assert _answer(many) in (codec, "cp950", "refused")
 
 
-def test_clear_cjk_text_that_is_valid_utf8_by_chance_is_still_read() -> None:
-    """A legacy reading wins over valid UTF-8 only when UTF-8 reads it as text nobody writes and the legacy reading
-    is CJK text (a run of characters), as the weighing always meant."""
-    data = "ID,職簽簡翻\n".encode("big5")  # four hanzi: C2BE C3B1 C2B2 C2BD = "¾ñ²½" as UTF-8
-    assert data.decode("utf-8") == "ID,¾ñ²½\n"
-    assert _answer(data) in ("big5", "cp950", "refused")
+@pytest.mark.parametrize("word", [
+    "\u0636\u062f", "\u062d\u0627\u062f", "\u0635\u062f\u0627\u0639", "\u05e8\u05e2", "\u05e7\u05e9\u05e8",
+    "\u0161\u017e", "\u0414\u0430", "\u041d\u0435\u0442", "\u03b1\u03b2",
+])  # fmt: skip
+@pytest.mark.parametrize("candidates", [("cp932", "big5"), ("cp932",), ("cp932", "euc_jp")])
+def test_a_word_of_another_script_in_utf8_is_never_read_as_a_legacy_character_set(
+    word: str, candidates: tuple[str, ...]
+) -> None:
+    """The review: two or three Arabic, Hebrew or Latin Extended letters read as a run of half-width kana."""
+    for cell in (word, f"ab{word}cd", f"{word} 1"):
+        try:
+            got = encoding.detect((HEAD + f"2,{cell},x\n").encode("utf-8"), candidates)[0]
+        except encoding.EncodingRefused:
+            got = "refused"
+        assert got in ("utf-8", "refused"), (cell, got)
+
+
+@pytest.mark.parametrize("cell", ["\u00bd", "\u00be", "\u00b2", "\u00a7"])
+def test_a_column_of_a_symbol_that_is_also_a_frequent_hanzi_is_not_certain_either_way(cell: str) -> None:
+    """``½`` is 翻, ``¾`` is 職, ``²`` is 簡, ``§`` is 禮 in Big5: a column of one of them, in UTF-8 or in Big5, was
+    read as UTF-8. Now refused: the same bytes, nothing else to tell by."""
+    data = ("ID,x\n" + "".join(f"{n},{cell}\n" for n in range(1, 6))).encode("utf-8")
+    assert _answer(data) == "refused"
+    assert encoding.file_codec.__name__ and data.decode("big5")  # the premise: Big5 reads these bytes too
+
+
+@pytest.mark.parametrize("cell", ["\u00b1", "(\u00b1)", "\u00b0", "\u00b5", "\u00d7"])
+def test_a_column_of_a_symbol_alone_is_read_as_it_was(cell: str) -> None:
+    """A urine protein column of ``±``: three or more usual symbols make a UTF-8 file certain, as before."""
+    data = ("ID,protein\n" + "".join(f"{n},{cell}\n" for n in range(1, 6))).encode("utf-8")
+    assert _answer(data) == "utf-8"
