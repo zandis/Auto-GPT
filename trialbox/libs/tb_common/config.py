@@ -470,6 +470,10 @@ DECLARED: dict[str, Declared] = {
     "TB_DB_ROLES_CMD": Declared("str", "", "restore: the command that puts the service roles back (D-573)"),
     "TB_DB_URL": Declared("str", "", "the trial database URL"),
     "TB_DEMO_ACCOUNTS": Declared("str", "", "demo: accounts to create"),
+    # deploy/gcp/demo-vm.sh (the small demo VM, deploy/gcp/demo_vm.py has each reason): never 0.0.0.0/0, never empty
+    "TB_DEMO_ALLOW": Declared(
+        "str", "", "demo VM: the only source ranges of tcp:443, comma separated (required for up)"
+    ),
     "TB_DEMO_CONTAINER": Declared("str", "trialbox-demo", "demo: container name"),
     "TB_DEMO_DAY": Declared("str", "today", "demo: the day the demo shows"),
     "TB_DEMO_DIR": Declared("path", "", "demo: work folder"),
@@ -482,6 +486,38 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
     "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
+    # the small demo VM (deploy/gcp/demo-vm.sh): each limit's reason is in deploy/gcp/demo_vm.py (OD-10); prices are
+    # settings with their source and date because list prices change
+    "TB_DEMO_VM_DISK_GB": Declared(
+        "int", "30", "demo VM: boot disk GB (Debian, Docker, the demo image and its tarball)"
+    ),
+    "TB_DEMO_VM_DISK_PRICE_GB_MONTH": Declared("float", "0.11", "demo VM estimate: pd-balanced US$ per GB-month"),
+    "TB_DEMO_VM_HOST": Declared(
+        "str", "", "demo VM: a DNS name for a public certificate; refused (DNS-01 is not built)"
+    ),
+    "TB_DEMO_VM_HOURS": Declared(
+        "int", "12", "demo VM: hard stop, hours after each up (one working day with margin; a forgotten VM stops)"
+    ),
+    "TB_DEMO_VM_IMAGE": Declared("str", "", "demo VM: the demo image by digest, or gs:// tarball of make demo-bundle"),
+    "TB_DEMO_VM_IMAGE_SHA256": Declared("str", "", "demo VM: sha256 of the gs:// tarball, checked on the VM"),
+    "TB_DEMO_VM_IP_PRICE_HOUR": Declared("float", "0.005", "demo VM estimate: an in-use external IPv4, US$ per hour"),
+    "TB_DEMO_VM_MACHINE": Declared(
+        "str", "e2-standard-4", "demo VM: machine type (peak 1.8 GB + PostgreSQL, 4 cores for the seed); never a GPU"
+    ),
+    "TB_DEMO_VM_MIN_PREFIX": Declared(
+        "int", "16", "demo VM: an allowed IPv4 range broader than this prefix is refused (a home range is /24)"
+    ),
+    "TB_DEMO_VM_NAME": Declared("str", "tb-demo-vm", "demo VM: prefix of its VM, network, subnet, rule and tag"),
+    "TB_DEMO_VM_PRICE_DATE": Declared("str", "", "demo VM estimate: the date its prices were read (unset: unchecked)"),
+    "TB_DEMO_VM_PRICE_HOUR": Declared(
+        "float", "0.1528", "demo VM estimate: the machine's US$ per hour (e2-standard-4, asia-east1; check at order)"
+    ),
+    "TB_DEMO_VM_PRICE_SOURCE": Declared("str", "", "demo VM estimate: where its prices come from (unset: from memory)"),
+    "TB_DEMO_VM_SECRET": Declared("str", "tb-demo-password", "demo VM: Secret Manager secret of the demo password"),
+    "TB_DEMO_VM_STOP_WAIT_S": Declared(
+        "int", "300", "demo VM down: seconds to wait for TERMINATED (an e2 VM stops in under a minute)"
+    ),
+    "TB_DEMO_VM_ZONE": Declared("str", "asia-east1-a", "demo VM: zone (the owner's choice for the 2026-11-17 demo)"),
     "TB_DEMO_WAIT_S": Declared("float", "900", "demo: seconds to wait for health"),
     "TB_DIRECTORY_URL": Declared("str", "", "platform check: directory URL"),
     "TB_DOCKER": Declared("str", "docker", "the docker command"),

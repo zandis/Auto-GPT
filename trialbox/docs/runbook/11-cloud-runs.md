@@ -13,6 +13,7 @@ password comes from Secret Manager (`tb-demo-password`, asked once by `deploy/gc
 put in the metadata is refused and the VM does not start the demo. A restart resets the demo. The update path on it: `deploy/gcp/demo-vm-update.sh build <bucket>`,
 then `run <bucket>` (a good bundle applied and checked with `e2e_simple`, a broken one rolled back; about one hour,
 US$0.15).
+For a demo to a guest use the small demo VM below instead: https only, from named addresses only, with a hard stop.
 
 **The GPU VM** (`tb-gpu-sim`, g4-standard-48 spot, one RTX PRO 6000, asia-east1-a, about US$2.74 an hour; the disk
 with the weights is kept, so boot to serving is about 10–15 minutes). No script opens port 80 on it to the internet
@@ -254,3 +255,87 @@ without it they go through the TLS door. `TB_BUCKET=gs://<bucket> bash deploy/gc
 bucket and grants objectAdmin to the deployer and the VMs' service account (and the deployer the reading of its
 policy, for the pre-flight); setup-gcp.sh also grants the deployer `roles/secretmanager.viewer` on `tb-gpu-door`. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
+
+**The small demo VM** (the demo of 2026-11-17). The owner approved "a small VM with TLS in front, reachable by me and my guest, no real-model mode". One script,
+`deploy/gcp/demo-vm.sh`, makes it; the VM's boot script is `deploy/gcp/demo-vm-boot.sh`; the settings, their
+reasons and the cost arithmetic are in `deploy/gcp/demo_vm.py` (each one a declared `TB_*` setting, OD-10). It runs
+the same demo image as CI's `demo-boot` job (`demo/Dockerfile`, `tools/demo.py`): the synthetic hospital, the stub
+model, one sign-in per role. No GPU, no real model (`TB_LLM_MODE` other than `stub` is refused; the VM fixes
+`TB_LLM_MODE=stub` and `TB_DEMO_TOOL=demo` and stops at boot on any metadata key that would change them), no real
+data, no port 80, no SSH.
+
+**What it costs.** `deploy/gcp/demo-vm.sh --estimate` (no cloud call). With the declared prices (the e2-standard-4
+figure the PoC host and this runbook already use, from memory and not checked against the pricing page; set
+`TB_DEMO_VM_PRICE_HOUR`, `TB_DEMO_VM_PRICE_SOURCE` and `TB_DEMO_VM_PRICE_DATE` after checking
+cloud.google.com/compute/vm-instance-pricing):
+
+| | US$ |
+| --- | --- |
+| running, per hour (e2-standard-4 0.1528 + 30 GB pd-balanced + an external IPv4 address 0.005) | 0.16 |
+| running, per day (24 h) / per week (168 h; cannot happen by itself, see the hard stop) | 3.90 / 27.27 |
+| one `up` until its hard stop (12 h) | at most 1.95 |
+| stopped (the disk only), per day / per week; `delete` ends it | 0.11 / 0.76 |
+
+Egress, the one secret version and the image's storage are cents. **The hard stop:** each `up` sets Compute Engine's
+max-run-duration to `TB_DEMO_VM_HOURS` (12) with the action STOP, and the boot script arms `shutdown -P` for the same
+time at every boot, before anything else. A forgotten demo stops after 12 hours; only its disk costs after that.
+
+**Who can reach it.** The VM sits on its own network (`tb-demo-vm-net`; the project's `default` network has rules
+that open SSH to the world, so it is not used) with one ingress rule: tcp:443 from the ranges in `TB_DEMO_ALLOW`,
+exactly. `0.0.0.0/0`, an empty list, a range broader than /16 (`TB_DEMO_VM_MIN_PREFIX`), a private range and IPv6
+are refused. Anyone else gets no answer at all. A second `up` with new ranges replaces them (a guest's address
+changed). The owner and the guest look up their public IPv4 address (for example on a "what is my IP" page) the day
+before; a mobile or hotel network may change it.
+
+**TLS.** Caddy (pinned by digest, the same pin as the PoC host) in front of the console, `tls internal`: its own
+certificate for the VM's address. **The browser warns once** ("not private", `NET::ERR_CERT_AUTHORITY_INVALID`):
+Advanced, then Proceed. The boot log shows the SHA-256 of Caddy's root (`demo-vm.sh status`) to compare with the
+certificate the browser shows. A publicly trusted certificate for a DNS name (`TB_DEMO_VM_HOST`) is **not built**:
+with tcp:80 and tcp:443 closed to the world, ACME's HTTP-01 and TLS-ALPN-01 cannot pass, and DNS-01 needs the DNS
+provider's API credential and a Caddy built with that provider; the script refuses the setting and says so.
+
+**The password.** The demo's own sign-in (accounts `admin`, `crc`, `pi`, `subpi`, `cra`, `viewer`; one password).
+It is the Secret Manager secret `tb-demo-password` (`TB_DEMO_VM_SECRET`), as for the older demo VM: the VM reads it
+with its own service account into a root-only file and gives it to the container; it is never in the metadata,
+never on a command line, never in a log, and `demo-vm.sh` never reads it (it only checks that a version exists). The
+owner sets it once in **his own** Cloud Shell (`deploy/gcp/setup-gcp.sh` asks for it without echo, or
+`read -rs PW && printf %s "$PW" | gcloud secrets versions add tb-demo-password --data-file=- ; unset PW`) and reads
+it back there if needed (`gcloud secrets versions access latest --secret=tb-demo-password`). He gives it to the guest
+by his own channel. A Claude session never runs that command: the value would enter its transcript.
+
+**Once before the first `up`.** The deployer service account needs `roles/compute.networkAdmin` (the network and the
+subnet; `deploy/gcp/setup-gcp.sh` grants instance and firewall rights only) and, for the pre-flight's version check,
+`roles/secretmanager.viewer` on `tb-demo-password` (without it the check is skipped with a warning). The VM's service
+account (the Compute Engine default one, scope cloud-platform) must read `tb-demo-password` (setup-gcp.sh grants it)
+and the image. The image: either an image by digest that already exists (`deploy/gcp/poc-host.sh image --yes` pushes
+one to Artifact Registry), `TB_DEMO_VM_IMAGE=<registry>/<path>@sha256:<digest>`; or `make demo-bundle`, copy
+`dist/trialbox-demo.tar.gz` to a bucket, `TB_DEMO_VM_IMAGE=gs://<bucket>/trialbox-demo.tar.gz` and
+`TB_DEMO_VM_IMAGE_SHA256=$(sha256sum dist/trialbox-demo.tar.gz | cut -d" " -f1)` (the VM checks it before loading).
+
+**Run it** (a private `CLOUDSDK_CONFIG`, never the default one, and `TB_SA_KEY_FILE` as for every script here: the
+key file's path only; the project is the gcloud config's):
+
+    export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file path>
+    export TB_DEMO_ALLOW=<owner IPv4>/32,<guest IPv4>/32 TB_DEMO_VM_IMAGE=<image, as above>
+    deploy/gcp/demo-vm.sh --estimate          # the cost, no cloud call
+    deploy/gcp/demo-vm.sh --dry-run           # every gcloud command `up` would run; runs none
+    deploy/gcp/demo-vm.sh up --yes            # network, subnet, the tcp:443 rule, the VM (or starts the stopped VM)
+    deploy/gcp/demo-vm.sh status              # RUNNING, the address, the rule's ranges, the hard stop, DEMO-VM-READY
+
+`up` creates, in order: the network `tb-demo-vm-net` (custom subnets, no rules), the subnet `tb-demo-vm-subnet`
+(10.42.0.0/24 in the zone's region), the rule `tb-demo-vm-https` (INGRESS, tcp:443, `TB_DEMO_ALLOW`, tag
+`tb-demo-vm`), and the VM `tb-demo-vm` (e2-standard-4, asia-east1-a, Debian 12, 30 GB pd-balanced, Shielded VM,
+standard provisioning, max-run-duration 12 h with STOP, an ephemeral external IPv4 address, the boot script and the
+non-secret metadata: the image, the hours, the secret's name, the language). On a stopped VM it updates the metadata
+and the hard stop and starts it. The first answer comes 5 to 10 minutes after the start (Docker, the image, the
+3-to-6-minute seed); start it at least 30 minutes before the demo. Without `TB_DEMO_KEEP` every start reseeds, so a
+stop and start resets the demo.
+
+**What the guest sees.** `https://<address>/` (the address `up` and `status` print): the browser's warning once,
+then the TrialBox sign-in page in Japanese (`TB_DEMO_LANG`; `/lang` switches to zh-TW or en); after sign-in the role's
+home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). From any other address: nothing.
+
+**Stop it.** `deploy/gcp/demo-vm.sh down` stops the VM and waits until it shows `TERMINATED` (at most
+`TB_DEMO_VM_STOP_WAIT_S`, 300 s; else it fails and says to stop it in the console). The disk stays (about US$0.11 a
+day). `deploy/gcp/demo-vm.sh delete --yes` deletes the VM and its disk, the rule, the subnet and the network (the
+secret stays). Check afterwards: `gcloud compute instances list` shows no `tb-demo-vm`, or shows it `TERMINATED`.
