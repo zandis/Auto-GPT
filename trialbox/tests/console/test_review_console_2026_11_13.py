@@ -5,12 +5,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.console.test_api_identity import ON, _api_login, _client
-from tests.console.test_console_app import box  # noqa: F401 - the fixture by name
-from tests.console.test_console_app import VIEWER_PW
+from tests.console.test_console_app import (
+    VIEWER_PW,
+    box,  # noqa: F401 - the fixture by name
+)
 from tests.console.test_identity import Clock, _app
 
 
@@ -61,7 +64,7 @@ def test_every_role_has_its_own_help_text_in_every_language() -> None:
     assert "稽核" not in CATALOGUES["zh-TW"]["help.role.viewer"]
 
 
-def test_the_administrators_study_view_lists_no_patient_task(box: dict) -> None:  # noqa: F811
+def test_the_administrators_study_view_lists_no_patient_task(box: dict[str, Any]) -> None:  # noqa: F811
     """CON-ROLE-1: D-280 keeps patient rows off the administrator's study view (``/home?view=studies``), but its task
     list still named each patient a PI had marked "Need info" and linked the patient panel, which then answered 403.
     The coordinator still gets the task."""
@@ -84,7 +87,7 @@ def test_the_administrators_study_view_lists_no_patient_task(box: dict) -> None:
 
 
 @pytest.mark.parametrize("role", ["cro", "viewer", "coordinator", "investigator", "admin", "steward", "privacy"])
-def test_every_link_of_my_account_page_opens_for_its_role(box: dict, role: str) -> None:  # noqa: F811
+def test_every_link_of_my_account_page_opens_for_its_role(box: dict[str, Any], role: str) -> None:  # noqa: F811
     """CON-ROLE-2: "My account" offered every role the notification settings; a CRO account got 403 there. Each
     link the page offers opens for the account that sees it."""
     import re
@@ -100,7 +103,7 @@ def test_every_link_of_my_account_page_opens_for_its_role(box: dict, role: str) 
         assert c.get(href).status_code != 403, (role, href)
 
 
-def test_the_audit_filter_row_wraps(box: dict) -> None:  # noqa: F811
+def test_the_audit_filter_row_wraps(box: dict[str, Any]) -> None:  # noqa: F811
     """CON-UX-2: the audit browser's seven filters sat in one inline-flex row that never wrapped, so the steward's
     page scrolled sideways by 188 to 713 px at 1366 px (measured in Chromium, en, ja and zh-TW). The row wraps."""
     import re

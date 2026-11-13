@@ -1420,7 +1420,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.login_failed", actor=f"console:{user.username}",
                       detail={"via": "api", "reason": "must_change"})  # fmt: skip
             raise h.problem(403, "account.must_change")
-        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en", via)
+        token, _ = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en", via)
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": via})
         # review 2026-11-13 (CON-API-2): the session's absolute end (UTC) and its idle limit; the Session object has no
         # end of its own, so this answered null for every session

@@ -87,7 +87,12 @@ def line(cv: Mapping[str, Any]) -> dict[str, Any]:
         return out
     if cv.get("value") is not None:
         out["value"] = " ".join(
-            x for x in (f"{cv.get('comparator') or ''}{number(float(cv['value']))}", shown_unit(str(cv.get("unit") or ""))) if x
+            x
+            for x in (
+                f"{cv.get('comparator') or ''}{number(float(cv['value']))}",
+                shown_unit(str(cv.get("unit") or "")),
+            )
+            if x
         )
     elif cv.get("value_code"):
         out["value"] = str(cv["value_code"])
