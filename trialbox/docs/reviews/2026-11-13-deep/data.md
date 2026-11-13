@@ -28,8 +28,8 @@
 2. The cause is one pattern: a check on another schema made through a connection that runs as this schema's group
    role. The unit tests run as a superuser, so they never saw it. Only a test on the roles cluster can.
 3. **Who is excluded:** a disputed death date excluded the patient at every date. **Fixed here** (DATA-004).
-   A chart merge is not applied to records a delta night carries over (DATA-006). A steward's rejection of a
-   record is undone by any later change to the source record (DATA-007).
+   A chart merge is not applied to records a delta night carries over (DATA-006). A person's status on an OMOP
+   record would be undone by any later change to the source record; no screen sets one yet (DATA-007).
 4. **Input:** a CSV cut off mid-row passed the night, and the cut value became the newest lab result in OMOP.
    **Fixed here** (DATA-005).
 5. **The nightly backup's "1 changed" error** came from hard links in the site set-up's work lake. NEW-B-17 (#449)
@@ -41,7 +41,7 @@
 9. Closed items are mostly closed in code: CR-053, CR-056, CR-057, CR-085, DI-12. DI-11 stays open by design.
 10. **Scale:** one patient's ruleset query costs almost a whole-hospital run (11 s against 30 s at 20,000
     patients); kept snapshots have no byte budget and pass the 2 TB disk; the OMOP loader holds every record in memory
-    (4.5 GiB at 4.4 M rows); the goldens and the contracts let real breaking changes through (section 5).
+    (4.5 GiB at 4.4 M rows); the goldens and the contracts let real breaking changes through (section 6).
 
 ## 3. Findings
 
@@ -55,9 +55,9 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
 | DATA-003 | Medium | The first-run page can never see an empty pid map | **fixed here** | C2 |
 | DATA-004 | Critical | A disputed death date excludes the patient at every date | **fixed here** | B2 |
 | DATA-005 | Critical | A CSV cut off mid-row passes, and the cut value becomes the newest lab | **fixed here** | E |
-| DATA-006 | Critical | A chart merge is not applied to what a delta night carries over | open | B2 |
-| DATA-007 | High | A steward's decision on an OMOP record is undone by a later source change | open (file held by #493) | B2 |
-| DATA-008 | High | Derived rows are never retired; they are rebuilt for opted-out patients | open | B2 with C2 |
+| DATA-006 | High | A chart merge is not applied to what a delta night carries over | open | B2 |
+| DATA-007 | Medium (latent) | A person's status on an OMOP record is undone by a later source change | open (file held by #493) | B2 |
+| DATA-008 | Medium | Derived rows are never retired; they are rebuilt for opted-out patients | open | B2 with C2 |
 | DATA-009 | High | The audit head is backed up after the day file: a busy night gives a backup that cannot be restored | open (file held by #473) | D |
 | DATA-010 | High | Restore drops file owners; services cannot write their volumes after it | open (file held by #473) | D |
 | DATA-011 | High | Restore does not require the services to be stopped | open (file held by #473) | D |
@@ -73,6 +73,7 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
 | DATA-021 | Low | A restore can lift its own hold while the reference pack is missing | open (file held by #473) | D |
 | DATA-022 | Low | PR #278 (T-206b, erasure) holds no code and predates the erasure registry | open | C2 |
 | DATA-023 | Low | The roles test cluster made first in a fresh test root breaks the rest of the run | open | C2 |
+| DATA-035 | Medium | A CSV row of another width inside a file is read with None cells (short) or crashes the night (long) | open (file held by #483, #487) | E |
 | DATA-024 | High | One patient's ruleset query scans every fact table: 11 s for 1 pid against 30 s for all at 20,000 patients | open | A2 (compiler) |
 | DATA-025 | High | Kept snapshots have no byte budget; month-ends keep their NDJSON; no free-space check before a build | open | B2 |
 | DATA-026 | High | The OMOP loader holds every record in memory: 4.5 GiB at 4.4 M rows (PERF-027, behind its flag) | open (file held by #493) | B2 |
@@ -103,7 +104,12 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
 - **Fix (this branch).** `Database.table_exists(schema, table)` reads `pg_class` and `pg_namespace`, which every
   role may read. The worker uses it. Test: `tests/unit/test_cross_schema_roles.py` on the roles cluster; four
   tests fail before and pass after.
+- **Review.** The adversarial review found no privilege widened: `table_exists` reads names only, and `connect` still
+  takes a group role only by membership. It found the tick test depended on the test before it (it passed in the
+  module, failed alone); the test now makes its own opt-out.
 - **Still to do (C2).** Open the OMOP store inside `run_once`'s per-store `try`, so one store cannot stop the others.
+  Exercise the vec, profile and pending clears as `tb_orchestrator` (the test cluster has none of their tables).
+  `with_survivors` could check SELECT on `pid_alias` rather than USAGE on the schema (the same on a box today).
 
 ### DATA-002 (Critical, fixed): the merged-chart opt-out is off on every box
 
@@ -133,9 +139,15 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
   keeps `deceased`) did the same.
 - **Root cause.** "Date unknown" plus "died" reads as "died at an unknown time", which the base excludes at every
   date. D-275 says an unknown never excludes.
-- **Fix (this branch).** Both lakes keep the **latest** claimed date. The patient is then out only at index dates
-  where every source says they had died; between the dates the sources disagree, and the patient stays in. The
-  conflict stays open for the steward. Test: `tests/unit/test_death_date_conflict.py` (both lakes; fails before).
+- **Fix (this branch).** While the conflict is open, both lakes keep the **earliest** claimed date. The patient is in
+  before any source says they died and out from the first claim on: a death fails closed (D-400) in the window the
+  sources dispute. A steward's choice stands, "keep unknown" included (then D-400's "dead, no date" applies, as the
+  steward chose). The conflict stays open for the steward. Test: `tests/unit/test_death_date_conflict.py` (both
+  lakes; fails before).
+- **Review.** The first version took the latest date and overrode a steward's "unknown"; the adversarial review
+  showed that a later date (or a future-dated typo) counts a patient alive whom one source records as dead, against
+  D-400, and that the console says "kept unknown". Changed before the push.
+- **Note.** OMOP's own `death` table still holds the first source's date (`omop/load.py:1253`, `:1305`), as before.
 
 ### DATA-005 (Critical, fixed): a CSV cut off mid-row passes the night
 
@@ -147,13 +159,18 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
   `(6.0, 2026-10-01)`.
 - **Root cause.** `sources/csv/source.py` read rows with `csv.DictReader`, which fills a short row with None and puts
   a long row's extra cells under a None key; nothing checked the width.
-- **Fix (this branch).** The pre-pass that already parses the whole file quarantines it when a row's field count
-  differs from the header; the night is held, as for an unreadable file (T-615b). Test:
-  `tests/unit/test_csv_short_row.py` (short row, long row, the held night; fails before).
+- **Fix (this branch).** The pre-pass that already parses the whole file quarantines it when its last line is short
+  and the file ends without a line end: a cut-off export. The night is held, as for an unreadable file (T-615b).
+  Spaces-only and Ctrl-Z lines are no record. A short row that ends its line (an exporter that drops empty trailing
+  cells) is read as before. Test: `tests/unit/test_csv_short_row.py` (4 of 5 fail before).
+- **Review.** The first version quarantined a file for any row of another width. The adversarial review showed that
+  this holds a whole night for one row, against STD-025 (T-615a: a row the mapping cannot read is rejected and
+  counted; the night is held only above `REJECT_MAX_PCT`), and for an exporter's dropped empty cells. Narrowed before
+  the push; the rest is DATA-035.
 - **Still to do (E).** The OMOP load should not impute a date for a measurement or observation that criteria read by
   date; such a row should stay undated.
 
-### DATA-006 (Critical, open): a chart merge is not applied to what a delta night carries over
+### DATA-006 (High, open): a chart merge is not applied to what a delta night carries over
 
 - **Symptom.** The night after `pid-merge A→B`, a delta night passes clean, but the snapshot still holds patient A
   and A's diagnoses stay under `Patient/A`. Screening on B misses A's history (an exclusion diagnosis); the patient
@@ -165,8 +182,11 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
 - **Fix.** Apply the alias map to the base records in `_write_type` (drop the old pid's Patient, rewrite references);
   load the aliases always. Or make the next night a full read whenever a merge is newer than the merge base.
   `pipeline.py` is held by #483 and #487: lane B2 after they land.
+- **Severity.** Reported Critical; the adversarial review rates it High: a merge is a manual `pid-merge`, the effect
+  lasts until the next full night, and the opt-out side of a merge is handled by `with_survivors` (on a box only
+  since DATA-002). No reader applies the alias map elsewhere.
 
-### DATA-007 (High, open): a steward's decision on a record is undone by a later source change
+### DATA-007 (Medium, latent): a person's status on a record is undone by a later source change
 
 - **Evidence (verified).** `set_status(c1, 'rejected')`; an unchanged reload keeps `rejected`; a reload where only
   `recordedDate` changed gives `coded`. The rejected diagnosis counts again.
@@ -175,15 +195,20 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
   every person-set status in one night (inferred).
 - **Fix.** Carry a person-set status across `update`; reopen it for review only when the coded fact (code or date)
   changed; keep concept ids out of the content hash. `omop/load.py` is held by #493.
+- **Severity.** No production code calls `omop.load.set_status` today (only its definition, `load.py:1455`): no
+  screen or route can reject a record yet. It must be fixed before one does.
 
-### DATA-008 (High, open): derived rows are never retired (CR-119 still holds, and goes further)
+### DATA-008 (Medium, open): derived rows are never retired (CR-119 still holds, and goes further)
 
 - **Evidence (verified).** Night 1: P_A and P_B, 4 rows. Night 2: P_B gone from the lake and P_A opted out:
   `inserted=0, unchanged=2, retired=0`. P_B's rows stay current and `latest_many(as_of=night 2)` returns its value
   with the pid, age and sex in `inputs`. A rebuild of one snapshot is deterministic, but the store built night by
   night is not equal to a rebuild of the last night.
 - **Root cause.** `derived_store.py:700-733` looks only at patients in the snapshot; `orchestrator/derive.py:146`
-  passes no exclusion; `erasure.CLEARS` has no `derived` entry.
+  passes no exclusion; `erasure.CLEARS` has no `derived` clear: the four tables are registered as owed to T-206b
+  (`erasure.py:272-278`).
+- **Severity.** Screening reads the store only when the flag `derived.stored_read` is on; its default is off
+  (`derived_store.py:648-657`), and the twin skips opted-out patients. High once the flag is on.
 - **Fix.** Supersede the current rows of every pid not in the snapshot; skip the register's patients; add a
   `derived` clear (score rows, input links, conflicts, the failed-pid list).
 
@@ -195,6 +220,9 @@ who-may-act broken. Owner lanes as in the handover (`35-handover-2026-11-13.md` 
   `AuditAnchorBroken` at `backup.py:1712`, which is not a `BackupError`, after the databases, the folders and the
   `.pre-restore-*` copies are in place. No `restore_failed` event is written. The restored box's audit refuses every
   write. The drill cannot see this: its box is idle while it backs up.
+- **Mitigation the finder missed.** The screening hold is taken earlier in the restore (`backup.py` about 1616) and
+  `release_own_hold` falls back to "held" on any error (`backup.py:1417-1427`): the box most likely stays held, and
+  `--reanchor` exists. Still High: no `restore_failed`, no hint to the kept copy.
 - **Fix.** Copy `HEAD.json` before the day files (or rebuild it from the copied chain); turn audit failures at restore
   into the `restore_failed` path. `tools/trialbox/backup.py` is held by #473 (lane D): put it on that card or the
   next.
@@ -230,8 +258,23 @@ fixes are PERF-010 and PERF-011 (an incremental lake; pgBackRest as the nightly)
 | DATA-021 | `complete` (`backup.py:1702`) ignores `refdata.missing`. (Inferred.) | Add it to `complete`. |
 | DATA-022 | `origin/agent/T-206b-optout-erasure-retention` adds one "In progress" decision file, from a commit before D-465. None of the 59 entries owed to T-206b is addressed. | Rebase; start with DATA-001, DATA-002, DATA-008. |
 | DATA-023 | `roles_cluster` makes its directory in `TB_TEST_ROOT` before the root's marker exists; every later test then refuses the root ("holds files and no .tb-test-root marker"): `test_db_roles.py` alone in a fresh root gives 5 passed, 21 errors. | Mark the root first (call `pglocal.cluster_dir` or touch the marker) in the fixture. |
+| DATA-035 | `sources/csv/source.py`: a short row that ends its line is still filled with None; a long row puts its extra cells under a None key, and a trailing separator on data lines crashed the ingest (`TypeError: '<' not supported between NoneType and str`, found by the adversarial review). | Send a row of another width to STD-025's reject count in `pipeline.py` (held by #483, #487). |
 
-## 4. Closed findings checked in code
+## 4. The adversarial review
+
+One reviewer, given the diffs and the reproductions and asked to refute them:
+
+| Item | Verdict | What changed |
+| --- | --- | --- |
+| DATA-001, DATA-002, DATA-003 fix | holds with changes | the tick test made self-contained |
+| DATA-004 fix | holds with changes | earliest date, not latest; a steward's "unknown" stands |
+| DATA-005 fix | holds with changes | narrowed to a cut-off last line; the rest is DATA-035 |
+| DATA-006 | holds | Critical → High |
+| DATA-007 | holds | High → Medium (latent: no caller of `set_status`) |
+| DATA-008 | holds | High → Medium (flag off by default; owed to T-206b) |
+| DATA-009 | holds | High kept; the hold's fall-back added |
+
+## 5. Closed findings checked in code
 
 | Finding | Claimed | In code | Note |
 | --- | --- | --- | --- |
@@ -247,7 +290,7 @@ fixes are PERF-010 and PERF-011 (an incremental lake; pgBackRest as the nightly)
 | CR-119 derived rows of erased patients | open | open, wider | DATA-008. |
 | CR-027 opt-out worker | built | built, did not run on a box | DATA-001. |
 
-## 5. Scale, plans, contracts
+## 6. Scale, plans, contracts
 
 Measured on this machine: the scale gate at 2,000 dense patients (522 records and 40.6 notes each); the OMOP store
 built by its own migrations with 20,000 persons and 4.4 M clinical rows in 19 year partitions; the lake at 20,000
@@ -273,7 +316,7 @@ spill caps come from the cgroup; the vector search by patient is exact on a btre
 probe 20 partitions (34 ms for 1,000 ids): acceptable. PERF-009 is fixed (`store.py:449`). Still open: PERF-010,
 PERF-014, PERF-023, PERF-027 (measured, DATA-026).
 
-## 6. What is good and should not be changed
+## 7. What is good and should not be changed
 
 - The erasure registry and the test that fails on any table with no entry: no store is silently exempt.
 - The worker's clear-then-read-back and its counts-only audit event; refusals that fail closed; an opt-out a person
@@ -291,7 +334,7 @@ PERF-014, PERF-023, PERF-027 (measured, DATA-026).
   sidecars with a minimum kept; the lake read under its lock; the hold after a restore; the roles re-applied after a
   restore (verified); the PITR drill (verified).
 
-## 7. Needless weight
+## 8. Needless weight
 
 - Three hand-made privilege checks across schemas (`with_survivors`, `_schema_url`, `_omop_store`), each wrong under
   the role model. This branch puts them on one helper; the remaining `to_regclass` calls on another schema should
@@ -305,7 +348,7 @@ PERF-014, PERF-023, PERF-027 (measured, DATA-026).
 - In each DuckDB snapshot, the FTS input column and free blocks (about half the file); Parquet beside DuckDB for every
   kept snapshot; uncompressed NDJSON for every month-end.
 
-## 8. What was not run, and why
+## 9. What was not run, and why
 
 - `tests/integration/test_e2e_simple.py` and `make backup-drill` stop at "FHIRHelpers-4.0.1.cql not found in the
   cql-translator jars": `make jvm-deps` cannot fetch from Maven Central on this machine (Kotlin and SLF4J artefacts
@@ -315,10 +358,11 @@ PERF-014, PERF-023, PERF-027 (measured, DATA-026).
 - The roles defects show only on the roles cluster. The nightly compose log of tonight should no longer show
   "permission denied for schema omop" once this branch is on a train.
 
-## 9. For the owner
+## 10. For the owner
 
 | Question | Recommendation |
 | --- | --- |
 | DATA-014: may the audit keep the pid of who opted out (it is kept 10 years or for ever)? | Log a keyed hash of the pid; correct the registry text. A decision, D-TBD. |
-| DATA-004: when two sources disagree on a death date, the box now uses the later one until the steward decides. | Keep it: it is the only reading under which an unknown never excludes. |
-| DATA-005: one cut-off row now holds the whole night for that source. | Keep it: the night before stays served; the steward sees why. |
+| DATA-004: when two sources disagree on a death date, the box now uses the earlier one until the steward decides. Before, the patient was out at every date. | Keep it: it follows D-400 (a death fails closed) and no longer excludes before any claimed death. A decision, D-TBD, if you want it recorded. |
+| DATA-005: a cut-off last line now holds the night for that source. | Keep it: the night before stays served; the steward sees why. |
+| Allow-list entries | none asked |
