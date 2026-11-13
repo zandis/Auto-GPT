@@ -71,6 +71,16 @@ TERMINOLOGY = [TERM_DIR / f"{name}.parquet" for name in ("icd10cm_tw", "icd10cm_
 MALIGNANT = ("C0", "C1", "C2", "C3", "C40", "C41", "C43", "C45", "C46", "C47", "C48", "C49", "C5", "C6", "C7", "C8")
 
 
+#: D-628: a failed check's detail in the printed report; the record (``--json``) keeps it whole
+PRINT_DETAIL = 300
+
+
+def shown(detail: str) -> str:
+    if len(detail) <= PRINT_DETAIL:
+        return detail
+    return f"{detail[:PRINT_DETAIL]} ... [cut: {len(detail)} characters in the JSON]"
+
+
 @dataclass
 class Stage:
     name: str
@@ -78,7 +88,7 @@ class Stage:
     seconds: float = 0.0
 
     def check(self, what: str, ok: Any, detail: Any = "") -> bool:
-        self.checks.append((what, bool(ok), str(detail)[:300]))
+        self.checks.append((what, bool(ok), str(detail)))  # D-628: whole; `shown` cuts for print
         return bool(ok)
 
     @property
