@@ -191,8 +191,13 @@ def _claim(request: Request, fallback: str | None = None) -> Actor:
         if "no signed-in user" in str(exc):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         caller = getattr(request.state, "tb_caller", None) or "-"
-        orch().audit.append("actor.refused", actor=f"service:{caller}",
-                            detail={"path": request.url.path[:80], "reason": str(exc)[:120]})  # fmt: skip
+        path, reason = request.url.path[:80], str(exc)[:120]
+        # the refusal stands when its record cannot be written (the same rule as the newer check's)
+        route_actor.record_refusal(
+            lambda: orch().audit.append("actor.refused", actor=f"service:{caller}",
+                                        detail={"path": path, "reason": reason}),
+            route=route_actor.template(request), reason=reason,
+        )  # fmt: skip
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
@@ -271,6 +276,8 @@ def models() -> dict[str, Any]:
         **judging_info(judge),
         "canary": canary_gate.status(),
         "optout_worker": optout_status(),  # D-441: the health line turns red on a stale or failed tick
+        # refusals whose audit record could not be written since this process started (count, by route)
+        "refusals_not_written": route_actor.lost_refusals(),
         "derive_batch": derive_status(o),  # D-442: the derive batch of the served snapshot
     }
 
