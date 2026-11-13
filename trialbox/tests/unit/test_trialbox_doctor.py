@@ -62,6 +62,7 @@ def test_default_install_passes() -> None:
         "ops_runner",
         "audit_heads",
         "memory_caps",
+        "wsl2_memory",
     }
 
 

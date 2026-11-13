@@ -68,6 +68,14 @@ closed). Checks:
   ``tools/trialbox/db_secrets.py``) and from the environment of the containers that run now. FAIL in VALIDATION and
   PRODUCTION, WARN in DEV and TEST; not judged without ``--env-file``. No password is printed.
 
+* ``wsl2_memory`` (NEW-WIN-3, D-601): on a WSL2 kernel, the sum of the memory caps of the services that run (the
+  box's ``COMPOSE_FILE`` read as compose reads it: a later file overrides, a service behind a profile counts only
+  when ``COMPOSE_PROFILES`` names it, each ``${TB_MEM_*:-default}`` from ``--env-file``; the model servers at their
+  caps, since no serving record carries their measured host memory yet) against the memory WSL2 was given
+  (``.wslconfig``, read as ``MemTotal``). FAIL when the caps do not fit (the kernel would kill a service at night),
+  when a compose file is missing or a cap is not a size; WARN when a service has no cap or no ``--env-file`` was
+  given; PASS on a plain Linux host.
+
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
@@ -108,6 +116,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import sys
 import tempfile
 import urllib.error
@@ -147,6 +156,7 @@ class DoctorInputs:
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
     timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
+    proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -1082,6 +1092,106 @@ def check_memory_caps(inp: DoctorInputs) -> Check:
     return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
 
 
+_MEM_SIZE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([kmg]?)b?$", re.IGNORECASE)
+_MEM_VAR = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}$")
+
+
+def _mem_gib(raw: str) -> float:
+    """A compose memory size in GiB: plain bytes, or a number with k, m or g (an optional b; any case)."""
+    m = _MEM_SIZE.match(raw.strip())
+    if not m:
+        raise ValueError(raw)
+    return float(m.group(1)) * {"": 1.0, "k": 1024.0, "m": 1024.0**2, "g": 1024.0**3}[m.group(2).lower()] / 1024.0**3
+
+
+_COMPOSE_TAG = re.compile(r"(?<=[\s:\[,])!(?:reset|override)\b")  # compose's own YAML tags: the value below is plain
+
+
+def _service_caps(files: list[Path], env: Mapping[str, str]) -> tuple[dict[str, float], list[str], list[str]]:
+    """(the memory cap in GiB of each service that runs, the services with no cap, problems) over the compose files,
+    read as compose reads them: a later file's service overrides the same key of an earlier one, a service behind a
+    profile counts only when ``COMPOSE_PROFILES`` names it, a ``${VAR:-default}`` takes the box's value."""
+    merged: dict[str, dict[str, Any]] = {}
+    for f in files:
+        doc = yaml.safe_load(_COMPOSE_TAG.sub("", f.read_text(encoding="utf-8"))) or {}
+        for svc, body in (doc.get("services") or {}).items():
+            if isinstance(body, dict):
+                merged.setdefault(svc, {}).update(body)
+    active = {p.strip() for p in (env.get("COMPOSE_PROFILES") or "").split(",") if p.strip()}
+    caps: dict[str, float] = {}
+    uncapped: list[str] = []
+    problems: list[str] = []
+    for svc, body in sorted(merged.items()):
+        profiles = body.get("profiles") or []
+        if profiles and not active.intersection(profiles):
+            continue
+        limits = ((body.get("deploy") or {}).get("resources") or {}).get("limits") or {}
+        raw = body.get("mem_limit", limits.get("memory"))
+        if raw is None:
+            uncapped.append(svc)
+            continue
+        text = str(raw).strip()
+        var = _MEM_VAR.match(text)
+        if var:
+            text = (env.get(var.group(1)) or "").strip() or (var.group(2) or "").strip()
+        try:
+            caps[svc] = _mem_gib(text)
+        except ValueError:
+            problems.append(f"{svc}: '{raw}' is not a memory size" + (f" ({var.group(1)}={text!r})" if var else ""))
+    return caps, uncapped, problems
+
+
+def check_wsl2_memory(inp: DoctorInputs) -> Check:
+    """NEW-WIN-3 (D-601): under WSL2 the compose memory caps must fit the memory ``.wslconfig`` gave WSL2."""
+    from tb_common.config import DECLARED
+
+    name = "wsl2_memory"
+    try:
+        kernel = (inp.proc / "sys/kernel/osrelease").read_text(encoding="utf-8").strip().lower()
+    except OSError:
+        kernel = ""
+    if "microsoft" not in kernel or "wsl2" not in kernel:
+        return Check(name, "PASS", "not WSL2: the machine's whole memory is the box's")
+    if inp.deploy is None:
+        return Check(name, "WARN", "WSL2: the memory caps were not judged: give --env-file <deploy/.env>")
+    total = 0.0
+    try:
+        for line in (inp.proc / "meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                total = int(line.split()[1]) / 1048576
+    except (OSError, ValueError, IndexError):
+        total = 0.0
+    if total <= 0:
+        return Check(name, "FAIL", f"WSL2's memory could not be read from {inp.proc}/meminfo")
+    entries = [e for e in (inp.env.get("COMPOSE_FILE") or "docker-compose.yml").split(":") if e]
+    files = [_compose_file(inp.deploy, e) for e in entries]
+    missing = [str(f) for f in files if not f.is_file()]
+    if missing:  # never a pass on a part of the box: a file that cannot be read may hold the largest cap
+        return Check(name, "FAIL", f"compose file(s) not readable, the caps were not summed: {', '.join(missing)}")
+    try:
+        caps, uncapped, problems = _service_caps(files, inp.env)
+    except yaml.YAMLError as exc:
+        return Check(name, "FAIL", f"a compose file does not parse, the caps were not summed: {exc}")
+    if problems:
+        return Check(name, "FAIL", "; ".join(problems))
+    need = sum(caps.values())
+    said = (
+        f"the memory caps of the {len(caps)} services that run sum to {need:.1f} GiB (the model servers at their caps)"
+    )
+    if uncapped:
+        said += f"; no cap on {', '.join(uncapped)}"
+    if need > total:
+        share = DECLARED["TB_WSL_DESKTOP_SHARE_PCT"].default
+        top = ", ".join(f"{k} {v:.1f}" for k, v in sorted(caps.items(), key=lambda kv: -kv[1])[:3])
+        return Check(name, "FAIL", f"{said}; WSL2 has {total:.1f} GiB (.wslconfig): a service would be killed. "
+                     f"Largest: {top}. Start the Windows installer again (it sets .wslconfig from the hardware; the "
+                     f"desktop's share is {share} percent unless the installer was given another, "
+                     "TB_WSL_DESKTOP_SHARE_PCT), then restart Windows")  # fmt: skip
+    if uncapped:
+        return Check(name, "WARN", f"{said}; WSL2 has {total:.1f} GiB")
+    return Check(name, "PASS", f"{said}; WSL2 has {total:.1f} GiB")
+
+
 def _compose_file(deploy: Path, entry: str) -> Path:
     """One entry of ``COMPOSE_FILE`` as this process can read it. ``install.sh`` writes the host's absolute paths
     (``$ROOT/deploy/...``); the doctor may run in the box's image, where the same folder is mounted elsewhere
@@ -1306,6 +1416,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_audit_heads,
     check_memory_caps,
     check_db_passwords,
+    check_wsl2_memory,
 )
 
 

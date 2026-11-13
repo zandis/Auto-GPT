@@ -84,7 +84,7 @@ data, so the rules below say what the installer may touch.
 11. **Editions.** Accepted: Pro for Workstations and Enterprise (plan section 2.3 rule 1), and also Pro, Education,
     Pro Education and Enterprise LTSC. Reason for the wider list: they carry the same WSL2, BitLocker and policy
     features, and the P-0 rehearsal is "any Windows 11 PC", most of which run Pro. Home is refused (no BitLocker
-    management, no policy). The wider list waits for the owner's word; narrowing it is one line (`$script:TbEditions`).
+    management, no policy). The owner ruled for the wider list on 2026-11-12.
 12. **Figures.** `-MinFreeGB` (500, the figure `preflight.ps1` and `preflight.sh` declare, D-125),
     `-MinWindowsBuild` (22000, the first Windows 11) and `-StartWaitSeconds` (120, how long a restarted
     distribution may take to show systemd) are declared parameters with their reasons in the script. `.wslconfig`

@@ -64,6 +64,21 @@ assumes). Write them down as you go; none needs an extra run.
 | 18 | Read `Get-ScheduledTask TrialBox-Install-Resume` | No such task (it was removed when step 5 found WSL ready) |
 | 19 | On a drive with no `TrialBox` folder (or on a second PC): as administrator make `<drive>\TrialBox` in Explorer, put any file in it, and start the installer with `-StateDir C:\tb-p0-state3 -DataDrive <that drive>` | It stops at step 4 `drive`: "The folder ... already exists and belongs to another account" (a folder open to other accounts is taken only when empty). The file is still there. Then empty the folder and start again: step 4 passes and line 5's "Access is denied" holds for it |
 
+## Part 2: NEW-WIN-3, `.wslconfig` from the hardware (D-601)
+
+Read these during Part 1; they need no extra run.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 20 | At step 6 read the window, then open `C:\Users\<you>\.wslconfig` in Notepad | "WSL2 is given N GB of memory and M processors; 25 percent ... stays with Windows". The file's `memory=` and `processors=` are three quarters of the PC's, rounded down | The PC's installed memory and logical processors (Task Manager, Performance) and the file's two lines |
+| 21 | After step 8, in another administrator window: `wsl -d TrialBox -- free -g` and `wsl -d TrialBox -- nproc` | Total memory within 1 GB of the file's `memory=`; `nproc` equal to `processors=`; the Swap line is 0 | The three figures |
+| 22 | `wsl -d TrialBox -- df -h /` | The size of `/` is near the data drive's size, not 1 TB | The Size column and the drive's size |
+| 22a | `wsl -d TrialBox -- dmesg` (the first screen), and the size of `<drive>\TrialBox\wsl\ext4.vhdx` in Explorer before and after copying a 10 GB file into WSL2 and deleting it again (`wsl -d TrialBox -- sudo fstrim -av` once after the delete) | No message that WSL rejected a setting of `.wslconfig` (`sparseVhd`, `defaultVhdSize`); the file shrinks again after the delete | Any "wsl:" warning shown when WSL2 starts; the three sizes |
+| 22b | Only on a PC where the drive may be filled: nothing to do in P-0. Note for P-15: what WSL2 does when the drive fills before the virtual disk's limit is not known | - | - |
+| 23 | After line 15: `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"` | A line `wsl2_memory` with PASS (WARN if it names a service with no cap), the caps' sum and WSL2's memory. With the small stand-in model the model servers are not in the sum | That line |
+| 23a | After the install is finished, start the installer once more with `-DesktopSharePercent 50` (in an administrator PowerShell: `<media>\windows\box-install.ps1 -DesktopSharePercent 50`) | "WSL2 is given ..." with half the PC's figures; "The earlier .wslconfig was kept as ..."; the console stays up. `free -g` inside WSL2 still shows the OLD figure | The window's text; `free -g` before a restart |
+| 23b | Restart Windows, sign in, `wsl -d TrialBox -- free -g` and `nproc` | The NEW figures. Then start the installer with `-DesktopSharePercent 25` to put the share back, and restart once more | Both outputs |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -77,4 +92,6 @@ assumes). Write them down as you go; none needs an extra run.
   for elevation); the owner would otherwise start the installer by hand, which already works.
 - Line 11 "no": the probe image of D-600 point 8 is replaced by a small image on the media.
 - Line 13 "question not visible": the pass-through in `wsl-setup.sh install` holds lines back; fix there.
+- Line 20 or 21 "no": WSL2 does not take the share the installer wrote; NEW-WIN-3's file is wrong for this WSL
+  version. Line 22 "no": the disk limit needs `wsl --manage TrialBox --resize` after the import instead.
 - Line 14: the address NEW-WIN-4 must make work from another PC.

@@ -14,8 +14,9 @@
 #                     <drive>\TrialBox is made for administrators and this account only
 #    5 wsl-enable     the two Windows features and the WSL package from the media; when Windows needs a restart, a
 #                     task at this account's next sign-in runs this script again (-Resume), then the restart
-#    6 wslconfig      %USERPROFILE%\.wslconfig with swap=0 when there is none, before WSL2 first starts (memory and
-#                     processors are NEW-WIN-3's; no figure is written here)
+#    6 wslconfig      %USERPROFILE%\.wslconfig before WSL2 first starts (NEW-WIN-3, D-601): memory and processors
+#                     from the installed hardware less the desktop's share, swap=0, the virtual disk's size limit
+#                     at the data drive's size. A file TrialBox did not write is kept as it is
 #    7 import         wsl --import <Distro> <drive>\TrialBox\wsl <the Ubuntu 24.04 image> --version 2
 #    8 systemd        /etc/wsl.conf [boot] systemd=true, the distribution stopped and started, PID 1 is systemd
 #    9 packages       no Linux NVIDIA driver, before and after; Docker Engine and the NVIDIA Container Toolkit from
@@ -44,11 +45,18 @@ param(
   [int]$MinWindowsBuild = 22000,
   # how long a stopped distribution may take to start again with systemd as PID 1
   [int]$StartWaitSeconds = 120,
+  # percent of the installed memory and processors kept for Windows and the desktop user; WSL2 gets the rest.
+  # The declared setting TB_WSL_DESKTOP_SHARE_PCT (libs/tb_common/config.py; the same default, held by a test)
+  [ValidateRange(0, 99)][int]$DesktopSharePercent = 25,
   [switch]$Resume,
   [switch]$Yes,
   [switch]$LoadOnly
 )
 
+# the desktop's share: the one given on this command line; else the one this install already used (state.json);
+# else the declared default above
+$script:TbShareDefault = $DesktopSharePercent
+$script:TbShareGiven = $PSBoundParameters.ContainsKey("DesktopSharePercent")
 $script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
   "packages", "gpu-container", "host-tree", "linux-install")
 $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", "EnterpriseS", "Education",
@@ -74,7 +82,19 @@ function Get-TbWindowsFacts {
 function Get-TbDriveFacts([string]$Drive) {
   $ld = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='{0}'" -f $Drive.Substring(0, 2))
   if ($null -eq $ld) { return $null }
-  return @{ FreeGB = [math]::Floor($ld.FreeSpace / 1GB); Fixed = ($ld.DriveType -eq 3); FileSystem = [string]$ld.FileSystem }
+  return @{ FreeGB = [math]::Floor($ld.FreeSpace / 1GB); Fixed = ($ld.DriveType -eq 3); FileSystem = [string]$ld.FileSystem
+    SizeBytes = [long]$ld.Size }
+}
+function Get-TbHardware {
+  # the installed memory (the modules' own sizes; what Windows can use when the firmware does not list modules)
+  # and the logical processors, read on the Windows side: inside WSL2 one sees only WSL2's share
+  $modules = @(Get-CimInstance Win32_PhysicalMemory)
+  $bytes = [long](($modules | Measure-Object -Property Capacity -Sum).Sum)
+  $cs = Get-CimInstance Win32_ComputerSystem
+  # never more than Windows can use (to the nearest GB: Windows reports a little less than the modules hold)
+  $usable = [long]([math]::Round([long]$cs.TotalPhysicalMemory / 1GB)) * 1GB
+  if ($bytes -le 0 -or $bytes -gt $usable) { $bytes = $usable }
+  return @{ MemoryGB = [int][math]::Floor($bytes / 1GB); Processors = [int]$cs.NumberOfLogicalProcessors }
 }
 function Get-TbDataDriveCandidates([string[]]$Not) {
   $out = @()
@@ -192,6 +212,21 @@ function Get-TbLang([string]$Asked, [string]$UiCulture) {
   if ($UiCulture -like "zh-TW*" -or $UiCulture -like "zh-Hant*" -or $UiCulture -like "zh-HK*" -or $UiCulture -like "zh-MO*") { return "zh-TW" }
   return "en"
 }
+function Get-TbWslConfigText([int]$MemoryGB, [int]$Processors, [int]$SharePercent, [long]$DiskBytes) {
+  # .wslconfig from the hardware (D-601): WSL2 gets what the desktop's share leaves, rounded down to whole units.
+  # Nothing here is a constant of ours: two readings of the machine and one declared setting.
+  $mem = [int][math]::Floor($MemoryGB * (100 - $SharePercent) / 100)
+  $cpu = [int][math]::Floor($Processors * (100 - $SharePercent) / 100)
+  if ($mem -lt 1 -or $cpu -lt 1) { return $null }
+  $lines = @(
+    "# TrialBox: written by box-install.ps1 from this machine's hardware (NEW-WIN-3, D-601). Run the installer",
+    ("# again after a hardware change. Installed: {0} GB, {1} logical processors; {2} percent kept for the desktop." -f $MemoryGB, $Processors, $SharePercent),
+    "[wsl2]", ("memory={0}GB" -f $mem), ("processors={0}" -f $cpu),
+    "# no swap: patient data never pages to a disk file (D-421)", "swap=0")
+  if ($DiskBytes -gt 0) { $lines += @("# the virtual disk may grow to the data drive's size", ("defaultVhdSize={0}" -f $DiskBytes)) }
+  $lines += @("[experimental]", "# the disk file gives back freed space (D-421)", "sparseVhd=true", "")
+  return ($lines -join "`r`n")
+}
 function Get-TbText([string]$Key, [object[]]$Values, [string]$Language) {
   $entry = $script:TbMessages.$Key
   if ($null -eq $entry) { return ("{0} {1}" -f $Key, ($Values -join " ")) }
@@ -217,6 +252,7 @@ function Save-TbState {
 }
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
+    desktop_share_pct = -1
     restart_pending = $false; finished = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -309,6 +345,7 @@ function Step-Drive {
   if ($null -eq $facts -or -not $facts.Fixed -or $facts.FileSystem -ne "NTFS") { Stop-TbStep "drive_bad" @($d) }
   if ($facts.FreeGB -lt $MinFreeGB -and -not $script:TbState.imported) { Stop-TbStep "drive_small" @($d, $facts.FreeGB, $MinFreeGB) }
   $script:TbState.data_drive = $d
+  $script:TbDataDriveBytes = [long]$facts.SizeBytes
   $base = $d; if ($base -match "^[A-Za-z]:$") { $base = $base + "\" }
   $script:TbDataRoot = Join-Path $base "TrialBox"
   try { Protect-TbDirectory $script:TbDataRoot $script:TbFacts.Account }
@@ -338,8 +375,8 @@ function Step-WslEnable {
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
     # the run after the restart gets this run's settings (all checked: figures, a language of the list, a name)
-    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -Distro {3} -Lang {4}" -f $MinFreeGB,
-      $MinWindowsBuild, $StartWaitSeconds, $script:TbState.distro, $script:TbLang
+    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -DesktopSharePercent {3} -Distro {4} -Lang {5}" -f $MinFreeGB,
+      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
@@ -355,17 +392,38 @@ function Step-WslEnable {
   [void](Invoke-TbNative "wsl.exe" @("--set-default-version", "2"))
 }
 function Step-WslConfig {
+  # Returns "kept" (the account's own file), "same" (ours, nothing to change) or "written".
   $path = Join-Path $script:TbFacts.UserProfile ".wslconfig"
+  $old = ""
   if (Test-Path -LiteralPath $path) {
-    $text = Get-Content -LiteralPath $path -Raw
-    if ($text -notmatch "(?im)^\s*swap\s*=\s*0\s*$") { Say "wslconfig_kept_no_swap0" @($path) } else { Say "wslconfig_kept" @($path) }
-    return
+    $bytes = [IO.File]::ReadAllBytes($path)
+    $text = [Text.Encoding]::ASCII.GetString($bytes)
+    if ($text.Trim().Length -gt 0) {   # an empty file is nobody's settings: it is written like a missing one
+      # ours is plain ASCII and starts with "# TrialBox"; a file in another encoding, or with another start, is
+      # the account's own and is kept as it is
+      $plain = @($bytes | Where-Object { $_ -eq 0 -or $_ -gt 127 }).Count -eq 0
+      if (-not ($plain -and $text.StartsWith("# TrialBox"))) {
+        if ($text -notmatch "(?im)^\s*swap\s*=\s*0\s*$") { Say "wslconfig_kept_no_swap0" @($path) } else { Say "wslconfig_kept" @($path) }
+        return "kept"
+      }
+      $old = $text
+    }
   }
-  $lines = @("# TrialBox (NEW-WIN-1, D-421): no swap, so patient data never pages to a disk file.",
-    "# Memory and processors are set from this machine's hardware by NEW-WIN-3.", "[wsl2]", "swap=0", "")
+  $hw = Get-TbHardware
+  $new = Get-TbWslConfigText $hw.MemoryGB $hw.Processors $script:TbShare $script:TbDataDriveBytes
+  if ($null -eq $new) { Stop-TbStep "wslconfig_too_small" @($hw.MemoryGB, $hw.Processors, $script:TbShare) }
+  if ($old -eq $new) { Write-TbLog ("    " + $path + " is as computed: not written"); return "same" }
+  $backup = ""
+  if ($old) {  # also a file somebody tuned by hand under our first line: a copy stays beside it
+    $backup = $path + ".before-trialbox-" + [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
+    Copy-Item -LiteralPath $path -Destination $backup
+  }
   if (-not (Test-Path -LiteralPath $script:TbFacts.UserProfile)) { [void](New-Item -ItemType Directory -Force -Path $script:TbFacts.UserProfile) }
-  [IO.File]::WriteAllText($path, ($lines -join "`r`n"), (New-Object Text.ASCIIEncoding))
-  Write-TbLog ("    wrote " + $path)
+  [IO.File]::WriteAllText($path, $new, (New-Object Text.ASCIIEncoding))
+  $m = [regex]::Match($new, "memory=(\d+)GB"); $c = [regex]::Match($new, "processors=(\d+)")
+  Say "wslconfig_written" @($m.Groups[1].Value, $c.Groups[1].Value, $script:TbShare)
+  if ($backup) { Say "wslconfig_replaced" @($backup) }
+  return "written"
 }
 function Step-Import {
   $name = $script:TbState.distro
@@ -484,7 +542,23 @@ function Invoke-TbInstall {
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
   # the resume task has done its work once this run started; step 5 registers it again if Windows wants a restart
   try { Unregister-TbResumeTask } catch { Write-TbLog ("    the resume task could not be removed: " + [string]$_.Exception.Message) }
-  if ($script:TbState.finished) { Say "already_installed" @($script:TbLogPath); return 0 }
+  if ($script:TbShareGiven -or [int]$script:TbState.desktop_share_pct -lt 0) { $script:TbState.desktop_share_pct = $script:TbShareDefault }
+  $script:TbShare = [int]$script:TbState.desktop_share_pct
+  if ($script:TbState.finished) {
+    # A finished install is left alone, but for .wslconfig: it follows the hardware (memory was added, the share
+    # was changed), so "start the installer again after a hardware change" is true on a finished box too.
+    try {
+      $script:TbDataDriveBytes = 0
+      if ($script:TbState.data_drive) { $df = Get-TbDriveFacts $script:TbState.data_drive; if ($df) { $script:TbDataDriveBytes = [long]$df.SizeBytes } }
+      [void](Step-WslConfig)
+    } catch {
+      if ([string]$_.Exception.Message -like "TBSTOP*" -and $null -ne $script:TbStop) { Say $script:TbStop.Key $script:TbStop.Values }
+      else { Say "unexpected" @([string]$_.Exception.Message) }
+    }
+    Save-TbState
+    Say "already_installed" @($script:TbLogPath)
+    return 0
+  }
   # the media: the one named; else the one this script was started from; else the one of the last run; else a
   # media found on a drive (its letter may have changed over the restart)
   $here = Split-Path -Parent $PSScriptRoot
