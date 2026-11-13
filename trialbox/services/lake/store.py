@@ -163,26 +163,80 @@ def lake_lock(lake_dir: Path) -> Iterator[None]:
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
-@contextlib.contextmanager
-def building(lake_dir: Path, snapshot: str) -> Iterator[None]:
+class BuildLock:
     """The one rebuild of ``snapshot`` that runs (D-462): an exclusive ``flock`` on ``locks/<snapshot>.build.lock``
     held for the whole build and taken without waiting; a second rebuild of the snapshot gets
     :class:`SnapshotBuilding`. The file is never deleted: a deleted file would let a second holder in (the pruning
-    takes this lock too, without waiting, and leaves a snapshot that is building alone)."""
-    locks = lake_dir / "locks"
-    locks.mkdir(parents=True, exist_ok=True)
-    with (locks / f"{snapshot}.build.lock").open("a") as fh:
+    takes this lock too, without waiting, and leaves a snapshot that is building alone).
+
+    D-539: the lock belongs to the open file, so a build that runs as a process of its own is handed the open file
+    (:meth:`fileno`, inherited by the child; :meth:`adopt` there) and the starter lets go of its end without
+    unlocking (:meth:`hand_over`). The kernel frees the lock when the last process holding the file ends, however
+    it ends."""
+
+    def __init__(self, lake_dir: Path, snapshot: str) -> None:
+        locks = lake_dir / "locks"
+        locks.mkdir(parents=True, exist_ok=True)
+        self._fh: Any = (locks / f"{snapshot}.build.lock").open("a")
         try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            self._fh.close()
+            self._fh = None
             raise SnapshotBuilding(
                 f"lake snapshot {snapshot} is already building (another rebuild of it runs); nothing built, "
                 "CURRENT unchanged"
             ) from None
+
+    @classmethod
+    def adopt(cls, fd: int, lake_dir: Path, snapshot: str) -> BuildLock:
+        """The lock a starter handed to this process as an open file. The file must be the snapshot's lock file
+        (the same file, by device and inode), and the lock is asked for again on it, which the kernel grants only
+        when this open file holds it or nobody does. Anything else is refused: a build never runs without its
+        lock."""
+        lock = cls.__new__(cls)
+        lock._fh = os.fdopen(fd, "a")
         try:
-            yield
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            want = (lake_dir / "locks" / f"{snapshot}.build.lock").stat()
+            got = os.fstat(fd)
+            if (got.st_dev, got.st_ino) != (want.st_dev, want.st_ino):
+                raise SnapshotBuilding(f"the file handed to this process is not the build lock of {snapshot}")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise SnapshotBuilding("the build lock handed to this process is held by another build") from None
+        except BaseException:
+            lock._fh.close()
+            lock._fh = None
+            raise
+        return lock
+
+    def fileno(self) -> int:
+        return int(self._fh.fileno())
+
+    def hand_over(self) -> None:
+        """Let go of this process's end without unlocking: the process that inherited the file holds the lock."""
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+    def release(self) -> None:
+        if self._fh is not None:
+            try:
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+            finally:
+                self._fh.close()
+                self._fh = None
+
+
+@contextlib.contextmanager
+def building(lake_dir: Path, snapshot: str) -> Iterator[None]:
+    """:class:`BuildLock` for the length of a block."""
+    lock = BuildLock(lake_dir, snapshot)
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 # ------------------------------------------------------------------ rebuilds as polled jobs (T-690, D-472)
@@ -211,6 +265,12 @@ def _read_job(lake_dir: Path, snapshot: str) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return body if isinstance(body, dict) else None
+
+
+def read_rebuild_job(lake_dir: Path, snapshot: str) -> dict[str, Any] | None:
+    """The job's state file as written (no judgement of a ``running`` job whose process is gone: that is
+    :meth:`Lake.rebuild_state`)."""
+    return _read_job(lake_dir, snapshot)
 
 
 def build_running(lake_dir: Path, snapshot: str) -> bool:
@@ -985,12 +1045,13 @@ class Lake:
     def start_rebuild(
         self,
         snapshot: str,
-        embedder: Embedder,
+        embedder: Embedder | None,
         ndjson_dir: Path | None = None,
         promote: bool = True,
         allow_empty: bool = False,
         spawn: Any = None,
         check: bool = False,
+        launch: Any = None,
     ) -> dict[str, Any]:
         """Start a rebuild of ``snapshot`` as a job and answer its state (T-690, D-472): the lake service's 202.
 
@@ -998,9 +1059,11 @@ class Lake:
         snapshot runs (:class:`SnapshotBuilding`), a job holds it (:class:`SnapshotHeld`), its NDJSON folder is
         missing (:class:`RebuildError`). The build itself runs in ``spawn`` (the service: a thread; default: here,
         so an in-process lake answers the job's end), holding the build lock taken here, and records its end in the
-        job's state (:meth:`rebuild_state`). No time limit: the job runs as long as the build does (OD-10)."""
-        lock = contextlib.ExitStack()
-        lock.enter_context(building(self.dir, snapshot))
+        job's state (:meth:`rebuild_state`). No time limit: the job runs as long as the build does (OD-10).
+
+        With ``launch`` (D-539; the service on a box) the build is not run here at all: ``launch(job, lock_fd)``
+        starts a process that inherits the build lock's open file and runs :meth:`run_rebuild_job`."""
+        lock = BuildLock(self.dir, snapshot)
         try:
             with lake_lock(self.dir):
                 if _is_held(self.dir, snapshot):
@@ -1021,32 +1084,69 @@ class Lake:
             }
             write_rebuild_job(self.dir, job)
         except BaseException:
-            lock.close()
+            lock.release()
             raise
 
+        if launch is not None:
+            # D-539: the build is another process's. It inherits the lock's open file; this process lets go of its
+            # end. A process that could not be started is the job's end (``failed``), and the snapshot is free
+            try:
+                launch(job, lock.fileno())
+            except Exception as exc:
+                log.exception("the build process of %s could not be started", snapshot)
+                why = f"the build's process could not be started ({type(exc).__name__})"
+                write_rebuild_job(self.dir, {**job, "state": "failed", "detail": why, "ended": time.time()})
+            # this end is closed and never unlocked, started or not: an unlock here would take the lock from a child
+            # that shares the open file. With no child, closing the last end frees the lock (the kernel's rule)
+            lock.hand_over()
+            return self.rebuild_state(snapshot)
+
+        if embedder is None:
+            lock.release()
+            raise ValueError("a rebuild that runs here needs its embedder (only a launched build brings its own)")
+
         def run() -> None:
-            with lock:
-                end: dict[str, Any] = {}
-                try:
-                    st = self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, check=check)
-                    end = {"state": "done", "result": {"snapshot": st.snapshot, "tables": st.tables,
-                                                       "chunks": st.chunks, "embedded_new": st.embedded_new,
-                                                       "seconds": st.seconds, "promoted": st.promoted,
-                                                       "generation": st.generation}}  # fmt: skip
-                except LakeBusy as exc:
-                    end = {"state": "busy", "busy": exc.reason, "detail": str(exc)[:500]}
-                except RebuildError as exc:
-                    end = {"state": "refused", "detail": str(exc)[:500]}
-                except Exception as exc:
-                    if type(exc).__name__ == "OmopError":  # D-271: the OMOP store refused the batch
-                        end = {"state": "refused", "detail": str(exc)[:500]}
-                    else:
-                        log.exception("lake rebuild of %s failed", snapshot)
-                        end = {"state": "failed", "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
-                write_rebuild_job(self.dir, {**job, **end, "ended": time.time()})
+            try:
+                self.run_rebuild_job(job, embedder, ndjson_dir, promote, allow_empty, check=check)
+            finally:
+                lock.release()
 
         (spawn or _inline)(run)
         return self.rebuild_state(snapshot)
+
+    def run_rebuild_job(
+        self,
+        job: dict[str, Any],
+        embedder: Embedder,
+        ndjson_dir: Path | None = None,
+        promote: bool = True,
+        allow_empty: bool = False,
+        check: bool = False,
+    ) -> dict[str, Any]:
+        """The build of a started job, and its end written to the job's state (T-690). The caller holds the build
+        lock of the job's snapshot for the whole call: the thread :meth:`start_rebuild` started, or the build's own
+        process (``lake.build``, D-539)."""
+        snapshot = str(job["snapshot"])
+        end: dict[str, Any] = {}
+        try:
+            st = self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, check=check)
+            end = {"state": "done", "result": {"snapshot": st.snapshot, "tables": st.tables,
+                                               "chunks": st.chunks, "embedded_new": st.embedded_new,
+                                               "seconds": st.seconds, "promoted": st.promoted,
+                                               "generation": st.generation}}  # fmt: skip
+        except LakeBusy as exc:
+            end = {"state": "busy", "busy": exc.reason, "detail": str(exc)[:500]}
+        except RebuildError as exc:
+            end = {"state": "refused", "detail": str(exc)[:500]}
+        except Exception as exc:
+            if type(exc).__name__ == "OmopError":  # D-271: the OMOP store refused the batch
+                end = {"state": "refused", "detail": str(exc)[:500]}
+            else:
+                log.exception("lake rebuild of %s failed", snapshot)
+                end = {"state": "failed", "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
+        ended = {**job, **end, "ended": time.time()}
+        write_rebuild_job(self.dir, ended)
+        return ended
 
     def rebuild_state(self, snapshot: str) -> dict[str, Any]:
         """The state of the last rebuild job of ``snapshot`` (T-690, D-472): ``none`` when there was none; a job
