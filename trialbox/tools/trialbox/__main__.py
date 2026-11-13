@@ -161,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
     ps = sub.add_parser("pre-start", help="this release's host-side steps before its stack starts (an update runs it)")
     ps.add_argument("--deploy", type=Path, default=deploy)
+    du = sub.add_parser("db-up", help="this release's steps once the database is up, before its services start")
+    du.add_argument("--deploy", type=Path, default=deploy)
     op = sub.add_parser("ops", help="the console's operations requests: run them, write the status (D-178)")
     op.add_argument("action", choices=["run", "status", "metrics-token"])
     op.add_argument("--deploy", type=Path, default=deploy)
@@ -238,10 +240,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import logs as tb_logs
 
         return tb_logs.main_action(a.action, a.deploy, a.day)
-    if a.cmd == "pre-start":
+    if a.cmd in ("pre-start", "db-up"):
         from tools.trialbox import prestart
 
-        return prestart.main(a.deploy)
+        return prestart.main(a.deploy, a.cmd)
     if a.cmd == "update":
         from tools.trialbox import update as tb_update
 

@@ -110,7 +110,10 @@ class FakeFacts:
         return self.patients.get(pid)
 
     def rows(self, pid: str, source: str) -> list[dict[str, Any]]:
-        return list(self.data.get(source, [])) if pid in self.patients else []
+        # the lake gives each row its code system (D-598); a row written here without one is of the box's own
+        own = {"observation": "http://loinc.org", "condition": "http://hl7.org/fhir/sid/icd-10-cm"}.get(source)
+        rows = self.data.get(source, []) if pid in self.patients else []
+        return [r if own is None or "system" in r else {**r, "system": own} for r in rows]
 
     def site_facts(self, pid: str) -> list[dict[str, Any]]:
         return list(self.facts) if pid in self.patients else []

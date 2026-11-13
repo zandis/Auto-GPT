@@ -11,7 +11,9 @@
 #    2 windows        administrator; Windows 11 Pro, Pro for Workstations, Enterprise or Education; virtualisation
 #    3 gpu-driver     the NVIDIA driver for Windows answers (WSL2 uses it; no driver is ever installed in Linux)
 #    4 drive          the data drive (the only other fixed drive, or the one the owner names) has room; the folder
-#                     <drive>\TrialBox is made for administrators and this account only
+#                     <drive>\TrialBox is made for administrators and this account only. BitLocker (NEW-WIN-8, D-603):
+#                     on the system drive and the data drive, opened by the TPM; each drive's recovery key is shown
+#                     (and printed when the owner says so), confirmed by its last six digits, and stored nowhere
 #    5 wsl-enable     the two Windows features and the WSL package from the media; when Windows needs a restart, a
 #                     task at this account's next sign-in runs this script again (-Resume), then the restart
 #    6 wslconfig      %USERPROFILE%\.wslconfig before WSL2 first starts (NEW-WIN-3, D-601): memory and processors
@@ -51,6 +53,11 @@ param(
   # percent of the installed memory and processors kept for Windows and the desktop user; WSL2 gets the rest.
   # The declared setting TB_WSL_DESKTOP_SHARE_PCT (libs/tb_common/config.py; the same default, held by a test)
   [ValidateRange(0, 99)][int]$DesktopSharePercent = 25,
+  # disk unlock (NEW-WIN-8, D-603; D-494 point 6): "tpm" the workstation returns after a restart with nobody
+  # there; "tpm_pin" a person types a PIN at every restart (the site sets the PIN protector up with its IT first)
+  [ValidateSet("tpm", "tpm_pin")][string]$BitLockerUnlock = "tpm",
+  # a rehearsal on a PC that must stay unencrypted: BitLocker is left as it is, and the host check then fails
+  [switch]$SkipBitLocker,
   [switch]$Resume,
   [switch]$Yes,
   [switch]$LoadOnly
@@ -60,6 +67,9 @@ param(
 # else the declared default above
 $script:TbShareDefault = $DesktopSharePercent
 $script:TbShareGiven = $PSBoundParameters.ContainsKey("DesktopSharePercent")
+# the disk unlock the same way: tpm_pin chosen once is never turned into tpm by a later start without the parameter
+$script:TbUnlockDefault = $BitLockerUnlock
+$script:TbUnlockGiven = $PSBoundParameters.ContainsKey("BitLockerUnlock")
 $script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
   "packages", "gpu-container", "host-tree", "boot-task", "linux-install")
 $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", "EnterpriseS", "Education",
@@ -182,6 +192,55 @@ function Get-TbBootTaskInfo([string]$TaskName) {
   return @{ State = [string]$task.State; LastResult = [string]$info.LastTaskResult
     Action = ((@($task.Actions) | ForEach-Object { "{0} {1}" -f $_.Execute, $_.Arguments }) -join " ; ") + " " }
 }
+function Get-TbTpm {
+  $t = Get-Tpm
+  return @{ Present = [bool]$t.TpmPresent; Ready = [bool]$t.TpmReady }
+}
+function Get-TbBitLocker([string]$Drive) {
+  $v = Get-BitLockerVolume -MountPoint $Drive
+  return @{ Status = [string]$v.VolumeStatus; Protection = [string]$v.ProtectionStatus; AutoUnlock = [bool]$v.AutoUnlockEnabled
+    Protectors = @(@($v.KeyProtector) | ForEach-Object { [string]$_.KeyProtectorType }) }
+}
+function Get-TbRecoveryPassword([string]$Drive) {
+  # the drive's first recovery password and its protector's id (the id is not a secret: it names which key)
+  $p = @((Get-BitLockerVolume -MountPoint $Drive).KeyProtector | Where-Object { [string]$_.KeyProtectorType -eq "RecoveryPassword" }) | Select-Object -First 1
+  return @{ Id = [string]$p.KeyProtectorId; Password = [string]$p.RecoveryPassword }
+}
+function Add-TbRecoveryPassword([string]$Drive) {
+  # on a drive that is not encrypted yet too: the key exists, and is in the owner's hands, before encryption starts
+  Add-BitLockerKeyProtector -MountPoint $Drive -RecoveryPasswordProtector -WarningAction SilentlyContinue | Out-Null
+  return (Get-TbRecoveryPassword $Drive)
+}
+function Enable-TbBitLockerSystem([string]$Drive) {
+  # the system drive, opened by the TPM; only the space in use is encrypted first (a new machine), the rest as it fills
+  Enable-BitLocker -MountPoint $Drive -TpmProtector -UsedSpaceOnly -SkipHardwareTest -WarningAction SilentlyContinue | Out-Null
+}
+function Enable-TbBitLockerData([string]$Drive) {
+  # A data drive. Its recovery key was made and confirmed before this call. Enable-BitLocker wants a protector of
+  # its own to start: it adds a second recovery password, which nobody is shown (either key opens the drive; the
+  # owner holds the first). The drive is then opened with the system drive (automatic unlock).
+  Enable-BitLocker -MountPoint $Drive -RecoveryPasswordProtector -UsedSpaceOnly -SkipHardwareTest -WarningAction SilentlyContinue | Out-Null
+}
+function Enable-TbAutoUnlock([string]$Drive) { Enable-BitLockerAutoUnlock -MountPoint $Drive | Out-Null }
+function Set-TbMachineSetting([string]$Name, [string]$Value) {
+  # HKLM: only an administrator writes it; deploy/windows/host_facts.ps1 reads it for the host check
+  $key = "HKLM:\SOFTWARE\TrialBox"
+  if (-not (Test-Path -LiteralPath $key)) { New-Item -Path $key -Force | Out-Null }
+  Set-ItemProperty -LiteralPath $key -Name $Name -Value $Value
+}
+function Send-TbToPrinter([string[]]$Lines) { $Lines | Out-Printer }
+function Get-TbDefaultPrinter {
+  $p = Get-CimInstance Win32_Printer -Filter "Default=TRUE" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -eq $p) { return "" }
+  return [string]$p.Name
+}
+function Test-TbTranscription {
+  # a site policy that records every PowerShell window to a file would record a recovery key shown in this one
+  $k = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription"
+  $v = Get-ItemProperty -LiteralPath $k -Name EnableTranscripting -ErrorAction SilentlyContinue
+  return ($null -ne $v -and [int]$v.EnableTranscripting -eq 1)
+}
+function Clear-TbScreen { Clear-Host }
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -267,7 +326,7 @@ function Save-TbState {
 }
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
-    desktop_share_pct = -1
+    desktop_share_pct = -1; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
     restart_pending = $false; finished = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -366,6 +425,94 @@ function Step-Drive {
   try { Protect-TbDirectory $script:TbDataRoot $script:TbFacts.Account }
   catch { if ([string]$_.Exception.Message -like "TBOWNER*") { Stop-TbStep "folder_not_ours" @($script:TbDataRoot) } else { throw } }
   Say "drive" @($script:TbDataRoot, $facts.FreeGB)
+  Set-TbBitLocker   # before any data is put on the drive
+}
+function Confirm-TbRecoveryKey([string]$Drive, [string]$secret) {
+  # The recovery key goes to the window, and to the printer when the owner says so. It is never written to the
+  # log, the state or any file. The owner types its last six digits back, then the window is cleared.
+  if ($secret -notmatch "^(\d{6}-){7}\d{6}$") { Stop-TbStep "recovery_unreadable" @($Drive) }
+  if (Test-TbTranscription) { Stop-TbStep "transcription_on" @($Drive) }
+  Write-TbScreen (Get-TbText "recovery_show" @($Drive) $script:TbLang)
+  Write-TbScreen ("        " + $secret)
+  $printer = Get-TbDefaultPrinter
+  if ($printer -and ([string](Read-TbLine (Get-TbText "recovery_print_ask" @($printer) $script:TbLang))).Trim() -match "^(y|yes)$") {
+    try {
+      Send-TbToPrinter @((Get-TbText "recovery_show" @($Drive) $script:TbLang), "", ("    " + $secret))
+      Say "recovery_printed" @($printer)
+    } catch { Say "recovery_print_failed" @([string]$_.Exception.Message) }
+  }
+  $want = ($secret -replace "[^0-9]", "")
+  $want = $want.Substring($want.Length - 6)
+  while ($true) {
+    $typed = ([string](Read-TbLine (Get-TbText "recovery_confirm" @() $script:TbLang))) -replace "[^0-9]", ""
+    if ($typed -eq "") { Stop-TbStep "recovery_needs_person" @($Drive) }
+    if ($typed -eq $want) { break }
+    Write-TbScreen (Get-TbText "recovery_wrong" @() $script:TbLang)
+  }
+  Clear-TbScreen   # the key does not stay in a window on a desktop that staff share
+  Write-TbLog ("    recovery key of {0}: shown, confirmed by the owner (its last six digits typed back), the window cleared" -f $Drive)
+}
+function Set-TbBitLocker {
+  # NEW-WIN-8 (D-603): BitLocker on the system drive and the data drive, opened by the TPM. The order per drive is
+  # the one Windows' own wizard keeps: the recovery key exists and is in the owner's hands BEFORE the drive is
+  # encrypted. A drive that is already encrypted is kept as it is; nothing is ever decrypted or weakened.
+  if ($SkipBitLocker) { Say "bitlocker_skipped" @(); return }
+  $unlock = $script:TbUnlock
+  $sys = $script:TbFacts.SystemDrive.ToUpper()
+  $data = [string]$script:TbState.data_drive
+  if ($data -match "^([A-Za-z]:)") { $data = $Matches[1].ToUpper() }
+  $drives = @($sys); if ($data -ne $sys) { $drives += $data }
+  $tpm = Get-TbTpm
+  if (-not ($tpm.Present -and $tpm.Ready)) { Stop-TbStep "no_tpm" @() }
+  foreach ($drv in $drives) {
+    $b = Get-TbBitLocker $drv
+    # being decrypted, paused, or encrypted with its protection suspended: not ours to change
+    if ($b.Status -like "Decryption*" -or $b.Status -like "*Suspended" -or $b.Status -like "*Paused" -or
+      ($b.Status -like "FullyEncrypted*" -and $b.Protection -ne "On")) { Stop-TbStep "bitlocker_suspended" @($drv, $b.Status) }
+    $off = ($b.Status -eq "FullyDecrypted")
+    if ($off -and $Yes) { Stop-TbStep "recovery_needs_person" @($drv) }   # a new key needs a person to receive it
+    # 1. the recovery key: made when there is none, and confirmed unless this very key was confirmed before
+    $rp = $null
+    if ($b.Protectors -notcontains "RecoveryPassword") {
+      if ($Yes) { Stop-TbStep "recovery_needs_person" @($drv) }
+      $rp = Add-TbRecoveryPassword $drv
+    }
+    if ($Yes) { Say "recovery_unconfirmed" @($drv) }
+    else {
+      if ($null -eq $rp) { $rp = Get-TbRecoveryPassword $drv }
+      $known = @(([string]$script:TbState.recovery_confirmed) -split "," | Where-Object { $_ })
+      $mark = $drv + "=" + $rp.Id
+      if ($known -notcontains $mark) {
+        Confirm-TbRecoveryKey $drv $rp.Password
+        $script:TbState.recovery_confirmed = ((@($known | Where-Object { $_ -notlike ($drv + "=*") }) + $mark) -join ",")
+        Save-TbState
+      }
+    }
+    $rp = $null
+    # 2. only now the encryption
+    if ($off) {
+      Write-TbLog ("    turning BitLocker on for " + $drv)
+      $script:TbState.bitlocker_turned_on = ((@(([string]$script:TbState.bitlocker_turned_on) -split "," | Where-Object { $_ -and $_ -ne $drv }) + $drv) -join ",")
+      Save-TbState
+      if ($drv -eq $sys) { Enable-TbBitLockerSystem $drv } else { Enable-TbBitLockerData $drv }
+      $b = Get-TbBitLocker $drv
+    }
+    # 3. how it opens
+    if ($drv -eq $sys) {
+      $alone = @($b.Protectors | Where-Object { $_ -eq "Tpm" -or $_ -eq "TpmNetworkKey" }).Count -gt 0
+      $pin = @($b.Protectors | Where-Object { $_ -like "TpmPin*" }).Count -gt 0
+      if ($unlock -eq "tpm" -and -not $alone) { Stop-TbStep "no_tpm_protector" @($drv, ($b.Protectors -join ",")) }
+      if ($unlock -eq "tpm_pin" -and -not $pin) { Stop-TbStep "tpm_pin_missing" @($drv) }
+    } elseif (-not $b.AutoUnlock) {
+      Write-TbLog ("    automatic unlock for " + $drv)
+      try { Enable-TbAutoUnlock $drv }
+      catch { Stop-TbStep "autounlock_failed" @($drv, [string]$_.Exception.Message) }
+    }
+    Say "bitlocker_on" @($drv)
+  }
+  Set-TbMachineSetting "BitlockerUnlock" $unlock
+  Set-TbMachineSetting "RecoveryKeyKeptBy" "the box owner (each key shown and confirmed at the install)"
+  Say "bitlocker_unlock" @($unlock)
 }
 function Step-WslEnable {
   $restart = $false
@@ -390,8 +537,9 @@ function Step-WslEnable {
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
     # the run after the restart gets this run's settings (all checked: figures, a language of the list, a name)
-    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -DesktopSharePercent {3} -Distro {4} -Lang {5}" -f $MinFreeGB,
-      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang
+    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -DesktopSharePercent {3} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
+      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock
+    if ($SkipBitLocker) { $more += " -SkipBitLocker" }
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
@@ -585,6 +733,8 @@ function Invoke-TbInstall {
   try { Unregister-TbResumeTask } catch { Write-TbLog ("    the resume task could not be removed: " + [string]$_.Exception.Message) }
   if ($script:TbShareGiven -or [int]$script:TbState.desktop_share_pct -lt 0) { $script:TbState.desktop_share_pct = $script:TbShareDefault }
   $script:TbShare = [int]$script:TbState.desktop_share_pct
+  if ($script:TbUnlockGiven -or -not $script:TbState.bitlocker_unlock) { $script:TbState.bitlocker_unlock = $script:TbUnlockDefault }
+  $script:TbUnlock = [string]$script:TbState.bitlocker_unlock
   if ($script:TbState.finished) {
     # A finished install is left alone, but for .wslconfig: it follows the hardware (memory was added, the share
     # was changed), so "start the installer again after a hardware change" is true on a finished box too.
@@ -632,6 +782,8 @@ function Invoke-TbInstall {
         Write-TbScreen (Get-TbText "unexpected" @($text) $script:TbLang)
       }
       Save-TbState
+      # what an unfinished install has already changed for good is said, not left to be found
+      if ($script:TbState.bitlocker_turned_on) { Say "bitlocker_stays" @([string]$script:TbState.bitlocker_turned_on) }
       Write-TbScreen (Get-TbText "stopped" @($n, $script:TbSteps.Count, $script:TbLogPath) $script:TbLang)
       return 1
     }

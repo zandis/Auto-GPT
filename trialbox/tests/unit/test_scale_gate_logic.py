@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -185,7 +186,9 @@ def _params(tmp_path: Path, **kw: Any) -> sg.Params:
         "latency_s": 0.05,
         "outage_after": 2,
         "outage_s": 1.0,
-        "restart_after": 4,
+        # the restart after the THIRD call: calls 2 and 3 are the outage's 502 answers, so the restart falls into the
+        # outage's own second, while the screen waits, and not into the 0.15 s its last three calls take (train 5)
+        "restart_after": 3,
         "publish_poll_s": 0.5,
         "publish_wait_s": 300.0,
     }
@@ -384,3 +387,23 @@ def test_the_gate_with_the_dense_profile(tmp_path: Path, db_url: str, monkeypatc
     md = (tmp_path / "gate" / "scale_gate.md").read_text(encoding="utf-8")
     assert "(dense profile)" in md and "dense profile: " in md
     assert rep.to_json()["profile"] == "dense"
+
+
+def test_the_restart_watcher_sees_the_call_before_a_short_screen_ends(tmp_path: Path) -> None:
+    """Train 5's CI (unit shard 4/6): "2 outage answers (502), 0 restart(s) in 7 calls". The screen makes the same
+    7 calls on every run; the restart "after call 4" was a thread that looked at the stand-in's call count every
+    half second, and the three calls left take 0.15 s at 0.05 s a call: when the screen ended inside one look,
+    the restart never happened. The watcher looks twice per call of the stand-in (its interval is the stand-in's
+    own seconds per call, halved), so the call is seen while at least one more is still being answered."""
+    m = scale.SlowModel(tmp_path, latency_s=0.05)
+    seen = {"calls": 0, "restarts": 0}
+    m.calls = lambda: seen["calls"]  # type: ignore[method-assign]
+    m.restart = lambda: seen.__setitem__("restarts", seen["restarts"] + 1)  # type: ignore[method-assign]
+    done = threading.Event()
+    watcher = m.restart_after(4, done)
+    time.sleep(0.1)  # the watcher has looked, and waits
+    seen["calls"] = 4  # the fourth call is answered ...
+    time.sleep(3 * 0.05)  # ... and the screen's last three calls take three times the stand-in's latency
+    done.set()
+    watcher.join(5)
+    assert seen["restarts"] == 1

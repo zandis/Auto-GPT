@@ -312,6 +312,9 @@ def wait_http(url: str, seconds: float, alive: Callable[[], bool] = lambda: True
     return False
 
 
+_WATCH_S = 0.5  # the restart watcher's longest pause between two looks at the stand-in's call count
+
+
 @dataclass
 class SlowModel:
     """``services/llm_stub`` as a slow, failing model server in its own process: ``latency_s`` per call, an outage of
@@ -406,12 +409,18 @@ class SlowModel:
     def restart_after(self, calls: int, done: threading.Event) -> threading.Thread:
         """A thread that restarts the stand-in once it has seen ``calls`` calls (unless ``done`` is set first)."""
 
+        # how often it looks: twice per call of the stand-in, so the call that reaches ``calls`` is seen while the
+        # next one is still being answered (each takes ``latency_s``). It looked every half second, whatever the
+        # latency: a screen whose last calls took less than that ended between two looks and was never restarted
+        # (train 5's CI: "0 restart(s) in 7 calls"). Without a latency there is nothing to derive it from
+        look = min(_WATCH_S, self.latency_s / 2) if self.latency_s > 0 else _WATCH_S
+
         def watch() -> None:
             while not done.is_set():
                 if self.calls() >= calls:
                     self.restart()
                     return
-                done.wait(0.5)
+                done.wait(look)
 
         t = threading.Thread(target=watch, daemon=True)
         t.start()

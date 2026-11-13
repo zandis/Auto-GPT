@@ -117,6 +117,7 @@ def _psql_env(root: Path) -> dict[str, str]:
     )
     env.update({_env_name(r): f"synthetic-{r}" for r in ACCESS if r != "tb_gateway"})  # one left empty on purpose
     env.pop(_env_name("tb_gateway"), None)
+    env["TB_DB_PW_FHIR_STORE"] = "synthetic-fhir-store"
     return env
 
 
@@ -244,7 +245,8 @@ def test_nobody_but_the_superuser_creates_a_database_and_passwords_come_from_the
             con.execute("CREATE DATABASE tb_should_not_exist")
     set_pw = _superuser(roles_cluster[0], "SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_authid "
                               "WHERE rolname LIKE 'tb\\_%' AND rolpassword IS NOT NULL")  # fmt: skip
-    assert set_pw.split(",") == sorted(r for r in ACCESS if r != "tb_gateway")  # an empty variable: no password
+    # an empty variable: no password; D-541: the FHIR store's own role has one too
+    assert set_pw.split(",") == sorted([*(r for r in ACCESS if r != "tb_gateway"), "tb_fhir_store"])
 
 
 # ------------------------------------------------------------------------------------------------ T-718 (D-486)
@@ -441,3 +443,108 @@ def test_t718_review_a_service_does_not_make_a_missing_owned_schema(edc_made: tu
         EdcStore(url, EDC_KEY).close()
     assert _superuser(root, "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'edc'",
                       pglocal.DB) == "tbo_edc"  # fmt: skip
+
+
+# ------------------------------------------------------------------ NEW-TRUST-1 (D-541): the FHIR store's own role
+FHIR = "tb_fhir_store"
+
+
+def _fhir_db(root: Path, sql: str) -> str:
+    return _superuser(root, sql, "hapi")
+
+
+def test_the_fhir_store_has_a_role_that_owns_its_database_and_nothing_else(roles_cluster: tuple[Path, str]) -> None:
+    """The owner's ruling of 2026-11-12: the FHIR store must not hold the cluster superuser's password. It signs
+    in as a role of its own, which owns the database `hapi` and what is in it, and reaches nothing else."""
+    import psycopg
+    from psycopg import errors
+
+    root, url = roles_cluster
+    # what an installed box has: HAPI made its tables, a sequence, an index, a view and a large object as the
+    # superuser
+    _fhir_db(root, "CREATE TABLE IF NOT EXISTS hfj_resource (res_id BIGINT PRIMARY KEY, res_text TEXT); "
+                   "CREATE SEQUENCE IF NOT EXISTS seq_resource_id; "
+                   "CREATE INDEX IF NOT EXISTS idx_res_text ON hfj_resource (res_text); "
+                   "CREATE OR REPLACE VIEW hfj_view AS SELECT res_id FROM hfj_resource; "
+                   "INSERT INTO hfj_resource VALUES (1, 'synthetic') ON CONFLICT DO NOTHING; "
+                   "SELECT lo_create(424242) WHERE NOT EXISTS (SELECT 1 FROM pg_largeobject_metadata "
+                   "WHERE oid = 424242)")  # fmt: skip
+    _run_script(root)
+    _run_script(root)  # idempotent: every install and update runs it
+    flags = _superuser(root, "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolcanlogin "
+                             f"FROM pg_roles WHERE rolname = '{FHIR}'")  # fmt: skip
+    assert flags == "f|f|f|f|f|t"
+    assert _superuser(root, "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'hapi'") == FHIR
+    owners = _fhir_db(root, "SELECT DISTINCT pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n "
+                            "ON n.oid = c.relnamespace WHERE n.nspname = 'public'")  # fmt: skip
+    assert owners == FHIR  # tables, the sequence, the index and the view
+    assert _fhir_db(root, "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'public'") == FHIR
+    assert _fhir_db(root, "SELECT pg_get_userbyid(lomowner) FROM pg_largeobject_metadata WHERE oid = 424242") == FHIR
+    dsn = _as(url, FHIR)
+    with psycopg.connect(dsn.replace(f"/{pglocal.DB}", "/hapi"), autocommit=True) as con:
+        assert con.execute("SELECT res_text FROM hfj_resource WHERE res_id = 1").fetchone() == ("synthetic",)
+        con.execute("CREATE TABLE hfj_made_later (k INT)")  # HAPI's own migrations at a later start
+        con.execute("ALTER TABLE hfj_resource ADD COLUMN IF NOT EXISTS res_ver BIGINT")
+        con.execute("DROP TABLE hfj_made_later")
+        for sql in ("CREATE ROLE tb_should_not_exist", "CREATE DATABASE tb_should_not_exist",
+                    "ALTER ROLE trialbox PASSWORD 'x'", "SELECT rolpassword FROM pg_authid"):  # fmt: skip
+            with pytest.raises(errors.InsufficientPrivilege):
+                con.execute(sql)
+    with pytest.raises(psycopg.OperationalError, match="permission denied for database"):
+        psycopg.connect(dsn, autocommit=True).close()  # the trial database is not its to open
+    for role in ACCESS:  # and no service of the trial database opens `hapi`
+        with pytest.raises(psycopg.OperationalError, match="permission denied for database"):
+            psycopg.connect(_as(url, role).replace(f"/{pglocal.DB}", "/hapi"), autocommit=True).close()
+    assert _superuser(root, f"SELECT count(*) FROM pg_auth_members WHERE member = '{FHIR}'::regrole") == "0"
+    supers = _superuser(root, "SELECT string_agg(rolname, ',') FROM pg_roles WHERE rolsuper")
+    assert supers == "postgres"  # the cluster's one superuser (on a box it is named `hapi`): nobody else
+
+
+def test_the_fhir_stores_password_is_read_from_the_environment_never_from_the_command_line() -> None:
+    """Review of T-712, left open: a password given as `psql -v name=value` is in the process list. The new role's
+    password is read by psql itself from the environment (`\\getenv`)."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "\\getenv pw_fhir_store TB_DB_PW_FHIR_STORE" in text
+    assert "pw_fhir_store=" not in text and "TB_DB_PW_FHIR_STORE:-" not in text
+    assert SCRIPT.read_text(encoding="utf-8") == (
+        SCRIPT.parents[2] / "platform" / "base" / "db-init" / SCRIPT.name
+    ).read_text(encoding="utf-8")
+
+
+def test_fhir_review_an_empty_variable_does_not_remove_a_password_that_is_set(roles_cluster: tuple[Path, str]) -> None:
+    """Review M3: the script run by hand in a database container started before the variable existed (the runbook's
+    command after a restore) set the role's password to nothing, and the FHIR store could not sign in."""
+    root = roles_cluster[0]
+    _run_script(root)
+    had = _superuser(root, "SELECT rolpassword FROM pg_authid WHERE rolname = 'tb_fhir_store'")
+    assert had
+    env = _psql_env(root)
+    env.pop("TB_DB_PW_FHIR_STORE")
+    r = subprocess.run(["sh", str(SCRIPT)], env=env, capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    assert _superuser(root, "SELECT rolpassword FROM pg_authid WHERE rolname = 'tb_fhir_store'") == had
+
+
+def test_fhir_review_many_large_objects_move_in_batches(roles_cluster: tuple[Path, str]) -> None:
+    """Review M1: one ALTER LARGE OBJECT per object in one transaction takes a lock each; past the lock table's
+    size the move failed, and failed again at every rerun. The move commits in batches."""
+    root = roles_cluster[0]
+    _fhir_db(root, "SELECT count(lo_create(0)) FROM generate_series(1, 2500)")  # made by the superuser
+    _run_script(root)
+    left = _fhir_db(root, "SELECT count(*) FROM pg_largeobject_metadata WHERE lomowner <> 'tb_fhir_store'::regrole")
+    assert left == "0"
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "COMMIT;" in text[text.index("ALTER LARGE OBJECT") - 600 : text.index("ALTER LARGE OBJECT") + 400]
+
+
+def test_fhir_review_a_rolled_back_update_resets_what_the_fhir_store_owns(roles_cluster: tuple[Path, str]) -> None:
+    """Review M2: the update's rollback drops what the restoring role owns before it loads the dump. The tables of
+    `hapi` are the FHIR store's now, so a table a failed release added stayed. It drops the database owner's too."""
+    from tools.trialbox import update as up
+
+    root = roles_cluster[0]
+    _run_script(root)
+    _fhir_db(root, "CREATE TABLE hfj_new_release (k INT); ALTER TABLE hfj_new_release OWNER TO tb_fhir_store")
+    _fhir_db(root, up.RESET_SQL)
+    assert _fhir_db(root, "SELECT count(*) FROM pg_class WHERE relname = 'hfj_new_release'") == "0"
+    _run_script(root)  # the cluster as the other tests expect it

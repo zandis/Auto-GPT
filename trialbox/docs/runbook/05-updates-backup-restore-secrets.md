@@ -29,6 +29,11 @@ release installed before this command existed cannot run it, so a bundle that ad
 the command as its `min_installed_version`; the verifier then refuses the bundle on an older box before anything
 changes, and the box takes the release in between first.
 
+The same holds once the database is up and before the services start: the updater runs the new release's
+`python3 -m tools.trialbox db-up` (the list `DB_STEPS` in the same file). This release's steps there are: the
+database container on the new release's settings, the services' database roles, the schemas no service owns.
+A fresh install runs both commands too.
+
 **Model weights against their pins** (T-677, D-393). On a GPU box the update's check step runs
 `trialbox doctor --weights` first: every pinned build's weights in the models folder must still hash to their pin.
 A difference writes `deploy/site/weights_changed.json`, the gateway refuses every model call (`weights_changed`) and
@@ -236,6 +241,9 @@ The script also gives the audit journal back to its owner and the services their
 it runs, a restored box refuses actions that must be audited. When the database is older than the audit chain (an
 update rollback), the `audit-writer` service writes an `audit.journal_resync` event and goes on; `docker compose logs
 audit-writer` says what it found.
+Since D-541 the FHIR store signs in as its own role (`tb_fhir_store`, the owner of the database `hapi` only), never as
+the server's superuser. A restore loads `hapi` as the superuser, so the same script, run after the restore, gives the
+tables back to that role.
 
 
 ## Secrets (D-128, D-138): the one place to rotate them

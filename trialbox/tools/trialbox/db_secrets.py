@@ -36,7 +36,7 @@ DB_SECRET = re.compile(r"^(TB_DB_PW_[A-Z0-9_]+|POSTGRES_PASSWORD|POSTGRES_WF_PAS
 ADMIN = ("POSTGRES_PASSWORD", "POSTGRES_WF_PASSWORD")
 #: who may hold an administrator password, and why. Everything else holds its own role's password only.
 ADMIN_HOLDERS: dict[str, set[str]] = {
-    "POSTGRES_PASSWORD": {"db", "fhir-store"},  # the server itself; HAPI's own database `hapi`
+    "POSTGRES_PASSWORD": {"db"},  # the server itself; D-541: the FHIR store has a role of its own (tb_fhir_store)
     "POSTGRES_WF_PASSWORD": {"db"},  # the server; no tool container holds it (review of #308, H2)
 }
 #: a value shorter than this is not searched for (it would be found by accident inside other values)

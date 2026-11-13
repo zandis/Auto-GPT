@@ -424,5 +424,158 @@ def test_the_task_script_and_the_judge_name_the_boxs_own_distribution() -> None:
         assert v.lines[0].startswith("PASS" if good else "FAIL"), v.lines
 
 
+def _policy() -> object:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("wsl2_policy_w8", WIN / "wsl2_policy.py")
+    assert spec and spec.loader
+    pol = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pol)
+    return pol
+
+
+BITLOCKER_C = {
+    "system_drive": "C:",
+    "bitlocker_C_status": "FullyEncrypted",
+    "bitlocker_C_protection": "On",
+    "bitlocker_C_method": "XtsAes256",
+}
+
+
+@pytest.mark.parametrize(
+    ("unlock", "protectors", "verdict", "says"),
+    [
+        # the box's setting tpm (D-494 point 6): the TPM alone opens the drive, and that is what was chosen
+        ("tpm", "Tpm,RecoveryPassword", "PASS", "starts with nobody there"),
+        ("tpm", "TpmNetworkKey,TpmPin,RecoveryPassword", "PASS", "starts with nobody there"),
+        # review L1: a drive that asks for a PIN does not "start with nobody there", whatever the setting says
+        ("tpm", "TpmPin,RecoveryPassword", "FAIL", "asks for a PIN or a key at start"),
+        ("tpm", "Tpm,ExternalKey,RecoveryPassword", "PASS", "starts with nobody there"),
+        ("tpm", "ExternalKey,RecoveryPassword", "FAIL", "the TPM does not open the drive"),
+        ("tpm", "Password,RecoveryPassword", "FAIL", "the TPM does not open the drive"),
+        ("tpm", "RecoveryPassword", "FAIL", "the TPM does not open the drive"),
+        # tpm_pin, and no setting at all (not a box install): D-421's rule stands, the TPM alone is refused
+        ("tpm_pin", "Tpm,RecoveryPassword", "FAIL", "the TPM alone opens it"),
+        ("tpm_pin", "TpmPin,RecoveryPassword", "PASS", "unlock TpmPin"),
+        ("", "Tpm,RecoveryPassword", "FAIL", "the TPM alone opens it"),
+        ("TPM", "Tpm,RecoveryPassword", "PASS", "starts with nobody there"),  # the registry value's case
+    ],
+)
+def test_the_disk_unlock_setting_decides_whether_the_tpm_alone_is_enough(
+    unlock: str, protectors: str, verdict: str, says: str
+) -> None:
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    facts = {**BITLOCKER_C, "bitlocker_C_protectors": protectors}
+    if unlock:
+        facts["bitlocker_unlock"] = unlock
+    pol.check_bitlocker(facts, v)  # type: ignore[attr-defined]
+    assert v.lines[0].startswith(verdict) and says in v.lines[0], v.lines
+
+
+def test_an_unknown_unlock_setting_is_said_and_judged_as_the_strict_one() -> None:
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    facts = {**BITLOCKER_C, "bitlocker_C_protectors": "Tpm,RecoveryPassword", "bitlocker_unlock": "none"}
+    pol.check_bitlocker(facts, v)  # type: ignore[attr-defined]
+    text = " | ".join(v.lines)
+    assert "unknown bitlocker_unlock 'none'" in text and "the TPM alone opens it" in text
+    assert all(ln.startswith("FAIL") for ln in v.lines)
+
+
+@pytest.mark.parametrize(
+    ("auto", "verdict"),
+    [("True", "PASS"), ("False", "FAIL"), ("", "PASS"), ("false", "FAIL"), ("0", "FAIL"), ("Unknown", "WARN")],
+)
+def test_the_data_drive_must_open_with_the_system_drive(auto: str, verdict: str) -> None:
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    facts = {
+        **BITLOCKER_C,
+        "bitlocker_C_protectors": "Tpm,RecoveryPassword",
+        "bitlocker_unlock": "tpm",
+        "vhdx_drive": "D:",
+        "bitlocker_D_status": "FullyEncrypted",
+        "bitlocker_D_protection": "On",
+        "bitlocker_D_method": "XtsAes256",
+    }
+    if auto:
+        facts["bitlocker_D_autounlock"] = auto
+    pol.check_bitlocker(facts, v)  # type: ignore[attr-defined]
+    line = next(ln for ln in v.lines if "BitLocker on D:" in ln)
+    assert line.startswith(verdict), v.lines
+    assert ("unlocks with the system drive" in line) is (auto == "True")
+
+
+def test_the_owners_confirmation_at_the_install_answers_where_the_recovery_key_is_kept() -> None:
+    """Review L3: a box set up by the installer must not fail "say where the recovery password is kept"."""
+    facts = (WIN / "host_facts.ps1").read_text(encoding="utf-8")
+    assert 'RegValue "HKLM:\\SOFTWARE\\TrialBox" "RecoveryKeyKeptBy"' in facts
+    assert 'Set-TbMachineSetting "RecoveryKeyKeptBy"' in PS1.read_text(encoding="utf-8")
+    pol = _policy()
+    v = pol.Verdicts(strict=True)  # type: ignore[attr-defined]
+    kept = "the box owner (each key shown and confirmed at the install)"
+    facts_c = {**BITLOCKER_C, "bitlocker_C_protectors": "Tpm,RecoveryPassword", "recovery_escrow": kept}
+    pol.check_recovery(facts_c, v)  # type: ignore[attr-defined]
+    assert v.lines[0].startswith("PASS") and "the box owner" in v.lines[0]
+
+
+def test_host_facts_prints_the_unlock_setting_and_the_installer_records_it_where_only_administrators_write() -> None:
+    facts = (WIN / "host_facts.ps1").read_text(encoding="utf-8")
+    ps1 = PS1.read_text(encoding="utf-8")
+    assert 'Fact "bitlocker_unlock" (RegValue "HKLM:\\SOFTWARE\\TrialBox" "BitlockerUnlock")' in facts
+    assert 'Fact "bitlocker_${tag}_autounlock"' in facts
+    assert '$key = "HKLM:\\SOFTWARE\\TrialBox"' in ps1 and 'Set-TbMachineSetting "BitlockerUnlock" $unlock' in ps1
+
+
+def test_the_installer_never_turns_bitlocker_off_and_never_logs_or_stores_a_recovery_key() -> None:
+    ps1 = PS1.read_text(encoding="utf-8")
+    assert not re.search(
+        r"Disable-BitLocker|Suspend-BitLocker|Remove-BitLockerKeyProtector|Clear-BitLockerAutoUnlock|manage-bde", ps1
+    )
+    # the key's variable reaches the window and the printer only: no log line, no state field, no Say (Say logs)
+    lines = [ln for ln in ps1.splitlines() if "$secret" in ln]
+    assert len(lines) >= 4
+    for line in lines:
+        assert not re.search(r"Write-TbLog|Say |TbState\.|Set-Content|WriteAllText|Out-File|Invoke-TbNative", line), (
+            line
+        )
+    # the same for the pair the seam returns (its Password field): handed to Confirm-TbRecoveryKey and nowhere else
+    uses = [ln.strip() for ln in ps1.splitlines() if "$rp.Password" in ln]
+    assert uses == ["Confirm-TbRecoveryKey $drv $rp.Password"], uses
+
+
+def test_the_key_probe_handles_a_dummy_value_only_and_uses_the_boot_tasks_sign_in() -> None:
+    """key-probe.ps1 runs in no test (Windows stores, the Task Scheduler): this holds what it must not do."""
+    probe = (WIN / "key-probe.ps1").read_text(encoding="utf-8")
+    assert probe.isascii()
+    assert "RandomNumberGenerator" in probe and "$dummy" in probe
+    # nothing of TrialBox's is read: no secrets folder, no key file, no .env, no site folder
+    assert not re.search(r"secrets|\.env|site[/\\]|kek|vendor_ed25519|\.pem|RecoveryPassword", probe, re.I)
+    # the same principal as the boot task
+    keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")
+    assert "-LogonType S4U -RunLevel Highest" in probe and "-LogonType S4U -RunLevel Highest" in keep
+    # the value reaches WSL2 on standard input, never as an argument of wsl.exe; no tool beyond the base system
+    hand = next(ln for ln in probe.splitlines() if "wsl.exe -d $Distro" in ln)
+    assert hand.strip().startswith("$out = $hex | & wsl.exe") and "$hex" not in hand.split("wsl.exe", 1)[1]
+    assert "xxd" not in probe
+
+
+def test_the_key_probe_decides_at_startup_with_nobody_signed_in_and_leaves_no_task() -> None:
+    """Review of NEW-WIN-8, H3 and L6: the run that decides is the one at startup, as the boot task runs."""
+    probe = (WIN / "key-probe.ps1").read_text(encoding="utf-8")
+    assert "New-ScheduledTaskTrigger -AtStartup" in probe and "[switch]$Collect" in probe
+    assert "desktop_shells_running=" in probe and "ran_at=" in probe
+    # the on-demand task is removed also when the run dies; the startup task is removed by -Collect
+    assert re.search(r"\} finally \{[^}]*Unregister-ScheduledTask -TaskName \$TaskName", probe, re.S)
+    collect = probe[probe.index("if ($Collect) {") : probe.index("$dummy = New-Object byte[] 32")]
+    assert "Unregister-ScheduledTask -TaskName $TaskName" in collect
+    # the task runs a copy in the installer's closed folder, not a path on the media, and the folder is not a parameter
+    assert "$copy = Join-Path $ProbeDir" in probe and "$PSCommandPath, $mode" not in probe
+    assert "[string]$ProbeDir" not in probe
+    sheet = (ROOT / "docs/handover/P-0-windows-rehearsal.md").read_text(encoding="utf-8")
+    assert "key-probe.ps1 -AtStartup" in sheet and "key-probe.ps1 -Collect" in sheet
+
+
 def test_an_unknown_step_is_an_error(box: Box) -> None:
     assert box.run("format-disk").returncode == 1

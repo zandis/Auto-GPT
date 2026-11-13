@@ -94,7 +94,8 @@ def test_a_key_that_cannot_be_written_stops_the_update_with_its_reason(tmp_path:
         up.ComposeBox(deploy).ensure_actor_key()
     r = _command(deploy)
     assert r.returncode == 1 and "Traceback" not in r.stderr
-    assert "pre-start: failed: the console's signing key could not be written" in r.stderr
+    # the step is named before its reason since UPDATE-DBUP (D-624)
+    assert "pre-start: failed: actor signing key: the console's signing key could not be written" in r.stderr
 
 
 def test_the_step_is_what_calls_the_key_maker() -> None:
