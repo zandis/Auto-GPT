@@ -337,8 +337,9 @@ def run_cohort(ctx: Ctx) -> Outcome:
 def sender_refusal(site: str, own_site: str, senders: set[str], sender: str) -> str | None:
     """A merged table replaces its site's rows, so the site must be the sender's: never the root's own (that comes
     only from its own COHORT run) and bound to the address its table in the store came from (``senders``: whose
-    tables of the site stand in the store now). Otherwise anyone allowed to mail COHORT could overwrite another site's counts.
-    The sentence goes back to the sender and into the job's record: it names the site, never an address (D-555)."""
+    tables of the site stand in the store now). Otherwise anyone allowed to mail COHORT could overwrite another
+    site's counts. The sentence goes back to the sender and into the job's record: it names the site, never an
+    address (D-555)."""
     if site == own_site:
         return f"site_id {site} is this box's own table; it comes only from its own COHORT run"
     if senders - {sender}:
