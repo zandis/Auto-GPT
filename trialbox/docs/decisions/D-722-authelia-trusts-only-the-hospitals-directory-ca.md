@@ -16,22 +16,45 @@ removes the entry.
 
 ## Decision
 
-1. **The container's whole root list is the hospital's directory CA** (`deploy/docker-compose.identity.yml`):
+1. **The container's root list is the hospital's directory CA** (`deploy/docker-compose.identity.yml`):
    `TB_LDAP_CA` (one PEM file: the CA that issued the domain controller's certificate, with its intermediates) is
    mounted read-only at `/run/tb-ldap-ca.pem`; `SSL_CERT_FILE` names that file and `SSL_CERT_DIR` a path nothing
-   is ever mounted at. Go's `crypto/x509` on Linux reads `SSL_CERT_FILE` instead of the image's bundle and
-   `SSL_CERT_DIR` instead of its certificate folders, so the system pool Authelia builds holds the hospital's
-   certificates and nothing else: no public root, and no intermediate that could chain to one.
-2. **Unset, it trusts nothing.** The mount's default is `/dev/null`: an empty root list. Every LDAPS handshake
-   fails and no hospital account signs in. Closed, never back to the public roots.
-3. **Doctor, `ldap_ca`** (FAIL in VALIDATION and PRODUCTION, WARN elsewhere), only when the hospital sign-in is
-   on: the setting is missing, the file cannot be read, holds no certificate, holds a private key, or is the
-   host's public root list (the one way to undo this with a setting). `check_host.sh` hands the file to the
-   doctor's container.
-4. Nothing else of Authelia needs a public root: it serves plain HTTP inside `trialbox-net`, the egress rules
-   allow it LDAPS to the directory and nothing else, and its start-up time check is blocked (D-574).
+   is ever mounted at. Go's `crypto/x509` on Linux reads `SSL_CERT_FILE` instead of its list of bundle files and
+   `SSL_CERT_DIR` instead of its certificate folders (read in the Go 1.24 and 1.25 source here by the reviewer,
+   and run with a small program): the system pool then holds the file's certificates and nothing else.
+2. **The mount is the long form with `create_host_path: false`.** A file that is not there stops the start. The
+   short form would have made a root-owned folder of that name on the host; the container's root "file" would be
+   a folder, and the operator's later copy would land inside it.
+3. **A box whose hospital sign-in is on does not start without a usable file.** `pre-start` (the release's own
+   steps, run by the update and by `install.sh` before any service is put on the release) ends with doctor's
+   check and stops on a FAIL with the reason; an update that meets it puts the box back. So a site that already
+   runs the hospital sign-in is told before, not by a sign-in page that no longer works. Local accounts (TOTP)
+   are not affected either way.
+4. **Doctor, `ldap_ca`** (FAIL in VALIDATION and PRODUCTION, WARN elsewhere), only when the hospital sign-in is
+   on: the setting is missing, is a bare name (compose reads that as a volume), cannot be read, holds no real
+   certificate, holds a private key, or holds a certificate that is also one of the public roots the checking
+   machine trusts. That last one reads the content, not the path: a copy of the host's bundle under another name,
+   or a link to it, is refused; the hospital's own CA passes wherever the host keeps it. `check_host.sh` hands
+   the file to the doctor's container as one quoted argument.
 5. The runbook (section 12), the settings example and the example configuration name `TB_LDAP_CA`. Before this
    card none of them said how a hospital's private CA was to be trusted at all.
+
+## What this does not close
+
+- **The site's own Authelia file can still widen the trust or switch the check off**: `certificates_directory`
+  adds roots (the acceptance overlay uses it for its test CA), and `tls.skip_verify: true` turns verification
+  off. Doctor reads neither (D-574 lists that check as open). This card removes the public roots the image
+  ships; it does not police the site's configuration.
+- **With no file, "trusts nothing" is not proven for the pinned binary.** Unset, the root file is `/dev/null`:
+  Go gives an empty pool with no error, and a binary built with a compiled-in root list
+  (`x509roots/fallback`) would then use that list (run by the reviewer with a stand-in for the fallback). Whether
+  the pinned Authelia binary has one was not checked. So the guarantee is point 3, not the empty file: a
+  PRODUCTION or VALIDATION box with the sign-in on is not started without a usable file. A DEV or TEST box is
+  only warned.
+- **The mail notifier.** The example configuration offers an `smtp:` notifier. With these settings a STARTTLS
+  connection to a relay whose certificate is not under the hospital's directory CA fails when a mail is sent.
+  The egress rules allow Authelia no SMTP on a box as shipped, so nothing changes there; a site that opens it
+  puts the relay's CA in the same file.
 
 ## The allow-list entry: NOT removed here. Owner decision needed
 
@@ -48,19 +71,19 @@ owner's yes.
 
 ## Not proven here
 
-- **That Authelia in the pinned image honours the two variables.** Not run: no docker daemon in this session, and
-  no Go toolchain. It rests on Go's documented behaviour (`crypto/x509`, Unix: `SSL_CERT_FILE` and
-  `SSL_CERT_DIR` override the system locations) and on Authelia building its pool from the system pool. For
-  whoever has a box (lane G): start the oidc profile with `TB_LDAP_CA` set to a CA that did NOT issue the
+- **That Authelia 4.39 builds its LDAPS trust from the system pool** (plus `certificates_directory`). From
+  memory, not read in its source or run: no docker daemon here and no copy of its source. The whole card rests on
+  it. For whoever has a box (lane G): start the oidc profile with `TB_LDAP_CA` set to a CA that did NOT issue the
   directory's certificate and see the LDAPS bind refused ("certificate signed by unknown authority"); then with
-  the right CA and see it accepted; then with `TB_LDAP_CA` unset and see it refused.
-- If the image's Go were built with a root list compiled in (`x509roots/fallback`), the fallback is used only
-  when the system pool is empty: with the hospital's file present it is not. With the file unset (the `/dev/null`
-  default) a compiled-in list would be used, and point 2 would not hold. Not checked in the binary: the same
-  test on a box says.
+  the right CA and see it accepted.
+- Whether Authelia stops at start when its directory cannot be reached with a certificate it trusts (then an
+  update without the file would fail at the wait and roll back) or starts and fails each sign-in. Point 3 makes
+  the question moot on a PRODUCTION box.
 
 ## Consequences
 
+- **A box that already runs the hospital sign-in must set `TB_LDAP_CA` before the update that brings this**;
+  the update stops at its first steps otherwise, with the reason, and the box stays on its release.
 - A site that turns the hospital sign-in on must supply the directory CA file. Before, a directory certificate
   from a public CA worked with no file; now it needs that CA's chain in the file.
 - A hospital whose directory certificate is renewed under a new CA updates the file and starts Authelia again.

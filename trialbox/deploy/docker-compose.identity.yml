@@ -75,7 +75,10 @@ services:
       SSL_CERT_DIR: /run/tb-no-other-roots
     volumes:
       - ${TB_AUTHELIA_CONFIG:-./site/authelia/configuration.yml}:/config/configuration.yml:ro
-      - ${TB_LDAP_CA:-/dev/null}:/run/tb-ldap-ca.pem:ro   # D-722: the hospital's directory CA chain, PEM
+      # D-722: the hospital's directory CA chain, PEM. Long form: a file that is not there stops the start; the
+      # short form would make a root-owned folder of that name on the host
+      - {type: bind, source: "${TB_LDAP_CA:-/dev/null}", target: /run/tb-ldap-ca.pem, read_only: true,
+         bind: {create_host_path: false}}
       - ./secrets/authelia:/run/authelia:ro
       - authelia-data:/data
     networks:

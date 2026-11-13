@@ -284,10 +284,12 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     [ -d "$anchor" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $anchor:$anchor:ro"
   done
   IFS="$OLD_IFS"
-  # D-722: doctor's ldap_ca check reads the hospital's directory CA file where TB_LDAP_CA names it (a path
-  # relative to deploy/ is inside the mount of deploy/ already)
-  LDAP_CA="$(sed -n 's/^TB_LDAP_CA=//p' "$ENV_FILE" | tail -1)"
-  case "$LDAP_CA" in /*) [ -f "$LDAP_CA" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $LDAP_CA:$LDAP_CA:ro" ;; esac
+  # D-722: doctor's ldap_ca check reads the hospital's directory CA file where TB_LDAP_CA names it. Quotes and
+  # blanks around the value are not part of it (compose and doctor strip them); a path relative to deploy/ is
+  # inside the mount of deploy/ already. Its own quoted argument: the path may hold a space
+  LDAP_CA="$(sed -n 's/^TB_LDAP_CA=//p' "$ENV_FILE" | tail -1 | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
+  LDAP_MOUNT=""
+  case "$LDAP_CA" in /*) [ -f "$LDAP_CA" ] && LDAP_MOUNT="$LDAP_CA:$LDAP_CA:ro" ;; esac
   # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
   # (tools/host_tree.py); the doctor read deploy/egress.py and the compose files through them and found nothing.
   # The release tree is mounted where the links point, as install.sh does (tree_args)
@@ -317,7 +319,7 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     # shellcheck disable=SC2086
     if docker run --rm --network none --env-file "$ENV_FILE" -i -e TB_HOST_TZ="$HOST_TZ" \
         -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
-        ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
+        ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} ${LDAP_MOUNT:+-v "$LDAP_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
         "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
       return 0
     fi

@@ -88,6 +88,9 @@ sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lo
    hospital's CA is refused. Without the file Authelia trusts nothing and no hospital account signs in;
    `trialbox doctor` (`ldap_ca`) fails a box whose hospital sign-in is on without it, or with the host's public
    root list in its place.
+   **A box that already runs the hospital sign-in:** set `TB_LDAP_CA` before the update that brings this. The
+   update's first step checks it before any service is started and stops with the reason; the box is put back as
+   it was. Local accounts (TOTP) are not affected either way.
 4. Open LDAPS for Authelia only: add `authelia=<domain controller>:636` to `EGRESS_EXTRA` and run
    `deploy/network.sh apply` ([Security §2](../SECURITY.md#2-network)).
 5. `docker compose --profile oidc up -d --wait`. The sign-in page shows **Sign in with the hospital account**.
