@@ -36,6 +36,7 @@ from lake.store import (
     LakeBusy,
     RebuildError,
     error_answer,
+    query_failure_status,
     read_rebuild_job,
     split_generation,
     write_rebuild_job,
@@ -91,10 +92,11 @@ def query(req: LakeQuery, x_tb_lake_generation: str | None = Header(default=None
         table = lake().query(req.sql, list(req.params or []), _named(req.snapshot, x_tb_lake_generation), req.timeout_s)
     except SqlRejected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:  # D-675: a snapshot that is not there is the lake not serving it: 503
+        raise HTTPException(status_code=query_failure_status(exc), detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=error_answer(exc)) from exc
+        # D-675: 4xx is a fault of the question, 5xx a failure of the lake; the sentences are D-664's
+        raise HTTPException(status_code=query_failure_status(exc), detail=error_answer(exc)) from exc
     return Response(content=to_ipc(table), media_type=ARROW_STREAM)
 
 
