@@ -6,6 +6,8 @@ configuration, so file-reading table functions fail even if a new one slipped pa
 
 from __future__ import annotations
 
+import re
+
 import sqlglot
 from sqlglot import exp
 
@@ -57,8 +59,12 @@ class SqlRejected(ValueError):
 def check_select(sql: str) -> None:
     try:
         statements = sqlglot.parse(sql, read="duckdb")
-    except sqlglot.errors.ParseError as exc:
-        raise SqlRejected(f"unparseable SQL: {str(exc)[:200]}") from exc
+    except sqlglot.errors.SqlglotError as exc:  # a parse error, or a tokenizer's (an unterminated string)
+        # NEW-B-23 (D-664): the parser's message shows the query's text around the fault, with any literal the
+        # caller wrote. The refusal says where, not what
+        where = next(({"line": e.get("line"), "col": e.get("col")} for e in getattr(exc, "errors", []) or []), None)
+        at = f" at line {where['line']}, column {where['col']}" if where and where["line"] is not None else ""
+        raise SqlRejected(f"unparseable SQL ({type(exc).__name__}{at})") from exc
     statements = [s for s in statements if s is not None]
     if len(statements) != 1:
         raise SqlRejected("exactly one statement is allowed")
@@ -100,4 +106,6 @@ def check_select(sql: str) -> None:
             raise SqlRejected("file paths are not allowed as tables")
         name = table.name.lower()
         if table.db or (name not in LAKE_TABLES and name not in ctes):
-            raise SqlRejected(f"unknown table {table.sql()!r}")
+            # D-664: a string literal in a table's place is read as a name: a name is named, anything else is not
+            named = table.name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table.name or "") else ""
+            raise SqlRejected(f"unknown table {named!r}" if named else "unknown table (its name is not an identifier)")
