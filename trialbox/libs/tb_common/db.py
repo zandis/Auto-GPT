@@ -124,6 +124,10 @@ _GROUP_SQL = (
     "SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner "
     "WHERE n.nspname = %s AND r.rolname = %s AND pg_has_role(current_user, r.oid, 'MEMBER')"
 )
+_OWNING_GROUP_SQL = (
+    "SELECT r.rolname FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner "
+    "WHERE n.nspname = %s AND r.rolname LIKE %s AND NOT r.rolcanlogin AND pg_has_role(current_user, r.oid, 'MEMBER')"
+)
 #: D-486 (T-718): a schema on the role script's ``owned`` list belongs to ``tbo_<schema>`` (its one member is
 #: ``trialbox``); a service is a member of ``tbw_<schema>`` (rows) or ``tbr_<schema>`` (reads) and makes nothing there
 OWNER_PREFIX = "tbo_"
@@ -325,6 +329,12 @@ class Database:
             group = (GROUP_PREFIX + schema)[:63]
             if con.execute(_GROUP_SQL, (schema, group)).fetchone() is not None:
                 con.execute(f'SET ROLE "{group}"')
+            else:
+                # D-721: a schema that the admin made for another store's group (a second lake's OMOP store, owned
+                # by tbs_omop) is used as that group too, by its members, for the same reason
+                row = con.execute(_OWNING_GROUP_SQL, (schema, GROUP_PREFIX.replace("_", r"\_") + "%")).fetchone()
+                if row is not None:
+                    con.execute(f'SET ROLE "{row[0]}"')
             # D-486: a schema with an owner role of its own. The host tools' admin (a member) works as the owner, so
             # the migrate step's tables are the owner's; a service (no member) stays itself and makes nothing
             owner = (OWNER_PREFIX + schema)[:63]

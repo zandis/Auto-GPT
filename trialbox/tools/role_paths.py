@@ -141,10 +141,42 @@ def optout_tick(url: str) -> None:
         raise RuntimeError(f"the tick left stores not cleared: {sorted(out['failed'])}")
 
 
+def second_lake(url: str) -> None:
+    """D-721: a second lake's OMOP store. A service does not make it (it would be the service's own); the admin's
+    step makes it for the OMOP group; the adapter loads it and the lake, the orchestrator and the console read it."""
+    from omop import load, schema
+    from omop.schema import OmopError
+
+    from tools.trialbox import omop_store
+
+    folder = Path("/srv/drill-second-lake")  # a name only: nothing is read from or written to it
+    name = schema.schema_for(folder)
+    try:
+        schema.connect(_as(url, "tb_lake"), name, lake_dir=folder).close()
+    except OmopError:
+        pass
+    else:
+        raise RuntimeError(f"tb_lake made the store {name} itself: it is the lake's own now")
+    omop_store.make(url, folder)
+    writer = schema.connect(_as(url, "tb_adapter"), name, lake_dir=folder)
+    try:
+        load.load_batch(writer, "feed", SNAPSHOT, _patient())
+    finally:
+        writer.close()
+    for role in ("tb_lake", "tb_orchestrator", "tb_console"):
+        db = schema.connect(_as(url, role), name, lake_dir=folder)
+        try:
+            if db.fetchval("SELECT count(*) FROM person") != 1:
+                raise RuntimeError(f"{role} does not read what tb_adapter loaded into {name}")
+        finally:
+            db.close()
+
+
 PATHS: list[tuple[str, Callable[[str], None]]] = [
     ("the OMOP load as tb_adapter", omop_load),
     ("the OMOP export as of a time as tb_lake", omop_export),
     ("the opt-out tick as tb_orchestrator", optout_tick),
+    ("a second lake's OMOP store: refused to a service, made by the admin, loaded and read as the group", second_lake),
 ]
 
 

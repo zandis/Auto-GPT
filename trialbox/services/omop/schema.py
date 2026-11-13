@@ -422,9 +422,55 @@ def schema_for(lake_dir: Path | None) -> str:
     return f"{SCHEMA}_" + hashlib.sha1(str(path).encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
 
 
-def connect(url: str | None = None, name: str = SCHEMA) -> Database:
-    """The OMOP schema ``name`` (``<tb_prefix>omop`` by default), migrated to the current version."""
-    db = Database.connect(url or db_url(), name)
+def _a_service_would_make_it(url: str, name: str) -> bool:
+    """Under the role script (the OMOP group exists) and asked by a service (not the database's owner, who is the
+    host tools' admin): is the store ``name`` missing, so that opening it would make it the service's own?"""
+    import psycopg
+    from tb_common.db import GROUP_PREFIX, split_url
+
+    dsn, prefix = split_url(url)
+    try:
+        con = psycopg.connect(dsn, autocommit=True, connect_timeout=10)
+    except Exception:
+        return False  # no database: the open below says so in its own words
+    try:
+        row = con.execute(
+            "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = %s), "
+            "EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = %s), "
+            "(SELECT rolsuper FROM pg_roles WHERE rolname = session_user), "
+            "pg_has_role(session_user, (SELECT datdba FROM pg_database WHERE datname = current_database()), 'MEMBER')",
+            ((GROUP_PREFIX + prefix + SCHEMA)[:63], prefix + name),
+        ).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        return False
+    has_group, there, superuser, admin = row
+    return bool(has_group) and not there and not superuser and not admin
+
+
+def connect(
+    url: str | None = None, name: str = SCHEMA, *, lake_dir: Path | None = None, admin: bool = False
+) -> Database:
+    """The OMOP schema ``name`` (``<tb_prefix>omop`` by default), migrated to the current version.
+
+    D-721: a store other than the box's own (``schema_for`` of a lake that is not ``TB_LAKE_DIR``) is on no
+    service's list. Under the role script a service that opened a missing one would make it and own it, and no other
+    service could open it: the opt-out worker could not erase from it. So a service refuses; the admin's step makes
+    it for the OMOP group (``python3 -m tools.trialbox omop-store``, which passes ``admin``). ``lake_dir`` is the
+    folder the name was made from, for the sentence."""
+    url = url or db_url()
+    if name != SCHEMA and not admin and url and _a_service_would_make_it(url, name):
+        box = os.environ.get("TB_LAKE_DIR")
+        folder = str(lake_dir) if lake_dir is not None else "<folder>"
+        named = f"TB_LAKE_DIR={box}" if box else "not named: TB_LAKE_DIR is not set for this service"
+        raise OmopError(
+            f"the OMOP store {name} of the lake {folder} does not exist, and a service does not make a store of its "
+            f"own: only it could read it. The box's lake is {named}. Set TB_LAKE_DIR to this lake's folder if it "
+            "is the box's lake; for a second lake, make its store as the admin: "
+            f"python3 -m tools.trialbox omop-store --lake {folder}"
+        )
+    db = Database.connect(url, name)
     db.migrate(migrations())
     from omop import vocab
 

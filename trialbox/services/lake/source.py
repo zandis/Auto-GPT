@@ -178,7 +178,7 @@ def omop_rows(
 
     log = logging.getLogger("lake")
     t0 = time.perf_counter()
-    db = schema.connect(url, schema.schema_for(lake_dir))
+    db = schema.connect(url, schema.schema_for(lake_dir), lake_dir=lake_dir)
     try:
         name = os.environ.get("TB_SITE_ID", "")
         files = {k: f"ndjson/{snapshot}/{k}.ndjson" for k in feed}

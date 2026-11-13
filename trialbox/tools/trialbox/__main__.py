@@ -149,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     sg = sub.add_parser("audit-sign", help="the nightly signed head of the audit chain (NEW-STD-2, D-562)")
     sg.add_argument("--deploy", type=Path, default=deploy)
     sg.add_argument("--local", action="store_true", help="an in-process box: sign here, append the event to the chain")
+    om = sub.add_parser("omop-store", help="make a second lake's OMOP store for the OMOP group (D-721)")
+    om.add_argument("--lake", type=Path, required=True, help="the lake's folder, as the services name it")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
     lg.add_argument("action", choices=["collect", "prune", "archive-audit", "daily"])
     lg.add_argument("--deploy", type=Path, default=deploy)
@@ -236,6 +238,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import audit_heads
 
         return audit_heads.main_action(a.deploy, a.local)
+    if a.cmd == "omop-store":
+        from tools.trialbox import omop_store
+
+        return omop_store.main_action(a.lake)
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 
