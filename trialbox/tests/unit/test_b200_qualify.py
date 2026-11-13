@@ -198,6 +198,18 @@ def test_the_owners_script_end_to_end_on_stand_ins(tmp_path: Path) -> None:
     assert "./g1b-record.json" in names and not any(n.startswith("./bundle/") for n in names)
 
 
+def test_the_run_starts_only_when_the_logs_are_followed(tmp_path: Path) -> None:
+    """D-630: `docker logs -f` runs in the background; on a loaded machine the qualification started, and here even
+    ended, before docker had attached, so the follow was killed before it began."""
+    res = _run(tmp_path, extra={"TB_B200_SHIM_LOGS_DELAY": "1.5"})
+    assert res.returncode == 1, res.stdout + res.stderr
+    docker = (tmp_path / "state" / "docker.calls").read_text(encoding="utf-8").splitlines()
+    assert docker.count("logs -f judge-standin") == 2 and docker.count("logs -f verifier-standin") == 2  # two layouts
+    for lay in ("small", "large"):
+        for who in ("judge", "verifier"):
+            assert "stand-in server log" in (tmp_path / "run" / lay / f"{who}.log").read_text(encoding="utf-8")
+
+
 def test_the_record_passes_only_from_a_commit_without_stand_ins(tmp_path: Path) -> None:
     _run(tmp_path)
     run = tmp_path / "run"

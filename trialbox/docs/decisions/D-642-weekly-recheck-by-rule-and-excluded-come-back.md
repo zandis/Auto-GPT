@@ -58,6 +58,7 @@ Screening over time had two holes, one failure seen from two sides.
    the new patients only. The words "time-sensitive criteria re-evaluated" become "criteria re-evaluated".
 
 No new setting and no new limit: the bound is the night budget (`TB_MICROBATCH_NIGHT_BUDGET`).
+(Since D-646 a share of the job's allowance is kept for the excluded patients: `TB_MICROBATCH_EXCLUDED_PERCENT`.)
 
 ## What this does not do
 

@@ -19,7 +19,8 @@ TRIALBOX-<version>/                      one folder per release, read-only on th
     key-probe.ps1                        which Windows key store the boot task can open (NEW-WIN-8; P-0 line 36)
     preflight.ps1, host_facts.ps1        deploy/windows/: the read-only checks (D-421)
     wsl/wsl.<version>.x64.msi            WSL itself, signed by Microsoft (the Store is not used); exactly one
-    wsl/ubuntu-24.04-wsl-amd64.tar.gz    the Linux root file system, imported with `wsl --import`; exactly one
+    wsl/ubuntu-24.04*.tar.gz             the Linux root file system, imported with `wsl --import`; exactly one.
+                                         Canonical's file, placed under a name that starts `ubuntu-24.04.`
     nvidia/<driver>-win11-win10-...exe   the NVIDIA Windows driver (WSL2 uses it). The installer does not run it:
                                          it stops and names this folder when the driver does not answer
   linux/
@@ -38,18 +39,37 @@ TRIALBOX-<version>/                      one folder per release, read-only on th
     RUNBOOK.pdf, WINDOWS-INSTALL-CHECKLIST.pdf
 ```
 
-**Making the media** (NEW-WIN-9, D-605). `tools/windows_media.py` lays this folder out and writes `SHA256SUMS`;
-it downloads nothing, so the vendor first fetches Microsoft's WSL package, the Ubuntu 24.04 WSL image, the packages
-for Ubuntu and the NVIDIA driver for Windows on a machine that may, and names them:
+**Making the media** (NEW-WIN-9, D-605, D-609). Three steps, on a Linux machine that may go online (Debian or
+Ubuntu, with `apt-get` and `gpg`); nothing is fetched into the repository.
+
+1. **Fetch what others publish** into a folder of your own, and check each against its publisher's checksum:
+   - the Ubuntu 24.04 WSL image, from Canonical: `ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz` and `SHA256SUMS`
+     at `https://cloud-images.ubuntu.com/wsl/releases/24.04/current/` (`sha256sum -c --ignore-missing SHA256SUMS`);
+   - WSL itself, from Microsoft: `wsl.<version>.x64.msi` from the releases of `github.com/microsoft/WSL` (the
+     installer checks Microsoft's signature on it before it runs it);
+   - the NVIDIA driver for Windows for the workstation's card, from NVIDIA (the version the serving record names).
+2. **Work out and fetch the Ubuntu packages** (`tools/windows_media_debs.py`, D-609): Docker Engine, the compose
+   plugin, the NVIDIA Container Toolkit, nftables, cron, and every package they need that the image does not
+   already hold. It asks `apt-get` against the image's own package list, in a folder made new for the run and
+   with a configuration of its own; this machine's packages and apt settings are not touched. Docker's and
+   NVIDIA's repository keys are accepted only with the fingerprints written in the tool. Run it as an ordinary
+   user, not as root.
+3. **Lay the media out and check it** (`tools/windows_media.py`, which fetches nothing):
 
 ```
+python3 -m tools.windows_media_debs --rootfs ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz --out debs/
 python3 -m tools.windows_media build --out /media/build --version <version> \
-    --bundle dist/trialbox-<version>.tar --wsl-msi wsl.<v>.x64.msi --rootfs ubuntu-24.04-wsl-amd64.tar.gz \
+    --bundle dist/trialbox-<version>.tar --wsl-msi wsl.<v>.x64.msi \
+    --rootfs ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz \
     --debs debs/ --vendor-pub keys/vendor_ed25519.pub --nvidia-driver <driver>.exe --measured deploy/measured
 python3 -m tools.windows_media check /media/usb/TRIALBOX-<version>     # again on the disk, after the copy
 ```
 
-`build` refuses a wrongly named input, a Linux NVIDIA driver package among the packages, packages without Docker
+The image is known by what it is, not by its name: a whole archive of Ubuntu 24.04 for amd64, placed on the
+media under a name the installer finds. On 2026-11-13 step 2 gave 16 packages, 84 MB, against Canonical's
+image of that day.
+
+`build` refuses a wrongly named input, an image that is not Ubuntu 24.04, a Linux NVIDIA driver package among the packages, packages without Docker
 Engine or the NVIDIA Container Toolkit, and a folder that already holds files. `check` names the reasons the
 installer would stop that can be read without Windows: a file missing, doubled, unlisted, linked or not matching,
 a script whose line ends were changed. It does not check Microsoft's signature on the WSL package (step 1 of the

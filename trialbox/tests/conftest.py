@@ -12,6 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 # D-315: the code has no default site zone; a box sets TB_TZ (deploy/.env, from site.tz). The tests run as the
 # synthetic Taiwan demo site of .env.example unless a test sets another zone (monkeypatch) or removes it.
 os.environ.setdefault("TB_TZ", "Asia/Taipei")
+# D-539: on a box the lake service builds in a process of its own, which reads its lake and its embedder from the
+# environment. Most tests hand the service a lake and an embedder in memory, which no other process can be given: for
+# them the build stays a thread of the service. tests/unit/test_lake_build_process.py runs the box's way.
+# Set, not defaulted: a shell that exports the box's value must not change what these tests drive.
+os.environ["TB_LAKE_BUILD"] = "thread"
 
 
 @pytest.fixture

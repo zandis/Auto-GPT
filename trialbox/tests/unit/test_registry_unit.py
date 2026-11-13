@@ -171,26 +171,26 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(oapp, "orch", lambda: fake)
     c = TestClient(oapp.app)
 
-    def by_chart(body: dict[str, str]) -> Any:
-        """T-719 (D-487): a row by chart number is a person's lookup, so it carries that person's assertion."""
+    def send(body: dict[str, Any], path: str = "/registry/GZQO") -> Any:
+        """T-715b (D-550): every registry change carries the acting person's assertion; no body field names one."""
         from tests.actor3 import signed
 
-        return c.post(
-            "/registry/GZQO", json=body, headers=signed("request.prepare", "GZQO", "POST", "/registry/GZQO", body)
-        )
+        return c.post(path, json=body, headers=signed("request.prepare", "GZQO", "POST", path, body))
 
-    first = {"mrn": "10000001", "status": "candidate", "by": "crc1@hospa.test"}
-    assert c.post("/registry/GZQO", json=first).status_code == 403  # a chart number and nobody
-    r = by_chart(first)
+    first = {"mrn": "10000001", "status": "candidate"}
+    assert c.post("/registry/GZQO", json=first).status_code == 403  # nobody
+    r = send(first)
     assert (
         r.status_code == 200 and r.json()["status"] == "candidate" and r.json()["pid"] == pid_for_mrn(KEY, "10000001")
     )
-    assert by_chart({"mrn": "x", "status": "candidate", "by": "a@b"}).status_code == 400
-    assert c.post("/registry/GZQO", json={"status": "candidate", "by": "a@b"}).status_code == 400
-    assert c.post("/registry/GZQO", json={"mrn": "10000001", "status": "nope", "by": "a@b"}).status_code == 422
+    assert r.json()["updated_by"] == "console:crc"  # the verified person, not a typed one
+    assert send({"mrn": "x", "status": "candidate"}).status_code == 400
+    assert send({"status": "candidate"}).status_code == 400
+    assert send({"mrn": "10000001", "status": "nope"}).status_code == 422
+    assert send({**first, "by": "a@b"}).status_code == 422  # a typed person is not a field of the request
     assert c.get("/registry").json()[0]["counts"] == {"candidate": 1}
     assert len(c.get("/registry/GZQO").json()) == 1 and len(c.get("/registry/GZQO/events").json()) == 1
-    assert c.post("/registry/GZQO/promote", json={"by": "pi@hospa.test"}).json() == {"added": 0}
+    assert send({}, "/registry/GZQO/promote").json() == {"added": 0}
     assert c.get("/registry/GZQO/export.xlsx").status_code == 400  # S-09: a named user, always
     r = c.get("/registry/GZQO/export.xlsx?by=crc1@hospa.test")
     assert r.status_code == 200 and r.content.startswith(b"PK")

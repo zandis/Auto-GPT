@@ -6,6 +6,7 @@
 #   tools/make_bundle.sh --key keys/vendor_ed25519.key --id 2026.11-1 --release-seq 3 --out dist/trialbox-2026.11-1.tar \
 #       --gates build/supply-chain/gates.json [--sbom-dir dist/sbom] [--models deploy/models] [--rulesets dist/rulesets] \
 #       [--refdata dist/trialbox-refdata-<date>.tar ...] [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
+#       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
 #
 # The release gates are not optional (T-110b, D-340; CR-046): --gates names the passing record of `make release-gates`
 # (D-186), and the bundle is refused unless every image it carries is a passing image of that record (Trivy, SBOM and
@@ -24,7 +25,7 @@
 # /opt/trialbox/releases/<id> and switch /opt/trialbox/current to it; a rollback switches back.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""
+KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""
 IMAGES=(); REFDATA=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,7 +40,10 @@ while [ $# -gt 0 ]; do
     --gates) GATES="$2"; shift ;;
     --sbom-dir) SBOM_DIR="$2"; shift ;;
     --release-seq) SEQ="$2"; shift ;;
-    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
+    --allow-dirty)
+      case "${2:-}" in ""|--*) echo "make_bundle: --allow-dirty needs a reason (--allow-dirty \"a rehearsal\")" >&2; exit 2 ;; esac
+      DIRTY=1; DIRTY_WHY="$2"; shift ;;
+    -h|--help) sed -n 2,25p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -53,6 +57,37 @@ GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
 SBOM_DIR="${SBOM_DIR:-$ROOT/dist/sbom}"
 [ -d "$SBOM_DIR" ] || { echo "make_bundle: no SBOM folder $SBOM_DIR (make release-gates writes it)" >&2; exit 2; }
 [ -f "$KEY" ] || { echo "make_bundle: no such key $KEY" >&2; exit 2; }
+# D-631: a release is built from a commit. The host tree is packed from the files on disk (untracked ones too), so a
+# checkout that differs from its commit is refused before anything is exported, and looked at again once the host
+# tree is packed; --allow-dirty "<reason>" is for a rehearsal or a test, and release.json then says dirty
+tree_changes() {
+  # every changed, staged or untracked (not ignored) file of the project folder, and every file git was told not to
+  # look at (assume-unchanged, skip-worktree: `git status` is silent on those, the pack reads them from disk);
+  # tools/release.py tree_changes asks the same
+  local st hid
+  st="$(git -C "$ROOT" -c core.quotePath=false status --porcelain --untracked-files=all -- . 2>&1)" \
+    || { printf 'not a git checkout: a release is built from a commit (%s)\n' "$(printf '%s' "$st" | head -c 300)"; return 0; }
+  hid="$(git -C "$ROOT" -c core.quotePath=false ls-files -v -- . 2>/dev/null | grep -E '^([a-z]|S) ' || true)"
+  [ -z "$st" ] || printf '%s\n' "$st"
+  [ -z "$hid" ] || printf '%s\n' "$hid" | sed 's/$/   (hidden from git: assume-unchanged or skip-worktree)/'
+}
+show_changes() {  # the first 20 of $1, and how many more; sed reads all of its input (no SIGPIPE under pipefail)
+  local n
+  printf '%s\n' "$1" | sed -n '1,20s/^/    /p'
+  n="$(printf '%s\n' "$1" | wc -l)"
+  [ "$n" -le 20 ] || echo "    ... and $((n - 20)) more"
+}
+CHANGES="$(tree_changes)"
+if [ -n "$CHANGES" ]; then
+  if [ "$DIRTY" = 1 ]; then
+    { echo "make_bundle: NOT a release: built from a working tree ($DIRTY_WHY); release.json says dirty. Differs from the commit:"
+      show_changes "$CHANGES"; } >&2
+  else
+    { echo "make_bundle: this checkout differs from its commit; a release is built from a commit (commit or remove these, or --allow-dirty \"<reason>\" for a rehearsal):"
+      show_changes "$CHANGES"; } >&2
+    exit 2
+  fi
+fi
 command -v docker >/dev/null || { echo "make_bundle: docker is needed to export images" >&2; exit 2; }
 PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
 
@@ -141,6 +176,11 @@ echo "==> host tree (compose files, host tools, configuration; tools/host_tree.p
 (cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.host_tree pack --root "$ROOT" --out "$STAGE/trialbox-host.tar") \
   | sed 's/^/    /' || { echo "make_bundle: the host tree could not be packed" >&2; exit 1; }
 [ -f "$STAGE/trialbox-host.tar" ] || { echo "make_bundle: no host tree" >&2; exit 1; }
+if [ "$DIRTY" != 1 ]; then  # D-631: exporting the images took minutes; the tree that was packed is still the commit
+  AFTER="$(tree_changes)"
+  [ -z "$AFTER" ] || { { echo "make_bundle: the checkout changed while the bundle was built; nothing is signed:"
+                         show_changes "$AFTER"; } >&2; exit 2; }
+fi
 ITEMS+=("host:$STAGE/trialbox-host.tar=trialbox-host.tar")
 echo "==> installer, runbook, settings example, notices, changelog"
 for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example NOTICE CHANGELOG.md; do

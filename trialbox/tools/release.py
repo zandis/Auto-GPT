@@ -76,10 +76,36 @@ def _git(*args: str) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
+def tree_changes(root: Path | None = None) -> list[str]:
+    """What makes the checkout of ``root`` differ from its commit (D-631): every changed, staged or untracked (not
+    ignored) file of the project folder, as ``git status --porcelain`` names it, and every file git was told not to
+    look at (``assume-unchanged``, ``skip-worktree``: ``git status`` is silent on those). Empty: the tree is its
+    commit. A folder that is no checkout is not a commit either. ``tools/make_bundle.sh`` asks git the same and
+    refuses to build; the host tree is packed from the files on disk, untracked ones included."""
+    root = root or ROOT
+    git = ["git", "-C", str(root), "-c", "core.quotePath=false"]
+    try:
+        st = subprocess.run([*git, "status", "--porcelain", "--untracked-files=all", "--", "."],
+                            capture_output=True, text=True, check=False)  # fmt: skip
+        hid = subprocess.run([*git, "ls-files", "-v", "--", "."], capture_output=True, text=True, check=False)
+    except OSError:
+        return ["not a git checkout: a release is built from a commit"]
+    if st.returncode != 0 or hid.returncode != 0:
+        return ["not a git checkout: a release is built from a commit"]
+    out = [ln for ln in st.stdout.splitlines() if ln.strip()]
+    out += [
+        f"{ln}   (hidden from git: assume-unchanged or skip-worktree)"
+        for ln in hid.stdout.splitlines()
+        if re.match(r"([a-z]|S) ", ln)
+    ]
+    return out
+
+
 def source(v: str) -> dict[str, Any]:
-    """The commit the release is built from, whether the tree had changes, and the release tag when HEAD has it."""
+    """The commit the release is built from, whether the tree had changes (an untracked file is one, D-631), and
+    the release tag when HEAD has it."""
     commit = _git("rev-parse", "HEAD")
-    status = _git("status", "--porcelain", "--untracked-files=no")
+    status = tree_changes(ROOT)
     tags = (_git("tag", "--points-at", "HEAD") or "").split()
     return {
         "commit": commit if commit and re.fullmatch(r"[0-9a-f]{40}", commit) else None,

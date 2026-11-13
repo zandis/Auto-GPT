@@ -227,6 +227,9 @@ import uvicorn
 from lake import store
 cap = int(os.environ["TB_SCALE_CAP_BYTES"])
 store._cgroup_memory_max = lambda: cap
+# D-539: the build is a process of its own and does not get the line above; it reads the environment, so the limit
+# the service derives from the cap is handed on as the setting a box would have
+os.environ.setdefault("TB_LAKE_MEMORY_LIMIT", store.memory_limit())
 uvicorn.run("lake.app:app", host="127.0.0.1", port=int(sys.argv[1]), log_level="warning")
 """
 
@@ -401,6 +404,7 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
     env = _env(
         TB_LAKE_DIR=str(work / "lake"),
         TB_LAKE_EMBEDDER="hash",
+        TB_LAKE_BUILD="process",  # D-539: as a box runs it, whatever this process's environment says
         TB_SERVICE_TOKEN=token,
         TB_SCALE_CAP_BYTES=str(p.caps["lake"]),
     )
@@ -439,6 +443,16 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
             )
             rep.check("rebuild.under_cap", False, f"{why} during the rebuild")
             built = False
+        if not built and not lake_died and _build_interrupted(url, token):
+            # D-539: under a cgroup the kernel kills the build's process alone and the service lives; that is the
+            # rebuild not ending under the cap, as the service's death was before the build had its own process
+            rep.check(
+                "rebuild.under_cap",
+                False,
+                f"the lake's build process was killed during the rebuild (cap {gib(p.caps['lake'])}); the service "
+                "lived",
+            )
+            lake_died = True  # no second verdict on this check below
         if not built:
             for cid in ("screen.ends_under_cap", "screen.model_faults_seen", "screen.outage_no_unknown"):
                 rep.check(cid, None, "the lake has no built snapshot", blocked_by="rebuild")
@@ -535,6 +549,18 @@ def _busy(exc: Exception) -> bool:
     except ImportError:  # pragma: no cover - an older lake
         return False
     return isinstance(exc, LakeBusy)
+
+
+def _build_interrupted(url: str, token: str) -> bool:
+    """Whether the rebuild job of the gate's snapshot ended without an answer (its process was killed)."""
+    import httpx
+    from tb_common.service_auth import TOKEN_HEADER
+
+    try:
+        r = httpx.get(f"{url}/rebuild/{SNAPSHOT}", headers={TOKEN_HEADER: token}, timeout=30)
+        return bool(r.json().get("state") == "interrupted")
+    except Exception:
+        return False
 
 
 def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:

@@ -31,6 +31,7 @@ replaced what they could not read with U+FFFD.
 from __future__ import annotations
 
 import codecs
+import itertools
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
@@ -307,6 +308,39 @@ def decode(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, str]:
     at = text.find("\ufffd")
     if at >= 0:
         raise EncodingRefused("the file holds replacement characters (U+FFFD)", text.count("\n", 0, at) + 1)
+    return text, codec
+
+
+def _cjk(ch: str) -> bool:
+    """A CJK ideograph or kana (full or half width): the letters of Japanese and Chinese text."""
+    o = ord(ch)
+    return 0x3040 <= o <= 0x30FF or 0x3400 <= o <= 0x9FFF or 0xF900 <= o <= 0xFAFF or 0xFF66 <= o <= 0xFF9F
+
+
+def decode_upload(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, str]:
+    """``(text, codec)`` of a text file a person uploads (UX-004): a protocol as text, a data dictionary.
+
+    Such a file is mostly western text and has always been read as UTF-8, so **bytes that are valid UTF-8 are
+    UTF-8**: :func:`detect` weighs a few non-ASCII bytes against Shift_JIS and Big5 (right for a sheet of CJK cells,
+    where legacy bytes can pass for UTF-8), and would refuse ``38°C`` or read a Cyrillic line as half-width kana.
+    A file with a UTF-16 byte order mark (Notepad's "Unicode") is UTF-16.
+
+    Only bytes that are not UTF-8 are given to :func:`decode`, and its answer is taken only when the text it reads
+    is CJK text: at least one run of two CJK characters. A western file in Windows-1252 has no such run; each of its
+    accented bytes pairs with the next letter into one stray kanji (``Patient’s`` read as ``Patient痴``), and is
+    refused. Raises :class:`EncodingRefused`; nothing is replaced by U+FFFD."""
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        try:
+            return data.decode("utf-16"), "utf-16"
+        except UnicodeDecodeError as exc:
+            raise EncodingRefused("the file starts as UTF-16 and is not") from exc
+    try:
+        return data.decode("utf-8-sig"), "utf-8-sig" if data.startswith(codecs.BOM_UTF8) else "utf-8"
+    except UnicodeDecodeError:
+        pass
+    text, codec = decode(data, candidates)
+    if not any(_cjk(a) and _cjk(b) for a, b in itertools.pairwise(text)):
+        raise EncodingRefused("the file is not UTF-8 and does not read as Japanese or Chinese text")
     return text, codec
 
 

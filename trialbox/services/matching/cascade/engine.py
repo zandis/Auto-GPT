@@ -617,6 +617,8 @@ class _Run:
         (S2b's top sentences, best first)."""
         window = [excerpt_builder.Note(n.did, n.d, n.type, n.text, n.sents) for n in notes]
         size = EXCERPT_TOKENS if budget is None else budget
+        # sized with the count the prompt is sized with (each note with its date and type as JSON), not the text
+        # alone: hundreds of short notes passed as all shown and the gateway refused the call (review of D-645)
         got = excerpt_builder.build(window, keep, size, tokens=_tokens, ranked=ranked)
         return got.shown, got.left_out
 
@@ -1168,7 +1170,8 @@ def budget_stop(cfg: CascadeConfig, items: int, tokens: int, cost: int) -> str:
 
 
 def _tokens(text: str) -> int:
-    return expected_tokens([{"text": text}]) - 300
+    """What a note of ``text`` costs in the cascade's excerpt set: the builder's own count (D-645)."""
+    return excerpt_builder.note_tokens(text)
 
 
 def _set_hash(hashes: Sequence[str]) -> str:

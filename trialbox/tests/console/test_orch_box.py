@@ -162,7 +162,10 @@ def test_the_screening_log_goes_out_with_chart_numbers_to_a_signed_coordinator_o
 ) -> None:
     ob: OrchBox = site["ob"]
     pids = ob.listed()
-    assert site["backend"].registry_promote(STUDY, RegistryPromote(by="console:crc")) >= 1
+    from tests.actor3 import signer
+
+    as_crc = signer(STUDY, action="request.prepare")  # T-715b (D-550): the registry takes its person from this
+    assert site["backend"].registry_promote(STUDY, RegistryPromote(by="console:crc"), as_crc) >= 1
     c, _ = login(site["app"], "crc", CRC_PW)
     r = c.get(f"/pilot/registry/{STUDY}/export.xlsx?reason=contact")
     assert r.status_code == 200, r.text[-300:]

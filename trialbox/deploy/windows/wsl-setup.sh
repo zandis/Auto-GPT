@@ -194,6 +194,62 @@ EOP
     [ -z "$off" ] || die "not enabled to start with the distribution:$off (after a restart TrialBox would stay down)"
     echo "docker.service and trialbox.service start with the distribution"
     ;;
+  update-window)
+    # NEW-WIN-5 (D-606): the window the Windows installer gave Windows Update ("<start hour>+<hours>"), or "kept"
+    # when the site's IT holds the policy. trialbox doctor (update_window) reads it
+    # the whole value, not a line of it: it becomes a file trialbox doctor reads
+    [[ "${1:-}" =~ ^([0-9]{1,2}\+[0-9]{1,2}|kept)$ ]] || die "update-window: want <start hour>+<hours> or kept"
+    mkdir -p "$(dirname "$DONE_MARK")"
+    printf '%s\n' "$1" > "$(dirname "$DONE_MARK")/windows-update-window"
+    echo "update window recorded for the host check: $1"
+    ;;
+  windows-drives)
+    # NEW-WIN-7 (D-608): the letters of the workstation's own drives (the system drive, the data drive, every disk
+    # that is not on USB), for the backup check: a Windows drive that is none of them is an outside drive
+    [[ "${1:-}" =~ ^[A-Z](,[A-Z])*$ ]] || die "windows-drives: want drive letters, as C,D"
+    mkdir -p "$(dirname "$DONE_MARK")"
+    printf '%s\n' "$1" > "$(dirname "$DONE_MARK")/windows-drives"
+    echo "this PC's own drives recorded for the backup check: $1"
+    ;;
+  backup-speed)
+    # NEW-WIN-7 (D-608): how fast this box writes to a backup path, in MB/s, measured by writing <MiB> of zeros
+    # there and waiting until they are on the disk. A path through Windows (/mnt/<drive>, a share) may be far
+    # slower than WSL2's own disk; TB_BACKUP_MIN_MBPS (D-455) must stay below it, and trialbox doctor checks that.
+    #   wsl-setup.sh backup-speed <target folder> <MiB to write>
+    dir="${1:-}"; mib="${2:-}"
+    [ -d "$dir" ] || die "backup-speed: no such folder: $dir"
+    [[ "$mib" =~ ^[1-9][0-9]{0,6}$ ]] || die "backup-speed: want the MiB to write, a whole number (1024 is a fair test)"
+    real="$(cd "$dir" && pwd -P)"
+    case "$real" in *$'\t'*|*$'\n'*) die "backup-speed: a folder name with a tab or a line break cannot be recorded" ;; esac
+    printf '%s' "$real" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || die "backup-speed: the folder's name is not UTF-8 text"
+    # the test must not fill the target: a backup may be written there tonight
+    free="$(df -Pm "$real" | awk 'NR==2 {print $4}')"
+    [[ "$free" =~ ^[0-9]+$ ]] && [ "$free" -ge $((mib * 2)) ] \
+      || die "backup-speed: $real has ${free:-?} MiB free; the test wants twice the $mib MiB it writes"
+    # a name nobody can know beforehand, made by this step (never an existing file or a link someone placed
+    # on a share or an outside disk), and written without following a link
+    f="$(mktemp "$real/.trialbox-speed-test.XXXXXXXXXX")" || die "backup-speed: no test file could be made in $real"
+    trap 'rm -f "$f"' EXIT
+    t0="$(date +%s.%N)"
+    dd if=/dev/zero of="$f" bs=1M count="$mib" conv=fsync,notrunc oflag=nofollow status=none \
+      || die "backup-speed: writing to $real failed"
+    t1="$(date +%s.%N)"
+    rm -f "$f"; trap - EXIT
+    record="$(dirname "$DONE_MARK")/backup-speed"
+    mkdir -p "$(dirname "$record")"
+    # one line per path, the newest: <MB/s> <tab> <MiB written> <tab> <path>
+    python3 - "$record" "$t0" "$t1" "$mib" "$real" <<'EOP'
+import pathlib, sys
+record, t0, t1, mib, path = pathlib.Path(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+mbps = mib * 1.048576 / max(t1 - t0, 1e-3)
+try:
+    old = [ln for ln in record.read_text(encoding="utf-8").splitlines() if ln.split("\t")[-1] != path]
+except (OSError, ValueError):
+    old = []
+record.write_text("\n".join([*old, f"{mbps:.1f}\t{mib}\t{path}"]) + "\n", encoding="utf-8")
+print(f"mbps={mbps:.1f} path={path} written_mib={mib}")
+EOP
+    ;;
   network-mode)
     # wslinfo comes with WSL 2.0 and later; without it the mode cannot be mirrored
     if command -v wslinfo >/dev/null 2>&1; then wslinfo --networking-mode | tr -d '\r' | tail -1; else echo unknown; fi

@@ -53,8 +53,8 @@ def sentences(text: str) -> list[str]:
 
 
 def note_tokens(text: str) -> int:
-    """What a note of ``text`` adds to the judge prompt (:func:`tb_llm.budget.excerpt_tokens`): CJK characters about
-    one token each, other text about four characters per token, plus its JSON keys and escaping."""
+    """What a note of ``text`` adds to the judge prompt (:func:`tb_llm.budget.excerpt_tokens`): CJK characters and
+    digits one token each, other text about four characters per token, plus its JSON keys and escaping."""
     return excerpt_tokens({"date": "0000-00-00", "note_type": "progress", "text": text})
 
 
@@ -116,7 +116,9 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
     stitched (before, the evidence sentences and the note's start were joined with nothing between, so a list under
     "family history" or under "denies the following" read as the patient's own history).
 
-    What is shown, in this order while it fits: each evidence sentence; above each, the nearest heading
+    What is shown, in this order while it fits: each evidence sentence (one copy of each distinct sentence before any
+    second copy, else in the note's order); the line right above each when it ends in a colon (its lead-in);
+    above each, the nearest heading
     (:func:`_is_heading`), which may stand across a cut; then each window grows by one sentence up and one down in
     turn, so the lines just above the evidence (the lead-in of its list, a heading written with a colon) are shown
     joined to it or not at all. A direction ends at the first sentence that does not fit: nothing is skipped to
@@ -154,23 +156,40 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
         return True
 
     first = [i for i, x in enumerate(sents) if any(x == w or x in w for w in wanted)] or ([0] if sents else [])
+    # one copy of every distinct evidence sentence before any second copy (D-645): a line the note repeats (a daily
+    # "no change" inside a retrieved chunk makes every copy evidence) else takes, in the note's order, the room of
+    # the sentences said once; and a repeated sentence is still shown once (review of D-645)
+    nth: dict[int, int] = {}
+    copies: dict[str, int] = {}
+    for i in first:
+        nth[i] = copies[sents[i]] = copies.get(sents[i], -1) + 1
+    first.sort(key=lambda i: (nth[i], i))
     for i in first:
         take(i)
     if not chosen:
         bare = next((i for i in first if cost[i] <= room), None)
         if bare is not None:
             return sents[bare]  # no room to mark the cut: the first evidence sentence that fits, alone
-        out: list[str] = []  # one sentence longer than the cap: the note's start
-        used = 0
-        for ch in note.text:
-            used += 4 if "　" <= ch <= "鿿" else 1
-            if used > max(0, room) * 4:
-                break
-            out.append(ch)
-        while out and tokens("".join(out)) > cap:
-            out.pop()
-        return "".join(out)
-    centres = [i for i in first if i in chosen]
+        # one sentence longer than the cap: the note's start, as many characters as fit (found by halving: the
+        # count of a longer start is never smaller; review of D-645: a walk with character costs of its own)
+        lo, hi = 0, len(note.text)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if tokens(note.text[:mid]) <= cap:
+                lo = mid
+            else:
+                hi = mid - 1
+        return note.text[:lo]
+    centres = sorted(i for i in first if i in chosen)
+    # the lead-in of the evidence's list ("denies the following:"), the line right above it, before the heading:
+    # it says most about the evidence, and with room for one of the two the heading alone, across a cut, read as
+    # the list's title (D-645: the denied-list case at a budget of 90). When the lead-in does not fit the heading
+    # is still shown: under "family history" it is the context, and bare evidence says no more of a denial than
+    # the heading does (second review of D-645). Only the line right above: a colon line further up is not
+    # carried across a cut (D-641), so the second and later items of such a list are as before
+    for i in centres:
+        if i > 0 and _COLON.search(sents[i - 1]):
+            take(i - 1)
     heads: set[int] = set()  # the heading each evidence sentence stands under, when it is shown
     for i in centres:
         h = next((k for k in range(i - 1, -1, -1) if _is_heading(sents, k)), None)

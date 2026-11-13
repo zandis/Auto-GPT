@@ -147,6 +147,8 @@ def _make(
         "2026.11-1",
         "--out",
         str(kit["tmp"] / "out.tar"),
+        "--allow-dirty",  # D-631: these tests build from whatever tree they run in
+        "the unit tests",
         *extra,
     ]
     return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300, check=False)

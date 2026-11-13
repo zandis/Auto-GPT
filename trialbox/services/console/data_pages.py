@@ -27,8 +27,10 @@ from urllib.parse import quote
 
 from datacore.forms import fields_of, titles_of
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common import encoding
 
 from console import s28
 from console.api_first import before_body, page_twin
@@ -433,9 +435,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             return forms_page(request, sess, rid, err={"code": "FORM-EMPTY", "fields": ""})
         if len(data) > MAX_DICTIONARY:
             return forms_page(request, sess, rid, err={"code": "FORM-SIZE", "fields": ""})
+        try:  # UX-004: the one decoder (D-215): a Shift_JIS or Big5 dictionary keeps its labels, or is refused
+            text = (await run_in_threadpool(encoding.decode_upload, data))[0]  # a legacy file takes seconds
+        except encoding.EncodingRefused:
+            return forms_page(request, sess, rid, err={"code": "FORM-ENCODING", "fields": ""})
         try:
-            out = apply_dictionary(sess, request.url.path, rid, data.decode("utf-8-sig", errors="replace"),
-                                   record_field)  # fmt: skip
+            out = apply_dictionary(sess, request.url.path, rid, text, record_field)
         except (Problem, Unavailable) as exc:
             return forms_page(request, sess, rid, err=err_of(exc))
         q = f"forms={len(out.get('forms') or [])}&fields={out.get('fields', 0)}&dropped={len(out.get('dropped') or [])}"

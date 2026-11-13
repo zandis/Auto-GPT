@@ -139,6 +139,9 @@ class Env:
     # T-624 (D-397): the most patients the micro-batch jobs of one night evaluate, every study together (pool
     # re-checks and new patients); the rest carry over to the next run. 0 = no limit.
     microbatch_night_budget: int = 2000
+    # D-646: the part of a weekly micro-batch job's allowance kept for screening its excluded patients again, in
+    # percent; kept only as far as such patients are in scope. 0 = nothing kept (they come after everybody else).
+    microbatch_excluded_percent: int = 25
     extra: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -201,6 +204,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
     "TB_SITE_PUBLISH_BATCH_SECONDS": "site_publish_batch_seconds",
     "TB_MICROBATCH_NIGHT_BUDGET": "microbatch_night_budget",
+    "TB_MICROBATCH_EXCLUDED_PERCENT": "microbatch_excluded_percent",
 }
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
@@ -238,6 +242,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         raise ConfigError("TB_SITE_PUBLISH_BATCH_SECONDS must be 0 (publish every decision) or a number of seconds")
     if env.microbatch_night_budget < 0:
         raise ConfigError("TB_MICROBATCH_NIGHT_BUDGET must be 0 (no limit) or a number of patients")
+    if not 0 <= env.microbatch_excluded_percent <= 100:
+        raise ConfigError("TB_MICROBATCH_EXCLUDED_PERCENT must be a percentage from 0 (nothing kept) to 100")
     if env.attach_password_mode not in ("link", "smime", "zip"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
@@ -399,6 +405,9 @@ DECLARED: dict[str, Declared] = {
         "float", "60", "limit of the backup's small queries (sizes, job count); not work sized by data (D-455)"
     ),
     "TB_BACKUP_QUIESCE": Declared("str", "off", "off: the snapshot alone; pause: hold services still (D-455)"),
+    "TB_BACKUP_SPEED_TEST_MIB": Declared(
+        "int", "1024", "Windows box: least MiB a backup path's speed test writes to count; past the write cache (D-608)"
+    ),
     "TB_BACKUP_STEP_START_S": Declared(
         "float", "900", "seconds of a backup step that do not grow with the data (container, connection; D-455)"
     ),
@@ -543,6 +552,12 @@ DECLARED: dict[str, Declared] = {
     "TB_HEALTH_CERT_RED_DAYS": Declared("int", "30", "health: certificate red within these days (D-379)"),
     "TB_HEALTH_CERT_WARN_DAYS": Declared("int", "45", "health: certificate warn within these days (D-379)"),
     "TB_HEALTH_DISKS": Declared("str", "", "health: extra disks to watch, comma-separated (D-379)"),
+    "TB_HEALTH_DESKTOP_GPU_RED": Declared(
+        "int", "85", "health: red when desktop programs hold over this percent of the card's spare memory (D-607)"
+    ),
+    "TB_HEALTH_DESKTOP_GPU_WARN": Declared(
+        "int", "70", "health: warn over this percent of the card's spare memory; until P-11 measures it (D-607)"
+    ),
     "TB_HEALTH_DISK_RED": Declared("int", "85", "health: disk red over this percent (D-379)"),
     "TB_HEALTH_DISK_WARN": Declared("int", "70", "health: disk warn over this percent (D-379)"),
     "TB_HEALTH_MAIL_AT": Declared("str", "07:00", "health: daily admin health mail time (D-379)"),
@@ -581,6 +596,7 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
     "TB_KMS_TOKEN": Declared("str", "", "kms KEK back end: the hospital KMS token (secret; T-319)"),
     "TB_KMS_URL": Declared("str", "", "kms KEK back end: the KMS transit address when it moved from kek.json's"),
+    "TB_LAKE_BUILD": Declared("str", "process", "lake: a rebuild runs as a process of its own, or thread (D-539)"),
     "TB_LAKE_DIR": Declared("path", "/data/lake", "lake folder"),
     "TB_LAKE_EMBEDDER": Declared("str", "http", "embedder of a lake build (lake: http; adapter local build: hash)"),
     "TB_LAKE_MAX_TEMP": Declared("str", "", "lake: temporary space cap"),
@@ -625,6 +641,9 @@ DECLARED: dict[str, Declared] = {
     "TB_MATCH_MODEL": Declared("str", "unspecified", "registry match: model label in the cache key"),
     "TB_MATCH_RESULTS_DIR": Declared("path", "", "registry match: results folder"),
     "TB_METRICS_TOKEN_FILE": Declared("path", "", "metrics: file holding the scraper token (D-379)"),
+    "TB_MICROBATCH_EXCLUDED_PERCENT": Declared(
+        "int", "25", "screening cadence: percent of a weekly job's allowance kept for excluded patients (D-646)"
+    ),
     "TB_MICROBATCH_NIGHT_BUDGET": Declared(
         "int", "2000", "screening cadence: patients per night at most, 0 = no limit (T-624)"
     ),
@@ -838,6 +857,12 @@ DECLARED: dict[str, Declared] = {
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),
+    "TB_WIN_UPDATE_WINDOW_HOURS": Declared(
+        "int", "6", "Windows box: hours the update window lasts; 6 is the least Windows allows (D-606)"
+    ),
+    "TB_WIN_UPDATE_WINDOW_START": Declared(
+        "int", "19", "Windows box: hour Windows Update may install and restart; after desk hours (D-606)"
+    ),
     "TB_WSL_DESKTOP_SHARE_PCT": Declared(
         "int", "25", "Windows box: percent of memory and processors kept for the desktop; WSL2 gets the rest (D-601)"
     ),
