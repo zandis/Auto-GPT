@@ -632,7 +632,9 @@ def study_service_of(o: Orchestrator) -> StudyService:
     return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o), core_of(o))
 
 
-app.include_router(study_router(lambda: study_service_of(orch())), dependencies=REPORT)
+# T-715d (D-554): the study router's changing routes carry their own `require_actor`; its GET routes need no
+# stage dependency (the report stage counts changing calls only)
+app.include_router(study_router(lambda: study_service_of(orch())))
 
 # ---------------------------------------------------------------------------- TrialBox's own data core (D-123)
 _cores: dict[str, Any] = {}
@@ -823,8 +825,9 @@ class RegistryUpdateBody(BaseModel):
     mrn: str | None = None
     status: str
     reason: str | None = Field(None, max_length=500)
-    source: str | None = None
-    source_job: str | None = None
+    # T-715c (D-552): no `source`: a change through this route is a manual one. A job may be named with it (a
+    # contact outcome names the screening it came from); it must be a job of the route's study
+    source_job: str | None = Field(None, pattern="^[0-9A-HJKMNP-TV-Z]{26}$")  # a job id, as the contract writes one
 
 
 class RegistryPromoteBody(BaseModel):
@@ -840,8 +843,12 @@ def registry_update(
     ruleset: str, body: RegistryUpdateBody, request: Request, claim: Claim = AS_REQUESTER
 ) -> RegistryEntry:
     o = orch()
-    try:  # the contract's own rules (the statuses, the sources) on what was sent, under the verified person
-        upd = RegistryUpdate.model_validate({**body.model_dump(exclude_none=True), "by": claim.sub})
+    if body.source_job is not None:
+        named = o.db.get(body.source_job)
+        if named is None or (named.ruleset or "").strip().upper() != ruleset.strip().upper():
+            raise HTTPException(status_code=400, detail="source_job is not a job of this study")
+    try:  # the contract's own rules (the statuses) on what was sent, under the verified person, as a manual change
+        upd = RegistryUpdate.model_validate({**body.model_dump(exclude_none=True), "by": claim.sub, "source": "manual"})
     except ValidationError as exc:
         raise HTTPException(
             status_code=422, detail=json.loads(exc.json(include_url=False, include_input=False))

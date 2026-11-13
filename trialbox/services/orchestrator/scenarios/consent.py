@@ -35,6 +35,7 @@ from tb_contracts import JobOutput, ParseRequest
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import consent_html
+from orchestrator.scenarios.upload_text import upload_text
 from orchestrator.twophase import two_phase
 
 SCHEMA = "trialbox.consent@1"
@@ -174,7 +175,7 @@ def read_icf(ctx: Ctx) -> tuple[str, str, list[dict[str, str]]]:
     data = ctx.input_bytes(f)
     ctx.state("parsing")
     if f.filename.lower().endswith((".txt", ".md")):
-        text = data.decode("utf-8-sig", errors="replace")
+        text = upload_text(data, f.filename, "parsing")  # UX-004: never U+FFFD
     else:
         parsed = ctx.services.parser.parse(ParseRequest(minio_key=f.minio_key, job_id=ctx.job.job_id))
         text = "\n\n".join(
