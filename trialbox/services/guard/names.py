@@ -177,25 +177,22 @@ class Look:
         """Whether the NAME finding ``text[start:end]`` stands. Never raises: whatever goes wrong, it stands."""
         try:
             line, s, e = _line(text, start, end)
-            if not _KANA.search(line):
-                return zh_stands(text, start, end)
-            if len(line) > MAX_LINE:
-                return True
+            if not _KANA.search(line) or len(line) > MAX_LINE:
+                return True  # option B: Chinese, and any line without kana, exactly as before this card
             if line not in self._tagged:
                 self._tagged[line] = _TAGGER.tokens(line)
             tokens = self._tagged[line]
             if tokens is None or any(kind == "proper" for b, x, kind in tokens if b < e and x > s):
                 return True
-            if _cue(text, start, end) or _boundary(text, end):
+            if _cue(text, start, end):
                 return True
-            # not tagged, no cue, no boundary. Japanese words are in the tokeniser's dictionary; a Chinese name
-            # beside kana (a drug's name is enough) is not, and falls apart into characters or unknown words. So
-            # the match is ordinary Japanese when a word of the dictionary, more than one character long, holds
-            # the surname's place (高血圧, 林檎), or when the match itself holds kana; else the Chinese rule decides
-            # (second review of D-647; measured against two other orders, this one lets the fewest names through)
-            if any(b <= s < x for b, x, kind in tokens if kind == "word" and x - b > 1) or _KANA.search(line[s:e]):
-                return False
-            return not _reads_as_words(text, start, end)
+            # option B: an untagged finding with no cue is taken away only when it is plainly Japanese text: a
+            # word of the tokeniser's own dictionary, longer than one character, covers the match from the
+            # surname's place to its end (高血圧, 連絡), or the match itself holds kana (何かを). Everything else
+            # stands: a name the dictionary does not know, a Chinese name beside kana (丁子｜涵: 丁子 is a word,
+            # but it does not cover the name)
+            covered = any(b <= s and x >= e for b, x, kind in tokens if kind == "word" and x - b > 1)
+            return not (covered or _KANA.search(line[s:e]))
         except Exception:
             return True
 
