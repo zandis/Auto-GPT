@@ -37,7 +37,28 @@ five, at 50,000 patients, fills its allowance with re-checks, so its excluded pa
 6. **One scope query.** `orchestrator.scenarios.screen.screen_scope` gives the scope; the weekly run hands it to
    `run_screen(scope=...)` so the lake is not asked twice.
 
+7. **From the review of this card.**
+   - The number of places kept is fixed on the job's first run (option `excluded_kept`), as the allowance is
+     (`night_left`): the count reads the pool's stored tiers, which the job's own re-check rewrites, so a resumed
+     job counted otherwise and re-checked other patients.
+   - A share that comes to less than one patient (an allowance of 3 or fewer at 25 %) keeps nothing: the summary
+     says so, and no longer says the setting is 0. Rounding up was not chosen: with an allowance of one or two,
+     it would give the excluded patients every place and the pool's re-checks none.
+   - The sentence "a full pass takes N weekly runs" is printed only where the count of excluded patients in scope
+     is itself printed (not small-cell suppressed): with the places a run keeps, N gives that count away. The
+     audit holds the figure either way.
+
+## What this changes on a box updated in place
+
+The default applies with no setting present. A study whose re-checks fill its allowance and that has excluded
+patients in scope now carries up to a quarter of those re-checks to the next run (nearest visit first, as before),
+and reaches its excluded patients instead. `TB_MICROBATCH_EXCLUDED_PERCENT=0` restores the order of D-642.
+
 ## What this does not do
+
+- A place kept and then not needed (the run's own re-check took a patient off the excluded) goes to a waiting new
+  patient, not to a carried re-check or a row of another version: those are done before the screen. It returns to
+  the night's allowance for the next job.
 
 - The share is per job, of the allowance the job reserved (D-458); it is not a separate budget of the night.
 - The console's run page is lane C2's: it can show the four new fields of `microbatch.budget`; this card puts the

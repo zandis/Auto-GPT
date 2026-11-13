@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from orchestrator.scenarios import microbatch
+from orchestrator.scenarios import microbatch, screen
 from tb_common.config import ConfigError, load_env
 
-from tests.unit.test_microbatch_cadence import FRI, _Box, _new
+from tests.unit.test_microbatch_cadence import FRI, _Box, _new, _pool_row
 
 POOL = ["P1", "P2", "P3", "P4"]
 
@@ -127,3 +127,77 @@ def test_the_setting_is_a_declared_percentage() -> None:
             load_env(dotenv=none, environ={"TB_MICROBATCH_EXCLUDED_PERCENT": bad})
     json.dumps(microbatch.DEFAULT_EXCLUDED_PERCENT)  # the scenario's own default exists and is the config's
     assert microbatch.DEFAULT_EXCLUDED_PERCENT == 25
+
+
+# ------------------------------------------------------------------------------------------- review of D-646
+def test_an_allowance_too_small_to_keep_a_place_says_so_and_not_that_the_setting_is_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A quarter of 3 is no whole place: nothing is kept, and the summary must not blame a setting of 0."""
+    box = _box(pool=POOL, booked=dict.fromkeys(POOL, FRI), scope=[_new("X1", None), _new("X2", None)],
+               excluded_at_screen=("X1", "X2"), budget=3)  # fmt: skip
+    out = box.go(monkeypatch)
+    ev = box.budget_event()
+    assert (ev["excluded_kept"], ev["excluded_percent"], ev["excluded_full_pass_runs"]) == (0, 25, None)
+    assert "is 0" not in out.summary_md and "too small to keep a place" in out.summary_md
+
+
+def test_a_resumed_job_keeps_the_places_its_first_run_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The count is of the pool's stored tiers, which the job's own re-check rewrites: counted again on a resume
+    it kept another number, and the resumed job re-checked other patients (D-642, D-458: the same list)."""
+    scope = [_new("P1", FRI), _new("X1", None)]
+    first = _box(50, pool=POOL, booked=dict.fromkeys(POOL, FRI), scope=scope, excluded_at_screen=("X1",), budget=4)
+    first.go(monkeypatch)
+    assert first.job.options["excluded_kept"] == "1" and first.evaluated == [["P1", "P2", "P3"]]
+    resumed = _box(50, pool=POOL, booked=dict.fromkeys(POOL, FRI), scope=scope, excluded_at_screen=("X1",),
+                   budget=4, options=dict(first.job.options))  # fmt: skip
+    resumed.pool[0] = _pool_row("P1") | {"tier": "excluded"}  # as the first run's re-check could have left it
+    resumed.go(monkeypatch)
+    assert resumed.evaluated == first.evaluated and resumed.budget_event()["excluded_kept"] == 1
+
+
+def test_the_full_pass_figure_is_left_out_where_the_count_behind_it_is_suppressed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The summary is an aggregate output: "a full pass takes 3 runs" at one place a run says three are in scope."""
+    from tb_common import smallcell
+
+    box = _box(pool=POOL, booked=dict.fromkeys(POOL, FRI), scope=[_new(f"X{i}", None) for i in range(3)],
+               excluded_at_screen=("X0", "X1", "X2"), budget=4)  # fmt: skip
+    monkeypatch.setattr(microbatch, "suppress", lambda n, cell: smallcell.suppress(n, 5))
+    out = box.go(monkeypatch)
+    assert "in scope" in out.summary_md and "weekly runs" not in out.summary_md
+    assert box.budget_event()["excluded_full_pass_runs"] == 3  # the audit keeps the figure
+
+
+def test_the_weekly_run_hands_the_screen_the_scope_it_counted_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    box = _box(pool=["P1"], booked={}, scope=[_new("X1", None)], excluded_at_screen=("X1",), budget=4)
+    box.go(monkeypatch)
+    assert [s.pid for s in box.scope_given] == ["X1"]
+
+
+def test_a_screen_given_its_scope_does_not_ask_the_lake_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real seam: ``screen_scope`` is the scope query with the register applied, and ``run_screen(scope=...)``
+    takes it as it is."""
+    from types import SimpleNamespace
+
+    from tests.unit.test_microbatch_cadence import GZQO, WED
+
+    asked: list[str] = []
+    ctx = SimpleNamespace(job=SimpleNamespace(options={}), metrics=lambda **kw: None)
+    monkeypatch.setattr(screen, "practitioners_of", lambda ctx, rs: ["D1"])
+    monkeypatch.setattr(screen, "scope_patients", lambda *a: asked.append("lake") or [_new("A", None), _new("B", None)])
+    monkeypatch.setattr(screen, "drop_opted_out", lambda ctx, scoped: [s for s in scoped if s.pid != "B"])
+    monkeypatch.setattr(screen, "judge_for", lambda ctx, rs: None)
+    got = screen.screen_scope(ctx, GZQO, WED, "2026-10-06")  # type: ignore[arg-type]
+    assert [s.pid for s in got] == ["A"] and asked == ["lake"]
+    seen: list[list[str]] = []
+
+    def nobody(scoped: list[Any]) -> list[Any]:
+        seen.append([s.pid for s in scoped])
+        return []
+
+    screen.run_screen(ctx, GZQO, WED, "2026-10-06", select=nobody, scope=got)  # type: ignore[arg-type]
+    assert seen == [["A"]] and asked == ["lake"]  # the scope as handed in; no second query
+    screen.run_screen(ctx, GZQO, WED, "2026-10-06", select=nobody)  # type: ignore[arg-type]
+    assert seen == [["A"], ["A"]] and asked == ["lake", "lake"]  # without it: asked, and the register applied

@@ -40,7 +40,9 @@ make the same list.
 2026-11-13): of a weekly job's allowance that part is kept for screening its excluded patients again, so the
 re-checks and the new patients cannot use it all (measured: a study whose re-checks fill its allowance never reached
 them). Kept only as far as excluded patients are in scope (counted before the allowance is spent), never for
-nobody; a place kept and not needed goes to a waiting new patient. The summary and the audit say how many were
+nobody; a place kept and not needed goes to a waiting new patient (not back to a re-check: those are done by
+then; it returns to the night). The number kept is fixed on the job's first run (option ``excluded_kept``).
+The summary and the audit say how many were
 reached, how many are in scope and how many weekly runs a full pass takes at that share.
 
 **Version and basis** (T-707, D-476): a pool row stored under another criteria version is never re-tiered. It is
@@ -356,6 +358,9 @@ def run(ctx: Ctx) -> Outcome:
     incident = on_ingest or opts.get("incident", "auto") != "0"
     scope: list[Scoped] | None = None
     held = 0
+    fixed = opts.get("excluded_kept")  # fixed on the job's first run, as the allowance is (review of D-646)
+    if fixed is not None:
+        held = int(fixed)
     if left is not None and incident and not on_ingest and excluded_percent(ctx) > 0:
         try:
             scope = screen_scope(ctx, rs, run_date, snapshot)
@@ -365,7 +370,12 @@ def run(ctx: Ctx) -> Outcome:
             before = read_sources(ctx, keys).everyone | pool_pids
             out_rows = {p["pid"] for p in pool if p.get("tier") == "excluded"}
             waiting = sum(1 for s in scope if s.pid in before and (s.pid not in pool_pids or s.pid in out_rows))
-            held = min(left * excluded_percent(ctx) // 100, waiting)
+            if fixed is None:
+                held = min(left * excluded_percent(ctx) // 100, waiting)
+    if fixed is None:
+        # the count reads the pool's stored tiers, which this job's own re-check rewrites: a resumed job and a
+        # re-run keep what the first run kept, so they re-check the same patients (D-642, D-458)
+        _set_option(ctx, "excluded_kept", str(held))
     front = None if left is None else left - held  # what the re-checks and the new patients may use
     ts = recheck_ids(rs)  # NEW-LIFE-3 (D-642): by rule, not by the model's flag
     # the re-check: the nearest visits first, within the night budget (the after-ingest run re-checks nobody)
@@ -640,13 +650,22 @@ def run(ctx: Ctx) -> Outcome:
                 f"Earlier excluded patients screened again: {suppress(len(back), cell)} of "
                 f"{suppress(out_in_scope, cell)} in scope; back on the list: {suppress(len(back_rows), cell)}."
             )
-            if back_carried:
+            if back_carried and excluded_percent(ctx) == 0:
+                lines.append(
+                    "No share of the night budget is kept for them (TB_MICROBATCH_EXCLUDED_PERCENT is 0): they are "
+                    "reached only when the re-checks and the new patients leave room."
+                )
+            elif back_carried and full_pass is None:
+                lines.append(
+                    f"Tonight's allowance was too small to keep a place for them ({excluded_percent(ctx)} % of it "
+                    "is less than one patient)."
+                )
+            elif back_carried and str(suppress(out_in_scope, cell)) == str(out_in_scope):
+                # an aggregate output: with the places a run keeps, the figure gives the count away, so it is
+                # printed only where the count itself is (review of D-646; the audit holds it either way)
                 lines.append(
                     f"At the share of the night budget kept for them ({excluded_percent(ctx)} %), a full pass "
                     f"takes {full_pass} weekly runs."
-                    if full_pass
-                    else "No share of the night budget is kept for them (TB_MICROBATCH_EXCLUDED_PERCENT is 0): "
-                    "they are reached only when the re-checks and the new patients leave room."
                 )
     if behind:
         lines.append(

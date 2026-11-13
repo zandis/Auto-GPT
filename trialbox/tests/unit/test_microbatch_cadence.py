@@ -155,6 +155,7 @@ class _Box:
     def run_screen(
         self, ctx: Any, rs: Any, run_date: date, snapshot: str, select: Any = None, scope: Any = None
     ) -> Any:
+        self.scope_given = scope  # D-646: the weekly run hands the scope it counted in
         picked = select(list(self.scope if scope is None else scope))  # D-646: the scope may be handed in
         self.screened += [s.pid for s in picked]
         stamp = "2026-10-07T03:00:00+09:00"
