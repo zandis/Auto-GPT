@@ -216,6 +216,9 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     checks.append(_extensions_check(ext_before, _extensions(), require_extensions))
     checks.append(_extensions_roundtrip(url, require_extensions))
     checks.append(roles_after_restore(base / "roles-cluster"))
+    from tools import role_paths  # D-720: and each service's real write paths, as its own role
+
+    checks.append(role_paths.check(base / "paths-cluster"))
     checks.append(_vec_check(vec_before, _vec(fill=False), require_extensions))
 
     # 5. a backup in the previous format restores
