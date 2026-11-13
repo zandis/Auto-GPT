@@ -144,3 +144,69 @@ def test_the_claim_checks_own_lines_per_file_are_as_before() -> None:
     doc = _outcome([{"severity": "error", "expression": ["Bundle.entry[0]"], "details": {"text": "error"}}],
                    fname="r00001-Bundle.json")  # fmt: skip
     assert Hl7Validator._parse(doc, 3).per_file == {1: ["Bundle.entry[0]: error"]}  # TW-PAS reads these: not this card
+
+
+# ------------------------------------------------------------------------------------------- the review's findings
+def test_a_missing_snapshot_keeps_the_lakes_own_words_as_the_service_answers_it(
+    local: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def missing(*_a: Any, **_k: Any) -> Any:
+        raise FileNotFoundError(f"no lake snapshot {NIGHT}")
+
+    monkeypatch.setattr(store.Lake, "promote_built", missing)
+    with pytest.raises(FileNotFoundError, match=f"no lake snapshot {NIGHT}"):
+        local.promote(NIGHT)
+
+
+def test_a_wrong_setting_of_the_adapter_is_said_in_its_own_words_not_as_a_failed_build(
+    local: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import embed_service.embedder as embedder
+
+    def wrong(_name: str) -> Any:
+        raise ValueError("TB_LAKE_EMBEDDER=nope: not an embedder this box has")
+
+    monkeypatch.setattr(embedder, "from_env", wrong)
+    with pytest.raises(ValueError, match="TB_LAKE_EMBEDDER=nope"):
+        local.rebuild(NIGHT, tmp_path)
+
+
+@pytest.mark.parametrize("extension", [3, True, "x", {"url": MSG_ID}, [3, "x", None]])
+def test_an_issue_of_an_unexpected_shape_never_fails_the_validation_step(extension: Any) -> None:
+    doc = _outcome([{"severity": "error", "code": "invalid", "expression": ["Patient.name"], "extension": extension}])
+    assert Hl7Validator._parse(doc, 4).messages == ["r00003-Condition.json Patient.name: invalid"]
+
+
+@pytest.mark.parametrize(
+    ("place", "kept"),
+    [
+        ("Bundle.entry[0].resource.code.coding[12].code", True),
+        (f"Patient.name[{VALUE.replace(' ', '-')}]", False),
+        ("Patient.identifier:WANG", False),
+        ("Patient.name.where(family = 'x')", False),
+    ],
+)
+def test_an_element_is_kept_only_as_names_dots_and_numbered_places(place: str, kept: bool) -> None:
+    doc = _outcome([{"severity": "error", "code": "invalid", "expression": [place]}])
+    assert Hl7Validator._parse(doc, 4).messages == [f"r00003-Condition.json {place if kept else '?'}: invalid"]
+
+
+def test_the_jp_core_code_checks_name_the_problem_never_the_code() -> None:
+    from adapter.validate.jpcore import LOINC, JpCoreValidator
+
+    res = {"resourceType": "Observation", "id": "o1", "status": "final",
+           "code": {"coding": [{"system": LOINC, "code": VALUE}]}}  # fmt: skip
+    out = JpCoreValidator().check(res)
+    texts = [i.text for i in out.issues]
+    assert any("not a valid LOINC code" in t for t in texts), texts
+    assert VALUE not in str(texts)
+
+
+def test_the_structural_validators_line_is_the_count_of_problems_or_the_errors_type() -> None:
+    from adapter.validate.validator import StructuralValidator
+
+    res = StructuralValidator().validate([
+        {"resourceType": "Patient", "id": "p1", "birthDate": VALUE},
+        {"resourceType": "Patient", "id": "p2", "contained": [{"resourceType": f"{VALUE}"}]},
+    ])  # fmt: skip
+    assert res.errors == 2 and VALUE not in str(res.messages), res.messages

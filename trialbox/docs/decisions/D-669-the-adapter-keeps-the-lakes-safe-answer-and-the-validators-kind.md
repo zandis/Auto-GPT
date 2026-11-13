@@ -37,7 +37,17 @@
    own shape (a sample file's name, an element path, a code token); anything else is `?` or left out.
 4. **What the steward loses, said plainly**: the validator's sentence (which value set, which profile) is no
    longer in the night's report. The element and the kind say where to look; the sentence is read by running the
-   validator on the box against the held night.
+   validator on the box against the held night. An element is kept only as names, dots and numbered places
+   (`Bundle.entry[0].resource.code`); any other form is `?`.
+5. **The JP Core code checks name the problem, not the code**: "the code is not a valid LOINC code (check
+   digit)", not "<code> is not ...". The first such line went into the report's `errors`, all of them into
+   `profile_validation.messages`. The element path beside it says which code.
+6. **The structural validator's line is pydantic's count line or the error's type.** "1 validation error for
+   Patient" holds no value; any other first line (a contained resource of an unknown type quotes it) is replaced
+   by the error's type.
+7. **Only the lake's call is wrapped.** The adapter's own settings (the embedder, the lake's folder) are read
+   before the wrap, so a wrong setting is said in its own words. "no lake snapshot <date>"
+   (`FileNotFoundError`) passes as the lake's own words, as the service's 404 does.
 
 ## What this does not do
 
@@ -46,8 +56,10 @@
   Listed for the integrator, not changed here.
 - An `AdapterConfig` wired by hand with other callables (tests do this) is not wrapped: `local_lake` is in
   `build_config`, the only place the product makes a local lake.
-- `StructuralValidator` keeps the first line of pydantic's error ("1 validation error for Patient"), which holds
-  no value. Not changed.
+- Over HTTP the adapter gets the lake's refusals as the client's classes, locally as the lake's own; the
+  publish ends in the same state (busy, refused, failed; held or not) either way.
+- Whether the pinned validator writes every element as names, dots and numbered places was not checked (the jar
+  is not on the build machines): a form it writes otherwise shows as `?`.
 
 ## Tests
 
@@ -55,4 +67,7 @@
 adapter as the lake's safe answer, with the type, without the text, and the log has the type only; the lake's own
 refusals pass as the same object; a night run in the test process with a local lake that fails keeps the safe
 answer in its report; the validation line for three issue shapes; a kind or message id that is not a plain token
-is not kept; a file name or element that is not in its shape is `?`; `per_file` is as before.
+is not kept; a file name or element that is not in its shape is `?`; `per_file` is as before. Review fixes: "no lake snapshot" keeps the lake's words; a wrong
+setting of the adapter is not reported as a failed build; an issue of an unexpected shape never fails the
+validation step; an element is kept only as names, dots and numbered places; the JP Core code checks and the
+structural validator's line hold no value.

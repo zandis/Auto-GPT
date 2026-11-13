@@ -361,21 +361,21 @@ class JpCoreValidator:
             if system == ICD10CM:
                 cm = _icd10cm()
                 if cm and code not in cm:
-                    out.issues.append(Issue("error", path, f"{code} is not an ICD-10-CM code"))
+                    out.issues.append(Issue("error", path, "the code is not an ICD-10-CM code"))
             elif system == ICD10_WHO:
                 if not _WHO_SHAPE.match(code):
-                    out.issues.append(Issue("warning", path, f"{code} is not written as a WHO ICD-10 code"))
+                    out.issues.append(Issue("warning", path, "the code is not written as a WHO ICD-10 code"))
             elif system == LOINC and path.endswith(".coding"):
                 if re.fullmatch(r"L[AGP]\d+-\d", code):  # answer, group and part codes: their own numbering
                     continue
                 if not loinc_ok(code):
-                    out.issues.append(Issue("error", path, f"{code} is not a valid LOINC code (check digit)"))
+                    out.issues.append(Issue("error", path, "the code is not a valid LOINC code (check digit)"))
             elif system in _SHAPES:
                 label, shape, kind = _SHAPES[system]
                 if not shape.match(code):
-                    out.issues.append(Issue("error", path, f"{code} is not a {label} code"))
+                    out.issues.append(Issue("error", path, f"the code is not a {label} code"))
                 elif kind and self.licensed.get(kind) and code not in self.licensed[kind]:
-                    out.issues.append(Issue("warning", path, f"{code} is not in the loaded {label} release"))
+                    out.issues.append(Issue("warning", path, f"the code is not in the loaded {label} release"))
 
     # ------------------------------------------------------------------ a sample
     def validate(self, resources: list[Resource]) -> ValidationReport:

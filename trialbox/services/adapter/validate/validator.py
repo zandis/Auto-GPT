@@ -290,7 +290,7 @@ class Hl7Validator:
 
 
 _FILE = re.compile(r"r\d{5,}-[A-Za-z]+\.json")
-_PLACE = re.compile(r"[A-Za-z][A-Za-z0-9_.:\[\]-]*")
+_PLACE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:\[\d+\])?(?:\.[A-Za-z][A-Za-z0-9]*(?:\[\d+\])?)*")
 _KIND = re.compile(r"[a-z][a-z-]*")
 _MESSAGE_ID = re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")
 _MESSAGE_ID_URL = "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id"
@@ -310,7 +310,8 @@ def _issue_line(fname: str, issue: dict[str, Any]) -> str:
     places = issue.get("expression") or issue.get("location") or [""]
     place = token(places[0] if isinstance(places, list) and places else "", _PLACE) or "?"
     kind = token(issue.get("code"), _KIND) or "error"
-    ids = [x.get("valueCode") for x in issue.get("extension") or [] if isinstance(x, dict)
+    ext = issue.get("extension")
+    ids = [x.get("valueCode") for x in (ext if isinstance(ext, list) else []) if isinstance(x, dict)
            and x.get("url") == _MESSAGE_ID_URL]  # fmt: skip
     mid = token(ids[0], _MESSAGE_ID) if ids else ""
     return f"{name} {place}: {kind}" + (f" ({mid})" if mid else "")
@@ -328,8 +329,12 @@ class StructuralValidator:
             problems = missing_required(r)
             try:
                 get_fhir_model_class(r["resourceType"]).model_validate(r)
-            except Exception as exc:  # pydantic validation error text
-                problems.append(str(exc).splitlines()[0][:200])
+            except Exception as exc:
+                # D-669: pydantic's first line ("1 validation error for Patient") holds no value; its other lines,
+                # and any other error's text, can
+                first = (str(exc).splitlines() or [""])[0]
+                counted = re.fullmatch(r"\d+ validation errors? for [A-Za-z]+", first)
+                problems.append(first if counted else type(exc).__name__)
             if problems:
                 errors += 1
                 messages.append(f"{r['resourceType']}/{r['id']}: {'; '.join(problems)}")

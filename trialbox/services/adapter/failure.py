@@ -69,6 +69,8 @@ def local_lake[T](call: Callable[[], T]) -> T:
         return call()
     except (RebuildError, OmopError, LakeSaid, LakeLimitError, LakeSchemaError, StaleSnapshotError):
         raise
+    except FileNotFoundError:  # "no lake snapshot <date>": the lake's own words (the service answers 404 with them)
+        raise
     except Exception as exc:
         log_failure(logging.getLogger("adapter"), "the lake in this process failed", exc)
         try:
