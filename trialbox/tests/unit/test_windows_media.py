@@ -19,6 +19,31 @@ ROOT = Path(__file__).resolve().parents[2]
 PS1 = (ROOT / "deploy/windows/box-install.ps1").read_text(encoding="utf-8")
 
 
+UBUNTU_2404 = 'PRETTY_NAME="Ubuntu 24.04.3 LTS"\nNAME="Ubuntu"\nVERSION_ID="24.04"\nID=ubuntu\nID_LIKE=debian\n'
+
+
+AMD64_STATUS = (
+    "Package: base-files\nStatus: install ok installed\nArchitecture: amd64\nVersion: 13\n\n"
+    "Package: adduser\nStatus: install ok installed\nArchitecture: all\nVersion: 3\n\n"
+)
+
+
+def _image(path: Path, os_release: str | None = UBUNTU_2404, extra: dict[str, bytes] | None = None) -> Path:
+    """A tiny stand-in for a WSL root file system: a .tar.gz with its own etc/os-release."""
+    import io
+    import tarfile
+
+    members = {"var/lib/dpkg/status": AMD64_STATUS.encode(), **(extra or {})}
+    if os_release is not None:
+        members["etc/os-release"] = os_release.encode()
+    with tarfile.open(path, "w:gz") as tar:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return path
+
+
 def _inputs(tmp: Path) -> dict[str, Path]:
     src = tmp / "in"
     (src / "debs").mkdir(parents=True)
@@ -31,6 +56,7 @@ def _inputs(tmp: Path) -> dict[str, Path]:
     }
     for name, p in files.items():
         p.write_bytes(f"stand-in for {name}\n".encode())
+    _image(files["rootfs"])
     for deb in (
         "docker-ce_27.3.1_amd64.deb",
         "nvidia-container-toolkit_1.17.0_amd64.deb",
@@ -134,7 +160,7 @@ def test_a_linux_nvidia_driver_among_the_packages_is_refused_and_nothing_is_writ
     ("change", "says"),
     [
         ({"wsl_msi": "missing.msi"}, "--wsl-msi: no such file"),
-        ({"rootfs": "rootfs.tar.gz"}, "is not named ubuntu-24.04"),
+        ({"rootfs": "rootfs.tar.gz"}, "cannot be read to its end as a .tar.gz archive"),
         ({"bundle": "trialbox-host.tar"}, "is not named trialbox-<version>.tar"),
         ({"version": "1.0 beta"}, "letters, digits"),
         ({"version": "../x"}, "letters, digits"),
@@ -156,6 +182,77 @@ def test_a_wrong_input_is_named_and_nothing_is_written(tmp_path: Path, change: d
     with pytest.raises(wm.MediaError, match=re.escape(says)):
         wm.build(**inputs)  # type: ignore[arg-type]
     assert not (tmp_path / "out").exists()
+
+
+def test_canonicals_own_file_name_is_taken_and_placed_under_a_name_the_installer_finds(tmp_path: Path) -> None:
+    """Canonical publishes the image as ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz; the installer looks for
+    ubuntu-24.04*.tar.gz. The image is known by its own etc/os-release, not by its name (D-609)."""
+    inputs = _inputs(tmp_path)
+    real = _image(tmp_path / "in/ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz")
+    media = wm.build(**{**inputs, "rootfs": real}, out=tmp_path / "out", version="1.0.0")  # type: ignore[arg-type]
+    placed = [p.name for p in (media / "windows/wsl").glob("*.tar.gz")]
+    assert placed == ["ubuntu-24.04.ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz"]
+    assert wm.check(media) == []
+    import fnmatch
+
+    assert fnmatch.fnmatch(placed[0], "ubuntu-24.04*.tar.gz")  # the installer's own pattern (Find-TbOne)
+    assert (media / "windows/wsl" / placed[0]).read_bytes() == real.read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("name", "os_release", "says"),
+    [
+        (
+            "ubuntu-24.04-wsl-amd64.tar.gz",
+            'ID=ubuntu\nVERSION_ID="22.04"\n',
+            "is ubuntu 22.04; the installer imports Ubuntu 24.04",
+        ),
+        ("ubuntu-24.04-really.tar.gz", 'ID=debian\nVERSION_ID="12"\n', "is debian 12"),
+        ("ubuntu-24.04-wsl-amd64.tar.gz", None, "holds no etc/os-release"),
+        ("ubuntu-24.04-wsl-amd64.tar", UBUNTU_2404, "is not a .tar.gz archive"),
+        ("ubuntu-24.04-wsl-arm64.tar.gz", "ARM64", "holds packages for arm64; the workstation needs the amd64 image"),
+        ("ubuntu-24.04-wsl-none.tar.gz", "NOSTATUS", "holds packages for no architecture"),
+    ],
+)
+def test_an_image_that_is_not_ubuntu_24_04_is_refused_whatever_its_name(
+    tmp_path: Path, name: str, os_release: str | None, says: str
+) -> None:
+    inputs = _inputs(tmp_path)
+    extra = {"bin/sh": b"#!"}
+    if os_release == "ARM64":  # Canonical publishes the same release for arm64 under a like name
+        os_release, extra = UBUNTU_2404, {"var/lib/dpkg/status": AMD64_STATUS.replace("amd64", "arm64").encode()}
+    elif os_release == "NOSTATUS":
+        os_release, extra = UBUNTU_2404, {"var/lib/dpkg/status": b""}
+    image = _image(tmp_path / "in" / ("x-" + name), os_release, extra).rename(tmp_path / "in" / name)
+    with pytest.raises(wm.MediaError, match=re.escape(says)):
+        wm.build(**{**inputs, "rootfs": image}, out=tmp_path / "out", version="1.0.0")  # type: ignore[arg-type]
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_image_cut_short_on_the_way_is_refused(tmp_path: Path) -> None:
+    """The archive is read to its end: os-release sits early in it, so a cut copy would otherwise pass (review M3)."""
+    import os
+
+    inputs = _inputs(tmp_path)
+    whole = _image(tmp_path / "in/ubuntu-24.04-big.tar.gz", extra={"usr/lib/big": os.urandom(300_000)})
+    cut = tmp_path / "in/ubuntu-24.04-cut.tar.gz"
+    cut.write_bytes(whole.read_bytes()[:150_000])
+    with pytest.raises(wm.MediaError, match="cannot be read to its end"):
+        wm.build(**{**inputs, "rootfs": cut}, out=tmp_path / "out", version="1.0.0")  # type: ignore[arg-type]
+    assert wm.rootfs_name(whole) == "ubuntu-24.04-big.tar.gz"
+
+
+def test_the_systems_own_os_release_file_is_the_one_believed(tmp_path: Path) -> None:
+    """etc/os-release when it is a file; usr/lib/os-release only when etc holds a link (review L6)."""
+    mixed = _image(
+        tmp_path / "ubuntu-24.04-mixed.tar.gz",
+        'ID=debian\nVERSION_ID="12"\n',
+        {"usr/lib/os-release": UBUNTU_2404.encode()},
+    )
+    with pytest.raises(wm.MediaError, match="is debian 12"):
+        wm.rootfs_name(mixed)
+    release, archs = wm.image_facts(_image(tmp_path / "a.tar.gz", None, {"usr/lib/os-release": UBUNTU_2404.encode()}))
+    assert release["VERSION_ID"] == "24.04" and archs == {"amd64"}
 
 
 def test_an_output_folder_that_holds_files_is_never_written_over(tmp_path: Path) -> None:
