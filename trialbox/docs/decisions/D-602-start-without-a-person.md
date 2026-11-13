@@ -19,7 +19,8 @@
    not repeat it. Registered before step 13, a restart while the owner is still in the set-up brings WSL2 back.
    A task that is there, enabled and for this distribution is kept as it is: it is not registered or started
    again beside a live keep-alive. A task that is missing, disabled or for another distribution is registered
-   again, also on a finished install (the one thing a second start of a finished install may change).
+   again, also on a finished install (with `.wslconfig`, D-601, the only things a second start of a finished
+   install may change).
    `register_keepalive.ps1` now defaults to the distribution `TrialBox`, and the host check's judge
    (`wsl2_policy.py`) fails a task whose command starts another distribution.
 2. **Hibernation off and no sleep by itself, by the installer.** `powercfg /hibernate off` (which also turns Fast

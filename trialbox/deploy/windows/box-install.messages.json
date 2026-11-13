@@ -110,14 +110,14 @@
     "zh-TW": "WSL 尚未回應（wsl.exe --version）。請重新啟動 Windows 後再啟動安裝程式。"
   },
   "wslconfig_kept_no_swap0": {
-    "en": "Warning: {0} already exists and was not changed, but it does not set swap=0. TrialBox's host check will report it until swap is off.",
-    "ja": "注意: {0} はすでに存在するため変更していませんが、swap=0 が設定されていません。swap を無効にするまで、TrialBox のホスト検査がこれを報告します。",
-    "zh-TW": "警告：{0} 已存在，未做變更，但其中沒有設定 swap=0。在關閉 swap 之前，TrialBox 的主機檢查會持續回報此項。"
+    "en": "Warning: {0} already exists and was not written by TrialBox: it was not changed, but it does not set swap=0. TrialBox's host check will report it until swap is off. WSL2's memory, processors and disk limit are that file's or WSL's own, not computed from this machine.",
+    "ja": "注意: {0} はすでに存在し、TrialBox が書いたものではないため変更していませんが、swap=0 が設定されていません。swap を無効にするまで、TrialBox のホスト検査がこれを報告します。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になり、この機械から計算した値ではありません。",
+    "zh-TW": "警告：{0} 已存在，且不是 TrialBox 寫入的，因此未做變更，但其中沒有設定 swap=0。在關閉 swap 之前，TrialBox 的主機檢查會持續回報此項。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值，而不是依這台機器計算。"
   },
   "wslconfig_kept": {
-    "en": "{0} already exists and was not changed.",
-    "ja": "{0} はすでに存在するため変更していません。",
-    "zh-TW": "{0} 已存在，未做變更。"
+    "en": "{0} already exists and was not written by TrialBox: it was not changed. WSL2's memory, processors and disk limit are then that file's or WSL's own, not computed from this machine.",
+    "ja": "{0} はすでに存在し、TrialBox が書いたものではないため、変更していません。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になり、この機械から計算した値ではありません。",
+    "zh-TW": "{0} 已存在，且不是 TrialBox 寫入的，因此未做變更。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值，而不是依這台機器計算。"
   },
   "distro_exists": {
     "en": "A WSL system named {0} already exists on this account, and this install did not make it. The installer never replaces or removes one: it may hold a TrialBox with data. Nothing was changed.",
@@ -213,6 +213,11 @@
     "en": "This machine has {0} GB of memory and {1} processors: with {2} percent kept for the desktop nothing is left for TrialBox. Nothing was changed.",
     "ja": "この機械のメモリは {0} GB、プロセッサは {1} 個です。デスクトップ用に {2} パーセントを残すと、TrialBox に割り当てる分がありません。何も変更していません。",
     "zh-TW": "這台機器有 {0} GB 記憶體與 {1} 個處理器：保留 {2}% 給桌面後，沒有可分配給 TrialBox 的資源。沒有做任何變更。"
+  },
+  "wslconfig_replaced": {
+    "en": "The earlier .wslconfig was kept as {0}. The new figures apply when WSL2 next starts: restart Windows at a time when no night job runs.",
+    "ja": "以前の .wslconfig は {0} として残しました。新しい値は WSL2 の次回起動時から有効になります。夜間ジョブが動いていない時間に Windows を再起動してください。",
+    "zh-TW": "先前的 .wslconfig 已保留為 {0}。新的數值在 WSL2 下次啟動時生效：請在沒有夜間工作執行的時間重新啟動 Windows。"
   },
   "boot_task": {
     "en": "Hibernation is off, and this PC no longer goes to sleep by itself (the current power plan). The task {0} is registered to start TrialBox when Windows starts, whether or not anyone signs in.",
