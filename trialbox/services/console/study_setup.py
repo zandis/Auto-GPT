@@ -240,8 +240,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                       section: str) -> Response:  # fmt: skip
         try:
             body = s28.to_body(s, extra)
-            s28.save(bk, rid, s, extra,
-                     actor.assert_for(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/settings", body))  # fmt: skip
+            s28.save(bk, rid, body, actor.assert_for(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/settings", body))
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": section})
@@ -402,9 +401,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         row = s28.remote(bk, rid) or {}
         try:
             extra = {"consent_scope": scope, "introduce_rule": row.get("introduce_rule")}
-            path = f"/studies/{rid}/settings"
-            s28.save(bk, rid, conf, extra,
-                     actor.assert_for(h, sess, SETUP, rid, "PUT", path, s28.to_body(conf, extra)))  # fmt: skip
+            sbody = s28.to_body(conf, extra)
+            s28.save(bk, rid, sbody, actor.assert_for(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/settings", sbody))
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc), **keep)
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": "all"})

@@ -25,17 +25,16 @@ from typing import Any
 
 from datacore import sync
 from datacore.store import TRIALBOX, DataCore
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from tb_common.actor_v3 import Claim
 from rc_bridge import writeback
 from rc_bridge.client import RcError, RedcapClient, api_url, check_token
 from rc_bridge.link import WRITE_FIELDS, LinkError, ProjectLink, read_back, validate
+from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_contracts import RegistryUpdate
 
 from orchestrator import actor as route_actor
-from orchestrator.actor import person_of
 from orchestrator.candidates import FORWARD, CandidateRegistry, RegistryError
 from orchestrator.studystore import StudyStore
 
@@ -381,7 +380,6 @@ def _fail(exc: RcError | LinkError) -> HTTPException:
 AS_STUDY = route_actor.require_actor("study.setup")
 AS_SITE = route_actor.require_actor("site.setup")
 AS_READER = route_actor.require_actor("request.prepare", service=True)
-REPORT = [route_actor.report_actor]
 
 
 def router(get: Callable[[], StudyService]) -> APIRouter:
@@ -500,12 +498,11 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             raise _fail(exc) from exc
 
     @r.post("/studies/{rs}/redcap-read")
-    def run_read(rs: str, body: ReadBody, request: Request, claim: Claim = AS_READER) -> dict[str, Any]:
+    def run_read(rs: str, body: ReadBody, claim: Claim = AS_READER) -> dict[str, Any]:
         # T-715d (D-554): the person of the read, and of every step derived from it, is the verified one (or
         # the console's nightly timer, a service principal this route admits)
-        life_by = person_of(request, "request.prepare", service=True)
         try:
-            return get().read(_rs(rs), body.screening, claim.sub, body.full, body.issued, life_by)
+            return get().read(_rs(rs), body.screening, claim.sub, body.full, body.issued, claim.sub)
         except (RcError, LinkError) as exc:
             raise _fail(exc) from exc
 

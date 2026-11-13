@@ -48,6 +48,35 @@ person of the call and no field of any body names a person:
 - The orchestrator still does not read an account's role from the console's database: the claim carries it, as
   D-483 decided.
 
+## What the adversarial review changed
+
+One review by a fresh reviewer, with six mutations of the change (a dropped dependency, the wrong action, a body
+that keeps `by`, three unsigned console call sites), each caught by a test. Verdict: fix first; no way in was
+found.
+
+- Two lint errors of the first commit (an import out of order, a fixture taken by name) are fixed.
+- The read no longer asks `person_of` for the person of the derived steps: the dependency has already verified
+  the same action, study and principal, so it is the claim's person.
+- `console.s28.save` takes the body that was signed and sends that body, instead of building it a second time.
+- A leftover list and an over-wide docstring of the new test are gone.
+- **Checked and sound:** only the console may call the group (`route_callers.yaml`); no tool calls these routes;
+  the notice timer, which holds `study.setup` for another route, is refused here (only the read admits a
+  principal); a claim with a study is refused on a connection route and a claim with none on a study's; no
+  refusal carries a value of the request.
+
+## Open with the owner
+
+- **Who may write the box's REDCap token at the orchestrator.** The console's page for it is the administrator's
+  alone (D-146, review J-05). The route asks `site.setup`, which the matrix gives the administrator and the
+  coordinator, so the orchestrator is wider than the page. Nothing reaches it today (only the console signs, and
+  both call sites are behind the administrator check), but a later console path that signs `site.setup` for a
+  coordinator could rewrite the token every linked study reads through. Making it the administrator's alone is a
+  new row of the matrix, which is the owner's to decide; this card does not add one.
+- Until D-551 (#467) is on the same base, the framework's 422 for an unknown field repeats that field's value to
+  the signed caller. D-551 removes it for every service.
+- The link test is gated on the page by `can_request` and signed for `study.setup`; today no role has one
+  without the other on a study's page.
+
 ## Reuse check
 
 `orchestrator.actor.require_actor`, `console.actor.call` and `tests.actor3.SignedClient` are the ones the

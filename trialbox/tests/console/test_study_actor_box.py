@@ -97,8 +97,10 @@ def test_another_study_another_body_or_a_role_without_the_right_is_refused(orch_
     assert r.status_code == 403 and "study" in r.text, r.text[:200]
 
 
-def test_the_consoles_own_pages_still_save_the_study(site: Any, orch_box: OrchBox) -> None:
-    """The console's call sites sign: its set-up pages save settings and the screening scope on the real routes."""
+def test_the_consoles_own_pages_still_save_the_study(site: Any, orch_box: OrchBox) -> None:  # noqa: F811
+    """The console's call site signs: its set-up page saves the screening scope on the real route. (The settings,
+    the link, its test, the read and the connection pages are held by test_step3 and test_step4b, whose client
+    signs nothing for the console.)"""
     from tests.console.test_console_app import CRC_PW, login
 
     c, csrf = login(site["app"], "crc", CRC_PW)

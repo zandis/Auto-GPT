@@ -86,11 +86,11 @@ def load(bk: object, store: SiteStore, rs: str, default: StudySettings) -> Study
     return out
 
 
-def save(bk: object, rs: str, s: StudySettings, extra: dict[str, Any] | None = None,
-         headers: dict[str, str] | None = None) -> dict[str, Any]:  # fmt: skip
-    """The study's settings. ``headers`` carries the signed person (T-715d, D-554): the route refuses a call
-    without one, so every call site mints it (``console.actor.assert_for``)."""
+def save(bk: object, rs: str, body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+    """The study's settings: ``body`` is ``to_body(...)`` and ``headers`` the signed person over exactly that body
+    (T-715d, D-554: the route refuses a call without one, so every call site mints it with
+    ``console.actor.assert_for``). The body that was signed is the body that is sent."""
     _cache(bk).pop(rs, None)
-    out = call(bk, "PUT", f"/studies/{rs}/settings", to_body(s, extra), headers=headers)
+    out = call(bk, "PUT", f"/studies/{rs}/settings", body, headers=headers)
     _cache(bk).pop(rs, None)
     return dict(out)
