@@ -45,6 +45,8 @@ LOINC = "http://loinc.org"
 ATC = "http://www.whocc.no/atc"
 SYSTEMS = {"icd10cm": ICD10CM, "loinc": LOINC, "atc": ATC, "": ""}
 LOINC_ANALYTE = {a.loinc: name for name, a in messy.ANALYTES.items()}
+# a test of urine (尿中尿酸, 尿液肌酸酐, urine creatinine) is not the serum test its analyte word names
+_OTHER_SPECIMEN = re.compile(r"尿中|尿液|urine|\bU[-\s]", re.I)
 LANGUAGE_NAMES = {"ja": "Japanese", "zh-TW": "Traditional Chinese", "en": "English"}
 
 
@@ -187,13 +189,18 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
         num, cell_unit = messy.parse_number(str(raw.get("value") or ""))
         if num is None:
             return None
-        analyte = LOINC_ANALYTE.get(code) or messy.analyte_of(term) or ""
+        # deep review 2026-11-13 (screening, SCR-02): the test the chart names decides the analyte, and a test
+        # TrialBox knows is stored under its own LOINC, the one of the unit it is converted to. The model's code is
+        # a guess ("when you are sure"): a creatinine code on a urate line stored the urate value as creatinine, and
+        # urate's moles code (14933-6) on a value stored in mg/dL hid it from a mass-code criterion (lane G, P5)
+        named = None if _OTHER_SPECIMEN.search(term) else messy.analyte_of(term)
+        analyte = named or LOINC_ANALYTE.get(code) or ""
         unit = messy.norm_unit(str(raw.get("unit") or "")) or cell_unit
         conv = messy.convert(analyte, num, unit) if unit else None
         if conv is None:
             return None
         value, stored, _ = conv
-        if not code and analyte in messy.ANALYTES:
+        if analyte in messy.ANALYTES and (named or not code):
             code, system = messy.ANALYTES[analyte].loinc, LOINC
         return {
             **base,
