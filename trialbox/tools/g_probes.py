@@ -425,16 +425,15 @@ TB_CRITERION = ("Active or past tuberculosis",
                 "Does the patient have active tuberculosis or a history of tuberculosis?")  # fmt: skip
 
 
-def clip_cases() -> list[dict[str, Any]]:
-    """The two LLM-001 notes of the deep review (06-llm.md §3.1), synthetic: long enough that the cascade clips them.
-    Truth: tuberculosis is not the patient's own history in either (a relative's; a denied disease)."""
+def _llm001_notes(days: int) -> list[dict[str, Any]]:
+    """The two LLM-001 notes with ``days`` lines of ward diary in front of the history sections."""
     from tools.synth import notes as zh
     from tools.synth import notes_ja as ja
 
-    daily_ja = [f"入院{i}日目、{ja.FILLER[i % len(ja.FILLER)]}" for i in range(1, 60)]
+    daily_ja = [f"入院{i}日目、{ja.FILLER[i % len(ja.FILLER)]}" for i in range(1, days + 1)]
     note_ja = "\n".join(["【現病歴】", *daily_ja, "【既往歴】", "高血圧症。", "脂質異常症。", "【家族歴】", "肺結核。",
                          "糖尿病。", "【アレルギー】", "なし。"])  # fmt: skip
-    daily_zh = [f"住院第{i}天，{zh.FILLER[i % len(zh.FILLER)]}" for i in range(1, 60)]
+    daily_zh = [f"住院第{i}天，{zh.FILLER[i % len(zh.FILLER)]}" for i in range(1, days + 1)]
     note_zh = "\n".join(["【現病史】", *daily_zh, "【過去病史】", "高血壓。", "病人否認下列病史：", "肺結核。",
                          "B型肝炎。", "【過敏史】", "無。"])  # fmt: skip
     return [
@@ -445,10 +444,25 @@ def clip_cases() -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
+def clip_cases() -> list[dict[str, Any]]:
+    """The two LLM-001 notes of the deep review (06-llm.md §3.1), synthetic. Truth: tuberculosis is not the patient's
+    own history in either (a relative's; a denied disease). The ward diary grows, doubling, until the product's own
+    excerpt builder clips both notes: no length is fixed here, so the test still clips when the builder's budget or
+    its token estimate changes (run 20261113T044219Z measured a clip at 59 days; master's builder then showed that
+    note whole)."""
+    days = 60
+    while True:
+        cases = _llm001_notes(days)
+        if all(clipped_view(c)["clipped"] for c in cases):
+            return cases
+        days *= 2
+
+
 def clipped_view(case: dict[str, Any], terms: Sequence[str] = TB_LEXICON) -> dict[str, Any]:
     """The cascade's excerpt of one note (``_Run.excerpt_set``, the product's own clip) and what it shows."""
-    from matching.cascade.engine import _Note, _Run, sentences
+    from matching.cascade.engine import _Note, _Run
     from matching.cascade.judge import norm
+    from matching.excerpts import sentences
 
     text = str(case["text"])
     note = _Note(case["id"], date(2026, 6, 1), "discharge", text, sentences(text))
