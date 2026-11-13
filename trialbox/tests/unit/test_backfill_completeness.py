@@ -55,7 +55,7 @@ def test_the_first_load_leaves_a_baseline_and_the_next_night_is_held_to_it(tmp_p
     night = run_ingest(cfg, "csv", str(feed), snapshot=NEXT, load_fhir=False, rebuild_lake=False, validate=False)
     assert night.held, night.errors
     assert any(f"against snapshot {SNAP}" in e and "lab: " in e and "fewer than the last good night" in e
-               for e in night.errors), night.errors  # fmt: skip
+               for e in night.errors or []), night.errors  # fmt: skip
 
 
 def test_a_first_load_without_a_table_of_the_mapping_is_held_before_anything_is_published(
