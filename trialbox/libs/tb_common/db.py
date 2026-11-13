@@ -389,6 +389,31 @@ class Database:
                 raise
             txn.__exit__(None, None, None)
 
+    def table_exists(self, schema: str, table: str) -> bool:
+        """Whether ``schema.table`` exists (``schema`` with its ``tb_prefix``), read from the catalogue.
+
+        Not ``to_regclass``: that checks USAGE on the schema, and a connection to another store runs as that store's
+        group role (D-378, ``SET ROLE tbs_<schema>``), which has no right on this one, so ``to_regclass`` raises
+        "permission denied" on a box although the service itself may use the schema (deep review 2026-11-13,
+        DATA-001). The catalogue is readable by every role."""
+        return bool(
+            self.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = ? AND c.relname = ?)",
+                (schema, table),
+            )
+        )
+
+    def may_use_schema(self, schema: str) -> bool:
+        """Whether the role that logged in (``session_user``, not the group role this connection runs as) may use
+        ``schema``: what :meth:`Database.connect` to it will be able to read (DATA-002). False when it is missing."""
+        return bool(
+            self.fetchval(
+                "SELECT has_schema_privilege(session_user, n.oid, 'USAGE') FROM pg_namespace n WHERE n.nspname = ?",
+                (schema,),
+            )
+        )
+
     def ping(self) -> dict[str, Any]:
         """``SELECT 1`` on this store's connection (a service's ``/healthz`` check); reopens a lost one."""
         self.fetchval("SELECT 1")
