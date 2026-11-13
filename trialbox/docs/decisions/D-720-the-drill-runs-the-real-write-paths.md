@@ -49,6 +49,31 @@ the OMOP load does not run as any role; and the opt-out tick stops at its first 
 (`permission denied for schema omop`: the OMOP store is asked about over the opt-out register's connection, which
 works as `tbs_optout`).
 
+## What it says with lane E's card (D-683, #543 at 3824b3b1, merged into this branch)
+
+```
+roles: each service's real write paths run as its own role (D-720) -> ok
+   a temporary table on 69 store connections, and 3 paths: the OMOP load as tb_adapter, the OMOP export as of a time as tb_lake, the opt-out tick as tb_orchestrator
+```
+
+With D-683's one grant line taken out of the script again, the line fails by name (a test keeps that): the
+temporary tables, the load and the export; not the opt-out tick, whose fault was the worker's own. A second test
+watches the statements: the load's `tb_in_tmp` and the export's `tb_asof_tmp` are really made (an export that
+winds nothing back makes no temporary table and would pass without asking for the right).
+
+## Judged here: TEMPORARY is never taken back from a group (a finding of lane E's review)
+
+The script grants TEMPORARY to `tbs_<schema>` and never revokes it when the schema later becomes owned (D-486)
+or leaves every list. It does not matter, and no revoke is added:
+
+- TEMPORARY gives a session a private `pg_temp` schema and nothing else: no reach into any store.
+- A group is NOLOGIN. Only a member can work as it, and every member is a service role that holds TEMPORARY on
+  the database itself. The script already takes the services out of a group that left their list, and out of the
+  old group of a schema that became owned (and ends their sessions). After that only `trialbox` can become the
+  group, and `trialbox` owns the database.
+- So the right left on such a group can be used by nobody who does not have it anyway. A revoke would be one more
+  statement that every box runs at every install and update, to remove nothing.
+
 ## What D-573's check missed, and the rule from here
 
 It proved ownership (a table altered, a function replaced, as the group) and reach (no store off a list is read).

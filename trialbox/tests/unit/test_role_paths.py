@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -34,19 +35,45 @@ def test_every_real_write_path_runs_under_the_role_script(tmp_path: Path) -> Non
 
 
 def test_a_role_script_that_gives_the_groups_no_temporary_tables_fails_the_check_by_name(tmp_path: Path) -> None:
-    """The script as it was on 2026-11-13: TEMPORARY for the service roles only. After ``SET ROLE`` to a store's
-    group the session has the group's rights, and the group had none."""
+    """The script as it was on 2026-11-13 (before D-683): TEMPORARY for the service roles only. After ``SET ROLE``
+    to a store's group the session has the group's rights, and the group had none."""
     _pg()
     text = role_paths.ROLES_SCRIPT.read_text(encoding="utf-8")
-    lines = [line for line in text.splitlines() if not ("TEMPORARY" in line and "tbs_" in line)]
-    assert len(lines) < len(text.splitlines()), "the script no longer grants TEMPORARY to the groups on one line"
+    grant = "      EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO %I', current_database(), grp);\n"
+    assert text.count(grant) == 1, "the script no longer grants TEMPORARY to a store's group on this one line"
     old = tmp_path / "30-service-roles.sh"
-    old.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    old.write_text(text.replace(grant, "      NULL;\n"), encoding="utf-8")
     _name, ok, detail = role_paths.check(tmp_path / "cluster", script=old)
     assert not ok
     assert "a temporary table: tb_adapter on app: InsufficientPrivilege" in detail
     assert "the OMOP load as tb_adapter: InsufficientPrivilege" in detail
+    assert "the OMOP export as of a time as tb_lake" in detail
     assert "more store connections the same" in detail
+    assert "the opt-out tick" not in detail  # that one was the worker's own fault, not the script's
+
+
+def test_the_export_path_reaches_the_temporary_table_of_the_wind_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The path is there for the wind-back's temporary table: an export that winds nothing back makes none, and
+    the line would pass without ever asking for the right."""
+    _pg()
+    from tb_common import db as tb_db
+
+    seen: list[str] = []
+    real = tb_db.Tx.execute
+
+    def spy(self: Any, sql: str, *a: Any, **kw: Any) -> Any:
+        if "TEMP TABLE" in str(sql):
+            seen.append(str(sql).split("(")[0].strip())
+        return real(self, sql, *a, **kw)
+
+    monkeypatch.setattr(tb_db.Tx, "execute", spy)
+    _name, ok, detail = role_paths.check(tmp_path / "cluster")
+    assert ok, detail
+    assert "CREATE TEMP TABLE tb_asof_tmp" in seen  # the export's wind-back
+    assert "CREATE TEMP TABLE tb_in_tmp" in seen  # the load
+    assert "CREATE TEMP TABLE tb_drill_tmp" in seen  # the line of every store connection
 
 
 def test_the_drill_runs_the_check() -> None:

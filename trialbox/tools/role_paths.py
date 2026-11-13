@@ -55,8 +55,8 @@ def _as(url: str, role: str) -> str:
     return url.replace("postgresql://trialbox@", f"postgresql://{role}@", 1)
 
 
-def _patient(pid: str = "drill-1", gender: str = "male") -> dict[str, list[dict[str, Any]]]:
-    return {"Patient": [{"resourceType": "Patient", "id": pid, "birthDate": "1960-01-01", "gender": gender}]}
+def _patient(gender: str = "male") -> dict[str, list[dict[str, Any]]]:
+    return {"Patient": [{"resourceType": "Patient", "id": "drill-1", "birthDate": "1960-01-01", "gender": gender}]}
 
 
 def temp_tables(url: str, access: dict[str, list[str]], owned: list[str]) -> list[str]:
@@ -93,9 +93,10 @@ def omop_export(url: str) -> None:
 
     writer = schema.connect(_as(url, "tb_adapter"))
     try:
-        load.load_batch(writer, "feed", "2000-01-03", _patient("drill-2", "male"), tz=TZ)
+        # the same one patient in every batch: a batch without them would be a mass removal, which the load refuses
+        load.load_batch(writer, "feed", "2000-01-03", _patient(), tz=TZ)
         between = writer.fetchval("SELECT clock_timestamp()")
-        load.load_batch(writer, "feed", "2000-01-04", _patient("drill-2", "female"), tz=TZ)
+        load.load_batch(writer, "feed", "2000-01-04", _patient(gender="female"), tz=TZ)
     except Exception as exc:
         raise RuntimeError(f"its two loads did not run ({_said(exc)})") from exc
     finally:
