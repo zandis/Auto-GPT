@@ -53,6 +53,7 @@ from datacore.lifecycle import reconsent_due
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common import chartno
 from tb_common.authz import STUDY_TASKS, conditional, permit
 from tb_common.authz import Standing as Grant
 from tb_common.config import environment_name
@@ -1024,7 +1025,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             if _WHOLE_PID.match(whole):
                 return whole, None
             raise refused(OptOutError(WHOLE_PID_WHY))
-        chart = chart_no.strip()
+        # NEW-DIN-3d (D-548): full-width characters and the blanks around are written half-width first, as every
+        # path to a pseudonym writes them (the box applies the site's rule after that); the shape is asked of that
+        chart = chartno.normalise("asis", chart_no)
         if not chart:
             raise refused(TeamError("give a chart number or a pseudonym"))
         if not _CHART.match(chart):
@@ -1148,7 +1151,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:40],
+        # NEW-DIN-3d (the review): the chart number is not cut to the field's 40 characters here; a longer one is
+        # refused by the shape check, never registered by its first 40
+        body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:256],
                          source=str(form.get("source") or "office")[:20], note=str(form.get("note") or "")[:300],
                          lift=form.get("lift") == "1",
                          unknown_reason=str(form.get("unknown_reason") or "")[:300])  # fmt: skip
