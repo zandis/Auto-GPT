@@ -81,8 +81,11 @@ foreach ($d in $drives) {
   Fact "bitlocker_${tag}_protection" $bl.ProtectionStatus
   Fact "bitlocker_${tag}_method" $bl.EncryptionMethod
   Fact "bitlocker_${tag}_protectors" ((@($bl.KeyProtector) | ForEach-Object { [string]$_.KeyProtectorType }) -join ",")
+  Fact "bitlocker_${tag}_autounlock" ([bool]$bl.AutoUnlockEnabled)
 }
 Fact "recovery_escrow" $RecoveryKeyEscrow
+# the box's disk unlock setting, recorded by box-install.ps1 (NEW-WIN-8, D-603): tpm or tpm_pin; empty when not set
+Fact "bitlocker_unlock" (RegValue "HKLM:\SOFTWARE\TrialBox" "BitlockerUnlock")
 
 # the installed memory and the logical processors (NEW-WIN-3, D-601): .wslconfig is computed from them; inside
 # WSL2 one sees only WSL2's share

@@ -96,6 +96,24 @@ After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WS
 | 27d | The log's lines of step 12 | No "did not accept a power setting" line. On a PC with no hibernation support such a line is expected and the install went on | The lines |
 | 27e | If the account is a domain or Microsoft Entra account: repeat line 25 and 26a with the network cable out | The same as 26a | Whether the task ran with no domain controller in reach |
 
+## Part 4: NEW-WIN-8, BitLocker and the key probe (D-603)
+
+**Choose first.** On a PC that may be encrypted (and stay so), run the installer as it is: lines 28 to 35 happen
+during Part 1, at step 4. On a PC that must stay unencrypted, add `-SkipBitLocker` to the installer's start, skip
+to line 36, and write that you did. Never send a recovery key back; write only "shown" and "confirmed".
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 28 | Before the installer: `Get-BitLockerVolume` and `Get-Tpm` in an administrator window | (the starting point) | For each drive: VolumeStatus, ProtectionStatus, the protector types (not the key). TpmPresent, TpmReady. Whether the PC is signed in with a Microsoft account or joined to a domain |
+| 29 | At step 4, on a drive that was not encrypted | "BitLocker recovery key for drive C:" with 48 digits, the question about the printer, then the request for the last six digits. **No restart is asked for** | Whether a restart or a "hardware test" was asked for; any red text. Not the key |
+| 30 | Answer `y` to the printer question on one drive | A page with the key comes out of the default printer | Whether it printed; what the window said if it did not |
+| 31 | Type six wrong digits once, then the right ones | "Those are not the last six digits", then the install goes on | - |
+| 32 | A second drive, if the PC has one and you chose it as the data drive | Its own key the same way; no question about a password for that drive after a restart | After the next restart (line 25): is the data drive open before anyone signs in? `Get-BitLockerVolume` shows AutoUnlockEnabled True |
+| 33 | On a PC that came already encrypted | The window shows the existing key and asks for its last six digits; nothing is encrypted again | Whether the key shown equals the one in your Microsoft account or on your sheet (yes or no, not the key) |
+| 34 | After the install: `Get-BitLockerVolume`, and the host check's lines (`wsl -d TrialBox -u root -- sh /opt/trialbox/deploy/check_host.sh`, the lines that start "BitLocker") | Both drives EncryptionInProgress or FullyEncrypted, protection On. The host check: "still encrypting", later "starts with nobody there (bitlocker_unlock=tpm ...)" and "unlocks with the system drive" | The lines |
+| 35 | Search the log for a recovery key: `Select-String -Path C:\ProgramData\TrialBox\box-install\box-install.log -Pattern "\d{6}-\d{6}"` and the same on `state.json` | No match | The two answers |
+| 36 | **The key probe.** After the install is finished, as the owner in an administrator window: `powershell -NoProfile -ExecutionPolicy Bypass -File <media>\windows\key-probe.ps1` | About a minute, then five lines: `ran_as=`, `dpapi_user=`, `dpapi_machine=`, `acl_file=`, `wsl_handover=`, each `ok` or `fail: <why>` | All of its lines (they hold no secret: the value is random bytes made for the probe). This decides how the site keys are held |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -114,4 +132,9 @@ After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WS
 - Line 26a "no" (WSL2 started only after the sign-in): the S4U task cannot start WSL2. D-602 point 4: the fallback is
   chosen with NEW-WIN-8. This is the most important answer of the whole sheet; send it even if nothing else is done.
   Line 26b does not enter this decision: it shows what NEW-WIN-8 still has to make true.
+- Line 29 "a restart was asked for": BitLocker cannot be turned on in one pass; the installer's step must carry it
+  across a restart like step 5 does.
+- Line 32 "no": the data drive stays locked after a restart; the stack cannot come back by itself.
+- Line 36: the key back end is built on the first of `dpapi_user`, `acl_file`, `dpapi_machine` that says `ok`, and
+  needs `wsl_handover=ok`. All `fail` with line 26a "yes": a stored password for the task, or a service (D-602 point 4).
 - Line 14: the address NEW-WIN-4 must make work from another PC.

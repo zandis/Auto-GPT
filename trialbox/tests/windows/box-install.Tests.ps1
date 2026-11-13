@@ -36,16 +36,25 @@ BeforeAll {
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
       BootInfo = $null; BootRegistered = 0
+      Tpm = @{ Present = $true; Ready = $true }; BLCalls = New-Object System.Collections.ArrayList
+      Asked = New-Object System.Collections.ArrayList; Answers = New-Object System.Collections.ArrayList
+      Printed = New-Object System.Collections.ArrayList; Machine = @{}
+      BL = @{}; Keys = @{}
       Restarted = 0; ResumeTask = $false; FoundMedia = ""; ImportDies = $false; Said = New-Object System.Collections.ArrayList
     }
     New-Item -ItemType Directory -Force -Path $s.Data | Out-Null
+    # as most new PCs come: both drives encrypted already, the system drive by the TPM
+    $s.BL["C:"] = @{ Status = "FullyEncrypted"; Protection = "On"; AutoUnlock = $false; Protectors = @("Tpm", "RecoveryPassword") }
+    $s.BL[$s.Data] = @{ Status = "FullyEncrypted"; Protection = "On"; AutoUnlock = $true; Protectors = @("RecoveryPassword") }
+    $s.Keys["C:"] = "111111-222222-333333-444444-555555-666666-777777-123456"
+    $s.Keys[$s.Data] = "888888-999999-000000-111111-222222-333333-444444-654321"
     $script:S = $s
     return $s
   }
 
-  function Invoke-Run([switch]$Resume) {
+  function Invoke-Run([switch]$Resume, [switch]$Ask) {
     $s = $script:S
-    $p = @{ MediaRoot = $s.Media; DataDrive = $s.Data; StateDir = $s.StateDir; Lang = "en"; Yes = $true }
+    $p = @{ MediaRoot = $s.Media; DataDrive = $s.Data; StateDir = $s.StateDir; Lang = "en"; Yes = (-not $Ask) }
     if ($Resume) { $p.Remove("MediaRoot"); $p["Resume"] = $true }
     return (Invoke-TbInstall @p)
   }
@@ -78,7 +87,21 @@ Describe "box-install.ps1" {
     Mock Get-TbBootTaskInfo { return $script:S.BootInfo }
     Mock Find-TbMedia { return [string]$script:S.FoundMedia }
     Mock Start-TbSleep { }
-    Mock Read-TbLine { return "" }
+    Mock Read-TbLine {
+      [void]$script:S.Asked.Add($Prompt)
+      if ($script:S.Answers.Count -gt 0) { $a = $script:S.Answers[0]; $script:S.Answers.RemoveAt(0); return $a }
+      return ""
+    }
+    # BitLocker (NEW-WIN-8): a fake TPM and a fake state per drive; the system drive is C:, the data drive the test's folder
+    Mock Get-TbTpm { return $script:S.Tpm }
+    Mock Get-TbBitLocker { return $script:S.BL[$Drive] }
+    Mock Enable-TbBitLockerSystem { [void]$script:S.BLCalls.Add("system $Drive"); $script:S.BL[$Drive] = @{ Status = "EncryptionInProgress"; Protection = "On"; AutoUnlock = $false; Protectors = @("Tpm") } }
+    Mock Enable-TbBitLockerData { [void]$script:S.BLCalls.Add("data $Drive"); $script:S.BL[$Drive] = @{ Status = "EncryptionInProgress"; Protection = "On"; AutoUnlock = $false; Protectors = @("RecoveryPassword") } }
+    Mock Enable-TbAutoUnlock { [void]$script:S.BLCalls.Add("auto $Drive"); $script:S.BL[$Drive].AutoUnlock = $true }
+    Mock Add-TbRecoveryPassword { [void]$script:S.BLCalls.Add("recovery $Drive"); $script:S.BL[$Drive].Protectors += "RecoveryPassword"; return $script:S.Keys[$Drive] }
+    Mock Get-TbRecoveryPassword { return $script:S.Keys[$Drive] }
+    Mock Set-TbMachineSetting { $script:S.Machine[$Name] = $Value }
+    Mock Send-TbToPrinter { [void]$script:S.Printed.Add(($Lines -join "|")) }
     Mock Write-TbScreen { [void]$script:S.Said.Add($Text) }
     Mock Test-TbMsiSignature { return $true }
     Mock Invoke-TbNative {
@@ -184,7 +207,7 @@ Describe "box-install.ps1" {
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
       $MinFreeGB = 200; $script:S.FreeGB = 250
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en"
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -506,6 +529,129 @@ Describe "box-install.ps1" {
     It "has no command that removes a distribution or a disk" {
       $text = Get-Content -LiteralPath $script:Ps1 -Raw
       $text | Should -Not -Match "--unregister|Remove-Item|Format-Volume|Clear-Disk|diskpart"
+    }
+  }
+
+  Context "BitLocker (NEW-WIN-8, D-603)" {
+    BeforeAll {
+      function Set-DrivesOff {
+        $s = $script:S
+        foreach ($d in @("C:", $s.Data)) { $s.BL[$d] = @{ Status = "FullyDecrypted"; Protection = "Off"; AutoUnlock = $false; Protectors = @() } }
+      }
+      function Get-AllText {
+        $s = $script:S
+        return ((Get-Content -LiteralPath (Join-Path $s.StateDir "box-install.log") -Raw) + (Get-Content -LiteralPath (Join-Path $s.StateDir "state.json") -Raw))
+      }
+    }
+    BeforeEach {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }
+      $script:S.WslInstalled = $true
+    }
+    It "keeps drives that are already encrypted, records the unlock setting, and turns nothing on or off" {
+      Invoke-Run | Should -Be 0
+      $script:S.BLCalls.Count | Should -Be 0
+      $script:S.Machine["BitlockerUnlock"] | Should -Be "tpm"
+      ($script:S.Said -join "`n") | Should -Match "nobody confirmed that its recovery key is held"
+      Get-Log | Should -Match "step 4/\d+ drive: ok"
+    }
+    It "turns BitLocker on for both drives before anything is imported, and hands each key to the owner" {
+      Set-DrivesOff
+      foreach ($a in @("n", "123456", "y", "654321")) { [void]$script:S.Answers.Add($a) }
+      Invoke-Run -Ask | Should -Be 0
+      $script:S.BLCalls | Should -Be @("system C:", "recovery C:", ("data " + $script:S.Data), ("auto " + $script:S.Data))
+      $said = $script:S.Said -join "`n"
+      $said | Should -Match "111111-222222-333333-444444-555555-666666-777777-123456"   # shown in the window
+      $said | Should -Match "888888-999999-000000-111111-222222-333333-444444-654321"
+      $script:S.Printed.Count | Should -Be 1                                           # the one the owner asked for
+      $script:S.Printed[0] | Should -Match "654321"
+      $log = Get-Log
+      $log.IndexOf("turning BitLocker on for C:") | Should -BeLessThan $log.IndexOf("import: start")
+      $log | Should -Match "recovery key of C:: shown, confirmed by the owner"
+    }
+    It "writes no digit group of a recovery key to the log or the state" {
+      Set-DrivesOff
+      foreach ($a in @("n", "123456", "n", "654321")) { [void]$script:S.Answers.Add($a) }
+      Invoke-Run -Ask | Should -Be 0
+      $all = Get-AllText
+      foreach ($group in (($script:S.Keys.Values -join "-") -split "-" | Sort-Object -Unique)) { $all | Should -Not -Match $group }
+      (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).recovery_confirmed | Should -Match "C:"
+    }
+    It "does not ask again for a key the owner confirmed" {
+      Set-DrivesOff
+      foreach ($a in @("n", "123456", "n", "654321")) { [void]$script:S.Answers.Add($a) }
+      $script:S.SetupFail["packages"] = "interrupted"
+      Invoke-Run -Ask | Should -Be 1
+      $script:S.SetupFail = @{}
+      $n = $script:S.Asked.Count
+      Invoke-Run -Ask | Should -Be 0
+      @($script:S.Asked | Select-Object -Skip $n | Where-Object { $_ -match "six digits|Print" }).Count | Should -Be 0
+      @($script:S.BLCalls | Where-Object { $_ -like "system*" -or $_ -like "data*" }).Count | Should -Be 2
+    }
+    It "asks again after wrong digits, and stops when the owner gives none: the key was not received" {
+      Set-DrivesOff
+      foreach ($a in @("n", "999999", "123456", "n", "")) { [void]$script:S.Answers.Add($a) }
+      Invoke-Run -Ask | Should -Be 1
+      ($script:S.Said -join "`n") | Should -Match "not the last six digits"
+      Get-Log | Should -Match "STOP step 4/\d+ drive: Drive .*recovery key must be handed to a person"
+      ($script:S.Calls -join "`n") | Should -Not -Match "--import"
+      # started again: the data drive's key is shown again (read back from Windows), nothing is enabled twice
+      foreach ($a in @("n", "654321")) { [void]$script:S.Answers.Add($a) }
+      Invoke-Run -Ask | Should -Be 0
+      @($script:S.BLCalls | Where-Object { $_ -like "data*" }).Count | Should -Be 1
+    }
+    It "does not turn BitLocker on with nobody to receive the key (-Yes)" {
+      Set-DrivesOff
+      Invoke-Run | Should -Be 1
+      $script:S.BLCalls.Count | Should -Be 0
+      Get-Log | Should -Match "STOP step 4/\d+ drive: .*handed to a person"
+    }
+    It "stops on a machine with no security chip, before anything is changed" {
+      $script:S.Tpm = @{ Present = $true; Ready = $false }
+      Set-DrivesOff
+      Invoke-Run -Ask | Should -Be 1
+      $script:S.BLCalls.Count | Should -Be 0
+      Should -Invoke Enable-TbFeature -Times 0
+      Get-Log | Should -Match "STOP step 4/\d+ drive: .*security chip"
+    }
+    It "does not touch a drive whose BitLocker is suspended or being removed" {
+      $script:S.BL["C:"] = @{ Status = "FullyEncrypted"; Protection = "Off"; AutoUnlock = $false; Protectors = @("Tpm", "RecoveryPassword") }
+      Invoke-Run | Should -Be 1
+      $script:S.BLCalls.Count | Should -Be 0
+      Get-Log | Should -Match "STOP step 4/\d+ drive: .*suspended"
+    }
+    It "stops when the system drive is encrypted but not opened by the TPM" {
+      $script:S.BL["C:"].Protectors = @("Password", "RecoveryPassword")
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "STOP step 4/\d+ drive: .*TPM does not open it"
+    }
+    It "turns on automatic unlock for a data drive that would stay locked after a restart" {
+      $script:S.BL[$script:S.Data].AutoUnlock = $false
+      Invoke-Run | Should -Be 0
+      $script:S.BLCalls | Should -Be @(("auto " + $script:S.Data))
+    }
+    It "takes tpm_pin only when the PIN unlock is already there, and never sets a PIN itself" {
+      $BitLockerUnlock = "tpm_pin"
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "STOP step 4/\d+ drive: .*no TPM-and-PIN unlock"
+      $script:S.Machine.ContainsKey("BitlockerUnlock") | Should -BeFalse
+      $script:S.BL["C:"].Protectors = @("TpmPin", "RecoveryPassword")
+      Invoke-Run | Should -Be 0
+      $script:S.Machine["BitlockerUnlock"] | Should -Be "tpm_pin"
+      $script:S.BLCalls.Count | Should -Be 0
+    }
+    It "leaves BitLocker alone for a rehearsal and says what that means" {
+      $SkipBitLocker = $true
+      Set-DrivesOff
+      Invoke-Run | Should -Be 0
+      $script:S.BLCalls.Count | Should -Be 0
+      $script:S.Machine.ContainsKey("BitlockerUnlock") | Should -BeFalse
+      ($script:S.Said -join "`n") | Should -Match "BitLocker was left as it is"
+    }
+    It "carries the unlock setting across the restart" {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
+      $script:S.WslInstalled = $false
+      Invoke-Run | Should -Be 3010
+      $script:S.ResumeMore | Should -Match "-BitLockerUnlock tpm$"
     }
   }
 }
