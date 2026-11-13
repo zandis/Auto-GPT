@@ -22,7 +22,15 @@ with the integer 0 means "no site facts". Any other answer, and a failure of the
 failure to stop the run. The question is asked only after a failure: a snapshot with the table costs nothing more.
 
 A wrong "no site facts" now needs two things at once: the table's query fails, and the lake says the table is not
-there.
+there, **of the same snapshot**. With no snapshot named, the failed query and the question would each read
+"current", which can move in between. So after a failure the lake is asked once which snapshot is current, and
+the query is put again, and then the question, to that name. (Jobs name their snapshot; unpinned readers are the
+cascade's default and the site set-up's readiness check.)
+
+The name is compared without its case. The two catalogue functions pass the lake's query guard because its list of
+forbidden functions does not hold them, not by a rule that allows them: if the guard is tightened, the test here
+that puts the question through the guard fails first, and until the question is allowed again a snapshot without
+the table stops the run. That is the safe side.
 
 ## Test
 
@@ -31,3 +39,20 @@ snapshot whatever the error's text; the old words in another failure's text on a
 the question failing; every answer that is not a clear no; a view counts as there. `test_one_rule.py`: its
 old-lake stand-in now answers the question (it raised for every query, which no lake without the table does).
 `matching/proposed.py` is off the list of `tests/unit/test_error_text_across_services.py`.
+`test_on_a_real_lake_...`: two snapshots built by the lake's own store, the table dropped from one, read through
+the lake's client (read-only, external access off, locked configuration).
+
+## Review
+
+One adversarial review by running, on the first form (`9ff6f0a0`). Verdict: merge; no HIGH.
+
+| Finding | Confirmed | What was done |
+|---|---|---|
+| MED: the question was proven only on a DuckDB in memory, not through the real store | by running (it held) | the real-lake test |
+| LOW: with no snapshot named, the question read "current" a second time | by running, a contrived sequence (current moved back by hand to an old snapshot during a failing unpinned read) | both are put to the snapshot the lake names; tests |
+| LOW: a table named with another case counted as absent | by running | compared without case; test |
+| LOW, outside this card: `matching/cascade/engine.py` `missing_table` reads an error's text to tell a lake without a note table; another failure with those words turns every note pair into a data gap (it leans to unknown, not to a pass); D-700's scan does not see it | by reading | not in this card: reported to the integrator as the next small card of this lane |
+
+Held (the reviewer's runs): real snapshots aged to schema 1 to 4 with and without the table, in process and over
+HTTP; other catalogues and temporary objects err toward stopping; the question failing, the lake down, a missing
+snapshot all stop the run; seven mutations of the question each fail a test; 827 tests of the callers pass.

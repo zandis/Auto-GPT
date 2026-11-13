@@ -8,6 +8,7 @@ everything else stops the run, as before (D-127: the rule is never dropped silen
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -100,3 +101,76 @@ def test_the_question_passes_the_lakes_query_guard_and_sees_a_view_too() -> None
     assert con.execute(proposed.TABLE_SQL).fetchall() == [(0,)]
     con.execute("CREATE VIEW site_fact AS SELECT 1 AS pid")
     assert con.execute(proposed.TABLE_SQL).fetchall() == [(1,)]
+
+
+# ------------------------------------------------------------------------------------- the review of the first form
+def test_an_unpinned_read_asks_the_question_of_the_snapshot_it_names_not_of_current_again() -> None:
+    """The review, by running: with no snapshot named, the question read "current" a second time. If current had
+    moved to a snapshot without the table between a failure on one that has it and the question, the rule was
+    dropped. Now the lake is asked which snapshot is current once, and the query and the question are both put to
+    that name."""
+
+    class Moving:
+        def __init__(self) -> None:
+            self.asked: list[tuple[str, str | None]] = []
+
+        def snapshot(self) -> str:
+            return "2026-11-01"  # what the lake names as current when asked, after the failure
+
+        def query(self, sql: str, params: Any = None, snapshot: str | None = None) -> Any:
+            self.asked.append(("question" if sql == proposed.TABLE_SQL else "rows", snapshot))
+            if sql == proposed.TABLE_SQL:
+                # asked of "current" it would answer 0 (current is now an old snapshot); the named one has the table
+                return pa.table({"n": [0 if snapshot is None else 1]})
+            raise RuntimeError("lake query failed (503)")
+
+    for read in (lambda lk: Proposed.load(lk, None, None), lambda lk: site_basis(lk, None)):
+        lake = Moving()
+        with pytest.raises(RuntimeError, match="503"):
+            read(lake)
+        assert lake.asked == [("rows", None), ("rows", "2026-11-01"), ("question", "2026-11-01")]
+
+
+def test_an_unpinned_read_of_an_old_current_snapshot_still_has_no_proposed_fact() -> None:
+    class OldCurrent(_Lake):
+        def snapshot(self) -> str:
+            return "2026-01-01"
+
+    lake = OldCurrent(site_fact=False)
+    assert Proposed.load(lake, None, None).rows == {} and site_basis(lake, None) == (set(), set())
+
+
+def test_the_tables_name_is_compared_without_its_case() -> None:
+    con = duckdb.connect(":memory:")
+    con.execute('CREATE TABLE "Site_Fact" (pid TEXT)')
+    assert con.execute(proposed.TABLE_SQL).fetchall() == [(1,)]
+
+
+def test_on_a_real_lake_a_snapshot_without_the_table_and_one_with_it(tmp_path: Path) -> None:
+    """Through the lake's own store (read-only, external access off, locked configuration) and its client."""
+    import json
+
+    from embed_service.embedder import HashEmbedder
+    from lake.client import LakeLocal
+    from lake.store import Lake, write_sidecar
+
+    nd = tmp_path / "nd"
+    nd.mkdir()
+    (nd / "Patient.ndjson").write_text(
+        json.dumps({"resourceType": "Patient", "id": "P1", "birthDate": "1960-01-01", "gender": "female"}) + "\n",
+        encoding="utf-8",
+    )
+    store = Lake(tmp_path / "lake")
+    for snap in ("2026-10-01", "2026-11-01"):
+        store.rebuild(snap, HashEmbedder(), nd)
+    old = store.db_path("2026-10-01")
+    con = duckdb.connect(str(old))
+    con.execute("DROP TABLE site_fact")  # as a snapshot built before step 5b
+    con.close()
+    write_sidecar(old)
+    lake = LakeLocal(tmp_path / "lake", HashEmbedder())
+    assert lake.query(proposed.TABLE_SQL, [], "2026-10-01").to_pylist() == [{"n": 0}]
+    assert lake.query(proposed.TABLE_SQL, [], "2026-11-01").to_pylist() == [{"n": 1}]
+    assert Proposed.load(lake, None, "2026-10-01").rows == {}
+    assert site_basis(lake, "2026-10-01") == (set(), set())
+    assert Proposed.load(lake, None, "2026-11-01").rows == {} and site_basis(lake, None) == (set(), set())
