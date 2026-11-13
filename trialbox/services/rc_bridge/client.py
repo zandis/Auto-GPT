@@ -23,6 +23,40 @@ INPROC_PREFIX = "inproc://"  # demo and test only: a URL served by an in-process
 _LOCAL: dict[str, Callable[[], httpx.Client]] = {}
 
 
+_FIELD_NAME = re.compile(r"[a-z][a-z0-9_]*")  # a REDCap variable name
+# (what REDCap's text holds, what the box says): the first that matches. A list of field names is given back as
+# names; nothing else of REDCap's text is
+_KINDS: tuple[tuple[str, str], ...] = (
+    ("could not be validated", "a value does not fit its field's validation"),
+    # the lifecycle's schedule reads the word "classic" in this message (orchestrator/lifecycle_api.py)
+    ("classic project", "the project is classic: it has no arms or events"),
+    ("fields were not found in the project", "fields that are not in the project"),
+    ("not designated for event", "a field is not on an instrument of the event"),
+    ("event name", "the event is missing or is not an event of the project"),
+    ("redcap_event_name", "the event is missing or is not an event of the project"),
+    ("repeat", "a repeating instrument or its instance number is not valid"),
+    ("data access group", "the data access group is not valid"),
+    ("record identifier", "the record identifier field is missing"),
+    ("not in a valid format", "the import is not in a valid format"),
+)
+_UNKNOWN_KIND = "REDCap's own text is not shown: it can quote a record's value"
+_MAX_NAMES = 20  # field names given back from one error (a longer list says no more to the person reading it)
+
+
+def error_kind(text: str) -> str:
+    """The kind of a REDCap error, in the box's own words; REDCap's text itself is never returned."""
+    low = text.lower()
+    for marker, kind in _KINDS:
+        if marker not in low:
+            continue
+        if marker == "fields were not found in the project":
+            listed = text.split(":", 1)[1] if ":" in text else ""
+            names = [n.strip() for n in listed.split(",") if _FIELD_NAME.fullmatch(n.strip())]
+            return kind + (": " + ", ".join(names[:_MAX_NAMES]) if names else "")
+        return kind
+    return _UNKNOWN_KIND
+
+
 class RcError(RuntimeError):
     """An ICD-04 error: ``code`` from the register, ``status`` the HTTP status TrialBox answers with."""
 
@@ -123,7 +157,9 @@ class RedcapClient:
             msg = str(resp.json().get("error") or "")
         except (ValueError, AttributeError):
             msg = ""
-        raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {msg[:200]}" if msg else ""))
+        # REDCap's text is not passed on: an import error quotes the record, the field and the value it refused, and
+        # this message reaches the set-up page and the stored read log (D-555). The kind of error is said instead
+        raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {error_kind(msg)}" if msg else ""))
 
     def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
         resp = self._send(content, extra)
