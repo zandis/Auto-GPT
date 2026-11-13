@@ -1473,6 +1473,8 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
                     shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
                     for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
                         f.unlink(missing_ok=True)
+                    for f in (cfg.lake_dir / "db" / "gen").glob(f"{s}.g*"):  # T-724 (D-490): its generations
+                        f.unlink(missing_ok=True)
                     drop_reader_links(cfg.lake_dir, s)
             except SnapshotBuilding:
                 log.info("lake snapshot %s is being rebuilt: not pruned this time", s)

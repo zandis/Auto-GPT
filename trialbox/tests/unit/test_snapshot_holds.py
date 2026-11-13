@@ -130,11 +130,13 @@ def test_a_publish_during_a_run_leaves_the_runs_snapshot_untouched(tmp_path: Pat
         lake = ctx.services.lake
         seen["n1"] = lake.query("SELECT count(*) AS n FROM patient").to_pylist()[0]["n"]
         seen["holds"] = Lake(lake_dir, TZ).holds()
-        try:  # the site publishes on main (same snapshot id) while the job runs
-            Lake(lake_dir, TZ).rebuild(NIGHT, HashEmbedder(), allow_empty=True)
-        except SnapshotHeld as exc:
-            seen["refused"] = str(exc)
+        # the site publishes on main (same snapshot id) while the job runs. T-724 (D-490): the job pinned a
+        # generation, so the publish is not refused any more: it makes the next generation beside the job's
+        seen["mine"] = Lake(lake_dir, TZ).db_path(f"{NIGHT}.g1")
+        seen["mine_sha"] = _sha(seen["mine"])
+        seen["published"] = Lake(lake_dir, TZ).rebuild(NIGHT, HashEmbedder(), allow_empty=True).generation
         seen["n2"] = lake.query("SELECT count(*) AS n FROM patient").to_pylist()[0]["n"]
+        seen["mine_after"] = _sha(seen["mine"])
         return Outcome(summary_md="ok")
 
     orch = _orch(tmp_path, scenario, LakeLocal(lake_dir, HashEmbedder(), TZ))
@@ -144,8 +146,10 @@ def test_a_publish_during_a_run_leaves_the_runs_snapshot_untouched(tmp_path: Pat
     orch.drain()
     got = orch.db.get(job.job_id)
     assert got is not None and got.state == "done", got
-    assert seen["holds"] == {job.job_id: NIGHT} and "running job" in seen["refused"]
-    assert seen["n1"] == seen["n2"] == 3 and _sha(db) == before  # the run's bytes did not move
+    assert seen["holds"] == {job.job_id: NIGHT} and seen["published"] == f"{NIGHT}.g2"
+    # the run's bytes did not move: its generation's file is as it was (the date's own file is now generation 2)
+    assert seen["n1"] == seen["n2"] == 3 and seen["mine_sha"] == seen["mine_after"] == before
+    assert Lake(lake_dir, TZ).generation(NIGHT) == f"{NIGHT}.g2" and seen["mine"].exists()
     assert after == [{}] and Lake(lake_dir, TZ).holds() == {}  # released at the end, then the hooks ran
 
 

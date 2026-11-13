@@ -11,7 +11,7 @@ from typing import Any
 
 import pyarrow as pa
 from embed_service.embedder import Embedder, from_env
-from fastapi import HTTPException, Response
+from fastapi import Header, HTTPException, Response
 from fastapi.responses import JSONResponse
 from tb_common.config import site_tz
 from tb_common.http import make_app
@@ -25,7 +25,7 @@ from tb_contracts import (
 )
 
 from lake.sqlguard import SqlRejected
-from lake.store import BUSY_HEADER, Lake, LakeBusy, RebuildError
+from lake.store import BUSY_HEADER, GENERATION_HEADER, Lake, LakeBusy, RebuildError, split_generation
 
 ARROW_STREAM = "application/vnd.apache.arrow.stream"
 _lake: Lake | None = None
@@ -60,12 +60,21 @@ def to_ipc(table: pa.Table) -> bytes:
     return bytes(sink.getvalue().to_pybytes())
 
 
+def _named(snapshot: date | None, generation: str | None) -> str | None:
+    """The snapshot a request reads: its date, or, with the header ``X-TB-Lake-Generation`` (T-724, D-490), that
+    generation of its date. The header alone is refused: a generation is of a date."""
+    snap = snapshot.isoformat() if snapshot else None
+    if not generation:
+        return snap
+    if snap is None or not generation.isdigit() or int(generation) < 1:
+        raise HTTPException(status_code=400, detail=f"{GENERATION_HEADER} is a number, beside the request's snapshot")
+    return f"{snap}.g{int(generation)}"
+
+
 @app.post("/query")
-def query(req: LakeQuery) -> Response:
+def query(req: LakeQuery, x_tb_lake_generation: str | None = Header(default=None)) -> Response:
     try:
-        table = lake().query(
-            req.sql, list(req.params or []), req.snapshot.isoformat() if req.snapshot else None, req.timeout_s
-        )
+        table = lake().query(req.sql, list(req.params or []), _named(req.snapshot, x_tb_lake_generation), req.timeout_s)
     except SqlRejected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -76,7 +85,9 @@ def query(req: LakeQuery) -> Response:
 
 
 @app.post("/chunks/search")
-def chunks_search(req: ChunkSearchRequest) -> ChunkSearchResult:
+def chunks_search(
+    req: ChunkSearchRequest, x_tb_lake_generation: str | None = Header(default=None)
+) -> ChunkSearchResult:
     try:
         hits = lake().search(
             req.pid,
@@ -85,7 +96,7 @@ def chunks_search(req: ChunkSearchRequest) -> ChunkSearchResult:
             req.k,
             req.date_from,
             req.date_to,
-            req.snapshot.isoformat() if req.snapshot else None,
+            _named(req.snapshot, x_tb_lake_generation),
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -169,12 +180,15 @@ def put_hold(body: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(snap, str) or not isinstance(holder, str):
         raise HTTPException(status_code=400, detail="snapshot and holder are strings")
     try:
-        lake().hold(snap, holder)
+        # T-724 (D-490): with ``pin`` the holder pins a generation (the date's newest, or the one named), which is
+        # answered; a rebuild of the date then makes the next generation instead of being refused
+        got = lake().hold(snap, holder, pin=body.get("pin") is True)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"holder": holder, "snapshot": snap}
+    return {"holder": holder, "snapshot": split_generation(got)[0], "generation": got if got != snap or
+            split_generation(got)[1] is not None else None}  # fmt: skip
 
 
 @app.delete("/holds/{holder}")
@@ -185,6 +199,25 @@ def delete_hold(holder: str) -> dict[str, Any]:
 @app.get("/holds")
 def get_holds() -> dict[str, Any]:
     return {"holds": lake().holds()}
+
+
+@app.get("/generations/{snapshot}")
+def get_generations(snapshot: str) -> dict[str, Any]:
+    """T-724 (D-490): the generations of a date on the box and the one the date names now (``generation``: None for
+    a date built before generations). 404: no such snapshot."""
+    try:
+        snap = date.fromisoformat(snapshot).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="a snapshot is a date (YYYY-MM-DD)") from exc
+    try:
+        return {
+            "snapshot": snap,
+            "generation": lake().generation(snap),
+            "generations": lake().generations(snap),
+            "site_in_sync": lake().site_in_sync(snap),  # the served generation holds the site's inputs of now
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def _spawn(run: Callable[[], None]) -> None:
@@ -224,15 +257,19 @@ def rebuild(req: RebuildRequest) -> JSONResponse:
 @app.post("/promote")
 def promote(body: dict[str, Any]) -> dict[str, Any]:
     """T-723 (D-489): the last step of a publish. Makes the built snapshot the served one; ``promoted`` is false,
-    and nothing changed, when a newer night is served. 404: no such built snapshot."""
+    and nothing changed, when a newer night is served. 404: no such built snapshot. With ``generation`` (the one
+    the caller built): 409, and nothing changed, when the date names another generation now."""
     try:
         snap = date.fromisoformat(str(body.get("snapshot") or "")).isoformat()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="snapshot must be a date") from exc
+    gen = body.get("generation")
     try:
-        done = lake().promote_built(snap)
+        done = lake().promote_built(snap, str(gen) if gen else None)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:  # review of #318: the date was built again since the caller's build
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"promoted": done, "current": lake().current()}
 
 
