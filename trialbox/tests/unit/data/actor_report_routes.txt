@@ -2,7 +2,6 @@
 # count the call). This list only shrinks: tests/unit/test_actor_routes.py::test_the_report_list_only_shrinks.
 DELETE /studies/{rs}/sources/redcap
 POST /assist
-POST /redcap/connections/{ref}/test
 POST /setup/practice/load
 POST /setup/practice/reset
 POST /setup/pseudonym
@@ -20,13 +19,7 @@ POST /studies/{rs}/entry/{record}
 POST /studies/{rs}/forms/builtin
 POST /studies/{rs}/forms/dictionary
 POST /studies/{rs}/import/sheet
-POST /studies/{rs}/redcap-link/test
-POST /studies/{rs}/redcap-read
 POST /studies/{rs}/sync/{name}
-PUT /redcap/connections/{ref}
 PUT /setup/remote
 PUT /studies/{rs}/data/{record}
-PUT /studies/{rs}/redcap-link
-PUT /studies/{rs}/screen-scope
-PUT /studies/{rs}/settings
 PUT /studies/{rs}/sources/redcap

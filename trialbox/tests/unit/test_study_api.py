@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from orchestrator.study_api import plan, router
 
+from tests.actor3 import SignedClient
 from tests.rc_kit import LINK_A, PIDS, TOKEN_A, study_service
 
 
@@ -22,7 +22,9 @@ def test_settings_connection_link_and_read_over_http(tmp_path: Path) -> None:
     with study_service(tmp_path) as (svc, sim, _clock):
         app = FastAPI()
         app.include_router(router(lambda: svc))
-        c = TestClient(app)
+        # T-715d (D-554): the router's changing routes take the signed person, so the client signs each call
+        # for the route's own action (a `by` in a body of this test is who it signs as)
+        c = SignedClient(app)
         assert c.get("/studies/GZQO/settings").status_code == 404
         body = {"study_type": "trial", "cohort_kind": "enrolled", "not_suitable_reasons": ["stage", "other"],
                 "screening_no_format": "GZ-", "screening_no_next": 101, "by": "crc"}  # fmt: skip

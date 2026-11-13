@@ -26,13 +26,15 @@ from typing import Any
 from datacore import sync
 from datacore.store import TRIALBOX, DataCore
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from tb_common.actor_v3 import Claim
 from rc_bridge import writeback
 from rc_bridge.client import RcError, RedcapClient, api_url, check_token
 from rc_bridge.link import WRITE_FIELDS, LinkError, ProjectLink, read_back, validate
 from tb_common.audit import AuditLog
 from tb_contracts import RegistryUpdate
 
+from orchestrator import actor as route_actor
 from orchestrator.actor import person_of
 from orchestrator.candidates import FORWARD, CandidateRegistry, RegistryError
 from orchestrator.studystore import StudyStore
@@ -316,6 +318,7 @@ def plan(cur: str | None, want: str) -> list[str] | None:
 
 # ---------------------------------------------------------------------------------------------------------- routes
 class SettingsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     study_type: str
     cohort_kind: str
     not_suitable_reasons: list[str]
@@ -324,35 +327,34 @@ class SettingsBody(BaseModel):
     consent_scope: str | None = None
     introduce_rule: str | None = None
     explainer_on: bool = False
-    by: str
 
 
 class ScreenScopeBody(BaseModel):
     """D-146 (review J-26): who the study's screening runs look at."""
 
+    model_config = ConfigDict(extra="forbid")
     mode: str  # "hospital" (every patient of the hospital) | "practitioners"
     practitioners: list[str] = Field(default_factory=list, max_length=200)
-    by: str
 
 
 _PRACT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 
 
 class ConnectionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     url: str
     token: str | None = None  # write-only; omitted = keep the stored one
-    by: str
 
 
 class LinkBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     link: dict[str, Any]
-    by: str
 
 
 class ReadBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     screening: dict[str, str] = Field(default_factory=dict)  # screening number -> pid (the console holds these)
     issued: dict[str, str] = Field(default_factory=dict)  # screening number -> when it was issued (write-back)
-    by: str = BOT
     full: bool = False
 
 
@@ -374,6 +376,14 @@ def _fail(exc: RcError | LinkError) -> HTTPException:
     return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message, "fields": fields})
 
 
+#: T-715d (D-554): the study's own set-up is one study's (``study.setup``); the box's REDCap connections are the
+#: site's, so their claim names no study and asks ``site.setup``. The read keeps the action the derived steps use.
+AS_STUDY = route_actor.require_actor("study.setup")
+AS_SITE = route_actor.require_actor("site.setup")
+AS_READER = route_actor.require_actor("request.prepare", service=True)
+REPORT = [route_actor.report_actor]
+
+
 def router(get: Callable[[], StudyService]) -> APIRouter:
     r = APIRouter()
 
@@ -385,7 +395,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         return row
 
     @r.put("/studies/{rs}/settings")
-    def put_settings(rs: str, body: SettingsBody) -> dict[str, Any]:
+    def put_settings(rs: str, body: SettingsBody, claim: Claim = AS_STUDY) -> dict[str, Any]:
         if body.study_type not in STUDY_TYPES or body.cohort_kind not in COHORT_KINDS:
             raise HTTPException(status_code=400, detail={"code": "STUDY-FIELD", "message": "unknown type or kind"})
         if not body.not_suitable_reasons or any(x not in ALL_REASONS for x in body.not_suitable_reasons):
@@ -396,8 +406,8 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             raise HTTPException(status_code=400, detail={"code": "STUDY-FIELD", "message": "unknown consent scope"})
         svc = get()
         rid = _rs(rs)
-        row = svc.store.save_settings(rid, body.model_dump(exclude={"by"}), body.by, svc.stamp())
-        svc.audit.append("study.settings", ruleset=rid, actor=body.by, detail={"study_type": body.study_type})
+        row = svc.store.save_settings(rid, body.model_dump(), claim.sub, svc.stamp())
+        svc.audit.append("study.settings", ruleset=rid, actor=claim.sub, detail={"study_type": body.study_type})
         return row
 
     @r.get("/studies/{rs}/screen-scope")
@@ -407,7 +417,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         return row or {"ruleset": _rs(rs), "mode": None, "practitioners": []}
 
     @r.put("/studies/{rs}/screen-scope")
-    def put_screen_scope(rs: str, body: ScreenScopeBody) -> dict[str, Any]:
+    def put_screen_scope(rs: str, body: ScreenScopeBody, claim: Claim = AS_STUDY) -> dict[str, Any]:
         pract = [p.strip() for p in body.practitioners if p.strip()]
         if body.mode not in ("hospital", "practitioners"):
             raise HTTPException(status_code=400, detail={"code": "STUDY-FIELD", "message": "unknown screening scope"})
@@ -417,8 +427,8 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             )
         svc = get()
         rid = _rs(rs)
-        row = svc.store.save_screen_scope(rid, body.mode, pract, body.by, svc.stamp())
-        svc.audit.append("study.screen_scope", ruleset=rid, actor=body.by,
+        row = svc.store.save_screen_scope(rid, body.mode, pract, claim.sub, svc.stamp())
+        svc.audit.append("study.screen_scope", ruleset=rid, actor=claim.sub,
                          detail={"mode": body.mode, "practitioners": len(pract)})  # fmt: skip
         return row
 
@@ -428,7 +438,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         return {"connections": svc.store.connections(), "links": svc.store.links()}
 
     @r.put("/redcap/connections/{ref}")
-    def put_connection(ref: str, body: ConnectionBody) -> dict[str, Any]:
+    def put_connection(ref: str, body: ConnectionBody, claim: Claim = AS_SITE) -> dict[str, Any]:
         svc = get()
         try:
             svc.store.token_path(ref)
@@ -440,16 +450,17 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
             raise _fail(exc) from exc
         if token is None and svc.store.token(ref) is None:
             raise HTTPException(status_code=400, detail={"code": "RC-TOKEN", "message": "enter the token once"})
-        svc.store.save_connection(ref, url, body.by, svc.stamp())
+        svc.store.save_connection(ref, url, claim.sub, svc.stamp())
         if token is not None:
             svc.store.put_token(ref, token)
-        svc.audit.append("redcap.connection", actor=body.by, detail={"token_ref": ref, "token_changed": bool(token)})
+        svc.audit.append("redcap.connection", actor=claim.sub,
+                         detail={"token_ref": ref, "token_changed": bool(token)})  # fmt: skip
         conn = svc.store.connection(ref)
         assert conn is not None
         return conn
 
     @r.post("/redcap/connections/{ref}/test")
-    def test_connection(ref: str) -> dict[str, Any]:
+    def test_connection(ref: str, claim: Claim = AS_SITE) -> dict[str, Any]:
         try:
             return get().test_connection(ref)
         except RcError as exc:
@@ -475,25 +486,26 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         return {**row, "reads": svc.store.last_reads(rid)}
 
     @r.put("/studies/{rs}/redcap-link")
-    def put_link(rs: str, body: LinkBody) -> dict[str, Any]:
+    def put_link(rs: str, body: LinkBody, claim: Claim = AS_STUDY) -> dict[str, Any]:
         try:
-            return get().save_link(_rs(rs), body.link, body.by)
+            return get().save_link(_rs(rs), body.link, claim.sub)
         except (RcError, LinkError) as exc:
             raise _fail(exc) from exc
 
     @r.post("/studies/{rs}/redcap-link/test")
-    def test_link(rs: str, body: ReadBody) -> dict[str, Any]:
+    def test_link(rs: str, body: ReadBody, claim: Claim = AS_STUDY) -> dict[str, Any]:
         try:
             return get().test_link(_rs(rs), body.screening)
         except (RcError, LinkError) as exc:
             raise _fail(exc) from exc
 
     @r.post("/studies/{rs}/redcap-read")
-    def run_read(rs: str, body: ReadBody, request: Request) -> dict[str, Any]:
-        # T-715 (D-483): a step derived from the read names the verified person (or the console's nightly timer)
+    def run_read(rs: str, body: ReadBody, request: Request, claim: Claim = AS_READER) -> dict[str, Any]:
+        # T-715d (D-554): the person of the read, and of every step derived from it, is the verified one (or
+        # the console's nightly timer, a service principal this route admits)
         life_by = person_of(request, "request.prepare", service=True)
         try:
-            return get().read(_rs(rs), body.screening, body.by, body.full, body.issued, life_by)
+            return get().read(_rs(rs), body.screening, claim.sub, body.full, body.issued, life_by)
         except (RcError, LinkError) as exc:
             raise _fail(exc) from exc
 
