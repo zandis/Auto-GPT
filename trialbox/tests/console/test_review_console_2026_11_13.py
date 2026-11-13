@@ -40,3 +40,19 @@ def test_the_feasibility_report_dates_the_site_profile_on_the_site_day() -> None
     assert rep["entered"] == {"by": "crc", "at": "2026-11-14"}
     assert st.feas_report({"funnel": []}, None, site, {}, zone=ZoneInfo("Asia/Tokyo"))["entered"]["at"] == "2026-11-14"
     assert st.feas_report({"funnel": []}, None, SiteProfile(), {}, zone=ZoneInfo("Asia/Taipei"))["entered"]["at"] == ""
+
+
+def test_every_role_has_its_own_help_text_in_every_language() -> None:
+    """CON-I18N-1: Help prints ``t('help.role.' + role)``; the steward and the privacy office had no such key in any
+    language, so their Help page showed the raw key ``help.role.steward``. The viewer's text said it reads the audit
+    trail, which only the steward and the privacy office open (D-451)."""
+    import console.app  # noqa: F401 - the pages merge their catalogues into CATALOGUES on import
+    from console.auth import ROLES
+    from console.i18n import CATALOGUES
+
+    for lang, cat in CATALOGUES.items():
+        for role in ROLES:
+            assert f"help.role.{role}" in cat, (lang, role)
+    assert "audit" not in CATALOGUES["en"]["help.role.viewer"]
+    assert "監査" not in CATALOGUES["ja"]["help.role.viewer"]
+    assert "稽核" not in CATALOGUES["zh-TW"]["help.role.viewer"]
