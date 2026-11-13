@@ -306,6 +306,16 @@ def publish_night(
 
     final_dir = snapshot_dir(cfg.lake_dir, snap)
     out = Published(snap, night_dir)
+    try:  # D-529 (review HIGH): every way to the served lake goes through here, a steward's accept included
+        from zoneinfo import ZoneInfo
+
+        from adapter.pipeline import refuse_future_night
+
+        refuse_future_night(snap, datetime.now(ZoneInfo(cfg.tz)).date())
+    except ValueError as exc:
+        out.steps = {s: PENDING for s in STEPS}
+        out.errors.append(f"night {snap} is not published: {exc}")
+        return out
     try:
         recover_all(cfg)
     except SnapshotBuilding as exc:  # a killed re-run's lake build still runs: nothing is read or moved

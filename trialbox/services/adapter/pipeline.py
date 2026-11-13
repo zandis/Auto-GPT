@@ -504,6 +504,18 @@ def _run_ingest(
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
     snap = snapshot or started.date().isoformat()
+    try:  # D-529: before a row, a folder or a lake build exists for it
+        refuse_future_night(snap, started.date())
+    except FutureNight as exc:
+        log.error("night refused: %s", exc)
+        if cfg.audit_dir:  # as a refused site key: the reason is in the audit, not only in the caller's hands
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "ingest.failed",
+                snapshot=snap,
+                actor="adapter",
+                detail={"source": source_kind, "refused": "future_night", "reason": str(exc)},
+            )
+        raise
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
@@ -1273,6 +1285,25 @@ def unmapped_lines(table: str, by_kind: dict[str, dict[str, int]], file: str) ->
             "The night is not held for this (D-530)"
         )
     return out
+
+
+class FutureNight(ValueError):
+    """A night dated after the site's today (D-529): refused, nothing read or written."""
+
+
+def refuse_future_night(snap: str, today: date) -> None:
+    """NEW-PERF-3 (D-529; PERF-009): a night dated after the site's today is refused. Once served, every later
+    night is older than it and is never served ("the box never moves back in time"), and the lake's age check read
+    a future night as 0 days old. A name that is not a date (a tool's, a test's) has no place in time: not judged."""
+    try:
+        night = date.fromisoformat(snap[:10])
+    except ValueError:
+        return
+    if night > today:
+        raise FutureNight(
+            f"night {snap} is dated after today ({today.isoformat()} at the site): it is not ingested. Check the "
+            "date given to the run and the box's clock"
+        )
 
 
 def reject_key(exc: BaseException) -> str:
