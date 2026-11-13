@@ -33,7 +33,8 @@ def _obs(oid: str, pid: str, code: str, value: float, unit: str, day: str | None
     return r
 
 
-PATIENTS = {
+Rows = list[tuple[float, str | None]]
+PATIENTS: dict[str, tuple[Rows, Rows]] = {
     # pid: (hba1c rows, urate rows)
     "P-UNDATED-HIGH": ([(6.1, "2026-08-01"), (11.2, None)], [(6.5, "2026-08-01"), (8.8, None)]),
     "P-DATED-HIGH": ([(11.2, "2026-09-01")], [(8.8, "2026-09-01")]),

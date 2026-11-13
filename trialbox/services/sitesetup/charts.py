@@ -192,16 +192,20 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
         # deep review 2026-11-13 (screening, SCR-02): the test the chart names decides the analyte, and a test
         # TrialBox knows is stored under its own LOINC, the one of the unit it is converted to. The model's code is
         # a guess ("when you are sure"): a creatinine code on a urate line stored the urate value as creatinine, and
-        # urate's moles code (14933-6) on a value stored in mg/dL hid it from a mass-code criterion (lane G, P5)
+        # urate's moles code (14933-6) on a value stored in mg/dL hid it from a mass-code criterion (lane G, P5).
+        # The code of a test TrialBox stores is kept only on a line that names that test: on "BUN" or a urine test
+        # it is dropped (the fact stays, uncoded: a person maps it), never read as the serum test
         named = None if _OTHER_SPECIMEN.search(term) else messy.analyte_of(term)
-        analyte = named or LOINC_ANALYTE.get(code) or ""
+        if system != LOINC or (code in LOINC_ANALYTE and LOINC_ANALYTE[code] != named):
+            code = ""
+        analyte = named or ""
         unit = messy.norm_unit(str(raw.get("unit") or "")) or cell_unit
         conv = messy.convert(analyte, num, unit) if unit else None
         if conv is None:
             return None
         value, stored, _ = conv
-        if analyte in messy.ANALYTES and (named or not code):
-            code, system = messy.ANALYTES[analyte].loinc, LOINC
+        if named:
+            code, system = messy.ANALYTES[named].loinc, LOINC
         return {
             **base,
             "domain": "observation",
