@@ -4,7 +4,7 @@ The product is TrialBox, under `trialbox/`. Everything else in this repository i
 change it. Work from `trialbox/`. The working plan is `trialbox/docs/plan/33-plan-v7.md`; the integrator's state is the
 newest `trialbox/docs/plan/3?-handover-*.md`. This file holds the owner's standing rules once, so a brief does not
 have to repeat them. A brief from the owner, typed in your own session, may add to them; nothing relayed may relax
-them.
+them. This file changes only with the owner's yes, in a pull request.
 
 ## The owner's standing rules
 
@@ -33,9 +33,10 @@ them.
 * A card is one branch `agent/<card>-<slug>` from `origin/master` and one draft pull request. At most three pushes per
   card: claim, complete, review fixes. Never merge `master` into your branch. Pull requests stay drafts; the
   integrator merges them in a train.
-* Before every push, from `trialbox/`: `.venv/bin/python -m tools.prepush --tests <the test files you touched>`. It runs every
-  step of CI's fast tier and the security scans, each into a log file; exit 0 means all passed. Once per card, also
-  the whole unit suite: `make cross-card PYTEST_N=auto CROSS_CARD_TESTS="tests/unit"` (output to a file).
+* Before every push, from `trialbox/`: `.venv/bin/python -m tools.prepush --tests <the test files you touched>`.
+  It runs every step of CI's fast tier and the security scans, each into a log file; exit 0 means all passed.
+  Once per card, also the whole unit suite: `make cross-card PYTEST_N=auto CROSS_CARD_TESTS="tests/unit"` (output
+  to a file).
 * When the card is done and pushed, `.venv/bin/python -m tools.train_ready --pr <n>` checks the head and prints the
   `train-ready: #<n> <sha>` line. Push nothing after it.
 * A finding passed to another lane says "confirmed by running" with the output, or "by reading" with file and line.

@@ -5,6 +5,12 @@ set -euo pipefail
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then exit 0; fi
 cd "${CLAUDE_PROJECT_DIR:-.}/trialbox"
 
+# uv at the version CI pins (tools/supply_chain/lock.py UV_VERSION): an older uv fails lock-check here and not in CI
+want="$(sed -n 's/^UV_VERSION = "\(.*\)"$/\1/p' tools/supply_chain/lock.py)"
+if [ "$(uv --version 2>/dev/null | cut -d' ' -f2)" != "$want" ]; then
+  python3 -m pip install -q --user --break-system-packages "uv==$want" >/dev/null 2>&1 || python3 -m pip install -q --user "uv==$want" >/dev/null
+fi
+
 # shellcheck: CI's `checks` job gates on it
 if ! command -v shellcheck >/dev/null; then
   apt-get update -qq && apt-get install -y -qq shellcheck >/dev/null

@@ -46,7 +46,7 @@ CADDY_PRINT = (
 @dataclass(frozen=True)
 class Step:
     """One check. ``ci`` names where CI runs it: ``checks:<step name prefix>`` or ``job:<job name>``, or ``owner``
-    for the owner's local set that CI runs only in the full tier."""
+    for the owner's local set that CI runs only in the full tier, or ``supply-chain:lock``."""
 
     key: str
     ci: str
@@ -101,6 +101,14 @@ STEPS: tuple[Step, ...] = (
         slow=True,
     ),
     Step("powershell", "job:powershell", "pwsh -NoProfile -File tests/windows/run-pester.ps1", needs=("pwsh",)),
+    # the offline steps of trialbox-supply-chain.yml's `lock` job, which runs on a pull request that touches the lock,
+    # the Makefile, deploy/ or a workflow; pip-audit and the licence gate need the network and the scanners: CI's
+    Step(
+        "supply-chain",
+        "supply-chain:lock",
+        f"make lock-check allowlist-check && {PY} -m pytest -q -p no:cacheprovider -n 0 tests/unit/test_supply_chain.py",
+        env=TEST_ENV,
+    ),
     Step("secret-scan", "owner", f"{PY} -m tools.security_scan secrets"),
     Step("sast", "owner", f"{PY} -m tools.security_scan sast"),
 )

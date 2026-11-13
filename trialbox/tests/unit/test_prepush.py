@@ -15,6 +15,7 @@ from tools import prepush
 
 ROOT = Path(__file__).resolve().parents[2]
 CI = ROOT.parent / ".github" / "workflows" / "trialbox-ci.yml"
+SUPPLY = ROOT.parent / ".github" / "workflows" / "trialbox-supply-chain.yml"
 FULL_GATE = "needs.changes.outputs.full == 'true'"
 #: run by another means here: CI runs actionlint in a container and caddy in its pinned image; the local step calls
 #: the installed actionlint and the same pinned caddy image
@@ -117,3 +118,12 @@ def test_an_unknown_step_is_refused() -> None:
 def test_a_step_whose_input_is_missing_is_skipped_not_failed(tmp_path: Path) -> None:
     step = prepush.Step("needs-input", "owner", "exit 9", ready=("false", "an input (fetch it)"))
     assert prepush.run_step(step, tmp_path / "n.log", tmp_path)[0] == "skipped: an input missing"
+
+
+def test_the_offline_steps_of_the_supply_chain_lock_job_run_locally() -> None:
+    doc = yaml.safe_load(SUPPLY.read_text(encoding="utf-8"))
+    runs = " ".join(s.get("run", "") for s in doc["jobs"]["lock"]["steps"])
+    step = next(s for s in prepush.STEPS if s.ci == "supply-chain:lock")
+    for needle in ("make lock-check", "make allowlist-check", "-m pytest -q tests/unit/test_supply_chain.py"):
+        assert needle in runs, f"CI's lock job no longer runs `{needle}`: change tools/prepush.py with it"
+    assert "lock-check" in step.shell and "allowlist-check" in step.shell and "test_supply_chain.py" in step.shell
