@@ -120,14 +120,14 @@
     "zh-TW": "{0} 已存在，且不是 TrialBox 寫入的，因此未做變更。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值，而不是依這台機器計算。"
   },
   "distro_exists": {
-    "en": "A WSL system named {0} already exists on this account, and this install did not make it. The installer never replaces or removes one: it may hold a TrialBox with data. Nothing was changed.",
-    "ja": "このアカウントには {0} という名前の WSL システムがすでにあり、今回のインストールで作ったものではありません。インストーラーは既存のものを置き換えたり削除したりしません。データを持つ TrialBox かもしれません。何も変更していません。",
-    "zh-TW": "此帳戶已有名為 {0} 的 WSL 系統，而且不是這次安裝建立的。安裝程式絕不取代或移除既有的系統：其中可能是存有資料的 TrialBox。沒有做任何變更。"
+    "en": "A WSL system named {0} already exists on this account, and this install did not make it. The installer never replaces or removes one: it may hold a TrialBox with data. The installer did not touch it.",
+    "ja": "このアカウントには {0} という名前の WSL システムがすでにあり、今回のインストールで作ったものではありません。インストーラーは既存のものを置き換えたり削除したりしません。データを持つ TrialBox かもしれません。インストーラーはそれに手を付けていません。",
+    "zh-TW": "此帳戶已有名為 {0} 的 WSL 系統，而且不是這次安裝建立的。安裝程式絕不取代或移除既有的系統：其中可能是存有資料的 TrialBox。安裝程式沒有動它。"
   },
   "vhdx_exists": {
-    "en": "A virtual disk is already there: {0}. It may hold a TrialBox with data. The installer never replaces or removes one. Nothing was changed.",
-    "ja": "仮想ディスクがすでにあります: {0}。データを持つ TrialBox かもしれません。インストーラーは既存のものを置き換えたり削除したりしません。何も変更していません。",
-    "zh-TW": "已有虛擬磁碟：{0}。其中可能是存有資料的 TrialBox。安裝程式絕不取代或移除既有的虛擬磁碟。沒有做任何變更。"
+    "en": "A virtual disk is already there: {0}. It may hold a TrialBox with data. The installer never replaces or removes one. The installer did not touch it.",
+    "ja": "仮想ディスクがすでにあります: {0}。データを持つ TrialBox かもしれません。インストーラーは既存のものを置き換えたり削除したりしません。インストーラーはそれに手を付けていません。",
+    "zh-TW": "已有虛擬磁碟：{0}。其中可能是存有資料的 TrialBox。安裝程式絕不取代或移除既有的虛擬磁碟。安裝程式沒有動它。"
   },
   "importing": {
     "en": "Setting up the Linux system {0} in {1}.",
@@ -238,5 +238,100 @@
     "en": "The start-at-boot task {0} was missing, disabled or for another system: it was registered again.",
     "ja": "起動時タスク {0} が存在しないか、無効か、別のシステム用になっていたため、登録し直しました。",
     "zh-TW": "開機啟動工作 {0} 不存在、已停用或指向其他系統：已重新登錄。"
+  },
+  "bitlocker_skipped": {
+    "en": "Warning: BitLocker was left as it is (-SkipBitLocker, for a rehearsal only). TrialBox's host check fails a drive that is not encrypted.",
+    "ja": "注意: BitLocker は現状のままにしました（-SkipBitLocker、リハーサル専用）。暗号化されていないドライブは TrialBox のホスト検査で不合格になります。",
+    "zh-TW": "警告：BitLocker 維持現狀（-SkipBitLocker，僅供演練）。未加密的磁碟機無法通過 TrialBox 的主機檢查。"
+  },
+  "no_tpm": {
+    "en": "This machine has no security chip (TPM) that is on and ready. BitLocker with the TPM needs one: turn the TPM on in the firmware (BIOS) settings, then start the installer again. Nothing was changed.",
+    "ja": "この機械には、有効で使用可能なセキュリティチップ（TPM）がありません。TPM による BitLocker に必要です。ファームウェア（BIOS）設定で TPM を有効にしてから、もう一度インストーラーを起動してください。何も変更していません。",
+    "zh-TW": "這台機器沒有已啟用且可用的安全晶片（TPM）。以 TPM 解鎖的 BitLocker 需要它：請在韌體（BIOS）設定中啟用 TPM，然後再啟動安裝程式。沒有做任何變更。"
+  },
+  "bitlocker_suspended": {
+    "en": "BitLocker on drive {0} is suspended or being removed (state {1}). The installer does not change a drive in that state. Resume BitLocker in Windows, then start the installer again.",
+    "ja": "ドライブ {0} の BitLocker は中断中または解除中です（状態 {1}）。インストーラーはその状態のドライブを変更しません。Windows で BitLocker を再開してから、もう一度インストーラーを起動してください。",
+    "zh-TW": "磁碟機 {0} 的 BitLocker 已暫停或正在解除（狀態 {1}）。安裝程式不會變更處於該狀態的磁碟機。請在 Windows 中恢復 BitLocker，然後再啟動安裝程式。"
+  },
+  "no_tpm_protector": {
+    "en": "Drive {0} is encrypted, but the TPM does not open it by itself (its unlock methods: {1}). With the setting tpm, TrialBox needs the system drive to open with nobody there. Ask the box owner to add the TPM in Windows' BitLocker settings, or choose tpm_pin.",
+    "ja": "ドライブ {0} は暗号化されていますが、TPM だけでは開きません（解除方法: {1}）。設定 tpm では、誰もいなくてもシステムドライブが開く必要があります。ボックスの管理責任者に、Windows の BitLocker 設定で TPM を追加するよう依頼するか、tpm_pin を選んでください。",
+    "zh-TW": "磁碟機 {0} 已加密，但無法僅由 TPM 自行解鎖（解鎖方式：{1}）。設定為 tpm 時，TrialBox 需要系統磁碟機在無人時也能開啟。請主機負責人在 Windows 的 BitLocker 設定中加入 TPM，或改選 tpm_pin。"
+  },
+  "tpm_pin_missing": {
+    "en": "You chose a PIN at every restart (tpm_pin), but drive {0} has no TPM-and-PIN unlock yet. Set it up with your IT first (it needs a Windows policy), then start the installer again. The installer does not set a PIN.",
+    "ja": "再起動のたびに PIN を入力する方式（tpm_pin）を選びましたが、ドライブ {0} にはまだ TPM と PIN による解除がありません。先に IT 部門と設定し（Windows のポリシーが必要です）、もう一度インストーラーを起動してください。インストーラーは PIN を設定しません。",
+    "zh-TW": "您選擇了每次重新啟動都輸入 PIN（tpm_pin），但磁碟機 {0} 尚未設定 TPM 加 PIN 的解鎖。請先與資訊單位設定（需要 Windows 原則），然後再啟動安裝程式。安裝程式不會設定 PIN。"
+  },
+  "recovery_show": {
+    "en": "BitLocker recovery key for drive {0}. Without it, a broken security chip loses everything on the drive. Write it down or print it, and keep it away from this PC. The installer stores it nowhere.",
+    "ja": "ドライブ {0} の BitLocker 回復キーです。これがないと、セキュリティチップが故障したときにドライブの内容をすべて失います。書き写すか印刷し、この PC とは別の場所に保管してください。インストーラーはどこにも保存しません。",
+    "zh-TW": "磁碟機 {0} 的 BitLocker 修復金鑰。若沒有它，安全晶片故障時將失去磁碟機上的所有內容。請抄寫或列印，並保存在這台電腦以外的地方。安裝程式不會將它儲存在任何地方。"
+  },
+  "recovery_print_ask": {
+    "en": "Print it now on the printer '{0}'? Only if that printer is beside you and keeps no copy. Type y and Enter, or just Enter for no",
+    "ja": "プリンター「{0}」で今すぐ印刷しますか。そのプリンターが手元にあり、控えを残さない場合だけにしてください。印刷する場合は y と Enter、しない場合は Enter のみ",
+    "zh-TW": "要立即以印表機「{0}」列印嗎？僅在該印表機就在您身邊且不會留存副本時才列印。要列印請輸入 y 後按 Enter，不列印請直接按 Enter"
+  },
+  "recovery_printed": {
+    "en": "Sent to the printer '{0}'. Collect the page now.",
+    "ja": "プリンター「{0}」に送りました。今すぐ用紙を回収してください。",
+    "zh-TW": "已送至印表機「{0}」。請立即取回紙張。"
+  },
+  "recovery_print_failed": {
+    "en": "Printing did not work ({0}). Write the key down by hand.",
+    "ja": "印刷できませんでした（{0}）。キーを手で書き写してください。",
+    "zh-TW": "列印失敗（{0}）。請手抄金鑰。"
+  },
+  "recovery_confirm": {
+    "en": "Type the last six digits of the key to confirm you have it; the window is then cleared (just Enter stops the installer)",
+    "ja": "キーを控えたことの確認として、末尾の 6 桁を入力してください。入力後、ウィンドウの表示を消去します（Enter のみでインストーラーを中止します）",
+    "zh-TW": "請輸入金鑰的最後六位數字，以確認您已保存；之後視窗內容會被清除（直接按 Enter 會停止安裝程式）"
+  },
+  "recovery_wrong": {
+    "en": "Those are not the last six digits. Look at the key above and try again.",
+    "ja": "末尾の 6 桁と一致しません。上のキーを確認して、もう一度入力してください。",
+    "zh-TW": "與最後六位數字不符。請查看上方的金鑰後再試一次。"
+  },
+  "recovery_needs_person": {
+    "en": "Drive {0}: the recovery key must be handed to a person, and nobody confirmed it. Start the installer again (without -Yes) with the box owner at the keyboard.",
+    "ja": "ドライブ {0}: 回復キーは人に渡す必要がありますが、確認されませんでした。ボックスの管理責任者がキーボードの前にいる状態で、（-Yes を付けずに）もう一度インストーラーを起動してください。",
+    "zh-TW": "磁碟機 {0}：修復金鑰必須交給人保管，但沒有人確認。請在主機負責人於鍵盤前時（不加 -Yes）再次啟動安裝程式。"
+  },
+  "recovery_unreadable": {
+    "en": "Windows did not give the recovery key of drive {0}. Open Windows' BitLocker settings and back up the recovery key there, then start the installer again.",
+    "ja": "Windows からドライブ {0} の回復キーを取得できませんでした。Windows の BitLocker 設定を開いて回復キーをバックアップしてから、もう一度インストーラーを起動してください。",
+    "zh-TW": "Windows 未提供磁碟機 {0} 的修復金鑰。請開啟 Windows 的 BitLocker 設定並備份修復金鑰，然後再啟動安裝程式。"
+  },
+  "recovery_unconfirmed": {
+    "en": "Warning: drive {0} is encrypted, and nobody confirmed that its recovery key is held (-Yes asks no question). Start the installer once without -Yes to see and confirm the key.",
+    "ja": "注意: ドライブ {0} は暗号化されていますが、回復キーを保管していることが確認されていません（-Yes では質問しません）。-Yes を付けずに一度インストーラーを起動し、キーを表示して確認してください。",
+    "zh-TW": "警告：磁碟機 {0} 已加密，但沒有人確認已保存其修復金鑰（-Yes 不會提問）。請不加 -Yes 啟動安裝程式一次，以查看並確認金鑰。"
+  },
+  "bitlocker_on": {
+    "en": "BitLocker protects drive {0}. Encryption of the rest of the drive goes on by itself.",
+    "ja": "ドライブ {0} は BitLocker で保護されています。残りの領域の暗号化は自動的に進みます。",
+    "zh-TW": "磁碟機 {0} 已受 BitLocker 保護。其餘空間的加密會自行繼續。"
+  },
+  "bitlocker_unlock": {
+    "en": "Disk unlock: {0}. With the setting tpm this PC starts by itself after a restart; a person who steals the whole PC still meets the Windows sign-in and the TrialBox sign-in.",
+    "ja": "ディスクの解除方式: {0}。設定 tpm では、再起動後にこの PC は自動で起動します。PC ごと盗まれた場合でも、Windows のサインインと TrialBox のサインインが残ります。",
+    "zh-TW": "磁碟解鎖方式：{0}。設定為 tpm 時，這台電腦重新啟動後會自行啟動；即使整台電腦被竊，仍有 Windows 登入與 TrialBox 登入把關。"
+  },
+  "transcription_on": {
+    "en": "This PC records every PowerShell window to a file (a Windows policy, 'PowerShell transcription'). The recovery key of drive {0} would be written into that record, so the installer does not show it. Ask your IT to turn BitLocker on for this PC and give you the recovery key, or to switch that policy off for the install; then start the installer again.",
+    "ja": "この PC は、すべての PowerShell ウィンドウの内容をファイルに記録しています（Windows のポリシー「PowerShell トランスクリプション」）。ドライブ {0} の回復キーがその記録に書き込まれてしまうため、インストーラーは表示しません。IT 部門に、この PC の BitLocker を有効にして回復キーを渡してもらうか、インストールの間そのポリシーを無効にしてもらってから、もう一度インストーラーを起動してください。",
+    "zh-TW": "這台電腦會將每個 PowerShell 視窗的內容記錄到檔案（Windows 原則「PowerShell 轉錄」）。磁碟機 {0} 的修復金鑰會被寫入該記錄，因此安裝程式不會顯示它。請資訊單位為這台電腦開啟 BitLocker 並將修復金鑰交給您，或在安裝期間關閉該原則；然後再啟動安裝程式。"
+  },
+  "autounlock_failed": {
+    "en": "Drive {0} is now encrypted and you hold its recovery key, but Windows did not set it to open together with the system drive ({1}). Until that works, the drive asks for its key after a restart. Start the installer again; if it stops here again, send the log to Aimedics.",
+    "ja": "ドライブ {0} は暗号化され、回復キーはお手元にありますが、Windows がシステムドライブと同時に開く設定を受け付けませんでした（{1}）。この設定ができるまで、再起動後にこのドライブは回復キーを求めます。もう一度インストーラーを起動してください。再びここで止まる場合は、記録を Aimedics に送ってください。",
+    "zh-TW": "磁碟機 {0} 已加密，修復金鑰也在您手上，但 Windows 未能將它設定為隨系統磁碟機一起解鎖（{1}）。在此設定成功之前，重新啟動後該磁碟機會要求輸入金鑰。請再次啟動安裝程式；若仍停在這裡，請將記錄寄給 Aimedics。"
+  },
+  "bitlocker_stays": {
+    "en": "Note: this install turned BitLocker on for {0}. That stays, whether or not the install is finished; you hold the recovery keys.",
+    "ja": "ご注意: 今回のインストールで {0} の BitLocker を有効にしました。インストールが完了してもしなくても、そのまま残ります。回復キーはお手元にあります。",
+    "zh-TW": "注意：這次安裝已為 {0} 開啟 BitLocker。無論安裝是否完成，它都會保留；修復金鑰在您手上。"
   }
 }
