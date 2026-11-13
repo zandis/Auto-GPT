@@ -81,6 +81,9 @@ BACKUP_VOLUMES = {
 }
 
 
+FHIR_PW = "TB_DB_PW_FHIR_STORE"  # D-541: the FHIR store's own database role
+
+
 class UpdateFailed(RuntimeError):
     pass
 
@@ -392,12 +395,14 @@ RESTORE_SH = (
     '{ printf "%s\\n" "$3"; cat "$t"; } | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$1" -d "$2"'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
-# its relations in public (not an extension's). The dump's script then re-creates exactly what it holds.
+# its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
+# owns `hapi`'s tables; the restore runs as the superuser). The dump's script then re-creates exactly what it holds.
 RESET_SQL = """DO $tb$
 DECLARE r record;
 BEGIN
   FOR r IN SELECT n.nspname FROM pg_namespace n
-           WHERE n.nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+           WHERE n.nspowner IN ((SELECT oid FROM pg_roles WHERE rolname = current_user),
+                                (SELECT datdba FROM pg_database WHERE datname = current_database()))
              AND n.nspname <> 'public' AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_namespace'::regclass
                              AND d.objid = n.oid AND d.deptype = 'e')
@@ -406,7 +411,8 @@ BEGIN
   END LOOP;
   FOR r IN SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-             AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+             AND c.relowner IN ((SELECT oid FROM pg_roles WHERE rolname = current_user),
+                                (SELECT datdba FROM pg_database WHERE datname = current_database()))
              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
                              AND d.objid = c.oid AND d.deptype = 'e')
   LOOP
@@ -1246,6 +1252,29 @@ class ComposeBox(_DockerImages):
         self.run(self._c("up", "-d", "--pull", self._pull(), *again, "--wait", "--wait-timeout", t, "db"),
                  timeout=int(t) + 120)  # fmt: skip
         return "made again: it held another release's scripts" if again else "on this release's settings"
+
+    def fhir_password_set(self) -> bool:
+        """Whether ``.env`` holds a password for the FHIR store's role: not empty and not the example file's
+        placeholder, quoted or not (compose strips the quotes)."""
+        fhir = self.env.get(FHIR_PW, "").strip().strip("'\"")
+        return bool(fhir) and not fhir.startswith("change-me")
+
+    def ensure_fhir_password(self) -> bool:
+        """D-541 (NEW-TRUST-1): a box installed before the FHIR store had a role of its own has no password for it
+        in ``.env``. Made here, a pre-start step (``tools/trialbox/prestart.py``): the database container is then
+        put on this release's settings (D-624) and the role script reads the password from the container's
+        environment, never from a command line. True when it was made now."""
+        from tools.trialbox import svc_secrets
+
+        if self.fhir_password_set():
+            return False
+        fhir = secrets.token_urlsafe(32)
+        try:
+            svc_secrets._set_env(self.deploy / ".env", {FHIR_PW: fhir})
+        except OSError as e:
+            raise UpdateFailed(f"the FHIR store's database password could not be written to .env: {e}") from e
+        self.env[FHIR_PW] = fhir
+        return True
 
     def set_roles(self) -> bool:
         """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box

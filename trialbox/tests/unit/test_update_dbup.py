@@ -69,7 +69,8 @@ def _box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, tree: str) -> tuple
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     (deploy / ".env").write_text(
-        "TB_SITE_ID=T\nTB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n", encoding="utf-8"
+        "TB_SITE_ID=T\nTB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        encoding="utf-8",
     )
     if tree != "none":  # what apply_host leaves: the install folder's tools/ is the new release's
         pkg = tmp_path / "tools" / "trialbox"
@@ -142,9 +143,23 @@ def _steps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str) -> tuple[l
 def test_this_releases_steps_are_the_database_then_the_roles_then_the_owned_schemas(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    lines, calls = _steps(tmp_path, monkeypatch, "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n")
-    assert [name for name, _ in prestart.DB_STEPS] == ["database", "service roles", "owned schemas"]
-    assert [ln.split(":")[1].strip() for ln in lines] == ["database", "service roles", "owned schemas"]
+    lines, calls = _steps(
+        tmp_path,
+        monkeypatch,
+        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+    )
+    assert [name for name, _ in prestart.DB_STEPS] == [
+        "FHIR store password is set",
+        "database",
+        "service roles",
+        "owned schemas",
+    ]
+    assert [ln.split(":")[1].strip() for ln in lines] == [
+        "FHIR store password is set",
+        "database",
+        "service roles",
+        "owned schemas",
+    ]
     assert all(ln.startswith("db-up: ") for ln in lines)
     # the role script reads each service's password from the database container's environment: a release that adds
     # a role needs the container on the NEW settings first, or the role is made without a password
@@ -160,7 +175,7 @@ def test_a_box_that_never_ran_the_installers_database_step_is_left_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lines, calls = _steps(tmp_path, monkeypatch, "TB_SITE_ID=T\n")
-    assert calls == [] and len(lines) == 3
+    assert calls == [] and len(lines) == len(prestart.DB_STEPS) == 4
 
 
 def test_the_command_refuses_a_deploy_folder_that_is_not_there(tmp_path: Path) -> None:
@@ -170,7 +185,11 @@ def test_the_command_refuses_a_deploy_folder_that_is_not_there(tmp_path: Path) -
 def test_the_pull_setting_is_checked_as_at_the_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_INSTALL_PULL", "always")
     with pytest.raises(up.UpdateFailed, match="TB_INSTALL_PULL"):
-        _steps(tmp_path, monkeypatch, "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n")
+        _steps(
+            tmp_path,
+            monkeypatch,
+            "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        )
 
 
 # ---------------------------------------------------------------------------------------------- from the review
@@ -179,7 +198,10 @@ def test_review_a_failed_step_is_named(tmp_path: Path, monkeypatch: pytest.Monke
     step's name the operator could not tell the roles from the schemas."""
     deploy = tmp_path / "deploy"
     deploy.mkdir()
-    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n", encoding="utf-8")
+    (deploy / ".env").write_text(
+        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        encoding="utf-8",
+    )
 
     def fake(argv: Sequence[str], **_kw: Any) -> str:
         if "orchestrator.migrate" in argv:
@@ -200,7 +222,7 @@ def test_review_the_real_command_names_its_three_steps(tmp_path: Path) -> None:
                        capture_output=True, text=True, cwd=ROOT, check=False)  # fmt: skip
     assert r.returncode == 0, r.stderr
     names = [ln.split(":")[1].strip() for ln in r.stdout.splitlines() if ln.startswith("db-up: ")]
-    assert names == ["database", "service roles", "owned schemas"]
+    assert names == ["FHIR store password is set", "database", "service roles", "owned schemas"]
 
 
 def test_review_the_install_gives_the_command_no_compose_line_of_its_own() -> None:
@@ -250,7 +272,10 @@ def test_review_the_database_container_is_made_again_when_it_holds_another_relea
         (tmp_path / rel).mkdir(parents=True)
     (deploy / "docker").mkdir(parents=True)
     (deploy / "docker" / "db-init").symlink_to(tmp_path / "releases" / "new" / "db-init")
-    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\n", encoding="utf-8")
+    (deploy / ".env").write_text(
+        "TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_DB_PW_FHIR_STORE=synthetic-fhir-store\n",
+        encoding="utf-8",
+    )
     calls: list[list[str]] = []
 
     def fake(argv: Sequence[str], **_kw: Any) -> str:
