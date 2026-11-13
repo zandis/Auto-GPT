@@ -55,6 +55,7 @@ from decimal import Decimal
 from typing import Any
 
 from lake.flatten import (
+    ATC_SYSTEM,
     DEMOGRAPHIC,
     EARLIEST_YEAR,
     NOT_PRESENT,
@@ -460,7 +461,8 @@ class _Builder:
         nhi = atc = nhi_sys = atc_sys = None
         for c in cc.get("coding") or []:  # the flattener's own reading (``Flattener.medication``), systems kept
             if is_atc_system(c.get("system")):  # D-536: the flattener's own test, so the two readings agree
-                atc, atc_sys = c.get("code"), c.get("system")
+                # the system by its one name, so the vocabulary finds it whichever accepted spelling was sent
+                atc, atc_sys = c.get("code"), ATC_SYSTEM
             elif nhi is None:
                 nhi, nhi_sys = c.get("code"), c.get("system")
         if (nhi, atc) != (m["nhi_code"], m["atc"]):  # the two readings must agree

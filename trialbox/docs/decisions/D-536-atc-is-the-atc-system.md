@@ -24,7 +24,13 @@ code column was empty.
 2. **Both readers use it**: the flattener and the OMOP loader (whose `atc_src` mark is what the OMOP-sourced lake
    reads its `atc` column from), so their two readings still agree.
 
+3. **The OMOP loader records the system by its one name** (`http://www.whocc.no/atc`) whichever accepted spelling
+   was sent, so the vocabulary finds the standard concept for the OID and the `https` spellings too.
+
 ## Consequences
+
+- What changes at the edges, beyond house systems: a system with a version suffix (`.../atc|2024`) or without
+  `www.` was taken for ATC by the letters and is not now; the upper-case spelling and the OID were not and are.
 
 - A code in a house system that holds the letters is the order's own code (`nhi_code`, the lake's "first code
   that is not ATC") and is no longer in `atc`. Every mapping the box ships names ATC as `http://www.whocc.no/atc`
@@ -32,6 +38,11 @@ code column was empty.
 - A site that sent ATC under an address of its own (`https://hospital.example/atc`) loses its `atc` column until
   its mapping names the ATC system. That is the mapping saying what the code is, which is its job; the unmapped
   counter does not see it (the code is kept, in the other column).
+
+- **A site that really sends ATC under an address of its own is not told.** Its codes move to the other column;
+  a drug-class exclusion on ATC then stops firing for that site, silently (inclusions are counted as "unknown
+  code system" by the coverage check, exclusions are not). The place to refuse it is the mapping's own check
+  (`systems.atc` must be the ATC system): the mapping lane's, sent as a finding.
 
 ## Not decided here
 
