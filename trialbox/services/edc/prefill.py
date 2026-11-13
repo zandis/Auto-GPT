@@ -95,13 +95,14 @@ class LakeFacts:
         return self._q(_SQL[source], [pid]) if source in _SQL else []
 
     def site_facts(self, pid: str) -> list[dict[str, Any]]:
-        try:
-            return self._q("SELECT fid, domain, coalesce(code, '') AS code, d, basis FROM site_fact WHERE pid = $1",
-                           [pid])  # fmt: skip
-        except Exception as exc:  # a snapshot built before site facts existed holds none
-            if "site_fact" in str(exc):
-                return []
-            raise
+        """The patient's site facts. A snapshot built before site facts existed holds none: told by the lake's own
+        answer to "is the table there" (``tb_common.lakeprobe``, D-649), never by an error's words (D-684). Any
+        other failure stops the draft: no facts read is not "no facts" (a proposed fact holds a draft back)."""
+        from tb_common.lakeprobe import rows_or_no_table
+
+        sql = "SELECT fid, domain, coalesce(code, '') AS code, d, basis FROM site_fact WHERE pid = $1"
+        rows = rows_or_no_table(self.lake, sql, [pid], self._snap or None, "site_fact")
+        return [] if rows is None else rows
 
     def notes(self, pid: str, until: date) -> list[dict[str, Any]]:
         return self._q(

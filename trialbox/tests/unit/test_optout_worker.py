@@ -579,3 +579,43 @@ def test_low_b_the_first_tick_runs_at_start(monkeypatch: pytest.MonkeyPatch) -> 
         assert ran, "the first tick waits for one interval"
     finally:
         sched.shutdown(wait=False)
+
+
+# ------------------------------------------------------------------------------------------------ D-684: no snapshot
+def test_a_lake_that_cannot_name_its_snapshot_is_a_failed_registry_and_the_clears_run(db_url: str) -> None:
+    """A lake that does not answer (its client raises) is not "nothing to read": the tick names the registry as
+    failed, and the stores are still cleared by the register."""
+    from datacore.optout_worker import run_once
+
+    class Down(Lake):
+        def snapshot(self) -> str:
+            raise ConnectionError("the lake does not answer")
+
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)
+    jobs, audit = Jobs(), Audit()
+    out = run_once(_env(reg, jobs=jobs, lake=Down(None), audit=audit))
+    assert out["failed"] == ["registry"] and out["registry"] is None
+    assert ("GZQO", A) not in jobs.pool and "registry_not_read" not in out
+    reg.close()
+
+
+def test_a_lake_with_no_snapshot_yet_is_said_in_the_tick_not_passed_over(db_url: str) -> None:
+    """A lake that answers "no snapshot" (a box before its first night) has no registry to read. That is not a
+    failure, and it is not silent either: the tick's result and its audit event say the registry was not read
+    and why, so a box that stays without a snapshot shows in every tick."""
+    from datacore.optout_worker import run_once
+
+    class Empty(Lake):
+        def snapshot(self) -> Any:
+            return None
+
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)
+    jobs, audit = Jobs(), Audit()
+    out = run_once(_env(reg, jobs=jobs, lake=Empty(None), audit=audit))
+    assert out["failed"] == [] and out["registry"] is None
+    assert out["registry_not_read"] == "no snapshot"
+    assert audit.events[-1][1]["detail"]["registry_not_read"] == "no snapshot"
+    assert ("GZQO", A) not in jobs.pool
+    reg.close()

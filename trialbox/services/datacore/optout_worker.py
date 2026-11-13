@@ -263,6 +263,8 @@ def run_once(env: WorkerEnv) -> dict[str, Any]:
         try:
             snap = env.lake.snapshot()
             state = registry_state(env.lake, snap, env.now.date().isoformat()) if snap else None
+            if not snap:  # D-684: a lake with no snapshot yet has no registry to read: said, never passed over
+                out["registry_not_read"] = "no snapshot"
             if state is not None:
                 added, lifted = sync_registry(env.register, state, at)
                 out["registry"] = {"added": added, "lifted": lifted}
