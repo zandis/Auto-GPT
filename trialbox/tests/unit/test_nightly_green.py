@@ -75,6 +75,25 @@ def test_the_nightly_fetches_the_public_corpus_before_the_public_walk() -> None:
     assert steps[fetch].get("if") == steps[walk].get("if") == "matrix.run == 'public-e2e'"
 
 
+def test_the_compose_job_fetches_the_public_corpus_before_its_browser_walk() -> None:
+    """The nightly of 2026-11-13: the compose job's walk of the public console stopped at "the MedTxt corpus is not
+    in .cache/medtxt: fetch it once with `make public-data`". Only the public-e2e run fetched it (D-639)."""
+    steps = _yaml(NIGHTLY)["jobs"]["compose"]["steps"]
+    runs = [str(s.get("run", "")) for s in steps]
+    fetch = next(i for i, r in enumerate(runs) if "make public-data" in r)
+    walk = next(i for i, r in enumerate(runs) if r.startswith("make walk"))
+    assert (
+        fetch < walk and "if" not in steps[fetch]
+    )  # always, and before the stack is up: a fetch that fails stops early
+    cache = next(s for s in steps if "trialbox/.cache/medtxt" in str((s.get("with") or {}).get("path", "")))
+    public = next(
+        s for s in _yaml(NIGHTLY)["jobs"]["nightly"]["steps"]
+        if "trialbox/.cache/medtxt" in str((s.get("with") or {}).get("path", ""))
+    )  # fmt: skip
+    assert cache["uses"] == public["uses"] and cache["with"]["key"] == public["with"]["key"]  # one cache, both jobs
+    assert steps.index(cache) < fetch < next(i for i, r in enumerate(runs) if "make up-test" in r)
+
+
 def test_a_missing_corpus_is_one_line_that_names_the_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from tools import medtxt_eval, public_site
 
