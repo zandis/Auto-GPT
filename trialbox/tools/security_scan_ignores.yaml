@@ -74,7 +74,6 @@ sast:
   - {path: tools/catalogue_verify.py, rule: B310, count: 1, reason: "fixed https registry URLs; build-side tool"}
   - {path: tools/chat_template_check.py, rule: B310, count: 1, reason: "the registry row's own https source at its pinned revision (scheme checked first); cloud-run tool, not in the box"}
   - {path: tools/fetch_fhir_packages.py, rule: B310, count: 1, reason: "fixed https package URLs; build-side tool (hash pinning is ENG-013)"}
-  - {path: tools/fetch_fonts.py, rule: B310, count: 1, reason: "fixed https font URLs; build-side tool (hash pinning is ENG-013)"}
   - {path: tools/fetch_open_data.py, rule: B310, count: 1, reason: "fixed https public-data URLs; build-side tool"}
   - {path: tools/gen_calendar.py, rule: B310, count: 1, reason: "public calendar URLs; build-side tool"}
   - {path: tools/jpcore_rules.py, rule: B310, count: 1, reason: "fixed https package URL, checked by sha256"}

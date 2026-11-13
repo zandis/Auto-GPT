@@ -117,6 +117,17 @@ def test_promote_takes_high_and_review_tiers_once(reg: CandidateRegistry) -> Non
     assert reg.promote("OTHER", RegistryPromote(by="pi@hospa.test"), NOW) == 0  # no pool, nothing to add
 
 
+def test_a_typed_reason_is_text_in_the_export_never_a_formula(reg: CandidateRegistry) -> None:
+    """NEW-CSV-1 (D-549): the coordinator's reason is typed; a spreadsheet must not run it."""
+    typed = '=HYPERLINK("http://example.test","open")'
+    reg.promote("GZQO", RegistryPromote(by="pi@hospa.test"), NOW)
+    reg.update("GZQO", _upd(pid=pid_for_mrn(KEY, "10000001"), status="contacted", reason=typed), NOW)
+    wb = load_workbook(io.BytesIO(reg.export_xlsx("GZQO", "DEMO-A")))
+    cells = [c for ws in wb.worksheets for row in ws.iter_rows() for c in row]
+    assert not [c.coordinate for c in cells if c.data_type == "f"]
+    assert sum(1 for c in cells if c.value == typed) >= 2  # the row and its event, every character
+
+
 def test_export_resolves_chart_numbers_in_box_and_is_deterministic(reg: CandidateRegistry) -> None:
     reg.promote("GZQO", RegistryPromote(by="pi@hospa.test"), NOW)
     reg.update("GZQO", _upd(pid=pid_for_mrn(KEY, "10000001"), status="contacted", reason="phone"), NOW)

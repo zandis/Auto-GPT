@@ -11,10 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
-import ssl
 import sys
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -48,10 +45,20 @@ def checked(url: str, data: bytes) -> bytes:
 
 
 def _get(url: str) -> bytes:
-    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
-    with urllib.request.urlopen(url, timeout=120, context=ctx) as resp:
-        data: bytes = resp.read()
-    return checked(url, data)
+    """The pinned file at ``url``, asked for up to three times (tools/fetch_pinned.py, D-632); an unpinned URL is
+    never asked for."""
+    try:
+        from tools import fetch_pinned
+    except ImportError:  # run as a script (the demo image: `python tools/fetch_fonts.py`): tools/ is the path
+        import fetch_pinned  # type: ignore[import-not-found,no-redef]
+
+    want = SHA256.get(url)
+    if want is None:
+        raise PinError(f"{url}: no pinned sha256; refusing it")
+    try:
+        return fetch_pinned.fetch_bytes(url, want)
+    except fetch_pinned.PinError as exc:
+        raise PinError(str(exc)) from exc
 
 
 def main(argv: list[str] | None = None) -> int:
