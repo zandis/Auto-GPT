@@ -139,6 +139,9 @@ class Env:
     # T-624 (D-397): the most patients the micro-batch jobs of one night evaluate, every study together (pool
     # re-checks and new patients); the rest carry over to the next run. 0 = no limit.
     microbatch_night_budget: int = 2000
+    # D-646: the part of a weekly micro-batch job's allowance kept for screening its excluded patients again, in
+    # percent; kept only as far as such patients are in scope. 0 = nothing kept (they come after everybody else).
+    microbatch_excluded_percent: int = 25
     extra: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -201,6 +204,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
     "TB_SITE_PUBLISH_BATCH_SECONDS": "site_publish_batch_seconds",
     "TB_MICROBATCH_NIGHT_BUDGET": "microbatch_night_budget",
+    "TB_MICROBATCH_EXCLUDED_PERCENT": "microbatch_excluded_percent",
 }
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
@@ -238,6 +242,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         raise ConfigError("TB_SITE_PUBLISH_BATCH_SECONDS must be 0 (publish every decision) or a number of seconds")
     if env.microbatch_night_budget < 0:
         raise ConfigError("TB_MICROBATCH_NIGHT_BUDGET must be 0 (no limit) or a number of patients")
+    if not 0 <= env.microbatch_excluded_percent <= 100:
+        raise ConfigError("TB_MICROBATCH_EXCLUDED_PERCENT must be a percentage from 0 (nothing kept) to 100")
     if env.attach_password_mode not in ("link", "smime", "zip"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
@@ -625,6 +631,9 @@ DECLARED: dict[str, Declared] = {
     "TB_MATCH_MODEL": Declared("str", "unspecified", "registry match: model label in the cache key"),
     "TB_MATCH_RESULTS_DIR": Declared("path", "", "registry match: results folder"),
     "TB_METRICS_TOKEN_FILE": Declared("path", "", "metrics: file holding the scraper token (D-379)"),
+    "TB_MICROBATCH_EXCLUDED_PERCENT": Declared(
+        "int", "25", "screening cadence: percent of a weekly job's allowance kept for excluded patients (D-646)"
+    ),
     "TB_MICROBATCH_NIGHT_BUDGET": Declared(
         "int", "2000", "screening cadence: patients per night at most, 0 = no limit (T-624)"
     ),

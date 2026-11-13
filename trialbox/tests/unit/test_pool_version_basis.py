@@ -56,7 +56,7 @@ class Box(_Box):
         self.given: list[list[str]] = []
 
     def run_screen(self, ctx: Any, rs: Any, run_date: date, snapshot: str, select: Any = None,
-                   given: list[Scoped] | None = None) -> Any:  # fmt: skip
+                   scope: Any = None, given: list[Scoped] | None = None) -> Any:  # fmt: skip
         if given is None:
             return super().run_screen(ctx, rs, run_date, snapshot, select)
         self.given.append([s.pid for s in given])

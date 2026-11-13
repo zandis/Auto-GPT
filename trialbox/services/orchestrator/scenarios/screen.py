@@ -547,6 +547,29 @@ def practitioners_of(ctx: Ctx, rs: Ruleset) -> list[str] | None:
     return pract
 
 
+def _scope_terms(ctx: Ctx, rs: Ruleset, ask: bool) -> tuple[list[str] | None, list[str], int, int]:
+    """Who a screen of ``rs`` looks at: the practitioners (``ask``: False when the patients are given), the
+    departments, the appointment window in days and the months an encounter counts as recent."""
+    opts = ctx.job.options or {}
+    sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
+    practitioners = practitioners_of(ctx, rs) if ask else []
+    try:
+        window = int(opts.get("window") or (sc.appointment_window_days if sc and sc.appointment_window_days else 180))
+    except ValueError as exc:
+        raise StepFailed("running", "window must be a number of days") from exc
+    depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
+    recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
+    return practitioners, depts, window, recent
+
+
+def screen_scope(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> list[Scoped]:
+    """The patients a screen of ``rs`` would look at now, the opt-out register applied: what :func:`run_screen`
+    hands its ``select`` (D-646: the weekly run counts its excluded patients in scope before it spends its
+    allowance, and passes the list on as ``scope``)."""
+    practitioners, depts, window, recent = _scope_terms(ctx, rs, True)
+    return drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
+
+
 def run_screen(
     ctx: Ctx,
     rs: Ruleset,
@@ -554,22 +577,20 @@ def run_screen(
     snapshot: str,
     select: Callable[[list[Scoped]], list[Scoped]] | None = None,
     given: list[Scoped] | None = None,
+    scope: list[Scoped] | None = None,
 ) -> ScreenRun:
     """``select`` (MICROBATCH, D-397): picks the patients to evaluate from the scope (the new ones, within the night
     budget); SCREEN evaluates the whole scope. ``given`` (MICROBATCH, T-707, D-476): exactly these patients, with no
-    scope query (pool rows of another criteria version, screened again in full); the register still applies."""
+    scope query (pool rows of another criteria version, screened again in full); the register still applies.
+    ``scope`` (MICROBATCH, D-646): the study's scope as :func:`screen_scope` gave it to the caller a moment ago, so
+    it is not asked for twice."""
     opts = ctx.job.options or {}
-    sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
-    practitioners = practitioners_of(ctx, rs) if given is None else []
-    try:
-        window = int(opts.get("window") or (sc.appointment_window_days if sc and sc.appointment_window_days else 180))
-    except ValueError as exc:
-        raise StepFailed("running", "window must be a number of days") from exc
-    depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
-    recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
+    practitioners, depts, window, recent = _scope_terms(ctx, rs, given is None)
     # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
     if given is not None:
         scoped = drop_opted_out(ctx, list(given))
+    elif scope is not None:
+        scoped = list(scope)
     else:
         scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
     if select is not None:
