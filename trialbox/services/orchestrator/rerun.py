@@ -130,7 +130,11 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
         for row in orch.db.trial_cache_all():
             db.trial_cache_put(row)
         if (original.ruleset or "").upper() == "MERGE":
-            _replay_alliance_tables(orch, db, original.job_id)
+            try:
+                _replay_alliance_tables(orch, db, original.job_id)
+            except ReplayUnknown as exc:  # D-666: a replay gives what the first run gave, or says that it cannot
+                db.drop()
+                return RerunResult(job_id, original.type, False, [], f"this job cannot be re-run: {exc}")
     snap = original.snapshot_date.isoformat() if original.snapshot_date else None
     services = replace(orch.services, lake=PinnedLake(orch.services.lake, snap), mail=NullMail())
     clone = Orchestrator(
@@ -179,13 +183,63 @@ def _replay_alliance_tables(orch: Orchestrator, db: JobDB, job_id: str) -> None:
         else:
             sources = [(o.filename, o.minio_key) for o in j.outputs or [] if o.filename.startswith("cohort_table_")]
             received_from = f"self:{site}"
+        how = _stored_then(j) if merge else "all"
+        if how == "none":
+            continue
         for name, key in sources:
             if name.lower().endswith(".csv"):
-                rows, errors = parse_csv(orch.store.get(key))
+                data = orch.store.get(key)
+                if how == "until the first table that is not UTF-8" and not _utf8(data):
+                    break  # the reader of that time raised here: this table and the ones after it were never stored
+                rows, errors = parse_csv(data)
                 if not errors and rows and merge and merge_refusal(db, rows, received_from, site):
                     continue  # refused by run_merge then, so not stored then either
                 if not errors:
                     db.cohort_store(rows, j.job_id, received_from)
+
+
+class ReplayUnknown(RuntimeError):
+    """What an earlier merge stored cannot be known, so the alliance tables of that time cannot be rebuilt."""
+
+
+def _utf8(data: bytes) -> bool:
+    try:
+        data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _stored_then(job: Any) -> str:
+    """Which of an earlier merge's tables its own run stored (NEW-B-25, D-666), from how the job ended. A merge
+    stores each table as it reads it, while the job is ``running``; ``reporting`` comes after the last table.
+
+    * ``done``: every table that parses and is not refused, as its run did. A job from before the one upload
+      decoder ended ``done`` only with UTF-8 tables (anything else raised); since then the same decoder reads a
+      table now as then;
+    * failed before a table was read (refused at the start; cancelled before it ran; "No valid alliance table"):
+      none;
+    * failed while ``running`` with the old reader's ``UnicodeDecodeError``: the tables before the first one that
+      is not UTF-8. The job stopped there. Today's decoder reads that table, and the replay must not store what
+      the run did not;
+    * failed after the tables (in ``reporting``; the output's routing refused): all, as ``done``;
+    * anything else (an internal error, a restart, a cancel or a service's failure while ``running``; no error
+      recorded): the point is recorded nowhere. :class:`ReplayUnknown`: the re-run says it cannot, and names the
+      job. Never a guess."""
+    if job.state != "failed":
+        return "all"
+    err = job.error
+    step, message, detail = (str(getattr(err, k, "") or "") for k in ("step", "message", "detail"))
+    if step == "received" or message.startswith(("Cancelled by", "No valid alliance table")):
+        return "none"
+    if step in ("reporting", "routing"):
+        return "all"
+    if step == "running" and detail.startswith("UnicodeDecodeError"):
+        return "until the first table that is not UTF-8"
+    raise ReplayUnknown(
+        f"the earlier COHORT MERGE {job.job_id} was stopped while it ran; which of its tables it had stored by then "
+        "is not recorded, so the alliance tables of that time cannot be rebuilt"
+    )
 
 
 def _zone(orch: Orchestrator) -> Any:
