@@ -436,6 +436,20 @@ class Mapping:
         empty = doc.get("empty_dates", [])
         if not isinstance(empty, list) or not all(isinstance(x, str) and x.strip() for x in empty):
             raise MappingError(f"{path}: empty_dates is a list of placeholder dates as the source writes them")
+        systems = doc.get("systems") or {}
+        if "atc" in systems:
+            # D-536 (lane B): the lake reads ATC only under the ATC system's own name. A mapping that writes ATC
+            # codes under an address of the site's own would pass every check and lose them from the lake's ATC
+            # column: a drug-class exclusion would stop firing for that site, and nothing would say so
+            from lake.flatten import ATC_SYSTEM, is_atc_system
+
+            if not is_atc_system(systems["atc"]):
+                raise MappingError(
+                    f"{path}: systems.atc is {systems['atc']!r}: ATC codes are written under {ATC_SYSTEM} (the ATC "
+                    "system's own address); under another one the lake does not read them as ATC and a drug-class "
+                    "exclusion would not see them. Leave systems.atc out, and give a hospital's own drug codes "
+                    "another name"
+                )
         return cls(
             unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
             date_columns=date_columns,
