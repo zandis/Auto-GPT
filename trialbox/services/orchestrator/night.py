@@ -125,7 +125,7 @@ def current_night(orch: Orchestrator) -> tuple[str, date] | None:
         if root is not None and j.snapshot_date is not None:
             o = j.options or {}
             return str(o.get("lake_generation") or j.snapshot_date.isoformat()), j.snapshot_date
-        before = j.received_at.isoformat()  # a person's ingest that carries the option is not the night: the next
+        before = j.job_id  # a person's ingest that carries the option is not the night: the next
 
 
 def _targets(orch: Orchestrator, step: str) -> list[str | None]:

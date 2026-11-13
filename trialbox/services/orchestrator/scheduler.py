@@ -17,7 +17,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime, time, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import yaml
 from tb_common.ruleset import approved_here, list_rulesets
@@ -234,6 +236,60 @@ def after_ingest(orch: Orchestrator, timed: bool = False, chained: bool = False)
         return []
 
 
+def _timer_ingest_since(orch: Orchestrator, since: datetime) -> bool:
+    """True when a timer's ingest (``timer=1``) was received at or after ``since``."""
+    return any(j.received_at >= since for j in orch.db.with_option("INGEST", "timer", "1"))
+
+
+#: the options of the timer's ingest: the timer's own, and the start of the night's chain (T-726)
+TIMER_INGEST = {"timer": "1", "chain": "1"}
+
+
+def timed_ingest(
+    orch: Orchestrator,
+    jtype: str = "INGEST",
+    ruleset: str | None = None,
+    options: dict[str, str] | None = None,
+    now: datetime | None = None,
+) -> bool:
+    """The timer's ingest, at most once per site day (deep review 2026-11-13): on the night a daylight-saving clock
+    goes back the cron time comes twice, and a catch-up after a restart may meet a run that did happen. True when
+    submitted."""
+    tz = ZoneInfo(orch.cfg.env.tz)
+    now = (now or datetime.now(tz)).astimezone(tz)
+    midnight = datetime.combine(now.date(), time(0), tzinfo=tz)
+    if _timer_ingest_since(orch, midnight):
+        log.info("the timer's ingest of %s has run already: not again", now.date())
+        return False
+    _submit(orch, jtype, ruleset, dict(options or TIMER_INGEST))
+    return True
+
+
+def catch_up_ingest(orch: Orchestrator, spec: str, now: datetime | None = None) -> bool:
+    """F-14 (D-130), made true at start: the scheduler's job store is in memory, so a restarted process does not
+    know a fire time it missed while it was down. When the ingest's time (``spec``, as ``settings.schedule``)
+    passed within the misfire grace and no timer's ingest was received since, it is submitted now. True when
+    submitted. Never raises: the scheduler starts without it."""
+    from apscheduler.triggers.cron import CronTrigger
+    from tb_common.config import SCHEDULER_JOB_DEFAULTS
+
+    try:
+        tz = ZoneInfo(orch.cfg.env.tz)
+        now = (now or datetime.now(tz)).astimezone(tz)
+        trigger = CronTrigger(timezone=tz, **cron_kwargs(spec))
+        grace = timedelta(seconds=float(SCHEDULER_JOB_DEFAULTS["misfire_grace_time"]))
+        missed, t = None, trigger.get_next_fire_time(None, now - grace)
+        while t is not None and t <= now:
+            missed, t = t, trigger.get_next_fire_time(t, t + timedelta(seconds=1))
+        if missed is None or _timer_ingest_since(orch, missed):
+            return False
+        log.warning("the timer's ingest of %s was missed while the box was down: running it now", missed)
+        return timed_ingest(orch, now=now)
+    except Exception as exc:  # the catch-up must not keep the scheduler from starting
+        log.exception("missed ingest not caught up: %s", exc)
+        return False
+
+
 def plan(settings: Settings | None) -> list[tuple[str, dict[str, Any]]]:
     """Every timed job type with its cron arguments (``settings.schedule``; the defaults without settings)."""
     sch = settings.schedule if settings is not None else None
@@ -339,7 +395,9 @@ def start(orch: Orchestrator) -> Any:
 
             sched.add_job(cohort, "cron", id="cohort", **kw)
         else:  # D-397: the timer's ingest; the night's chain follows it
-            sched.add_job(_submit, "cron", id="ingest", args=[orch, "INGEST", None, {"timer": "1", "chain": "1"}], **kw)
+            sched.add_job(timed_ingest, "cron", id="ingest", args=[orch, "INGEST", None, dict(TIMER_INGEST)], **kw)
+            ingest_at = str(getattr(orch.cfg.settings.schedule, "ingest", None) or "02:00")
+            catch_up_ingest(orch, ingest_at)
     from orchestrator import night
 
     def go_on(_job: Any = None) -> None:
