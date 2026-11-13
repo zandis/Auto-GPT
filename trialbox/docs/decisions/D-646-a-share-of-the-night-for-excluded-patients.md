@@ -48,6 +48,13 @@ five, at 50,000 patients, fills its allowance with re-checks, so its excluded pa
      is itself printed (not small-cell suppressed): with the places a run keeps, N gives that count away. The
      audit holds the figure either way.
 
+8. **The full-pass figure follows from what was kept and carried** (lane C2's finding in the review of its run
+   page, 2026-11-13). It was worked out from the nominal share (allowance x percent) and so could say "1 run"
+   while some were carried: the count before the run does not hold the patients the run's own re-check excludes.
+   Now: the patients in scope divided by the places really kept, rounded up, and at least 2 when somebody was
+   carried; null when nobody is in scope or no place was kept (a share of 0, a share under one patient, or none
+   counted when the run began: the summary says which).
+
 ## What this changes on a box updated in place
 
 The default applies with no setting present. A study whose re-checks fill its allowance and that has excluded

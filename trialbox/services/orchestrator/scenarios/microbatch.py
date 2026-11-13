@@ -582,10 +582,19 @@ def run(ctx: Ctx) -> Outcome:
     ctx.metrics(patients_scoped=used + len(screened))
     night_done(ctx, used + len(screened))  # T-704 (D-458): what this job did not use is the next one's
     over = len(due) - len(recheck)
-    # D-646: weekly runs until every excluded patient in scope has been screened again once, at the share kept
-    # for them (None: nothing is kept, so no run is sure to reach them; 1: no night budget, or all reached now)
-    per_run = out_in_scope if left is None else left * excluded_percent(ctx) // 100
-    full_pass = None if on_ingest else 1 if not back_carried else -(-out_in_scope // per_run) if per_run else None
+    # D-646: weekly runs until every excluded patient in scope has been screened again once. The figure follows
+    # from what this run really kept and really carried (lane C2's finding: from the nominal share it said "1 run"
+    # while some were carried, when the run's own re-check had added to the excluded). None: nobody is in scope,
+    # or no place was kept, so no run is sure to reach them; 1: no night budget, or the places kept reach all
+    full_pass: int | None
+    if on_ingest or not out_in_scope:
+        full_pass = None
+    elif left is None:
+        full_pass = 1
+    elif not held:
+        full_pass = None
+    else:
+        full_pass = max(-(-out_in_scope // held), 2 if back_carried else 1)
     ctx.orch.audit.append(
         "microbatch.budget",
         job_id=job.job_id,
@@ -655,17 +664,22 @@ def run(ctx: Ctx) -> Outcome:
                     "No share of the night budget is kept for them (TB_MICROBATCH_EXCLUDED_PERCENT is 0): they are "
                     "reached only when the re-checks and the new patients leave room."
                 )
-            elif back_carried and full_pass is None:
+            elif back_carried and full_pass is None and (left or 0) * excluded_percent(ctx) // 100 == 0:
                 lines.append(
                     f"Tonight's allowance was too small to keep a place for them ({excluded_percent(ctx)} % of it "
                     "is less than one patient)."
+                )
+            elif back_carried and full_pass is None:
+                lines.append(
+                    "No place was kept for them tonight: none was counted when the run began (this run's own "
+                    "re-check excluded them). They are counted at the start of the next run."
                 )
             elif back_carried and str(suppress(out_in_scope, cell)) == str(out_in_scope):
                 # an aggregate output: with the places a run keeps, the figure gives the count away, so it is
                 # printed only where the count itself is (review of D-646; the audit holds it either way)
                 lines.append(
-                    f"At the share of the night budget kept for them ({excluded_percent(ctx)} %), a full pass "
-                    f"takes {full_pass} weekly runs."
+                    f"With the places of the night budget kept for them tonight (a share of "
+                    f"{excluded_percent(ctx)} %), a full pass takes {full_pass} weekly runs."
                 )
     if behind:
         lines.append(
