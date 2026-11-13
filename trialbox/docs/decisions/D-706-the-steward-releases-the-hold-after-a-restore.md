@@ -36,6 +36,31 @@ be released could not release it, and the person who could (the IT administrator
 - The privacy office keeps the opt-out register too (D-380) and does not get the right here: D-455 names the
   steward.
 
+- **The steward can also set the flag to `held`, at any time**, not only after a restore: the same form. That
+  stops the box's lists until somebody releases them. It is audited under the steward's name and it is the safe
+  direction, but it is a new stop lever for a role that is not the IT operator. Accept, or limit the steward to
+  `released`: the owner's to say.
+- **The page does not show what must be re-applied before a release.** It shows the restore's reason and the
+  flag's description; the events are in the audit trail (`backup.restore_reapply`), which the steward's menu has,
+  and the runbook says so. Nothing checks that they were re-applied, which was so for the administrator too.
+  Whether the page should link that event, or a release should require it, is the owner's to say.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer, who tried as the steward to read or change any other flag (another name, an
+undeclared one, an empty one, two names, other spellings, the confirmation sheet, the query string) and found no
+way; a refusal comes before the page says whether a flag of that name exists. Verdict: fix first, small.
+
+- **No test posted the hold's own name as an account without the right**, so a gate that let anybody release it
+  would have passed. A coordinator, an investigator, the privacy office and a viewer are refused now, by test,
+  and the flag stays held.
+- **Two texts still sent a blocked person to the administrator only**: the message of every held list job and
+  the runbook's step. Both name the data steward too.
+- The refusal's audit event says which flag was tried.
+- By reading: the steward's own audit page shows other flags' changes with their reasons (it did before this
+  card). So "no other flag is listed" is true of the flags page; what this card holds for other flags is that the
+  steward cannot change them.
+
 ## What it does not do
 
 - The list of events to re-apply is in the restore's report and its audit event; the page does not show it as a

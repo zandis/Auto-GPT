@@ -191,5 +191,14 @@ def test_the_administrator_keeps_every_flag_and_the_other_roles_none(box: dict[s
     a, _ = login(box["app"])
     page = a.get("/ops/flags").text
     assert f'data-flag="{HOLD}"' in page and 'data-flag="lake.source"' in page
-    for name, role in (("crc9", "coordinator"), ("dpo9", "privacy"), ("view9", "viewer")):
-        assert _user(box, name, role).get("/ops/flags").status_code == 403, role
+    fl.Flags(audit=box["audit"]).set(HOLD, "held", actor="tool:restore", reason="restore not complete")
+    for name, role in (("crc9", "coordinator"), ("dpo9", "privacy"), ("view9", "viewer"), ("inv9", "investigator")):
+        c = _user(box, name, role)
+        assert c.get("/ops/flags").status_code == 403, role
+        # the review: nobody without the right releases the hold by naming it (no test posted its name before)
+        form = {"csrf": _csrf(c.get("/account").text), "name": HOLD, "value": "released", "reason": "x",
+                "confirm": "yes", "old": "held"}  # fmt: skip
+        assert c.post("/ops/flags", data=form, follow_redirects=False).status_code == 403, role
+        assert fl.Flags().row(HOLD) == "held", role
+    tried = [e["detail"] for e in _events(box, "console.denied") if e["detail"].get("flag")]
+    assert tried and all(d["flag"] == HOLD for d in tried)  # the refusal says which flag was tried

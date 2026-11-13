@@ -1,6 +1,7 @@
 """``/ops/flags``: the feature flags of the box (T-008, D-207, MR-090; ``tb_common.flags``).
 
-Administrators only: anyone else gets 403 (and a ``console.denied`` audit event). The page lists every declared flag
+The administrator's page: anyone else gets 403 (and a ``console.denied`` audit event), except that the data steward
+sees and changes the one flag ``screening.after_restore`` there (NEW-FLAG-1, D-706). The page lists every declared flag
 with its value, when, by whom and why it last changed, and the last changes. A change needs a reason, goes through
 one confirmation sheet (P-10), and is one ``flag_event`` row and one ``flag.set`` audit event with the actor and the
 reason. An undeclared flag name or a value outside the declared ones is refused with 400. A flag store that does not
@@ -57,7 +58,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(400, "csrf")
         ok = sess.user.is_admin or (only_hold(sess) and name in (None, HOLD))
         if not ok:
-            h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            tried = {"flag": name[:60]} if name else {}  # which flag was tried, for whoever reads the refusal
+            h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80], **tried})
             raise h.problem(403, "forbidden")
         return sess
 

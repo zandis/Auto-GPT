@@ -192,6 +192,8 @@ ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     # NEW-FLAG-1 (D-706): the page opens for whoever may see the hold after a restore (the administrator, who sees
     # every flag there, and the data steward, who sees that one); which flags it lists is the page's own rule
     ("GET", "/ops/flags"): "restore.release",
+    # (the table's POST /ops/flags row shows the steward refused: the walk posts an empty body, which names no flag;
+    # the steward's change of the one flag, and everyone else's refusal of it, are held by test_flags_page.py)
     ("POST", "/studies/{rs}/patients/{pid}/reveal"): "id.reveal",
     ("GET", "/breakglass"): "breakglass.read",
     ("POST", "/studies/{rs}/patients/{pid}/mark"): "list.mark",
