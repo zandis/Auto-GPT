@@ -850,7 +850,8 @@ class JobDB:
         record's order is the order the tables were committed in.
 
         ``refuse``: the caller's rule on who may store these rows, asked inside the transaction, under the lock,
-        with the addresses that have stored tables of the rows' sites so far. A sentence back: nothing is stored
+        with the addresses whose tables of the rows' sites stand in the store now (all the sites in ``rows``
+        together: a caller with a rule per site passes one site's rows). A sentence back: nothing is stored
         and the sentence is returned. A check made before the call can be overtaken by another store (two senders
         of one site, both let in). None is returned when the rows were stored."""
         if not rows:

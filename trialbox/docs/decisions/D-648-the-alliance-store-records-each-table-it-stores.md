@@ -135,3 +135,21 @@ schema (by reading). Not verified by anyone: a restore end to end, the owner-rol
 |---|---|
 | `ReplayUnsure` was asked per site: another job's table of the same site for another quarter made the re-run "cannot" | asked per table (site, disease, quarter, definition), item 6; test |
 | the sender check ran outside the store's lock: two senders of one site could both get in; the refusal's sentence carried two mail addresses | the check is made in the store's transaction, item 7; the sentence names the site only; tests |
+
+## Review of the fix card (one, by running; verdict merge, no HIGH or MED)
+
+Held, by running: two real connections with two senders storing a site's first table at once, 25 rounds, exactly
+one gets in each time; an error raised by the rule inside the transaction stores nothing and frees the lock; the
+tests fail when the check is put back outside the lock or the question back per site; re-runs of a refused
+merge are identical; no sentence carries an address.
+
+Noted, not changed:
+
+- **Data from before this fix with two senders for one site** (got in through the old race): both are refused
+  for that site from then on, as before this card; only an operator can clear it, and a re-run of the merge
+  that got in differs without saying why. The fix prevents new cases and does not repair old ones. A go-live
+  install holds none.
+- The rule reads the senders whose tables stand in the store now, not the record of all stores. No path removes
+  a bound sender's rows, so the two agree.
+- A store with no rule (the root's own run, a replay) replaces what is there. It can meet a member's table only
+  if the root's own site id equals a member's; the merge side refuses the root's own site whatever the senders.
