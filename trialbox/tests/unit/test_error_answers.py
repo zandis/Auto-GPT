@@ -332,7 +332,8 @@ def test_the_rule_sees_a_value_beside_an_f_string_and_a_class_made_from_a_listed
 
 
 def test_an_ingest_that_failed_leaves_the_errors_type_in_the_jobs_record() -> None:
-    from orchestrator.clients import ServiceError, _ingest_ended, _step_error
+    from orchestrator.clients import _ingest_ended, _step_error
+    from tb_common.http import ServiceError
 
     said = _ingest_ended({"state": "failed", "detail": f"ConversionException: Could not convert '{CHART}' to INT32"})
     assert said == "The nightly ingest failed (ConversionException); the adapter's log has it."
