@@ -184,13 +184,13 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
     # the lead-in of the evidence's list ("denies the following:"), the line right above it, before the heading:
     # it says most about the evidence, and with room for one of the two the heading alone, across a cut, would
     # read as the list's title (D-645: seen on the denied-list case at a budget of 90)
-    bare: set[int] = set()  # evidence whose lead-in did not fit: no heading across the cut for it either
+    no_head: set[int] = set()  # evidence whose lead-in did not fit: no heading across the cut for it either
     for i in centres:
         if i > 0 and _COLON.search(sents[i - 1]) and not take(i - 1):
-            bare.add(i)
+            no_head.add(i)
     heads: set[int] = set()  # the heading each evidence sentence stands under, when it is shown
     for i in centres:
-        h = None if i in bare else next((k for k in range(i - 1, -1, -1) if _is_heading(sents, k)), None)
+        h = None if i in no_head else next((k for k in range(i - 1, -1, -1) if _is_heading(sents, k)), None)
         if h is not None and take(h):
             heads.add(h)
     up = {i: i - 1 for i in centres}
