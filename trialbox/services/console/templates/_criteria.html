@@ -2,6 +2,8 @@
    the patient page and the candidate page (D-147); needs crits. #}
 <section class="card">
 <h2>{{ t('patient.criteria') }}</h2>
+{# NEW-CAND-1 (D-713): the run could not read the values behind its coded answers (D-652), so none is shown below #}
+{% if values_unread %}<p class="attention" data-testid="values-unread">{{ t('ex.unread.values') }}</p>{% endif %}
 {% if crits|selectattr('opinions')|list %}<p class="hint" data-testid="opinion-explain">{{ t('opinion.explain') }}</p>{% endif %}
 <div class="scroll" tabindex="0" role="region" aria-label="{{ t('patient.criteria') }}"><table class="candidates stack" data-testid="criteria">
 <thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('patient.type') }}</th><th>{{ t('patient.result') }}</th><th>{{ t('patient.evidence') }}</th><th>{{ t('patient.source') }}</th></tr></thead>

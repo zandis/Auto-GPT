@@ -781,6 +781,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
         )
 
+    def values_unread(job: Job | None) -> bool:
+        """NEW-CAND-1 (D-713): did this run say it could not read the values behind its coded answers? The run
+        keeps that in its stored "not matched" list (``coded_values: not read``, D-652). A run that read them, a
+        list from before the field existed and a run with no stored list all answer no: nothing is said."""
+        return (load(job, "excluded_", ".json") or {}).get("coded_values") == "not read"
+
     def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid):
             raise h.problem(404, "notfound")
@@ -801,6 +807,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "rs": rid,
             "pid": pid,
             "job": wk["job"],
+            "values_unread": values_unread(wk["job"]),
             "asof": wk["asof"],
             "row": row,
             "listed": listed,
