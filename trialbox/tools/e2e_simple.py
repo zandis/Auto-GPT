@@ -346,7 +346,8 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     col = rows[0].index("status") if rows else 0
     nos = {str(r_[0]) for r_ in rows[1:]}
     log_counts = dict(Counter(str(r_[col]) for r_ in rows[1:]))
-    rep_csv = list(csv.reader(io.StringIO(crc.get(f"/studies/{rs}/enrolment.csv").text)))
+    # the file starts with the byte order mark (a spreadsheet reads it as UTF-8): read as a file is read
+    rep_csv = list(csv.reader(io.StringIO(crc.get(f"/studies/{rs}/enrolment.csv").content.decode("utf-8-sig"))))
     from datacore.lifecycle import REGISTRY_OF
 
     rep_counts: Counter[str] = Counter()

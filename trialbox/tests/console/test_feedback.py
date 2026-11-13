@@ -210,7 +210,8 @@ def test_the_csv_export_is_for_the_owner_and_one_row_per_issue(box: dict[str, An
     # the same file from the command line (the owner's evening export)
     out = tmp_path / "feedback.csv"
     assert fb.main(["export", "--out", str(out)]) == 0
-    assert list(csv.DictReader(out.open(encoding="utf-8"))) == rows
+    assert out.read_bytes().startswith(b"\xef\xbb\xbf")  # the owner opens it in a spreadsheet: the mark here too
+    assert list(csv.DictReader(out.open(encoding="utf-8-sig"))) == rows
 
 
 # ---------------------------------------------------------------------------------------------- the scan of T-502

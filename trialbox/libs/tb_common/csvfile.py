@@ -17,19 +17,30 @@ _BOM_BYTES = BOM.encode("utf-8")
 
 
 def for_spreadsheet(data: bytes | str) -> bytes:
-    """The UTF-8 bytes of a CSV file with one byte order mark at its start. A file that has the mark is returned as
-    it is; an empty file stays empty."""
-    raw = data.encode("utf-8") if isinstance(data, str) else bytes(data)
-    if not raw or raw.startswith(_BOM_BYTES):
-        return raw
-    return _BOM_BYTES + raw
+    """The UTF-8 bytes of a CSV file with one byte order mark at its start: one, however many the text begins with.
+    An empty file stays empty. Bytes that are not UTF-8 (a UTF-16 or Shift_JIS file) are returned as they are: the
+    mark says "this file is UTF-8" and is never put on one that is not."""
+    if isinstance(data, str):
+        raw = data.lstrip(BOM).encode("utf-8")
+    else:
+        raw = bytes(data)
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw
+        while raw.startswith(_BOM_BYTES):
+            raw = raw[len(_BOM_BYTES) :]
+    return _BOM_BYTES + raw if raw else raw
 
 
 def stream_for_spreadsheet(lines: Iterable[str]) -> Iterator[str]:
     """A CSV sent line by line: the mark before the first line (none for a file with no line)."""
     first = True
     for line in lines:
-        if first and not line.startswith(BOM):
-            yield BOM
-        first = False
-        yield line
+        if first:
+            if not line:
+                continue  # nothing sent yet: the mark still goes before the first text
+            first = False
+            yield BOM + line.lstrip(BOM)
+        else:
+            yield line

@@ -34,3 +34,21 @@ def test_a_stream_gets_the_mark_before_its_first_line() -> None:
 
     assert "".join(stream_for_spreadsheet(iter(["a,b\n", "1,2\n"]))) == BOM + "a,b\n1,2\n"
     assert "".join(stream_for_spreadsheet(iter([]))) == ""
+
+
+# ------------------------------------------------------------------------------------------------ the review
+def test_a_stream_whose_first_chunks_are_empty_gets_one_mark() -> None:
+    from tb_common.csvfile import stream_for_spreadsheet
+
+    assert "".join(stream_for_spreadsheet(iter(["", BOM + "a,b\n", "1,2\n"]))) == BOM + "a,b\n1,2\n"
+    assert "".join(stream_for_spreadsheet(iter(["", "", "a,b\n"]))) == BOM + "a,b\n"
+
+
+def test_text_that_starts_with_several_marks_ends_with_one() -> None:
+    assert for_spreadsheet(BOM + BOM + "a,b\n") == (BOM + "a,b\n").encode()
+
+
+@pytest.mark.parametrize("raw", ["a,b\n".encode("utf-16"), f"a,{NAME}\n".encode("cp932")])
+def test_bytes_that_are_not_utf8_are_left_as_they_are(raw: bytes) -> None:
+    """The mark says "this file is UTF-8": it is never put on a file that is not."""
+    assert for_spreadsheet(raw) == raw
