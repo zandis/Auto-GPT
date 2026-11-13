@@ -73,7 +73,9 @@ def test_a_list_runs_the_hospital_part_once_per_value_on_one_prepared_hospital()
 def test_g3s_full_curve_runs_ja_then_zh_tw_at_1_4_8_16_32_48(tmp_path: Path) -> None:
     """Plan G-3: 1, 4, 8, 16, 32, 48 in flight, ja then zh-TW: nothing refuses 8 or 32 or the zh-TW repeats."""
     lc = "1,4,8,16,32,48"
-    out = _dry(tmp_path, "--patients", "5000", "--only", "hospital-ja,hospital-zh-TW", "--llm-concurrency", lc)
+    out = _dry(
+        tmp_path, "--patients", "5000", "--only", "hospital-ja,hospital-zh-TW", "--llm-concurrency", lc, "--keep-order"
+    )
     meta = next(ln for ln in out.splitlines() if "add-metadata" in ln and "tb-run-id=" in ln)
     assert "tb-llm-concurrency=1 4 8 16 32 48," in meta
     want = [f"hospital-{lang}@c{n}" for lang in ("ja", "zh-TW") for n in (1, 4, 8, 16, 32, 48)]
@@ -186,7 +188,7 @@ def _dry(tmp_path: Path, *args: str, **env_kw: str) -> str:
 
 
 def test_the_g3_launch_plan_cap_and_metadata(tmp_path: Path) -> None:
-    out = _dry(tmp_path, *G3, TB_RUN_ID="R")
+    out = _dry(tmp_path, *G3, "--keep-order", TB_RUN_ID="R")  # the order given (else seeded at random)
     assert "model calls in flight (TB_SCREEN_LLM_CONCURRENCY): 1, 4, 16, 48" in out
     assert "times the gain G-3 measured" in out and "above the servers' max_num_seqs (16)" in out
     meta = next(ln for ln in out.splitlines() if "add-metadata" in ln and "tb-run-id=" in ln)
