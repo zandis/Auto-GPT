@@ -270,3 +270,23 @@ def test_the_cli_checks_an_anchor_kept_elsewhere_and_reanchors(tmp_path: Path) -
     shutil.copy(audit / "2026-11-06.jsonl", copy)
     assert subprocess.run([*cli[:-1], str(copy)], capture_output=True, check=False).returncode == 1
     assert subprocess.run([*cli[:-1], str(copy), "--no-head"], capture_output=True, check=False).returncode == 0
+
+
+def test_one_event_past_the_anchor_must_chain_to_the_anchored_event(tmp_path: Path) -> None:
+    """The crash allowance above is for a line chained to the anchored event. Replacing the anchored (last) event and
+    appending one more, every hash recomputed, leaves the chain one event longer than HEAD.json too: a rewrite, which
+    must fail, not a note."""
+    _chain(tmp_path)  # nine events, HEAD.json at event 9
+    f = tmp_path / "2026-11-08.jsonl"
+    lines = _lines(f)
+    last = json.loads(lines[-1])
+    last.pop("hash")
+    last["actor"] = "someone-else"
+    last["hash"] = line_hash(last["prev_hash"], last)
+    extra = {k: v for k, v in last.items() if k != "hash"}
+    extra.update(prev_hash=last["hash"], event="test.extra")
+    extra["hash"] = line_hash(extra["prev_hash"], extra)
+    f.write_text("\n".join([*lines[:-1], canonical(last), canonical(extra)]) + "\n", encoding="utf-8")
+    res = verify(tmp_path)
+    assert res.lines == 10
+    assert not res.ok and any("head anchor says event 9" in e for e in res.errors), (res.errors, res.notes)

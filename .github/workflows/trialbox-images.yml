@@ -65,10 +65,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A push to master whose tree a merged train already proved does not build and scan the images again (deep review
+  # `architecture`): the train's own run built and scanned the same tree, byte for byte, on both legs. On 2026-11-13
+  # the push of train 8's merge commit built them a second time (about 45 billed minutes). The rule is the CI gate's
+  # (tools/ci_proved_tree.py, D-578): the merge commit's tree is the train head's, master had nothing the train lacked,
+  # and every full-tier check passed on that head; and (`--image-legs`) at least one image leg `images (...)` ran
+  # there, since the CI gate's hadolint job is also named `images`. Any doubt builds.
+  proved:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read  # the checks of the merged train's head
+      pull-requests: read  # and whether that head was a train's
+    outputs:
+      proved: ${{ steps.proved.outputs.proved }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: proved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "proved=$(python3 trialbox/tools/ci_proved_tree.py --image-legs)" >> "$GITHUB_OUTPUT"
+
   images:
+    needs: proved
     # D-578: for a merge train, on master, for a release tag, weekly and by hand; not for a card's pull request (129
     # runs and about 2,900 billed minutes on 2026-11-12). A card that changes an image says so and goes on a train.
-    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'train/')
+    # `proved` runs only for a push to master; elsewhere it is skipped and the images are built as before.
+    if: ${{ !cancelled() && needs.proved.outputs.proved != 'true' && (github.event_name != 'pull_request' || startsWith(github.head_ref, 'train/')) }}
     strategy:
       fail-fast: false
       matrix:

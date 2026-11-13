@@ -189,3 +189,16 @@ def test_review_m2_a_revert_on_master_that_makes_the_trees_equal_is_not_proved(t
     assert _git(repo, "rev-parse", "HEAD^{tree}") == _git(repo, "rev-parse", f"{train}^{{tree}}")  # the premise
     r = _cmd(repo, _gh(tmp_path, train))
     assert (r.returncode, r.stdout.strip()) == (0, "false") and "master had commits" in r.stderr
+
+
+def test_the_image_gates_need_a_leg_of_their_own_not_the_hadolint_job() -> None:
+    """Adversarial review of the deep review `architecture`: the CI gate's hadolint job is named `images` too, so a
+    train whose image gates never ran met the full-tier rule. With ``image_legs`` a passed `images (...)` leg is
+    needed; the CI gate's own question is unchanged."""
+    assert cpt.proved(**_args())[0]  # the CI gate: hadolint's `images` is enough, as before
+    ok, why = cpt.proved(**_args(), image_legs=True)
+    assert not ok and why == "no image-gate leg ran on the train's head"
+    legs = [*_green(), _run("success", "images (ubuntu-24.04, linux/amd64)")]
+    assert cpt.proved(**_args(runs=legs), image_legs=True)[0]
+    red = [*legs, _run("failure", "images (ubuntu-24.04-arm, linux/arm64)")]
+    assert not cpt.proved(**_args(runs=red), image_legs=True)[0]

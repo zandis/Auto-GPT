@@ -179,10 +179,28 @@ def test_the_image_gates_run_for_a_train_on_master_weekly_and_by_hand() -> None:
     says so and goes on a train early."""
     doc = _wf(WORKFLOWS / "trialbox-images.yml")
     on = _on(doc)
-    assert doc["jobs"]["images"]["if"] == TRAIN_ONLY
+    assert TRAIN_ONLY in doc["jobs"]["images"]["if"]
     assert on["push"]["branches"] == ["master"] and on["push"]["tags"] == ["trialbox-v*"]
     assert on["schedule"] and "workflow_dispatch" in on
     assert set(on["push"]["paths"]) == set(on["pull_request"]["paths"])  # master: only when an image's input changed
+
+
+def test_a_master_push_a_train_proved_does_not_build_the_images_again() -> None:
+    """Deep review `architecture`: the push of train 8's merge commit built and scanned the images the train had just
+    built from the same tree (about 45 billed minutes). The image gates ask the CI gate's rule (tools/ci_proved_tree.py)
+    on a push to master only; anywhere else, and on any doubt, they build."""
+    jobs = _wf(WORKFLOWS / "trialbox-images.yml")["jobs"]
+    proved = jobs["proved"]
+    assert proved["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/master'"
+    assert proved["permissions"] == {"contents": "read", "checks": "read", "pull-requests": "read"}
+    assert any("tools/ci_proved_tree.py --image-legs" in str(s.get("run", "")) for s in proved["steps"])
+    assert proved["steps"][0]["with"]["fetch-depth"] == 0  # the tool compares the trees of both parents
+    images = jobs["images"]
+    assert images["needs"] == "proved"
+    cond = images["if"]
+    assert "!cancelled()" in cond  # a skipped `proved` (a train, a tag, the weekly run) does not skip the images
+    assert "needs.proved.outputs.proved != 'true'" in cond  # only a definite "true" skips; an error says "false"
+    assert "ci_proved_tree" not in str(jobs["multiarch"])  # a release tag always builds
 
 
 def test_the_lock_job_starts_on_what_it_reads() -> None:

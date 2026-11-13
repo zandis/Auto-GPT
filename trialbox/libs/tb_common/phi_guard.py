@@ -7,6 +7,8 @@ clearance for exactly the text being sent. The guard errs on the side of hits (f
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -288,11 +290,26 @@ def mask_note(text: str, mrn_regex: str | None = None) -> str:
 
 
 def site_mrn_regex() -> str | None:
-    """The site's chart number pattern (``settings.mrn_regex``), or ``None`` when no site configuration is readable
-    (a test lake, a tool run without a site): then only labelled chart numbers are masked."""
+    """The site's chart number pattern (``settings.mrn_regex``).
+
+    When no site configuration is readable: ``None`` in DEV and TEST (a test lake, a tool run without a site; then
+    only labelled chart numbers are masked), and the contract's default pattern anywhere else, as the log scrubber
+    does (``tb_common.logging.site_rule_on``). A box whose ``settings.yaml`` is missing or broken masks more, never
+    less: an unlabelled chart number in a note is not left in the lake, the embed service or a revealed note (deep
+    review `architecture`, AR-01)."""
     try:
         from tb_common.config import get_config
 
         return get_config().settings.mrn_regex
-    except Exception:
-        return None
+    except Exception as exc:
+        from tb_common.config import environment_name
+
+        if environment_name(os.environ) in ("DEV", "TEST"):
+            return None
+        from tb_contracts.generated.models import Settings
+
+        logging.getLogger(__name__).error(
+            "site configuration unreadable (%s): the contract's default chart-number pattern masks notes",
+            type(exc).__name__,
+        )
+        return str(Settings.model_fields["mrn_regex"].default)
