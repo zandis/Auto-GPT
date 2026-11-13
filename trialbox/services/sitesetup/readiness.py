@@ -57,7 +57,7 @@ def is_unread(exc: BaseException) -> bool:
     from lake.client import LakeQueryFailed
 
     if isinstance(exc, LakeQueryFailed):
-        return exc.status != 400  # noqa: PLR2004 - the one status that is the statement's fault
+        return exc.status != 400  # the one status that is the statement's fault
     return isinstance(exc, LakeUnread) or lake_down(exc)
 
 

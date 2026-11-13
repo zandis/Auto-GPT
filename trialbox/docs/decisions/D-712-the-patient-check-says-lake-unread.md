@@ -1,4 +1,4 @@
-# D-712 The patient check says the lake could not be read when its queries fail, and a refused query is not that
+# D-712 The patient check says the lake could not be read when its queries fail, and another service's error is not that
 
 - **Task:** NEW-SITE-3 (the integrator's order of 2026-11-13; what D-709 left open)
 - **PR:** this branch (`agent/NEW-SITE-3-patient-check-says-lake-unread`), cut from NEW-B-32 (#539, D-673) with
@@ -15,17 +15,22 @@ answered 500, because the lake's client raised a plain `RuntimeError` there, whi
 of the code. D-673 gives that failure a type and a status.
 
 Put together, the two cards then said too much: the routes caught every service error and every HTTP error, so
-a query the lake **refused** (a 400: the engine's complaint about the question, which is a fault of the
-criteria's SQL or of this code) and **another service's** error were both answered "the lake could not be read",
-which is untrue of them and hides them.
+a statement the lake **rejected** (a 400, `SqlRejected`: a fault of the criteria's SQL or of this code) and
+**another service's** error were both answered "the lake could not be read", which is untrue of them and hides
+them.
 
 ## The decision
 
-- **One question decides** (`readiness.is_unread`): the lake fails or does not answer (`lake_down`: its health
-  not read, an answer of 500 and above, no answer, and now a 200 that is not the lake's answer, `LakeBadAnswer`)
-  or a reader raised `LakeUnread`. The readiness answer and the two routes say `lake_unread` only then.
-- **The patient check and the counts** therefore say `lake_unread` for a lake whose queries fail (by test,
-  through the routes), and a refused query and another service's error go on as errors (by test).
+- **One question decides** (`readiness.is_unread`): a reader raised `LakeUnread`; or the lake fails or does not
+  answer (`lake_down`: its health not read, an answer of 500 and above, no answer, and now a 200 that is not the
+  lake's answer, `LakeBadAnswer`); or **a query the lake did not answer with a table, whatever its status but
+  400**. The readiness answer and the two routes say `lake_unread` only then.
+- **Why every status but 400.** The lake answers its own failures of a query with 404 and 422 (a snapshot file
+  gone or damaged, a snapshot replaced under the query, a limit), never with 5xx, and the engine's complaint
+  about the question is 422 too: the status does not tell them apart. So a failed query is read as "could not
+  be read" (the page says to try again and to tell the administrator if it stays), and the route logs the
+  type and the status each time, so a fault of the question is not lost. 400 is the lake rejecting the
+  statement itself and goes on as an error; so does another service's error. Each by test, through the routes.
 - The same question decides a saved change's "publish waits for the lake" (D-709): a bad answer of the lake now
   counts as the lake failing there too.
 
@@ -37,9 +42,24 @@ which is untrue of them and hides them.
 - No page changes: the pages of D-709 already show `lake_unread`.
 - Nothing in the lake's client is changed (lane B2's).
 
-## Review
+## What the adversarial review changed
 
-See "What the adversarial review changed" when the review is in.
+One review by a fresh reviewer, who drove the real lake service through its client and the set-up routes.
+Verdict: fix first, one finding.
+
+- **The first rule read the status: 500 and above was "the lake failing", 4xx "a refusal".** The real lake never
+  answers a failed query with 5xx: a snapshot file removed gave 404 and a damaged one 422, and the patient check
+  answered 500 for both while the readiness answer and the counts said `lake_unread` for the same lake. The rule
+  is the one above now; the cases are in the test with the statuses the lake really gives (404, 422, 401, 503).
+- The counts route's own branch had no test; it has one.
+- Ran and sound: no "busy" answer exists on the lake's query route; the saved change's waiting with a bad answer
+  of the lake is not silent (the tick logs each failure) and not stuck; the readiness answer gained no new 500;
+  the three tests fail on the base or with the question answered always yes or always no.
+- **For lane B2 (sent to the integrator):** the lake's query route answers its own failures (I/O, a stale
+  snapshot) and the engine's complaint about the question with the same 422. A 5xx for the lake's own failures
+  would let a caller tell them apart; until then a fault of the question at the patient check reads as "could
+  not be read" and is in the log.
+- Not checked by the reviewer: a real HTTP deployment (a proxy's statuses).
 
 ## Reuse check
 
