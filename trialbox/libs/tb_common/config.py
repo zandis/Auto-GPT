@@ -418,7 +418,9 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
-    "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number pattern for the scrubber"),
+    "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
+    "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
+    "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
@@ -756,6 +758,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCALE_OUTAGE_AFTER": Declared("int", "0", "scale gate: the call from which the stand-in answers 502 (T-687)"),
     "TB_SCALE_OUTAGE_S": Declared("float", "0", "scale gate: seconds of the stand-in's outage (T-687)"),
     "TB_SCALE_PATIENTS": Declared("int", "300", "scale gate: synthetic patients (the nightly job: 50000; T-687)"),
+    "TB_SCALE_PROFILE": Declared(
+        "str", "thin", "scale gate: thin (the generator's hospital) or dense (about 500 records, 40 notes; T-687)"
+    ),
     "TB_SCALE_RESTART_AFTER": Declared("int", "0", "scale gate: the call after which the stand-in restarts (T-687)"),
     "TB_SCALE_RESTART_GAP_S": Declared("float", "0", "scale gate: seconds the stand-in is down at its restart (T-687)"),
     "TB_SCALE_VALIDATE": Declared("bool", "1", "scale gate: the HL7 validator in the night (T-687)"),
@@ -833,6 +838,9 @@ DECLARED: dict[str, Declared] = {
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),
+    "TB_WSL_DESKTOP_SHARE_PCT": Declared(
+        "int", "25", "Windows box: percent of memory and processors kept for the desktop; WSL2 gets the rest (D-601)"
+    ),
     "TB_UPDATE_BACKUP_CMD": Declared("str", "", "update: backup command"),
     "TB_UPDATE_CHECK_CMD": Declared("str", "", "update: health check command"),
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),

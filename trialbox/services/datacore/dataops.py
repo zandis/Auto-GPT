@@ -105,8 +105,15 @@ CREATE TABLE IF NOT EXISTS built (artefact TEXT PRIMARY KEY, snapshot TEXT NOT N
   state TEXT NOT NULL CHECK (state IN ('building', 'finished')), started_at TEXT NOT NULL, finished_at TEXT,
   ref TEXT NOT NULL DEFAULT '')
 """
+# NEW-B-4 (D-525): the finished generations of an artefact whose store keeps its history (the derived rows: a batch
+# is read "as of"), one row per generation with what its newest finished build made. ``built`` stays the one row
+# that says what the artefact is built from now; this says what may still be read. No patient data
+SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS built_kept (artefact TEXT NOT NULL, snapshot TEXT NOT NULL, seq INTEGER NOT NULL,
+  finished_at TEXT NOT NULL, ref TEXT NOT NULL, PRIMARY KEY (artefact, snapshot, seq))
+"""
 #: ``migrate`` versions of schema ``dataops`` (append-only)
-MIGRATIONS = (SCHEMA, SCHEMA_V2)
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3)
 
 # plpgsql bodies hold ``;`` (``Database.migrate`` splits on it), so the triggers are made after the migration
 _FUNCTIONS = (

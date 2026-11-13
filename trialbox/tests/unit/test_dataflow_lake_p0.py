@@ -283,6 +283,7 @@ def test_sidecar_hashes_catch_a_changed_file(tmp_path: Path) -> None:
         "2026-10-05.duckdb",
         "2026-10-05.duckdb.sha256",
         "2026-10-05.duckdb.source",
+        "gen",  # T-724 (D-490): the date's generations; db/2026-10-05.duckdb is a link to the newest
     ]
 
 

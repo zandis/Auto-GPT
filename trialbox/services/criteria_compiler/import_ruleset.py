@@ -18,6 +18,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
+from tb_common.ruleset import SEEDED_TAG
 
 from criteria_compiler.repo import RulesetRepo
 
@@ -58,7 +59,11 @@ def install(repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98
     if f"refs/tags/{tag}".encode() in repo.refs:
         existing = {p[len(rid) + 1 :]: b for p, b in repo.files(f"refs/tags/{tag}", f"{rid}/").items()}
         if existing == files:
-            return tag  # same content already installed
+            # same content already installed. D-640: when what is there is the example the first start seeded, the
+            # operator's install is what the tag records from now on (a site box refuses a seeded approval)
+            if SEEDED_TAG in repo.tag_message(tag):
+                repo.retag(tag, f"{tag} (offline update, {by})")
+            return tag
         raise ImportRefused(f"{tag} already exists with different content; bump the version")
     repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
     repo.tag(tag, "main", f"{tag} (offline update, {by})")

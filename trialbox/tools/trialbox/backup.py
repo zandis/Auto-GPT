@@ -60,7 +60,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -614,6 +614,11 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             why = "lake snapshot being built"  # D-462: the build file and the Parquet stage, swapped in when done
         elif name == "lake" and parts[:2] == ("db", ".open"):
             why = "lake reader links (the same files as db/)"  # D-462: hard links, taken once as db/<snapshot>.duckdb
+        elif name == "lake" and parts[:2] == ("db", "gen") and not rel.endswith(".json"):
+            # T-724 (D-490): each date's newest generation is its own file db/<snapshot>.duckdb, taken once; an older
+            # generation is only a running job's. The generations' records (names, numbers and hashes; no patient
+            # data) are kept: a restored date gets the name its bytes had, and a number is never given twice
+            why = "lake generations (the newest is db/<snapshot>.duckdb)"
         elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
                 and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip
             why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
@@ -999,6 +1004,17 @@ def backup(
 
 
 # ------------------------------------------------------------------------------------------------ verify / restore
+NAMED = 10  # how many file names a refusal lists before "and N more": a line a person reads, not a limit of work
+
+
+def _named(what: str, names: Iterable[str]) -> str:
+    listed = sorted(names)
+    if not listed:
+        return ""
+    more = f" and {len(listed) - NAMED} more" if len(listed) > NAMED else ""
+    return f"; {what}: {', '.join(listed[:NAMED])}{more}"
+
+
 def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
     """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
 
@@ -1029,7 +1045,13 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
         manifest["files"]
     )
     if bad or extra:
-        raise BackupError(f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted")
+        # NEW-B-14: which files, by their path inside the backup (a name, never content): "1 changed" alone left
+        # a failed drill with nothing to look at
+        raise BackupError(
+            f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted"
+            + _named("changed", bad)
+            + _named("unlisted", extra)
+        )
     manifest["_sha256"] = hr.sha.hexdigest()
     return manifest
 

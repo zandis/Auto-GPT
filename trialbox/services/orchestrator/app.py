@@ -362,6 +362,13 @@ def create_job(req: JobCreate, request: Request) -> Job:
     return job
 
 
+@app.get("/jobs/waiting-studies")  # declared before /jobs/{job_id}, or it is read as a job's id
+def waiting_studies() -> list[str]:
+    """NEW-JRN-1b (D-545): the studies with criteria waiting for approval, the newest first. The console asks this
+    instead of reading a listing of jobs, which is cut at its limit."""
+    return orch().db.waiting_rulesets()
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)
@@ -669,6 +676,7 @@ def setup_of(o: Orchestrator) -> Any:
         svc = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
                         o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
                         mrn_regex=o.cfg.settings.mrn_regex,
+                        known=lambda pid: identifiers.known_pid(o.cfg.env.secrets_dir, o.db.url, pid),
                         publish_batch_seconds=o.cfg.env.site_publish_batch_seconds)  # fmt: skip
         _setups[key] = svc
         o.after_job.append(lambda: _flush_main(svc))  # T-305b (D-403): a batch held by the job goes after it

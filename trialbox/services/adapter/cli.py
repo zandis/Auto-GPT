@@ -37,7 +37,7 @@ from tb_contracts import RebuildResult, dump
 
 from adapter.governance import contracts_dir
 from adapter.mapping.site import resolve as resolve_mapping
-from adapter.pipeline import AdapterConfig, SiteKeyError, run_ingest
+from adapter.pipeline import AdapterConfig, FutureNight, SiteKeyError, run_ingest
 
 MAPPING_ROOT = Path(__file__).resolve().parent  # the image's mappings (adapter.mapping.site: the site's come first)
 
@@ -80,9 +80,11 @@ class HttpLakeStep:
             self.poll,
         )
 
-    def promote(self, snapshot: str) -> bool:
-        """T-723 (D-489): the publish's last step: the built night becomes the served one (False: a newer one is)."""
-        return bool(self._call("post", "/promote", json={"snapshot": snapshot}).get("promoted"))
+    def promote(self, snapshot: str, generation: str | None = None) -> bool:
+        """T-723 (D-489): the publish's last step: the built night becomes the served one (False: a newer one is).
+        ``generation`` (D-531): the one this publish built; the lake refuses (409) when the date is another now."""
+        body = {"snapshot": snapshot, **({"generation": generation} if generation else {})}
+        return bool(self._call("post", "/promote", json=body).get("promoted"))
 
 
 def http_rebuild(lake: Any, snapshot: str, promote: bool = True) -> RebuildResult:
@@ -106,6 +108,7 @@ def http_rebuild(lake: Any, snapshot: str, promote: bool = True) -> RebuildResul
         chunks=int(out.get("chunks") or 0),
         embedded_new=int(out.get("embedded_new") or 0),
         seconds=float(out.get("seconds") or 0),
+        generation=out.get("generation") or None,
     )
 
 
@@ -139,6 +142,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
                 chunks=st.chunks,
                 embedded_new=st.embedded_new,
                 seconds=st.seconds,
+                generation=st.generation or None,
             )
         return http_rebuild(HttpLakeStep(cfg.env.lake_url), snapshot, promote)
 
@@ -146,12 +150,12 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         """T-723 (D-489): the publish's first step: the night is built and judged, not served yet."""
         return rebuild(snapshot, ndjson_dir, promote=False)
 
-    def promote(snapshot: str) -> bool:
+    def promote(snapshot: str, generation: str | None = None) -> bool:
         if os.environ.get("TB_ADAPTER_LAKE", "http") == "local":
             from lake.store import Lake
 
-            return Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).promote_built(snapshot)
-        return HttpLakeStep(cfg.env.lake_url).promote(snapshot)
+            return Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).promote_built(snapshot, generation)
+        return HttpLakeStep(cfg.env.lake_url).promote(snapshot, generation)
 
     ret = cfg.settings.retention
     fc = cfg.settings.feed_completeness  # T-611
@@ -249,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
             rebuild_lake=not args.no_lake,
             validate=not args.no_validate,
         )
-    except SiteKeyError as exc:
+    except (SiteKeyError, FutureNight) as exc:
         print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
@@ -271,7 +275,7 @@ def backfill_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespa
             validate=not args.no_validate,
             rebuild_lake=not args.no_lake,
         )
-    except SiteKeyError as exc:
+    except (SiteKeyError, FutureNight) as exc:
         print(f"back-fill refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(rep.as_dict(), ensure_ascii=False, indent=1))

@@ -84,6 +84,15 @@ foreach ($d in $drives) {
 }
 Fact "recovery_escrow" $RecoveryKeyEscrow
 
+# the installed memory and the logical processors (NEW-WIN-3, D-601): .wslconfig is computed from them; inside
+# WSL2 one sees only WSL2's share
+$mods = @(Get-CimInstance Win32_PhysicalMemory)
+$memBytes = [long](($mods | Measure-Object -Property Capacity -Sum).Sum)
+$csys = Get-CimInstance Win32_ComputerSystem
+if ($memBytes -le 0) { $memBytes = [long]$csys.TotalPhysicalMemory }
+Fact "installed_memory_gb" ([math]::Floor($memBytes / 1GB))
+Fact "logical_processors" $csys.NumberOfLogicalProcessors
+
 # hibernation and Fast Startup (both write memory to C:\hiberfil.sys)
 Fact "hibernate_enabled" (RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "HibernateEnabled")
 Fact "fast_startup" (RegValue "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" "HiberbootEnabled")

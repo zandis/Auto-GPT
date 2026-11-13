@@ -64,6 +64,38 @@ assumes). Write them down as you go; none needs an extra run.
 | 18 | Read `Get-ScheduledTask TrialBox-Install-Resume` | No such task (it was removed when step 5 found WSL ready) |
 | 19 | On a drive with no `TrialBox` folder (or on a second PC): as administrator make `<drive>\TrialBox` in Explorer, put any file in it, and start the installer with `-StateDir C:\tb-p0-state3 -DataDrive <that drive>` | It stops at step 4 `drive`: "The folder ... already exists and belongs to another account" (a folder open to other accounts is taken only when empty). The file is still there. Then empty the folder and start again: step 4 passes and line 5's "Access is denied" holds for it |
 
+## Part 2: NEW-WIN-3, `.wslconfig` from the hardware (D-601)
+
+Read these during Part 1; they need no extra run.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 20 | At step 6 read the window, then open `C:\Users\<you>\.wslconfig` in Notepad | "WSL2 is given N GB of memory and M processors; 25 percent ... stays with Windows". The file's `memory=` and `processors=` are three quarters of the PC's, rounded down | The PC's installed memory and logical processors (Task Manager, Performance) and the file's two lines |
+| 21 | After step 8, in another administrator window: `wsl -d TrialBox -- free -g` and `wsl -d TrialBox -- nproc` | Total memory within 1 GB of the file's `memory=`; `nproc` equal to `processors=`; the Swap line is 0 | The three figures |
+| 22 | `wsl -d TrialBox -- df -h /` | The size of `/` is near the data drive's size, not 1 TB | The Size column and the drive's size |
+| 22a | `wsl -d TrialBox -- dmesg` (the first screen), and the size of `<drive>\TrialBox\wsl\ext4.vhdx` in Explorer before and after copying a 10 GB file into WSL2 and deleting it again (`wsl -d TrialBox -- sudo fstrim -av` once after the delete) | No message that WSL rejected a setting of `.wslconfig` (`sparseVhd`, `defaultVhdSize`); the file shrinks again after the delete | Any "wsl:" warning shown when WSL2 starts; the three sizes |
+| 22b | Only on a PC where the drive may be filled: nothing to do in P-0. Note for P-15: what WSL2 does when the drive fills before the virtual disk's limit is not known | - | - |
+| 23 | After line 15: `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"` | A line `wsl2_memory` with PASS (WARN if it names a service with no cap), the caps' sum and WSL2's memory. With the small stand-in model the model servers are not in the sum | That line |
+| 23a | After the install is finished, start the installer once more with `-DesktopSharePercent 50` (in an administrator PowerShell: `<media>\windows\box-install.ps1 -DesktopSharePercent 50`) | "WSL2 is given ..." with half the PC's figures; "The earlier .wslconfig was kept as ..."; the console stays up. `free -g` inside WSL2 still shows the OLD figure | The window's text; `free -g` before a restart |
+| 23b | Restart Windows, sign in, `wsl -d TrialBox -- free -g` and `nproc` | The NEW figures. Then start the installer with `-DesktopSharePercent 25` to put the share back, and restart once more | Both outputs |
+
+## Part 3: NEW-WIN-2, start without a person (D-602)
+
+After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WSL2 start from the boot task.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 24 | In an administrator window: `Get-ScheduledTask TrialBox-WSL2`, `powercfg /a` | The task is Ready or Running; hibernation is listed as not available | The task's State; the `powercfg /a` text |
+| 25 | Note the time. Restart Windows. **Do not sign in.** Wait five minutes at the sign-in screen. From this PC nothing can be seen yet; if a second PC is on the same network, try the console's address from it and note what happens (it is expected to fail until NEW-WIN-4) | (nothing to see on this PC) | The time of the restart and the time you signed in at line 26 |
+| 26a | Sign in. At once, in an administrator window: `wsl --list --running`, then `wsl -d TrialBox -- uptime -s` and `Get-ScheduledTaskInfo TrialBox-WSL2` | `TrialBox` is running; `uptime -s` shows a start time **before** you signed in. **This line alone answers whether the task can start WSL2 with nobody signed in** | The outputs, with LastRunTime and LastTaskResult. "Yes" or "no" for this line by itself |
+| 26b | `wsl -d TrialBox -- systemctl is-active docker trialbox`, `wsl -d TrialBox -- docker ps --format "{{.Names}} {{.Status}}"` | Docker `active`. **The stack itself is expected NOT to be fully up before NEW-WIN-8:** WSL2 has no security chip, so the site keys wait for a passphrase after every restart. Record what is up; a "no" here says nothing about line 26a | Both outputs |
+| 27 | Open the console on this PC's browser | The sign-in page, without starting anything by hand | Seconds from sign-in until the page answered |
+| 27a | As a **standard** account: `Get-ScheduledTask TrialBox-WSL2`, `Stop-ScheduledTask TrialBox-WSL2`, `Disable-ScheduledTask TrialBox-WSL2`; and Start, Power, Sleep | The task commands are refused. Sleep from the Start menu is still offered to a standard account (the installer changes timers, not that button): record it for NEW-WIN-5 | What each answered; whether Sleep was offered |
+| 27b | As the administrator: `Stop-ScheduledTask TrialBox-WSL2`, wait two minutes, `Get-ScheduledTask TrialBox-WSL2`, `wsl --list --running` | The task is Running again within about a minute, and `TrialBox` with it | The state after two minutes; whether the console stayed up meanwhile |
+| 27c | With the install finished and the console up, double-click `Install-TrialBox.cmd` again | "Nothing was changed"; the console does not go down; the task's LastRunTime is unchanged (a task that is there is kept, not started again) | LastRunTime before and after |
+| 27d | The log's lines of step 12 | No "did not accept a power setting" line. On a PC with no hibernation support such a line is expected and the install went on | The lines |
+| 27e | If the account is a domain or Microsoft Entra account: repeat line 25 and 26a with the network cable out | The same as 26a | Whether the task ran with no domain controller in reach |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -77,4 +109,9 @@ assumes). Write them down as you go; none needs an extra run.
   for elevation); the owner would otherwise start the installer by hand, which already works.
 - Line 11 "no": the probe image of D-600 point 8 is replaced by a small image on the media.
 - Line 13 "question not visible": the pass-through in `wsl-setup.sh install` holds lines back; fix there.
+- Line 20 or 21 "no": WSL2 does not take the share the installer wrote; NEW-WIN-3's file is wrong for this WSL
+  version. Line 22 "no": the disk limit needs `wsl --manage TrialBox --resize` after the import instead.
+- Line 26a "no" (WSL2 started only after the sign-in): the S4U task cannot start WSL2. D-602 point 4: the fallback is
+  chosen with NEW-WIN-8. This is the most important answer of the whole sheet; send it even if nothing else is done.
+  Line 26b does not enter this decision: it shows what NEW-WIN-8 still has to make true.
 - Line 14: the address NEW-WIN-4 must make work from another PC.

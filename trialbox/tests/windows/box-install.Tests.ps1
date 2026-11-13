@@ -14,7 +14,7 @@ BeforeAll {
     $media = Join-Path $base "media"
     foreach ($d in @("windows/wsl", "linux/debs")) { New-Item -ItemType Directory -Force -Path (Join-Path $media $d) | Out-Null }
     $files = @(
-      "windows/box-install.ps1", "windows/box-install.messages.json", "windows/wsl-setup.sh",
+      "windows/box-install.ps1", "windows/box-install.messages.json", "windows/wsl-setup.sh", "windows/register_keepalive.ps1",
       "windows/wsl/wsl.2.4.13.0.x64.msi", "windows/wsl/ubuntu-24.04-wsl-amd64.tar.gz",
       "linux/debs/docker-ce_27.deb", "linux/trialbox-host.tar", "linux/trialbox-1.0.0.tar", "linux/vendor_ed25519.pub"
     )
@@ -22,7 +22,7 @@ BeforeAll {
     foreach ($f in $files) {
       $p = Join-Path $media $f
       $src = Join-Path $script:Root ("deploy/windows/" + (Split-Path -Leaf $f))
-      if ($f -like "windows/box-install.*" -or $f -like "windows/wsl-setup.sh") { Copy-Item -LiteralPath $src -Destination $p }
+      if ($f -like "windows/box-install.*" -or $f -like "windows/wsl-setup.sh" -or $f -like "windows/register_keepalive.ps1") { Copy-Item -LiteralPath $src -Destination $p }
       else { Set-Content -LiteralPath $p -Value ("content of " + $f) -NoNewline }
       $sums += ("{0}  {1}" -f (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLower(), $f)
     }
@@ -30,11 +30,12 @@ BeforeAll {
     $s = @{
       Base = $base; Media = $media; StateDir = (Join-Path $base "state"); Data = (Join-Path $base "data")
       Edition = "ProfessionalWorkstation"; Build = 26100; VirtFirmware = $true; Hypervisor = $false
-      Account = "BOX\owner"; IsAdmin = $true; FreeGB = 3000
+      Account = "BOX\owner"; IsAdmin = $true; FreeGB = 3000; MemoryGB = 192; Processors = 32
       Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
       FeatureRestart = $true; WslInstalled = $false; Distros = @(); WinGpu = $true
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
+      BootInfo = $null; BootRegistered = 0
       Restarted = 0; ResumeTask = $false; FoundMedia = ""; ImportDies = $false; Said = New-Object System.Collections.ArrayList
     }
     New-Item -ItemType Directory -Force -Path $s.Data | Out-Null
@@ -61,7 +62,8 @@ Describe "box-install.ps1" {
         HypervisorPresent = $s.Hypervisor; Account = $s.Account; IsAdmin = $s.IsAdmin; UiCulture = "en-US"
         SystemDrive = "C:"; UserProfile = (Join-Path $s.Base "profile") }
     }
-    Mock Get-TbDriveFacts { return @{ FreeGB = $script:S.FreeGB; Fixed = $true; FileSystem = "NTFS" } }
+    Mock Get-TbDriveFacts { return @{ FreeGB = $script:S.FreeGB; Fixed = $true; FileSystem = "NTFS"; SizeBytes = 4000787030016 } }
+    Mock Get-TbHardware { return @{ MemoryGB = $script:S.MemoryGB; Processors = $script:S.Processors } }
     Mock Get-TbDataDriveCandidates { return @() }
     Mock Protect-TbDirectory { New-Item -ItemType Directory -Force -Path $Path | Out-Null }
     Mock Get-TbFeatureEnabled { return [bool]$script:S.Features[$Name] }
@@ -69,6 +71,11 @@ Describe "box-install.ps1" {
     Mock Register-TbResumeTask { $script:S.ResumeTask = $true; $script:S.ResumeMore = $More; $script:S.ResumeScript = $ScriptPath }
     Mock Unregister-TbResumeTask { $script:S.ResumeTask = $false }
     Mock Restart-TbComputer { $script:S.Restarted++ }
+    Mock Register-TbBootTask {
+      $script:S.BootTask = "$Account|$Distro|$TaskName"; $script:S.BootRegistered++
+      $script:S.BootInfo = @{ State = "Running"; LastResult = "267009"; Action = "wsl.exe -d $Distro --exec /bin/sh -c 'exec sleep infinity' " }
+    }
+    Mock Get-TbBootTaskInfo { return $script:S.BootInfo }
     Mock Find-TbMedia { return [string]$script:S.FoundMedia }
     Mock Start-TbSleep { }
     Mock Read-TbLine { return "" }
@@ -171,12 +178,13 @@ Describe "box-install.ps1" {
       # the copy the task runs after the restart does not depend on the media's drive letter
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.ps1") | Should -BeTrue
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.messages.json") | Should -BeTrue
+      Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/register_keepalive.ps1") | Should -BeTrue
       $script:S.ResumeScript | Should -Be (Join-Path $script:S.StateDir "scripts/box-install.ps1")
     }
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
       $MinFreeGB = 200; $script:S.FreeGB = 250
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -Distro TrialBox -Lang en"
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -232,17 +240,21 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $calls = $script:S.Calls -join "`n"
       $calls | Should -Match "wsl\.exe --import TrialBox \S+wsl \S+ubuntu-24\.04-wsl-amd64\.tar\.gz --version 2"
-      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "state")
+      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "state", "boot-check")
       $script:S.Console.Count | Should -Be 1
       $script:S.Console[0] | Should -Match "wsl\.exe -d TrialBox -u root .*wsl-setup\.sh install \S+/linux/trialbox-1\.0\.0\.tar"
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeTrue
     }
-    It "writes .wslconfig with swap off before WSL2 first starts, and no memory figure of its own" {
+    It "writes .wslconfig from the hardware before WSL2 first starts: the desktop's share kept, swap off, the disk limit" {
+      # NEW-WIN-3 (D-601) replaced NEW-WIN-1's file, which had swap=0 and no memory line
       Invoke-Run | Should -Be 0
       $cfg = Get-Content -LiteralPath (Join-Path $script:S.Base "profile/.wslconfig") -Raw
       $cfg | Should -Match "(?m)^swap=0"
-      $cfg | Should -Not -Match "memory="
+      $cfg | Should -Match "(?m)^memory=144GB"        # 192 GB installed less the declared 25 percent
+      $cfg | Should -Match "(?m)^processors=24"       # 32 logical processors less 25 percent
+      $cfg | Should -Match "(?m)^defaultVhdSize=4000787030016"
+      $cfg | Should -Match "(?m)^sparseVhd=true"
       $log = Get-Log
       $log.IndexOf("wslconfig: ok") | Should -BeLessThan $log.IndexOf("import: start")
     }
@@ -253,6 +265,117 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "memory=8GB"
       ($script:S.Said -join "`n") | Should -Match "swap"
+    }
+    It "writes its own .wslconfig again when the hardware changed, and upgrades the file NEW-WIN-1 wrote" {
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      Set-Content -LiteralPath (Join-Path $p ".wslconfig") -Value "# TrialBox (NEW-WIN-1, D-421): no swap`n[wsl2]`nswap=0"
+      $script:S.MemoryGB = 256
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "(?m)^memory=192GB"
+    }
+    It "follows the hardware on a finished install too, keeps the earlier file and says when it applies (review H2, M2, M3)" {
+      Invoke-Run | Should -Be 0
+      $p = Join-Path $script:S.Base "profile"
+      $n = $script:S.Calls.Count
+      Invoke-Run | Should -Be 0     # nothing changed: not written again, no copy
+      @(Get-ChildItem -LiteralPath $p -Force -Filter ".wslconfig.before-trialbox-*").Count | Should -Be 0
+      $script:S.MemoryGB = 256      # memory was added
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "(?m)^memory=192GB"
+      $kept = @(Get-ChildItem -LiteralPath $p -Force -Filter ".wslconfig.before-trialbox-*")
+      $kept.Count | Should -Be 1
+      (Get-Content -LiteralPath $kept[0].FullName -Raw) | Should -Match "(?m)^memory=144GB"
+      ($script:S.Said -join "`n") | Should -Match "apply when WSL2 next starts"
+      $script:S.Calls.Count | Should -Be $n   # and nothing else was touched
+    }
+    It "keeps the share this install used when it is started again without the parameter (review M2)" {
+      $script:S.SetupFail["packages"] = "interrupted"
+      $script:TbShareGiven = $true; $script:TbShareDefault = 50
+      try { Invoke-Run | Should -Be 1 } finally { $script:TbShareGiven = $false; $script:TbShareDefault = 25 }
+      $p = Join-Path $script:S.Base "profile/.wslconfig"
+      (Get-Content -LiteralPath $p -Raw) | Should -Match "(?m)^memory=96GB"
+      $script:S.SetupFail = @{}
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath $p -Raw) | Should -Match "(?m)^memory=96GB"
+    }
+    It "writes over an empty .wslconfig as over a missing one (review M1)" {
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      [IO.File]::WriteAllBytes((Join-Path $p ".wslconfig"), [byte[]]@())
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "(?m)^memory=144GB"
+    }
+    It "keeps a file in another encoding even when it starts like ours (review M3)" {
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      $f = Join-Path $p ".wslconfig"
+      [IO.File]::WriteAllText($f, "# TrialBox notes of my own`r`n[wsl2]`r`nmemory=100GB`r`n", [Text.Encoding]::Unicode)
+      $before = [IO.File]::ReadAllBytes($f)
+      Invoke-Run | Should -Be 0
+      [Convert]::ToBase64String([IO.File]::ReadAllBytes($f)) | Should -Be ([Convert]::ToBase64String($before))
+      ($script:S.Said -join "`n") | Should -Match "not computed from this machine"
+    }
+    It "stops when the desktop's share leaves nothing for WSL2" {
+      $script:S.MemoryGB = 1; $script:S.Processors = 1
+      Invoke-Run | Should -Be 1
+      ($script:S.Calls -join "`n") | Should -Not -Match "--import"
+      Get-Log | Should -Match "STOP step 6/\d+ wslconfig"
+    }
+    It "registers the start-at-boot task for this account and distribution, with sleep and hibernation off, before the Linux installer waits" {
+      Invoke-Run | Should -Be 0
+      $script:S.BootTask | Should -Be "BOX\owner|TrialBox|TrialBox-WSL2"
+      $calls = $script:S.Calls -join "`n"
+      $calls | Should -Match "powercfg\.exe /hibernate off"
+      foreach ($t in @("standby-timeout-ac", "hibernate-timeout-ac", "standby-timeout-dc", "hibernate-timeout-dc")) {
+        $calls | Should -Match ("powercfg\.exe /change " + $t + " 0")
+      }
+      Get-Log | Should -Match "task TrialBox-WSL2: registered; state Running"
+      $log = Get-Log
+      $log.IndexOf("boot-task: ok") | Should -BeLessThan $log.IndexOf("linux-install: start")
+    }
+    It "stops when the task cannot be registered, before the Linux installer runs" {
+      Mock Register-TbBootTask { throw "Access is denied." }
+      Invoke-Run | Should -Be 1
+      $script:S.Console.Count | Should -Be 0
+      Get-Log | Should -Match "STOP step 12/\d+ boot-task: .*Access is denied"
+    }
+    It "says so and goes on when Windows refuses a power setting (review M4)" {
+      Mock Invoke-TbNative { return @{ ExitCode = 1; Output = @("Hibernation is not supported") } } -ParameterFilter { $Exe -eq "powercfg.exe" -and ($Arguments -join " ") -eq "/hibernate off" }
+      Invoke-Run | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Match "did not accept a power setting \(powercfg /hibernate off, exit 1\)"
+    }
+    It "keeps a task that is there and starts this distribution: it is not registered or started again (review M6)" {
+      $script:S.SetupFail["gpu"] = "interrupted"
+      $script:S.BootInfo = @{ State = "Running"; LastResult = "267009"; Action = "wsl.exe -d TrialBox --exec /bin/sh -c 'exec sleep infinity' " }
+      Invoke-Run | Should -Be 1
+      $script:S.SetupFail = @{}
+      Invoke-Run | Should -Be 0
+      $script:S.BootRegistered | Should -Be 0
+      Get-Log | Should -Match "task TrialBox-WSL2: kept"
+    }
+    It "registers the task again when it is for another distribution or disabled (review M3)" {
+      $script:S.BootInfo = @{ State = "Ready"; LastResult = "0"; Action = "wsl.exe -d Ubuntu-24.04 --exec /bin/sh -c 'exec sleep infinity' " }
+      Invoke-Run | Should -Be 0
+      $script:S.BootTask | Should -Be "BOX\owner|TrialBox|TrialBox-WSL2"
+      Get-Log | Should -Match "task TrialBox-WSL2: restored"
+    }
+    It "puts the task back on a finished install when it was deleted, and changes nothing else (review M6)" {
+      Invoke-Run | Should -Be 0
+      $n = $script:S.Calls.Count
+      $script:S.BootInfo = $null; $script:S.BootRegistered = 0
+      Invoke-Run | Should -Be 0
+      $script:S.BootRegistered | Should -Be 1
+      ($script:S.Said -join "`n") | Should -Match "registered again"
+      $script:S.Calls.Count | Should -Be $n
+      $script:S.Console.Count | Should -Be 1
+    }
+    It "is not finished while Docker or the stack would not start with the distribution" {
+      $script:S.SetupFail["boot-check"] = "not enabled to start with the distribution: trialbox.service"
+      Invoke-Run | Should -Be 1
+      $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
+      $state.finished | Should -BeFalse
+      Get-Log | Should -Match "STOP step 13/\d+ linux-install: .*trialbox\.service"
     }
     It "does nothing on a second run of a finished install" {
       Invoke-Run | Should -Be 0
@@ -327,7 +450,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 1
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeFalse
-      Get-Log | Should -Match "STOP step 12/\d+ linux-install"
+      Get-Log | Should -Match "STOP step 13/\d+ linux-install"
     }
     It "counts an install whose host check still has FAIL lines as installed, and says so" {
       $script:S.InstallExit = 1
@@ -350,7 +473,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $log = Get-Log
       foreach ($name in @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
-          "packages", "gpu-container", "host-tree", "linux-install")) { $log | Should -Match ("step \d+/12 " + $name + ": ok") }
+          "packages", "gpu-container", "host-tree", "boot-task", "linux-install")) { $log | Should -Match ("step \d+/13 " + $name + ": ok") }
       Should -Invoke Invoke-TbNative -Times 0 -ParameterFilter { ($Arguments -join " ") -match "wsl-setup\.sh install" }
     }
   }
@@ -359,6 +482,13 @@ Describe "box-install.ps1" {
     It "turns a Windows path into the path WSL2 mounts it at" {
       ConvertTo-TbWslPath "D:\TrialBox\install\wsl-setup.sh" | Should -Be "/mnt/d/TrialBox/install/wsl-setup.sh"
       ConvertTo-TbWslPath "e:\TRIALBOX-1.0\linux\x.tar" | Should -Be "/mnt/e/TRIALBOX-1.0/linux/x.tar"
+    }
+    It "computes WSL2's share by rounding down, and refuses a share that leaves nothing" {
+      Get-TbWslConfigText 255 20 25 0 | Should -Match "memory=191GB"
+      Get-TbWslConfigText 255 20 25 0 | Should -Match "processors=15"
+      Get-TbWslConfigText 255 20 25 0 | Should -Not -Match "defaultVhdSize"
+      Get-TbWslConfigText 64 8 0 0 | Should -Match "memory=64GB"
+      Get-TbWslConfigText 1 1 25 0 | Should -BeNullOrEmpty
     }
     It "picks the language from the Windows display language" {
       Get-TbLang "" "ja-JP" | Should -Be "ja"

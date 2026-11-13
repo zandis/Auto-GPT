@@ -32,6 +32,7 @@ def _orch(jobs: int, seconds_per_job: float, clock: _Clock) -> Any:
 
     o.db = _Db()
     o.run = run
+    o._rewatch = lambda: False  # D-532: this stand-in was left no job by another worker
     return o
 
 

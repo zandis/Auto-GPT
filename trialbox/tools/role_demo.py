@@ -107,6 +107,9 @@ class InprocBackend:
         self.cfg = box.orch.cfg  # the site time zone for user-facing times (console.timefmt)
 
     # jobs
+    def waiting_studies(self) -> list[str]:
+        return [str(s) for s in self.c.get("/jobs/waiting-studies").json()]
+
     def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Any]:
         from tb_contracts import Job
 

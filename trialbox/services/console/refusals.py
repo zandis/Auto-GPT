@@ -64,6 +64,14 @@ REFUSALS: dict[str, tuple[str, str]] = {
     "attach the informed-consent form": ("同意説明文書を添付してください", "請附上受試者同意書"),
     "attachments are at most 50 MB": ("添付ファイルは50 MBまでです", "附件最大 50 MB"),
     "bad pseudonym": ("仮名IDの形式が正しくありません", "假名代碼格式不正確"),
+    "this is a pseudonym, not a chart number: put it in the pseudonym field": (
+        "これは仮名IDで、カルテ番号ではありません。仮名IDの欄に入力してください",
+        "這是假名代碼，不是病歷號：請填入假名代碼欄位",
+    ),
+    "type the whole pseudonym (32 characters), or the chart number: the 8 characters a page shows name no patient": (
+        "仮名IDは全体（32文字）を入力するか、カルテ番号を入力してください。画面に表示される8文字だけでは患者を特定できません",
+        "請輸入完整的假名代碼（32 個字元）或病歷號：畫面上顯示的 8 個字元無法指明病人",
+    ),
     "too many exports with chart numbers in the last hour": (
         "この 1 時間のカルテ番号付きの書き出しが上限に達しました",
         "過去一小時內含病歷號的匯出已達上限",
@@ -214,6 +222,18 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "協同主持人須以醫師帳號登入",
     ),
     "give a chart number or a pseudonym": ("カルテ番号か仮名IDを入力してください", "請輸入病歷號或假名代碼"),
+    # NEW-DIN-3 (D-544): console.team.CANNOT_CHECK
+    "TrialBox cannot check this chart number now: to register it without the check, write why "
+    "(at least 10 characters)": (
+        "TrialBoxは今このカルテ番号を確認できません。確認なしで登録する場合は、理由を10文字以上で書いてください",
+        "TrialBox 目前無法核對此病歷號。若要不經核對而登記，請寫明理由（至少 10 個字）",
+    ),
+    # NEW-DIN-3 (D-544): console.team.NOT_A_PATIENT
+    "this chart number is not a patient of this box: check the number; to register it anyway, write why "
+    "(at least 10 characters)": (
+        "このカルテ番号はこのTrialBoxの患者さんのものではありません。番号を確かめてください。それでも登録する場合は、理由を10文字以上で書いてください",
+        "此病歷號不是本 TrialBox 的病人，請核對號碼。若仍要登記，請寫明理由（至少 10 個字）",
+    ),
     "the box could not turn the chart number into a pseudonym": (
         "カルテ番号を仮名IDに変えられませんでした",
         "無法將病歷號轉為假名代碼",

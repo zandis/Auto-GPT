@@ -110,14 +110,14 @@
     "zh-TW": "WSL 尚未回應（wsl.exe --version）。請重新啟動 Windows 後再啟動安裝程式。"
   },
   "wslconfig_kept_no_swap0": {
-    "en": "Warning: {0} already exists and was not changed, but it does not set swap=0. TrialBox's host check will report it until swap is off.",
-    "ja": "注意: {0} はすでに存在するため変更していませんが、swap=0 が設定されていません。swap を無効にするまで、TrialBox のホスト検査がこれを報告します。",
-    "zh-TW": "警告：{0} 已存在，未做變更，但其中沒有設定 swap=0。在關閉 swap 之前，TrialBox 的主機檢查會持續回報此項。"
+    "en": "Warning: {0} already exists and was not written by TrialBox: it was not changed, but it does not set swap=0. TrialBox's host check will report it until swap is off. WSL2's memory, processors and disk limit are that file's or WSL's own, not computed from this machine.",
+    "ja": "注意: {0} はすでに存在し、TrialBox が書いたものではないため変更していませんが、swap=0 が設定されていません。swap を無効にするまで、TrialBox のホスト検査がこれを報告します。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になり、この機械から計算した値ではありません。",
+    "zh-TW": "警告：{0} 已存在，且不是 TrialBox 寫入的，因此未做變更，但其中沒有設定 swap=0。在關閉 swap 之前，TrialBox 的主機檢查會持續回報此項。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值，而不是依這台機器計算。"
   },
   "wslconfig_kept": {
-    "en": "{0} already exists and was not changed.",
-    "ja": "{0} はすでに存在するため変更していません。",
-    "zh-TW": "{0} 已存在，未做變更。"
+    "en": "{0} already exists and was not written by TrialBox: it was not changed. WSL2's memory, processors and disk limit are then that file's or WSL's own, not computed from this machine.",
+    "ja": "{0} はすでに存在し、TrialBox が書いたものではないため、変更していません。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になり、この機械から計算した値ではありません。",
+    "zh-TW": "{0} 已存在，且不是 TrialBox 寫入的，因此未做變更。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值，而不是依這台機器計算。"
   },
   "distro_exists": {
     "en": "A WSL system named {0} already exists on this account, and this install did not make it. The installer never replaces or removes one: it may hold a TrialBox with data. Nothing was changed.",
@@ -203,5 +203,40 @@
     "en": "An earlier run of this installer was interrupted while it set up the Linux system. Its unfinished virtual disk is still there: {0}. The installer never removes a file: move that file away by hand (it holds no TrialBox data), then start the installer again.",
     "ja": "このインストーラーの前回の実行が、Linux システムの用意の途中で中断されました。未完成の仮想ディスクが残っています: {0}。インストーラーはファイルを削除しません。このファイル（TrialBox のデータは入っていません）を手作業で別の場所へ移してから、もう一度インストーラーを起動してください。",
     "zh-TW": "本安裝程式先前的執行在建立 Linux 系統時被中斷，未完成的虛擬磁碟仍在：{0}。安裝程式絕不移除檔案：請手動將該檔案移走（其中沒有 TrialBox 資料），然後再啟動安裝程式。"
+  },
+  "wslconfig_written": {
+    "en": "WSL2 is given {0} GB of memory and {1} processors; {2} percent of this machine stays with Windows and the desktop.",
+    "ja": "WSL2 にメモリ {0} GB とプロセッサ {1} 個を割り当てました。この機械の {2} パーセントは Windows とデスクトップ用に残します。",
+    "zh-TW": "WSL2 分配到 {0} GB 記憶體與 {1} 個處理器；這台機器的 {2}% 保留給 Windows 與桌面使用。"
+  },
+  "wslconfig_too_small": {
+    "en": "This machine has {0} GB of memory and {1} processors: with {2} percent kept for the desktop nothing is left for TrialBox. Nothing was changed.",
+    "ja": "この機械のメモリは {0} GB、プロセッサは {1} 個です。デスクトップ用に {2} パーセントを残すと、TrialBox に割り当てる分がありません。何も変更していません。",
+    "zh-TW": "這台機器有 {0} GB 記憶體與 {1} 個處理器：保留 {2}% 給桌面後，沒有可分配給 TrialBox 的資源。沒有做任何變更。"
+  },
+  "wslconfig_replaced": {
+    "en": "The earlier .wslconfig was kept as {0}. The new figures apply when WSL2 next starts: restart Windows at a time when no night job runs.",
+    "ja": "以前の .wslconfig は {0} として残しました。新しい値は WSL2 の次回起動時から有効になります。夜間ジョブが動いていない時間に Windows を再起動してください。",
+    "zh-TW": "先前的 .wslconfig 已保留為 {0}。新的數值在 WSL2 下次啟動時生效：請在沒有夜間工作執行的時間重新啟動 Windows。"
+  },
+  "boot_task": {
+    "en": "Hibernation is off, and this PC no longer goes to sleep by itself (the current power plan). The task {0} is registered to start TrialBox when Windows starts, whether or not anyone signs in.",
+    "ja": "休止状態を無効にし、この PC が自動でスリープしないようにしました（現在の電源プラン）。タスク {0} を登録しました。Windows の起動時に、サインインの有無にかかわらず TrialBox を起動するためのものです。",
+    "zh-TW": "已關閉休眠，這台電腦也不會再自動進入睡眠（目前的電源計畫）。已登錄工作 {0}，用於在 Windows 啟動時啟動 TrialBox，不論是否有人登入。"
+  },
+  "boot_task_failed": {
+    "en": "Windows could not register the start-at-boot task: {0}",
+    "ja": "Windows が起動時タスクを登録できませんでした: {0}",
+    "zh-TW": "Windows 無法登錄開機啟動工作：{0}"
+  },
+  "power_failed": {
+    "en": "Warning: Windows did not accept a power setting (powercfg {0}, exit {1}). The install goes on; if this PC sleeps or hibernates, TrialBox stops answering until it wakes.",
+    "ja": "注意: Windows が電源設定を受け付けませんでした（powercfg {0}、終了コード {1}）。インストールは続行します。この PC がスリープまたは休止状態になると、復帰するまで TrialBox は応答しません。",
+    "zh-TW": "警告：Windows 未接受電源設定（powercfg {0}，結束代碼 {1}）。安裝會繼續；若這台電腦進入睡眠或休眠，TrialBox 在喚醒前不會回應。"
+  },
+  "boot_task_restored": {
+    "en": "The start-at-boot task {0} was missing, disabled or for another system: it was registered again.",
+    "ja": "起動時タスク {0} が存在しないか、無効か、別のシステム用になっていたため、登録し直しました。",
+    "zh-TW": "開機啟動工作 {0} 不存在、已停用或指向其他系統：已重新登錄。"
   }
 }
