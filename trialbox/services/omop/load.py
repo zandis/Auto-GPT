@@ -63,6 +63,7 @@ from lake.flatten import (
     Flattener,
     NotWesternYear,
     basis_of,
+    is_atc_system,
     verification_of,
     void,
 )
@@ -458,7 +459,7 @@ class _Builder:
         cc = self.fl.medication_concept(r)  # T-616: a medicationReference resolved as the lake resolves it
         nhi = atc = nhi_sys = atc_sys = None
         for c in cc.get("coding") or []:  # the flattener's own reading (``Flattener.medication``), systems kept
-            if "atc" in (c.get("system") or ""):
+            if is_atc_system(c.get("system")):  # D-536: the flattener's own test, so the two readings agree
                 atc, atc_sys = c.get("code"), c.get("system")
             elif nhi is None:
                 nhi, nhi_sys = c.get("code"), c.get("system")
