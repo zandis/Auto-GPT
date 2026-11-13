@@ -213,23 +213,42 @@ EOP
     ;;
   backup-speed)
     # NEW-WIN-7 (D-608): how fast this box writes to a backup path, in MB/s, measured by writing <MiB> of zeros
-    # there and waiting until they are on the disk. A path through Windows (/mnt/<drive>, a share) is far slower
-    # than WSL2's own disk; TB_BACKUP_MIN_MBPS (D-455) must stay below it, and trialbox doctor checks that.
+    # there and waiting until they are on the disk. A path through Windows (/mnt/<drive>, a share) may be far
+    # slower than WSL2's own disk; TB_BACKUP_MIN_MBPS (D-455) must stay below it, and trialbox doctor checks that.
     #   wsl-setup.sh backup-speed <target folder> <MiB to write>
     dir="${1:-}"; mib="${2:-}"
     [ -d "$dir" ] || die "backup-speed: no such folder: $dir"
-    [[ "$mib" =~ ^[1-9][0-9]*$ ]] || die "backup-speed: want the MiB to write, a whole number (1024 is a fair test)"
-    case "$dir" in *$'\t'*|*$'\n'*) die "backup-speed: a folder name with a tab or a line break cannot be recorded" ;; esac
-    f="$dir/.trialbox-speed-test.$$"
+    [[ "$mib" =~ ^[1-9][0-9]{0,6}$ ]] || die "backup-speed: want the MiB to write, a whole number (1024 is a fair test)"
+    real="$(cd "$dir" && pwd -P)"
+    case "$real" in *$'\t'*|*$'\n'*) die "backup-speed: a folder name with a tab or a line break cannot be recorded" ;; esac
+    printf '%s' "$real" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || die "backup-speed: the folder's name is not UTF-8 text"
+    # the test must not fill the target: a backup may be written there tonight
+    free="$(df -Pm "$real" | awk 'NR==2 {print $4}')"
+    [[ "$free" =~ ^[0-9]+$ ]] && [ "$free" -ge $((mib * 2)) ] \
+      || die "backup-speed: $real has ${free:-?} MiB free; the test wants twice the $mib MiB it writes"
+    # a name nobody can know beforehand, made by this step (never an existing file or a link someone placed
+    # on a share or an outside disk), and written without following a link
+    f="$(mktemp "$real/.trialbox-speed-test.XXXXXXXXXX")" || die "backup-speed: no test file could be made in $real"
     trap 'rm -f "$f"' EXIT
     t0="$(date +%s.%N)"
-    dd if=/dev/zero of="$f" bs=1M count="$mib" conv=fsync status=none || die "backup-speed: writing to $dir failed"
+    dd if=/dev/zero of="$f" bs=1M count="$mib" conv=fsync,notrunc oflag=nofollow status=none \
+      || die "backup-speed: writing to $real failed"
     t1="$(date +%s.%N)"
     rm -f "$f"; trap - EXIT
-    mbps="$(python3 -c 'import sys; a, b, n = float(sys.argv[1]), float(sys.argv[2]), int(sys.argv[3]); print(f"{n * 1.048576 / max(b - a, 1e-3):.1f}")' "$t0" "$t1" "$mib")"
-    mkdir -p "$(dirname "$DONE_MARK")"
-    printf '%s\t%s\n' "$mbps" "$(cd "$dir" && pwd -P)" >> "$(dirname "$DONE_MARK")/backup-speed"
-    echo "mbps=$mbps path=$dir written_mib=$mib"
+    record="$(dirname "$DONE_MARK")/backup-speed"
+    mkdir -p "$(dirname "$record")"
+    # one line per path, the newest: <MB/s> <tab> <MiB written> <tab> <path>
+    python3 - "$record" "$t0" "$t1" "$mib" "$real" <<'EOP'
+import pathlib, sys
+record, t0, t1, mib, path = pathlib.Path(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+mbps = mib * 1.048576 / max(t1 - t0, 1e-3)
+try:
+    old = [ln for ln in record.read_text(encoding="utf-8").splitlines() if ln.split("\t")[-1] != path]
+except (OSError, ValueError):
+    old = []
+record.write_text("\n".join([*old, f"{mbps:.1f}\t{mib}\t{path}"]) + "\n", encoding="utf-8")
+print(f"mbps={mbps:.1f} path={path} written_mib={mib}")
+EOP
     ;;
   network-mode)
     # wslinfo comes with WSL 2.0 and later; without it the mode cannot be mirrored

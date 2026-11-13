@@ -399,6 +399,9 @@ DECLARED: dict[str, Declared] = {
         "float", "60", "limit of the backup's small queries (sizes, job count); not work sized by data (D-455)"
     ),
     "TB_BACKUP_QUIESCE": Declared("str", "off", "off: the snapshot alone; pause: hold services still (D-455)"),
+    "TB_BACKUP_SPEED_TEST_MIB": Declared(
+        "int", "1024", "Windows box: least MiB a backup path's speed test writes to count; past the write cache (D-608)"
+    ),
     "TB_BACKUP_STEP_START_S": Declared(
         "float", "900", "seconds of a backup step that do not grow with the data (container, connection; D-455)"
     ),

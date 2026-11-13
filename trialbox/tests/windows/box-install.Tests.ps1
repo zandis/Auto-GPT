@@ -41,7 +41,7 @@ BeforeAll {
       Asked = New-Object System.Collections.ArrayList; Answers = New-Object System.Collections.ArrayList
       Printed = New-Object System.Collections.ArrayList; Machine = @{}
       BL = @{}; Keys = @{}; KeyIds = @{}; Printer = "Office-Printer"; Transcription = $false; AutoUnlockFails = $false
-      OwnDrives = @("C", "D")
+      OwnDrives = @("C", "D"); Bus = @{ "E" = "USB"; "F" = "SATA" }; Marks = New-Object System.Collections.ArrayList
       Upd = @{}; UpdWrites = New-Object System.Collections.ArrayList; UpdFailAt = 0; ShutSticks = $true
       Shut = @{ Sids = @("S-1-5-32-544", "S-1-5-32-545", "S-1-5-32-551"); AtSignIn = $true }; ShutWrites = 0; ShutFails = $false
       Restarted = 0; ResumeTask = $false; FoundMedia = ""; ImportDies = $false; Said = New-Object System.Collections.ArrayList
@@ -131,6 +131,8 @@ Describe "box-install.ps1" {
       if ($script:S.UpdFailAt -gt 0 -and $script:S.UpdWrites.Count -ge $script:S.UpdFailAt) { throw "Requested registry access is not allowed" }
       $script:S.Upd[$Name] = $Value; [void]$script:S.UpdWrites.Add("$Sub|$Name=$Value")
     }
+    Mock Get-TbDriveBus { if (-not $script:S.Bus.ContainsKey($Letter)) { throw "no such drive" }; return [string]$script:S.Bus[$Letter] }
+    Mock Write-TbOutsideMark { [void]$script:S.Marks.Add("$Letter|" + ($Lines -join " ")) }
     Mock Get-TbOwnDrives { if ($script:S.OwnDrives -eq "fail") { throw "Get-Disk is not available" }; return @($script:S.OwnDrives) }
     Mock Get-TbShutdownRight { return @{ Sids = @($script:S.Shut.Sids); AtSignIn = [bool]$script:S.Shut.AtSignIn } }
     Mock Write-TbShutdownRight {
@@ -566,6 +568,33 @@ Describe "box-install.ps1" {
       $script:S.OwnDrives = @("D")                 # the disk E: was taken out
       Invoke-Run | Should -Be 0
       @($script:S.Calls | Where-Object { $_ -match "wsl-setup\.sh windows-drives C,D$" }).Count | Should -Be 1
+    }
+    It "marks a USB disk as an outside drive for backups, on a finished install too (NEW-WIN-7)" {
+      Invoke-Run | Should -Be 0
+      $script:S.Marks.Count | Should -Be 0          # never without being asked
+      $BackupDrive = "e:"
+      Invoke-Run | Should -Be 0
+      $script:S.Marks.Count | Should -Be 1
+      $script:S.Marks[0] | Should -Match "^E\|TrialBox: an outside drive for backups"
+      ($script:S.Said -join "`n") | Should -Match "Drive E: is marked as an outside drive for backups. Inside TrialBox it is /mnt/e"
+      Get-Log | Should -Match "drive E: marked as an outside drive for backups \(bus USB\)"
+    }
+    It "does not mark <drive>: <why>" -ForEach @(
+      @{ drive = "C:"; why = "the system drive"; says = "Drive C: is one of this PC's own drives" },
+      @{ drive = "D"; why = "one of the PC's own disks"; says = "Drive D: is one of this PC's own drives" },
+      @{ drive = "F:"; why = "not attached by USB"; says = "Drive F: is not a disk attached by USB \(Windows says: SATA\)" },
+      @{ drive = "G:"; why = "not there"; says = "Drive G: could not be checked or marked \(no such drive\)" }
+    ) {
+      $BackupDrive = $drive
+      Invoke-Run | Should -Be 0
+      $script:S.Marks.Count | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Match $says
+    }
+    It "does not mark any drive when Windows will not list its disks" {
+      $script:S.OwnDrives = "fail"; $BackupDrive = "E:"
+      Invoke-Run | Should -Be 0
+      $script:S.Marks.Count | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Match "Drive E: could not be checked or marked \(Get-Disk is not available\)"
     }
     It "goes on when Windows does not list its disks: no drive is recorded, so no Windows drive counts as off-box" {
       $script:S.OwnDrives = "fail"

@@ -890,8 +890,21 @@ def check_backup(inp: DoctorInputs) -> Check:
     return Check("backup", "PASS", facts)
 
 
+def _tenth_below(speed: float) -> str:
+    """A tenth of ``speed`` rounded DOWN to two significant digits: a value that, once set, clears the warning."""
+    import math
+
+    tenth = speed / 10
+    if tenth <= 0:
+        return "0"
+    step = 10 ** (math.floor(math.log10(tenth)) - 1)
+    return f"{math.floor(tenth / step) * step:.10g}"
+
+
 def check_backup_speed(inp: DoctorInputs) -> Check:
     """NEW-WIN-7 (D-608; D-455): under WSL2 a backup step's time limit must fit the measured speed of its path."""
+    from tb_common.config import DECLARED
+
     name = "backup_speed"
     if not _wsl2_kernel(inp):
         return Check(name, "PASS", "not WSL2: the backup paths are the box's own disks and mounts (D-455)")
@@ -900,8 +913,13 @@ def check_backup_speed(inp: DoctorInputs) -> Check:
     from tools.trialbox import backup_schedule as bs
 
     cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
+    bad = [e for e in cfg.setting_errors if "TB_BACKUP_MIN_MBPS" in e]
+    if bad:
+        return Check(name, "FAIL", "; ".join(bad))
     if not cfg.targets:
         return Check(name, "WARN", "WSL2: no backup target (TB_BACKUP_TARGETS): no path to measure")
+    raw = str(inp.env.get("TB_BACKUP_SPEED_TEST_MIB") or DECLARED["TB_BACKUP_SPEED_TEST_MIB"].default).strip()
+    least = int(raw) if raw.isascii() and raw.isdigit() else int(DECLARED["TB_BACKUP_SPEED_TEST_MIB"].default)
     speeds = bs.measured_speeds(inp.deploy)
     fails: list[str] = []
     warns: list[str] = []
@@ -911,16 +929,25 @@ def check_backup_speed(inp: DoctorInputs) -> Check:
             real = str(target.resolve())
         except OSError:
             real = str(target)
-        speed = speeds.get(real, speeds.get(str(target)))
-        if speed is None:
-            warns.append(f"{target}: not measured (wsl-setup.sh backup-speed {target} <MiB>)")
+        got = speeds.get(real, speeds.get(str(target)))
+        how = f"wsl-setup.sh backup-speed {target} {least}"
+        if got is None:
+            warns.append(f"{target}: not measured ({how})")
+            continue
+        speed, written = got
+        to = _tenth_below(speed)
+        if written < least:
+            # a small write ends in the write cache and reads far too fast: never the ground for a PASS
+            warns.append(
+                f"{target}: measured with {written} MiB only, which the write cache hides: measure again ({how})"
+            )
         elif cfg.min_mbps > speed:
             # the limit assumes the path is faster than it is: every large step would be stopped as hung
             fails.append(f"{target}: measured {speed:g} MB/s, and TB_BACKUP_MIN_MBPS is {cfg.min_mbps:g}: a backup "
-                         f"step would be stopped as hung. Set it to {speed / 10:.2g} (a tenth, D-455)")  # fmt: skip
+                         f"step would be stopped as hung. Set it to {to} (a tenth, D-455)")  # fmt: skip
         elif cfg.min_mbps > speed / 10:
             warns.append(f"{target}: measured {speed:g} MB/s; TB_BACKUP_MIN_MBPS {cfg.min_mbps:g} is more than a "
-                         f"tenth of it (D-455): a slow night could be stopped. Set it to {speed / 10:.2g}")  # fmt: skip
+                         f"tenth of it (D-455): a slow night could be stopped. Set it to {to}")  # fmt: skip
         else:
             good.append(f"{target} {speed:g} MB/s")
     if fails:
@@ -928,7 +955,7 @@ def check_backup_speed(inp: DoctorInputs) -> Check:
     if warns:
         return Check(name, "WARN", "; ".join(warns))
     return Check(name, "PASS", f"TB_BACKUP_MIN_MBPS {cfg.min_mbps:g} is at most a tenth of each path's measured "
-                 f"speed ({', '.join(good)})")  # fmt: skip
+                 f"speed ({', '.join(good)}). Measure again when a share or a drive is changed")  # fmt: skip
 
 
 def check_key_custody(inp: DoctorInputs) -> Check:
