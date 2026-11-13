@@ -55,6 +55,7 @@ def test_default_install_passes() -> None:
         "flags",
         "restore_hold",
         "site_key",
+        "chartno_rule",  # D-621
         "key_custody",
         "db_passwords",
         "clock",

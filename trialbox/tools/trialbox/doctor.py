@@ -48,6 +48,12 @@ closed). Checks:
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
   ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
+* ``chartno_rule`` (D-621): every service of the box that can make a pseudonym is started with one chart-number
+  rule (``TB_CHARTNO_RULE``, read from the rendered compose files and from the running containers), and it is the
+  rule the pid map recorded (D-595). FAIL when a service differs, a rule cannot be read, or the rule is not the pid
+  map's: an opt-out registered by such a service would be filed under a pseudonym the feed never produces. Where
+  the running containers or the pid map were not read (no docker, no database from here) the line says NOT CHECKED
+  and is a WARN on a box that may hold real data; ``deploy/check_host.sh`` hands both in to the doctor's container;
 * ``key_custody`` (T-210b, CR-041, D-347): the site keys are wrapped under the KEK (``tb_common.kek``). FAIL when a key
   is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
   folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
@@ -1133,6 +1139,148 @@ def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, 
     return Check(name, "PASS", f"{len(roles)} service roles, each container its own password only; {seen}")
 
 
+def _pid_map_rule(url: str, site_id: str) -> tuple[bool, str | None]:
+    """(the pid map has a row for the site, the chart-number rule it recorded) (``adapter.pidmap``, D-595)."""
+    from tb_common.db import Database
+
+    with Database.connect(url, "pidmap") as db:
+        row = db.fetchone("SELECT chartno_rule FROM site_key WHERE site_id = ?", (site_id,))
+    return (row is not None, str(row[0]) if row is not None and row[0] is not None else None)
+
+
+def _handed_in_containers(inp: DoctorInputs) -> Mapping[str, Any] | None:
+    """The running containers' environment as the host check hands it in (``TB_DOCTOR_RUNNING_INSPECT=stdin``:
+    ``docker inspect`` of the project's containers on standard input; a pipe, because it holds passwords). The
+    doctor's own container has no docker and no network (``deploy/check_host.sh``)."""
+    from tools.trialbox import db_secrets as ds
+
+    if inp.env.get("TB_DOCTOR_RUNNING_INSPECT") != "stdin":
+        return None
+    text = sys.stdin.read()
+
+    def run(argv: list[str]) -> str:
+        return "handed-in" if argv[:2] == ["docker", "ps"] else text
+
+    return ds.running_config("handed-in", run=run)
+
+
+def check_chartno_rule(
+    inp: DoctorInputs,
+    running: Callable[[str], Mapping[str, Any] | None] | None = None,
+    pid_map_rule: Callable[[str, str], tuple[bool, str | None]] = _pid_map_rule,
+) -> Check:
+    """D-621: one chart-number rule in every service of the box, and it is the pid map's.
+
+    The adapter refuses a night under another rule than the one it recorded (D-595). The other makers of
+    pseudonyms (the orchestrator's set-up and opt-out desk, candidates, the data core API) use their own process's
+    ``TB_CHARTNO_RULE`` and ask nobody. Read here: the box's compose files rendered with the box's values (as
+    ``db_passwords`` reads them), the environment of the containers that run now, and the pid map's record. A
+    service is one of ours when it is started with ``TB_SITE_ID``; no rule and ``asis`` are the same rule.
+
+    The rendered files alone cannot differ between services (one env file), so what finds a real difference is
+    the running containers and the pid map. Where they were not read the line says so, and on a box that may hold
+    real data it is a WARN, never a PASS. The host check hands both in to a doctor that runs in a container
+    (``TB_DOCTOR_RUNNING_INSPECT``, ``TB_DOCTOR_PIDMAP_ROW``)."""
+    from tb_common import chartno
+    from tb_common.config import environment_name
+
+    from tools.trialbox import db_secrets as ds
+
+    name = "chartno_rule"
+    strict = environment_name(inp.env) in ("VALIDATION", "PRODUCTION")
+    if inp.deploy is None and inp.compose_config is None:
+        return Check(name, "FAIL" if strict else "WARN",
+                     "the services' chart-number rule was not judged: give --env-file <deploy/.env>")  # fmt: skip
+    deploy = inp.deploy or ROOT / "deploy"
+    config = inp.compose_config
+    if config is None:
+        listed = [f for f in inp.env.get("COMPOSE_FILE", "").split(":") if f]
+        files = [_compose_file(deploy, f) for f in listed] or [deploy / "docker-compose.yml"]
+        gone = [str(f) for f in files if not f.exists()]
+        if gone:
+            return Check(name, "FAIL", f"compose file(s) not found: {', '.join(gone)} (COMPOSE_FILE in deploy/.env)")
+        config = ds.render(files, inp.env, project_dir=deploy)
+
+    def rules(cfg: Mapping[str, Any], label: str) -> tuple[dict[str, str], list[str]]:
+        got: dict[str, str] = {}
+        bad: list[str] = []
+        for svc, body in sorted((cfg.get("services") or {}).items()):
+            env = (body or {}).get("environment") or {}
+            if isinstance(env, list):
+                env = dict(str(item).partition("=")[::2] for item in env)
+            if "TB_SITE_ID" not in env:
+                continue  # not one of ours (the database, the FHIR store, the TLS front)
+            try:
+                got[f"{label}{svc}"] = str(chartno.parse_rule(str(env.get("TB_CHARTNO_RULE") or "")))
+            except ValueError as exc:
+                bad.append(f"{label}{svc}: {exc}")
+        return got, bad
+
+    seen, bad = rules(config, "")
+    counted = len(seen) + len(bad)
+    notes: list[str] = []  # what was not read: never part of a PASS on a box that may hold real data
+    if running is not None:
+        live = running(inp.env.get("COMPOSE_PROJECT_NAME", "trialbox"))
+    else:
+        live = _handed_in_containers(inp) or ds.running_config(inp.env.get("COMPOSE_PROJECT_NAME", "trialbox"))
+    if live is not None:
+        more, worse = rules(live, "running: ")
+        seen.update(more)
+        bad += worse
+        ran = f"{len(more) + len(worse)} running container(s) of ours read"
+    else:
+        ran = "the running containers were not read"
+        notes.append(ran)
+    if not counted:
+        return Check(name, "FAIL" if strict else "WARN",
+                     "no service of the box was judged (none is started with TB_SITE_ID): the chart-number rule "
+                     "of the services is not known")  # fmt: skip
+    stored: str | None = None
+    has_row = False
+    asked = False
+    site_id = str((inp.settings.get("site") or {}).get("id") or inp.env.get("TB_SITE_ID") or "")
+    handed = inp.env.get("TB_DOCTOR_PIDMAP_ROW", "").strip()
+    url = inp.env.get("TB_DB_URL", "")
+    try:
+        if handed:  # the host check asked the box's database: "none", or "<fingerprint>|<rule>"
+            asked = True
+            if handed != "none":
+                has_row = True
+                raw = handed.partition("|")[2].strip()
+                stored = str(chartno.parse_rule(raw)) if raw else None
+        elif url and site_id:
+            has_row, raw_rule = pid_map_rule(url, site_id)
+            asked = True
+            stored = str(chartno.parse_rule(raw_rule)) if raw_rule is not None else None
+        else:
+            notes.append("the pid map was not asked (no TB_DB_URL or no site id here)")
+    except Exception as e:  # the pid map lives on the box: unreadable from here is said, never passed over
+        asked = False
+        notes.append(f"the pid map's record cannot be read ({type(e).__name__})")
+    distinct = sorted(set(seen.values()))
+    meaning = "an opt-out or a set-up sheet filed by such a service gets a pseudonym the feed never produces"
+    if len(distinct) > 1:
+        by_rule = "; ".join(f"{r}: {', '.join(k for k, v in seen.items() if v == r)}" for r in distinct)
+        bad.append(f"the services run under {len(distinct)} chart-number rules ({by_rule})")
+    if stored is not None and distinct != [stored]:
+        bad.append(f"the pid map was built with {stored}, the services run under {', '.join(distinct)}")
+    if bad:
+        fix = "TB_CHARTNO_RULE is set in deploy/.env only; start every container again (deploy/install.sh)"
+        return Check(name, "FAIL", f"{'; '.join(bad)}: {meaning}. {fix}")
+    rule = distinct[0]
+    said = f"{rule} in {counted} services; {ran}"
+    if asked and has_row and stored is None:
+        why = "the adapter has not adopted one (D-595), so the rule the patients were loaded under is not known"
+        return Check(name, "WARN", f"{said}; the pid map holds the site's key and no rule: {why}")
+    if asked:
+        said += (
+            "; the same as the pid map" if stored is not None else "; no night has recorded a rule in the pid map yet"
+        )
+    if notes:
+        return Check(name, "WARN" if strict else "PASS", f"{said}; NOT CHECKED: {'; '.join(notes)}")
+    return Check(name, "PASS", said)
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -1150,6 +1298,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_flags,
     check_restore_hold,
     check_site_key,
+    check_chartno_rule,
     check_backup,
     check_key_custody,
     check_clock,
