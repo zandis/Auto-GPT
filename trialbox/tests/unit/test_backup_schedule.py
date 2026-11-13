@@ -615,10 +615,14 @@ class RunningBox(FakeBox):
         self.fail, self.has_pgbackrest = fail, pgbackrest
 
     def __call__(self, argv: list[str], **kw: Any) -> str:  # type: ignore[override]
-        if self.fail and self.fail in " ".join(argv):
+        # NEW-B-15: the words of the command, never its paths. The failure word used to be looked for in the whole
+        # line, so a temp folder whose name holds it (a branch called "...-recheck" against ``fail="check"``) made
+        # the very first command fail and the test take another branch of the product
+        said = " ".join(a for a in argv if not a.startswith(("/", "./", "../")))
+        if self.fail and self.fail in said:
             self.calls.append(list(argv))
             raise RuntimeError(f"{self.fail} failed")
-        if "command -v pgbackrest" in " ".join(argv) and not self.has_pgbackrest:
+        if "command -v pgbackrest" in said and not self.has_pgbackrest:
             self.calls.append(list(argv))
             raise RuntimeError("exit 1")
         if argv[-2:] == ["-u", "postgres"]:
