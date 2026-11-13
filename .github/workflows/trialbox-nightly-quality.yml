@@ -114,9 +114,21 @@ jobs:
           path: ${{ runner.temp }}/mutation.json
           if-no-files-found: ignore
 
+  # The unit suite with branches measured, in the shards of the pull-request gate's `unit-shard` (D-475: each test
+  # file in exactly one shard). On one runner it was cancelled at its 60-minute limit on both scheduled runs
+  # (2026-11-11 and 2026-11-12) and never reached the ratchet: the suite takes 35 to 55 minutes on one runner with the
+  # cheap line tracer, and the classic tracer that measures branches took 2.2 times as long on the safety-property
+  # tests (40.6 s against 17.8 s, 2026-11-13; deep review `architecture`). Limit: the gate shard's limit (1.5 times its
+  # slowest shard's median) times that 2.2, rounded up to the next ten. `branch-coverage-ratchet` combines the shards.
+  # tests/unit/test_nightly_quality_shards.py holds the shards, the limit and the combine step to these rules.
   branch-coverage:
+    name: branch-coverage (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
-    timeout-minutes: 60
+    timeout-minutes: 90  # 40 (unit-shard) x 2.2 (classic tracer with branches), rounded up to the next ten
+    strategy:
+      fail-fast: false  # every shard reports
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
@@ -141,13 +153,56 @@ jobs:
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
-      - name: pytest -n auto with branch coverage
+      - name: pytest -n auto with branch coverage, one shard
         env:
           TB_DATA_DIR: ${{ runner.temp }}/tb-data
-          PYTEST_ADDOPTS: --cov --cov-branch --cov-report=json:${{ runner.temp }}/coverage.json
-        run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
+          PYTEST_ADDOPTS: --cov --cov-branch --cov-report=
+        run: |
+          mkdir -p "$RUNNER_TEMP/shard"
+          make test PYTEST_N=auto SHARD=${{ matrix.shard }}/${{ strategy.job-total }} 2>&1 | tee "$RUNNER_TEMP/unit.log"
       - name: Data-handling scan of the test log
         run: make data-scan SCAN="--log $RUNNER_TEMP/unit.log"
+      - name: Keep the shard's coverage data
+        if: always()
+        run: if [ -f .coverage ]; then mv .coverage "$RUNNER_TEMP/shard/coverage.db"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: coverage-branch-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # The ratchet on the combined branch coverage of every shard; red when a shard did not pass, so a cancelled shard
+  # cannot leave the night green on part of the suite.
+  branch-coverage-ratchet:
+    runs-on: ubuntu-latest
+    needs: branch-coverage
+    if: ${{ !cancelled() }}
+    timeout-minutes: 15
+    steps:
+      - name: Every shard passed
+        working-directory: .
+        run: |
+          echo "branch-coverage: ${{ needs.branch-coverage.result }}"
+          if [ "${{ needs.branch-coverage.result }}" != "success" ]; then
+            echo "::error::a branch-coverage shard did not pass (${{ needs.branch-coverage.result }})"; exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: coverage-branch-shard-*
+          path: ${{ runner.temp }}/shards
+      - name: Combined branch coverage of all shards
+        run: |
+          .venv/bin/python -m coverage combine --data-file="$RUNNER_TEMP/coverage.db" "$RUNNER_TEMP"/shards/coverage-branch-shard-*/coverage.db
+          .venv/bin/python -m coverage json --data-file="$RUNNER_TEMP/coverage.db" -o "$RUNNER_TEMP/coverage.json"
       - name: Coverage ratchet with branches
         run: .venv/bin/python -m tools.coverage_ratchet "$RUNNER_TEMP/coverage.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
