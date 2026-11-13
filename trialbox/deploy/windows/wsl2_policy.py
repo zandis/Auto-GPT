@@ -287,25 +287,46 @@ def check_windows_update(facts: Facts, v: Verdicts) -> None:
     au, mdm = facts.get("wu_au_options", ""), facts.get("wu_mdm_allow_auto_update", "")
     day, hour = facts.get("wu_scheduled_install_day", ""), facts.get("wu_scheduled_install_time", "")
     ours = re.fullmatch(r"(\d+)\+(\d+)", facts.get("update_window", ""))
-    if ours and au == "4" and facts.get("wu_no_auto_update", "") in ("", "0"):
-        # NEW-WIN-5 (D-606): the installer's window. Restarts happen only outside Windows' active hours, so the
-        # active hours must be the rest of the day: from the window's end to its start
+    if ours:
+        # NEW-WIN-5 (D-606): the installer's window. Windows restarts by itself only outside its active hours, so
+        # the active hours must be the rest of the day: from the window's end to its start. Values that defeat
+        # active hours (Microsoft, "Manage device restarts after updates") or an MDM policy make it no window
         start, hours = int(ours.group(1)), int(ours.group(2))
         end = (start + hours) % 24
-        held = (
-            hour == str(start)
-            and facts.get("wu_set_active_hours") == "1"
-            and facts.get("wu_active_hours_start") == str(end)
-            and facts.get("wu_active_hours_end") == str(start)
-        )
-        if held:
-            v.ok(f"Windows Update restarts: installs at {start}:00 and restarts only from {start}:00 to {end}:00, the "
-                 "installer's update window (trialbox doctor judges it against the night)")  # fmt: skip
+        wrong = [
+            f"{label} '{facts.get(key, '')}' (want {want})"
+            for key, label, want in (
+                ("wu_au_options", "AUOptions", "4"),
+                ("wu_scheduled_install_time", "install time", str(start)),
+                ("wu_set_active_hours", "active hours set", "1"),
+                ("wu_active_hours_start", "active hours from", str(end)),
+                ("wu_active_hours_end", "active hours to", str(start)),
+            )
+            if facts.get(key, "") != want
+        ]
+        if facts.get("wu_no_auto_update", "") not in ("", "0"):
+            wrong.append("automatic updates are switched off (NoAutoUpdate)")
+        if not 0 <= start <= 23 or not 6 <= hours <= 23:
+            wrong.append(f"a window of {hours} h from {start}:00 is not one Windows can hold (6 to 23 h)")
+        wrong += [
+            f"{label} is set ('{facts[key]}')"
+            for key, label in (
+                ("wu_no_auto_reboot_logged_on", "NoAutoRebootWithLoggedOnUsers"),
+                ("wu_always_reboot_at_scheduled", "AlwaysAutoRebootAtScheduledTime"),
+                ("wu_compliance_deadline", "a compliance deadline"),
+                ("wu_deadline_quality", "a deadline for quality updates"),
+                ("wu_deadline_feature", "a deadline for feature updates"),
+                ("wu_mdm_allow_auto_update", "an MDM update policy"),
+            )
+            if facts.get(key, "") != ""
+        ]
+        if not wrong:
+            v.ok(f"Windows Update restarts: installs at {start}:00 and restarts by itself only from {start}:00 to "
+                 f"{end}:00, the installer's update window (trialbox doctor judges it against the night)")  # fmt: skip
         else:
-            v.policy(f"Windows Update restarts: the installer set the window {start}:00 to {end}:00, but Windows holds "
-                     f"install time '{hour}', active hours set '{facts.get('wu_set_active_hours', '')}' from "
-                     f"'{facts.get('wu_active_hours_start', '')}' to '{facts.get('wu_active_hours_end', '')}': start "
-                     "the Windows installer again, or ask hospital IT which policy replaced it")  # fmt: skip
+            v.policy(f"Windows Update restarts: the installer set the window {start}:00 to {end}:00, but Windows does "
+                     f"not hold it: {'; '.join(wrong)}. Start the Windows installer again, or ask hospital IT which "
+                     "policy replaced it")  # fmt: skip
     elif facts.get("wu_no_auto_update") == "1" or au in WU_MANUAL_AU or mdm in WU_MANUAL_MDM:
         v.ok("Windows Update restarts: installs and restarts are started by hospital IT in the window (RUNBOOK §24)")
     elif au == "4" or mdm == "3":

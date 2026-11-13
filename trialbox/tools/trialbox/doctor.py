@@ -79,11 +79,14 @@ closed). Checks:
 * ``update_window`` (NEW-WIN-5, D-606): on a WSL2 kernel, the hours in which Windows Update may restart the
   workstation (``TB_WIN_UPDATE_WINDOW_START`` and ``TB_WIN_UPDATE_WINDOW_HOURS``, the installer's
   ``-UpdateWindowStart`` and ``-UpdateWindowHours``) against the night's start (``data_source.nightly_at``). FAIL
-  when the night starts inside the window; PASS names the hours between the night's start and the window, the room
-  the night has (its measured length is not recorded on the box yet); WARN when the settings name no night. That
+  when the night starts inside the window. Otherwise WARN, naming the time between the night's start and the
+  window: no record of a night's measured length exists on the box yet, so "the night ends before the window" is
+  not claimed. The window is the one the Windows installer recorded (``deploy/site/box/windows-update-window``);
+  without that file the declared one, said as unconfirmed; "kept" (the site's IT holds the policy) is a WARN. That
   Windows really holds this window is judged from Windows' side by ``deploy/windows/wsl2_policy.py``.
 * ``wsl2_versions`` (NEW-WIN-5, D-606): on a WSL2 kernel, the NVIDIA driver the card answers with against the
-  driver of the serving record of that card (``deploy/site/serving_config.*.json``, else ``deploy/measured``): FAIL
+  driver of the box's serving record (``TB_GPU_PROFILE``'s, else the one naming that card; ``deploy/site`` before
+  ``deploy/measured``; WARN when there is none or two, so the check says nothing until a record exists): FAIL
   when they differ (Windows Update or a person changed the driver the box was measured with), or when the card
   does not answer. The WSL2 kernel against the record's ``wsl_kernel``: FAIL when they differ, WARN while the
   record names none. PASS on a plain Linux host.
@@ -1238,28 +1241,51 @@ def check_update_window(inp: DoctorInputs) -> Check:
     name = "update_window"
     if not _wsl2_kernel(inp):
         return Check(name, "PASS", "not WSL2: no Windows Update under the box")
+    # what the Windows installer set (deploy/windows/wsl-setup.sh update-window): the window, or "kept"
+    told = ""
+    if inp.deploy is not None:
+        try:
+            told = (inp.deploy / "site" / "box" / "windows-update-window").read_text(encoding="utf-8").strip()
+        except OSError:
+            told = ""
+    if told == "kept":
+        return Check(name, "WARN", "the site's IT holds the Windows Update policy (the Windows installer kept it): "
+                     "the restart hours were not judged against the night here; the host check shows them")  # fmt: skip
+    m = re.fullmatch(r"([0-9]{1,2})\+([0-9]{1,2})", told)
+    if m:
+        raw = {"TB_WIN_UPDATE_WINDOW_START": m.group(1), "TB_WIN_UPDATE_WINDOW_HOURS": m.group(2)}
+        confirmed = True
+    else:
+        raw = {key: str(inp.env.get(key) or DECLARED[key].default).strip()
+               for key in ("TB_WIN_UPDATE_WINDOW_START", "TB_WIN_UPDATE_WINDOW_HOURS")}  # fmt: skip
+        confirmed = False
     figures: dict[str, int] = {}
     for key, low, high in (("TB_WIN_UPDATE_WINDOW_START", 0, 23), ("TB_WIN_UPDATE_WINDOW_HOURS", 6, 23)):
-        raw = str(inp.env.get(key) or DECLARED[key].default).strip()
-        if not raw.isdigit() or not low <= int(raw) <= high:
-            return Check(name, "FAIL", f"{key}='{raw}' is not a whole number from {low} to {high}")
-        figures[key] = int(raw)
+        if not re.fullmatch(r"[0-9]{1,2}", raw[key]) or not low <= int(raw[key]) <= high:
+            return Check(name, "FAIL", f"{key}='{raw[key]}' is not a whole number from {low} to {high}")
+        figures[key] = int(raw[key])
     start, hours = figures["TB_WIN_UPDATE_WINDOW_START"], figures["TB_WIN_UPDATE_WINDOW_HOURS"]
     end = (start + hours) % 24
     window = f"Windows Update may restart the workstation from {start:02d}:00 to {end:02d}:00"
+    if not confirmed:
+        window += (" (the declared window: the Windows installer has not said which window Windows holds; start it "
+                   "once more)")  # fmt: skip
     source = inp.settings.get("data_source") if isinstance(inp.settings, Mapping) else None
     at = str(source.get("nightly_at") or "") if isinstance(source, Mapping) else ""
-    m = re.fullmatch(r"([01][0-9]|2[0-3]):([0-5][0-9])", at)
-    if not m:
-        return Check(name, "WARN", f"{window}; the settings name no nightly_at, so the night was not judged against it")
-    night = int(m.group(1)) * 60 + int(m.group(2))
+    night_at = re.fullmatch(r"([01][0-9]|2[0-3]):([0-5][0-9])", at)
+    if not night_at:
+        why = f"nightly_at '{at}' is not HH:MM" if at else "the settings name no nightly_at"
+        return Check(name, "WARN", f"{window}; {why}, so the night was not judged against it")
+    night = int(night_at.group(1)) * 60 + int(night_at.group(2))
     if (night - start * 60) % 1440 < hours * 60:
         return Check(name, "FAIL", f"{window}, and the night starts at {at}, inside it: a restart would cut the "
-                     "night. Move the window (start the Windows installer again with -UpdateWindowStart, and set "
-                     "TB_WIN_UPDATE_WINDOW_START in deploy/.env) or nightly_at")  # fmt: skip
-    room = ((start * 60 - night) % 1440) / 60
-    return Check(name, "PASS", f"{window}; the night starts at {at} and has {room:g} h before the window opens "
-                 "(the night's measured length is not recorded on the box yet: it must stay below that)")  # fmt: skip
+                     "night. Move the window (start the Windows installer again with -UpdateWindowStart) or "
+                     "nightly_at")  # fmt: skip
+    room = (start * 60 - night) % 1440
+    # the night starts outside the window; whether it also ends before the window opens cannot be said: no record
+    # of a night's measured length exists on the box yet. Never a PASS on half the question
+    return Check(name, "WARN", f"{window}; the night starts at {at}, {room // 60} h {room % 60:02d} min before the "
+                 "window opens. The night's measured length is not recorded on the box: keep it shorter")  # fmt: skip
 
 
 def _nvidia_smi() -> tuple[str, str] | None:
@@ -1289,22 +1315,33 @@ def check_wsl2_versions(inp: DoctorInputs) -> Check:
     if got is None:
         return Check(name, "FAIL", "WSL2: the card does not answer (nvidia-smi): the Windows NVIDIA driver is missing, "
                      "was replaced, or Windows needs a restart after a driver change")  # fmt: skip
-    card, driver = got
-    records: list[tuple[Path, Mapping[str, Any]]] = []
-    for folder in (inp.deploy / "site", inp.deploy / "measured"):
-        for path in sorted(folder.glob("serving_config.*.json")):
+    card, driver = got  # the first card nvidia-smi lists
+    # the record of the box's profile (TB_GPU_PROFILE), the site's own first: as deploy/install.sh picks it.
+    # Without a profile: the records of this card by name, and never a guess between two
+    profile = str(inp.env.get("TB_GPU_PROFILE") or "").strip()
+    folders = (inp.deploy / "site", inp.deploy / "measured")
+    found: list[tuple[Path, Mapping[str, Any]]] = []
+    for folder in folders:
+        pattern = f"serving_config.{profile}.json" if profile and profile != "auto" else "serving_config.*.json"
+        for path in sorted(folder.glob(pattern)):
             try:
                 doc = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
             if isinstance(doc, dict) and isinstance(doc.get("card"), dict) and doc["card"].get("name") == card:
-                records.append((path, doc))
-    if not records:
+                found.append((path, doc))
+        if found:
+            break  # the site's folder wins over the vendor's
+    if not found:
         return Check(name, "WARN", f"WSL2: no serving record for the card '{card}' (deploy/site, deploy/measured): "
                      f"driver {driver} and kernel {kernel} were compared with nothing")  # fmt: skip
-    path, doc = records[0]  # the site's own record wins, as in install.sh
+    if len(found) > 1:
+        names = ", ".join(p.name for p, _ in found)
+        return Check(name, "WARN", f"WSL2: {len(found)} serving records name the card '{card}' ({names}) and "
+                     f"TB_GPU_PROFILE does not say which is the box's: driver {driver} was not compared")  # fmt: skip
+    path, doc = found[0]
     where = f"{path.parent.name}/{path.name}"
-    measured = str(doc["card"].get("driver") or "")
+    measured = str(doc["card"].get("driver") or "").strip()
     if measured != driver:
         return Check(name, "FAIL", f"the NVIDIA driver is {driver}; the serving record ({where}) was measured with "
                      f"{measured or 'no driver named'}. Put the measured driver back (the offline media, "

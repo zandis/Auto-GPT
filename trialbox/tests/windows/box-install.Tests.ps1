@@ -41,7 +41,7 @@ BeforeAll {
       Asked = New-Object System.Collections.ArrayList; Answers = New-Object System.Collections.ArrayList
       Printed = New-Object System.Collections.ArrayList; Machine = @{}
       BL = @{}; Keys = @{}; KeyIds = @{}; Printer = "Office-Printer"; Transcription = $false; AutoUnlockFails = $false
-      Upd = @{}; UpdWrites = New-Object System.Collections.ArrayList
+      Upd = @{}; UpdWrites = New-Object System.Collections.ArrayList; UpdFailAt = 0; ShutSticks = $true
       Shut = @{ Sids = @("S-1-5-32-544", "S-1-5-32-545", "S-1-5-32-551"); AtSignIn = $true }; ShutWrites = 0; ShutFails = $false
       Restarted = 0; ResumeTask = $false; FoundMedia = ""; ImportDies = $false; Said = New-Object System.Collections.ArrayList
     }
@@ -122,14 +122,19 @@ Describe "box-install.ps1" {
     Mock Get-TbUpdatePolicy {
       $p = @{ Ours = [string]$script:S.Machine["update_window"] }
       foreach ($n in @("NoAutoUpdate", "AUOptions", "ScheduledInstallDay", "ScheduledInstallTime", "SetActiveHours", "ActiveHoursStart",
-          "ActiveHoursEnd", "ExcludeWUDriversInQualityUpdate")) { $p[$n] = $script:S.Upd[$n] }
+          "ActiveHoursEnd", "ExcludeWUDriversInQualityUpdate", "NoAutoRebootWithLoggedOnUsers", "AlwaysAutoRebootAtScheduledTime",
+          "SetComplianceDeadline", "ConfigureDeadlineForQualityUpdates", "ConfigureDeadlineForFeatureUpdates", "Mdm")) { $p[$n] = $script:S.Upd[$n] }
       return $p
     }
-    Mock Write-TbUpdateValue { $script:S.Upd[$Name] = $Value; [void]$script:S.UpdWrites.Add("$Sub|$Name=$Value") }
+    Mock Write-TbUpdateValue {
+      if ($script:S.UpdFailAt -gt 0 -and $script:S.UpdWrites.Count -ge $script:S.UpdFailAt) { throw "Requested registry access is not allowed" }
+      $script:S.Upd[$Name] = $Value; [void]$script:S.UpdWrites.Add("$Sub|$Name=$Value")
+    }
     Mock Get-TbShutdownRight { return @{ Sids = @($script:S.Shut.Sids); AtSignIn = [bool]$script:S.Shut.AtSignIn } }
     Mock Write-TbShutdownRight {
       if ($script:S.ShutFails) { throw "secedit /configure ended with code 3" }
-      $script:S.Shut = @{ Sids = @($Sid); AtSignIn = $false }; $script:S.ShutWrites++
+      $script:S.ShutWrites++
+      if ($script:S.ShutSticks) { $script:S.Shut = @{ Sids = @($Sid); AtSignIn = $false } }
     }
     Mock Send-TbToPrinter { [void]$script:S.Printed.Add(($Lines -join "|")) }
     Mock Write-TbScreen { [void]$script:S.Said.Add($Text) }
@@ -302,7 +307,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $calls = $script:S.Calls -join "`n"
       $calls | Should -Match "wsl\.exe --import TrialBox \S+wsl \S+ubuntu-24\.04-wsl-amd64\.tar\.gz --version 2"
-      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "network-mode", "state", "boot-check", "egress-check", "egress-proof", "lan-check")
+      Get-SetupSteps | Should -Be @("wslconf", "pid1", "no-linux-driver", "packages", "no-linux-driver", "gpu", "host-tree", "update-window", "network-mode", "state", "boot-check", "egress-check", "egress-proof", "lan-check")
       $script:S.Console.Count | Should -Be 1
       $script:S.Console[0] | Should -Match "wsl\.exe -d TrialBox -u root .*wsl-setup\.sh install \S+/linux/trialbox-1\.0\.0\.tar"
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
@@ -524,10 +529,31 @@ Describe "box-install.ps1" {
       $script:S.Upd.ExcludeWUDriversInQualityUpdate | Should -Be 1
       $script:S.Shut.Sids | Should -Be @("S-1-5-32-544")
       $said = $script:S.Said -join "`n"
-      $said | Should -Match "may restart this PC only between 19:00 and 1:00"
+      $said | Should -Match "restarts this PC by itself only between 19:00 and 1:00"
       $said | Should -Match "Only administrators can shut this PC down now"
-      Get-Log | Should -Match "Windows Update: installs daily at 19:00, restarts only from 19:00 to 1:00"
+      Get-Log | Should -Match "Windows Update: installs daily at 19:00; restarts by itself only from 19:00 to 1:00"
       Get-Log | Should -Match "shutdown right was: S-1-5-32-544,S-1-5-32-545,S-1-5-32-551; offered at the sign-in screen: True"
+    }
+    It "goes on when Windows refuses the update settings, and says what that means (D-606 point 8)" {
+      $script:S.UpdFailAt = 2
+      Invoke-Run | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Match "Windows Update settings could not be written \(Requested registry access is not allowed\)"
+      ($script:S.Said -join "`n") | Should -Match "Only administrators can shut this PC down now"    # the other half still done
+    }
+    It "tells the box which window Windows holds, once, and again when it changes" {
+      Invoke-Run | Should -Be 0
+      @($script:S.Calls | Where-Object { $_ -match "wsl-setup\.sh update-window 19\+6$" }).Count | Should -Be 1
+      Invoke-Run | Should -Be 0
+      @($script:S.Calls | Where-Object { $_ -match "wsl-setup\.sh update-window" }).Count | Should -Be 1
+    }
+    It "tells the box that IT's policy was kept, and says so to the owner once, not at every start" {
+      $script:S.Upd = @{ NoAutoUpdate = 0; AUOptions = 3 }
+      Invoke-Run | Should -Be 0
+      @($script:S.Calls | Where-Object { $_ -match "wsl-setup\.sh update-window kept$" }).Count | Should -Be 1
+      $script:S.Said.Clear()
+      Invoke-Run | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Not -Match "Windows Update"
+      @($script:S.Calls | Where-Object { $_ -match "wsl-setup\.sh update-window" }).Count | Should -Be 1
     }
     It "goes on when the shutdown right cannot be set, and says what to tell the users" {
       $script:S.ShutFails = $true
@@ -547,7 +573,7 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       $script:S.Upd.ScheduledInstallTime | Should -Be 19
       $script:S.Shut.Sids | Should -Be @("S-1-5-32-544")
-      ($script:S.Said -join "`n") | Should -Match "may restart this PC only between"
+      ($script:S.Said -join "`n") | Should -Match "restarts this PC by itself only between"
       $script:S.Said.Clear(); $script:S.UpdWrites.Clear()
       Invoke-Run | Should -Be 0
       $script:S.UpdWrites.Count | Should -Be 0
@@ -906,12 +932,16 @@ Describe "Windows Update and the shutdown right (NEW-WIN-5, D-606)" {
     Mock Get-TbUpdatePolicy {
       $p = @{ Ours = [string]$script:S.Machine["update_window"] }
       foreach ($n in @("NoAutoUpdate", "AUOptions", "ScheduledInstallDay", "ScheduledInstallTime", "SetActiveHours", "ActiveHoursStart",
-          "ActiveHoursEnd", "ExcludeWUDriversInQualityUpdate")) { $p[$n] = $script:S.Upd[$n] }
+          "ActiveHoursEnd", "ExcludeWUDriversInQualityUpdate", "NoAutoRebootWithLoggedOnUsers", "AlwaysAutoRebootAtScheduledTime",
+          "SetComplianceDeadline", "ConfigureDeadlineForQualityUpdates", "ConfigureDeadlineForFeatureUpdates", "Mdm")) { $p[$n] = $script:S.Upd[$n] }
       return $p
     }
-    Mock Write-TbUpdateValue { $script:S.Upd[$Name] = $Value; [void]$script:S.UpdWrites.Add("$Sub|$Name=$Value") }
+    Mock Write-TbUpdateValue {
+      if ($script:S.UpdFailAt -gt 0 -and $script:S.UpdWrites.Count -ge $script:S.UpdFailAt) { throw "Requested registry access is not allowed" }
+      $script:S.Upd[$Name] = $Value; [void]$script:S.UpdWrites.Add("$Sub|$Name=$Value")
+    }
     Mock Get-TbShutdownRight { return @{ Sids = @($script:S.Shut.Sids); AtSignIn = [bool]$script:S.Shut.AtSignIn } }
-    Mock Write-TbShutdownRight { $script:S.Shut = @{ Sids = @($Sid); AtSignIn = $false }; $script:S.ShutWrites++ }
+    Mock Write-TbShutdownRight { $script:S.ShutWrites++; if ($script:S.ShutSticks) { $script:S.Shut = @{ Sids = @($Sid); AtSignIn = $false } } }
   }
   It "sets the window on a PC with no policy: installs at its first hour, restarts only inside it, no drivers" {
     Set-TbUpdateWindow 19 6 | Should -Be "written"
@@ -978,6 +1008,48 @@ Describe "Windows Update and the shutdown right (NEW-WIN-5, D-606)" {
     $script:S.Upd = @{ SetActiveHours = 1; ActiveHoursStart = 6; ActiveHoursEnd = 23; ExcludeWUDriversInQualityUpdate = 1 }
     Set-TbUpdateWindow 19 6 | Should -Be "kept"
     $script:S.UpdWrites.Count | Should -Be 0
+  }
+  It "takes values half written by a failed run as its own and writes them whole at the next start (review H1)" {
+    $script:S.UpdFailAt = 4                       # the driver exclusion and three values go in, then Windows refuses
+    { Set-TbUpdateWindow 19 6 } | Should -Throw
+    $script:S.Upd.AUOptions | Should -Be 4
+    $script:S.Upd.ContainsKey("SetActiveHours") | Should -BeFalse
+    $script:S.Machine["update_window"] | Should -Be "19+6"     # the note went in first
+    $script:S.UpdFailAt = 0
+    Set-TbUpdateWindow 19 6 | Should -Be "written"             # not "kept", not "IT's policy"
+    $script:S.Upd.SetActiveHours | Should -Be 1
+    $script:S.Upd.ActiveHoursStart | Should -Be 1
+  }
+  It "keeps its hands off when a value of IT's would defeat the window: <name>" -ForEach @(
+    @{ name = "NoAutoRebootWithLoggedOnUsers" }, @{ name = "AlwaysAutoRebootAtScheduledTime" }, @{ name = "SetComplianceDeadline" },
+    @{ name = "ConfigureDeadlineForQualityUpdates" }, @{ name = "ConfigureDeadlineForFeatureUpdates" }, @{ name = "Mdm" }
+  ) {
+    $script:S.Upd = @{ $name = 1 }
+    Set-TbUpdateWindow 19 6 | Should -Be "kept"
+    $script:S.Upd.ContainsKey("AUOptions") | Should -BeFalse
+    $script:S.Machine.ContainsKey("update_window") | Should -BeFalse
+  }
+  It "keeps a policy of IT's that sets only an install time" {
+    $script:S.Upd = @{ ScheduledInstallTime = 4; ScheduledInstallDay = 1 }
+    Set-TbUpdateWindow 19 6 | Should -Be "kept"
+    $script:S.Upd.ScheduledInstallTime | Should -Be 4
+  }
+  It "knows its own window again when its note was deleted, and still moves it (review L1)" {
+    Set-TbUpdateWindow 19 6 | Should -Be "written"
+    $script:S.Machine.Remove("update_window")
+    Set-TbUpdateWindow 12 8 | Should -Be "written"
+    $script:S.Upd.ScheduledInstallTime | Should -Be 12
+    $script:S.Machine["update_window"] | Should -Be "12+8"
+  }
+  It "writes over a value of its own that is not a number instead of failing at every start (review L2)" {
+    Set-TbUpdateWindow 19 6 | Should -Be "written"
+    $script:S.Upd.AUOptions = "abc"
+    Set-TbUpdateWindow 19 6 | Should -Be "written"
+    $script:S.Upd.AUOptions | Should -Be 4
+  }
+  It "does not say the shutdown right is set when it did not take (review L7)" {
+    $script:S.ShutSticks = $false                 # a domain policy sets it back
+    { Set-TbShutdownRight } | Should -Throw "*may set it back*"
   }
   It "leaves the right to shut down to administrators only, and takes it off the sign-in screen" {
     Set-TbShutdownRight | Should -Be "written"

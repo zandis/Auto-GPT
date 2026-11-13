@@ -385,9 +385,9 @@
     "zh-TW": "其他電腦目前還無法連到主控台：WSL2 仍以先前的網路模式（{0}）執行。請重新啟動 Windows，然後再啟動安裝程式一次。"
   },
   "updates": {
-    "en": "Windows Update installs every day at {0}:00 and may restart this PC only between {0}:00 and {1}:00. It no longer takes drivers: the NVIDIA driver stays the one TrialBox was measured with. Keep the nightly run outside these hours.",
-    "ja": "Windows Update は毎日 {0}:00 にインストールを行い、この PC を再起動できるのは {0}:00 から {1}:00 の間だけです。ドライバーは Windows Update から取得しません。NVIDIA ドライバーは TrialBox を測定したときのもののままです。夜間処理はこの時間帯の外にしてください。",
-    "zh-TW": "Windows Update 每天 {0}:00 安裝更新，並且只能在 {0}:00 到 {1}:00 之間重新啟動這台電腦。不再從 Windows Update 取得驅動程式：NVIDIA 驅動程式維持 TrialBox 測量時的版本。請讓夜間作業避開這段時間。"
+    "en": "Windows Update installs every day at {0}:00 and restarts this PC by itself only between {0}:00 and {1}:00 (an administrator who is signed in can still restart it at any time). It no longer takes drivers: the NVIDIA driver stays the one TrialBox was measured with. Keep the nightly run outside these hours.",
+    "ja": "Windows Update は毎日 {0}:00 にインストールを行い、この PC を自動で再起動するのは {0}:00 から {1}:00 の間だけです（サインイン中の管理者はいつでも再起動できます）。ドライバーは Windows Update から取得しません。NVIDIA ドライバーは TrialBox を測定したときのもののままです。夜間処理はこの時間帯の外にしてください。",
+    "zh-TW": "Windows Update 每天 {0}:00 安裝更新，並且只會在 {0}:00 到 {1}:00 之間自動重新啟動這台電腦（已登入的系統管理員仍可隨時重新啟動）。不再從 Windows Update 取得驅動程式：NVIDIA 驅動程式維持 TrialBox 測量時的版本。請讓夜間作業避開這段時間。"
   },
   "updates_kept": {
     "en": "This PC already has a Windows Update policy (from your IT department). It is kept as it is; only 'no drivers from Windows Update' was added. Ask IT to keep restarts out of the nightly run; the host check shows what is set.",

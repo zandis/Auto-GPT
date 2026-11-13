@@ -131,6 +131,12 @@ Fact "wu_set_active_hours" (RegValue $wu "SetActiveHours")
 Fact "wu_active_hours_start" (RegValue $wu "ActiveHoursStart")
 Fact "wu_active_hours_end" (RegValue $wu "ActiveHoursEnd")
 Fact "wu_exclude_drivers" (RegValue $wu "ExcludeWUDriversInQualityUpdate")
+# values that take restarts out of the active hours' hands (Microsoft, "Manage device restarts after updates")
+Fact "wu_no_auto_reboot_logged_on" (RegValue $au "NoAutoRebootWithLoggedOnUsers")
+Fact "wu_always_reboot_at_scheduled" (RegValue $au "AlwaysAutoRebootAtScheduledTime")
+Fact "wu_compliance_deadline" (RegValue $wu "SetComplianceDeadline")
+Fact "wu_deadline_quality" (RegValue $wu "ConfigureDeadlineForQualityUpdates")
+Fact "wu_deadline_feature" (RegValue $wu "ConfigureDeadlineForFeatureUpdates")
 # whether the sign-in screen offers shutting down. The user right "Shut down the system" itself is not read here
 # (Windows gives it only through secedit's export to a file, and this script writes nothing): the installer sets
 # and logs it, and puts it right at every start

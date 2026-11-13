@@ -84,7 +84,11 @@ $script:TbUnlockDefault = $BitLockerUnlock
 $script:TbUnlockGiven = $PSBoundParameters.ContainsKey("BitLockerUnlock")
 # the update window the same way
 $script:TbUpdateDefault = @($UpdateWindowStart, $UpdateWindowHours)
-$script:TbUpdateGiven = ($PSBoundParameters.ContainsKey("UpdateWindowStart") -or $PSBoundParameters.ContainsKey("UpdateWindowHours"))
+$script:TbUpdateGiven = @($PSBoundParameters.ContainsKey("UpdateWindowStart"), $PSBoundParameters.ContainsKey("UpdateWindowHours"))
+# values of the site's IT that take restarts out of the window's hands (Microsoft: with either of the first two the
+# active hours have no effect; a compliance deadline restarts whatever the hour); and a policy held by MDM
+$script:TbUpdateForeign = @("NoAutoRebootWithLoggedOnUsers", "AlwaysAutoRebootAtScheduledTime", "SetComplianceDeadline",
+  "ConfigureDeadlineForQualityUpdates", "ConfigureDeadlineForFeatureUpdates", "Mdm")
 $script:TbAdminsSid = "S-1-5-32-544"  # the built-in Administrators group, the same on every Windows
 $script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
   "packages", "gpu-container", "host-tree", "boot-task", "network", "linux-install")
@@ -306,14 +310,19 @@ function Get-TbUpdatePolicy {
   # the Windows Update policy as it stands: values a group policy, the site's IT or an earlier run of this script wrote
   $wu = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"; $au = $wu + "\AU"
   $p = @{}
-  foreach ($n in @("NoAutoUpdate", "AUOptions", "ScheduledInstallDay", "ScheduledInstallTime")) {
+  foreach ($n in @("NoAutoUpdate", "AUOptions", "ScheduledInstallDay", "ScheduledInstallTime", "NoAutoRebootWithLoggedOnUsers",
+      "AlwaysAutoRebootAtScheduledTime")) {
     try { $p[$n] = (Get-ItemProperty -LiteralPath $au -Name $n -ErrorAction Stop).$n } catch { $p[$n] = $null }
   }
-  foreach ($n in @("SetActiveHours", "ActiveHoursStart", "ActiveHoursEnd", "ExcludeWUDriversInQualityUpdate")) {
+  foreach ($n in @("SetActiveHours", "ActiveHoursStart", "ActiveHoursEnd", "ExcludeWUDriversInQualityUpdate", "SetComplianceDeadline",
+      "ConfigureDeadlineForQualityUpdates", "ConfigureDeadlineForFeatureUpdates")) {
     try { $p[$n] = (Get-ItemProperty -LiteralPath $wu -Name $n -ErrorAction Stop).$n } catch { $p[$n] = $null }
   }
   try { $p["Ours"] = [string](Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\TrialBox" -Name "update_window" -ErrorAction Stop).update_window }
   catch { $p["Ours"] = "" }
+  # a device managed by MDM (Intune) holds its Windows Update policy here, not under Policies
+  try { $p["Mdm"] = (Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Update" -Name "AllowAutoUpdate" -ErrorAction Stop).AllowAutoUpdate }
+  catch { $p["Mdm"] = $null }
   return $p
 }
 function Write-TbUpdateValue([string]$Sub, [string]$Name, [int]$Value) {
@@ -430,7 +439,7 @@ function Save-TbState {
 }
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
-    desktop_share_pct = -1; update_window = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
+    desktop_share_pct = -1; update_window = ""; update_window_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
     restart_pending = $false; finished = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -774,39 +783,53 @@ function Set-TbBootTask {
   if ($null -eq $info) { return "registered" } else { return "restored" }
 }
 function Set-TbUpdateWindow([int]$Start, [int]$Hours) {
-  # Windows Update installs at the window's first hour and may restart only inside the window: the hours outside
-  # it are Windows' "active hours". Drivers are never taken from Windows Update: the NVIDIA driver is the one the
-  # serving record was measured with. A policy that is there and that this script did not write is the site's
-  # IT's: it is kept, and the host check judges it. Returns "kept", "same" or "written".
+  # Windows Update installs at the window's first hour, and restarts by itself only inside the window: the hours
+  # outside it are Windows' "active hours". Drivers are never taken from Windows Update: the NVIDIA driver is the
+  # one the serving record was measured with. A policy that is there and that this script did not write is the
+  # site's IT's: it is kept, and the host check judges it. Returns "kept", "same" or "written".
   $p = Get-TbUpdatePolicy
   $end = ($Start + $Hours) % 24
-  if ($null -eq $p.ExcludeWUDriversInQualityUpdate -or [int]$p.ExcludeWUDriversInQualityUpdate -ne 1) {
+  if ([string]$p.ExcludeWUDriversInQualityUpdate -ne "1") {
     Write-TbUpdateValue "" "ExcludeWUDriversInQualityUpdate" 1
     Write-TbLog "    Windows Update: drivers excluded (ExcludeWUDriversInQualityUpdate=1)"
   }
-  $theirs = (-not $p.Ours) -and ($null -ne $p.NoAutoUpdate -or $null -ne $p.AUOptions -or $null -ne $p.SetActiveHours)
-  if ($theirs) {
-    Write-TbLog ("    Windows Update: a policy is already set (NoAutoUpdate {0}, AUOptions {1}, install time {2}, active hours set {3}): kept" -f $p.NoAutoUpdate,
-      $p.AUOptions, $p.ScheduledInstallTime, $p.SetActiveHours)
+  $names = @("NoAutoUpdate", "AUOptions", "ScheduledInstallDay", "ScheduledInstallTime", "SetActiveHours", "ActiveHoursStart", "ActiveHoursEnd")
+  $ours = [bool]$p.Ours
+  if (-not $ours) {
+    # values that are exactly a window as this script writes one are ours, also when its own note was deleted
+    $ours = ([string]$p.AUOptions -eq "4" -and [string]$p.NoAutoUpdate -eq "0" -and [string]$p.ScheduledInstallDay -eq "0" -and
+      [string]$p.SetActiveHours -eq "1" -and [string]$p.ScheduledInstallTime -match "^\d+$" -and [string]$p.ActiveHoursStart -match "^\d+$" -and
+      [string]$p.ScheduledInstallTime -eq [string]$p.ActiveHoursEnd)
+  }
+  $foreign = @($script:TbUpdateForeign | Where-Object { $null -ne $p[$_] })
+  $set = @($names | Where-Object { $null -ne $p[$_] })
+  if ($foreign.Count -gt 0 -or (-not $ours -and $set.Count -gt 0)) {
+    Write-TbLog ("    Windows Update: a policy is already set ({0}): kept" -f ((@($set) + @($foreign) | ForEach-Object { "{0}={1}" -f $_, $p[$_] }) -join ", "))
     return "kept"
   }
   $want = @(@("\AU", "NoAutoUpdate", 0), @("\AU", "AUOptions", 4), @("\AU", "ScheduledInstallDay", 0), @("\AU", "ScheduledInstallTime", $Start),
     @("", "SetActiveHours", 1), @("", "ActiveHoursStart", $end), @("", "ActiveHoursEnd", $Start))
-  $ours = "{0}+{1}" -f $Start, $Hours
-  $differs = @($want | Where-Object { $null -eq $p[$_[1]] -or [int]$p[$_[1]] -ne [int]$_[2] })
-  if ($differs.Count -eq 0 -and $p.Ours -eq $ours) { return "same" }
+  $note = "{0}+{1}" -f $Start, $Hours
+  $differs = @($want | Where-Object { [string]$p[$_[1]] -ne [string]$_[2] })
+  if ($differs.Count -eq 0 -and $p.Ours -eq $note) { return "same" }
+  # the note first: values half written by a run that failed are then ours, and the next start writes them whole
+  Set-TbMachineSetting "update_window" $note
   foreach ($w in $want) { Write-TbUpdateValue $w[0] $w[1] $w[2] }
-  Set-TbMachineSetting "update_window" $ours
-  Write-TbLog ("    Windows Update: installs daily at {0}:00, restarts only from {0}:00 to {1}:00 (active hours {1} to {0})" -f $Start, $end)
+  Write-TbLog ("    Windows Update: installs daily at {0}:00; restarts by itself only from {0}:00 to {1}:00 (active hours {1} to {0})" -f $Start, $end)
   return "written"
 }
+function Test-TbShutdownRight($Now) { return (@($Now.Sids).Count -eq 1 -and $Now.Sids[0] -eq $script:TbAdminsSid -and -not $Now.AtSignIn) }
 function Set-TbShutdownRight {
   # Only administrators may shut the PC down, and the sign-in screen offers it to nobody: a desktop user who turns
-  # the PC off in the evening stops the night. Returns "kept" or "written".
+  # the PC off in the evening stops the night. Returns "kept" or "written"; what was written is read back.
   $now = Get-TbShutdownRight
-  if (@($now.Sids).Count -eq 1 -and $now.Sids[0] -eq $script:TbAdminsSid -and -not $now.AtSignIn) { return "kept" }
+  if (Test-TbShutdownRight $now) { return "kept" }
   Write-TbLog ("    shutdown right was: {0}; offered at the sign-in screen: {1}" -f (@($now.Sids) -join ","), [bool]$now.AtSignIn)
   Write-TbShutdownRight $script:TbAdminsSid
+  $after = Get-TbShutdownRight
+  if (-not (Test-TbShutdownRight $after)) {
+    throw ("after setting it the right is held by {0} (a policy of the domain may set it back)" -f (@($after.Sids) -join ","))
+  }
   return "written"
 }
 function Set-TbUnattended([bool]$Quiet) {
@@ -817,6 +840,12 @@ function Set-TbUnattended([bool]$Quiet) {
     $did = Set-TbUpdateWindow $start $hours
     if ($did -eq "kept") { if (-not $Quiet) { Say "updates_kept" @() } }
     elseif ($did -eq "written" -or -not $Quiet) { Say "updates" @($start, (($start + $hours) % 24)) }
+    # trialbox doctor judges the window against the night: it is told which window Windows holds, or that the
+    # site's IT holds the policy. Told once; again when it changes
+    $tell = "kept"; if ($did -ne "kept") { $tell = "{0}+{1}" -f $start, $hours }
+    if ($script:TbSetupWsl -and [string]$script:TbState.update_window_told -ne $tell) {
+      if ((Invoke-TbSetup "update-window" @($tell)).ExitCode -eq 0) { $script:TbState.update_window_told = $tell }
+    }
   } catch { Say "updates_failed" @([string]$_.Exception.Message) }
   try { if ((Set-TbShutdownRight) -eq "written" -or -not $Quiet) { Say "shutdown_right" @() } }
   catch { Say "shutdown_right_failed" @([string]$_.Exception.Message) }
@@ -914,8 +943,13 @@ function Invoke-TbInstall {
   $script:TbShare = [int]$script:TbState.desktop_share_pct
   if ($script:TbUnlockGiven -or -not $script:TbState.bitlocker_unlock) { $script:TbState.bitlocker_unlock = $script:TbUnlockDefault }
   $script:TbUnlock = [string]$script:TbState.bitlocker_unlock
-  if ($script:TbUpdateGiven -or [string]$script:TbState.update_window -notmatch "^\d+\+\d+$") { $script:TbState.update_window = "{0}+{1}" -f $script:TbUpdateDefault[0], $script:TbUpdateDefault[1] }
-  $script:TbUpdate = @([string]$script:TbState.update_window -split "\+" | ForEach-Object { [int]$_ })
+  # each figure: the one given on this command line; else the one this install already used; else the default
+  $script:TbUpdate = @([int]$script:TbUpdateDefault[0], [int]$script:TbUpdateDefault[1])
+  if ([string]$script:TbState.update_window -match "^(\d+)\+(\d+)$") {
+    if (-not $script:TbUpdateGiven[0]) { $script:TbUpdate[0] = [int]$Matches[1] }
+    if (-not $script:TbUpdateGiven[1]) { $script:TbUpdate[1] = [int]$Matches[2] }
+  }
+  $script:TbState.update_window = "{0}+{1}" -f $script:TbUpdate[0], $script:TbUpdate[1]
   if ($script:TbState.finished) {
     # A finished install is left alone, but for .wslconfig: it follows the hardware (memory was added, the share
     # was changed), so "start the installer again after a hardware change" is true on a finished box too.
