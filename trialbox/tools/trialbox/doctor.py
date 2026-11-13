@@ -1169,6 +1169,28 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
 
 
+def check_anchor_mount(inp: DoctorInputs) -> Check:
+    """ANCHOR-MOUNT (D-638): the console's audit page checks the chain against the signed heads only when the anchor
+    folders are mounted into the console (``deploy/site/compose.anchors.yml``, written by the installer). WARN when
+    folders are set and the console does not get them: the night and ``tools/audit_verify.py --heads`` still check
+    the heads; the page then checks the chain against itself only."""
+    from tools.trialbox import anchors
+
+    if inp.platform:
+        return Check("anchor_mount", "PASS", "on a platform the console's folders are the cluster's to mount")
+    why = anchors.problem(inp.deploy or ROOT / "deploy", inp.env)
+    if why:
+        return Check(
+            "anchor_mount",
+            "WARN",
+            f"the audit page cannot check the signed heads: {why}. Run deploy/install.sh again: it mounts each "
+            f"folder of {anchors.ENV} into the console, read-only (D-638)",
+        )
+    if not (inp.env.get(anchors.ENV) or "").strip():
+        return Check("anchor_mount", "PASS", "no anchor folder is set (check audit_heads says what that means)")
+    return Check("anchor_mount", "PASS", "the console mounts every anchor folder, read-only")
+
+
 def check_memory_caps(inp: DoctorInputs) -> Check:
     """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
     (``tools.trialbox.memcaps``)."""
@@ -1669,6 +1691,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_clock,
     check_ops_runner,
     check_audit_heads,
+    check_anchor_mount,
     check_memory_caps,
     check_db_passwords,
     check_wsl2_memory,
