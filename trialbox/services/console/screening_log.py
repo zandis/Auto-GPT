@@ -26,6 +26,7 @@ from typing import Any
 from datacore import sponsor
 from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
+from tb_common import sheets
 from tb_common.authz import permit
 from tb_contracts import Job
 
@@ -105,6 +106,7 @@ def prescreen_rows(marks: list[Any], numbers: dict[str, str], seen: dict[str, tu
             "referral": refs.get(m.pid),
             "status": e.status if e else "",
             "reason": (e.reason if e else "") or "",
+            "reason_rc": _rc_note((e.reason if e else "") or ""),  # DEMO-JA: in the reader's language, as above
         }
         mine.append(row)
         rows.append(row)
@@ -184,7 +186,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def prescreen(rs: str) -> list[dict[str, Any]]:
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
-        gone = h.optout.active() if h.optout is not None else set()
+        gone = h.gone()
         return prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
                               refs, set(gone))  # fmt: skip
 
@@ -205,7 +207,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         overrides: dict[str, tuple[str, list[str], str, str]] = {}
         for o in h.team.overrides(rs) if h.team is not None else []:
             overrides[o[0]] = o
-        gone = h.optout.active() if h.optout is not None else set()
+        gone = h.gone()
         rows = []
         for pid, no, at in store.screening_rows(rs):
             if pid in gone:
@@ -340,6 +342,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             )
             about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
             buf = io.BytesIO()
+            sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
             wb.save(buf)
             name = f"screening_log_{rid}_sponsor.xlsx"
             au.append("console.export", ruleset=rid, actor=h.actor(sess),
@@ -366,6 +369,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             about.append(row)
         about.append(["pre-screen log", "One row per investigator mark, approached or not (D-387)."])
         buf = io.BytesIO()
+        sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
         wb.save(buf)
         au.append("console.export", ruleset=rid, actor=h.actor(sess), detail={"filename": "screening_log.xlsx"})
         return Response(
@@ -390,7 +394,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         jobs.sort(key=lambda j: j.updated_at or j.received_at)
         job = jobs[-1] if jobs else None
         cl = load(job, "candidate_list_")
-        gone = h.optout.active() if h.optout is not None else set()  # D-147: opted-out patients are on no list
+        gone = h.gone()  # D-147: opted-out patients are on no list
         members = [
             str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") == "high"
             and str(r.get("pid")) not in gone
@@ -492,6 +496,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         about.append(["small cells", f"counts between 1 and {k - 1} are shown as <{k}"])
         about.append(["made", h.clock().isoformat(timespec="seconds")])
         buf = io.BytesIO()
+        sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
         wb.save(buf)
         name = f"research_office_{y}.xlsx"
         au.append("console.export", actor=h.actor(sess), detail={"filename": name})

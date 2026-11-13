@@ -50,6 +50,7 @@ from tb_common.flowledger import level_of_tag, record_export
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
+from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import api_first, demo_guard, feedback, firstrun, i18n_roles
@@ -104,6 +105,22 @@ CSP = (
     f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
     "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 )
+# DEMO-JA: feas_compute.population_label's words, read back to show them in the page language
+_POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
+
+
+def population_words(lang: str, value: object) -> str:
+    """DEMO-JA: the FEAS report's population (``feas_compute.population_label``, English in the report file) in the
+    page language; any other text as it is."""
+    text = str(value or "")
+    m = _POPULATION.fullmatch(text)
+    if m is None:
+        return text or "–"
+    if m.group(1) == "hospital":
+        return translate(lang, "feas.pop.hospital", months=m.group(3))
+    return translate(lang, "feas.pop.departments", departments=m.group(2), months=m.group(3))
+
+
 _ASCII_WORDS = re.compile(r"[\x00-\x7F]+")
 
 
@@ -636,6 +653,14 @@ def create_app(
             return str(chosen)
         return pick_language(request.headers.get("accept-language"))
 
+    def _pi_tasks(sess: Session | None) -> list[str]:
+        """NEW-JRN-1 (D-540): for the account that names a study's PI (the steward), the studies whose criteria
+        wait for approval with no PI on the delegation log. Shown on every page of that account."""
+        hp = getattr(app.state, "helpers", None)
+        if sess is None or hp is None or hp.pi_missing is None or not permit(sess.user.role, "delegation.name_pi"):
+            return []
+        return list(hp.pi_missing(sess.user))
+
     def page(request: Request, name: str, sess: Session | None, status: int = 200, **ctx: Any) -> HTMLResponse:
         lang = lang_of(request, sess)
 
@@ -667,6 +692,7 @@ def create_app(
         base = {
             "t": t,
             "t_or": t_or,
+            "population": lambda value: population_words(lang, value),
             "lang": lang,
             "langs": LANGS,
             "sess": sess,
@@ -675,6 +701,7 @@ def create_app(
             "settings": settings,
             "pilot": settings.pilot,
             "path": request.url.path,
+            "pi_tasks": _pi_tasks(sess),
             "k": settings.small_cell,
             "cell": lambda v: cell(v, settings.small_cell),
             "state": state,
@@ -739,7 +766,9 @@ def create_app(
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         if req.ruleset and not sess.user.sees_study(req.ruleset):  # D-104: a scoped account requests its studies only
             au.append("console.denied", actor=actor(sess), detail={"action": f"request {req.ruleset}"})
-            raise _Problem(404, "notfound")
+            # NEW-JRN-1 (D-540): said as a refusal of the request, not as "this page does not exist". The answer is
+            # the same whether the study exists or not, so it tells a scoped account nothing about other studies.
+            raise _Problem(403, "request.scope", studies=", ".join(sorted(sess.user.studies)))
         au.append(
             "console.request",
             job_id=job_id,
@@ -1384,8 +1413,42 @@ def create_app(
             consent=_consent_card(job),
             case=case,
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
+            recheck=_recheck_share(job, sess, bg=grant is not None),
             breakglass=grant,
         )
+
+    def _recheck_share(job: Job, sess: Session, bg: bool = False) -> dict[str, Any] | None:
+        """NEW-RUN-1 (D-558): how far a finished weekly screening run got with the patients whose records did not
+        match a criterion before (D-646's share of the night budget), from the run's ``microbatch.budget`` event.
+        For the accounts that read the study's list (the rule of the screening card's rows). None when the run was
+        not a weekly one, is not finished, wrote no such event, or had none of those patients in scope.
+
+        The sentences follow the run's own cases (``orchestrator.scenarios.microbatch``): the places kept are the
+        smaller of the share of what was left of the night budget and the patients waiting, so the share is said
+        as a limit, not as what the places amount to; with no night budget there is no share to say; the number of
+        runs is said only when somebody was carried over and it is more than one (the run writes 1 whenever nobody
+        was carried, whatever the share)."""
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
+            return None
+        if not (helpers.reads(sess.user, job.ruleset) or bg):
+            return None
+        ev = bk.recheck_share(job.job_id)
+        if ev is None or ev.get("trigger") != "weekly":
+            return None
+        scope, again = ev.get("excluded_in_scope"), ev.get("excluded_rescreened")
+        if scope is None or again is None or (scope == 0 and again == 0):
+            return None
+        carried = max(scope - again, 0)
+        percent, kept, runs = ev.get("excluded_percent"), ev.get("excluded_kept"), ev.get("excluded_full_pass_runs")
+        budgeted = ev.get("left") is not None and percent is not None
+        share = None if not budgeted else "none" if percent == 0 else "kept" if kept is not None else None
+        after = None
+        if carried and share == "kept":
+            after = "nopass" if runs is None else "pass" if runs > 1 else None
+        return {"n": again, "scope": scope, "carried": carried, "share": share, "kept": kept, "percent": percent,
+                "after": after, "runs": runs}  # fmt: skip
+
+    _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 
     def _case_opted_out(job: Job, case: dict[str, Any] | None) -> bool:
         """D-273 (PV-4): is the job's subject on the opt-out register now? The pseudonym comes from the finished
@@ -1400,13 +1463,20 @@ def create_app(
         chart = str((job.options or {}).get("mrn") or "").strip()
         if job.type != "CASE" or not chart:
             return False
-        from console import s28
+        pid = _case_pids.get(job.job_id, "")
+        if not pid:
+            from console import actor as acting
+            from console import s28
 
-        try:
-            got = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
-        except Exception:  # the box is down or refuses: fail closed
-            return True
-        pid = str((got or {}).get("pid") or "")
+            path, body = "/setup/pseudonym", {"chart_no": chart}
+            try:  # T-719 (D-487): no reader's lookup, so the console's own named principal; once per job
+                sign = acting.assert_service(acting.OPTOUT_CHECK, "optout.keep", None, "POST", path, body)
+                got = s28.call(bk, "POST", path, body, headers=sign)
+            except Exception:  # the box is down or refuses: fail closed
+                return True
+            pid = str((got or {}).get("pid") or "")
+            if pid:
+                _case_pids[job.job_id] = pid
         return not pid or pid in gone
 
     def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False, bg: bool = False,
@@ -1468,8 +1538,10 @@ def create_app(
                     if str(r.get("pid", "")) in gone:
                         card["removed"] += 1
                         continue
-                    unknown = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "unknown"]
-                    failing = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "fail"]
+                    # D-478: the words a person reads (one model's "not met" is an open point, not a failing one)
+                    words = {v["id"]: shown_of(v)[0] for v in r.get("criteria") or []}
+                    unknown = [i for i, w in words.items() if w == "unknown"]
+                    failing = [i for i, w in words.items() if w == "fail"]
                     quotes = [
                         {
                             "id": v["id"],
@@ -1906,7 +1978,7 @@ def create_app(
             raise _Problem(
                 400, "request.refused", reason="record consent on the participant page: it opens the consent form"
             )
-        who = sess.user.mailbox or sess.user.username
+        who = actor(sess)  # T-715b (D-550): for this object only; the orchestrator takes the person from the claim
         upd = RegistryUpdate(
             pid=pid.strip() or None,
             mrn=re.sub(r"\s+", "", mrn) or None,
@@ -1921,8 +1993,15 @@ def create_app(
             ruleset=rs,
             detail={"action": "update", "status": status, "by_mrn": bool(upd.mrn)},
         )
+        # T-715b (D-550): every registry change is signed for this person and this request (T-719: a row by chart
+        # number is also this person's lookup); the box refuses a bare token
+        from console import actor as acting
+
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:
+            return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
+
         try:
-            bk.registry_update(rs, upd)
+            bk.registry_update(rs, upd, sign)
         except Refused as exc:
             return _registry_page(request, sess, rs, 422, error=str(exc))
         return RedirectResponse(f"/pilot/registry/{rs}", status_code=303)
@@ -1933,9 +2012,14 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
-        who = sess.user.mailbox or sess.user.username
+        who = actor(sess)  # T-715b (D-550): for this object only; the orchestrator takes the person from the claim
+        from console import actor as acting
+
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:
+            return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
+
         try:
-            added = bk.registry_promote(rs, RegistryPromote(by=who))
+            added = bk.registry_promote(rs, RegistryPromote(by=who), sign)
         except Refused as exc:
             return _registry_page(request, sess, rs, 422, error=str(exc))
         au.append("console.registry", actor=actor(sess), ruleset=rs, detail={"action": "promote", "added": added})

@@ -131,6 +131,11 @@ def test_every_role_with_a_url_has_a_password_of_its_own(tmp_path: Path) -> None
     box = make_box(tmp_path, env)
     config = ds.render([box / BASE], env, project_dir=box)
     roles = {ds.role_secret(s) for s in ds.database_services(config)}
+    # D-541: the FHIR store has a role too; it signs in through its JDBC settings, not through TB_DB_URL
+    fhir = config["services"]["fhir-store"]["environment"]
+    assert fhir["SPRING_DATASOURCE_USERNAME"] == "tb_fhir_store"
+    assert fhir["SPRING_DATASOURCE_PASSWORD"] == env[ds.role_secret("fhir-store")]
+    roles.add(ds.role_secret("fhir-store"))
     assert roles == set(secret_names()) - set(ds.ADMIN)
     install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
     assert all(name in install for name in secret_names())

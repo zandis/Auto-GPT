@@ -60,9 +60,24 @@ def test_the_manifest_records_url_date_sha_count_licence_terms_and_attribution(p
     m = rd.verify(pack)
     assert m["format"] == "trialbox-refdata/1" and m["pack_id"] == "trialbox-refdata-20261109" and m["sample"]
     ids = {s["id"] for s in m["sources"]}
-    assert ids == {"ctgov", "tfda_trials", "tfda_indication", "mhlw_yakka", "nhi_drugs", "icd10cm", "nhi_drug_atc",
-                   "tw_icd_2014_2023", "nhi_lab_loinc", "naer_medical_terms", "tw_zh_synonyms",
-                   "icd10_who_cm_bridge", "jp_yj_atc", "ctcae_v5_en", "ja_synonyms"}  # fmt: skip
+    assert ids == {
+        "ctgov",
+        "tfda_trials",
+        "tfda_indication",
+        "mhlw_yakka",
+        "nhi_drugs",
+        "icd10cm",
+        "nhi_drug_atc",
+        "tw_icd_2014_2023",
+        "nhi_lab_loinc",
+        "naer_medical_terms",
+        "tw_zh_synonyms",
+        "icd10_who_cm_bridge",
+        "jp_yj_atc",
+        "ctcae_v5_en",
+        "ja_synonyms",
+        "cms_gem_icd9_icd10cm",
+    }  # fmt: skip  (D-592: one more shipped source)
     for s in m["sources"]:
         assert all(s[k] not in ("", None) for k in ("url", "downloaded_at", "download_sha256", "records", "licence",
                                                      "terms", "attribution", "version"))  # fmt: skip
@@ -320,3 +335,19 @@ def test_the_network_sheet_shows_the_chosen_mode(tmp_path: Path) -> None:
             assert ("clinicaltrials.gov:443 |" in text) is host_open
     committed = (ROOT / "docs/handover/network-sheet.en.md").read_text(encoding="utf-8")
     assert "offline by default" in committed
+
+
+def test_the_store_says_whether_a_map_from_one_system_to_another_is_loaded(
+    loaded: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lane B's check at the start of a load: a first load before the reference pack is in would be published with
+    every code "no entry". The question is about the map, not about one code."""
+    i9, i10 = "http://hl7.org/fhir/sid/icd-9-cm", "http://hl7.org/fhir/sid/icd-10-cm"
+    with rd.RefStore(loaded) as st:
+        assert st.has_map(i9, i10) is True  # the sample pack carries the CMS map (D-592)
+        assert st.has_map(i10, i9) is False  # the direction counts
+        assert st.has_map(i9, "http://loinc.org") is False and st.has_map("", "") is False
+    assert rd.has_map_or_none(i9, i10, loaded) is True and rd.has_map_or_none(i10, i9, loaded) is False
+    monkeypatch.delenv("TB_DB_URL", raising=False)
+    assert rd.has_map_or_none(i9, i10) is False  # no database configured: nothing is loaded
+    assert rd.has_map_or_none(i9, i10, "postgresql://nobody@127.0.0.1:1/none") is None  # configured, could not ask

@@ -65,6 +65,7 @@ from tb_testkit.scale import (  # noqa: E402
     wait_http,
 )
 
+PROFILES = ("thin", "dense")
 REF_DATE = date(2026, 10, 5)  # the synthetic generator's reference day (tools.synth)
 SNAPSHOT = "2026-10-04"  # the night before it: the snapshot the night writes
 TRIAL = "GZQO"  # the ruleset of hospital_sim and the bench gate
@@ -101,6 +102,8 @@ EXPECTED: dict[str, Expected] = {
 class Params:
     patients: int
     out: Path
+    profile: str = "thin"  # TB_SCALE_PROFILE: thin (the generator's own hospital) | dense (about 500 records
+    # and 40 notes per patient: tb_testkit.scale.densify)
     enforce: str = ""  # TB_SCALE_ENFORCE: cgroup | measure | "" (the best this host has)
     validate: bool = True  # the HL7 validator in the night (the JVM; StructuralValidator without it)
     latency_s: float = 0.0  # the stand-in's seconds per call
@@ -123,6 +126,7 @@ class Report:
     runs: list[PhaseRun] = field(default_factory=list)
     checks: list[Check] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    profile_facts: dict[str, Any] = field(default_factory=dict)  # the dense profile's own numbers
     numbers: dict[str, Any] = field(default_factory=dict)
 
     def check(self, cid: str, passed: bool | None, detail: str, blocked_by: str = "") -> None:
@@ -139,7 +143,7 @@ class Report:
         p = self.params
         caps = ", ".join(f"{SERVICE[k]} {gib(p.caps[SERVICE[k]])}" for k in ("ingest", "rebuild", "screen"))
         head = [
-            f"{p.patients:,} synthetic patients; caps from deploy/docker-compose.yml: {caps}; "
+            f"{p.patients:,} synthetic patients ({p.profile} profile); caps from deploy/docker-compose.yml: {caps}; "
             f"enforcement: {self.mode}.",
             f"Model stand-in: {p.latency_s} s per call, 502 for {p.outage_s} s from call {p.outage_after}, "
             f"restart after call {p.restart_after or 'never'}.",
@@ -150,6 +154,8 @@ class Report:
     def to_json(self) -> dict[str, Any]:
         return {
             "patients": self.params.patients,
+            "profile": self.params.profile,
+            "profile_facts": self.profile_facts,
             "mode": self.mode,
             "ok": self.ok(),
             "rows": self.rows(),
@@ -177,8 +183,15 @@ from datetime import date
 from pathlib import Path
 from tools.make_fixtures import write_site
 from tools.synth.generator import generate
-n, out, ref = int(sys.argv[1]), Path(sys.argv[2]), date.fromisoformat(sys.argv[3])
-write_site(generate(42, "DEMO-A", ref, n, "1"), out)
+n, out, ref, profile = int(sys.argv[1]), Path(sys.argv[2]), date.fromisoformat(sys.argv[3]), sys.argv[4]
+if profile == "dense":  # T-687, the dense profile: the generator's hospital, thickened to a real chart's size
+    import json
+    from tb_testkit.scale import densify
+    thin = out.with_name(out.name + "-thin")
+    write_site(generate(42, "DEMO-A", ref, n, "1"), thin)
+    print(json.dumps(densify(thin, out)))
+else:
+    write_site(generate(42, "DEMO-A", ref, n, "1"), out)
 """
 
 CHILD_INGEST = r"""
@@ -214,6 +227,9 @@ import uvicorn
 from lake import store
 cap = int(os.environ["TB_SCALE_CAP_BYTES"])
 store._cgroup_memory_max = lambda: cap
+# D-539: the build is a process of its own and does not get the line above; it reads the environment, so the limit
+# the service derives from the cap is handed on as the setting a box would have
+os.environ.setdefault("TB_LAKE_MEMORY_LIMIT", store.memory_limit())
 uvicorn.run("lake.app:app", host="127.0.0.1", port=int(sys.argv[1]), log_level="warning")
 """
 
@@ -305,7 +321,7 @@ def run(p: Params) -> Report:
         "generate",
         "-",
         big * 4,
-        [sys.executable, "-c", CHILD_GENERATE, str(p.patients), str(site), REF_DATE.isoformat()],
+        [sys.executable, "-c", CHILD_GENERATE, str(p.patients), str(site), REF_DATE.isoformat(), p.profile],
         _env(),
         ROOT,
         logs / "generate.log",
@@ -314,6 +330,13 @@ def run(p: Params) -> Report:
     rep.runs.append(gen)
     if gen.rc != 0:
         raise RuntimeError(f"the synthetic hospital could not be generated: {gen.tail}")
+    if p.profile == "dense":
+        facts = _last_json(gen.tail) or {}
+        rep.profile_facts = facts
+        rep.notes.append(
+            f"dense profile: {facts.get('records_per_patient')} records and {facts.get('notes_per_patient')} notes "
+            f"per patient ({facts.get('records', 0):,} records, {facts.get('notes', 0):,} notes)"
+        )
 
     # 2. the night's ingest under the adapter's cap
     mapping = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
@@ -381,6 +404,7 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
     env = _env(
         TB_LAKE_DIR=str(work / "lake"),
         TB_LAKE_EMBEDDER="hash",
+        TB_LAKE_BUILD="process",  # D-539: as a box runs it, whatever this process's environment says
         TB_SERVICE_TOKEN=token,
         TB_SCALE_CAP_BYTES=str(p.caps["lake"]),
     )
@@ -419,6 +443,16 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
             )
             rep.check("rebuild.under_cap", False, f"{why} during the rebuild")
             built = False
+        if not built and not lake_died and _build_interrupted(url, token):
+            # D-539: under a cgroup the kernel kills the build's process alone and the service lives; that is the
+            # rebuild not ending under the cap, as the service's death was before the build had its own process
+            rep.check(
+                "rebuild.under_cap",
+                False,
+                f"the lake's build process was killed during the rebuild (cap {gib(p.caps['lake'])}); the service "
+                "lived",
+            )
+            lake_died = True  # no second verdict on this check below
         if not built:
             for cid in ("screen.ends_under_cap", "screen.model_faults_seen", "screen.outage_no_unknown"):
                 rep.check(cid, None, "the lake has no built snapshot", blocked_by="rebuild")
@@ -515,6 +549,18 @@ def _busy(exc: Exception) -> bool:
     except ImportError:  # pragma: no cover - an older lake
         return False
     return isinstance(exc, LakeBusy)
+
+
+def _build_interrupted(url: str, token: str) -> bool:
+    """Whether the rebuild job of the gate's snapshot ended without an answer (its process was killed)."""
+    import httpx
+    from tb_common.service_auth import TOKEN_HEADER
+
+    try:
+        r = httpx.get(f"{url}/rebuild/{SNAPSHOT}", headers={TOKEN_HEADER: token}, timeout=30)
+        return bool(r.json().get("state") == "interrupted")
+    except Exception:
+        return False
 
 
 def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
@@ -839,7 +885,7 @@ def _backup(p: Params, rep: Report, work: Path, db_url: str) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ the command
-def params_from_env(out: Path, patients: int | None = None) -> Params:
+def params_from_env(out: Path, patients: int | None = None, profile: str | None = None) -> Params:
     """The gate's settings from ``TB_SCALE_*`` (the nightly job's values are in trialbox-e2e.yml)."""
     e = os.environ
 
@@ -851,6 +897,7 @@ def params_from_env(out: Path, patients: int | None = None) -> Params:
     return Params(
         patients=patients or int(f("TB_SCALE_PATIENTS", 300)),
         out=out,
+        profile=profile or e.get("TB_SCALE_PROFILE", "").strip() or "thin",
         enforce=e.get("TB_SCALE_ENFORCE", ""),
         validate=e.get("TB_SCALE_VALIDATE", "1") != "0",
         latency_s=f("TB_SCALE_LATENCY_S", 0.0),
@@ -866,8 +913,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--patients", type=int)
     ap.add_argument("--out", type=Path, default=ROOT / "build" / "scale-gate")
+    ap.add_argument(
+        "--profile", choices=PROFILES, help="thin (default) or dense: about 500 records, 40 notes per patient"
+    )
     a = ap.parse_args(argv)
-    rep = run(params_from_env(a.out, a.patients))
+    rep = run(params_from_env(a.out, a.patients, a.profile))
     sys.stdout.write(rep.markdown())
     return 0 if rep.ok() else 1
 

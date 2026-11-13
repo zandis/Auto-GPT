@@ -36,12 +36,13 @@ from typing import Any
 from datacore import fhir, forms, sync
 from datacore.sources import RedcapSource
 from datacore.store import DataCore, DataError
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
 from tb_common.flowledger import record_export
 
+from orchestrator.actor import person_of
 from orchestrator.lifecycle_api import LIFE_FORMS, derive_record
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -72,7 +73,7 @@ class DataService:
     def run_sync(self, rs: str, name: str, by: str) -> dict[str, Any]:
         src = self.redcap(rs) if name == "redcap" else None
         if src is None:
-            raise HTTPException(status_code=404, detail={"code": "DATA-SOURCE", "message": f"no source {name}"})
+            raise HTTPException(status_code=404, detail={"code": "DATA-SOURCE", "message": "no such source"})
         at = self.stamp()
         res = sync.sync(self.dc, rs, src, by, at).as_dict()
         self.dc.synced(rs, name, at, res)
@@ -286,7 +287,8 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         import tempfile
 
         from datacore.sources import SheetSource
-        from tb_common.crypto import pid_for_mrn
+
+        from orchestrator import identifiers
 
         svc, rid = get(), _rs(rs)
         key: bytes | None = None
@@ -308,7 +310,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             path = Path(tmp) / ("sheet.xlsx" if body.xlsx_b64 else "sheet.csv")
             path.write_bytes(base64.b64decode(body.xlsx_b64) if body.xlsx_b64 else body.csv.encode("utf-8"))
             src = SheetSource(path, dict(body.columns), key_column=body.key_column, mrn_column=body.mrn_column,
-                              pseudonymise=(lambda m: pid_for_mrn(key, m)) if key else None,
+                              pseudonymise=(lambda m: identifiers.pid_with(key, m)) if key else None,
                               name=f"sheet:{body.name}")  # fmt: skip
             try:
                 sync.attach(svc.dc, rid, src, list(body.columns.values()))
@@ -388,7 +390,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return {"record": rec, "values": values, "history": dc.history(rid, rec), "owners": dc.owners(rid)}
 
     @r.post("/studies/{rs}/entry/{record}")
-    def save_form(rs: str, record: str, body: FormBody) -> dict[str, Any]:
+    def save_form(rs: str, record: str, body: FormBody, request: Request) -> dict[str, Any]:
         svc, rid, rec = get(), _rs(rs), record_key(record)
         try:
             out = sync.save_form(svc.dc, rid, rec, body.event, body.form, body.values, body.by, svc.stamp())
@@ -399,7 +401,8 @@ def router(get: Callable[[], DataService]) -> APIRouter:
                                  "fields": out["written"]})  # fmt: skip
         life: dict[str, Any] = {}
         if body.form in LIFE_FORMS and out["changed"]:  # the subject follows its answers (D-134)
-            life = derive_record(svc, rid, rec, body.by)
+            # T-715 (D-483): the step this save derives names the verified person of the call, never the body's `by`
+            life = derive_record(svc, rid, rec, person_of(request, "task.enter_data"))
         return {**out, "record": rec, "event": body.event, "values": svc.dc.record(rid, rec, body.event),
                 "life": life}  # fmt: skip
 

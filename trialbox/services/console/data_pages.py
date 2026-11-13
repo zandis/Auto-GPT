@@ -27,13 +27,15 @@ from urllib.parse import quote
 
 from datacore.forms import fields_of, titles_of
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common import encoding
 
 from console import s28
 from console.api_first import before_body, page_twin
 from console.auth import Session
-from console.backend import Problem, Unavailable
+from console.backend import Problem, Unavailable, service_and_status
 from console.home import Helpers
 from console.i18n import translate
 from console.studies import known_study
@@ -433,9 +435,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             return forms_page(request, sess, rid, err={"code": "FORM-EMPTY", "fields": ""})
         if len(data) > MAX_DICTIONARY:
             return forms_page(request, sess, rid, err={"code": "FORM-SIZE", "fields": ""})
+        try:  # UX-004: the one decoder (D-215): a Shift_JIS or Big5 dictionary keeps its labels, or is refused
+            text = (await run_in_threadpool(encoding.decode_upload, data))[0]  # a legacy file takes seconds
+        except encoding.EncodingRefused:
+            return forms_page(request, sess, rid, err={"code": "FORM-ENCODING", "fields": ""})
         try:
-            out = apply_dictionary(sess, request.url.path, rid, data.decode("utf-8-sig", errors="replace"),
-                                   record_field)  # fmt: skip
+            out = apply_dictionary(sess, request.url.path, rid, text, record_field)
         except (Problem, Unavailable) as exc:
             return forms_page(request, sess, rid, err=err_of(exc))
         q = f"forms={len(out.get('forms') or [])}&fields={out.get('fields', 0)}&dropped={len(out.get('dropped') or [])}"
@@ -455,7 +460,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(status, "request.refused", code=exc.code, reason=exc.message,
                             fields=", ".join(exc.fields)) from exc  # fmt: skip
         except Unavailable as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
 
     # T-657 (D-444): the actions' own first checks, run before the body is read (console.api_first)
     def first_change(sess: Session, request: Request) -> None:

@@ -30,6 +30,7 @@ import argparse
 import base64
 import binascii
 import configparser
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -38,6 +39,12 @@ FACTS_VERSION = "1"
 # BitLocker key protectors (KeyProtectorType names) that need a person or the hospital network at boot
 PRE_BOOT = frozenset({"TpmPin", "TpmPinStartupKey", "TpmStartupKey", "TpmNetworkKey", "Password", "ExternalKey"})
 TPM_ALONE = "Tpm"
+# the box's disk unlock setting (D-494 point 6; NEW-WIN-8, D-603), recorded on the Windows side by box-install.ps1.
+# No setting recorded (a workstation not installed by the box installer) is judged as D-421 wrote: tpm_pin
+UNLOCK_TPM = "tpm"
+# protectors that open the system drive with nobody there: the TPM alone, or the TPM with the site's network unlock
+NOBODY_THERE = frozenset({"Tpm", "TpmNetworkKey"})
+UNLOCK_TPM_PIN = "tpm_pin"
 DRIFT_WARN_S = 5
 DRIFT_FAIL_S = 60  # the skew beyond which T-211a refuses jobs
 TASK_ACTION = "wsl.exe"
@@ -139,9 +146,39 @@ def check_bitlocker(facts: Facts, v: Verdicts) -> None:
                    "a suspended BitLocker leaves the key on the disk)")  # fmt: skip
             continue
         if tag != system:
-            v.ok(f"BitLocker on {tag}: ({role}) FullyEncrypted, {method or 'method ?'}")
+            # NEW-WIN-8 (D-603): the data drive must open with the system drive, or the virtual disk stays locked
+            # after a restart with nobody there. Facts of an older host_facts.ps1 carry no such line: not judged
+            auto = facts.get(f"bitlocker_{tag}_autounlock", "").strip().lower()
+            if auto not in ("", "true", "false", "0", "1"):
+                v.warn(f"BitLocker on {tag}: ({role}) automatic unlock not read ('{auto}')")
+            elif auto in ("false", "0"):
+                v.policy(
+                    f"BitLocker on {tag}: ({role}) does not unlock by itself at start (automatic unlock off): "
+                    f"after a restart the WSL2 disk stays locked (Enable-BitLockerAutoUnlock {tag}:)"
+                )
+            else:
+                v.ok(f"BitLocker on {tag}: ({role}) FullyEncrypted, {method or 'method ?'}"
+                     + (", unlocks with the system drive" if auto in ("true", "1") else ""))  # fmt: skip
             continue
         prot = _protectors(facts, tag)
+        unlock = facts.get("bitlocker_unlock", "").strip().lower()
+        if unlock == UNLOCK_TPM:
+            # D-494 point 6, NEW-WIN-8 (D-603): the box's declared setting. The TPM opens the drive, so the
+            # workstation returns after a restart with nobody there; the Windows sign-in and the console's sign-in
+            # stand between a stolen workstation and the data. Recorded by box-install.ps1 (HKLM, administrators)
+            if NOBODY_THERE.intersection(prot):
+                v.ok(f"BitLocker on {tag}: ({role}) FullyEncrypted, {method or 'method ?'}, unlock {','.join(prot)} "
+                     "(bitlocker_unlock=tpm: starts with nobody there, D-494)")  # fmt: skip
+            elif any(p.startswith("Tpm") for p in prot):
+                v.policy(f"BitLocker on {tag}: bitlocker_unlock=tpm, but the drive asks for a PIN or a key at start "
+                         f"(protectors {','.join(prot)}): a person is needed at every restart (record tpm_pin, or "
+                         "add the TPM protector)")  # fmt: skip
+            else:
+                v.fail(f"BitLocker on {tag}: bitlocker_unlock=tpm, but the TPM does not open the drive (protectors "
+                       f"{','.join(prot) or 'none'}): a person is needed at every restart")  # fmt: skip
+            continue
+        if unlock not in ("", UNLOCK_TPM_PIN):
+            v.policy(f"BitLocker on {tag}: unknown bitlocker_unlock '{unlock}' (tpm or tpm_pin): judged as tpm_pin")
         if TPM_ALONE in prot:
             v.fail(f"BitLocker on {tag}: the TPM alone opens it, so a stolen workstation boots to a running stack "
                    f"(protectors {','.join(prot)}; add a PIN: manage-bde -protectors -add {tag}: -TPMAndPIN, then "
@@ -249,7 +286,48 @@ def check_windows_update(facts: Facts, v: Verdicts) -> None:
     pending = facts.get("wu_reboot_pending") == "1"
     au, mdm = facts.get("wu_au_options", ""), facts.get("wu_mdm_allow_auto_update", "")
     day, hour = facts.get("wu_scheduled_install_day", ""), facts.get("wu_scheduled_install_time", "")
-    if facts.get("wu_no_auto_update") == "1" or au in WU_MANUAL_AU or mdm in WU_MANUAL_MDM:
+    ours = re.fullmatch(r"(\d+)\+(\d+)", facts.get("update_window", ""))
+    if ours:
+        # NEW-WIN-5 (D-606): the installer's window. Windows restarts by itself only outside its active hours, so
+        # the active hours must be the rest of the day: from the window's end to its start. Values that defeat
+        # active hours (Microsoft, "Manage device restarts after updates") or an MDM policy make it no window
+        start, hours = int(ours.group(1)), int(ours.group(2))
+        end = (start + hours) % 24
+        wrong = [
+            f"{label} '{facts.get(key, '')}' (want {want})"
+            for key, label, want in (
+                ("wu_au_options", "AUOptions", "4"),
+                ("wu_scheduled_install_time", "install time", str(start)),
+                ("wu_set_active_hours", "active hours set", "1"),
+                ("wu_active_hours_start", "active hours from", str(end)),
+                ("wu_active_hours_end", "active hours to", str(start)),
+            )
+            if facts.get(key, "") != want
+        ]
+        if facts.get("wu_no_auto_update", "") not in ("", "0"):
+            wrong.append("automatic updates are switched off (NoAutoUpdate)")
+        if not 0 <= start <= 23 or not 6 <= hours <= 23:
+            wrong.append(f"a window of {hours} h from {start}:00 is not one Windows can hold (6 to 23 h)")
+        wrong += [
+            f"{label} is set ('{facts[key]}')"
+            for key, label in (
+                ("wu_no_auto_reboot_logged_on", "NoAutoRebootWithLoggedOnUsers"),
+                ("wu_always_reboot_at_scheduled", "AlwaysAutoRebootAtScheduledTime"),
+                ("wu_compliance_deadline", "a compliance deadline"),
+                ("wu_deadline_quality", "a deadline for quality updates"),
+                ("wu_deadline_feature", "a deadline for feature updates"),
+                ("wu_mdm_allow_auto_update", "an MDM update policy"),
+            )
+            if facts.get(key, "") != ""
+        ]
+        if not wrong:
+            v.ok(f"Windows Update restarts: installs at {start}:00 and restarts by itself only from {start}:00 to "
+                 f"{end}:00, the installer's update window (trialbox doctor judges it against the night)")  # fmt: skip
+        else:
+            v.policy(f"Windows Update restarts: the installer set the window {start}:00 to {end}:00, but Windows does "
+                     f"not hold it: {'; '.join(wrong)}. Start the Windows installer again, or ask hospital IT which "
+                     "policy replaced it")  # fmt: skip
+    elif facts.get("wu_no_auto_update") == "1" or au in WU_MANUAL_AU or mdm in WU_MANUAL_MDM:
         v.ok("Windows Update restarts: installs and restarts are started by hospital IT in the window (RUNBOOK §24)")
     elif au == "4" or mdm == "3":
         when = f"day {day or '0'} at {hour}:00" if hour else "the scheduled time"
@@ -265,6 +343,66 @@ def check_windows_update(facts: Facts, v: Verdicts) -> None:
                "WSL2 and the stack back)")  # fmt: skip
 
 
+def check_update_drivers(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-5 (D-606): the NVIDIA driver is the one the box was measured with; Windows Update must not replace it."""
+    if "wu_exclude_drivers" not in facts:
+        return  # facts of a release before NEW-WIN-5
+    if facts["wu_exclude_drivers"] == "1":
+        v.ok("Windows Update takes no drivers: the NVIDIA driver stays the one the box was measured with")
+    else:
+        v.policy("Windows Update may replace the NVIDIA driver (no policy 'Do not include drivers with Windows "
+                 "Updates'): start the Windows installer again, or ask hospital IT to set it")  # fmt: skip
+
+
+def check_shutdown_right(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-5 (D-606): a desktop user who turns the workstation off in the evening stops the night.
+
+    Judged here: the sign-in screen. The user right "Shut down the system" is not among the facts (host_facts.ps1
+    writes nothing, and Windows gives the right only through an export to a file): the installer sets it."""
+    if "shutdown_at_sign_in" not in facts:
+        return  # facts of a release before NEW-WIN-5
+    if facts["shutdown_at_sign_in"] == "0":
+        v.ok("shutdown: the sign-in screen does not offer it (the right to shut down is set by the installer: "
+             "administrators only; not read here)")  # fmt: skip
+    else:
+        v.policy("shutdown: the sign-in screen offers shutting down to anyone at the keyboard: the workstation can be "
+                 "turned off under the night. Start the Windows installer again")  # fmt: skip
+
+
+def check_gpu_programs(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-6 (D-607): the card is shared with the desktop. Which Windows programs hold its memory, by name.
+
+    The verdict on how much is the health line's (``desktop_gpu``, every minute, from inside WSL2, which sees the
+    amount and not the program). This line names the programs when that one is red."""
+    if "gpu_programs_known" not in facts:
+        return  # facts of a release before NEW-WIN-6
+    if facts["gpu_programs_known"] != "1":
+        v.warn("graphics card by program: Windows gave no figures (the counter class is missing on this build)")
+        return
+    wsl, outside = _int(facts.get("gpu_wsl_mib")), _int(facts.get("gpu_outside_mib"))
+    if wsl is None or outside is None:
+        v.warn("graphics card by program: the figures could not be read")
+        return
+    top = facts.get("gpu_outside_top", "")
+    names = ", ".join(f"{n} {m} MiB" for n, _, m in (part.partition(":") for part in top.split(",") if part))
+    v.ok(f"graphics card by program (Windows): WSL2 holds {wsl} MiB; programs outside TrialBox hold {outside} MiB"
+         + (f" ({names})" if names else ""))  # fmt: skip
+
+
+def check_admin_accounts(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-6 (D-607; plan v7 section 2.3 rule 5): desktop staff sign in with standard accounts."""
+    if "admin_accounts" not in facts:
+        return  # facts of a release before NEW-WIN-6
+    n = _int(facts["admin_accounts"])
+    if n is None:
+        v.warn("administrator accounts: not read")
+    elif n <= 1:
+        v.ok("administrator accounts: one (the box owner's); desktop staff sign in with standard accounts")
+    else:
+        v.warn(f"administrator accounts: {n}. Each can stop WSL2, read its disk file and shut the workstation down: "
+               "keep them to the box owner and hospital IT; desktop staff sign in with standard accounts")  # fmt: skip
+
+
 def check_keepalive(facts: Facts, v: Verdicts) -> None:
     name = facts.get("keepalive_task_name", "TrialBox-WSL2")
     if facts.get("keepalive_task_found") != "1":
@@ -278,8 +416,12 @@ def check_keepalive(facts: Facts, v: Verdicts) -> None:
         problems.append(f"runs only for a signed-in user (logon {facts.get('keepalive_task_logon_type') or '?'})")
     if facts.get("keepalive_task_state", "") == "Disabled":
         problems.append("disabled")
-    if TASK_ACTION not in facts.get("keepalive_task_action", "").lower():
+    action = facts.get("keepalive_task_action", "")
+    if TASK_ACTION not in action.lower():
         problems.append("does not start wsl.exe")
+    elif facts.get("distro") and f"-d {facts['distro']} " not in action + " ":
+        # NEW-WIN-2 (D-602): a task for another distribution keeps the wrong system alive, or none
+        problems.append(f"starts another distribution than '{facts['distro']}'")
     if problems:
         v.policy(f"start-at-boot task '{name}': {'; '.join(problems)}")
     else:
@@ -339,6 +481,10 @@ CHECKS: tuple[Callable[[Facts, Verdicts], None], ...] = (
     check_wsl_swap,
     check_rdp,
     check_windows_update,
+    check_update_drivers,
+    check_shutdown_right,
+    check_gpu_programs,
+    check_admin_accounts,
     check_keepalive,
     check_clock,
     check_vhdx,

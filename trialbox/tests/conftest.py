@@ -12,6 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 # D-315: the code has no default site zone; a box sets TB_TZ (deploy/.env, from site.tz). The tests run as the
 # synthetic Taiwan demo site of .env.example unless a test sets another zone (monkeypatch) or removes it.
 os.environ.setdefault("TB_TZ", "Asia/Taipei")
+# D-539: on a box the lake service builds in a process of its own, which reads its lake and its embedder from the
+# environment. Most tests hand the service a lake and an embedder in memory, which no other process can be given: for
+# them the build stays a thread of the service. tests/unit/test_lake_build_process.py runs the box's way.
+# Set, not defaulted: a shell that exports the box's value must not change what these tests drive.
+os.environ["TB_LAKE_BUILD"] = "thread"
+# D-663: the same for the adapter's ingest: most tests hand the adapter a configuration in memory (``build_config``
+# replaced); tests/unit/test_adapter_run_process.py runs the box's way, with real processes.
+os.environ["TB_ADAPTER_RUN"] = "thread"
 
 
 @pytest.fixture
@@ -198,6 +206,32 @@ PURE_MODULES: tuple[str, ...] = (
 )
 
 
+# D-635 (PG-LEAK): a test gives its database connections back. Set up first, so torn down last: every other fixture
+# of the test has finished with its stores by then. tests/db_connections.py says why and what is left alone.
+from tests.db_connections import TRACKER as _CONNECTIONS  # noqa: E402
+
+_CONNECTIONS.install()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_fixture_setup(fixturedef: Any, request: pytest.FixtureRequest) -> Iterator[None]:
+    wide = fixturedef.scope != "function"
+    if wide:
+        _CONNECTIONS.wide(+1)
+    try:
+        yield
+    finally:
+        if wide:
+            _CONNECTIONS.wide(-1)
+
+
+@pytest.fixture(autouse=True)
+def _connections_given_back() -> Iterator[None]:
+    mark = _CONNECTIONS.mark()
+    yield
+    _CONNECTIONS.close_since(mark)
+
+
 @pytest.fixture(autouse=True)
 def _private_trial_db(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
     """Every test runs with its own TB_DB_URL, so nothing it stores leaks into another test; a ``nodb`` test gets a
@@ -214,7 +248,8 @@ def _keep_service_token() -> Iterator[None]:
     """``tools.role_demo.orch_client`` sets ``TB_SERVICE_TOKEN`` for its process (a demo box authenticates like a real
     console). A test that builds such a box must not leave it set: every later test of a service's HTTP surface would
     then expect a token (the 401s seen after tests/integration/test_list_demo.py in one run, D-146)."""
-    names = ("TB_SERVICE_TOKEN", "TB_SERVICE_TOKENS", "TB_ACTOR_KEYS_FILE")  # D-464: and the demo's token registry
+    # D-464: and the demo's token registry; T-717 (D-485): and the demo console's signing key
+    names = ("TB_SERVICE_TOKEN", "TB_SERVICE_TOKENS", "TB_ACTOR_KEYS_FILE", "TB_ACTOR_SIGN_KEY_FILE")
     before = {n: os.environ.get(n) for n in names}
     yield
     for n, v in before.items():

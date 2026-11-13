@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 import threading
+import time
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -11,7 +15,7 @@ from typing import Any
 
 import pyarrow as pa
 from embed_service.embedder import Embedder, from_env
-from fastapi import HTTPException, Response
+from fastapi import Header, HTTPException, Response
 from fastapi.responses import JSONResponse
 from tb_common.config import site_tz
 from tb_common.http import make_app
@@ -25,7 +29,17 @@ from tb_contracts import (
 )
 
 from lake.sqlguard import SqlRejected
-from lake.store import BUSY_HEADER, Lake, LakeBusy, RebuildError
+from lake.store import (
+    BUSY_HEADER,
+    GENERATION_HEADER,
+    Lake,
+    LakeBusy,
+    RebuildError,
+    error_answer,
+    read_rebuild_job,
+    split_generation,
+    write_rebuild_job,
+)
 
 ARROW_STREAM = "application/vnd.apache.arrow.stream"
 _lake: Lake | None = None
@@ -60,23 +74,34 @@ def to_ipc(table: pa.Table) -> bytes:
     return bytes(sink.getvalue().to_pybytes())
 
 
+def _named(snapshot: date | None, generation: str | None) -> str | None:
+    """The snapshot a request reads: its date, or, with the header ``X-TB-Lake-Generation`` (T-724, D-490), that
+    generation of its date. The header alone is refused: a generation is of a date."""
+    snap = snapshot.isoformat() if snapshot else None
+    if not generation:
+        return snap
+    if snap is None or not generation.isdigit() or int(generation) < 1:
+        raise HTTPException(status_code=400, detail=f"{GENERATION_HEADER} is a number, beside the request's snapshot")
+    return f"{snap}.g{int(generation)}"
+
+
 @app.post("/query")
-def query(req: LakeQuery) -> Response:
+def query(req: LakeQuery, x_tb_lake_generation: str | None = Header(default=None)) -> Response:
     try:
-        table = lake().query(
-            req.sql, list(req.params or []), req.snapshot.isoformat() if req.snapshot else None, req.timeout_s
-        )
+        table = lake().query(req.sql, list(req.params or []), _named(req.snapshot, x_tb_lake_generation), req.timeout_s)
     except SqlRejected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:  # duckdb errors -> 422 with the engine message (no data echoed)
-        raise HTTPException(status_code=422, detail=f"{type(exc).__name__}: {str(exc)[:500]}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=error_answer(exc)) from exc
     return Response(content=to_ipc(table), media_type=ARROW_STREAM)
 
 
 @app.post("/chunks/search")
-def chunks_search(req: ChunkSearchRequest) -> ChunkSearchResult:
+def chunks_search(
+    req: ChunkSearchRequest, x_tb_lake_generation: str | None = Header(default=None)
+) -> ChunkSearchResult:
     try:
         hits = lake().search(
             req.pid,
@@ -85,7 +110,7 @@ def chunks_search(req: ChunkSearchRequest) -> ChunkSearchResult:
             req.k,
             req.date_from,
             req.date_to,
-            req.snapshot.isoformat() if req.snapshot else None,
+            _named(req.snapshot, x_tb_lake_generation),
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -169,12 +194,15 @@ def put_hold(body: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(snap, str) or not isinstance(holder, str):
         raise HTTPException(status_code=400, detail="snapshot and holder are strings")
     try:
-        lake().hold(snap, holder)
+        # T-724 (D-490): with ``pin`` the holder pins a generation (the date's newest, or the one named), which is
+        # answered; a rebuild of the date then makes the next generation instead of being refused
+        got = lake().hold(snap, holder, pin=body.get("pin") is True)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"holder": holder, "snapshot": snap}
+    return {"holder": holder, "snapshot": split_generation(got)[0], "generation": got if got != snap or
+            split_generation(got)[1] is not None else None}  # fmt: skip
 
 
 @app.delete("/holds/{holder}")
@@ -187,9 +215,91 @@ def get_holds() -> dict[str, Any]:
     return {"holds": lake().holds()}
 
 
+@app.get("/generations/{snapshot}")
+def get_generations(snapshot: str) -> dict[str, Any]:
+    """T-724 (D-490): the generations of a date on the box and the one the date names now (``generation``: None for
+    a date built before generations). 404: no such snapshot."""
+    try:
+        snap = date.fromisoformat(snapshot).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="a snapshot is a date (YYYY-MM-DD)") from exc
+    try:
+        return {
+            "snapshot": snap,
+            "generation": lake().generation(snap),
+            "generations": lake().generations(snap),
+            "site_in_sync": lake().site_in_sync(snap),  # the served generation holds the site's inputs of now
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 def _spawn(run: Callable[[], None]) -> None:
-    """A rebuild job runs in its own thread of this worker; a killed worker leaves its state ``interrupted``."""
+    """``TB_LAKE_BUILD=thread``: a rebuild job runs in its own thread of this worker; a killed worker leaves its
+    state ``interrupted``."""
     threading.Thread(target=run, name="lake-rebuild", daemon=True).start()
+
+
+BUILD_MODES = ("process", "thread")
+#: the build processes this worker started, by snapshot (D-539): kept to be reaped; a finished one goes at the next
+#: start
+_builds: dict[str, subprocess.Popen[bytes]] = {}
+
+
+def build_mode() -> str:
+    """``TB_LAKE_BUILD`` (D-539): ``process`` (the default, what a box runs): the build is a process of its own,
+    and a build that is killed does not take this worker and its queries with it. ``thread``: in this worker, for a
+    lake or an embedder that was handed to the service in memory (another process cannot be given those)."""
+    mode = os.environ.get("TB_LAKE_BUILD", "process").strip().lower()
+    if mode not in BUILD_MODES:
+        raise ValueError(f"TB_LAKE_BUILD is {mode!r}; use one of {', '.join(BUILD_MODES)}")
+    return mode
+
+
+def _command(lock_fd: int, spec: dict[str, Any]) -> list[str]:
+    return [sys.executable, "-m", "lake.build", str(lock_fd), json.dumps(spec)]
+
+
+def _reap(proc: subprocess.Popen[bytes], lake_dir: Path, job: dict[str, Any]) -> None:
+    """Wait for a build's process (so it does not stay in the process table). One that ended by itself with an error
+    and no answer (it could not import, its job could not be read) would end the same way again: its job is
+    ``failed`` with the exit code, not ``interrupted: start it again``. One that was killed (a signal: the kernel
+    under the memory cap, a restart) stays ``interrupted``, which is true and can be started again."""
+    code = proc.wait()
+    if code <= 0:
+        return
+    now = read_rebuild_job(lake_dir, str(job["snapshot"]))
+    if now is not None and now.get("job") == job["job"] and now.get("state") == "running":
+        why = f"the build's process ended with exit code {code} and no answer (the lake's log has its error)"
+        write_rebuild_job(lake_dir, {**now, "state": "failed", "detail": why, "ended": time.time()})
+
+
+def _child_env() -> dict[str, str]:
+    """The build's process imports what this process imports: this process's import path is handed on, whatever put
+    it there (the image's ``PYTHONPATH``, a test runner's own setting). Without it the child resolves ``lake`` by
+    itself, and an interpreter whose installed packages point at another checkout gives it that checkout's code."""
+    return {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
+
+
+def _launch(spec: dict[str, Any], lock_fd: int) -> None:
+    """Start ``python -m lake.build`` for one job. It inherits the build lock's open file and this worker's
+    environment. If anything fails once the process exists, the process is ended before the failure is reported:
+    a caller told ``failed`` never gets a build behind that answer."""
+    job: dict[str, Any] = spec["job"]
+    snap = str(job["snapshot"])
+    for name, old in list(_builds.items()):
+        if old.poll() is not None:
+            _builds.pop(name, None)  # another request may have removed it
+    proc = subprocess.Popen(_command(lock_fd, spec), pass_fds=[lock_fd], stdin=subprocess.DEVNULL, env=_child_env())
+    try:
+        _builds[snap] = proc
+        threading.Thread(
+            target=_reap, args=(proc, Path(spec["lake_dir"]), job), name=f"lake-build-{snap}", daemon=True
+        ).start()
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
 
 
 @app.post("/rebuild", status_code=202)
@@ -199,15 +309,28 @@ def rebuild(req: RebuildRequest) -> JSONResponse:
     snapshot or another rebuild of it runs (D-462), 409 when its feed folder is missing (D-271). A refusal found while
     the records are read (no record, a drop, the OMOP store's) is the job's state ``refused``."""
     snap = req.snapshot.isoformat()
+    check = not req.promote  # T-723 (D-489): built to be promoted last, judged as such
     try:
-        job = lake().start_rebuild(
-            snap,
-            embedder(),
-            Path(req.ndjson_dir) if req.ndjson_dir else None,
-            promote=req.promote,
-            spawn=_spawn,
-            check=not req.promote,  # T-723 (D-489): built to be promoted last, judged as such
-        )
+        if build_mode() == "process":  # D-539: the build is a process of its own
+            the_lake = lake()
+
+            def launch(job: dict[str, Any], lock_fd: int) -> None:
+                _launch({"job": job, "lake_dir": str(the_lake.dir), "ndjson_dir": req.ndjson_dir or None,
+                         "promote": req.promote, "check": check}, lock_fd)  # fmt: skip
+
+            job = the_lake.start_rebuild(
+                snap, None, Path(req.ndjson_dir) if req.ndjson_dir else None, promote=req.promote, check=check,
+                launch=launch,
+            )  # fmt: skip
+        else:
+            job = lake().start_rebuild(
+                snap,
+                embedder(),
+                Path(req.ndjson_dir) if req.ndjson_dir else None,
+                promote=req.promote,
+                spawn=_spawn,
+                check=check,
+            )
     except LakeBusy as exc:  # D-462: held by a job or already building; nothing written, try again later
         raise HTTPException(status_code=409, detail=str(exc), headers={BUSY_HEADER: exc.reason}) from exc
     except RebuildError as exc:  # D-271: a missing feed is refused; CURRENT stays
@@ -224,15 +347,19 @@ def rebuild(req: RebuildRequest) -> JSONResponse:
 @app.post("/promote")
 def promote(body: dict[str, Any]) -> dict[str, Any]:
     """T-723 (D-489): the last step of a publish. Makes the built snapshot the served one; ``promoted`` is false,
-    and nothing changed, when a newer night is served. 404: no such built snapshot."""
+    and nothing changed, when a newer night is served. 404: no such built snapshot. With ``generation`` (the one
+    the caller built): 409, and nothing changed, when the date names another generation now."""
     try:
         snap = date.fromisoformat(str(body.get("snapshot") or "")).isoformat()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="snapshot must be a date") from exc
+    gen = body.get("generation")
     try:
-        done = lake().promote_built(snap)
+        done = lake().promote_built(snap, str(gen) if gen else None)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:  # review of #318: the date was built again since the caller's build
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"promoted": done, "current": lake().current()}
 
 

@@ -24,6 +24,7 @@ import base64
 import hashlib
 import io
 import json
+import re
 import tarfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -77,6 +78,40 @@ def rotation_for(new_pub: Path, retire: str | None = None) -> dict[str, Any]:
             "retire_key_id": retire}  # fmt: skip
 
 
+#: D-625: where a release's tree states the lowest release_seq it can be applied over
+FLOOR_FILE = "tools/trialbox/prestart.py"
+_FLOOR = re.compile(r"^[ \t]*MIN_INSTALLED_SEQ\b[^=\n]*=[ \t]*(.*)$", re.M)
+
+
+def tree_floor(text: str) -> int:
+    """``MIN_INSTALLED_SEQ`` as ``tools/trialbox/prestart.py`` writes it: a plain whole number on its own line. No
+    such line: 0 (a tree from before D-625 asks for nothing). Several lines: the highest. A line that is anything
+    else is refused: a floor that cannot be read must not count as none."""
+    floor = 0
+    for m in _FLOOR.finditer(text):
+        value = m.group(1).split("#", 1)[0].strip()
+        if not value.isdecimal():
+            raise SystemExit(
+                f"MIN_INSTALLED_SEQ in {FLOOR_FILE} must be a plain whole number, 0 or above; it is {value!r}"
+            )
+        floor = max(floor, int(value))
+    return floor
+
+
+def host_floor(tar: Path) -> int:
+    """The floor of the host tree in ``tar`` (a payload of kind ``host``); 0 when the tree has no such file. A
+    payload that is not a tar is left to ``tools/host_tree.py``'s own check."""
+    try:
+        with tarfile.open(tar, "r:") as tf:
+            try:
+                member = tf.extractfile(FLOOR_FILE)
+            except KeyError:
+                return 0
+            return tree_floor(member.read().decode("utf-8")) if member is not None else 0
+    except (tarfile.TarError, OSError):
+        return 0
+
+
 def build(
     key_path: Path,
     bundle_id: str,
@@ -105,6 +140,14 @@ def build(
     for kind, src, dest in items:
         if kind not in KINDS:
             raise SystemExit(f"unknown kind {kind!r} (one of {', '.join(KINDS)})")
+        if kind == "host":  # D-625: before anything is written
+            floor = host_floor(src)
+            if min_installed_version < floor:
+                raise SystemExit(
+                    f"{dest}: this release's tree needs a box at release_seq {floor} or above "
+                    f"(MIN_INSTALLED_SEQ in {FLOOR_FILE}); sign with --min-installed {floor} or higher, "
+                    f"not {min_installed_version}"
+                )
         files.append({"path": dest, "kind": kind, "sha256": _sha(src), "size": src.stat().st_size})
     from tools.verify_update import key_id
 

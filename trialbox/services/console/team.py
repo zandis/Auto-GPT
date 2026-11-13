@@ -41,6 +41,7 @@ The same actions are on ``/api/v1`` (D-125) with the same rules.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -52,11 +53,13 @@ from datacore.lifecycle import reconsent_due
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common import chartno
 from tb_common.authz import STUDY_TASKS, conditional, permit
 from tb_common.authz import Standing as Grant
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
+from console import actor as acting
 from console import s28
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -87,12 +90,30 @@ from console.timefmt import local_date, site_zone
 DOCTOR_LANGS = ("ja", "zh-TW", "en")  # D-407 (UX-034): the languages of the request for the treating doctor
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
+log = logging.getLogger("console.team")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+_WHOLE_PID = re.compile(r"^[0-9a-f]{32}$")  # tb_common.crypto.PID_HEX_LEN hex characters: a whole pseudonym
+WHOLE_PID_WHY = (
+    "type the whole pseudonym (32 characters), or the chart number: the 8 characters a page shows name no patient"
+)
 _CHART = re.compile(r"^[A-Za-z0-9-]{1,40}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (record id), as on the lifecycle pages
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
+# NEW-DIN-3 (D-544): an opt-out typed by chart number for a pseudonym the pid map does not hold is registered only
+# with a written reason of this length; without one the desk says this
+UNKNOWN_REASON_MIN = 10
+NOT_A_PATIENT = (
+    "this chart number is not a patient of this box: check the number; to register it anyway, write why "
+    f"(at least {UNKNOWN_REASON_MIN} characters)"
+)
+# the box could not answer (the map is away, a release that does not answer): the keeper is not told to doubt the number
+CANNOT_CHECK = (
+    "TrialBox cannot check this chart number now: to register it without the check, write why "
+    f"(at least {UNKNOWN_REASON_MIN} characters)"
+)
+KNOWN_WORD = {True: "yes", False: "no", None: "cannot_say"}
 IRB_FIELDS = ("approval_no", "approved_on", "expires_on", "icf_version", "icf_date")  # the stored IRB record
 
 
@@ -218,6 +239,7 @@ class ApiOptOut(BaseModel):
     source: str = "office"
     note: str = Field(default="", max_length=300)
     lift: bool = False
+    unknown_reason: str = Field(default="", max_length=300)  # NEW-DIN-3: why a number the box does not know is kept
 
 
 def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
@@ -247,6 +269,31 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return user.can_approve and stand(user, rid).pi
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
+
+    def pi_missing(user: User) -> list[str]:
+        """NEW-JRN-1 (D-540): the studies this account sees whose criteria wait for approval while the delegation
+        log names no PI: nobody can approve them until the steward names one (D-380)."""
+        try:
+            waiting = st.waiting_studies(bk)
+        except Exception:  # the orchestrator is down: no task shown, the pages say so themselves
+            return []
+        return [rid for rid in waiting if user.sees_study(rid) and not names_pi(rid)]
+
+    def names_pi(rid: str) -> bool:
+        """The log names a PI who can act: an entry with an account (an entry without one approves nothing)."""
+        pi = team.pi_of(rid, today())
+        return pi is not None and bool(pi.username)
+
+    def log_or_404(sess: Session, rs: str) -> str:
+        """The delegation log's own door (D-540): a known study, or one whose first criteria wait for approval."""
+        rid = rs.strip().upper()
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or not st.log_study(bk, rid):
+            if _RS.match(rid):
+                au.append("console.denied", actor=h.actor(sess), detail={"action": f"study {rid}"})
+            raise h.problem(404, "notfound")
+        return rid
+
+    h.pi_missing = pi_missing
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:
@@ -339,6 +386,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise h.problem(429, "optout.rate_limited", n=lookups_per_hour)
 
     h.chart_lookup = chart_lookup
+    h.pid_match_per_hour = lookups_per_hour  # NEW-JRN-2: the match note shares the lookups' limit
 
     def candidate_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid) or h.patient_ctx is None:
@@ -544,7 +592,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if "screen" not in stand(sess.user, rid).tasks:
             raise deny(sess, path)
         ref = team.referral(rid, ref_id)
-        if ref is None or ref.pid in optout.active():
+        if ref is None or ref.pid in optout.effective():
             raise h.problem(404, "notfound")
         return rid, ref
 
@@ -587,7 +635,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         s = stand(sess.user, rid)
         if "screen" not in s.tasks:
             raise deny(sess, request.url.path)
-        on = optout.active()
+        on = optout.effective()
         refs = [r for r in team.referrals(rid) if r.pid not in on]
         latest = team.latest_referrals(rid)
         open_refs = [r for r in refs if r.open and latest[r.pid].id == r.id]
@@ -634,7 +682,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.get("/studies/{rs}/team")
     def team_page(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        rid = study_or_404(sess, rs)
+        rid = log_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         s = stand(sess.user, rid)
@@ -645,14 +693,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                       due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
                       can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
                       can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
-                      results=CHECK_RESULTS, has_pi=team.pi_of(rid, today()) is not None)  # fmt: skip
+                      results=CHECK_RESULTS, has_pi=names_pi(rid))  # fmt: skip
 
     @app.post("/studies/{rs}/team")
     async def team_add(request: Request, rs: str) -> Response:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        rid = study_or_404(sess, rs)
+        rid = log_or_404(sess, rs)
         s = stand(sess.user, rid)
         role = str(form.get("role") or "")
         writable = log_roles_for(sess, s)
@@ -670,16 +718,20 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise refused(TeamError("a CRO account is on the log only as a monitor"))
         if role == "monitor" and (acct is None or not monitor_account(acct)):
             raise refused(TeamError("a monitor grant names a CRO account of this study"))
-        if role == "monitor" and not str(form.get("end") or "").strip():
-            raise refused(TeamError("a monitor grant ends with the visit: give the end date"))
-        if role == "monitor" and not str(form.get("training_ref") or "").strip():
-            raise refused(TeamError("a monitor grant names the monitoring visit"))
+        # DEMO-JA: the visit id has its own field ("visit"; the training-certificate field is still read for it)
+        ref = str(form.get("visit") or "").strip() if role == "monitor" else ""
+        ref = ref or str(form.get("training_ref") or "").strip()
+        if role == "monitor":
+            missing = [w for w, ok in (("the last day", str(form.get("end") or "").strip()), ("the visit id", ref))
+                       if not ok]  # fmt: skip
+            if missing:  # say which field is empty (the rehearsal's refusal named none)
+                raise refused(TeamError(f"a monitor grant needs {' and '.join(missing)} of the monitoring visit"))
         tasks = [] if role == "monitor" else form.getlist("tasks")
         try:
             eid = team.add_entry(rid, username=username, name=str(form.get("name") or "").strip() or (username or ""),
                                  role=role, tasks=tasks, start=str(form.get("start") or ""),
                                  end=str(form.get("end") or ""), training_day=str(form.get("training_day") or ""),
-                                 training_ref=str(form.get("training_ref") or ""), by=sess.user.username,
+                                 training_ref=ref, by=sess.user.username,
                                  at=now())  # fmt: skip
         except TeamError as exc:
             raise refused(exc) from exc
@@ -768,7 +820,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         rec = team.irb(rid)
-        on = optout.active()
+        on = optout.effective()
         # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
         overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
@@ -827,7 +879,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         for re-consent, with their screening numbers; opted-out patients are left out."""
         day = today()
         out = s28.call(bk, "GET", f"/studies/{rid}/subjects?today={day.isoformat()}")
-        on = optout.active()
+        on = optout.effective()
         subs = [x for x in out.get("subjects") or [] if str(x.get("pid") or "") not in on]
         due = reconsent_due(subs, [v.as_row() for v in team.icf_list(rid)], day)
         nos = store.screening_nos(rid)
@@ -958,28 +1010,66 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return RedirectResponse(f"/site/staff?done={action}", status_code=303)
 
     # ------------------------------------------------------------------ opt-out register
-    def to_pid(chart_no: str, pid: str) -> str:
+    def to_pid(sess: Session, chart_no: str, pid: str, lift: bool = False) -> tuple[str, bool | None]:
+        """The pseudonym, and for a chart number whether the box holds a patient under it (NEW-DIN-3, D-544): True
+        only when the box says so; False when it says no; None when it cannot say or does not answer the question
+        (and for a typed pseudonym, which is not asked)."""
         pid = pid.strip()
         if pid:
-            if not _PID.match(pid):
-                raise refused(OptOutError("bad pseudonym"))
-            return pid
-        chart = chart_no.strip()
+            # NEW-JRN-2 (D-542): the whole pseudonym or nothing. Every screen shows a patient by the first eight
+            # characters; an opt-out stored for those names nobody and removes nobody. The one exception is taking
+            # back a row that is on the register as it was typed (made before this rule).
+            if lift and _PID.match(pid) and any(e.pid == pid for e in optout.current()):
+                return pid, None  # the row's own text, as it is on the register
+            whole = pid.lower()
+            if _WHOLE_PID.match(whole):
+                return whole, None
+            raise refused(OptOutError(WHOLE_PID_WHY))
+        # NEW-DIN-3d (D-548): full-width characters and the blanks around are written half-width first, as every
+        # path to a pseudonym writes them (the box applies the site's rule after that); the shape is asked of that
+        chart = chartno.normalise("asis", chart_no)
         if not chart:
             raise refused(TeamError("give a chart number or a pseudonym"))
         if not _CHART.match(chart):
             raise refused(TeamError("chart numbers are letters, digits or '-'"))
+        if _WHOLE_PID.match(chart.lower()):  # hashed again it would name nobody (review of NEW-JRN-2)
+            raise refused(OptOutError("this is a pseudonym, not a chart number: put it in the pseudonym field"))
         try:  # the box turns the chart number into the pseudonym at the door; the number is never stored
-            out = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
+            # T-719 (D-487): as the signed-in keeper of the register; the box refuses the console's token alone.
+            # NEW-DIN-3 (D-544): and the box is asked whether it knows the pseudonym
+            out = acting.call(h, sess, "optout.keep", None, "POST", "/setup/pseudonym",
+                              {"chart_no": chart, "ask_known": True})  # fmt: skip
         except (Problem, Unavailable) as exc:
             raise h.problem(409, "request.refused",
                             reason="the box could not turn the chart number into a pseudonym") from exc  # fmt: skip
         got = str((out or {}).get("pid") or "")
         if not _PID.match(got):
             raise h.problem(409, "request.refused", reason="the box could not turn the chart number into a pseudonym")
-        return got
+        known = (out or {}).get("known")
+        return got, known if isinstance(known, bool) else None
 
-    def change_optout(sess: Session, path: str, body: ApiOptOut) -> tuple[str, bool]:
+    def on_lists(pid: str) -> bool | None:
+        """NEW-JRN-2 (D-542): is this pseudonym on a registry or a current list of any study of this box? Read
+        before the opt-out removes it. None when any study could not be read: then nothing is said."""
+        try:
+            studies = [r.id for r in bk.rulesets()]
+        except Exception:
+            return None
+        whole = True
+        for rs in studies:
+            try:
+                rows = {e.pid for e in bk.registry_rows(rs)}
+                wk = h.week_bundle(None, rs) if h.week_bundle is not None else None
+                rows |= {str(r.get("pid")) for r in ((wk or {}).get("cl") or {}).get("rows") or []}
+            except Exception as exc:  # the opt-out stands; the note is left out
+                log.warning("opt-out match: a study could not be read", extra={"error": type(exc).__name__})
+                whole = False
+                continue
+            if pid in rows:
+                return True
+        return False if whole else None
+
+    def change_optout(sess: Session, path: str, body: ApiOptOut, match: str = "") -> tuple[str, bool]:
         """One opt-out or lift. D-273 (PV-6): a chart number typed at the door is a lookup of a patient's
         pseudonym, so it is capped per person and hour and audited as its own event, changed or not, and neither
         the page nor ``/api/v1`` gives the pseudonym back. D-273 (CR-055): the change's audit event is written inside
@@ -991,17 +1081,32 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
-        pid = to_pid(body.chart_no, body.pid)
+        pid, known = to_pid(sess, body.chart_no, body.pid, body.lift)
+        why_unknown = ""
         if by_chart:
             au.append(
                 "console.chart_lookup",
                 actor=h.actor(sess),
-                detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role},
-            )
+                detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role,
+                        "known": KNOWN_WORD[known]},
+            )  # fmt: skip
+            # NEW-DIN-3 (D-544): a number that is not a patient of this box (a slip of the hand, another hospital's
+            # number) is not registered as one; the keeper may still register it, saying why. A lift is not asked:
+            # what is on the register can always be taken off.
+            if known is not True and not body.lift:
+                why_unknown = " ".join(body.unknown_reason.split())[:300]
+                if len(why_unknown) < UNKNOWN_REASON_MIN:
+                    raise refused(OptOutError(NOT_A_PATIENT if known is False else CANNOT_CHECK))
         detail = {"pid": pid, "action": "lift" if body.lift else "opt_out",
                   "reason": body.note.strip()[:300] if body.lift else "",
                   "source": "" if body.lift else (body.source if body.source in SOURCES else "other"),
                   "removed_from": "" if body.lift else "screening, candidate lists, exports"}  # fmt: skip
+        if by_chart and not body.lift:
+            detail["known"] = KNOWN_WORD[known]
+            if why_unknown:
+                detail["unknown_reason"] = why_unknown
+        if match:  # NEW-JRN-2: the keeper was told whether this pseudonym is on a list (a lookup: on the record)
+            detail["match_shown"] = match
 
         def audit() -> None:
             au.append("console.opt_out", actor=h.actor(sess), detail=detail)
@@ -1015,25 +1120,49 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise refused(exc) from exc
         return pid, changed
 
+    def matched_before(sess: Session, body: ApiOptOut) -> str:
+        """ "yes" or "no": is the patient a typed whole pseudonym names on a list or registry of this box, read
+        before the opt-out removes them; "" when nothing is to be said. Only for a typed pseudonym: a chart
+        number is turned into its pseudonym inside ``change_optout`` (capped and audited there) and gets the plain
+        answer. It is a lookup ("is this pseudonym a listed patient"), so it is counted per person and hour with
+        the chart-number lookups' limit (``TB_OPTOUT_LOOKUPS_PER_HOUR``); past it the opt-out is still taken,
+        with no note. No study is named: the keeper of the register reads no study's list."""
+        typed = body.pid.strip().lower()
+        if body.lift or not can_keep_optouts(sess.user) or not _WHOLE_PID.match(typed):
+            return ""
+        since = (h.clock() - timedelta(hours=1)).isoformat()
+        if not team.take("-", "-", "optout", "pid_match", sess.user.username, now(), since, lookups_per_hour):
+            return ""
+        found = on_lists(typed)
+        return "" if found is None else ("yes" if found else "no")
+
     @app.get("/site/opt-outs")
     def optout_page(request: Request) -> Response:
         sess = h.need(request)
         if not can_keep_optouts(sess.user):
             raise deny(sess, request.url.path)
+        # NEW-JRN-2: what the last opt-out matched, from the redirect: study ids only, or "-" for nobody
+        on = request.query_params.get("on", "")
         return h.page(request, "site_optouts.html", sess, rows=optout.current(), events=optout.events()[-30:][::-1],
-                      sources=SOURCES)  # fmt: skip
+                      sources=SOURCES, on=on if on in ("yes", "no") else "")  # fmt: skip
 
     @app.post("/site/opt-outs")
     async def optout_add(request: Request) -> Response:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:40],
+        # NEW-DIN-3d (the review): the chart number is not cut to the field's 40 characters here; a longer one is
+        # refused by the shape check, never registered by its first 40
+        body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:256],
                          source=str(form.get("source") or "office")[:20], note=str(form.get("note") or "")[:300],
-                         lift=form.get("lift") == "1")  # fmt: skip
-        _pid, changed = change_optout(sess, request.url.path, body)
+                         lift=form.get("lift") == "1",
+                         unknown_reason=str(form.get("unknown_reason") or "")[:300])  # fmt: skip
+        match = matched_before(sess, body)
+        _pid, changed = change_optout(sess, request.url.path, body, match)
         done = ("lifted" if body.lift else "added") if changed else "same"
-        return RedirectResponse(f"/site/opt-outs?done={done}", status_code=303)  # D-273 (PV-6): no pseudonym back
+        # D-273 (PV-6): no pseudonym back. NEW-JRN-2: for a typed pseudonym, whether a listed patient matched
+        more = f"&on={match}" if done == "added" and match else ""
+        return RedirectResponse(f"/site/opt-outs?done={done}{more}", status_code=303)
 
     # ------------------------------------------------------------------ /api/v1 (D-125): the same rules
     def api(request: Request) -> Session:
@@ -1119,7 +1248,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = api(request)
         rid = study_or_404(sess, rs)
         need_task(sess, rid, "screen", request.url.path)
-        on = optout.active()
+        on = optout.effective()
         nos = store.screening_nos(rid)
         return [ref_json(r, nos) for r in team.referrals(rid) if r.pid not in on]
 
@@ -1161,5 +1290,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @before_body(first_optout)
     def api_optout(request: Request, body: ApiOptOut) -> dict[str, Any]:
         sess = api(request)
-        _pid, changed = change_optout(sess, request.url.path, body)
-        return {"opted_out": not body.lift, "changed": changed}  # D-273 (PV-6): no pseudonym back
+        match = matched_before(sess, body)
+        _pid, changed = change_optout(sess, request.url.path, body, match)
+        out: dict[str, Any] = {"opted_out": not body.lift, "changed": changed}  # D-273 (PV-6): no pseudonym back
+        if changed and match:  # NEW-JRN-2: for a typed pseudonym, whether a listed patient matched
+            out["matched"] = match == "yes"
+        return out

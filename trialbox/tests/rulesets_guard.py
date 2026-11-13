@@ -54,3 +54,21 @@ def describe(before: frozenset[Entry], after: frozenset[Entry]) -> str:
     parts = [f"{label}: {', '.join(paths[:10])}" for label, paths in
              (("added", added), ("removed", removed), ("changed", changed)) if paths]  # fmt: skip
     return "; ".join(parts) or "no difference"
+
+
+def approve_at_site(rulesets: Path, by: str = "pi@hospa.test") -> list[str]:
+    """Give a test box's seeded example rulesets the site's own approval (D-640): each "vendor-shipped" tag of the
+    repository at ``rulesets`` becomes the tag the compiler's approval writes ("<ID> v<version> approved by <who>").
+    For a fixture that builds a PRODUCTION box on the synthetic studies; a site box refuses a seeded approval."""
+    from criteria_compiler.repo import RulesetRepo
+    from tb_common.ruleset import SEEDED_TAG
+
+    repo = RulesetRepo(rulesets)
+    done = []
+    for tag in repo.tags():
+        if SEEDED_TAG not in repo.tag_message(tag):
+            continue
+        rid, version = tag.rsplit("/v", 1)
+        repo.retag(tag, f"{rid} v{version} approved by {by}", by)
+        done.append(tag)
+    return done

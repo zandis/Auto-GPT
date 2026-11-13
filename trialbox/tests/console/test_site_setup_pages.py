@@ -27,6 +27,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from lake.client import LakeLocal
 from llm_stub.app import app as stub
+from orchestrator.actor import report_actor
 from orchestrator.setup_api import router as setup_router
 from sitesetup import help as site_help
 from sitesetup.ocr import NoOcr
@@ -36,6 +37,7 @@ from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn
 from tb_common.llm import LlmClient
 
+from tests.actor3 import SignedClient
 from tests.console.test_console_app import VIEWER_PW, box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.unit.test_site_setup import site_ruleset
 
@@ -43,6 +45,23 @@ PW = "site-setup-password-0001"
 KEY = b"site-setup-console-key-0123456789ab"
 NOW = datetime(2026, 11, 2, 0, 30, tzinfo=UTC)
 TODAY = date(2026, 11, 2)
+
+
+DOOR_EVENTS: list[dict[str, Any]] = []
+
+
+def _door(request: Any, actions: tuple[str, ...], service: bool = False) -> Any:
+    """T-719 (D-487): the real door (``orchestrator.identifiers.admit``) on these pages' router: a chart or a sheet
+    turns chart numbers into pseudonyms, so the console's call must carry the signed person (`site.setup`). The
+    cap's counter and the audit log are stand-ins; the decision is the product's."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from orchestrator import identifiers
+
+    db = SimpleNamespace(take_limit=lambda *a, **k: True)
+    audit = SimpleNamespace(append=lambda kind, **kw: DOOR_EVENTS.append({"kind": kind, **kw}))
+    return identifiers.admit(request, None, db, audit, datetime.now(UTC), actions=actions, service=service)
 
 
 @pytest.fixture
@@ -77,14 +96,19 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
             lambda rid: {"forms": state["forms"], "redcap": False},
             lambda rid: rs if state["approved"] else None,
             lambda: bool(state["real"]),
-        )
+            _door,
+        ),
+        dependencies=[report_actor],  # as orchestrator.app includes it: the stage reads the signed person
     )
-    oc = TestClient(api)
+    oc = SignedClient(api)  # the test's own calls (seeding)
+    coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
     calls: list[tuple[str, str]] = []
 
-    def study_api(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         calls.append((method, path))
-        r = oc.request(method, path, json=body) if body is not None else oc.request(method, path)
+        kw: dict[str, Any] = {"headers": headers} if headers else {}  # T-715: the signed person goes with the call
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()

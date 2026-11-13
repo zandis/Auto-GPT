@@ -49,7 +49,7 @@ from tb_common.service_auth import actor_header
 from console import demo_guard, s28
 from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
-from console.backend import Problem, Unavailable
+from console.backend import Problem, Unavailable, service_and_status
 from console.home import Helpers
 from console.i18n import translate
 from console.oidc import OidcError
@@ -313,7 +313,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         pid = next((p for p, n in store.screening_nos(rid).items() if str(n).upper() == rec), None)
         if pid is None:
             raise h.problem(404, "notfound")
-        if h.optout is not None and pid in h.optout.active():
+        if pid in h.gone():  # D-477: the one register read of the pages
             raise h.problem(409, "edc.err.edc.opted_out")
         return pid
 
@@ -779,7 +779,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(status, "request.refused", code=exc.code, reason=exc.message,
                             fields=", ".join(exc.fields)) from exc  # fmt: skip
         except Unavailable as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
 
     @app.get("/api/v1/studies/{rs}/edc")
     def api_status(request: Request, rs: str) -> dict[str, Any]:

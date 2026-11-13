@@ -139,6 +139,9 @@ class Env:
     # T-624 (D-397): the most patients the micro-batch jobs of one night evaluate, every study together (pool
     # re-checks and new patients); the rest carry over to the next run. 0 = no limit.
     microbatch_night_budget: int = 2000
+    # D-646: the part of a weekly micro-batch job's allowance kept for screening its excluded patients again, in
+    # percent; kept only as far as such patients are in scope. 0 = nothing kept (they come after everybody else).
+    microbatch_excluded_percent: int = 25
     extra: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -201,6 +204,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
     "TB_SITE_PUBLISH_BATCH_SECONDS": "site_publish_batch_seconds",
     "TB_MICROBATCH_NIGHT_BUDGET": "microbatch_night_budget",
+    "TB_MICROBATCH_EXCLUDED_PERCENT": "microbatch_excluded_percent",
 }
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
@@ -238,6 +242,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         raise ConfigError("TB_SITE_PUBLISH_BATCH_SECONDS must be 0 (publish every decision) or a number of seconds")
     if env.microbatch_night_budget < 0:
         raise ConfigError("TB_MICROBATCH_NIGHT_BUDGET must be 0 (no limit) or a number of patients")
+    if not 0 <= env.microbatch_excluded_percent <= 100:
+        raise ConfigError("TB_MICROBATCH_EXCLUDED_PERCENT must be a percentage from 0 (nothing kept) to 100")
     if env.attach_password_mode not in ("link", "smime", "zip"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
@@ -360,6 +366,8 @@ DECLARED_FAMILIES: dict[str, str] = {
 
 DECLARED: dict[str, Declared] = {
     "TB_ACTOR_KEYS_FILE": Declared("path", "", "file of keys that sign the console's user assertions (S-09)"),
+    "TB_ACTOR_SIGN_KEY_FILE": Declared("path", "", "the console's own key that signs people (T-717, D-485)"),
+    "TB_ADAPTER_RUN": Declared("str", "process", "adapter: the ingest runs as a process of its own, or thread (D-663)"),
     "TB_ADAPTER_LAKE": Declared("str", "http", "adapter CLI: write to the lake over http or in process"),
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),
@@ -367,6 +375,9 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_HEAD_MAX_AGE_H": Declared("float", "36", "doctor: the newest signed audit head may be this old (D-562)"),
     "TB_AUDIT_HOST_DIR": Declared("path", "", "host path of the audit volume (logs archive-audit)"),
     "TB_AUDIT_MIN_FREE_MB": Declared("int", "64", "audit refuses to write below this free space"),
+    "TB_AUDIT_TS_MAX_SKEW_S": Declared(
+        "float", "300", "seconds an event's own time may differ from the journal's; a slow transaction (D-488)"
+    ),
     "TB_AUDIT_WRITER": Declared("str", "file", "db: send audit events to the journal (D-394); file: write the chain"),
     "TB_AUDIT_WRITER_ALIVE": Declared("path", "", "the audit drain's heartbeat file (default in the temp folder)"),
     "TB_AUTH_HOSTNAME": Declared("str", "", "compose: the identity provider's DNS name (network sheet, T-632)"),
@@ -395,6 +406,9 @@ DECLARED: dict[str, Declared] = {
         "float", "60", "limit of the backup's small queries (sizes, job count); not work sized by data (D-455)"
     ),
     "TB_BACKUP_QUIESCE": Declared("str", "off", "off: the snapshot alone; pause: hold services still (D-455)"),
+    "TB_BACKUP_SPEED_TEST_MIB": Declared(
+        "int", "1024", "Windows box: least MiB a backup path's speed test writes to count; past the write cache (D-608)"
+    ),
     "TB_BACKUP_STEP_START_S": Declared(
         "float", "900", "seconds of a backup step that do not grow with the data (container, connection; D-455)"
     ),
@@ -414,7 +428,10 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
-    "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number pattern for the scrubber"),
+    "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
+    "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
+    "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
+    "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
@@ -474,6 +491,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_OPINIONS": Declared("str", "", "demo: recorded first and second checks"),
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
+    "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
     "TB_DEMO_WAIT_S": Declared("float", "900", "demo: seconds to wait for health"),
     "TB_DIRECTORY_URL": Declared("str", "", "platform check: directory URL"),
     "TB_DOCKER": Declared("str", "docker", "the docker command"),
@@ -535,6 +553,12 @@ DECLARED: dict[str, Declared] = {
     "TB_HEALTH_CERT_RED_DAYS": Declared("int", "30", "health: certificate red within these days (D-379)"),
     "TB_HEALTH_CERT_WARN_DAYS": Declared("int", "45", "health: certificate warn within these days (D-379)"),
     "TB_HEALTH_DISKS": Declared("str", "", "health: extra disks to watch, comma-separated (D-379)"),
+    "TB_HEALTH_DESKTOP_GPU_RED": Declared(
+        "int", "85", "health: red when desktop programs hold over this percent of the card's spare memory (D-607)"
+    ),
+    "TB_HEALTH_DESKTOP_GPU_WARN": Declared(
+        "int", "70", "health: warn over this percent of the card's spare memory; until P-11 measures it (D-607)"
+    ),
     "TB_HEALTH_DISK_RED": Declared("int", "85", "health: disk red over this percent (D-379)"),
     "TB_HEALTH_DISK_WARN": Declared("int", "70", "health: disk warn over this percent (D-379)"),
     "TB_HEALTH_MAIL_AT": Declared("str", "07:00", "health: daily admin health mail time (D-379)"),
@@ -573,6 +597,7 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
     "TB_KMS_TOKEN": Declared("str", "", "kms KEK back end: the hospital KMS token (secret; T-319)"),
     "TB_KMS_URL": Declared("str", "", "kms KEK back end: the KMS transit address when it moved from kek.json's"),
+    "TB_LAKE_BUILD": Declared("str", "process", "lake: a rebuild runs as a process of its own, or thread (D-539)"),
     "TB_LAKE_DIR": Declared("path", "/data/lake", "lake folder"),
     "TB_LAKE_EMBEDDER": Declared("str", "http", "embedder of a lake build (lake: http; adapter local build: hash)"),
     "TB_LAKE_MAX_TEMP": Declared("str", "", "lake: temporary space cap"),
@@ -587,6 +612,7 @@ DECLARED: dict[str, Declared] = {
     "TB_LINK_PORT": Declared("int", "", "two-device link: this device's port"),
     "TB_LINK_ROLE": Declared("str", "", "two-device link: this device's role"),
     "TB_LLM_API_KEY": Declared("str", "", "gateway: key of the model admin endpoints (secret)"),
+    "TB_LLM_STUB_NOTE_LANGS": Declared("str", "", "stub model: note languages it reads besides zh-TW (ja; demo only)"),
     "TB_LLM_API_KEY_FILE": Declared(
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
@@ -616,6 +642,9 @@ DECLARED: dict[str, Declared] = {
     "TB_MATCH_MODEL": Declared("str", "unspecified", "registry match: model label in the cache key"),
     "TB_MATCH_RESULTS_DIR": Declared("path", "", "registry match: results folder"),
     "TB_METRICS_TOKEN_FILE": Declared("path", "", "metrics: file holding the scraper token (D-379)"),
+    "TB_MICROBATCH_EXCLUDED_PERCENT": Declared(
+        "int", "25", "screening cadence: percent of a weekly job's allowance kept for excluded patients (D-646)"
+    ),
     "TB_MICROBATCH_NIGHT_BUDGET": Declared(
         "int", "2000", "screening cadence: patients per night at most, 0 = no limit (T-624)"
     ),
@@ -749,6 +778,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCALE_OUTAGE_AFTER": Declared("int", "0", "scale gate: the call from which the stand-in answers 502 (T-687)"),
     "TB_SCALE_OUTAGE_S": Declared("float", "0", "scale gate: seconds of the stand-in's outage (T-687)"),
     "TB_SCALE_PATIENTS": Declared("int", "300", "scale gate: synthetic patients (the nightly job: 50000; T-687)"),
+    "TB_SCALE_PROFILE": Declared(
+        "str", "thin", "scale gate: thin (the generator's hospital) or dense (about 500 records, 40 notes; T-687)"
+    ),
     "TB_SCALE_RESTART_AFTER": Declared("int", "0", "scale gate: the call after which the stand-in restarts (T-687)"),
     "TB_SCALE_RESTART_GAP_S": Declared("float", "0", "scale gate: seconds the stand-in is down at its restart (T-687)"),
     "TB_SCALE_VALIDATE": Declared("bool", "1", "scale gate: the HL7 validator in the night (T-687)"),
@@ -820,14 +852,29 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or hospital)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
+    "TB_TO_PID_MAX_PER_HOUR": Declared(
+        "int", "", "pseudonym lookups by chart number per signed name per hour (D-487); unset: TB_REVEAL_MAX_PER_HOUR"
+    ),
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),
+    "TB_WIN_UPDATE_WINDOW_HOURS": Declared(
+        "int", "6", "Windows box: hours the update window lasts; 6 is the least Windows allows (D-606)"
+    ),
+    "TB_WIN_UPDATE_WINDOW_START": Declared(
+        "int", "19", "Windows box: hour Windows Update may install and restart; after desk hours (D-606)"
+    ),
+    "TB_WSL_DESKTOP_SHARE_PCT": Declared(
+        "int", "25", "Windows box: percent of memory and processors kept for the desktop; WSL2 gets the rest (D-601)"
+    ),
     "TB_UPDATE_BACKUP_CMD": Declared("str", "", "update: backup command"),
     "TB_UPDATE_CHECK_CMD": Declared("str", "", "update: health check command"),
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),
     "TB_UPDATE_INCOMING": Declared("str", "", "update: incoming bundle folder"),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
+    "TB_VALIDATION_SAMPLE_CAP": Declared(
+        "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"
+    ),
     "TB_VALIDATOR_IGS": Declared("str", "tw.gov.mohw.twcore#1.0.0", "FHIR validator: guides loaded"),
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),

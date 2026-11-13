@@ -55,6 +55,7 @@ from decimal import Decimal
 from typing import Any
 
 from lake.flatten import (
+    ATC_SYSTEM,
     DEMOGRAPHIC,
     EARLIEST_YEAR,
     NOT_PRESENT,
@@ -63,6 +64,7 @@ from lake.flatten import (
     Flattener,
     NotWesternYear,
     basis_of,
+    is_atc_system,
     verification_of,
     void,
 )
@@ -220,6 +222,8 @@ class Rec:
     extra: dict[str, Any] = field(default_factory=dict)
     codes: list[Code] = field(default_factory=list)
     std_only: list[tuple[str | None, str]] = field(default_factory=list)  # standard lookup only (units, note class)
+    # D-597: the code whose domain routes the record when it is not the source code (a mapped diagnosis)
+    route: tuple[str | None, str] | None = None
     # set while resolving
     record_id: int | None = None
     person_id: int | None = None
@@ -433,11 +437,18 @@ class _Builder:
         }
         if c["recorded"] != c["onset"]:
             out.extra["recorded"] = _iso(c["recorded"])
-        system = c["system"]
-        self._code(
-            out, "condition_source_value", system, c["code"], self._display(r.get("code"), c["code"]), "Condition"
-        )
-        out.row["_std"] = (system, c["code"])
+        system, code = c["system"], c["code"]
+        own = _own_coding(r.get("code"), code)
+        if own is not None:
+            # D-597: a mapped diagnosis (D-593). The source value and its concept are the hospital's own code; the
+            # standard concept is found through the mapped code, which the lake reads (kept in ``extra``, as the
+            # lake built from the feed reads the first coding)
+            self._code(out, "condition_source_value", own[0], own[1], self._display(r.get("code"), own[1]), "Condition")
+            out.extra["code"], out.extra["system"] = code, system
+            out.route = (system, code)  # the mapped code's domain routes the record, as a recorded one's does
+        else:
+            self._code(out, "condition_source_value", system, code, self._display(r.get("code"), code), "Condition")
+        out.row["_std"] = (system, code)
         self._text(out, "condition_status_source_value", c["status"], "status")
         if c["eid"] is not None:
             out.refs["visit_occurrence_id"] = ("visit", c["eid"])
@@ -449,12 +460,16 @@ class _Builder:
         cc = self.fl.medication_concept(r)  # T-616: a medicationReference resolved as the lake resolves it
         nhi = atc = nhi_sys = atc_sys = None
         for c in cc.get("coding") or []:  # the flattener's own reading (``Flattener.medication``), systems kept
-            if "atc" in (c.get("system") or ""):
-                atc, atc_sys = c.get("code"), c.get("system")
+            if is_atc_system(c.get("system")):  # D-536: the flattener's own test, so the two readings agree
+                # the system by its one name, so the vocabulary finds it whichever accepted spelling was sent
+                atc, atc_sys = c.get("code"), ATC_SYSTEM
             elif nhi is None:
                 nhi, nhi_sys = c.get("code"), c.get("system")
         if (nhi, atc) != (m["nhi_code"], m["atc"]):  # the two readings must agree
-            raise OmopError(f"medication {r.get('id')}: codes read differently from the lake's flattener")
+            # D-681: the resource type and the feed line, not the record's id nor a code of the row
+            raise OmopError(
+                f"{out.rtype} line {out.source_row}: the medication's codes read differently from the lake's flattener"
+            )
         is_atc = m["atc"] is not None
         code, system = (m["atc"], atc_sys) if is_atc else (m["nhi_code"], nhi_sys)
         out.row = {
@@ -923,10 +938,11 @@ def _route(tx: Any, recs: list[Rec], rep: LoadReport) -> None:
     want: dict[str, set[str]] = defaultdict(set)
     for r in cands:
         code = next((c for c in r.codes if c.domain != "Meas Value"), None)
-        sv = standard_vocabulary(code.system) if code else None
-        if code and sv:
-            src_of[id(r)] = (sv, code.code)
-            want[sv].add(code.code)
+        by = r.route or ((code.system, code.code) if code else None)
+        sv = standard_vocabulary(by[0]) if by else None
+        if by and sv:
+            src_of[id(r)] = (sv, by[1])
+            want[sv].add(by[1])
     src_dom: dict[tuple[str, str], str] = {}
     for sv, codes in want.items():
         for code, dom in tx.fetchall(
@@ -953,7 +969,8 @@ def _route(tx: Any, recs: list[Rec], rep: LoadReport) -> None:
 def _to_observation(r: Rec) -> None:
     """The record's row, written as an OBSERVATION row: each column by its role; the measurement operator, which
     OBSERVATION has no column for, is kept with the record (read back as the lake's ``value_cmp``)."""
-    home, to = ROLE[str(r.table)], ROLE["observation"]
+    home_table = str(r.table)
+    home, to = ROLE[home_table], ROLE["observation"]
     row: dict[str, Any] = {}
     for role, col in home.items():
         if col in r.row:
@@ -965,8 +982,31 @@ def _to_observation(r: Rec) -> None:
     if op:
         r.extra["value_cmp"] = vocab.OPERATOR_CODE.get(op)
     if r.row:
-        raise OmopError(f"{r.rtype} {r.srcid}: no OBSERVATION column for {sorted(r.row)}")
+        # D-681: column names are the schema's; the record's id and the values under them stay out of the text
+        raise OmopError(
+            f"{r.rtype} line {r.source_row} ({home_table}): no OBSERVATION column for {', '.join(sorted(r.row))}"
+        )
     r.row, r.table = row, "observation"
+
+
+_ICD10CM, _ICD9CM = "http://hl7.org/fhir/sid/icd-10-cm", "http://hl7.org/fhir/sid/icd-9-cm"  # the pair of D-593
+
+
+def _own_coding(cc: dict[str, Any] | None, read: str | None) -> tuple[str | None, str] | None:
+    """``(system, code)`` of the hospital's own coding when the code the flattener read (``read``, the first
+    coding) is the one the map gave (D-593): the first coding is ICD-10-CM marked ``userSelected: false`` and a
+    later one is the hospital's ICD-9-CM code. Any other shape is None and the record loads as before: a first
+    coding another source flags for its own reasons, a mapped coding alone, a hospital code too long to be a
+    source concept."""
+    codings = [c for c in (cc or {}).get("coding") or [] if c.get("code")]
+    if not codings or codings[0].get("code") != read or codings[0].get("userSelected") is not False:
+        return None
+    if codings[0].get("system") != _ICD10CM:
+        return None
+    own = next((c for c in codings[1:] if c.get("system") == _ICD9CM and c.get("userSelected") is not False), None)
+    if own is None or len(str(own["code"])) > 50:
+        return None
+    return (own.get("system"), str(own["code"]))
 
 
 def _concepts(r: Rec, concepts: Concepts) -> None:
@@ -1433,7 +1473,8 @@ def set_status(db: Database, key: tuple[str, str, str, int], to: str, by: str, r
             key,
         )
         if row is None:
-            raise OmopError(f"no record {key}")
+            # D-681: the caller holds the key it asked with; the text names the kind and the resource type only
+            raise OmopError(f"no {key[0]} {key[1]} record of that id and part")
         rk, frm = int(row[0]), str(row[1])
         if to not in TRANSITIONS[frm]:
             raise OmopError(f"a {frm} record cannot become {to}")

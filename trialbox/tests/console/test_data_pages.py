@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -32,6 +33,7 @@ from rc_sim.app import create_app as create_sim
 from rc_sim.app import load_projects
 from tb_common.audit import AuditLog
 
+from tests.actor3 import SignedClient
 from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login, sub_investigator  # noqa: F401 - the fixture is used by name
 from tests.rc_kit import TOKEN_A
 
@@ -68,14 +70,17 @@ def dcb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noq
     svc = DataService(dc, AuditLog(tmp_path / "orch-audit"), lambda: datetime(2026, 11, 8, 1, 0, tzinfo=UTC), client)
     api = FastAPI()
     api.include_router(datacore_router(lambda: svc))
-    oc = TestClient(api)
+    oc = SignedClient(api)  # the test's own calls (seeding)
+    coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
     calls: list[tuple[str, str, Any]] = []
 
-    def study_api(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         calls.append((method, path, body))
         if path == "/redcap/connections":  # S36's token list (the study store; not under test here)
             return {"connections": [{"token_ref": "main"}]}
-        r = oc.request(method, path, json=body) if body is not None else oc.request(method, path)
+        kw: dict[str, Any] = {"headers": headers} if headers else {}  # T-715: the signed person goes with the call
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()
@@ -226,6 +231,54 @@ def test_a_sync_of_an_unknown_source_and_a_bad_dictionary_are_shown_not_raised(d
     assert 'data-testid="dc-error"' in r.text and "FORM-COLUMNS" in r.text
     r = c.post("/studies/GZQO/forms/dictionary", data={"csrf": csrf})
     assert "FORM-EMPTY" in r.text
+
+
+def _labelled(label: str, codec: str) -> bytes:
+    """Project A's dictionary with one field's label replaced, saved in ``codec`` (as REDCap in Japan or Taiwan saves)."""
+    rows = list(csv.DictReader(io.StringIO(dictionary().decode())))
+    rows[1]["field_label"] = label
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=list(rows[0]))
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue().encode(codec)
+
+
+@pytest.mark.parametrize(("label", "codec"), [
+    ("同意取得日（スクリーニング時に記入してください）", "cp932"),
+    ("簽署同意書日期（請於篩選時填寫）", "big5"),
+    ("同意取得日（スクリーニング時に記入してください）", "utf-8-sig"),
+])  # fmt: skip
+def test_a_dictionary_saved_in_shift_jis_or_big5_keeps_its_labels(dcb: dict[str, Any], label: str, codec: str) -> None:
+    """UX-004: the upload is read by the one decoder, not as UTF-8 with what does not fit replaced."""
+    c, csrf = login(dcb["app"], "crc", PW)
+    files = {"dictionary": ("dict.csv", _labelled(label, codec), "text/csv")}
+    r = c.post("/studies/GZQO/forms/dictionary", data={"csrf": csrf, "record_field": "record_id"}, files=files,
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303
+    sent = json.dumps([c_[2] for c_ in dcb["calls"] if c_[0] != "GET"], ensure_ascii=False)
+    assert label in sent and "\ufffd" not in sent
+
+
+def test_a_dictionary_whose_character_set_cannot_be_told_is_refused_on_the_page(dcb: dict[str, Any]) -> None:
+    c, csrf = login(dcb["app"], "crc", PW)
+    ja = _labelled("同意取得日（スクリーニング時に記入してください）", "cp932")
+    zh = "簽署同意書日期（請於篩選時填寫）\n".encode("big5")
+    r = c.post(
+        "/studies/GZQO/forms/dictionary", data={"csrf": csrf}, files={"dictionary": ("d.csv", ja + zh, "text/csv")}
+    )
+    assert 'data-testid="dc-error"' in r.text and str(escape(DC_EN["dc.err.FORM-ENCODING"])) in r.text
+    assert not [c_ for c_ in dcb["calls"] if c_[0] != "GET"]  # nothing was sent on
+
+
+@pytest.mark.parametrize("label", ["Temperature (\u00b0C)", "BMI (kg/m\u00b2)", "Sj\u00f6gren (y/n)"])
+def test_a_utf8_dictionary_with_one_western_symbol_is_read_as_before(dcb: dict[str, Any], label: str) -> None:
+    c, csrf = login(dcb["app"], "crc", PW)
+    files = {"dictionary": ("dict.csv", _labelled(label, "utf-8"), "text/csv")}
+    r = c.post("/studies/GZQO/forms/dictionary", data={"csrf": csrf, "record_field": "record_id"}, files=files,
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303
+    assert label in json.dumps([c_[2] for c_ in dcb["calls"] if c_[0] != "GET"], ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------------------------- roles

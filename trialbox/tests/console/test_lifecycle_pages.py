@@ -33,6 +33,7 @@ from orchestrator.db import JobDB
 from orchestrator.lifecycle_api import router as life_router
 from tb_common.audit import AuditLog
 
+from tests.actor3 import SignedClient
 from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login  # noqa: F401 - the fixture is used by name
 
 PW = "life-cycle-password-0001"
@@ -51,12 +52,15 @@ def lb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
     api = FastAPI()
     api.include_router(datacore_router(lambda: svc))
     api.include_router(life_router(lambda: svc))
-    oc = TestClient(api)
+    oc = SignedClient(api)  # the test's own calls (seeding)
+    coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
 
-    def study_api(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         if path == "/redcap/connections":
             return {"connections": [{"token_ref": "main"}]}
-        r = oc.request(method, path, json=body) if body is not None else oc.request(method, path)
+        kw: dict[str, Any] = {"headers": headers} if headers else {}  # T-715: the signed person goes with the call
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()
@@ -155,7 +159,8 @@ def test_lifecycle_path_on_the_console(lb: dict[str, Any]) -> None:
     assert "Declined: <b>1</b>" in page and f'data-testid="wd-{no}"' in page
     x = c.get("/studies/GZQO/enrolment.xlsx")
     assert x.status_code == 200 and load_workbook(io.BytesIO(x.content)).sheetnames[0] == "states"
-    assert "state,now,withdrawn,1" in c.get("/studies/GZQO/enrolment.csv").text
+    f = c.get("/studies/GZQO/enrolment.csv")
+    assert "state,now,withdrawn,1" in f.text and f.content.startswith(b"\xef\xbb\xbf")  # the byte order mark
     assert CHART_NO not in page and CHART_NO not in x.text
     events = {e.event for e in lb["backend"].audit(None, 500)}
     assert {"console.life_step", "console.life_schedule", "console.export"} <= events

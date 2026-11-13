@@ -215,7 +215,8 @@ def test_a_failed_publish_is_recorded_and_not_retried_every_minute(tmp_path: Pat
     svc.flush("main")
     clock.sleep(60)
     out = svc.flush("main")
-    assert out["failed"] and "disk full" in out["detail"] and st.pub is None
+    # D-700: the lake's record of a rebuild that broke is the engine's error, type and text; the page keeps the type
+    assert out["failed"] and out["detail"] == "OSError" and st.pub is None
     clock.sleep(60)
     assert svc.flush("main")["failed"] and lake.rebuilds == 1  # the same facts are not rebuilt every minute
     svc.publish("main", "steward", force=True)  # a person presses Publish: tried again

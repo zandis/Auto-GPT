@@ -137,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     bi.add_argument("--deploy", type=Path, default=deploy)
     bi.add_argument("--cron-dir", type=Path, default=Path("/etc/cron.d"))
     bi.add_argument("--no-first-run", action="store_true", help="install the cron file only; no first backup")
+    mi = sub.add_parser("migrate", help="make the schemas no service owns, as the box's admin (T-718, D-486)")
+    mi.add_argument("--deploy", type=Path, default=deploy)
     s = sub.add_parser("secrets", help="per-service tokens: init, status, rotate (never prints a value)")
     s.add_argument("action", choices=["init", "status", "rotate"])
     s.add_argument(
@@ -157,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
+    ps = sub.add_parser("pre-start", help="this release's host-side steps before its stack starts (an update runs it)")
+    ps.add_argument("--deploy", type=Path, default=deploy)
+    du = sub.add_parser("db-up", help="this release's steps once the database is up, before its services start")
+    du.add_argument("--deploy", type=Path, default=deploy)
     op = sub.add_parser("ops", help="the console's operations requests: run them, write the status (D-178)")
     op.add_argument("action", choices=["run", "status", "metrics-token"])
     op.add_argument("--deploy", type=Path, default=deploy)
@@ -207,6 +213,15 @@ def main(argv: list[str] | None = None) -> int:
         return _exports_cmd(a)
     if a.cmd == "secrets":
         return _secrets_cmd(a)
+    if a.cmd == "migrate":
+        from tools.trialbox import update as tb_update
+
+        try:
+            tb_update.ComposeBox(a.deploy).migrate_owned()
+        except tb_update.UpdateFailed as exc:
+            print(f"migrate: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if a.cmd == "ops":
         from tools.trialbox import ops as tb_ops
 
@@ -225,6 +240,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import logs as tb_logs
 
         return tb_logs.main_action(a.action, a.deploy, a.day)
+    if a.cmd in ("pre-start", "db-up"):
+        from tools.trialbox import prestart
+
+        return prestart.main(a.deploy, a.cmd)
     if a.cmd == "update":
         from tools.trialbox import update as tb_update
 
@@ -437,6 +456,16 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             print(f"restore: NOT complete: the opt-out register of this box could not be read before the restore "
                   f"({lost.get('why')}): what it held after the backup is unknown; check the office's records since "
                   "then (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+        hold = str(out.get("hold") or "")
+        if hold == "held":  # NEW-B-3 (D-522)
+            print("restore: the box's list jobs (SCREEN, MICROBATCH, COHORT, NAV) are HELD until the hold is "
+                  "released: when the events above are re-applied, set screening.after_restore to released on "
+                  "/ops/flags with the reason (RUNBOOK §5; `trialbox doctor` shows the hold)",
+                  file=sys.stderr)  # fmt: skip
+        elif hold.startswith("NOT set"):
+            print(f"restore: the hold on the box's list jobs could {hold}: the box WILL screen before the events "
+                  "above are re-applied. Keep the services stopped until they are (RUNBOOK §5)",
+                  file=sys.stderr)  # fmt: skip
         roles = out.get("service_roles") or {}
         roles_missing = not bk.roles_ok(roles, os.environ)  # D-573; said before any early exit
         if roles_missing:

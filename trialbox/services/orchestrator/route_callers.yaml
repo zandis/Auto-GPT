@@ -22,6 +22,7 @@ groups:
     - GET /jobs/{job_id}
   jobs_list:
     - GET /jobs
+    - GET /jobs/waiting-studies   # NEW-JRN-1b (D-545): study ids only, no job
   job_cancel:
     - POST /jobs/{job_id}/cancel
   job_retry_scheduled:   # the administrator runs a failed scheduler job again (T-746, D-474): signed role checked in the handler

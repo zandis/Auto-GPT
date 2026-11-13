@@ -52,14 +52,14 @@ def from_row(row: dict[str, Any], base: StudySettings) -> StudySettings:
     )
 
 
-def to_body(s: StudySettings, by: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def to_body(s: StudySettings, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The settings as the route takes them. No person: T-715d (D-554), the route reads the signed one."""
     return {
         "study_type": s.study_type,
         "cohort_kind": s.cohort_kind,
         "not_suitable_reasons": list(s.reasons),
         "screening_no_format": s.screening_prefix,
         "screening_no_next": s.first_no,
-        "by": by,
         **(extra or {}),
     }
 
@@ -86,8 +86,11 @@ def load(bk: object, store: SiteStore, rs: str, default: StudySettings) -> Study
     return out
 
 
-def save(bk: object, rs: str, s: StudySettings, by: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def save(bk: object, rs: str, body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+    """The study's settings: ``body`` is ``to_body(...)`` and ``headers`` the signed person over exactly that body
+    (T-715d, D-554: the route refuses a call without one, so every call site mints it with
+    ``console.actor.assert_for``). The body that was signed is the body that is sent."""
     _cache(bk).pop(rs, None)
-    out = call(bk, "PUT", f"/studies/{rs}/settings", to_body(s, by, extra))
+    out = call(bk, "PUT", f"/studies/{rs}/settings", body, headers=headers)
     _cache(bk).pop(rs, None)
     return dict(out)

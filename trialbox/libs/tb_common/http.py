@@ -3,19 +3,24 @@ outbound calls a person or an outside document can steer (T-212d, D-450: :func:`
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import logging
 import os
+import re
 import socket
 import time
-from collections.abc import Awaitable, Callable, Iterable, Mapping
-from typing import Any, TypeVar
+import traceback
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
+from typing import Any, TypeVar, get_args
 from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.routing import Match, Mount, compile_path
 from tb_contracts import dump
 
 from tb_common.logging import setup_logging
@@ -27,11 +32,188 @@ VERSION = "1.0.0"
 
 
 class ServiceError(RuntimeError):
-    def __init__(self, service: str, status: int, detail: str) -> None:
+    def __init__(self, service: str, status: int, detail: str, headers: Mapping[str, str] | None = None) -> None:
         super().__init__(f"{service} returned {status}: {detail}")
         self.service = service
         self.status = status
         self.detail = detail
+        #: the refusal's response headers, lower-cased names (a 409 that names what is running: ``x-tb-run``)
+        self.headers: dict[str, str] = {k.lower(): v for k, v in (headers or {}).items()}
+
+
+#: error types whose text is written by a rule's author, or names the tag that was sent: the answer says the type
+_OWN_TEXT = ("value_error", "assertion_error", "union_tag_invalid", "union_tag_not_found")
+_PLACES = ("body", "query", "path", "header", "cookie")
+_KEPT = ("[key]",)  # the framework's own mark for "a key of a mapping"
+
+
+def _declared(tp: Any, seen: set[int], out: set[str]) -> None:
+    """The field names and aliases of every model reachable from an annotation."""
+    if id(tp) in seen:
+        return
+    seen.add(id(tp))
+    fields = getattr(tp, "model_fields", None)
+    if isinstance(fields, dict):
+        for name, f in fields.items():
+            out.add(name)
+            out.update(a for a in (f.alias, f.validation_alias) if isinstance(a, str))
+            _declared(f.annotation, seen, out)
+    for arg in get_args(tp):
+        _declared(arg, seen, out)
+
+
+def _route_names(request: Request) -> set[str]:
+    """Every name the route itself declares: its parameters and the fields of its models. Kept on the route."""
+    route = request.scope.get("route")
+    names = getattr(route, "_tb_declared", None)
+    if names is None:
+        names = set()
+        dep = getattr(route, "dependant", None)
+        todo = [dep] if dep is not None else []
+        while todo:
+            d = todo.pop()
+            todo += list(getattr(d, "dependencies", ()) or ())
+            for kind in ("path_params", "query_params", "header_params", "cookie_params", "body_params"):
+                for prm in getattr(d, kind, ()) or ():
+                    names.update(n for n in (prm.name, getattr(prm, "alias", None)) if isinstance(n, str))
+                    _declared(getattr(prm.field_info, "annotation", None), set(), names)
+        if route is not None:
+            with contextlib.suppress(Exception):
+                route._tb_declared = names
+    return names
+
+
+async def validation_answer(request: Request, exc: Exception) -> JSONResponse:
+    """The 422 answer to a request of the wrong shape (NEW-TRUST-2, D-551): where it is wrong and why, never what
+    was sent. The framework's own answer repeats the input (a body with a chart number came back with it), and a
+    client that logs a refusal then logs it. So: no ``input`` and no ``ctx``; in the place (``loc``) only what the
+    route declares (a parameter, a field of its models, a position), anything else as ``*`` (an extra key, a key
+    of a mapping: the caller chose that text); and no message text for the error types whose text a rule's author
+    writes or that name what was sent."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    names = _route_names(request)
+    detail = []
+    for e in errors:
+        loc = [x if isinstance(x, int) or (i == 0 and x in _PLACES) or x in names or x in _KEPT else "*"
+               for i, x in enumerate(e.get("loc") or ())]  # fmt: skip
+        kind = str(e.get("type") or "")
+        msg = "the value was refused by a rule of this field" if kind in _OWN_TEXT else e.get("msg")
+        detail.append({"type": kind, "loc": loc, "msg": msg})
+    return JSONResponse({"detail": detail}, status_code=422)
+
+
+#: a failure a service recorded without expecting it: the error's type, a colon, some of the error's text
+_RECORDED = re.compile(r"^((?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*):(?:\s|$)")
+
+
+def kept_failure(detail: str) -> str:
+    """What to keep of a failure another service recorded, in a record a person reads (D-557, D-700).
+
+    A service's own sentence ("the source folder is empty", "night refused: ...") is kept: it is its word for the
+    operator. A record that starts with ONE name and a colon (``"ConversionException: ..."``, ``"error: ..."``,
+    ``"_Refused: ..."``, with or without a module path) is a failure it did not expect, written as the error's
+    type and the error's own text (an engine quotes the value it could not cast): the name is kept, the service's
+    log has the rest. No service writes a sentence of its own that starts with one word and a colon; one that did
+    would be cut to that word, which fails safe. Applying it twice changes nothing."""
+    text = str(detail or "").strip()
+    kind = _RECORDED.match(text)
+    return kind.group(1) if kind else text
+
+
+TRACE_FRAMES = 30  # of each error of the chain, so that one line of the log stays a line
+TRACE_CHAIN = 5
+
+
+def trace_of(exc: BaseException) -> dict[str, str]:
+    """An error for the log without its own text (D-557): ``error`` is its type, ``trace`` the frames it passed
+    (file, line, function, the line of code) and the types of the errors it came from.
+
+    An error's text is whatever its author put in it: a database error quotes its statement's values, a validation
+    error prints its input, an f-string holds a value of the path. The log's scrubber knows the shapes of a chart
+    number and a secret, not every value, so the text is left out and the type and the place are kept."""
+    parts: list[str] = []
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen and len(parts) < TRACE_CHAIN:
+        seen.add(id(cur))
+        frames = "".join(traceback.format_tb(cur.__traceback__, limit=-TRACE_FRAMES))  # the last ones: where it broke
+        parts.append(f"{frames}{type(cur).__name__}")
+        cur = cur.__cause__ or (None if cur.__suppress_context__ else cur.__context__)
+    return {"error": type(exc).__name__, "trace": "\n-- raised while handling --\n".join(parts)}
+
+
+NO_ROUTE = "(no route)"
+MOUNT = "(mount)"
+
+
+def route_of(request: Request) -> str:
+    """The template of the route a request was for (``/studies/{rs}/records/{record}``), for the log (D-556).
+
+    A path carries what the caller put in it (a record, a job, anything typed where an id belongs), so the log
+    holds the route instead. Nothing here is built from the path that was sent: the template is the framework's
+    own, with the prefix its router was included under. A request that reached a handler has its route in the
+    scope; one that was answered before (a refused token, a method the route does not take) is matched against
+    the app's routes, the routes of included routers too; a mounted application is named by its mount's path; a
+    path of no route is written ``(no route)``."""
+    scope = request.scope
+    found = _included_template(scope) or _own_template(scope.get("route"))
+    if found is not None:
+        return found
+    partial: str | None = None
+    for template, match in _candidates(getattr(request.app.router, "routes", []), scope):
+        if match == Match.FULL:
+            return template
+        partial = partial or template  # the route is there, the method is not its: named all the same
+    return partial or NO_ROUTE
+
+
+def _included_template(scope: Any) -> str | None:
+    """The full template of a route of an included router (``/v1`` + ``/jobs/{job_id}``), which the framework keeps
+    beside the route while it handles the request. The names are the framework's private ones, so a test pins that
+    an included route is logged with its prefix (``tests/unit/test_access_log_route.py``)."""
+    ctx = (
+        (scope.get("fastapi") or {}).get("effective_route_context") if isinstance(scope.get("fastapi"), dict) else None
+    )
+    path = getattr(ctx, "path", None)
+    return path if isinstance(path, str) and path else None
+
+
+def _own_template(route: Any) -> str | None:
+    path = getattr(route, "path", None)
+    if not isinstance(path, str):
+        return None
+    if isinstance(route, Mount):  # a mounted application: its mount's path when that is a fixed one
+        return (path or "/") if "{" not in path else MOUNT
+    return path
+
+
+def _candidates(routes: Any, scope: Any) -> Iterator[tuple[str, Match]]:
+    """Every route of the app that the request's path fits, with how well (the method too, or the path only)."""
+    for route in routes:
+        contexts = getattr(route, "effective_route_contexts", None)
+        if callable(contexts):  # an included router: its routes, each with its full template
+            for ctx in contexts():
+                template = getattr(ctx, "path", None)
+                if not isinstance(template, str) or not template:
+                    continue
+                try:
+                    regex = compile_path(template)[0]
+                except Exception as exc:
+                    logging.getLogger("tb_common.http").debug("route_of: %s", type(exc).__name__)
+                    continue
+                if regex.match(scope.get("path") or ""):
+                    methods = getattr(getattr(ctx, "original_route", None), "methods", None)
+                    ok = methods is None or scope.get("method") in methods
+                    yield template, Match.FULL if ok else Match.PARTIAL
+            continue
+        try:
+            match, _ = route.matches(scope)
+        except Exception as exc:  # a route that cannot judge this scope is not the route
+            logging.getLogger("tb_common.http").debug("route_of: %s", type(exc).__name__)
+            continue
+        template = _own_template(route)
+        if match != Match.NONE and template is not None:
+            yield template, match
 
 
 def make_app(
@@ -55,6 +237,7 @@ def make_app(
     answer (a refusal), None lets the call through. One place per app decides which service reaches which route."""
     log = setup_logging(service, level)
     app = FastAPI(title=f"trialbox-{service}", version=VERSION, lifespan=lifespan)
+    app.add_exception_handler(RequestValidationError, validation_answer)  # D-551: no value of the request
     health_checks = list(checks or [])
     app.state.health_checks = health_checks
 
@@ -108,15 +291,16 @@ def make_app(
         t0 = time.perf_counter()
         try:
             response = await call_next(request)
-        except Exception:
-            log.exception("unhandled error", extra={"path": request.url.path})
+        except Exception as exc:
+            # D-557: the error's type and where it was raised, not its own text
+            log.error("unhandled error", extra={"path": route_of(request), **trace_of(exc)})
             return JSONResponse({"error": "internal error"}, status_code=500)
         if request.url.path != "/healthz":
             log.info(
                 "request",
                 extra={
                     "method": request.method,
-                    "path": request.url.path,
+                    "path": route_of(request),  # the route, not what was sent in it (D-556)
                     "status": response.status_code,
                     "ms": round((time.perf_counter() - t0) * 1000, 1),
                 },
@@ -163,7 +347,7 @@ class ServiceClient:
                 time.sleep(min(2**attempt, 8))
                 continue
             if resp.status_code >= 400:
-                raise ServiceError(self.service, resp.status_code, resp.text[:2000])
+                raise ServiceError(self.service, resp.status_code, resp.text[:2000], dict(resp.headers))
             return resp
         if last is not None and not isinstance(last, httpx.ConnectError | httpx.ConnectTimeout):
             raise ServiceError(self.service, 0, f"no answer (the request may have been processed): {last}")

@@ -25,6 +25,12 @@ from tests.console.test_site_setup_pages import PW as SITE_PW
 from tests.console.test_site_setup_pages import sb  # noqa: F401 - the fixture by name
 from tests.console.test_team_pages import _log_pi_and_sub
 
+
+#: the test's own seeding of the stand-in's registry: a signer that the stand-in only calls (T-715b, D-550)
+def _SEED(*_a: Any) -> dict[str, str]:
+    return {}
+
+
 A, B, C = "a" * 32, "b" * 32, "c" * 32
 
 
@@ -63,7 +69,7 @@ def test_the_delegation_rule_holds_on_the_sibling_pages(box: dict[str, Any]) -> 
     pi = _user(box, "drsato", "investigator")
     sub = _user(box, "drkato", "investigator")
     _log_pi_and_sub(box, pi, ("refer",))  # the sub-investigator is not ticked "screen"
-    box["backend"].registry_update("GZQO", RegistryUpdate(pid=A, status="candidate", by="crc1"))
+    box["backend"].registry_update("GZQO", RegistryUpdate(pid=A, status="candidate", by="crc1"), _SEED)
     pages = ("/studies/GZQO/excluded", "/studies/GZQO/screening-log", "/studies/GZQO/cohort",
              "/studies/GZQO/subjects", "/studies/GZQO/entry", "/pilot/registry/GZQO",
              "/pilot/registry/GZQO/export.xlsx")  # fmt: skip
@@ -108,7 +114,7 @@ def test_an_opted_out_patient_leaves_the_job_page_registry_and_excluded_list(box
     crc = _user(box, "crc1", "coordinator")
     admin = _user(box, "crc2", "coordinator")  # D-280 (OD-5): a patient-level reader is no longer the administrator
     csrf = _csrf(admin.get("/home").text)
-    box["backend"].registry_update("GZQO", RegistryUpdate(pid=B, status="candidate", by="crc1"))
+    box["backend"].registry_update("GZQO", RegistryUpdate(pid=B, status="candidate", by="crc1"), _SEED)
     assert "bbbbbbbb" in admin.get("/pilot/registry/GZQO").text
     assert admin.get(f"/pilot/jobs/{jid}").text.count("<tr data-pid=") == 2
     assert 'data-testid="ex-cccccccc"' in admin.get("/studies/GZQO/excluded").text
@@ -136,7 +142,7 @@ def test_the_job_reveal_follows_the_delegation_log(box: dict[str, Any]) -> None:
     form["csrf"] = _csrf(pi.get("/home").text)
     r = pi.post(f"/pilot/jobs/{jid}/reveal", data=form)
     assert r.status_code == 200 and "MRN-000123" in r.text
-    assert box["backend"].signed == [("reveal", "investigator", "*")]
+    assert box["backend"].signed == [("reveal", "investigator", "GZQO")]  # T-716: the one study, not a list
     ev = _events(box, "console.reveal_patient")
     assert len(ev) == 1 and ev[0]["detail"]["via"] == "job" and ev[0]["detail"]["reason"] == "contact"
 
@@ -158,7 +164,7 @@ def test_the_opt_out_door_gives_no_pseudonym_back_and_caps_chart_lookups(
 ) -> None:
     def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
         if path == "/setup/pseudonym":
-            return {"pid": B}
+            return {"pid": B, "known": True}  # NEW-DIN-3 (D-544): a patient of this box
         raise Unavailable("no study store in this test")
 
     monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)

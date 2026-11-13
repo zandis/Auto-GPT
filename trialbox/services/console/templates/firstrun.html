@@ -72,6 +72,14 @@
     <p class="hint">{{ t('firstrun.source.help') }}</p>
     {% for s in sources %}<label><input type="radio" name="source" value="{{ s }}"{% if values.get('source', 'later') == s %} checked{% endif %}> {{ t('firstrun.source.' + s) }}</label>{% endfor %}
   </fieldset>
+  {# NEW-DIN-3 (D-544, D-579): asked only while the box holds no patient; a refused answer is still shown #}
+  {% if ask_chartno %}<fieldset data-testid="firstrun-chartno"><legend>{{ t('firstrun.chartno') }}</legend>
+    <p class="hint">{{ t('firstrun.chartno.help') }}</p>
+    <label for="chartno_kind">{{ t('firstrun.chartno.kind') }}</label>
+    <select id="chartno_kind" name="chartno_kind"><option value=""{% if not values.get('chartno_kind') %} selected{% endif %}>{{ t('firstrun.chartno.kind.none') }}</option>{% for k in chartno_kinds %}<option value="{{ k }}"{% if values.get('chartno_kind') == k %} selected{% endif %}>{{ t('firstrun.chartno.kind.' + k) }}</option>{% endfor %}</select>
+    <label for="chartno_width">{{ t('firstrun.chartno.width') }}</label>
+    <input id="chartno_width" name="chartno_width" inputmode="numeric" maxlength="2" value="{{ values.get('chartno_width', '') }}">{{ err('chartno_rule') }}
+  </fieldset>{% else %}{{ err('chartno_rule') }}{% endif %}
   {% if not tpm %}<fieldset><legend>{{ t('firstrun.kek') }}</legend>
     <p class="hint">{{ t('firstrun.kek.help') }}</p>
     <label for="kek">{{ t('firstrun.kek.pass') }}</label>

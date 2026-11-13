@@ -22,7 +22,8 @@ from datetime import date
 from typing import Any, Protocol
 
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
-from tb_common.quotes import quote_key
+from tb_common.quotes import quote_in, quote_key
+from tb_llm.budget import estimate_tokens
 
 JUDGE_PROMPT = "judge"
 
@@ -58,6 +59,10 @@ class JudgeClient(Protocol):
         step_id: str,
         purpose: str,
     ) -> JudgeReply: ...
+
+
+#: the fields of an excerpt a model is shown (D-644; ``orchestrator.scenarios.evaluate`` sends the same three)
+SHOWN = ("date", "note_type", "text")
 
 
 @dataclass
@@ -105,7 +110,9 @@ class GatewayJudge:
             "criterion_text": criterion_text,
             "note_question": note_question,
             "index_date": index_date.isoformat(),
-            "excerpts": excerpts,
+            # D-644: what a model reads of an excerpt, as NoteJudge sends it. Never the record's id (``did``): an
+            # identifier has no place in a prompt, and a hex id holds digit runs the PHI tripwire refuses
+            "excerpts": [{k: e.get(k) for k in SHOWN} for e in excerpts],
         }
         labels = CallLabels(
             data_class=data_class,
@@ -247,9 +254,10 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
         return None
     q = quote_key(reply.quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
     for ex in excerpts:
-        text = quote_key(str(ex.get("text", "")))
+        raw = str(ex.get("text", ""))
+        text = quote_key(raw)
         start = text.find(q)
-        if start < 0:
+        if start < 0 or not quote_in(reply.quote, raw):  # D-641: never across a cut of the excerpt, never the mark
             continue
         d = date.fromisoformat(str(ex["date"])[:10])
         if not lo <= d <= hi:
@@ -268,13 +276,10 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
 
 
 def expected_tokens(excerpts: list[dict[str, Any]]) -> int:
-    """Conservative token estimate (CJK ~1 token per character, Latin ~4 characters per token) plus the prompt."""
-    n = 300
-    for ex in excerpts:
-        t = str(ex.get("text", ""))
-        cjk = sum(1 for ch in t if "　" <= ch <= "鿿")
-        n += cjk + (len(t) - cjk) // 4 + 1
-    return n
+    """What a judge call is counted as against the night's token budget: the one estimate of the product
+    (:func:`tb_llm.budget.estimate_tokens`; D-645: this had a count of its own that took full-width punctuation
+    and digits as a quarter token) of each excerpt's text, plus 300 for the prompt."""
+    return 300 + sum(estimate_tokens(str(ex.get("text", ""))) for ex in excerpts)
 
 
 __all__ = ["GatewayJudge", "JudgeClient", "JudgeReply", "expected_tokens", "norm", "sentence_hash", "verify_span"]

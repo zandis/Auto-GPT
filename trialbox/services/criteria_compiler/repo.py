@@ -17,6 +17,7 @@ from dulwich.index import commit_tree
 from dulwich.object_store import iter_tree_contents
 from dulwich.objects import Blob, Commit, Tag, Tree
 from dulwich.repo import Repo
+from tb_common.ruleset import SEEDED_TAG
 
 AUTHOR = b"TrialBox criteria-compiler <trialbox@localhost>"
 FILE_MODE = 0o100644
@@ -54,7 +55,7 @@ class RulesetRepo:
                 if m.get("status") == "approved" and m.get("version"):
                     tag = f"{parts[0]}/v{m['version']}"
                     if f"refs/tags/{tag}".encode() not in self.refs:
-                        self.tag(tag, "main", f"{tag} (vendor-shipped, approved)")
+                        self.tag(tag, "main", f"{tag} {SEEDED_TAG}")
 
     # ------------------------------------------------------------------ refs & reads
     def ref(self, name: str) -> bytes | None:
@@ -137,6 +138,26 @@ class RulesetRepo:
         who = f"{author} <{author}>".encode() if author else AUTHOR
         return self._commit(f"refs/heads/{branch}", parent, merged, message, who)
 
+    def tag_message(self, name: str) -> str:
+        """The message of annotated tag ``name``; "" for a bare tag, which names nobody."""
+        obj = self.repo[self.refs[f"refs/tags/{name}".encode()]]
+        return obj.message.decode("utf-8", "replace") if isinstance(obj, Tag) else ""
+
+    def retag(self, name: str, message: str, tagger: str | None = None) -> bytes:
+        """Write tag ``name`` again on the commit it names, with another message (D-640: an example ruleset the
+        first start seeded, then installed or approved by somebody). The commit is never moved."""
+        ref = f"refs/tags/{name}".encode()
+        sha = self.ref(name)
+        if sha is None or ref not in self.refs:
+            raise KeyError(name)
+        old = self.refs[ref]
+        del self.refs[ref]
+        try:
+            return self._tag(name, sha, message, tagger)
+        except Exception:
+            self.refs[ref] = old
+            raise
+
     def tag(self, name: str, ref: str, message: str, tagger: str | None = None) -> bytes:
         sha = self.ref(ref)
         if sha is None:
@@ -144,6 +165,10 @@ class RulesetRepo:
         key = f"refs/tags/{name}".encode()
         if key in self.refs:
             raise ValueError(f"tag {name} already exists")
+        return self._tag(name, sha, message, tagger)
+
+    def _tag(self, name: str, sha: bytes, message: str, tagger: str | None) -> bytes:
+        key = f"refs/tags/{name}".encode()
         t = Tag()
         t.tagger = f"{tagger} <{tagger}>".encode() if tagger else AUTHOR
         t.message = message.encode("utf-8")

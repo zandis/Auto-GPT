@@ -447,7 +447,10 @@ class FakeBox:
 def test_compose_nightly_takes_one_snapshot_per_database_and_removes_the_plaintext_dumps(tmp_path: Path) -> None:
     deploy = tmp_path / "deploy"
     deploy.mkdir()
-    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox:pw@db:5432/trialbox_wf\nTB_SITE_ID=CGMH\n")
+    # a password that cannot be part of a path: the check below once looked for the letters "pw" in every
+    # argument and failed whenever the test's own folder had them in its name (a branch called "...tripwire...")
+    password = "zq~7!Kd~pw"
+    (deploy / ".env").write_text(f"TB_DB_URL=postgresql://trialbox:{password}@db:5432/trialbox_wf\nTB_SITE_ID=CGMH\n")
     (deploy / ".backup-stale").mkdir()  # left by a killed run
     fake = FakeBox()
     ops = bs.ComposeOps(deploy, fake)
@@ -465,7 +468,11 @@ def test_compose_nightly_takes_one_snapshot_per_database_and_removes_the_plainte
     run = next(c for c in fake.calls if c[:2] == ["docker", "run"])
     mounts = [run[i + 1] for i, a in enumerate(run) if a == "-v"]
     assert all(m.endswith(":ro") for m in mounts if "/v/" in m or "/dumps" in m)  # volumes and dumps read-only
-    assert "TB_PG_DUMP_DIR=/dumps" in run and not any("pw" in a for a in run)  # passwords never on a command line
+    assert "TB_PG_DUMP_DIR=/dumps" in run
+    # passwords never on a command line: not as an argument, not inside one (the URL form user:password@host), in
+    # the container's command or in any other command the run made
+    assert not any(password in a for call in fake.calls for a in call)
+    assert not any("trialbox:" in a and "@db" in a for a in run)
     assert run[run.index("--keep") + 1] == "9"  # M4: TB_BACKUP_KEEP reaches the container step
     assert fake.copied and all(not d.exists() for d in fake.copied)  # the plaintext dumps are gone after the run
     assert any(c[-3:] == ["rm", "-rf", bs.CONTAINER_SPOOL] for c in fake.calls)  # and from the db container
@@ -615,10 +622,14 @@ class RunningBox(FakeBox):
         self.fail, self.has_pgbackrest = fail, pgbackrest
 
     def __call__(self, argv: list[str], **kw: Any) -> str:  # type: ignore[override]
-        if self.fail and self.fail in " ".join(argv):
+        # NEW-B-15: the words of the command, never its paths. The failure word used to be looked for in the whole
+        # line, so a temp folder whose name holds it (a branch called "...-recheck" against ``fail="check"``) made
+        # the very first command fail and the test take another branch of the product
+        said = " ".join(a for a in argv if not a.startswith(("/", "./", "../")))
+        if self.fail and self.fail in said:
             self.calls.append(list(argv))
             raise RuntimeError(f"{self.fail} failed")
-        if "command -v pgbackrest" in " ".join(argv) and not self.has_pgbackrest:
+        if "command -v pgbackrest" in said and not self.has_pgbackrest:
             self.calls.append(list(argv))
             raise RuntimeError("exit 1")
         if argv[-2:] == ["-u", "postgres"]:

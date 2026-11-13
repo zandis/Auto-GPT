@@ -13,7 +13,7 @@ from tb_common.ruleset import Ruleset
 from tb_contracts import FeasibilityResult
 
 from orchestrator.i18n import t
-from orchestrator.reports.common import ReportMeta, figure, fmt_count, pdf_fonts, pdf_invariant, png
+from orchestrator.reports.common import ReportMeta, draw_string, figure, fmt_count, pdf_fonts, pdf_invariant, png
 
 BRAND = "#1f4e79"
 CAPABILITY_LABELS = {
@@ -114,12 +114,13 @@ def render(
         Image,
         KeepTogether,
         PageBreak,
-        Paragraph,
         SimpleDocTemplate,
         Spacer,
         Table,
         TableStyle,
     )
+
+    from orchestrator.reports.common import Paragraph  # UX-002: with the glyph fallback
 
     regular, bold = pdf_fonts(meta.locale)
     body = ParagraphStyle("body", fontName=regular, fontSize=9.5, leading=13, alignment=TA_LEFT)
@@ -281,7 +282,7 @@ def render(
         canvas.saveState()
         canvas.setFont(regular, 7)
         canvas.setFillColor(colors.HexColor("#555555"))
-        canvas.drawString(15 * mm, 10 * mm, meta.footer)
+        draw_string(canvas, 15 * mm, 10 * mm, meta.footer, regular, 7)  # UX-002
         canvas.drawRightString(195 * mm, 10 * mm, f"{doc.page}")
         canvas.restoreState()
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Callable
 from typing import Any, Protocol
 
-from tb_common.http import ServiceClient, ServiceError
+from tb_common.http import ServiceClient, ServiceError, kept_failure
 from tb_contracts import (
     ApproveRequest,
     ApproveResult,
@@ -22,6 +24,8 @@ from tb_contracts import (
     SendRequest,
     SendResult,
 )
+
+log = logging.getLogger("orchestrator.clients")
 
 
 class StepFailed(RuntimeError):
@@ -56,16 +60,39 @@ class AdapterAPI(Protocol):
     def run(self, req: IngestRequest) -> IngestReport: ...
 
 
+def _ingest_ended(st: dict[str, Any]) -> str:
+    """Why an ingest that is not done ended, for the job's record (D-557). The adapter's own sentence when it wrote
+    one ("the source folder is empty", "night refused: ..."): those are its words for the operator. Its record of
+    a failure it did not expect is an error's type and up to 500 characters of the error's text (a cast error
+    quotes the value it could not cast): the job's record keeps the type (``tb_common.http.kept_failure``), the
+    adapter's log has the rest."""
+    detail = str(st.get("detail") or "").strip()
+    kept = kept_failure(detail)
+    if kept != detail:
+        return f"The nightly ingest failed ({kept}); the adapter's log has it."
+    if detail:
+        return detail
+    state = str(st.get("state") or "")
+    return "the ingest ended " + (
+        state if state in ("failed", "interrupted", "cancelled", "refused", "held") else "not done"
+    )
+
+
 def _step_error(exc: ServiceError, default_step: str) -> StepFailed:
-    step, message = default_step, exc.detail
+    """A service's refusal of a step as the job's error (D-557). The message is the service's own when the answer
+    has the shape of one: ``{"detail": {"step", "message"}}``, or a refusal (4xx) with a sentence as its detail
+    ("an ingest is already running"). Anything else (a 5xx, a body that is not the service's JSON, up to 2,000
+    characters of it, "unreachable: ...") is not kept in the job's record: it says which service did not do the
+    step, and the detail says with what status."""
+    step, message = default_step, f"The {exc.service} service did not do this step."
     try:
         body = json.loads(exc.detail)
         detail = body.get("detail", body)
-        if isinstance(detail, dict):
+        if isinstance(detail, dict) and detail.get("message"):
             step = str(detail.get("step") or default_step)
-            message = str(detail.get("message") or message)
-        elif isinstance(detail, str):
-            message = detail
+            message = str(detail["message"])
+        elif isinstance(detail, str) and detail and 400 <= exc.status < 500:
+            message = detail[:300]
     except (ValueError, AttributeError):
         pass
     return StepFailed(step, message, f"{exc.service} HTTP {exc.status}")
@@ -126,20 +153,42 @@ class AdapterHttp:
     """The night's ingest on the adapter (T-690, D-472): ``POST /run`` starts it (202 and a run id), then its state
     is read until it ends. The night is never timed (OD-10; before, 7,200 s around the whole run, no retry): each
     request is short; the poll's interval and its bound on silence are the declared settings of
-    :mod:`tb_common.jobpoll`."""
+    :mod:`tb_common.jobpoll`. When the adapter is already running an ingest (409), that run is followed
+    (NEW-PERF-2)."""
 
     def __init__(self, base_url: str, poll: Any = None) -> None:
         self.c = ServiceClient(base_url, "adapter", timeout=60, retries=0, idempotent=False)
         self.poll = poll
 
+    def _running(self, refused: ServiceError) -> dict[str, Any]:
+        """NEW-PERF-2 (PERF-008, ARCH-002): the adapter refused the start because an ingest is running (409) and
+        names that run (``X-TB-Run``). The job follows it to its end and takes its report, instead of failing
+        beside a night that is published. Returns the state to poll from. Anything else is the step failure it
+        was: another refusal, or a 409 that names no run (the adapter was still starting the run that holds it).
+        The run the 409 names, never "the adapter's newest run": that can be last night's, ended (review F2)."""
+        rid = refused.headers.get("x-tb-run", "").strip() if refused.status == 409 else ""
+        if not rid:
+            raise _step_error(refused, "ingest") from refused
+        log.warning("an ingest is already running on the adapter (run %s): this job follows it", rid)
+        return {"run": rid, "state": "running"}  # read by the poll, which bears silence up to its declared bound
+
     def run(self, req: IngestRequest) -> IngestReport:
+        return self.run_followed(req, None)
+
+    def run_followed(self, req: IngestRequest, on_run: Callable[[str, bool], None] | None) -> IngestReport:
+        """:meth:`run`, telling the caller which adapter run the job is on as soon as it is known
+        (``on_run(run id, followed)``: ``followed`` when the run was already running and this call did not start
+        it), so that the job can write it into its record before the run ends."""
         from tb_common.jobpoll import JobLost, Poll
 
+        followed = False
         try:
             started = self.c.post_raw("/run", req).json()
         except ServiceError as exc:
-            raise _step_error(exc, "ingest") from exc
+            started, followed = self._running(exc), True
         rid = str(started.get("run") or "")
+        if on_run is not None and rid:
+            on_run(rid, followed)
 
         def read() -> dict[str, Any]:
             try:
@@ -158,4 +207,6 @@ class AdapterHttp:
             raise _step_error(exc, "ingest") from exc
         if st.get("state") == "done":
             return IngestReport.model_validate(st.get("report") or {})
-        raise StepFailed("ingest", str(st.get("detail") or f"the ingest ended {st.get('state')}"), f"adapter run {rid}")
+        # D-557: the adapter's "failed" detail is an error's type and up to 500 characters of its text (a cast
+        # error quotes the value it could not cast); the job's record keeps the type, the adapter's log the rest
+        raise StepFailed("ingest", _ingest_ended(st), f"adapter run {rid}")

@@ -73,6 +73,8 @@ def parse(text: object) -> tuple[float, str | None] | None:
 # ------------------------------------------------------------------------------------------------ units (R-31)
 UNIT_MISMATCH = labunit.UNIT_MISMATCH  # one spelling of the reason for the adapter and the engines (D-275)
 UNKNOWN_VALUE = Reason.UNKNOWN_VALUE.value
+# D-590: a result with no unit whose value cannot be one in the look-up's unit: no value, like a unit mismatch
+NO_UNIT_IMPLAUSIBLE = "no_unit_implausible"
 
 # UCUM code -> the spellings that mean exactly that unit: one table in :mod:`tb_common.labunit` (D-418), which
 # the engines' scale conversions read too.
@@ -135,6 +137,33 @@ def ucum(unit: object) -> str | None:
 
 def _as_enzyme(code: str | None, loinc: str | None) -> str | None:
     return _ENZYME_UNIT.get(code, code) if code and loinc in ENZYME_ACTIVITY else code
+
+
+def written(unit: object) -> str:
+    """A unit as written, width and blanks folded, case kept (``mg`` is not ``Mg``): the key of a site's
+    ``unit_spellings`` (D-590)."""
+    return "".join(unicodedata.normalize("NFKC", "" if unit is None else str(unit)).split())
+
+
+# D-590 (DIN-017): for a result that comes with no unit and is read in the look-up's unit (D-149), the range a
+# value can have in that unit, per LOINC code: ``(UCUM unit, low, high)``. Only analytes whose other common unit
+# differs by about an order of magnitude or more, so that a value in the wrong unit falls outside (creatinine
+# 88 µmol/L against 0.1 to 20 mg/dL; HbA1c 0.072 or 53 mmol/mol against 3 to 20 %). The numbers are the sheet
+# path's (``sitesetup.messy.ANALYTES``). A site's look-up states its own in ``plausible_low`` / ``plausible_high``
+PLAUSIBLE: dict[str, tuple[str, float, float]] = {
+    "2160-0": ("mg/dL", 0.1, 20.0),  # creatinine
+    "3084-1": ("mg/dL", 0.5, 20.0),  # urate
+    "4548-4": ("%", 3.0, 20.0),  # HbA1c (NGSP)
+    "2345-7": ("mg/dL", 20.0, 800.0),  # glucose
+}
+
+
+def plausible_range(loinc: str | None, unit: object) -> tuple[float, float] | None:
+    """The built-in range of ``loinc`` when ``unit`` is the unit the range is stated in, else None."""
+    got = PLAUSIBLE.get(loinc or "")
+    if got is None or ucum(unit) != ucum(got[0]):
+        return None
+    return got[1], got[2]
 
 
 def units_agree(row_unit: object, lookup_unit: object, loinc: str | None = None) -> bool | None:

@@ -17,10 +17,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from tb_common import chartno, sheets
 from tb_common.audit import AuditLog
-from tb_common.crypto import load_key, pid_for_mrn
 from tb_common.deterministic import normalize_ooxml
-from tb_common.kek import key_present
 from tb_contracts import RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.db import JobDB
@@ -61,24 +60,22 @@ class CandidateRegistry:
             return upd.pid
         if not upd.mrn:
             raise RegistryError("a chart number (mrn) or a pseudonym (pid) is needed")
-        if self.mrn_regex and not re.match(self.mrn_regex, upd.mrn):
+        # NEW-DIN-3c (D-546): the pattern is asked of the number written the site's way (the rule pads `123456` to
+        # `00123456` before it is hashed), not of the number as typed
+        if self.mrn_regex and not re.match(self.mrn_regex, chartno.normalise(None, upd.mrn)):
             raise RegistryError("that does not look like a chart number of this site")
-        key = self.secrets_dir / "site_hmac.key"
-        if not key_present(key):  # plain or wrapped under the KEK (T-210b)
+        # imported here, not at the top: the console imports this module for two constants and must not load the
+        # door, its route dependency and their audit events with it (T-721's table of who writes what)
+        from orchestrator import identifiers
+
+        if not identifiers.has_site_key(self.secrets_dir):  # plain or wrapped under the KEK (T-210b)
             raise RegistryError("the box has no site key yet (no ingest has run), so chart numbers cannot be resolved")
-        return pid_for_mrn(load_key(key), upd.mrn)
+        return identifiers.pid_of(self.secrets_dir, upd.mrn)
 
     def mrns(self, pids: list[str]) -> dict[str, str]:
-        key = self.secrets_dir / "pid_map.key"
-        if not key_present(key) or not pids:  # no map yet
-            return {}
-        from adapter.pidmap import PidMap
+        from orchestrator import identifiers
 
-        pm = PidMap(key, self.db.url)  # the trial database of the registry's JobDB
-        try:
-            return pm.resolve_many(pids)
-        finally:
-            pm.close()
+        return identifiers.charts_of(self.secrets_dir, pids, self.db.url)  # the trial database of the registry
 
     # ------------------------------------------------------------------ reads
     def summaries(self) -> list[RegistrySummary]:
@@ -162,9 +159,9 @@ class CandidateRegistry:
 
         ruleset = check_ruleset(ruleset)
         if exclude is None:
-            from tb_common.optout import opted_out
+            from orchestrator.decision_context import register_now
 
-            exclude = opted_out()
+            exclude = register_now()
         rows = [r for r in self.db.candidates(ruleset) if str(r["pid"]) not in exclude]
         events = [e for e in self.db.candidate_events(ruleset) if str(e["pid"]) not in exclude]
         mrns = self.mrns([str(r["pid"]) for r in rows])
@@ -221,6 +218,7 @@ class CandidateRegistry:
             for col in range(1, sheet.max_column + 1):
                 sheet.column_dimensions[get_column_letter(col)].width = 18
         buf = io.BytesIO()
+        sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
         wb.save(buf)
         return normalize_ooxml(buf.getvalue())
 
@@ -228,7 +226,7 @@ class CandidateRegistry:
 def check_ruleset(ruleset: str) -> str:
     r = (ruleset or "").upper()
     if not _RULESET.match(r):
-        raise RegistryError(f"invalid ruleset id {ruleset!r}")
+        raise RegistryError("that is not a ruleset id")  # the id is the caller's text: not repeated (D-555)
     return r
 
 

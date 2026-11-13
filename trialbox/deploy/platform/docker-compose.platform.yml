@@ -68,7 +68,7 @@ services:
     environment: {TB_SERVICE_NAME: doctor, TB_RELEASE_FILE: /etc/trialbox/release/release.json,
                   POSTGRES_PASSWORD: "", POSTGRES_WF_PASSWORD: "", TB_DB_URL: "", TB_DB_PW_LAKE: "", TB_DB_PW_CRITERIA_COMPILER: "", TB_DB_PW_ADAPTER: "",
                   TB_DB_PW_ORCHESTRATOR: "", TB_DB_PW_MAIL_GATEWAY: "", TB_DB_PW_GATEWAY: "", TB_DB_PW_CONSOLE: "",
-                  TB_DB_PW_AUDIT_WRITER: ""}
+                  TB_DB_PW_AUDIT_WRITER: "", TB_DB_PW_FHIR_STORE: ""}
     restart: "no"   # a one-shot run (docker compose run --rm doctor)
     mem_limit: 1g   # T-108a (D-360), as deploy/platform/base/doctor.yaml
     pids_limit: 256

@@ -325,13 +325,15 @@ ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
 
 
 # D-280 (owner decision OD-5, CR-029): break-glass. The administrator sees patient data only through a grant: a reason
-# from this list plus a written note, one patient or one job, 60 minutes, then it ends by itself. The console signs a
-# reveal under a grant with :data:`BREAK_GLASS_ROLE`, never with ``admin``; the orchestrator gives a chart number to
-# that role only (``orchestrator.app.id_authority``). Every use is audited and waits on the steward's review list.
+# from this list plus a written note, one patient or one job, 60 minutes, then it ends by itself. T-716 (D-484): the
+# console signs a reveal under a grant with the account's own role and the grant's id; the orchestrator reads the
+# grant row itself and writes the use (``orchestrator.grants``). ``breakglass`` is not a role any party accepts;
+# :data:`BREAK_GLASS_ROLE` remains only as the label of a read under a grant in the console's own audit records.
+# Every use is audited and waits on the steward's review list.
 BREAK_GLASS_REASONS: tuple[str, ...] = ("support", "data_fix", "optout_request", "incident", "audit_request", "other")
 BREAK_GLASS_MINUTES = 60
 BREAK_GLASS_NOTE_MIN = 10  # the written "why" every grant needs, in characters
-BREAK_GLASS_ROLE = "breakglass"  # a signed role is a-z only (tb_common.service_auth)
+BREAK_GLASS_ROLE = "breakglass"  # an audit label (console.twin_api); never signed, never identifier authority
 BREAK_GLASS_REVIEW_DAYS = 7  # the steward reviews each use within a week (owner question Q-20)
 
 

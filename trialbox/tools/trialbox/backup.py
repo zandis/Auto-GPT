@@ -60,7 +60,8 @@ import struct
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+import threading
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -614,6 +615,11 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             why = "lake snapshot being built"  # D-462: the build file and the Parquet stage, swapped in when done
         elif name == "lake" and parts[:2] == ("db", ".open"):
             why = "lake reader links (the same files as db/)"  # D-462: hard links, taken once as db/<snapshot>.duckdb
+        elif name == "lake" and parts[:2] == ("db", "gen") and not rel.endswith(".json"):
+            # T-724 (D-490): each date's newest generation is its own file db/<snapshot>.duckdb, taken once; an older
+            # generation is only a running job's. The generations' records (names, numbers and hashes; no patient
+            # data) are kept: a restored date gets the name its bytes had, and a number is never given twice
+            why = "lake generations (the newest is db/<snapshot>.duckdb)"
         elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
                 and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip
             why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
@@ -683,6 +689,12 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
         with path.open("rb") as fh:
             before = os.fstat(fh.fileno())
             info = tar.gettarinfo(arcname=arcname, fileobj=fh)
+            if info.islnk():
+                # NEW-B-17 (D-537): a second name of a file this tar already holds (a hard link: a work lake's
+                # db/<date>.duckdb, its generation, a reader's link). The tar writer would store a link with no
+                # bytes, and the manifest would name the hash of nothing for a file a restore writes whole. Every
+                # name is stored with its own bytes: no member of a backup needs another one to be read
+                info.type, info.linkname, info.size = tarfile.REGTYPE, "", before.st_size
             if grows:  # never a line that is being written
                 info.size = _line_end(fh, before.st_size)
                 fh.seek(0)
@@ -858,16 +870,103 @@ def _copy_hashed(src: Path, dst: Path) -> str:
     return h.hexdigest()
 
 
+# ------------------------------------------------------------------------------------------------ the stream check
+#: what the last backup's check read (members and bytes): for a test and for a measurement, not a record
+LAST_CHECK: dict[str, int] = {}
+
+
+class _StreamCheck:
+    """NEW-B-21 (D-662): the plain tar stream, read as a restore reads it, while it is written.
+
+    Every byte the tar writer gives the compressor also goes down a pipe to a thread that reads it as a tar: a file
+    member is hashed, a link member takes what it links to (a restore makes it that file), a later member of a name
+    replaces an earlier one (a restore extracts the later). :meth:`problems` then compares what a restore would
+    get with the manifest. No key is needed: this is before encryption. The pipe is the only buffer, so the writer
+    waits for the reader and memory does not grow with the backup."""
+
+    def __init__(self, out: Any) -> None:
+        self._out = out
+        r, self._w = os.pipe()
+        with contextlib.suppress(OSError, AttributeError):  # a pipe as wide as one chunk: fewer hand-overs (Linux)
+            import fcntl
+
+            fcntl.fcntl(self._w, fcntl.F_SETPIPE_SZ, CHUNK)
+        self.seen: dict[str, tuple[str, int]] = {}
+        self.other: dict[str, str] = {}
+        self.error: BaseException | None = None
+        self.bytes = 0
+        self._thread = threading.Thread(target=self._read, args=(r,), name="backup-check", daemon=True)
+        self._thread.start()
+
+    def write(self, data: bytes) -> int:
+        self._out.write(data)
+        view = memoryview(data)
+        while view:
+            view = view[os.write(self._w, view) :]
+        return len(data)
+
+    def _read(self, r: int) -> None:
+        with os.fdopen(r, "rb") as fh:
+            try:
+                with tarfile.open(fileobj=fh, mode="r|") as tar:
+                    for m in tar:
+                        if m.isreg():
+                            h, n = hashlib.sha256(), 0
+                            src = tar.extractfile(m)
+                            while src is not None and (b := src.read(CHUNK)):
+                                h.update(b)
+                                n += len(b)
+                            self.seen[m.name] = (h.hexdigest(), n)
+                            self.bytes += n
+                        elif m.islnk():
+                            self.seen[m.name] = self.seen.get(m.linkname, ("a link to a member that is not there", -1))
+                        else:
+                            self.other[m.name] = "not a file"
+            except BaseException as e:  # reported by problems(); the writer must never be left waiting
+                self.error = e
+            while fh.read(CHUNK):
+                pass
+
+    def close(self) -> None:
+        if self._w >= 0:
+            os.close(self._w)
+            self._w = -1
+            self._thread.join()
+
+    def problems(self, manifest: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+        """(changed, unlisted): the manifest's files a restore would not get as listed, and members it does not
+        list. Call after the tar is closed."""
+        self.close()
+        if self.error is not None:
+            raise BackupError(f"the backup's own stream could not be read back ({type(self.error).__name__})")
+        files, sizes = manifest["files"], manifest["sizes"]
+        bad = sorted(rel for rel, sha in files.items() if self.seen.get(rel) != (sha, sizes.get(rel)))
+        extra = sorted((set(self.seen) | set(self.other)) - set(files) - {"manifest.json"})
+        LAST_CHECK.clear()
+        LAST_CHECK.update(files=len(files), bytes=self.bytes)
+        return bad, extra
+
+
 # ------------------------------------------------------------------------------------------------ compression
 @contextlib.contextmanager
-def _tar_writer(enc: Any, compression: str) -> Iterator[tarfile.TarFile]:
+def _tar_writer(enc: Any, compression: str, checks: list[_StreamCheck] | None = None) -> Iterator[tarfile.TarFile]:
     """A streaming tar into ``enc``: zstd -3 on every core (D-149), or gzip (the format before D-149, kept only so
     the restore of an old backup stays tested). The compressor's last frame is written before the caller seals the
-    final encrypted chunk."""
+    final encrypted chunk. ``checks`` (D-662): the plain stream's check is put in it (zstd only: gzip is compressed
+    inside the tar writer, and no backup is made with it but a test's)."""
     if compression == "zstd":
         cctx = zstandard.ZstdCompressor(level=ZSTD_LEVEL, threads=-1)
-        with cctx.stream_writer(enc, closefd=False) as zw, tarfile.open(fileobj=zw, mode="w|") as tar:
-            yield tar
+        with cctx.stream_writer(enc, closefd=False) as zw:
+            out: Any = zw
+            if checks is not None:
+                out = _StreamCheck(zw)
+                checks.append(out)
+            try:
+                with tarfile.open(fileobj=out, mode="w|") as tar:
+                    yield tar
+            finally:
+                if out is not zw:
+                    out.close()
     elif compression == "gzip":
         with tarfile.open(fileobj=enc, mode="w|gz") as tar:
             yield tar
@@ -937,10 +1036,11 @@ def backup(
         first.mkdir(parents=True, exist_ok=True)
         part = first / (name + ".part")
         meta = {"site": site, "created_at": manifest["created_at"], "layout": LAYOUT, "compression": compression}
+        checks: list[_StreamCheck] = []
         with part.open("wb") as raw:
             hw = _HashWriter(raw)
             enc = _Encryptor(hw, recipient, meta)
-            with _tar_writer(enc, compression) as tar:
+            with _tar_writer(enc, compression, checks) as tar:
                 for src in srcs:
                     arc = f"db/{src.name}.dump"
                     manifest["files"][arc], manifest["sizes"][arc] = _add(tar, work / f"{src.name}.dump", arc)
@@ -976,6 +1076,23 @@ def backup(
             enc.finish()
             raw.flush()
             os.fsync(raw.fileno())
+        for check in checks:
+            # NEW-B-21 (D-662): what a restore would get, against the manifest, before the file gets its name. The
+            # nightly has no private key and never opened what it wrote: a wrong manifest was recorded as good
+            try:
+                bad, extra = check.problems(manifest)
+            except BackupError:
+                part.unlink(missing_ok=True)
+                raise
+            if bad or extra:
+                part.unlink(missing_ok=True)
+                # the names first, the verdict and the counts last: what records an error keeps its end (the nightly
+                # its last 400 characters), and the verdict must never be the part that is cut off
+                names = (_named("changed", bad) + _named("unlisted", extra)).removeprefix("; ")
+                raise BackupError(
+                    f"{names}; the backup was not written: its content does not match its manifest "
+                    f"({len(bad)} changed, {len(extra)} unlisted)"
+                )
         sha = hw.sha.hexdigest()
         final = first / name
         part.rename(final)
@@ -999,6 +1116,54 @@ def backup(
 
 
 # ------------------------------------------------------------------------------------------------ verify / restore
+NAMED = 10  # how many file names a refusal lists before "and N more": a line a person reads, not a limit of work
+
+
+def _named(what: str, names: Iterable[str]) -> str:
+    listed = sorted(names)
+    if not listed:
+        return ""
+    more = f" and {len(listed) - NAMED} more" if len(listed) > NAMED else ""
+    return f"; {what}: {', '.join(listed[:NAMED])}{more}"
+
+
+_NOTHING = hashlib.sha256(b"").hexdigest()
+
+
+def _second_names(into: Path, manifest: dict[str, Any], bad: list[str]) -> list[str]:
+    """``bad`` without the entries that are the fault of backups written before NEW-B-17 (D-537), which are put right
+    in ``manifest``.
+
+    Such a backup stored the second name of one file (a hard link) as a link with no bytes and listed it with the
+    hash of nothing and size 0; the nightly, which has no private key, recorded it as good. Its bytes are whole: the
+    extraction made the name a link to the first one. An entry is read so only when it is exactly that: the hash of
+    nothing, size 0, and the extracted file is the same file as a listed one whose own hash holds. It then takes that
+    one's hash and size. Anything else stays a mismatch."""
+    wrong = set(bad)
+    maybe = [
+        rel
+        for rel in bad
+        if manifest["files"][rel] == _NOTHING
+        and manifest.get("sizes", {}).get(rel) == 0
+        and (into / rel).is_file()
+        and (into / rel).stat().st_nlink > 1
+    ]
+    if not maybe:
+        return bad
+    whole: dict[tuple[int, int], str] = {}
+    for rel in manifest["files"]:
+        if rel not in wrong and (into / rel).is_file():
+            st = (into / rel).stat()
+            whole[(st.st_dev, st.st_ino)] = rel
+    for rel in maybe:
+        st = (into / rel).stat()
+        first = whole.get((st.st_dev, st.st_ino))
+        if first is not None:
+            manifest["files"][rel], manifest["sizes"][rel] = manifest["files"][first], manifest["sizes"][first]
+            wrong.discard(rel)
+    return [rel for rel in bad if rel in wrong]
+
+
 def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
     """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
 
@@ -1025,11 +1190,18 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
         raise BackupError(f"{file.name} does not match its .sha256 sidecar")
     manifest: dict[str, Any] = json.loads((into / "manifest.json").read_text(encoding="utf-8"))
     bad = [rel for rel, sha in manifest["files"].items() if not (into / rel).is_file() or _sha_file(into / rel) != sha]
+    bad = _second_names(into, manifest, bad)
     extra = {str(p.relative_to(into)) for p in into.rglob("*") if p.is_file() and p.name != "manifest.json"} - set(
         manifest["files"]
     )
     if bad or extra:
-        raise BackupError(f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted")
+        # NEW-B-14: which files, by their path inside the backup (a name, never content): "1 changed" alone left
+        # a failed drill with nothing to look at
+        raise BackupError(
+            f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted"
+            + _named("changed", bad)
+            + _named("unlisted", extra)
+        )
     manifest["_sha256"] = hr.sha.hexdigest()
     return manifest
 
@@ -1304,6 +1476,63 @@ def fail_running_jobs(src: DbSource, when: datetime, made: str) -> list[dict[str
     return sorted(({"job_id": str(j), "type": str(t), "step": str(st)} for j, t, st in rows), key=lambda r: r["job_id"])
 
 
+HOLD_FLAG = "screening.after_restore"  # tb_common.flags: the hold a restore that is not complete leaves (D-522)
+
+
+def _hold_flags(env: Mapping[str, str], audit_dir: Path | None) -> Any:
+    from tb_common.audit import AuditLog
+    from tb_common.flags import Flags
+
+    log = None
+    if audit_dir is not None:
+        log = AuditLog(Path(audit_dir), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(audit_dir))
+    return Flags(url=env.get("TB_DB_URL"), audit=log)
+
+
+def hold_standing(env: Mapping[str, str]) -> bool:
+    """Whether the box is held now (read before the trial database is replaced). A hold that cannot be read is
+    taken as standing: the restore then leaves the box held, and a person releases it."""
+    try:
+        return bool(_hold_flags(env, None).row(HOLD_FLAG) == "held")
+    except LookupError:  # no trial database configured: nothing was held
+        return False
+    except Exception:
+        return True
+
+
+def hold_screening(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
+    """NEW-B-3 (D-522): hold the box's list jobs (the audited flag ``screening.after_restore``, set to ``held``)
+    until the restore ends complete or a person releases the hold with a reason. Returns ``held``, or ``NOT set:
+    <why>`` when the flag could not be written (no audit directory: a flag change must be audited; a database
+    error). Never raises: the restore's own report says what happened. ``reason`` holds counts and times only."""
+    if audit_dir is None:
+        return "NOT set: no audit directory in the layout (or TB_AUDIT_DIR); a hold must be audited"
+    try:
+        flags = _hold_flags(env, audit_dir)
+        if flags.row(HOLD_FLAG) != "held":  # held already (the backup was taken under a hold): it stays
+            try:
+                flags.set(HOLD_FLAG, "held", actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", reason=reason)
+            except ValueError:
+                if flags.row(HOLD_FLAG) != "held":  # not "already held" (set by another writer meanwhile)
+                    raise
+        return "held"
+    except Exception as exc:
+        return f"NOT set: {type(exc).__name__}"
+
+
+def release_own_hold(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
+    """The restore ended complete and the hold is its own (none stood before it, no earlier restore's set-aside
+    copy is on the box): the restore takes it off again. Returns ``released``, or ``held`` when it could not (the
+    box then stays held, which is the safe side)."""
+    try:
+        _hold_flags(env, audit_dir).set(
+            HOLD_FLAG, "released", actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", reason=reason
+        )
+        return "released"
+    except Exception:
+        return "held"
+
+
 def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
     """Append ``event`` to the box's audit log (the ``audit`` directory, else ``TB_AUDIT_DIR``); returns where, or
     why not."""
@@ -1448,6 +1677,18 @@ def restore(
         roles: dict[str, str] = {"state": "not_restored"}  # D-573: no trial database in this backup, nothing to move
         jobs_failed: list[dict[str, str]] = []
         checked = {}
+        # NEW-B-3 (D-522, review H1): what stands before the trial database is replaced. A hold that stands, or an
+        # earlier restore's set-aside audit chain on the box (its events may not be re-applied yet, and this run
+        # will not see them), is never taken off by this restore: only a person releases it
+        hold_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
+        carried = hold_standing(env) or bool(
+            hold_dir is not None and list(Path(hold_dir).parent.glob(f"{Path(hold_dir).name}.pre-restore-*"))
+        )
+        hold = "not needed"
+        hold_reason = (
+            f"restore of the backup of {manifest['created_at']}: held until the restore ends complete or a person "
+            "releases it (audit: backup.restored, backup.restore_reapply)"
+        )
         try:
             for name, want in manifest["databases"].items():
                 restore_db(srcs[name], work / "db" / f"{name}.dump", env)
@@ -1474,6 +1715,11 @@ def restore(
                     warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
                 checked[name] = sum(r[0] for r in got.values())
             if "trialbox_wf" in manifest["databases"]:  # T-728 (D-493, F-11): after the rows were checked
+                # NEW-B-3 (D-522, review H1, M1): held from here on, before anything else can stop the restore
+                # or a folder is set aside (the flag is a row of the restored database, so it is written after
+                # the rows were compared with the backup's). Taken off at the end only when the restore is
+                # complete and nothing was carried
+                hold = hold_screening(env, hold_dir, hold_reason)
                 try:
                     jobs_failed = fail_running_jobs(srcs["trialbox_wf"], when, manifest["created_at"])
                 except Exception as e:  # the queue could not be changed: the restore says so and stops
@@ -1496,6 +1742,8 @@ def restore(
             if wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
                 with contextlib.suppress(Exception):
                     keep()
+                if hold != "held":  # NEW-B-3: the database is replaced and the restore stops: the box is held
+                    hold = hold_screening(env, hold_dir, hold_reason)
             with contextlib.suppress(Exception):
                 _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
             back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
@@ -1556,17 +1804,28 @@ def restore(
             if HOST in targets and HOST in manifest["dirs"]
             else ("in the backup; not restored (--dir host=<folder> writes it)" if HOST in manifest["dirs"] else "none")
         )
+        # D-573 (lane D): a restore whose service roles were not put back is not complete either (the hold stays)
+        complete = not reapply and optouts_ok(lost) and roles_ok(roles, env)
+        # NEW-B-3 (D-522; D-455's open item): a restore that is not complete leaves the box's list jobs held until
+        # a person releases the hold. The restore takes its own hold off only when it is complete and nothing was
+        # carried (a hold that stood before, an earlier restore's set-aside chain)
+        if hold == "held" and complete and not carried:
+            hold = release_own_hold(
+                env,
+                audit_dir,
+                f"the restore of the backup of {manifest['created_at']} is complete: nothing to re-apply",
+            )
         audited = _audit(targets, env, "backup.restored", sha, {
             **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
             "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
-            "service_roles": roles["state"]})  # fmt: skip
+            "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
             "host": host, "lake_check": lake,
             "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"),
             "optouts_after_backup": lost, "jobs_failed": jobs_failed, "service_roles": roles,
-            "complete": not reapply and optouts_ok(lost) and roles_ok(roles, env), "audit": audited}  # fmt: skip
+            "complete": complete, "hold": hold, "audit": audited}  # fmt: skip
 
 
 _safe = _sched.safe

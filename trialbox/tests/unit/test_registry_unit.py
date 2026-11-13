@@ -8,6 +8,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from adapter.pidmap import PidMap
@@ -62,7 +63,7 @@ def test_add_by_chart_number_stores_only_the_pseudonym(reg: CandidateRegistry) -
         reg.update("GZQO", _upd(mrn="10000001", pid="ab" * 16), NOW)
     with pytest.raises(RegistryError, match="hex"):
         reg.update("GZQO", _upd(pid="zz"), NOW)
-    with pytest.raises(RegistryError, match="invalid ruleset"):
+    with pytest.raises(RegistryError, match="not a ruleset id"):  # D-555: the id that was sent is not repeated
         reg.update("bad id!", _upd(mrn="10000001"), NOW)
 
 
@@ -116,6 +117,17 @@ def test_promote_takes_high_and_review_tiers_once(reg: CandidateRegistry) -> Non
     assert reg.promote("OTHER", RegistryPromote(by="pi@hospa.test"), NOW) == 0  # no pool, nothing to add
 
 
+def test_a_typed_reason_is_text_in_the_export_never_a_formula(reg: CandidateRegistry) -> None:
+    """NEW-CSV-1 (D-549): the coordinator's reason is typed; a spreadsheet must not run it."""
+    typed = '=HYPERLINK("http://example.test","open")'
+    reg.promote("GZQO", RegistryPromote(by="pi@hospa.test"), NOW)
+    reg.update("GZQO", _upd(pid=pid_for_mrn(KEY, "10000001"), status="contacted", reason=typed), NOW)
+    wb = load_workbook(io.BytesIO(reg.export_xlsx("GZQO", "DEMO-A")))
+    cells = [c for ws in wb.worksheets for row in ws.iter_rows() for c in row]
+    assert not [c.coordinate for c in cells if c.data_type == "f"]
+    assert sum(1 for c in cells if c.value == typed) >= 2  # the row and its event, every character
+
+
 def test_export_resolves_chart_numbers_in_box_and_is_deterministic(reg: CandidateRegistry) -> None:
     reg.promote("GZQO", RegistryPromote(by="pi@hospa.test"), NOW)
     reg.update("GZQO", _upd(pid=pid_for_mrn(KEY, "10000001"), status="contacted", reason="phone"), NOW)
@@ -158,16 +170,27 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
     monkeypatch.setattr(oapp, "orch", lambda: fake)
     c = TestClient(oapp.app)
-    r = c.post("/registry/GZQO", json={"mrn": "10000001", "status": "candidate", "by": "crc1@hospa.test"})
+
+    def send(body: dict[str, Any], path: str = "/registry/GZQO") -> Any:
+        """T-715b (D-550): every registry change carries the acting person's assertion; no body field names one."""
+        from tests.actor3 import signed
+
+        return c.post(path, json=body, headers=signed("request.prepare", "GZQO", "POST", path, body))
+
+    first = {"mrn": "10000001", "status": "candidate"}
+    assert c.post("/registry/GZQO", json=first).status_code == 403  # nobody
+    r = send(first)
     assert (
         r.status_code == 200 and r.json()["status"] == "candidate" and r.json()["pid"] == pid_for_mrn(KEY, "10000001")
     )
-    assert c.post("/registry/GZQO", json={"mrn": "x", "status": "candidate", "by": "a@b"}).status_code == 400
-    assert c.post("/registry/GZQO", json={"status": "candidate", "by": "a@b"}).status_code == 400
-    assert c.post("/registry/GZQO", json={"mrn": "10000001", "status": "nope", "by": "a@b"}).status_code == 422
+    assert r.json()["updated_by"] == "console:crc"  # the verified person, not a typed one
+    assert send({"mrn": "x", "status": "candidate"}).status_code == 400
+    assert send({"status": "candidate"}).status_code == 400
+    assert send({"mrn": "10000001", "status": "nope"}).status_code == 422
+    assert send({**first, "by": "a@b"}).status_code == 422  # a typed person is not a field of the request
     assert c.get("/registry").json()[0]["counts"] == {"candidate": 1}
     assert len(c.get("/registry/GZQO").json()) == 1 and len(c.get("/registry/GZQO/events").json()) == 1
-    assert c.post("/registry/GZQO/promote", json={"by": "pi@hospa.test"}).json() == {"added": 0}
+    assert send({}, "/registry/GZQO/promote").json() == {"added": 0}
     assert c.get("/registry/GZQO/export.xlsx").status_code == 400  # S-09: a named user, always
     r = c.get("/registry/GZQO/export.xlsx?by=crc1@hospa.test")
     assert r.status_code == 200 and r.content.startswith(b"PK")

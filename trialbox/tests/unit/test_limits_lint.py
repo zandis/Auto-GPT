@@ -1,4 +1,4 @@
-"""The limits lint (T-687, D-471; OD-10): every `timeout=` over 60 s and every `LIMIT` / `limit=` literal in
+"""The limits lint (T-687, D-471, D-534; OD-10): every `timeout=` (whatever its length) and every `LIMIT` / `limit=` literal in
 `services/` has a line with a reason in `tools/limits_allow.yaml`; a new one fails, and so does a stale line."""
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def f(base, timeout: float = 330, limit: int = 500, read_timeout=120, short=30):
     """SELECT x FROM t LIMIT 7 in a docstring does not count."""
     subprocess.run(["x"], timeout=1800)
     httpx.Client(timeout=httpx.Timeout(600.0, connect=5))
-    httpx.Client(timeout=30)  # a minute or less: a call, not work that grows
+    httpx.Client(timeout=30)  # a short wait counts too (NEW-B-12, D-534): it is listed with why it is not a cut
     rows = db.find(limit=200)
     n = min(limit, 1000)
     q = "SELECT * FROM jobs ORDER BY at DESC LIMIT 1"
@@ -79,6 +79,7 @@ def f(base, timeout: float = 330, limit: int = 500, read_timeout=120, short=30):
             ("timeout", "120"),
             ("timeout", "1800"),
             ("timeout", "600"),
+            ("timeout", "30"),
             ("limit", "200"),
             ("limit", "1000"),
             ("limit", "1"),
@@ -90,3 +91,14 @@ def test_the_list_command_prints_allow_lines(capsys: object) -> None:
     assert ll.main(["--list"]) == 0
     out = capsys.readouterr().out  # type: ignore[attr-defined]
     assert out.startswith("allow:\n") and "services/lake/client.py, kind: timeout, value: 330" in out
+
+
+def test_a_wait_of_two_seconds_without_a_line_fails_too(tmp_path: Path) -> None:
+    """NEW-B-12 (D-534; PERF-002, PLAN-012): the lint had a floor of 60 s, so a 45 s limit around a model call or
+    a 10 s limit around a call that grows was never listed. Every fixed wait is on the list."""
+    svc = tmp_path / "services" / "x"
+    svc.mkdir(parents=True)
+    (svc / "a.py").write_text("import threading\n\ndef f(e: threading.Event) -> None:\n    e.wait(timeout=2.0)\n")
+    found = ll.scan(tmp_path)
+    assert [(x.kind, x.value) for x in found] == [("timeout", "2")]
+    assert any("new fixed timeout 2" in p for p in ll.check(found, []))

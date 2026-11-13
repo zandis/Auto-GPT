@@ -305,7 +305,14 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
                             f"redcap_repeat_instance: {', '.join(off) or 'the event repeats'}")  # fmt: skip
         off_format = sorted(f for f, v in r.items() if f in meta and str(v) != "" and not _fits(meta[f], str(v)))
         if off_format:
-            return _err(400, f"The value of {', '.join(off_format)} does not fit the field's validation")
+            # as REDCap answers: one line per refused value, quoting the record, the field and the VALUE. So the
+            # box's client must not pass this text on (tests/unit/test_rc_error_text.py)
+            lines = [
+                f'"{r.get(rid, "")}","{f}","{r[f]}","The value you provided could not be validated because it '
+                'does not follow the expected format. Please try again."'
+                for f in off_format
+            ]
+            return _err(400, "\n".join(lines))
         dag = str(r.get("redcap_data_access_group") or "")
         if dag and dag not in dags:
             return _err(400, f"The data access group '{dag}' is not valid")

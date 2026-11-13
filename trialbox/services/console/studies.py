@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common.config import environment_name
+from tb_common.verdict_word import shown_of
 from tb_contracts import Job
 
 from console import coded_view
@@ -27,6 +28,19 @@ STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "set_asid
 
 
 # ---------------------------------------------------------------------------------------------- jobs
+def waiting_studies(bk: Any) -> list[str]:
+    """NEW-JRN-1 (JRN-001, D-540): the studies with criteria waiting for approval, the newest first. A new study
+    has no ruleset folder until its first approval; this job is what makes it a study. NEW-JRN-1b (D-545): the
+    orchestrator names the studies itself; no listing of jobs is read, so a study behind any number of other
+    waiting jobs is still found."""
+    seen: list[str] = []
+    for raw in bk.waiting_studies():
+        rid = str(raw or "").strip().upper()
+        if rid and rid not in seen:
+            seen.append(rid)
+    return seen
+
+
 def known_study(bk: Any, rid: str) -> bool:
     """D-133 (review F-37): a study page answers only for a study TrialBox has (a ruleset of any status, so a study
     whose protocol was read but not yet approved can be set up). A mistyped code gets the 404 page, never an empty
@@ -35,6 +49,18 @@ def known_study(bk: Any, rid: str) -> bool:
         return any(r.id == rid for r in bk.rulesets())
     except Exception:
         return True
+
+
+def log_study(bk: Any, rid: str) -> bool:
+    """D-540: the delegation log, and only it, also opens for a study whose first criteria wait for approval, so
+    that the steward can name the PI who approves (D-380). When the jobs cannot be read the answer is no: an
+    unknown study stays unknown while the orchestrator is down."""
+    if known_study(bk, rid):
+        return True
+    try:
+        return rid in waiting_studies(bk)
+    except Exception:
+        return False
 
 
 def latest_job(jobs: Iterable[Job], ruleset: str, types: Sequence[str], state: str | None = "done") -> Job | None:
@@ -366,26 +392,28 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
         meta = crit.get(cid)
         kind = meta.kind if meta else ("exclusion" if cid.upper().startswith(("E", "X")) else "inclusion")
         label = meta.label if meta else cid
-        verdict = v.get("verdict")
+        # D-478 (review of T-709): the word a person reads, not the stored one. A "not met" that one model gave, or
+        # that was given while notes could not exclude, is an open point, never "Not met:" on the list or the card
+        word, _why = shown_of(v)
         ev = v.get("evidence") or {}
         if kind == "inclusion":
             fit.inc_total += 1
-            if verdict == "pass":
+            if word == "pass":
                 fit.inc_met += 1
                 fit.key.append({"id": cid, "label": label, "date": ev.get("quote_date"), "quote": ev.get("quote")})
-            elif verdict == "fail":
+            elif word == "fail":
                 fit.not_met.append(label)
         else:
             fit.exc_total += 1
-            if verdict == "pass":
+            if word == "pass":
                 fit.exc_clear += 1
-            elif verdict == "fail" and ev.get("quote"):
+            elif word == "fail" and ev.get("quote"):
                 fit.note_exclusion.append(
                     {"id": cid, "label": label, "date": ev.get("quote_date"), "quote": ev.get("quote")}
                 )
-        if verdict == "unknown":
+        if word == "unknown":
             fit.open.append(label)
-        elif verdict == "pending_human":
+        elif word == "pending_human":
             fit.person.append(label)
     # prefer facts with a date or a quote: they are what a PI can check
     fit.key.sort(key=lambda k: (not (k.get("date") or k.get("quote")),))

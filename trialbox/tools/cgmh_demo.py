@@ -34,6 +34,7 @@ import re
 import secrets
 import shutil
 import sys
+from collections.abc import MutableMapping
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -369,6 +370,16 @@ def walk_registry(s: dict[str, Any], lang: str, password: str) -> dict[str, Any]
     }
 
 
+def state_environment(environ: MutableMapping[str, str]) -> str:
+    """D-626: a walk builds its own synthetic site and box in a scratch folder, so it is a DEV box unless the
+    caller names another environment, as ``tools.demo`` is. Stated here and not in the demo image: an image-wide
+    ``TB_ENV`` would also turn a product path run in that image into DEV. An unset ``TB_ENV`` means PRODUCTION
+    (D-127), where the box refuses what a real one must (the EDC key without a KEK, for one)."""
+    if environ.setdefault("TB_ENV", "DEV") == "DEV":
+        return "environment: DEV (a demo walk: a synthetic site and a box of its own; set TB_ENV to choose another)"
+    return f"environment: {environ['TB_ENV']} (set by the caller; the walk's box follows that environment's rules)"
+
+
 def run(work: Path, password: str, walk: str, lang: str) -> dict[str, Any]:
     s = start(work, password, lang)
     if walk == "list":
@@ -391,6 +402,7 @@ def main(argv: list[str] | None = None) -> int:
         shutil.rmtree(a.dir)
     a.dir.mkdir(parents=True, exist_ok=True)
     password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
+    print(state_environment(os.environ), flush=True)
     res = run(a.dir, password, a.walk, a.lang)
     good = True
     if a.walk == "list":

@@ -85,26 +85,27 @@ def parse_subject(raw: str) -> Subject:
         raise SubjectError("subject must be '<COMMAND> <ruleset> [key=value ...] [-- comment]'")
     cmd = parts[0].upper()
     if cmd not in COMMANDS:
-        raise SubjectError(f"unknown command {parts[0]!r}; expected one of {', '.join(COMMANDS)}")
+        # D-700: the reply and the gateway's record name the rule, not what was typed
+        raise SubjectError(f"unknown command; expected one of {', '.join(COMMANDS)}")
     target = parts[1]
     if cmd in JOB_ID_COMMANDS:
         target = target.upper()
         if not _ULID.match(target):
-            raise SubjectError(f"{cmd} needs a job id (26-character ULID), got {parts[1]!r}")
+            raise SubjectError(f"{cmd} needs a job id (26-character ULID)")
     elif not _RULESET.match(target):
-        raise SubjectError(f"invalid ruleset {target!r} (1-16 letters, digits, '-' or '_')")
+        raise SubjectError("invalid ruleset (1-16 letters, digits, '-' or '_')")
     else:
         target = target.upper()  # ruleset ids are upper case (criterion id pattern); accept any case in mail
     options: dict[str, str] = {}
     for tok in parts[2:]:
         key, sep, value = tok.partition("=")
         if not sep:
-            raise SubjectError(f"option {tok!r} must be key=value")
+            raise SubjectError("an option must be key=value")
         key = key.lower()
         if key not in KEYS:
-            raise SubjectError(f"unknown option {key!r}; allowed: {', '.join(KEYS)}")
+            raise SubjectError(f"unknown option; allowed: {', '.join(KEYS)}")
         if not _VALUE.match(value):
-            raise SubjectError(f"invalid value for {key}: {value!r}")
+            raise SubjectError(f"invalid value for {key}")
         if key in options:
             raise SubjectError(f"option {key} given twice")
         options[key] = value

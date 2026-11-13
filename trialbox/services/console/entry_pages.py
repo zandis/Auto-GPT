@@ -31,10 +31,10 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import permit
 
-from console import s28
+from console import actor, s28
 from console.api_first import before_body, page_twin
 from console.auth import Session, User
-from console.backend import Problem, Unavailable
+from console.backend import Problem, Unavailable, service_and_status
 from console.data_pages import err_of
 from console.home import Helpers
 from console.i18n import translate
@@ -163,19 +163,23 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not _NAME.match(form) or (ev and not _NAME.match(ev)):
             raise Problem(400, "DATA-EVENT", "event and form names are lower-case letters, digits and _", [ev[:40]])
         rec = check_record(rid, record)
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/entry/{quote(rec)}",
-                            {"form": form, "event": ev, "values": values, "by": h.actor(sess)}))  # fmt: skip
+        # T-715 (D-483): signed as the person who enters (`task.enter_data`: the coordinator, or an investigator
+        # the PI ticked), so that a step the orchestrator derives from the form names that person
+        out = dict(actor.call(h, sess, "task.enter_data", rid, "POST", f"/studies/{rid}/entry/{quote(rec)}",
+                              {"form": form, "event": ev, "values": values, "by": h.actor(sess)}))  # fmt: skip
         au.append("console.data_entry", ruleset=rid, actor=h.actor(sess),
                   detail={"form": form, "event": ev, "changed": out.get("changed", 0)})  # fmt: skip
         if form == "tb_consent":  # D-399 (FIT-009, URS-CRC-07): the version against the study's approved ICF list
             out["icf_warnings"] = consent_version_check(sess, rid, rec, ev, values)
         if form == "tb_adverse_event" and h.sae_sync is not None:
             h.sae_sync(rid)  # D-277 (CR-012): the SAE register is written on the write path, never on a page view
-        if out.get("life"):  # T-516 (UX-011): a lifecycle form moved the participant; the screening log follows now,
-            with contextlib.suppress(Problem, Unavailable):  # with the screening numbers the console issued
-                s28.call(
-                    bk, "POST", f"/studies/{rid}/subjects/refresh", {"screening": issued(rid), "by": h.actor(sess)}
-                )
+        # T-516 (UX-011): a lifecycle form moved the participant; the screening log follows now, with the screening
+        # numbers the console issued. The refresh is the coordinator's (`study.setup`): for a ticked investigator
+        # the orchestrator has already moved this record, and the numbers follow at the coordinator's next page
+        if out.get("life") and can_enter(sess.user):
+            with contextlib.suppress(Problem, Unavailable):
+                actor.call(h, sess, "study.setup", rid, "POST", f"/studies/{rid}/subjects/refresh",
+                           {"screening": issued(rid)})  # fmt: skip
         return out
 
     def consent_version_check(sess: Session, rid: str, rec: str, ev: str, values: dict[str, str]) -> list[str]:
@@ -372,7 +376,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             name, media, data = read_export(sess, rs, SUFFIX_FORMAT.get(fmt, fmt))
         except (Problem, Unavailable) as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.post("/studies/{rs}/forms/builtin")

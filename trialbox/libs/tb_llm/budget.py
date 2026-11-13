@@ -6,7 +6,8 @@ put in a prompt from it â€” note excerpts, the full record, an uploaded chart â€
 the gateway refuses a request whose estimate is over the context before it reaches a model (``prompt_too_long``).
 
 The count is an **estimate**, not the model's tokenizer (the judge and the verifier tokenise differently): a CJK
-character is one token, other text four characters per token, rounded up, plus a few tokens per message. Callers
+character is one token, a digit is one token (both tokenizers give every digit its own: measured, D-645), other text
+four characters per token, rounded up, plus a few tokens per message. Callers
 plan with :data:`SAFETY` of the context so that a tokenizer that counts more than the estimate still fits; the
 gateway refuses only what the plain estimate puts over the context, and a server that still answers "too long"
 gives ``prompt_too_long`` too (T-601).
@@ -33,10 +34,11 @@ def _cjk(ch: str) -> bool:
 
 
 def estimate_tokens(text: str) -> int:
-    """CJK characters (and full-width forms, Hangul) one token each; other text four characters per token, rounded
-    up; plus one."""
-    cjk = sum(1 for ch in text if _cjk(ch))
-    return cjk + (len(text) - cjk + 3) // 4 + 1
+    """CJK characters (and full-width forms, Hangul) and digits one token each; other text four characters per
+    token, rounded up; plus one. On the measured set (``tests/fixtures/llm/token_counts_cjk.json``: ja and zh-TW
+    excerpts, the judge's and the verifier's tokenizers) no text has more tokens than this (D-645)."""
+    single = sum(1 for ch in text if _cjk(ch) or "0" <= ch <= "9")
+    return single + (len(text) - single + 3) // 4 + 1
 
 
 def _content(m: Any) -> str:

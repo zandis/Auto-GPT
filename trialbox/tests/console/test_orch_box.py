@@ -4,8 +4,9 @@ orchestrator.
 The console app runs on its real backend (``console.backend.HttpBackend``), bound to the real orchestrator app in
 the production trust configuration (``tests/orch_box.py``): a token registry, the console's own token, the actor
 keys. What the console signs is checked by the route that checks it on a box, so a console that signs the wrong
-role, the wrong studies or nothing fails here. The acceptance of the card: dropping ``scope=`` from the console's
-reveal call fails ``test_a_coordinator_reveals_a_listed_patient`` (shown by the two mutations below).
+role, the wrong studies or nothing fails here. The acceptance of T-714 (dropping ``scope=`` from the console's
+reveal call fails a console test) is, since T-716 made the reveal a v3 claim, the first case of
+``test_a_console_that_signs_something_else_gets_no_chart_number``: the study dropped from the claim.
 Synthetic patients only.
 """
 
@@ -24,6 +25,7 @@ from openpyxl import load_workbook
 from tb_common import service_auth as sa
 from tb_contracts import JobCreate, RegistryPromote
 
+from tests.actor3 import reveal_headers, signer
 from tests.console.test_console_app import ADMIN_PW, CRC_PW, PILOT_ENV, VIEWER_PW, login
 from tests.orch_box import STUDY, OrchBox
 
@@ -68,7 +70,8 @@ def test_a_coordinator_reveals_a_listed_patient(site: dict[str, Any]) -> None:
 
 
 def _drop_in_backend(monkeypatch: pytest.MonkeyPatch, site: dict[str, Any], field: str) -> None:
-    """``console.backend.HttpBackend.reveal`` without ``field=`` in its ``actor_header`` call."""
+    """A ``console.backend.HttpBackend`` call of the older assertion (export, jobs) without ``field=`` in its
+    ``actor_header`` call."""
     from console import backend as cb
 
     real = sa.actor_header
@@ -77,28 +80,38 @@ def _drop_in_backend(monkeypatch: pytest.MonkeyPatch, site: dict[str, Any], fiel
     )
 
 
-def _drop_in_caller(monkeypatch: pytest.MonkeyPatch, site: dict[str, Any], field: str) -> None:
-    """``console.reveal`` calling ``backend.reveal`` without ``field=``."""
-    real = site["backend"].reveal
-    monkeypatch.setattr(
-        site["backend"], "reveal", lambda *a, **kw: real(*a, **{k: v for k, v in kw.items() if k != field})
-    )
+def _mint_with(monkeypatch: pytest.MonkeyPatch, **change: Any) -> None:
+    """The console's one minting place signing something else than it should (T-716: the reveal is a v3 claim)."""
+    from tb_common import actor_v3
+
+    real = actor_v3.mint
+    monkeypatch.setattr(actor_v3, "mint", lambda **kw: real(**{**kw, **change}))  # console.actor calls this
 
 
-@pytest.mark.parametrize("where", [_drop_in_backend, _drop_in_caller], ids=["backend", "caller"])
-@pytest.mark.parametrize(("field", "why"), [("scope", "study scope"), ("role", "role")])
-def test_a_console_that_drops_the_scope_or_the_role_gets_no_chart_number(
-    site: dict[str, Any], monkeypatch: pytest.MonkeyPatch, where: Any, field: str, why: str
+@pytest.mark.parametrize(
+    ("change", "event", "why"),
+    [
+        ({"study": ""}, "screen.reveal_refused", "study scope"),  # T-714's acceptance, in v3: the study dropped
+        ({"study": "OTHER"}, "screen.reveal_refused", "study scope"),
+        ({"role": "viewer"}, "actor.refused", "right"),
+        ({"action": "phi.view"}, "actor.refused", "action"),
+        ({"path": "/jobs/another-job/reveal"}, "actor.refused", "request"),
+        ({"body": {"pid": "f" * 32}}, "actor.refused", "body"),
+    ],
+    ids=["no study", "another study", "another role", "another action", "another job", "another patient"],
+)
+def test_a_console_that_signs_something_else_gets_no_chart_number(
+    site: dict[str, Any], monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], event: str, why: str
 ) -> None:
-    """The card's acceptance as a test of its own: either place the console could lose ``scope=`` (or ``role=``),
-    the real route refuses, the page shows no chart number, and the refusal is on the orchestrator's record."""
+    """Whatever the console's claim gets wrong, the real route refuses, the page shows no chart number, and the
+    refusal is on the orchestrator's record."""
     ob: OrchBox = site["ob"]
     pid = ob.listed()[0]
-    where(monkeypatch, site, field)
+    _mint_with(monkeypatch, **change)
     r = _reveal(site, pid)
     assert r.status_code == 409 and ob.mrn[pid] not in r.text
     assert not ob.events("screen.reveal") and not ob.events("console.reveal_patient")
-    refused = ob.events("screen.reveal_refused")
+    refused = ob.events(event)
     assert len(refused) == 1 and refused[0]["detail"]["reason"] == why and refused[0]["actor"] == "console:crc"
     assert ob.events("console.reveal_refused")[-1]["detail"]["refused"] == "back end"
 
@@ -111,31 +124,36 @@ def test_the_orchestrator_refuses_what_the_console_did_not_check(site: dict[str,
 
     ob: OrchBox = site["ob"]
     bk, job, pids = site["backend"], ob.screen(), ob.listed()
-    for kw, why in (
-        ({"role": "coordinator", "scope": "OTHER"}, "study scope"),
-        ({"role": "viewer", "scope": STUDY}, "role"),
-        ({"role": "admin", "scope": "*"}, "role"),
-        ({"role": "", "scope": STUDY}, "role"),
+    for sign, why in (
+        (signer("OTHER"), "study scope"),
+        (signer(""), "study scope"),
+        (signer(STUDY, role="viewer"), "right"),
+        (signer(STUDY, role="admin"), "right"),
+        (signer(STUDY, role="breakglass"), "right"),  # T-716: the word is no role
+        (signer(STUDY, role="investigator", sub="console:dr"), "delegation"),  # the log names no such PI
     ):
         with pytest.raises(Refused, match=why):
-            bk.reveal(job.job_id, pids[0], "console:crc", purpose="patient", **kw)
+            bk.reveal(job.job_id, pids[0], sign, purpose="patient")
     unlisted = next(p for p in ob.mrn if p not in pids)
     with pytest.raises(Refused, match="not on this job's list"):
-        bk.reveal(job.job_id, unlisted, "console:crc", role="coordinator", scope=STUDY)
+        bk.reveal(job.job_id, unlisted, signer(STUDY))
     register = OptOutRegister()
     register.add(pids[1], "patient", "asked at the desk", "console:stw", "2026-10-05T09:00:00+08:00")
     register.close()
     with pytest.raises(Refused, match="opted out"):
-        bk.reveal(job.job_id, pids[1], "console:crc", role="coordinator", scope=STUDY)
+        bk.reveal(job.job_id, pids[1], signer(STUDY))
     assert not ob.events("screen.reveal")
     # the same call from another service's token, and with a token that signs nothing
-    body, hdr = {"pid": pids[0]}, sa.actor_header("console:crc", role="coordinator", scope=STUDY)
-    r = ob.client("mail-gateway").post(f"/jobs/{job.job_id}/reveal", json=body, headers=hdr)
+    body = {"pid": pids[0]}
+    r = ob.client("mail-gateway").post(
+        f"/jobs/{job.job_id}/reveal", json=body, headers=reveal_headers(STUDY, job.job_id, body)
+    )
     assert r.status_code == 403 and "route_not_allowed" in r.text
-    assert ob.client(None).post(f"/jobs/{job.job_id}/reveal", json=body, headers=hdr).status_code == 401
+    r = ob.client(None).post(f"/jobs/{job.job_id}/reveal", json=body, headers=reveal_headers(STUDY, job.job_id, body))
+    assert r.status_code == 401
     r = ob.client("console").post(f"/jobs/{job.job_id}/reveal", json={**body, "by": "console:crc"})
-    assert r.status_code == 400 and not ob.events("screen.reveal")  # a body field names nobody
-    assert bk.reveal(job.job_id, pids[0], "console:crc", role="coordinator", scope=STUDY) == ob.mrn[pids[0]]
+    assert r.status_code == 403 and not ob.events("screen.reveal")  # a body field names nobody
+    assert bk.reveal(job.job_id, pids[0], signer(STUDY)) == ob.mrn[pids[0]]
 
 
 # ------------------------------------------------------------------------------------------------------- export
@@ -144,7 +162,10 @@ def test_the_screening_log_goes_out_with_chart_numbers_to_a_signed_coordinator_o
 ) -> None:
     ob: OrchBox = site["ob"]
     pids = ob.listed()
-    assert site["backend"].registry_promote(STUDY, RegistryPromote(by="console:crc")) >= 1
+    from tests.actor3 import signer
+
+    as_crc = signer(STUDY, action="request.prepare")  # T-715b (D-550): the registry takes its person from this
+    assert site["backend"].registry_promote(STUDY, RegistryPromote(by="console:crc"), as_crc) >= 1
     c, _ = login(site["app"], "crc", CRC_PW)
     r = c.get(f"/pilot/registry/{STUDY}/export.xlsx?reason=contact")
     assert r.status_code == 200, r.text[-300:]
@@ -183,10 +204,12 @@ def test_a_console_job_is_authorised_by_the_signed_role(site: dict[str, Any], mo
     assert made and made[0]["detail"]["by"] == "console:crc" and made[0]["detail"]["role"] == "coordinator"
     with pytest.raises(Refused, match="the viewer role may not run FEAS"):
         bk.create_job(req, by="console:viewer", role="viewer")
-    with pytest.raises(Refused, match="nobody@hospa.test is not permitted to run FEAS"):
+    # D-555: the refusal says "this sender", not the address it was sent
+    with pytest.raises(Refused, match="this sender is not permitted to run FEAS") as said:
         bk.create_job(req)  # no person: the mailbox rules of the settings
+    assert "nobody@hospa.test" not in str(said.value)
     _drop_in_backend(monkeypatch, site, "role")  # a console that loses role= in create_job
-    with pytest.raises(Refused, match="nobody@hospa.test is not permitted"):
+    with pytest.raises(Refused, match="this sender is not permitted"):
         bk.create_job(req, by="console:crc", role="coordinator")
     with pytest.raises(Refused, match="internal_principal"):
         bk.create_job(JobCreate(type="FEAS", ruleset=STUDY, requested_by="scheduler", options={}))  # D-464
@@ -200,7 +223,7 @@ def test_the_box_is_the_production_configuration(orch_box: OrchBox) -> None:
     assert orch_box.client(None).get("/jobs").status_code == 401
     assert orch_box.client("console").get("/jobs").status_code == 200
     assert orch_box.client("lake").get("/jobs").status_code == 403
-    forged = sa.actor_header("console:crc", role="coordinator", scope="*")
+    forged = reveal_headers(STUDY, job.job_id, {"pid": orch_box.listed()[0]})
     head, _, mac = forged[sa.ASSERTION_HEADER].rpartition(".")
     forged[sa.ASSERTION_HEADER] = f"{head}.{'0' * len(mac)}"
     r = orch_box.client("console").post(

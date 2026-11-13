@@ -27,6 +27,7 @@ from typing import Any
 from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 
 from edc import cdash
+from tb_common import sheets
 
 from datacore.forms import LANGS, XML_ILLEGAL, Field, fields_of, titles_of, xml_text
 from datacore.lifecycle import Lifecycle, live_steps
@@ -137,6 +138,7 @@ def xlsx(dc: DataCore, study: str) -> bytes:
     md.append(list(meta[0]) if meta else [])
     for m in meta:
         md.append(list(m.values()))
+    sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed value that begins with = stays text
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

@@ -63,13 +63,17 @@ def orch_client(app: Any) -> Any:
         own = {name: secrets.token_hex(16) for name in OWN_TOKENS}
         services = {"console": sa.token_hash(tok), **{name: sa.token_hash(t) for name, t in own.items()}}
         reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": services}), encoding="utf-8")
-        keys.write_text(sa.actor_key(tok).hex() + "\n", encoding="utf-8")
+        # T-717 (D-485): the console's signing key is its own random secret, as on a box
+        sign = d / "actor-sign.key"
+        sign.write_text(secrets.token_hex(32) + "\n", encoding="utf-8")
+        keys.write_text(sign.read_text(encoding="utf-8"), encoding="utf-8")
         for name, t in own.items():
             _token_file(reg, name).write_text(t + "\n", encoding="utf-8")
-        for f in (reg, keys, *(_token_file(reg, name) for name in own)):
+        for f in (reg, keys, sign, *(_token_file(reg, name) for name in own)):
             f.chmod(0o600)
         os.environ[sa.REGISTRY_ENV] = str(reg)
         os.environ.setdefault(sa.ACTOR_KEYS_ENV, str(keys))
+        os.environ.setdefault(sa.ACTOR_SIGN_KEY_ENV, str(sign))
     return TestClient(app, headers=auth_headers())
 
 
@@ -103,10 +107,14 @@ class InprocBackend:
         self.cfg = box.orch.cfg  # the site time zone for user-facing times (console.timefmt)
 
     # jobs
-    def list_jobs(self, limit: int = 100) -> list[Any]:
+    def waiting_studies(self) -> list[str]:
+        return [str(s) for s in self.c.get("/jobs/waiting-studies").json()]
+
+    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Any]:
         from tb_contracts import Job
 
-        return [Job.model_validate(j) for j in self.c.get(f"/jobs?limit={limit}").json()]
+        q = f"/jobs?limit={limit}" + (f"&state={state}" if state else "")
+        return [Job.model_validate(j) for j in self.c.get(q).json()]
 
     def get_job(self, job_id: str) -> Any:
         from tb_contracts import Job
@@ -170,6 +178,11 @@ class InprocBackend:
 
         return read_audit(self.box.audit_dir, job_id, limit)
 
+    def recheck_share(self, job_id: str) -> dict[str, Any] | None:
+        from console.backend import read_recheck_share
+
+        return read_recheck_share(self.box.audit_dir, job_id)
+
     def rulesets(self) -> list[Any]:
         from console.backend import ruleset_infos
 
@@ -207,12 +220,14 @@ class InprocBackend:
         return str(self.box.mail(subject, tuple(files), sender=sender))
 
     # registry
-    def _call(self, method: str, path: str, body: Any = None) -> Any:
+    def _call(self, method: str, path: str, body: Any = None, sign: Any = None) -> Any:
         from console.backend import Refused
         from tb_contracts import dump
 
-        r = self.c.get(path) if method == "GET" else self.c.post(path, json=dump(body) if body is not None else None)
-        if r.status_code in (400, 404, 422):
+        payload = body if body is None or isinstance(body, dict) else dump(body)
+        headers = sign(method, path, payload) if sign else None
+        r = self.c.get(path) if method == "GET" else self.c.post(path, json=payload, headers=headers)
+        if r.status_code in (400, 403, 404, 422, 429):
             raise Refused(str(r.json().get("detail")))
         return r.json()
 
@@ -226,13 +241,16 @@ class InprocBackend:
 
         return [RegistryEntry.model_validate(r) for r in self._call("GET", f"/registry/{ruleset}")]
 
-    def registry_update(self, ruleset: str, upd: Any) -> Any:
+    def registry_update(self, ruleset: str, upd: Any, sign: Any) -> Any:
+        from console.backend import registry_update_body
         from tb_contracts import RegistryEntry
 
-        return RegistryEntry.model_validate(self._call("POST", f"/registry/{ruleset}", upd))
+        return RegistryEntry.model_validate(self._call("POST", f"/registry/{ruleset}", registry_update_body(upd), sign))
 
-    def registry_promote(self, ruleset: str, req: Any) -> int:
-        return int(self._call("POST", f"/registry/{ruleset}/promote", req)["added"])
+    def registry_promote(self, ruleset: str, req: Any, sign: Any) -> int:
+        from console.backend import registry_promote_body
+
+        return int(self._call("POST", f"/registry/{ruleset}/promote", registry_promote_body(req), sign)["added"])
 
     def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes:
         from console.backend import Refused
@@ -242,13 +260,13 @@ class InprocBackend:
             raise Refused(r.text[:200])
         return bytes(r.content)
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
-               reason: str = "") -> str | None:  # fmt: skip
+    def reveal(self, job_id: str, pid: str, sign: Any, purpose: str = "", reason: str = "") -> str | None:
         from console.backend import Refused
 
         # T-103 (D-438): the purpose and reason travel to the orchestrator's record, as from HttpBackend
+        path = f"/jobs/{job_id}/reveal"
         body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
-        r = self.c.post(f"/jobs/{job_id}/reveal", json=body, headers=actor_header(by, role=role, scope=scope))
+        r = self.c.post(path, json=body, headers=sign("POST", path, body))  # T-716: the console's own assertion
         if r.status_code == 404:
             return None
         if r.status_code != 200:
@@ -338,10 +356,18 @@ def seed_activity(work: Path, bk: InprocBackend) -> None:
     ]
     for m in marks:
         store.mark("GZQO", m)
+
+    def as_crc(method: str, path: str, body: Any) -> dict[str, str]:
+        """T-715b (D-550): the registry takes its person from a signed claim; the demo's coordinator seeds it."""
+        from tb_common import actor_v3
+
+        return {actor_v3.HEADER: actor_v3.mint(sub="console:crc", role="coordinator", action="request.prepare",
+                                               method=method, path=path, body=body, study="GZQO")}  # fmt: skip
+
     try:
-        bk.registry_promote("GZQO", RegistryPromote(by="crc"))
-        bk.registry_update("GZQO", RegistryUpdate(pid=pids[4], status="contacted", by="crc"))
-        bk.registry_update("GZQO", RegistryUpdate(pid=pids[5], status="consented", by="crc"))
+        bk.registry_promote("GZQO", RegistryPromote(by="crc"), as_crc)
+        bk.registry_update("GZQO", RegistryUpdate(pid=pids[4], status="contacted", by="crc"), as_crc)
+        bk.registry_update("GZQO", RegistryUpdate(pid=pids[5], status="consented", by="crc"), as_crc)
     except Exception as exc:
         print(f"demo registry seed skipped: {exc}")
 

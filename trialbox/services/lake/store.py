@@ -38,6 +38,7 @@ import re
 import shutil
 import threading
 import time
+import traceback
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -99,6 +100,11 @@ def schema_sha() -> str:
     """Fingerprint of the table layout this code writes (every table, column and type, and the chunk table)."""
     body = json.dumps({"tables": SCHEMAS, "document_chunk": CHUNK_COLUMNS, "v": LAKE_SCHEMA_VERSION}, sort_keys=True)
     return sha256_text(body)
+
+
+class LakeSaid(ValueError):
+    """A refusal in the lake's own words (D-664): a sentence written here, with a snapshot's name and no value of a
+    row. Passed on whole where an error's text is otherwise withheld."""
 
 
 class LakeSchemaError(RuntimeError):
@@ -163,26 +169,132 @@ def lake_lock(lake_dir: Path) -> Iterator[None]:
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
-@contextlib.contextmanager
-def building(lake_dir: Path, snapshot: str) -> Iterator[None]:
+class BuildLock:
     """The one rebuild of ``snapshot`` that runs (D-462): an exclusive ``flock`` on ``locks/<snapshot>.build.lock``
     held for the whole build and taken without waiting; a second rebuild of the snapshot gets
     :class:`SnapshotBuilding`. The file is never deleted: a deleted file would let a second holder in (the pruning
-    takes this lock too, without waiting, and leaves a snapshot that is building alone)."""
-    locks = lake_dir / "locks"
-    locks.mkdir(parents=True, exist_ok=True)
-    with (locks / f"{snapshot}.build.lock").open("a") as fh:
+    takes this lock too, without waiting, and leaves a snapshot that is building alone).
+
+    D-539: the lock belongs to the open file, so a build that runs as a process of its own is handed the open file
+    (:meth:`fileno`, inherited by the child; :meth:`adopt` there) and the starter lets go of its end without
+    unlocking (:meth:`hand_over`). The kernel frees the lock when the last process holding the file ends, however
+    it ends."""
+
+    def __init__(self, lake_dir: Path, snapshot: str) -> None:
+        locks = lake_dir / "locks"
+        locks.mkdir(parents=True, exist_ok=True)
+        self._fh: Any = (locks / f"{snapshot}.build.lock").open("a")
         try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            self._fh.close()
+            self._fh = None
             raise SnapshotBuilding(
                 f"lake snapshot {snapshot} is already building (another rebuild of it runs); nothing built, "
                 "CURRENT unchanged"
             ) from None
+
+    @classmethod
+    def adopt(cls, fd: int, lake_dir: Path, snapshot: str) -> BuildLock:
+        """The lock a starter handed to this process as an open file. The file must be the snapshot's lock file
+        (the same file, by device and inode), and the lock is asked for again on it, which the kernel grants only
+        when this open file holds it or nobody does. Anything else is refused: a build never runs without its
+        lock."""
+        lock = cls.__new__(cls)
+        lock._fh = os.fdopen(fd, "a")
         try:
-            yield
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            want = (lake_dir / "locks" / f"{snapshot}.build.lock").stat()
+            got = os.fstat(fd)
+            if (got.st_dev, got.st_ino) != (want.st_dev, want.st_ino):
+                raise SnapshotBuilding(f"the file handed to this process is not the build lock of {snapshot}")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise SnapshotBuilding("the build lock handed to this process is held by another build") from None
+        except BaseException:
+            lock._fh.close()
+            lock._fh = None
+            raise
+        return lock
+
+    def fileno(self) -> int:
+        return int(self._fh.fileno())
+
+    def hand_over(self) -> None:
+        """Let go of this process's end without unlocking: the process that inherited the file holds the lock."""
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+    def release(self) -> None:
+        if self._fh is not None:
+            try:
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+            finally:
+                self._fh.close()
+                self._fh = None
+
+
+@contextlib.contextmanager
+def building(lake_dir: Path, snapshot: str) -> Iterator[None]:
+    """:class:`BuildLock` for the length of a block."""
+    lock = BuildLock(lake_dir, snapshot)
+    try:
+        yield
+    finally:
+        lock.release()
+
+
+#: the two engine sentences callers read ("this lake has no such table or column": the cascade, the opt-out reader),
+#: with the name an identifier, which is what a caller wrote. Nothing else of the engine's text is ever sent: its
+#: other sentences repeat literals of the query and, after a PIVOT, values of rows as column names
+_PASSED_ON = (
+    re.compile(r"Catalog Error: Table with name [A-Za-z_][A-Za-z0-9_.]* does not exist!"),
+    re.compile(r'Binder Error: Referenced column "[A-Za-z_][A-Za-z0-9_]*" not found in FROM clause!'),
+)
+_KIND = re.compile(r"[A-Z][A-Za-z ]{2,40} Error")
+
+
+def error_kind(exc: BaseException) -> str:
+    """The engine's own name for the kind of error ("Conversion Error"), or "": the words before its first colon,
+    never what follows."""
+    head = str(exc).split(":", 1)[0].strip()
+    return head if _KIND.fullmatch(head) else ""
+
+
+def error_answer(exc: BaseException, what: str = "query") -> str:
+    """What the lake says of a query or a build that failed (NEW-B-23, D-664; ``/query``'s 422, a rebuild job's
+    ``failed`` detail): never a value of a row, never the query's own text. The answer travels: into a job's
+    failure, its mail, the audit log.
+
+    * the lake's own refusals (``LAKE-LIMIT``, ``LAKE-STALE``, ``LAKE-SCHEMA``, :class:`LakeSaid`: sentences
+      written here): whole;
+    * the two engine sentences callers read (:data:`_PASSED_ON`): as they are, without what the engine adds under
+      them;
+    * a build that the operating system stopped (no space left, a file that cannot be read): the system's own
+      words for it, without the file's name;
+    * everything else: the error's type and a fixed sentence (``LAKE-QUERY``, ``LAKE-BUILD``). The engine's message
+      is neither sent nor logged: it can hold a value with or without quotation marks. The log has the type, the
+      kind and, for a build, where it failed."""
+    name = type(exc).__name__
+    if isinstance(exc, (LakeLimitError, LakeSchemaError, StaleSnapshotError, LakeSaid)):
+        return f"{name}: {str(exc)[:500]}"
+    first = str(exc).splitlines()[0] if str(exc) else ""
+    if any(shape.fullmatch(first) for shape in _PASSED_ON):
+        return f"{name}: {first}"
+    if what == "build":
+        if isinstance(exc, OSError) and exc.strerror:
+            return f"{name}: LAKE-BUILD: the lake could not build the snapshot: {exc.strerror}"
+        return (
+            f"{name}: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of "
+            "a row and is not sent; the lake's log says where the build failed"
+        )
+    kind = error_kind(exc)
+    log.warning("lake query failed: %s%s", name, f" ({kind})" if kind else "")
+    return (
+        f"{name}: LAKE-QUERY: the lake's engine could not run the query. Its own message can hold a value of a row "
+        "and is neither sent nor logged; run the query on the box to read it"
+    )
 
 
 # ------------------------------------------------------------------ rebuilds as polled jobs (T-690, D-472)
@@ -211,6 +323,12 @@ def _read_job(lake_dir: Path, snapshot: str) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return body if isinstance(body, dict) else None
+
+
+def read_rebuild_job(lake_dir: Path, snapshot: str) -> dict[str, Any] | None:
+    """The job's state file as written (no judgement of a ``running`` job whose process is gone: that is
+    :meth:`Lake.rebuild_state`)."""
+    return _read_job(lake_dir, snapshot)
 
 
 def build_running(lake_dir: Path, snapshot: str) -> bool:
@@ -289,16 +407,18 @@ def drop_reader_links(lake_dir: Path, snapshot: str) -> int:
 
 
 def _is_held(lake_dir: Path, snapshot: str) -> bool:
-    """A built snapshot a running job holds (call under :func:`lake_lock`)."""
-    return (lake_dir / "db" / f"{snapshot}.duckdb").exists() and snapshot in held_snapshots(lake_dir).values()
+    """A built snapshot a holder holds *by its date* (call under :func:`lake_lock`): it is not rebuilt. A hold on a
+    generation (T-724, D-490: a job's pin) does not count: a rebuild makes the next generation beside it."""
+    if not (lake_dir / "db" / f"{snapshot}.duckdb").exists():
+        return False
+    return any(snap == snapshot and gen is None for snap, gen in _holds(lake_dir).values())
 
 
-def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
-    """``holder -> snapshot`` of every live hold on the lake in ``lake_dir`` (T-305b, D-403). A hold older than
-    :data:`HOLD_TTL_SECONDS` or unreadable is left out (a job that died holds nothing). The adapter's pruning and
-    every rebuild read this; it needs no lake service."""
+def _holds(lake_dir: Path, now: float | None = None) -> dict[str, tuple[str, str | None]]:
+    """``holder -> (snapshot date, generation or None)`` of every live hold (a hold older than
+    :data:`HOLD_TTL_SECONDS` or unreadable is left out: a job that died holds nothing)."""
     now = time.time() if now is None else now
-    out: dict[str, str] = {}
+    out: dict[str, tuple[str, str | None]] = {}
     for f in sorted(_holds_dir(lake_dir).glob("*.json")):
         try:
             body = json.loads(f.read_text(encoding="utf-8"))
@@ -306,8 +426,62 @@ def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
         except (OSError, ValueError, KeyError, TypeError):
             continue
         if now - at <= HOLD_TTL_SECONDS:
-            out[f.stem] = snap
+            out[f.stem] = (snap, str(body["generation"]) if body.get("generation") else None)
     return out
+
+
+def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
+    """``holder -> snapshot`` (the date) of every live hold on the lake in ``lake_dir`` (T-305b, D-403), whether the
+    holder holds the date or one of its generations. The adapter's pruning and every rebuild read this; it needs no
+    lake service."""
+    return {h: snap for h, (snap, _) in _holds(lake_dir, now).items()}
+
+
+def held_generations(lake_dir: Path, now: float | None = None) -> dict[str, str]:
+    """``holder -> generation`` of the live holds that pin a generation (T-724, D-490)."""
+    return {h: gen for h, (_, gen) in _holds(lake_dir, now).items() if gen}
+
+
+# ------------------------------------------------------------------------------------------ generations (T-724)
+GEN_ID = re.compile(r"^(?P<snap>[^/\\]+)\.g(?P<seq>[1-9][0-9]*)$")
+GENERATION_HEADER = "X-TB-Lake-Generation"  # over HTTP the generation's number travels beside the request's date
+
+
+def gen_dir(lake_dir: Path) -> Path:
+    """Where the generations' files and records are (under ``db``, so the lake's top-level entries are unchanged)."""
+    return lake_dir / "db" / "gen"
+
+
+def split_generation(name: str) -> tuple[str, int | None]:
+    """``"2026-10-04.g3" -> ("2026-10-04", 3)``; a plain date gives ``(date, None)``."""
+    m = GEN_ID.match(name)
+    return (m["snap"], int(m["seq"])) if m else (name, None)
+
+
+def site_digest(lake_dir: Path) -> str:
+    """A hash of the site's own inputs as the lake holds them (``site/*.ndjson``: names and bytes); ``""`` when it
+    holds none. A generation's record keeps the hash it was built with (T-724: the site publish reads it to know
+    whether the served generation holds its facts)."""
+    h, n = hashlib.sha256(), 0
+    for f in sorted((lake_dir / "site").glob("*.ndjson")):
+        h.update(f.name.encode() + b"\0" + f.read_bytes() + b"\0")
+        n += 1
+    return h.hexdigest() if n else ""
+
+
+def generation_records(lake_dir: Path, snapshot: str) -> list[dict[str, Any]]:
+    """The generations of ``snapshot`` that exist (file and record), oldest first."""
+    out: list[dict[str, Any]] = []
+    for rec in gen_dir(lake_dir).glob(f"{snapshot}.g*.json"):
+        if split_generation(rec.stem) == (snapshot, None) or not rec.with_suffix(".duckdb").exists():
+            continue
+        try:
+            body = json.loads(rec.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(body, dict) and body.get("snapshot") == snapshot:
+            out.append(body)
+    return sorted(out, key=lambda b: int(b.get("seq") or 0))
 
 
 class StaleSnapshotError(RuntimeError):
@@ -317,7 +491,8 @@ class StaleSnapshotError(RuntimeError):
 
 def snapshot_age_days(snapshot: str, today: date) -> int:
     """Whole days from the night ``snapshot`` holds (its name, ``YYYY-MM-DD``) to ``today``; a snapshot named after a
-    later day (a box whose clock is pinned behind the feed) is 0 days old."""
+    later day is 0 days old (:func:`check_snapshot_age` refuses it first, D-529, unless ``TB_TODAY`` pins the box's
+    day behind its feed: the test stack)."""
     try:
         night = date.fromisoformat(snapshot)
     except ValueError:
@@ -329,7 +504,20 @@ def snapshot_age_days(snapshot: str, today: date) -> int:
 
 def check_snapshot_age(snapshot: str, today: date, max_age_days: int) -> int | None:
     """The snapshot's age in days, or :class:`StaleSnapshotError` when it is more than ``max_age_days`` old.
-    ``max_age_days`` 0 means no check (None is returned). Pinned jobs are checked once, when they pin (D-383)."""
+    ``max_age_days`` 0 means no age check (None is returned). A snapshot dated after ``today`` is refused whatever
+    the limit (D-529). Pinned jobs are checked once, when they pin (D-383)."""
+    try:
+        night: date | None = date.fromisoformat(snapshot)
+    except ValueError:
+        night = None  # not named after a night: snapshot_age_days says so when the age is asked
+    if night is not None and night > today and not os.environ.get("TB_TODAY", "").strip():
+        # NEW-PERF-3 (D-529; PERF-009): not an age, so not the age limit's to switch off. It counted as 0 days old
+        # (and still does where TB_TODAY pins the box's day: the test stack's day is behind its feed on purpose)
+        raise StaleSnapshotError(
+            f"LAKE-STALE: the served lake snapshot is {snapshot}, dated after today ({today.isoformat()}). A night "
+            "with a wrong date was published: no later night can be served over it. Check the box's clock and the "
+            "adapter's last runs (trialbox doctor); the night must be removed before lists are built again."
+        )
     if max_age_days <= 0:
         return None
     age = snapshot_age_days(snapshot, today)
@@ -461,6 +649,7 @@ class RebuildStats:
     embedded_new: int
     seconds: float
     promoted: bool = True  # False: built but not made CURRENT (not asked, or older than CURRENT: DATA-007)
+    generation: str = ""  # T-724 (D-490): the generation this rebuild made, "<snapshot>.g<n>"
 
 
 CGROUP_MEMORY_MAX = Path("/sys/fs/cgroup/memory.max")  # cgroup v2: the container's cap (compose mem_limit)
@@ -587,18 +776,167 @@ class Lake:
         return snap
 
     # ------------------------------------------------------------------ holds (T-305b, D-403)
-    def hold(self, snapshot: str, holder: str) -> None:
-        """``holder`` (a job id) reads ``snapshot`` until :meth:`release`: the snapshot is neither rebuilt
-        (:class:`SnapshotHeld`) nor pruned meanwhile. Holding again refreshes the hold's time."""
+    def hold(self, snapshot: str, holder: str, pin: bool = False) -> str:
+        """``holder`` (a job id) reads ``snapshot`` until :meth:`release`. Holding again refreshes the hold's time.
+
+        Without ``pin`` the holder holds the *date*: it is neither rebuilt (:class:`SnapshotHeld`) nor pruned
+        meanwhile (D-403, D-462); the date is returned.
+
+        With ``pin`` (T-724, D-490: a job) the holder pins a *generation*: the date's newest one, resolved here under
+        the lake lock, or the generation ``snapshot`` names (a job started again). That generation's file is not
+        deleted while the hold lives and its date is not pruned; a rebuild of the date is not refused, it makes the
+        next generation beside it. The generation is returned: the job names it in every read."""
         if not _HOLDER.match(holder):
             raise ValueError(f"lake hold: {holder!r} is not a job id")
         with lake_lock(self.dir):  # D-462: never between a rebuild's last hold check and its swap
-            self.db_path(snapshot)
+            snap, seq = split_generation(snapshot)
+            gen: str | None = None
+            if pin:
+                gen = snapshot if seq is not None else self._newest_generation(snap, adopt=True)
+                self.db_path(gen)
+            else:
+                self.db_path(snapshot)
             d = _holds_dir(self.dir)
             d.mkdir(parents=True, exist_ok=True)
             tmp = d / f".{holder}.tmp"
-            tmp.write_text(json.dumps({"snapshot": snapshot, "holder": holder, "at": time.time()}), encoding="utf-8")
+            body = {"snapshot": snap if pin else snapshot, "holder": holder, "at": time.time()}
+            if gen is not None:
+                body["generation"] = gen
+            tmp.write_text(json.dumps(body), encoding="utf-8")
             tmp.replace(d / f"{holder}.json")
+        return gen or snapshot
+
+    # ------------------------------------------------------------------ generations (T-724, D-490)
+    def generations(self, snapshot: str) -> list[dict[str, Any]]:
+        """The generations of the date ``snapshot`` on the box, oldest first: ``generation``, ``snapshot``, ``seq``,
+        ``cause``, ``sha256`` (the lake's hash) and ``built_at``."""
+        return generation_records(self.dir, snapshot)
+
+    def site_in_sync(self, snapshot: str | None = None) -> bool | None:
+        """Whether the generation the date ``snapshot`` (default ``CURRENT``) names was built with the site's own
+        inputs the lake holds now (T-724; D-462's guess, verified: a night built before a site publish's
+        ``put_site`` and promoted after it serves a lake without those facts). None: not known (no snapshot, a date
+        built before generations, or a generation adopted from one)."""
+        snap = snapshot or self.current()
+        if not snap:
+            return None
+        try:
+            gen = self.generation(snap)
+        except FileNotFoundError:
+            return None
+        rec = next((r for r in generation_records(self.dir, snap) if r.get("generation") == gen), None)
+        if rec is None or "site" not in rec:
+            return None
+        return bool(rec["site"] == site_digest(self.dir))
+
+    def generation(self, snapshot: str | None = None) -> str | None:
+        """The generation the date ``snapshot`` (default ``CURRENT``) names now, or None for a date built before
+        generations (it gets one at its next rebuild, or when a job pins it)."""
+        snap = snapshot or self.current()
+        return self._newest_generation(snap, adopt=False) if snap else None
+
+    def _newest_generation(self, snapshot: str, adopt: bool) -> str | None:
+        """The generation whose file the date's alias is. Not "the highest number": a swap cut short between the
+        generation's file and the alias leaves the date on the generation it had. ``adopt`` (under the lake lock):
+        a date built before generations is given generation 1, the file it has."""
+        alias = self.dir / "db" / f"{snapshot}.duckdb"
+        if not alias.exists():
+            raise FileNotFoundError(f"no lake snapshot {snapshot}")
+        recs = generation_records(self.dir, snapshot)
+        ino = alias.stat().st_ino
+        digest: str | None = None
+        for rec in reversed(recs):
+            path = gen_dir(self.dir) / f"{rec['generation']}.duckdb"
+            if path.stat().st_ino == ino:
+                return str(rec["generation"])
+        for rec in reversed(recs):  # no hard links here: the alias is a copy; tell it by the lake's hash
+            digest = digest or _file_sha(alias)
+            if rec.get("sha256") == digest:
+                return str(rec["generation"])
+        if not adopt:
+            return None
+        digest = digest or _file_sha(alias)
+        for rec_path in sorted(gen_dir(self.dir).glob(f"{snapshot}.g*.json"), reverse=True):
+            # a record without its file whose hash is the date's: the box was restored (the backup keeps the records,
+            # not the files). The date's bytes get the name they had, never a number that named other bytes
+            try:
+                body = json.loads(rec_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            path = rec_path.with_suffix(".duckdb")
+            if isinstance(body, dict) and body.get("sha256") == digest and not path.exists():
+                try:
+                    os.link(alias, path)
+                except OSError:
+                    shutil.copyfile(alias, path)
+                return str(body["generation"])
+        return self._write_generation(snapshot, alias, digest, "adopted", link_from_alias=True)
+
+    def _write_generation(
+        self, snapshot: str, built: Path, digest: str, cause: str, link_from_alias: bool, site: str | None = None
+    ) -> str:
+        """Give ``built`` its place as the next generation of ``snapshot`` and write its record (call under
+        :func:`lake_lock`). ``link_from_alias``: ``built`` is the date's own file (an adopted date): the generation
+        is a link to it. Else ``built`` is a finished build: it is moved in. Returns the generation's name."""
+        gdir = gen_dir(self.dir)
+        gdir.mkdir(parents=True, exist_ok=True)
+        # numbered after every file and every record there is: a record outlives its file (a restore brings the
+        # records only; the newest record stays at a sweep), so a number is never given twice (review of #318)
+        seqs = [
+            split_generation(p.stem)[1] or 0 for p in gdir.glob(f"{snapshot}.g*") if p.suffix in (".duckdb", ".json")
+        ]
+        gen = f"{snapshot}.g{max(seqs, default=0) + 1}"
+        path = gdir / f"{gen}.duckdb"
+        if link_from_alias:
+            try:
+                os.link(built, path)
+            except OSError:
+                shutil.copyfile(built, path)
+        else:
+            built.replace(path)
+        rec = {
+            "generation": gen,
+            "snapshot": snapshot,
+            "seq": split_generation(gen)[1],
+            "cause": cause,
+            "sha256": digest,
+            "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        if site is not None:  # the site's inputs this generation was built with (None: not known, an adopted date)
+            rec["site"] = site
+        tmp = gdir / f".{gen}.json.tmp"
+        tmp.write_text(json.dumps(rec, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.replace(gdir / f"{gen}.json")
+        return gen
+
+    def _point_alias(self, snapshot: str, gen: str) -> None:
+        """Make the date's file the generation ``gen``, atomically: a hard link, or a copy where there are none."""
+        alias = self.dir / "db" / f"{snapshot}.duckdb"
+        tmp = alias.with_name(f"{snapshot}.duckdb.alias")
+        tmp.unlink(missing_ok=True)
+        src = gen_dir(self.dir) / f"{gen}.duckdb"
+        try:
+            os.link(src, tmp)
+        except OSError as exc:
+            log.warning("lake: no hard link for %s (%s); the date's file is a copy of its generation", gen, exc)
+            shutil.copyfile(src, tmp)
+        tmp.replace(alias)
+
+    def _drop_generations(self, snapshot: str, keep: str) -> list[str]:
+        """Delete every generation of ``snapshot`` that is neither ``keep`` (the newest) nor held, and the leftovers
+        of a swap cut short (a file with no record, a record with no file). Call under :func:`lake_lock`."""
+        held = set(held_generations(self.dir).values()) | {keep}
+        gone: list[str] = []
+        for f in sorted(gen_dir(self.dir).glob(f"{snapshot}.g*")):
+            gen = f.name.split(".duckdb")[0].removesuffix(".json")
+            if split_generation(gen)[0] != snapshot or gen in held:
+                continue
+            if f.suffix == ".json" and (split_generation(gen)[1] or 0) > (split_generation(keep)[1] or 0):
+                continue  # a record newer than the kept generation: the numbering goes on from it
+            f.unlink(missing_ok=True)
+            if gen not in gone:
+                gone.append(gen)
+        return gone
 
     def release(self, holder: str) -> bool:
         """End ``holder``'s hold; False when it held nothing."""
@@ -621,6 +959,11 @@ class Lake:
         snap = snapshot or self.current()
         if not snap:
             raise FileNotFoundError("lake has no snapshot yet (run adapter / rebuild)")
+        if split_generation(snap)[1] is not None:  # T-724 (D-490): a generation, never the date's newest in its place
+            path = gen_dir(self.dir) / f"{snap}.duckdb"
+            if not path.exists() or not path.with_suffix(".json").exists():
+                raise FileNotFoundError(f"no lake generation {snap} (it is gone, or was never built)")
+            return path
         path = self.dir / "db" / f"{snap}.duckdb"
         if not path.exists():
             raise FileNotFoundError(f"no lake snapshot {snap}")
@@ -715,6 +1058,7 @@ class Lake:
         ndjson_dir: Path | None = None,
         promote: bool = True,
         allow_empty: bool = False,
+        cause: str | None = None,
         check: bool = False,
     ) -> RebuildStats:
         """Build ``db/<snapshot>.duckdb`` (into ``.building``, renamed when complete, with ``.sha256`` sidecars) and,
@@ -735,28 +1079,37 @@ class Lake:
         files and swapped in under :func:`lake_lock` after the holds are read again: a snapshot a job came to hold
         during the build is refused there (:class:`SnapshotHeld`) and its bytes stay as the job pinned them."""
         with building(self.dir, snapshot):
-            return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, check)
+            return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, cause=cause, check=check)
 
-    def promote_built(self, snapshot: str) -> bool:
+    def promote_built(self, snapshot: str, generation: str | None = None) -> bool:
         """T-723 (D-489): make the built ``snapshot`` the served one, as the last step of a publish. False, and
         nothing changed, when a newer night is served (the box never moves back in time: DATA-007). Under the lake's
-        lock, so two publishes cannot cross."""
+        lock, so two publishes cannot cross. ``generation`` (review of #318): the generation the caller built; when
+        the date names another one now (it was built again meanwhile), ValueError and nothing is promoted."""
         with lake_lock(self.dir):
             cur = self.current()
             if cur is not None and snapshot < cur:
                 return False
+            if generation is not None:
+                has = self._newest_generation(snapshot, adopt=False)
+                if has != generation:
+                    raise LakeSaid(
+                        f"lake snapshot {snapshot} is {has or 'not a generation'} now, not {generation}: it was "
+                        "built again since; nothing is promoted"
+                    )
             self.promote(snapshot)
             return True
 
     def start_rebuild(
         self,
         snapshot: str,
-        embedder: Embedder,
+        embedder: Embedder | None,
         ndjson_dir: Path | None = None,
         promote: bool = True,
         allow_empty: bool = False,
         spawn: Any = None,
         check: bool = False,
+        launch: Any = None,
     ) -> dict[str, Any]:
         """Start a rebuild of ``snapshot`` as a job and answer its state (T-690, D-472): the lake service's 202.
 
@@ -764,9 +1117,11 @@ class Lake:
         snapshot runs (:class:`SnapshotBuilding`), a job holds it (:class:`SnapshotHeld`), its NDJSON folder is
         missing (:class:`RebuildError`). The build itself runs in ``spawn`` (the service: a thread; default: here,
         so an in-process lake answers the job's end), holding the build lock taken here, and records its end in the
-        job's state (:meth:`rebuild_state`). No time limit: the job runs as long as the build does (OD-10)."""
-        lock = contextlib.ExitStack()
-        lock.enter_context(building(self.dir, snapshot))
+        job's state (:meth:`rebuild_state`). No time limit: the job runs as long as the build does (OD-10).
+
+        With ``launch`` (D-539; the service on a box) the build is not run here at all: ``launch(job, lock_fd)``
+        starts a process that inherits the build lock's open file and runs :meth:`run_rebuild_job`."""
+        lock = BuildLock(self.dir, snapshot)
         try:
             with lake_lock(self.dir):
                 if _is_held(self.dir, snapshot):
@@ -787,31 +1142,72 @@ class Lake:
             }
             write_rebuild_job(self.dir, job)
         except BaseException:
-            lock.close()
+            lock.release()
             raise
 
+        if launch is not None:
+            # D-539: the build is another process's. It inherits the lock's open file; this process lets go of its
+            # end. A process that could not be started is the job's end (``failed``), and the snapshot is free
+            try:
+                launch(job, lock.fileno())
+            except Exception as exc:
+                log.exception("the build process of %s could not be started", snapshot)
+                why = f"the build's process could not be started ({type(exc).__name__})"
+                write_rebuild_job(self.dir, {**job, "state": "failed", "detail": why, "ended": time.time()})
+            # this end is closed and never unlocked, started or not: an unlock here would take the lock from a child
+            # that shares the open file. With no child, closing the last end frees the lock (the kernel's rule)
+            lock.hand_over()
+            return self.rebuild_state(snapshot)
+
+        if embedder is None:
+            lock.release()
+            raise ValueError("a rebuild that runs here needs its embedder (only a launched build brings its own)")
+
         def run() -> None:
-            with lock:
-                end: dict[str, Any] = {}
-                try:
-                    st = self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, check)
-                    end = {"state": "done", "result": {"snapshot": st.snapshot, "tables": st.tables,
-                                                       "chunks": st.chunks, "embedded_new": st.embedded_new,
-                                                       "seconds": st.seconds, "promoted": st.promoted}}  # fmt: skip
-                except LakeBusy as exc:
-                    end = {"state": "busy", "busy": exc.reason, "detail": str(exc)[:500]}
-                except RebuildError as exc:
-                    end = {"state": "refused", "detail": str(exc)[:500]}
-                except Exception as exc:
-                    if type(exc).__name__ == "OmopError":  # D-271: the OMOP store refused the batch
-                        end = {"state": "refused", "detail": str(exc)[:500]}
-                    else:
-                        log.exception("lake rebuild of %s failed", snapshot)
-                        end = {"state": "failed", "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
-                write_rebuild_job(self.dir, {**job, **end, "ended": time.time()})
+            try:
+                self.run_rebuild_job(job, embedder, ndjson_dir, promote, allow_empty, check=check)
+            finally:
+                lock.release()
 
         (spawn or _inline)(run)
         return self.rebuild_state(snapshot)
+
+    def run_rebuild_job(
+        self,
+        job: dict[str, Any],
+        embedder: Embedder,
+        ndjson_dir: Path | None = None,
+        promote: bool = True,
+        allow_empty: bool = False,
+        check: bool = False,
+    ) -> dict[str, Any]:
+        """The build of a started job, and its end written to the job's state (T-690). The caller holds the build
+        lock of the job's snapshot for the whole call: the thread :meth:`start_rebuild` started, or the build's own
+        process (``lake.build``, D-539)."""
+        snapshot = str(job["snapshot"])
+        end: dict[str, Any] = {}
+        try:
+            st = self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, check=check)
+            end = {"state": "done", "result": {"snapshot": st.snapshot, "tables": st.tables,
+                                               "chunks": st.chunks, "embedded_new": st.embedded_new,
+                                               "seconds": st.seconds, "promoted": st.promoted,
+                                               "generation": st.generation}}  # fmt: skip
+        except LakeBusy as exc:
+            end = {"state": "busy", "busy": exc.reason, "detail": str(exc)[:500]}
+        except RebuildError as exc:
+            end = {"state": "refused", "detail": str(exc)[:500]}
+        except Exception as exc:
+            if type(exc).__name__ == "OmopError":  # D-271: the OMOP store refused the batch
+                end = {"state": "refused", "detail": str(exc)[:500]}
+            else:
+                # D-664: the error's message can hold a value of a row: the log gets its type, its kind and the
+                # frames (where it failed), never the message
+                where = "".join(traceback.format_tb(exc.__traceback__))
+                log.error("lake rebuild of %s failed: %s %s\n%s", snapshot, type(exc).__name__, error_kind(exc), where)
+                end = {"state": "failed", "detail": error_answer(exc, "build")}
+        ended = {**job, **end, "ended": time.time()}
+        write_rebuild_job(self.dir, ended)
+        return ended
 
     def rebuild_state(self, snapshot: str) -> dict[str, Any]:
         """The state of the last rebuild job of ``snapshot`` (T-690, D-472): ``none`` when there was none; a job
@@ -843,6 +1239,7 @@ class Lake:
         ndjson_dir: Path | None,
         promote: bool,
         allow_empty: bool,
+        cause: str | None = None,
         check: bool = False,
     ) -> RebuildStats:
         t0 = time.perf_counter()
@@ -854,6 +1251,14 @@ class Lake:
         tmp.unlink(missing_ok=True)
         shutil.rmtree(stage, ignore_errors=True)
         shutil.rmtree(old, ignore_errors=True)
+        if not promote and self.current() == snapshot:
+            # review of #318: the date's file is what the box serves. A build "without promote" of the served date
+            # would be served the moment it is swapped in, judged or not. The served night is built again with
+            # promote (a publish's re-run does: one step)
+            raise LakeSaid(
+                f"lake snapshot {snapshot} is served: it is not built without promote (the build would be served at "
+                "once); rebuild it with promote"
+            )
         # T-305b (D-403, FR-REP-02): a built snapshot a running job holds is never rebuilt under it
         with lake_lock(self.dir):
             if _is_held(self.dir, snapshot):
@@ -876,6 +1281,9 @@ class Lake:
             )
         if (promote or check) and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
             self._check_drop(snapshot, have)
+        # read before the build reads the inputs: a change in between leaves the record on the older hash, which
+        # reads as "not in sync" and is published again (the safe side)
+        site_sha = site_digest(self.dir)
         try:
             counts, n_chunks, new = self._build(snapshot, embedder, src, by_type, stage, tmp)
         except BaseException:
@@ -896,8 +1304,21 @@ class Lake:
                 pdir.rename(old)
             stage.rename(pdir)
             shutil.rmtree(old, ignore_errors=True)
-            tmp.replace(db_path)
+            # T-724 (D-490): the build becomes the date's next generation, a file never written again; the date's
+            # own file is then pointed at it. A swap that dies between the two leaves the date on the generation
+            # it had; the leftover is swept by the next rebuild
+            first = not any(gen_dir(self.dir).glob(f"{snapshot}.g*.json"))
+            gen = self._write_generation(
+                snapshot,
+                tmp,
+                digest,
+                cause or ("night" if first and not db_path.exists() else "republish"),
+                False,
+                site=site_sha,
+            )
+            self._point_alias(snapshot, gen)
             write_sidecar(db_path, digest)  # hashed before the lock: holds and releases never wait for a hash
+            self._drop_generations(snapshot, gen)
             drop_reader_links(self.dir, snapshot)
             rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
             if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():
@@ -916,7 +1337,7 @@ class Lake:
                 promote = False
             if promote:
                 self.promote(snapshot)
-        return RebuildStats(snapshot, counts, n_chunks, new, round(time.perf_counter() - t0, 2), promote)
+        return RebuildStats(snapshot, counts, n_chunks, new, round(time.perf_counter() - t0, 2), promote, gen)
 
     def _build(
         self,
@@ -1115,7 +1536,9 @@ class Lake:
         # instance already hardened (FTS loaded, external access off, configuration locked) and must not re-set it.
         with _CONNECT_LOCK:
             for attempt in range(3):
-                path = reader_path(self.db_path(snapshot))  # D-462: replaced bytes are never a cached copy
+                found = self.db_path(snapshot)
+                # D-462: replaced bytes are never a cached copy. A generation's file is never replaced (D-490)
+                path = found if found.parent.name == "gen" else reader_path(found)
                 try:
                     con = duckdb.connect(str(path), read_only=True)
                     break

@@ -17,12 +17,12 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BREAK_GLASS_ROLE, permit
+from tb_common.authz import permit
 from tb_common.config import get_config, tb_env
-from tb_common.crypto import load_key
 from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
@@ -40,6 +40,8 @@ from tb_common.service_auth import (
 )
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
+from orchestrator import actor as route_actor
+from orchestrator import identifiers
 from orchestrator.callers import Gate
 from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -167,6 +169,9 @@ def _queue() -> dict[str, Any]:
 # T-713 (D-464): which verified service reaches which route is one table (route_callers.yaml), enforced right after the
 # token check; a refusal is 403 with a named reason and audited with the verified service.
 CALLER_GATE = Gate(load_callers(), lambda: orch().audit)
+route_actor.bind(lambda: orch().audit)  # T-715 (D-483): where a refused person is recorded
+#: the stage before `require_actor` (route_actors.yaml): a changing call without a v3 assertion is counted
+REPORT = [route_actor.report_actor]
 app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
 
 
@@ -186,12 +191,17 @@ def _claim(request: Request, fallback: str | None = None) -> Actor:
         if "no signed-in user" in str(exc):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         caller = getattr(request.state, "tb_caller", None) or "-"
-        orch().audit.append("actor.refused", actor=f"service:{caller}",
-                            detail={"path": request.url.path[:80], "reason": str(exc)[:120]})  # fmt: skip
+        path, reason = request.url.path[:80], str(exc)[:120]
+        # the refusal stands when its record cannot be written (the same rule as the newer check's)
+        route_actor.record_refusal(
+            lambda: orch().audit.append("actor.refused", actor=f"service:{caller}",
+                                        detail={"path": path, "reason": reason}),
+            route=route_actor.template(request), reason=reason,
+        )  # fmt: skip
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
-def _limit_key(request: Request, who: Actor) -> str:
+def _limit_key(request: Request, who: Actor | Claim) -> str:
     """The rate limit is per calling service and verified person (S-09): renaming no longer resets it."""
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|{who.name}"
 
@@ -201,7 +211,7 @@ def _service_key(request: Request) -> str:
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|*"
 
 
-def _over_cap(o: Any, request: Request, claim: Actor, person: Any, service: Any) -> str:
+def _over_cap(o: Any, request: Request, claim: Actor | Claim, person: Any, service: Any) -> str:
     """Take one use of the calling service's total cap, then of the person's; the reason of a refusal, or ""."""
     now = o._now()
     if not service.allow(_service_key(request), o.db, now):
@@ -212,25 +222,23 @@ def _over_cap(o: Any, request: Request, claim: Actor, person: Any, service: Any)
 
 
 def id_authority(role: str) -> bool:
-    """T-103 (D-438): may a signed role receive identifiers? The ``id.reveal`` row of the permission matrix (the same
-    row as ``console.auth.User.can_reveal``, D-143, D-280: never the administrator), or the break-glass rule: the
-    console signs a reveal under an open grant with ``BREAK_GLASS_ROLE`` and holds the grant, its reason and its
-    60-minute end (D-280, D-430). No role list of its own."""
-    return role == BREAK_GLASS_ROLE or permit(role, "id.reveal").allowed
+    """T-103 (D-438): may a signed role receive identifiers by itself? The ``id.reveal`` row of the permission matrix
+    (the same row as ``console.auth.User.can_reveal``, D-143, D-280: never the administrator). T-716 (D-484): there
+    is no ``breakglass`` role any more; a grant is a row the reveal route reads (``orchestrator.grants``), and it
+    never opens a whole list. No role list of its own."""
+    return permit(role, "id.reveal").allowed
 
 
 def _id_authority(o: Any, claim: Actor, rid: str | None, event: str, job_id: str | None = None,
-                  pid: str | None = None, whole_list: bool = False) -> None:  # fmt: skip
+                  pid: str | None = None) -> None:  # fmt: skip
     """D-273 (PV-5, PV-15): a chart number goes out only to a person whose signed role has identifier authority and
     whose signed study scope covers the study. A verified assertion must carry both; on a DEV/TEST box without a
-    token, a role or scope that is sent is checked all the same. A refusal is one audit event. T-103 (D-438): a whole
-    list (``whole_list``, the registry export) never goes to ``BREAK_GLASS_ROLE``: a grant covers one patient or one
-    job."""
+    token, a role or scope that is sent is checked all the same. A refusal is one audit event. This is the rule of
+    the whole-list export (the older assertion); a break-glass grant covers one patient or one job and is read by
+    the reveal route alone (T-716, D-484), so no grant reaches a list."""
     why = ""
     if (claim.verified or claim.role) and not id_authority(claim.role):
         why = "role"
-    elif whole_list and claim.role == BREAK_GLASS_ROLE:
-        why = "break-glass covers one patient or one job"
     elif (claim.verified or claim.scope) and not in_scope(claim.scope, rid):
         why = "study scope"
     if why:
@@ -268,6 +276,8 @@ def models() -> dict[str, Any]:
         **judging_info(judge),
         "canary": canary_gate.status(),
         "optout_worker": optout_status(),  # D-441: the health line turns red on a stale or failed tick
+        # refusals whose audit record could not be written since this process started (count, by route)
+        "refusals_not_written": route_actor.lost_refusals(),
         "derive_batch": derive_status(o),  # D-442: the derive batch of the served snapshot
     }
 
@@ -317,7 +327,9 @@ def ruleset_detail(ruleset: str) -> dict[str, Any]:
     try:
         rs = load_approved(orch().rulesets_dir, rid)
     except (RulesetNotApproved, FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # D-555: the error's own text names a folder of the box or the version asked for; the answer is fixed
+        log.info("ruleset detail: %s has no approved version to show (%s)", rid, type(exc).__name__)
+        raise HTTPException(status_code=404, detail="no approved version of that ruleset on this box") from exc
     m = rs.manifest
     return {
         "ruleset": rs.id,
@@ -359,6 +371,13 @@ def create_job(req: JobCreate, request: Request) -> Job:
     return job
 
 
+@app.get("/jobs/waiting-studies")  # declared before /jobs/{job_id}, or it is read as a job's id
+def waiting_studies() -> list[str]:
+    """NEW-JRN-1b (D-545): the studies with criteria waiting for approval, the newest first. The console asks this
+    instead of reading a listing of jobs, which is cut at its limit."""
+    return orch().db.waiting_rulesets()
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)
@@ -385,7 +404,6 @@ class RevealRequest(BaseModel):
     # T-103 (D-438): what the console's one reveal path was asked for, kept in this side's audit record
     purpose: str = Field(default="", max_length=32, pattern=r"^([a-z][a-z0-9_]{1,31})?$")
     reason: str = Field(default="", max_length=20, pattern=r"^[a-z ]*$")
-    by: str | None = Field(default=None, max_length=200)  # DEV/TEST without a token only; else X-TB-Actor
 
 
 class RevealLimit:
@@ -428,15 +446,22 @@ def listed_pids(o: Any, job: Any) -> set[str]:
     return out
 
 
+AS_REVEAL = route_actor.require_actor("id.reveal", study_in_handler=True, grant=True)
+
+
 @app.post("/jobs/{job_id}/reveal")
-def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
+def reveal(job_id: str, req: RevealRequest, request: Request, who: Claim = AS_REVEAL) -> dict[str, Any]:
     """Chart number of one listed pseudonym for a person with identifier authority on the console (D-99, D-143).
     On-prem only: the pid map never leaves the box, every reveal is one audit event with the verified actor and
-    the console session, and nothing is stored."""
+    the console session, and nothing is stored.
+
+    T-716 (D-484): the person is the verified one of a v3 assertion for ``id.reveal`` and this request; the study
+    is the job's; the right is read here. Under break-glass: the grant row itself (open now, this person's, for this
+    patient or this job), and the use is written here. By the person's own rights: the ``id.reveal`` row with the
+    standing the delegation log gives the person in this study."""
+    from orchestrator import grants
     from orchestrator.scenarios.screen import resolve_mrns
 
-    claim = _claim(request, req.by)
-    who = claim.name
     o = orch()
     job = o.db.get(job_id)
     if job is None:
@@ -444,36 +469,59 @@ def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
     # D-273 (PV-15): screening lists only; a NAV job's list is not a candidate list and reveals nothing
     if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
         raise HTTPException(status_code=409, detail="chart numbers are revealed for finished screening jobs only")
-    _id_authority(o, claim, job.ruleset, "screen.reveal_refused", job_id=job_id, pid=req.pid)
-    # security review 2026-11-08 (F-03): only a patient this job listed, and at a bounded rate per person
-    listed = listed_pids(o, job)
-    if req.pid not in listed:
-        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
-                       detail={"pid": req.pid, "reason": "not on this job's list"})  # fmt: skip
-        raise HTTPException(status_code=403, detail="this patient is not on this job's list")
-    # D-273 (PV-4): never the chart number of a patient on the opt-out register now, whatever the job's age
-    from tb_common.optout import opted_out
+    study = str(job.ruleset or "").strip().upper()
 
-    if req.pid in opted_out():
-        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
-                       detail={"pid": req.pid, "reason": "opted out"})  # fmt: skip
-        raise HTTPException(status_code=403, detail="this patient opted out")
-    if over := _over_cap(o, request, claim, REVEALS, REVEALS_SERVICE):
-        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
-                       detail={"pid": req.pid, "reason": over})  # fmt: skip
-        raise HTTPException(status_code=429, detail="too many chart numbers revealed in the last hour")
+    def refuse(why: str, status: int = 403, says: str = "") -> HTTPException:
+        detail: dict[str, Any] = {"pid": req.pid, "reason": why, "role": who.role}
+        if who.grant is not None:
+            detail["grant"] = str(who.grant.get("id"))
+        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who.name, detail=detail)
+        return HTTPException(status_code=status, detail=says or f"chart numbers are refused: {why}")
+
+    if who.study != study or not study:
+        raise refuse("study scope")
+    now = o._now()
+    grant = None
+    if who.grant is not None:
+        try:
+            grant = grants.verify_grant(who, study=study, pid=req.pid, job_id=job_id, now=now, url=o.db.url)
+        except grants.GrantRefused as exc:
+            raise refuse(f"break-glass grant: {exc.why}") from exc
+    else:
+        # the delegation log's days are the site's days (D-270): the orchestrator's own "today", never a UTC date
+        why = grants.person_right(who.role, grants.username_of(who.sub), study, o.today(), o.db.url)
+        if why:
+            raise refuse(why)
+    # security review 2026-11-08 (F-03): only a patient this job listed, and at a bounded rate per person
+    if req.pid not in listed_pids(o, job):
+        raise refuse("not on this job's list", says="this patient is not on this job's list")
+    # D-273 (PV-4): never the chart number of a patient on the opt-out register now, whatever the job's age
+    from orchestrator.decision_context import register_now
+
+    if req.pid in register_now():
+        raise refuse("opted out", says="this patient opted out")
+    if over := _over_cap(o, request, who, REVEALS, REVEALS_SERVICE):
+        raise refuse(over, 429, "too many chart numbers revealed in the last hour")
     found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid], o.db.url)
+    if grant is not None and req.pid in found:
+        # the use is written where the chart number is given (F5 c), and before the reveal's own line: a use that
+        # cannot be written is a refusal, so the trail never holds a reveal of a number that was not given
+        try:
+            grants.record_use(grant, what="reveal", study=study, pid=req.pid, job_id=job_id, now=now, url=o.db.url)
+        except Exception as exc:
+            raise refuse("break-glass grant: the use cannot be written") from exc
     o.audit.append(
         "screen.reveal",
         job_id=job_id,
         ruleset=job.ruleset,
-        actor=who,
+        actor=who.name,
         detail={
             "pid": req.pid,
             "found": req.pid in found,
-            "session": claim.session,
-            "verified": claim.verified,
-            "role": claim.role,
+            "session": who.session,
+            "verified": who.verified,
+            "role": who.role,
+            **({"grant": str(grant.id)} if grant is not None else {}),
             **({"purpose": req.purpose} if req.purpose else {}),
             **({"reason": req.reason} if req.reason else {}),
         },
@@ -503,7 +551,8 @@ def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
     o = orch()
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
-        raise HTTPException(status_code=400, detail=f"notices go to hospital addresses only, not {external[0]}")
+        # D-557: the address that was sent is not repeated
+        raise HTTPException(status_code=400, detail="notices go to hospital addresses only")
     from orchestrator.core import send_key
 
     day = o._now().date().isoformat()
@@ -586,6 +635,8 @@ def study_service_of(o: Orchestrator) -> StudyService:
     return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o), core_of(o))
 
 
+# T-715d (D-554): the study router's changing routes carry their own `require_actor`; its GET routes need no
+# stage dependency (the report stage counts changing calls only)
 app.include_router(study_router(lambda: study_service_of(orch())))
 
 # ---------------------------------------------------------------------------- TrialBox's own data core (D-123)
@@ -608,12 +659,12 @@ def data_service_of(o: Orchestrator) -> Any:
     studies = study_service_of(o)
 
     def site_key() -> bytes:
-        return load_key(Path(o.cfg.env.secrets_dir) / "site_hmac.key")  # plain or under the KEK (T-210b)
+        return identifiers.site_key(o.cfg.env.secrets_dir)  # plain or under the KEK (T-210b)
 
     return DataService(core, o.audit, lambda: _now(o), studies.client, site_key, registry_of(o))
 
 
-app.include_router(datacore_router(lambda: data_service_of(orch())))
+app.include_router(datacore_router(lambda: data_service_of(orch())), dependencies=REPORT)
 app.include_router(lifecycle_router(lambda: data_service_of(orch())))  # TB-PLAN-04 step 5 (D-134)
 app.include_router(sponsor_router(lambda: data_service_of(orch())))  # the sponsor layout and weekly sheet (D-435)
 
@@ -632,11 +683,12 @@ def setup_of(o: Orchestrator) -> Any:
     if key not in _setups:
 
         def site_key() -> bytes:
-            return load_key(Path(o.cfg.env.secrets_dir) / "site_hmac.key")  # plain or under the KEK (T-210b)
+            return identifiers.site_key(o.cfg.env.secrets_dir)  # plain or under the KEK (T-210b)
 
         svc = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
                         o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
                         mrn_regex=o.cfg.settings.mrn_regex,
+                        known=lambda pid: identifiers.known_pid(o.cfg.env.secrets_dir, o.db.url, pid),
                         publish_batch_seconds=o.cfg.env.site_publish_batch_seconds)  # fmt: skip
         _setups[key] = svc
         o.after_job.append(lambda: _flush_main(svc))  # T-305b (D-403): a batch held by the job goes after it
@@ -697,7 +749,11 @@ app.include_router(
         lambda rid: records_info(orch(), rid),
         lambda rid: approved_of(orch(), rid),
         lambda: real_data(orch()),
-    )
+        lambda request, actions, service=False: identifiers.admit(
+            request, None, orch().db, orch().audit, _now(orch()), actions=actions, service=service
+        ),
+    ),
+    dependencies=REPORT,
 )
 
 # ---------------------------------------------------------------------------- EDC prefill (D-160)
@@ -763,20 +819,69 @@ def registry_events(ruleset: str, pid: str | None = None) -> list[RegistryEvent]
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class RegistryUpdateBody(BaseModel):
+    """One registry row's change as the console sends it (T-715b, D-550). No field names a person: the acting
+    person is the verified one of the call. A field the route does not know (a typed ``by``) is refused."""
+
+    model_config = ConfigDict(extra="forbid")
+    pid: str | None = None
+    mrn: str | None = None
+    status: str
+    reason: str | None = Field(None, max_length=500)
+    # T-715c (D-552): no `source`: a change through this route is a manual one. A job may be named with it (a
+    # contact outcome names the screening it came from); it must be a job of the route's study
+    source_job: str | None = Field(None, pattern="^[0-9A-HJKMNP-TV-Z]{26}$")  # a job id, as the contract writes one
+
+
+class RegistryPromoteBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tiers: list[str] = ["high", "review"]
+
+
+AS_REQUESTER = route_actor.require_actor("request.prepare")
+
+
 @app.post("/registry/{ruleset}")
-def registry_update(ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
+def registry_update(
+    ruleset: str, body: RegistryUpdateBody, request: Request, claim: Claim = AS_REQUESTER
+) -> RegistryEntry:
     o = orch()
+    if body.source_job is not None:
+        named = o.db.get(body.source_job)
+        if named is None or (named.ruleset or "").strip().upper() != ruleset.strip().upper():
+            raise HTTPException(status_code=400, detail="source_job is not a job of this study")
+    try:  # the contract's own rules (the statuses) on what was sent, under the verified person, as a manual change
+        upd = RegistryUpdate.model_validate({**body.model_dump(exclude_none=True), "by": claim.sub, "source": "manual"})
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422, detail=json.loads(exc.json(include_url=False, include_input=False))
+        ) from exc
+    # T-719 (D-487): a row by chart number answers with the pseudonym, so it needs the verified person of the call
+    door = (
+        identifiers.admit(request, ruleset.strip().upper(), o.db, o.audit, _now(o), actions=("request.prepare",))
+        if upd.mrn
+        else None
+    )
     try:
-        return registry_of(o).update(ruleset, upd, _now(o))
+        entry = registry_of(o).update(ruleset, upd, _now(o))
     except RegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if door is not None:
+        door.record(entry.pid)
+    return entry
 
 
 @app.post("/registry/{ruleset}/promote")
-def registry_promote(ruleset: str, req: RegistryPromote) -> dict[str, int]:
+def registry_promote(ruleset: str, body: RegistryPromoteBody, claim: Claim = AS_REQUESTER) -> dict[str, int]:
     o = orch()
     from tb_common.ruleset import RulesetNotApproved, load_approved
 
+    try:
+        req = RegistryPromote.model_validate({"by": claim.sub, "tiers": body.tiers})
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422, detail=json.loads(exc.json(include_url=False, include_input=False))
+        ) from exc
     # D-476 (review of T-707): only pool rows evaluated on the criteria version in force are promoted; with no
     # approved version there is none ("": no row matches)
     in_force = ""
@@ -799,7 +904,7 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     claim = _claim(request, by)  # ``by`` counts only on a DEV/TEST box without a token
     rid = ruleset.strip().upper()
     # D-273 (PV-5): the role and the study, not only a name; T-103: never to a break-glass grant (a whole list)
-    _id_authority(o, claim, rid, "registry.export_refused", whole_list=True)
+    _id_authority(o, claim, rid, "registry.export_refused")
     if over := _over_cap(o, request, claim, EXPORTS, EXPORTS_SERVICE):
         o.audit.append("registry.export_refused", ruleset=rid, actor=claim.name,
                        detail={"reason": over})  # fmt: skip
@@ -825,3 +930,5 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
 
 
 CALLER_GATE.bind(app)  # T-713 (D-464): every route is included above; the gate compiles them once, here
+# T-715 (D-483): and every changing route takes its person as route_actors.yaml says, or the service does not start
+route_actor.assert_staged(app, CALLER_GATE.table.group_of)

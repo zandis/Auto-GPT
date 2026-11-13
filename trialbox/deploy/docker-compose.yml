@@ -61,11 +61,12 @@ x-no-db-passwords: &nodb
   TB_DB_PW_GATEWAY: ""
   TB_DB_PW_CONSOLE: ""
   TB_DB_PW_AUDIT_WRITER: ""
+  TB_DB_PW_FHIR_STORE: ""
 
 services:
   db:
     # One PostgreSQL server for the box (TB-PLAN-03 step 6, D-121): database `hapi` for the FHIR store and
-    # `trialbox_wf` for durable steps, outbox and recall ledger (spec v4 §11.0), made by db-init on first start.
+    # `trialbox_wf` for every store TrialBox owns (D-126), made by db-init on first start.
     # Multi-arch index digest (linux/amd64 and linux/arm64 manifests). One volume, one backup, one restore.
     # D-187 (WS-08.6): WAL compressed with zstd, TOAST with lz4 (PG 16 offers pglz and lz4 only); new clusters get
     # data checksums. WAL archiving to pgBackRest (point-in-time restore) is off until the site turns it on: it needs
@@ -106,6 +107,7 @@ services:
       TB_DB_PW_GATEWAY: ${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
       TB_DB_PW_CONSOLE: ${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
       TB_DB_PW_AUDIT_WRITER: ${TB_DB_PW_AUDIT_WRITER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_FHIR_STORE: ${TB_DB_PW_FHIR_STORE:-}  # D-541: the FHIR store's own role; no fallback
       POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---data-checksums}
     volumes:
       - db-pg:/var/lib/postgresql/data
@@ -131,8 +133,10 @@ services:
       db: {condition: service_healthy}
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/hapi
-      SPRING_DATASOURCE_USERNAME: hapi
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      # D-541 (NEW-TRUST-1): its own role, the owner of `hapi` and of nothing else; never the cluster superuser's
+      # password. No fallback: without TB_DB_PW_FHIR_STORE the role has no password and the store does not start.
+      SPRING_DATASOURCE_USERNAME: tb_fhir_store
+      SPRING_DATASOURCE_PASSWORD: ${TB_DB_PW_FHIR_STORE:-}
       SPRING_DATASOURCE_DRIVERCLASSNAME: org.postgresql.Driver
       SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
       HAPI_FHIR_FHIR_VERSION: R4

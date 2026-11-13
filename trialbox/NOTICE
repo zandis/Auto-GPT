@@ -62,7 +62,10 @@ ICD-10-CM (U.S. clinical modification of ICD-10)
   Attribution: ICD-10-CM, National Center for Health Statistics, Centers for Disease Control and Prevention.
     ICD-10 is a classification of the World Health Organization.
   ICD-9-CM to ICD-10-CM rows of services/adapter/mapping/mimic/tables/icd9_to_icd10cm.csv follow the CMS General
-    Equivalence Mappings (U.S. public domain).
+    Equivalence Mappings (U.S. public domain). The reference-data pack item cms_gem_icd9_icd10cm is the 2018
+    ICD-10-CM General Equivalence Mappings of the Centers for Medicare & Medicaid Services and the National Center
+    for Health Statistics (U.S. government work, public domain), and tests/fixtures/refdata/cms_gem_i9_sample.txt
+    is an excerpt of it.
 
 ICD-10-PCS (U.S. procedure coding system)
   Version: FY2026 codes in services/adapter/mapping/mimic/tables/icu_item_to_icd10pcs.csv (MIMIC ICU procedures)
@@ -222,7 +225,9 @@ fields). No licensed questionnaire text is shipped (catalogue/README.md). Two in
 eval/DATASETS.yaml names the source and licence of every data set under eval/. Those in the image:
 
 ClinicalTrials.gov records
-  Where: services/criteria_compiler/cassettes/ctgov, tests/fixtures/open_data, trial texts used by eval/.
+  Where: services/criteria_compiler/cassettes/ctgov, tests/fixtures/open_data, tests/fixtures/public_protocols
+    (NCT03887455 and NCT02629159 as processed by ClinicalTrials.gov on 2026-11-12, cut to four modules: each
+    file's _source block says what was left out), trial texts used by eval/.
   Licence: NLM terms and conditions, https://clinicaltrials.gov/about-site/terms-conditions
   Attribution: Data from ClinicalTrials.gov, U.S. National Library of Medicine. The information is provided by
     study sponsors and investigators, who are responsible for its accuracy. NLM does not endorse TrialBox.

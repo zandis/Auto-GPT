@@ -257,7 +257,8 @@ sed -i "/^TB_CTGOV_MODE=/d" deploy/.env && echo "TB_CTGOV_MODE=$CTGOV" >> deploy
 # D-378: and one per service role of the trial database (deploy/docker/db-init/30-service-roles.sh); D-394: the
 # audit writer's role too
 for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_DB_PW_LAKE TB_DB_PW_CRITERIA_COMPILER TB_DB_PW_ADAPTER \
-         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE TB_DB_PW_AUDIT_WRITER; do
+         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE TB_DB_PW_AUDIT_WRITER \
+         TB_DB_PW_FHIR_STORE; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi
@@ -461,6 +462,14 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
+# D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
+# update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+    || die "a start-up step of this release failed (pre-start above)"
+else
+  echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
+fi
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"
@@ -480,8 +489,23 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
     || die "the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
-"${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
-  || die "the database roles could not be set (docker compose logs db)"
+"${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
+# D-624: this release's steps once the database is up (tools/trialbox/prestart.py DB_STEPS: the roles of D-378, the
+# schemas no service owns of D-486, whatever a later release adds), by the same command an update runs and with the
+# compose files and profile an update uses (COMPOSE_FILE and COMPOSE_PROFILES in deploy/.env, written above)
+if command -v python3 >/dev/null; then
+  TB_INSTALL_PULL="$PULL" python3 -m tools.trialbox db-up --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+    || die "a database step of this release failed (db-up above; docker compose logs db)"
+else
+  echo "    note: no python3 on this host: the release's database steps (tools.trialbox db-up) were not run; the roles and the schemas are set by the installer" >&2
+  "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
+    || die "the database roles could not be set (docker compose logs db)"
+  # D-486 (T-718): the schemas no service owns (edc), by the box's admin; the admin's URL goes in the environment,
+  # not on the command line
+  TB_DB_URL="postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" "${COMPOSE[@]}" run --rm --no-deps -T -e TB_DB_URL \
+    orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
+    || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
+fi
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then

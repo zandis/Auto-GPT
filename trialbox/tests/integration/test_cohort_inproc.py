@@ -44,7 +44,7 @@ def boxes(synth_dir: Path, tmp_path: Path) -> dict[str, Box]:
 
 
 def _csv_rows(data: bytes) -> list[dict[str, str]]:
-    return list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+    return list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
 
 
 def _oracle(src: Path, q_end: date) -> tuple[set[str], set[str]]:

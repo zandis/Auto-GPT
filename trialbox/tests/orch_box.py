@@ -33,6 +33,7 @@ from tb_common.crypto import pid_for_mrn
 from tb_contracts import Job, JobCreate
 
 from tests.inproc_box import Box, ingest_site, make_box
+from tests.rulesets_guard import approve_at_site
 from tests.service_tokens import per_service_tokens, token_of
 
 KEY = b"trialbox-test-site-key-0123456789abcdef"
@@ -111,6 +112,8 @@ def build(work: Path, synth_dir: Path, monkeypatch: pytest.MonkeyPatch) -> OrchB
     ingest_site(synth_dir / "site-a", work / "lake", sec, SNAPSHOT)
     box = make_box(work / "box", work / "lake", sec, RUN)
     per_service_tokens(work, monkeypatch)  # the registry, the actor keys; this process signs as the console
+    # D-640: a PRODUCTION box runs no seeded example; this one's studies are approved the site's way
+    approve_at_site(box.orch.rulesets_dir)
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setattr(oapp, "_orch", box.orch)  # the app's routes serve this box
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())  # the caps count from zero in every test

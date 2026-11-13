@@ -40,6 +40,7 @@ from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from tb_common import audit as tb_audit
 from tb_common.authz import permit
+from tb_common.csvfile import stream_for_spreadsheet
 
 from console import i18n_audit
 from console.auth import Session
@@ -61,7 +62,7 @@ _HASHES = ("hash", "prev_hash", "input_sha", "output_sha")
 KINDS: dict[str, frozenset[str]] = {
     "reveal": frozenset({
         "console.reveal_patient", "console.reveal_refused", "console.view_id", "console.view_id_refused",
-        "screen.reveal", "screen.reveal_refused", "console.chart_lookup", "console.site_chart",
+        "screen.reveal", "screen.reveal_refused", "console.chart_lookup", "console.site_chart", "screen.to_pid",
     }),
     "breakglass": frozenset({
         "console.breakglass_open", "console.breakglass_use", "console.breakglass_end", "console.breakglass_review",
@@ -456,7 +457,7 @@ def register(app: FastAPI, h: Hooks) -> None:
         lang = sess.lang if sess.lang in CATALOGUES else "en"
         name = f"audit-{f.pid[:8]}.csv"
         return StreamingResponse(
-            csv_lines(iter_events(directory(), f), label_of(lang)),
+            stream_for_spreadsheet(csv_lines(iter_events(directory(), f), label_of(lang))),
             media_type="text/csv; charset=utf-8",
             headers={"content-disposition": f'attachment; filename="{name}"', "cache-control": "no-store"},
         )

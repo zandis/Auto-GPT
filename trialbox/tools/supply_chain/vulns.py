@@ -29,7 +29,7 @@ from typing import Any
 
 from packaging.markers import InvalidMarker, Marker
 
-from tools.supply_chain.allowlist import Allowlist, norm
+from tools.supply_chain.allowlist import EVERY_ID, Allowlist, norm
 from tools.supply_chain.allowlist import image_matches as allowlist_image_matches
 from tools.supply_chain.lock import parse_requirements
 
@@ -275,6 +275,10 @@ def gate(
     used: set[int] = set()
     for f in findings:
         entry = allow.vuln(f.ids(), f.package, subject)
+        # D-622: an entry for every id accepts findings nobody has read; one the scanner could not grade or name
+        # is not among them
+        if entry is not None and entry.id == EVERY_ID and (f.severity.startswith(INVALID) or f.id == "?"):
+            entry = None
         if entry is not None:
             used.add(id(entry))
             result.accepted.append((f, entry.reason))

@@ -21,6 +21,19 @@ and what is filed: `docs/validation/change-control.md` §4 (D-344).
    data puts images, models, databases and rulesets back, restarts, checks and writes `update.rolled_back`; exit 1. If
    the backup or the rollback point fails, the stopped services are started again and nothing else changed.
 
+**Each release runs its own start-up steps.** The updater that runs is the installed release's. After it has put
+the new release's files in place, step 4 runs the new release's `python3 -m tools.trialbox pre-start` before it
+starts the stack: what the new stack needs on the host first (a secret file a new service reads, the image pins) is
+made by the release that needs it. A release that adds such a step adds it to `tools/trialbox/prestart.py`. The
+release installed before this command existed cannot run it, so a bundle that adds a step names a release that has
+the command as its `min_installed_version`; the verifier then refuses the bundle on an older box before anything
+changes, and the box takes the release in between first.
+
+The same holds once the database is up and before the services start: the updater runs the new release's
+`python3 -m tools.trialbox db-up` (the list `DB_STEPS` in the same file). This release's steps there are: the
+database container on the new release's settings, the services' database roles, the schemas no service owns.
+A fresh install runs both commands too.
+
 **Model weights against their pins** (T-677, D-393). On a GPU box the update's check step runs
 `trialbox doctor --weights` first: every pinned build's weights in the models folder must still hash to their pin.
 A difference writes `deploy/site/weights_changed.json`, the gateway refuses every model call (`weights_changed`) and
@@ -162,6 +175,14 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    the chain), writes `backup.restore_reapply` and exits 4 ("NOT complete"). A steward opens each one in the audit
    browser and does it again (records the opt-out again, closes the break-glass, re-signs or re-sends the EDC
    record) before screening resumes.
+   **The box is held until then (D-522).** The restore sets the flag `screening.after_restore` to `held` as soon
+   as the restored rows are in, and takes it off itself only when it ends complete and no earlier hold or restore
+   stands: after a restore that is not complete (this step or the next), that failed part-way, or that was run a
+   second time, the box stays held. While held, the timer starts no list job (SCREEN, MICROBATCH, COHORT, NAV), a
+   list a person asks for fails with a message that says so, and the weekly not-matched sample is not drawn. The
+   ingest and retention run. `trialbox doctor` shows the hold (`restore_hold`). When every listed event is re-applied, the administrator sets the flag to `released` on
+   `/ops/flags`, with the reason (who re-applied what); the change is in the audit. If the restore prints that the
+   hold could not be set, keep the services stopped until the events are re-applied.
 5. **Opt-outs recorded after the backup (D-493).** Before the restore empties the trial database it reads the
    box's opt-out register. After the restored rows are checked it **puts back every opt-out** the register held
    that the backup does not (as it was recorded: who, when, why), so nobody who said no after the backup is listed
@@ -198,12 +219,31 @@ do not start the services, fix what it names and run the restore again. `deploy/
 every install and upgrade. Run it through the `db` container, as above: the container holds the service roles'
 passwords. Run from the host without the `TB_DB_PW_*` variables, the script clears the service roles' passwords
 and every service is locked out until it runs again with them.
-Since D-461 the console is not in the EDC group (`tbs_edc`): the console reaches the EDC only through the
+**After `trialbox update` (D-484, T-716).** The update does not run the role script. Since D-484 the orchestrator
+reads the break-glass grants and the delegation log itself, so its role must be in the `breakglass` and `team`
+schemas. On a box updated to the release with D-484 and not reinstalled, every reveal under a break-glass grant and
+every investigator's reveal is refused, and the audit trail says "the grant store cannot be read" or "the
+delegation log cannot be read" (`screen.reveal_refused`); a coordinator's reveal is not affected. Run the role
+script once after that update, through the `db` container:
+`docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`. Nothing is
+lost: the refused reveals can be asked again.
+Since D-461 the console is not in the EDC's roles (`tbs_edc`; `tbw_edc` and `tbr_edc` since D-486): the console
+reaches the EDC only through the
 orchestrator, and the script takes an earlier membership away on its next run.
+Since D-486 (T-718) the EDC schema belongs to an owner role of its own (`tbo_edc`, whose one member is
+`trialbox`); the orchestrator is its writer (`tbw_edc`) and cannot create, alter or drop anything in it, its
+append-only triggers included. Its tables are made by the box's admin, not by the orchestrator at start:
+`deploy/install.sh` and `trialbox update` do it, and after a restore run it once after the role script:
+`python3 -m tools.trialbox migrate`. An orchestrator that finds the schema behind its release, or a trail table
+without its trigger, does not start and says to run this. The role script ends the open database sessions of a
+service it moves out of an older group (once, at the update that brings D-486); the service reconnects by itself.
 The script also gives the audit journal back to its owner and the services their right to write to it (D-394): until
 it runs, a restored box refuses actions that must be audited. When the database is older than the audit chain (an
 update rollback), the `audit-writer` service writes an `audit.journal_resync` event and goes on; `docker compose logs
 audit-writer` says what it found.
+Since D-541 the FHIR store signs in as its own role (`tb_fhir_store`, the owner of the database `hapi` only), never as
+the server's superuser. A restore loads `hapi` as the superuser, so the same script, run after the restore, gives the
+tables back to that role.
 
 
 ## Secrets (D-128, D-138): the one place to rotate them
@@ -211,9 +251,11 @@ audit-writer` says what it found.
 | Command (as root, in `/opt/trialbox`) | What it does |
 | --- | --- |
 | `python3 -m tools.trialbox secrets status` | each token's file, mode and age; never a value |
-| `python3 -m tools.trialbox secrets rotate` | **at handover, then yearly**: every service token, the operator token, both database passwords and the model key |
+| `python3 -m tools.trialbox secrets rotate` | **at handover, then yearly**: every service token, the operator token, both database passwords, the model key and the console's signing key |
 | `... secrets rotate --service orchestrator` | one service's token; only it restarts |
 | `... secrets rotate --service db` | the two database passwords (`ALTER ROLE`, on stdin) |
+| `... secrets rotate --service actor` | the console's key that signs the acting person (D-485): a new `deploy/secrets/services/actor-sign.key`; the console and the orchestrator restart |
+| `... secrets status` | lists the console's signing key ("actor signing key"): `present` must be true on a box with service tokens, or nobody's actions are signed. The update that brings the release with D-485 to an installed box does not make the key and rolls back (nothing is lost); see D-485, "Not done" |
 | `... secrets rotate --service model` | the on-box model servers' key (D-437): a new `deploy/secrets/model/llm.key`; the vLLM servers, model-guard and the gateway are recreated in one command (model calls fail until vLLM has loaded again) |
 | `... secrets init` | make any missing token and the orchestrator's actor key (the installer runs it; run it once on a box updated past D-143, else chart-number reveals and exports are refused) |
 

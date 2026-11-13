@@ -573,9 +573,15 @@ def check_records(source: dict[str, Any], recs: Iterable[dict[str, Any]]) -> Ite
     """Each record checked as the box's load checks it (a relation outside RELATIONS, a synonym without its term),
     so a pack that would fail at the hospital fails at the vendor's build and verify instead."""
     check = {"map": map_row, "synonym": synonym_row}.get(str(source.get("kind")))
+    pairs: set[tuple[str, ...]] = set()  # D-592: the box's concept_map holds one row per source and target
     for r in recs:
         if check is not None:
             check(r, str(source.get("id")))
+        if source.get("kind") == "map":
+            key = tuple(str(r.get(k)) for k in ("source_system", "source_code", "target_system", "target_code"))
+            if key in pairs:
+                raise PackError(f"{source.get('id')}: the map names {key[1]} -> {key[3]} twice")
+            pairs.add(key)
         yield r
 
 
@@ -825,6 +831,15 @@ class RefStore:
         """What one code maps to (every loaded map from ``source_system``), e.g. an NHI lab code -> LOINC."""
         return self._map("source_system = ? AND source_code = ?", (source_system, code.strip()))
 
+    def has_map(self, source_system: str, target_system: str) -> bool:
+        """Whether a map from ``source_system`` to ``target_system`` is loaded (at least one entry): the question
+        a load asks before it starts, so that codes are not published as "no entry" for want of the pack."""
+        row = self.db.fetchone(
+            "SELECT 1 FROM concept_map WHERE source_system = ? AND target_system = ? LIMIT 1",
+            (source_system, target_system),
+        )
+        return row is not None
+
     def map_sources(self, target_system: str, code: str) -> list[dict[str, Any]]:
         """The reverse: which codes map to this one (e.g. the 2014 codes behind a 2023 TW ICD-10-CM code)."""
         return self._map("target_system = ? AND target_code = ?", (target_system, code.strip()))
@@ -950,6 +965,38 @@ def map_targets_or_empty(source_system: str, code: str, url: str | None = None) 
     except Exception:
         _drop_shared(st)
         return []
+
+
+def has_map_or_none(source_system: str, target_system: str, url: str | None = None) -> bool | None:
+    """:meth:`RefStore.has_map` for a caller that must tell "not loaded" from "could not ask": False when no
+    database is configured (nothing is loaded), None when one is configured and it cannot be reached or the
+    question fails."""
+    if not _url(url):
+        return False
+    st = shared(url)
+    if st is None:
+        return None
+    try:
+        return st.has_map(source_system, target_system)
+    except Exception:
+        _drop_shared(st)
+        return None
+
+
+def map_targets_or_none(source_system: str, code: str, url: str | None = None) -> list[dict[str, Any]] | None:
+    """:meth:`RefStore.map_targets` for a caller that must tell "no entry" from "could not ask" (D-593): [] when no
+    database is configured (there is nothing to ask), None when one is configured and it cannot be reached or the
+    question fails."""
+    if not _url(url):
+        return []
+    st = shared(url)
+    if st is None:
+        return None
+    try:
+        return st.map_targets(source_system, code)
+    except Exception:
+        _drop_shared(st)
+        return None
 
 
 def synonyms_or_empty(term: str, domain: str = "", url: str | None = None) -> list[dict[str, Any]]:

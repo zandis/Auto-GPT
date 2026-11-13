@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tb_common.wording import statement
+
+if TYPE_CHECKING:  # at run time ``Paragraph`` is the fallback class below, made on first use
+    from reportlab.platypus import Paragraph as Paragraph  # noqa: PLC0414
 
 REPO = Path(__file__).resolve().parents[3]
 FONT_DIRS = [Path(os.environ["TB_FONTS_DIR"])] if os.environ.get("TB_FONTS_DIR") else []
@@ -86,6 +90,99 @@ def pdf_fonts(locale: str) -> tuple[str, str]:
     return regular, bold
 
 
+# ------------------------------------------------------------------------------------------------ glyph fallback
+# UX-002: a report is set in one Noto family by its language, and each family lacks common characters of the other
+# (Noto Sans TC has no 験 検 薬; Noto Sans JP has no 查 值 啟). A Japanese word in an English or zh-TW report, or a
+# Taiwan record quoted in a Japanese one, was printed as empty boxes. A character the report's font lacks is set in
+# the other family, character by character; one neither has stays with the report's font.
+_OTHER = {"NotoSansJP": "zh-TW", "NotoSansTC": "ja"}
+_MARKUP = re.compile(r"(<[^>]*>|&#?[A-Za-z0-9]+;)")
+
+
+@lru_cache(maxsize=8)
+def glyphs(font: str) -> frozenset[int]:
+    """The code points a registered report font (``NotoSansJP-Regular``, ...) has a glyph for."""
+    from reportlab.pdfbase import pdfmetrics
+
+    face: Any = pdfmetrics.getFont(font).face  # type: ignore[attr-defined]
+    return frozenset(face.charToGlyph)
+
+
+def fallback_font(font: str) -> str | None:
+    """The same weight of the other family, registered; None for a font that is not one of the report families."""
+    family, _, weight = font.partition("-")
+    if family not in _OTHER:
+        return None
+    regular, bold = pdf_fonts(_OTHER[family])
+    return bold if weight == "Bold" else regular
+
+
+def with_fallback(markup: str, font: str) -> str:
+    """Paragraph markup in which every run of characters ``font`` lacks and the other family has is wrapped in
+    ``<font name="...">``. Tags and entities are kept as they are; text the font has is not touched."""
+    other = fallback_font(font)
+    if other is None or markup.isascii():
+        return markup
+    have, alt = glyphs(font), glyphs(other)
+    out: list[str] = []
+    for part in _MARKUP.split(markup):
+        if not part or part.startswith(("<", "&")) or part.isascii():
+            out.append(part)
+            continue
+        run = ""
+        for ch in part:
+            if ord(ch) not in have and ord(ch) in alt:
+                run += ch
+                continue
+            if run:
+                out.append(f'<font name="{other}">{run}</font>')
+                run = ""
+            out.append(ch)
+        if run:
+            out.append(f'<font name="{other}">{run}</font>')
+    return "".join(out)
+
+
+def _paragraph_class() -> Any:
+    from reportlab.platypus import Paragraph as _Paragraph
+
+    class Paragraph(_Paragraph):
+        """reportlab's Paragraph with the glyph fallback: the reports build every paragraph through it."""
+
+        def __init__(self, text: str, style: Any = None, *args: Any, **kw: Any) -> None:
+            font = getattr(style, "fontName", "") or ""
+            super().__init__(with_fallback(text, font), style, *args, **kw)
+
+    return Paragraph
+
+
+def __getattr__(name: str) -> Any:  # ``common.Paragraph``: made on first use, reportlab is imported lazily here
+    if name == "Paragraph":
+        cls = _paragraph_class()
+        globals()["Paragraph"] = cls
+        return cls
+    raise AttributeError(name)
+
+
+def draw_string(canvas: Any, x: float, y: float, text: str, font: str, size: float) -> None:
+    """``canvas.drawString`` with the glyph fallback (a footer drawn on every page)."""
+    other = fallback_font(font)
+    have = glyphs(font) if other else frozenset()
+    alt = glyphs(other) if other else frozenset()
+    runs: list[tuple[str, str]] = []
+    for ch in text:
+        use = other if other and ord(ch) not in have and ord(ch) in alt else font
+        if runs and runs[-1][0] == use:
+            runs[-1] = (use, runs[-1][1] + ch)
+        else:
+            runs.append((use, ch))
+    for use, run in runs:
+        canvas.setFont(use, size)
+        canvas.drawString(x, y, run)
+        x += canvas.stringWidth(run, use, size)
+    canvas.setFont(font, size)
+
+
 @lru_cache(maxsize=4)
 def _mpl_font(locale: str) -> str:
     from matplotlib import font_manager
@@ -103,7 +200,8 @@ def figure(locale: str, width: float = 7.0, height: float = 3.2) -> Any:
 
     plt.rcParams.update(
         {
-            "font.family": _mpl_font(locale),
+            # UX-002: the report's family, then the other one: matplotlib falls back glyph by glyph
+            "font.family": [_mpl_font(locale), _mpl_font(_OTHER[font_family(locale)])],
             "font.size": 8,
             "axes.spines.top": False,
             "axes.spines.right": False,

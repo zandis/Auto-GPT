@@ -73,7 +73,7 @@ class Hardware:
     mig: str = ""
     tpm: bool = False
     disks: tuple[Disk, ...] = ()  # disks other than the one the system is on: candidates for backups
-    lan: str = ""  # the box's network, CIDR (192.0.2.0/24)
+    lan: str = ""  # the box's network, CIDR; with IPv6 two, space-separated (192.0.2.0/24 2001:db8::/64), D-629
     hostname: str = "trialbox"
     host_tz: str = ""
 
@@ -149,7 +149,11 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
         mig=mig if mig not in ("[N/A]", "N/A") else "",
         tpm=(host_root / "dev/tpmrm0").exists() or (host_root / "dev/tpm0").exists(),
         disks=parse_lsblk(_run(["lsblk", "-J", "-b", "-o", "PATH,SIZE,TYPE,TRAN,MOUNTPOINT"])),
-        lan=parse_ip(_run(["ip", "-j", "-4", "addr", "show", "scope", "global"])),
+        lan=clinic_ranges(
+            _run(["ip", "-j", "addr", "show", "scope", "global"]),
+            _run(["ip", "-j", "route", "show", "default"]),
+            _run(["ip", "-j", "-6", "route", "show", "default"]),
+        ),
         hostname=socket.gethostname().split(".")[0].lower() or "trialbox",
         host_tz=tz,
     )
@@ -176,19 +180,115 @@ def parse_lsblk(text: str) -> tuple[Disk, ...]:
     return tuple(x for x in out if x.path)
 
 
-def parse_ip(text: str) -> str:
-    """The box's network as a CIDR, from ``ip -j -4 addr``: the first global address that is not a container bridge."""
+#: D-629: never the clinic's network: a bridge of a container or VM tool, a tunnel
+_BRIDGES = ("docker", "br-", "veth", "virbr", "cni", "podman", "lxcbr", "lxdbr", "incusbr", "vboxnet", "vmnet")
+_TUNNELS = ("tun", "tap", "wg", "ppp", "tailscale", "zt", "utun", "ipsec")
+#: the IPv4 networks a site uses inside (RFC 1918), and the three of RFC 5737 that the examples and the tests use
+#: (never routed). A public network, carrier-grade NAT (100.64.0.0/10) and everything else is not written (D-629)
+_SITE_V4 = tuple(
+    ipaddress.IPv4Network(n)
+    for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
+)
+#: IPv6 that is local by its prefix: unique local addresses, and the documentation prefix of the examples
+_SITE_V6 = (ipaddress.IPv6Network("fc00::/7"), ipaddress.IPv6Network("2001:db8::/32"))
+MIN_PREFIX_V4, MIN_PREFIX_V6 = 16, 48  # nothing wider than a site's network is ever written
+#: the plan's warning when no network could be told (D-629)
+LAN_UNKNOWN = (
+    "network: the clinic's network could not be told from this machine (no private network on the card the "
+    "default route uses, or no default route and not exactly one network card): CLINIC_RANGES in "
+    "deploy/site/hardening.conf is the box itself, so port 443 answers nobody else until the range is written there"
+)
+
+
+def _json_list(text: str) -> list[dict[str, Any]]:
     try:
-        links = json.loads(text or "[]")
+        rows = json.loads(text or "[]")
     except ValueError:
-        return ""
-    for link in links:
-        if str(link.get("ifname", "")).startswith(("docker", "br-", "veth", "virbr")):
+        return []
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _networks(link: dict[str, Any]) -> list[str]:
+    """The networks of one interface that could be the clinic's (D-629). None for a loopback interface, a bridge of
+    a container or VM tool, or a tunnel. Of its addresses: IPv4 only a site's private network, /16 or narrower;
+    IPv6 /48 or narrower, and only a prefix that is local by itself or one beside a private IPv4 network on the
+    same card (the same segment); never a loopback, link-local, multicast or host (/32, /128) address."""
+    name = link.get("ifname")
+    flags = link.get("flags")
+    flags = {str(f) for f in flags} if isinstance(flags, list) else set()
+    if (
+        not isinstance(name, str)
+        or name == "lo"
+        or name.startswith((*_BRIDGES, *_TUNNELS))
+        or flags & {"LOOPBACK", "POINTOPOINT"}
+        or link.get("link_type") == "loopback"
+    ):
+        return []
+    v4: list[str] = []
+    v6: list[tuple[str, bool]] = []
+    info = link.get("addr_info")
+    for a in info if isinstance(info, list) else ():
+        if not isinstance(a, dict) or a.get("family") not in ("inet", "inet6") or not isinstance(a.get("local"), str):
             continue
-        for a in link.get("addr_info") or ():
-            if a.get("family") == "inet" and a.get("local"):
-                return str(ipaddress.ip_interface(f"{a['local']}/{a.get('prefixlen', 24)}").network)
-    return ""
+        try:
+            ifc = ipaddress.ip_interface(f"{a['local']}/{int(a['prefixlen'])}")
+        except (KeyError, TypeError, ValueError):
+            continue
+        net, ip = ifc.network, ifc.ip
+        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+            continue
+        if net.prefixlen == ip.max_prefixlen:
+            continue
+        if isinstance(net, ipaddress.IPv4Network):
+            if net.prefixlen >= MIN_PREFIX_V4 and any(net.subnet_of(s) for s in _SITE_V4) and str(net) not in v4:
+                v4.append(str(net))
+        elif (
+            isinstance(net, ipaddress.IPv6Network)
+            and net.prefixlen >= MIN_PREFIX_V6
+            and str(net) not in [n for n, _ in v6]
+        ):
+            v6.append((str(net), any(net.subnet_of(s) for s in _SITE_V6)))
+    return v4 + [n for n, local in v6 if local or v4]
+
+
+def _route_devs(routes: str) -> list[str]:
+    """The interfaces of the default routes, lowest metric first; a route with several next hops gives each."""
+    rows = []
+    for r in _json_list(routes):
+        if r.get("dst") not in ("default", "0.0.0.0/0", "::/0"):
+            continue
+        try:
+            metric = int(r.get("metric") or 0)
+        except (TypeError, ValueError):
+            metric = 0
+        hops = r.get("nexthops")
+        devs = [r.get("dev"), *(h.get("dev") for h in (hops if isinstance(hops, list) else ()) if isinstance(h, dict))]
+        rows += [(metric, d) for d in devs if isinstance(d, str)]
+    return [d for _, d in sorted(rows, key=lambda x: x[0])]
+
+
+def clinic_ranges(addrs: str, routes4: str = "", routes6: str = "") -> str:
+    """The box's network for ``CLINIC_RANGES`` (who reaches port 443), from ``ip -j addr show scope global`` and
+    ``ip -j [-6] route show default`` (D-629): the networks (see :func:`_networks`) of the interface the default
+    route uses, lowest metric first, IPv4's route before IPv6's. A route through an interface that has no such
+    network (a tunnel, a public uplink) is passed over. With no route to go by, the one interface that could be the
+    clinic's; with several, or none, the empty string: it decides who reaches the console, so it is not guessed.
+    Never raises: text that is not what ``ip`` prints gives the empty string."""
+    nets: dict[str, list[str]] = {}
+    for link in _json_list(addrs):
+        found = _networks(link)
+        if found:
+            nets[str(link["ifname"])] = found
+    for routes in (routes4, routes6):
+        for dev in _route_devs(routes):
+            if dev in nets:
+                return " ".join(nets[dev])
+    return " ".join(next(iter(nets.values()))) if len(nets) == 1 else ""
+
+
+def parse_ip(text: str, routes4: str = "", routes6: str = "") -> str:
+    """The name from before D-629; see :func:`clinic_ranges`."""
+    return clinic_ranges(text, routes4, routes6)
 
 
 # ------------------------------------------------------------------------------------------------ memory (OD-10)
@@ -267,6 +367,24 @@ def site_id(name: str) -> str:
     )
 
 
+def chart_pattern(rule_text: str) -> str:
+    """The MRN pattern that goes with the owner's chart-number rule (``tb_common.chartno``): a rule with a width
+    says exactly what a chart number looks like (``digits:8`` is ``^\\d{8}$``). A rule without a width, ``asis``
+    and no answer give no pattern (the empty string): the scrubber masks what the pattern matches in a note, and a
+    pattern as wide as "any number" would mask every number."""
+    from tb_common import chartno
+
+    try:
+        rule = chartno.parse_rule(rule_text or "")
+    except ValueError:
+        return ""  # the wizard refuses the rule itself, with its reason
+    if rule.kind == "asis" or not rule.width:
+        return ""
+    if rule.kind == "digits":
+        return f"^\\d{{{rule.width}}}$"
+    return f"^[0-9A-Fa-f]{{{rule.width}}}$"  # either case: the rule folds it; a note or a CRC may write the other
+
+
 def retention_rules(tz: str) -> str:
     """D-138's country rules from the site's zone: Japan's for a site in Japan, Taiwan's (the wizard's own default)
     otherwise. The report language does not decide it: a Taiwanese site may read its reports in English."""
@@ -308,6 +426,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         warnings.append(f"no GPU of a TrialBox profile ({hw.gpu_name or 'none'}): structured criteria only")
     caps, notes = memory_caps(hw.ram_gib, profile if mode == "gpu" else "stub", deploy)
     warnings += notes
+    if not hw.lan:
+        warnings.append(LAN_UNKNOWN)  # D-629
     email = a.owner.email
     domain = email.split("@", 1)[1]
     ds: dict[str, Any] = {"data_source_host_dir": "./site/feed", "mapping": BOX_MAPPING}
@@ -354,6 +474,10 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "imap_host": "",
         "mta_authserv_id": "",
         "tls_hostname": a.hostname,
+        # NEW-DIN-3 (D-579): the first-run page's answer, once it has the field; empty: the wizard decides and warns.
+        # The pattern that goes with it: the page asks the format once, not a regular expression too
+        "chartno_rule": getattr(a, "chartno_rule", ""),
+        "mrn_regex": chart_pattern(getattr(a, "chartno_rule", "")),
         "tls_mode": "internal",  # the box's default; the hospital's certificate is IT's optional step (one page, T-735)
         "retention_rules": retention_rules(a.tz),
         "ctgov_mode": "offline",

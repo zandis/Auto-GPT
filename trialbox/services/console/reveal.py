@@ -9,7 +9,8 @@ patient-level workbook of a job (:meth:`Reveal.workbook`). Each
 1. asks the one rule: the ``id.reveal`` row of the permission matrix for the account's role in a study it sees, then
    the study's delegation log for a role whose ``task.*`` rows the log decides (D-147); where the account does not
    reveal by its own rights, the one break-glass rule (D-280, D-430) for one patient or one job only: an open grant
-   for that patient, or for the job; such a reveal is signed ``BREAK_GLASS_ROLE``. A grant never opens a whole list;
+   for that patient, or for the job; such a reveal carries the account's own role and the grant's id, and the
+   orchestrator reads the grant row itself and writes its use (T-716, D-484). A grant never opens a whole list;
 2. needs a purpose and, where a person asks, a reason from the D-143 list, and for "other" a written note
    (ROLE-016) of at least 10 characters that are not spaces;
 3. takes one use of the per-person hourly cap (``TB_REVEAL_MAX_PER_HOUR``) in the study-team store, shared by every
@@ -34,10 +35,11 @@ from datetime import timedelta
 from typing import Any
 
 from tb_common.audit import ID_MASK, mask_ids
-from tb_common.authz import BREAK_GLASS_ROLE, conditional
+from tb_common.authz import conditional
 from tb_common.phi_guard import mask_note, site_mrn_regex
 from tb_common.service_auth import scope_of
 
+from console import actor
 from console.auth import REVEAL_REASONS, Session, reveal_reason
 from console.backend import Refused
 
@@ -225,9 +227,10 @@ class Reveal:
         purpose = (purpose or "").strip()
         basis = self.own_basis(sess, rid)
         grant = None
-        if not basis and h.breakglass is not None and _PID.match(pid or ""):
-            grant = h.breakglass(sess, ruleset=rid, pid=pid, what="reveal") or (
-                h.breakglass(sess, job_id=job_id, what="reveal") if job_id else None
+        if not basis and h.breakglass_find is not None and _PID.match(pid or ""):
+            # T-716 (D-484): found, not used: the orchestrator reads the grant and writes the use
+            grant = h.breakglass_find(sess, ruleset=rid, pid=pid) or (
+                h.breakglass_find(sess, job_id=job_id) if job_id else None
             )
         if not basis and grant is None:
             raise self.refuse(sess, path, rid, pid, purpose, reason, via, self._why_not(sess, rid), 403, "forbidden")
@@ -243,10 +246,13 @@ class Reveal:
         if state is None:
             raise self.refuse(sess, path, rid, pid, purpose, reason, via, "cap", 429, "reveal.rate_limited",
                               job_id=job.job_id, values={"n": cap()})  # fmt: skip
-        role = BREAK_GLASS_ROLE if grant is not None else sess.user.role
-        try:  # D-273 (PV-15): the role and the studies travel signed; the orchestrator checks them and the opt-out
-            mrn = h.bk.reveal(job.job_id, pid, h.actor(sess), role=role, scope=scope_of(sess.user.studies),
-                              purpose=purpose, reason=reveal_reason(reason))  # fmt: skip
+
+        def sign(method: str, to: str, body: Any) -> dict[str, str]:
+            """The one minting place: the account's own role, this study, and the grant's id when the right is one."""
+            return actor.assert_for(h, sess, "id.reveal", rid, method, to, body, grant=grant)
+
+        try:  # T-716 (D-484): the orchestrator reads the grant and the delegation log itself, and the opt-out
+            mrn = h.bk.reveal(job.job_id, pid, sign, purpose=purpose, reason=reveal_reason(reason))
         except Refused as exc:
             raise self.refuse(sess, path, rid, pid, purpose, reason, via, "back end", 409, "request.refused",
                               job_id=job.job_id, values={"reason": str(exc)}) from exc  # fmt: skip
@@ -259,6 +265,8 @@ class Reveal:
             extra["note"] = kept
         if grant is not None:
             extra["breakglass"] = grant.id
+            if h.breakglass_note is not None:  # the use itself is the orchestrator's row (T-716, D-484)
+                h.breakglass_note(sess, grant, ruleset=rid, pid=pid, what="reveal")
         self._shown(sess, rid, pid, purpose, reason, via, basis=basis, state=state, job_id=job.job_id, **extra)
         return Revealed(ctx=ctx, mrn=mrn, basis=basis, cap=state, grant=grant)
 

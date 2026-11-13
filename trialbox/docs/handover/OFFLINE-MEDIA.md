@@ -1,32 +1,84 @@
 # Offline media layout (D-125, D-138)
 
 The Windows workstation never reaches the internet, at install or after (D-125). Everything comes on one USB disk
-or a hospital file share, made by Aimedics from a signed release. This is the layout the offline installer will read;
-the installer itself is built after the platform (after plan v4 step 9). Until then an Aimedics engineer follows
-`WINDOWS-INSTALL-CHECKLIST.md` with these files.
+(or the same folder copied to a local drive; a mapped network drive is not used: a window that runs as
+administrator does not see another sign-in's mapped drives), made by Aimedics from a signed release. The box owner starts
+`Install-TrialBox.cmd`; `windows/box-install.ps1` reads this layout (NEW-WIN-1, D-600). It checks every file it
+uses against `SHA256SUMS` before it changes anything, and stops when one is missing, unlisted or damaged.
 
 ```
 TRIALBOX-<version>/                      one folder per release, read-only on the disk
   README.txt                             version, date, sha256 of every file below, who built it
   SHA256SUMS                             sha256 of every file; SHA256SUMS.sig: Ed25519 by the vendor key
+  Install-TrialBox.cmd                   deploy/windows/Install-TrialBox.cmd: what the box owner double-clicks
   windows/
-    preflight.ps1                        deploy/windows/preflight.ps1
-    wsl/wsl.<version>.x64.msi            WSL itself (the Store is not used)
-    wsl/ubuntu-24.04-wsl-amd64.tar.gz    the Linux root file system, imported with `wsl --import`
-    wsl/wslconfig.template               .wslconfig: memory, swap=0, processors
-    nvidia/<driver>-win11-win10-...exe   the NVIDIA Windows driver (WSL2 uses it; no Linux driver)
+    box-install.ps1                      deploy/windows/box-install.ps1, the installer (NEW-WIN-1)
+    box-install.messages.json            its messages in en, ja and zh-TW
+    wsl-setup.sh                         its steps inside WSL2
+    register_keepalive.ps1               the start-at-boot task the installer registers (NEW-WIN-2)
+    key-probe.ps1                        which Windows key store the boot task can open (NEW-WIN-8; P-0 line 36)
+    preflight.ps1, host_facts.ps1        deploy/windows/: the read-only checks (D-421)
+    wsl/wsl.<version>.x64.msi            WSL itself, signed by Microsoft (the Store is not used); exactly one
+    wsl/ubuntu-24.04*.tar.gz             the Linux root file system, imported with `wsl --import`; exactly one.
+                                         Canonical's file, placed under a name that starts `ubuntu-24.04.`
+    nvidia/<driver>-win11-win10-...exe   the NVIDIA Windows driver (WSL2 uses it). The installer does not run it:
+                                         it stops and names this folder when the driver does not answer
   linux/
     debs/                                Docker Engine, compose plugin, nvidia-container-toolkit, nftables, cron,
-                                         and their dependencies, for Ubuntu 24.04 (apt-get install ./*.deb)
-    trialbox-<version>.tar               the signed bundle of tools/make_bundle.sh (below)
+                                         and their dependencies, for Ubuntu 24.04, installed with `dpkg -i`.
+                                         No Linux NVIDIA driver package: the installer refuses the media if one is here
+    trialbox-host.tar                    the release's host tree (`python3 -m tools.host_tree pack`): the bootstrap
+                                         unpacked to /opt/trialbox; install.sh replaces it from the signed bundle
+    trialbox-<version>.tar               the signed bundle of tools/make_bundle.sh (below); exactly one
     trialbox-<version>.tar.sha256
-    vendor_ed25519.pub                   also given out of band; the installer compares both
+    vendor_ed25519.pub                   also given out of band; the installer shows its sha256 to compare
   measured/
     serving_config.<gpu>.json            the vendor's serving record of each tier's card (tools/tiers.py)
   docs/
-    network-sheet.{en,ja,zh-TW}.html     docs/handover/, printed for the hospital's IT
-    RUNBOOK.pdf, WINDOWS-INSTALL-CHECKLIST.pdf
+    windows-owner.{en,ja,zh-TW}.md       the owner's pages: the set-up day, a normal day, when something is wrong
+    desktop-use.{en,ja,zh-TW}.md         what a desktop user may run on this PC, and may not
+    WINDOWS-INSTALL-CHECKLIST.md         the set-up, line by line; WINDOWS-BACKUP-RESTORE.md; the P-0 sheet
+    network-sheet.{en,ja,zh-TW}.html     docs/handover/, printed for the hospital's IT (added by the release's steps)
+    RUNBOOK.pdf                          (added by the release's steps)
 ```
+
+**Making the media** (NEW-WIN-9, D-605, D-609). Three steps, on a Linux machine that may go online (Debian or
+Ubuntu, with `apt-get` and `gpg`); nothing is fetched into the repository.
+
+1. **Fetch what others publish** into a folder of your own, and check each against its publisher's checksum:
+   - the Ubuntu 24.04 WSL image, from Canonical: `ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz` and `SHA256SUMS`
+     at `https://cloud-images.ubuntu.com/wsl/releases/24.04/current/` (`sha256sum -c --ignore-missing SHA256SUMS`);
+   - WSL itself, from Microsoft: `wsl.<version>.x64.msi` from the releases of `github.com/microsoft/WSL` (the
+     installer checks Microsoft's signature on it before it runs it);
+   - the NVIDIA driver for Windows for the workstation's card, from NVIDIA (the version the serving record names).
+2. **Work out and fetch the Ubuntu packages** (`tools/windows_media_debs.py`, D-609): Docker Engine, the compose
+   plugin, the NVIDIA Container Toolkit, nftables, cron, and every package they need that the image does not
+   already hold. It asks `apt-get` against the image's own package list, in a folder made new for the run and
+   with a configuration of its own; this machine's packages and apt settings are not touched. Docker's and
+   NVIDIA's repository keys are accepted only with the fingerprints written in the tool. Run it as an ordinary
+   user, not as root.
+3. **Lay the media out and check it** (`tools/windows_media.py`, which fetches nothing):
+
+```
+python3 -m tools.windows_media_debs --rootfs ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz --out debs/
+python3 -m tools.windows_media build --out /media/build --version <version> \
+    --bundle dist/trialbox-<version>.tar --wsl-msi wsl.<v>.x64.msi \
+    --rootfs ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz \
+    --debs debs/ --vendor-pub keys/vendor_ed25519.pub --nvidia-driver <driver>.exe --measured deploy/measured
+python3 -m tools.windows_media check /media/usb/TRIALBOX-<version>     # again on the disk, after the copy
+```
+
+The image is known by what it is, not by its name: a whole archive of Ubuntu 24.04 for amd64, placed on the
+media under a name the installer finds. On 2026-11-13 step 2 gave 16 packages, 84 MB, against Canonical's
+image of that day.
+
+`build` refuses a wrongly named input, an image that is not Ubuntu 24.04, a Linux NVIDIA driver package among the packages, packages without Docker
+Engine or the NVIDIA Container Toolkit, and a folder that already holds files. `check` names the reasons the
+installer would stop that can be read without Windows: a file missing, doubled, unlisted, linked or not matching,
+a script whose line ends were changed. It does not check Microsoft's signature on the WSL package (step 1 of the
+installer does). `SHA256SUMS.sig`, the network sheets and the PDFs under
+`docs/` are added by the release's own steps, then `SHA256SUMS` is written again with
+`python3 -m tools.windows_media sums <folder>` (`check` fails until it is).
 
 **The bundle** (`trialbox-<version>.tar`, `tools/make_bundle.sh`, verified by `tools/verify_update.py`; D-125
 estimated 30 GB, the sizes below make it nearer 40 GB, so plan a 128 GB disk):

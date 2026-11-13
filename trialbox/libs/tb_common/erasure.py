@@ -143,8 +143,6 @@ TABLES: dict[str, Entry] = {
         "refdata", ("concept_map", "ctgov_study", "pack", "source", "synonym", "term", "trial", "withdrawn"), _REFDATA
     ),
     "optout.optout_events": _keep("D-441", "the opt-out register itself: the record of the refusal (D-147)"),
-    "wf.outbox": _owed("a job's mail payloads may carry pseudonyms (candidate lists)"),
-    "wf.steps": _owed("a job step's input and output may carry pseudonyms"),
     **_each(
         "recall",
         ("recall_cell", "recall_registration", "recall_run_cell", "recall_sequence_state"),
@@ -280,6 +278,8 @@ TABLES: dict[str, Entry] = {
     ),
     "derived.definition": _none("score definitions"),
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
+    "dataops.built": _none("which generation each derived artefact is built from: names, states and times (D-491)"),
+    "dataops.built_kept": _none("the finished generations of the derived rows and their batch ids: no patient (D-525)"),
     "tuned.tuned_patients": _owed("the weekly PI sample of patients not matched, by pseudonym"),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),

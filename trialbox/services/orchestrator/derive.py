@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from typing import Any
@@ -44,9 +45,84 @@ def reader(orch: Any) -> DerivedStore | None:
         return None
 
 
-def reader_for(ctx: Any) -> DerivedStore | None:
-    """:func:`reader` of a job's context; a context without a job runner (a test's stand-in) reads as "off"."""
-    return reader(getattr(ctx, "orch", None))
+class GenerationReader:
+    """The stored-score store as one job reads it (T-725, D-491): for the job's own night, the snapshot's finished
+    batch counts only when the derived rows are finished **from the generation the job pinned**
+    (``datacore.generations.Built.readable``). Otherwise :meth:`batch` answers None, which every reader already
+    treats as "no finished batch": each stored score is unknown (``derived_not_stored``). It only ever takes a
+    decided answer away. Everything else is the store's own. The job's night and generation are read from its
+    record when a batch is first asked for (the job has pinned by then) and the answer is kept to the job's end."""
+
+    def __init__(self, store: DerivedStore, url: str | None, ctx: Any) -> None:
+        self._store, self._url, self._ctx = store, url, ctx
+        self._seen: dict[tuple[str, str], tuple[bool, str]] = {}
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    def _readable(self, snapshot: str, generation: str) -> tuple[bool, str]:
+        """``(readable, the run id of the batch that generation's build made)``; asked once, kept to the job's end."""
+        key = (snapshot, generation)
+        if key not in self._seen:
+            from datacore.generations import Built
+            from tb_common.generation import Generation
+
+            try:
+                with Built(self._url) as ledger:
+                    why = ledger.readable("derived", generation)
+                    ref = ledger.ref("derived") if why.ok else ""
+                    # NEW-B-4 (D-525): the rows are built from another generation now, or a build of them runs.
+                    # The store keeps its rows as of a batch, so the batch this job's generation made can still
+                    # be read: that batch by its run id, never "a finished batch of the date"
+                    # Only when the rows are built from ANOTHER generation: a build of the job's own generation that
+                    # runs again, or died, means the lake's content under that name is new and its rows are not
+                    # there yet: unknown, as before (review of NEW-B-4)
+                    now = ledger.state("derived")
+                    mine = Generation.parse(generation)
+                    old = None if why.ok or now is None or now[0] == mine else ledger.kept("derived", generation)
+            except Exception as exc:  # the ledger cannot be read: unknown, never "as if finished"
+                log.warning("stored scores unknown: the generation ledger cannot be read (%s)", type(exc).__name__)
+                self._seen[key] = (False, "")
+            else:
+                if old is not None and old.isdigit():
+                    log.info(
+                        "stored scores read from the batch of %s (%s; the rows are built anew since)", generation, old
+                    )
+                    self._seen[key] = (True, old)
+                else:
+                    self._seen[key] = (why.ok, ref)
+                    if not why.ok:
+                        log.info("stored scores read as unknown: %s", why.reason)
+        return self._seen[key]
+
+    def batch(self, snapshot: str) -> Any:
+        job = getattr(self._ctx, "job", None)
+        day = getattr(job, "snapshot_date", None)
+        if day is not None and snapshot == day.isoformat():
+            gen = str((getattr(job, "options", None) or {}).get("lake_generation") or snapshot)
+            ok, ref = self._readable(snapshot, gen)
+            if not ok:
+                return None
+            if ref.isdigit():  # the batch that generation's build made, not the first finished batch of the date
+                return self._store.batch_by_id(int(ref))
+        return self._store.batch(snapshot)
+
+
+def reader_for(ctx: Any) -> Any:
+    """:func:`reader` of a job's context; a context without a job runner (a test's stand-in) reads as "off". With
+    the flag on, the store is read through :class:`GenerationReader` for the generation the job pinned (T-724's
+    ``options.lake_generation``; a job without one: its night's date)."""
+    orch = getattr(ctx, "orch", None)
+    st = reader(orch)
+    if st is None or getattr(ctx, "job", None) is None:
+        return st
+    kept = getattr(ctx, "_generation_reader", None)  # one reader, and so one answer, for the whole job
+    if isinstance(kept, GenerationReader):
+        return kept
+    made = GenerationReader(st, url_of(orch), ctx)
+    with contextlib.suppress(AttributeError, TypeError):  # a context that takes no attribute: a reader per call
+        ctx._generation_reader = made
+    return made
 
 
 def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
@@ -60,7 +136,22 @@ def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
             log.info("derive batch skipped: no trial database (%s unset)", ENV)
             return None
         lake = orch.services.lake
-        rep = run_batch(st, lake, mapping_version=mapping_version_of(lake, snapshot), snapshot=snapshot)
+        # T-725 (D-491, review F-4): the batch is the build of "derived" from this night's generation. A night
+        # older than the one the stored rows are built from is refused: the newer rows stay
+        from datacore.generations import generation_of, guarded
+
+        rep = guarded(
+            "derived",
+            generation_of(lake, snapshot),
+            lambda: run_batch(st, lake, mapping_version=mapping_version_of(lake, snapshot), snapshot=snapshot),
+            url_of(orch),
+            # what this build made: its batch's run id (builds of "derived" are serial, so the newest finished
+            # batch of the night is this one). A reader pinned to the generation reads that batch
+            ref=lambda _rep: str(getattr(st, "newest_batch_id", lambda _s: None)(snapshot) or ""),
+        )
+        if rep is None:
+            orch.audit.append("derive.failed", detail={"snapshot": snapshot, "error": "OlderGeneration"})
+            return None
         counts = {k: getattr(rep, k) for k in ("inserted", "unchanged", "superseded", "retired", "conflicts", "failed")}
         orch.audit.append("derive.batch", detail={"snapshot": snapshot, **counts})
         if rep.failed:
