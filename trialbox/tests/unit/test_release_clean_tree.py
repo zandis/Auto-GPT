@@ -111,8 +111,8 @@ def test_the_check_comes_before_anything_is_exported_and_the_rehearsal_names_its
         encoding="utf-8"
     )
     rehearse = (ROOT / "tools" / "rehearse_box" / "rehearse.sh").read_text(encoding="utf-8")
-    call = rehearse[rehearse.index("tools/make_bundle.sh --key") :][:600]
-    assert "--allow-dirty" in call
+    call = rehearse[rehearse.index("  tools/make_bundle.sh ") :][:600]
+    assert '--allow-dirty "a rehearsal of the working tree"' in call.split("||")[0]
 
 
 def test_the_release_record_counts_an_untracked_file_as_dirty(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
