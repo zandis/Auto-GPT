@@ -28,7 +28,7 @@ def run(h: Helpers, only: str | None = None) -> list[tuple[str, str]]:
         if (only and rs != only.upper()) or (not lk.get("enabled", True) and not only):
             continue
         try:
-            res: dict[str, Any] = read_now(h, rs, "console:nightly")
+            res: dict[str, Any] = read_now(h, rs)
         except (Problem, Unavailable) as exc:
             out.append((rs, f"error {getattr(exc, 'code', 'unavailable')}"))
             continue

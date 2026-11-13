@@ -88,6 +88,10 @@ class UpdateFailed(RuntimeError):
     pass
 
 
+#: D-633: the environments of a site box (an unset TB_ENV is PRODUCTION, D-127)
+STRICT_ENVS = ("PRODUCTION", "VALIDATION")
+
+
 class UpdateRefused(UpdateFailed):
     """A preflight refusal: nothing on the box was changed (no marker, no backup, no service stopped)."""
 
@@ -549,12 +553,56 @@ class Updater:
             st["schema"] = live()
         return st
 
+    def environment(self) -> str:
+        """The box's environment as the box itself names it (``Box.environment``); a box that cannot say, or says a
+        name that is none of the four, counts as PRODUCTION (D-633: the strict side)."""
+        named = getattr(self.box, "environment", None)
+        env = str(named()).strip().upper() if callable(named) else "PRODUCTION"
+        return env if env in ("PRODUCTION", "VALIDATION", "DEV", "TEST") else "PRODUCTION"
+
+    def _from_a_commit(self, plan: Plan) -> list[str]:
+        """D-633 (the owner's decision of 2026-11-13): a PRODUCTION or VALIDATION box takes only a release built
+        from a commit. ``release.json`` (signed with the bundle) says ``source.dirty`` when ``tools/make_bundle.sh``
+        was run with ``--allow-dirty`` on a working tree (D-631), and names the commit. A bundle with no release
+        record cannot say and is taken as before, with a note (the verifier refuses images without one; a host
+        tree alone can come without one, see the decision record); a record that does not answer or names no
+        commit is refused on such a box."""
+        env = self.environment()
+        strict = env in STRICT_ENVS
+        if plan.release is None:
+            return [
+                "the bundle has no release record (release.json): it does not say whether it was built from a commit"
+            ]
+        if not strict:
+            return []
+        source = plan.release.get("source")
+        dirty = source.get("dirty") if isinstance(source, dict) else None
+        if dirty is True:
+            raise UpdateRefused(
+                f"{plan.bundle_id} was built from a working tree, not from a commit (release.json says dirty; "
+                f"tools/make_bundle.sh --allow-dirty): a {env} box takes only a release built from a commit. A "
+                "rehearsal bundle goes on a DEV or TEST box (TB_ENV in deploy/.env)"
+            )
+        if dirty is not False:
+            raise UpdateRefused(
+                f"{plan.bundle_id}: its release.json does not say whether it was built from a commit "
+                f"(source.dirty is {dirty!r}): a {env} box refuses it"
+            )
+        commit = source.get("commit") if isinstance(source, dict) else None
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise UpdateRefused(
+                f"{plan.bundle_id}: its release.json names no commit (source.commit is {commit!r}; a build outside "
+                f"a git checkout): a {env} box takes only a release built from a commit"
+            )
+        return []
+
     def preflight(self, plan: Plan, backup: bool = True) -> list[str]:
         """Every refusal that needs nothing changed: compat.json against the live box, the release sequence, the
         box's own checks, the free space. Raises :class:`UpdateRefused`; returns notes."""
         from tools import update_status as us
 
         notes: list[str] = []
+        notes += self._from_a_commit(plan)
         if plan.release_seq is not None:
             inst = us.installed(self.dir)
             have = int(inst["release_seq"])
@@ -763,6 +811,9 @@ class Updater:
             "applied_at": _now(),
             "state": state,
         }
+        source = (plan.release or {}).get("source")
+        if isinstance(source, dict) and isinstance(source.get("dirty"), bool):
+            record["dirty"] = source["dirty"]  # D-633: built from a working tree (a DEV or TEST box took it)
         us.write_atomic(self.dir / us.INSTALLED, record)
         if plan.trust_after:
             us.write_atomic(self.dir / us.TRUST, plan.trust_after)
@@ -1002,6 +1053,12 @@ class ComposeBox(_DockerImages):
 
     def _c(self, *args: str) -> list[str]:
         return [*self.compose, *args]
+
+    def environment(self) -> str:
+        """D-633: ``TB_ENV`` of ``deploy/.env`` (its last line, as install.sh reads it), PRODUCTION when it is not
+        set or there is no file yet (D-127). Never the process environment: a ``TB_ENV=DEV`` typed in front of the
+        installer is not written to the box."""
+        return (_env_file(self.deploy / ".env").get("TB_ENV") or "PRODUCTION").strip().upper()
 
     def running(self) -> bool:
         try:
@@ -1493,6 +1550,9 @@ class DemoBox(_DockerImages):
 
     name = "demo"
 
+    def environment(self) -> str:
+        return "DEV"  # the demo VM: synthetic data, tools.demo sets TB_ENV=DEV itself
+
     def __init__(self, deploy: Path, run: Runner = run_cmd, wait_url: str = "http://127.0.0.1/login") -> None:
         self.deploy = deploy
         self.run = run
@@ -1597,6 +1657,9 @@ class InProcessBox:
     unhealthy service), for the rollback drill."""
 
     name = "in-process"
+
+    def environment(self) -> str:
+        return "TEST"  # the drills' box in one process (tools/update_drill.py)
 
     def __init__(self, work: Path, db_url: str, backup_to: Path) -> None:
         self.work = work
@@ -1829,6 +1892,13 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
         print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
         return 0
+    # D-633: a site box takes only a release built from a commit. Here, before either path: install.sh's first load
+    # below never runs the preflight, and a fresh box (no deploy/.env yet) is PRODUCTION
+    try:
+        Updater(box, updates, say=print)._from_a_commit(plan)
+    except UpdateRefused as exc:
+        print(f"update REFUSED: {exc}; nothing was changed")
+        return 1
     in_service = box_in_service(deploy, box)
     if not box.running():
         if in_service:

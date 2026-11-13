@@ -79,9 +79,11 @@ closed). Checks:
 * ``update_window`` (NEW-WIN-5, D-606): on a WSL2 kernel, the hours in which Windows Update may restart the
   workstation (``TB_WIN_UPDATE_WINDOW_START`` and ``TB_WIN_UPDATE_WINDOW_HOURS``, the installer's
   ``-UpdateWindowStart`` and ``-UpdateWindowHours``) against the night's start (``data_source.nightly_at``). FAIL
-  when the night starts inside the window. Otherwise WARN, naming the time between the night's start and the
-  window: no record of a night's measured length exists on the box yet, so "the night ends before the window" is
-  not claimed. The window is the one the Windows installer recorded (``deploy/site/box/windows-update-window``);
+  when the night starts inside the window, or when a recorded night (``tools/night_length.py``, NEW-B-20) ran
+  into it. Otherwise WARN, never PASS yet: with no recorded night it names the time between the night's start and
+  the window; with recorded nights, the least time between the end of their ingest and the window (the record
+  does not yet hold what the orchestrator does after ingest). The window is the one the Windows installer
+  recorded (``deploy/site/box/windows-update-window``);
   without that file the declared one, said as unconfirmed; "kept" (the site's IT holds the policy) is a WARN. That
   Windows really holds this window is judged from Windows' side by ``deploy/windows/wsl2_policy.py``.
 * ``backup_speed`` (NEW-WIN-7, D-608; D-455): on a WSL2 kernel, ``TB_BACKUP_MIN_MBPS`` (the speed below which a
@@ -1355,10 +1357,43 @@ def check_update_window(inp: DoctorInputs) -> Check:
                      "night. Move the window (start the Windows installer again with -UpdateWindowStart) or "
                      "nightly_at")  # fmt: skip
     room = (start * 60 - night) % 1440
-    # the night starts outside the window; whether it also ends before the window opens cannot be said: no record
-    # of a night's measured length exists on the box yet. Never a PASS on half the question
-    return Check(name, "WARN", f"{window}; the night starts at {at}, {room // 60} h {room % 60:02d} min before the "
-                 "window opens. The night's measured length is not recorded on the box: keep it shorter")  # fmt: skip
+    # the night starts outside the window; whether it also ends before the window opens is read from the record of
+    # the nights that ran (NEW-B-20, D-661: tools/night_length.py, deploy/site/night-length.json)
+    from tools.night_length import night_runs
+
+    runs = []
+    for run in night_runs(inp.deploy) if inp.deploy is not None else []:
+        try:
+            began, ended = datetime.fromisoformat(run["start"]), datetime.fromisoformat(run["end"])
+        except (KeyError, ValueError):
+            continue
+        runs.append((began, ended))
+    if not runs:
+        return Check(name, "WARN", f"{window}; the night starts at {at}, {room // 60} h {room % 60:02d} min before "
+                     "the window opens. No night's length is recorded on the box yet: keep it shorter")  # fmt: skip
+    # each recorded night on the clock of the day it began, in the site's own time (the record carries the offset)
+    hit: list[str] = []
+    least: int | None = None
+    for began, ended in runs:
+        first = began.hour * 60 + began.minute
+        length = max(0, int((ended - began).total_seconds() // 60))
+        into = (first - start * 60) % 1440  # minutes after the window opened that the night began
+        before = (start * 60 - first) % 1440  # minutes from the night's start to the window's next opening
+        if into < hours * 60 or length > before:
+            hit.append(f"{began:%Y-%m-%d} {began:%H:%M} to {ended:%H:%M}")
+        else:
+            least = before - length if least is None else min(least, before - length)
+    if hit:
+        return Check(name, "FAIL", f"{window}, and {len(hit)} of the last {len(runs)} recorded nights ran inside it "
+                     f"({'; '.join(hit[-3:])}): a restart would have cut the night. Move the window (start the "
+                     "Windows installer again with -UpdateWindowStart) or nightly_at")  # fmt: skip
+    assert least is not None
+    # never a PASS yet: the record ends when the adapter's part of the night ends (ingest to the lake). What the
+    # orchestrator does after it (derive, screening) is not in the record, and the copy on the host is as old as
+    # the last backup run
+    return Check(name, "WARN", f"{window}; the last {len(runs)} recorded nights ended their ingest at least "
+                 f"{least // 60} h {least % 60:02d} min before the window opens. The work after ingest is not in the "
+                 "record yet: keep that margin larger than it takes")  # fmt: skip
 
 
 def _nvidia_smi() -> tuple[str, str] | None:

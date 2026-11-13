@@ -81,7 +81,7 @@ def test_a_night_outside_the_window_is_never_passed_while_its_length_is_unmeasur
         "from 19:00 to 01:00" in c.detail
         and "the night starts at 02:00, 17 h 00 min before the window opens" in c.detail
     )
-    assert "not recorded on the box" in c.detail and "has not said" not in c.detail
+    assert "No night's length is recorded on the box yet" in c.detail and "has not said" not in c.detail
 
 
 @pytest.mark.parametrize(
@@ -94,6 +94,69 @@ def test_a_night_that_starts_inside_the_window_fails(tmp_path: Path, night: str,
         assert f"the night starts at {night}, inside it" in c.detail and "-UpdateWindowStart" in c.detail
     if night == "18:59":
         assert "0 h 01 min before the window opens" in c.detail
+
+
+def _nights(inp: DoctorInputs, *runs: tuple[str, str]) -> DoctorInputs:
+    """Lane B's record of the nights that ran (deploy/site/night-length.json; tools/night_length.py)."""
+    assert inp.deploy is not None
+    (inp.deploy / "site").mkdir(parents=True, exist_ok=True)
+    nights = [{"start": a, "end": b, "finished": True, "run": 1} for a, b in runs]
+    (inp.deploy / "site/night-length.json").write_text(json.dumps({"nights": nights}))
+    return inp
+
+
+def test_recorded_nights_that_end_before_the_window_give_the_least_margin_and_still_no_pass(tmp_path: Path) -> None:
+    inp = _nights(_inp(tmp_path, told="19+6"),
+                  ("2026-11-10T02:00:00+08:00", "2026-11-10T05:30:00+08:00"),
+                  ("2026-11-11T02:00:00+08:00", "2026-11-11T09:10:00+08:00"))  # fmt: skip
+    c = check_update_window(inp)
+    assert c.status == "WARN"  # the record ends with ingest: what the orchestrator does after it is not in it
+    assert "the last 2 recorded nights ended their ingest at least 9 h 50 min before the window opens" in c.detail
+    assert "work after ingest is not in the record yet" in c.detail
+
+
+@pytest.mark.parametrize(
+    ("run", "says"),
+    [
+        (
+            ("2026-11-11T02:00:00+08:00", "2026-11-11T19:30:00+08:00"),
+            "2026-11-11 02:00 to 19:30",
+        ),  # ran into the window
+        (("2026-11-11T20:00:00+08:00", "2026-11-11T21:00:00+08:00"), "2026-11-11 20:00 to 21:00"),  # began inside it
+        (("2026-11-11T02:00:00+08:00", "2026-11-12T03:00:00+08:00"), "2026-11-11 02:00 to 03:00"),  # ran a whole day
+    ],
+)
+def test_a_recorded_night_that_ran_into_the_window_fails(tmp_path: Path, run: tuple[str, str], says: str) -> None:
+    good = ("2026-11-10T02:00:00+08:00", "2026-11-10T05:00:00+08:00")
+    c = check_update_window(_nights(_inp(tmp_path, told="19+6"), good, run))
+    assert c.status == "FAIL" and "1 of the last 2 recorded nights ran inside it" in c.detail and says in c.detail
+
+
+def test_a_night_that_ends_just_as_the_window_opens_is_not_inside_it(tmp_path: Path) -> None:
+    c = check_update_window(
+        _nights(_inp(tmp_path, told="19+6"), ("2026-11-11T02:00:00+08:00", "2026-11-11T19:00:00+08:00"))
+    )
+    assert c.status == "WARN" and "at least 0 h 00 min before the window opens" in c.detail
+
+
+def test_a_window_over_midnight_and_a_night_after_it(tmp_path: Path) -> None:
+    # window 22:00 to 04:00; the night starts 04:30 and ends 07:00: 15 h before the window opens again
+    inp = _nights(
+        _inp(tmp_path, told="22+6", night="04:30"), ("2026-11-11T04:30:00+09:00", "2026-11-11T07:00:00+09:00")
+    )
+    c = check_update_window(inp)
+    assert c.status == "WARN" and "from 22:00 to 04:00" in c.detail and "at least 15 h 00 min" in c.detail
+
+
+def test_a_record_with_no_finished_night_is_the_unmeasured_case_never_a_failure(tmp_path: Path) -> None:
+    inp = _inp(tmp_path, told="19+6")
+    assert inp.deploy is not None
+    (inp.deploy / "site").mkdir(parents=True, exist_ok=True)
+    (inp.deploy / "site/night-length.json").write_text(
+        json.dumps({"nights": [{"start": "x", "end": "y", "finished": False}]})
+    )
+    c = check_update_window(inp)
+    assert c.status == "WARN" and "No night's length is recorded on the box yet" in c.detail
 
 
 def test_the_window_the_windows_installer_recorded_is_the_one_judged(tmp_path: Path) -> None:

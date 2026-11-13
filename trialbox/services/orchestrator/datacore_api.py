@@ -73,7 +73,7 @@ class DataService:
     def run_sync(self, rs: str, name: str, by: str) -> dict[str, Any]:
         src = self.redcap(rs) if name == "redcap" else None
         if src is None:
-            raise HTTPException(status_code=404, detail={"code": "DATA-SOURCE", "message": f"no source {name}"})
+            raise HTTPException(status_code=404, detail={"code": "DATA-SOURCE", "message": "no such source"})
         at = self.stamp()
         res = sync.sync(self.dc, rs, src, by, at).as_dict()
         self.dc.synced(rs, name, at, res)

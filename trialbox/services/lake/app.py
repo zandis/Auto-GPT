@@ -35,6 +35,7 @@ from lake.store import (
     Lake,
     LakeBusy,
     RebuildError,
+    error_answer,
     read_rebuild_job,
     split_generation,
     write_rebuild_job,
@@ -92,8 +93,8 @@ def query(req: LakeQuery, x_tb_lake_generation: str | None = Header(default=None
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:  # duckdb errors -> 422 with the engine message (no data echoed)
-        raise HTTPException(status_code=422, detail=f"{type(exc).__name__}: {str(exc)[:500]}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=error_answer(exc)) from exc
     return Response(content=to_ipc(table), media_type=ARROW_STREAM)
 
 
@@ -273,6 +274,13 @@ def _reap(proc: subprocess.Popen[bytes], lake_dir: Path, job: dict[str, Any]) ->
         write_rebuild_job(lake_dir, {**now, "state": "failed", "detail": why, "ended": time.time()})
 
 
+def _child_env() -> dict[str, str]:
+    """The build's process imports what this process imports: this process's import path is handed on, whatever put
+    it there (the image's ``PYTHONPATH``, a test runner's own setting). Without it the child resolves ``lake`` by
+    itself, and an interpreter whose installed packages point at another checkout gives it that checkout's code."""
+    return {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
+
+
 def _launch(spec: dict[str, Any], lock_fd: int) -> None:
     """Start ``python -m lake.build`` for one job. It inherits the build lock's open file and this worker's
     environment. If anything fails once the process exists, the process is ended before the failure is reported:
@@ -282,7 +290,7 @@ def _launch(spec: dict[str, Any], lock_fd: int) -> None:
     for name, old in list(_builds.items()):
         if old.poll() is not None:
             _builds.pop(name, None)  # another request may have removed it
-    proc = subprocess.Popen(_command(lock_fd, spec), pass_fds=[lock_fd], stdin=subprocess.DEVNULL)
+    proc = subprocess.Popen(_command(lock_fd, spec), pass_fds=[lock_fd], stdin=subprocess.DEVNULL, env=_child_env())
     try:
         _builds[snap] = proc
         threading.Thread(

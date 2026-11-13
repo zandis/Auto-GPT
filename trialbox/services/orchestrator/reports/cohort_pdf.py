@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape
 from tb_common.ruleset import Ruleset
 from tb_contracts import CohortTable, TrialSimResult
 
-from orchestrator.reports.common import ReportMeta, figure, fmt_count, pdf_fonts, pdf_invariant, png
+from orchestrator.reports.common import ReportMeta, draw_string, figure, fmt_count, pdf_fonts, pdf_invariant, png
 
 
 def _trend_png(table: CohortTable, population: str, locale: str) -> bytes | None:
@@ -36,8 +36,9 @@ def render(rs: Ruleset, table: CohortTable, sims: TrialSimResult | None, meta: R
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    from orchestrator.reports.common import Paragraph  # UX-002: with the glyph fallback
     from orchestrator.scenarios.cohort import population_id
 
     regular, bold = pdf_fonts(meta.locale)
@@ -127,7 +128,7 @@ def render(rs: Ruleset, table: CohortTable, sims: TrialSimResult | None, meta: R
     def on_page(canvas: Any, doc: Any) -> None:
         canvas.saveState()
         canvas.setFont(regular, 7)
-        canvas.drawString(15 * mm, 10 * mm, meta.footer)
+        draw_string(canvas, 15 * mm, 10 * mm, meta.footer, regular, 7)  # UX-002
         canvas.drawRightString(195 * mm, 10 * mm, f"{doc.page}")
         canvas.restoreState()
 

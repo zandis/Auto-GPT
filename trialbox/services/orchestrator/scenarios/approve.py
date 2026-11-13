@@ -42,7 +42,7 @@ def amendment_options(options: dict[str, str]) -> dict[str, Any]:
             try:
                 out[field] = date.fromisoformat(options[key])
             except ValueError as exc:
-                raise StepFailed("approve", f"{key}= must be a date YYYY-MM-DD, not {options[key]!r}") from exc
+                raise StepFailed("approve", f"{key}= must be a date YYYY-MM-DD") from exc
     if options.get("irb"):
         out["irb_reference"] = options["irb"]
     return out
@@ -92,7 +92,7 @@ def run(ctx: Ctx) -> Outcome:
     if meta.get("ruleset") and meta["ruleset"].upper() != ruleset:
         raise StepFailed("approve", f"The workbook is for ruleset {meta['ruleset']}, not {ruleset}.")
     if meta.get("version") and meta["version"] != version:
-        raise StepFailed("approve", f"The workbook is for version {meta['version']}, not {version}.")
+        raise StepFailed("approve", f"The workbook is for version {meta['version']}, not the version= of the request.")
     via = "web console" if (ctx.job.comment or "").startswith("web console") else "e-mail"
     res = ctx.services.compiler.approve(
         ApproveRequest(

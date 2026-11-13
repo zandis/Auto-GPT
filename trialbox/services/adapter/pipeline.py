@@ -588,7 +588,7 @@ def _run_ingest(
         check_lookup_factors(mapping)  # D-527: a factor typed wrongly ends the night here, not row by row
         mapper = Mapper(
             mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
-            concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),
+            concept_map=reference_maps(mapping, cfg.db_url),  # D-665: a map that is not loaded is "not asked"
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
@@ -1497,6 +1497,51 @@ def _type_counts(directory: Path) -> dict[str, int]:
         with f.open("rb") as fh:
             out[f.stem] = sum(1 for line in fh if line.strip())
     return out
+
+
+def reference_maps(mapping: Any, db_url: str | None) -> Callable[[str, str], list[dict[str, Any]] | None]:
+    """What the mapper asks the box's reference data with (D-593), for a night and for a first load (NEW-B-24,
+    D-665).
+
+    A map that is **not loaded** answers "no entry" for every code, which is counted and published and never asked
+    again; loaded later, nothing would map those rows. So the first time a map the mapping names
+    (``Mapping.concept_maps``) answers "no entry", the reference data is asked whether that map is loaded at all.
+    If it is not, the map is treated from then on as one that **could not be asked** (the answer is None, counted
+    under ``<map>:unavailable``): a night reads the table whole on the next delta night (D-538), a first load is
+    held (D-660). Only rows that need the map are counted: a site without such rows is never asked to load a pack
+    it does not use. With no database configured there is nothing that could be loaded: answered as before.
+    The mapper asks by source system, so a source with two maps, one loaded and one not, is "not asked" for both
+    once a code has no entry at all (no mapping shipped has two maps of one source)."""
+    targets: dict[str, list[str]] = {}
+    for source, target in mapping.concept_maps():
+        targets.setdefault(source, []).append(target)
+    absent: dict[str, bool] = {}  # per source system, once it is known
+    not_loaded: list[str] = []
+
+    def ask(system: str, code: str) -> list[dict[str, Any]] | None:
+        if absent.get(system):
+            return None
+        got = refdata.map_targets_or_none(system, code, db_url)
+        if got == [] and system in targets and system not in absent and (db_url or os.environ.get(DB_URL_ENV)):
+            loaded = [refdata.has_map_or_none(system, t, db_url) for t in targets[system]]
+            if None in loaded:
+                # the "no entry" cannot be checked just now (the database went between two questions). Taken for
+                # an answer it would be published and never asked again: this row is "not asked", the next asks
+                return None
+            absent[system] = False in loaded
+            if absent[system]:
+                not_loaded.append(f"{system} to {', '.join(targets[system])}")
+                log.warning(
+                    "the reference map from %s to %s is not loaded: the rows that need it are counted as not asked "
+                    "(a night reads the table whole on the next delta night, D-538; a first load is held, D-660). "
+                    "Load the reference pack",
+                    system, ", ".join(targets[system]),
+                )  # fmt: skip
+                return None
+        return got
+
+    ask.not_loaded = not_loaded  # type: ignore[attr-defined]  # the maps found not loaded in this run (a held reason)
+    return ask
 
 
 def reread_whole(lake_dir: Path, base: str | None) -> tuple[set[str], str | None]:

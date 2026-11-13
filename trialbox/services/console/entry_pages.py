@@ -34,7 +34,7 @@ from tb_common.authz import permit
 from console import actor, s28
 from console.api_first import before_body, page_twin
 from console.auth import Session, User
-from console.backend import Problem, Unavailable
+from console.backend import Problem, Unavailable, service_and_status
 from console.data_pages import err_of
 from console.home import Helpers
 from console.i18n import translate
@@ -376,7 +376,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             name, media, data = read_export(sess, rs, SUFFIX_FORMAT.get(fmt, fmt))
         except (Problem, Unavailable) as exc:
-            raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
+            raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.post("/studies/{rs}/forms/builtin")

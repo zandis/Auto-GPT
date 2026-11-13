@@ -29,6 +29,7 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import logging
 import os
 import re
 from collections import deque
@@ -49,6 +50,7 @@ from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
 
 from orchestrator.actor import require_actor
+from orchestrator.candidates import RegistryError
 
 # T-715 (D-483): the matrix rows the console asks before it calls these routes; the dependency asks them again
 ENTER = "study.setup"  # who records the participants' steps, the schedule and the study's rules (the coordinator)
@@ -64,6 +66,8 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 LIFE_FORMS = ("tb_screening_log", "tb_consent", "tb_enrolment", "tb_visit", "tb_withdrawal")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+log = logging.getLogger("orchestrator")
 
 
 class Host(Protocol):
@@ -214,8 +218,11 @@ def mirror(registry: Any, rs: str, pid: str, state: str, by: str, now: Any) -> s
     want = lc.REGISTRY_OF[state]
     try:
         cur = next((e.status for e in registry.rows(rs) if e.pid == pid), None)
-    except Exception as exc:
-        return str(exc)[:120]
+    except RegistryError as exc:
+        return str(exc)[:120]  # the registry's own words (D-555)
+    except Exception as exc:  # any other error's text can hold what was sent: its type, and the log
+        log.warning("the screening log could not be read for a lifecycle step", extra={"error": type(exc).__name__})
+        return f"the screening log could not be read ({type(exc).__name__})"
     if cur is not None and lc.REGISTRY_OF.get(lc.FROM_REGISTRY.get(cur, ""), "") == want:
         return None  # the log already says so in its own words (declined is a screen failure)
     path = registry_path(cur, want)
@@ -225,8 +232,11 @@ def mirror(registry: Any, rs: str, pid: str, state: str, by: str, now: Any) -> s
         try:
             registry.update(rs, RegistryUpdate.model_validate({"pid": pid, "status": st, "by": by,
                                                                "source": "manual"}), now)  # fmt: skip
-        except Exception as exc:
+        except RegistryError as exc:
             return str(exc)[:120]
+        except Exception as exc:
+            log.warning("the screening log was not updated by a lifecycle step", extra={"error": type(exc).__name__})
+            return f"the screening log was not updated ({type(exc).__name__})"
     return None
 
 
