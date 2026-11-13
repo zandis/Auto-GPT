@@ -19,15 +19,25 @@ LOCKED`); nothing said "this job is being run".
 
 ## Decision
 
-1. **A run holds a lease** (`JobDB.lease`, taken at the top of `Orchestrator.run`, released when the run ends in
-   any way). The lease is a session advisory lock of PostgreSQL on a connection of its own, keyed by the store's
-   schema and the job id (two keys: two jobs never share a lock).
-2. **It ends with its holder.** A worker that dies loses its connection and with it the lease; nothing is written
-   that a later process would have to clean up. No heartbeat and no time limit (OD-10): the database knows whether
-   the holder is alive.
-3. **The restart recovery skips a leased job** (`JobDB.leased`): it is not interrupted, so it is not counted and
-   not queued. When its holder has died, the next start finds it interrupted, as before.
-4. **A worker that gets hold of a leased job's id runs nothing** (logged). The job stays its holder's.
+1. **A run holds a lease** (`JobDB.lease`, taken at the top of `Orchestrator.run`, given up when the run ends in
+   any way). The lease is a session advisory lock of PostgreSQL on a connection of its own. Its two 32-bit keys
+   are the halves of one 64-bit hash of the store's schema and the job id.
+2. **It ends with its holder.** Giving it up is closing the connection; a worker that dies loses the connection
+   and with it the lease. Nothing is written that a later process would have to clean up. No heartbeat and no
+   time limit (OD-10): the database knows whether the holder is alive.
+3. **The restart recovery takes the job's lease itself** while it counts the restart and queues the job, so no
+   worker starts the job in between. A job whose lease another worker holds is not interrupted: it is not counted
+   and not queued.
+4. **A job left to another worker is watched.** An idle worker looks at it again (`Orchestrator._rewatch`): when
+   nobody holds its lease any more and it is still neither queued nor ended, it was interrupted after all (the
+   other process died, or was stopped before the job ended) and is recovered as at a start. Without this the
+   card's own case, an update that starts the new container before the old one stops, left the job running on
+   paper for ever.
+5. **A worker that gets hold of a leased job's id runs nothing**, and watches the job too (it claimed it, so it is
+   not on the queue any more). When the lease cannot be asked for at all (the database refuses the connection),
+   the job goes back on the queue and the worker pauses as it does on an empty queue.
+6. **Asking takes no lock** (`JobDB.leased` reads the database's list of locks), so asking never stands in a
+   worker's way.
 
 ## Reuse check
 
@@ -42,6 +52,10 @@ with it but replaces the jobs table, the claim and the restart recovery: not pro
   running worker goes on. Before, it ran twice.
 - If the lease's connection is lost while the worker lives (a database restart), the lease is gone and the run
   goes on without it: for that window the box is as it was before this card. The run is not stopped for it.
+
+- One window stays: a worker has claimed a job and not yet taken its lease when another process starts. That
+  process recovers the job (a restart is counted that was none) and queues it; the first worker runs it, and
+  the second claim finds it leased or ended. The job runs once.
 
 ## Not decided here
 

@@ -5,6 +5,7 @@ Schema ``orch`` of the trial database (PostgreSQL ``trialbox_wf``, D-126; :mod:`
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 from collections.abc import Iterator
@@ -166,16 +167,25 @@ class JobLeased(RuntimeError):
     """Another live worker runs this job (its lease is held): it is not run or queued a second time."""
 
 
+def lease_keys(schema: str, job_id: str) -> tuple[int, int]:
+    """The two 32-bit keys of a job's lease: the halves of one 64-bit hash of the schema and the job id, so two
+    jobs share a lock with the odds of a 64-bit collision, not a 32-bit one (review of NEW-B-11, LOW-5)."""
+    digest = hashlib.blake2b(f"{schema}:job-run:{job_id}".encode(), digest_size=8).digest()
+    return (
+        int.from_bytes(digest[:4], "big", signed=True),
+        int.from_bytes(digest[4:], "big", signed=True),
+    )
+
+
 class JobLease:
-    """One run's lease (D-532): a session lock of the database, two keys (the schema, the job) so that two jobs
-    never share one. Not timed (OD-10): it lives exactly as long as its holder's connection."""
+    """One run's lease (D-532): a session lock of the database on a connection of its own. Not timed (OD-10): it
+    lives exactly as long as its holder's connection, and releasing it is closing that connection."""
 
     def __init__(self, url: str, name: str, schema: str, job_id: str) -> None:
         self.job_id = job_id
-        self._keys = (f"{schema}:job-run", job_id)
         self._db = Database.connect(url, name)
         try:
-            row = self._db.fetchone("SELECT pg_try_advisory_lock(hashtext(?), hashtext(?))", self._keys)
+            row = self._db.fetchone("SELECT pg_try_advisory_lock(?, ?)", lease_keys(schema, job_id))
         except BaseException:
             self._db.close()
             raise
@@ -184,8 +194,8 @@ class JobLease:
             raise JobLeased(f"job {job_id} is being run by another worker")
 
     def release(self) -> None:
-        with contextlib.suppress(Exception):  # a lost connection has given it up already
-            self._db.fetchone("SELECT pg_advisory_unlock(hashtext(?), hashtext(?))", self._keys)
+        """Give the lease up: the session ends and the lock with it. No unlock statement: a connection that was
+        lost would be opened again just to say it (review LOW-6)."""
         self.drop_connection()
 
     def drop_connection(self) -> None:
@@ -358,12 +368,16 @@ class JobDB:
         return JobLease(self.url, self._db.store, self._db.schema, job_id)
 
     def leased(self, job_id: str) -> bool:
-        """Whether a live worker runs ``job_id`` now (asked without taking the lease)."""
-        with self.tx() as con:
-            row = con.fetchone(
-                "SELECT pg_try_advisory_xact_lock(hashtext(?), hashtext(?))", (f"{self._db.schema}:job-run", job_id)
-            )
-        return not (row and row[0])
+        """Whether a live worker runs ``job_id`` now. Read from the database's own list of locks: asking takes no
+        lock, so it never stands in a worker's way (review MED-4)."""
+        k1, k2 = lease_keys(self._db.schema, job_id)
+        row = self._db.fetchone(
+            "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 2 "
+            "AND classid = ? AND objid = ? "
+            "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
+            (k1 & 0xFFFFFFFF, k2 & 0xFFFFFFFF),
+        )
+        return row is not None
 
     def claim(self, only: tuple[str, ...] = ()) -> str | None:
         """Take the oldest queued job; ``only``: of these types (T-704, D-458: the worker kept for the ingest)."""

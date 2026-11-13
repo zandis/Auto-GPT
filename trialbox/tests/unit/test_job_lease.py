@@ -54,12 +54,90 @@ def test_a_second_orchestrator_does_not_take_a_running_job_for_interrupted(make:
     assert now is not None and now.state == "running" and _events(tmp_path, "job.requeued") == []
     second.run(job_id)  # and a worker that got hold of the id all the same runs nothing
     assert llm.calls == 0
-    # the first process dies: its lease goes with its connection, and the next start finds the job interrupted
+    # the first process dies (or is stopped before the job ended): its lease goes with its connection. The second
+    # process, which left the job alone, finds it interrupted by itself: no third start is needed (review HIGH-1)
     lease.drop_connection()
-    third = make(llm, screen_of(3, seen))
-    third.start()
-    assert third.db.restarts(job_id) == 1 and len(_events(tmp_path, "job.requeued")) == 1
-    third.drain()
-    done = third.db.get(job_id)
+    second.drain()
+    assert second.db.restarts(job_id) == 1 and len(_events(tmp_path, "job.requeued")) == 1
+    done = second.db.get(job_id)
     assert done is not None and done.state == "done", done.error
-    assert not third.db.leased(job_id)  # a finished run gives its lease up
+    assert not second.db.leased(job_id)  # a finished run gives its lease up
+
+
+def test_a_job_that_ended_under_its_holder_is_not_queued_again(make: Any, tmp_path: Path) -> None:
+    llm = Scripted(lambda n: False)
+    seen: dict[str, Any] = {}
+    first = make(llm, screen_of(2, seen))
+    job_id = _job(first)
+    assert first.db.claim() == job_id
+    lease = first.db.lease(job_id)
+    second = make(llm, screen_of(2, seen))
+    second.start()  # watched, not queued
+    job = first.db.get(job_id)
+    assert job is not None
+    first.set_state(job, "done")  # the holder finishes its run ...
+    lease.release()
+    calls = llm.calls
+    second.drain()  # ... and the watcher has nothing to do
+    assert llm.calls == calls and second.db.restarts(job_id) == 0 and _events(tmp_path, "job.requeued") == []
+
+
+def test_a_lease_that_cannot_be_asked_for_puts_the_job_back_on_the_queue(make: Any, monkeypatch: Any) -> None:
+    """Review HIGH-2: the database refuses the lease's connection. The claimed job is not lost."""
+    from tb_common.db import DatabaseError
+
+    llm = Scripted(lambda n: False)
+    seen: dict[str, Any] = {}
+    orch = make(llm, screen_of(2, seen))
+    job_id = _job(orch)
+    real = orch.db.lease
+    fail = [True]
+
+    def lease(jid: str) -> Any:
+        if fail[0]:
+            fail[0] = False
+            raise DatabaseError("too many clients already")
+        return real(jid)
+
+    monkeypatch.setattr(orch.db, "lease", lease)
+    assert orch.db.claim() == job_id
+    with pytest.raises(DatabaseError):
+        orch.run(job_id)
+    assert llm.calls == 0
+    orch.drain()  # it is on the queue again, and runs
+    done = orch.db.get(job_id)
+    assert done is not None and done.state == "done", done.error
+
+
+def test_six_workers_given_one_job_run_it_once(make: Any) -> None:
+    import threading
+
+    llm = Scripted(lambda n: False)
+    seen: dict[str, Any] = {}
+    orch = make(llm, screen_of(4, seen))
+    job_id = _job(orch)
+    assert orch.db.claim() == job_id
+    go = threading.Barrier(6)
+
+    def worker() -> None:
+        go.wait(30)
+        orch.run(job_id)
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    done = orch.db.get(job_id)
+    assert done is not None and done.state == "done", done.error
+    assert llm.calls == 4  # the four pairs of one run, not of six
+
+
+@pytest.mark.nodb
+def test_two_jobs_whose_32_bit_hashes_meet_do_not_share_a_lease() -> None:
+    """Review LOW-5: PostgreSQL's hashtext gives these two ids one value; the lease's keys are 64 bits of both."""
+    from orchestrator.db import lease_keys
+
+    a, b = lease_keys("tb_orch", "01JOB199167"), lease_keys("tb_orch", "01JOB31483")
+    assert a != b and all(-(2**31) <= k < 2**31 for k in (*a, *b))
+    assert lease_keys("tb_orch", "01JOB199167") == a and lease_keys("other_orch", "01JOB199167") != a

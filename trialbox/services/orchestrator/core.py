@@ -272,6 +272,7 @@ class Orchestrator:
         self._stop = threading.Event()
         self._wake = threading.Condition()
         self._threads: list[threading.Thread] = []
+        self._watched: set[str] = set()  # D-532: jobs left to another worker; looked at again when idle
         self._notify = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notify") if async_notify else None
         # T-305b (D-403): called after a job ends and its lake hold is released (the site's batched publish waits
         # for the jobs that read the snapshot it would rebuild)
@@ -502,8 +503,16 @@ class Orchestrator:
         try:
             lease = self.db.lease(job_id)
         except JobLeased:
+            # the job was claimed (it is not queued any more) and is not run here: it is watched, and queued again
+            # when its holder is gone and it has not ended (review HIGH-1, MED-3)
             log.warning("job %s is being run by another worker: not run a second time", job_id)
+            self._watch(job_id)
             return job
+        except Exception:
+            # the lease could not be asked for (the database refused the connection): the claimed job goes back on
+            # the queue, or nothing would ever run it (review HIGH-2)
+            self.db.enqueue(job_id)
+            raise
         try:
             return self._run(job)
         finally:
@@ -633,45 +642,82 @@ class Orchestrator:
         except (StepFailed, ServiceError, RuntimeError) as exc:
             log.warning("could not send Failed mail for %s: %s", job.job_id, exc)
 
+    # ------------------------------------------------------------------ restart recovery (T-689; D-532)
+    def _watch(self, job_id: str) -> None:
+        with self._wake:
+            self._watched.add(job_id)
+
+    def _recover_or_watch(self, jid: str, limit: int) -> bool:
+        """Queue an interrupted job again, under the job's own lease so that no worker starts it meanwhile. A job
+        whose lease another worker holds is not interrupted: it is watched (:meth:`_rewatch`). True: recovered."""
+        try:
+            lease = self.db.lease(jid)
+        except JobLeased:
+            # D-532: another orchestrator process on this database is running it now (an update that starts the
+            # new container before the old one stopped). It is left to its worker, and looked at again
+            log.warning("job %s is being run by another orchestrator: not queued again", jid)
+            self._watch(jid)
+            return False
+        try:
+            if jid in self.db.interrupted():  # read again under the lease: its run may just have ended it
+                self._recover(jid, limit)
+        finally:
+            lease.release()
+        return True
+
+    def _rewatch(self) -> bool:
+        """Look again at the jobs that were left to another worker: one that is still neither queued nor ended
+        when nobody holds its lease any more was interrupted after all (its holder died, or stopped without
+        finishing it) and is recovered as at a start. Called by an idle worker. True: something was queued."""
+        with self._wake:
+            watched = sorted(self._watched)
+        if not watched:
+            return False
+        open_ids = set(self.db.interrupted())
+        limit, queued = max_restarts(), False
+        for jid in watched:
+            if jid in open_ids and not self._recover_or_watch(jid, limit):
+                continue  # still its holder's
+            with self._wake:
+                self._watched.discard(jid)
+            queued = queued or jid in open_ids
+        return queued
+
+    def _recover(self, jid: str, limit: int) -> None:
+        job = self.db.get(jid)
+        if job is None:
+            return
+        # T-689 (D-456, review F-28): the restart is counted; the answers the job's models already gave are
+        # kept and replayed (orchestrator.jobs.KeptAnswers), so the run does not start its model work at zero
+        n = self.db.count_restart(jid)
+        kept = self.db.answer_count(jid)
+        if n > limit:
+            self.audit.append("job.requeued", job_id=jid, detail={"state": job.state, "restarts": n, "gave_up": 1})
+            job = self.set_state(
+                job,
+                "failed",
+                error=JobError(
+                    step=job.state,
+                    message=f"This job was interrupted by a restart of the box {n} times and was not started "
+                    f"again (the limit is TB_JOB_MAX_RESTARTS = {limit}): the job itself may be what stops the "
+                    f"box. Nothing was sent. Check the box's memory and logs (RUNBOOK §4), then send the "
+                    f"request again.",
+                ),
+            )
+            self._failed_mail(job)
+            self._release_waiting(job)
+            self.db.answers_drop(jid)
+            return
+        self.audit.append("job.requeued", job_id=jid, detail={"state": job.state, "restarts": n, "kept_answers": kept})
+        self.set_state(job, "received")
+        self.db.enqueue(jid)
+
     # ------------------------------------------------------------------ worker pool
     def start(self) -> None:
         self.db.answers_sweep()  # T-689 (D-456): kept answers live only as long as their job is unfinished
         limit = max_restarts()
         for jid in self.db.interrupted():  # restart recovery: run again from the start (scenarios are idempotent)
-            job = self.db.get(jid)
-            if job is None:
-                continue
-            if self.db.leased(jid):
-                # D-532: not interrupted: another orchestrator process on this database is running it now (an
-                # update that starts the new container before the old one stopped). It is left to its worker
-                log.warning("job %s is being run by another orchestrator: not queued again", jid)
-                continue
-            # T-689 (D-456, review F-28): the restart is counted; the answers the job's models already gave are
-            # kept and replayed (orchestrator.jobs.KeptAnswers), so the run does not start its model work at zero
-            n = self.db.count_restart(jid)
-            kept = self.db.answer_count(jid)
-            if n > limit:
-                self.audit.append("job.requeued", job_id=jid, detail={"state": job.state, "restarts": n, "gave_up": 1})
-                job = self.set_state(
-                    job,
-                    "failed",
-                    error=JobError(
-                        step=job.state,
-                        message=f"This job was interrupted by a restart of the box {n} times and was not started "
-                        f"again (the limit is TB_JOB_MAX_RESTARTS = {limit}): the job itself may be what stops the "
-                        f"box. Nothing was sent. Check the box's memory and logs (RUNBOOK §4), then send the "
-                        f"request again.",
-                    ),
-                )
-                self._failed_mail(job)
-                self._release_waiting(job)
-                self.db.answers_drop(jid)
-                continue
-            self.audit.append(
-                "job.requeued", job_id=jid, detail={"state": job.state, "restarts": n, "kept_answers": kept}
-            )
-            self.set_state(job, "received")
-            self.db.enqueue(jid)
+            self._recover_or_watch(jid, limit)
         for i in range(self.n_workers):
             t = threading.Thread(target=self._worker, name=f"worker-{i}", daemon=True)
             t.start()
@@ -693,6 +739,11 @@ class Orchestrator:
         while not self._stop.is_set():
             jid = self.db.claim(only)
             if jid is None:
+                try:
+                    if self._rewatch():  # D-532: a job its holder left unfinished is queued again
+                        continue
+                except Exception:
+                    log.exception("worker error while looking at watched jobs")
                 with self._wake:
                     self._wake.wait(timeout=2.0)
                 continue
@@ -700,6 +751,8 @@ class Orchestrator:
                 self.run(jid)
             except Exception:  # never let a worker die
                 log.exception("worker error on %s", jid)
+                with self._wake:  # the same pause as an empty queue: a job put back is not taken in a tight loop
+                    self._wake.wait(timeout=2.0)
 
     def drain(self, total: float | None = None) -> None:
         """Run queued jobs synchronously until the queue is empty (tests / CLI).
@@ -713,6 +766,8 @@ class Orchestrator:
         while True:
             jid = self.db.claim()
             if jid is None:
+                if self._rewatch():
+                    continue
                 return
             self.run(jid)
             if total is not None and time.monotonic() - start > total:
