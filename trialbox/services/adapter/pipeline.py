@@ -879,13 +879,19 @@ def _run_ingest(
                 capped=cut or None,
             )
         except Exception as exc:
-            errors.append(f"validation failed to run: {exc}")
+            from adapter import failure
+
+            failure.log_failure(log, "validation failed to run", exc)
+            errors.append(f"validation failed to run: {failure.words(exc)}")  # D-668
     psum: ValidationSummary | None = None
     if validate and fhir_profiles == "jp-core":
         try:
             psum = jp_core_check(cfg, night.jp_sample.result() if night.jp_sample is not None else [], out_dir)
         except Exception as exc:
-            errors.append(f"JP Core validation failed to run: {exc}")
+            from adapter import failure
+
+            failure.log_failure(log, "JP Core validation failed to run", exc)
+            errors.append(f"JP Core validation failed to run: {failure.words(exc)}")  # D-668
     if source is not None and hasattr(source, "stats"):
         from adapter.sources.ssmix2.source import reader_summary
 
