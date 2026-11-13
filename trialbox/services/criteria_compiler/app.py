@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
@@ -14,7 +15,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
-from tb_common.ruleset import SEED_RULESETS
+from tb_common.ruleset import SEED_RULESETS, examples_allowed
 from tb_contracts import (
     ApproveRequest,
     ApproveResult,
@@ -43,6 +44,12 @@ def _egfr(tz: str, locale: str | None) -> str:
     return "egfr" if site == "egfr_ckd_epi" else site
 
 
+def ruleset_repo(path: Path) -> RulesetRepo:
+    """The box's ruleset repository at ``path``. A new one starts from the shipped examples only on a DEV or TEST
+    box (D-640, NEW-LIFE-1): a site box starts empty, and its first approved ruleset is the site's own."""
+    return RulesetRepo(path, SEED if examples_allowed() else None)
+
+
 def compiler() -> Compiler:
     global _compiler
     if _compiler is None:
@@ -53,7 +60,7 @@ def compiler() -> Compiler:
         th = cfg.settings.thresholds
         deps = CompilerDeps(
             store=from_config(),
-            repo=RulesetRepo(cfg.env.rulesets_path, SEED),
+            repo=ruleset_repo(cfg.env.rulesets_path),
             llm=LlmClient.from_config(audit),
             # D-172: the loaded zh-TW synonym dictionary; the source and release from the resolver (D-301)
             term=resolver.jp_ingredients(resolver.terminology(name_synonyms=synonym_lookup())),  # T-610: JP stems
@@ -77,8 +84,8 @@ def compiler() -> Compiler:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Initialise the ruleset repository at start-up: a fresh box seeds and materialises the vendor-shipped approved
-    rulesets (with their approval tags) before any other service reads them."""
+    """Initialise the ruleset repository at start-up, before any other service reads it: a fresh DEV or TEST box
+    seeds and materialises the shipped example rulesets (with their tags); a site box starts empty (D-640)."""
     compiler()
     yield
 

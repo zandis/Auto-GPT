@@ -20,7 +20,7 @@ import re
 from typing import Any, cast
 
 import yaml
-from tb_common.ruleset import list_rulesets
+from tb_common.ruleset import approved_here, list_rulesets
 from tb_contracts import JobCreate, Settings
 
 from orchestrator.core import Orchestrator, Rejected
@@ -260,7 +260,9 @@ def nav_rulesets(orch: Orchestrator) -> list[str]:
     out = []
     for rid in list_rulesets(orch.rulesets_dir):
         body = yaml.safe_load((orch.rulesets_dir / rid / "manifest.yaml").read_text(encoding="utf-8"))
-        if (body or {}).get("kind") == "nhi" and body.get("status") == "approved":
+        # D-640: approved for this box (a shipped example seeded onto a site box is not), not only by its manifest
+        named = (body or {}).get("kind") == "nhi" and body.get("status") == "approved"
+        if named and approved_here(orch.rulesets_dir, rid):
             out.append(rid)
     return out
 
@@ -292,7 +294,9 @@ def cohort_rulesets(orch: Orchestrator) -> list[str]:
     out = []
     for rid in list_rulesets(orch.rulesets_dir):
         body = yaml.safe_load((orch.rulesets_dir / rid / "manifest.yaml").read_text(encoding="utf-8"))
-        if (body or {}).get("kind") == "cohort" and body.get("status") == "approved":
+        # D-640: approved for this box (a shipped example seeded onto a site box is not), not only by its manifest
+        named = (body or {}).get("kind") == "cohort" and body.get("status") == "approved"
+        if named and approved_here(orch.rulesets_dir, rid):
             out.append(rid)
     return out
 

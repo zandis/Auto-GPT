@@ -13,8 +13,9 @@ Layout::
 from __future__ import annotations
 
 import json
+import os
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -23,11 +24,24 @@ from typing import Any
 import yaml
 from tb_contracts import CriterionIR, RulesetManifest
 
+from tb_common.config import environment_name
 from tb_common.fhir import library_name
 
 # D-469: the rulesets that ship with the product. The checkout's (image's) folder is the seed and nothing the product
 # runs ever writes to it; the working copy is ``Env.rulesets_path`` (under ``TB_DATA_DIR``).
 SEED_RULESETS = Path(__file__).resolve().parents[2] / "rulesets"
+
+# NEW-LIFE-1 (D-640; review LIFE-001): the shipped rulesets are synthetic examples, approved by nobody at a site. Only
+# a box that says it is one of these gets them; every other name (VALIDATION, PRODUCTION, unset, a name nobody knows)
+# is a site box, where a study is approved by the site or not at all
+EXAMPLE_ENVS = ("DEV", "TEST")
+#: what the compiler's first start wrote on the tag of each ruleset it seeded (``RulesetRepo._tag_seeded``)
+SEEDED_TAG = "(vendor-shipped, approved)"
+
+
+def examples_allowed(env: Mapping[str, str] | None = None) -> bool:
+    """Whether this box may hold and run the shipped example rulesets (``TB_ENV`` DEV or TEST; D-640)."""
+    return environment_name(os.environ if env is None else env) in EXAMPLE_ENVS
 
 
 class RulesetNotApproved(RuntimeError):
@@ -137,6 +151,10 @@ def load_approved(
     tag_ok = (rulesets_dir / ".git").exists() is False or _has_tag(rulesets_dir, f"{ruleset_id}/v{rs.version}")
     if not tag_ok:
         raise RulesetNotApproved(f"ruleset {ruleset_id} v{rs.version} has no approval tag")
+    if not examples_allowed() and seeded_approval(rulesets_dir, ruleset_id, rs.version):
+        raise RulesetNotApproved(
+            f"ruleset {ruleset_id} v{rs.version} is a shipped example, not approved at this site (D-640)"
+        )
     if terminology is not None:
         try:
             terminology(rs.manifest)
@@ -242,6 +260,43 @@ def _has_tag(repo_dir: Path, tag: str) -> bool:
     return f"refs/tags/{tag}".encode() in refs
 
 
+def seeded_approval(rulesets_dir: Path, ruleset_id: str, version: str, seed: Path | None = None) -> bool:
+    """Whether the approval of ``ruleset_id`` v``version`` in this working copy came from seeding the shipped
+    examples and from nobody at the site (D-640): a box started before NEW-LIFE-1 holds them.
+
+    With the compiler's repository: the version's approval tag is the one its first start wrote
+    (:data:`SEEDED_TAG`); a tag the site's approval or an installed update (D-77) wrote names who. Without a
+    repository (the copy ``seed_working_copy`` made, which no approval ever tagged): the manifest is the shipped
+    one, byte for byte."""
+    if (rulesets_dir / ".git").exists():
+        from dulwich.objects import Tag
+        from dulwich.repo import Repo
+
+        repo = Repo(str(rulesets_dir))
+        refs: Any = repo.refs
+        tag = f"refs/tags/{ruleset_id}/v{version}".encode()
+        if tag not in refs:
+            return False
+        obj: Any = repo[refs[tag]]
+        return isinstance(obj, Tag) and SEEDED_TAG in obj.message.decode("utf-8", "replace")
+    shipped = (SEED_RULESETS if seed is None else seed) / ruleset_id / "manifest.yaml"
+    here = rulesets_dir / ruleset_id / "manifest.yaml"
+    try:
+        return shipped.is_file() and here.read_bytes() == shipped.read_bytes()
+    except OSError:
+        return False
+
+
+def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:
+    """Whether ``ruleset_id`` has an approved version this box may run (:func:`load_approved` without a run date or
+    a terminology check): what a timer asks before it starts a job for it."""
+    try:
+        load_approved(rulesets_dir, ruleset_id)
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        return False
+    return True
+
+
 def list_rulesets(rulesets_dir: Path) -> list[str]:
     return sorted(p.parent.name for p in rulesets_dir.glob("*/manifest.yaml"))
 
@@ -250,7 +305,12 @@ def seed_working_copy(dest: Path, seed: Path = SEED_RULESETS) -> bool:
     """Give a service that only reads rulesets a first copy of the shipped ones when its folder holds none (a new
     box, a development run). Never touches a folder that already holds a ruleset (a box that compiled its own keeps
     them), never writes ``seed``, and does nothing when ``dest`` cannot be written (a read-only mount: the criteria
-    compiler seeds that folder). True when it copied."""
+    compiler seeds that folder). True when it copied.
+
+    D-640 (NEW-LIFE-1): only a DEV or TEST box is seeded. The shipped rulesets carry an approval nobody at a site
+    gave; a VALIDATION or PRODUCTION box starts with no study and gets its first one by the site's own approval."""
+    if not examples_allowed():
+        return False
     if dest.resolve() == seed.resolve() or list_rulesets(dest) or not seed.is_dir():
         return False
     try:
