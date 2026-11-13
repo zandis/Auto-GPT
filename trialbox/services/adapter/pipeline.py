@@ -594,9 +594,24 @@ def _run_ingest(
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
             to_spool(res)
+        whole: set[str] = set()
+        if since:
+            # NEW-B-18 (D-538): the tables the reference data did not answer for on the night this one merges over
+            # are read whole tonight, so the rows that did not change get their codes (D-530 left it to a person)
+            from adapter.publish import recover_all
+
+            recover_all(cfg)  # as below, before the lake's folders are read: a killed re-run is put back first
+            whole, said_by = reread_whole(cfg.lake_dir, merge_base(cfg.lake_dir, snap))
+            whole &= set(mapping.tables)
+            for table in sorted(whole):
+                log.info(
+                    "%s: read whole on this delta night: the reference data did not answer for it on %s (D-538)",
+                    table, said_by,
+                )  # fmt: skip
         for table, tspec in mapping.tables.items():
             at["table"] = table
             src, src_name = source, tspec["source"]
+            since_t = None if table in whole else since
             if table == "registry" and cfg.registry is not None:
                 kind, where = cfg.registry
                 if kind == "none" or not where:
@@ -610,7 +625,7 @@ def _run_ingest(
             # T-692 (D-473): the table's rows go to disk as they are read and are read back for each pass; only the
             # data contracts (off unless TB_DATA_CONTRACTS) still need the raw rows in memory
             raw: list[Row] = []
-            got = src.rows(table, src_name, delta, since)
+            got = src.rows(table, src_name, delta, since_t)
             if contracts is not None:
                 got = _kept(got, raw)
             rows = _TableRows.write(spool.root / f".rows-{table}", (mapping.normalize(table, r) for r in got))
@@ -657,7 +672,7 @@ def _run_ingest(
                 tables[table]["rows_live"] = len(rows)  # NEW-DIN-8: a table of deleted rows only is empty
             deleted_rows = getattr(src, "deleted_rows", None)
             if deleted_rows is not None:
-                dead += [mapping.normalize(table, r) for r in deleted_rows(table, src_name, delta, since)]
+                dead += [mapping.normalize(table, r) for r in deleted_rows(table, src_name, delta, since_t)]
             for rtype, rid in mapper.tombstones(table, iter(dead)):
                 tombstones.setdefault(rtype, set()).add(rid)
             if table == "patient":
@@ -1281,8 +1296,8 @@ def unmapped_lines(table: str, by_kind: dict[str, dict[str, int]], file: str) ->
     if down:
         out.append(
             f"{table}: the reference data did not answer for {sum(down.values())} rows ({', '.join(sorted(down))}): "
-            "their codes were not mapped tonight and stay so until the row is sent again or the next full load. "
-            "The night is not held for this (D-530)"
+            "their codes were not mapped tonight. The next delta night reads this table whole and maps what the "
+            "source still holds (D-538). The night is not held for this (D-530)"
         )
     return out
 
@@ -1474,6 +1489,25 @@ def _type_counts(directory: Path) -> dict[str, int]:
         with f.open("rb") as fh:
             out[f.stem] = sum(1 for line in fh if line.strip())
     return out
+
+
+def reread_whole(lake_dir: Path, base: str | None) -> tuple[set[str], str | None]:
+    """The tables a delta night reads whole, and the night that says so (NEW-B-18, D-538): those for which the
+    reference data did not answer on the night this one merges over (``base``; its ``unmapped_codes.json`` counts
+    them under ``<map>:unavailable``, D-593). Their rows kept an unmapped code (D-530) and a delta night reads only
+    rows that changed, so nothing would map them again. Nothing is kept for this: the night merged over says it,
+    and a night that reads the table whole with the reference data answering says nothing for the next one. A
+    file that cannot be read asks for nothing: the night goes on as a delta."""
+    if base is None:
+        return set(), None
+    try:
+        counted = json.loads((snapshot_dir(lake_dir, base) / UNMAPPED_CODES).read_text(encoding="utf-8"))
+        tables = {
+            str(t) for t, by in counted.items() if any(str(k).endswith(":unavailable") and c for k, c in by.items())
+        }
+    except (OSError, ValueError, AttributeError):
+        tables = set()
+    return tables, base
 
 
 def merge_base(lake_dir: Path, snap: str) -> str | None:
