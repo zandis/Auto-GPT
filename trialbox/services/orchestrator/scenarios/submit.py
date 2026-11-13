@@ -66,6 +66,12 @@ def _check_validation(ctx: Ctx, nav: Any, ruleset: str, pid: str, live: bool) ->
         # D-707: the validator's and the pre-check's sentences quote values of the patient's resources. They stay
         # where the readers of that patient's row find them (the NAV run's validation report and its list); the
         # job's error, which the job page, the Failed mail and the audit carry, says how many and where.
+        if not problems:  # the pre-check answered "not passed" with no sentence: nothing is listed, so say that
+            raise StepFailed(
+                "received",
+                "The bundle did not pass the NHI pre-check and will not be submitted. The pre-check gave no reason; "
+                f"its result for this patient is in {rep.filename} of NAV job {nav.job_id}.",
+            )
         raise StepFailed(
             "received",
             f"The bundle did not pass validation/pre-check and will not be submitted: {len(problems)} problem(s). "

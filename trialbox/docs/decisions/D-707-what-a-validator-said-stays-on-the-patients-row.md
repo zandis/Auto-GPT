@@ -39,7 +39,18 @@ no log line writes them.
 
 ## Review
 
-No reviewer was asked for this record's first commit; see the PR for whether one was run.
+One review by a fresh reviewer. Verdict: sound, one wording defect.
+
+- **A pre-check that answers "not passed" with no sentence** made the error say "0 problem(s). They are listed
+  ...", which pointed at nothing. That case has its own sentence now (the pre-check gave no reason; its result is
+  in the report), by test.
+- Checked and sound: the report and the NAV job are always there when the text names them; the sentences are still
+  written to the report and to the patient's row, and the count equals the row's; no other text of the submit
+  step repeats them; nothing depended on the old text; the change to the list of `test_error_answers` is a
+  tightening.
+- Left as they are, said here: the list still allows the joined gaps as a whole (the new test, not the reading
+  rule, keeps engine words out of them); the count includes every sentence of the pre-check, also one that only
+  informs; whether the NAV job's page offers the report to every reader of the list was not checked.
 
 ## Reuse check
 

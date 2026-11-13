@@ -39,6 +39,15 @@ def test_a_refused_bundle_leaves_a_count_in_the_jobs_error_not_the_validators_se
     assert "3 problem(s)" in text and "twpas_validation_GZQO.json" in text and nav.job_id in text
 
 
+def test_a_pre_check_that_failed_without_a_sentence_is_not_said_to_have_problems_listed() -> None:
+    ctx, nav = _ctx({"validator_errors": [], "precheck": {"passed": False, "issues": []}})
+    with pytest.raises(StepFailed) as said:
+        submit._check_validation(ctx, nav, "GZQO", PID, live=True)
+    text = said.value.message + (said.value.detail or "")
+    assert "0 problem" not in text and "listed" not in text
+    assert "gave no reason" in text and "twpas_validation_GZQO.json" in text and nav.job_id in text
+
+
 def test_a_live_submission_without_a_pre_check_says_so_without_the_engines_words() -> None:
     ctx, nav = _ctx({"validator_errors": [], "precheck": {"passed": None,
                                                            "issues": [f"pre-check evaluation error: bad '{VALUE}'"]}})  # fmt: skip
