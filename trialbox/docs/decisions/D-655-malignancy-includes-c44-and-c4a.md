@@ -48,10 +48,10 @@ D45 and D46.9.
 
 An undated record with these codes follows the same list (the undated check reads the same value set).
 
-On the recorded test sets: two RA-BIO patients of synthetic site A (MRN 10000156 and 10000396, each with C44.91)
+On the recorded test sets: two RA-BIO patients of synthetic site A (each with C44.91)
 change on RA-BIO-EXC-04 from not met to met; `rulesets/RA-BIO/tests/expected.json` records it (the CQL of the
 recompiled ruleset reads the same value set; it was not re-run on HAPI here). GZQO's two C44.91 patients do not
-change. RA-JAK's test set (synthetic site tw-ra) has one patient that changes: MRN 20000803 (planted "skin"
+change. RA-JAK's test set (synthetic site tw-ra) has one patient that changes (planted "skin"
 malignancy, C44 in the window) on RA-JAK-EXC-08 from not met to met; `rulesets/RA-JAK/tests/expected.json`
 records it. Its other C44 patients are outside the window or answer as before (`tests/integration/test_ra_jak.py`).
 
