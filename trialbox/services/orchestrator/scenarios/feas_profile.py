@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import date, timedelta
 from typing import Any
@@ -53,6 +54,8 @@ WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND status = 'booked'
   AND CAST(start AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE)
 """
 FACTS_SQL = "SELECT (SELECT count(*) FROM appointment) AS appts, (SELECT count(*) FROM document_chunk) AS chunks"
+
+log = logging.getLogger("orchestrator.feas")
 
 
 def is_early_ad(rs: Ruleset) -> bool:
@@ -103,6 +106,18 @@ def _scalar(table: Any, col: str) -> int:
     return int(vals[0] or 0)
 
 
+def data_facts(lake: Any, snapshot: str | None) -> dict[str, Any]:
+    """What the counts stand on: how many appointment rows and note passages the snapshot holds. When they cannot
+    be read the report is not failed for it, and it does not say "none" either (D-652): both are None and ``read``
+    is False, for the page to say that they could not be read."""
+    try:
+        facts = lake.query(FACTS_SQL, [], snapshot)
+        return {"appointment_rows": _scalar(facts, "appts"), "note_chunks": _scalar(facts, "chunks"), "read": True}
+    except Exception as exc:
+        log.error("the feasibility report's data facts were not read from the lake (%s)", type(exc).__name__)
+        return {"appointment_rows": None, "note_chunks": None, "read": False}
+
+
 def build(lake: Any, rs: Ruleset, p: FeasParams, raw: FeasRaw, today: date) -> dict[str, Any]:
     t = p.small_cell
     pool = sorted(raw.prevalent_pids)
@@ -128,11 +143,7 @@ def build(lake: Any, rs: Ruleset, p: FeasParams, raw: FeasRaw, today: date) -> d
     else:
         out["demographics"] = demographics([], today, t)
         out["visits_90d"] = 0
-    try:
-        facts = lake.query(FACTS_SQL, [], p.snapshot)
-        out["data"] = {"appointment_rows": _scalar(facts, "appts"), "note_chunks": _scalar(facts, "chunks")}
-    except Exception:  # a lake without one of the tables: say so rather than fail the report
-        out["data"] = {"appointment_rows": None, "note_chunks": None}
+    out["data"] = data_facts(lake, p.snapshot)
     shown = _months_shown(raw.index_dates)
     recent = [raw.first_eligible.get(m, 0) for m in shown[-12:]]
     lam = float(np.mean(recent)) if recent else 0.0

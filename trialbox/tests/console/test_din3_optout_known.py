@@ -173,9 +173,19 @@ def test_a_pid_map_that_cannot_be_asked_counts_as_holding_patients(
     b = _first(tmp_path)
     monkeypatch.setattr(page, "box_holds_patients", lambda: None)
     c = _with_code(b)
-    assert 'data-testid="firstrun-chartno"' not in c.get("/login/first-run/answers").text
+    page_text = c.get("/login/first-run/answers").text
+    assert 'data-testid="firstrun-chartno"' not in page_text
+    # NEW-FR-1 (D-710): and the page says it could not be read, not that the box holds patients
+    assert 'data-testid="firstrun-chartno-unread"' in page_text and "could not be read" in page_text
+    assert "do not finish this page yet" in page_text and "cannot be opened again" in page_text  # true of the page
     r, _ = _answers(c, chartno_kind="hex", chartno_width="10")
     assert r.status_code == 422 and b["users"].count() == 0
+    assert "could not be read" in r.text and "already holds patients, so" not in r.text
+    # a box that does hold patients still says that, and shows no "could not be read"
+    monkeypatch.setattr(page, "box_holds_patients", lambda: True)
+    assert "firstrun-chartno-unread" not in c.get("/login/first-run/answers").text
+    r, _ = _answers(c, chartno_kind="hex", chartno_width="10")
+    assert r.status_code == 422 and "already holds patients, so" in r.text
 
 
 @pytest.mark.nodb

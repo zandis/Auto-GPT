@@ -56,9 +56,13 @@ services:
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_FHIR_PORT:-8080}:8080"]
   lake:
+    # TB_ENV TEST (D-639, as D-560 and D-640): a synthetic stack says so. Unset is PRODUCTION, where a service with
+    # the example's placeholder token refuses every changing call (503): the harness could not start an ingest
+    environment: {TB_ENV: "${TB_ENV:-TEST}"}
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_LAKE_PORT:-8013}:8013"]
   adapter:
+    environment: {TB_ENV: "${TB_ENV:-TEST}"}  # D-639
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_ADAPTER_PORT:-8016}:8016"]
     volumes:  # test-only: a known site key so the harness can compute pids (production: TPM-sealed, in-box only)
@@ -75,7 +79,7 @@ services:
     image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
     build: {context: .., dockerfile: deploy/docker/python.Dockerfile}
   doc-parser:
-    environment: {TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}
+    environment: {TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}", TB_ENV: "${TB_ENV:-TEST}"}  # TB_ENV: D-639
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_PARSER_PORT:-8011}:8011"]
   criteria-compiler:

@@ -323,11 +323,21 @@ def _issue_line(fname: str, issue: dict[str, Any]) -> str:
     return f"{name} {place}: {kind}" + (f" ({mid})" if mid else "")
 
 
+def _count_line(count: int, model: str) -> str:
+    """What the night's report keeps of a resource the R4B model refused (D-669): pydantic's count line
+    ("1 validation error for Patient"), made from the error's own count and model name (typed fields), never from
+    its text (its other lines quote the value). A model name that is not a plain name is not kept."""
+    if not re.fullmatch(r"[A-Za-z]+", model):
+        return "ValidationError"
+    return f"{count} validation error{'' if count == 1 else 's'} for {model}"
+
+
 class StructuralValidator:
     """Fallback: R4B model parsing + SPEC §3.1 required elements (no profile/terminology checks)."""
 
     def validate(self, resources: list[Resource]) -> ValidationResult:
         from fhir.resources.R4B import get_fhir_model_class
+        from pydantic import ValidationError
 
         errors = 0
         messages: list[str] = []
@@ -335,12 +345,10 @@ class StructuralValidator:
             problems = missing_required(r)
             try:
                 get_fhir_model_class(r["resourceType"]).model_validate(r)
+            except ValidationError as exc:  # the count and the model name only: typed fields, no text
+                problems.append(_count_line(exc.error_count(), str(exc.title)))
             except Exception as exc:
-                # D-669: pydantic's first line ("1 validation error for Patient") holds no value; its other lines,
-                # and any other error's text, can
-                first = (str(exc).splitlines() or [""])[0]
-                counted = re.fullmatch(r"\d+ validation errors? for [A-Za-z]+", first)
-                problems.append(first if counted else type(exc).__name__)
+                problems.append(type(exc).__name__)
             if problems:
                 errors += 1
                 messages.append(f"{r['resourceType']}/{r['id']}: {'; '.join(problems)}")

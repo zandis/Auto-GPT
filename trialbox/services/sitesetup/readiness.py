@@ -31,7 +31,16 @@ from tb_common.db import ENV as DB_ENV
 from tb_common.db import DatabaseError
 
 from sitesetup import publish
-from sitesetup.service import SiteSetup
+from sitesetup.service import LAKE_DOWN, SiteSetup
+
+
+class LakeUnread(RuntimeError):
+    """NEW-SITE-2 (D-709): the lake named the snapshot it serves and a question about that snapshot failed (its
+    client raises a plain error for a query that does not answer 200). Not "nothing there"."""
+
+
+#: what a reader of the lake raises when the lake could not be read
+UNREAD = (*LAKE_DOWN, LakeUnread)
 
 UNKNOWN_SQL = """
 SELECT count(*) AS n, count(*) FILTER (WHERE coalesce(code, '') = '' OR coalesce(system, '') <> $1) AS unknown
@@ -46,12 +55,12 @@ def _state(missing: list[dict[str, Any]], red: bool) -> str:
 def unknown_share(svc: SiteSetup, ws: str) -> tuple[int, int]:
     """``(diagnoses, in an unknown code system)`` in the workspace's lake (D-130's meaning: not ICD-10-CM)."""
     lake = svc.lake(ws)
-    try:
-        if not lake.snapshot():
-            return 0, 0
-        row = lake.query(UNKNOWN_SQL, [ICD10CM]).to_pylist()[0]
-    except Exception:
+    if not lake.snapshot():  # D-709: a lake that cannot be asked raises here; it is not a lake with no diagnosis
         return 0, 0
+    try:
+        row = lake.query(UNKNOWN_SQL, [ICD10CM]).to_pylist()[0]
+    except Exception as exc:  # it serves a snapshot and could not be asked about it
+        raise LakeUnread(type(exc).__name__) from exc
     return int(row["n"] or 0), int(row["unknown"] or 0)
 
 
@@ -134,6 +143,8 @@ def scores_unverified(svc: SiteSetup) -> dict[str, Any] | None:
         st = shared_store()
         if st is None or st.batch(str(snap)) is not None:
             return None
+    except LAKE_DOWN:  # D-709: a lake that cannot be asked does not say the scores are verified
+        raise
     except Exception:
         return None
     return {"key": "patients.scores_unverified", "n": 1, "tables": str(snap)}
@@ -149,17 +160,27 @@ def feed_loaded(svc: SiteSetup, batch: Any = None) -> dict[str, Any] | None:
     1 or 2: the records do not say whether every department is in). ``None`` when no feed is loaded. ``batch``: the
     newest night, named beside the tier with its state."""
     lake = svc.lake("main")
-    try:
-        snap = lake.snapshot()
-        if not snap:
-            return None
-        docs = int(lake.query(DOCS_SQL, []).to_pylist()[0]["n"] or 0)
-    except Exception:
+    snap = lake.snapshot()  # D-709: a lake that cannot be asked raises here; it is not "no feed is loaded"
+    if not snap:
         return None
+    try:
+        docs = int(lake.query(DOCS_SQL, []).to_pylist()[0]["n"] or 0)
+    except Exception as exc:  # it serves a snapshot and could not be asked about it
+        raise LakeUnread(type(exc).__name__) from exc
     out: dict[str, Any] = {"snapshot": str(snap), "tier": "notes" if docs else "structured", "documents": docs}
     if batch is not None:
         out["night"] = {"snapshot": batch.snapshot, "state": batch.state, "attempt": batch.attempt}
     return out
+
+
+def _or_unread(read: Any, unread: list[bool]) -> Any:
+    """What ``read`` answers; None, and ``unread`` marked, when the lake could not be read for it (the lake went
+    away after the first question, or names its snapshot and fails the query)."""
+    try:
+        return read()
+    except UNREAD:
+        unread.append(True)
+        return None
 
 
 def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str, Any]) -> dict[str, Any]:
@@ -175,13 +196,17 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
         trial.append({"key": "trial.not_approved", "n": 1, "link": study.get("approval_link", "")})
     inputs = st.inputs(ws)
     kinds = Counter(i["kind"] for i in inputs)
-    feed = ws == "main" and bool(svc.lake(ws).snapshot()) and not inputs
+    # NEW-SITE-2 (D-709): asked once. A lake that cannot be asked is said so ("could not be read"), never read as
+    # "no feed", "no unknown codes" or "scores verified"; what the set-up's own store holds is still answered
+    unread: list[bool] = []  # marked by whichever question of this answer could not read the lake
+    served = _or_unread(lambda: svc.lake(ws).snapshot(), unread)
+    feed = ws == "main" and bool(served) and not inputs
     patients: list[dict[str, Any]] = []
     night = newest_batch() if ws == "main" else None  # T-112b (D-443): the lights read dataops first
     held = feed_held(svc, night) if ws == "main" else None
     if held:
         patients.append(held)
-    unverified = scores_unverified(svc) if feed else None  # D-442: the derive batch of the served snapshot
+    unverified = _or_unread(lambda: scores_unverified(svc) if feed else None, unread)  # D-442: the served batch
     if unverified:
         patients.append(unverified)
     facts = st.facts(ws)
@@ -208,7 +233,7 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
     dis = publish.disagreements(facts)
     if dis:
         patients.append({"key": "patients.disagree", "n": len(dis), "link": "people"})
-    n_dx, n_unknown = unknown_share(svc, ws)
+    n_dx, n_unknown = (0, 0) if unread else (_or_unread(lambda: unknown_share(svc, ws), unread) or (0, 0))
     if n_unknown:
         patients.append(
             {
@@ -222,7 +247,11 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
     bulk = feed or kinds["dump"] > 0 or kinds["sheet"] > 0
     if inputs and not bulk:
         patients.append({"key": "patients.bulk", "link": "sheets"})
-    no_patients = not inputs and not feed
+    # T-112b (D-443): the tier the box serves
+    loaded = _or_unread(lambda: feed_loaded(svc, night), unread) if ws == "main" and not unread else None
+    if unread:  # said first, and without a link: nothing on these pages fixes it
+        patients.insert(0, {"key": "patients.lake_unread"})
+    no_patients = not inputs and not feed and not unread  # not known is not "none"
     rec: list[dict[str, Any]] = []
     if not (records.get("forms") or records.get("redcap")):
         rec.append({"key": "records.forms", "link": "forms"})
@@ -239,8 +268,8 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
     }
     states = [v["state"] for v in q.values()]
     overall = "red" if "red" in states else ("amber" if "amber" in states else "green")
-    loaded = feed_loaded(svc, night) if ws == "main" else None  # T-112b (D-443): the tier the box serves
-    return {"ws": ws, "study": study.get("id"), "overall": overall, "questions": q, "bulk": bulk, "feed": loaded}
+    out = {"ws": ws, "study": study.get("id"), "overall": overall, "questions": q, "bulk": bulk, "feed": loaded}
+    return {**out, "lake_unread": True} if unread else out
 
 
 def patient_check(svc: SiteSetup, ws: str, rs: Any, today: date) -> list[dict[str, Any]]:

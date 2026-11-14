@@ -44,7 +44,8 @@ table as it reads it, while the job is `running`; `reporting` comes after the la
   in the box clears it, and it is not per disease or quarter (a site's sender is bound across all of them).
   Before, such a re-run ran on tables that may not have been the ones of the time and said nothing. The way out
   is the record named below, which a later card can add; until then an operator reads the merged tables of the
-  jobs themselves.
+  jobs themselves. **Since D-670 (the record is D-648): this cost remains only for a merge that read
+  before the record began; every merge that reads after it is re-run from the record.**
 - A cancelled merge: "Cancelled by ..." (a person cancelled a job that had not started) stored nothing, and is
   replayed as nothing. The job's own "Cancelled on request." can be before or after the tables and is case 5.
   Found by the reviewer by running: before this change such a re-run was not identical to its original.

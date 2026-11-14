@@ -33,6 +33,7 @@ from typing import Any, Protocol
 
 from criteria_compiler.semantics import Kind, kind, window
 from criteria_compiler.terminology.mapper import FAMILY_EXT
+from tb_common import lakeprobe
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 PROPOSED_FACT = "proposed_fact"
@@ -44,11 +45,8 @@ WHERE basis IN ('proposed', 'suspected')
   AND (CAST($1 AS VARCHAR[]) IS NULL OR list_contains(CAST($1 AS VARCHAR[]), pid))
 ORDER BY pid, fid
 """
-#: is there a ``site_fact`` table (or view) in the snapshot: one row, one number
-TABLE_SQL = (
-    "SELECT (SELECT count(*) FROM duckdb_tables() WHERE lower(table_name) = 'site_fact') + "
-    "(SELECT count(*) FROM duckdb_views() WHERE lower(view_name) = 'site_fact') AS n"
-)
+#: is there a ``site_fact`` table (or view) in the snapshot: one row, one number (D-649; :mod:`tb_common.lakeprobe`)
+TABLE_SQL = lakeprobe.table_sql("site_fact")
 DEMOGRAPHIC_CODES = {"birth_date": "age", "sex": "sex"}
 
 
@@ -56,45 +54,11 @@ class _Lake(Protocol):
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any: ...
 
 
-def _no_site_facts(lake: _Lake, snapshot: str | None) -> bool:
-    """After a query of ``site_fact`` failed: True only when the lake answers that the snapshot has no such table
-    (it was built before step 5b and holds no site fact). Asked of the lake, not read out of the failure's text
-    (NEW-TRUST-6, D-649): an error's text is whatever its author put in it. Anything but one row with the number
-    0, and a failure of the question itself, is False: the caller's failure then stops the run (D-127, F-04: a list
-    must never silently drop the rule)."""
-    try:
-        rows = lake.query(TABLE_SQL, [], snapshot).to_pylist()
-    except Exception:
-        return False
-    return len(rows) == 1 and type(rows[0].get("n")) is int and rows[0]["n"] == 0
-
-
 def _site_fact_rows(lake: _Lake, sql: str, params: list[Any], snapshot: str | None) -> list[dict[str, Any]] | None:
-    """The rows of a query of ``site_fact``; None when the snapshot has no such table (:func:`_no_site_facts`); any
-    other failure is raised.
-
-    With no snapshot named, a failed query and the question after it would each read "current", which can move in
-    between (the review of D-649). So after a failure the lake is asked once which snapshot is current, and the
-    query is put again, and then the question, to that name. A stand-in that cannot name its snapshot is asked the
-    question as it was asked the query."""
-    try:
-        return list(lake.query(sql, params, snapshot).to_pylist())
-    except Exception:
-        name = snapshot
-        current = getattr(lake, "snapshot", None)
-        if name is None and callable(current):
-            name = current()
-            if name is None:
-                raise
-            try:
-                return list(lake.query(sql, params, name).to_pylist())
-            except Exception:
-                if _no_site_facts(lake, name):
-                    return None
-                raise
-        if _no_site_facts(lake, name):
-            return None
-        raise
+    """The rows of a query of ``site_fact``; None when the snapshot has no such table (it was built before step
+    5b and holds no site fact), which the lake is asked, not read out of the failure's text (NEW-TRUST-6, D-649);
+    any other failure is raised (D-127, F-04: a list must never silently drop the rule)."""
+    return lakeprobe.rows_or_no_table(lake, sql, params, snapshot, "site_fact")
 
 
 @dataclass(frozen=True)

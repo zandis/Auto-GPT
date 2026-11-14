@@ -56,20 +56,30 @@ TIMEZONES = tuple(sorted(z for z in available_timezones() if "/" in z and not z.
 def box_holds_patients() -> bool | None:
     """NEW-DIN-3 (D-544, D-579): whether the pid map has a row, loaded or staged for a night that is not committed
     yet. The chart-number rule may be chosen only while it has none: another rule gives every patient a second
-    pseudonym. None: the map cannot be asked, which the page treats as "it holds patients". Asking creates
-    nothing: the map's schema is looked up, never opened (``tb_common.optout.with_survivors`` does the same)."""
+    pseudonym. None: the map cannot be asked; the rule is then not offered, and the page says that the map could
+    not be read (D-710), never that the box holds patients.
+
+    Asking creates nothing: whether the map's schema exists is read from the catalogue over the console's own
+    connection (anyone may read that), and the map is opened only when it does.
+
+    NEW-FR-1 (D-710): the map is asked over its own connection. On a box with service roles a store's connection
+    takes that store's role, and the role of ``auth`` may not use the ``pidmap`` schema: asked over the ``auth``
+    connection the question raised on every such box and the answer was always None."""
     import os
 
     from tb_common.db import Database
 
+    url = os.environ.get("TB_DB_URL")
     try:
-        with Database.connect(os.environ.get("TB_DB_URL"), "auth") as db:  # the console's own schema
+        with Database.connect(url, "auth") as db:  # the console's own schema
             schema = db.schema[: -len("auth")] + "pidmap"
+            if not db.fetchval("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = ?)", (schema,)):
+                return False  # no schema: nothing was ever loaded into it
+        with Database.connect(url, "pidmap") as pm:  # it exists (read above), so nothing is created
             for table in ("pid_map", "pending"):
-                if db.fetchone("SELECT to_regclass(?)", (f'"{schema}".{table}',)) in (None, (None,)):
-                    continue  # not made yet: nothing was ever loaded into it
-                row = db.fetchone(f'SELECT EXISTS (SELECT 1 FROM "{schema}".{table})')  # nosec B608 - our own name
-                if row and row[0]:
+                if pm.fetchval("SELECT to_regclass(?)", (f'"{schema}".{table}',)) is None:
+                    continue  # not made yet
+                if pm.fetchval(f'SELECT EXISTS (SELECT 1 FROM "{schema}".{table})'):  # nosec B608 - our own name
                     return True
             return False
     except Exception:
@@ -124,9 +134,10 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         values = ctx.pop("values", {}) or {"tz": hw.get("host_tz", ""), "box_name": hw.get("hostname", "trialbox")}
         secret = str(state["secret"])
         user = str(values.get("owner_username") or "owner")
+        held = box_holds_patients()
         return h.page(
             request, "firstrun.html", None, status, step="answers", fr_csrf=state["csrf"], values=values,
-            ask_chartno=box_holds_patients() is False, chartno_kinds=chartno.KINDS,
+            ask_chartno=held is False, chartno_unread=held is None, chartno_kinds=chartno.KINDS,
             errors=ctx.pop("errors", {}), key=totp.grouped(secret), link=totp.otpauth_uri(secret, user),
             disks=hw.get("disks") or [], tpm=bool(hw.get("tpm")), timezones=TIMEZONES,
             sources=[k.value for k in box_answers.SourceKind], languages=box_answers.LANGUAGES,
@@ -185,8 +196,10 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         answered = any(
             data.get(k, "").strip() for k in ("chartno_rule", "chartno_kind", "chartno_width", "chartno_case")
         )
-        if answered and "chartno_rule" not in errors and box_holds_patients() is not False:
-            errors["chartno_rule"] = "chartno_locked"
+        if answered and "chartno_rule" not in errors:
+            held = box_holds_patients()
+            if held is not False:  # D-710: "could not be read" is said as that, not as "holds patients"
+                errors["chartno_rule"] = "chartno_locked" if held else "chartno_unread"
         pw = data.get("password", "")
         try:
             check_password_policy(pw)

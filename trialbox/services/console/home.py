@@ -829,7 +829,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         }
 
     # ------------------------------------------------------------------ excluded patients and why (P-04, D-143)
-    ex_sources = ("coded", "fact", "notes", "rule")
+    # "records": the confirmed facts could not be read on that run (D-652): from the records, confirmed or not
+    ex_sources = ("coded", "fact", "records", "notes", "rule")
 
     def excluded_bundle(rid: str) -> tuple[Job | None, dict[str, Any] | None]:
         """The latest screening run of the study that stored its excluded list (``excluded_*.json``)."""
@@ -843,11 +844,14 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def excluded_rows(rid: str, doc: dict[str, Any], lang: str) -> list[dict[str, Any]]:
         crit = crit_of(rid, lang)
+        # D-652: an answer with no source, in a document that says the confirmed facts were not read, is not said to
+        # come from "the coded records"
+        unsourced = "records" if doc.get("confirmed_facts") == "not read" else "coded"
         out = []
         for r in doc.get("rows") or []:
             items = [
                 {"id": c["id"], "label": crit[c["id"]].label if c["id"] in crit else c["id"],
-                 "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or "coded",
+                 "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or unsourced,
                  "quote": c.get("quote"), "date": c.get("quote_date"), "reason": c.get("reason"),
                  "records": len(c.get("resource_refs") or []),
                  # T-514 (D-362): the coded records' value, unit, date and code; the test model's note answers say so

@@ -65,6 +65,8 @@ class WorkerEnv:
     jobs: Any | None = None
     omop: Any | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    #: stores that exist and could not be opened for this tick (D-683): their clear fails, the others run
+    not_opened: frozenset[str] = frozenset()
 
 
 def clear_pool(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
@@ -109,7 +111,14 @@ def verify_candidates(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return {"orch.candidates": left}
 
 
+class StoreNotOpened(RuntimeError):
+    """A store that exists on this box could not be opened for this tick: its clear fails (the tick names it and
+    goes on), it is never reported as skipped."""
+
+
 def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    if "omop" in env.not_opened:  # D-683: the store is there and was not opened: failed, not "no store"
+        raise StoreNotOpened("omop")
     if env.omop is None:
         return {"skipped": 1}
     from omop.load import withhold
@@ -136,6 +145,8 @@ OMOP_BY_PERSON = (
 
 
 def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    if "omop" in env.not_opened:
+        raise StoreNotOpened("omop")
     if env.omop is None or not pids:
         return {}
     db = env.omop
@@ -167,15 +178,29 @@ def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return out
 
 
+def store_has(url: str, schema: str, table: str) -> bool:
+    """Whether the store ``schema`` (less ``tb_prefix``) holds ``table`` on this box (D-683). Asked of the catalog,
+    which answers every role, on a connection of its own as the service's login role: never over another store's
+    connection, which works as that store's group role (D-378) and is refused every question about a schema it
+    may not use. "No such store" is a clear false; any failure to ask raises and is the caller's to name."""
+    import psycopg
+    from tb_common.db import split_url
+
+    dsn, prefix = split_url(url)
+    with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
+        row = con.execute(
+            "SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = %s AND c.relname = %s",  # any relation of the name: a view is not "no store"
+            (prefix + schema, table),
+        ).fetchone()
+    return row is not None
+
+
 def _schema_url(env: WorkerEnv, schema: str, table: str) -> str | None:
     """The trial database's URL when ``schema.table`` exists on this box (a box without the store is not given one;
     the worker never creates a store it clears)."""
-    from tb_common.db import split_url
-
-    prefix = split_url(env.register.db.url)[1]
-    if env.register.db.fetchval("SELECT to_regclass(?)", (f'"{prefix}{schema}".{table}',)) is None:
-        return None
-    return str(env.register.db.url)
+    url = str(env.register.db.url)
+    return url if store_has(url, schema, table) else None
 
 
 def clear_vec(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
@@ -299,15 +324,15 @@ def minutes() -> int:
 
 
 def _omop_store(reg: OptOutRegister) -> Any | None:
-    """The box's OMOP store when it exists (dual write or the OMOP lake source); a box without one is not given one."""
-    from tb_common.db import split_url
-
-    prefix = split_url(reg.db.url)[1]
-    if reg.db.fetchval("SELECT to_regclass(?)", (f'"{prefix}omop".tb_record',)) is None:
+    """The box's OMOP store when it exists (dual write or the OMOP lake source), opened as the store itself; a box
+    without one is not given one. Raises when the store is there and cannot be opened."""
+    # the store's own database when the box names one (TB_OMOP_DB_URL, as the load reads it), else the register's
+    url = os.environ.get("TB_OMOP_DB_URL") or str(reg.db.url)
+    if not store_has(url, "omop", "tb_record"):
         return None
     from omop import schema
 
-    return schema.connect(reg.db.url)
+    return schema.connect(url)
 
 
 #: what the orchestrator's ``/models`` reports for the health line (``tb_common.metrics.check_optout``)
@@ -337,9 +362,17 @@ def tick(orch: Any) -> dict[str, Any] | None:
         _failed(orch, ["register"], now)
         return None
     omop = None
+    not_opened: frozenset[str] = frozenset()
     try:
-        omop = _omop_store(reg)
-        env = WorkerEnv(register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop)
+        try:
+            omop = _omop_store(reg)
+        except Exception as exc:  # D-683: one store that cannot be opened does not stop the tick; it is named
+            log.error("opt-out worker: the OMOP store was not opened (%s)", type(exc).__name__)
+            not_opened = frozenset({"omop"})
+        env = WorkerEnv(
+            register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop,
+            not_opened=not_opened,
+        )  # fmt: skip
         out = run_once(env)
     except Exception as exc:
         log.exception("opt-out worker tick failed: %s", type(exc).__name__)

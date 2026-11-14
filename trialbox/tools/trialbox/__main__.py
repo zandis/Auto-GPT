@@ -149,6 +149,10 @@ def main(argv: list[str] | None = None) -> int:
     sg = sub.add_parser("audit-sign", help="the nightly signed head of the audit chain (NEW-STD-2, D-562)")
     sg.add_argument("--deploy", type=Path, default=deploy)
     sg.add_argument("--local", action="store_true", help="an in-process box: sign here, append the event to the chain")
+    ac = sub.add_parser(
+        "anchors-compose", help="the compose file that mounts the anchor folders into the console (D-638)"
+    )
+    ac.add_argument("--deploy", type=Path, default=deploy)
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
     lg.add_argument("action", choices=["collect", "prune", "archive-audit", "daily"])
     lg.add_argument("--deploy", type=Path, default=deploy)
@@ -236,6 +240,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import audit_heads
 
         return audit_heads.main_action(a.deploy, a.local)
+    if a.cmd == "anchors-compose":
+        from tools.trialbox import anchors
+
+        return anchors.main_action(a.deploy)
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 
