@@ -115,7 +115,7 @@ def test_the_diagnosis_map_still_takes_only_an_equivalent_entry(tmp_path: Path) 
 
     doc: dict[str, Any] = yaml.safe_load(BASE.read_text(encoding="utf-8"))
     doc["params"] = {"icd9cm_before": "2016-01-01"}
-    for name, spec in (doc.get("lookups") or {}).items():
+    for spec in (doc.get("lookups") or {}).values():
         spec["file"] = str(BASE.parent / spec["file"])
     path = tmp_path / "site.yaml"
     path.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
@@ -129,7 +129,7 @@ def test_the_diagnosis_map_still_takes_only_an_equivalent_entry(tmp_path: Path) 
 @pytest.mark.parametrize("accept", [["inexact"], ["relatedto"], "wider", []])
 def test_a_mapping_may_accept_only_relations_that_say_the_code_is_the_class(tmp_path: Path, accept: Any) -> None:
     doc: dict[str, Any] = yaml.safe_load(BASE.read_text(encoding="utf-8"))
-    for name, spec in (doc.get("lookups") or {}).items():
+    for spec in (doc.get("lookups") or {}).values():
         spec["file"] = str(BASE.parent / spec["file"])
     med = next(r for r in doc["resources"] if r["table"] == "medication")
     med["elements"]["medicationCodeableConcept.coding[2]"]["accept"] = accept
