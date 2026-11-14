@@ -262,6 +262,7 @@ SEND_RESULTS = (
     "hidden",
     "logic",
     "instance_taken",
+    "refused",  # NEW-EDC-7 (D-692): REDCap refused the import of the record
 )  # T-115: held back, with the reason
 
 

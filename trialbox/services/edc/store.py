@@ -116,7 +116,7 @@ MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick")  # fmt: skip
 #: the send's lines that say what REDCap held for an item after TrialBox's write, and the write itself (NEW-EDC-8)
-READ_BACK = ("attempt", "sent", "readback", "erased", "already_there", "conflict", "instance_taken")
+READ_BACK = ("attempt", "sent", "readback", "erased", "already_there", "conflict", "instance_taken", "refused")
 REENTRY_SOURCES = ("admin", "pq")  # who wrote the record: an administrator with the filed report, or the PQ tooling
 SIG_VERSION = 2
 METHODS = ("password", "password+totp", "oidc+mfa")  # how the signer re-authenticated (D-279; T-205: at the directory)
@@ -846,10 +846,10 @@ class EdcStore:
 
     def open_attempt(self, study: str, record: str, visit: str, item: str) -> dict[str, Any] | None:
         """TrialBox's write to REDCap whose answer never came back (NEW-EDC-8): an ``attempt`` line, written just
-        before the import, with no later line that read the item back from REDCap (``sent``, ``readback``,
-        ``erased``, ``already_there``, ``conflict``, ``instance_taken``). REDCap may hold its value or not; the next
-        send reads it back. A line that never read REDCap (opted out, no record, hidden, changed) leaves it open.
-        None: no write is open."""
+        before the import, with no later line that read the item back from REDCap or heard it refused (``sent``,
+        ``readback``, ``erased``, ``already_there``, ``conflict``, ``instance_taken``, ``refused``). REDCap may hold
+        its value or not; the next send reads it back. A line that never read REDCap (opted out, no record, hidden,
+        changed) leaves it open. None: no write is open."""
         marks = ",".join("?" * len(READ_BACK))
         rows = self._all("SELECT value, result, draft_id, by_user, at FROM sent WHERE study = ? AND record = ? AND "
                          f"visit = ? AND item = ? AND target = 'redcap' AND result IN ({marks}) "
