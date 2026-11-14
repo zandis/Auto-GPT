@@ -37,6 +37,8 @@ FOLDED = {
 #: the full tier: not on a draft
 FULL = {"unit-shard", "unit", "property", "goldens", "e2e-simple", "demo-boot", "security", "standards", "images"}
 FULL_GATE = "needs.changes.outputs.full == 'true'"
+#: D-725: the plain-named checks of the matrix pairs: they run in every tier, after their matrix
+GATES = {"goldens-gate", "e2e-simple-gate"}
 #: the same rule for a workflow with no `changes` job
 #: D-578: the image gates run for a merge train, on master, weekly and by hand; never for a card's pull request
 TRAIN_ONLY = "github.event_name != 'pull_request' || startsWith(github.head_ref, 'train/')"
@@ -58,8 +60,8 @@ def _on(doc: dict[Any, Any]) -> dict[str, Any]:
 
 def test_every_job_of_the_gate_is_in_exactly_one_tier() -> None:
     jobs = set(_wf(CI)["jobs"])
-    assert not FAST & FULL
-    assert jobs == FAST | FULL, f"put the new job in a tier: {sorted(jobs ^ (FAST | FULL))}"
+    assert not FAST & FULL and not GATES & (FAST | FULL)
+    assert jobs == FAST | FULL | GATES, f"put the new job in a tier: {sorted(jobs ^ (FAST | FULL | GATES))}"
 
 
 def test_the_full_tier_waits_for_a_pull_request_that_is_not_a_draft() -> None:
