@@ -52,7 +52,7 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 #: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
 #: patient-level data on the route's study (tb_common.patient_reads)
-PATIENT_READ = _require_actor(_PHI, service=True)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 
 
 @dataclass

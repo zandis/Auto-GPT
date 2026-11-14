@@ -112,3 +112,26 @@ def test_the_operator_and_mail_tokens_still_read_jobs_which_hold_no_patient_row(
     job = orch_box.screen()
     assert orch_box.client("operator").get(f"/jobs/{job.job_id}").status_code == 200
     assert "GET /jobs/{job_id}" in ra.TABLE["reads_without_patient"]
+
+
+#: the reads the morning mail makes (the review of D-717: the timer's principal reads these and nothing else)
+NOTIFY_READS = {
+    "GET /studies/{rs}/visits",
+    "GET /studies/{rs}/aes",
+    "GET /studies/{rs}/subjects",
+    "GET /studies/{rs}/subjects/{record}",
+    "GET /registry/{ruleset}",
+}
+
+
+@pytest.mark.parametrize("template", sorted(patient_reads.PATIENT_READS))
+def test_the_mail_principal_reads_only_what_the_morning_mail_needs(orch_box: OrchBox, template: str) -> None:
+    path = _concrete(template.split(" ", 1)[1])
+    study = "" if path.startswith("/setup/") else STUDY
+    action = patient_reads.actions(template)[0]
+    headers = signed(action, study, "GET", path, sub="service:console-notify", role="service")
+    r = orch_box.client("console").get(path, headers=headers)
+    if template in NOTIFY_READS:
+        assert r.status_code != 403, (r.status_code, r.text[:300])
+    else:  # the export, FHIR, the whole site's set-up, the REDCap read-back: never the timer's
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "ACTOR", (r.status_code, r.text[:200])

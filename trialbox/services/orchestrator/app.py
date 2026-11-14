@@ -64,7 +64,8 @@ _orch: Orchestrator | None = None
 
 #: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
 #: patient-level data on the route's study (tb_common.patient_reads)
-PATIENT_READ = _require_actor(_PHI, service=True)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
+NOTIFY_READ = _require_actor(_PHI, service=True)  # the morning mail's principal reads the registry rows too
 
 
 def _pinned_today() -> Callable[[], date] | None:
@@ -809,7 +810,7 @@ def registry_summaries() -> list[RegistrySummary]:
     return registry_of(orch()).summaries()
 
 
-@app.get("/registry/{ruleset}", dependencies=[PATIENT_READ])
+@app.get("/registry/{ruleset}", dependencies=[NOTIFY_READ])
 def registry_rows(ruleset: str) -> list[RegistryEntry]:
     try:
         return registry_of(orch()).rows(ruleset)

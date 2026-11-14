@@ -49,6 +49,13 @@ def reading_as(principal: str) -> Iterator[None]:
         _READER.reset(token)
 
 
+def reading_for_a_person() -> bool:
+    """True when a signed-in account of this request reads (a page), False for a timer or nobody (the D-717
+    review: a mail round whose patient read is refused must not go on with an empty answer)."""
+    bound = _READER.get()
+    return bound is not None and bound[0] is not None
+
+
 def read_headers(method: str, path: str, headers: dict[str, str] | None = None) -> dict[str, str]:
     """``headers`` with the signed claim of a patient read (``tb_common.patient_reads``): ``phi.view`` on the
     path's study (none for a set-up route of the whole site) by the signed-in account of this request. Refused here
@@ -69,6 +76,13 @@ def read_headers(method: str, path: str, headers: dict[str, str] | None = None) 
     # the first of the route's actions this account holds in that study (a monitor reads with its own row); none:
     # the first, which assert_for refuses and records
     action = next((a for a in actions if h.permit(sess.user, a, rid).allowed), actions[0])
+    # the D-717 review: the account must see that study, and read its patients by the delegation log too; the claim
+    # names no study list, so the orchestrator cannot tell this itself
+    reads = getattr(h, "reads", None)
+    delegated = reads is None or action != patient_reads.PHI or reads(sess.user, rid)
+    if rid and not (sess.user.sees_study(rid) and delegated):
+        h.au.append("console.denied", actor=h.actor(sess), ruleset=rid, detail={"action": action, "why": "study"})
+        raise h.problem(403, "forbidden")
     out.update(assert_for(h, sess, action, rid, method.upper(), path))
     return out
 

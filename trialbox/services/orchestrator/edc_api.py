@@ -68,9 +68,9 @@ Claim = Callable[[Request, "str | None"], Actor]
 
 #: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
 #: patient-level data on the route's study (tb_common.patient_reads)
-PATIENT_READ = _require_actor(_PHI, service=True)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 #: D-389: the four reads of the monitor's page (a sponsor's CRA under a monitor grant) take its row too
-MONITOR_READ = _require_actor(_MONITOR, service=True)
+MONITOR_READ = _require_actor(_MONITOR)
 
 
 class SwitchBody(BaseModel):
@@ -225,7 +225,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         except EdcError as exc:
             raise _fail(exc) from exc
 
-    @r.get("/studies/{rs}/edc")
+    @r.get("/studies/{rs}/edc", dependencies=[MONITOR_READ])  # D-717 review: its subjects are patients' rows
     def status(rs: str) -> dict[str, Any]:
         return get().status(_rs(rs))
 

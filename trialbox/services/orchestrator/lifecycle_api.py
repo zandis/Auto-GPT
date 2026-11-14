@@ -73,7 +73,8 @@ log = logging.getLogger("orchestrator")
 
 #: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
 #: patient-level data on the route's study (tb_common.patient_reads)
-PATIENT_READ = require_actor(_PHI, service=True)
+PATIENT_READ = require_actor(_PHI)  # D-717 review: no service principal
+NOTIFY_READ = require_actor(_PHI, service=True)  # the morning mail's visits and AEs, signed as its principal
 #: D-389: the four reads of the monitor's page (a sponsor's CRA under a monitor grant) take its row too
 MONITOR_READ = require_actor(_MONITOR, service=True)
 
@@ -584,14 +585,14 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
                                 {"en": str(e.get("event_name") or name)}))  # fmt: skip
         return put(rid, visits, "redcap", who.name)
 
-    @r.get("/studies/{rs}/visits", dependencies=[PATIENT_READ])
+    @r.get("/studies/{rs}/visits", dependencies=[NOTIFY_READ])
     def get_visits(rs: str, today: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         day = _today(svc, today)
         rows = visit_rows(Lifecycle(svc.dc), rid, day)
         return {"study": rid, "today": day.isoformat(), "rows": rows, "list": lc.worklist(rows, day)}
 
-    @r.get("/studies/{rs}/aes", dependencies=[PATIENT_READ])
+    @r.get("/studies/{rs}/aes", dependencies=[NOTIFY_READ])
     def get_aes(rs: str, today: str = "", now: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         day = _today(svc, today)

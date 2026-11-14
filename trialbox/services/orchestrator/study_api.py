@@ -53,7 +53,7 @@ BOT = "rc-bridge"
 
 #: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
 #: patient-level data on the route's study (tb_common.patient_reads)
-PATIENT_READ = _require_actor(_PHI, service=True)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 
 
 @dataclass
@@ -487,7 +487,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         except RcError as exc:
             raise _fail(exc) from exc
 
-    @r.get("/studies/{rs}/redcap-link")
+    @r.get("/studies/{rs}/redcap-link", dependencies=[PATIENT_READ])  # D-717 review: its reads name patients
     def get_link(rs: str) -> dict[str, Any]:
         svc = get()
         rid = _rs(rs)

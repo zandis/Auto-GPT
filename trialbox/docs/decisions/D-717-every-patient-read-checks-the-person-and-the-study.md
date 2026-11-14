@@ -1,4 +1,4 @@
-# D-717 Every route of the orchestrator that returns a patient's row checks the verified person and the study
+# D-717 Every GET route of the orchestrator that returns a patient's row checks the verified person and the study
 
 - **Task:** NEW-SEC-1 (the owner's critical 1 of 2026-11-13; the deep review's SEC-07)
 - **PR:** this branch (`agent/NEW-SEC-1-patient-reads-check-person-and-study`), cut from train 14
@@ -20,15 +20,15 @@ the registry's two, the set-up's six). Only the enrolment report as a file check
 
 ## The decision
 
-- **Every GET route is in one of two lists.** `tb_common.patient_reads` lists the 26 reads that return a
+- **Every GET route is in one of two lists.** `tb_common.patient_reads` lists the 28 reads that return a
   patient's row ("a record of one patient's data, by pseudonym or record key, and a list of such records");
-  `route_actors.yaml` (`reads_without_patient`) lists the 32 others, each with its reason (counts, settings, a
+  `route_actors.yaml` (`reads_without_patient`) lists the 30 others, each with its reason (counts, settings, a
   study's definition, a job's record, FastAPI's own pages). A GET route in neither list stops the orchestrator at
   import (`route_problems`, as for a changing route) and fails the test.
 - **A patient read takes a verified v3 claim** (`require_actor`): for `phi.view` (who may see patient-level data)
   on the route's own study (`{rs}`, or `{ruleset}` on the registry's); the matrix is asked again. A set-up route of
-  the whole site (`/setup/{ws}/...`) checks a claim that names no study. The four reads of the monitor's page (the
-  subjects, a subject, the EDC drafts, a record's trail) take `monitor.read` too (a sponsor's CRA under a monitor
+  the whole site (`/setup/{ws}/...`) checks a claim that names no study. The five reads of the monitor's page (the
+  subjects, a subject, the EDC status, the EDC drafts, a record's trail) take `monitor.read` too (a sponsor's CRA under a monitor
   grant, D-389); the claim names which, and the matrix is asked for that one.
 - **Each is held by a test, route by route**, on the real app in the production trust configuration: no claim, a
   claim for another study, a role without the right, and a claim for another action are refused (403, one
@@ -36,11 +36,12 @@ the registry's two, the set-up's six). Only the enrolment report as a file check
 - **The console signs those reads from the request's account.** Where the session is taken (the pages' and the
   API's), the account is bound for the request (a context variable); every orchestrator GET that is a patient read
   is signed for the first of its actions the account holds in that study, or refused at the console
-  (`console.denied`). A page's helpers did not change: the signing is in the one call path (`s28.call`, the
+  (`console.denied`), as it is for a study the account does not see or, for `phi.view`, does not read by the
+  delegation log. A page's helpers did not change: the signing is in the one call path (`s28.call`, the
   registry's).
-- **A timer reads as its principal**: the morning mail (visits, subjects, serious AEs) signs as
-  `service:console-notify`, which `route_actors.yaml` now lets take `phi.view`; a principal passes only where the
-  table lists the action for it.
+- **A timer reads as its principal**: the morning mail's whole round (`notify.collect`, and the lifecycle's mail)
+  signs as `service:console-notify`, which `route_actors.yaml` now lets take `phi.view`, and only on the reads the
+  mail makes: visits, AEs, subjects, a subject and the registry's rows (`service=True` on those routes alone).
 - The data core's export names the verified person of the call; it no longer takes a typed `?by=`.
 
 ## What it does not do
@@ -57,7 +58,38 @@ the registry's two, the set-up's six). Only the enrolment report as a file check
 
 ## Review
 
-See "What the adversarial review changed" when the review is in.
+### What the adversarial review changed
+
+One review by running (a fresh reviewer, real orchestrator box in the production trust configuration, and the
+console's site box). It found:
+
+1. **The morning mail lost the registry's statuses** (critical): the N1/N2 round read `GET /registry/{ruleset}`
+   outside `reading_as`, the orchestrator refused it, and `registry_map` read the refusal as "no status", so a
+   declined patient came back as new in the mail; an administrator's "Send notices now" did the same. Now the
+   whole round (`notify.collect`) reads as `service:console-notify` whoever started it, and a refused read in a round
+   is an error (`registry_map` returns nothing only to a page's account without the right, which the console has
+   already refused and audited). Held by `tests/console/test_patient_reads_review_d717.py`.
+2. **`GET /studies/{rs}/redcap-link` returned patients' rows** (its last reads: pseudonym, record id, screening
+   number, status changes). It is a patient read now (`phi.view`); its page already refused an account without
+   patient-level rights.
+3. **`GET /studies/{rs}/edc` returned per-subject rows** (record key, visit, date, drafts). It is a patient read now
+   (`phi.view` or `monitor.read`).
+4. **The console signed a read for a study the account does not see**, or where the delegation log does not let an
+   investigator read; the claim names no study list, so the orchestrator could not tell. `read_headers` now refuses
+   (403, `console.denied`) unless the account sees the study and, for `phi.view`, reads it by the delegation log
+   (`Helpers.reads`).
+5. **Changing routes still answer with patient data** (`PUT /studies/{rs}/data/{record}` with no values returns the
+   record; `POST /studies/{rs}/entry/{record}`; `POST /patients/deceased`): they are in stage `report` (D-483) and
+   this card is about reads. The title says GET now; the changing routes are a follow-up, handed to the integrator.
+6. **The mail's principal held `phi.view` on every read** (the export, FHIR, the site's set-up, the REDCap
+   read-back). It is admitted now only on the reads the mail makes: visits, AEs, subjects, a subject and the
+   registry's rows (`tests/unit/test_patient_reads_check_person_and_study.py`).
+7. Job records with a CASE job's pseudonym: as said above, the owner's to say.
+
+What did not break it: trailing slash, double slash, encoded and dot segments; HEAD and OPTIONS; the study's case;
+a claim for another study, another path or another query; a used claim; `monitor.read` on a route that does not
+take it, or without a grant; other service tokens and unlisted principals; the reader bound in one request leaking
+into the next or into a new thread.
 
 ## Reuse check
 

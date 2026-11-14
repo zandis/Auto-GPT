@@ -40,7 +40,9 @@ PATIENT_READS: dict[str, str | tuple[str, ...]] = {
     "GET /studies/{rs}/report/{fmt}": PHI,
     # the REDCap read-back (D-109): record id and sponsor subject number per pseudonym
     "GET /studies/{rs}/redcap-records": PHI,
+    "GET /studies/{rs}/redcap-link": PHI,  # the review: its last reads name patients by screening number
     # the EDC prefill (D-160): drafted values, their signatures, and a record's trail
+    "GET /studies/{rs}/edc": MONITOR,  # the review: its status lists each subject's visit and drafts
     "GET /studies/{rs}/edc/drafts": MONITOR,
     "GET /studies/{rs}/edc/trail/{record}": MONITOR,
     "GET /studies/{rs}/edc/copy": PHI,
