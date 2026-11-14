@@ -33,9 +33,11 @@ from rc_bridge.client import RcError, RedcapClient, api_url, check_token
 from rc_bridge.link import WRITE_FIELDS, LinkError, ProjectLink, read_back, validate
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
+from tb_common.patient_reads import PHI as _PHI
 from tb_contracts import RegistryUpdate
 
 from orchestrator import actor as route_actor
+from orchestrator.actor import require_actor as _require_actor
 from orchestrator.candidates import FORWARD, CandidateRegistry, RegistryError
 from orchestrator.studystore import TOKEN_NAME, StudyStore
 
@@ -48,6 +50,10 @@ _PREFIX = re.compile(r"^[A-Za-z0-9_-]{0,16}$")
 OVERLAP = timedelta(days=1)  # the R7 watermark goes back a day so clock or zone skew never loses a change
 log = logging.getLogger("orchestrator")
 BOT = "rc-bridge"
+
+#: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
+#: patient-level data on the route's study (tb_common.patient_reads)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 
 
 @dataclass
@@ -481,7 +487,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         except RcError as exc:
             raise _fail(exc) from exc
 
-    @r.get("/studies/{rs}/redcap-link")
+    @r.get("/studies/{rs}/redcap-link", dependencies=[PATIENT_READ])  # D-717 review: its reads name patients
     def get_link(rs: str) -> dict[str, Any]:
         svc = get()
         rid = _rs(rs)
@@ -513,7 +519,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         except (RcError, LinkError) as exc:
             raise _fail(exc) from exc
 
-    @r.get("/studies/{rs}/redcap-records")
+    @r.get("/studies/{rs}/redcap-records", dependencies=[PATIENT_READ])
     def records(rs: str) -> list[dict[str, Any]]:
         return get().store.records(_rs(rs))
 

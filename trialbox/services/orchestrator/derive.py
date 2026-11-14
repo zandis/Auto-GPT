@@ -177,11 +177,12 @@ def status(orch: Any) -> dict[str, Any] | None:
     try:
         st = shared_store(url)
         last = st.last_batch() if st is not None else None
+        out: dict[str, Any] = {"flag": read(FLAG, url) or "off", "current": None, "last": last}
         try:
-            current = orch.services.lake.snapshot()
-        except Exception:
-            current = None
-        return {"flag": read(FLAG, url) or "off", "current": current, "last": last}
+            out["current"] = orch.services.lake.snapshot()
+        except Exception:  # D-709: said (``lake_unread``), not shown as a lake that serves nothing
+            out["lake_unread"] = True
+        return out
     except Exception as exc:  # the health line then has no derive check; the page says nothing wrong
         log.warning("derive status not read: %s", type(exc).__name__)
         return None

@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-221 entries: 85 erase, 27 keep, 109 no patient data. 59 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+228 entries: 86 erase, 27 keep, 115 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -60,6 +60,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.submissions` | T-206b | the clear | NAV submissions, by pseudonym |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
+| `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of the space drops it whole (D-714) |
 | `pidmap.identity` | T-206b | the crypto-shred of the opted-out identity | the encrypted identity of the patient |
 | `recall.recall_known_positive` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
 | `recall.recall_observation` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
@@ -119,6 +120,9 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | --- | --- |
 | `app.flag` | settings and configuration, no patient |
 | `app.flag_event` | settings and configuration, no patient |
+| `auth.account_notices` | staff, accounts or sign-in state, no patient |
+| `auth.account_requests` | staff, accounts or sign-in state, no patient |
+| `auth.factor_resets` | staff, accounts or sign-in state, no patient |
 | `auth.login_failures` | staff, accounts or sign-in state, no patient |
 | `auth.oidc_pending` | staff, accounts or sign-in state, no patient |
 | `auth.pending_logins` | staff, accounts or sign-in state, no patient |
@@ -180,7 +184,10 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `omop.tb_term_grouper` | OMOP vocabulary and metadata |
 | `omop.tb_vocab_release` | OMOP vocabulary and metadata |
 | `omop.vocabulary` | OMOP vocabulary and metadata |
+| `orch.cohort_read` | D-648: the point in that record at which a merge read the tables (job, a number) |
+| `orch.cohort_stored` | D-648: each alliance table as it was stored (aggregate counts per quarter and criterion, the site, the sender's address, the job), kept so that a re-run reads the tables as they stood |
 | `orch.cohort_tables` | aggregate counts per quarter and criterion |
+| `orch.cohort_tables_before` | D-648: the alliance tables as the version that began the record found them (aggregate counts, as orch.cohort_tables) |
 | `orch.id_limits` | the identifier caps' use rows: staff and kind only |
 | `orch.mails` | a mail sent: message id, job, kind, subject |
 | `orch.trial_cache` | the public registry cache |

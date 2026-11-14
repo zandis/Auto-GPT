@@ -6,7 +6,7 @@
  "logic": {
   "domain": "condition",
   "quantifier": "any",
-  "valueset": "VS_MALIGNANCY",
+  "valueset": "VS_MALIGNANCY_EXCEPT_NON_MELANOMA_SKIN_CANCER",
   "window": {
    "anchor": "index",
    "from_days": -1825,

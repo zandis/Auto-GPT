@@ -142,8 +142,10 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str], store: NotMatched
         gone = h.gone()
         shown = [t for t in got if t.pid not in gone]
         rows: dict[str, dict[str, Any]] = {}
+        values_unread = False  # NEW-CAND-1 (D-713): a run of this sample could not read its coded values (D-652)
         for job_id in sorted({t.job_id for t in shown}):
             _job, doc = run_doc(job_id)
+            values_unread = values_unread or (doc or {}).get("coded_values") == "not read"
             if doc is not None and h.excluded_rows is not None:
                 pids = {t.pid for t in shown if t.job_id == job_id}
                 part = {**doc, "rows": [r for r in doc.get("rows") or [] if str(r.get("pid")) in pids]}
@@ -152,6 +154,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str], store: NotMatched
         answered = sum(1 for t in shown if t.answer)
         return {"week": week, "rows": items, "n": len(shown), "answered": answered, "removed": len(got) - len(shown),
                 "back": sum(1 for t in shown if t.answer == "send_back"), "totals": nm.store.counts(rid),
+                "values_unread": values_unread,
                 "snapshot": shown[0].snapshot if shown else "", "job_id": shown[0].job_id if shown else ""}  # fmt: skip
 
     def apply_answer(sess: Session, path: str, rs: str, pid: str, answer: str, note: str) -> tuple[str, str]:

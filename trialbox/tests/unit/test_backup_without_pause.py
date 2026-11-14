@@ -679,7 +679,9 @@ def test_a_restore_lists_the_events_after_the_snapshot_to_reapply(
             if '"event"' in ln]  # fmt: skip
     (ev,) = [r for r in rows if r["event"] == "backup.restore_reapply"]
     assert ev["detail"]["count"] == 2 and ev["detail"]["since_from"] == "snapshot_at"
-    rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--no-copy", "--dir", f"audit={audit}"])
+    rc = cli(
+        ["restore", str(f), "--key", str(priv), "--yes", "--services-stopped", "--no-copy", "--dir", f"audit={audit}"]
+    )
     assert rc == 4  # the restore's exit says it is not complete
 
 

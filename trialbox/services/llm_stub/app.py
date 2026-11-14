@@ -177,8 +177,9 @@ async def completions(request: Request) -> Any:
     if prompt_id in MESSAGE_HANDLERS:
         try:
             answer = MESSAGE_HANDLERS[prompt_id](list(body.get("messages", [])))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:  # D-636: a fixed sentence and the type; the handler's text stays in the trace
+            detail = f"the stub's handler for {prompt_id} could not read the messages ({type(exc).__name__})"
+            raise HTTPException(status_code=400, detail=detail) from exc
         content = json.dumps(answer, ensure_ascii=False)
     else:
         handler = HANDLERS.get(prompt_id)

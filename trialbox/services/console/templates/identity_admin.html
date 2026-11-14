@@ -8,6 +8,7 @@
 <p>{{ t('identity.help') }}</p>
 <p class="hint" data-testid="identity-policy">{{ t('identity.policy', mfa=t('identity.mfa.' + mfa), oidc=t('identity.oidc.' + ('on' if oidc else 'off')), idle=idle_minutes, hours=session_hours) }}</p>
 {% if done == 'unlock' %}<p class="ok" role="status" data-testid="identity-done">{{ t('identity.done.unlock') }}</p>{% endif %}
+{% if done == 'requested' %}<p class="ok" role="status" data-testid="account-requested">{{ t('account.requested') }}</p>{% endif %}
 {% if code %}<section class="card attention" data-testid="identity-code" aria-labelledby="code-h">
 <h2 id="code-h">{{ t('identity.code.title', user=code_for) }}</h2>
 {% if done == 'reset_totp' %}<p>{{ t('identity.done.reset_totp') }}</p>{% endif %}

@@ -55,7 +55,7 @@ bundle of card T-304 builds from this table.
 | R-17 | Criterion library and approved ruleset releases | control | the box; the ruleset files of the release | data steward | kept | the ruleset release in the update bundle | `console.study_setup`, `console.proposal` |
 | R-18 | Jobs: every screening run with its ruleset, model, snapshot and outputs, and every submission | control | the box | data steward | kept; outputs `outputs_days` | the job's output files | `job.requeued`, `console.cascade`, `console.command` |
 | R-19 | Recall ledger: audit draws and the confidence sequences of the excluded lists | control | the box | data steward | kept | page only | (in the job's events) |
-| R-20 | Site set-up: inputs, facts read or confirmed, local codes, checks, published settings | aid | the box; the site's sheets and charts in the protected data folder | data steward | kept | page only | `setup.fact`, `setup.resolve`, `setup.publish`, `console.site_fact`, `console.site_map` |
+| R-20 | Site set-up: inputs, facts read or confirmed, local codes, checks, published settings | aid | the box; the site's sheets and charts in the protected data folder; for a space other than the hospital's, while the lake is built from OMOP, that space's own OMOP store (`omop_<hash>`, dropped by Reset: D-714) | data steward | kept | page only | `setup.fact`, `setup.resolve`, `setup.publish`, `console.site_fact`, `console.site_map` |
 | R-21 | Feasibility answers the site types (site profile) | aid | the box | PI | kept | on the feasibility report | `console.site_profile` |
 | R-22 | Screening review traces: criterion labels, code pre-ticks, amber rows opened, the review of the excluded list; the weekly PI sample of ten "criteria not matched" patients with the run and snapshot each was drawn from and the PI's answer, and the site's check that opens the list (D-446) | aid | the box | PI | kept | page only | `console.excluded_review`, `console.view`, `notmatched.sample`, `notmatched.held`, `console.notmatched_answer`, `console.notmatched_check` |
 | R-23 | Derived scores with their inputs and definition versions; the derive batch of each snapshot (D-442) | copy | the hospital data they are computed from (R-25) | data steward | kept | page only | `derive.batch`, `derive.failed` |
@@ -115,7 +115,7 @@ are marked "files".
 | `services/console/breakglass_store.py` | `grants` | R-12 |
 | `services/console/breakglass_store.py` | `uses` | R-12 |
 | `services/orchestrator/db.py` | `id_limits` | R-12 |
-| `services/console/auth.py` | `users` | R-13 |
+| `services/console/auth.py` | `users`, `factor_resets`, `account_requests` | R-13 |
 | `libs/tb_common/flags.py` | `flag`, `flag_event` | R-14 |
 | `services/orchestrator/studystore.py` | `study_settings`, `rc_connection`, `rc_project_link`, `screen_scope` | R-15 |
 | `services/console/sitestore.py` | `study_settings` | R-15 |
@@ -139,7 +139,7 @@ are marked "files".
 | `services/datacore/dataops.py` | `batch`, `batch_step`, `built`, `built_kept` | R-28 |
 | `services/datacore/sponsor.py` | `sponsor_layout` | R-10 |
 | `services/patient_profile/twin.py` | `tb_patient_profile` | R-29 |
-| `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
+| `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures`, `account_notices` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
 | `services/orchestrator/db.py` | `pool`, `feedback` | O-05 |
@@ -149,7 +149,7 @@ are marked "files".
 | `libs/tb_common/refdata.py` | `pack`, `source`, `ctgov_study`, `trial`, `term`, `concept_map`, `synonym`, `withdrawn` | O-09 |
 | `services/adapter/licensed.py` | `release`, `concept` | O-09 |
 | `services/omop/schema.py` | `tb_vocab_release`, `tb_concept_attr`, `tb_term_grouper`, `tb_map_relation` | O-09 |
-| `services/orchestrator/db.py` | `cohort_tables`, `trial_cache` | O-10 |
+| `services/orchestrator/db.py` | `cohort_tables`, `cohort_stored`, `cohort_read`, `cohort_tables_before`, `trial_cache` | O-10 |
 | `services/lake/store.py` | `cache` | O-11 |
 | `libs/tb_common/db.py` | `_schema_version` | O-12 |
 | `services/vec/store.py` | `embedding`, `note_chunk` | O-13 |

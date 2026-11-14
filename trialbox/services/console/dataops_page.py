@@ -121,6 +121,44 @@ def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
     return promote
 
 
+def unmapped_of(detail: Any) -> list[tuple[str, int]]:
+    """NEW-DOPS-1 (D-708): the rows of a night that hold a value the mapping could not use, per source table, the
+    largest first. It is D-580's counter as the night's row keeps it: rows left out (a code no look-up knows, an
+    unknown status) and rows kept without the value (a unit not read: D-590), and rows whose code the reference
+    data could not be asked for (D-593); a row is counted once per such value. The values are in the night's
+    ``unmapped_codes.json``, never here. Every table is listed: no cut. A value that is not a table name
+    with a count above zero is not shown."""
+    kept = detail.get("unmapped") if isinstance(detail, dict) else None
+    if not isinstance(kept, dict):
+        return []
+    rows = [(str(t), n) for t, n in kept.items() if t and isinstance(t, str) and type(n) is int and n > 0]
+    return sorted(rows, key=lambda r: (-r[1], r[0]))
+
+
+def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
+    """NEW-B-39 (D-740): the same rows per source table split by kind (``tb_common.unmapped.KINDS``: a code no look-up
+    knows, a unit not read, the reference data not reached); counts only. A table whose split is not counts of the
+    named kinds adding up to the table's total (:func:`unmapped_of`) is not shown."""
+    from tb_common.unmapped import KINDS
+
+    kept = detail.get("unmapped_kinds") if isinstance(detail, dict) else None
+    if not isinstance(kept, dict):
+        return {}
+    totals = dict(unmapped_of(detail))
+    out: dict[str, dict[str, int]] = {}
+    for table, kinds in kept.items():
+        if (
+            isinstance(table, str)
+            and table
+            and isinstance(kinds, dict)
+            and set(kinds) == set(KINDS)
+            and all(type(n) is int and n >= 0 for n in kinds.values())
+            and sum(kinds.values()) == totals.get(table)
+        ):
+            out[table] = {k: kinds[k] for k in KINDS}
+    return out
+
+
 def light(state: str) -> str:
     return LIGHT.get(state, "amber")
 
@@ -219,7 +257,10 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
             request,
             "dataops.html",
             sess,
-            sources=[{**b.as_dict(), "light": light(b.state)} for b in sources],
+            sources=[
+                {**b.as_dict(), "light": light(b.state), "unmapped": sum(n for _, n in unmapped_of(b.detail))}
+                for b in sources
+            ],
             waiting=waiting,
             rows=rows,
             counts=read(ops.counts),
@@ -245,6 +286,7 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
             sess,
             b=b,
             steps=read(lambda: ops.steps(bid)),
+            unmapped=unmapped_of(b.detail),
             may_decide=permit(sess.user.role, DECIDE),
             can_accept=promote is not None,
         )
@@ -297,7 +339,10 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
         b = read(lambda: ops.batch(bid))
         if b is None:
             raise h.problem(404, "notfound")
-        return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid))}
+        kinds = unmapped_kinds_of(b.detail)  # NEW-B-39 (D-740)
+        return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid)),
+                "unmapped": [{"table": t, "rows": n, **({"kinds": kinds[t]} if t in kinds else {})}
+                             for t, n in unmapped_of(b.detail)]}  # fmt: skip
 
     @app.post("/api/v1/data/batches/{bid}/decide")
     @page_twin("/data-ops/batches/{bid}/decide")  # T-657 (D-444): the page's twin (FIT-019)

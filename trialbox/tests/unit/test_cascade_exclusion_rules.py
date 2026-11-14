@@ -225,14 +225,47 @@ class _ConsentFails:
         return self.inner.query(sql, params, snapshot)
 
 
+class _NoConsentTable(_ConsentFails):
+    """A lake that has no consent table: the registry query fails and the lake answers 0 to "is there one"."""
+
+    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+        from tb_common import lakeprobe
+
+        if sql == lakeprobe.table_sql("consent"):
+            import pyarrow as pa
+
+            return pa.table({"n": [0]})
+        return super().query(sql, params, snapshot)
+
+
 def test_a_consent_table_error_stops_the_run(lake: LakeLocal) -> None:
-    """Opt-outs are never skipped: only a lake with no consent table at all has none to apply (D-127)."""
+    """Opt-outs are never skipped: only a lake with no consent table at all has none to apply (D-127). Whether
+    it has none is asked of the lake (D-651): until then an error whose text said so was enough, on a lake that
+    has the table, and the run went on with no opt-out applied."""
     rs = ruleset([INC])
     judge = ScriptedJudge(quoting("pass", FLARE))
-    missing = _ConsentFails(lake, RuntimeError("Catalog Error: Table with name consent does not exist!"))
-    assert _run(missing, rs, ["P-HIT"], judge).traces["P-HIT"].in_scope  # control: no table, no opt-outs
+    said = RuntimeError("Catalog Error: Table with name consent does not exist!")
+    assert _run(_NoConsentTable(lake, said), rs, ["P-HIT"], judge).traces["P-HIT"].in_scope  # control: no table
+    with pytest.raises(RuntimeError, match="Catalog Error"):  # the same words from a lake that has the table
+        _run(_ConsentFails(lake, said), rs, ["P-HIT"], judge)
     with pytest.raises(RuntimeError, match="503"):
         _run(_ConsentFails(lake, RuntimeError("lake error 503: backend unavailable")), rs, ["P-HIT"], judge)
+
+
+def test_on_a_production_box_a_lake_without_a_consent_table_stops_the_cascade(
+    lake: LakeLocal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-654 (the owner's decision): the control above is a TEST box. On PRODUCTION a snapshot without the table
+    was not built by this software, and the cascade does not run on it with no opt-out applied."""
+    from tb_common.optout import NoRegistryTable
+
+    rs = ruleset([INC])
+    judge = ScriptedJudge(quoting("pass", FLARE))
+    said = RuntimeError("Catalog Error: Table with name consent does not exist!")
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    with pytest.raises(NoRegistryTable, match="no consent table"):
+        _run(_NoConsentTable(lake, said), rs, ["P-HIT"], judge)
+    assert _run(lake, rs, ["P-HIT"], judge).traces["P-HIT"].in_scope  # a snapshot that has the table: as on any box
 
 
 # ------------------------------------------------------------------------------------------------ S-10

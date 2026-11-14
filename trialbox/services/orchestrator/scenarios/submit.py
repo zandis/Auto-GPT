@@ -63,16 +63,25 @@ def _check_validation(ctx: Ctx, nav: Any, ruleset: str, pid: str, live: bool) ->
     pre = entry.get("precheck") or {}
     problems = [*errors, *(pre.get("issues") or [])]
     if errors or pre.get("passed") is False:
+        # D-707: the validator's and the pre-check's sentences quote values of the patient's resources. They stay
+        # where the readers of that patient's row find them (the NAV run's validation report and its list); the
+        # job's error, which the job page, the Failed mail and the audit carry, says how many and where.
+        if not problems:  # the pre-check answered "not passed" with no sentence: nothing is listed, so say that
+            raise StepFailed(
+                "received",
+                "The bundle did not pass the NHI pre-check and will not be submitted. The pre-check gave no reason; "
+                f"its result for this patient is in {rep.filename} of NAV job {nav.job_id}.",
+            )
         raise StepFailed(
             "received",
-            "The bundle did not pass validation/pre-check and will not be submitted:\n"
-            + "\n".join(f"- {p}" for p in problems[:20]),
+            f"The bundle did not pass validation/pre-check and will not be submitted: {len(problems)} problem(s). "
+            f"They are listed for this patient in {rep.filename} of NAV job {nav.job_id}.",
         )
-    gaps = []
+    gaps = []  # for the job's error and the job's summary: without the pre-check engine's own words (D-707)
     if data.get("validator") != "hl7-validator":
         gaps.append("validated structurally only (HL7 validator not installed)")
     if pre.get("passed") is not True:
-        gaps.append("NHI pre-check did not run: " + "; ".join(pre.get("issues") or ["no result"]))
+        gaps.append(f"NHI pre-check did not run (see {rep.filename} of NAV job {nav.job_id})")
     if gaps and live:
         raise StepFailed("received", "Not submitted to NHI — " + "; ".join(gaps) + ".")
     return gaps

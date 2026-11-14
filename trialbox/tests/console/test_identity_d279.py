@@ -52,7 +52,7 @@ def test_an_account_the_administrator_made_changes_its_password_before_anything_
     assert _password(admin, "admin", ADMIN_PW).headers["location"] == "/home"
     page = admin.get("/ops/users").text
     r = admin.post("/ops/users", data={"csrf": _csrf(page), "action": "add", "username": "tester.a",
-                                       "role": "investigator"})  # fmt: skip
+                                       "role": "viewer"})  # fmt: skip  # D-719: a protected account gets a code
     given = re.search(r'value="([^"]+)" data-testid="users-pw-field"', r.text)
     assert given, r.text[-600:]
     assert users.must_change("tester.a")

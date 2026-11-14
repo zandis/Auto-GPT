@@ -430,6 +430,10 @@ class Evidence(BaseModel):
     """
     When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.
     """
+    coded_read: bool | None = None
+    """
+    D-653: false when the coded records behind this answer could not be read from the lake by the run that last looked (the answer stands; its values are not shown). Absent: they were read, or the answer has none.
+    """
     coded: list[CodedValue] | None = None
     """
     T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.
@@ -1359,7 +1363,7 @@ class ReleaseGates(BaseModel):
 
 class ReleaseRecord(BaseModel):
     """
-    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.1.0 (1.1.0, D-367: component kind host, the host tree). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
+    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.2.0 (1.1.0, D-367: component kind host, the host tree; 1.2.0, D-726: rehearsal, a bundle built for a rehearsal box). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
     """
 
     model_config = ConfigDict(
@@ -1375,6 +1379,10 @@ class ReleaseRecord(BaseModel):
     release_seq: int = Field(..., ge=1)
     created_at: AwareDatetime
     source: ReleaseSource = Field(..., title="ReleaseSource")
+    rehearsal: bool | None = None
+    """
+    D-726: true when tools/make_bundle.sh --rehearsal built it, for a rehearsal box (deploy/install.sh --rehearsal, TB_ENV TEST). A PRODUCTION or VALIDATION box refuses it at install and update. Absent on a bundle built for a site.
+    """
     gates: ReleaseGates = Field(..., title="ReleaseGates")
     """
     The release-gate record (tools/supply_chain release-gates, D-186) the images passed.
@@ -2078,6 +2086,10 @@ class TierSummary(BaseModel):
     high: int
     review: int
     excluded: int
+    coded_values_not_read: int | None = None
+    """
+    D-653: how many rows of this list carry coded_values 'not read'. Absent: none.
+    """
 
 
 class TrialSimStep(BaseModel):
@@ -2869,6 +2881,10 @@ class CandidateRow(BaseModel):
     changed: list[str] | None = None
     """
     microbatch: criterion ids whose verdict changed
+    """
+    coded_values: Literal["not read"] | None = None
+    """
+    D-653: 'not read' when the values behind one or more of this row's coded answers could not be read from the lake by the run that last looked at the row (a carried row keeps it until a run reads the row again). Absent: read.
     """
 
 

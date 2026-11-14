@@ -267,6 +267,39 @@ def columns_only(mapping_path: Path, source_kind: str, where: str) -> dict[str, 
     return rep
 
 
+#: D-688: the ways a character column may write a day that ``--day`` reads (a time after it is read with it). A day
+#: in the ROC calendar (``1151110``, ``115/11/10``) or day-first is not one of them: such a table reads nothing
+DAY_FORMS = (("YYYYMMDD", "%Y%m%d"), ("YYYY-MM-DD", "%Y-%m-%d"), ("YYYY/MM/DD", "%Y/%m/%d"))
+NOTHING_IN_DAY = (
+    "no row in the window: the day was looked for as a date type and as text written "
+    + ", ".join(f for f, _ in DAY_FORMS)
+    + " (a time after it included); a day written in the ROC calendar or day-first is not read by --day"
+)
+
+
+def _day_windows(src: Any, source_name: str, delta: str, day: date) -> list[tuple[str, Any, Any]]:
+    """The windows of ``day`` that hold rows of the table's change-time column ``delta``: ``(form, since, until)``.
+    The column's type says which to try (a date type: the day as a date; text: the day as each form writes it;
+    not told: both). Each is asked whether it holds a row, one row at most; none of a row is read (D-688)."""
+    kind = {k.lower(): v.upper() for k, v in src.column_types(source_name).items()}.get(delta.lower(), "")
+    text_col = any(w in kind for w in ("CHAR", "TEXT", "CLOB", "STRING"))
+    date_col = not text_col and any(w in kind for w in ("DATE", "TIME"))
+    nxt = day + timedelta(days=1)
+    tries: list[tuple[str, Any, Any]] = []
+    if not text_col:
+        tries.append(("a date type", day, nxt))
+    if not date_col:
+        tries += [(form, day.strftime(fmt), nxt.strftime(fmt)) for form, fmt in DAY_FORMS]
+    found = []
+    for form, lo, hi in tries:
+        try:
+            if src.any_in_window(source_name, delta, lo, hi):
+                found.append((form, lo, hi))
+        except Exception:  # a database that will not compare this column with this kind of bound: not this form
+            continue
+    return found
+
+
 def check(
     mapping_path: Path,
     source_kind: str,
@@ -277,6 +310,7 @@ def check(
     chart_pattern: str | None = None,
     min_patients: int | None = None,
     stop_at_refused: bool = False,
+    day: str | None = None,
 ) -> dict[str, Any]:
     """``stop_at_refused``: the first row the mapping refuses raises its ``MappingError``, as this function did
     before T-731 (``tools/synth_site_from_schema.py`` reports that one message); else refused rows are counted."""
@@ -287,8 +321,11 @@ def check(
 
     m = Mapping.load(mapping_path)
     src: Any = make_source(source_kind, where)
-    if until and source_kind != "cgrd_sql":
+    if (until or day) and source_kind != "cgrd_sql":
         raise SystemExit("--day and --until read a SQL source (--source cgrd_sql)")
+    the_day = date.fromisoformat(day) if day else None
+    if the_day is not None:  # the window as the report says it; each table reads the day in its column's own form
+        since, until = f"{the_day.isoformat()} 00:00:00", f"{(the_day + timedelta(days=1)).isoformat()} 00:00:00"
     if until and not since:
         raise SystemExit("--until needs --since (or give --day)")
     mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK")
@@ -297,6 +334,7 @@ def check(
     report["rejected"] = 0
     report["source"] = source_kind
     report["window"] = {"since": since, "until": until}
+    report["tables_that_read_nothing"] = 0
     report["rows_limit"] = rows
     report["unit_default_conflicts"] = unit_default_conflicts(m)
     validator = StructuralValidator()
@@ -307,7 +345,23 @@ def check(
         cut = False
         delta = tspec.get("delta") if (since or until) else None
         local_delta = {c: loc for loc, c in (tspec.get("rename") or {}).items()}.get(delta, delta) if delta else None
-        if source_kind == "cgrd_sql":  # only the columns the mapping names, only the window asked for (D-588)
+        forms: list[str] | None = None
+        windowed = bool(local_delta) and source_kind == "cgrd_sql" and bool(since or until)
+        if windowed:
+            try:
+                windowed = str(local_delta).lower() in {c.lower() for c in src.columns(tspec["source"])}
+            except Exception:
+                windowed = False  # the table cannot be read: said below, by the read itself
+        if source_kind == "cgrd_sql" and the_day is not None and windowed:
+            # D-688: the day in the form the column writes it; every form that holds rows is read
+            found = _day_windows(src, tspec["source"], str(local_delta), the_day)
+            forms = [f for f, _, _ in found]
+            feed = (
+                r
+                for _, lo, hi in found
+                for r in src.rows(table, tspec["source"], local_delta, lo, until=hi, columns=wanted)
+            )
+        elif source_kind == "cgrd_sql":  # only the columns the mapping names, only the window asked for (D-588)
             feed = src.rows(table, tspec["source"], local_delta, since, until=until, columns=wanted)
         else:
             feed = src.rows(table, tspec["source"], local_delta, since)
@@ -336,6 +390,12 @@ def check(
                 delta = "the change-time column is not in the table: it was read whole"
         if since or until:
             t["window_on"] = delta or "no change-time column: the table was read whole"
+        if forms:
+            t["window_form"] = forms[0] if len(forms) == 1 else "several: " + ", ".join(forms)
+        if windowed and not got:  # D-688: a window that read nothing is said, never taken for a clean table
+            t["read_nothing_in_window"] = True
+            t["note"] = NOTHING_IN_DAY if the_day is not None else "no row in the window as given"
+            report["tables_that_read_nothing"] += 1
         pcol = next(iter(sorted(_patient_columns_all(specs))), None) or str(tspec.get("key") or "")
 
         def who_has(rows_: list[dict[str, Any]], pcol: str = pcol) -> int:
@@ -347,7 +407,7 @@ def check(
         who = {*_patient_columns_all(specs), *(tspec.get("identity") or {}).values()}
         net.learn(got, None if table == "patient" else who)
         if not got:
-            t["note"] = "no rows (table not exported?)"
+            t.setdefault("note", "no rows (table not exported?)")
             report["tables"][table] = t
             continue
         dates = sharereport.date_columns(specs)
@@ -418,8 +478,11 @@ def check(
         report["invalid"] += res.errors
         report["tables"][table] = t
     # a row the mapping refuses is a row the night loses: the check does not pass over it (it used to stop there)
+    # D-688: a check that read no row from any table has checked nothing (it said passed)
+    read_any = any(t.get("rows_read") for t in report["tables"].values())
     report["passed"] = (
-        report["missing_columns"] == 0
+        read_any
+        and report["missing_columns"] == 0
         and report["invalid"] == 0
         and report["rejected"] == 0
         and not report["unit_default_conflicts"]
@@ -439,6 +502,7 @@ def _patient_columns_all(specs: list[Any]) -> set[str]:
 SHARED_AS_IS = (
     *("source", "rows_read", "cannot_be_read", "cut_at_rows_limit", "window_on", "note", "missing_columns"),
     *("absent_optional", "date_shapes", "repeated_keys", "resources", "unknown_code_system"),
+    *("window_form", "read_nothing_in_window"),
 )
 
 
@@ -458,6 +522,7 @@ def share(report: dict[str, Any], mapper: Any, net: Any) -> dict[str, Any]:
         "missing_columns": report["missing_columns"],
         "invalid_resources": report["invalid"],
         "rejected_rows": report["rejected"],
+        "tables_that_read_nothing": report["tables_that_read_nothing"],
         "min_patients": net.min_patients,
         "unit_default_conflicts": len(report["unit_default_conflicts"]),
         "tables": {},
@@ -529,8 +594,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--until needs --since (or give --day)")
     since, until = args.since, args.until
     if args.day:
-        day = date.fromisoformat(args.day)
-        since, until = f"{day.isoformat()} 00:00:00", f"{(day + timedelta(days=1)).isoformat()} 00:00:00"
+        date.fromisoformat(args.day)  # a day that is not YYYY-MM-DD stops here, before any connection
     if args.columns_only:
         rep = columns_only(args.mapping, args.source, where)
         text = json.dumps(rep, ensure_ascii=False, indent=1)
@@ -538,7 +602,10 @@ def main(argv: list[str] | None = None) -> int:
             args.share.write_text(text + "\n", encoding="utf-8")
         print(text)
         return 0 if rep["passed"] else 1
-    rep = check(args.mapping, args.source, where, args.rows, since, until, args.chart_pattern, args.min_patients)
+    rep = check(
+        args.mapping, args.source, where, args.rows, since, until, args.chart_pattern, args.min_patients,
+        day=args.day,
+    )  # fmt: skip
     if args.share:
         text = json.dumps(rep["share"], ensure_ascii=False, indent=1)
         args.share.write_text(text + "\n", encoding="utf-8")

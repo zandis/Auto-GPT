@@ -32,6 +32,7 @@ from tb_common.authz import permit as permit_row
 from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
+from console import actor as console_actor
 from console import coded_view, s28
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -99,6 +100,9 @@ class Helpers:
     submit: Callable[..., Job] | None = None  # console.app.submit: a request as if mailed (D-108 refresh)
     # set by register(): the rows the pages show, read again by console.notify (D-108)
     week_bundle: Callable[..., dict[str, Any] | None] | None = None
+    #: NEW-SEC-1 (D-717): the weekly list as the morning mail reads it (signed as the mail's principal), for the
+    #: box's own tools and drills that build it with no person
+    mail_week: Callable[[str], dict[str, Any] | None] | None = None
     trials: Callable[..., list[Any]] | None = None
     settings_of: Callable[[str], StudySettings] | None = None
     api_session: Callable[[Request], Session] | None = None  # set by register(): bearer sign-in for /api/v1
@@ -307,8 +311,10 @@ def register(app: FastAPI, h: Helpers) -> None:
     def registry_map(rs: str) -> dict[str, str]:
         try:
             return {e.pid: e.status for e in bk.registry_rows(rs)}
-        except Exception:
-            return {}
+        except Exception:  # a page's account without the right (refused and audited) or a service down: none shown;
+            if console_actor.reading_for_a_person():  # the D-717 review: in a mail round a failed read is an error,
+                return {}  # never "no status"
+            raise
 
     def registry_counts(rs: str) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -493,6 +499,12 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # the notices (console.notify) read the same rows as the pages
     h.week_bundle = week_bundle
+
+    def mail_week(rs: str) -> dict[str, Any] | None:
+        with console_actor.reading_as(console_actor.NOTIFY):
+            return week_bundle(None, rs)  # type: ignore[arg-type]
+
+    h.mail_week = mail_week
     h.trials = trials
     h.settings_of = settings_of
     h.crit_of = crit_of
@@ -781,6 +793,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
         )
 
+    unread_of: dict[str, Any] = {}  # the last run asked and its answer (one entry)
+
+    def values_unread(job: Job | None) -> bool:
+        """NEW-CAND-1 (D-713): did this run say it could not read the values behind its coded answers? The run
+        keeps that in its stored "not matched" list (``coded_values: not read``, D-652). A run that read them, a
+        list from before the field existed and a run with no stored list all answer no: nothing is said. An
+        after-ingest or weekly run (``MICROBATCH``) stores no such list and records no flag, so nothing is said
+        while it is the study's latest run (D-713, "What it does not do").
+
+        The answer of the last run asked is kept: a finished run's stored list does not change, and the weekly
+        list's side panel asks for every view (it shows no coded value, but shares this context)."""
+        if job is None:
+            return False
+        if unread_of.get("job") != job.job_id:
+            said = (load(job, "excluded_", ".json") or {}).get("coded_values") == "not read"
+            unread_of.update(job=job.job_id, said=said)
+        return bool(unread_of["said"])
+
     def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid):
             raise h.problem(404, "notfound")
@@ -801,6 +831,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "rs": rid,
             "pid": pid,
             "job": wk["job"],
+            "values_unread": values_unread(wk["job"]),
             "asof": wk["asof"],
             "row": row,
             "listed": listed,
@@ -829,7 +860,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         }
 
     # ------------------------------------------------------------------ excluded patients and why (P-04, D-143)
-    ex_sources = ("coded", "fact", "notes", "rule")
+    # "records": the confirmed facts could not be read on that run (D-652): from the records, confirmed or not
+    ex_sources = ("coded", "fact", "records", "notes", "rule")
 
     def excluded_bundle(rid: str) -> tuple[Job | None, dict[str, Any] | None]:
         """The latest screening run of the study that stored its excluded list (``excluded_*.json``)."""
@@ -843,11 +875,14 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def excluded_rows(rid: str, doc: dict[str, Any], lang: str) -> list[dict[str, Any]]:
         crit = crit_of(rid, lang)
+        # D-652: an answer with no source, in a document that says the confirmed facts were not read, is not said to
+        # come from "the coded records"
+        unsourced = "records" if doc.get("confirmed_facts") == "not read" else "coded"
         out = []
         for r in doc.get("rows") or []:
             items = [
                 {"id": c["id"], "label": crit[c["id"]].label if c["id"] in crit else c["id"],
-                 "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or "coded",
+                 "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or unsourced,
                  "quote": c.get("quote"), "date": c.get("quote_date"), "reason": c.get("reason"),
                  "records": len(c.get("resource_refs") or []),
                  # T-514 (D-362): the coded records' value, unit, date and code; the test model's note answers say so
@@ -1367,6 +1402,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if h.scope_check is not None:  # D-146 (J-03): the API refuses what the page refuses, in one place
             h.scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
+        console_actor.bind_reader(h, sess)  # NEW-SEC-1 (D-717): this account signs the patient reads of the API
         return sess
 
     h.api_session = api_session  # the other /api/v1 routes (console.data_pages) sign in the same way

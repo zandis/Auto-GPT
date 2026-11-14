@@ -7,7 +7,14 @@
 {% if undo %}<div class="toastp" role="status" id="undo" data-testid="users-undo"><span>{{ t('users.done.disabled', user=undo) }}</span>
 <form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="enable"><input type="hidden" name="username" value="{{ undo }}"><input type="hidden" name="confirm" value="undo"><button type="submit" class="secondary" data-testid="users-undo-btn">{{ t('mark.undo') }}</button></form></div>{% endif %}
 {% if done %}<p class="ok" role="status" data-testid="users-done">{{ t('users.done.' + done) }}</p>{% endif %}
-{% if made %}<section class="card attention" id="made" data-testid="users-made" aria-labelledby="made-h">
+{% if requested %}<p class="ok" role="status" id="requested" data-testid="account-requested">{{ t('account.requested') }} <a href="/ops/accounts/requests">{{ t('requests.title') }}</a></p>{% endif %}
+{% if made and code %}<section class="card attention" id="made" data-testid="users-made" aria-labelledby="made-h">
+<h2 id="made-h">{{ t('users.made.code', user=made) }}</h2>
+<label for="enrol-code-value">{{ t('identity.code.label') }}</label>
+<input id="enrol-code-value" class="mono" readonly data-testid="enrol-code-value" value="{{ code }}" autocomplete="off" spellcheck="false">
+<p>{{ t('users.code.handover', user=made) }}</p>
+<p class="warn">{{ t('users.pw.once') }}</p>
+</section>{% elif made %}<section class="card attention" id="made" data-testid="users-made" aria-labelledby="made-h">
 <h2 id="made-h">{{ t('users.made', user=made) }}</h2>
 <p class="otp" aria-label="{{ t('users.pw.aloud') }}">{% for g in pw_groups %}<span>{{ g }}</span>{% endfor %}</p>
 <label for="otp-value">{{ t('users.pw.copy_label') }}</label>

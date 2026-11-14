@@ -210,7 +210,11 @@ def test_an_internal_principal_is_refused_on_an_open_dev_box_too(monkeypatch: py
     assert (
         client.post("/jobs", json={"type": "FEAS", "ruleset": "GZQO", "requested_by": "crc@x.test"}).status_code == 200
     )
-    assert client.get("/registry/GZQO/events").status_code != 403  # no token on a DEV box: no identity, no gate
+    # no token on a DEV box: no identity, no caller gate (D-717: the read still carries its person)
+    from tests.actor3 import signed
+
+    events_path = "/registry/GZQO/events"
+    assert client.get(events_path, headers=signed("phi.view", "GZQO", "GET", events_path)).status_code != 403
 
 
 @pytest.mark.parametrize(

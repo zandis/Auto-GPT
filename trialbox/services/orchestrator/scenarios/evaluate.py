@@ -27,7 +27,7 @@ from typing import Any, Literal, Protocol, cast
 from criteria_compiler.compile_sql.overlay import safe_sql
 from guard.injection import planted_in
 from lake.client import LakeAPI
-from matching import decision
+from matching import coded_values, decision
 from matching import excerpts as excerpt_builder
 from matching import verdict as verdict_table
 from matching.coverage import Coverage
@@ -828,6 +828,8 @@ def row(
             "n_unknown": pv.n_unknown,
             "last_evaluated": evaluated,
             "changed": changed or [],
+            # D-653: the row says it while any of its answers does; absent when all were read (as before the card)
+            "coded_values": "not read" if any(coded_values.unread(v) for v in pv.verdicts) else None,
         }
     )
 

@@ -62,6 +62,8 @@ def test_default_install_passes() -> None:
         "clock",
         "ops_runner",
         "audit_heads",
+        "anchor_mount",  # D-638
+        "rehearsal",  # D-726
         "memory_caps",
         "wsl2_memory",
         "update_window",

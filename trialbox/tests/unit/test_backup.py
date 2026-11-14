@@ -540,10 +540,10 @@ def test_a_restore_without_the_pack_keeps_the_site_rows_and_says_it_is_not_done(
     assert ref2.fetchall("SELECT count(*) FROM pack") == [(1,)] and ref2.fetchall(
         "SELECT count(*) FROM _schema_version"
     )
-    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--no-copy", "--refdata", str(tmp_path / "empty"),
+    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--services-stopped", "--no-copy", "--refdata", str(tmp_path / "empty"),
               "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"])  # type: ignore[index]  # fmt: skip
     assert rc == 3 and "reference data is NOT loaded" in capsys.readouterr().err
-    assert cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--refdata", str(tar.parent),
+    assert cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--services-stopped", "--refdata", str(tar.parent),
                 "--public", str(box["pub"]), "--keep-to", str(tmp_path / "kept"),
                 "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"]) == 0  # type: ignore[index]  # fmt: skip
 
@@ -594,7 +594,7 @@ def test_restore_over_a_box_with_data_needs_the_key_for_its_copy(
     f = _backup(box, tmp_path)[0]
     with pytest.raises(bk.BackupError, match="a copy is kept before a restore"):
         bk.restore(f, box["priv"], env=_env(box), dirs=box["dirs"], keep_to=tmp_path / "kept")  # type: ignore[arg-type]
-    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--public", str(tmp_path / "none.pub"),
+    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--services-stopped", "--public", str(tmp_path / "none.pub"),
               "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"])  # type: ignore[index]  # fmt: skip
     assert rc == 1 and "--no-copy" in capsys.readouterr().err
     out = bk.restore(f, box["priv"], env=_env(box), dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]

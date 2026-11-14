@@ -531,7 +531,9 @@ class HttpBackend:
     def _registry_call(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> Any:
         try:
             if method == "GET":
-                return self.orch.get_json(path)
+                from console.actor import read_headers  # NEW-SEC-1 (D-717): a patient read is signed
+
+                return self.orch._request("GET", path, headers=read_headers("GET", path, headers)).json()
             return self.orch.post_raw(path, body, headers).json()
         except ServiceError as exc:
             if exc.status in (400, 403, 404, 422, 429):

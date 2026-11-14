@@ -103,10 +103,14 @@ def with_survivors(db: Database, pids: set[str]) -> set[str]:
     if not pids:
         return pids
     schema = db.schema[: -len(SCHEMA)] + "pidmap"
+    # D-683: asked for the service itself (session_user), not for the role this connection works as: the register's
+    # connection is its group role (D-378), which may never use the pid map, so on a box with roles a merge was
+    # never followed. The catalog answers every role; the map is then read on its own connection
     ok = db.fetchval(
-        "SELECT has_schema_privilege(n.oid, 'USAGE') AND to_regclass(?) IS NOT NULL FROM pg_namespace n "
-        "WHERE n.nspname = ?",
-        (f'"{schema}".pid_alias', schema),
+        "SELECT has_schema_privilege(session_user, n.oid, 'USAGE') AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c "
+        "WHERE c.relnamespace = n.oid AND c.relname = 'pid_alias' AND c.relkind IN ('r', 'p')) "
+        "FROM pg_catalog.pg_namespace n WHERE n.nspname = ?",
+        (schema,),
     )
     if not ok:
         return pids
@@ -231,16 +235,47 @@ def registry_rule(rows: Sequence[tuple[Any, ...]]) -> RegistryState:
     )
 
 
+#: what a run says when it stops for a snapshot without a consent table (D-654); no name, date or id in it
+NO_REGISTRY_TABLE = (
+    "The lake snapshot has no consent table. A snapshot built by TrialBox always has one, so this snapshot was made "
+    "by hand or by other software. The run stops: without the table no opt-out could be applied."
+)
+#: the boxes on which a snapshot without a consent table still reads as "no registry" (``TB_ENV``): tests and tools
+#: build small lakes there. Every other name refuses: PRODUCTION, VALIDATION, unset (which is PRODUCTION) and any
+#: name this code does not know.
+NO_REGISTRY_ALLOWED = ("DEV", "TEST")
+
+
+class NoRegistryTable(RuntimeError):
+    """A PRODUCTION box was asked to read the opt-out registry of a snapshot that has no consent table (D-654)."""
+
+    def __init__(self) -> None:
+        super().__init__(NO_REGISTRY_TABLE)
+
+
 def registry_state(lake: Any, snapshot: str | None, day: str) -> RegistryState | None:
     """The lake's ``consent`` table read by :func:`registry_rule` as of ``day`` (ISO date). None: the lake has no
-    consent table (the site's registry was never ingested). Any other failure raises (D-127: fail closed)."""
-    try:
-        rows = lake.query(REGISTRY_SQL, [day], snapshot).to_pylist()
-    except Exception as exc:  # the cascade's own test (``matching.cascade.engine.missing_table``)
-        msg = str(exc)
-        if "consent" in msg and ("does not exist" in msg or "Catalog Error" in msg):
-            return None
-        raise
+    consent table (the site's registry was never ingested), **on a DEV or TEST box only**. Any other failure
+    raises (D-127: fail closed).
+
+    Whether the lake has no such table is asked of the lake (:mod:`tb_common.lakeprobe`, D-651): after the query
+    failed, how many tables or views named ``consent`` the snapshot has, and only one row with the integer 0 is
+    "none". It used to be read from the failure's text ("consent" with "does not exist"): another failure whose
+    text held those words then read as "no registry", and every caller takes that for "no opt-out to apply".
+
+    D-654 (the owner's decision): on a PRODUCTION box (``TB_ENV`` unset, or any name but DEV and TEST) "none" is
+    not an answer either. The lake's own store builds the table on every rebuild, empty when there is no Consent
+    feed, so a snapshot without it was made by hand or by other software: :class:`NoRegistryTable`."""
+    import os
+
+    from tb_common import lakeprobe
+    from tb_common.config import environment_name
+
+    rows = lakeprobe.rows_or_no_table(lake, REGISTRY_SQL, [day], snapshot, "consent")
+    if rows is None:
+        if environment_name(os.environ) not in NO_REGISTRY_ALLOWED:
+            raise NoRegistryTable
+        return None
     return registry_rule(
         [(str(r["pid"]), str(r["status"] or ""), r["contact_ok"], bool(r.get("undated"))) for r in rows if r["pid"]]
     )

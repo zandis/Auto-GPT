@@ -240,6 +240,14 @@ class EdcService:
             self._audit("edc.drafts", rs, by, {"record": record, "visit": visit or BASE_EVENT, "run": run_id,
                                                "refused": "edc.model", "error": why})  # fmt: skip
             raise EdcError("edc.model", f"the box's model did not answer ({why})", 502) from exc
+        except EdcError:
+            raise
+        except Exception as exc:  # D-684: the box's record could not be read: a coded refusal, audited, no draft
+            kind = type(exc).__name__  # the type only: a lake's error text can quote what it read
+            log.error("EDC prefill: the box's record was not read for study %s record %s (%s)", rs, record, kind)
+            self._audit("edc.drafts", rs, by, {"record": record, "visit": visit or BASE_EVENT, "run": run_id,
+                                               "refused": "edc.lake", "error": kind})  # fmt: skip
+            raise EdcError("edc.lake", "the box's record could not be read; nothing was drafted", 503) from exc
         target = self.store.target(rs)
         built = {"target": str(target["token_ref"]) if target else ""}
         shas = {m.item: mapping.item_sha(m) for m in items}

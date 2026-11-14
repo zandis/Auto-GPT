@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
+  "head": "a5419544a4537ffec720d40fecc4bb13badb495e",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
+  "reason": "SCR-01 (D-655): malignancy includes C44 and C4A; RA-JAK-EXC-08 and RA-BIO-EXC-04 exclude skin and Merkel cell carcinoma",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",
@@ -124,7 +124,7 @@
     "d4f38f3ffdf00507bdb81ae740385030"
    ],
    "candidates": 14,
-   "outcomes_sha": "95f82db7fe320a287a8f9bd88489f963da77b8a8273af4337150ad7a03c0bd71",
+   "outcomes_sha": "7e43b97a6e134e6a80055ff749564567eb18537e7b83220028d56967c756969d",
    "patients": 400,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -174,8 +174,8 @@
      "unknown": 0
     },
     "RA-JAK-EXC-08": {
-     "met": 31,
-     "not_met": 369,
+     "met": 37,
+     "not_met": 363,
      "unknown": 0
     },
     "RA-JAK-EXC-09": {
@@ -308,7 +308,7 @@
     "fd7be4962be6aaa2c61387ff84e3f27b"
    ],
    "candidates": 89,
-   "outcomes_sha": "b1c79f0716c06388a04ef687c6ad44321d6d6775af490ea10df510c7b3e35098",
+   "outcomes_sha": "32dbe424565a7298f900de2ba75bb9be6b6cf34739070074f37e67d1ce30373d",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -358,8 +358,8 @@
      "unknown": 0
     },
     "RA-JAK-EXC-08": {
-     "met": 175,
-     "not_met": 2305,
+     "met": 195,
+     "not_met": 2285,
      "unknown": 20
     },
     "RA-JAK-EXC-09": {
@@ -499,7 +499,7 @@
     "fd7be4962be6aaa2c61387ff84e3f27b"
    ],
    "candidates": 96,
-   "outcomes_sha": "bc0cc9f8c93a2d5d2a5a060a34a84b4cd67f9b96b78d1d455fc2917a22fe1e57",
+   "outcomes_sha": "5a417b0fb45d893afaf8e2d69ad49d097119b554ede99b26c28831d83074f643",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -549,8 +549,8 @@
      "unknown": 0
     },
     "RA-JAK-EXC-08": {
-     "met": 145,
-     "not_met": 2345,
+     "met": 164,
+     "not_met": 2326,
      "unknown": 10
     },
     "RA-JAK-EXC-09": {
@@ -680,7 +680,7 @@
     "fa2efd1ed5627ac07b7fe164e4800f78"
    ],
    "candidates": 86,
-   "outcomes_sha": "427201f483636f53ec9fb3ece43a88fdf64621d8d3239bc8c88fb5faaf00c286",
+   "outcomes_sha": "54b65bda265a16ebe62047fc6008acdd0dcc2fb7fdb4834b035b2216782faec9",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -730,8 +730,8 @@
      "unknown": 0
     },
     "RA-JAK-EXC-08": {
-     "met": 183,
-     "not_met": 2299,
+     "met": 195,
+     "not_met": 2287,
      "unknown": 18
     },
     "RA-JAK-EXC-09": {

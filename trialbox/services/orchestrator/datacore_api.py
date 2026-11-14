@@ -41,12 +41,18 @@ from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
 from tb_common.flowledger import record_export
+from tb_common.patient_reads import PHI as _PHI
 
 from orchestrator.actor import person_of
+from orchestrator.actor import require_actor as _require_actor
 from orchestrator.lifecycle_api import LIFE_FORMS, derive_record
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+#: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
+#: patient-level data on the route's study (tb_common.patient_reads)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 
 
 @dataclass
@@ -215,7 +221,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
                                                                             "dropped": dropped})  # fmt: skip
         return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs), "dropped": dropped}
 
-    @r.get("/studies/{rs}/data")
+    @r.get("/studies/{rs}/data", dependencies=[PATIENT_READ])
     def get_data(rs: str) -> dict[str, Any]:
         return snapshot(get().dc, _rs(rs))
 
@@ -324,7 +330,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
                                  "dropped": src.dropped, "refused": len(res["refused"])})  # fmt: skip
         return {**res, "at": at}
 
-    @r.get("/studies/{rs}/conflicts")
+    @r.get("/studies/{rs}/conflicts", dependencies=[PATIENT_READ])
     def conflicts(rs: str, all: bool = False) -> list[dict[str, Any]]:
         return get().dc.conflicts(_rs(rs), open_only=not all)
 
@@ -368,7 +374,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
                          detail={"forms": sorted(names), "origin": ORIGIN, "ctcae": ctcae})  # fmt: skip
         return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs), "ctcae": ctcae}
 
-    @r.get("/studies/{rs}/records")
+    @r.get("/studies/{rs}/records", dependencies=[PATIENT_READ])
     def get_records(rs: str) -> list[dict[str, Any]]:
         dc, rid = get().dc, _rs(rs)
         out: dict[str, dict[str, Any]] = {}
@@ -379,7 +385,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             r["changed_at"] = max(r["changed_at"], str(v["changed_at"]))
         return [out[k] for k in sorted(out)]
 
-    @r.get("/studies/{rs}/records/{record}")
+    @r.get("/studies/{rs}/records/{record}", dependencies=[PATIENT_READ])
     def get_record(rs: str, record: str) -> dict[str, Any]:
         """One record: its values per event (value, who, when) and its whole change history."""
         dc, rid, rec = get().dc, _rs(rs), record_key(record)
@@ -406,14 +412,16 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return {**out, "record": rec, "event": body.event, "values": svc.dc.record(rid, rec, body.event),
                 "life": life}  # fmt: skip
 
-    @r.get("/studies/{rs}/export/{fmt}")
-    def export_data(rs: str, fmt: str, by: str = "") -> dict[str, Any]:
-        """ODM 1.3.2, REDCap CSV or XLSX of every record (screening numbers and pseudonyms; no chart number)."""
+    @r.get("/studies/{rs}/export/{fmt}", dependencies=[PATIENT_READ])
+    def export_data(rs: str, fmt: str, request: Request) -> dict[str, Any]:
+        """ODM 1.3.2, REDCap CSV or XLSX of every record (screening numbers and pseudonyms; no chart number). The
+        export names the verified person of the call (NEW-SEC-1, D-717), no longer a typed ``by``."""
         import base64
 
         from datacore import export
 
         svc, rid = get(), _rs(rs)
+        by = str(request.state.tb_actor.sub)
         if fmt == "dictionary":
             return {"metadata": forms.metadata(export.export_fields(svc.dc, rid))}
         if fmt not in export.FORMATS:
@@ -425,16 +433,16 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             raise _fail(exc) from exc
         suffix, media = export.media(fmt)
         name = f"{rid}_{svc.now().strftime('%Y%m%d')}{suffix}"
-        svc.audit.append("data.export", ruleset=rid, actor=by or "orchestrator", detail={"format": fmt})
+        svc.audit.append("data.export", ruleset=rid, actor=by, detail={"format": fmt})
         record_export(svc.audit, channel="datacore_export", filename=name,
                       data=body if isinstance(body, bytes) else body.encode("utf-8"),
-                      identifier_level="pseudonymised", actor=by or "orchestrator", ruleset=rid,
+                      identifier_level="pseudonymised", actor=by, ruleset=rid,
                       approval=f"study {rid} data core export (screening numbers and pseudonyms only)")  # fmt: skip
         if isinstance(body, bytes):
             return {"name": name, "media_type": media, "b64": base64.b64encode(body).decode()}
         return {"name": name, "media_type": media, "text": body}
 
-    @r.get("/studies/{rs}/fhir")
+    @r.get("/studies/{rs}/fhir", dependencies=[PATIENT_READ])
     def get_fhir(rs: str) -> dict[str, Any]:
         res = fhir.resources(get().dc, _rs(rs))
         return {"resourceType": "Bundle", "type": "collection", "entry": [{"resource": x} for x in res]}

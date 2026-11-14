@@ -29,6 +29,8 @@ DYNAMIC = {
     ("orchestrator.db", "name"): "JobLease (D-532): a second connection to the store its JobDB opened; no other schema",
     ("orchestrator.db", "schema"): "JobDB(url, schema=SCHEMA_NAME): the default is read",
     ("orchestrator.db_pg", "schema"): "the workflow backend: the default (wf) is read; the recall ledger names its own",
+    ("sitesetup.service", "name"): "Reset (D-714): a practice space's own OMOP store, omop_<hash> of its lake folder "
+    "(omop.schema.schema_for), opened only to drop it and only when it exists",
 }
 #: opened through the workflow backend by a name held in another constant (orchestrator.recall.ledger.LEDGER_SCHEMA)
 BACKEND_SCHEMAS = {"recall"}

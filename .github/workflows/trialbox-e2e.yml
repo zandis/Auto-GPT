@@ -260,6 +260,14 @@ jobs:
           npm ci --prefix "$RUNNER_TEMP/node-tools" --no-fund --no-audit
           (cd "$RUNNER_TEMP/node-tools" && npx playwright install --with-deps chromium)
           echo "NODE_PATH=$RUNNER_TEMP/node-tools/node_modules" >> "$GITHUB_ENV"
+      # D-639: the browser walk below reads the MedTxt corpus (public, CC BY 4.0), which git does not carry; the same
+      # cache as the public-e2e run. Fetched before the images and the stack: a fetch that fails stops the job early
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: trialbox/.cache/medtxt
+          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
+      - name: The public corpus (MedTxt), fetched once
+        run: make public-data
       - name: Images (as `make images`)
         run: make images
       - name: The compose test stack (stub model)

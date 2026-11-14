@@ -28,7 +28,9 @@ CHART = "A1234567"
 GENERAL = {"Exception", "BaseException", "ValueError", "KeyError", "FileNotFoundError", "OSError", "RuntimeError",
            "TypeError", "LookupError", "AttributeError", "IndexError"}  # fmt: skip
 
-#: this lane's places (the console, the orchestrator, the site set-up):
+LANE = ("console", "orchestrator", "sitesetup", "mail_gateway")
+
+#: this lane's places (the console, the orchestrator, the site set-up, the mail gateway):
 #: (file, the general errors caught) -> (how many statements, what it is). Exact.
 MINE: dict[tuple[str, str], tuple[int, str]] = {
     ("console/app.py", "RuntimeError"): (1, "the cascade runs' own refusal: 'a cascade run is already running'"),
@@ -39,6 +41,11 @@ MINE: dict[tuple[str, str], tuple[int, str]] = {
     ("orchestrator/datacore_api.py", "ValueError"): (1, "the CTCAE check's sentence that lists the versions (D-555)"),
     ("orchestrator/reports/twpas_bundle.py", "Exception"): (1, "the first line of the FHIR validator's message"),
     ("orchestrator/scenarios/approve.py", "ValueError"): (1, "the approval workbook's own reading errors (D-557)"),
+    # NEW-TRUST-8 (D-704): the mail gateway, placed with this lane by the integrator
+    ("mail_gateway/admin.py", "KeyError"): (
+        1,
+        "the mail tool's stderr: the gateway's own sentence about a held message",
+    ),
 }
 #: other lanes' services, by reading, not judged here: file -> whose. Theirs to take off; the integrator has them.
 THEIRS: dict[str, str] = {
@@ -46,11 +53,7 @@ THEIRS: dict[str, str] = {
     "adapter/pipeline.py": "adapter", "adapter/publish.py": "adapter", "adapter/run_job.py": "adapter",
     "adapter/sources/ssmix2/source.py": "adapter", "adapter/validate/jpcore.py": "adapter",
     "adapter/validate/validator.py": "adapter",
-    "embed_service/embedder.py": "models", "gateway/app.py": "models", "llm_stub/app.py": "models",
-    "model_guard/__init__.py": "models",
     "lake/app.py": "lake (its own card, D-664)", "lake/store.py": "lake (its own card, D-664)",
-    "mail_gateway/admin.py": "mail", "mail_gateway/app.py": "mail", "mail_gateway/gateway.py": "mail",
-    "matching/proposed.py": "matching",
     "tracestore/app.py": "trace store",
 }  # fmt: skip
 
@@ -82,7 +85,7 @@ def test_a_general_errors_text_is_used_only_in_the_listed_places() -> None:
 def test_this_lanes_places_are_exactly_the_listed_ones() -> None:
     """By file, the errors caught and how many statements: a new statement in a listed file fails too (the review:
     the first list was exact by file only, and the console's largest file has one listed place)."""
-    found = {k: n for k, n in _found().items() if k[0].split("/")[0] in ("console", "orchestrator", "sitesetup")}
+    found = {k: n for k, n in _found().items() if k[0].split("/")[0] in LANE}
     listed = {k: n for k, (n, _) in MINE.items()}
     assert found == listed, sorted(set(found.items()) ^ set(listed.items()))
     # the two this card took off
@@ -175,3 +178,123 @@ def test_a_subject_that_cannot_be_read_is_refused_without_repeating_what_was_typ
         assert CHART not in str(said.value), subject
     with pytest.raises(SubjectError, match="window"):  # the option's name, which is one of the allowed
         parse_subject(f"SCREEN GZQO window={CHART}!")
+
+
+def test_a_command_line_that_cannot_be_read_is_refused_without_repeating_what_was_typed() -> None:
+    """NEW-TRUST-7 (D-702): the command grammar of the console's request box and the chat channels refused a line
+    with the typed token in the text (``'A1234567' must be key=value``, ``invalid study code 'A1234567'``), which
+    the console shows and audits. The same rule as the mail subject's (D-700)."""
+    from channels.grammar import GrammarError, _params, _study
+
+    for tokens in ([CHART], [f"{CHART}=1"], [f"window={CHART}!"]):
+        with pytest.raises(GrammarError) as said:
+            _params(tokens)
+        assert CHART not in str(said.value), tokens
+    with pytest.raises(GrammarError, match="window"):  # a parameter's name, once it is one of the allowed
+        _params([f"window={CHART}!"])
+    with pytest.raises(GrammarError) as said:
+        _study(f"{CHART}!")
+    assert CHART not in str(said.value)
+
+
+def test_a_held_mail_and_a_missing_attachment_name_the_errors_type() -> None:
+    """NEW-TRUST-8 (D-704): the mail gateway kept an error's text in the reason of a held message (shown to the
+    person who decides it) and answered a missing attachment with the storage key. Read from the code: the three
+    statements take the error's type now."""
+    import inspect
+
+    from mail_gateway import app as mail_app
+    from mail_gateway import gateway
+
+    src = inspect.getsource(gateway)
+    assert 'f"prepare: {exc}"' not in src
+    # one place keeps a text on purpose: what the mail server answered when it refused the message before
+    # anything left (``_not_sent``), for the person who decides the held message (D-704, "Kept")
+    assert src.count('f"{type(exc).__name__}: {exc}"') == 1 and "def _not_sent" in src
+    assert "after the message left: {type(exc).__name__}: {exc}" not in src
+    assert "attachment not found: {exc}" not in inspect.getsource(mail_app)
+
+
+# ---------------------------------------------------------------------------------- NEW-TRUST-9 (D-705)
+#: a general error handed WHOLE to a helper (``helper(exc)``): the reading above does not see what the helper does
+#: with it (the matching's ``missing_table(exc, ...)`` reads its text). Each such call is listed: for this lane
+#: exactly, with what the helper does; for other lanes as a ceiling, by file and helper.
+_NO_TEXT = {"type", "isinstance", "trace_of", "str", "repr"}  # read above, or take no text
+HANDED_MINE: dict[tuple[str, str], tuple[int, str]] = {
+    ("console/api_first.py", "handler"): (1, "the framework's own handler, then the answer without values (D-551)"),
+    ("console/dataops_page.py", "getattr"): (2, "reads two yes-or-no marks of a data operation's error"),
+    ("console/home.py", "getattr"): (1, "reads the error's `status`, a number"),
+    ("orchestrator/core.py", "_error"): (1, "the job's error record: the type only for an unexpected error (D-557)"),
+    ("sitesetup/service.py", "_building_refusal"): (1, "tests the lake's refusal for 'already building': a yes or no"),
+    ("sitesetup/service.py", "_held_refusal"): (1, "tests the lake's refusal for 'running job': a yes or no"),
+}
+HANDED_THEIRS: dict[tuple[str, str], int] = {
+    ("adapter/app.py", "failure.log_failure"): 2, ("adapter/app.py", "failure.words"): 2,
+    ("adapter/backfill.py", "failure.log_failure"): 1, ("adapter/backfill.py", "failure.words"): 1,
+    # lane B2's #516 (adapter/failure.py local_lake): `error_answer` (D-664) turns anything that is not the lake's
+    # own refusal into an answer without the error's text; `log_failure` logs the type and the frames, never the text
+    ("adapter/failure.py", "error_answer"): 1, ("adapter/failure.py", "log_failure"): 1,
+    ("adapter/pipeline.py", "failure.log_failure"): 2, ("adapter/pipeline.py", "failure.words"): 2,
+    ("adapter/pipeline.py", "reject_key"): 1,
+    ("adapter/publish.py", "_other_generation"): 1, ("adapter/publish.py", "_said"): 1,
+    ("adapter/publish.py", "failure.log_failure"): 2, ("adapter/publish.py", "failure.words"): 2,
+    ("adapter/publish.py", "lake_error"): 3,
+    ("adapter/run_job.py", "failure.log_failure"): 1, ("adapter/run_job.py", "failure.words"): 1,
+    ("adapter/sources/ssmix2/hl7.py", "getattr"): 1, ("adapter/validate/jpcore.py", "_base_problem"): 1,
+    ("datacore/dataops.py", "getattr"): 2,
+    ("lake/app.py", "error_answer"): 1, ("lake/store.py", "error_answer"): 1, ("lake/store.py", "error_kind"): 1,
+    # lane B2's NEW-B-34 (D-675): the status of a failed query by the error's class only (isinstance), no text
+    ("lake/app.py", "query_failure_status"): 2,
+    ("mail_gateway/outbound.py", "NotSent"): 2,
+    ("matching/cascade/engine.py", "missing_table"): 1,
+    ("tracestore/app.py", "refusal"): 1,
+}  # fmt: skip
+
+
+def _handed() -> Counter[tuple[str, str]]:
+    """How many times a general error is passed whole to a call, by (file, the function called)."""
+    out: Counter[tuple[str, str]] = Counter()
+    for f in sorted(ROOT.rglob("*.py")):
+        for fn in _handed_in(ast.parse(f.read_text(encoding="utf-8"))):
+            out[(str(f.relative_to(ROOT)), fn)] += 1
+    return out
+
+
+def _handed_in(tree: ast.AST) -> list[str]:
+    """The functions a general error is passed whole to, inside its ``except`` block (log calls apart)."""
+    out: list[str] = []
+    for h in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.name):
+        if not set(_caught(h)) & GENERAL:
+            continue
+        for call in (n for b in h.body for n in ast.walk(b) if isinstance(n, ast.Call)):
+            fn = ast.unparse(call.func)
+            if fn.split(".")[-1] in _NO_TEXT or fn.split(".")[0] in ("log", "logger", "logging"):
+                continue
+            args = [*call.args, *[k.value for k in call.keywords]]
+            if any(isinstance(a, ast.Name) and a.id == h.name for a in args):
+                out.append(fn)
+    return out
+
+
+def test_a_general_error_is_handed_whole_to_a_helper_only_in_the_listed_places() -> None:
+    found = dict(_handed())
+    mine = {k: n for k, n in found.items() if k[0].split("/")[0] in ("console", "orchestrator", "sitesetup")}
+    assert mine == {k: n for k, (n, _) in HANDED_MINE.items()}, sorted(mine.items())
+    theirs = {k: n for k, n in found.items() if k not in mine}
+    over = {k: n for k, n in theirs.items() if n > HANDED_THEIRS.get(k, 0)}
+    assert over == {}, f"a general error is handed whole to a helper here, more often than listed: {over}"
+
+
+def test_the_scan_sees_a_helper_that_reads_the_errors_text() -> None:
+    """The shape lane A2 found in the matching: ``if not missing_table(exc, "document")``, where the helper reads
+    ``str(exc)``. The reading of statements cannot see that; the list of helpers does. A log call and ``type(exc)``
+    are not helpers."""
+    src = (
+        "try:\n    run()\n"
+        "except Exception as exc:\n"
+        "    log.warning('x', exc)\n"
+        "    kind = type(exc).__name__\n"
+        "    if not missing_table(exc, 'document'):\n        raise\n"
+    )
+    assert _handed_in(ast.parse(src)) == ["missing_table"]
+    assert _handed_in(ast.parse("try:\n    run()\nexcept Refused as exc:\n    helper(exc)\n")) == []  # not general

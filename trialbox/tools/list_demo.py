@@ -364,7 +364,7 @@ def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL, day: da
     out["cohort_new"] = len(re.findall(r'data-testid="member-', cohort.text))
 
     # 5 marks: the PI's first clinic day decides the demo day
-    week = h.week_bundle(None, trial)
+    week = h.mail_week(trial)  # NEW-SEC-1 (D-717): the weekly list as the mail reads it
     rows = week["rows"]
     days = sorted(notify.clinic_days(rows, pi_pr))
     assert days, "no listed candidate is booked with the investigator"

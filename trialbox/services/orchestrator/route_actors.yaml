@@ -42,7 +42,43 @@ no_person:
 principals:
   service:console-notify:   # the morning notices bring the participants up to date before they count them
     - study.setup
+    - phi.view    # NEW-SEC-1 (D-717): the morning mail reads the day's visits, subjects and serious AEs (D-134, D-277)
   service:console-optout-check:   # T-719: is a running case's subject on the opt-out register? (POST /setup/pseudonym)
     - optout.keep
   service:console-nightly:  # the nightly REDCap read: the steps it derives name the timer, not a typed name
     - request.prepare
+
+# NEW-SEC-1 (D-717): every GET route of the app that returns no patient's row, with why. The routes that return one
+# are in libs/tb_common/patient_reads.py and take a verified claim for phi.view on their study. A GET route in
+# neither list stops the orchestrator at import (orchestrator.actor.route_problems).
+reads_without_patient:
+  GET /healthz: "the service's health, without sign-in"
+  GET /openapi.json: "FastAPI's own schema of the routes"
+  GET /docs: "FastAPI's own schema page"
+  GET /docs/oauth2-redirect: "FastAPI's own schema page"
+  GET /redoc: "FastAPI's own schema page"
+  GET /models: "the model registry's state and the box's status lines; counts, no patient"
+  GET /metrics: "counters of the service"
+  GET /rulesets/{ruleset}: "a study's criteria, approved versions and drafts"
+  GET /jobs: "job records (type, state, who asked, the names of their files); the rows are in the files, which the console reads from the object store"
+  GET /jobs/waiting-studies: "study ids only (D-545)"
+  GET /jobs/{job_id}: "one job record (type, state, options, the names and keys of its files, counts); no row of a patient"
+  GET /studies/{rs}/settings: "a study's settings"
+  GET /studies/{rs}/screen-scope: "which doctors' patients a study screens (practitioner ids)"
+  GET /redcap/connections: "the box's REDCap connections, without their tokens"
+  GET /redcap/connections/{ref}/dictionary: "a REDCap project's data dictionary (fields, not records)"
+  GET /studies/{rs}/forms: "a study's forms (fields and choices)"
+  GET /studies/{rs}/sources: "a study's sources and which source owns each field, without any record value"
+  GET /studies/{rs}/schedule: "a study's visit schedule and its versions"
+  GET /studies/{rs}/sae-rule: "a study's SAE reporting rule"
+  GET /studies/{rs}/contact-rule: "a study's contact limits"
+  GET /studies/{rs}/sponsor/layout: "the sponsor's screening-log layout (column names)"
+  GET /setup/templates/{name}: "a blank template file (the hospital-code sheet lists the site's local codes, no patient)"
+  GET /setup/{ws}/readiness: "the readiness answer: counts and what is missing"
+  GET /setup/{ws}/codes: "the site's local codes with how often each came, no patient"
+  GET /setup/{ws}/feasibility: "counts per criterion"
+  GET /setup/terminology: "which licensed code lists are loaded"
+  GET /setup/remote: "whether remote help is on"
+  GET /studies/{rs}/edc/map/suggest: "suggested field mappings"
+  GET /registry: "per study, counts of the registry's states"
+  GET /registry/{ruleset}/export.xlsx: "every chart number of a study; the handler verifies the signed person, role and studies itself (v2, D-273, S-09) and audits it"

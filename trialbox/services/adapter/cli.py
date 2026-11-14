@@ -37,7 +37,7 @@ from tb_contracts import RebuildResult, dump
 
 from adapter.governance import contracts_dir
 from adapter.mapping.site import resolve as resolve_mapping
-from adapter.pipeline import AdapterConfig, FutureNight, SiteKeyError, run_ingest
+from adapter.pipeline import AdapterConfig, FutureNight, LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
 
 MAPPING_ROOT = Path(__file__).resolve().parent  # the image's mappings (adapter.mapping.site: the site's come first)
 
@@ -60,14 +60,19 @@ class HttpLakeStep:
     def __init__(self, lake_url: str, poll: Any = None) -> None:
         self.base, self.poll = lake_url.rstrip("/"), poll
 
-    def _call(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+    def _ask(self, method: str, path: str, **kw: Any) -> Any:
         import httpx
         from tb_common.service_auth import auth_headers
 
         resp = getattr(httpx, method)(f"{self.base}{path}", timeout=60, headers=auth_headers(), **kw)
         resp.raise_for_status()
-        body: dict[str, Any] = resp.json()
-        return body
+        return resp
+
+    def _call(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+        """The lake's answer, a JSON object, or ``lake.client.LakeBadAnswer`` (D-673): never another body."""
+        from lake.client import _object
+
+        return _object(self._ask(method, path, **kw))
 
     def rebuild(self, snapshot: str, promote: bool = True) -> dict[str, Any]:
         from lake.client import follow_rebuild
@@ -84,7 +89,10 @@ class HttpLakeStep:
         """T-723 (D-489): the publish's last step: the built night becomes the served one (False: a newer one is).
         ``generation`` (D-531): the one this publish built; the lake refuses (409) when the date is another now."""
         body = {"snapshot": snapshot, **({"generation": generation} if generation else {})}
-        return bool(self._call("post", "/promote", json=body).get("promoted"))
+        from lake.client import _key
+
+        # D-673: a 200 without ``promoted`` is an error of the lake, not "a newer night is served"
+        return bool(_key(self._ask("post", "/promote", json=body), "promoted", (bool,)))
 
 
 def http_rebuild(lake: Any, snapshot: str, promote: bool = True) -> RebuildResult:
@@ -129,12 +137,13 @@ def build_config() -> tuple[AdapterConfig, str, str]:
             from embed_service.embedder import from_env as embedder_from_env
             from lake.store import Lake
 
-            st = Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).rebuild(
-                snapshot,
-                embedder_from_env(os.environ.get("TB_LAKE_EMBEDDER", "hash")),
-                ndjson_dir,
-                promote=promote,
-                check=not promote,
+            from adapter import failure
+
+            # the adapter's own settings are read outside the wrap: a wrong one is said in its own words
+            embedder = embedder_from_env(os.environ.get("TB_LAKE_EMBEDDER", "hash"))
+            lake = Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex)
+            st = failure.local_lake(  # D-669: an engine error leaves as the lake's safe answer, as over HTTP
+                lambda: lake.rebuild(snapshot, embedder, ndjson_dir, promote=promote, check=not promote)
             )
             return RebuildResult(
                 snapshot=st.snapshot,
@@ -154,7 +163,10 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         if os.environ.get("TB_ADAPTER_LAKE", "http") == "local":
             from lake.store import Lake
 
-            return Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).promote_built(snapshot, generation)
+            from adapter import failure
+
+            lake = Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex)
+            return failure.local_lake(lambda: lake.promote_built(snapshot, generation))  # D-669
         return HttpLakeStep(cfg.env.lake_url).promote(snapshot, generation)
 
     ret = cfg.settings.retention
@@ -253,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
             rebuild_lake=not args.no_lake,
             validate=not args.no_validate,
         )
-    except (SiteKeyError, FutureNight) as exc:
+    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError) as exc:
         print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))

@@ -24,6 +24,7 @@ nothing and writes nothing (the ask-the-box assistant never changes data; ``test
 from __future__ import annotations
 
 import base64
+import logging
 import re
 from collections.abc import Callable
 from typing import Any
@@ -35,9 +36,16 @@ from sitesetup import publish, readiness
 from sitesetup.intake import IntakeError
 from sitesetup.service import SiteSetup, ws_ok
 from sitesetup.store import SetupError
+from tb_common.patient_reads import PHI as _PHI
+
+from orchestrator.actor import require_actor as _require_actor
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 LANGS = ("ja", "zh-TW", "en")
+
+#: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
+#: patient-level data on the route's study (tb_common.patient_reads)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 
 
 class SheetBody(BaseModel):
@@ -130,6 +138,9 @@ def _intake_fail(exc: IntakeError) -> HTTPException:
     return HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "column": exc.column})
 
 
+log = logging.getLogger("orchestrator.setup")
+
+
 def router(
     get: Callable[[], SiteSetup],
     study_info: Callable[[str], dict[str, Any]],
@@ -185,12 +196,12 @@ def router(
         st = study_info(rid) if rid else {"id": "", "exists": False}
         return readiness.readiness(svc, w, st, records(rid) if rid else {})
 
-    @r.get("/setup/{ws}/inputs")
+    @r.get("/setup/{ws}/inputs", dependencies=[PATIENT_READ])
     def get_inputs(ws: str) -> list[dict[str, Any]]:
         rows = get().store.inputs(ws_of(ws))
         return [{k: v for k, v in x.items() if k not in ("path", "sha256")} for x in rows]
 
-    @r.get("/setup/{ws}/facts")
+    @r.get("/setup/{ws}/facts", dependencies=[PATIENT_READ])
     def get_facts(ws: str, status: str = "", pid: str = "") -> list[dict[str, Any]]:
         return get().store.facts(ws_of(ws), status or None, pid or None)
 
@@ -198,15 +209,15 @@ def router(
     def get_codes(ws: str) -> list[dict[str, Any]]:
         return get().store.locals(ws_of(ws))
 
-    @r.get("/setup/{ws}/checks")
+    @r.get("/setup/{ws}/checks", dependencies=[PATIENT_READ])
     def get_checks(ws: str, open_only: bool = False) -> list[dict[str, Any]]:
         return get().store.checks(ws_of(ws), open_only)
 
-    @r.get("/setup/{ws}/fixes")
+    @r.get("/setup/{ws}/fixes", dependencies=[PATIENT_READ])
     def get_fixes(ws: str) -> list[dict[str, Any]]:
         return get().store.fixes(ws_of(ws))
 
-    @r.get("/setup/{ws}/people")
+    @r.get("/setup/{ws}/people", dependencies=[PATIENT_READ])
     def get_people(ws: str) -> dict[str, Any]:
         """Patients by pseudonym with the inputs each one came from, and the disagreements between inputs."""
         svc, w = get(), ws_of(ws)
@@ -221,13 +232,23 @@ def router(
         people = [{"pid": p, "short": p[:8], "inputs": sorted(k)} for p, k in sorted(by.items())]
         return {"people": people, "disagreements": publish.disagreements(facts)}
 
-    @r.get("/setup/{ws}/patients")
+    @r.get("/setup/{ws}/patients", dependencies=[PATIENT_READ])
     def get_patients(ws: str, study: str) -> dict[str, Any]:
         svc, w, rid = get(), ws_of(ws), rs_of(study)
         rs = approved(rid)
         if rs is None:
             return {"study": rid, "approved": False, "patients": []}
-        return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
+        try:
+            return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
+        except readiness.UNREAD as exc:  # D-709: said, not a 500 and not "no patients"
+            status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            # D-712: a rejected statement or another service's error goes on (by its type, status and service)
+            if not readiness.unread_of(type(exc), status, getattr(exc, "service", None)):
+                raise
+            log.warning(
+                "site patient check: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
+            )
+            return {"study": rid, "approved": True, "patients": [], "lake_unread": True}
 
     @r.get("/setup/{ws}/feasibility")
     def get_feasibility(ws: str, study: str) -> dict[str, Any]:
@@ -236,14 +257,21 @@ def router(
         rd = readiness.readiness(svc, w, {"id": rid, "exists": True, "approved": bool(rs)}, {})
         if rs is None:
             return {"study": rid, "approved": False, "needs_bulk": not rd["bulk"], "feas": None}
+        out = {"study": rid, "approved": True, "needs_bulk": False}
+        if rd.get("lake_unread"):  # D-709: no count from a lake that cannot be asked, and not "needs a bulk input"
+            return {**out, "feas": None, "lake_unread": True}
         if not rd["bulk"]:  # D-132: say plainly what cannot be done yet instead of failing
             return {"study": rid, "approved": True, "needs_bulk": True, "feas": None}
-        return {
-            "study": rid,
-            "approved": True,
-            "needs_bulk": False,
-            "feas": readiness.feasibility(svc, w, rs, svc.today()),
-        }
+        try:
+            return {**out, "feas": readiness.feasibility(svc, w, rs, svc.today())}
+        except readiness.UNREAD as exc:
+            status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            if not readiness.unread_of(type(exc), status, getattr(exc, "service", None)):
+                raise
+            log.warning(
+                "site counts: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
+            )
+            return {**out, "feas": None, "lake_unread": True}
 
     @r.post("/setup/{ws}/sheets")
     def post_sheet(ws: str, body: SheetBody, request: Request) -> dict[str, Any]:

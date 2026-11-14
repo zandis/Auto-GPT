@@ -158,15 +158,21 @@ and comes back with the database). The vendor pack is a `.tar` file (usually `<p
 old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the off-box backups. Then:
 
 1. Reinstall (§1) and put each `<pack_id>.tar` in `deploy/refdata/loaded` (or a folder you give as `--refdata`).
-2. `trialbox restore <file> --key <private key> --yes [--refdata <folder>]`. Every hash is checked first; a
+2. Stop every service but the database: `docker compose stop $(docker compose ps --services | grep -vx db)`. The
+   restore asks compose which services run and refuses, before anything changes, while any but `db` does: it moves
+   their folders aside, and what a running service wrote meanwhile would be lost (D-724). Where compose cannot
+   answer, stop them yourself and add `--services-stopped`. Start them again after the restore.
+3. `trialbox restore <file> --key <private key> --yes [--refdata <folder>]`. Every hash is checked first; a
    backup of another site (`--other-site`) or older than 14 days (`--older-ok`) is refused before anything changes.
    A box that holds data is first kept whole as one more encrypted backup in `--keep-to` (default
    `deploy/pre-restore`, with the box's public key `--public`; `--no-copy` skips it): if the restore then fails,
    the message names that file, and `trialbox restore <it>` puts the box back. Each database is emptied, restored
    and its rows checked before any folder moves; replaced folders are moved aside, not deleted. The restore is a
    `backup.restored` event in the restored audit log. Add `--dir host=<folder>` to get the `host` part back. The
-   restore loads the packs the backup names from that folder.
-3. If a pack is not there the restore says which (`refdata.missing`, e.g. `['trialbox-refdata-20261109']`) and exits
+   restore loads the packs the backup names from that folder. Each file gets back the owner it had when it was
+   backed up, and each folder the owner of the folder it replaced, so the services (which run as their own user)
+   can write their volumes again (D-724).
+4. If a pack is not there the restore says which (`refdata.missing`, e.g. `['trialbox-refdata-20261109']`) and exits
    3 (`ok=False`; the database rows themselves are already restored and equal): put that pack file in the folder and
    run the restore again. The restored lake must pass its own check (sidecars, D-455) before any folder moves.
 4. **Events after the backup (D-455).** The databases are of the backup's snapshot; the audit chain was copied a
@@ -180,7 +186,7 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    stands: after a restore that is not complete (this step or the next), that failed part-way, or that was run a
    second time, the box stays held. While held, the timer starts no list job (SCREEN, MICROBATCH, COHORT, NAV), a
    list a person asks for fails with a message that says so, and the weekly not-matched sample is not drawn. The
-   ingest and retention run. `trialbox doctor` shows the hold (`restore_hold`). When every listed event is re-applied, the administrator sets the flag to `released` on
+   ingest and retention run. `trialbox doctor` shows the hold (`restore_hold`). When every listed event is re-applied, the data steward (or the administrator) sets the flag to `released` on
    `/ops/flags`, with the reason (who re-applied what); the change is in the audit. If the restore prints that the
    hold could not be set, keep the services stopped until the events are re-applied.
 5. **Opt-outs recorded after the backup (D-493).** Before the restore empties the trial database it reads the

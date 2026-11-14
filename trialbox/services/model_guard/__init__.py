@@ -64,17 +64,22 @@ def parse_routes(text: str) -> dict[str, tuple[str, int]]:
         name, sep, target = part.partition("=")
         host, _, port = target.rpartition(":")
         if not sep or not name.strip() or not host or not port.isdigit():
-            raise ValueError(f"bad route {part!r} (want name=host:port)")
+            raise GuardConfigError(f"bad route {part!r} (want name=host:port)")
         out[name.strip().lower()] = (host, int(port))
     if not out:
-        raise ValueError("no route (TB_GUARD_ROUTES)")
+        raise GuardConfigError("no route (TB_GUARD_ROUTES)")
     return out
+
+
+class GuardConfigError(ValueError):
+    """The guard's own refusal of its settings at start (D-636): its sentence is printed for the operator. A
+    ``ValueError`` from anywhere else is not one of these and is not printed as one."""
 
 
 class Guard:
     def __init__(self, key: str, routes: Mapping[str, tuple[str, int]], admin: bool = False, timeout: float = 900):
         if not key:
-            raise ValueError("no key (TB_LLM_API_KEY): the model guard does not run open")
+            raise GuardConfigError("no key (TB_LLM_API_KEY): the model guard does not run open")
         self.key = key
         self.routes = dict(routes)
         self.admin = admin
@@ -199,7 +204,7 @@ def scrub_setup(key: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     try:
         g = build()
-    except ValueError as exc:
+    except GuardConfigError as exc:  # D-636: the guard's own sentences only; another error fails with its trace
         print(f"model_guard: {exc}", file=sys.stderr)
         return 2
     scrub_setup(g.key)

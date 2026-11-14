@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import logging
 import re
 import threading
 from collections.abc import Callable
@@ -27,14 +28,39 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from tb_common import chartno, dates, instruments
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
-from tb_common.http import kept_failure
+from tb_common.http import ServiceError, kept_failure
 
 from sitesetup import charts, intake, mapping, messy, publish
 from sitesetup.ocr import Ocr, default_ocr
 from sitesetup.store import COUNTED, SetupError, SetupStore
+
+log = logging.getLogger("sitesetup")
+
+#: NEW-SITE-2 (D-709): the error types a lake that cannot be asked raises; :func:`lake_down` says whether one is
+#: that, or a refusal. Never an error of this code, which goes on.
+LAKE_DOWN = (ServiceError, httpx.HTTPError)
+
+
+def lake_down(exc: BaseException) -> bool:
+    """Is this the hospital's lake failing or not answering (so a later try may work), and not a refusal? The
+    lake's health not read (``lake.client.LakeUnhealthy``, D-672, whatever its status), an answer of 500 and
+    above from the lake, or no answer at all. A 4xx of the lake (a rebuild refused: no feed folder, a bad
+    request) and any other service's error are refusals: waiting changes nothing, so they go on."""
+    from lake.client import LakeBadAnswer, LakeUnhealthy
+
+    # D-712: a 200 that is not the lake's answer to the call (D-673) is the lake failing too, whatever its status
+    if isinstance(exc, LakeUnhealthy | LakeBadAnswer):
+        return True
+    if isinstance(exc, ServiceError):
+        return exc.service == "lake" and (exc.status >= 500 or exc.status == 0)
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.HTTPError)
+
 
 _WS = re.compile(r"^[a-z][a-z0-9]{0,15}$")
 SAFE_NAME = re.compile(r"[^\w.\-]+")
@@ -212,8 +238,7 @@ class SiteSetup:
         self.store.set_input(input_id, summary=summary)
         if not first:
             self.audit.append("setup.reread", actor=by, detail={"ws": ws, "input": input_id, "rows": summary["rows"]})
-        self.publish(ws, by)
-        return {"input": input_id, **summary}
+        return self._saved(ws, by, {"input": input_id, **summary})
 
     # ------------------------------------------------------------------ charts
     def add_chart(
@@ -264,8 +289,8 @@ class SiteSetup:
                 "hidden_text": ct.hidden_chars,
             },
         )
-        self.publish(ws, by)
-        return {"input": iid, **summary}  # D-273 (PV-6): no pseudonym back for a chart number; the audit keeps it
+        # D-273 (PV-6): no pseudonym back for a chart number; the audit keeps it
+        return self._saved(ws, by, {"input": iid, **summary})
 
     # ------------------------------------------------------------------ decisions
     def decide(self, fid: int, action: str, by: str, changes: dict[str, str] | None = None) -> dict[str, Any]:
@@ -348,8 +373,7 @@ class SiteSetup:
                 "to": f"{target.get('system', '')}|{t_code}",
             },
         )
-        self.publish(ws, by)
-        return out
+        return self._saved(ws, by, out)
 
     def resolve(self, ws: str, pid: str, what: str, keep: str, by: str) -> dict[str, Any]:
         """A disagreement between inputs (two dates of birth): the value kept stays, the others are rejected."""
@@ -367,8 +391,7 @@ class SiteSetup:
                 self.store.decide(int(f["id"]), "rejected", by, at)
                 n += 1
         self.audit.append("setup.resolve", actor=by, detail={"ws": ws, "pid": pid, "what": what, "rejected": n})
-        self.publish(ws, by)
-        return {"pid": pid, "what": what, "kept": keep, "rejected": n}
+        return self._saved(ws, by, {"pid": pid, "what": what, "kept": keep, "rejected": n})
 
     # ------------------------------------------------------------------ publishing
     def chart_texts(self, ws: str) -> list[dict[str, Any]]:
@@ -399,6 +422,23 @@ class SiteSetup:
             return sum(1 for s in holds().values() if s == snap)
         except Exception:  # a lake that cannot say: the rebuild itself refuses a held snapshot (SnapshotHeld)
             return 0
+
+    def _saved(self, ws: str, by: str, out: dict[str, Any]) -> dict[str, Any]:
+        """Publish after a change that is stored and audited (an upload, a chart, a code map, a resolve), and
+        answer the change. NEW-SITE-2 (D-709): when the lake cannot be asked, the change is still saved: the answer
+        says its publish waits for the lake (``publish: waits_for_lake``; :func:`lake_down`, not a
+        refusal) and the next tick (:meth:`flush`) or the
+        next change publishes it, because what waits is the difference between the facts and the last publish.
+        A person who presses Publish calls :meth:`publish` itself and gets the error."""
+        try:
+            self.publish(ws, by)
+        except LAKE_DOWN as exc:
+            if not lake_down(exc):
+                raise
+            log.warning("a site change is saved; its publish waits for the lake (%s)", type(exc).__name__)
+            self.audit.append("setup.publish_waits", actor=by, detail={"ws": ws, "why": "lake"})
+            return {**out, "publish": "waits_for_lake"}
+        return out
 
     def flush(self, ws: str = "main", by: str = "batch") -> dict[str, Any]:
         """Apply a waiting batch of ``ws`` when its window has closed and no job holds the snapshot (the scheduler
@@ -561,13 +601,49 @@ class SiteSetup:
         if ws == "main":
             raise SetupError("SETUP-WS", "the hospital's own data cannot be reset here")
         ws_ok(ws)
-        self.store.reset(ws)
-        import shutil
+        # NEW-SITE-4 (D-714): under the lock a publish takes, from first to last: a publish between the drop and
+        # the deletion of the rows would make the store anew with the patients in it
+        with self._lock:
+            # first, and before anything else is deleted: when the store cannot be dropped the error goes on and
+            # the space is as it was (a reset that left the patients in the database must not say "reset")
+            omop = self._drop_space_store(ws)
+            self.store.reset(ws)
+            import shutil
 
-        with contextlib.suppress(FileNotFoundError):
-            shutil.rmtree(self.root / ws)
-        self._lakes.pop(ws, None)
-        self.audit.append("setup.reset", actor=by, detail={"ws": ws})
+            with contextlib.suppress(FileNotFoundError):
+                shutil.rmtree(self.root / ws)
+            self._lakes.pop(ws, None)
+            self.audit.append("setup.reset", actor=by, detail={"ws": ws, "omop_store": omop})
+
+    def _drop_space_store(self, ws: str) -> str:
+        """Drop the OMOP store of record a publish made for this space's own lake, when there is one (D-714).
+
+        With the lake built from OMOP (``lake.source`` = ``omop``) a publish of a space other than ``main`` loads
+        ``omop_<hash of the space's lake folder>`` (``omop.schema.schema_for``) in the database the OMOP stores
+        live in (``omop.schema.db_url``: ``TB_OMOP_DB_URL``, else the trial database), and an upload can hold a
+        site's real rows. The name comes from this space's own folder, so no other space's store and never the
+        hospital's (``omop``) can be the one dropped. Asked of the catalogue first, on a connection of its own
+        (never through another store's, which would make that store's schema there): nothing is made for a space
+        that never had one. Returns ``dropped`` or ``none``."""
+        import psycopg
+        from omop import schema
+        from tb_common.db import Database, split_url
+
+        url = schema.db_url()  # where the publish made it
+        if not url:
+            return "none"  # no database: no store of record was ever made
+        name = schema.schema_for(self.root / ws / "lake")
+        if name == schema.SCHEMA or not name.startswith(f"{schema.SCHEMA}_"):
+            raise SetupError("SETUP-WS", "the hospital's own data cannot be reset here")
+        dsn, prefix = split_url(url)
+        full = prefix + name
+        with psycopg.connect(dsn, autocommit=True) as con:  # the catalogue answers every role
+            if con.execute("SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %s", (full,)).fetchone() is None:
+                return "none"
+        self._lakes.pop(ws, None)  # this process's library lake of the space: its next use opens a new one
+        with Database.connect(url, name) as own:  # as the publish that made it (it exists: nothing is created)
+            own.execute(f'DROP SCHEMA "{full}" CASCADE')  # nosec B608 - our own name, checked above
+        return "dropped"
 
 
 def _pending(last: dict[str, Any] | None, wait: int, held: int, building: bool = False) -> dict[str, Any]:

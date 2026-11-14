@@ -54,6 +54,10 @@
             }
           }
         },
+        "coded_read": {
+          "description": "D-653: false when the coded records behind this answer could not be read from the lake by the run that last looked (the answer stands; its values are not shown). Absent: they were read, or the answer has none.",
+          "type": ["boolean", "null"]
+        },
         "coded": {
           "description": "T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.",
           "type": ["array", "null"],
@@ -112,7 +116,8 @@
         "actions": {"type": "array", "items": {"type": "string"}},
         "n_unknown": {"type": "integer", "default": 0},
         "last_evaluated": {"type": ["string", "null"], "format": "date-time"},
-        "changed": {"type": "array", "items": {"type": "string"}, "description": "microbatch: criterion ids whose verdict changed"}
+        "changed": {"type": "array", "items": {"type": "string"}, "description": "microbatch: criterion ids whose verdict changed"},
+        "coded_values": {"enum": ["not read", null], "description": "D-653: 'not read' when the values behind one or more of this row's coded answers could not be read from the lake by the run that last looked at the row (a carried row keeps it until a run reads the row again). Absent: read."}
       }
     },
     "judging": {
@@ -142,7 +147,8 @@
       "properties": {
         "high": {"type": "integer"},
         "review": {"type": "integer"},
-        "excluded": {"type": "integer"}
+        "excluded": {"type": "integer"},
+        "coded_values_not_read": {"type": ["integer", "null"], "description": "D-653: how many rows of this list carry coded_values 'not read'. Absent: none."}
       }
     }
   }

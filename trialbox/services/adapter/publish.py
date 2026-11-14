@@ -280,7 +280,8 @@ def _said(exc: Exception) -> str:
         with contextlib.suppress(Exception):
             body = resp.json()
             detail = body.get("detail") if isinstance(body, dict) else None
-            text = f"{detail or resp.text} ({text})"
+            if isinstance(detail, str) and detail:  # D-671: the service's own sentence; never another body
+                text = f"{detail} ({text})"
     return text
 
 
