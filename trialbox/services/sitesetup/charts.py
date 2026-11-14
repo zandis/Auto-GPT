@@ -202,21 +202,107 @@ _CUE_ZH = r"(?:否認|否认|未見|未见|沒有|没有|無|无)"
 _NEG_BEFORE = re.compile(rf"(?:{_CUE_EN}[\s-]*(?:[^;]*?\s(?:or|nor)\s+)?|{_CUE_ZH}\s*(?:[^;]*?(?:及|或))?)$", re.I)
 
 
+def _mentions(term: str, text: str) -> list[int]:
+    """Where ``term`` (lower case) stands in ``text``; a term in Latin letters only as a whole word ("MI" is not in
+    "Family")."""
+    if not term:
+        return []
+    edge = r"(?<![a-z0-9])" if term[:1].isascii() and term[:1].isalnum() else ""
+    tail = r"(?![a-z0-9])" if term[-1:].isascii() and term[-1:].isalnum() else ""
+    return [m.start() for m in re.finditer(edge + re.escape(term) + tail, text.lower())]
+
+
 def _negated(term: str, quote: str) -> bool:
     """Is every mention of ``term`` in ``quote`` negated in its own clause? A term the quote does not hold (the
     model's own wording or language) binds nothing: not negated, the fact stays for a person."""
     text = messy.half_width(quote)
     clauses = [c for c in _CLAUSE.split(text) if c.strip()]
     t = messy.half_width(term).strip().lower()
-    hits = [(c, m.start()) for c in clauses for m in re.finditer(re.escape(t), c.lower())] if t else []
+    hits = [(c, at) for c in clauses for at in _mentions(t, c)]
     return bool(hits) and all(
         bool(_NEG_BEFORE.search(c[:at])) or bool(_NEG_AFTER.search(c[at + len(t) :])) for c, at in hits
     )
 
 
+# SCR-04, family history (D-658): a relative's diagnosis ("家族歴：母 乳癌", "Mother had breast cancer") is never the
+# patient's proposed diagnosis. A fact is dropped only where the binding is plain; anything less stays proposed and a
+# person reads the quote (a dropped fact is invisible, a kept one is reviewed):
+# - a relative right before the term (separators, 罹患 / 患 / had / has / with / w/ between), or "<term> in father";
+# - a family history heading in the term's own clause, or in the clause before when that clause ends with a
+#   relative ("Family history: mother, breast cancer"); an empty heading ("なし", "none", "noncontributory"), another
+#   heading ("既往歴：", "Dx:") or the patient as subject (本人, patient) ends its reach;
+# - "FH:" is no heading (familial hypercholesterolemia), 子 is no relative (子宮癌), and a one-character relative needs
+#   a separator after it (母乳).
+_REL_LONG = (
+    r"祖父|祖母|叔父|叔母|伯父|伯母|母親|父親|母亲|父亲|実母|実父|義母|義父|兄弟|姉妹|息子|長男|長女|次男|次女|"
+    r"媽媽|爸爸|妈妈|哥哥|姐姐|弟弟|妹妹|外婆|外公|奶奶|爺爺|爷爷|儿子|兒子|女儿|女兒|丈夫|妻子"
+)
+_REL_ONE = r"母|父|兄|姉|弟|妹|娘|夫|妻"
+_REL_EN = (
+    r"mother|father|brother|sister|son|daughter|grandmother|grandfather|aunt|uncle|sibling|sibs?|parent|mom|dad|"
+    r"wife|husband|spouse|child|children"
+)
+_REL_WORD = re.compile(rf"^(?:{_REL_LONG}|{_REL_ONE}|(?:{_REL_EN})s?)$", re.I)
+_REL_BEFORE = re.compile(
+    rf"(?:^|[\s:：(（/・]|患者の|[父母]方の?)(?:(?:{_REL_LONG})|(?:{_REL_ONE})(?=\s|[:：のが・\-–—]|罹患|患))"
+    r"\s*(?:\([^)]{0,20}\)|（[^）]{0,20}）)?\s*(?:[:：のが・\-–—]\s*)?(?:罹患|患有|患)?\s*$"
+    rf"|\b(?:{_REL_EN})s?\b\s*(?:\([^)]{{0,20}}\))?\s*(?:[:\-–—]\s*|\s(?:had|has|have|with|w/)\s+)?$",
+    re.I,
+)
+_REL_AFTER = re.compile(rf"^\s*(?:in|\()\s*(?:(?:her|his|the|their)\s+)?(?:{_REL_EN})s?\b", re.I)
+_FAMILY_HEAD = re.compile(r"家族歴|家族史|family\s+(?:history|hx)|fam\.?\s*hx|famhx|\bFHx\b|\bfamily\s*:", re.I)
+_EMPTY_HEAD = re.compile(
+    r"^[\s:：]*(?:特記事項なし|特記すべきことなし|特記なし|なし|無し|無|无|none|nil|negative|noncontributory|"
+    r"unremarkable|n/?c)(?![a-z])",
+    re.I,
+)
+_SUBJECT = re.compile(r"本人|患者本人|\bpatient\b|\bpersonal\b|\bshe\b|\bhe\b", re.I)
+_OWN_HEAD = re.compile(
+    r"既往歴|既往史|現病歴|现病史|現病史|個人史|个人史|past\s+(?:medical\s+)?history|\bPMHx?\b|\bHPI\b", re.I
+)
+_ANY_HEAD = re.compile(r"([^\s:：、，,;；。]{1,12})\s*[:：]")
+
+
+def _head_reaches(before: str) -> bool:
+    """Does a family history heading in ``before`` (the clause up to the term) still govern its end?"""
+    heads = list(_FAMILY_HEAD.finditer(before))
+    if not heads:
+        return False
+    rest = before[heads[-1].end() :]
+    if _EMPTY_HEAD.search(rest) or _OWN_HEAD.search(rest) or _SUBJECT.search(rest):
+        return False
+    return all(_REL_WORD.match(h.group(1).strip()) for h in _ANY_HEAD.finditer(rest))  # another heading ends it
+
+
+def _family(term: str, quote: str) -> bool:
+    """Is every mention of ``term`` in ``quote`` plainly a relative's? A term the quote does not hold binds nothing."""
+    text = messy.half_width(quote)
+    t = messy.half_width(term).strip().lower()
+    hits: list[bool] = []
+    for sentence in re.split(r"[。．\n]|(?<=\S)\.(?=\s|$)", text):
+        clauses = _CLAUSE.split(sentence)
+        for i, clause in enumerate(clauses):
+            for at in _mentions(t, clause):
+                before, after = clause[:at], clause[at + len(t) :]
+                prev = clauses[i - 1] if i else ""
+                led = (
+                    not before.strip()
+                    and bool(re.search(rf"(?:{_REL_LONG}|{_REL_ONE}|\b(?:{_REL_EN})s?\b)\s*$", prev, re.I))
+                    and _head_reaches(prev)
+                )
+                hits.append(
+                    (bool(_REL_BEFORE.search(before)) and not _SUBJECT.search(before))  # "patient and his father"
+                    or bool(_REL_AFTER.search(after))
+                    or _head_reaches(before)
+                    or led
+                )
+    return bool(hits) and all(hits)
+
+
 def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
     """One model fact as a store fact (``sitesetup.store``), or None when it cannot be one (an unreadable date of
-    birth, a lab value that is not a number, a unit TrialBox does not know for the test, a negated diagnosis)."""
+    birth, a lab value that is not a number, a unit TrialBox does not know for the test, a negated diagnosis, a
+    relative's diagnosis)."""
     dom = str(raw.get("domain") or "")
     quote = str(raw.get("quote") or "").strip()
     term = re.sub(r"\s+", " ", messy.half_width(str(raw.get("term") or ""))).strip()[:120]
@@ -241,6 +327,8 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
         return {**base, "domain": "demographic", "code": "sex", "value": sx, "day": ""} if sx else None
     if dom == "condition":
         if _negated(term, quote):  # SCR-04 (D-657): a negated mention proposes nothing
+            return None
+        if _family(term, quote):  # SCR-04 (D-658): nor does a relative's diagnosis
             return None
         return {**base, "domain": "condition", "code": code if system else "", "system": system if code else ""}
     if dom == "medication":
