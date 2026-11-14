@@ -237,7 +237,11 @@ def run_gates(
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True, check=False)
             if proc.returncode != 0:
                 raise vulns.ReportError(f"trivy failed (exit {proc.returncode}): {proc.stderr.strip()[-300:]}")
-            report = vulns.parse_trivy(vulns.load_json(report_path), vulns.expected_lang_types(target.ref))
+            report = vulns.parse_trivy(
+                vulns.load_json(report_path),
+                vulns.expected_lang_types(target.ref),
+                os_unreadable=allow.os_unreadable(target.ref) is not None,
+            )
             source = f"registry:{target.ref}" if remote else f"docker:{target.ref}"
             sbom_path = sbom_dir / sbom.file_name(target.ref, plat)
             doc = sbom.run_syft(source, sbom_path, syft_env, platform=plat if remote else None)
