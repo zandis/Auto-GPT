@@ -32,7 +32,8 @@ Sizes: S under half a day, M one to two days, L more. Items in order.
 | --- | --- | --- | --- |
 | D-780.. records | Records for #578, #582, #586, #589 | registry complete | S |
 | #589 | SCREEN uses the box's embed service, after lane C2's `CALLERS` line | R4: note criteria otherwise "not evaluated" | S |
-| NEW-LLM-6 | (wave 3) as in the plan | R4 accuracy | M |
+| NEW-LIFE-2 | Protocol structure: groups, phases, warnings (wave 3) | compiler | M |
+| NEW-LLM-6 gold | The gold exclusions per language and stratum, for lane G's accuracy set; review its calibration table | R4 accuracy | M |
 | CGRD codes | Value sets that never match CGRD's NHI local codes, from the first-look deep review | R5 | M |
 | P-6/P-8 follow-ups | The verifier's label of the other criterion type (with D) | R4 accuracy | S |
 | ENG-005 share | Burn down `KNOWN` lines in screening | quality | split |
@@ -45,8 +46,8 @@ Sizes: S under half a day, M one to two days, L more. Items in order.
 | D-745 | Dates of birth, postal addresses, labelled chart numbers survive the mask (found on real CGRD notes) | safety | M |
 | Deep-review masking | Every other shape the first-look review finds | safety | M |
 | T-694 | Night batches | 500k night | L |
-| T-702, T-703, T-695 | The 500,000-patient night as an incremental night | scale | L, L, S |
-| HW-007 | Capacity stated; a night that does not fit is refused with an estimate | scale | M |
+| T-702, T-703, T-695 | The 500,000-patient night as an incremental night (lane G measures it) | scale | L, L, S |
+| HW-007 code | A night that does not fit is refused with an estimate, from lane G's measured capacity | scale | M |
 
 ### Lane C2: console, accounts, roles, audit, site setup
 
@@ -54,7 +55,6 @@ Sizes: S under half a day, M one to two days, L more. Items in order.
 | --- | --- | --- | --- |
 | train 16 fix | Journeys' `InprocBackend` has no `orch` (#590) | train 16 | S |
 | #589 line | `CALLERS`: embed service accepts the orchestrator | R4 | S |
-| NEW-LIFE-2, NEW-LIFE-18 | (wave 3) | lifecycle | M, M |
 | LIFE-005 to LIFE-009 | Log keeps numbered rows on opt-out; study closes only empty; SAE clock and mails; retention hold | lifecycle | M each |
 | JRN-003, 005 to 008 | PI starts a request; EDC map size; privacy office report; future consent date refused; monitor page | journeys | S to M |
 
@@ -77,7 +77,6 @@ Sizes: S under half a day, M one to two days, L more. Items in order.
 | R5 mapping | Map CGRD from columns.json and day.json; visit numbers do not join (0 of 1.5M): find the join | R5 | M |
 | Deep-review data | Types, encodings, ROC dates, empty strings the first-look review finds | R5 | M |
 | NEW-EDC-1 | Recorded answers of our REDCap test instance | R6 | M |
-| T-667 | (wave 2) | EDC | M |
 | EDC-007, EDC-008 | (wave 3) | EDC | M, M |
 | EDC-004 to 006, era/ROC prefill | Source changed; correction read back; retire an item; ROC dates | EDC | M, M, S, S |
 | UX-003, CSV BOM, UX-004 | Workbooks; BOM; one decoder with Shift_JIS and Big5 | outputs | M, S, S |
@@ -102,6 +101,12 @@ Sizes: S under half a day, M one to two days, L more. Items in order.
 | Demo VM | Ready to start the moment the owner sends two addresses | 2026-11-17 | ~US$4, yes given |
 | D-502 matrix | Run once after train 16, B14 and the masking fixes | R4 | owner's yes |
 | NEW-PERF-1 (#333) | Concurrency from the serving record; calls/s, tokens/s, p50/p95, GPU use | R4, optimization | none to build |
+| NEW-LIFE-18 | The two real public protocols (NCT02629159 RA, NCT03887455 early AD) as fixtures, from the G-8 compiles | R4, compiler | none |
+| NEW-LLM-6 | The accuracy set per language and stratum (long notes, negation, family history, era dates, labs; ~200 gold exclusions each, gold from lane A2), calibration table, paraphrased injection; run on the real models | R4 accuracy | owner's yes for runs |
+| T-667 | The capacity statement (Linux figure, marked not yet the site's form) and hardware note for the 2026-12-18 order | order date | from G-3, G-6 |
+| HW-007 measure | The 500k night's capacity measured on the GPU VM; lane B2 codes the refusal from it | scale | owner's yes |
+| P4 | Why the candidate list's hash differs across runs: find the cause from per-patient answers, route the fix | correctness | none |
+| Validation figures | Each set's measured figure against its validation figure (N-12, TREC, MedTxt), with lane A2 | accuracy | none |
 | G-1, G-4 repeats; G-3 full curve; G-6, G-9, G-10, G-11 | Plan section 7.1 | 12-11 run | owner's yes |
 | Profiling | Where a night's time goes at 50k (ingest, rebuild, screen, backup); top three costs with numbers | optimization | with G-6 |
 
