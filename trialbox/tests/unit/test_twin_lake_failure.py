@@ -127,31 +127,74 @@ def test_a_real_lake_says_its_version_and_a_night_it_does_not_hold_is_not_schema
     assert gone.value.status == 503
 
 
-def test_a_real_lake_file_without_the_version_column_answers_0_and_is_schema_1(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A built snapshot with only the version column dropped, through the service and in process: the lake
-    answers 0, the reader says schema 1 and asks for the rows without provenance. It is NOT a snapshot as schema 1
-    built it: such a file also lacks columns of the tables (``encounter.status`` came with schema 3), and the
-    row queries fail on it, before this card and after (the review; sent to the integrator). The parent's code
-    passes this test once it has the question: it guards the old-snapshot answer, it does not show the defect."""
-    real, night = _real_lake(tmp_path / "lake")
-    for f in (tmp_path / "lake" / "db").rglob("*.duckdb"):
+def _old_layout(lake_dir: Path, version: int | None) -> None:
+    """Every built file of the lake made to say an older layout: the version column dropped (schema 1) or set."""
+    for f in (lake_dir / "db").rglob("*.duckdb"):
         if ".open" in f.parts:
             continue
         con = duckdb.connect(str(f))
-        con.execute("ALTER TABLE lake_meta DROP COLUMN IF EXISTS schema_version")
+        if version is None:
+            con.execute("ALTER TABLE lake_meta DROP COLUMN IF EXISTS schema_version")
+        else:
+            con.execute(f"UPDATE lake_meta SET schema_version = {int(version)}")
         con.execute("CHECKPOINT")
         con.close()
+
+
+@pytest.mark.parametrize("version", [None, 2], ids=["schema 1 (no version column)", "schema 2"])
+def test_a_snapshot_older_than_schema_3_is_refused_with_a_plain_sentence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: int | None
+) -> None:
+    """NEW-B-40 (D-741): the twin's rows need the encounter's status and each row's provenance, which came with lake
+    schema 3. A snapshot of schema 1 or 2 failed at the encounter query with the engine's sentence (a 422), and the
+    "schema 1: rows without provenance" branch never ended in a twin. Now the reader says what to do, before any
+    row is asked for."""
+    real, night = _real_lake(tmp_path / "lake")
+    _old_layout(tmp_path / "lake", version)
     local = LakeLocal(tmp_path / "lake", real_embedder(), real.tz)
     http = _http(monkeypatch, store.Lake(tmp_path / "lake", real.tz))
     for lake in (local, http):
-        assert lake.query(twin.VERSION_COLUMN_SQL, [], night).to_pylist() == [{"n": 0}]
-        assert twin.lake_schema(lake, night) == 1
-        pids = [r["pid"] for r in lake.query("SELECT pid FROM patient", [], night).to_pylist()]
-        rows = twin.read_lake(lake, pids, night)
-        assert pids and all(rows[p]["patient"] for p in pids)
-        assert all(r[c] is None for p in pids for r in rows[p]["patient"] for c in twin._PROV)
+        assert twin.lake_schema(lake, night) == (version or 1)
+        with pytest.raises(twin.TwinError) as got:
+            twin.read_lake(lake, ["p1"], night)
+        said = str(got.value)
+        assert f"lake schema {version or 1}" in said and "schema 3 or later" in said and "rebuild" in said
+
+
+def test_the_reader_asks_only_the_layout_before_it_refuses() -> None:
+    asked: list[str] = []
+
+    class Old:
+        def query(self, sql: str, *_a: Any, **_k: Any) -> Any:
+            asked.append(sql)
+            if "duckdb_columns" in sql:
+                return pa.Table.from_pylist([{"n": 1}])
+            if "lake_meta" in sql:
+                return pa.Table.from_pylist([{"schema_version": 2}])
+            raise AssertionError("a row was asked for")
+
+    with pytest.raises(twin.TwinError, match="lake schema 2"):
+        twin.read_lake(Old(), ["p1"], SNAP)
+    assert len(asked) == 2
+
+
+def test_the_night_step_says_why_no_twin_was_built(
+    db_url: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The night step never fails the ingest; it logs the reader's own sentence (it names no patient), and keeps no
+    twin. The generation ledger keeps "building" (it has no field for a reason)."""
+    from tests.unit import test_twin as tt
+
+    store.Lake(tmp_path / "lake", tt.ZONE).rebuild(tt.S1, real_embedder(), tt._write(tmp_path / "nd1", tt._feed()))
+    _old_layout(tmp_path / "lake", 2)
+    lake = LakeLocal(tmp_path / "lake", real_embedder(), tt.ZONE)
+    assert twin.after_ingest(tt._OrchDb(), lake, tt.S1, tt.NOW, db_url) is None
+    assert "has lake schema 2; a twin needs schema 3 or later" in caplog.text
+    kept = twin.ProfileStore(db_url)
+    try:
+        assert kept.current(tt.P1) is None
+    finally:
+        kept.close()
 
 
 def real_embedder() -> Any:
