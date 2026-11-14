@@ -103,6 +103,57 @@ EN_PHONE = re.compile(
     rf"{_EN_PHONE_LABEL}(?P<v>(?:{_EN_PHONE_FULL}|\d{{3}}[-.]\d{{4}}))(?![\d-])"
     rf"|(?<![A-Za-z0-9+])(?:{_EN_PHONE_FULL})(?![\d-])"  # not inside a code (JLAC10 3D046 0000 019)
 )
+# NEW-B-44 (D-745): a date of birth, a postal address and a chart number after any of its labels. The owner's run of
+# ``mask_note`` on a month of real notes (counts only) found these three surviving. One definition each for the note
+# masker and the guard service's recognisers (which name them, not a copy). Group ``v``: the value; the label stays.
+_CJK_A = "一-鿿"
+_KANA_A = "぀-ヿ"
+_NUM_A = r"[0-9０-９一二三四五六七八九十]+"
+# a date of birth's value: the guard's forms (D-215) and, after a label or before 生, the ROC year without 民國, an
+# era abbreviation (S31.3.14), day first (14/03/1956) and a day before the month's name (14 Mar 1956)
+_DOB_VALUE = (
+    rf"{dates.DOB_SPAN}"
+    r"|(?:民國\s?)?\d{2,3}年\s?\d{1,2}月\s?\d{1,2}日"
+    r"|(?:明治|大正|昭和|平成|令和|[MTSHR])\s?(?:\d{1,2}|元)[年./]\s?\d{1,2}[月./]\s?\d{1,2}日?"
+    r"|\d{2,3}[/.\-]\d{1,2}[/.\-]\d{1,2}"
+    r"|\d{1,2}[/.\-]\d{1,2}[/.\-](?:19|20)\d{2}"
+    r"|\d{1,2}[ -](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?[ -](?:19|20)\d{2}"
+)
+DOB_LABELLED = re.compile(
+    r"(?:出生日期|出生年月日|出生日|出生|生日|生年月日|誕生日"
+    r"|(?i:\bd\.?o\.?b\b\.?|\bdate\s+of\s+birth\b|\bbirth\s*date\b|\bborn(?:\s+on)?\b))"
+    rf"[\s:：]*(?P<v>{_DOB_VALUE})(?![0-9])"
+)
+# a date followed by the word for born (1956年3月14日生, 昭和31年3月14日生まれ, 民國45年3月14日出生); never 生化
+DOB_BORN = re.compile(rf"(?<![0-9])(?P<v>{_DOB_VALUE})\s?(?=生まれ|出生|に生まれ|生(?![化理物活命殖產産]))")
+ADDRESS_ZH = re.compile(
+    rf"(?:[{_CJK_A}]{{1,3}}(?:縣|市))?(?:[{_CJK_A}]{{1,3}}(?:區|鄉|鎮|市))?(?:[{_CJK_A}]{{1,4}}(?:村|里){_NUM_A}鄰)?"
+    rf"[{_CJK_A}]{{1,5}}(?:路|街|大道)"
+    rf"(?:{_NUM_A}段)?(?:{_NUM_A}巷)?(?:{_NUM_A}弄)?{_NUM_A}(?:之{_NUM_A})?號(?:{_NUM_A}樓(?:之{_NUM_A})?)?"
+)
+ADDRESS_JA = re.compile(
+    rf"(?:東京都|北海道|大阪府|京都府|[{_CJK_A}]{{2,3}}県)[{_CJK_A}{_KANA_A}]{{1,10}}?(?:市|区|町|村|郡)"
+    rf"[{_CJK_A}{_KANA_A}]{{0,8}}?[0-9０-９]+(?:(?:丁目|番地?|号|[-－ー])[0-9０-９]*){{1,4}}"
+)
+ADDRESS_EN = re.compile(
+    r"\b(?!(?:19|20)\d{2}\b)\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Boulevard|Blvd|Drive|Dr|Way|Close|Court|Ct"
+    r"|Place|Pl|Crescent|Terrace|Square|Sq|Parade|Highway|Hwy|Circle|Gardens|Row|Mews|Grove)\b\.?"
+    r"(?:,\s*(?:Apt\.?|Unit|Suite)\s*\d+)?(?:,\s*[A-Z][a-z]+(?:\s[A-Z][a-z]+)?)?"
+)
+# whatever follows an address label, to the end of the field: a separator after a Chinese or Japanese label, a colon
+# after an English one ("address the dose" is no label)
+ADDRESS_LABELLED = re.compile(
+    r"(?:(?:通訊地址|戶籍地址|居住地址|聯絡地址|住址|地址|現住所|住所|居所)[\s:：]+|(?<!IP\s)(?<!peer\s)(?<!email\s)(?<!public\s)(?<!web\s)(?i:\baddress|\baddr\.?)\s*[:：]\s*)"
+    r"(?P<v>[^\s，,。；;、\n（(：:][^，,。；;\n　]{1,60}?)(?=[，,。；;\n　]|\s{2}|\s*$)"
+)
+# a chart number after its label, the labels of Taiwanese, Japanese and English records; full-width digits too
+MRN_LABELLED = re.compile(
+    r"(?:病歷號(?:碼)?|病歷編號|病歷碼|病历号|病歴番号|カルテ(?:番号|No\.?)|患者(?:ID|番号|No\.?)|診察券番号|病[人患]ID"
+    r"|(?i:\bMRN\b|\bchart\s*(?:no\b\.?|number\b)|\bmedical record (?:no\b\.?|number\b)"
+    r"|\bhospital\s*(?:no\b\.?|number\b)"
+    r"|\bpatient\s*ID\b))"
+    r"[\s:：#]*(?P<v>[A-Z0-9０-９][A-Z0-9０-９-]{3,14})(?![A-Za-z0-9０-９])"
+)
 DATE = dates.PHI_SPAN  # Gregorian and 民國 written out (D-215: the pattern lives in tb_common.dates, unchanged)
 EN_NAME = re.compile(
     r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\bPatient(?: name)?:\s*[A-Z][a-z]+\s+[A-Z][a-z]+"
@@ -199,8 +250,9 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
 # are untouched. ``○`` is how Taiwanese and Japanese records mask a name by hand; the tokenizer drops it, so a masked
 # span gives no token to the full-text index or the hash embedder.
 MASK_CHAR = "○"
-# recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744)
-NOTE_MASK_VERSION = "2"
+# recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744;
+# 3: dates of birth, addresses and chart labels, D-745)
+NOTE_MASK_VERSION = "3"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -210,13 +262,14 @@ _GIVEN_JP = rf"(?:(?!さん|様|くん|ちゃん|より|から)[{_CJK_N}{_KANA_N
 _ROLE_ZH = r"(?:醫師|醫生|護理師|藥師|個管師)"
 _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # chart numbers after their label (the site pattern, unlabelled, is added per call)
-    (
-        "mrn",
-        re.compile(
-            r"(?:病歷號(?:碼)?|病历号|カルテ番号|患者ID|(?i:MRN|chart\s*no\.?|medical record (?:no\.?|number)))"
-            r"[\s:：#]*(?P<v>[A-Z0-9][A-Z0-9-]{3,14})(?![A-Za-z0-9])"
-        ),
-    ),
+    ("mrn", MRN_LABELLED),
+    # dates of birth after their label or before the word for born, and postal addresses (D-745)
+    ("dob", DOB_LABELLED),
+    ("dob", DOB_BORN),
+    ("address", ADDRESS_LABELLED),
+    ("address", ADDRESS_ZH),
+    ("address", ADDRESS_JA),
+    ("address", ADDRESS_EN),
     # insurance and ID numbers after their label
     (
         "id",
@@ -266,8 +319,9 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 
 def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, int]]:
-    """``(kind, start, end)`` of every name, phone number, chart number and ID number found in note text, overlaps
-    merged (kinds: ``name``, ``phone``, ``mrn``, ``id``). ``mrn_regex`` is the site's chart number pattern
+    """``(kind, start, end)`` of every name, phone number, chart number, ID number, date of birth and postal address
+    found in note text, overlaps merged (kinds: ``name``, ``phone``, ``mrn``, ``id``, ``dob``, ``address``).
+    ``mrn_regex`` is the site's chart number pattern
     (``settings.mrn_regex``); it also masks a chart number written without its label."""
     found: list[tuple[str, int, int]] = []
     for kind, rx in _NOTE_PATTERNS:
