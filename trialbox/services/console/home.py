@@ -308,11 +308,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     def registry_map(rs: str) -> dict[str, str]:
         try:
             return {e.pid: e.status for e in bk.registry_rows(rs)}
-        except Unavailable:
-            return {}
-        except Refused:  # the D-717 review: a page's account without the right (refused and audited) sees none;
-            if console_actor.reading_for_a_person():  # a mail round's refused read is an error, never "no status"
-                return {}
+        except Exception:  # a page's account without the right (refused and audited) or a service down: none shown;
+            if console_actor.reading_for_a_person():  # the D-717 review: in a mail round a failed read is an error,
+                return {}  # never "no status"
             raise
 
     def registry_counts(rs: str) -> dict[str, int]:

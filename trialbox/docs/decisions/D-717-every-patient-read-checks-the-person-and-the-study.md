@@ -36,8 +36,7 @@ the registry's two, the set-up's six). Only the enrolment report as a file check
 - **The console signs those reads from the request's account.** Where the session is taken (the pages' and the
   API's), the account is bound for the request (a context variable); every orchestrator GET that is a patient read
   is signed for the first of its actions the account holds in that study, or refused at the console
-  (`console.denied`), as it is for a study the account does not see or, for `phi.view`, does not read by the
-  delegation log. A page's helpers did not change: the signing is in the one call path (`s28.call`, the
+  (`console.denied`), as it is for a study the account does not see. A page's helpers did not change: the signing is in the one call path (`s28.call`, the
   registry's).
 - **A timer reads as its principal**: the morning mail's whole round (`notify.collect`, and the lifecycle's mail)
   signs as `service:console-notify`, which `route_actors.yaml` now lets take `phi.view`, and only on the reads the
@@ -74,10 +73,14 @@ console's site box). It found:
    patient-level rights.
 3. **`GET /studies/{rs}/edc` returned per-subject rows** (record key, visit, date, drafts). It is a patient read now
    (`phi.view` or `monitor.read`).
-4. **The console signed a read for a study the account does not see**, or where the delegation log does not let an
-   investigator read; the claim names no study list, so the orchestrator could not tell. `read_headers` now refuses
-   (403, `console.denied`) unless the account sees the study and, for `phi.view`, reads it by the delegation log
-   (`Helpers.reads`).
+4. **The console signed a read for a study the account does not see** (an SMO coordinator scoped to another study);
+   the claim names no study list, so the orchestrator could not tell. `read_headers` now refuses (403,
+   `console.denied`) unless the account sees the study. The reviewer also found that an investigator the study's
+   delegation log does not name is signed for: the matrix's `phi.view` cell is `true` for every investigator, and the
+   delegation log is the console's own rule on some patient pages (T-309, `Helpers.reads`), not the matrix's.
+   Asking it at signing refused pages that show these reads to such an investigator on purpose (the week's SAE
+   banner, the set-up page). Left as the matrix says, and put to the owner: should `phi.view` take the delegation
+   log for an investigator (`[task:screen, pi]` in the matrix), so that both the console and the orchestrator ask it?
 5. **Changing routes still answer with patient data** (`PUT /studies/{rs}/data/{record}` with no values returns the
    record; `POST /studies/{rs}/entry/{record}`; `POST /patients/deceased`): they are in stage `report` (D-483) and
    this card is about reads. The title says GET now; the changing routes are a follow-up, handed to the integrator.

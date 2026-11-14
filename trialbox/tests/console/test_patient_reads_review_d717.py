@@ -3,9 +3,9 @@
 1. The morning mail lost the registry's statuses: its registry read was outside ``reading_as``, the orchestrator
    refused it, and ``registry_map`` read the refusal as "no status", so a declined patient came back as new. Now the
    whole round (``notify.collect``) reads as the mail's principal, and a refused read in a round is an error.
-4. The console signed a patient read for a study the account does not see, or where the delegation log does not let
-   an investigator read; the claim carries no study list, so the orchestrator could not tell. Now the console
-   refuses it.
+4. The console signed a patient read for a study the account does not see (an SMO coordinator scoped to another
+   study); the claim carries no study list, so the orchestrator could not tell. Now the console refuses it. (The
+   delegation log is not asked for ``phi.view``: the matrix's cell is ``true`` for an investigator; D-717.)
 """
 
 from __future__ import annotations
@@ -31,8 +31,7 @@ def test_the_console_signs_no_read_for_a_study_the_account_may_not_read(site: di
     users = site["users"]
     users.create("smo", "coordinator", CRC_PW, "smo@hospa.test")
     users.set_scope("smo", affiliation="smo", studies="OTHER1")  # an SMO coordinator of another study
-    users.create("inv", "investigator", CRC_PW, "inv@hospa.test")  # the GZQO log does not name them
-    for name in ("smo", "inv"):
+    for name in ("smo",):
         u = users.get(name)
         tok = ca._READER.set((h, Session(u, "", "en", "x" * 64)))
         try:
