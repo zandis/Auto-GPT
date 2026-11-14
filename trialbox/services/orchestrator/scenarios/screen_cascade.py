@@ -336,6 +336,7 @@ def summary(res: CascadeResult) -> dict[str, Any]:
             "llm_share": m.llm_share,
             "unprocessed": m.unprocessed,
             "gateway_refusals": m.gateway_refusals,
+            "no_retrieval": dict(sorted(m.no_retrieval.items())),  # NEW-LLM-2: criteria nothing could retrieve for
         },
         "applied": list(res.applied),
         "note_criteria": list(res.note_criteria),
@@ -425,6 +426,7 @@ def screen_with_cascade(
         population=pids,
         note_block=may_block,
         absence_semantics=False,
+        require_retrieval=True,  # NEW-LLM-2: nothing to retrieve with is said, never the first sentences read
         max_llm_items=max_pairs,
         llm_concurrency=in_flight,
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)

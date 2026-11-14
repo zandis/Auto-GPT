@@ -133,6 +133,8 @@ class CascadeMetrics:
     sampled_patients: int = 0
     gateway_refusals: int = 0
     notes_over_budget: int = 0  # patients flagged because an evidence note did not fit the excerpts (T-603)
+    # NEW-LLM-2: criterion id -> pairs left "not evaluated" because nothing could retrieve for the criterion
+    no_retrieval: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
