@@ -203,7 +203,46 @@ the two templates' token ids, the server's ids against the folder tokenizer's), 
 `--chat-template`, and every differing prompt. The report's start and end are the parts' own times; "min of part
 time" is the parts' times summed; every failed check's whole detail is in `report/failed-checks.json`
 (`TB_REPORT_DETAIL_CHARS` cuts it in `report.md`). Not measured: the gateway's slot wait per call (the gateway does
-not record it); not offered: a model-server restart between settings or repeats (not in scope).
+not record it).
+
+**The run extras of 2026-11-14 (lane G batch 6).**
+
+* **Each patient's answers.** Every hospital part (each setting, each repeat) keeps
+  `parts/<part>/answers.jsonl.gz`: a header (the main SCREEN job, the list's sha256, the number of patients listed and
+  of those not listed, and how many each criterion excluded) and one line per listed synthetic patient: the
+  pseudonymous id, the tier and, per criterion, the verdict, its basis, `final`, the confidence, the reason when it is
+  a code, and each model's verdict when they disagreed. No quote, date or record reference; the patients not listed
+  are counts only. The size follows the data (every listed patient, no cap: OD-10); gzip with no time stamp, so equal
+  answers give equal bytes. It comes back in `results.tgz` (`parts/` is packed after every part) and `make -s
+  data-scan <file>` reads it. **The results reader never copies it** into `docs/plan/measurements/`: it records each
+  file's name, bytes and sha256 and the comparison below (counts and criterion ids, no patient id) in
+  `capacity_inputs.json` and `README.md`. Keep the file with the run's `results.tgz`, outside git.
+* **The list across settings and repeats (G-3's pass).** The report compares the main SCREEN's list of each language
+  at every setting and repeat; where they differ it says how many patients differ, which criteria flipped (per
+  criterion, how many patients listed in two results answered it differently there; per differing id, its flipped
+  criteria) and which criteria's exclusion counts changed. The row `g3-lists` holds one check per language, "the
+  candidate list is identical at every setting and repeat": a different list fails the report.
+* **`--restart-between`** (`deploy/gcp/complete-run.sh ... --repeats 2 --restart-between`). Before every hospital part
+  after the first, the VM's `tb-restart-servers` stops both model servers and starts them as the boot does (the judge,
+  then the verifier, each healthy and serving its name through nginx before the next; the boot's own waits). The
+  gateway and the orchestrator are fresh in every part anyway: each part is its own process. Each part records
+  `restart` (restarted or not, why, seconds); a failed restart is a failed check of the part that follows. The
+  estimate adds one restart per such part, 199 s (the measured seconds to ready, judge 117 + verifier 82,
+  `gpu-run-2026-11-08/fit.json`). Without the flag the report says the servers were not restarted.
+* **Per-setting hours.** With several settings the estimate prints each setting's hours and US$ over its parts
+  (every language and repeat), so the owner can drop a setting; a VM with a hospital part runs on demand (D-468)
+  unless `TB_PROVISIONING=SPOT`.
+* **Recorded per model part** (`metrics`, and a line per part in the report): `context_checks` (the gateway client's
+  `GET /v1/models` context reads in the part's process: asked, failed, when; a failed read leaves the prompt unsized
+  by the context), `serving` (from the run's serving record: each server's image, image digests, structured-output
+  backend, `auto` when no flag named one, vLLM version) and `after_timeout` (the gateway's audit is read every
+  1.07 s, a third of the measured p50 call time; at each upstream time-out both servers' `num_requests_running` and
+  `waiting` are read at once into `parts/<part>/after-timeout.csv`; deep review OPS13-11).
+* **English.** `--only hospital-en` (D-502: English at the `ci-en` size, 5,000 patients, whatever `--patients` says)
+  runs the synthetic hospital's English site, profile `ci-en` of `tools/synth_hospital`, with no further change once
+  lane B2's NEW-B-42 is on the commit; until then the estimate, the launch and the VM refuse it before anything starts
+  ("the synthetic hospital has no English site on this commit").
+
 Limits to know before reading a curve:
 
 * A hospital part's estimate comes from the measured parts (`HOSPITAL_MEASURED` in `tools/complete_run.py`, OD-10):
@@ -224,9 +263,10 @@ Limits to know before reading a curve:
   (48) measures the queue in the gateway, not a larger batch; the plan says so. A point beyond 16 sequences needs
   the servers started with more, which this driver does not do.
 * Each setting, and each of its repeats, is a whole hospital part (data in to re-run), not the SCREEN alone;
-  `throughput` counts only the time a call was in flight. The parts send the same prompts, and the servers are not
-  restarted between them: what a server's prefix cache still holds from the part before is in the later points (the
-  seeded order spreads it over the settings; `--repeats` shows the spread).
+  `throughput` counts only the time a call was in flight. The parts send the same prompts; without
+  `--restart-between` the servers are not restarted between them, and what a server's prefix cache still holds from
+  the part before is in the later points (the seeded order spreads it over the settings; `--repeats` shows the
+  spread). With it, a setting run twice measures the run-to-run spread from cold servers.
 
 **Several VMs at once** (D-148). `--vms N` splits the run into N shards of whole parts (no part is split, so the
 merged report is the single-VM report); VM 1 is `tb-gpu-sim` in the first zone, VM i is `tb-gpu-sim-i` in zone i of

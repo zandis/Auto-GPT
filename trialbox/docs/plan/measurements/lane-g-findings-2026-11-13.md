@@ -174,7 +174,7 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 | B2 | G-4 kept only counts, not the failing answers | fixed, with tests |
 | B3 | a spot stockout at start was not retried | fixed: `TB_START_RETRIES`, `TB_START_RETRY_SECONDS` |
 | B4 | the refusal over an uncollected run did not name `--discard-previous` for a run collected elsewhere | fixed |
-| B5 | no repeats per setting, no restart between settings | repeats built (`--repeats N`), with tests; no restart between settings, and the report says so |
+| B5 | no repeats per setting, no restart between settings | repeats built (`--repeats N`), with tests; restart between settings and repeats built 2026-11-14 (`--restart-between`, lane G batch 6), with tests and the rehearsal's `run-a`; not yet run on the card |
 | B6 | `playwright install --with-deps` ran apt without the dpkg lock wait; run `20261113T072836Z` ended at TB-SETUP-FAILED | fixed, with a test |
 | B7 | in bucket mode the VM stayed up about five minutes after the last collect, until `--stop` | fixed: the VM powers off after its last upload went through; rehearsed |
 | B8 | the results reader took its rates from the whole part, not the main SCREEN | fixed, with a test |
