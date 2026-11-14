@@ -252,7 +252,7 @@ def test_a_restore_that_kept_every_later_opt_out_is_complete(
     f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs=dirs)[0]
     time.sleep(1.1)
     reg.add("P-LATER-1", "office", "", "office:a", datetime.now(UTC).isoformat())
-    rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--public", str(pub), "--keep-to", str(keep),
+    rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--services-stopped", "--public", str(pub), "--keep-to", str(keep),
               "--dir", f"audit={dirs['audit']}"])  # fmt: skip
     err = capsys.readouterr().err
     assert rc == 0, err
@@ -400,7 +400,19 @@ def test_a_box_without_a_register_says_the_later_opt_outs_are_unknown(
     assert (lost["readable"], lost["events"], lost["state"]) == (False, None, "unknown")
     assert lost["why"] == "the box holds no register"
     assert out["jobs_failed"] == [] and out["complete"] is False
-    rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--no-copy", "--dir", f"audit={dirs['audit']}"])
+    rc = cli(
+        [
+            "restore",
+            str(f),
+            "--key",
+            str(priv),
+            "--yes",
+            "--services-stopped",
+            "--no-copy",
+            "--dir",
+            f"audit={dirs['audit']}",
+        ]
+    )
     err = capsys.readouterr().err
     assert rc == 4 and "are unknown: check the office's records since then" in err
 
