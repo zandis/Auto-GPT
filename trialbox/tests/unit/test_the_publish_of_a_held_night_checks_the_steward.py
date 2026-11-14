@@ -266,10 +266,13 @@ def test_the_console_signs_the_decision_as_the_steward_and_posts_it_once() -> No
             7, "accept", "c", sign
         )
     assert failed.value.nothing_served and not failed.value.not_started
-    for status in (401, 403, 422):
+    for status in (401, 403):
         with pytest.raises(PromoteFailed) as before:
             ops(Answer(status, {})).decide(7, "accept", "checked", sign)
         assert before.value.not_started, status
+    with pytest.raises(DecisionRefused) as shape:  # D-761's review: a decision not understood, never "publishing"
+        ops(Answer(422, {})).decide(7, "accept", "checked", sign)
+    assert shape.value.why == "decision"
 
 
 def test_the_backends_publish_client_never_retries() -> None:
