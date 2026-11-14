@@ -613,7 +613,8 @@ def expected_state(t: Truth, today: date = TODAY) -> str:
     # malignancy: ICD-10 C00-C96 with C44 and C4A (SCR-01: "any history of malignancy" has no skin-cancer exception);
     # a personal history code (Z85) or a neoplasm malignant by behaviour (D45-D47) is in the family, unlisted: unknown
     def malignant(c: str) -> bool:
-        return c[:1] == "C" and (c[1:3] == "4A" or (c[1:3].isdigit() and int(c[1:3]) <= 96))
+        # C4A Merkel cell, C7A and C7B neuroendocrine: letter categories inside the families C4 and C7
+        return c[:1] == "C" and (c[1:3] in ("4A", "7A", "7B") or (c[1:3].isdigit() and int(c[1:3]) <= 96))
 
     def maybe(c: str) -> bool:
         return c.startswith(("Z85", "D45", "D46", "D47"))

@@ -51,7 +51,20 @@ An undated record with these codes follows the same list (the undated check read
 On the recorded test sets: two RA-BIO patients of synthetic site A (MRN 10000156 and 10000396, each with C44.91)
 change on RA-BIO-EXC-04 from not met to met; `rulesets/RA-BIO/tests/expected.json` records it (the CQL of the
 recompiled ruleset reads the same value set; it was not re-run on HAPI here). GZQO's two C44.91 patients do not
-change. RA-JAK's test set is of another synthetic site and holds none of these codes.
+change. RA-JAK's test set (synthetic site tw-ra) has one patient that changes: MRN 20000803 (planted "skin"
+malignancy, C44 in the window) on RA-JAK-EXC-08 from not met to met; `rulesets/RA-JAK/tests/expected.json`
+records it. Its other C44 patients are outside the window or answer as before (`tests/integration/test_ra_jak.py`).
+
+RA-JAK is the one shipped ruleset pinned to a terminology release (T-504, D-301); the grouper change makes a new
+release, so its `terminology_release` moves to the release the recompile used (`TR-42f2b2dc96cf`), else the box
+refuses to screen it. The vocabulary store's grouper table accepts the new match kind by a migration (`omop`
+migration 8: `match IN ('exact', 'prefix', 'family')`).
+
+**For the owner:** Merkel cell carcinoma (C4A) is a skin cancer that is not a melanoma. GZQO-EXC-07 ("except
+non-melanoma skin cancer") now excludes it, on the reading that the exception means the common basal and squamous
+cell carcinomas (C44) and that Merkel cell carcinoma is an aggressive cancer the exclusion is meant to catch. If the
+owner reads the exception as every non-melanoma skin cancer, C4A leaves the second concept and GZQO-EXC-07 goes back
+to not met for it.
 
 Any study compiled after this on a box (a site's own protocol) gets the new grouper: "malignancy" includes C44
 and C4A unless the criterion says otherwise and the compile names the exception.

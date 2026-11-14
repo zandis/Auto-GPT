@@ -398,10 +398,27 @@ CREATE TABLE tb_withheld (
 """
 
 
+#: migration 8 (SCR-01, D-655): a grouper row may be a ``family`` (a code family the concept means only sometimes or
+#: in the past, as Z85 for "malignancy": unknown, never listed), beside ``exact`` and ``prefix``
+GROUPER_FAMILY_DDL = """
+ALTER TABLE tb_term_grouper DROP CONSTRAINT tb_term_grouper_match_check;
+ALTER TABLE tb_term_grouper ADD CONSTRAINT tb_term_grouper_match_check CHECK (match IN ('exact', 'prefix', 'family'))
+"""
+
+
 def migrations() -> list[str]:
     from omop.partitions import migration as partitions_ddl
 
-    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl(), cdm_ddl(CDM_TABLES_ADDED), HISTORY_DDL, WITHHELD_DDL]
+    return [
+        cdm_ddl(),
+        tb_ddl(),
+        vocab_ddl(),
+        partitions_ddl(),
+        cdm_ddl(CDM_TABLES_ADDED),
+        HISTORY_DDL,
+        WITHHELD_DDL,
+        GROUPER_FAMILY_DDL,
+    ]
 
 
 def db_url() -> str | None:
