@@ -136,14 +136,15 @@ def unmapped_of(detail: Any) -> list[tuple[str, int]]:
 
 
 def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
-    """NEW-B-39 (D-740): the same rows per source table split by kind (``adapter.pipeline.KINDS``: a code no look-up
+    """NEW-B-39 (D-740): the same rows per source table split by kind (``tb_common.unmapped.KINDS``: a code no look-up
     knows, a unit not read, the reference data not reached); counts only. A table whose split is not counts of the
-    named kinds is not shown."""
+    named kinds adding up to the table's total (:func:`unmapped_of`) is not shown."""
     from tb_common.unmapped import KINDS
 
     kept = detail.get("unmapped_kinds") if isinstance(detail, dict) else None
     if not isinstance(kept, dict):
         return {}
+    totals = dict(unmapped_of(detail))
     out: dict[str, dict[str, int]] = {}
     for table, kinds in kept.items():
         if (
@@ -152,6 +153,7 @@ def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
             and isinstance(kinds, dict)
             and set(kinds) == set(KINDS)
             and all(type(n) is int and n >= 0 for n in kinds.values())
+            and sum(kinds.values()) == totals.get(table)
         ):
             out[table] = {k: kinds[k] for k in KINDS}
     return out

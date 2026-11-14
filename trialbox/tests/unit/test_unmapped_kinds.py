@@ -39,9 +39,9 @@ def test_the_kinds_are_named_and_sum_to_the_total() -> None:
     assert unmapped_kinds({}) == dict.fromkeys(KINDS, 0)
 
 
-def _counter_names() -> list[str]:
-    """Every name the mapping engine counts under (the second argument of each ``_note_unmapped`` call), as it is
-    written: a literal, the start of an f-string, or the expression's text."""
+def _counter_places() -> list[str]:
+    """Every place the mapping engine counts (each ``_note_unmapped`` call), by the name argument as written: a
+    literal, an f-string, or the expression's text. A name written the same way in two places is listed twice."""
     out = []
     for node in ast.walk(ast.parse(ENGINE.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "_note_unmapped":
@@ -49,24 +49,44 @@ def _counter_names() -> list[str]:
     return sorted(out)
 
 
-#: each place the engine counts a value it could not use, with the kind it is, and a name it gives. A new place
-#: fails here until its kind is named (the owner: a new kind is said, never folded into another)
+#: each place the engine counts a value it could not use: the name as written, how many places write it, its kind
+#: and a name it gives. A new place, even one that writes a name the same way as another, fails here until its kind
+#: is named (the owner: a new kind is said, never folded into another)
 PLACES = {
-    "'no_unit_implausible'": ("unit_not_read", "no_unit_implausible"),
-    "'unit_mismatch'": ("unit_not_read", "unit_mismatch"),
-    "f'column:{c['column']}'": ("code_unknown", "column:status"),
-    "f'column:{expr['column']}'": ("code_unknown", "column:sex"),
-    "f'{name}:unavailable'": ("reference_data_not_reached", "map:icd9cm->icd10cm:unavailable"),
-    "name": ("code_unknown", "map:icd9cm->icd10cm"),
-    "str(spec['name'])": ("code_unknown", "lab"),
+    "'no_unit_implausible'": (1, "unit_not_read", "no_unit_implausible"),
+    "'unit_mismatch'": (1, "unit_not_read", "unit_mismatch"),
+    "f'column:{c['column']}'": (1, "code_unknown", "column:status"),
+    "f'column:{expr['column']}'": (1, "code_unknown", "column:sex"),
+    "f'{name}:unavailable'": (1, "reference_data_not_reached", "map:icd9cm->icd10cm:unavailable"),
+    "name": (2, "code_unknown", "map:icd9cm->icd10cm"),  # a code never asked (not a code); no single answer
+    "str(spec['name'])": (1, "code_unknown", "lab"),
 }
 
 
 def test_every_place_the_engine_counts_is_named_with_its_kind() -> None:
-    names = _counter_names()
-    assert sorted(set(names)) == sorted(PLACES), "a new place counts a value: name its kind in PLACES and KINDS"
-    for written, (kind, example) in PLACES.items():
+    from collections import Counter
+
+    assert Counter(_counter_places()) == {k: n for k, (n, _, _) in PLACES.items()}, (
+        "a new place counts a value: name its kind in PLACES (and in KINDS if it is a new kind)"
+    )
+    for written, (_, kind, example) in PLACES.items():
         assert unmapped_kind(example) == kind, written
+
+
+def test_the_engine_counts_only_through_its_one_door() -> None:
+    """A write to the counter that does not go through ``_note_unmapped`` would escape the list above."""
+    tree = ast.parse(ENGINE.read_text(encoding="utf-8"))
+    door = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_note_unmapped")
+    inside = {id(n) for n in ast.walk(door)}
+    writes = [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.AugAssign | ast.Assign)
+        and "unmapped" in ast.unparse(n.target if isinstance(n, ast.AugAssign) else n.targets[0])
+        and "[" in ast.unparse(n.target if isinstance(n, ast.AugAssign) else n.targets[0])
+        and id(n) not in inside
+    ]
+    assert writes == [], f"the counter is written outside _note_unmapped at lines {writes}"
 
 
 def _lab_night(path: Path, rows: list[dict[str, str]]) -> None:
@@ -103,18 +123,26 @@ def test_the_night_keeps_the_split_per_table_beside_the_total(tmp_path: Path) ->
     assert "NOSUCH" not in text and "CRE" not in text  # counts only
 
 
-def test_the_batch_row_keeps_the_split_and_the_page_answers_it() -> None:
-    from console.dataops_page import unmapped_of
+def test_the_batch_row_is_told_to_keep_the_split() -> None:
     from datacore.dataops import DETAIL_KEYS
 
-    assert "unmapped_kinds" in DETAIL_KEYS
-    detail = {"unmapped": {"lab": 3}, "unmapped_kinds": {"lab": {"code_unknown": 2, "unit_not_read": 1,
-                                                                "reference_data_not_reached": 0}}}  # fmt: skip
-    assert unmapped_of(detail) == [("lab", 3)]  # the total, as before
+    assert "unmapped_kinds" in DETAIL_KEYS  # the page's own test (tests/console) reads it back through the API
 
 
-@pytest.mark.parametrize("kinds", [None, "x", {"lab": "x"}, {"lab": {"code_unknown": "2"}}, {"lab": {"other": 1}}])
-def test_a_split_that_is_not_counts_of_the_named_kinds_is_not_shown(kinds: object) -> None:
+def test_a_split_that_adds_up_to_the_total_is_answered() -> None:
+    from console.dataops_page import unmapped_kinds_of
+
+    kinds = {"code_unknown": 2, "unit_not_read": 1, "reference_data_not_reached": 0}
+    assert unmapped_kinds_of({"unmapped": {"lab": 3}, "unmapped_kinds": {"lab": kinds}}) == {"lab": kinds}
+
+
+@pytest.mark.parametrize(
+    "kinds",
+    [None, "x", {"lab": "x"}, {"lab": {"code_unknown": "2"}}, {"lab": {"other": 1}},
+     {"lab": {"code_unknown": 9, "unit_not_read": 0, "reference_data_not_reached": 0}},  # not the total
+     {"lab": {"code_unknown": -1, "unit_not_read": 4, "reference_data_not_reached": 0}}],
+)  # fmt: skip
+def test_a_split_that_is_not_counts_of_the_named_kinds_adding_up_to_the_total_is_not_shown(kinds: object) -> None:
     from console.dataops_page import unmapped_kinds_of
 
     assert unmapped_kinds_of({"unmapped": {"lab": 3}, "unmapped_kinds": kinds}) == {}
