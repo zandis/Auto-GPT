@@ -299,6 +299,9 @@ def test_the_caller_table_covers_every_call_between_services_in_the_code() -> No
         "ParserHttp(": "doc-parser", "compiler_url": "criteria-compiler", "CompilerHttp(": "criteria-compiler",
         "adapter_url": "adapter", "AdapterHttp(": "adapter", "HttpEmbedder(": "embed-service",
         "TB_GATEWAY_URL": "gateway", "GatewayClient(": "gateway",
+        # the review of SVC-EMBED: the lake reaches the embed service through from_env and EMBED_URL, not
+        # HttpEmbedder(, and SCREEN (#589) through the settings' embed_url
+        "EMBED_URL": "embed-service", "embed_url": "embed-service",
     }  # fmt: skip
     dirs = {"orchestrator": "orchestrator", "console": "console", "mail-gateway": "mail_gateway", "lake": "lake",
             "criteria-compiler": "criteria_compiler", "adapter": "adapter", "doc-parser": "doc_parser",
