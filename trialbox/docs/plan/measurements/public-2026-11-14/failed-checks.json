@@ -1,0 +1,20 @@
+[
+ {
+  "part": "scenario-public-medtxt",
+  "stage": "MedTxt-CR (ja): case reports pasted, conditions read, negations kept out",
+  "check": "no proposed condition rests only on a mention the corpus marks negative",
+  "detail": "['CR:JP0245-4: 右乳癌術後（４年前）', 'CR:JP1220-162: 平成２年４月４日に食道癌根治術施行。', 'CR:JP1553-37: ７年前に胸腺癌手術', 'CR:JP1553-37: ５年前に下肢静脈瘤手術。', 'CR:JP1553-72: 既往に開腹胆摘、上行結腸早期癌ＥＭＲがある。']"
+ },
+ {
+  "part": "scenario-public-trec",
+  "stage": "TREC CT: real trials, patient descriptions, qrels as truth",
+  "check": "every criterion answered",
+  "detail": "7"
+ },
+ {
+  "part": "scenario-public-trec",
+  "stage": "TREC CT: real trials, patient descriptions, qrels as truth",
+  "check": "eligible patients lost by the pair <= 10 % (VALIDATION §3: 3.1 % on the deployed files)",
+  "detail": "(12, 50)"
+ }
+]

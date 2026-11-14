@@ -1,0 +1,128 @@
+{
+ "patients": 50000,
+ "seconds_per_note_patient": 6.3,
+ "parts": [
+  "g1"
+ ],
+ "llm_concurrency": [
+  16
+ ],
+ "repeats": 1,
+ "llm_speedup": [
+  11.647
+ ],
+ "llm_speedup_override": null,
+ "max_num_seqs": 16,
+ "hospital_source": [
+  "20261113T085509Z-c25cea6b"
+ ],
+ "rows": [
+  {
+   "scenario": "VM start, both models resident",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "VM setup: packages, venv, browser, fonts",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "public (ja)",
+   "patients": 90,
+   "model_items": 90,
+   "seconds": 1303.0,
+   "tags": [
+    "public-ja"
+   ],
+   "hours": 0.36,
+   "usd": 0.99
+  },
+  {
+   "scenario": "public (zh-TW)",
+   "patients": 90,
+   "model_items": 90,
+   "seconds": 1303.0,
+   "tags": [
+    "public-zh-TW"
+   ],
+   "hours": 0.36,
+   "usd": 0.99
+  },
+  {
+   "scenario": "public-medtxt",
+   "patients": 148,
+   "model_items": 148,
+   "seconds": 1371.15,
+   "tags": [
+    "scenario-public-medtxt"
+   ],
+   "hours": 0.38,
+   "usd": 1.04
+  },
+  {
+   "scenario": "public-trec",
+   "patients": 100,
+   "model_items": 3800,
+   "seconds": 1143.0,
+   "tags": [
+    "scenario-public-trec"
+   ],
+   "hours": 0.32,
+   "usd": 0.88
+  }
+ ],
+ "hours": 1.92,
+ "usd": 5.26,
+ "cap_hours": 3,
+ "cap_usd": 8.22,
+ "provisioning": "SPOT",
+ "price_per_hour": 2.74,
+ "llm_concurrency_default": true,
+ "only": [
+  "public-ja",
+  "public-zh-TW",
+  "scenario-public-medtxt",
+  "scenario-public-trec"
+ ],
+ "plan": {
+  "vms": 1,
+  "shards": [
+   {
+    "shard": 1,
+    "tags": [
+     "scenario-public-medtxt",
+     "public-ja",
+     "public-zh-TW",
+     "scenario-public-trec"
+    ],
+    "rows": [
+     "public-medtxt",
+     "public (ja)",
+     "public (zh-TW)",
+     "public-trec"
+    ],
+    "hours": 1.92,
+    "usd": 5.26,
+    "cap_hours": 3,
+    "cap_usd": 8.22,
+    "provisioning": "SPOT",
+    "price_per_hour": 2.74,
+    "vm": "tb-gpu-sim",
+    "zone": "asia-east1-a"
+   }
+  ],
+  "wall_hours": 1.92,
+  "hours": 1.92,
+  "usd": 5.26,
+  "cap_usd": 8.22
+ }
+}

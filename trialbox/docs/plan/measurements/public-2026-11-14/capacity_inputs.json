@@ -1,0 +1,43 @@
+{
+ "schema": "tb-capacity-inputs/1",
+ "run_id": "20261114T061459Z-02858674",
+ "run_ids": [
+  "20261114T061459Z-02858674"
+ ],
+ "commit": "02858674236585c0b0a227e409ae7a34e3c5524c",
+ "commits": [
+  "02858674236585c0b0a227e409ae7a34e3c5524c"
+ ],
+ "card": null,
+ "synthetic_data_only": false,
+ "public_data": [
+  "MedTxt-CR Japanese case reports (CC BY 4.0, Sociocom, NAIST; NTCIR-16 Real-MedNLP)",
+  "TREC Clinical Trials 2021/2022 topics and qrels (NIST) and trial texts from ClinicalTrials.gov (the NCBI TrialGPT corpus)",
+  "the public-data site's notes (tools/public_site.py): MedTxt-CR and MedTxt-RR (CC BY 4.0, Sociocom, NAIST) and the SIGIR 2016 patient descriptions (NCBI, public domain)"
+ ],
+ "complete": false,
+ "verdict": "FAILED",
+ "parts": {
+  "scenario-public-medtxt": "FAILED",
+  "public-ja": "PASSED",
+  "public-zh-TW": "PASSED",
+  "scenario-public-trec": "FAILED"
+ },
+ "g1": {
+  "status": "NOT PLANNED",
+  "note": "the plan has no chat-template part"
+ },
+ "g3": {},
+ "cost": {
+  "hours": 2.0,
+  "hours_source": "VM hours given with --vm-hours",
+  "part_hours": 1.88,
+  "price_per_hour": 2.74,
+  "usd": 5.48,
+  "estimate_hours": 1.92,
+  "estimate_usd": 5.26,
+  "cap_hours": 3,
+  "cap_usd": 8.22,
+  "over_cap": false
+ }
+}

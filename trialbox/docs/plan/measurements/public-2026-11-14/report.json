@@ -1,0 +1,2434 @@
+{
+ "schema": "tb-complete-run/3",
+ "git": {
+  "head": "02858674236585c0b0a227e409ae7a34e3c5524c",
+  "subject": "Lane G: D-502, every data set is run with the real models in three languages; lane G's order of work",
+  "dirty": false,
+  "source": "parts",
+  "heads": [
+   "02858674236585c0b0a227e409ae7a34e3c5524c"
+  ]
+ },
+ "started": "2026-11-14T06:21:37+00:00",
+ "finished": "2026-11-14T08:14:43+00:00",
+ "model": "pair",
+ "models": [
+  "local/gemma-4-26b-a4b-nvfp4",
+  "local/qwen3.5-9b-awq"
+ ],
+ "path": "gateway (installed box, synthetic weight pins)",
+ "ocr": "tesseract",
+ "patients": 50000,
+ "langs": [
+  "ja",
+  "zh-TW"
+ ],
+ "host": {
+  "machine": "x86_64",
+  "cpus": 48,
+  "python": "3.12.3",
+  "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+ },
+ "run_ids": [
+  "20261114T061459Z-02858674-s1"
+ ],
+ "parts": [
+  {
+   "stages": [
+    {
+     "name": "0 public data in",
+     "ok": true,
+     "seconds": 0.2,
+     "checks": [
+      [
+       "every source document is one patient (SIGIR 53, MedTxt-CR 123, MedTxt-RR 92)",
+       true,
+       "{'SIGIR': 53, 'MedTxt-CR': 123, 'MedTxt-RR': 92}"
+      ],
+      [
+       "ingest passed",
+       true,
+       "{'passed': True, 'counts': {'Appointment': 89, 'Condition': 149, 'Coverage': 268, 'DocumentReference': 268, 'Encounter': 268, 'Organization': 2, 'Patient': 268, 'Practitioner': 2}, 'missing_required': {'Patient.birthDate': 120}}"
+      ],
+      [
+       "lake counts = CSV counts (patients, notes, diagnoses)",
+       true,
+       "lake {'patient': 268, 'note': 268, 'dx': 149} csv {'patient': 268, 'note': 268, 'dx': 149}"
+      ],
+      [
+       "note text reaches the lake verbatim",
+       true,
+       "268"
+      ],
+      [
+       "no chart number column in the lake",
+       true,
+       "{'patient': {'sex', 'deceased_date', 'mapping_version', 'ingested_at', 'pid', 'birth_date', 'src_table', 'src_row_hash', 'deceased', 'snapshot'}, 'encounter': {'class', 'dept', 'status', 'end', 'ingested_at', 'mapping_version', 'start', 'pid', 'practitioner_id', 'src_table', 'src_row_hash', 'eid', 'snapshot'}, 'document': {'date', 'mapping_version', 'type', 'did', 'ingested_at', 'pid', 'src_table', 'src_row_hash', 'eid', 'text', 'snapshot'}, 'condition': {'onset', 'recorded', 'system', 'status', 'mapping_version', 'ingested_at', 'code', 'pid', 'cid', 'src_table', 'src_row_hash', 'eid', 'snapshot'}}"
+      ],
+      [
+       "lake keys are pseudonyms",
+       true,
+       "0"
+      ],
+      [
+       "missing birth dates reported, not invented",
+       true,
+       "{'Patient.birthDate': 120}"
+      ]
+     ],
+     "shot": "public-ja-00.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "1 criteria, approval and feasibility",
+     "ok": true,
+     "seconds": 7.5,
+     "checks": [
+      [
+       "S2 paste PUB-CA -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "S2 paste PUB-ONC -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "S20 says who ticks and approves; the coordinator has no tick",
+       true,
+       ""
+      ],
+      [
+       "investigator ticks a criterion's codes on S20",
+       true,
+       "200"
+      ],
+      [
+       "coordinator's approve refused (403)",
+       true,
+       "403"
+      ],
+      [
+       "S20: criterion labels in Japanese and Chinese saved",
+       true,
+       "14/14"
+      ],
+      [
+       "investigator approves PUB-CA; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "investigator approves PUB-ONC; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "FEAS PDF, XLSX and JSON",
+       true,
+       "['feasibility_PUB-ONC_v1.0.0_2026-10-31.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.pdf', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.raw.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.xlsx', 'feasprofile_PUB-ONC_v1.0.0_2026-10-31.json', 'review_PUB-ONC_v1.0.0_r1.html', 'review_PUB-ONC_v1.0.0_r1.xlsx', 'ruleset_PUB-ONC_v1.0.0-draft.zip']"
+      ],
+      [
+       "start = every patient",
+       true,
+       "268"
+      ],
+      [
+       "age >= 18 = recount from patient.csv",
+       true,
+       "(129, 129)"
+      ],
+      [
+       "malignancy = every adult with a cancer code in diagnosis.csv (recount by ICD-10 family, not by the list)",
+       true,
+       "(41, 41)"
+      ],
+      [
+       "every cancer code in the data is in the malignancy value set",
+       true,
+       "not listed: [], 0 patients"
+      ],
+      [
+       "funnel never grows",
+       true,
+       "[130, 40, 40, 40, 40, 40, 40]"
+      ],
+      [
+       "FEAS ran without a model",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M7CBPFXARY7WMKVRXDWKHG5C', 'language': 'ja', 'model_summary': 'no model (filters only)', 'models': [], 'prompt_versions': [], 'ruleset': 'PUB-ONC', 'ruleset_version': '1.0.0', 'run_date': '2026-11-02', 'site': 'DEMO-A', 'snapshot': '2026-10-31', 'study': 'PUB-ONC'}"
+      ],
+      [
+       "S3 feasibility page",
+       true,
+       "200"
+      ],
+      [
+       "S3 Refresh re-runs FEAS",
+       true,
+       "(303, 2)"
+      ]
+     ],
+     "shot": "public-ja-01.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "2 screening (patient list) on real notes",
+     "ok": true,
+     "seconds": 41.4,
+     "checks": [
+      [
+       "SCREEN PUB-ONC done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "SCREEN PUB-CA done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "screen funnel S0 >= S1 >= S3 >= S4",
+       true,
+       "{'S0': 268, 'S1': 90, 'S3': 90, 'S4': 90}"
+      ],
+      [
+       "listed = high + review",
+       true,
+       "{'excluded': 178, 'high': 0, 'review': 90}"
+      ],
+      [
+       "note-based exclusion only when two models agree",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 4, 'failures': 0, 'judge_model': 'local/gemma-4-26b-a4b-nvfp4', 'may_block': True, 'mode': 'agreement', 'note_block': 'both_agree', 'note_block_code': 'ok', 'note_block_reason': 'judge and verifier must both say fail', 'verifier_model': 'local/qwen3.5-9b-awq'}"
+      ],
+      [
+       "the excluded patients and why: every excluded patient, with criterion and source",
+       true,
+       "2026-11-02 の処理（2026-10-31 時点の記録）：基準に合致しない患者 178 名。"
+      ],
+      [
+       "cohort list PUB-CA has members, no contact step",
+       true,
+       "41"
+      ]
+     ],
+     "shot": "public-ja-02.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "3 list, S5 and marks",
+     "ok": true,
+     "seconds": 3.8,
+     "checks": [
+      [
+       "the list has at least three patients",
+       true,
+       "90"
+      ],
+      [
+       "PI list page",
+       true,
+       "200"
+      ],
+      [
+       "mark approach",
+       true,
+       "303"
+      ],
+      [
+       "mark need_info",
+       true,
+       "303"
+      ],
+      [
+       "mark not_now",
+       true,
+       "303"
+      ],
+      [
+       "replace a mark: history keeps both",
+       true,
+       "['not_now', 'approach']"
+      ],
+      [
+       "withdraw a mark",
+       true,
+       "(303, ['not_now', 'approach', 'withdrawn'], '')"
+      ],
+      [
+       "S5 patient page",
+       true,
+       "200"
+      ],
+      [
+       "coordinator records a contact outcome",
+       true,
+       "303"
+      ],
+      [
+       "Approach gives a screening number",
+       true,
+       "PUB-ONC-0001"
+      ],
+      [
+       "screening log lists the approached patient",
+       true,
+       "200"
+      ],
+      [
+       "screening log XLSX opens",
+       true,
+       "200"
+      ],
+      [
+       "the coordinator adds the built-in forms",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-ja-03.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "4 N1 / N2 mail",
+     "ok": true,
+     "seconds": 0.6,
+     "checks": [
+      [
+       "N1 and N2 sent",
+       true,
+       "['TrialBox ダイジェスト 2026-11-02：来院 1 · 次の作業 1 · 新規 89 · 判断 5', 'TrialBox：2026-11-02 の外来の試験候補者 1 名']"
+      ],
+      [
+       "mail carries no chart number",
+       true,
+       "[]"
+      ],
+      [
+       "mail shows the screening number beside the pseudonym (D-136)",
+       true,
+       "[('69390044', 'PUB-ONC-0001'), ('6b3337bb', 'PUB-ONC-0002')]"
+      ]
+     ],
+     "shot": "public-ja-04.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "5 REDCap simulator read-back",
+     "ok": true,
+     "seconds": 0.7,
+     "checks": [
+      [
+       "S36 Test connection (version shown, token never shown)",
+       true,
+       "200"
+      ],
+      [
+       "S21 project link checked against the data dictionary",
+       true,
+       "stener(\"input\", function () { dirty = true; }); f.addEventListener(\"change\", function () { dirty = true; }); f.addEventListener(\"submit\", function () { dirty = false; }); }); window.addEventListener(\"beforeunload\", function (e) { if (!dirty) return; e.preventDefault(); e.returnValue = \"\"; }); })(); "
+      ],
+      [
+       "Run now: consented",
+       true,
+       "同意取得 · 2026-11-14"
+      ],
+      [
+       "Run now: enrolled, subject number shown",
+       true,
+       "登録 · 2026-11-14"
+      ]
+     ],
+     "shot": "public-ja-05.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "5b trial lifecycle (D-134)",
+     "ok": true,
+     "seconds": 1.7,
+     "checks": [
+      [
+       "the visit schedule is saved",
+       true,
+       "200"
+      ],
+      [
+       "both screening numbers are participants",
+       true,
+       "200"
+      ],
+      [
+       "enrolled through the forms",
+       true,
+       "200"
+      ],
+      [
+       "a serious AE on ae1",
+       true,
+       "200"
+      ],
+      [
+       "today's visit is on the coordinator's list",
+       true,
+       ""
+      ],
+      [
+       "the serious AE is on the investigator's home page",
+       true,
+       ""
+      ],
+      [
+       "the enrolment report",
+       true,
+       ""
+      ]
+     ],
+     "shot": "public-ja-06.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "5c site set-up and data harmonization (D-135)",
+     "ok": true,
+     "seconds": 24.3,
+     "checks": [
+      [
+       "the practice site loads in one tap",
+       true,
+       "200"
+      ],
+      [
+       "its readiness lists what is missing",
+       true,
+       ""
+      ],
+      [
+       "proposed facts beside their quotes",
+       true,
+       "7"
+      ],
+      [
+       "one tap confirms a fact",
+       true,
+       "200"
+      ],
+      [
+       "the hospital's own data is untouched by the practice site",
+       true,
+       ""
+      ],
+      [
+       "Ask TrialBox answers what to do next",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-ja-07.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "6 other screens",
+     "ok": true,
+     "seconds": 5.3,
+     "checks": [
+      [
+       "crc /home",
+       true,
+       "200"
+      ],
+      [
+       "crc /week",
+       true,
+       "200"
+      ],
+      [
+       "crc /account",
+       true,
+       "200"
+      ],
+      [
+       "crc /help",
+       true,
+       "200"
+      ],
+      [
+       "crc /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "crc /reports",
+       true,
+       "200"
+      ],
+      [
+       "crc /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "pi /home",
+       true,
+       "200"
+      ],
+      [
+       "pi /week",
+       true,
+       "200"
+      ],
+      [
+       "pi /account",
+       true,
+       "200"
+      ],
+      [
+       "pi /help",
+       true,
+       "200"
+      ],
+      [
+       "pi /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "pi /reports",
+       true,
+       "200"
+      ],
+      [
+       "pi /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "admin /home",
+       true,
+       "200"
+      ],
+      [
+       "admin /account",
+       true,
+       "200"
+      ],
+      [
+       "admin /help",
+       true,
+       "200"
+      ],
+      [
+       "admin /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "admin /reports",
+       true,
+       "200"
+      ],
+      [
+       "admin /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "admin /studies/PUB-ONC/week is refused (403: no patient data)",
+       true,
+       "403"
+      ],
+      [
+       "banner says public data",
+       true,
+       ""
+      ],
+      [
+       "request menu: this site's studies only",
+       true,
+       "['PUB-ONC', 'PUB-CA', 'PUB-ONC']"
+      ],
+      [
+       "clinician names from the records",
+       true,
+       ""
+      ],
+      [
+       "research-office counts",
+       true,
+       "200"
+      ],
+      [
+       "research-office XLSX",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'PUB-ONC'",
+       true,
+       "200"
+      ],
+      [
+       "command field: '69390044'",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'help'",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=health",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=jobs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=sources",
+       true,
+       "200"
+      ],
+      [
+       "admin /ops/users",
+       true,
+       "200"
+      ],
+      [
+       "admin /jobs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=overview",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=backups",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=update",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=logs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=secrets",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=network",
+       true,
+       "200"
+      ],
+      [
+       "admin /audit is refused (403)",
+       true,
+       ""
+      ],
+      [
+       "steward /audit",
+       true,
+       "200"
+      ],
+      [
+       "investigator cannot open admin",
+       true,
+       "403"
+      ],
+      [
+       "operations: the action asks first",
+       true,
+       "200"
+      ],
+      [
+       "operations: network sheet written",
+       true,
+       ""
+      ],
+      [
+       "operations: refused to the investigator",
+       true,
+       ""
+      ],
+      [
+       "404 page",
+       true,
+       "404"
+      ]
+     ],
+     "shot": "public-ja-08.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "7 exports, CASE, consent explainer, Cancel / Retry",
+     "ok": true,
+     "seconds": 289.8,
+     "checks": [
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download PDF feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "cohort registry export XLSX",
+       true,
+       "200"
+      ],
+      [
+       "CASE on a real case report finishes",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "consent explainer draft (ICF upload, EN + JA)",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "Cancel asks to confirm",
+       true,
+       "200"
+      ],
+      [
+       "Cancel a waiting job (failed, step cancelled)",
+       true,
+       "(303, 'failed', JobError(step='cancelled', message='Cancelled by console:admin.', detail=None))"
+      ],
+      [
+       "Retry a failed job creates a new one",
+       true,
+       "(303, '')"
+      ],
+      [
+       "Retry of a finished job is refused (409)",
+       true,
+       "409"
+      ],
+      [
+       "Cancel of a finished job is refused (409)",
+       true,
+       "409"
+      ]
+     ],
+     "shot": "public-ja-09.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "7b chart numbers and names by role",
+     "ok": true,
+     "seconds": 3.8,
+     "checks": [
+      [
+       "viewer: no chart number or name on any page of the walk (51 pages)",
+       true,
+       "[]"
+      ],
+      [
+       "viewer: runs, registry, audit trail and study set-up refused (403)",
+       true,
+       "[]"
+      ],
+      [
+       "cra: no chart number or name on any page of the walk (51 pages)",
+       true,
+       "[]"
+      ],
+      [
+       "cra: runs, registry, audit trail and study set-up refused (403)",
+       true,
+       "[]"
+      ],
+      [
+       "the study's investigator sees the CASE request's chart number (D-143)",
+       true,
+       ""
+      ],
+      [
+       "and that view is audited",
+       true,
+       ""
+      ]
+     ],
+     "shot": "public-ja-10.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "8 audit chain",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "audit chain verifies",
+       true,
+       "VerifyResult(ok=True, files=1, lines=925, last_hash='73798e5dcba9a2055132e50b81ffa28ad4faf80be547d4a6e0f59987b026734d', errors=[], head={'file': '2026-11-14.jsonl', 'hash': '73798e5dcba9a2055132e50b81ffa28ad4faf80be547d4a6e0f59987b026734d', 'lines': 925}, notes=[])"
+      ]
+     ],
+     "shot": "public-ja-11.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    }
+   ],
+   "seconds": 591.3,
+   "screen": {
+    "funnel": {
+     "S0": 268,
+     "S1": 90,
+     "S3": 90,
+     "S4": 90
+    },
+    "tiers": {
+     "excluded": 178,
+     "high": 0,
+     "review": 90
+    },
+    "listed": 90,
+    "judging": {
+     "configured_note_block": "both_agree",
+     "disagreements": 4,
+     "failures": 0,
+     "judge_model": "local/gemma-4-26b-a4b-nvfp4",
+     "may_block": true,
+     "mode": "agreement",
+     "note_block": "both_agree",
+     "note_block_code": "ok",
+     "note_block_reason": "judge and verifier must both say fail",
+     "verifier_model": "local/qwen3.5-9b-awq"
+    },
+    "request_seconds": {
+     "PUB-ONC": 40.3,
+     "PUB-CA": 0.9
+    },
+    "stage_seconds": 41.3
+   },
+   "canary": {
+    "gate": "on",
+    "allows_block": true,
+    "code": "ok",
+    "reason": "",
+    "running": false,
+    "at": "2026-11-14T06:25:09",
+    "ok": true,
+    "cases": 54,
+    "pair_correct": 52,
+    "pair_decided_wrong": 0,
+    "models": [
+     {
+      "role": "judge",
+      "model": "local/gemma-4-26b-a4b-nvfp4",
+      "correct": 53,
+      "flips": 1,
+      "ok": true
+     },
+     {
+      "role": "verifier",
+      "model": "local/qwen3.5-9b-awq",
+      "correct": 49,
+      "flips": 1,
+      "ok": true
+     }
+    ],
+    "wake_failure": null
+   },
+   "run": {
+    "id": "20261114T061459Z-02858674-s1",
+    "head": "02858674236585c0b0a227e409ae7a34e3c5524c",
+    "subject": "Lane G: D-502, every data set is run with the real models in three languages; lane G's order of work",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 600.1,
+    "folder": "parts/public-ja",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 273429.0,
+      "generation_tokens": 39446.0,
+      "requests": 435.0,
+      "ttft_seconds_sum": 57.799,
+      "ttft_count": 435.0,
+      "queue_seconds_sum": 1.715,
+      "queue_count": 435.0,
+      "e2e_seconds_sum": 1115.905,
+      "e2e_count": 435.0,
+      "ttft_mean_s": 0.1329,
+      "queue_mean_s": 0.0039,
+      "e2e_mean_s": 2.5653
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 40573.0,
+      "generation_tokens": 18451.0,
+      "requests": 90.0,
+      "ttft_seconds_sum": 8.63,
+      "ttft_count": 90.0,
+      "queue_seconds_sum": 1.621,
+      "queue_count": 90.0,
+      "e2e_seconds_sum": 339.137,
+      "e2e_count": 90.0,
+      "ttft_mean_s": 0.0959,
+      "queue_mean_s": 0.018,
+      "e2e_mean_s": 3.7682
+     }
+    },
+    "gpu": {
+     "samples": 61,
+     "every_s": 10.0,
+     "util_mean_pct": 39.2,
+     "util_max_pct": 93.0,
+     "memory_peak_mib": 62592.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 53.0,
+     "power_max_w": 279.42
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 14.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.04096975709568906
+     },
+     "verifier": {
+      "running_max": 3.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.02336448598130836
+     }
+    }
+   },
+   "throughput": {
+    "source": "gateway audit (llm.gateway.call)",
+    "calls": 525,
+    "busy_seconds": 548.6,
+    "calls_per_second": 0.957,
+    "tokens_in": 314002,
+    "tokens_out": 57897,
+    "tokens_in_per_second": 572.389,
+    "tokens_out_per_second": 105.539,
+    "tokens_per_second": 677.928,
+    "p50_s": 2.051,
+    "p95_s": 4.966,
+    "mean_in_flight": 2.65,
+    "cached": 0,
+    "endpoints": {
+     "serving": {
+      "calls": 435,
+      "busy_seconds": 298.3,
+      "calls_per_second": 1.458,
+      "tokens_in": 273429,
+      "tokens_out": 39446,
+      "tokens_in_per_second": 916.547,
+      "tokens_out_per_second": 132.225,
+      "tokens_per_second": 1048.771,
+      "p50_s": 2.067,
+      "p95_s": 4.956,
+      "mean_in_flight": 3.74
+     },
+     "verifier": {
+      "calls": 90,
+      "busy_seconds": 297.8,
+      "calls_per_second": 0.302,
+      "tokens_in": 40573,
+      "tokens_out": 18451,
+      "tokens_in_per_second": 136.253,
+      "tokens_out_per_second": 61.962,
+      "tokens_per_second": 198.215,
+      "p50_s": 1.979,
+      "p95_s": 4.946,
+      "mean_in_flight": 1.14
+     }
+    },
+    "breaker_opens": {
+     "embed": 0,
+     "external_x": 0,
+     "openrouter": 0,
+     "serving": 0,
+     "stub": 0,
+     "verifier": 0
+    }
+   },
+   "refusals": {
+    "asked": 525,
+    "refused": 0,
+    "by_reason": {},
+    "by_role": {}
+   },
+   "wall_seconds": 600.1,
+   "started_at": "2026-11-14T06:21:37+00:00",
+   "finished_at": "2026-11-14T06:31:37+00:00",
+   "part": "public",
+   "lang": "ja",
+   "tag": "public-ja",
+   "seconds_total": 600.1
+  },
+  {
+   "stages": [
+    {
+     "name": "0 public data in",
+     "ok": true,
+     "seconds": 0.2,
+     "checks": [
+      [
+       "every source document is one patient (SIGIR 53, MedTxt-CR 123, MedTxt-RR 92)",
+       true,
+       "{'SIGIR': 53, 'MedTxt-CR': 123, 'MedTxt-RR': 92}"
+      ],
+      [
+       "ingest passed",
+       true,
+       "{'passed': True, 'counts': {'Appointment': 89, 'Condition': 149, 'Coverage': 268, 'DocumentReference': 268, 'Encounter': 268, 'Organization': 2, 'Patient': 268, 'Practitioner': 2}, 'missing_required': {'Patient.birthDate': 120}}"
+      ],
+      [
+       "lake counts = CSV counts (patients, notes, diagnoses)",
+       true,
+       "lake {'patient': 268, 'note': 268, 'dx': 149} csv {'patient': 268, 'note': 268, 'dx': 149}"
+      ],
+      [
+       "note text reaches the lake verbatim",
+       true,
+       "268"
+      ],
+      [
+       "no chart number column in the lake",
+       true,
+       "{'patient': {'sex', 'src_table', 'pid', 'ingested_at', 'src_row_hash', 'birth_date', 'deceased_date', 'snapshot', 'mapping_version', 'deceased'}, 'encounter': {'class', 'end', 'pid', 'src_table', 'ingested_at', 'status', 'eid', 'dept', 'src_row_hash', 'start', 'snapshot', 'mapping_version', 'practitioner_id'}, 'document': {'type', 'src_table', 'pid', 'ingested_at', 'did', 'eid', 'src_row_hash', 'date', 'text', 'snapshot', 'mapping_version'}, 'condition': {'onset', 'src_table', 'pid', 'ingested_at', 'status', 'code', 'recorded', 'eid', 'system', 'cid', 'src_row_hash', 'snapshot', 'mapping_version'}}"
+      ],
+      [
+       "lake keys are pseudonyms",
+       true,
+       "0"
+      ],
+      [
+       "missing birth dates reported, not invented",
+       true,
+       "{'Patient.birthDate': 120}"
+      ]
+     ],
+     "shot": "public-zh-TW-00.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "1 criteria, approval and feasibility",
+     "ok": true,
+     "seconds": 6.7,
+     "checks": [
+      [
+       "S2 paste PUB-CA -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "S2 paste PUB-ONC -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "S20 says who ticks and approves; the coordinator has no tick",
+       true,
+       ""
+      ],
+      [
+       "investigator ticks a criterion's codes on S20",
+       true,
+       "200"
+      ],
+      [
+       "coordinator's approve refused (403)",
+       true,
+       "403"
+      ],
+      [
+       "S20: criterion labels in Japanese and Chinese saved",
+       true,
+       "14/14"
+      ],
+      [
+       "investigator approves PUB-CA; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "investigator approves PUB-ONC; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "FEAS PDF, XLSX and JSON",
+       true,
+       "['feasibility_PUB-ONC_v1.0.0_2026-10-31.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.pdf', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.raw.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.xlsx', 'feasprofile_PUB-ONC_v1.0.0_2026-10-31.json', 'review_PUB-ONC_v1.0.0_r1.html', 'review_PUB-ONC_v1.0.0_r1.xlsx', 'ruleset_PUB-ONC_v1.0.0-draft.zip']"
+      ],
+      [
+       "start = every patient",
+       true,
+       "268"
+      ],
+      [
+       "age >= 18 = recount from patient.csv",
+       true,
+       "(129, 129)"
+      ],
+      [
+       "malignancy = every adult with a cancer code in diagnosis.csv (recount by ICD-10 family, not by the list)",
+       true,
+       "(41, 41)"
+      ],
+      [
+       "every cancer code in the data is in the malignancy value set",
+       true,
+       "not listed: [], 0 patients"
+      ],
+      [
+       "funnel never grows",
+       true,
+       "[130, 40, 40, 40, 40, 40, 40]"
+      ],
+      [
+       "FEAS ran without a model",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M7CC8M34JK3QBRHMWTG2KN36', 'language': 'zh-TW', 'model_summary': 'no model (filters only)', 'models': [], 'prompt_versions': [], 'ruleset': 'PUB-ONC', 'ruleset_version': '1.0.0', 'run_date': '2026-11-02', 'site': 'DEMO-A', 'snapshot': '2026-10-31', 'study': 'PUB-ONC'}"
+      ],
+      [
+       "S3 feasibility page",
+       true,
+       "200"
+      ],
+      [
+       "S3 Refresh re-runs FEAS",
+       true,
+       "(303, 2)"
+      ]
+     ],
+     "shot": "public-zh-TW-01.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "2 screening (patient list) on real notes",
+     "ok": true,
+     "seconds": 116.5,
+     "checks": [
+      [
+       "SCREEN PUB-ONC done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "SCREEN PUB-CA done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "screen funnel S0 >= S1 >= S3 >= S4",
+       true,
+       "{'S0': 268, 'S1': 90, 'S3': 90, 'S4': 90}"
+      ],
+      [
+       "listed = high + review",
+       true,
+       "{'excluded': 178, 'high': 0, 'review': 90}"
+      ],
+      [
+       "note-based exclusion only when two models agree",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 4, 'failures': 1, 'judge_model': 'local/gemma-4-26b-a4b-nvfp4', 'may_block': True, 'mode': 'agreement', 'note_block': 'both_agree', 'note_block_code': 'ok', 'note_block_reason': 'judge and verifier must both say fail', 'verifier_model': 'local/qwen3.5-9b-awq'}"
+      ],
+      [
+       "the excluded patients and why: every excluded patient, with criterion and source",
+       true,
+       "2026-11-02 的作業（2026-10-31 的紀錄）：178 位病人未符合條件。"
+      ],
+      [
+       "cohort list PUB-CA has members, no contact step",
+       true,
+       "41"
+      ]
+     ],
+     "shot": "public-zh-TW-02.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "3 list, S5 and marks",
+     "ok": true,
+     "seconds": 3.8,
+     "checks": [
+      [
+       "the list has at least three patients",
+       true,
+       "90"
+      ],
+      [
+       "PI list page",
+       true,
+       "200"
+      ],
+      [
+       "mark approach",
+       true,
+       "303"
+      ],
+      [
+       "mark need_info",
+       true,
+       "303"
+      ],
+      [
+       "mark not_now",
+       true,
+       "303"
+      ],
+      [
+       "replace a mark: history keeps both",
+       true,
+       "['not_now', 'approach']"
+      ],
+      [
+       "withdraw a mark",
+       true,
+       "(303, ['not_now', 'approach', 'withdrawn'], '')"
+      ],
+      [
+       "S5 patient page",
+       true,
+       "200"
+      ],
+      [
+       "coordinator records a contact outcome",
+       true,
+       "303"
+      ],
+      [
+       "Approach gives a screening number",
+       true,
+       "PUB-ONC-0001"
+      ],
+      [
+       "screening log lists the approached patient",
+       true,
+       "200"
+      ],
+      [
+       "screening log XLSX opens",
+       true,
+       "200"
+      ],
+      [
+       "the coordinator adds the built-in forms",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-zh-TW-03.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "4 N1 / N2 mail",
+     "ok": true,
+     "seconds": 0.4,
+     "checks": [
+      [
+       "N1 and N2 sent",
+       true,
+       "['TrialBox 摘要 2026-11-02：回診 1 · 下一步 1 · 新增 89 · 標記 5', 'TrialBox：2026-11-02 門診試驗候選人 1 位']"
+      ],
+      [
+       "mail carries no chart number",
+       true,
+       "[]"
+      ],
+      [
+       "mail shows the screening number beside the pseudonym (D-136)",
+       true,
+       "[('69390044', 'PUB-ONC-0001'), ('6b3337bb', 'PUB-ONC-0002')]"
+      ]
+     ],
+     "shot": "public-zh-TW-04.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "5 REDCap simulator read-back",
+     "ok": true,
+     "seconds": 0.7,
+     "checks": [
+      [
+       "S36 Test connection (version shown, token never shown)",
+       true,
+       "200"
+      ],
+      [
+       "S21 project link checked against the data dictionary",
+       true,
+       "stener(\"input\", function () { dirty = true; }); f.addEventListener(\"change\", function () { dirty = true; }); f.addEventListener(\"submit\", function () { dirty = false; }); }); window.addEventListener(\"beforeunload\", function (e) { if (!dirty) return; e.preventDefault(); e.returnValue = \"\"; }); })(); "
+      ],
+      [
+       "Run now: consented",
+       true,
+       "已同意 · 2026-11-14"
+      ],
+      [
+       "Run now: enrolled, subject number shown",
+       true,
+       "已收案 · 2026-11-14"
+      ]
+     ],
+     "shot": "public-zh-TW-05.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "5b trial lifecycle (D-134)",
+     "ok": true,
+     "seconds": 1.9,
+     "checks": [
+      [
+       "the visit schedule is saved",
+       true,
+       "200"
+      ],
+      [
+       "both screening numbers are participants",
+       true,
+       "200"
+      ],
+      [
+       "enrolled through the forms",
+       true,
+       "200"
+      ],
+      [
+       "a serious AE on ae1",
+       true,
+       "200"
+      ],
+      [
+       "today's visit is on the coordinator's list",
+       true,
+       ""
+      ],
+      [
+       "the serious AE is on the investigator's home page",
+       true,
+       ""
+      ],
+      [
+       "the enrolment report",
+       true,
+       ""
+      ]
+     ],
+     "shot": "public-zh-TW-06.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "5c site set-up and data harmonization (D-135)",
+     "ok": true,
+     "seconds": 23.4,
+     "checks": [
+      [
+       "the practice site loads in one tap",
+       true,
+       "200"
+      ],
+      [
+       "its readiness lists what is missing",
+       true,
+       ""
+      ],
+      [
+       "proposed facts beside their quotes",
+       true,
+       "7"
+      ],
+      [
+       "one tap confirms a fact",
+       true,
+       "200"
+      ],
+      [
+       "the hospital's own data is untouched by the practice site",
+       true,
+       ""
+      ],
+      [
+       "Ask TrialBox answers what to do next",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-zh-TW-07.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "6 other screens",
+     "ok": true,
+     "seconds": 5.3,
+     "checks": [
+      [
+       "crc /home",
+       true,
+       "200"
+      ],
+      [
+       "crc /week",
+       true,
+       "200"
+      ],
+      [
+       "crc /account",
+       true,
+       "200"
+      ],
+      [
+       "crc /help",
+       true,
+       "200"
+      ],
+      [
+       "crc /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "crc /reports",
+       true,
+       "200"
+      ],
+      [
+       "crc /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "pi /home",
+       true,
+       "200"
+      ],
+      [
+       "pi /week",
+       true,
+       "200"
+      ],
+      [
+       "pi /account",
+       true,
+       "200"
+      ],
+      [
+       "pi /help",
+       true,
+       "200"
+      ],
+      [
+       "pi /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "pi /reports",
+       true,
+       "200"
+      ],
+      [
+       "pi /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "admin /home",
+       true,
+       "200"
+      ],
+      [
+       "admin /account",
+       true,
+       "200"
+      ],
+      [
+       "admin /help",
+       true,
+       "200"
+      ],
+      [
+       "admin /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "admin /reports",
+       true,
+       "200"
+      ],
+      [
+       "admin /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "admin /studies/PUB-ONC/week is refused (403: no patient data)",
+       true,
+       "403"
+      ],
+      [
+       "banner says public data",
+       true,
+       ""
+      ],
+      [
+       "request menu: this site's studies only",
+       true,
+       "['PUB-ONC', 'PUB-CA', 'PUB-ONC']"
+      ],
+      [
+       "clinician names from the records",
+       true,
+       ""
+      ],
+      [
+       "research-office counts",
+       true,
+       "200"
+      ],
+      [
+       "research-office XLSX",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'PUB-ONC'",
+       true,
+       "200"
+      ],
+      [
+       "command field: '69390044'",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'help'",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=health",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=jobs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=sources",
+       true,
+       "200"
+      ],
+      [
+       "admin /ops/users",
+       true,
+       "200"
+      ],
+      [
+       "admin /jobs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=overview",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=backups",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=update",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=logs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=secrets",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin/ops?tab=network",
+       true,
+       "200"
+      ],
+      [
+       "admin /audit is refused (403)",
+       true,
+       ""
+      ],
+      [
+       "steward /audit",
+       true,
+       "200"
+      ],
+      [
+       "investigator cannot open admin",
+       true,
+       "403"
+      ],
+      [
+       "operations: the action asks first",
+       true,
+       "200"
+      ],
+      [
+       "operations: network sheet written",
+       true,
+       ""
+      ],
+      [
+       "operations: refused to the investigator",
+       true,
+       ""
+      ],
+      [
+       "404 page",
+       true,
+       "404"
+      ]
+     ],
+     "shot": "public-zh-TW-08.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "7 exports, CASE, consent explainer, Cancel / Retry",
+     "ok": true,
+     "seconds": 289.3,
+     "checks": [
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download PDF feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "cohort registry export XLSX",
+       true,
+       "200"
+      ],
+      [
+       "CASE on a real case report finishes",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "consent explainer draft (ICF upload, EN + JA)",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "Cancel asks to confirm",
+       true,
+       "200"
+      ],
+      [
+       "Cancel a waiting job (failed, step cancelled)",
+       true,
+       "(303, 'failed', JobError(step='cancelled', message='Cancelled by console:admin.', detail=None))"
+      ],
+      [
+       "Retry a failed job creates a new one",
+       true,
+       "(303, '')"
+      ],
+      [
+       "Retry of a finished job is refused (409)",
+       true,
+       "409"
+      ],
+      [
+       "Cancel of a finished job is refused (409)",
+       true,
+       "409"
+      ]
+     ],
+     "shot": "public-zh-TW-09.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "7b chart numbers and names by role",
+     "ok": true,
+     "seconds": 3.8,
+     "checks": [
+      [
+       "viewer: no chart number or name on any page of the walk (51 pages)",
+       true,
+       "[]"
+      ],
+      [
+       "viewer: runs, registry, audit trail and study set-up refused (403)",
+       true,
+       "[]"
+      ],
+      [
+       "cra: no chart number or name on any page of the walk (51 pages)",
+       true,
+       "[]"
+      ],
+      [
+       "cra: runs, registry, audit trail and study set-up refused (403)",
+       true,
+       "[]"
+      ],
+      [
+       "the study's investigator sees the CASE request's chart number (D-143)",
+       true,
+       ""
+      ],
+      [
+       "and that view is audited",
+       true,
+       ""
+      ]
+     ],
+     "shot": "public-zh-TW-10.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "8 audit chain",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "audit chain verifies",
+       true,
+       "VerifyResult(ok=True, files=1, lines=917, last_hash='4053400d145de47716f864bf10800bde8315a7380d7add14ffb11652f0bdad5d', errors=[], head={'file': '2026-11-14.jsonl', 'hash': '4053400d145de47716f864bf10800bde8315a7380d7add14ffb11652f0bdad5d', 'lines': 917}, notes=[])"
+      ]
+     ],
+     "shot": "public-zh-TW-11.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    }
+   ],
+   "seconds": 657.9,
+   "screen": {
+    "funnel": {
+     "S0": 268,
+     "S1": 90,
+     "S3": 90,
+     "S4": 90
+    },
+    "tiers": {
+     "excluded": 178,
+     "high": 0,
+     "review": 90
+    },
+    "listed": 90,
+    "judging": {
+     "configured_note_block": "both_agree",
+     "disagreements": 4,
+     "failures": 1,
+     "judge_model": "local/gemma-4-26b-a4b-nvfp4",
+     "may_block": true,
+     "mode": "agreement",
+     "note_block": "both_agree",
+     "note_block_code": "ok",
+     "note_block_reason": "judge and verifier must both say fail",
+     "verifier_model": "local/qwen3.5-9b-awq"
+    },
+    "request_seconds": {
+     "PUB-ONC": 115.3,
+     "PUB-CA": 1.0
+    },
+    "stage_seconds": 116.4
+   },
+   "canary": {
+    "gate": "on",
+    "allows_block": true,
+    "code": "ok",
+    "reason": "",
+    "running": false,
+    "at": "2026-11-14T06:35:03",
+    "ok": true,
+    "cases": 54,
+    "pair_correct": 53,
+    "pair_decided_wrong": 0,
+    "models": [
+     {
+      "role": "judge",
+      "model": "local/gemma-4-26b-a4b-nvfp4",
+      "correct": 54,
+      "flips": 0,
+      "ok": true
+     },
+     {
+      "role": "verifier",
+      "model": "local/qwen3.5-9b-awq",
+      "correct": 49,
+      "flips": 1,
+      "ok": true
+     }
+    ],
+    "wake_failure": null
+   },
+   "run": {
+    "id": "20261114T061459Z-02858674-s1",
+    "head": "02858674236585c0b0a227e409ae7a34e3c5524c",
+    "subject": "Lane G: D-502, every data set is run with the real models in three languages; lane G's order of work",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 664.4,
+    "folder": "parts/public-zh-TW",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 273998.0,
+      "generation_tokens": 39251.0,
+      "requests": 434.0,
+      "ttft_seconds_sum": 27.84,
+      "ttft_count": 434.0,
+      "queue_seconds_sum": 0.083,
+      "queue_count": 434.0,
+      "e2e_seconds_sum": 1039.509,
+      "e2e_count": 434.0,
+      "ttft_mean_s": 0.0641,
+      "queue_mean_s": 0.0002,
+      "e2e_mean_s": 2.3952
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 36488.0,
+      "generation_tokens": 22265.0,
+      "requests": 83.0,
+      "ttft_seconds_sum": 4.976,
+      "ttft_count": 83.0,
+      "queue_seconds_sum": 0.066,
+      "queue_count": 83.0,
+      "e2e_seconds_sum": 401.392,
+      "e2e_count": 83.0,
+      "ttft_mean_s": 0.06,
+      "queue_mean_s": 0.0008,
+      "e2e_mean_s": 4.836
+     }
+    },
+    "gpu": {
+     "samples": 68,
+     "every_s": 10.0,
+     "util_mean_pct": 38.4,
+     "util_max_pct": 92.0,
+     "memory_peak_mib": 62592.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 52.0,
+     "power_max_w": 258.42
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 15.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.038257041434794026
+     },
+     "verifier": {
+      "running_max": 2.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.01869158878504673
+     }
+    }
+   },
+   "throughput": {
+    "source": "gateway audit (llm.gateway.call)",
+    "calls": 517,
+    "busy_seconds": 618.7,
+    "calls_per_second": 0.836,
+    "tokens_in": 310486,
+    "tokens_out": 61516,
+    "tokens_in_per_second": 501.838,
+    "tokens_out_per_second": 99.428,
+    "tokens_per_second": 601.266,
+    "p50_s": 2.002,
+    "p95_s": 3.506,
+    "mean_in_flight": 2.33,
+    "cached": 0,
+    "endpoints": {
+     "serving": {
+      "calls": 434,
+      "busy_seconds": 288.9,
+      "calls_per_second": 1.502,
+      "tokens_in": 273998,
+      "tokens_out": 39251,
+      "tokens_in_per_second": 948.434,
+      "tokens_out_per_second": 135.866,
+      "tokens_per_second": 1084.3,
+      "p50_s": 2.013,
+      "p95_s": 3.474,
+      "mean_in_flight": 3.6
+     },
+     "verifier": {
+      "calls": 83,
+      "busy_seconds": 378.0,
+      "calls_per_second": 0.22,
+      "tokens_in": 36488,
+      "tokens_out": 22265,
+      "tokens_in_per_second": 96.535,
+      "tokens_out_per_second": 58.906,
+      "tokens_per_second": 155.441,
+      "p50_s": 1.847,
+      "p95_s": 18.415,
+      "mean_in_flight": 1.06
+     }
+    },
+    "breaker_opens": {
+     "embed": 0,
+     "external_x": 0,
+     "openrouter": 0,
+     "serving": 0,
+     "stub": 0,
+     "verifier": 0
+    }
+   },
+   "refusals": {
+    "asked": 517,
+    "refused": 0,
+    "by_reason": {},
+    "by_role": {}
+   },
+   "wall_seconds": 664.4,
+   "started_at": "2026-11-14T06:31:39+00:00",
+   "finished_at": "2026-11-14T06:42:43+00:00",
+   "part": "public",
+   "lang": "zh-TW",
+   "tag": "public-zh-TW",
+   "seconds_total": 664.4
+  },
+  {
+   "stages": [
+    {
+     "name": "MedTxt-CR (ja): case reports pasted, conditions read, negations kept out",
+     "ok": false,
+     "seconds": 2805.0,
+     "checks": [
+      [
+       "the corpus is here",
+       true,
+       "MedTxt in .cache/medtxt"
+      ],
+      [
+       "every report read, one call each",
+       true,
+       "(148, 148)"
+      ],
+      [
+       "no proposed condition rests only on a mention the corpus marks negative",
+       false,
+       "['CR:JP0245-4: 右乳癌術後（４年前）', 'CR:JP1220-162: 平成２年４月４日に食道癌根治術施行。', 'CR:JP1553-37: ７年前に胸腺癌手術', 'CR:JP1553-37: ５年前に下肢静脈瘤手術。', 'CR:JP1553-72: 既往に開腹胆摘、上行結腸早期癌ＥＭＲがある。']"
+      ]
+     ],
+     "shot": "scenario-public-medtxt-00.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    }
+   ],
+   "scenario": {
+    "input": "148 MedTxt-CR case reports (ja, real clinician text, CC BY 4.0)",
+    "counts": {
+     "conditions": 432,
+     "on_positive_mention": 389,
+     "positive_tags": 1427,
+     "negative_tags": 195,
+     "on_untagged_text": 24,
+     "on_suspected_mention": 11,
+     "on_negated_mention": 8
+    },
+    "expected": {
+     "conditions_on_negated_mentions": 0
+    },
+    "got": {
+     "conditions_on_negated_mentions": 8
+    },
+    "model_calls": 148,
+    "seconds": 2805.0,
+    "title": "Real data: MedTxt-CR Japanese case reports as pasted charts (CC BY 4.0)"
+   },
+   "findings": [
+    {
+     "id": "MT-01",
+     "what": "conditions proposed from a mention the corpus marks suspected (疑い)",
+     "expected": "0",
+     "got": 11,
+     "holds": false
+    }
+   ],
+   "run": {
+    "id": "20261114T061459Z-02858674-s1",
+    "head": "02858674236585c0b0a227e409ae7a34e3c5524c",
+    "subject": "Lane G: D-502, every data set is run with the real models in three languages; lane G's order of work",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 2806.7,
+    "folder": "parts/scenario-public-medtxt",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 136365.0,
+      "generation_tokens": 115344.0,
+      "requests": 203.0,
+      "ttft_seconds_sum": 11.021,
+      "ttft_count": 203.0,
+      "queue_seconds_sum": 0.291,
+      "queue_count": 203.0,
+      "e2e_seconds_sum": 2663.42,
+      "e2e_count": 203.0,
+      "ttft_mean_s": 0.0543,
+      "queue_mean_s": 0.0014,
+      "e2e_mean_s": 13.1203
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 18428.0,
+      "generation_tokens": 5245.0,
+      "requests": 54.0,
+      "ttft_seconds_sum": 2.605,
+      "ttft_count": 54.0,
+      "queue_seconds_sum": 0.065,
+      "queue_count": 54.0,
+      "e2e_seconds_sum": 94.113,
+      "e2e_count": 54.0,
+      "ttft_mean_s": 0.0482,
+      "queue_mean_s": 0.0012,
+      "e2e_mean_s": 1.7428
+     }
+    },
+    "gpu": {
+     "samples": 281,
+     "every_s": 10.0,
+     "util_mean_pct": 33.1,
+     "util_max_pct": 41.0,
+     "memory_peak_mib": 62592.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 47.0,
+     "power_max_w": 168.21
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 1.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.006743036071367725
+     },
+     "verifier": {
+      "running_max": 1.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.006230529595015577
+     }
+    }
+   },
+   "wall_seconds": 2806.7,
+   "started_at": "2026-11-14T06:42:45+00:00",
+   "finished_at": "2026-11-14T07:29:32+00:00",
+   "part": "scenario",
+   "lang": "ja",
+   "tag": "scenario-public-medtxt",
+   "seconds_total": 2806.7
+  },
+  {
+   "stages": [
+    {
+     "name": "TREC CT: real trials, patient descriptions, qrels as truth",
+     "ok": false,
+     "seconds": 2708.8,
+     "checks": [
+      [
+       "every criterion answered",
+       false,
+       "7"
+      ],
+      [
+       "eligible patients lost by the pair <= 10 % (VALIDATION §3: 3.1 % on the deployed files)",
+       false,
+       "(12, 50)"
+      ]
+     ],
+     "shot": "scenario-public-trec.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "scenario": {
+    "input": "100 TREC CT 2021/22 patient-trial pairs (50 eligible, 50 excluded by the qrels), 1256 criteria",
+    "counts": {
+     "criteria": 1256,
+     "models": [
+      "local/gemma-4-26b-a4b-nvfp4",
+      "local/qwen3.5-9b-awq"
+     ]
+    },
+    "expected": {
+     "eligible_lost": 0,
+     "excluded_caught": 50
+    },
+    "got": {
+     "eligible_lost": 12,
+     "excluded_caught": 23
+    },
+    "model_calls": 2512,
+    "note": "judged by tools.mlbench's prompt straight to the model (an evaluation path, not the box)",
+    "seconds": 2708.9,
+    "title": "Real data: TREC Clinical Trials topics, trials and qrels (NIST, NCBI)"
+   },
+   "findings": [],
+   "run": {
+    "id": "20261114T061459Z-02858674-s1",
+    "head": "02858674236585c0b0a227e409ae7a34e3c5524c",
+    "subject": "Lane G: D-502, every data set is run with the real models in three languages; lane G's order of work",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 2709.7,
+    "folder": "parts/scenario-public-trec",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 667363.0,
+      "generation_tokens": 55699.0,
+      "requests": 1256.0,
+      "ttft_seconds_sum": 62.683,
+      "ttft_count": 1256.0,
+      "queue_seconds_sum": 1.28,
+      "queue_count": 1256.0,
+      "e2e_seconds_sum": 1313.862,
+      "e2e_count": 1256.0,
+      "ttft_mean_s": 0.0499,
+      "queue_mean_s": 0.001,
+      "e2e_mean_s": 1.0461
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 677014.0,
+      "generation_tokens": 76191.0,
+      "requests": 1256.0,
+      "ttft_seconds_sum": 73.84,
+      "ttft_count": 1256.0,
+      "queue_seconds_sum": 1.259,
+      "queue_count": 1256.0,
+      "e2e_seconds_sum": 1390.288,
+      "e2e_count": 1256.0,
+      "ttft_mean_s": 0.0588,
+      "queue_mean_s": 0.001,
+      "e2e_mean_s": 1.1069
+     }
+    },
+    "gpu": {
+     "samples": 271,
+     "every_s": 10.0,
+     "util_mean_pct": 38.4,
+     "util_max_pct": 67.0,
+     "memory_peak_mib": 62592.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 54.0,
+     "power_max_w": 200.34
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 1.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.004092325339864478
+     },
+     "verifier": {
+      "running_max": 1.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.012461059190031154
+     }
+    }
+   },
+   "wall_seconds": 2709.7,
+   "started_at": "2026-11-14T07:29:34+00:00",
+   "finished_at": "2026-11-14T08:14:43+00:00",
+   "part": "scenario",
+   "lang": "ja",
+   "tag": "scenario-public-trec",
+   "seconds_total": 2709.7
+  }
+ ],
+ "llm_concurrency": [
+  16
+ ],
+ "throughput": [
+  {
+   "tag": "public-ja",
+   "llm_concurrency": 16,
+   "calls": 525,
+   "calls_per_second": 0.957,
+   "tokens_per_second": 677.928,
+   "p50_s": 2.051,
+   "p95_s": 4.966,
+   "gpu_util_mean_pct": 39.2,
+   "gpu_memory_peak_mib": 62592.0,
+   "queue_mean_s": {
+    "judge": 0.0039,
+    "verifier": 0.018
+   },
+   "ttft_mean_s": {
+    "judge": 0.1329,
+    "verifier": 0.0959
+   },
+   "breaker_opens": 0,
+   "refused": {
+    "asked": 525,
+    "refused": 0,
+    "by_reason": {},
+    "by_role": {}
+   },
+   "candidates": 90,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 93.0,
+   "kv_cache_peak": {
+    "judge": 0.04096975709568906,
+    "verifier": 0.02336448598130836
+   }
+  },
+  {
+   "tag": "public-zh-TW",
+   "llm_concurrency": 16,
+   "calls": 517,
+   "calls_per_second": 0.836,
+   "tokens_per_second": 601.266,
+   "p50_s": 2.002,
+   "p95_s": 3.506,
+   "gpu_util_mean_pct": 38.4,
+   "gpu_memory_peak_mib": 62592.0,
+   "queue_mean_s": {
+    "judge": 0.0002,
+    "verifier": 0.0008
+   },
+   "ttft_mean_s": {
+    "judge": 0.0641,
+    "verifier": 0.06
+   },
+   "breaker_opens": 0,
+   "refused": {
+    "asked": 517,
+    "refused": 0,
+    "by_reason": {},
+    "by_role": {}
+   },
+   "candidates": 90,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 92.0,
+   "kv_cache_peak": {
+    "judge": 0.038257041434794026,
+    "verifier": 0.01869158878504673
+   }
+  },
+  {
+   "tag": "scenario-public-medtxt",
+   "llm_concurrency": 16,
+   "calls": 0,
+   "calls_per_second": null,
+   "tokens_per_second": null,
+   "p50_s": null,
+   "p95_s": null,
+   "gpu_util_mean_pct": 33.1,
+   "gpu_memory_peak_mib": 62592.0,
+   "queue_mean_s": {
+    "judge": 0.0014,
+    "verifier": 0.0012
+   },
+   "ttft_mean_s": {
+    "judge": 0.0543,
+    "verifier": 0.0482
+   },
+   "breaker_opens": null,
+   "refused": null,
+   "candidates": null,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 41.0,
+   "kv_cache_peak": {
+    "judge": 0.006743036071367725,
+    "verifier": 0.006230529595015577
+   }
+  },
+  {
+   "tag": "scenario-public-trec",
+   "llm_concurrency": 16,
+   "calls": 0,
+   "calls_per_second": null,
+   "tokens_per_second": null,
+   "p50_s": null,
+   "p95_s": null,
+   "gpu_util_mean_pct": 38.4,
+   "gpu_memory_peak_mib": 62592.0,
+   "queue_mean_s": {
+    "judge": 0.001,
+    "verifier": 0.001
+   },
+   "ttft_mean_s": {
+    "judge": 0.0499,
+    "verifier": 0.0588
+   },
+   "breaker_opens": null,
+   "refused": null,
+   "candidates": null,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 67.0,
+   "kv_cache_peak": {
+    "judge": 0.004092325339864478,
+    "verifier": 0.012461059190031154
+   }
+  }
+ ],
+ "repeats": [],
+ "candidates_compare": {},
+ "candidates_identical": {},
+ "door_secret": "door secret tb-gpu-door: enabled version(s) 2 remain (this run's not destroyed: none); destroy each with: gcloud secrets versions destroy <version> --secret tb-gpu-door --quiet",
+ "checks": 265,
+ "failed": 3,
+ "not_run": [],
+ "checks_never_ran": null,
+ "shots": 26,
+ "shots_ok": 26,
+ "findings": [
+  {
+   "id": "MT-01",
+   "what": "conditions proposed from a mention the corpus marks suspected (疑い)",
+   "expected": "0",
+   "got": 11,
+   "holds": false,
+   "part": "scenario-public-medtxt"
+  }
+ ],
+ "not_started": [],
+ "verdict": "FAILED",
+ "ok": false,
+ "seconds": 6780.9,
+ "report_built": "2026-11-14T08:15:50+00:00",
+ "times_from_parts": true,
+ "langs_run": [
+  "ja",
+  "zh-TW"
+ ]
+}

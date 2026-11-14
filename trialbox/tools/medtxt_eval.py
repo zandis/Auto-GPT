@@ -88,6 +88,38 @@ ART = re.compile(r'<article id="([^"]+)"[^>]*>(.*?)</article>', re.S)
 DTAG = re.compile(r'<d certainty="(\w+)"[^>]*>(.*?)</d>', re.S)
 TAG = re.compile(r"<[^>]+>")
 
+# MedTxt-CR tags a disease that is no longer present as negative, not only one the text denies: "右乳癌術後",
+# "食道癌根治術施行" (lane G finding P6, run 20261114T061459Z). A mention is past, treated disease when the corpus's
+# markup after its negative tag shows an executed procedure or 術後, and the quote that names it shows the treatment
+# right after the mention too. One reading for every user: the MedTxt scenario's check (``tools.scenarios``) and the
+# public-data site's diagnoses (``tools.public_site``: a resolved diagnosis, not a skipped one).
+_TREATED = re.compile(r'state="executed"|術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR')
+_DENIED = re.compile(r"なし|無し|認めず|認めな|みられな|見られな|ない|否定|陰性|（－）|（-）|\(-\)")
+_TREATED_QUOTE = re.compile(r"術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR")
+
+
+def negative_kinds(raw: str) -> dict[str, set[str]]:
+    """Each mention ``raw`` (one MedTxt-CR article's markup) tags negative -> the kinds of its contexts: ``treated``,
+    ``denied`` or ``other`` (the 60 characters of markup after the tag)."""
+    out: dict[str, set[str]] = {}
+    for m in DTAG.finditer(raw):
+        if m.group(1) != "negative":
+            continue
+        text = " ".join(html.unescape(TAG.sub("", m.group(2))).split())
+        after = raw[m.end() : m.end() + 60]
+        kind = "treated" if _TREATED.search(after) else "denied" if _DENIED.search(after) else "other"
+        out.setdefault(text, set()).add(kind)
+    return out
+
+
+def treated_in_quote(mention: str, quote: str, kinds: dict[str, set[str]]) -> bool:
+    """``mention`` (tagged negative) is past, treated disease in ``quote``: the corpus marks a treated context for it
+    (``kinds``, from :func:`negative_kinds`) and the quote names a treatment within 10 characters after it."""
+    if "treated" not in kinds.get(mention, set()):
+        return False
+    i = quote.find(mention)
+    return i >= 0 and bool(_TREATED_QUOTE.search(quote[i + len(mention) : i + len(mention) + 10]))
+
 
 def articles(corpus: str, lang: str) -> dict[str, str]:
     out: dict[str, str] = {}

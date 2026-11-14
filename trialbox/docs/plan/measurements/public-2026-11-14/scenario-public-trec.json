@@ -1,0 +1,124 @@
+{
+ "stages": [
+  {
+   "name": "TREC CT: real trials, patient descriptions, qrels as truth",
+   "ok": false,
+   "seconds": 2708.8,
+   "checks": [
+    [
+     "every criterion answered",
+     false,
+     "7"
+    ],
+    [
+     "eligible patients lost by the pair <= 10 % (VALIDATION §3: 3.1 % on the deployed files)",
+     false,
+     "(12, 50)"
+    ]
+   ],
+   "shot": "scenario-public-trec.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "scenario": {
+  "input": "100 TREC CT 2021/22 patient-trial pairs (50 eligible, 50 excluded by the qrels), 1256 criteria",
+  "counts": {
+   "criteria": 1256,
+   "models": [
+    "local/gemma-4-26b-a4b-nvfp4",
+    "local/qwen3.5-9b-awq"
+   ]
+  },
+  "expected": {
+   "eligible_lost": 0,
+   "excluded_caught": 50
+  },
+  "got": {
+   "eligible_lost": 12,
+   "excluded_caught": 23
+  },
+  "model_calls": 2512,
+  "note": "judged by tools.mlbench's prompt straight to the model (an evaluation path, not the box)",
+  "seconds": 2708.9,
+  "title": "Real data: TREC Clinical Trials topics, trials and qrels (NIST, NCBI)"
+ },
+ "findings": [],
+ "run": {
+  "id": "20261114T061459Z-02858674-s1",
+  "head": "02858674236585c0b0a227e409ae7a34e3c5524c",
+  "subject": "Lane G: D-502, every data set is run with the real models in three languages; lane G's order of work",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 16,
+ "metrics": {
+  "sampled": true,
+  "seconds": 2709.7,
+  "folder": "parts/scenario-public-trec",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 667363.0,
+    "generation_tokens": 55699.0,
+    "requests": 1256.0,
+    "ttft_seconds_sum": 62.683,
+    "ttft_count": 1256.0,
+    "queue_seconds_sum": 1.28,
+    "queue_count": 1256.0,
+    "e2e_seconds_sum": 1313.862,
+    "e2e_count": 1256.0,
+    "ttft_mean_s": 0.0499,
+    "queue_mean_s": 0.001,
+    "e2e_mean_s": 1.0461
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 677014.0,
+    "generation_tokens": 76191.0,
+    "requests": 1256.0,
+    "ttft_seconds_sum": 73.84,
+    "ttft_count": 1256.0,
+    "queue_seconds_sum": 1.259,
+    "queue_count": 1256.0,
+    "e2e_seconds_sum": 1390.288,
+    "e2e_count": 1256.0,
+    "ttft_mean_s": 0.0588,
+    "queue_mean_s": 0.001,
+    "e2e_mean_s": 1.1069
+   }
+  },
+  "gpu": {
+   "samples": 271,
+   "every_s": 10.0,
+   "util_mean_pct": 38.4,
+   "util_max_pct": 67.0,
+   "memory_peak_mib": 62592.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 54.0,
+   "power_max_w": 200.34
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 1.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.004092325339864478
+   },
+   "verifier": {
+    "running_max": 1.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.012461059190031154
+   }
+  }
+ },
+ "wall_seconds": 2709.7,
+ "started_at": "2026-11-14T07:29:34+00:00",
+ "finished_at": "2026-11-14T08:14:43+00:00"
+}

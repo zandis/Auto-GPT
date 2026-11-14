@@ -1,8 +1,8 @@
 """B5 (2026-11-13): ``--repeats N`` runs each ``--llm-concurrency`` setting N times, each its own part
 ``hospital-<lang>@c<N>#r<k>``, every (setting, repeat) pair in the order the recorded seed gives. The estimate, the cap,
 the plan, the report's G-3 table (mean, min and max of the main SCREEN's calls/s per setting) and the results reader
-understand the tags. A restart of the model servers between settings is not in scope, and the texts say so. Each test
-failed before the change. No cloud: pure functions, the driver's ``--dry-run``, the reader on a synthetic folder."""
+understand the tags. Without ``--restart-between`` (lane G batch 6) the model servers are not restarted between
+settings, and the texts say so. Each test failed before the change. No cloud: pure functions, the driver's ``--dry-run``, the reader on a synthetic folder."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def test_the_estimate_and_the_cap_count_every_repeat(capsys: pytest.CaptureFixtu
     assert "the hospital part runs 2 times per value, each its own part (hospital-<lang>@c<N>#r<k>)" in text
     assert "order: every (setting, repeat) pair randomised with seed 7" in text
     assert f"run order: {' '.join(cr.hospital_variants((1, 16), 2, 7))}" in text
-    assert "the model servers are not restarted between settings or repeats (not in scope)" in text
+    assert "the model servers are not restarted between settings or repeats (--restart-between not given)" in text
     with pytest.raises(SystemExit):
         cr.main(["--estimate", "--repeats", "0"])
 
@@ -111,7 +111,7 @@ def test_the_report_shows_each_settings_mean_min_and_max() -> None:
     text = "\n".join(cr._throughput_section(rep))
     assert "| hospital | in flight | repeats | measured | main SCREEN calls/s mean | min | max |" in text
     assert "| ja | 16 | 2 | 2 | 4.5 | 4.4 | 4.6 |" in text and "| ja | 1 | 2 | 2 | 0.39 | 0.38 | 0.4 |" in text
-    assert "not restarted between settings or repeats (not in scope)" in text
+    assert "not restarted between settings or repeats (--restart-between not given)" in text
     assert rm.repeat_summary([_hosp("hospital-ja@c4", 1.4, 4)]) == []  # no repeat: no such table
     assert rm.repeat_summary([_hosp("hospital-ja@c4#r1", None, 4)])[0]["mean"] is None  # not measured: not in it
 
@@ -150,7 +150,7 @@ def test_the_results_reader_understands_the_repeat_tags(tmp_path: Path) -> None:
     assert g3["repeats"] == [{"in_flight": 16, "repeats": 3, "measured": 3, "mean": 5.0, "min": 4.8, "max": 5.2}]
     readme = (out / "README.md").read_text(encoding="utf-8")
     assert "| 16 | 3 | 3 | 5.0 | 4.8 | 5.2 |" in readme and "| 16#r2 | PASSED |" in readme
-    assert "The model servers were not restarted between settings or repeats (not in scope)." in readme
+    assert "The model servers were not restarted between settings or repeats (--restart-between not given)." in readme
     assert "Candidate list: **IDENTICAL** at 1, 4, 16#r1, 16#r2, 16#r3, 48 in flight." in readme
     for k in (1, 2, 3):
         assert f"| `hospital-ja@c16#r{k}` | PASSED |" in readme

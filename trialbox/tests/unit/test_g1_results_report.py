@@ -320,3 +320,21 @@ def test_the_main_screen_window_is_the_rate_when_the_part_recorded_it(tmp_path: 
     assert got["calls_per_second"] == 4.391 and got["measured_over"] == "main SCREEN" and got["breaker_opens"] == 0
     old = rr.setting_row("hospital-ja@c1", row, run)
     assert old["calls_per_second"] == 0.4 and old["measured_over"] == "whole part"
+
+
+def test_a_run_on_public_data_says_so_and_credits_the_sets(tmp_path: Path) -> None:
+    """B16 (run 20261114T061459Z): the README said "Synthetic data only" of a run on MedTxt, TREC CT and the
+    public-data site. A part on public data names its set, licence and who to credit; a synthetic run is unchanged."""
+    code, readme, _, cap = run(FIXTURES / "complete", tmp_path / "synthetic", *WINDOW)
+    assert code == 0 and "\nSynthetic data only. Written from" in readme
+    assert cap["synthetic_data_only"] is True and cap["public_data"] == []
+    folder = tmp_path / "public"
+    shutil.copytree(FIXTURES / "complete", folder)
+    for tag in ("scenario-public-medtxt", "scenario-public-trec", "public-ja"):
+        shutil.copy(folder / "parts" / "scenario-gateway.json", folder / "parts" / f"{tag}.json")
+    code, readme, _, cap = run(folder, tmp_path / "out", *WINDOW)
+    assert code == 0 and "Synthetic data only." not in readme
+    assert "Synthetic and public data only. Public data read by this run: MedTxt-CR" in readme
+    assert "(CC BY 4.0, Sociocom, NAIST; NTCIR-16 Real-MedNLP)" in readme and "TREC Clinical Trials" in readme
+    assert "the public-data site's notes" in readme and "MIMIC" not in readme
+    assert cap["synthetic_data_only"] is False and len(cap["public_data"]) == 3

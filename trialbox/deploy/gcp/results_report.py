@@ -13,6 +13,12 @@ the part files may also lie flat in the folder, as in ``docs/plan/measurements/g
   T-734);
 * ``DEFECTS.md``: one entry per failed part or failed check, for the integrator, with empty Cause, Fix and Card.
 
+Each patient's kept answers (``parts/<part>/answers.jsonl.gz``: per listed synthetic patient its pseudonymous id and
+each criterion's answer and confidence; lane G batch 6) are never copied: they are per-patient rows whose size grows
+with the hospital, and the run's ``results.tgz`` keeps them. The reader records each file's name, bytes and sha256 and,
+from the run's report, the comparison of the lists across settings and repeats (how many patients differ, which
+criteria flipped: counts and criterion ids, no patient id) in ``capacity_inputs.json`` and ``README.md``.
+
 The reader only reads: it calls no service, runs no command and needs no network. Standard library only. A part with
 no result is PENDING or MISSING, by name; it is never dropped and never counted as passed. The exit code is 0 unless a
 file is malformed (2) or the output folder holds a README this reader did not write (3). Model ids never reach the
@@ -49,6 +55,17 @@ NOT_PARTS = {"plan.json", "TB_HEAD.json", "gpu_peak.json", "report.json", "repor
 # Change it with --window-share or the plan's window.usable_share.
 WINDOW_SHARE = 0.7
 ROLE_OF_ENDPOINT = {"serving": "judge", "verifier": "verifier"}  # the gateway's endpoint names (tools/run_metrics.py)
+# The public data sets a part may run on (D-502), each with its licence and who to credit. A part on public data makes
+# "Synthetic data only" false: the README says which public data sets the run read instead, and capacity_inputs.json
+# carries the same list (lane G finding B16).
+PUBLIC_DATA = (
+    ("scenario-public-medtxt", "MedTxt-CR Japanese case reports (CC BY 4.0, Sociocom, NAIST; NTCIR-16 Real-MedNLP)"),
+    ("scenario-public-trec", "TREC Clinical Trials 2021/2022 topics and qrels (NIST) and trial texts from "
+                             "ClinicalTrials.gov (the NCBI TrialGPT corpus)"),
+    ("scenario-public-mimic", "the MIMIC-IV clinical database demo on FHIR (PhysioNet, ODbL)"),
+    ("public-", "the public-data site's notes (tools/public_site.py): MedTxt-CR and MedTxt-RR (CC BY 4.0, "
+                "Sociocom, NAIST) and the SIGIR 2016 patient descriptions (NCBI, public domain)"),
+)  # fmt: skip
 DETAIL_CHARS = 300  # a check's detail in DEFECTS.md: the part writer cuts its own crash text at the same length
 
 
@@ -288,6 +305,10 @@ def setting_row(tag: str, row: dict[str, Any], run: dict[str, Any]) -> dict[str,
         "model_seconds_per_patient": round(busy / patients, 4) if busy and patients else None,
         "candidates": cand.get("count"), "candidates_sha256": cand.get("sha256"),
         "_list": {tuple(x) for x in cand.get("list") or []} if isinstance(cand.get("list"), list) else None,
+        # lane G batch 6: the servers restarted before this part (--restart-between); its answers file, by reference
+        "restarted": (res.get("restart") or {}).get("restarted"),
+        "answers": {k: x for k, x in ((res.get("candidates") or {}).get("answers") or {}).items()
+                    if k in ("file", "bytes", "sha256", "listed", "excluded")} or None,
     })  # fmt: skip
     return out
 
@@ -390,9 +411,26 @@ def g3(run: dict[str, Any], rows: dict[str, dict[str, Any]], args: argparse.Name
             how = "the highest calls/s among the settings with the reference list and no breaker opening"
             if best in mean:
                 how += " (repeats: the highest mean; its slowest repeat is the window's figure)"
+        cmp = ((run["report"].get("candidates_compare") or {}).get(lang)) or {}
+        answers = {k: cmp.get(k) for k in ANSWERS_KEYS if k in cmp} or None  # counts and criterion ids, no pid
         out[lang] = {"settings": settings, "lists": lists, "chosen": chosen and chosen["in_flight"], "chosen_how": how,
-                     "repeats": reps, "window": window(args, run["plan"], chosen)}  # fmt: skip
+                     "repeats": reps, "window": window(args, run["plan"], chosen), "answers_compare": answers,
+                     "restarted": [_label(s) for s in settings if s.get("restarted")]}  # fmt: skip
     return out
+
+
+# what the README and capacity_inputs.json keep of the report's candidates_compare (lane G batch 6): no pid
+ANSWERS_KEYS = ("identical", "answers", "patients_differ", "criteria_flipped", "answers_identical",
+                "excluded_by_criterion", "excluded")  # fmt: skip
+
+
+def restart_line(g: dict[str, Any]) -> str:
+    """Whether the model servers were restarted between the settings and repeats of this language."""
+    done = g.get("restarted") or []
+    if done:
+        return (f"The model servers were restarted (--restart-between) before {', '.join(str(x) for x in done)}; "
+                "the gateway and the orchestrator are fresh in every part.")  # fmt: skip
+    return "The model servers were not restarted between settings or repeats (--restart-between not given)."
 
 
 # ---------------------------------------------------------------- defects
@@ -473,8 +511,7 @@ def g3_lines(lang: str, g: dict[str, Any]) -> list[str]:
     lists, w = g["lists"], g["window"]
     if g.get("repeats"):  # B5: --repeats
         out += ["", "Repeats: each setting ran several times as its own part (`hospital-<lang>@c<N>#r<k>`), the order "
-                "of every (setting, repeat) randomised from the recorded seed. The model servers were not restarted "
-                "between settings or repeats (not in scope).", ""]  # fmt: skip
+                f"of every (setting, repeat) randomised from the recorded seed. {restart_line(g)}", ""]  # fmt: skip
         out += table(["in flight", "repeats", "measured", "calls/s mean", "min", "max"],
                      [[x["in_flight"], x["repeats"], x["measured"], x["mean"], x["min"], x["max"]]
                       for x in g["repeats"]])  # fmt: skip
@@ -491,6 +528,15 @@ def g3_lines(lang: str, g: dict[str, Any]) -> list[str]:
                    " in flight.")  # fmt: skip
     if lists.get("waiting"):
         out.append(f"- No list yet at: {', '.join(str(n) for n in lists['waiting'])} in flight.")
+    ans = g.get("answers_compare") or {}
+    if ans.get("answers") == "kept":  # lane G batch 6: from the parts' answers.jsonl.gz (in results.tgz, not here)
+        flips = ans.get("criteria_flipped") or {}
+        out.append(f"- Kept answers: {ans.get('patients_differ', 0)} patient(s) differ; criteria flipped (patients): "
+                   + (", ".join(f"`{k}` {v}" for k, v in flips.items()) or "none") + ".")  # fmt: skip
+    elif ans.get("answers"):
+        out.append(f"- Kept answers: {ans['answers']}.")
+    if len(g["settings"]) > 1 and not g.get("repeats"):
+        out.append(f"- {restart_line(g)}")
     out.append(f"- Chosen setting: **{cell(g['chosen'])}** in flight ({g['chosen_how']}).")
     for s in g["settings"]:
         if s.get("cached_calls"):
@@ -508,11 +554,26 @@ def g3_lines(lang: str, g: dict[str, Any]) -> list[str]:
     return out
 
 
+def public_data(rows: list[dict[str, Any]]) -> list[str]:
+    """The public data sets the planned parts read (:data:`PUBLIC_DATA`), each once, in that table's order."""
+    tags = [str(r["tag"]) for r in rows]
+    return [name for key, name in PUBLIC_DATA if any(t == key or (key.endswith("-") and t.startswith(key))
+                                                     for t in tags)]  # fmt: skip
+
+
+def data_line(rows: list[dict[str, Any]]) -> str:
+    sets = public_data(rows)
+    if not sets:
+        return "Synthetic data only."
+    return "Synthetic and public data only. Public data read by this run: " + "; ".join(sets) + "."
+
+
 def readme(v: dict[str, Any]) -> str:
     ident, c, one = v["identity"], v["cost"], v["g1"]
     counts = Counter(r["status"] for r in v["rows"])
     out = [MARK, "", f"# Cloud run results: {ident['run_id'] or 'run id not in the folder'}", "",
-           "Synthetic data only. Written from the collected results folder by `deploy/gcp/results_report.py`.", "",
+           data_line(v["rows"]) + " Written from the collected results folder by `deploy/gcp/results_report.py`.",
+           "",
            f"- **Run id**: {', '.join(f'`{x}`' for x in ident['run_ids']) or 'not in the folder'}",
            f"- **Commit**: {', '.join(f'`{x}`' for x in ident['commits']) or 'not in the folder'}"
            + (" (the tree was dirty)" if ident["dirty"] else ""),
@@ -587,12 +648,14 @@ def capacity(v: dict[str, Any]) -> dict[str, Any]:
         return {k: x for k, x in s.items() if not k.startswith("_")}
 
     return {"schema": SCHEMA, "run_id": ident["run_id"], "run_ids": ident["run_ids"], "commit": ident["commit"],
-            "commits": ident["commits"], "card": ident["card"], "synthetic_data_only": True,
+            "commits": ident["commits"], "card": ident["card"],
+            "synthetic_data_only": not public_data(v["rows"]), "public_data": public_data(v["rows"]),
             "complete": v["verdict"] == PASSED, "verdict": v["verdict"],
             "parts": {r["tag"]: r["status"] for r in v["rows"]},
             "g1": {k: x for k, x in v["g1"].items() if k != "file"},
             "g3": {lang: {"chosen_in_flight": g["chosen"], "chosen_how": g["chosen_how"],
                           "candidate_lists": g["lists"], "window": g["window"], "repeats": g.get("repeats") or [],
+                          "answers_compare": g.get("answers_compare"), "restarted": g.get("restarted") or [],
                           "settings": [clean(s) for s in g["settings"]]} for lang, g in v["g3"].items()},
             "cost": v["cost"]}  # fmt: skip
 

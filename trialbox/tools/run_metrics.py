@@ -360,15 +360,88 @@ def _stats(calls: list[dict[str, Any]]) -> dict[str, Any]:
             "mean_in_flight": round(sum(lat) / busy, 2) if busy > 0 else 0.0}  # fmt: skip
 
 
+GATEWAY_SOURCE = "gateway audit (llm.gateway.call)"
+DIRECT_SOURCE = "the part's calls straight to the model servers (their response cache), not through the gateway"
+
+
 def call_stats(calls: list[dict[str, Any]]) -> dict[str, Any]:
     """Calls per second, tokens per second and p50 / p95 call time over every call a server answered, and per
     endpoint (the judge is ``serving``, the verifier ``verifier``). ``mean_in_flight``: the calls' summed time over
-    the busy time. ``cached``: the calls the gateway answered from its cache (no server time: counted apart)."""
+    the busy time. ``cached``: the calls the gateway answered from its cache (no server time: counted apart).
+    ``source`` names where the calls were read: the gateway's audit, and the calls a part made straight to the servers
+    (:func:`direct_calls`, ``"direct": true``) when it made some; ``direct`` counts those (absent when none)."""
     sent = [c for c in calls if not c.get("cached")]
-    out = {"source": "gateway audit (llm.gateway.call)", **_stats(sent), "cached": len(calls) - len(sent)}
+    direct = sum(1 for c in sent if c.get("direct"))
+    source = GATEWAY_SOURCE if not direct else DIRECT_SOURCE
+    if direct and direct < len(sent):
+        source = f"{GATEWAY_SOURCE}; {DIRECT_SOURCE}"
+    out = {"source": source, **_stats(sent), "cached": len(calls) - len(sent), **({"direct": direct} if direct else {})}
     out["endpoints"] = {ep: _stats([c for c in sent if c["endpoint"] == ep])
                         for ep in sorted({c["endpoint"] for c in sent})}  # fmt: skip
     return out
+
+
+def direct_calls(cache: Path, endpoints: dict[str, str]) -> list[dict[str, Any]]:
+    """The calls a part made straight to a model server, not through the gateway (``tools.mlbench.Client``: the
+    TREC CT scenario judges as the validation run did), from that client's response cache in ``cache``: one file per
+    answered call (``usage``, ``_seconds``, ``model``). A call ends when its file is written (its mtime). The answer's
+    ``model`` names the server: ``endpoints`` maps a served model name to the gateway's endpoint name (``serving``,
+    ``verifier``), so the rows read as the gateway's do; any other name is ``direct``. A failed call is not cached,
+    so it is not counted (the part counts its own unanswered criteria). Lane G finding B15: the run of 2026-11-14
+    recorded 0 calls for the two public scenarios."""
+    out: list[dict[str, Any]] = []
+    for f in sorted(cache.glob("*.json")) if cache.is_dir() else []:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            end = f.stat().st_mtime
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or not data.get("choices"):
+            continue
+        u = data.get("usage") or {}
+        out.append({"end": end, "latency_s": float(data.get("_seconds") or 0.0),
+                    "tokens_in": int(u.get("prompt_tokens") or 0), "tokens_out": int(u.get("completion_tokens") or 0),
+                    "endpoint": endpoints.get(str(data.get("model") or ""), "direct"), "cached": False,
+                    "direct": True})  # fmt: skip
+    return out
+
+
+CASES_SCHEMA = "tb-scenario-cases/1"
+
+
+def write_cases(path: Path, header: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
+    """A scenario part's per-case answers (``parts/<tag>/answers.jsonl.gz``, gzip, one JSON line each, as
+    :func:`write_answers`): the header (``kind`` header, :data:`CASES_SCHEMA`, the counts), then one line per case.
+    Public data only (MedTxt-CR, TREC CT): kept in the run's results, never committed. Returns the file, its bytes
+    and sha256, and the header's counts."""
+    import gzip
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    head = {"kind": "header", "schema": CASES_SCHEMA, **header, "cases": len(records)}
+    lines = [json.dumps(head, ensure_ascii=False, sort_keys=True)]
+    lines += [json.dumps({**r, "kind": "case"}, ensure_ascii=False, sort_keys=True) for r in records]
+    data = gzip.compress(("\n".join(lines) + "\n").encode("utf-8"), compresslevel=9, mtime=0)
+    tmp = path.with_suffix(path.suffix + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    return {"cases": len(records), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def read_cases(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The header and the cases of a :func:`write_cases` file (raises OSError or ValueError)."""
+    import gzip
+
+    head: dict[str, Any] = {}
+    out: list[dict[str, Any]] = []
+    for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines():
+        rec = json.loads(line) if line.strip() else {}
+        if rec.get("kind") == "header":
+            head = rec
+        elif rec.get("kind") == "case":
+            out.append(rec)
+    if head.get("schema") != CASES_SCHEMA:
+        raise ValueError(f"{path}: not {CASES_SCHEMA}")
+    return head, out
 
 
 # ---------------------------------------------------------------- the gateway's refusals
@@ -503,11 +576,14 @@ def _lang(r: dict[str, Any]) -> str:
     return str(r.get("lang") or str(r.get("tag", "")).split("@", 1)[0].removeprefix("hospital-"))
 
 
-def lists_compare(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Per hospital language with more than one result: are the main SCREEN's candidate lists the same at every
-    calls-in-flight setting? ``identical`` True / False, or None (not comparable: a result has no list of its main
-    SCREEN, ``why`` says which). When they differ, ``differ`` names each pseudonymous id that is not listed alike,
-    with its tier at every setting (``-``: not listed there)."""
+def lists_compare(rows: list[dict[str, Any]], root: Path | None = None) -> dict[str, dict[str, Any]]:
+    """Per hospital language with more than one result (its settings and their repeats): are the main SCREEN's
+    candidate lists the same at every calls-in-flight setting and repeat? ``identical`` True / False, or None (not
+    comparable: a result has no list of its main SCREEN, ``why`` says which). When they differ, ``differ`` names each
+    pseudonymous id that is not listed alike, with its tier at every setting (``-``: not listed there), and
+    ``patients_differ`` how many. ``root``: the run folder whose ``parts/<tag>/answers.jsonl.gz`` each result names;
+    with it the kept answers say which criteria flipped (:func:`answers_compare`; ``answers_identical``) and each
+    differing id gets ``flipped``, its criteria answered differently."""
     by: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         if r.get("part") == "hospital" and (r.get("candidates") or (r.get("screen") or {}).get("listed") is not None):
@@ -530,10 +606,274 @@ def lists_compare(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         differ = [{"pid": p, "tiers": {tag: t.get(p, "-") for tag, t in zip(tags, tiers, strict=True)}}
                   for p in pids if len({t.get(p, "-") for t in tiers}) > 1]  # fmt: skip
         same = len({r["candidates"]["sha256"] for r in rs}) == 1 and not differ
-        out[lang] = {"identical": same, "settings": tags, "differ": differ, "why": ""}
+        out[lang] = {"identical": same, "settings": tags, "differ": differ, "why": "", "patients_differ": len(differ)}
+        if root is not None:
+            ans = answers_compare(rs, root)
+            out[lang]["answers"] = ans.pop("answers")
+            if out[lang]["answers"] == "kept":
+                flipped = ans.pop("flipped")
+                for d in differ:
+                    d["flipped"] = flipped.get(d["pid"], [])
+                out[lang].update(ans, answers_identical=not flipped and not differ,
+                                 flipped_listed_alike={p: c for p, c in flipped.items()
+                                                       if p not in {d["pid"] for d in differ}})  # fmt: skip
     return out
 
 
 def lists_identical(rows: list[dict[str, Any]]) -> dict[str, bool | None]:
     """Per hospital language with more than one result: are the main SCREEN's lists the same (None: not comparable)?"""
     return {lang: v["identical"] for lang, v in lists_compare(rows).items()}
+
+
+# ---------------------------------------------------------------- each patient's answers (G-3: compare two runs)
+ANSWERS_FILE = "answers.jsonl.gz"  # parts/<tag>/: gzip (the data scan reads it), one JSON object per line
+ANSWERS_SCHEMA = "tb-screen-answers/1"
+_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")  # an evidence reason that is a code (D-118), never a model's words
+
+
+def answer_of(v: dict[str, Any]) -> dict[str, Any]:
+    """One criterion's answer as kept: ``id``, ``v`` (the verdict), ``b`` (its basis: coded, pair, single, person),
+    ``f`` (final, on a note answer that says not met), ``conf`` (the confidence), ``r`` (the reason, when it is a
+    code) and ``o`` (each model's verdict by role, when the two disagreed). No quote, date or record reference:
+    nothing of the note is kept, only what was answered. Absent fields are left out."""
+    ev = v.get("evidence") or {}
+    out: dict[str, Any] = {"id": str(v.get("id", "")), "v": str(v.get("verdict", ""))}
+    if v.get("basis") is not None:
+        out["b"] = str(v["basis"])
+    if v.get("final") is not None:
+        out["f"] = bool(v["final"])
+    conf = ev.get("confidence")
+    if isinstance(conf, int | float) and not isinstance(conf, bool) and math.isfinite(float(conf)):
+        out["conf"] = round(float(conf), 4)
+    if isinstance(ev.get("reason"), str) and _CODE.match(ev["reason"]):
+        out["r"] = ev["reason"]
+    ops = {str(o.get("role")): str(o.get("verdict")) for o in ev.get("opinions") or [] if isinstance(o, dict)}
+    if ops:
+        out["o"] = dict(sorted(ops.items()))
+    return out
+
+
+def answers_of_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The listed patients of a SCREEN's ``candidate_list_*.json`` (``rows``: every tier but ``excluded``), one
+    record each, sorted by pseudonymous id: ``pid``, ``tier`` and ``c``, each criterion's answer (:func:`answer_of`)
+    in criterion order."""
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        if not isinstance(r, dict) or str(r.get("tier", "excluded")) == "excluded":
+            continue
+        crit = sorted((answer_of(v) for v in r.get("criteria") or [] if isinstance(v, dict)), key=lambda x: x["id"])
+        out.append({"pid": str(r.get("pid", "")), "tier": str(r.get("tier")), "c": crit})
+    return sorted(out, key=lambda x: str(x["pid"]))
+
+
+def excluded_counts(doc: dict[str, Any] | None) -> dict[str, Any]:
+    """The patients a SCREEN did not list, as counts only (no id): how many, and how many each criterion excluded
+    (a patient excluded by two criteria counts under both), from the job's ``excluded_*.json``."""
+    rows = [r for r in (doc or {}).get("rows") or [] if isinstance(r, dict)]
+    by = Counter(str(c.get("id")) for r in rows for c in r.get("criteria") or [] if isinstance(c, dict))
+    return {"excluded": len(rows), "excluded_by_criterion": dict(sorted(by.items()))}
+
+
+def write_answers(path: Path, header: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
+    """``path`` (gzip, one JSON line each): the header (``kind`` header, the schema, the list's sha256, the counts),
+    then one line per listed patient. Its size follows the data: every listed patient, no cap (OD-10). Written to a
+    temporary name and renamed. Returns what the part records of it: the file, its bytes and sha256, the counts."""
+    import gzip
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    head = {"kind": "header", "schema": ANSWERS_SCHEMA, **header, "listed": len(records)}
+    lines = [json.dumps(head, ensure_ascii=False, sort_keys=True)]
+    lines += [json.dumps({"kind": "patient", **r}, ensure_ascii=False, sort_keys=True) for r in records]
+    data = gzip.compress(("\n".join(lines) + "\n").encode("utf-8"), compresslevel=9, mtime=0)
+    tmp = path.with_suffix(path.suffix + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    return {"listed": len(records), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+            **{k: head[k] for k in ("list_sha256", "excluded", "excluded_by_criterion") if k in head}}  # fmt: skip
+
+
+def read_answers(path: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """The header and the records by pseudonymous id of an :data:`ANSWERS_FILE` (raises OSError or ValueError)."""
+    import gzip
+
+    head: dict[str, Any] = {}
+    out: dict[str, dict[str, Any]] = {}
+    for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if rec.get("kind") == "header":
+            head = rec
+        elif rec.get("kind") == "patient":
+            out[str(rec["pid"])] = rec
+    if head.get("schema") != ANSWERS_SCHEMA:
+        raise ValueError(f"{path}: not {ANSWERS_SCHEMA}")
+    return head, out
+
+
+def _answers(r: dict[str, Any], root: Path | None) -> tuple[dict[str, Any], dict[str, dict[str, Any]]] | None:
+    f = ((r.get("candidates") or {}).get("answers") or {}).get("file")
+    if root is None or not f:
+        return None
+    try:
+        return read_answers(root / f)
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def answers_compare(rs: list[dict[str, Any]], root: Path | None) -> dict[str, Any]:
+    """From the kept answers of each result (:data:`ANSWERS_FILE`): ``patients_differ`` (listed differently, or
+    listed alike with another answer to a criterion), ``criteria_flipped`` (criterion id -> how many patients listed
+    in at least two results answered it differently there), ``flipped`` (pid -> those criterion ids) and, from the
+    counts of the patients not listed, ``excluded_by_criterion`` (criterion id -> its count per result, the criteria
+    whose count differs only). ``answers``: ``kept`` or which results have no readable file."""
+    tags = [str(r.get("tag")) for r in rs]
+    got = [_answers(r, root) for r in rs]
+    missing = [t for t, g in zip(tags, got, strict=True) if g is None]
+    if missing:
+        return {"answers": f"not kept or not readable: {', '.join(missing)}"}
+    heads = [g[0] for g in got if g is not None]
+    recs = [g[1] for g in got if g is not None]
+    flipped: dict[str, list[str]] = {}
+    for pid in sorted(set().union(*recs)):
+        seen = [{a["id"]: (a.get("v"), a.get("b"), a.get("f")) for a in rec[pid]["c"]} for rec in recs if pid in rec]
+        if len(seen) < 2:
+            continue
+        ids = sorted(set().union(*seen))
+        bad = [c for c in ids if len({s.get(c) for s in seen}) > 1]
+        if bad:
+            flipped[pid] = bad
+    tier_differs = {pid for pid in set().union(*recs) if len({rec.get(pid, {}).get("tier", "-") for rec in recs}) > 1}
+    by_crit = Counter(c for v in flipped.values() for c in v)
+    crits = sorted(set().union(*(h.get("excluded_by_criterion") or {} for h in heads)))
+    ex = {c: {t: int((h.get("excluded_by_criterion") or {}).get(c, 0)) for t, h in zip(tags, heads, strict=True)}
+          for c in crits}  # fmt: skip
+    return {"answers": "kept", "patients_differ": len(tier_differs | set(flipped)),
+            "criteria_flipped": dict(sorted(by_crit.items())), "flipped": flipped,
+            "excluded": {t: h.get("excluded") for t, h in zip(tags, heads, strict=True)},
+            "excluded_by_criterion": {c: v for c, v in ex.items() if len(set(v.values())) > 1}}  # fmt: skip
+
+
+# ---------------------------------------------------------------- the serving record, as the part ran on it
+def serving_block(record: Path | None) -> dict[str, Any]:
+    """Per server of the run's serving record (``--live-record``, captured on the VM from ``docker inspect``): its
+    image and image digests, the structured-output backend it was started with (``auto``: vLLM's default, no flag
+    named one; ``not recorded``: the record has no such field), the vLLM version and its ``max_num_seqs``. By role
+    only: no model id."""
+    if record is None:
+        return {"recorded": False, "why": "no serving record of this run (--live-record)"}
+    try:
+        rec = json.loads(Path(record).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {"recorded": False, "why": f"the serving record could not be read: {type(exc).__name__}"}
+    out: dict[str, Any] = {}
+    for s in rec.get("servers") or []:
+        if not isinstance(s, dict):
+            continue
+        out[str(s.get("role") or s.get("container") or "?")] = {
+            "image": s.get("image"), "image_digests": list(s.get("image_digests") or []),
+            "structured_outputs_backend": s.get("structured_outputs_backend") or "not recorded",
+            "vllm_version": s.get("vllm_version"), "max_num_seqs": s.get("max_num_seqs"),
+        }  # fmt: skip
+    named = bool(out) and all(v["structured_outputs_backend"] != "not recorded" for v in out.values())
+    digests = bool(out) and all(v["image_digests"] for v in out.values())
+    return {"recorded": bool(out), "servers": out, "backend_named": named, "digests": digests,
+            "captured_at": rec.get("captured_at")}  # fmt: skip
+
+
+# ---------------------------------------------------------------- the servers right after a gateway time-out
+# How often the gateway's audit is read for a new time-out: a third of the main SCREEN's measured p50 call time
+# (3.2 s at 16 in flight, run 20261113T085509Z-c25cea6b), so the servers' gauges are read while a call the gateway
+# gave up on would still be in flight (deep review OPS13-11: does the server keep working on it?). OD-10: measured.
+TIMEOUT_WATCH_S = round(3.2 / 3, 2)
+_TIMED_OUT = re.compile(r"Timeout\b|: busy\b")  # the gateway's message of a read time-out (batch, interactive)
+TIMEOUT_FIELDS = ("at", "timeout_at", "reason", "endpoint", "server", "running", "waiting")
+
+
+def is_timeout(rec: dict[str, Any]) -> bool:
+    """A gateway refusal whose upstream call timed out (``upstream_failed`` with ``ReadTimeout``, or the interactive
+    ``: busy``): the gateway stopped waiting, the server may still be working on the call."""
+    d = rec.get("detail") or {}
+    return rec.get("event") == "llm.gateway.refuse" and bool(_TIMED_OUT.search(str(d.get("message") or "")))
+
+
+class TimeoutWatch:
+    """While a part runs, reads the new lines of the gateway's audit (``audit_dir``) every :data:`TIMEOUT_WATCH_S`;
+    for each time-out (:func:`is_timeout`) it reads both servers' ``num_requests_running`` and ``waiting`` at once
+    and writes a line per server to ``after-timeout.csv`` in ``folder``. Lines already in the audit when it starts
+    (an earlier part's) are skipped. ``stop()`` returns the summary for the part's metrics."""
+
+    def __init__(self, audit_dir: Path, folder: Path, servers: dict[str, str], key: str = "",
+                 every: float = TIMEOUT_WATCH_S) -> None:  # fmt: skip
+        self.audit_dir, self.folder, self.key, self.every = audit_dir, folder, key, every
+        self.servers = {n: metrics_url(u) for n, u in servers.items() if u}
+        self.offsets: dict[Path, int] = {}
+        self.rows: list[dict[str, Any]] = []
+        self.timeouts = 0
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _files(self) -> list[Path]:
+        return sorted(self.audit_dir.glob("*.jsonl")) if self.audit_dir.is_dir() else []
+
+    def start(self) -> TimeoutWatch:
+        self.offsets = {f: f.stat().st_size for f in self._files()}
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+        return self
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.every):
+            self.poll()
+
+    def poll(self) -> None:
+        """Read what the audit gained since the last look; sample the servers once per time-out found."""
+        for f in self._files():
+            at = self.offsets.get(f, 0)
+            try:
+                with f.open("rb") as fh:
+                    fh.seek(at)
+                    chunk = fh.read()
+            except OSError:
+                continue
+            end = chunk.rfind(b"\n") + 1  # a line still being written is read next time
+            self.offsets[f] = at + end
+            for line in chunk[:end].decode("utf-8", "replace").splitlines():
+                if '"llm.gateway.refuse"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if is_timeout(rec):
+                    self._sample(rec)
+
+    def _sample(self, rec: dict[str, Any]) -> None:
+        self.timeouts += 1
+        d = rec.get("detail") or {}
+        now = datetime.now().astimezone().isoformat(timespec="milliseconds")
+        for name, url in self.servers.items():
+            g = pick(parse_prometheus(fetch(url, self.key, timeout=5.0)), GAUGES)
+            self.rows.append({"at": now, "timeout_at": str(rec.get("ts", "")), "reason": str(d.get("reason") or ""),
+                              "endpoint": str(d.get("endpoint") or ""), "server": name,
+                              "running": g.get("running"), "waiting": g.get("waiting")})  # fmt: skip
+
+    def stop(self) -> dict[str, Any]:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=self.every + 10)
+        self.poll()  # a time-out in the part's last moment
+        out: dict[str, Any] = {"timeouts": self.timeouts, "every_s": self.every, "servers": {}}
+        if self.rows:
+            self.folder.mkdir(parents=True, exist_ok=True)
+            with (self.folder / "after-timeout.csv").open("w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(fh, fieldnames=TIMEOUT_FIELDS)
+                w.writeheader()
+                w.writerows(self.rows)
+            out["file"] = f"parts/{self.folder.name}/after-timeout.csv"
+        for name in self.servers:
+            run = [float(r["running"]) for r in self.rows if r["server"] == name and r["running"] is not None]
+            out["servers"][name] = {"samples": len(run), "running_max": max(run) if run else None,
+                                    "running_mean": round(sum(run) / len(run), 2) if run else None,
+                                    "still_running": sum(1 for x in run if x > 0)}  # fmt: skip
+        return out

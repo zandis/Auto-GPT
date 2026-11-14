@@ -7,13 +7,13 @@
 #   export TB_SA_KEY_FILE=<the service account key file>   # every command activates from it (its path, to gcloud)
 #   gcloud config set project trialbox-demo                # once, in that config
 #   deploy/gcp/complete-run.sh --estimate [--patients 50000] [--vms N] [--parts g1,embed,profile] [--only TAG,TAG]
-#                              [--llm-concurrency N[,N...]] [--repeats N]
+#                              [--llm-concurrency N[,N...]] [--repeats N] [--restart-between]
 #   deploy/gcp/complete-run.sh --dry-run [--vms N] [--zones z1,z2] [--parts ...] [--only TAG,TAG] [VM] [ZONE]
 #   deploy/gcp/complete-run.sh --provision --vms N --zones z1,z2,...   # once: the clones tb-gpu-sim-2..N (they
 #                                                                      # boot, power off at once, keep their disks)
 #   deploy/gcp/complete-run.sh [--patients 50000] [--vms N] [--zones ...] [--parts ...] [--only TAG,TAG] [--hours H]
 #                              [--llm-concurrency N[,N...] [--repeats N] [--keep-order | --order-seed S]]
-#                              [--no-wait | --detach]
+#                              [--restart-between] [--no-wait | --detach]
 #   deploy/gcp/complete-run.sh --collect <run id> [--follow]   # later, as often as wanted: see below
 #   deploy/gcp/complete-run.sh --stop [--collect <run id> | --vms N --zones ...] [VM] [ZONE]   # stop by hand
 #   deploy/gcp/complete-run.sh --teardown --vms N --zones ...   # delete the clones 2..N and their machine image
@@ -49,7 +49,15 @@
 # runs (tools/complete_run.py HOSPITAL_MEASURED); TB_ESTIMATE_LLM_SPEEDUP overrides the measured gain.
 # --repeats N (B5): each value N times, each its own part hospital-<lang>@c<N>#r<k>; every (setting, repeat) pair runs
 # in a random order from the recorded seed (as a list of values does); the report gives each setting's mean, min and
-# max of the main SCREEN's calls/s. The model servers are not restarted between settings or repeats (not in scope).
+# max of the main SCREEN's calls/s.
+# --restart-between: before every hospital part after the first (each setting and each repeat) the VM restarts both
+# model servers as its boot starts them (tb-restart-servers: judge, then the verifier, each healthy and serving its
+# name through nginx before the next), so a setting run twice measures the run-to-run spread without warm state; the
+# gateway and the orchestrator are fresh in every part anyway (each part is its own process). The estimate counts one
+# restart per such part (the measured seconds to ready); each part records whether it was restarted, and a failed
+# restart is a failed check of that part. Without it the report says the servers were not restarted.
+# English (D-502, lane G item 6): --only hospital-en runs the English site's hospital (profile ci-en, its own size)
+# once lane B2's NEW-B-42 is on the commit; until then the estimate and the launch refuse it before anything starts.
 #
 # Parallel (D-148): --vms N splits the run into N shards of whole parts (complete_run --only tags; longest first onto
 # the least-loaded VM, tools/complete_run.py shard_plan): no part is split, so the merged report is the single-VM
@@ -115,7 +123,7 @@ set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
 SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0; DISCARD_PREV=0; KEEP_ORDER=0; ORDER_SEED=""
-REPEATS=1
+REPEATS=1; RESTART_BETWEEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -135,12 +143,13 @@ while [ $# -gt 0 ]; do
     --keep-order) KEEP_ORDER=1; shift ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --order-seed) ORDER_SEED="$2"; shift 2 ;;
+    --restart-between) RESTART_BETWEEN=1; shift ;;
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
     --preflight) PREFLIGHT=1; shift ;;
     --discard-previous) DISCARD_PREV=1; shift ;;
-    -h|--help) sed -n 2,109p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,117p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -170,10 +179,14 @@ ONLY_ARGS=(); [ "${#ONLY_TAGS[@]}" = 0 ] || ONLY_ARGS=(--only "${ONLY_TAGS[@]}")
 # that no setting always comes after the others on a warm prefix cache and a hot card; --keep-order: as given
 # --repeats N (B5): every (setting, repeat) pair in that seeded order, here and on the VM (tb-order-seed)
 [ "$REPEATS" = 1 ] || ONLY_ARGS+=(--repeats "$REPEATS")
+[ "$RESTART_BETWEEN" = 0 ] || ONLY_ARGS+=(--restart-between)   # the plan's restart_between: the VM's metadata
 MANY=0; case "$LLMC" in *[,\ ]*) MANY=1 ;; esac; [ "$REPEATS" = 1 ] || MANY=1
 if [ "$MANY" = 1 ] && [ "$KEEP_ORDER" = 0 ]; then ONLY_ARGS+=(--order-seed "${ORDER_SEED:-$(( (RANDOM << 15) | RANDOM ))}"); fi
 plan_lc() {  # the plan's calls in flight, space separated (a metadata value holds no comma): "16" or "1 4 16 48"
   "$PY" -c 'import json,sys; print(" ".join(str(n) for n in json.load(open(sys.argv[1])).get("llm_concurrency") or []))' "$PLAN"
+}
+plan_restart() {  # the plan's --restart-between: 1 or 0 (tb-restart-between on the VM)
+  "$PY" -c 'import json,sys; print(1 if json.load(open(sys.argv[1])).get("restart_between") else 0)' "$PLAN"
 }
 plan_rep() {  # the plan's repeats per setting (B5) and, with more than one, the seed of its order: "1" or "3 12345"
   "$PY" -c 'import json,sys; e=json.load(open(sys.argv[1])); r=int(e.get("repeats") or 1)
@@ -610,7 +623,7 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     read -r P_REP P_SEED <<< "$(plan_rep)"   # B5: repeats per setting, the seed of their order (with repeats only)
     gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
       "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-door-cert=$SH/door.crt" \
-      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-repeats=${P_REP:-1},tb-order-seed=${P_SEED:-none},tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30,tb-bucket=${BUCKET:-none}" \
+      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-repeats=${P_REP:-1},tb-order-seed=${P_SEED:-none},tb-restart-between=$(plan_restart),tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30,tb-bucket=${BUCKET:-none}" \
       || { echo "$VM: not started: its metadata could not be set" >&2; door_retire; return 3; }
     # every give-up from here destroys the door versions it made (A8): a failed start, no door, a failed upload, and
     # (the trap) any other exit or signal before the upload is accepted: an error, Ctrl-C, a lost shell

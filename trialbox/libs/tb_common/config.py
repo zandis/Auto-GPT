@@ -826,6 +826,9 @@ DECLARED: dict[str, Declared] = {
         "int", "300", "complete-run report: a failed check's detail cut in report.md (failed-checks.json has it all)"
     ),
     "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
+    "TB_PART_RESTART": Declared(
+        "str", "", "complete-run tool: the model-server restart before a hospital part, handed to its process (JSON)"
+    ),
     "TB_ESTIMATE_LLM_SPEEDUP": Declared(
         "float", "", "complete-run estimate: override of G-3's measured gain, min(N, this) (unset: the curve)"
     ),
