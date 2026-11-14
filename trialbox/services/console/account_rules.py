@@ -262,9 +262,9 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
         user = us.get(name)
         assert user is not None
         if totp_on:  # the holder's own device next; the code is not asked again
-            resp = h.ident.second_step(user, enrol_ok=True)
-            resp.delete_cookie(h.login_cookie)
-            return resp
+            step: Response = h.ident.second_step(user, enrol_ok=True)
+            step.delete_cookie(h.login_cookie)
+            return step
         us.clear_failures(name, src)
         session_token, _ = us.new_session(user, h.lang_of(request, None), "enrol")
         au.append("console.login", actor=f"console:{name}", detail={"role": user.role, "via": "enrol"})

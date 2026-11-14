@@ -50,7 +50,7 @@ def _signin(app: Any, user: str, pw: str) -> tuple[TestClient, str]:
     page = c.get("/").text  # a password someone else set leads to /account first (D-279)
     m = re.search(r'name="csrf" value="([^"]+)"', page)
     assert m, page
-    c.first_page = page  # type: ignore[attr-defined]  # a notice is read once, on this page
+    setattr(c, "first_page", page)  # noqa: B010 - a notice is read once, on this page
     return c, m.group(1)
 
 
@@ -63,7 +63,8 @@ def _add(c: TestClient, csrf: str, name: str, role: str, studies: str = "") -> h
         "affiliation": "hospital",
         "studies": studies,
     }
-    return c.post("/ops/users", data=data, follow_redirects=True)
+    r: httpx.Response = c.post("/ops/users", data=data, follow_redirects=True)
+    return r
 
 
 def _code_in(text: str) -> str:
@@ -77,15 +78,16 @@ def _redeem(app: Any, user: str, code: str, pw: str) -> httpx.Response:
     tok = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/enrol").text)
     assert tok
     form = {"username": user, "enrol_code": code, "password": pw, "password2": pw, "login_csrf": tok.group(1)}
-    r = c.post("/enrol", data=form, follow_redirects=False)
-    r.client = c  # type: ignore[attr-defined]
+    r: httpx.Response = c.post("/enrol", data=form, follow_redirects=False)
+    setattr(r, "client", c)  # noqa: B010
     return r
 
 
 def _requests(c: TestClient) -> str:
     r = c.get("/ops/accounts/requests")
     assert r.status_code == 200, r.text
-    return r.text
+    text: str = r.text
+    return text
 
 
 def _request_ids(text: str) -> list[str]:
@@ -236,7 +238,7 @@ def test_the_holder_is_told_at_sign_in_and_the_steward_by_mail(tmp_path: Path) -
     assert pw  # shown to the confirming person, not to the one who asked
     clock.tick(minutes=1)
     holder, _ = _signin(app, "crc", pw.group(1))
-    page = holder.first_page  # type: ignore[attr-defined]
+    page = getattr(holder, "first_page")  # noqa: B009
     assert 'data-testid="account-notice"' in page and "admin" in page  # reset by <admin> at <time>
     assert 'data-testid="account-notice"' not in holder.get("/").text  # told once
     notices = app.state.test_backend.notices

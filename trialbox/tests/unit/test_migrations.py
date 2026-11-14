@@ -370,10 +370,12 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-279: users.must_change, login_failures.source, sessions.via
     # T-209c (D-406): users.last_login, for the unused-account report
     # T-109b (D-447): users.pw_history, the account's earlier password hashes
+    # D-719: who opened an account, factor resets, account requests and notices
     "auth": (
         "44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",
         "d08533082518372c9c3972573a7370f745b1a7bb754798cb3c60408ecd9744a8",
         "bb7564dcd900b6be7567a5d5f0db38eff6ecef1d03f9127fcf353d55332dc1ce",
+        "311f3b04781cf748967b034d82dbfc2baaa9004223b7028e749de1f1cfd3eab0",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year

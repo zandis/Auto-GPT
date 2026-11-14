@@ -954,11 +954,13 @@ class UserStore:
         if not self.check_enrol_code(username, code):
             return "wrong"
         self.set_password(username, password, must_change=False)
-        sets = "holder_set = 1, enrol_used_at = ?"
-        if spend:
-            sets += ", enrol_code_sha = NULL, enrol_expires = NULL, enrol_reason = NULL"
-        n = self.db.execute(f"UPDATE users SET {sets} WHERE username = ? AND holder_set = 0",
-                            (self.clock().isoformat(), username))  # fmt: skip
+        sql = (
+            "UPDATE users SET holder_set = 1, enrol_used_at = ?, enrol_code_sha = NULL, enrol_expires = NULL, "
+            "enrol_reason = NULL WHERE username = ? AND holder_set = 0"
+            if spend
+            else "UPDATE users SET holder_set = 1, enrol_used_at = ? WHERE username = ? AND holder_set = 0"
+        )
+        n = self.db.execute(sql, (self.clock().isoformat(), username))
         return "ok" if n == 1 else "used"
 
     def add_request(self, kind: str, username: str, payload: dict[str, str], by: str) -> str:

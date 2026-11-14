@@ -230,7 +230,20 @@ TABLES: dict[str, Entry] = {
         ("contact_rule", "form", "owner", "sae_rule", "schedule", "schedule_version", "source_cfg", "sponsor_layout"),
         _CONFIG,
     ),
-    **_each("auth", ("login_failures", "oidc_pending", "pending_logins", "sessions", "users"), _STAFF),
+    **_each(
+        "auth",
+        (
+            "account_notices",
+            "account_requests",
+            "factor_resets",
+            "login_failures",
+            "oidc_pending",
+            "pending_logins",
+            "sessions",
+            "users",
+        ),
+        _STAFF,
+    ),
     "site.contact_outcomes": _owed("a contact attempt's outcome, by pseudonym"),
     "site.excluded_review": _owed("the review of an excluded patient, by pseudonym"),
     "site.pi_marks": _owed(

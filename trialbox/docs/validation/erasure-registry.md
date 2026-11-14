@@ -119,6 +119,9 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | --- | --- |
 | `app.flag` | settings and configuration, no patient |
 | `app.flag_event` | settings and configuration, no patient |
+| `auth.account_notices` | staff, accounts or sign-in state, no patient |
+| `auth.account_requests` | staff, accounts or sign-in state, no patient |
+| `auth.factor_resets` | staff, accounts or sign-in state, no patient |
 | `auth.login_failures` | staff, accounts or sign-in state, no patient |
 | `auth.oidc_pending` | staff, accounts or sign-in state, no patient |
 | `auth.pending_logins` | staff, accounts or sign-in state, no patient |
