@@ -45,7 +45,25 @@ verified at the callee) could not be finished. The data operations page opened `
 
 ## Review
 
-See "What the adversarial review changed" when the review is in.
+### What the adversarial review changed
+
+One review by running. The data boundary held: no console path still needs `dataops`; the role scripts revoke it
+on the next run; only the console reaches the group; the decision is checked with the signed person, request and
+body; the store-side behaviour (the steward-only rule, the 404s, the reason, a reject refused while publishing, a
+second accept that recovers an unknown end, a thread that dies mid-publish) is kept. It found:
+
+1. **No answer from the orchestrator became a 500** (blocking): a transport failure (status 0) was re-raised; the page
+   and the API now say the store cannot be reached (503), and a lost answer to an accept is "the accept is recorded,
+   its end not known" (`err=publishing`), as before.
+2. **A malformed decision read as "the accept is recorded"** (blocking): the console refuses anything but accept or
+   reject before it posts (`err=decision`), a 422 is a decision not understood, and the orchestrator's refusal of a
+   reject is a 403, never "publishing".
+3. **A publish that failed after the 202 was silent on the page**: the held row now says when its accept's publish
+   runs or did not publish (`detail.step`).
+4. The import lint also reads `import ...` statements, `from datacore import dataops`, `datacore.generations`
+   (it opens the store) and `importlib`. Notes: the batch page asks the orchestrator whether Accept can publish; the
+   stale label of `dataops.publish_started` is removed. Two accepts at once still both start (as before this
+   card; the adapter refuses the second publish with 409); the history's paging at its largest page is as before.
 
 ## Reuse check
 

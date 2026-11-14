@@ -283,3 +283,59 @@ def test_the_readiness_page_names_the_feed_tier_and_the_night(sb: dict[str, Any]
     assert 'href="/data-ops"' not in page.split('data-testid="site-feed"')[1]  # the coordinator has no console link
     lake.docs = 3
     assert 'data-tier="notes"' in c.get("/site?study=GZQO").text and "tier 3" in c.get("/site?study=GZQO").text
+
+
+# ---------------------------------------------------------------------------------------------- D-761's review
+class _NoAnswer:
+    """The orchestrator unreachable, or its answer lost (``ServiceError`` status 0)."""
+
+    def get_json(self, path: str) -> Any:
+        from tb_common.http import ServiceError
+
+        raise ServiceError("orchestrator", 0, "no answer")
+
+    def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+        from tb_common.http import ServiceError
+
+        raise ServiceError("orchestrator", 0, "no answer")
+
+
+def test_no_answer_from_the_orchestrator_is_said_never_a_500(box: dict[str, Any]) -> None:
+    bid = _night(box, "2026-11-10")
+    c = _user(box, "stw9", "steward")
+    tok = _csrf(c.get("/data-ops").text)
+    shim = box["backend"].orch
+    box["backend"].orch_once = _NoAnswer()  # the decision's answer is lost
+    r = c.post(f"/data-ops/batches/{bid}/decide", data={"csrf": tok, "decision": "accept", "reason": "checked"},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and r.headers["location"].endswith("err=publishing")  # the accept may be recorded
+    r = c.post(f"/data-ops/batches/{bid}/decide", data={"csrf": tok, "decision": "reject", "reason": "bad"},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 503
+    box["backend"].orch = _NoAnswer()  # the orchestrator is down
+    assert c.get("/data-ops").status_code == 503 and c.get(f"/data-ops/batches/{bid}").status_code == 503
+    box["backend"].orch = shim
+
+
+@pytest.mark.parametrize("decision", ["", "acceptxxxxxx"])
+def test_a_decision_that_is_neither_is_refused_as_such(box: dict[str, Any], decision: str) -> None:
+    bid = _night(box, "2026-11-10")
+    c = _user(box, f"stw{len(decision)}", "steward")
+    tok = _csrf(c.get("/data-ops").text)
+    r = c.post(f"/data-ops/batches/{bid}/decide", data={"csrf": tok, "decision": decision, "reason": "r"},
+               follow_redirects=False)  # fmt: skip
+    assert r.headers["location"].endswith("err=decision") and _state(bid) == HELD
+
+
+def test_a_held_night_says_when_its_publish_runs_or_did_not_publish(box: dict[str, Any]) -> None:
+    from datacore.dataops import ACCEPTING, NOT_PUBLISHED
+
+    running, refused = _night(box, "2026-11-08"), _night(box, "2026-11-09", source="lab")
+    ops = DataOps()
+    try:
+        ops.note(running, step=ACCEPTING)
+        ops.note(refused, step=NOT_PUBLISHED)
+    finally:
+        ops.close()
+    page = _user(box, "stw8", "steward").get("/data-ops").text
+    assert 'data-testid="held-publishing"' in page and 'data-testid="held-not-published"' in page

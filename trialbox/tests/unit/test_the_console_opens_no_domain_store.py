@@ -21,6 +21,8 @@ CONSOLE = ROOT / "services" / "console"
 OPENERS: set[tuple[str, str]] = {
     ("datacore.dataops", "DataOps"),  # dataops: the night's batches (slice 1, D-761: over /dataops/...)
     ("datacore.dataops", "newest_night"),
+    ("datacore", "dataops"),
+    ("datacore.generations", "*"),  # it opens DataOps
     ("omop.schema", "connect"),  # omop: the clinical store and its conflicts
     ("omop", "schema"),
     ("omop.conflicts", "*"),
@@ -47,6 +49,11 @@ def _found() -> set[tuple[str, str, str]]:
     for path in sorted(CONSOLE.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
+            if isinstance(node, ast.Import):  # ``import datacore.dataops as d`` (the review)
+                for alias in node.names:
+                    parent, _, last = alias.name.rpartition(".")
+                    if (parent, last) in OPENERS or (alias.name, "*") in OPENERS or alias.name in ("importlib",):
+                        out.add((path.name, alias.name, ""))
             if isinstance(node, ast.ImportFrom) and node.module:
                 for alias in node.names:
                     key = (node.module, alias.name)

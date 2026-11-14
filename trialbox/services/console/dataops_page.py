@@ -172,6 +172,8 @@ class OrchOps:
         (409) and ``PromoteFailed`` with the publish's marks (502)."""
         from tb_common.http import ServiceError
 
+        if decision not in ("accept", "reject"):  # the review: refused here as the store refuses it, nothing sent
+            raise DecisionRefused("decision", "decision must be accept or reject")
         path, body = f"/dataops/batches/{int(bid)}/decide", {"decision": decision, "reason": reason}
         once = getattr(self.bk, "orch_once", None) or self.bk.orch
         try:
@@ -188,10 +190,16 @@ class OrchOps:
                 err.nothing_served = bool(detail.get("nothing_served"))
                 err.not_started = bool(detail.get("not_started"))
                 raise err from exc
-            if exc.status in (401, 403, 422):  # refused before anything started
+            if exc.status == 422:  # the request's shape: the store never saw it
+                raise DecisionRefused("decision", "the decision was not understood") from exc
+            if exc.status in (401, 403):  # the orchestrator refused the person before anything started
+                if decision != "accept":
+                    raise DecisionRefused("forbidden", "the orchestrator refused the decision") from exc
                 err = PromoteFailed(f"the orchestrator refused the decision (HTTP {exc.status})")
                 err.not_started = True
                 raise err from exc
+            if exc.status == 0 and decision == "accept":  # no answer: the accept may be recorded, its end not known
+                raise PromoteFailed("no answer to the accept") from exc
             raise
 
 
@@ -237,7 +245,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             return fn()
         except (DatabaseError, Unavailable, ServiceError) as e:  # the orchestrator or its store cannot answer
-            if isinstance(e, ServiceError) and e.status < 500:
+            if isinstance(e, ServiceError) and 0 < e.status < 500:  # the review: 0 is "no answer", not a refusal
                 raise
             log.warning("dataops store failed (%s)", type(e).__name__)
             raise h.problem(503, "dataops.err.store") from e
@@ -332,7 +340,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             steps=read(lambda: ops.steps(bid)),
             unmapped=unmapped_of(b.detail),
             may_decide=permit(sess.user.role, DECIDE),
-            can_accept=True,  # NEW-ARCH-3: the orchestrator says when a box cannot publish (err=promote)
+            can_accept=read(ops.can_publish),  # NEW-ARCH-3: the orchestrator says whether an accept can publish
         )
 
     @app.post("/data-ops/batches/{bid}/decide")
@@ -347,10 +355,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         except DecisionRefused as e:
             if e.why == "not_found":
                 raise h.problem(404, "notfound") from e
+            if e.why == "forbidden":
+                raise h.problem(403, "forbidden") from e
             code = {"not_held": "state", "step": "state", "by": "reason"}.get(e.why, e.why)
             return RedirectResponse(f"/data-ops?err={code if code in ERRORS else 'state'}", status_code=303)
         except PromoteFailed as e:  # the night stays held; its accept stays recorded unless nothing is served
-            return RedirectResponse(f"/data-ops?err={'promote' if e.nothing_served else 'publishing'}",
+            served_none = e.nothing_served or e.not_started  # nothing published: an ordinary held night
+            return RedirectResponse(f"/data-ops?err={'promote' if served_none else 'publishing'}",
                                     status_code=303)  # fmt: skip
         done = "publishing" if got.publishing else decision
         return RedirectResponse(f"/data-ops?done={done}", status_code=303)
@@ -401,13 +412,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         except DecisionRefused as e:
             if e.why == "not_found":
                 raise h.problem(404, "notfound") from e
+            if e.why == "forbidden":
+                raise h.problem(403, "forbidden") from e
             status = 409 if e.why in ("not_held", "step", "promote") else 400
             raise h.problem(status, "request.refused", code=f"DATAOPS-{e.why.upper()}", reason=e.message,
                             fields="") from e  # fmt: skip
         except PromoteFailed as e:  # the night stays held
             why = (
                 "the publish failed and nothing is served; the night stays held"
-                if e.nothing_served
+                if e.nothing_served or e.not_started
                 else "the end of the publish is not known; the accept is recorded: accept again to record its end"
             )
             raise h.problem(409, "request.refused", code="DATAOPS-PROMOTE", reason=why, fields="") from e

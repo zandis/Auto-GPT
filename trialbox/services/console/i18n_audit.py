@@ -45,12 +45,6 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.unlock": ("Account unlocked", "アカウントのロック解除", "解除帳號鎖定"),
     "console.enrol_code": ("Enrolment code issued", "登録コードの発行", "核發註冊碼"),
     "console.user": ("Account changed", "アカウントの変更", "帳號變更"),
-    # NEW-SEC-4 (D-760): the steward's accept started the publish of a held night, at the orchestrator
-    "dataops.publish_started": (
-        "Held night's publish started",
-        "保留中の夜間データの公開を開始",
-        "開始發布暫緩的夜間資料",
-    ),
     "console.staff": ("Staff directory changed", "スタッフ名簿の変更", "人員名錄變更"),
     # reveals of chart numbers (D-438) and views of patients
     "console.reveal_patient": ("Chart number shown", "カルテ番号の表示", "顯示病歷號"),
