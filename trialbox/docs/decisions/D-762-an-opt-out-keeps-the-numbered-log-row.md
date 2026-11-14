@@ -63,7 +63,7 @@ patient who never consented or a merged chart (added).
 
 ## Reuse check
 
-`Helpers.gone()` stays the one register read of the pages; `opted_out_on` reads the register's own `current()` for
+`Helpers.gone()` stays the one register read of the pages; `opted_out_on` reads the register's own `events()` for
 the days. The XLSX header is still `sponsor.LOG_COLUMNS`. No new store, route or permission.
 
 ## Dropped (D-311)
