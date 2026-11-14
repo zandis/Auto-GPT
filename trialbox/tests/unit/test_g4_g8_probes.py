@@ -224,10 +224,14 @@ def test_g4_records_the_failures_of_each_setting(standin: Any, tmp_path: Path, m
     monkeypatch.setattr(cr, "JUDGE", "local/judge")
     monkeypatch.setenv("TB_GPU_KEY", KEY)
     real = gp.post_json
+    unanswered: list[tuple[bool, int, str]] = []  # (guided, status, why) of each call the stand-in did not answer
 
     def post(url: str, body: dict[str, Any], *a: Any, **kw: Any) -> tuple[int, Any]:
         status, got = real(url, body, *a, **kw)
-        if url.endswith("/chat/completions") and "response_format" not in body and isinstance(got, dict):
+        if url.endswith("/chat/completions") and (status != 200 or not isinstance(got, dict)):
+            unanswered.append(("response_format" in body, status, str(got)[:200]))
+        elif url.endswith("/chat/completions") and "response_format" not in body:
+            # the answer's opening, then cut: the fence is never closed, so no cut of any length parses as JSON
             choice = got["choices"][0]
             choice["message"]["content"] = "Sure, here it is:\n```json\n" + choice["message"]["content"][:20]
             choice["finish_reason"] = "length"
@@ -236,6 +240,9 @@ def test_g4_records_the_failures_of_each_setting(standin: Any, tmp_path: Path, m
     monkeypatch.setattr(gp, "post_json", post)
     b = gp.run_g4(argparse.Namespace(dir=tmp_path, live_record=None, judge_url=f"{base}/v1"))["decoding"]
     on, off = b["guided_on"], b["guided_off"]
+    # every call answered, so each count below is over all 64: an unanswered call is not a schema failure, and a
+    # count one short would otherwise not say why (train 16: 63, cause not kept)
+    assert unanswered == [] and on["answered"] == off["answered"] == 64, unanswered
     assert on["schema_failures"] == 0 and on["schema_failure_examples"] == []
     assert off["schema_failures"] == 64 and off["schema_failures_by_finish_reason"] == {"length": 64}
     ex = off["schema_failure_examples"]
