@@ -1,0 +1,10 @@
+[
+ {
+  "part": "g8-protocols",
+  "stage": "G-8 public protocols compiled with the production judge",
+  "check": "2 protocol(s) compiled with the production judge",
+  "detail": [
+   "KeyError: 'ValueSet VS_CDR_SCORE not defined for ruleset G8P2'"
+  ]
+ }
+]

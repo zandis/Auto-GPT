@@ -9,7 +9,8 @@ Synthetic data only. Three paid runs on one RTX PRO 6000 VM (spot), about US$7 i
 | `20261113T081311Z-c25cea6b` | c25cea6b (master 96f955f0, trains 4 and 5 in) | G-7 and G-4 again | `g7-2026-11-13/` |
 
 Later runs: the 50,000-patient run (section 2) and `20261113T231557Z-0e9be8a5` (0e9be8a5, D-645 in: G-5 and G-8;
-0.8 VM hours, about US$2.19 at the spot price; folder `g5-g8-2026-11-14/`).
+0.8 VM hours, about US$2.19 at the spot price; folder `g5-g8-2026-11-14/`) and `20261114T014216Z-cb850470`
+(cb850470, B13 fixed: G-8 only; VM up 01:42 to 01:54 UTC, about 0.2 VM hours, about US$0.55; folder `g8-2026-11-14/`).
 
 ## 1. Product findings
 
@@ -86,6 +87,47 @@ not follow the calls in flight: the same value appears at 1 and at 16. Evidence:
 The check "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready" fails as
 in run `20261112T165042Z` (B1 there). Evidence: `g3-2026-11-13/failed-checks.json`.
 
+### B14. A model answer whose logic names a concept it did not list fails the whole protocol (criteria-compiler lane)
+
+A product defect found by G-8 (run `20261114T014216Z-cb850470`); lane G changes no product code. Suggested owner:
+the criteria-compiler lane.
+
+- **Input.** The `ir_extract` answer has a structured (or mixed) criterion whose logic atom names a concept, e.g.
+  `{"domain": "observation", "concept": "CDR score", "value": {"op": ">=", "num": 0.5}}`, that is not among that
+  answer's `concept_candidates`. The schema cannot forbid it (`ExtractedAtom.concept`: "name of a concept in
+  concept_candidates" is a description, not a constraint), and the production judge did it on NCT03887455 (the CDR
+  lines).
+- **Wrong behaviour.** `services/criteria_compiler/ir_extract/postprocess.py:142` (`postprocess`) sees it and
+  raises `CompileError("ValueSet VS_CDR_SCORE has no concept candidate")`, which `postprocess.py:150` turns into a
+  warning and the `logic_invalid` flag, but the atom keeps the undefined value set and the criterion stays
+  `structured`. `Compiler.compile` (`services/criteria_compiler/service.py:572`) then calls `demote_uncompilable`,
+  which renders the criterion (`service.py:266`, `CqlGenerator.render`, `compile_cql/generator.py:294`
+  `_obs_value` -> `ValueSets.is_component_set`) and reaches `ValueSets.codes`
+  (`services/criteria_compiler/terminology/mapper.py:427`): `KeyError: 'ValueSet VS_CDR_SCORE not defined for
+  ruleset G8P2'`. `demote_uncompilable` catches only `CompileError` (`service.py:268`), so the `KeyError` leaves
+  `compile`; the app's `/compile` (`app.py:100`) catches only `CompileFailed`, so on a box the requester gets an
+  HTTP 500 ("internal error") and no draft: every other criterion of the protocol is lost. The same code path runs
+  in `approve` (`service.py:746` to `777`, `build_artifacts` catches only `CompileError` too, `service.py:295`).
+- **Expected.** As for any other uncompilable structured criterion (stress test #24, D-98): the criterion goes to
+  `human` with `needs_review` and `compile_error` (a `mixed` one to `note`), with a warning naming the concept, and
+  the rest of the protocol compiles. For example `ValueSets.codes` / `url` raise `CompileError` for an unknown
+  name, or `postprocess` sets the atom's value set to `NONE` / demotes the criterion when it raises "has no concept
+  candidate".
+- **Not a probe defect.** G-8 calls the product's own entry, `criteria_compiler.service.Compiler.compile`, with
+  the parsed protocol, as the box's `/compile` does (`app.py:100`; the orchestrator's `trials.py:72` and
+  `review.py:89` reach it through `CompilerHttp.compile`). No step of the box defines value sets before
+  `codes()`: they come only from `postprocess` (one per concept candidate, mapped or not, plus derived ones).
+  The box's terminology (`resolver.terminology`) and CQL translator differ from G-8's, but neither defines a value
+  set for a concept the model did not list, and the crash comes before the translator.
+- **Reproduction** (no model, no GPU). G-8's `compile_protocol` with a stub client whose `ir_extract` answer is the
+  atom above and, for one line, no concept candidates: `KeyError: 'ValueSet VS_CDR_SCORE not defined for ruleset
+  SYNP1'`, raised at `service.py:572` -> `service.py:266` -> `generator.py:294` -> `mapper.py:452` ->
+  `mapper.py:427`, the run's stack. With the candidate listed the same protocol compiles (the criterion flagged
+  `concept_unmapped`, `needs_review`).
+- **G-8 itself.** The failed protocol is a failed row (its error) and the other protocol is still measured; a test
+  pins that (`test_g8_records_a_protocol_that_does_not_compile_and_measures_the_other`). The run kept no raw model
+  answer, so which CDR line named the concept is not recorded.
+
 ## 2. Throughput (G-3), main SCREEN only
 
 | Calls in flight | ja calls/s | zh-TW calls/s |
@@ -148,9 +190,26 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 2. Lane D: the gateway's audit records each call's slot wait.
 3. Lane D: `tools/e2e_simple.py` `Stage.check` cuts check detail at 300 characters.
 4. Lane D: name the structured-output backend in the serving record and look at P3.
+5. The criteria-compiler lane: B14 (an undefined value set fails the whole protocol instead of one criterion).
 
-## 5. Not yet measured
+## 5. G-8: public protocols compiled with the production judge
 
-G-8 (public protocols compiled with the production judge) has no measurement: its only run so far,
-`20261113T231557Z-0e9be8a5`, was refused by the gateway (B13), so its three checks failed without a model answer.
-It needs one short run after the B13 fix (`complete_run.py --only g8-protocols`).
+Run `20261114T014216Z-cb850470` (cb850470, G-8 only, after the B13 fix; the gateway answered all 33 calls, none
+refused). VM up 01:42 to 01:54 UTC: about 0.2 VM hours, about US$0.55 at the spot price. 2 of 3 checks passed;
+folder `g8-2026-11-14/`.
+
+| Protocol | Result | Criteria | structured / note / mixed / human | needs_review | time_sensitive |
+| --- | --- | --- | --- | --- | --- |
+| NCT02629159 (rheumatoid arthritis) | compiled | 10 | 1 / 7 / 1 / 1 | 7 | 0 |
+| NCT03887455 (early Alzheimer's disease) | failed: `KeyError: 'ValueSet VS_CDR_SCORE not defined for ruleset G8P2'` | - | - | - | - |
+
+- **NCT02629159.** No extension-phase line active without a warning (it has none); the one "at least one of the
+  following" group (`G8P1-INC-06`, `G8P1-INC-07`) is not flattened to AND. 11 concepts could not be mapped; 7
+  criteria are flagged for review, each with the compile warning that moved it (the coded pre-check dropped, the
+  notes decide it, or human review).
+- **NCT03887455.** The compile failed as a whole: the model's logic named a concept ("CDR score") it did not list
+  as a concept candidate, and the compiler crashed instead of sending that criterion to review (B14, a product
+  defect, criteria-compiler lane). So the two checks on the extension phase and alternative groups were measured on
+  NCT02629159 only; the extension-phase check, the one NCT03887455 was chosen for, is not measured yet.
+- Evidence: `g8-2026-11-14/g8-protocols.json` (`protocols.protocols`), `g8-2026-11-14/report.md`.
+- Still to measure: NCT03887455 after B14 is fixed (one short run, `complete_run.py --only g8-protocols`).

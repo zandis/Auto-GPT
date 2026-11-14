@@ -416,6 +416,41 @@ def test_g8_compiles_a_folder_with_the_judge(tmp_path: Path, monkeypatch: pytest
     assert gp.run_g8(argparse.Namespace(dir=tmp_path / "run"))["not_run"] == "no model pair"
 
 
+def test_g8_records_a_protocol_that_does_not_compile_and_measures_the_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run 20261114T014216Z-cb850470: the second protocol's compile raised (defect B14, a product defect) and G-8
+    kept the first protocol's measurement. The failed row names the error; the other checks read the compiled one."""
+    folder = tmp_path / "protocols"
+    folder.mkdir()
+    (folder / "a.txt").write_text(AD_TEXT, encoding="utf-8")
+    (folder / "b.txt").write_text(AD_TEXT, encoding="utf-8")
+    monkeypatch.setenv("TB_G8_PROTOCOLS_DIR", str(folder))
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+    monkeypatch.setattr(cr, "_models", lambda a, caller="orchestrator": _stub_clients())
+    real = gp.compile_protocol
+
+    def compile_protocol(proto: dict[str, Any], work: Path, llm: Any, ruleset: str) -> Any:
+        if ruleset == "G8P2":
+            raise KeyError(f"ValueSet VS_SYNTHETIC not defined for ruleset {ruleset}")
+        return real(proto, work, llm, ruleset)
+
+    monkeypatch.setattr(gp, "compile_protocol", compile_protocol)
+    res = gp.run_g8(argparse.Namespace(dir=tmp_path / "run"))
+    rows = res["protocols"]["protocols"]
+    assert [r["id"] for r in rows] == ["a", "b"]
+    assert "error" not in rows[0] and rows[0]["criteria"] >= 4
+    error = "KeyError: 'ValueSet VS_SYNTHETIC not defined for ruleset G8P2'"
+    assert rows[1] == {"file": "b.txt", "id": "b", "error": error}
+    checks = {c[0]: c for st in res["stages"] for c in st["checks"]}
+    first = checks["2 protocol(s) compiled with the production judge"]
+    assert first[1] is False and first[2] == [rows[1]["error"]]
+    ext = checks["no extension-phase line active without a warning"]
+    assert ext[2] == {"a": rows[0]["extension_active_without_warning"]}  # the compiled protocol only
+    assert ext[1] is not bool(rows[0]["extension_active_without_warning"])
+    assert not res["stages"][0]["ok"]
+
+
 def test_g8_compiles_as_the_criteria_compiler_through_the_installed_gateway(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1,0 +1,359 @@
+{
+ "stages": [
+  {
+   "name": "G-8 public protocols compiled with the production judge",
+   "ok": false,
+   "seconds": 239.3,
+   "checks": [
+    [
+     "2 protocol(s) compiled with the production judge",
+     false,
+     [
+      "KeyError: 'ValueSet VS_CDR_SCORE not defined for ruleset G8P2'"
+     ]
+    ],
+    [
+     "no extension-phase line active without a warning",
+     true,
+     {
+      "NCT02629159": []
+     }
+    ],
+    [
+     "alternative diagnosis groups not flattened to AND",
+     true,
+     {
+      "NCT02629159": []
+     }
+    ]
+   ],
+   "shot": "g8-protocols.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "protocols": {
+  "folder": "/var/lib/tb/src/trialbox/tests/fixtures/public_protocols",
+  "protocols": [
+   {
+    "file": "NCT02629159.json",
+    "id": "NCT02629159",
+    "title": "A Study Comparing Upadacitinib (ABT-494) to Placebo and to Adalimumab in Adults With Rheumatoid Arthritis Who Are on a Stable Dose of Methotrexate and Who Have an Inadequate Response to Methotrexate",
+    "conditions": [
+     "Rheumatoid Arthritis"
+    ],
+    "warnings": [
+     "concept 'rheumatoid arthritis' (observation) could not be mapped",
+     "concept 'folic acid' (medication) could not be mapped",
+     "concept 'folinic acid' (medication) could not be mapped",
+     "concept 'bone erosion' (observation) could not be mapped",
+     "concept 'rheumatoid factor' (observation) could not be mapped",
+     "concept 'anti-cyclic citrullinated peptide autoantibodies' (observation) could not be mapped",
+     "concept 'biological disease-modifying anti-rheumatic drugs' (medication) could not be mapped",
+     "concept 'conventional synthetic disease-modifying anti-rheumatic drugs' (medication) could not be mapped",
+     "concept 'filgotinib' (medication) could not be mapped",
+     "concept 'inadequate responder to bDMARD' (observation) could not be mapped",
+     "concept 'inflammatory joint disease' (observation) could not be mapped",
+     "G8P1-INC-02: duration requires domain=medication and min_days",
+     "G8P1-INC-05: value.op is required",
+     "G8P1-INC-06: value comparison is only supported for observations (got medication)",
+     "G8P1-INC-07: value comparison is only supported for observations (got medication)",
+     "G8P1-EXC-01: value comparison is only supported for observations (got medication)",
+     "G8P1-EXC-02: value comparison is only supported for observations (got medication)",
+     "G8P1-EXC-03: value.op is required",
+     "G8P1-INC-02: duration requires domain=medication and min_days; the coded pre-check is dropped, the notes decide it",
+     "G8P1-INC-05: value.op is required; the coded pre-check is dropped, the notes decide it",
+     "G8P1-INC-06: value comparison is only supported for observations (got medication); the coded pre-check is dropped, the notes decide it",
+     "G8P1-INC-07: value comparison is only supported for observations (got medication); the coded pre-check is dropped, the notes decide it",
+     "G8P1-EXC-01: value comparison is only supported for observations (got medication); moved to human review",
+     "G8P1-EXC-02: value comparison is only supported for observations (got medication); the coded pre-check is dropped, the notes decide it",
+     "G8P1-EXC-03: value.op is required; the coded pre-check is dropped, the notes decide it",
+     "cql-translator unavailable: ELM not produced (approval blocked)"
+    ],
+    "criteria": 10,
+    "class_split": {
+     "structured": 1,
+     "note": 7,
+     "mixed": 1,
+     "human": 1
+    },
+    "needs_review": [
+     "G8P1-INC-02",
+     "G8P1-INC-05",
+     "G8P1-INC-06",
+     "G8P1-INC-07",
+     "G8P1-EXC-01",
+     "G8P1-EXC-02",
+     "G8P1-EXC-03"
+    ],
+    "time_sensitive": [],
+    "extension_lines": [],
+    "extension_active_without_warning": [],
+    "alternative_groups": [
+     {
+      "opener": "* At least one of the following at Screening: greater than or equal to 3 bone erosions on x-ray OR greater than or equal",
+      "members": 2,
+      "criteria": [
+       "G8P1-INC-06",
+       "G8P1-INC-07"
+      ],
+      "flattened_to_and": false
+     }
+    ],
+    "per_criterion": [
+     {
+      "id": "G8P1-INC-01",
+      "kind": "inclusion",
+      "class": "structured",
+      "text": "Adult male or female, at least 18 years old.",
+      "needs_review": false,
+      "time_sensitive": false,
+      "flags": [],
+      "active": true
+     },
+     {
+      "id": "G8P1-INC-02",
+      "kind": "inclusion",
+      "class": "note",
+      "text": "Diagnosis of RA for greater than or equal to 3 months.",
+      "needs_review": true,
+      "time_sensitive": false,
+      "flags": [
+       "compile_error",
+       "logic_invalid",
+       "needs_review"
+      ],
+      "active": true
+     },
+     {
+      "id": "G8P1-INC-03",
+      "kind": "inclusion",
+      "class": "mixed",
+      "text": "Subjects must have been on oral or parenteral methotrexate (MTX) therapy greater than or equal to 3 months and on a stable prescription of greater than or equal to 15 to 25 mg/week (or greater than or equal to 10 mg/week in subjects intolerant of MTX at doses greater than or equal to 12.5 mg/week) for at least 4 weeks prior to the first dose of study drug. In addition all subjects should take a dietary supplement of folic acid or folinic acid throughout the study participation.",
+      "needs_review": false,
+      "time_sensitive": false,
+      "flags": [],
+      "active": true
+     },
+     {
+      "id": "G8P1-INC-04",
+      "kind": "inclusion",
+      "class": "note",
+      "text": "Meets the following minimum disease activity criteria: greater than or equal to 6 swollen joints (based on 66 joint counts) and greater than or equal to 6 tender joints (based on 68 joint counts) at Screening and Baseline Visits.",
+      "needs_review": false,
+      "time_sensitive": false,
+      "flags": [],
+      "active": true
+     },
+     {
+      "id": "G8P1-INC-05",
+      "kind": "inclusion",
+      "class": "note",
+      "text": "At least one of the following at Screening: greater than or equal to 3 bone erosions on x-ray OR greater than or equal to 1 bone erosion and a positive rheumatoid factor OR greater than or equal to 1 bone erosion and a positive anti-cyclic citrullinated peptide autoantibodies.",
+      "needs_review": true,
+      "time_sensitive": false,
+      "flags": [
+       "compile_error",
+       "logic_invalid",
+       "needs_review"
+      ],
+      "active": true
+     },
+     {
+      "id": "G8P1-INC-06",
+      "kind": "inclusion",
+      "class": "note",
+      "text": "Subjects with prior exposure to only one biological disease-modifying anti-rheumatic drugs (bDMARD) (except adalimumab) may be enrolled (up to 20% of total study population) if they have documented evidence of intolerance to the bDMARD or limited exposure (less than 3 months), but required washout periods need to be satisfied.",
+      "needs_review": true,
+      "time_sensitive": false,
+      "flags": [
+       "compile_error",
+       "logic_invalid",
+       "needs_review"
+      ],
+      "active": true
+     },
+     {
+      "id": "G8P1-INC-07",
+      "kind": "inclusion",
+      "class": "note",
+      "text": "Except for MTX, subject must have discontinued all conventional synthetic disease-modifying anti-rheumatic drugs (csDMARDs).",
+      "needs_review": true,
+      "time_sensitive": false,
+      "flags": [
+       "compile_error",
+       "logic_invalid",
+       "needs_review"
+      ],
+      "active": true
+     },
+     {
+      "id": "G8P1-EXC-01",
+      "kind": "exclusion",
+      "class": "human",
+      "text": "Prior exposure to any Janus kinase (JAK) inhibitor (including but not limited to tofacitinib, baricitinib, and filgotinib).",
+      "needs_review": true,
+      "time_sensitive": false,
+      "flags": [
+       "compile_error",
+       "logic_invalid",
+       "needs_review"
+      ],
+      "active": true
+     },
+     {
+      "id": "G8P1-EXC-02",
+      "kind": "exclusion",
+      "class": "note",
+      "text": "Subjects who have been exposed to adalimumab or who are considered inadequate responders to bDMARD therapy as determined by the Investigator.",
+      "needs_review": true,
+      "time_sensitive": false,
+      "flags": [
+       "compile_error",
+       "logic_invalid",
+       "needs_review"
+      ],
+      "active": true
+     },
+     {
+      "id": "G8P1-EXC-03",
+      "kind": "exclusion",
+      "class": "note",
+      "text": "History of inflammatory joint disease other than RA. History of secondary Sjogren's Syndrome is permitted.",
+      "needs_review": true,
+      "time_sensitive": false,
+      "flags": [
+       "compile_error",
+       "logic_invalid",
+       "needs_review"
+      ],
+      "active": true
+     }
+    ]
+   },
+   {
+    "file": "NCT03887455.json",
+    "id": "NCT03887455",
+    "error": "KeyError: 'ValueSet VS_CDR_SCORE not defined for ruleset G8P2'"
+   }
+  ]
+ },
+ "run": {
+  "id": "20261114T014216Z-cb850470-s1",
+  "head": "cb8504708a4fd739e93e82454da840722c442f6c",
+  "subject": "Lane G: results of run 20261113T231557Z-0e9be8a5 (G-5 and G-8) and the findings note",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 16,
+ "metrics": {
+  "sampled": true,
+  "seconds": 239.7,
+  "folder": "parts/g8-protocols",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 21343.0,
+    "generation_tokens": 10303.0,
+    "requests": 33.0,
+    "ttft_seconds_sum": 2.37,
+    "ttft_count": 33.0,
+    "queue_seconds_sum": 0.058,
+    "queue_count": 33.0,
+    "e2e_seconds_sum": 235.526,
+    "e2e_count": 33.0,
+    "ttft_mean_s": 0.0718,
+    "queue_mean_s": 0.0018,
+    "e2e_mean_s": 7.1372
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   }
+  },
+  "gpu": {
+   "samples": 25,
+   "every_s": 10.0,
+   "util_mean_pct": 31.7,
+   "util_max_pct": 35.0,
+   "memory_peak_mib": 62582.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 45.0,
+   "power_max_w": 203.28
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 1.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.010323820743749157
+   },
+   "verifier": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   }
+  }
+ },
+ "throughput": {
+  "source": "gateway audit (llm.gateway.call)",
+  "calls": 33,
+  "busy_seconds": 235.6,
+  "calls_per_second": 0.14,
+  "tokens_in": 21343,
+  "tokens_out": 10303,
+  "tokens_in_per_second": 90.598,
+  "tokens_out_per_second": 43.735,
+  "tokens_per_second": 134.333,
+  "p50_s": 0.394,
+  "p95_s": 27.26,
+  "mean_in_flight": 1.0,
+  "cached": 0,
+  "endpoints": {
+   "serving": {
+    "calls": 33,
+    "busy_seconds": 235.6,
+    "calls_per_second": 0.14,
+    "tokens_in": 21343,
+    "tokens_out": 10303,
+    "tokens_in_per_second": 90.598,
+    "tokens_out_per_second": 43.735,
+    "tokens_per_second": 134.333,
+    "p50_s": 0.394,
+    "p95_s": 27.26,
+    "mean_in_flight": 1.0
+   }
+  },
+  "breaker_opens": {
+   "embed": 0,
+   "external_x": 0,
+   "openrouter": 0,
+   "serving": 0,
+   "stub": 0,
+   "verifier": 0
+  }
+ },
+ "refusals": {
+  "asked": 33,
+  "refused": 0,
+  "by_reason": {},
+  "by_role": {}
+ },
+ "wall_seconds": 239.7,
+ "started_at": "2026-11-14T01:48:52+00:00",
+ "finished_at": "2026-11-14T01:52:52+00:00"
+}
