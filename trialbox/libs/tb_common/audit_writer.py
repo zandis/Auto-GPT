@@ -271,7 +271,12 @@ SKEW_ENV = "TB_AUDIT_TS_MAX_SKEW_S"
 #: shared libraries (and helpers of each other): their rows cover every family written anywhere in the modules
 #: they import. A service that reads outside input (mail, model output, hospital files, protocols) has the
 #: narrowest row: exactly what its own folder writes, plus :data:`EDGE_EXTRA`, each with its reason.
-_SHARED = ("audit", "flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
+_SHARED = ("flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
+#: NEW-SEC-2 (D-718): the chain's own records. Its writers write them themselves (the drain, the file writer, the
+#: host's signer); none comes through the journal. A row of this family from any role but the audit's own writer and
+#: the administrator is written under :data:`RESERVED_NAME`, with the name it was sent as (security review SEC-10).
+RESERVED = "audit"
+RESERVED_NAME = "journal.reserved_name"
 _ORCH = ("actor", "case", "cohort", "consent", "data", "derive", "edc", "feas", "job", "lake", "life", "microbatch",
          "nav", "notice", "notmatched", "opportunity", "optout", "redcap", "registry", "rerun", "retention",
          "scheduler", "screen", "selftest", "service", "setup", "sponsor", "study", "terminology", "twpas")  # fmt: skip
@@ -285,7 +290,11 @@ _HOST_TOOLS = ("backup", "ops", "update")
 EXACT_EVENTS: dict[str, dict[str, str]] = {
     "tb_orchestrator": {
         "console.ops": "the operations runner of the host (tools/trialbox/ops.py) sends it from the "
-        "orchestrator's container"
+        "orchestrator's container",
+        # D-718: the one record of the chain's own family that comes through the journal. verify trusts no event of
+        # it: the signed heads are read from the anchor folders, and a key rotation never from the journal
+        "audit.head_signed": "the host's nightly signer (trialbox audit-sign) records its head from the "
+        "orchestrator's container",
     },
 }
 #: what an edge service writes beyond its own folder's events, and why
@@ -461,6 +470,11 @@ class Drain:
             # T-721 (D-488): who may say what, and when. The mark is part of the record the event is written in,
             # so there is no moment at which the event is in the chain without it.
             marks = flags_of(str(role), str(event), stamp, at) + (["unreadable"] if problem else [])
+            if str(event).split(".", 1)[0] == RESERVED and foreign(str(role), str(event)):
+                # D-718: never a record of the chain's own family from a service; what was sent is kept, flagged
+                f["detail"] = {**dict(f.get("detail") or {}), "sent_event": str(event)[:120]}
+                event = RESERVED_NAME
+                marks.append("reserved")
             if marks:  # an unreadable row is flagged too, so `flagged()` and `audit_verify --foreign` list it
                 journal["flag"] = marks
                 # the event's name is the sender's own text: it stays in the record, not in the log line
