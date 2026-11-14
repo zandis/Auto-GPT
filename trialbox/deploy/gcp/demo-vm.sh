@@ -16,12 +16,12 @@
 #   TB_DEMO_VM_IMAGE      required for up: REGISTRY/PATH@sha256:<digest>, or gs://BUCKET/trialbox-demo.tar.gz with
 #                         TB_DEMO_VM_IMAGE_SHA256
 #   TB_DEMO_VM_NAME tb-demo-vm  TB_DEMO_VM_ZONE asia-east1-a  TB_DEMO_VM_MACHINE e2-standard-4  TB_DEMO_VM_DISK_GB 30
-#   TB_DEMO_VM_HOURS 12 (the hard stop of each up)  TB_DEMO_VM_SECRET tb-demo-password  TB_DEMO_LANG ja
+#   TB_DEMO_VM_HOURS 12 (the hard stop of each up)  TB_DEMO_VM_SM_NAME tb-demo-password  TB_DEMO_LANG ja
 #   TB_DEMO_SITE_LANG (unset: both campuses)  TB_DEMO_VM_PRICE_* (the estimate)  TB_DEMO_VM_STOP_WAIT_S 300
 #   gcloud: a private CLOUDSDK_CONFIG (the default ~/.config/gcloud is refused) and TB_SA_KEY_FILE, the key file's
 #   PATH (gcloud reads it; nothing here does), as deploy/gcp/complete-run.sh; the project is the gcloud config's.
 # Never: a GPU, a real model (TB_LLM_MODE other than stub is refused), port 80, SSH, a password in the metadata.
-# The password: the demo's own sign-in, from Secret Manager (TB_DEMO_VM_SECRET); the VM reads it, nothing here does.
+# The password: the demo's own sign-in, from Secret Manager (TB_DEMO_VM_SM_NAME); the VM reads it, nothing here does.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

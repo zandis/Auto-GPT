@@ -23,7 +23,7 @@ Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.
     TB_DEMO_ALLOW         (required)      the only source ranges of tcp:443, comma separated (1.2.3.4/32,5.6.7.8/32)
     TB_DEMO_VM_IMAGE      (up)            REGISTRY/PATH@sha256:<64 hex>, or gs://BUCKET/trialbox-demo.tar.gz
                                           (`make demo-bundle`) with TB_DEMO_VM_IMAGE_SHA256, checked on the VM
-    TB_DEMO_VM_SECRET     tb-demo-password  the Secret Manager secret that holds the demo password (setup-gcp.sh)
+    TB_DEMO_VM_SM_NAME    tb-demo-password  the Secret Manager secret that holds the demo password (setup-gcp.sh)
     TB_DEMO_VM_HOST       (not built)     a DNS name for a publicly trusted certificate: refused (see below)
     TB_DEMO_VM_STOP_WAIT_S 300            `down`: how long to wait for TERMINATED after the stop returned; an e2 VM
                                           stops in under a minute, five times that means it is stuck
@@ -188,9 +188,9 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
             raise Refused(f"TB_DEMO_VM_IMAGE must be an image by digest or a gs:// .tar.gz (got '{image}')")
         if image.startswith("gs://") and not SHA_RE.fullmatch(sha):
             raise Refused("TB_DEMO_VM_IMAGE is a gs:// tarball: set TB_DEMO_VM_IMAGE_SHA256 (sha256sum of the file)")
-    secret = (env.get("TB_DEMO_VM_SECRET") or "tb-demo-password").strip()
+    secret = (env.get("TB_DEMO_VM_SM_NAME") or "tb-demo-password").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,255}", secret):
-        raise Refused("TB_DEMO_VM_SECRET must be a Secret Manager secret name")
+        raise Refused("TB_DEMO_VM_SM_NAME must be a Secret Manager secret name")
     lang = (env.get("TB_DEMO_LANG") or "ja").strip()
     site_lang = (env.get("TB_DEMO_SITE_LANG") or "").strip()
     if lang not in LANGS:

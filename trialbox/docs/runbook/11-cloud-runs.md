@@ -344,7 +344,7 @@ with tcp:80 and tcp:443 closed to the world, ACME's HTTP-01 and TLS-ALPN-01 cann
 provider's API credential and a Caddy built with that provider; the script refuses the setting and says so.
 
 **The password.** The demo's own sign-in (accounts `admin`, `crc`, `pi`, `subpi`, `cra`, `viewer`; one password).
-It is the Secret Manager secret `tb-demo-password` (`TB_DEMO_VM_SECRET`), as for the older demo VM: the VM reads it
+It is the Secret Manager secret `tb-demo-password` (`TB_DEMO_VM_SM_NAME`), as for the older demo VM: the VM reads it
 with its own service account into a root-only file and gives it to the container; it is never in the metadata,
 never on a command line, never in a log, and `demo-vm.sh` never reads it (it only checks that a version exists). The
 owner sets it once in **his own** Cloud Shell (`deploy/gcp/setup-gcp.sh` asks for it without echo, or
