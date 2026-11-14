@@ -5,19 +5,23 @@ The measured note accuracy rested on one template study in Japanese and the 54-c
 product's ``judge`` prompt and parser on what that left out, per language (ja, zh-TW, en):
 
 * ``plain``: the condition stated, or stated absent, among routine sentences;
-* ``long``: one note longer than half the excerpt budget, cut around its decisive sentence by the product's own
-  excerpt builder (:func:`matching.excerpts.build`, ``[…]`` where sentences were left out);
+* ``long``: one note longer than the whole excerpt budget, in lines of one to three sentences, cut by the product's
+  own excerpt builder (:func:`matching.excerpts.build`, ``[…]`` where sentences were left out) around the builder
+  sentence holding the decisive one: the judge **given a retrieval hit** (``retrieval: "hit"``). A miss shows the
+  models nothing and is the product's unknown without a call, so it measures retrieval, not the judge;
 * ``negation``: a negated list holding the condition ("no asthma, COPD or interstitial lung disease"), or one of other
   conditions beside a stated one;
 * ``family``: a relative's condition alone (gold ``unknown``: nothing is said of the patient), or beside the patient's;
-* ``era``: an event dated in 和暦 (ja) or 民國 (zh-TW), inside or outside the criterion's window;
+* ``era``: an event dated in 和暦 (ja) or 民國 (zh-TW), inside or outside the criterion's window, written in a note of
+  the index date and at least 15 days from the window's edge (a clear gold; "6 months" at its edge is arguable);
 * ``window``: the same with Western dates;
 * ``lab``: a value written in a note against the criterion's threshold, the threshold itself included.
 
 Criteria and note questions are in English, as the compiler writes them (LLM-015); notes are in the site's language.
 Every case is a canary case (``services/orchestrator/canary``) with ``kind`` (inclusion or exclusion), ``type``,
-``stratum`` and, when decided, ``evidence`` (the decisive sentence, quoted by a right answer). The set is generated
-from a seed and pinned by ``eval/accuracy/MANIFEST.json``; it is not committed. Synthetic text written for TrialBox;
+``stratum`` and, when decided, ``evidence`` (the decisive sentence, quoted by a right answer). Each language and
+stratum holds at least 200 gold exclusions and 200 decided gold non-exclusions (plan 37). The set is generated from a
+seed and pinned by ``eval/accuracy/MANIFEST.json``; it is not committed. Synthetic text written for TrialBox;
 no patient data.
 
     python -m tools.accuracy_set generate cases.jsonl [--seed N] [--manifest eval/accuracy/MANIFEST.json]
@@ -25,9 +29,11 @@ no patient data.
     python -m tools.accuracy_set score cases.jsonl answers.json [--out report.json]
 
 Only a run through the gateway counts (the build-vs-reuse review): ``run`` builds the clients as the orchestrator
-does (``TB_GATEWAY_URL`` ...), with the gateway's swap when the two models share one GPU. The report gives, per model
-and for the pair (decided only when both agree), accuracy with a Wilson interval per language and stratum, wrong and
-missed exclusions with an exact one-sided 95 % upper bound, a ten-bin confidence table per language with its
+does (``TB_GATEWAY_URL`` ...), with the gateway's swap when the two models share one GPU. The report gives, per model,
+for the pair (the product's :func:`tb_common.pair.combine`) and for the product (the pair under the rule of a cut
+record, D-276), accuracy with a Wilson interval per language and stratum, wrong and
+missed exclusions with an exact one-sided 95 % upper bound over the answered cases (none when more than
+:data:`ERROR_SHARE` went unanswered), a ten-bin confidence table per language with its
 expected calibration error (LLM-009), and the error and unknown rates at candidate confidence floors.
 """
 
@@ -48,7 +54,7 @@ from typing import Any
 
 #: the seed of the measured set (eval/accuracy/MANIFEST.json)
 SEED = 20261114
-#: gold exclusions, and decided gold non-exclusions, at least, per language
+#: gold exclusions, and decided gold non-exclusions, at least, per language and stratum (plan 37, NEW-LLM-6 gold)
 PER_CLASS = 200
 LANGS = ("ja", "zh-TW", "en")
 #: candidate confidence floors the report gives the error and unknown rates at
@@ -57,6 +63,8 @@ FLOORS = (0.5, 0.6, 0.7, 0.8, 0.9)
 LONG_TOKENS = 3000
 BASE_INDEX = date(2026, 11, 1)
 FIELDS = ("criterion_text", "note_question", "index_date", "excerpts")
+#: a cell with more than this share of its cases unanswered gives no wrong-exclusion bound
+ERROR_SHARE = 0.1
 
 NOTE_TYPES = {
     "ja": ("経過記録", "外来記録", "退院時要約"),
@@ -93,6 +101,12 @@ FILLER = {
         "情緒穩定，無特別不適。", "已與藥局核對用藥。",
     ),
 }  # fmt: skip
+#: routine sentences a criterion's own sentence would contradict, left out of its cases (review: "walks 30 minutes
+#: most days" beside NYHA class IV)
+CLASH = {
+    "hf": ("Walks 30", "exercise", "30分程度歩", "運動を続け", "步行約30", "規律運動"),
+    "ild": ("Chest clear", "胸部聴診", "胸部聽診"),
+}
 OTHERS = {
     "ja": ("喘息", "COPD", "胃潰瘍", "緑内障", "甲状腺機能低下症", "骨粗鬆症"),
     "zh-TW": ("氣喘", "慢性阻塞性肺病", "胃潰瘍", "青光眼", "甲狀腺功能低下", "骨質疏鬆症"),
@@ -429,9 +443,15 @@ def _join(sents: Iterable[str], lang: str) -> str:
     return (" " if lang == "en" else "").join(sents)
 
 
-def _short(rng: random.Random, lang: str, decisive: list[str], day: date) -> list[dict[str, Any]]:
+def _filler(lang: str, crit: str) -> tuple[str, ...]:
+    return tuple(s for s in FILLER[lang] if not any(w in s for w in CLASH.get(crit, ())))
+
+
+def _short(
+    rng: random.Random, fill: tuple[str, ...], lang: str, decisive: list[str], day: date
+) -> list[dict[str, Any]]:
     """One note: routine sentences around the decisive ones; sometimes an older routine note beside it."""
-    sents = rng.sample(FILLER[lang], rng.randint(1, 3))
+    sents = rng.sample(fill, rng.randint(1, 3))
     for s in decisive:
         sents.insert(rng.randint(0, len(sents)), s)
     notes = [{"date": day.isoformat(), "note_type": rng.choice(NOTE_TYPES[lang]), "text": _join(sents, lang)}]
@@ -441,29 +461,36 @@ def _short(rng: random.Random, lang: str, decisive: list[str], day: date) -> lis
             {
                 "date": old.isoformat(),
                 "note_type": rng.choice(NOTE_TYPES[lang]),
-                "text": _join(rng.sample(FILLER[lang], 2), lang),
+                "text": _join(rng.sample(fill, 2), lang),
             }
         )
     return notes
 
 
-def _long(rng: random.Random, lang: str, decisive: str, day: date) -> tuple[list[dict[str, Any]], int, int]:
-    """One note of more than :data:`LONG_TOKENS` tokens with ``decisive`` in its middle, as the product's excerpt
-    builder shows it: the excerpts, how many notes it left out, and the note's tokens."""
-    from matching.excerpts import DEFAULT_TOKENS, Note, build, note_tokens
+def _long(
+    rng: random.Random, fill: tuple[str, ...], lang: str, decisive: str, day: date
+) -> tuple[list[dict[str, Any]], int, int, str]:
+    """One note of more than :data:`LONG_TOKENS` tokens, lines of one to three sentences as an EMR writes them, with
+    ``decisive`` on a line in its middle, as the product's excerpt builder shows it when the retrieval found that
+    line: the excerpts, how many notes it left out, the note's tokens, and the hit (the builder's sentence holding
+    ``decisive``: the whole line in English, which the builder splits at line ends only)."""
+    from matching.excerpts import DEFAULT_TOKENS, Note, build, note_tokens, sentences
 
-    sents: list[str] = []
+    lines: list[str] = []
     base = note_tokens("")
     total = base
     while total < LONG_TOKENS:  # each sentence's own cost and its line end
-        s = rng.choice(FILLER[lang])
-        sents.append(s)
-        total += _cost(s) - base + 1
-    sents.insert(len(sents) // 2 + rng.randint(-5, 5), decisive)
-    text = "\n".join(sents)
-    got = build([Note("d1", day, rng.choice(NOTE_TYPES[lang]), text)], {"d1": [decisive]}, DEFAULT_TOKENS)
+        line = rng.sample(fill, rng.randint(1, 3))
+        lines.append(_join(line, lang))
+        total += sum(_cost(x) - base for x in line) + len(line)
+    mine = rng.sample(fill, rng.randint(0, 2))
+    mine.insert(rng.randint(0, len(mine)), decisive)
+    lines.insert(len(lines) // 2 + rng.randint(-3, 3), _join(mine, lang))
+    text = "\n".join(lines)
+    hit = next(x for x in sentences(text) if decisive in x)
+    got = build([Note("d1", day, rng.choice(NOTE_TYPES[lang]), text)], {"d1": [hit]}, DEFAULT_TOKENS)
     shown = [{k: e[k] for k in ("date", "note_type", "text")} for e in got.shown]
-    return shown, got.left_out, note_tokens(text)
+    return shown, got.left_out, note_tokens(text), hit
 
 
 @functools.lru_cache(maxsize=256)
@@ -504,7 +531,9 @@ def _cells(lang: str) -> list[tuple[Any, str, str]]:
 
 def _case(rng: random.Random, lang: str, crit: Any, stratum: str, expected: str, rnd: int) -> dict[str, Any]:
     index = BASE_INDEX + timedelta(days=rng.randint(-60, 60))
-    day = index - timedelta(days=rng.randint(1, 30))
+    # a dated event is read in a note of the index date: an older note says nothing of the days since (review)
+    day = index if isinstance(crit, Dated) else index - timedelta(days=rng.randint(1, 30))
+    fill = _filler(lang, crit.id)
     extra: dict[str, Any] = {}
     evidence: str | None
     decisive: list[str]
@@ -542,10 +571,10 @@ def _case(rng: random.Random, lang: str, crit: Any, stratum: str, expected: str,
         extra = {"value": v, "threshold": crit.threshold, "op": crit.op}
     if stratum == "long":
         assert evidence is not None
-        excerpts, left_out, tokens = _long(rng, lang, evidence, day)
-        extra |= {"left_out": left_out, "note_tokens": tokens}
+        excerpts, left_out, tokens, hit = _long(rng, fill, lang, evidence, day)
+        extra |= {"left_out": left_out, "note_tokens": tokens, "retrieval": "hit", "retrieved": hit}
     else:
-        excerpts = _short(rng, lang, decisive, day)
+        excerpts = _short(rng, fill, lang, decisive, day)
     case = {
         "id": f"{lang}:{crit.id}:{stratum}:{expected}:{rnd}",
         "language": lang,
@@ -564,17 +593,19 @@ def _case(rng: random.Random, lang: str, crit: Any, stratum: str, expected: str,
 
 
 def generate(seed: int = SEED, per_class: int = PER_CLASS) -> list[dict[str, Any]]:
-    """The set: per language, rounds of every (criterion, stratum, gold answer) cell until it holds ``per_class``
-    gold exclusions and ``per_class`` decided gold non-exclusions. The same for the same seed."""
+    """The set: per language and stratum, rounds of every (criterion, gold answer) cell of the stratum until it holds
+    ``per_class`` gold exclusions and ``per_class`` decided gold non-exclusions. The same for the same seed."""
     rng = random.Random(seed)
     out: list[dict[str, Any]] = []
     for lang in LANGS:
-        mine: list[dict[str, Any]] = []
-        rnd = 0
-        while not _enough(mine, per_class):
-            mine += [_case(rng, lang, crit, st, exp, rnd) for crit, st, exp in _cells(lang)]
-            rnd += 1
-        out += mine
+        cells = _cells(lang)
+        for stratum in dict.fromkeys(st for _, st, _ in cells):
+            mine: list[dict[str, Any]] = []
+            rnd = 0
+            while not _enough(mine, per_class):
+                mine += [_case(rng, lang, crit, st, exp, rnd) for crit, st, exp in cells if st == stratum]
+                rnd += 1
+            out += mine
     return out
 
 
@@ -620,16 +651,19 @@ def run_model(client: Any, cases: list[dict[str, Any]], prompt: str = "judge") -
     """Each case asked as the canary asks it (:func:`orchestrator.selftest.check_model`), keeping the confidence; a
     refused call is an ``error``."""
     from orchestrator.selftest import clip
-    from tb_common.llm import LlmError
+    from tb_common.pair import served_keys
 
     out: dict[str, dict[str, Any]] = {}
     for c in cases:
         try:
             res = client.chat_json(prompt, {k: c[k] for k in FIELDS}, job_id="accuracy")
-        except LlmError as exc:
-            out[c["id"]] = {"error": clip(str(exc))}
+            got = answer_of(res.data, c["excerpts"])
+        except Exception as exc:  # one refused call or unreadable answer is that case's error, not the run's
+            out[c["id"]] = {"error": clip(f"{type(exc).__name__}: {exc}")}
             continue
-        out[c["id"]] = answer_of(res.data, c["excerpts"])
+        # who answered (D-276): the served name and, through the gateway, the build
+        got["served"] = list(served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")))
+        out[c["id"]] = got
     return out
 
 
@@ -677,12 +711,17 @@ def _wilson(x: int, n: int) -> tuple[float, float]:
 
 
 def _cell(rows: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> dict[str, Any]:
+    """Counts, accuracy and exclusions of ``rows``. The wrong-exclusion bound counts the answered gold
+    non-exclusions only, and is not given when more than :data:`ERROR_SHARE` of the cases went unanswered (review:
+    a model that answered nothing had "0 wrong exclusions, upper bound 0.37 %")."""
     n = len(rows)
     ok = [a for _, a in rows if a is not None and "verdict" in a]
     correct = sum(1 for c, a in rows if a is not None and a.get("verdict") == c["expected"])
     gold_ex = [(c, a) for c, a in rows if gold_excludes(c)]
     gold_kept = [(c, a) for c, a in rows if not gold_excludes(c)]
-    wrong = sum(1 for c, a in gold_kept if a is not None and excludes(c["kind"], str(a.get("verdict"))))
+    answered_kept = [(c, a) for c, a in gold_kept if a is not None and "verdict" in a]
+    wrong = sum(1 for c, a in answered_kept if excludes(c["kind"], str(a["verdict"])))
+    complete = n > 0 and (n - len(ok)) / n <= ERROR_SHARE
     missed = sum(1 for c, a in gold_ex if a is None or not excludes(c["kind"], str(a.get("verdict"))))
     return {
         "n": n,
@@ -695,7 +734,9 @@ def _cell(rows: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> dict[str,
         "missed_exclusions": missed,
         "non_exclusions": len(gold_kept),
         "wrong_exclusions": wrong,
-        "wrong_exclusion_upper95": round(exact_upper(wrong, len(gold_kept)), 6),
+        "answered_non_exclusions": len(answered_kept),
+        "complete": complete,
+        "wrong_exclusion_upper95": round(exact_upper(wrong, len(answered_kept)), 6) if complete else None,
     }
 
 
@@ -763,29 +804,59 @@ def _model(cases: list[dict[str, Any]], answers: Mapping[str, dict[str, Any]]) -
     return rep
 
 
+def _vote(a: Mapping[str, Any]) -> Any:
+    from tb_common.pair import Vote
+
+    reason = a.get("reason") or None
+    return Vote(str(a["verdict"]), float(a.get("confidence", 0.0)), reason, tuple(a.get("served") or ()))
+
+
 def pair_answers(
     judge: Mapping[str, dict[str, Any]], verifier: Mapping[str, dict[str, Any]]
 ) -> dict[str, dict[str, Any]]:
-    """The pair decides only when both models give the same decided answer; else it is unknown (D-478). A case
-    either model could not answer is an error of the pair."""
+    """The product's pair (:func:`tb_common.pair.combine`, D-478, D-276): the verifier is asked only for a decided
+    judge answer, which stands only when both agree above the confidence floor from two different models. A judge
+    that could not answer is an error of the pair; a verifier that could not answer is ``unknown``, as in the
+    product (the model was down)."""
+    from tb_common.pair import Vote, combine, needs_verifier
+    from tb_common.reasons import Reason
+
     out: dict[str, dict[str, Any]] = {}
-    for cid in set(judge) | set(verifier):
-        a, b = judge.get(cid), verifier.get(cid)
-        if a is None or b is None or "verdict" not in a or "verdict" not in b:
-            out[cid] = {"error": "a model did not answer"}
-        elif a["verdict"] == b["verdict"] and a["verdict"] in ("pass", "fail"):
-            out[cid] = {"verdict": a["verdict"], "confidence": min(a["confidence"], b["confidence"])}
-        else:
-            out[cid] = {"verdict": "unknown", "confidence": 0.0}
+    for cid, a in judge.items():
+        if "verdict" not in a:
+            out[cid] = {"error": "the judge did not answer"}
+            continue
+        first = _vote(a)
+        b = verifier.get(cid)
+        second = None
+        if needs_verifier(first):
+            ok = b is not None and "verdict" in b
+            second = _vote(b) if ok and b is not None else Vote("unknown", 0.0, Reason.MODEL_DOWN.value)
+        d = combine(first, second)
+        out[cid] = {"verdict": d.verdict, "confidence": d.confidence}
+    return out
+
+
+def product_answers(cases: list[dict[str, Any]], pair: Mapping[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The pair's answers under the rule of a cut record (``NoteJudge.judge_window``, D-276): with a note of the
+    window not shown in full, an answer that would exclude is unknown; one that keeps the patient stands."""
+    out = dict(pair)
+    for c in cases:
+        a = out.get(c["id"])
+        if c.get("left_out") and a is not None and "verdict" in a and excludes(c["kind"], a["verdict"]):
+            out[c["id"]] = {"verdict": "unknown", "confidence": 0.0}
     return out
 
 
 def score(cases: list[dict[str, Any]], answers: Mapping[str, Mapping[str, dict[str, Any]]]) -> dict[str, Any]:
-    """The report: per model (``answers``: role → case id → answer) and, with a judge and a verifier, for the pair."""
+    """The report: per model (``answers``: role → case id → answer) and, with a judge and a verifier, for the pair
+    and for the product (the pair under the rule of a cut record)."""
     rep: dict[str, Any] = {"cases": len(cases), "counts": counts(cases), "set": set_hash(cases)}
     rep["models"] = {role: _model(cases, ans) for role, ans in answers.items()}
     if "judge" in answers and "verifier" in answers:
-        rep["pair"] = _grouped(cases, pair_answers(answers["judge"], answers["verifier"]))
+        pair = pair_answers(answers["judge"], answers["verifier"])
+        rep["pair"] = _grouped(cases, pair)
+        rep["product"] = _grouped(cases, product_answers(cases, pair))
     return rep
 
 
@@ -794,7 +865,7 @@ def _read(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line.strip()]
 
 
-def _gateway_clients() -> tuple[Any, Any, Callable[[str], None] | None]:
+def _gateway_clients() -> tuple[Any, Any, Callable[[str], None] | None, Callable[[], None] | None]:
     """The judge and the verifier as the orchestrator builds them (through this box's gateway), and the gateway's
     swap when the two share one GPU (as ``tools.canary`` does)."""
     from orchestrator.app import verifier_client
@@ -806,7 +877,8 @@ def _gateway_clients() -> tuple[Any, Any, Callable[[str], None] | None]:
     cfg = get_config()
     audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
     gs = GatewaySwap.from_env()
-    return LlmClient.from_config(audit), verifier_client(audit), (gs.use if gs is not None else None)
+    swap, release = (gs.use, gs.release) if gs is not None else (None, None)
+    return LlmClient.from_config(audit), verifier_client(audit), swap, release
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -834,15 +906,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "run":
         cases = _read(a.cases)
-        judge, verifier, swap = _gateway_clients()
+        judge, verifier, swap, release = _gateway_clients()
         out: dict[str, Any] = {}
-        for role, endpoint, client in (("judge", "serving", judge), ("verifier", "verifier", verifier)):
-            if client is None:
-                continue
-            if swap is not None:
-                swap(endpoint)
-            out[role] = run_model(client, cases)
-        a.out.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+        try:
+            for role, endpoint, client in (("judge", "serving", judge), ("verifier", "verifier", verifier)):
+                if client is None:
+                    continue
+                if swap is not None:
+                    swap(endpoint)
+                out[role] = run_model(client, cases)
+                a.out.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")  # kept per role
+        finally:
+            if release is not None:
+                release()  # the gateway's hold on the card ends with the run, as tools.canary does
         return 0
     rep = score(_read(a.cases), json.loads(a.answers.read_text("utf-8")))
     text = json.dumps(rep, ensure_ascii=False, indent=1)

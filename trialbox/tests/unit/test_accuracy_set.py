@@ -51,14 +51,20 @@ def test_the_set_is_the_same_for_a_seed_and_another_for_another() -> None:
 
 
 @pytest.mark.parametrize("lang", LANGS)
-def test_each_language_has_200_gold_exclusions_and_200_non_exclusions(cases: list[dict[str, Any]], lang: str) -> None:
+def test_each_language_and_stratum_has_200_gold_exclusions_and_200_non_exclusions(
+    cases: list[dict[str, Any]], lang: str
+) -> None:
+    """Plan 37 (NEW-LLM-6 gold): about 200 gold exclusions per language and stratum, and as many decided gold
+    non-exclusions, over at least ten criterion types per language."""
     mine = [c for c in cases if c["language"] == lang]
-    excluded = [c for c in mine if acc.gold_excludes(c) is True]
-    kept = [c for c in mine if acc.gold_excludes(c) is False]
-    assert len(excluded) >= 200 and len(kept) >= 200
-    assert len({c["type"] for c in excluded}) >= 10 and len({c["type"] for c in kept}) >= 10
     assert {c["stratum"] for c in mine} == (STRATA if lang != "en" else STRATA - {"era"})  # no era calendar in en
-    assert {c["kind"] for c in mine} == {"inclusion", "exclusion"}
+    for st in {c["stratum"] for c in mine}:
+        cell = [c for c in mine if c["stratum"] == st]
+        excluded = [c for c in cell if acc.gold_excludes(c)]
+        kept = [c for c in cell if not acc.gold_excludes(c) and c["expected"] != "unknown"]
+        assert len(excluded) >= 200 and len(kept) >= 200, (lang, st)
+        assert {c["kind"] for c in excluded} == {"inclusion", "exclusion"}, (lang, st)
+    assert len({c["type"] for c in mine if acc.gold_excludes(c)}) >= 10
     assert any(c["expected"] == "unknown" for c in mine if c["stratum"] == "family")
 
 
@@ -254,3 +260,106 @@ def test_a_refused_call_is_an_error_in_the_answers() -> None:
     c = {"id": "x", "criterion_text": "t", "note_question": "q", "index_date": "2026-11-01", "excerpts": []}
     got = acc.run_model(Fake(None, fail=True), [c])
     assert "error" in got["x"] and "verdict" not in got["x"]
+
+
+# ------------------------------------------------------------------------------------------------- review fixes
+def test_long_notes_are_lines_of_sentences_and_the_retrieval_hit_is_a_whole_line(cases: list[dict[str, Any]]) -> None:
+    """Review: the builder was handed the gold sentence itself, one sentence a line. Now a note is lines of one to
+    three sentences, as an EMR writes them, and the evidence is the line holding the decisive sentence: what a hit
+    of the product's retrieval (whole sentences as the excerpt builder splits them) gives at best."""
+    from matching.excerpts import sentences
+
+    longs = [c for c in cases if c["stratum"] == "long"]
+    assert all(c["retrieval"] == "hit" for c in longs)
+    en = [c for c in longs if c["language"] == "en"]
+    assert any(len(re.findall(r"\. ", c["retrieved"])) >= 1 for c in en)  # several English sentences on one line
+    for c in longs:
+        assert c["evidence"] in c["retrieved"] and c["retrieved"] in sentences(c["retrieved"])
+        assert any(c["retrieved"] in e["text"] for e in c["excerpts"]), c["id"]
+
+
+def test_a_model_that_answers_nothing_gets_no_bound() -> None:
+    """Review: 1,505 refused calls gave "0 wrong exclusions, upper bound 0.37 %". The bound counts answered cases
+    only, and a cell with more than :data:`ERROR_SHARE` of its cases unanswered gives none."""
+    cs = [_case(str(i), "exclusion", "fail") for i in range(20)]
+    m = acc.score(cs, {"judge": {}})["models"]["judge"]["all"]
+    assert m["errors"] == 20 and m["complete"] is False and m["wrong_exclusion_upper95"] is None
+    ans = {str(i): _ans("fail") for i in range(19)}  # one refused of 20: 5 %, under the share
+    m = acc.score(cs, {"judge": ans})["models"]["judge"]["all"]
+    assert m["complete"] is True and m["answered_non_exclusions"] == 19
+    assert m["wrong_exclusion_upper95"] == pytest.approx(acc.exact_upper(0, 19), abs=1e-6)
+
+
+def test_the_product_view_applies_the_rule_of_a_cut_record() -> None:
+    """Review: with a note left out the product makes an excluding answer unknown and keeps a keeping one (D-276,
+    ``NoteJudge.judge_window``); the raw pair counted the excluding answer."""
+    cs = [
+        _case("a", "exclusion", "pass", stratum="long") | {"left_out": 1},
+        _case("b", "inclusion", "pass", stratum="long") | {"left_out": 1},
+    ]
+    j = {"a": _ans("pass") | {"served": ["name:j"]}, "b": _ans("pass") | {"served": ["name:j"]}}
+    v = {"a": _ans("pass") | {"served": ["name:v"]}, "b": _ans("pass") | {"served": ["name:v"]}}
+    rep = acc.score(cs, {"judge": j, "verifier": v})
+    assert rep["pair"]["all"]["correct"] == 2
+    prod = rep["product"]["all"]
+    assert prod["correct"] == 1 and prod["unknown"] == 1 and prod["missed_exclusions"] == 1
+
+
+def test_the_pair_is_the_products_pair() -> None:
+    """Review: the copy of the rule ignored the confidence floor, the one-model check, and gave an error where the
+    product never asks the verifier."""
+    j = {
+        "a": _ans("pass", 0.05) | {"served": ["name:j"]},
+        "b": _ans("unknown", 0.0) | {"served": ["name:j"]},
+        "c": _ans("pass") | {"served": ["name:j"]},
+    }
+    v = {"a": _ans("pass", 0.05) | {"served": ["name:v"]}, "c": _ans("pass") | {"served": ["name:j"]}}
+    got = acc.pair_answers(j, v)
+    assert got["a"]["verdict"] == "unknown"  # under the floor
+    assert got["b"] == {"verdict": "unknown", "confidence": 0.0}  # the verifier is not asked: no error
+    assert got["c"]["verdict"] == "unknown"  # one model asked twice is no pair
+
+
+def test_the_runner_keeps_who_answered_and_survives_a_bad_answer() -> None:
+    c = {"id": "x", "criterion_text": "t", "note_question": "q", "index_date": "2026-11-01", "excerpts": []}
+    bad = acc.run_model(Fake({"verdict": "pass", "confidence": "very"}), [c])
+    assert "error" in bad["x"]
+    ok = acc.run_model(Fake({"verdict": "unknown", "confidence": 0.0}), [c])
+    assert ok["x"]["served"] == ["name:m"]
+
+
+def test_run_releases_the_card_and_keeps_what_was_answered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tb_common.llm import LlmError
+
+    case = {"id": "x", "criterion_text": "t", "note_question": "q", "index_date": "2026-11-01", "excerpts": []}
+    (tmp_path / "c.jsonl").write_text(json.dumps(case) + "\n", "utf-8")
+    released: list[bool] = []
+
+    def swap(endpoint: str) -> None:
+        if endpoint == "verifier":
+            raise LlmError("swap failed", "model_unavailable")
+
+    fakes = (Fake({"verdict": "unknown", "confidence": 0.0}), Fake({"verdict": "unknown", "confidence": 0.0}))
+    monkeypatch.setattr(acc, "_gateway_clients", lambda: (*fakes, swap, lambda: released.append(True)))
+    with pytest.raises(LlmError):
+        acc.main(["run", str(tmp_path / "c.jsonl"), str(tmp_path / "a.json")])
+    assert released == [True]
+    assert json.loads((tmp_path / "a.json").read_text("utf-8"))["judge"]["x"]["verdict"] == "unknown"
+
+
+def test_routine_sentences_never_contradict_the_criterion(cases: list[dict[str, Any]]) -> None:
+    """Review: "walks 30 minutes most days" beside NYHA class IV, "chest clear" beside interstitial lung disease."""
+    clash: dict[str, tuple[str, ...]] = {
+        "hf": ("Walks 30", "exercise", "30分程度歩", "運動を続け", "步行約30", "規律運動"),
+        "ild": ("Chest clear", "胸部聴診", "胸部聽診"),
+    }
+    for c in cases:
+        text = " ".join(e["text"] for e in c["excerpts"])
+        assert not any(w in text for w in clash.get(c["type"], ())), c["id"]
+
+
+def test_a_dated_event_is_read_on_the_index_date(cases: list[dict[str, Any]]) -> None:
+    """Review: a note 30 days old says nothing of those 30 days; the note is written on the index date."""
+    for c in cases:
+        if "event_date" in c:
+            assert all(e["date"] == c["index_date"] for e in c["excerpts"][:1]), c["id"]

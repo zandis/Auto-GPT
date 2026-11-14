@@ -1,25 +1,25 @@
 {
  "seed": 20261114,
  "per_class": 200,
- "sha256": "sha256:43711c021135c2e49529b8fc09c729e5bea3d68c2b19b49e3b6dcd9962620650",
+ "sha256": "sha256:ab454b8cd95fa6c66b34736dc50b9dad34c4dc4f6e0ca4bc0646c94c4e5ab3a0",
  "counts": {
   "ja": {
-   "cases": 515,
-   "gold_exclusions": 240,
-   "gold_non_exclusions": 275,
-   "unknown": 35
+   "cases": 3041,
+   "gold_exclusions": 1419,
+   "gold_non_exclusions": 1622,
+   "unknown": 203
   },
   "zh-TW": {
-   "cases": 515,
-   "gold_exclusions": 240,
-   "gold_non_exclusions": 275,
-   "unknown": 35
+   "cases": 3041,
+   "gold_exclusions": 1419,
+   "gold_non_exclusions": 1622,
+   "unknown": 203
   },
   "en": {
-   "cases": 475,
-   "gold_exclusions": 220,
-   "gold_non_exclusions": 255,
-   "unknown": 35
+   "cases": 2641,
+   "gold_exclusions": 1219,
+   "gold_non_exclusions": 1422,
+   "unknown": 203
   }
  }
 }
