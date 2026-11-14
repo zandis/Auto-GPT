@@ -38,6 +38,8 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict
+from pydantic import Field as PydField
 from tb_common import audit as tb_audit
 from tb_common.authz import permit
 from tb_common.csvfile import stream_for_spreadsheet
@@ -390,6 +392,9 @@ class Hooks:
     csrf_ok: Callable[[Session, str], bool]
     actor: Callable[[Session], str]
     au: Any
+    #: NEW-JRN-6 (D-771): the chart number's door (``console.team``), set under "chart_to_pid" once the workspace is
+    #: registered; empty without the workspace
+    doors: dict[str, Callable[..., Any]] = field(default_factory=dict)
 
 
 def register(app: FastAPI, h: Hooks) -> None:
@@ -471,6 +476,38 @@ def register(app: FastAPI, h: Hooks) -> None:
         return h.page(request, "audit_patient.html", sess, records=rows, f=f, next_before=nxt, counts=counts,
                       kinds=REPORT_KINDS, rq=f.query(with_pid=False))  # fmt: skip
 
+    def report_by_chart(sess: Session, chart_no: str, fmt: str) -> tuple[Filter, list[Row], bool]:
+        """D-771: the chart number's report for the page and ``/api/v1``: the door (capped, audited), the newest
+        events of the patient with every pseudonym hidden, the report's own audit event."""
+        door = h.doors.get("chart_to_pid")
+        if door is None:
+            raise h.problem(404, "notfound")
+        pid = str(door(sess, chart_no[:64], "disclosure"))
+        f = report_filter(pid, "", "", "")
+        rows, more = search(directory(), f, REPORT_PAGE, "")
+        rows = [hide_pids(r) for r in rows]  # whatever the reader's rights: never the pseudonym
+        h.au.append("console.audit_report", actor=h.actor(sess),
+                    detail={**f.audit_detail(), "format": fmt, "by": "chart"})  # fmt: skip
+        return f, rows, bool(more)
+
+    h.doors["report_by_chart"] = report_by_chart
+
+    @app.post("/audit/patients/by-chart", response_class=HTMLResponse)
+    def audit_patient_by_chart(request: Request, csrf: str = Form(""), chart_no: str = Form("")) -> Response:
+        """NEW-JRN-6 (D-771, JRN-006): one patient's report for a chart number (a patient's 開示 or 查詢 request):
+        the box turns the number into the pseudonym at the door (capped and audited as the opt-out door is,
+        ``for: disclosure``) and the report is shown without the pseudonym anywhere on the page. The newest page of
+        events; the filters and the file need the pseudonym and stay on the pseudonym's report."""
+        sess = guard(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        f, rows, more = report_by_chart(sess, chart_no, "page")
+        counts = {k: 0 for k in (*REPORT_KINDS, "other")}
+        for r in rows:
+            counts[kind_of(r.event)] += 1
+        return h.page(request, "audit_patient.html", sess, records=rows, f=f, next_before=None, counts=counts,
+                      kinds=REPORT_KINDS, rq="", by_chart=True, more=bool(more))  # fmt: skip
+
     @app.get("/audit/patients/{pid}/report.csv")
     def audit_patient_csv(request: Request, pid: str, kind: str = "", since: str = "", until: str = "") -> Response:
         """The same report as a file: the same guard, the same filter, one ``console.audit_report`` (format csv)."""
@@ -500,6 +537,13 @@ def register(app: FastAPI, h: Hooks) -> None:
                       events=i18n_audit.event_names(), bad_pid=False, first=True, verified=result)  # fmt: skip
 
 
+class ByChart(BaseModel):
+    """The body of ``POST /api/v1/audit/patients/by-chart`` (D-771)."""
+
+    model_config = ConfigDict(extra="forbid")
+    chart_no: str = PydField(min_length=1, max_length=64)
+
+
 def register_api(app: FastAPI, h: Hooks, api_session: Callable[[Request], Session]) -> None:
     """``POST /api/v1/audit/verify``, the twin of the page's "Verify the chain" (FIT-019, T-657): the session and
     ``audit.browse`` before the body (``api_first``), the same check, the same ``console.audit_verify`` event. Only in
@@ -520,3 +564,17 @@ def register_api(app: FastAPI, h: Hooks, api_session: Callable[[Request], Sessio
         done = {"ok": result["ok"], "lines": result["lines"], "anchors": len(result["anchors"])}
         h.au.append("console.audit_verify", actor=h.actor(sess), detail=done)
         return result
+
+    @app.post("/api/v1/audit/patients/by-chart")
+    @before_body(may)
+    def api_audit_by_chart(request: Request, body: ByChart) -> dict[str, Any]:
+        """D-771: the page's twin: ``{"chart_no": ...}`` gives the patient's newest events, every pseudonym hidden;
+        the same door, cap and audit as the page."""
+        sess = api_session(request)
+        may(sess, request)
+        report = h.doors.get("report_by_chart")
+        if report is None:
+            raise h.problem(404, "notfound")
+        _f, rows, more = report(sess, body.chart_no, "api")
+        return {"events": [{"ts": r.ts, "event": r.event, "actor": r.actor, "ruleset": r.ruleset, "detail": r.detail}
+                           for r in rows], "more": more}  # fmt: skip

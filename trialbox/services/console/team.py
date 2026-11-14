@@ -1048,6 +1048,19 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         known = (out or {}).get("known")
         return got, known if isinstance(known, bool) else None
 
+    def chart_to_pid(sess: Session, chart_no: str, purpose: str) -> str:
+        """NEW-JRN-6 (D-771): a chart number turned into its pseudonym at the door, for another reader than the
+        opt-out register (the privacy office's disclosure report): the same cap per person and hour (D-273 PV-6),
+        its own ``console.chart_lookup`` event with ``for``; the number is never stored, the caller never shows the
+        pseudonym."""
+        chart_lookup(sess, purpose)
+        pid, known = to_pid(sess, chart_no, "")
+        au.append("console.chart_lookup", actor=h.actor(sess),
+                  detail={"pid": pid, "for": purpose, "role": sess.user.role, "known": KNOWN_WORD[known]})  # fmt: skip
+        return pid
+
+    h.chart_to_pid = chart_to_pid
+
     def on_lists(pid: str) -> bool | None:
         """NEW-JRN-2 (D-542): is this pseudonym on a registry or a current list of any study of this box? Read
         before the opt-out removes it. None when any study could not be read: then nothing is said."""

@@ -1218,9 +1218,8 @@ def create_app(
     from console import audit_page
 
     # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
-    audit_page.register(
-        app, audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
-    )
+    audit_hooks = audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
+    audit_page.register(app, audit_hooks)
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
@@ -1266,11 +1265,8 @@ def create_app(
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
     assert helpers.api_session is not None
-    audit_page.register_api(  # T-211c (D-451): the verify button's /api/v1 twin (T-657)
-        app,
-        audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au),
-        helpers.api_session,
-    )
+    # T-211c (D-451): the verify button's /api/v1 twin (T-657); D-771: the page's hooks, with its doors
+    audit_page.register_api(app, audit_hooks, helpers.api_session)
     approval.register(app, helpers, submit)  # S20 (D-108): the investigator approves, on one page
     screening_log.register(app, helpers)
     notify.register(app, helpers)
@@ -1282,6 +1278,8 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    if helpers.chart_to_pid is not None:  # NEW-JRN-6 (D-771): the audit browser's chart number door
+        audit_hooks.doors["chart_to_pid"] = helpers.chart_to_pid
     account_team["h"] = helpers  # D-719: the account notices find each study's PI here
     sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
