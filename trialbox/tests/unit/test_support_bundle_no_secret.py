@@ -26,19 +26,10 @@ from tools import support_bundle as sb
 ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 11, 14, 1, 0, tzinfo=UTC)
 
-#: every setting of the tree that holds a secret's VALUE (not a path to one); a new one is added here, or the guard
-#: below fails
-SECRETS = (
-    "IMAP_PASS", "SMTP_PASS", "CLOUD_LLM_API_KEY", "TB_LLM_API_KEY", "TB_SERVICE_TOKEN", "POSTGRES_PASSWORD",
-    "POSTGRES_WF_PASSWORD", "TB_DB_PW_ADAPTER", "TB_DB_PW_AUDIT_WRITER", "TB_DB_PW_CONSOLE",
-    "TB_DB_PW_CRITERIA_COMPILER", "TB_DB_PW_FHIR_STORE", "TB_DB_PW_GATEWAY", "TB_DB_PW_LAKE", "TB_DB_PW_MAIL_GATEWAY",
-    "TB_DB_PW_ORCHESTRATOR", "TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD", "TB_ACCEPTANCE_MAIL_PASSWORD",
-    "TB_DEMO_PASSWORD", "TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE", "TB_KMS_TOKEN", "TB_OIDC_CLIENT_SECRET",
-    "TB_RC_CASSETTE_TOKEN", "OPENROUTER_API_KEY", "SPRING_DATASOURCE_PASSWORD", "TB_BAKEOFF_API_KEY", "VLLM_API_KEY",
-)  # fmt: skip
+SECRETS = sb.SECRET_SETTINGS
 #: names the broad pattern below finds that hold a path, a mode or a list of files, never a secret's value
 NOT_VALUES = re.compile(r"_(FILE|DIR|PATH|MODE)$|^TB_SERVICE_TOKENS$|_PW_$")
-BROAD = re.compile(r"\b([A-Z][A-Z0-9_]*(?:PASS|_PW_|SECRET|TOKEN|PHRASE|API_KEY)[A-Z0-9_]*)\b")
+BROAD = re.compile(r"\b([A-Z][A-Z0-9_]*(?:PASS|_PW_|SECRET|TOKEN|PHRASE|_KEY|DSN|CREDENTIAL)[A-Z0-9_]*)\b")
 
 
 def test_the_list_of_secret_settings_is_complete() -> None:
@@ -46,8 +37,8 @@ def test_the_list_of_secret_settings_is_complete() -> None:
     for path in [ROOT / ".env.example", ROOT / "libs/tb_common/config.py", ROOT / "deploy/install.sh",
                  *sorted((ROOT / "deploy").glob("docker-compose*.yml"))]:  # fmt: skip
         found |= set(BROAD.findall(path.read_text(encoding="utf-8")))
-    missing = sorted(n for n in found if not NOT_VALUES.search(n) and n not in SECRETS)
-    assert missing == [], "a setting that holds a secret: add it to SECRETS here, and see that the bundle hides it"
+    missing = sorted(n for n in found if not NOT_VALUES.search(n) and n not in SECRETS and n not in sb.NOT_SECRETS)
+    assert missing == [], "a setting that holds a secret: add it to SECRET_SETTINGS (or NOT_SECRETS, with why)"
 
 
 @pytest.fixture
@@ -151,3 +142,72 @@ def test_the_manifest_names_each_file_as_it_left(box: tuple[Path, dict[str, str]
     for row in manifest["files"]:
         assert hashlib.sha256(files[row["name"]]).hexdigest() == row["sha256"], row["name"]
     assert any("secrets_hidden" in v for v in manifest["changed"].values())
+
+
+# --------------------------------------------------------------------------------------- found by the review
+def _one_box(tmp_path: Path, env_lines: str, monkeypatch: pytest.MonkeyPatch) -> Path:
+    for k in ("TB_LOG_DIR", "TB_AUDIT_HOST_DIR", *SECRETS):
+        monkeypatch.delenv(k, raising=False)
+    deploy = tmp_path / "deploy"
+    (deploy / "secrets").mkdir(parents=True)
+    (deploy / ".env").write_text(f"TB_TZ=Asia/Taipei\nTB_LOG_DIR={tmp_path / 'logs'}\n" + env_lines, encoding="utf-8")
+    (deploy / "settings.yaml").write_text('mrn_regex: "^\\\\d{8}$"\n', encoding="utf-8")
+    return deploy
+
+
+def _printing(*texts: str) -> sb.Runner:
+    def run(argv: Sequence[str], timeout: int) -> tuple[int, str]:
+        return 0, "\n".join(texts) + "\n"
+
+    return run
+
+
+def test_a_value_with_a_comment_after_it_is_found_as_compose_reads_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The value searched for was "smtpPW-Alpha9 # rotated", while compose (and the service, and its log) used
+    "smtpPW-Alpha9"; and a quoted value kept its backslash."""
+    deploy = _one_box(tmp_path, 'SMTP_PASS=smtpPW-Alpha9 # rotated 2026-11\nIMAP_PASS="imap\\"Quote7"\n', monkeypatch)
+    out = sb.build(deploy, tmp_path / "usb", runner=_printing("login smtpPW-Alpha9", 'imap login imap"Quote7'),
+                   now=NOW, say=lambda _: None)  # fmt: skip
+    text = _archive_text(out)
+    assert "smtpPW-Alpha9" not in text and 'imap"Quote7' not in text
+
+
+def test_settings_that_are_not_secrets_keep_their_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found by the review: a name that only LOOKS secret-like (AUTH, COOKIE, KEY) had its value replaced in every
+    file: `true` in every JSON file, every `512m` memory limit, the auth host name, the GPU profile's name."""
+    deploy = _one_box(tmp_path, "TB_CONSOLE_SECURE_COOKIE=true\nTB_MAIL_AUTHSERV_ID=mx.hospa.test\n"
+                                "TB_MEM_AUTHELIA=512m\nTB_GPU_KEY=rtxpro6000\nPOSTGRES_PASSWORD=postgres-Pw-91\n",
+                      monkeypatch)  # fmt: skip
+    seen = '{"ok": true, "mem_limit": "512m", "authserv": "mx.hospa.test", "gpu": "rtxpro6000"}'
+    out = sb.build(deploy, tmp_path / "usb", runner=_printing(seen, "pw postgres-Pw-91"), now=NOW, say=lambda _: None)
+    text = _archive_text(out)
+    assert seen in text and "postgres-Pw-91" not in text
+
+
+def test_a_value_as_json_writes_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    deploy = _one_box(tmp_path, "TB_KMS_TOKEN=kms\\tok/en-55\n", monkeypatch)
+    value = "kms\\tok/en-55"
+    out = sb.build(deploy, tmp_path / "usb", runner=_printing(json.dumps({"sent": value})), now=NOW,
+                   say=lambda _: None)  # fmt: skip
+    text = _archive_text(out)
+    assert json.dumps(value)[1:-1] not in text and value not in text
+
+
+def test_a_secret_that_is_only_in_a_file_is_found_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Most of a box's secrets are files (service tokens, the model key, the actor key), not settings. Their values
+    are read to be looked for; the files themselves never go in a bundle."""
+    deploy = _one_box(tmp_path, "", monkeypatch)
+    (deploy / "secrets" / "services").mkdir()
+    (deploy / "secrets" / "services" / "orchestrator.token").write_text("tok-orch-7f3a9c1e5d\n", encoding="utf-8")
+    (deploy / "secrets" / "model").mkdir()
+    (deploy / "secrets" / "model" / "vllm.env").write_text("VLLM_API_KEY=vllm-key-c0ffee11\n", encoding="utf-8")
+    (deploy / "secrets" / "backup.pub").write_text("public\n", encoding="utf-8")  # public: never searched for
+    out = sb.build(deploy, tmp_path / "usb", runner=_printing("Bearer tok-orch-7f3a9c1e5d", "key vllm-key-c0ffee11",
+                                                              "a public key"),
+                   now=NOW, say=lambda _: None)  # fmt: skip
+    text = _archive_text(out)
+    assert "tok-orch-7f3a9c1e5d" not in text and "vllm-key-c0ffee11" not in text and "a public key" in text

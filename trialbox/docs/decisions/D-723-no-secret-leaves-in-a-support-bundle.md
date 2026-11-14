@@ -19,14 +19,25 @@ output, a JSON detail, a log line, a percent-encoded URL.
 ## Decision
 
 1. **The name rule** is #324's: `PASS` and `_PW` join the secret-like names (`PASSPHRASE` with them).
-2. **The values are what is looked for.** `secret_values`: every setting of `deploy/.env` and of the process
-   environment (a passphrase typed in front of the command) whose name is secret-like and is not a path or a
-   mode. Before the manifest is written, every file of the bundle has every form of each value (as text, and both
-   percent-encodings a URL uses) replaced by `[redacted]`, whatever stood next to it; the count is in the manifest
-   (`secrets_hidden`) and in the closing line.
-3. **The last look is on the finished archive.** It is read back and any value still in it, in any of those forms,
-   stops the bundle: nothing is written, and the refusal names the settings, never a value.
-4. A value shorter than 4 characters is not looked for by value (it would be replaced inside ordinary words); it
+2. **The values are what is looked for.** `secret_values`: the secret settings of `deploy/.env` and of the
+   process environment (a passphrase typed in front of the command), and the values in the files of the secrets
+   folders (`deploy/secrets/`, `TB_SECRETS_HOST_DIR`: tokens, key hex, `.env` lines; public `*.pub`, `*.crt`,
+   `*.pem` are not read; files above 64 KB are not read; none of them ever goes in a bundle). A secret setting is
+   one of `SECRET_SETTINGS` (every one the tree has; a test fails on a new secret-like setting that is in neither
+   it nor `NOT_SECRETS`), or a site's own setting whose name says it holds a secret's value. Before the manifest
+   is written, every file of the bundle has every form of each value replaced by `[redacted]`: as text, both
+   percent-encodings a URL uses, and as JSON writes it. The count is in the manifest (`secrets_hidden`) and in the
+   closing line.
+3. **A value is read as compose reads it**, and as it is written: an unquoted value ends before ` #`; a quoted one
+   is what is between its quotes, with `\"` and `\\` unescaped. Both forms are looked for.
+4. **A setting whose name only looks secret-like keeps its value** (found by the review: `TB_CONSOLE_SECURE_COOKIE`,
+   the mail authserv-id, `TB_MEM_AUTHELIA`, `TB_AUTH_HOSTNAME`, the GPU profile's name had their values replaced
+   in every file, which broke the JSON files and hid what support needs). Their line in `env.redacted` is still
+   redacted by the name rule. True and false, yes and no, 0 and 1 are never looked for.
+5. **The last look is on the finished archive.** It is read back and any value still in it, in any of those
+   forms, stops the bundle: nothing is written, and the refusal names the settings (or "a secret file" and its
+   name), never a value.
+6. A value shorter than 4 characters is not looked for by value (it would be replaced inside ordinary words); it
    is still redacted by its name. Every secret the box makes is far longer.
 
 ## Test
@@ -40,8 +51,9 @@ the bundle is refused. The manifest's checksums are of the files as they leave.
 
 ## Not covered
 
-- A secret the box holds only in a FILE (`deploy/secrets/`, the secrets volume) and that is not also a setting:
-  its value is not read here (the bundle never reads those files, and refuses them as members). If a service
-  logged one, the name rule and the log scrubber are what stand in the way.
-- A value in another encoding (base64 in a header, a JSON escape of a quote inside the value). The forms are text
-  and the URL encodings.
+- Other encodings: base64 (a Basic auth header), a value in upper case, a value split by a line wrap, a URL that
+  encodes some characters and not others. The forms are text, the URL encodings and JSON.
+- A secret value that contains `[redacted]` (or is `redacted`): the bundle is refused every time, since the
+  replacement holds the value. The refusal says which setting.
+- `TB_BACKUP_TARGETS` (a list of folders) holding a URL with a password: its userinfo is redacted where a line
+  is, not by value. It holds folders on a box.
