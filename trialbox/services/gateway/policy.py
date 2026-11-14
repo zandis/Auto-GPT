@@ -56,10 +56,13 @@ def endpoint_key(name: str, env: Mapping[str, str] | None = None) -> str:
 class Refusal(PermissionError):
     """A policy step refused the call. ``reason`` is the stable code returned with HTTP 403 and audited."""
 
-    def __init__(self, reason: str, message: str, status: int = 403) -> None:
+    def __init__(self, reason: str, message: str, status: int = 403, upstream_kinds: tuple[str, ...] = ()) -> None:
         super().__init__(message)
         self.reason = reason
         self.status = status
+        # D-728: what the model servers did (``timeout``, ``retried``, ``busy``, ``open``, ``other``), sorted, when
+        # the refusal came from them; empty for a refusal the gateway made before sending anything
+        self.upstream_kinds = upstream_kinds
 
 
 def parse_label(tag: str | None) -> ClassLabel:
