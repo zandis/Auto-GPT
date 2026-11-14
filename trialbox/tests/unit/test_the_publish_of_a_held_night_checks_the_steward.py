@@ -51,6 +51,7 @@ def test_the_adapter_takes_the_publish_from_the_orchestrator_only(
     monkeypatch.delenv("TB_SERVICE_TOKEN_FILE", raising=False)
     _registry(tmp_path, monkeypatch)
     started: list[Any] = []
+
     def config() -> Any:  # the handler was reached: its configuration is the first thing it asks for
         started.append(1)
         raise RuntimeError("the test's adapter has no configuration")
