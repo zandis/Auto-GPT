@@ -178,7 +178,7 @@ class _Served:
         return list(out)
 
 
-def screen_embedder(url: str | None, probe_timeout: float = 2.0) -> Any:
+def screen_embedder(url: str | None) -> Any:
     """The embedder SCREEN ranks note sentences with (NEW-LLM-2, LLM-002): the box's embed service when it serves a
     real model; the local hash stub when there is no service, it serves the stub or it does not answer (said in the
     log), so retrieval by meaning is off and a criterion with no lexicon term reads "not evaluated"."""
@@ -188,7 +188,7 @@ def screen_embedder(url: str | None, probe_timeout: float = 2.0) -> Any:
         return HashEmbedder()
     probe = None
     try:
-        probe = HttpEmbedder(url, timeout=probe_timeout)
+        probe = HttpEmbedder(url)  # its own timeout: a refused connection fails at once, a hung one once per job
         probe.embed(["probe"])
     except Exception as exc:
         log.warning(
