@@ -127,6 +127,9 @@ class CascadeConfig:
     confidence_floor: float = 0.75  # below: abstained (not hard, CAS-7)
     thresholds: ThresholdTable = field(default_factory=ThresholdTable)
     lexicon: Mapping[str, Sequence[str]] = field(default_factory=dict)  # approved terms per criterion id
+    # NEW-LLM-2 (LLM-002): SCREEN sets it. A note criterion with no lexicon term and only a non-semantic embedder (the
+    # hash stub) is "not evaluated" instead of judged on the first sentences of each note; counted in no_retrieval
+    require_retrieval: bool = False
     language: str = "zh-TW"  # language stratum of the site notes (S2b thresholds)
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
     seed: int = 20261025
@@ -190,6 +193,7 @@ class CascadeResult:
             "tokens": {"in": m.tokens_in, "out": m.tokens_out},
             "cache_hits": m.cache_hits,
             "context_unknown": dict(sorted(m.context_unknown.items())),
+            "no_retrieval": dict(sorted(m.no_retrieval.items())),
             "llm_share": m.llm_share,
             "unprocessed": m.unprocessed,
             "rescue_yield": m.rescued,
@@ -349,6 +353,13 @@ class _Run:
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
         self.stages.append(StageLog(stage, p_in, p_out, q_in, q_out, PATIENT_CLASS, self.ir_hash, dict(detail)))
+
+    def _semantic(self) -> bool:
+        """Can S2b find a sentence by meaning? Not with no embedder or the hash stub (NEW-LLM-2); yes with stored
+        vectors (the flag vec.s2b, D-449: the embed service's model, known per query)."""
+        if self.s2b_source is not None:
+            return True
+        return self.embedder is not None and not str(self.embedder.model).startswith("hash")
 
     def alive(self) -> list[PatientTrace]:
         return [t for t in self.traces.values() if t.in_scope and t.exit_stage is None]
@@ -667,6 +678,16 @@ class _Run:
                     )
                     continue
                 keys = terms(c)
+                if not keys and self.cfg.require_retrieval and not self._semantic():
+                    self.metrics.no_retrieval[c.id] = self.metrics.no_retrieval.get(c.id, 0) + 1
+                    t.outcomes[c.id] = Outcome(
+                        c.id,
+                        "unknown",
+                        "S2",
+                        unknown_kind="uncertain",
+                        reason="not evaluated: no lexicon term and no semantic embedder for this criterion",
+                    )
+                    continue
                 hits = [
                     (n, s) for n in win for s, low in zip(n.sents, n.low, strict=True) if any(k in low for k in keys)
                 ]

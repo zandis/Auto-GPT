@@ -137,6 +137,8 @@ class CascadeMetrics:
     # could not be told (a failed GET /v1/models); in the run manifest's cascade block and the screen summary, so a
     # run that could not tell says so (two patients of one run may then have had other excerpts)
     context_unknown: dict[str, int] = field(default_factory=dict)
+    # NEW-LLM-2: criterion id -> pairs left "not evaluated" because nothing could retrieve for the criterion
+    no_retrieval: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
