@@ -37,3 +37,47 @@ def test_a_scoped_coordinator_cannot_run_another_study(box: dict[str, Any]) -> N
     r = smo.post("/pilot/request", data={"csrf": _csrf(page), "kind": "FEAS", "ruleset": "OTHER1"},
                  follow_redirects=False)  # fmt: skip
     assert r.status_code == 403 and not [q for q in box["backend"].created if q.ruleset == "OTHER1"]
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+def _other_job(b: dict[str, Any]) -> str:
+    """A FEAS of OTHER1, asked by a hospital coordinator (no scope)."""
+    _two_trials(b)
+    crc = _user(b, "crc9", "coordinator")
+    page = crc.get("/pilot/request").text
+    r = crc.post("/pilot/request", data={"csrf": _csrf(page), "kind": "FEAS", "ruleset": "OTHER1"},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303, r.text[-300:]
+    return str(r.headers["location"].rsplit("/", 1)[1])
+
+
+def _propose(client: Any, text: str) -> Any:
+    import re
+
+    page = client.get("/pilot/request").text
+    r = client.post("/pilot/propose", data={"csrf": _csrf(page), "text": text})
+    m = re.search(r'/pilot/propose/([^/"]+)/confirm', r.text)
+    assert m, r.text[-500:]
+    return client.post(f"/pilot/propose/{m.group(1)}/confirm", data={"csrf": _csrf(r.text)}, follow_redirects=False)
+
+
+def test_a_scoped_coordinator_cannot_ask_status_or_cancel_of_another_studys_job(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-769 (F1): STATUS mails the named job's record; the job-id commands named no study, so the
+    scope check never ran. Now the named job's study is checked."""
+    jid = _other_job(box)
+    before = len(box["backend"].created)
+    smo = _user(box, "smo1", "coordinator", affiliation="smo", studies="GZQO", expires="2099-12-31")
+    for cmd in ("STATUS", "CANCEL"):
+        r = _propose(smo, f"{cmd} {jid}")
+        assert r.status_code == 403, (cmd, r.status_code)
+    assert len(box["backend"].created) == before
+    crc = _user(box, "crc8", "coordinator")  # a hospital coordinator (no scope) may
+    assert _propose(crc, f"STATUS {jid}").status_code == 303
+
+
+def test_the_registry_home_of_an_unscoped_coordinator_is_unchanged(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-769 (F2, F3): the registry's home keeps its own list (it was scoped already)."""
+    _two_trials(box)
+    crc = _user(box, "crc9", "coordinator")
+    page = crc.get("/pilot/registry").text
+    assert "GZQO" in page and "OTHER1" in page
