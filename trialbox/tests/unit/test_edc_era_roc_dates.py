@@ -49,7 +49,7 @@ def test_the_first_year_of_an_era_is_read() -> None:
         ("2024-01-10", "113/13/10"),  # no such month
         ("2024-01-10", "10/01/24"),  # a two-digit year is not read as ROC
         # the review: a phone, a lot number or two numbers side by side are not a date
-        ("2024-01-10", "phone 0920240110 x"),
+        ("2024-01-10", "ref 7720240110 x"),  # digits run on before the date
         ("2012-01-01", "113/1/10 2012 0101"),
         ("2024-01-10", "lot 120240110"),
         # the review: a lab flag or a code before three numbers is not an era; an unpadded bare form is not a date
