@@ -7,7 +7,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from tb_common.http import ServiceClient, ServiceError
+from tb_common.http import ServiceClient, ServiceError, kept_failure
 from tb_contracts import (
     ApproveRequest,
     ApproveResult,
@@ -60,16 +60,39 @@ class AdapterAPI(Protocol):
     def run(self, req: IngestRequest) -> IngestReport: ...
 
 
+def _ingest_ended(st: dict[str, Any]) -> str:
+    """Why an ingest that is not done ended, for the job's record (D-557). The adapter's own sentence when it wrote
+    one ("the source folder is empty", "night refused: ..."): those are its words for the operator. Its record of
+    a failure it did not expect is an error's type and up to 500 characters of the error's text (a cast error
+    quotes the value it could not cast): the job's record keeps the type (``tb_common.http.kept_failure``), the
+    adapter's log has the rest."""
+    detail = str(st.get("detail") or "").strip()
+    kept = kept_failure(detail)
+    if kept != detail:
+        return f"The nightly ingest failed ({kept}); the adapter's log has it."
+    if detail:
+        return detail
+    state = str(st.get("state") or "")
+    return "the ingest ended " + (
+        state if state in ("failed", "interrupted", "cancelled", "refused", "held") else "not done"
+    )
+
+
 def _step_error(exc: ServiceError, default_step: str) -> StepFailed:
-    step, message = default_step, exc.detail
+    """A service's refusal of a step as the job's error (D-557). The message is the service's own when the answer
+    has the shape of one: ``{"detail": {"step", "message"}}``, or a refusal (4xx) with a sentence as its detail
+    ("an ingest is already running"). Anything else (a 5xx, a body that is not the service's JSON, up to 2,000
+    characters of it, "unreachable: ...") is not kept in the job's record: it says which service did not do the
+    step, and the detail says with what status."""
+    step, message = default_step, f"The {exc.service} service did not do this step."
     try:
         body = json.loads(exc.detail)
         detail = body.get("detail", body)
-        if isinstance(detail, dict):
+        if isinstance(detail, dict) and detail.get("message"):
             step = str(detail.get("step") or default_step)
-            message = str(detail.get("message") or message)
-        elif isinstance(detail, str):
-            message = detail
+            message = str(detail["message"])
+        elif isinstance(detail, str) and detail and 400 <= exc.status < 500:
+            message = detail[:300]
     except (ValueError, AttributeError):
         pass
     return StepFailed(step, message, f"{exc.service} HTTP {exc.status}")
@@ -184,4 +207,6 @@ class AdapterHttp:
             raise _step_error(exc, "ingest") from exc
         if st.get("state") == "done":
             return IngestReport.model_validate(st.get("report") or {})
-        raise StepFailed("ingest", str(st.get("detail") or f"the ingest ended {st.get('state')}"), f"adapter run {rid}")
+        # D-557: the adapter's "failed" detail is an error's type and up to 500 characters of its text (a cast
+        # error quotes the value it could not cast); the job's record keeps the type, the adapter's log the rest
+        raise StepFailed("ingest", _ingest_ended(st), f"adapter run {rid}")

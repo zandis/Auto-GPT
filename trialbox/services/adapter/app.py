@@ -18,8 +18,11 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import json
 import logging
 import os
+import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -32,6 +35,7 @@ from pydantic import BaseModel, Field
 from tb_common.http import make_app
 from tb_contracts import IngestRequest, dump
 
+from adapter import failure, runs
 from adapter.cli import build_config
 from adapter.pipeline import SiteKeyError, run_ingest
 
@@ -56,6 +60,89 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+RUN_MODES = ("process", "thread")
+#: the ingest processes this service started, by run id (D-663): for the thread that waits for each
+_children: dict[str, subprocess.Popen[bytes]] = {}
+
+
+def run_mode() -> str:
+    """``TB_ADAPTER_RUN`` (D-663): ``process`` (the default, what a box runs): the night's ingest is a process of
+    its own with its run record on disk; killed, it does not take the service with it, and a restart of the service
+    does not forget it. ``thread``: in this process, for a configuration handed to the service in memory (another
+    process cannot be given it)."""
+    mode = os.environ.get("TB_ADAPTER_RUN", "process").strip().lower()
+    if mode not in RUN_MODES:
+        raise ValueError(f"TB_ADAPTER_RUN is {mode!r}; use one of {', '.join(RUN_MODES)}")
+    return mode
+
+
+def _lake_dir() -> Path:
+    return Path(os.environ.get("TB_LAKE_DIR") or build_config()[0].lake_dir)
+
+
+def _run_command(lock_fd: int, spec: dict[str, Any]) -> list[str]:
+    return [sys.executable, "-m", "adapter.run_job", str(lock_fd), json.dumps(spec)]
+
+
+def _child_env() -> dict[str, str]:
+    """The ingest's process imports what this process imports: this process's import path is handed on, whatever
+    put it there (the image's ``PYTHONPATH``, a test runner's own setting)."""
+    return {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
+
+
+def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, Any]) -> None:
+    """Run one ingest as ``python -m adapter.run_job`` and wait for it (called in the service's waiting thread, which
+    holds ``_running``). The child inherits the run lock's open file; this process closes its end and never
+    unlocks. The run's record is on disk from before the child starts; the child writes its end. A child that ends
+    without an answer is ``failed``, with its exit code when it ended by itself."""
+    rid = str(state["run"])
+    proc: subprocess.Popen[bytes] | None = None
+    unreadable = False
+    try:
+        try:
+            lock = runs.RunLock(lake_dir)
+        except runs.RunLockHeld:
+            other = runs.holder(lake_dir)
+            state.update(state="failed", detail=f"an ingest is already running (run {other or 'unknown'}): this run "
+                                               "was not started")  # fmt: skip
+            return
+        try:
+            runs.hold(lake_dir, rid)
+            runs.write(lake_dir, state)
+            runs.prune(lake_dir)
+            spec = {"state": dict(state), "lake_dir": str(lake_dir), "request": request}
+            proc = subprocess.Popen(
+                _run_command(lock.fileno(), spec), pass_fds=[lock.fileno()], stdin=subprocess.DEVNULL, env=_child_env()
+            )
+        finally:
+            lock.hand_over()  # closed, never unlocked: an unlock would take the lock from the child
+        _children[rid] = proc
+        code = proc.wait()
+        end = runs.read(lake_dir, rid)
+        if end is None:  # the record cannot be read now: say so, and do not write over what the child wrote
+            state.update(state="failed", detail="the run's record could not be read when the ingest's process ended")
+            unreadable = True
+            return
+        if end.get("state") == "failed" and end.get("detail") == runs.ENDED_WITHOUT_ANSWER and code > 0:
+            end = {**end, "detail": f"the ingest's process ended with exit code {code} and no answer (the adapter's "
+                                    "log has its error)"}  # fmt: skip
+        state.update(end)
+    except Exception as exc:
+        log.exception("ingest run %s could not be run as a process", rid)
+        if proc is not None and proc.poll() is None:  # never a run behind a "failed" answer
+            proc.kill()
+            proc.wait()
+        state.update(state="failed", detail=f"the ingest's process could not be run ({type(exc).__name__})")
+    finally:
+        _children.pop(rid, None)
+        if state.get("state") == "running":
+            state.update(state="failed", detail=runs.ENDED_WITHOUT_ANSWER)
+        state["ended"] = state.get("ended") or _now()
+        if not unreadable:
+            with contextlib.suppress(Exception):
+                runs.write(lake_dir, state)
+
+
 @app.post("/run", status_code=202)
 def run(req: IngestRequest) -> JSONResponse:
     """T-690 (D-472): start one ingest and answer 202 with its run id; ``GET /run/<id>`` follows it (``running``,
@@ -64,7 +151,8 @@ def run(req: IngestRequest) -> JSONResponse:
     publishes a held night (T-723) the run is taken and waits for it: its state is ``running`` with the detail
     "waiting for a publish", and it starts when the publish ends."""
     waits = False
-    if not _running.acquire(blocking=False):
+    gate = _running  # the lock this run takes is the one it gives back
+    if not gate.acquire(blocking=False):
         if not _accepting.is_set():
             busy = next((r["run"] for r in reversed(_runs.values()) if r["state"] == "running"), "")
             raise HTTPException(status_code=409, detail="an ingest is already running", headers={"X-TB-Run": busy})
@@ -74,9 +162,14 @@ def run(req: IngestRequest) -> JSONResponse:
         path = req.path or default_path
         if req.source != default_kind and not req.path:
             raise HTTPException(status_code=400, detail="path required when overriding the source type")
+        process = run_mode() == "process"
+        if process and not waits and runs.running(ac.lake_dir):
+            # D-663: an ingest this service did not start (it was started before the service restarted) still runs
+            busy = runs.holder(ac.lake_dir)
+            raise HTTPException(status_code=409, detail="an ingest is already running", headers={"X-TB-Run": busy})
     except BaseException:
         if not waits:
-            _running.release()
+            gate.release()
         raise
     rid = os.urandom(8).hex()
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None,
@@ -85,8 +178,18 @@ def run(req: IngestRequest) -> JSONResponse:
 
     def work() -> None:
         if waits:  # behind the accept, however long it takes (never timed: OD-10)
-            _running.acquire()
+            gate.acquire()
             state["detail"] = ""
+        if process:  # D-663: the night is a process of its own; this thread starts it and waits for it
+            try:
+                _run_in_process(state, ac.lake_dir, {
+                    "source": req.source, "path": path, "since": req.since,
+                    "snapshot": req.snapshot.isoformat() if req.snapshot else None, "load_fhir": req.load_fhir,
+                    "rebuild_lake": req.rebuild_lake, "validate": req.validate_,
+                })  # fmt: skip
+            finally:
+                gate.release()
+            return
         try:
             report = run_ingest(
                 ac,
@@ -102,11 +205,11 @@ def run(req: IngestRequest) -> JSONResponse:
         except SiteKeyError as exc:  # T-612: refused before anything was read or written
             state.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
-            log.exception("ingest run %s failed", rid)
-            state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+            failure.log_failure(log, f"ingest run {rid} failed", exc)
+            state.update(state="failed", detail=failure.words(exc, rid))  # D-668: the type, never a foreign text
         finally:
             state["ended"] = _now()
-            _running.release()
+            gate.release()
 
     _spawn(work)
     return JSONResponse(dict(state), status_code=202, headers={"Location": f"/run/{rid}"})
@@ -116,6 +219,9 @@ def run(req: IngestRequest) -> JSONResponse:
 def run_state(rid: str) -> dict[str, Any]:
     """The state of one ingest run of this process (404: unknown here, e.g. the adapter restarted)."""
     st = _runs.get(rid)
+    if st is None and rid.isalnum():  # D-663: a run of an earlier life of this service is on disk
+        with contextlib.suppress(Exception):
+            st = runs.read(_lake_dir(), rid)
     if st is None:
         raise HTTPException(status_code=404, detail="unknown run (the adapter may have restarted)")
     return dict(st)
@@ -124,7 +230,13 @@ def run_state(rid: str) -> dict[str, Any]:
 @app.get("/run")
 def latest_run() -> dict[str, Any]:
     """The newest ingest run of this process, or ``{"state": "none"}``."""
-    return dict(next(reversed(_runs.values()))) if _runs else {"state": "none"}
+    if _runs:
+        return dict(next(reversed(_runs.values())))
+    with contextlib.suppress(Exception):  # D-663: nothing in this life of the service: the newest run on disk
+        on_disk = runs.all_runs(_lake_dir())
+        if on_disk:
+            return dict(on_disk[-1])
+    return {"state": "none"}
 
 
 class PublishBody(BaseModel):
@@ -152,6 +264,8 @@ def publish(body: PublishBody) -> JSONResponse:
     _accepting.set()  # second review (L1): from here a night's run waits, also while the accept is still checked
     try:
         ac = build_config()[0]
+        if run_mode() == "process" and runs.running(ac.lake_dir):  # D-663: an ingest of an earlier life still runs
+            raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
         try:
             held_folder(ac, body.snapshot)
         except NothingToPublish as exc:
@@ -196,8 +310,8 @@ def publish(body: PublishBody) -> JSONResponse:
                 ended = "busy" if out.lake_busy else "stale" if out.stale else "failed"
                 state.update(state=ended, detail="; ".join(out.errors)[:500])
         except Exception as exc:
-            log.exception("publish %s failed", rid)
-            state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+            failure.log_failure(log, f"publish {rid} failed", exc)
+            state.update(state="failed", detail=failure.words(exc, rid))  # D-668
             # second review (H1): what the lake serves is read, also when the publish raised. Unreadable: it stays
             # unset, and the console keeps the accept recorded
             with contextlib.suppress(OSError):

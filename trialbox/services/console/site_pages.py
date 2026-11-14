@@ -276,9 +276,10 @@ def register(app: FastAPI, h: Helpers) -> None:
                     for name in ("trial", "patients", "records"):
                         for m in rd["questions"][name]["missing"]:
                             points.append(t(f"site.miss.{m['key'].split('.', 1)[1]}", **_args(m)))
-                            links.append(
-                                {"href": link_of(m, ws, rs), "label": t(f"site.fix.{m['key'].split('.', 1)[1]}")}
-                            )
+                            if link_of(m, ws, rs):
+                                links.append(
+                                    {"href": link_of(m, ws, rs), "label": t(f"site.fix.{m['key'].split('.', 1)[1]}")}
+                                )
                     if not points:
                         points.append(t("ask.next.ready"))
                         links.append({"href": f"/studies/{rs}/week", "label": t("site.link.week")})
@@ -359,6 +360,8 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def link_of(m: dict[str, Any], ws: str, rs: str) -> str:
         target = str(m.get("link") or "")
+        if not target:  # D-709: an item nothing on these pages fixes (the lake unread, the scores' batch)
+            return ""
         if target.startswith("/"):
             return target
         if target == "forms":

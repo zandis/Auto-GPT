@@ -411,6 +411,26 @@ if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the console's first-run folder (box-in
   COMPOSE+=(-f deploy/docker-compose.box.yml); FILES="$FILES:$ROOT/deploy/docker-compose.box.yml"
 fi
 LOCK_FILES="$FILES"
+# ANCHOR-MOUNT (D-638): the audit page checks the chain against the signed heads of the anchor folders, which are
+# host paths: a compose file of the installer's own mounts each into the console, read-only, and gives the console
+# the name (the shipped compose file clears it). No folder set: no file, and an earlier one is taken away. The
+# command prints the file, then each folder; a folder that is not there, or that the console's user cannot read
+# (asked of the console's own image), stops the install: the page would say "no signed heads" on a healthy chain
+if command -v python3 >/dev/null; then
+  ANCHOR_OUT="$(python3 -m tools.trialbox anchors-compose --deploy "$ROOT/deploy")" \
+    || die "TB_AUDIT_ANCHOR_TARGETS in deploy/.env names a folder that cannot be mounted (above)"
+  if [ -n "$ANCHOR_OUT" ]; then
+    ANCHOR_FILE="${ANCHOR_OUT%%$'\n'*}"
+    while IFS= read -r anchor; do
+      docker run --rm --network none -v "$anchor:/anchor:ro" "$IMAGE_PY" sh -c \
+        'test -r /anchor && test -x /anchor && for d in heads keys; do [ ! -e "/anchor/$d" ] || { test -r "/anchor/$d" && test -x "/anchor/$d"; } || exit 1; done' </dev/null \
+        || die "TB_AUDIT_ANCHOR_TARGETS: the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then re-run"
+    done <<< "${ANCHOR_OUT#*$'\n'}"
+    COMPOSE+=(-f "$ANCHOR_FILE"); FILES="$FILES:$ANCHOR_FILE"
+  fi
+elif [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ]; then
+  echo "install: note: no python3 on this host: the anchor folders are not mounted into the console, so the audit page will not check the signed heads (D-638)" >&2
+fi
 if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand-ins (or a site's own override)
   [ -f "$TB_COMPOSE_OVERRIDE" ] || die "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
   OVR="$(cd "$(dirname "$TB_COMPOSE_OVERRIDE")" && pwd)/$(basename "$TB_COMPOSE_OVERRIDE")"

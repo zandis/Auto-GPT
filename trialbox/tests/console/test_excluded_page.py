@@ -132,7 +132,8 @@ def test_the_screening_run_stores_the_excluded_list_with_the_source() -> None:
                      actions=[]),
         CandidateRow(pid="p4", tier="review", criteria=[], actions=[]),
     ]  # fmt: skip
-    lake = SimpleNamespace(query=lambda _sql: SimpleNamespace(to_pylist=lambda: [{"fid": "f-9"}]))
+    # the lake's own call shape (sql, params, snapshot): the read now goes through tb_common.lakeprobe (D-652)
+    lake = SimpleNamespace(query=lambda _sql, *_a: SimpleNamespace(to_pylist=lambda: [{"fid": "f-9"}]))
     ctx = SimpleNamespace(services=SimpleNamespace(lake=lake))
     run = SimpleNamespace(rs=SimpleNamespace(id="X", version="1"), run_date=date(2026, 11, 2), snapshot="2026-11-01",
                           judging={"mode": "agreement"}, rows=rows)  # fmt: skip
@@ -141,3 +142,4 @@ def test_the_screening_run_stores_the_excluded_list_with_the_source() -> None:
     assert set(by) == {"p1", "p2", "p3"}
     assert [c["id"] for c in by["p1"]["criteria"]] == ["X-2"] and by["p1"]["criteria"][0]["source"] == "notes"
     assert by["p2"]["criteria"][0]["source"] == "fact" and by["p3"]["criteria"][0]["source"] == "coded"
+    assert doc["confirmed_facts"] == "read" and doc["coded_values"] == "read"

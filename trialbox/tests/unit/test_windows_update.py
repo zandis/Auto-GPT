@@ -81,7 +81,7 @@ def test_a_night_outside_the_window_is_never_passed_while_its_length_is_unmeasur
         "from 19:00 to 01:00" in c.detail
         and "the night starts at 02:00, 17 h 00 min before the window opens" in c.detail
     )
-    assert "not recorded on the box" in c.detail and "has not said" not in c.detail
+    assert "No night's length is recorded on the box yet" in c.detail and "has not said" not in c.detail
 
 
 @pytest.mark.parametrize(
@@ -94,6 +94,121 @@ def test_a_night_that_starts_inside_the_window_fails(tmp_path: Path, night: str,
         assert f"the night starts at {night}, inside it" in c.detail and "-UpdateWindowStart" in c.detail
     if night == "18:59":
         assert "0 h 01 min before the window opens" in c.detail
+
+
+def _nights(inp: DoctorInputs, *runs: tuple[str, str], work: tuple[tuple[str, str], ...] = ()) -> DoctorInputs:
+    """Lane B's record of the nights that ran (deploy/site/night-length.json; tools/night_length.py)."""
+    assert inp.deploy is not None
+    (inp.deploy / "site").mkdir(parents=True, exist_ok=True)
+    nights = [{"start": a, "end": b, "finished": True, "run": 1, "snapshot": a[:10]} for a, b in runs]
+    body: dict[str, Any] = {"nights": nights}
+    if work:  # lane B2's D-667: the orchestrator's own work for the same night, keyed by the night's day
+        body["work"] = [{"day": a[:10], "start": a, "end": b, "finished": True, "run": 1} for a, b in work]
+    (inp.deploy / "site/night-length.json").write_text(json.dumps(body))
+    return inp
+
+
+def test_recorded_nights_that_end_before_the_window_give_the_least_margin_and_still_no_pass(tmp_path: Path) -> None:
+    inp = _nights(_inp(tmp_path, told="19+6"),
+                  ("2026-11-10T02:00:00+08:00", "2026-11-10T05:30:00+08:00"),
+                  ("2026-11-11T02:00:00+08:00", "2026-11-11T09:10:00+08:00"))  # fmt: skip
+    c = check_update_window(inp)
+    assert c.status == "WARN"  # measured to the end of ingest only: what the orchestrator did after it is not known
+    assert (
+        "of the last 2 recorded nights, 2 measured only to the end of ingest, at least 9 h 50 min before it" in c.detail
+    )
+    assert "the work after ingest is not known for them" in c.detail
+
+
+@pytest.mark.parametrize(
+    ("run", "says"),
+    [
+        (
+            ("2026-11-11T02:00:00+08:00", "2026-11-11T19:30:00+08:00"),
+            "2026-11-11 02:00 to 19:30",
+        ),  # ran into the window
+        (("2026-11-11T20:00:00+08:00", "2026-11-11T21:00:00+08:00"), "2026-11-11 20:00 to 21:00"),  # began inside it
+        (("2026-11-11T02:00:00+08:00", "2026-11-12T03:00:00+08:00"), "2026-11-11 02:00 to 03:00"),  # ran a whole day
+    ],
+)
+def test_a_recorded_night_that_ran_into_the_window_fails(tmp_path: Path, run: tuple[str, str], says: str) -> None:
+    good = ("2026-11-10T02:00:00+08:00", "2026-11-10T05:00:00+08:00")
+    c = check_update_window(_nights(_inp(tmp_path, told="19+6"), good, run))
+    assert c.status == "FAIL" and "1 of the last 2 recorded nights ran inside it" in c.detail and says in c.detail
+
+
+N1 = ("2026-11-10T02:00:00+08:00", "2026-11-10T05:30:00+08:00")
+N2 = ("2026-11-11T02:00:00+08:00", "2026-11-11T06:10:00+08:00")
+
+
+def test_nights_measured_to_the_end_of_their_work_and_clear_of_the_window_pass(tmp_path: Path) -> None:
+    """NEW-B-26 (D-667): with the orchestrator's work in the record, the whole night is known."""
+    work = (
+        ("2026-11-10T05:30:10+08:00", "2026-11-10T09:00:00+08:00"),
+        ("2026-11-11T06:10:05+08:00", "2026-11-11T11:45:00+08:00"),
+    )
+    c = check_update_window(_nights(_inp(tmp_path, told="19+6"), N1, N2, work=work))
+    assert c.status == "PASS", c.detail
+    assert "the last 2 recorded nights, measured to the end of the night's work, ended at least 7 h 15 min" in c.detail
+
+
+def test_the_work_after_ingest_running_into_the_window_fails_though_the_ingest_did_not(tmp_path: Path) -> None:
+    work = (
+        ("2026-11-10T05:30:10+08:00", "2026-11-10T09:00:00+08:00"),
+        ("2026-11-11T06:10:05+08:00", "2026-11-11T19:20:00+08:00"),
+    )
+    c = check_update_window(_nights(_inp(tmp_path, told="19+6"), N1, N2, work=work))
+    assert c.status == "FAIL" and "1 of the last 2 recorded nights ran inside it" in c.detail
+    assert "2026-11-11 02:00 to 19:20" in c.detail  # the night's end is the end of its work
+
+
+def test_a_night_without_its_work_measured_keeps_the_line_at_a_warning(tmp_path: Path) -> None:
+    """A night without the two keys was not measured after ingest: never "no work after the publish"."""
+    work = (("2026-11-10T05:30:10+08:00", "2026-11-10T09:00:00+08:00"),)  # the second night's chain did not end
+    c = check_update_window(_nights(_inp(tmp_path, told="19+6"), N1, N2, work=work))
+    assert c.status == "WARN", c.detail
+    assert (
+        "of the last 2 recorded nights, 1 measured to the end of the night's work ended at least 10 h 00 min"
+        in c.detail
+    )
+    assert (
+        "1 measured only to the end of ingest, at least 12 h 50 min before it: the work after ingest is not known"
+        in c.detail
+    )
+
+
+def test_work_that_does_not_fit_its_night_is_not_taken_for_the_nights_end(tmp_path: Path) -> None:
+    # a work entry that ends before the ingest ended cannot be this night's work: the night stays "ingest only"
+    work = (("2026-11-10T03:00:00+08:00", "2026-11-10T04:00:00+08:00"),)
+    c = check_update_window(_nights(_inp(tmp_path, told="19+6"), N1, work=work))
+    assert c.status == "WARN" and "1 measured only to the end of ingest" in c.detail
+
+
+def test_a_night_that_ends_just_as_the_window_opens_is_not_inside_it(tmp_path: Path) -> None:
+    c = check_update_window(
+        _nights(_inp(tmp_path, told="19+6"), ("2026-11-11T02:00:00+08:00", "2026-11-11T19:00:00+08:00"))
+    )
+    assert c.status == "WARN" and "at least 0 h 00 min before it" in c.detail
+
+
+def test_a_window_over_midnight_and_a_night_after_it(tmp_path: Path) -> None:
+    # window 22:00 to 04:00; the night starts 04:30 and ends 07:00: 15 h before the window opens again
+    inp = _nights(
+        _inp(tmp_path, told="22+6", night="04:30"), ("2026-11-11T04:30:00+09:00", "2026-11-11T07:00:00+09:00")
+    )
+    c = check_update_window(inp)
+    assert c.status == "WARN" and "from 22:00 to 04:00" in c.detail and "at least 15 h 00 min" in c.detail
+
+
+def test_a_record_with_no_finished_night_is_the_unmeasured_case_never_a_failure(tmp_path: Path) -> None:
+    inp = _inp(tmp_path, told="19+6")
+    assert inp.deploy is not None
+    (inp.deploy / "site").mkdir(parents=True, exist_ok=True)
+    (inp.deploy / "site/night-length.json").write_text(
+        json.dumps({"nights": [{"start": "x", "end": "y", "finished": False}]})
+    )
+    c = check_update_window(inp)
+    assert c.status == "WARN" and "No night's length is recorded on the box yet" in c.detail
 
 
 def test_the_window_the_windows_installer_recorded_is_the_one_judged(tmp_path: Path) -> None:

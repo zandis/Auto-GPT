@@ -103,10 +103,14 @@ def with_survivors(db: Database, pids: set[str]) -> set[str]:
     if not pids:
         return pids
     schema = db.schema[: -len(SCHEMA)] + "pidmap"
+    # D-683: asked for the service itself (session_user), not for the role this connection works as: the register's
+    # connection is its group role (D-378), which may never use the pid map, so on a box with roles a merge was
+    # never followed. The catalog answers every role; the map is then read on its own connection
     ok = db.fetchval(
-        "SELECT has_schema_privilege(n.oid, 'USAGE') AND to_regclass(?) IS NOT NULL FROM pg_namespace n "
-        "WHERE n.nspname = ?",
-        (f'"{schema}".pid_alias', schema),
+        "SELECT has_schema_privilege(session_user, n.oid, 'USAGE') AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c "
+        "WHERE c.relnamespace = n.oid AND c.relname = 'pid_alias' AND c.relkind IN ('r', 'p')) "
+        "FROM pg_catalog.pg_namespace n WHERE n.nspname = ?",
+        (schema,),
     )
     if not ok:
         return pids
@@ -233,14 +237,17 @@ def registry_rule(rows: Sequence[tuple[Any, ...]]) -> RegistryState:
 
 def registry_state(lake: Any, snapshot: str | None, day: str) -> RegistryState | None:
     """The lake's ``consent`` table read by :func:`registry_rule` as of ``day`` (ISO date). None: the lake has no
-    consent table (the site's registry was never ingested). Any other failure raises (D-127: fail closed)."""
-    try:
-        rows = lake.query(REGISTRY_SQL, [day], snapshot).to_pylist()
-    except Exception as exc:  # the cascade's own test (``matching.cascade.engine.missing_table``)
-        msg = str(exc)
-        if "consent" in msg and ("does not exist" in msg or "Catalog Error" in msg):
-            return None
-        raise
+    consent table (the site's registry was never ingested). Any other failure raises (D-127: fail closed).
+
+    Whether the lake has no such table is asked of the lake (:mod:`tb_common.lakeprobe`, D-651): after the query
+    failed, how many tables or views named ``consent`` the snapshot has, and only one row with the integer 0 is
+    "none". It used to be read from the failure's text ("consent" with "does not exist"): another failure whose
+    text held those words then read as "no registry", and every caller takes that for "no opt-out to apply"."""
+    from tb_common import lakeprobe
+
+    rows = lakeprobe.rows_or_no_table(lake, REGISTRY_SQL, [day], snapshot, "consent")
+    if rows is None:
+        return None
     return registry_rule(
         [(str(r["pid"]), str(r["status"] or ""), r["contact_ok"], bool(r.get("undated"))) for r in rows if r["pid"]]
     )

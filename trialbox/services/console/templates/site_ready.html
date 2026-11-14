@@ -38,6 +38,7 @@
 {% if rs %}<section class="card" data-testid="site-feas">
 <h2>{{ t('site.feas.title') }}</h2>
 {% if not feas or not feas.approved %}<p class="hint" data-testid="feas-not-approved">{{ t('site.feas.not_approved') }}</p>
+{% elif feas.lake_unread %}<p class="warn" data-testid="feas-lake-unread">{{ t('site.lake_unread') }}</p>{# D-709 #}
 {% elif feas.needs_bulk %}<p class="warn" data-testid="feas-needs-bulk">{{ t('site.feas.needs_bulk') }}</p>
 {% elif feas.feas %}<p class="hint">{{ t('site.feas.help', n=feas.feas.start) }}</p>
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="feas-basis">

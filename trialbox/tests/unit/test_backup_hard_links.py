@@ -56,6 +56,9 @@ def test_a_backup_of_a_folder_with_two_names_of_one_file_verifies_and_restores(
 def _as_before_the_fix(monkeypatch: pytest.MonkeyPatch) -> None:
     """``_add`` as it was: the tar writer's link member is not seen, so it is stored with no bytes."""
     monkeypatch.setattr(tarfile.TarInfo, "islnk", lambda self: False)
+    # NEW-B-21 (D-662): a backup with this fault can no longer be made (the stream check refuses it). The backups
+    # this test is about were made before that check existed: it is switched off to make one
+    monkeypatch.setattr(bk._StreamCheck, "problems", lambda self, manifest: (self.close(), ([], []))[1])
 
 
 def test_a_backup_written_before_the_fix_is_still_restorable(

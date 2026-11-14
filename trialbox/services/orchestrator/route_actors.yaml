@@ -21,9 +21,9 @@ refuse:
   - sponsor
   - job_reveal            # a chart number: the grant and the delegation log are read by the orchestrator (T-716, D-484)
   - registry              # T-715b (D-550): a status change and a promotion, by the verified requester
+  - study                 # T-715d (D-554): the study's set-up, its REDCap link and the box's connections
 
 report:
-  - study
   - datacore
   - setup
 

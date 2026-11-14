@@ -23,12 +23,14 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from criteria_compiler.compile_sql.overlay import safe_sql
 from tb_common.authz import norm
 from tb_common.csvfile import for_spreadsheet
+from tb_common.encoding import EncodingRefused
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_contracts import CohortTable, schema_errors
@@ -37,6 +39,7 @@ from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.db import JobDB
 from orchestrator.decision_context import decision_of
+from orchestrator.scenarios import upload_text
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import report_meta, small_cell
 from orchestrator.scheduler import require_open
@@ -193,7 +196,11 @@ def _count(v: str) -> int | str:
 
 def parse_csv(data: bytes) -> tuple[list[dict[str, Any]], list[str]]:
     """Alliance schema v1 CSV -> rows; errors name the line. The header must be exactly the v1 columns."""
-    text = data.decode("utf-8-sig")
+    try:
+        text = upload_text.read(data)  # UX-004: UTF-8 with or without the mark, Shift_JIS, Big5; else an error line
+    except EncodingRefused as exc:
+        where = f" (line {exc.line})" if exc.line is not None else ""
+        return [], [f"the character set cannot be told for certain{where}: save the table as UTF-8"]
     reader = csv.DictReader(io.StringIO(text))
     if tuple(h.strip() for h in reader.fieldnames or []) != COLUMNS:
         return [], [f"header must be {','.join(COLUMNS)}"]
@@ -327,17 +334,104 @@ def run_cohort(ctx: Ctx) -> Outcome:
     return Outcome(summary_md=text, deliveries=deliveries)
 
 
-def merge_refusal(db: JobDB, rows: list[dict[str, Any]], sender: str, own_site: str) -> str | None:
+def sender_refusal(site: str, own_site: str, senders: set[str], sender: str) -> str | None:
     """A merged table replaces its site's rows, so the site must be the sender's: never the root's own (that comes
-    only from its own COHORT run) and bound to the address that first contributed it. Otherwise anyone allowed to
-    mail COHORT could overwrite another site's counts."""
-    site = rows[0]["site_id"]
+    only from its own COHORT run) and bound to the address its table in the store came from (``senders``: whose
+    tables of the site stand in the store now). Otherwise anyone allowed to mail COHORT could overwrite another
+    site's counts. The sentence goes back to the sender and into the job's record: it names the site, never an
+    address (D-555)."""
     if site == own_site:
         return f"site_id {site} is this box's own table; it comes only from its own COHORT run"
-    bound = db.cohort_senders(site) - {sender}
-    if bound:
-        return f"site {site} contributes from {', '.join(sorted(bound))}, not {sender}"
+    if senders - {sender}:
+        return f"site {site} sends its table from another address; a table of this site is taken only from that one"
     return None
+
+
+def merge_refusal(db: JobDB, rows: list[dict[str, Any]], sender: str, own_site: str) -> str | None:
+    """:func:`sender_refusal` for the site of ``rows`` as the store stands now. A look before the store, for a
+    replay; the merge itself asks inside the store's transaction (``cohort_store(refuse=...)``), where no other
+    store can come between the question and the write."""
+    site = rows[0]["site_id"]
+    return sender_refusal(site, own_site, db.cohort_senders(site), sender)
+
+
+class RecordChanged(RuntimeError):
+    """A recorded table cannot be read, or is not the table its hash was taken of."""
+
+
+class ReplayUnsure(RuntimeError):
+    """The record does not settle what a re-run of the merge would read (D-648)."""
+
+
+def _recorded(stored: list[dict[str, Any]]) -> list[tuple[list[dict[str, Any]], str, str]]:
+    """The recorded stores as (table, job, sender), each table checked against its hash."""
+    from orchestrator.db import cohort_table_hash
+
+    out = []
+    for t in stored:
+        try:
+            rows = json.loads(t["rows"])
+            same = cohort_table_hash(rows) == t["table_sha256"]
+        except (ValueError, KeyError, TypeError):
+            same = False
+        if not same:
+            raise RecordChanged(
+                f"the record of the table of site {t['site_id']} stored by job {t['job_id']} cannot be read, or was "
+                "altered"
+            )
+        out.append((rows, str(t["job_id"]), str(t["received_from"])))
+    return out
+
+
+def replay_until(record: JobDB, into: JobDB, upto: int | None = None) -> None:
+    """Rebuild in ``into`` the alliance tables of ``record`` as they stood after its store number ``upto`` (after
+    its last store when None), from the record alone (D-648): the tables the version that began the record found,
+    then every recorded table in the order of the stores, whichever job stored it. Every recorded table is checked
+    before anything is stored."""
+    tables = _recorded(record.cohort_stored_all(upto))
+    before: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    for r in record.cohort_before():  # a store replaced a whole (site, disease, quarter, definition): one group each
+        before.setdefault((r["site_id"], r["disease"], r["quarter"], r["definition_version"]), []).append(r)
+    for group in before.values():
+        into.cohort_store(group, group[0]["job_id"], group[0]["received_from"])
+    for rows, job_id, sender in tables:
+        into.cohort_store(rows, job_id, sender)
+
+
+def replay_stored(record: JobDB, into: JobDB, job_id: str) -> bool:
+    """For a re-run of the merge ``job_id``: rebuild in ``into`` the alliance tables as they stood when the merge
+    read them for its output (:func:`replay_until` its recorded read point, D-648). It follows the order of the
+    stores, not of the jobs, so merges that ran at the same time and a merge that was stopped and run again later
+    are replayed as they happened; it needs no job's files, today's reader or any job's ending.
+
+    False, and nothing stored: the merge has no recorded read (it read before the record began); the caller then
+    has only how the earlier jobs ended (D-666). :class:`ReplayUnsure`: between this merge's store of a table (a
+    site's rows for one disease, quarter and definition) and its read, another job stored that same table; the
+    re-run would store this merge's over it and read something else. :class:`RecordChanged`: a recorded table
+    cannot be read."""
+    upto = record.cohort_read_point(job_id)
+    if upto is None:
+        return False
+    # the groups a store replaces: (site, disease, quarter, definition). The re-run's own store replaces only the
+    # merge's groups, so only another job's store of one of THOSE before the read cannot be replayed
+    last: dict[tuple[str, str, str, str], str] = {}
+    mine: set[tuple[str, str, str, str]] = set()
+    for rows, by, _sender in _recorded(record.cohort_stored_all(upto)):
+        for r in rows:
+            group = (str(r["site_id"]), str(r["disease"]), str(r["quarter"]), str(r["definition_version"]))
+            last[group] = by
+            if by == job_id:
+                mine.add(group)
+    for group in sorted(mine):
+        if last[group] != job_id:
+            site, disease, quarter, _version = group
+            raise ReplayUnsure(
+                f"after the merge {job_id} stored the table of site {site} for {disease} {quarter} and before it "
+                f"read the tables, the job {last[group]} stored that table again; a re-run cannot give what the "
+                "first run read"
+            )
+    replay_until(record, into, upto)
+    return True
 
 
 def run_merge(ctx: Ctx) -> Outcome:
@@ -355,17 +449,19 @@ def run_merge(ctx: Ctx) -> Outcome:
     for f in files:
         rows, errors = parse_csv(ctx.input_bytes(f))
         if not errors and rows:
-            refused = merge_refusal(ctx.orch.db, rows, sender, ctx.cfg.settings.site.id)
+            # who may send this site's table is asked in the store's transaction: asked before it, another
+            # sender's store of the same site could come between the answer and the write (review of D-648)
+            rule = partial(sender_refusal, rows[0]["site_id"], ctx.cfg.settings.site.id, sender=sender)
+            refused = ctx.orch.db.cohort_store(rows, job.job_id, sender, refuse=rule)
             errors = [refused] if refused else []
         if errors:
             problems.extend(f"{f.filename}: {e}" for e in errors[:10])
             continue
         accepted.extend(rows)
-        ctx.orch.db.cohort_store(rows, job.job_id, sender)
     if not accepted:
         raise StepFailed("running", "No valid alliance table:\n" + "\n".join(f"- {p}" for p in problems[:20]))
     keys = sorted({(r["disease"], r["quarter"]) for r in accepted})
-    stored = [r for d, q in keys for r in ctx.orch.db.cohort_rows(d, q)]
+    stored = ctx.orch.db.cohort_read(job.job_id, keys)  # D-648: with the record of the point they are read at
     sc = int((ctx.cfg.settings.thresholds.small_cell if ctx.cfg.settings.thresholds else None) or 5)
     table = merged(stored, sc)
     ctx.state("reporting")

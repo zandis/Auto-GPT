@@ -12,7 +12,8 @@ its Windows driver, virtualisation on in the firmware, and 500 GB free on a fixe
 `-MinFreeGB <what the drive has>` in step 3 and write the figure down). Not a machine that holds anything you need:
 the run enables Windows features, restarts once, and adds a WSL system. It removes nothing.
 
-**Data.** Synthetic only. No patient data, no site secret. Use a media built with the small stand-in model. Build it with
+**Data.** Synthetic only. No patient data, no site secret. How to build a media, in two stages (first without Docker, with a stand-in
+bundle; then with a signed bundle whose models are placeholders): `docs/handover/P-0-BUILD-THE-MEDIA.md`. Build it with
 `python3 -m tools.windows_media build` and check the copy on the disk with `python3 -m tools.windows_media check`
 (`docs/handover/OFFLINE-MEDIA.md`, "Making the media").
 
@@ -39,7 +40,7 @@ the log: the installer can be started again later and goes on from the step that
 | 10 | Step 9 `packages` | "Installing Docker Engine and the NVIDIA Container Toolkit"; no error from `dpkg` | The log's line "Docker Engine <version> with the nvidia runtime" |
 | 11 | Step 10 `gpu-container` | "A container sees the graphics card: <the card's name, driver, memory>" | The line. On a failure: the log's lines of this step in full (this is the step least certain to work as written) |
 | 12 | Step 11 `host-tree` | "Compare this line with the key sheet": a sha256 | Whether it equals the sheet's |
-| 13 | Step 12 `linux-install` | The Linux installer's own text in the same window: the hardware, the question "Is this the machine", the install's progress, then an address and a one-time code | Whether the question was visible **before** you typed; minutes to the code. Do not record the code |
+| 13 | Step 14 `linux-install` (steps 12 `boot-task` and 13 `network` come before it: Parts 3, 5 and 6) | The Linux installer's own text in the same window: the hardware, the question "Is this the machine", the install's progress, then an address and a one-time code | Whether the question was visible **before** you typed; minutes to the code. Do not record the code |
 | 14 | On this PC's browser open the address shown. If the name does not open, try `https://localhost/login/first-run` | The first-run page | Which of the two addresses opened, and the browser's certificate message. (From another PC is NEW-WIN-4's part) |
 | 15 | Finish the set-up in the browser | The window ends with "TrialBox is ready" and then "The install is finished" or the note about FAIL lines of the host check | The host check's FAIL and WARN lines (BitLocker, the boot task and the update policy are expected until NEW-WIN-2 and NEW-WIN-8) |
 | 16 | Double-click `Install-TrialBox.cmd` again | "TrialBox is already installed on this machine by this installer. Nothing was changed." | The window's text |

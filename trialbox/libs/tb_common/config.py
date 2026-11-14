@@ -367,6 +367,7 @@ DECLARED_FAMILIES: dict[str, str] = {
 DECLARED: dict[str, Declared] = {
     "TB_ACTOR_KEYS_FILE": Declared("path", "", "file of keys that sign the console's user assertions (S-09)"),
     "TB_ACTOR_SIGN_KEY_FILE": Declared("path", "", "the console's own key that signs people (T-717, D-485)"),
+    "TB_ADAPTER_RUN": Declared("str", "process", "adapter: the ingest runs as a process of its own, or thread (D-663)"),
     "TB_ADAPTER_LAKE": Declared("str", "http", "adapter CLI: write to the lake over http or in process"),
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),
@@ -827,8 +828,16 @@ DECLARED: dict[str, Declared] = {
         "float", "", "scale gate: the lake client's limit (empty: the product's; T-687)"
     ),
     "TB_SCALE_LATENCY_S": Declared("float", "0", "scale gate: the model stand-in's seconds per call (T-687)"),
+    "TB_SCALE_LIMIT_S": Declared(
+        "float", "", "scale gate: a time limit of the gate's test on one's own machine (empty: none; D-674)"
+    ),
     "TB_SCALE_OUTAGE_AFTER": Declared("int", "0", "scale gate: the call from which the stand-in answers 502 (T-687)"),
     "TB_SCALE_OUTAGE_S": Declared("float", "0", "scale gate: seconds of the stand-in's outage (T-687)"),
+    "TB_SCALE_STALL_S": Declared(
+        "float",
+        "600",
+        "scale gate: seconds without progress of any of its processes that end the gate (0: never; D-674)",
+    ),
     "TB_SCALE_PATIENTS": Declared("int", "300", "scale gate: synthetic patients (the nightly job: 50000; T-687)"),
     "TB_SCALE_PROFILE": Declared(
         "str", "thin", "scale gate: thin (the generator's hospital) or dense (about 500 records, 40 notes; T-687)"

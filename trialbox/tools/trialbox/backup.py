@@ -60,6 +60,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
+import threading
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -869,16 +870,103 @@ def _copy_hashed(src: Path, dst: Path) -> str:
     return h.hexdigest()
 
 
+# ------------------------------------------------------------------------------------------------ the stream check
+#: what the last backup's check read (members and bytes): for a test and for a measurement, not a record
+LAST_CHECK: dict[str, int] = {}
+
+
+class _StreamCheck:
+    """NEW-B-21 (D-662): the plain tar stream, read as a restore reads it, while it is written.
+
+    Every byte the tar writer gives the compressor also goes down a pipe to a thread that reads it as a tar: a file
+    member is hashed, a link member takes what it links to (a restore makes it that file), a later member of a name
+    replaces an earlier one (a restore extracts the later). :meth:`problems` then compares what a restore would
+    get with the manifest. No key is needed: this is before encryption. The pipe is the only buffer, so the writer
+    waits for the reader and memory does not grow with the backup."""
+
+    def __init__(self, out: Any) -> None:
+        self._out = out
+        r, self._w = os.pipe()
+        with contextlib.suppress(OSError, AttributeError):  # a pipe as wide as one chunk: fewer hand-overs (Linux)
+            import fcntl
+
+            fcntl.fcntl(self._w, fcntl.F_SETPIPE_SZ, CHUNK)
+        self.seen: dict[str, tuple[str, int]] = {}
+        self.other: dict[str, str] = {}
+        self.error: BaseException | None = None
+        self.bytes = 0
+        self._thread = threading.Thread(target=self._read, args=(r,), name="backup-check", daemon=True)
+        self._thread.start()
+
+    def write(self, data: bytes) -> int:
+        self._out.write(data)
+        view = memoryview(data)
+        while view:
+            view = view[os.write(self._w, view) :]
+        return len(data)
+
+    def _read(self, r: int) -> None:
+        with os.fdopen(r, "rb") as fh:
+            try:
+                with tarfile.open(fileobj=fh, mode="r|") as tar:
+                    for m in tar:
+                        if m.isreg():
+                            h, n = hashlib.sha256(), 0
+                            src = tar.extractfile(m)
+                            while src is not None and (b := src.read(CHUNK)):
+                                h.update(b)
+                                n += len(b)
+                            self.seen[m.name] = (h.hexdigest(), n)
+                            self.bytes += n
+                        elif m.islnk():
+                            self.seen[m.name] = self.seen.get(m.linkname, ("a link to a member that is not there", -1))
+                        else:
+                            self.other[m.name] = "not a file"
+            except BaseException as e:  # reported by problems(); the writer must never be left waiting
+                self.error = e
+            while fh.read(CHUNK):
+                pass
+
+    def close(self) -> None:
+        if self._w >= 0:
+            os.close(self._w)
+            self._w = -1
+            self._thread.join()
+
+    def problems(self, manifest: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+        """(changed, unlisted): the manifest's files a restore would not get as listed, and members it does not
+        list. Call after the tar is closed."""
+        self.close()
+        if self.error is not None:
+            raise BackupError(f"the backup's own stream could not be read back ({type(self.error).__name__})")
+        files, sizes = manifest["files"], manifest["sizes"]
+        bad = sorted(rel for rel, sha in files.items() if self.seen.get(rel) != (sha, sizes.get(rel)))
+        extra = sorted((set(self.seen) | set(self.other)) - set(files) - {"manifest.json"})
+        LAST_CHECK.clear()
+        LAST_CHECK.update(files=len(files), bytes=self.bytes)
+        return bad, extra
+
+
 # ------------------------------------------------------------------------------------------------ compression
 @contextlib.contextmanager
-def _tar_writer(enc: Any, compression: str) -> Iterator[tarfile.TarFile]:
+def _tar_writer(enc: Any, compression: str, checks: list[_StreamCheck] | None = None) -> Iterator[tarfile.TarFile]:
     """A streaming tar into ``enc``: zstd -3 on every core (D-149), or gzip (the format before D-149, kept only so
     the restore of an old backup stays tested). The compressor's last frame is written before the caller seals the
-    final encrypted chunk."""
+    final encrypted chunk. ``checks`` (D-662): the plain stream's check is put in it (zstd only: gzip is compressed
+    inside the tar writer, and no backup is made with it but a test's)."""
     if compression == "zstd":
         cctx = zstandard.ZstdCompressor(level=ZSTD_LEVEL, threads=-1)
-        with cctx.stream_writer(enc, closefd=False) as zw, tarfile.open(fileobj=zw, mode="w|") as tar:
-            yield tar
+        with cctx.stream_writer(enc, closefd=False) as zw:
+            out: Any = zw
+            if checks is not None:
+                out = _StreamCheck(zw)
+                checks.append(out)
+            try:
+                with tarfile.open(fileobj=out, mode="w|") as tar:
+                    yield tar
+            finally:
+                if out is not zw:
+                    out.close()
     elif compression == "gzip":
         with tarfile.open(fileobj=enc, mode="w|gz") as tar:
             yield tar
@@ -948,10 +1036,11 @@ def backup(
         first.mkdir(parents=True, exist_ok=True)
         part = first / (name + ".part")
         meta = {"site": site, "created_at": manifest["created_at"], "layout": LAYOUT, "compression": compression}
+        checks: list[_StreamCheck] = []
         with part.open("wb") as raw:
             hw = _HashWriter(raw)
             enc = _Encryptor(hw, recipient, meta)
-            with _tar_writer(enc, compression) as tar:
+            with _tar_writer(enc, compression, checks) as tar:
                 for src in srcs:
                     arc = f"db/{src.name}.dump"
                     manifest["files"][arc], manifest["sizes"][arc] = _add(tar, work / f"{src.name}.dump", arc)
@@ -987,6 +1076,23 @@ def backup(
             enc.finish()
             raw.flush()
             os.fsync(raw.fileno())
+        for check in checks:
+            # NEW-B-21 (D-662): what a restore would get, against the manifest, before the file gets its name. The
+            # nightly has no private key and never opened what it wrote: a wrong manifest was recorded as good
+            try:
+                bad, extra = check.problems(manifest)
+            except BackupError:
+                part.unlink(missing_ok=True)
+                raise
+            if bad or extra:
+                part.unlink(missing_ok=True)
+                # the names first, the verdict and the counts last: what records an error keeps its end (the nightly
+                # its last 400 characters), and the verdict must never be the part that is cut off
+                names = (_named("changed", bad) + _named("unlisted", extra)).removeprefix("; ")
+                raise BackupError(
+                    f"{names}; the backup was not written: its content does not match its manifest "
+                    f"({len(bad)} changed, {len(extra)} unlisted)"
+                )
         sha = hw.sha.hexdigest()
         final = first / name
         part.rename(final)

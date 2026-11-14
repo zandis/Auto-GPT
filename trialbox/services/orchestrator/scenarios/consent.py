@@ -35,6 +35,7 @@ from tb_contracts import JobOutput, ParseRequest
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import consent_html
+from orchestrator.scenarios.upload_text import upload_text
 from orchestrator.twophase import two_phase
 
 SCHEMA = "trialbox.consent@1"
@@ -135,7 +136,7 @@ def parse_langs(raw: str | None) -> list[str]:
     for tok in raw.split(","):
         code = {"en": "en", "ja": "ja", "jp": "ja", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW"}.get(tok.lower())
         if code is None:
-            raise StepFailed("received", f"lang={tok}: supported languages are en, ja, zh-TW")
+            raise StepFailed("received", "lang=: supported languages are en, ja, zh-TW")
         if code not in out:
             out.append(code)
     return out
@@ -145,7 +146,7 @@ def ids(raw: str | None) -> list[str]:
     out = [t.strip().upper() for t in (raw or "").split(",") if t.strip()]
     bad = [t for t in out if not _ID.match(t)]
     if bad:
-        raise StepFailed("release", f"unknown item id(s) {', '.join(bad)}: use the ids on the review sheet (I03, Q2)")
+        raise StepFailed("release", f"{len(bad)} item id(s) are not ids: use the ids on the review sheet (I03, Q2)")
     return out
 
 
@@ -174,7 +175,7 @@ def read_icf(ctx: Ctx) -> tuple[str, str, list[dict[str, str]]]:
     data = ctx.input_bytes(f)
     ctx.state("parsing")
     if f.filename.lower().endswith((".txt", ".md")):
-        text = data.decode("utf-8-sig", errors="replace")
+        text = upload_text(data, f.filename, "parsing")  # UX-004: never U+FFFD
     else:
         parsed = ctx.services.parser.parse(ParseRequest(minio_key=f.minio_key, job_id=ctx.job.job_id))
         text = "\n\n".join(

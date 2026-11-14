@@ -180,6 +180,11 @@ class InprocBackend:
 
         return read_audit(self.box.audit_dir, job_id, limit)
 
+    def recheck_share(self, job_id: str) -> dict[str, Any] | None:
+        from console.backend import read_recheck_share
+
+        return read_recheck_share(self.box.audit_dir, job_id)
+
     def rulesets(self) -> list[Any]:
         from console.backend import ruleset_infos
 

@@ -50,7 +50,7 @@ def test_a_console_request_names_the_person_and_role(box: dict[str, Any]) -> Non
     [
         ("rate limit reached (20 SCREEN jobs per sender per day)", 429, "request.limit"),
         ("the coordinator role may not run SCREEN", 403, "request.role"),
-        ("admin@hospa.test is not permitted to run SCREEN", 403, "request.mailbox"),
+        ("this sender is not permitted to run SCREEN", 403, "request.mailbox"),
     ],
 )
 @pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])

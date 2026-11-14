@@ -12,7 +12,7 @@ from tb_common.smallcell import suppress
 from tb_contracts import CandidateRow
 
 from orchestrator.i18n import t
-from orchestrator.reports.common import ReportMeta, fmt_count, pdf_fonts, pdf_invariant
+from orchestrator.reports.common import ReportMeta, draw_string, fmt_count, pdf_fonts, pdf_invariant
 
 
 def render(
@@ -29,7 +29,9 @@ def render(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from orchestrator.reports.common import Paragraph  # UX-002: with the glyph fallback
 
     regular, bold = pdf_fonts(meta.locale)
     body = ParagraphStyle("b", fontName=regular, fontSize=9.5, leading=13)
@@ -108,7 +110,7 @@ def render(
     def on_page(canvas: Any, doc: Any) -> None:
         canvas.saveState()
         canvas.setFont(regular, 7)
-        canvas.drawString(15 * mm, 10 * mm, meta.footer)
+        draw_string(canvas, 15 * mm, 10 * mm, meta.footer, regular, 7)  # UX-002
         canvas.drawRightString(195 * mm, 10 * mm, f"{doc.page}")
         canvas.restoreState()
 

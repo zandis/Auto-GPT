@@ -218,7 +218,9 @@ def test_d461_a_console_in_the_edc_group_from_an_earlier_release_leaves_it(roles
     root = roles_cluster[0]
     member = "SELECT count(*) FROM pg_auth_members WHERE roleid = 'tbs_edc'::regrole AND member = '{}'::regrole"
     # as the script before D-461 and D-486 left an older volume: one group, both services in it, its tables the group's
-    _superuser(root, "CREATE ROLE tbs_edc NOLOGIN")
+    # (the group may be there already: another test of this cluster makes it too; in a random order either is first)
+    _superuser(root, "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tbs_edc') THEN "
+                     "CREATE ROLE tbs_edc NOLOGIN; END IF; END $$")  # fmt: skip
     _superuser(root, "GRANT tbs_edc TO tb_console, tb_orchestrator")
     _superuser(root, "CREATE TABLE edc.from_before (k INT); ALTER TABLE edc.from_before OWNER TO tbs_edc", pglocal.DB)
     assert _superuser(root, member.format("tb_console")) == "1"
@@ -247,6 +249,30 @@ def test_nobody_but_the_superuser_creates_a_database_and_passwords_come_from_the
                               "WHERE rolname LIKE 'tb\\_%' AND rolpassword IS NOT NULL")  # fmt: skip
     # an empty variable: no password; D-541: the FHIR store's own role has one too
     assert set_pw.split(",") == sorted([*(r for r in ACCESS if r != "tb_gateway"), "tb_fhir_store"])
+
+
+def test_d683_every_store_group_may_make_temporary_tables_and_nothing_more_on_the_database(
+    roles_cluster: tuple[Path, str],
+) -> None:
+    """A store's connection works as its group (``tbs_<schema>``); a store that works in temporary tables (the OMOP
+    load) needs the right there. TEMPORARY only: no group creates a schema, PUBLIC holds nothing, and the roles of
+    an owned schema (owner, writer, reader) get nothing."""
+    rows = _superuser(
+        roles_cluster[0],
+        "SELECT rolname || ':' || has_database_privilege(rolname, 'trialbox_wf', 'TEMPORARY') || ':' || "
+        "has_database_privilege(rolname, 'trialbox_wf', 'CREATE') FROM pg_roles "
+        "WHERE rolname ~ '^tb[sowr]_' ORDER BY 1",
+    ).splitlines()
+    got = {r.split(":")[0]: (r.split(":")[1] == "true", r.split(":")[2] == "true") for r in rows}
+    groups = {f"tbs_{s}" for s in SCHEMAS if s not in OWNED}
+    assert groups <= set(got)
+    for role, (temp, create) in got.items():
+        assert not create, role
+        assert temp == (role in groups), role
+    acl = _superuser(
+        roles_cluster[0], "SELECT coalesce(datacl::text, '') FROM pg_database WHERE datname = 'trialbox_wf'"
+    )
+    assert "{=" not in acl and ",=" not in acl  # PUBLIC has no entry
 
 
 # ------------------------------------------------------------------------------------------------ T-718 (D-486)
@@ -441,6 +467,9 @@ def test_t718_review_a_service_does_not_make_a_missing_owned_schema(edc_made: tu
     finally:  # as the runbook says after a restore: the role script, then the migrate step
         _run_script(root)
         EdcStore(url, EDC_KEY).close()
+        with Database.connect(url, "edc") as db:  # and the cluster's one row per store, which the drop took: the
+            db.execute("CREATE TABLE IF NOT EXISTS probe (k INT)")  # tests of this cluster run in any order
+            db.execute("INSERT INTO probe VALUES (1)")
     assert _superuser(root, "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'edc'",
                       pglocal.DB) == "tbo_edc"  # fmt: skip
 

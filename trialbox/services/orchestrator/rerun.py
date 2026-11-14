@@ -15,8 +15,10 @@ LLM-backed steps are reproducible when the model is (stub, or vLLM with temperat
 
 from __future__ import annotations
 
+import contextlib
 import json
 import secrets
+import shutil
 import tempfile
 from dataclasses import dataclass, replace
 from datetime import date, datetime
@@ -120,42 +122,57 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
     work = Path(tempfile.mkdtemp(prefix="tb-rerun-"))
     # a scratch copy of the job tables in a schema of its own, dropped when the re-run ends
     db = JobDB(orch.db.url, schema=f"orch_rerun_{secrets.token_hex(4)}")
-    fresh = original.model_copy(
-        update={"state": "received", "outputs": [], "error": None, "metrics": None, "updated_at": None}
-    )
-    db.put(Job.model_validate(fresh.model_dump()), queued=False)
-    for p in orch.db.pool(original.ruleset or "") if original.type == "MICROBATCH" else []:
-        db.pool_upsert(original.ruleset or "", p["version"], [p], p["job_id"], p["last_eval"])
-    if original.type == "COHORT":  # trial drafts come from the compile cache (no new compiles)
-        for row in orch.db.trial_cache_all():
-            db.trial_cache_put(row)
-        if (original.ruleset or "").upper() == "MERGE":
-            _replay_alliance_tables(orch, db, original.job_id)
-    snap = original.snapshot_date.isoformat() if original.snapshot_date else None
-    services = replace(orch.services, lake=PinnedLake(orch.services.lake, snap), mail=NullMail())
-    clone = Orchestrator(
-        orch.cfg,
-        db,
-        ScratchStore(orch.store),
-        NullAudit(),  # type: ignore[arg-type]
-        services,
-        orch.scenarios,
-        orch.rulesets_dir,
-        work,
-        today=lambda: _local_date(orch, received),
-        workers=0,
-        async_notify=False,
-    )
-    clone._now = lambda: received.astimezone(_zone(orch))  # type: ignore[method-assign]
-    done = clone.run(job_id)
-    before = {o.filename: o.sha256 for o in original.outputs or []}
-    after = {o.filename: o.sha256 for o in done.outputs or []}
-    files = [
-        {"filename": f, "original": before.get(f), "rerun": after.get(f), "same": before.get(f) == after.get(f)}
-        for f in sorted(set(before) | set(after))
-    ]
-    db.drop()
-    err = None if done.state == "done" else f"rerun {done.state}: {done.error.message if done.error else ''}"
+    try:
+        fresh = original.model_copy(
+            update={"state": "received", "outputs": [], "error": None, "metrics": None, "updated_at": None}
+        )
+        db.put(Job.model_validate(fresh.model_dump()), queued=False)
+        for p in orch.db.pool(original.ruleset or "") if original.type == "MICROBATCH" else []:
+            db.pool_upsert(original.ruleset or "", p["version"], [p], p["job_id"], p["last_eval"])
+        if original.type == "COHORT":  # trial drafts come from the compile cache (no new compiles)
+            for row in orch.db.trial_cache_all():
+                db.trial_cache_put(row)
+            if (original.ruleset or "").upper() == "MERGE":
+                from orchestrator.scenarios import cohort
+
+                try:
+                    # D-670: the store's own record of what it stored and when this merge read (D-648) rebuilds the
+                    # tables as the first run read them. No recorded read (the merge read before the record began):
+                    # what is left is how the earlier jobs ended (D-666)
+                    if not cohort.replay_stored(orch.db, db, original.job_id):
+                        _replay_alliance_tables(orch, db, original.job_id)
+                except (ReplayUnknown, cohort.ReplayUnsure, cohort.RecordChanged) as exc:
+                    # a replay gives what the first run gave, or says that it cannot (D-666)
+                    return RerunResult(job_id, original.type, False, [], f"this job cannot be re-run: {exc}")
+        snap = original.snapshot_date.isoformat() if original.snapshot_date else None
+        services = replace(orch.services, lake=PinnedLake(orch.services.lake, snap), mail=NullMail())
+        clone = Orchestrator(
+            orch.cfg,
+            db,
+            ScratchStore(orch.store),
+            NullAudit(),  # type: ignore[arg-type]
+            services,
+            orch.scenarios,
+            orch.rulesets_dir,
+            work,
+            today=lambda: _local_date(orch, received),
+            workers=0,
+            async_notify=False,
+        )
+        clone._now = lambda: received.astimezone(_zone(orch))  # type: ignore[method-assign]
+        done = clone.run(job_id)
+        before = {o.filename: o.sha256 for o in original.outputs or []}
+        after = {o.filename: o.sha256 for o in done.outputs or []}
+        files = [
+            {"filename": f, "original": before.get(f), "rerun": after.get(f), "same": before.get(f) == after.get(f)}
+            for f in sorted(set(before) | set(after))
+        ]
+        err = None if done.state == "done" else f"rerun {done.state}: {done.error.message if done.error else ''}"
+    finally:
+        # D-670: on every path, also an error nobody expected: the scratch schema and the work folder go
+        with contextlib.suppress(Exception):
+            db.drop()
+        shutil.rmtree(work, ignore_errors=True)
     return RerunResult(job_id, original.type, err is None and all(x["same"] for x in files), files, err)
 
 
@@ -179,13 +196,63 @@ def _replay_alliance_tables(orch: Orchestrator, db: JobDB, job_id: str) -> None:
         else:
             sources = [(o.filename, o.minio_key) for o in j.outputs or [] if o.filename.startswith("cohort_table_")]
             received_from = f"self:{site}"
+        how = _stored_then(j) if merge else "all"
+        if how == "none":
+            continue
         for name, key in sources:
             if name.lower().endswith(".csv"):
-                rows, errors = parse_csv(orch.store.get(key))
+                data = orch.store.get(key)
+                if how == "until the first table that is not UTF-8" and not _utf8(data):
+                    break  # the reader of that time raised here: this table and the ones after it were never stored
+                rows, errors = parse_csv(data)
                 if not errors and rows and merge and merge_refusal(db, rows, received_from, site):
                     continue  # refused by run_merge then, so not stored then either
                 if not errors:
                     db.cohort_store(rows, j.job_id, received_from)
+
+
+class ReplayUnknown(RuntimeError):
+    """What an earlier merge stored cannot be known, so the alliance tables of that time cannot be rebuilt."""
+
+
+def _utf8(data: bytes) -> bool:
+    try:
+        data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _stored_then(job: Any) -> str:
+    """Which of an earlier merge's tables its own run stored (NEW-B-25, D-666), from how the job ended. A merge
+    stores each table as it reads it, while the job is ``running``; ``reporting`` comes after the last table.
+
+    * ``done``: every table that parses and is not refused, as its run did. A job from before the one upload
+      decoder ended ``done`` only with UTF-8 tables (anything else raised); since then the same decoder reads a
+      table now as then;
+    * failed before a table was read (refused at the start; cancelled before it ran; "No valid alliance table"):
+      none;
+    * failed while ``running`` with the old reader's ``UnicodeDecodeError``: the tables before the first one that
+      is not UTF-8. The job stopped there. Today's decoder reads that table, and the replay must not store what
+      the run did not;
+    * failed after the tables (in ``reporting``; the output's routing refused): all, as ``done``;
+    * anything else (an internal error, a restart, a cancel or a service's failure while ``running``; no error
+      recorded): the point is recorded nowhere. :class:`ReplayUnknown`: the re-run says it cannot, and names the
+      job. Never a guess."""
+    if job.state != "failed":
+        return "all"
+    err = job.error
+    step, message, detail = (str(getattr(err, k, "") or "") for k in ("step", "message", "detail"))
+    if step == "received" or message.startswith(("Cancelled by", "No valid alliance table")):
+        return "none"
+    if step in ("reporting", "routing"):
+        return "all"
+    if step == "running" and detail.startswith("UnicodeDecodeError"):
+        return "until the first table that is not UTF-8"
+    raise ReplayUnknown(
+        f"the earlier COHORT MERGE {job.job_id} was stopped while it ran; which of its tables it had stored by then "
+        "is not recorded, so the alliance tables of that time cannot be rebuilt"
+    )
 
 
 def _zone(orch: Orchestrator) -> Any:

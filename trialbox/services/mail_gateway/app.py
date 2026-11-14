@@ -119,7 +119,7 @@ def send(req: SendRequest, response: Response) -> SendResult:
         raise HTTPException(status_code=409, detail={"step": "mail", "message": str(exc)}) from exc
     except KeyError as exc:
         raise HTTPException(
-            status_code=422, detail={"step": "mail", "message": f"attachment not found: {exc}"}
+            status_code=422, detail={"step": "mail", "message": "an attachment was not found in the store"}
         ) from exc
 
 

@@ -41,6 +41,8 @@ def _refdata(monkeypatch: pytest.MonkeyPatch, up: bool) -> None:
         return [{"target_system": I10, "target_code": "B20", "relation": "equivalent"}] if code == "042" else []
 
     monkeypatch.setattr(refdata, "map_targets_or_none", ask)
+    # D-665: a load also asks whether a map that answered "no entry" is loaded at all. This stand-in's pack is loaded
+    monkeypatch.setattr(refdata, "has_map_or_none", lambda source, target, url=None: True)
 
 
 def _mapped(lake_dir: Path) -> int:

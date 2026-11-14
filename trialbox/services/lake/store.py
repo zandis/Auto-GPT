@@ -38,6 +38,7 @@ import re
 import shutil
 import threading
 import time
+import traceback
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -99,6 +100,11 @@ def schema_sha() -> str:
     """Fingerprint of the table layout this code writes (every table, column and type, and the chunk table)."""
     body = json.dumps({"tables": SCHEMAS, "document_chunk": CHUNK_COLUMNS, "v": LAKE_SCHEMA_VERSION}, sort_keys=True)
     return sha256_text(body)
+
+
+class LakeSaid(ValueError):
+    """A refusal in the lake's own words (D-664): a sentence written here, with a snapshot's name and no value of a
+    row. Passed on whole where an error's text is otherwise withheld."""
 
 
 class LakeSchemaError(RuntimeError):
@@ -237,6 +243,58 @@ def building(lake_dir: Path, snapshot: str) -> Iterator[None]:
         yield
     finally:
         lock.release()
+
+
+#: the two engine sentences callers read ("this lake has no such table or column": the cascade, the opt-out reader),
+#: with the name an identifier, which is what a caller wrote. Nothing else of the engine's text is ever sent: its
+#: other sentences repeat literals of the query and, after a PIVOT, values of rows as column names
+_PASSED_ON = (
+    re.compile(r"Catalog Error: Table with name [A-Za-z_][A-Za-z0-9_.]* does not exist!"),
+    re.compile(r'Binder Error: Referenced column "[A-Za-z_][A-Za-z0-9_]*" not found in FROM clause!'),
+)
+_KIND = re.compile(r"[A-Z][A-Za-z ]{2,40} Error")
+
+
+def error_kind(exc: BaseException) -> str:
+    """The engine's own name for the kind of error ("Conversion Error"), or "": the words before its first colon,
+    never what follows."""
+    head = str(exc).split(":", 1)[0].strip()
+    return head if _KIND.fullmatch(head) else ""
+
+
+def error_answer(exc: BaseException, what: str = "query") -> str:
+    """What the lake says of a query or a build that failed (NEW-B-23, D-664; ``/query``'s 422, a rebuild job's
+    ``failed`` detail): never a value of a row, never the query's own text. The answer travels: into a job's
+    failure, its mail, the audit log.
+
+    * the lake's own refusals (``LAKE-LIMIT``, ``LAKE-STALE``, ``LAKE-SCHEMA``, :class:`LakeSaid`: sentences
+      written here): whole;
+    * the two engine sentences callers read (:data:`_PASSED_ON`): as they are, without what the engine adds under
+      them;
+    * a build that the operating system stopped (no space left, a file that cannot be read): the system's own
+      words for it, without the file's name;
+    * everything else: the error's type and a fixed sentence (``LAKE-QUERY``, ``LAKE-BUILD``). The engine's message
+      is neither sent nor logged: it can hold a value with or without quotation marks. The log has the type, the
+      kind and, for a build, where it failed."""
+    name = type(exc).__name__
+    if isinstance(exc, (LakeLimitError, LakeSchemaError, StaleSnapshotError, LakeSaid)):
+        return f"{name}: {str(exc)[:500]}"
+    first = str(exc).splitlines()[0] if str(exc) else ""
+    if any(shape.fullmatch(first) for shape in _PASSED_ON):
+        return f"{name}: {first}"
+    if what == "build":
+        if isinstance(exc, OSError) and exc.strerror:
+            return f"{name}: LAKE-BUILD: the lake could not build the snapshot: {exc.strerror}"
+        return (
+            f"{name}: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of "
+            "a row and is not sent; the lake's log says where the build failed"
+        )
+    kind = error_kind(exc)
+    log.warning("lake query failed: %s%s", name, f" ({kind})" if kind else "")
+    return (
+        f"{name}: LAKE-QUERY: the lake's engine could not run the query. Its own message can hold a value of a row "
+        "and is neither sent nor logged; run the query on the box to read it"
+    )
 
 
 # ------------------------------------------------------------------ rebuilds as polled jobs (T-690, D-472)
@@ -1035,7 +1093,7 @@ class Lake:
             if generation is not None:
                 has = self._newest_generation(snapshot, adopt=False)
                 if has != generation:
-                    raise ValueError(
+                    raise LakeSaid(
                         f"lake snapshot {snapshot} is {has or 'not a generation'} now, not {generation}: it was "
                         "built again since; nothing is promoted"
                     )
@@ -1142,8 +1200,11 @@ class Lake:
             if type(exc).__name__ == "OmopError":  # D-271: the OMOP store refused the batch
                 end = {"state": "refused", "detail": str(exc)[:500]}
             else:
-                log.exception("lake rebuild of %s failed", snapshot)
-                end = {"state": "failed", "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
+                # D-664: the error's message can hold a value of a row: the log gets its type, its kind and the
+                # frames (where it failed), never the message
+                where = "".join(traceback.format_tb(exc.__traceback__))
+                log.error("lake rebuild of %s failed: %s %s\n%s", snapshot, type(exc).__name__, error_kind(exc), where)
+                end = {"state": "failed", "detail": error_answer(exc, "build")}
         ended = {**job, **end, "ended": time.time()}
         write_rebuild_job(self.dir, ended)
         return ended
@@ -1194,7 +1255,7 @@ class Lake:
             # review of #318: the date's file is what the box serves. A build "without promote" of the served date
             # would be served the moment it is swapped in, judged or not. The served night is built again with
             # promote (a publish's re-run does: one step)
-            raise ValueError(
+            raise LakeSaid(
                 f"lake snapshot {snapshot} is served: it is not built without promote (the build would be served at "
                 "once); rebuild it with promote"
             )

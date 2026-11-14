@@ -285,10 +285,51 @@ class Hl7Validator:
             if errs:
                 errors += 1
                 for i in errs[:3]:
-                    text = (i.get("details") or {}).get("text") or i.get("diagnostics", "")
-                    loc = (i.get("expression") or i.get("location") or [""])[0]
-                    messages.append(f"{fname} {loc}: {text[:300]}")
+                    messages.append(_issue_line(fname, i))
         return ValidationResult("hl7-validator", n, errors, messages[:200], per_file, unsliced)
+
+
+_FILE = re.compile(r"r\d{5,}-[A-Za-z]+\.json")
+# An element as the validator writes it (D-669, D-671): names joined by dots, each with at most one numbered place
+# (``coding[0]``) or the choice mark (``value[x]``), and after a name the validator's own way to name a choice's
+# type, once (``value.ofType(Quantity)``). A name and a type's name are one word of the plain letters and digits
+# (A-Z, a-z, 0-9), a place is a number in plain digits: no value of a row.
+_NAME = r"[A-Za-z][A-Za-z0-9]*"
+_ELEMENT = rf"{_NAME}(?:\[[0-9]+\]|\[x\])?(?:\.ofType\({_NAME}\))?"
+_PLACE = re.compile(rf"{_ELEMENT}(?:\.{_ELEMENT})*")
+_KIND = re.compile(r"[a-z][a-z-]*")
+_MESSAGE_ID = re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")
+_MESSAGE_ID_URL = "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id"
+
+
+def _issue_line(fname: str, issue: dict[str, Any]) -> str:
+    """One line of the night's ``validation.messages`` (NEW-B-28, D-669): the sample file, the element, the kind
+    of problem (the issue's ``code``) and the validator's message id when it gives one. **Never the validator's
+    sentence** (``details.text``, ``diagnostics``): it quotes what it refuses (``Unknown Code 'N18.30'``), and the
+    night's report travels to the console and the mail. Each part is kept only in its own shape (a sample file's
+    name, an element path, a code); anything else is ``?`` or left out."""
+
+    def token(value: object, shape: re.Pattern[str]) -> str:
+        return value if isinstance(value, str) and shape.fullmatch(value) else ""
+
+    name = token(fname.replace("\\", "/").rsplit("/", 1)[-1], _FILE) or "?"
+    places = issue.get("expression") or issue.get("location") or [""]
+    place = token(places[0] if isinstance(places, list) and places else "", _PLACE) or "?"
+    kind = token(issue.get("code"), _KIND) or "error"
+    ext = issue.get("extension")
+    ids = [x.get("valueCode") for x in (ext if isinstance(ext, list) else []) if isinstance(x, dict)
+           and x.get("url") == _MESSAGE_ID_URL]  # fmt: skip
+    mid = token(ids[0], _MESSAGE_ID) if ids else ""
+    return f"{name} {place}: {kind}" + (f" ({mid})" if mid else "")
+
+
+def _count_line(count: int, model: str) -> str:
+    """What the night's report keeps of a resource the R4B model refused (D-669): pydantic's count line
+    ("1 validation error for Patient"), made from the error's own count and model name (typed fields), never from
+    its text (its other lines quote the value). A model name that is not a plain name is not kept."""
+    if not re.fullmatch(r"[A-Za-z]+", model):
+        return "ValidationError"
+    return f"{count} validation error{'' if count == 1 else 's'} for {model}"
 
 
 class StructuralValidator:
@@ -296,6 +337,7 @@ class StructuralValidator:
 
     def validate(self, resources: list[Resource]) -> ValidationResult:
         from fhir.resources.R4B import get_fhir_model_class
+        from pydantic import ValidationError
 
         errors = 0
         messages: list[str] = []
@@ -303,8 +345,10 @@ class StructuralValidator:
             problems = missing_required(r)
             try:
                 get_fhir_model_class(r["resourceType"]).model_validate(r)
-            except Exception as exc:  # pydantic validation error text
-                problems.append(str(exc).splitlines()[0][:200])
+            except ValidationError as exc:  # the count and the model name only: typed fields, no text
+                problems.append(_count_line(exc.error_count(), str(exc.title)))
+            except Exception as exc:
+                problems.append(type(exc).__name__)
             if problems:
                 errors += 1
                 messages.append(f"{r['resourceType']}/{r['id']}: {'; '.join(problems)}")

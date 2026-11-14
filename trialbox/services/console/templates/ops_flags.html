@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{# T-008 (D-207, MR-090): the feature flags, administrators only; a change needs a reason and one confirmation. #}
+{# T-008 (D-207, MR-090): the feature flags, the administrator's page; the data steward sees the hold after a restore here (D-706). A change needs a reason and one confirmation. #}
 {% block title %}{{ t('flags.title') }}{% endblock %}
 {% block content %}
 {# ROLE-026 (T-506): the first value's reason is written by the flag store in English; show it in the page's language #}

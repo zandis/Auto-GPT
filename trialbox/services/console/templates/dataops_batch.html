@@ -8,6 +8,18 @@
 {% if b.state == 'HELD' %}<section class="card attention">
 {% if may_decide %}{% if not can_accept %}<p class="hint">{{ t('dataops.accept_off') }}</p>{% endif %}{% include "_dataops_decide.html" %}{% else %}<p class="hint">{{ t('dataops.view_only') }}</p>{% endif %}
 </section>{% endif %}
+{% if unmapped %}{# NEW-DOPS-1 (D-708): the night's rows with a value the mapping could not use #}
+<section class="card" data-testid="batch-unmapped">
+<h2>{{ t('dataops.unmapped.title') }}</h2>
+<p class="hint">{{ t('dataops.unmapped.help') }}</p>
+<div class="scroll" tabindex="0"><table>
+<thead><tr><th scope="col">{{ t('dataops.unmapped.table') }}</th><th scope="col">{{ t('dataops.unmapped.records') }}</th></tr></thead>
+<tbody>{% for table, n in unmapped %}<tr data-testid="unmapped" data-table="{{ table }}">
+<td class="mono">{{ table }}</td><td class="num">{{ '{:,}'.format(n) }}</td>
+</tr>{% endfor %}</tbody>
+<tfoot><tr><th scope="row">{{ t('dataops.unmapped.total') }}</th><td class="num" data-testid="unmapped-total">{{ '{:,}'.format(unmapped|sum(attribute=1)) }}</td></tr></tfoot>
+</table></div>
+</section>{% endif %}
 <section class="card" data-testid="batch-steps">
 <h2>{{ t('dataops.steps.title') }}</h2>
 <div class="scroll" tabindex="0"><table>

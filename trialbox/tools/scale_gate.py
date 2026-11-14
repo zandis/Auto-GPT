@@ -30,6 +30,7 @@ Each check is listed in :data:`CHECKS`; today's failures are strict expected fai
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import secrets
@@ -55,12 +56,15 @@ from tb_testkit.scale import (  # noqa: E402
     Expected,
     PhaseRun,
     SlowModel,
+    Stalled,
+    Watch,
     compose_caps,
     compose_setting,
     free_port,
     gate_ok,
     gib,
     markdown,
+    stall_check,
     verdict,
     wait_http,
 )
@@ -98,6 +102,20 @@ EXPECTED: dict[str, Expected] = {
 }
 
 
+#: D-674: the default of ``TB_SCALE_STALL_S``. Not a budget for a part's length: the longest time the gate goes on
+#: while NONE of its processes works or writes its log and nothing a wait watches changes
+#: (``tb_testkit.scale.stall_check``). The longest quiet interval the gate has by design is the screen waiting
+#: through the model stand-in's outage and restart (the nightly job: 40 s and 30 s); ten minutes is an order above
+#: that, and a dead part then costs ten of the job's 340 minutes. No quiet interval was measured on a schedule
+#: before this card; the report now holds each process's longest one (``longest_quiet_s``), which is what a later
+#: default is chosen from.
+STALL_S = 600.0
+PUBLISH = "site publish and lake rebuild"
+
+#: the gate's report, in the order ``Report.write`` writes it
+REPORT_FILES = ("scale_gate.json", "scale_gate.md")
+
+
 @dataclass
 class Params:
     patients: int
@@ -116,6 +134,7 @@ class Params:
     publish_poll_s: float = 5.0
     backup_quiesce: str = ""  # "" : the box's default (D-455: off); "pause": D-274's pause, to show the gate sees it
     publish_wait_s: float = 6 * 3600.0  # a guard for a hung lake; the CI job's own timeout is the real bound
+    stall_s: float = 600.0  # TB_SCALE_STALL_S (STALL_S): no progress for this long ends the gate (0: never)
     caps: dict[str, int] = field(default_factory=dict)
 
 
@@ -128,6 +147,27 @@ class Report:
     notes: list[str] = field(default_factory=list)
     profile_facts: dict[str, Any] = field(default_factory=dict)  # the dense profile's own numbers
     numbers: dict[str, Any] = field(default_factory=dict)
+    #: NEW-B-33 (D-674): the part the gate is in ("" once it has ended). The report is written before every part,
+    #: so a gate that is cut (a time limit, a kill, a runner that goes away) leaves what it measured till then.
+    unfinished: str = ""
+
+    def progress(self, part: str) -> None:
+        """The gate enters ``part``: write the report of what is measured so far, marked NOT FINISHED."""
+        self.unfinished = part
+        self.write()
+
+    def write(self) -> None:
+        """Both report files, each replaced whole: a cut in the middle of a write leaves the report before it."""
+        out = self.params.out
+        out.mkdir(parents=True, exist_ok=True)
+        texts = (json.dumps(self.to_json(), indent=1), self.markdown())
+        for name, text in zip(REPORT_FILES, texts, strict=True):
+            tmp = out / f".{name}.tmp"
+            try:
+                tmp.write_text(text, encoding="utf-8")
+                tmp.replace(out / name)
+            finally:
+                tmp.unlink(missing_ok=True)
 
     def check(self, cid: str, passed: bool | None, detail: str, blocked_by: str = "") -> None:
         assert cid in CHECKS, cid
@@ -137,7 +177,7 @@ class Report:
         return verdict(self.checks, EXPECTED, self.params.patients)
 
     def ok(self) -> bool:
-        return gate_ok(self.rows())
+        return not self.unfinished and gate_ok(self.rows())
 
     def markdown(self) -> str:
         p = self.params
@@ -149,7 +189,18 @@ class Report:
             f"restart after call {p.restart_after or 'never'}.",
             *(f"Note: {n}" for n in self.notes),
         ]
-        return markdown(self.rows(), head, self.runs)
+        if not self.unfinished:
+            return markdown(self.rows(), head, self.runs)
+        head.append(
+            f"**NOT FINISHED: {self.unfinished}.** This report was written when the gate entered that part. If it "
+            "is the last report of a run, the gate ended there: cut (a time limit, a kill), or by an error of its "
+            "own, which a note above then names. The rows below are what was measured till then; a check without "
+            "a row was not made (some are made only at the end of their part); a process shown as still running "
+            "has no result and no peak yet."
+        )
+        body = markdown(self.rows(), head, self.runs).rstrip("\n").split("\n")
+        body[-1] = f"Gate: NOT FINISHED (in: {self.unfinished})."
+        return "\n".join(body) + "\n"
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -158,6 +209,7 @@ class Report:
             "profile_facts": self.profile_facts,
             "mode": self.mode,
             "ok": self.ok(),
+            "unfinished": self.unfinished,
             "rows": self.rows(),
             "notes": self.notes,
             "numbers": self.numbers,
@@ -170,6 +222,7 @@ class Report:
                     "oom": r.oom,
                     "peak": r.peak,
                     "seconds": round(r.seconds, 1),
+                    "longest_quiet_s": round(r.quiet_max_s, 1),
                 }
                 for r in self.runs
             ],
@@ -304,9 +357,29 @@ def _over(run: PhaseRun) -> str:
 
 # ------------------------------------------------------------------------------------------------ the gate
 def run(p: Params) -> Report:
+    for name in REPORT_FILES:  # D-674: an earlier run's report goes before anything here can fail
+        (p.out / name).unlink(missing_ok=True)
     p.caps = p.caps or compose_caps()
     enf = Enforcer.detect(p.enforce)
+    enf.stall_s = p.stall_s
     rep = Report(p, enf.mode)
+    try:
+        _parts(p, rep, enf)
+    except BaseException as exc:
+        # D-674: the gate ended on an error of its own, or was cut where the cut raises here (a time limit's signal,
+        # an interrupt). The processes it started are stopped by now and have their results: write once more
+        rep.notes.append(f"the gate ended by {type(exc).__name__} in: {rep.unfinished or 'its last lines'}")
+        if isinstance(exc, Stalled):
+            rep.notes.append(str(exc))  # which part made no progress, for how long, and what was last seen
+        with contextlib.suppress(Exception):
+            rep.write()
+        raise
+    rep.unfinished = ""
+    rep.write()
+    return rep
+
+
+def _parts(p: Params, rep: Report, enf: Enforcer) -> None:
     work = p.out / "work"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
@@ -316,6 +389,7 @@ def run(p: Params) -> Report:
     big = max(p.caps.values())
 
     # 1. the input
+    rep.progress("generate")  # D-674: also replaces an earlier run's report in this folder
     site = work / "site"
     gen = enf.run(
         "generate",
@@ -345,6 +419,7 @@ def run(p: Params) -> Report:
     xmx = compose_setting("adapter", "TB_VALIDATOR_XMX")  # the validator's heap inside the adapter's cap, as composed
     if xmx:
         env["TB_VALIDATOR_XMX"] = xmx
+    rep.progress("ingest (nightly)")
     ing = enf.run(
         "ingest (nightly)",
         "adapter",
@@ -362,6 +437,7 @@ def run(p: Params) -> Report:
     nd = work / "lake" / "ndjson" / SNAPSHOT
     if why:
         shutil.rmtree(work / "lake", ignore_errors=True)
+        rep.progress("ingest (back-fill, to feed the rest)")
         bf = enf.run(
             "ingest (back-fill, to feed the rest)",
             "adapter",
@@ -386,10 +462,8 @@ def run(p: Params) -> Report:
             rep.check(cid, None, "no snapshot was written", blocked_by="ingest")
     else:
         _lake_parts(p, rep, enf, work, logs, token)
+    rep.progress("backup (nightly steps)")
     _backup(p, rep, work, db_url)
-    (p.out / "scale_gate.json").write_text(json.dumps(rep.to_json(), indent=1), encoding="utf-8")
-    (p.out / "scale_gate.md").write_text(rep.markdown(), encoding="utf-8")
-    return rep
 
 
 def _db_url(work: Path) -> str:
@@ -432,6 +506,7 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
             ):
                 rep.check(cid, None, "the lake service did not start", blocked_by="rebuild")
             return
+        rep.progress(PUBLISH)
         built = _publish(p, rep, url, alive, token)
         lake_died = not alive()
         if lake_died:
@@ -457,6 +532,7 @@ def _lake_parts(p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, t
             for cid in ("screen.ends_under_cap", "screen.model_faults_seen", "screen.outage_no_unknown"):
                 rep.check(cid, None, "the lake has no built snapshot", blocked_by="rebuild")
             return
+        rep.progress("screen (cascade)")
         _screen(p, rep, enf, work, logs, url, alive, token)
     if not lake_died:  # the lake lived to the end: its whole run's peak against its cap
         why = _over(lake_run)
@@ -589,6 +665,7 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
     t0 = time.monotonic()
     ticks: list[str] = []
     first: float | None = None
+    moved = Watch()  # D-674: what the publish's ticks say, how many rebuilds started, whether it is recorded
     while time.monotonic() - t0 < p.publish_wait_s and alive():
         try:
             out = svc.flush("main")
@@ -599,6 +676,9 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
             first = time.monotonic() - t0
         if st.pub is not None or lake.started >= 2:
             break
+        # D-674: a publish that does not move while the lake does no work ends the gate, not the job's own limit
+        moved.seen((ticks[-1], lake.started, st.pub is not None))
+        stall_check(PUBLISH, p.stall_s, moved)
         time.sleep(p.publish_poll_s)
     took = time.monotonic() - t0
     snap_built = False
@@ -634,6 +714,8 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
                     return True
             except Exception:
                 pass
+            moved.seen(("waiting for the lake to serve", SNAPSHOT))
+            stall_check(PUBLISH, p.stall_s, moved)
             time.sleep(p.publish_poll_s)
         return False
     return True
@@ -665,6 +747,7 @@ def _screen(
             _env(TB_SERVICE_TOKEN=token),
             ROOT,
             logs / "screen.log",
+            watch=model.log_bytes,  # D-674: every call the stand-in sees is the screen's progress
         )
     finally:
         done.set()
@@ -885,6 +968,23 @@ def _backup(p: Params, rep: Report, work: Path, db_url: str) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ the command
+def limit_s() -> float:
+    """NEW-B-33 (D-674): the time limit of the gate's test, in seconds: ``TB_SCALE_LIMIT_S``, else 0, which is "no
+    limit" to pytest-timeout. Not the suite's default (900 s per test): the gate is one fixture that runs a whole
+    night, and a night is measured, not budgeted. The nightly job's own ``timeout-minutes`` ends a hang; a person
+    who wants a bound on their own machine sets the variable."""
+    raw = os.environ.get("TB_SCALE_LIMIT_S", "").strip()
+    if not raw:
+        return 0.0
+    try:
+        limit = float(raw)
+    except ValueError:
+        limit = -1.0
+    if limit < 0:
+        raise ValueError(f"TB_SCALE_LIMIT_S={raw!r}: give a number of seconds, or leave it empty for no limit")
+    return limit
+
+
 def params_from_env(out: Path, patients: int | None = None, profile: str | None = None) -> Params:
     """The gate's settings from ``TB_SCALE_*`` (the nightly job's values are in trialbox-e2e.yml)."""
     e = os.environ
@@ -894,6 +994,9 @@ def params_from_env(out: Path, patients: int | None = None, profile: str | None 
         return float(raw) if raw.strip() else default
 
     lt = e.get("TB_SCALE_LAKE_TIMEOUT_S", "").strip()
+    stall = f("TB_SCALE_STALL_S", STALL_S)
+    if stall < 0:
+        raise ValueError(f"TB_SCALE_STALL_S={stall:g}: give a number of seconds, or 0 for no stall cut")
     return Params(
         patients=patients or int(f("TB_SCALE_PATIENTS", 300)),
         out=out,
@@ -906,6 +1009,7 @@ def params_from_env(out: Path, patients: int | None = None, profile: str | None 
         restart_after=int(f("TB_SCALE_RESTART_AFTER", 0)),
         restart_gap_s=f("TB_SCALE_RESTART_GAP_S", 0.0),
         lake_timeout_s=float(lt) if lt else None,
+        stall_s=stall,
     )
 
 

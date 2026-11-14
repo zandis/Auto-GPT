@@ -10,6 +10,7 @@ from typing import Any, Protocol
 import httpx
 import pyarrow as pa
 from embed_service.embedder import Embedder
+from tb_common.http import ServiceError
 from tb_contracts import ChunkSearchRequest, LakeQuery, dump
 
 
@@ -27,6 +28,72 @@ class LakeAPI(Protocol):
     ) -> list[dict[str, Any]]: ...
 
     def snapshot(self) -> str | None: ...
+
+
+class LakeUnhealthy(ServiceError):
+    """The lake answered, but not with a health answer that says which snapshot it serves (D-672). Never to be read
+    as "the lake holds no data". A service's failure (``tb_common.http.ServiceError``), so a job that meets it ends
+    "The lake service failed." with the status, not as an internal error."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(
+            "lake",
+            status,
+            "its health answer does not say which snapshot it serves: the lake is not healthy or could not read "
+            "its snapshot. This is not a lake without data",
+        )
+
+
+class LakeBadAnswer(ServiceError):
+    """The lake answered 200 with something that is not its answer to the call: not JSON, not an object, without
+    the key the call reads, or the key of another kind (NEW-B-32, D-673). An error of the lake: never read as "no",
+    "not known" or a name. The message says what is missing, never the body."""
+
+    def __init__(self, status: int, what: str) -> None:
+        super().__init__("lake", status, f"its answer {what}; this is not the lake's answer to the call")
+
+
+class LakeQueryFailed(ServiceError):
+    """A query the lake service did not answer with a table (D-673): a failure of the lake service with its
+    status, so a caller can tell it from a fault of the code (it was a plain ``RuntimeError``). Its words are as
+    before, ``lake query failed (<status>): <the lake's sentence>``: callers read the engine's sentence in them."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__("lake", status, detail)
+        self.args = (f"lake query failed ({status}): {detail}",)
+
+
+_MISSING: Any = object()
+
+
+def _object(resp: httpx.Response) -> dict[str, Any]:
+    """The answer's JSON object, after the status was checked."""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise LakeBadAnswer(resp.status_code, "is not a JSON object")
+    return body
+
+
+def _key(resp: httpx.Response, key: str, kinds: tuple[type, ...], none: bool = False) -> Any:
+    """The value of ``key`` in the answer: there, and of one of ``kinds`` (``none``: null is an answer too). A
+    bool is not taken for a number, nor an empty text for a name."""
+    got = _object(resp).get(key, _MISSING)
+    if got is None and none:
+        return None
+    ok = got is not _MISSING and isinstance(got, kinds) and not (isinstance(got, bool) and bool not in kinds)
+    if not ok or got == "":
+        raise LakeBadAnswer(resp.status_code, f"has no usable '{key}'")
+    return got
+
+
+def _table(resp: httpx.Response) -> pa.Table:
+    try:
+        return pa.ipc.open_stream(resp.content).read_all()
+    except Exception:
+        raise LakeBadAnswer(resp.status_code, "is not a table") from None
 
 
 class LakeHttp:
@@ -53,8 +120,8 @@ class LakeHttp:
         body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day))
         resp = self.client.post(f"{self.base}/query", json=body, headers=headers)
         if resp.status_code != 200:
-            raise RuntimeError(f"lake query failed ({resp.status_code}): {resp.text[:500]}")
-        return pa.ipc.open_stream(resp.content).read_all()
+            raise LakeQueryFailed(resp.status_code, _detail(resp))
+        return _table(resp)
 
     def chunks_search(
         self,
@@ -69,7 +136,7 @@ class LakeHttp:
         req = ChunkSearchRequest(pid=pid, query=query, k=k, date_from=date_from, date_to=date_to, snapshot=day)
         resp = self.client.post(f"{self.base}/chunks/search", json=dump(req), headers=headers)
         resp.raise_for_status()
-        hits: list[dict[str, Any]] = resp.json()["hits"]
+        hits: list[dict[str, Any]] = _key(resp, "hits", (list,))
         return hits
 
     def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
@@ -84,14 +151,20 @@ class LakeHttp:
             return fallback(UNAVAILABLE)
         if resp.status_code != 200:
             return fallback(f"{UNAVAILABLE} (lake {resp.status_code})")
-        out: dict[str, Any] = resp.json()
+        try:
+            out: dict[str, Any] = _object(resp)
+        except LakeBadAnswer:  # D-673: an answer that cannot be read is no answer: the fallback, as the docstring says
+            return fallback(f"{UNAVAILABLE} (lake answered something else)")
+        ranked = out.get("state") == "vec"
+        if not isinstance(out.get("state"), str) or (ranked and not isinstance(out.get("model"), str)):
+            return fallback(f"{UNAVAILABLE} (lake answered something else)")  # the cascade reads a ranking's model
         return out
 
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         """D-135: replace the site's own inputs on the lake service (the next rebuild joins them)."""
         resp = self.client.post(f"{self.base}/site", json={"resources": resources})
         resp.raise_for_status()
-        out: dict[str, int] = resp.json()["counts"]
+        out: dict[str, int] = _key(resp, "counts", (dict,))
         return out
 
     def start_rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
@@ -102,8 +175,7 @@ class LakeHttp:
         body: dict[str, Any] = {"snapshot": snapshot} if promote else {"snapshot": snapshot, "promote": False}
         resp = self.client.post(f"{self.base}/rebuild", json=body)
         resp.raise_for_status()
-        job: dict[str, Any] = resp.json()
-        return job
+        return _object(resp)
 
     def promote(self, snapshot: str, generation: str | None = None) -> bool:
         """T-723 (D-489): make the built ``snapshot`` the served one; False when a newer night is served.
@@ -111,14 +183,13 @@ class LakeHttp:
         body = {"snapshot": snapshot, **({"generation": generation} if generation else {})}
         resp = self.client.post(f"{self.base}/promote", json=body)
         resp.raise_for_status()
-        return bool(resp.json().get("promoted"))
+        return bool(_key(resp, "promoted", (bool,)))  # D-673: a missing key is not "a newer night is served"
 
     def rebuild_state(self, snapshot: str) -> dict[str, Any]:
         """The state of the snapshot's last rebuild job on the lake service (T-690, D-472)."""
         resp = self.client.get(f"{self.base}/rebuild/{snapshot}")
         resp.raise_for_status()
-        body: dict[str, Any] = resp.json()
-        return body
+        return _object(resp)
 
     def rebuild(self, snapshot: str, promote: bool = True) -> dict[str, Any]:
         """Rebuild ``snapshot`` and answer its counts: the job is started and followed to its end (T-690, D-472), never
@@ -136,7 +207,8 @@ class LakeHttp:
         (T-724, D-490) it pins a generation, which is returned: see :meth:`lake.store.Lake.hold`."""
         resp = self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder, "pin": pin})
         resp.raise_for_status()
-        return str(resp.json().get("generation") or snapshot)
+        got = _key(resp, "generation", (str,), none=True)  # D-673: null is "held, not pinned"; missing is not
+        return str(got) if got else snapshot
 
     def generation(self, snapshot: str | None = None) -> str | None:
         """T-724 (D-490): the generation the date ``snapshot`` (default the served one) names now; None when the
@@ -146,7 +218,7 @@ class LakeHttp:
             return None
         resp = self.client.get(f"{self.base}/generations/{snap}")
         resp.raise_for_status()
-        got = resp.json().get("generation")
+        got = _key(resp, "generation", (str,), none=True)  # D-673: null is "built before generations"
         return str(got) if got else None
 
     def site_in_sync(self, snapshot: str | None = None) -> bool | None:
@@ -157,23 +229,42 @@ class LakeHttp:
             return None
         resp = self.client.get(f"{self.base}/generations/{snap}")
         resp.raise_for_status()
-        got = resp.json().get("site_in_sync")
+        got = _key(resp, "site_in_sync", (bool,), none=True)  # D-673: null is the lake's "not known"
         return None if got is None else bool(got)
 
     def release(self, holder: str) -> bool:
         resp = self.client.delete(f"{self.base}/holds/{holder}")
         resp.raise_for_status()
-        return bool(resp.json().get("released"))
+        return bool(_key(resp, "released", (bool,)))
 
     def holds(self) -> dict[str, str]:
         resp = self.client.get(f"{self.base}/holds")
         resp.raise_for_status()
-        return {str(k): str(v) for k, v in resp.json()["holds"].items()}
+        return {str(k): str(v) for k, v in _key(resp, "holds", (dict,)).items()}
 
     def snapshot(self) -> str | None:
-        body = self.client.get(f"{self.base}/healthz").json()
-        snap = body.get("checks", {}).get("snapshot")
-        return None if snap in (None, "none") else str(snap)
+        """The snapshot the lake serves, from its ``/healthz``. **None only for a healthy lake that has none**
+        (NEW-B-31, D-672): callers read None as "this lake holds no data".
+
+        * a name under ``checks.snapshot``: that name, also from a lake that answers 503 because another of its
+          checks failed (its snapshot check did not: the name is the served night);
+        * ``"none"`` from a healthy lake (200): None;
+        * anything else raises :class:`LakeUnhealthy`: the lake's snapshot check failed (``/healthz`` then answers
+          503 and names the check in place of its key), ``"none"`` from a lake that is not healthy, an answer that
+          is not the lake's health answer (a proxy's page, another status). The error carries the status, never
+          the body. A lake that cannot be reached raises the transport's error, as before."""
+        resp = self.client.get(f"{self.base}/healthz")
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        checks = body.get("checks") if isinstance(body, dict) else None
+        snap = checks.get("snapshot") if isinstance(checks, dict) else None
+        if isinstance(snap, str) and snap and snap != "none":
+            return snap
+        if snap == "none" and resp.status_code == 200:
+            return None
+        raise LakeUnhealthy(resp.status_code)
 
 
 class LakeLocal:
@@ -249,14 +340,28 @@ class LakeLocal:
         return self.lake.rebuild_state(snapshot)
 
 
+NOT_THE_LAKES = "an answer without the lake's own sentence; its body is not kept"
+
+
+def _detail(resp: httpx.Response) -> str:
+    """What the lake service said (NEW-B-31, D-672): its ``detail`` when the answer is the lake's own (a JSON
+    object whose ``detail`` is a sentence: D-664 made those safe). Any other body (a proxy's page, another
+    responder's trace, JSON of another shape) is not repeated: it is not the lake's, and it can hold anything."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return NOT_THE_LAKES
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, list) and detail:  # the service's answer to a request of the wrong shape (D-551)
+        return f"the request was refused as malformed ({len(detail)} problem(s)); its parts are not repeated"
+    return detail if isinstance(detail, str) and detail else NOT_THE_LAKES
+
+
 def _refusal(resp: httpx.Response, snapshot: str) -> Exception:
     """The lake service's answer to a rebuild it would not start, as the in-process lake raises it (D-462, D-271)."""
     from lake.store import BUSY_HEADER, RebuildError, SnapshotBuilding, SnapshotHeld
 
-    try:
-        detail = str(resp.json().get("detail"))
-    except ValueError:
-        detail = resp.text[:500]
+    detail = _detail(resp)
     if resp.status_code == 409:
         busy = resp.headers.get(BUSY_HEADER)
         if busy == "building":

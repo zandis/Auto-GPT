@@ -124,7 +124,7 @@ def test_jp_core_accepts_the_who_uri(tmp_path: Path) -> None:
         "code": {"coding": [{"system": WHO, "code": "C50.911"}]},
     }
     out = jpcore.JpCoreValidator(EMPTY).check(cond)  # an ICD-10-CM-only shape under the WHO URI: listed, not failed
-    assert out.ok and [i.text for i in out.issues] == ["C50.911 is not written as a WHO ICD-10 code"]
+    assert out.ok and [i.text for i in out.issues] == ["the code is not written as a WHO ICD-10 code"]
 
 
 # ----------------------------------------------------------------------------------------- the grouper table

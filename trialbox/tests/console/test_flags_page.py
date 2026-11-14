@@ -151,3 +151,54 @@ def test_a_flag_store_that_does_not_answer_is_a_503_page(box: dict[str, Any], mo
     assert r.status_code == 503
     monkeypatch.setenv("TB_DB_URL", url)
     assert fl.Flags().row("lake.source") == "legacy" and not _events(box, "flag.set")
+
+
+# ------------------------------------------------------------------------------------ NEW-FLAG-1 (D-706)
+HOLD = "screening.after_restore"
+
+
+def test_the_steward_sees_and_releases_the_hold_after_a_restore_and_no_other_flag(box: dict[str, Any]) -> None:
+    """D-522 left it open: the hold after a restore is released on ``/ops/flags``, the administrator's page, while
+    D-455 names the steward as the person who re-applies the opt-outs and says so. The steward's own account sees
+    this one flag there and changes it, with the reason and the confirmation every change needs."""
+    fl.Flags(audit=box["audit"]).set(HOLD, "held", actor="tool:restore",
+                                     reason="restore not complete: 2 opt-outs to re-apply")  # fmt: skip
+    s = _user(box, "steward1", "steward")
+    r = s.get("/ops/flags")
+    assert r.status_code == 200 and f'data-flag="{HOLD}"' in r.text and 'data-value="held"' in r.text
+    assert r.text.count('data-testid="flag"') == 1 and 'data-flag="lake.source"' not in r.text
+    assert "lake.source" not in r.text  # not in the history either: the page is this flag's
+    assert 'href="/ops/flags"' in s.get("/site/opt-outs").text  # the steward's menu leads there
+    form = {"csrf": _csrf(r.text), "name": HOLD, "value": "released", "reason": "the two opt-outs were re-entered"}
+    sheet = s.post("/ops/flags", data=form, follow_redirects=False)
+    assert sheet.status_code == 200 and fl.Flags().row(HOLD) == "held"  # the confirmation sheet first
+    done = s.post("/ops/flags", data={**form, "confirm": "yes", "old": "held"}, follow_redirects=False)
+    assert done.status_code == 303 and fl.Flags().row(HOLD) == "released"
+    ev = _events(box, "flag.set")[-1]
+    assert ev["actor"] == "console:steward1" and ev["detail"]["flag"] == HOLD
+    # any other flag is refused to the steward, and the refusal is audited
+    other = {"csrf": _csrf(s.get("/ops/flags").text), "name": "lake.source", "value": "omop", "reason": "x",
+             "confirm": "yes", "old": "legacy"}  # fmt: skip
+    assert s.post("/ops/flags", data=other, follow_redirects=False).status_code == 403
+    assert fl.Flags().row("lake.source") == "legacy" and _events(box, "console.denied")
+
+
+def test_the_administrator_keeps_every_flag_and_the_other_roles_none(box: dict[str, Any]) -> None:
+    from tb_common.authz import permit
+
+    assert {r for r in ("admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy")
+            if permit(r, "restore.release").allowed} == {"admin", "steward"}  # fmt: skip
+    a, _ = login(box["app"])
+    page = a.get("/ops/flags").text
+    assert f'data-flag="{HOLD}"' in page and 'data-flag="lake.source"' in page
+    fl.Flags(audit=box["audit"]).set(HOLD, "held", actor="tool:restore", reason="restore not complete")
+    for name, role in (("crc9", "coordinator"), ("dpo9", "privacy"), ("view9", "viewer"), ("inv9", "investigator")):
+        c = _user(box, name, role)
+        assert c.get("/ops/flags").status_code == 403, role
+        # the review: nobody without the right releases the hold by naming it (no test posted its name before)
+        form = {"csrf": _csrf(c.get("/account").text), "name": HOLD, "value": "released", "reason": "x",
+                "confirm": "yes", "old": "held"}  # fmt: skip
+        assert c.post("/ops/flags", data=form, follow_redirects=False).status_code == 403, role
+        assert fl.Flags().row(HOLD) == "held", role
+    tried = [e["detail"] for e in _events(box, "console.denied") if e["detail"].get("flag")]
+    assert tried and all(d["flag"] == HOLD for d in tried)  # the refusal says which flag was tried

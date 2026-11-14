@@ -24,7 +24,7 @@ def test_the_two_open_routes_refuse_a_bare_token(orch_box: OrchBox) -> None:
     (mrn, pid), (mrn2, pid2) = _pairs(orch_box, 2)
     r = c.post("/setup/pseudonym", json={"chart_no": mrn})
     assert r.status_code == 403 and pid not in r.text, r.text[:200]
-    body: dict[str, Any] = {"mrn": mrn2, "status": "candidate", "source": "manual"}
+    body: dict[str, Any] = {"mrn": mrn2, "status": "candidate"}
     r = c.post(f"/registry/{STUDY}", json=body)
     assert r.status_code == 403 and pid2 not in r.text, r.text[:200]
     assert c.get(f"/registry/{STUDY}").json() == []  # and nothing was written
@@ -34,7 +34,7 @@ def test_the_two_open_routes_refuse_a_bare_token(orch_box: OrchBox) -> None:
         "a chart number needs a verified person", "no signed-in user on this call (X-TB-Actor-Assertion)"}  # fmt: skip
     assert not orch_box.events("screen.to_pid")
     # T-715b: a row by pseudonym is no lookup, and it too needs the verified person now
-    body = {"pid": pid, "status": "candidate", "source": "manual"}
+    body = {"pid": pid, "status": "candidate"}
     assert c.post(f"/registry/{STUDY}", json=body).status_code == 403
     assert c.get(f"/registry/{STUDY}").json() == []
 
@@ -52,7 +52,7 @@ def test_a_verified_person_with_a_right_gets_the_pseudonym_and_it_is_on_the_reco
     assert done[0]["detail"] == {"pid": pid, "role": "steward", "action": "optout.keep", "via": "POST /setup/pseudonym"}
     assert mrn not in str(done[0])  # the chart number is never on the record
     path = f"/registry/{STUDY}"
-    reg: dict[str, Any] = {"mrn": mrn2, "status": "candidate", "source": "manual"}
+    reg: dict[str, Any] = {"mrn": mrn2, "status": "candidate"}
     r = c.post(path, json=reg, headers=signed("request.prepare", STUDY, "POST", path, reg))
     assert r.status_code == 200 and r.json()["pid"] == pid2
     assert orch_box.events("screen.to_pid")[-1]["detail"]["via"] == "POST /registry/{ruleset}"
@@ -149,7 +149,7 @@ def test_the_door_ties_the_action_to_the_route(orch_box: OrchBox) -> None:
         assert r.status_code == 403, r.text[:200]
         assert orch_box.events("actor.refused")[-1]["detail"]["reason"] in ("action", "principal", "study")
     path = f"/registry/{STUDY}"
-    reg: dict[str, Any] = {"mrn": mrn, "status": "candidate", "by": "crc1@hospa.test", "source": "manual"}
+    reg: dict[str, Any] = {"mrn": mrn, "status": "candidate", "by": "crc1@hospa.test"}
     r = c.post(
         path, json=reg, headers=signed("optout.keep", STUDY, "POST", path, reg, sub="console:stw", role="steward")
     )

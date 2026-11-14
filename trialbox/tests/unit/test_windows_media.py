@@ -95,6 +95,17 @@ def test_a_media_is_laid_out_as_the_installer_reads_it_and_passes_its_own_check(
     assert listed == names - {"SHA256SUMS"}
 
 
+def test_the_media_carries_the_pages_a_person_on_site_reads(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    docs = {p.name for p in (media / "docs").iterdir()}
+    assert docs == set(wm.HANDOVER_DOCS)
+    assert {"windows-owner.en.md", "windows-owner.ja.md", "windows-owner.zh-TW.md", "desktop-use.ja.md",
+            "WINDOWS-INSTALL-CHECKLIST.md", "WINDOWS-BACKUP-RESTORE.md", "P-0-windows-rehearsal.md"} <= docs  # fmt: skip
+    for name in wm.HANDOVER_DOCS:  # every page the builder names exists in the source tree
+        assert (ROOT / "docs/handover" / name).is_file(), name
+    assert wm.check(media) == []
+
+
 def test_the_host_tree_on_the_media_carries_the_linux_installer_and_the_windows_files(tmp_path: Path) -> None:
     import tarfile
 

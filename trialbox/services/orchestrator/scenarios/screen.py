@@ -6,6 +6,7 @@ candidate pool persisted for MICROBATCH."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
@@ -16,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from matching import coded_values
 from matching.coverage import unknown_system_counts
+from tb_common import lakeprobe
 from tb_common.authz import norm
 from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
 from tb_common.reasons import Reason
@@ -85,6 +87,8 @@ WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND (deceased_date IS NOT NULL O
 ORDER BY pid
 """
 
+log = logging.getLogger("orchestrator.screen")
+
 
 def deceased_now(lake: Any, pids: list[str]) -> list[str]:
     """The pseudonyms of ``pids`` whose record in the lake's current snapshot says the patient died. The console
@@ -119,10 +123,17 @@ class ScreenRun:
     cascade: dict[str, Any] | None = None  # D-103: the cascade's stage log and counts when it ran the screen
     whole_hospital: bool = False  # D-146: every doctor's patients (``practitioners`` is then empty)
     s2b_sources: dict[str, dict[str, Any]] | None = None  # T-203b (D-449): only when the flag vec.s2b was on
+    coded_values_read: bool = True  # D-652: False when the values behind the coded answers could not be read
 
     @property
     def pipeline(self) -> str:
         return "cascade" if self.cascade else "v1"
+
+
+def attach_values(lake: Any, rs: Ruleset, verdicts: dict[str, Any], run_date: date, snapshot: str | None) -> bool:
+    """Put the coded values on the run's coded answers (:func:`matching.coded_values.attach`, display only). False:
+    they could not be read (D-652); the run says so in what it stores."""
+    return coded_values.attach(lake, rs.active(), verdicts, run_date, snapshot) is not None
 
 
 def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
@@ -425,14 +436,23 @@ def practitioner_names(ctx: Ctx) -> dict[str, str]:
     """``id -> "Name (id)"`` for the lists. The name comes from the records (the HIS practitioner table, D-120);
     ``settings.practitioners`` only fills a name the records do not hold (a settings name such as "Dr. A
     (synthetic)" is a placeholder, and showed on a public-data site before D-120)."""
-    names = {k: v.name for k, v in (ctx.cfg.settings.practitioners or {}).items() if v.name}
+    configured = ctx.cfg.settings.practitioners or {}
     try:
         rows = ctx.services.lake.query("SELECT practitioner_id, name FROM practitioner WHERE name IS NOT NULL")
         found = rows.to_pylist()
-    except Exception:  # an older snapshot without the name column: settings only
-        found = []
+    except Exception as exc:
+        # D-652: the names could not be read (the lake is down, or an older snapshot without the column). A settings
+        # name is then all there is, and the list says that it is the settings' name, not the records'; a doctor
+        # with no settings name is listed by the id, with "name not read". (A doctor who is not in the settings has
+        # no label here at all: the lists show the bare id, as they do for any doctor without a name.)
+        log.error("practitioner names were not read from the lake (%s)", type(exc).__name__)
+        return {
+            k: f"{v.name} ({k}; name from settings)" if v.name else f"{k} (name not read)"
+            for k, v in sorted(configured.items())
+        }
+    names = {k: v.name for k, v in configured.items() if v.name}
     names.update({str(r["practitioner_id"]): str(r["name"]) for r in found if r.get("name")})
-    ids = set(names) | set(ctx.cfg.settings.practitioners or {})
+    ids = set(names) | set(configured)
     return {k: f"{names.get(k) or k} ({k})" for k in sorted(ids)}
 
 
@@ -645,8 +665,8 @@ def run_screen(
         judging = judging_info(judge, ctx)  # after the run: its disagreements and failures, as the cascade path does
     # T-514 (D-362, review UX-008): each coded answer carries the record's value, unit, date and code for the person
     # who checks it; display only, after every answer is decided
-    coded_values.attach(
-        ctx.services.lake, rs.active(), {p: pv.verdicts for p, pv in results.items()}, run_date, snapshot
+    values_read = attach_values(
+        ctx.services.lake, rs, {p: pv.verdicts for p, pv in results.items()}, run_date, snapshot
     )
     by_pid = {s.pid: s for s in scoped}
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
@@ -657,7 +677,7 @@ def run_screen(
     rows.sort(key=sort_key)
     return ScreenRun(
         rs, run_date, snapshot, scoped, results, rows, list(practitioners or []), depts, window, judge, judging,
-        cascade, whole_hospital=practitioners is None, s2b_sources=s2b_sources,
+        cascade, whole_hospital=practitioners is None, s2b_sources=s2b_sources, coded_values_read=values_read,
     )  # fmt: skip
 
 
@@ -709,23 +729,31 @@ def candidate_list(run: ScreenRun) -> CandidateList:
     )
 
 
-def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str]:
+def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str] | None:
     """The record ids of the site's confirmed facts for these patients (D-135): a coded record that a person typed
-    or confirmed from a chart, not one the hospital's systems coded."""
+    or confirmed from a chart, not one the hospital's systems coded. Empty: there is none (also on a snapshot from
+    before the site facts, which the lake is asked, D-649). None: they could not be read (D-652)."""
     if not pids:
         return set()
     try:
-        rows = ctx.services.lake.query("SELECT fid FROM site_fact WHERE basis = 'confirmed'").to_pylist()
-    except Exception:  # an older snapshot has no site_fact table: no confirmed fact
-        return set()
-    return {str(r["fid"]) for r in rows if r.get("fid")}
+        rows = lakeprobe.rows_or_no_table(
+            ctx.services.lake, "SELECT fid FROM site_fact WHERE basis = 'confirmed'", [], None, "site_fact"
+        )
+    except Exception as exc:
+        log.error("the confirmed facts were not read from the lake (%s)", type(exc).__name__)
+        return None
+    return {str(r["fid"]) for r in rows or [] if r.get("fid")}
 
 
 def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
     """Every patient the run excluded, with the criterion (or the scope or consent rule) that excluded them, where
     the answer came from (the coded records, a confirmed fact, or the notes with both models agreeing) and its
     evidence (review 2026-11-09 P-04, D-143). Stored with the job for the console's "Excluded patients and why"
-    page; never mailed."""
+    page; never mailed.
+
+    D-652: when the confirmed facts could not be read, an answer from the records is not said to come from "the
+    coded records" (that would say no person confirmed it): its source is ``records`` and the document says
+    ``confirmed_facts: not read``. ``coded_values``: whether the values behind the coded answers were read."""
     ex = [r for r in run.rows if r.tier == "excluded"]
     facts = confirmed_facts(ctx, [r.pid for r in ex])
 
@@ -733,6 +761,8 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
         ev = v.evidence
         if ev is not None and (ev.reason == "note" or ev.quote):
             return "notes"
+        if facts is None:
+            return "records"
         refs = {x.rsplit("/", 1)[-1] for x in (ev.resource_refs or [])} if ev is not None else set()
         return "fact" if refs & facts else "coded"
 
@@ -745,7 +775,9 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
         ]  # fmt: skip
         rows.append({"pid": r.pid, "criteria": failing, "actions": list(r.actions)})
     return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
-            "snapshot": run.snapshot, "judging": run.judging or {}, "rows": rows}  # fmt: skip
+            "snapshot": run.snapshot, "judging": run.judging or {}, "rows": rows,
+            "confirmed_facts": "not read" if facts is None else "read",
+            "coded_values": "read" if getattr(run, "coded_values_read", True) else "not read"}  # fmt: skip
 
 
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:

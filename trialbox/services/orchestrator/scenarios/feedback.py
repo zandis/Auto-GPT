@@ -12,6 +12,7 @@ from tb_contracts import ScreenFeedbackRow
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Outcome
+from orchestrator.scenarios.upload_text import upload_text
 
 OUTCOMES = ("enrolled", "screen_fail", "declined", "not_contacted")
 
@@ -26,7 +27,7 @@ def read_rows(name: str, data: bytes) -> list[dict[str, Any]]:
         it = wb["feedback"].iter_rows(values_only=True)
         header = [str(h or "").strip().lower() for h in next(it)]
         return [dict(zip(header, ["" if v is None else str(v) for v in r], strict=False)) for r in it]
-    text = data.decode("utf-8-sig")
+    text = upload_text(data, name, "feedback")  # UX-004: a Big5 or Shift_JIS sheet is read, not a Python error
     return [{(k or "").strip().lower(): (v or "") for k, v in r.items()} for r in csv.DictReader(io.StringIO(text))]
 
 

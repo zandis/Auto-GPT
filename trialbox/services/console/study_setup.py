@@ -52,6 +52,9 @@ from console.sitestore import (
 from console.studies import known_study
 from console.timefmt import site_zone
 
+SETUP = "study.setup"  # T-715d (D-554): the study's own set-up
+SITE = "redcap.connection"  # T-715e (D-701): the box's REDCap connection and its token, the administrator's alone
+
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _PRACT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
@@ -134,12 +137,13 @@ def screening_map(store: Any, rs: str) -> dict[str, str]:
     return {no: pid for pid, no in store.screening_nos(rs).items()}
 
 
-def read_now(h: Helpers, rs: str, by: str, sess: Any = None) -> dict[str, Any]:
+def read_now(h: Helpers, rs: str, sess: Any = None) -> dict[str, Any]:
     """Run now and the nightly job: the orchestrator reads REDCap through the study's link and updates the log.
     T-715 (D-483): the call is signed, by the person who pressed "run now" (``sess``) or as the nightly timer, so
-    that the participants' steps the read derives name a verified actor."""
+    that the participants' steps the read derives name a verified actor. T-715d (D-554): the route refuses an
+    unsigned call and takes the person from the assertion, so ``by`` is not sent."""
     issued = {no: at for _pid, no, at in h.store.screening_rows(rs)}
-    body = {"screening": screening_map(h.store, rs), "issued": issued, "by": by}
+    body = {"screening": screening_map(h.store, rs), "issued": issued}
     path = f"/studies/{rs}/redcap-read"
     if sess is not None:
         return dict(actor.call(h, sess, "request.prepare", rs, "POST", path, body))
@@ -235,7 +239,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     def save_settings(request: Request, sess: Session, rid: str, s: StudySettings, extra: dict[str, Any],
                       section: str) -> Response:  # fmt: skip
         try:
-            s28.save(bk, rid, s, h.actor(sess), extra)
+            body = s28.to_body(s, extra)
+            s28.save(bk, rid, body, actor.assert_for(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/settings", body))
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": section})
@@ -344,8 +349,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if mode == "practitioners" and (not ids or not all(_PRACT.match(p) for p in ids)):
             raise h.problem(400, "request.refused", reason="practitioner ids are letters and digits, comma separated")
         try:
-            body = {"mode": mode, "practitioners": ids if mode == "practitioners" else [], "by": h.actor(sess)}
-            s28.call(bk, "PUT", f"/studies/{rid}/screen-scope", body)
+            body = {"mode": mode, "practitioners": ids if mode == "practitioners" else []}
+            actor.call(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/screen-scope", body)
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess),
@@ -395,9 +400,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             )
         row = s28.remote(bk, rid) or {}
         try:
-            s28.save(
-                bk, rid, conf, h.actor(sess), {"consent_scope": scope, "introduce_rule": row.get("introduce_rule")}
-            )
+            extra = {"consent_scope": scope, "introduce_rule": row.get("introduce_rule")}
+            sbody = s28.to_body(conf, extra)
+            s28.save(bk, rid, sbody, actor.assert_for(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/settings", sbody))
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc), **keep)
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": "all"})
@@ -405,7 +410,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         same = bool(cur) and all(str(cur.get(k) or "") == str(v or "") for k, v in body.items() if k != "ruleset")
         if body["token_ref"] and body["project_id"] and not same:  # a changed link is checked against REDCap
             try:
-                s28.call(bk, "PUT", f"/studies/{rid}/redcap-link", {"link": body, "by": h.actor(sess)})
+                actor.call(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/redcap-link", {"link": body})
             except (Problem, Unavailable) as exc:  # the study and numbering are saved; the link is shown to fix
                 return setup_page(request, sess, rid, err=err_of(exc), saved="study", **keep)
             au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": "redcap"})
@@ -436,7 +441,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         need_edit(request, sess, str(form.get("csrf") or ""))
         body = link_from_form(rid, form)
         try:
-            s28.call(bk, "PUT", f"/studies/{rid}/redcap-link", {"link": body, "by": h.actor(sess)})
+            actor.call(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/redcap-link", {"link": body})
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc), lk_form=body)
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": "redcap"})
@@ -451,7 +456,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_request:
             raise h.problem(403, "forbidden")
         try:
-            out = s28.call(bk, "POST", f"/studies/{rid}/redcap-link/test", {"screening": screening_map(store, rid)})
+            body = {"screening": screening_map(store, rid)}
+            out = actor.call(h, sess, SETUP, rid, "POST", f"/studies/{rid}/redcap-link/test", body)
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         nos = {pid: no for no, pid in screening_map(store, rid).items()}
@@ -470,7 +476,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         target = f"/studies/{rid}/screening-log" if back == "log" else f"/studies/{rid}/setup"
         try:
-            out = read_now(h, rid, h.actor(sess), sess)
+            out = read_now(h, rid, sess)
         except (Problem, Unavailable) as exc:
             e = err_of(exc)
             return RedirectResponse(f"{target}?rc_err={quote(e['code'])}#redcap", status_code=303)
@@ -666,9 +672,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             return s36_page(
                 request, sess, err={"code": "RC-FIELD", "msg": "token name: a-z, 0-9, - and _", "fields": ""}
             )
-        body = {"url": url.strip(), "token": token.strip() or None, "by": h.actor(sess)}
+        body = {"url": url.strip(), "token": token.strip() or None}
         try:
-            s28.call(bk, "PUT", f"/redcap/connections/{ref}", body)
+            actor.call(h, sess, SITE, None, "PUT", f"/redcap/connections/{ref}", body)
         except (Problem, Unavailable) as exc:
             return s36_page(request, sess, err=err_of(exc))
         au.append("console.redcap_connection", actor=h.actor(sess), detail={"token_ref": ref})
@@ -684,7 +690,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not _REF.match(ref):
             raise h.problem(404, "notfound")
         try:
-            out = s28.call(bk, "POST", f"/redcap/connections/{ref}/test")
+            out = actor.call(h, sess, SITE, None, "POST", f"/redcap/connections/{ref}/test")
         except (Problem, Unavailable) as exc:
             return s36_page(request, sess, err=err_of(exc), tested=ref)
         return s36_page(request, sess, tested=ref, result=out)

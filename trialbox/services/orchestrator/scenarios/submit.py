@@ -36,7 +36,7 @@ def _nav_job(ctx: Ctx, ruleset: str, ref: str | None, pid: str) -> Any:
     if ref:
         nav = ctx.orch.db.get(ref.upper())
         if nav is None or nav.type != "NAV" or (nav.ruleset or "").upper() != ruleset:
-            raise StepFailed("received", f"bundle={ref} is not a NAV job for {ruleset} on this box.")
+            raise StepFailed("received", f"bundle= does not name a NAV job for {ruleset} on this box.")
         return nav
     # no bundle= → the latest finished NAV run of this ruleset that holds a bundle for the patient
     for nav in ctx.orch.db.find(type_="NAV", ruleset=ruleset, state="done"):  # newest first
@@ -63,16 +63,25 @@ def _check_validation(ctx: Ctx, nav: Any, ruleset: str, pid: str, live: bool) ->
     pre = entry.get("precheck") or {}
     problems = [*errors, *(pre.get("issues") or [])]
     if errors or pre.get("passed") is False:
+        # D-707: the validator's and the pre-check's sentences quote values of the patient's resources. They stay
+        # where the readers of that patient's row find them (the NAV run's validation report and its list); the
+        # job's error, which the job page, the Failed mail and the audit carry, says how many and where.
+        if not problems:  # the pre-check answered "not passed" with no sentence: nothing is listed, so say that
+            raise StepFailed(
+                "received",
+                "The bundle did not pass the NHI pre-check and will not be submitted. The pre-check gave no reason; "
+                f"its result for this patient is in {rep.filename} of NAV job {nav.job_id}.",
+            )
         raise StepFailed(
             "received",
-            "The bundle did not pass validation/pre-check and will not be submitted:\n"
-            + "\n".join(f"- {p}" for p in problems[:20]),
+            f"The bundle did not pass validation/pre-check and will not be submitted: {len(problems)} problem(s). "
+            f"They are listed for this patient in {rep.filename} of NAV job {nav.job_id}.",
         )
-    gaps = []
+    gaps = []  # for the job's error and the job's summary: without the pre-check engine's own words (D-707)
     if data.get("validator") != "hl7-validator":
         gaps.append("validated structurally only (HL7 validator not installed)")
     if pre.get("passed") is not True:
-        gaps.append("NHI pre-check did not run: " + "; ".join(pre.get("issues") or ["no result"]))
+        gaps.append(f"NHI pre-check did not run (see {rep.filename} of NAV job {nav.job_id})")
     if gaps and live:
         raise StepFailed("received", "Not submitted to NHI — " + "; ".join(gaps) + ".")
     return gaps
@@ -174,7 +183,7 @@ def run(ctx: Ctx) -> Outcome:
     try:  # the receipt is phi: the requester must be on the ruleset's list_to — checked before anything is sent
         check("phi", [norm(job.requested_by)], rs.manifest.routing, ctx.cfg.settings.internal_domains)
     except RoutingViolation as exc:
-        raise StepFailed("received", f"{job.requested_by} is not a list recipient of {ruleset}: {exc}") from exc
+        raise StepFailed("received", f"the sender is not a list recipient of {ruleset}") from exc
     if nav.state != "done":
         raise StepFailed("received", f"NAV job {nav.job_id} is {nav.state}, not done.")
     if nav.received_at.date() < ctx.today() - timedelta(days=MAX_AGE_DAYS):
