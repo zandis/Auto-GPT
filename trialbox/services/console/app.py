@@ -710,6 +710,17 @@ def create_app(
             for kind, by, at in us.take_notices(sess.user.username)
         ]
 
+    def _once(fn: Callable[[], Any]) -> Callable[[], Any]:
+        """A value the page asks for at most once (the menu and the body both read the monitor grants)."""
+        box: list[Any] = []
+
+        def get() -> Any:
+            if not box:
+                box.append(fn())
+            return box[0]
+
+        return get
+
     def page(request: Request, name: str, sess: Session | None, status: int = 200, **ctx: Any) -> HTMLResponse:
         lang = lang_of(request, sess)
 
@@ -758,7 +769,7 @@ def create_app(
             "num": _num,
             "console_js": CONSOLE_JS,
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
-            "monitoring": lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else [],
+            "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path

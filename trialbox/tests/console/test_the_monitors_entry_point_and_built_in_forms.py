@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 from tests import edc_kit as k
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
-from tests.console.test_sdv import NO, PIDS, PW, VISIT, _grant, sb  # noqa: F401 - the fixture is used by name
+from tests.console.test_sdv import NO, PIDS, PW, VISIT, _events, _grant, sb  # noqa: F401 - the fixture is used by name
 
 CONSENT = {"ic_date": "2026-11-02"}
 AE = {"ae_term": "Headache", "ae_onset": "2026-11-03", "ae_serious": "0"}
@@ -85,7 +85,7 @@ def test_the_sheet_shows_the_built_in_form_values_with_their_trail(sb: dict[str,
     assert "2026-11-04" in row and "drsato" in row  # the value as it stands and who entered it
     trail = page[page.index('data-testid="sdv-form-trail"') :]
     assert "2026-11-03" in trail and "2026-11-04" in trail  # the change, old and new
-    assert "Headache" in page
+    assert "Headache" not in page  # the review of D-772: free text (the AE term) is not shown
     assert "2026-10-30" not in page  # another subject's value
     assert k.PID not in page
 
@@ -118,3 +118,73 @@ def test_a_study_without_the_built_in_forms_shows_the_sheet_as_before(sb: dict[s
     mon, _ = login(sb["app"], "mon1", PW)
     page = mon.get(f"/studies/GZQO/monitor/{NO}")
     assert page.status_code == 200 and 'data-testid="sdv-forms-none"' in page.text
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+def _api(sb: dict[str, Any]) -> TestClient:  # noqa: F811
+    api = TestClient(sb["app"])
+    tok = api.post("/api/v1/session", json={"username": "mon1", "password": PW}).json()["token"]
+    api.headers["Authorization"] = f"Bearer {tok}"
+    return api
+
+
+def test_free_text_is_never_on_the_sheet(sb: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-772 (2): a note can carry a chart number; the sheet shows coded values, dates and numbers."""
+    _builtin(sb)
+    r = sb["oc"].put(f"/studies/GZQO/data/{NO}", json={"event": "", "values": {"sl_note": "chart 00123456 seen"},
+                                                       "by": "crc"})  # fmt: skip
+    assert r.status_code == 200, r.text
+    _grant(sb)
+    mon, _ = login(sb["app"], "mon1", PW)
+    page = mon.get(f"/studies/GZQO/monitor/{NO}").text
+    assert "00123456" not in page and 'data-testid="sdv-form-ic_date"' in page
+    body = _api(sb).get(f"/api/v1/studies/GZQO/monitor/{NO}").json()
+    assert "00123456" not in json.dumps(body) and "Headache" not in json.dumps(body)
+    assert all("source" not in x for x in body["form_trail"])
+
+
+def test_a_subject_keyed_by_the_pseudonym_is_never_listed_or_opened(sb: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-772 (1): the data core takes a pseudonym as a record key; such a subject (here opted out too)
+    is not on the monitor's list, its sheet is 404 and audited, and its record is never read by the pseudonym."""
+    _builtin(sb)
+    pid = "ab" * 16
+    for form, vals in (("tb_consent", {"ic_date": "2026-11-02", "ic_version": "1", "ic_copy": "1", "ic_by": "CM",
+                                       "ic_order": "1"}),
+                       ("tb_enrolment", {"en_date": "2026-11-03", "en_eligible": "1"})):  # fmt: skip
+        r = sb["oc"].post(f"/studies/GZQO/entry/{pid}", json={"form": form, "event": "", "values": vals, "by": "crc"})
+        assert r.status_code == 200, r.text
+    assert sb["oc"].get(f"/studies/GZQO/subjects/{pid}").json()["subject"]["state"] == "enrolled"
+    sb["app"].state.helpers.optout.add(pid, "paper", "", "stw", "2026-11-03T00:00:00+00:00")
+    _grant(sb)
+    mon, _ = login(sb["app"], "mon1", PW)
+    assert pid not in mon.get("/studies/GZQO/monitor").text
+    for p in (f"/studies/GZQO/monitor/{pid}", f"/studies/GZQO/monitor/{pid.upper()}"):
+        assert mon.get(p).status_code == 404, p
+    assert _api(sb).get(f"/api/v1/studies/GZQO/monitor/{pid}").status_code == 404
+    assert not [e for e in _events(sb, "console.monitor_view") if e["detail"]["record"].lower() == pid]
+    assert {e["detail"].get("why") for e in _events(sb, "console.denied")} >= {"pseudonym_key"}
+
+
+def test_a_monitor_reads_no_record_outside_the_sheet(sb: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-772: the data core's record read now takes the monitor's row; the console's other record pages
+    and their twins stay closed to a CRO account under a grant."""
+    _builtin(sb)
+    _grant(sb)
+    api = _api(sb)
+    other = sb["nos"][PIDS["fail"]]
+    for rec in (NO, other, k.PID):
+        assert api.get(f"/api/v1/studies/GZQO/records/{rec}").status_code == 403, rec
+    mon, _ = login(sb["app"], "mon1", PW)
+    for p in (f"/studies/GZQO/history?record={NO}", f"/studies/GZQO/entry?record={NO}&form=tb_consent"):
+        r = mon.get(p, follow_redirects=False)
+        assert r.status_code == 403 and "2026-11-02" not in r.text, p
+
+
+def test_the_built_in_forms_on_the_sheet_in_the_other_languages(sb: dict[str, Any]) -> None:  # noqa: F811
+    _builtin(sb)
+    _grant(sb)
+    mon, csrf = login(sb["app"], "mon1", PW)
+    for lang, word in (("ja", "TrialBox のフォームの値"), ("zh-TW", "TrialBox 表單中的數值")):
+        mon.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+        page = mon.get(f"/studies/GZQO/monitor/{NO}").text
+        assert word in page and "sdv.forms" not in page and "sdv.col" not in page, lang

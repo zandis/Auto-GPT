@@ -48,6 +48,9 @@ from console.teamstore import FINDINGS_MAX, Entry, TeamError
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (record id), as on the lifecycle pages
+#: NEW-JRN-8 review (D-772): a record keyed by the pseudonym itself (the data core takes either key); never listed,
+#: never opened, never read by the monitor
+_PID = re.compile(r"^[0-9a-fA-F]{32}$")
 #: the lifecycle facts the sheet shows; the pseudonym and who changed the state are not among them
 SUBJECT_KEYS = ("record", "state", "since", "reason", "consented", "icf_version", "enrolled")
 #: what a decided CRF value shows besides its value and citation
@@ -58,6 +61,9 @@ SIG_KEYS = ("printed_name", "role", "meaning", "at", "method")
 #: record's key, not a value)
 BUILTIN_FORMS = tuple(TITLES)
 NOT_A_VALUE = (RECORD_FIELD,)
+#: the review of D-772: coded, date and number fields only; free text (a note, a reason, a name, the AE term) can
+#: carry a chart number or a narrative, which the sheet never shows (D-436)
+SHOWN_KINDS = ("choice", "multi", "date", "dateTime", "integer", "decimal")
 DECIDED = ("confirmed", "edited")
 
 
@@ -124,7 +130,8 @@ def form_values(record: Mapping[str, Any], fields: list[Mapping[str, Any]]) -> d
     to them, in the forms' order. A field of any other form (a REDCap dictionary's, the EDC's) is not shown: the
     monitor sees those as cited items only."""
     known = {str(f.get("name")): (BUILTIN_FORMS.index(str(f.get("form"))), n, f) for n, f in enumerate(fields)
-             if f.get("form") in BUILTIN_FORMS and f.get("name") not in NOT_A_VALUE}  # fmt: skip
+             if f.get("form") in BUILTIN_FORMS and f.get("name") not in NOT_A_VALUE
+             and f.get("kind") in SHOWN_KINDS and (f.get("owner") or "trialbox") == "trialbox"}  # fmt: skip
     rows = []
     for event, vals in (record.get("values") or {}).items():
         for name, v in (vals or {}).items():
@@ -138,8 +145,7 @@ def form_values(record: Mapping[str, Any], fields: list[Mapping[str, Any]]) -> d
                              "by": str(v.get("by") or ""), "at": str(v.get("at") or "")})  # fmt: skip
     rows.sort(key=lambda r: (known[r["field"]][0], r["event"], known[r["field"]][1]))
     trail = [{"at": str(x.get("at") or ""), "by": str(x.get("by") or ""), "event": str(x.get("event") or ""),
-              "field": str(x.get("field")), "old": x.get("old"), "new": x.get("new"),
-              "source": str(x.get("source") or "")}
+              "field": str(x.get("field")), "old": x.get("old"), "new": x.get("new")}
              for x in record.get("history") or [] if x.get("field") in known]  # fmt: skip
     return {"forms": rows, "form_trail": trail}
 
@@ -196,9 +202,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(503, "request.refused", reason="the EDC did not answer") from exc
 
     def pid_of(rid: str, one: Mapping[str, Any]) -> str:
+        """The subject's pseudonym, for the opt-out check; "" when the box cannot tell (the callers then refuse)."""
         pid = str(one.get("pid") or "")
         if pid:
             return pid
+        if _PID.match(str(one.get("record") or "")):
+            return str(one["record"]).lower()
         rec = str(one.get("record") or "").upper()
         return next((p for p, n in h.store.screening_nos(rid).items() if str(n).upper() == rec), "")
 
@@ -208,7 +217,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         gone = h.gone()
         out = []
         for s in reply.get("subjects") or []:
-            if monitor_may_see(s) and pid_of(rid, s) not in gone:
+            pid = pid_of(rid, s)  # the review of D-772: no pseudonym key, no patient the box cannot place (fail closed)
+            if monitor_may_see(s) and pid and pid not in gone and not _PID.match(str(s.get("record") or "")):
                 out.append({k: s.get(k) for k in SUBJECT_KEYS})
         return out
 
@@ -239,14 +249,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record.strip()[:64]
         if not _REC.match(rec):
             raise h.problem(404, "notfound")
+        if _PID.match(rec):  # the review of D-772: never read by a pseudonym, not even to refuse it
+            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": path[:80], "why": "pseudonym_key", "visit": visit})  # fmt: skip
+            raise h.problem(404, "notfound")
         reply = core(f"/studies/{rid}/subjects/{quote(rec)}?today={h.today().isoformat()}") or {}
         one = dict(reply.get("subject") or {})  # the data core nests the subject (D-436)
         day = {str(s.get("new")): str(s.get("on_day") or "") for s in live_steps(list(reply.get("steps") or []))}
         one.setdefault("consented", day.get("consented", ""))
         one.setdefault("enrolled", day.get("enrolled", ""))
-        if pid_of(rid, one) in h.gone():
+        pid = pid_of(rid, one)
+        why = ("pseudonym_key" if _PID.match(str(one.get("record") or ""))
+               else "unknown_patient" if not pid else "opted_out" if pid in h.gone() else "")  # fmt: skip
+        if why:  # the review of D-772: fail closed; a pseudonym-keyed record is never opened, nor read by its key
             au.append("console.denied", ruleset=rid, actor=h.actor(sess),
-                      detail={"action": path[:80], "why": "opted_out", "visit": visit})  # fmt: skip
+                      detail={"action": path[:80], "why": why, "visit": visit})  # fmt: skip
             raise h.problem(404, "notfound")
         if not monitor_may_see(one):
             raise deny(sess, path, rid, why="not_enrolled", visit=visit)

@@ -23,30 +23,53 @@ failing output: `jrn8-fail.txt`).
   (visit MV-12, until 2099-12-31)" with the link, and the menu has "Monitoring · GZQO"
   (`console.team.monitor_grants`, read through `h.stand`, the one permission function). An account without a grant,
   or with one that has ended, sees neither.
-- **The sheet shows the built-in forms.** Below the cited items, the subject's values in TrialBox's own forms
-  (consent, enrolment, visits, adverse events, deviations, withdrawal; `datacore.builtin.TITLES`), each with who
-  entered it and when, and every change to them (old and new, who, when). Read-only; the `/api/v1` twin carries them
-  as `forms` and `form_trail`. The consent facts, the deviations and the AE and SAE dates the review names are these
-  forms' values.
-- **Only the built-in forms.** A field of any other form (a REDCap dictionary's, the EDC's) is not shown here: the
-  monitor sees those as cited items only (D-436 stands). The record's key (the screening number) is not a value.
+- **The sheet shows the built-in forms.** Below the cited items, the subject's coded values, dates and numbers in
+  TrialBox's own forms (consent, enrolment, visits, adverse events, deviations, withdrawal; `datacore.builtin.TITLES`),
+  each with who entered it and when, and every change to them (old and new, who, when). Read-only; the `/api/v1`
+  twin carries them as `forms` and `form_trail`. The consent facts, the deviations' kinds and dates and the AE and SAE
+  dates, grades and seriousness the review names are among these values.
+- **Never free text.** A note, a reason, a name or the AE term can carry a chart number or a narrative, which the
+  sheet never shows (D-436): only fields of kind choice, multi, date, dateTime, integer and decimal are shown
+  (`sdv_page.SHOWN_KINDS`).
+- **Only the built-in forms, as typed in TrialBox.** A field of any other form (a REDCap dictionary's, the EDC's), or
+  a built-in field another source owns, is not shown here: the monitor sees those as cited items only (D-436 stands).
+  The record's key (the screening number) is not a value.
   Identifier fields are never held (`datacore.forms`).
 - **The data core's record read takes the monitor's row.** `GET /studies/{rs}/records/{record}` now takes
   `phi.view` or `monitor.read` (`tb_common.patient_reads`, `orchestrator.datacore_api`), as the monitor's four
   other reads do (D-389). The console signs it only inside the sheet, after the checks the sheet already makes: the
-  grant, an enrolled subject, not opted out; and it asks by screening number, never by pseudonym. Every view is
-  audited with the visit (`console.monitor_view`, now with the count of form values).
+  grant, an enrolled subject, not opted out. Every view is audited with the visit (`console.monitor_view`, now with
+  the count of form values).
+- **A subject keyed by the pseudonym is never listed or opened (fail closed).** The data core takes a pseudonym as a
+  record key too (a form typed for a pid). Such a subject is on no monitor list; its sheet is 404, audited
+  (`console.denied`, `why: pseudonym_key`), and refused before any read by that key. A subject whose pseudonym the box
+  cannot tell (so the opt-out check cannot run) is on no list and its sheet is 404 (`why: unknown_patient`).
 - The empty message for the cited items now says what it is about ("No value taken from the hospital's records has
   been confirmed in EDC prefill for this subject yet").
 
+## Adversarial review
+
+NOT SOUND on the first pass:
+1. An opted-out subject whose record is keyed by the pseudonym was listed and opened. The opt-out check never
+   matched it, and the new section would have read its record by the pseudonym. The record said "never by pseudonym",
+   which was false. (The listing and opening are D-436's; the review reproduced it.)
+2. Free-text fields (a note, a reason, the AE term) could put a chart number or a narrative on the sheet.
+3. The sheet's help text still said nothing else of the record is shown.
+
+Also taken: a built-in field another source owns is not shown; the trail does not carry its source; the monitor's
+grants are read once per page and for a study of any kind. All are fixed and held by tests, including a CRO account
+under a grant being refused the other record pages and the `/api/v1` records twin.
+
 ## Held by
 
-`tests/console/test_the_monitors_entry_point_and_built_in_forms.py`; `tests/console/test_sdv.py` unchanged and green.
+`tests/console/test_the_monitors_entry_point_and_built_in_forms.py`; `tests/console/test_sdv.py` unchanged and green;
+`tests/console/test_t102b_roles.py`'s fake data core answers the two reads the sheet now makes (no assertion moved).
 
 ## Remains
 
 The monitor still cannot open the screening log, the deviation list or the SAE register pages (403). The sheet now
-carries what the review asked from them for enrolled subjects. A study-level, read-only view of those registers for
+carries the coded values and dates the review asked from them for enrolled subjects; the AE term and other free text
+are not on it (see above). A study-level, read-only view of those registers for
 the monitor is a separate decision, because it shows non-enrolled patients.
 
 ## Dropped (D-311)

@@ -277,7 +277,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             return []
         out = []
         for r in bk.rulesets():
-            if r.kind in ("trial", "") and user.sees_study(r.id) and h.permit(user, "monitor.read", r.id).allowed:
+            if user.sees_study(r.id) and h.permit(user, "monitor.read", r.id).allowed:  # any kind: the grant decides
                 g = stand(user, r.id).monitor
                 if g is not None:
                     out.append((r.id, g.training_ref or "", g.end or ""))
