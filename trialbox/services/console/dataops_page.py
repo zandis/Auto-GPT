@@ -105,6 +105,15 @@ class DecisionRefused(ValueError):
         self.message = message or why
 
 
+@dataclass(frozen=True)
+class Decided:
+    """The steward's decision as the orchestrator answered it: the row, and ``publishing`` when the accept is
+    recorded and the night's publish still runs there (it ends as PUBLISHED, or held again)."""
+
+    row: NightRow
+    publishing: bool = False
+
+
 class OrchOps:
     """NEW-ARCH-3 (D-761): the night's data operations over the orchestrator's routes (``/dataops/...``), with the
     method names of ``datacore.dataops.DataOps`` that this page reads. The console opens no ``dataops`` store and its
@@ -166,7 +175,10 @@ class OrchOps:
         path, body = f"/dataops/batches/{int(bid)}/decide", {"decision": decision, "reason": reason}
         once = getattr(self.bk, "orch_once", None) or self.bk.orch
         try:
-            return self._batch(once.post_raw(path, body, sign("POST", path, body)).json())
+            r = once.post_raw(path, body, sign("POST", path, body))
+            got = r.json()
+            row = self._batch(got)
+            return Decided(row, bool(got.get("publishing")))
         except ServiceError as exc:
             detail = _detail(exc.detail)
             if exc.status == 409:
@@ -301,7 +313,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             next_before=nxt,
             may_decide=permit(sess.user.role, DECIDE),
             can_accept=read(ops.can_publish),  # NEW-ARCH-3: the orchestrator says whether an accept can publish
-            done=done if done in ("accept", "reject") else "",
+            done=done if done in ("accept", "reject", "publishing") else "",
             err=err if err in ERRORS else "",
         )
 
@@ -331,7 +343,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
         try:
-            decide(sess, bid, decision, reason)
+            got = decide(sess, bid, decision, reason)
         except DecisionRefused as e:
             if e.why == "not_found":
                 raise h.problem(404, "notfound") from e
@@ -340,7 +352,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         except PromoteFailed as e:  # the night stays held; its accept stays recorded unless nothing is served
             return RedirectResponse(f"/data-ops?err={'promote' if e.nothing_served else 'publishing'}",
                                     status_code=303)  # fmt: skip
-        return RedirectResponse(f"/data-ops?done={decision}", status_code=303)
+        done = "publishing" if got.publishing else decision
+        return RedirectResponse(f"/data-ops?done={done}", status_code=303)
 
     # ------------------------------------------------------------------ /api/v1 (the same functions)
     @app.get("/api/v1/data/sources")
@@ -398,4 +411,4 @@ def register(app: FastAPI, h: Helpers) -> None:
                 else "the end of the publish is not known; the accept is recorded: accept again to record its end"
             )
             raise h.problem(409, "request.refused", code="DATAOPS-PROMOTE", reason=why, fields="") from e
-        return {"batch": b.as_dict()}
+        return {"batch": b.row.as_dict(), "publishing": b.publishing}

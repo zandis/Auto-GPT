@@ -107,9 +107,11 @@ class _Adapter:
 def _routes(ops: Any, adapter: Any) -> TestClient:
     from fastapi import FastAPI
     from orchestrator.dataops_api import router
+    from tb_common.jobpoll import Poll
 
     app = FastAPI()
-    app.include_router(router(lambda: ops, lambda: adapter, lambda: None))
+    app.include_router(router(lambda: ops, lambda: adapter, lambda: None,
+                              Poll(interval=0.01, lost_after=5.0, sleep=lambda _s: None)))  # fmt: skip
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -145,6 +147,51 @@ def test_a_publish_that_did_not_end_done_answers_its_marks(monkeypatch: pytest.M
     r = client.post(PATH, json=DECIDE, headers=steward)
     assert r.status_code == 502
     assert r.json()["detail"] == {"why": "promote", "nothing_served": served, "not_started": started}
+
+
+def test_an_accept_whose_publish_runs_is_answered_publishing_and_ends_published(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The decision's answer does not wait for the publish (never timed, D-472): once the accept is recorded and
+    the adapter's publish runs, 202 and ``publishing``; the publish is followed to its end at the orchestrator."""
+    import threading
+
+    monkeypatch.setenv("TB_ENV", "TEST")
+    release = threading.Event()
+    ended: list[str] = []
+
+    class Slow(_Adapter):
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            self.calls.append(body)
+            return {"run": RUN, "state": "running"}
+
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            release.wait()
+            ended.append(rid)
+            return {"run": rid, "state": "done"}
+
+    ops = _Ops()
+
+    class Store(_Ops):
+        def batch(self, bid: int) -> Any:
+            from datacore.dataops import Batch
+
+            return Batch(bid, "csv", "2026-10-02", 1, "HELD", 1, "", "", "", {"step": "accept:publishing"})
+
+        def decide(self, *a: Any, **k: Any) -> Any:
+            return ops.decide(*a, **k)
+
+    client = _routes(Store(), Slow())
+    steward = signed("dataops.decide", "", "POST", PATH, DECIDE, sub="console:stew", role="steward")
+    r = client.post(PATH, json=DECIDE, headers=steward)
+    assert r.status_code == 202 and r.json()["publishing"] is True and r.json()["detail"]["step"] == "accept:publishing"
+    assert ended == []  # answered before the publish ended
+    release.set()
+    for _ in range(500):
+        if ended:
+            break
+        threading.Event().wait(0.01)
+    assert ended == [RUN] and ops.calls[0]["by"] == "console:stew"
 
 
 def test_a_refusal_of_the_store_and_a_box_that_cannot_publish(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,7 +254,7 @@ def test_the_console_signs_the_decision_as_the_steward_and_posts_it_once() -> No
     def ops(answer: Answer) -> OrchOps:
         return OrchOps(type("Bk", (), {"orch": NeverUsed(), "orch_once": Once(answer)})())
 
-    assert ops(Answer(200)).decide(7, "accept", "checked", sign).state == "PUBLISHED"
+    assert ops(Answer(200)).decide(7, "accept", "checked", sign).row.state == "PUBLISHED"
     path, body, headers = seen[0]
     claim = actor_v3.verify(headers[actor_v3.HEADER])
     assert path == PATH and body == DECIDE and claim.sub == "console:stew" and claim.body == actor_v3.body_hash(DECIDE)

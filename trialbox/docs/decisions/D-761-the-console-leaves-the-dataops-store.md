@@ -38,8 +38,10 @@ verified at the callee) could not be finished. The data operations page opened `
 
 - Slices 2 and 3 (the OMOP conflicts, the set-up store's switches), and the other schemas the review lists for the
   console's role (`datacore, omop, sitesetup, orch, recall, study, mpi, pidmap`), are later slices of this card.
-- The decision still runs in the request that asks it, as it did in the console (the publish is followed to its end,
-  never timed, D-472).
+- The decision's answer does not wait for a publish that runs: once the accept is recorded and the adapter's publish
+  runs, the route answers 202 (`publishing`) and follows the publish to its end on a thread of its own (never timed,
+  D-472); the page says the night is being published and shows PUBLISHED, or held again, when it ends. A refusal, a
+  reject and a publish that ended at once are answered as before.
 
 ## Review
 

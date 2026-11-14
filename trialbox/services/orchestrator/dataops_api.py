@@ -43,7 +43,7 @@ class PublishFailed(RuntimeError):
     not_started = False
 
 
-def promoter(adapter: Any, poll: Any = None) -> Callable[[Any], None]:
+def promoter(adapter: Any, poll: Any = None, on_running: Callable[[], None] | None = None) -> Callable[[Any], None]:
     """T-723 (D-489), here since NEW-ARCH-3: start the adapter's publish of the held night and follow it to its end
     (a polled job, never timed: D-472). Anything but ``done`` raises and the night stays held; a publish that ended
     without serving the night says ``nothing_served``, a refusal before any start ``not_started``. Posted once."""
@@ -69,6 +69,8 @@ def promoter(adapter: Any, poll: Any = None) -> Callable[[Any], None]:
                 raise
             return state
 
+        if started.get("state") == "running" and on_running is not None:
+            on_running()  # the publish runs: the caller may answer now, and this follows it to its end
         st = started if started.get("state") != "running" else (poll or Poll()).until_done(read, "publish")
         if st.get("state") != "done":
             err = PublishFailed(f"the publish ended {st.get('state')}")
@@ -140,31 +142,63 @@ def router(ops: Callable[[], Any], adapter: Callable[[], Any], audit: Callable[[
         return out
 
     @r.post("/dataops/batches/{bid}/decide")
-    def decide(bid: int, body: DecideBody, claim: Claim = AS_DECIDER) -> dict[str, Any]:
-        """The steward's accept or reject of a held night, with a reason, under the verified person. Accept runs the
-        publish (``promoter``); a refusal of the store answers 409 with its ``why`` (``decision``, ``reason``,
-        ``not_found``, ``not_held``, ``publishing``), a publish that did not end "done" 502 with its marks."""
+    def decide(bid: int, body: DecideBody, claim: Claim = AS_DECIDER) -> Any:
+        """The steward's accept or reject of a held night, with a reason, under the verified person. A refusal of
+        the store answers 409 with its ``why`` (``decision``, ``reason``, ``not_found``, ``not_held``,
+        ``publishing``). An accept runs the publish (``promoter``) on a thread of its own: once the accept is
+        recorded and the publish has begun, the answer is 202 with ``publishing`` and the row (the publish is
+        followed to its end here, never timed: D-472; the row says PUBLISHED, or held again, when it ends). A
+        publish that ended before the answer, not "done", answers 502 with its marks."""
+        import threading
+
+        from fastapi.responses import JSONResponse
+
+        cond = threading.Condition()
+        got: dict[str, Any] = {}
+
+        def running() -> None:  # the accept is recorded and the adapter's publish runs
+            with cond:
+                got["started"] = True
+                cond.notify_all()
+
         a = adapter()
-        hook = promoter(a, poll) if a is not None else None
+        hook = promoter(a, poll, running) if a is not None else None
         if body.decision == "accept" and hook is None:
             raise HTTPException(status_code=409, detail={"why": "promote"})
         at = datetime.now(ZoneInfo(site_tz())).isoformat(timespec="seconds")
         s = store()
-        try:
-            done = rows(lambda: s.decide(audit(), bid, body.decision, by=claim.sub, at=at, reason=body.reason,
-                                         promote=hook))  # fmt: skip
-        except DataOpsError as exc:
+
+        def run() -> None:
+            try:
+                got["done"] = s.decide(audit(), bid, body.decision, by=claim.sub, at=at, reason=body.reason,
+                                       promote=hook)  # fmt: skip
+            except BaseException as exc:
+                got["error"] = exc
+                if got.get("started"):
+                    log.warning("publish of batch %s ended without done (%s)", bid, type(exc).__name__)
+            finally:
+                with cond:
+                    got["finished"] = True
+                    cond.notify_all()
+
+        threading.Thread(target=run, name=f"dataops-decide-{bid}", daemon=True).start()
+        with cond:
+            cond.wait_for(lambda: got.get("finished") or got.get("started"))
+        if not got.get("finished"):
+            row = rows(lambda: store().batch(bid))
+            return JSONResponse({"publishing": True, **(row.as_dict() if row is not None else {"id": bid})},
+                                status_code=202)  # fmt: skip
+        exc = got.get("error")
+        if exc is None:
+            out: dict[str, Any] = got["done"].as_dict()
+            return out
+        if isinstance(exc, DataOpsError):
             raise HTTPException(status_code=409, detail={"why": exc.why, "message": exc.message}) from exc
-        except PublishFailed as exc:
-            raise HTTPException(status_code=502, detail={"why": "promote", "nothing_served": exc.nothing_served,
-                                                         "not_started": exc.not_started}) from exc  # fmt: skip
-        except HTTPException:
-            raise
-        except Exception as exc:  # the publish's end is not known (its job was lost): the accept stays recorded
-            log.warning("publish of batch %s ended unknown (%s)", bid, type(exc).__name__)
-            raise HTTPException(status_code=502, detail={"why": "promote", "nothing_served": False,
-                                                         "not_started": False}) from exc  # fmt: skip
-        out: dict[str, Any] = done.as_dict()
-        return out
+        if isinstance(exc, DatabaseError):
+            raise HTTPException(status_code=503, detail={"why": "store"}) from exc
+        marks = {"nothing_served": bool(getattr(exc, "nothing_served", False)),
+                 "not_started": bool(getattr(exc, "not_started", False))}  # fmt: skip
+        log.warning("publish of batch %s did not end done (%s)", bid, type(exc).__name__)
+        raise HTTPException(status_code=502, detail={"why": "promote", **marks}) from exc
 
     return r

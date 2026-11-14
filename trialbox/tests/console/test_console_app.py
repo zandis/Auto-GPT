@@ -450,6 +450,9 @@ def box(tmp_path: Path) -> dict[str, Any]:
         return cast(datetime, app.state.helpers.clock())
 
     backend.clock = console_clock  # one clock for the console and its stand-in orchestrator (a grant's 60 minutes)
+    from tests.console.dataops_orch import attach  # NEW-ARCH-3 (D-761): the data operations over the routes
+
+    attach(backend, audit)
     return {"app": app, "backend": backend, "audit": audit, "users": users, "dir": tmp_path}
 
 
