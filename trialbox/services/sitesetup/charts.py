@@ -181,33 +181,37 @@ class _Llm(Protocol):
 # Deep review 2026-11-13 (screening, SCR-04), D-657: a negated mention ("悪性腫瘍なし", "No history of
 # hypertension", "否認高血壓") is never the patient's proposed diagnosis, whatever the model proposed. The negation is
 # bound to the fact's own term inside its own clause: a clause boundary stops it, so "糖尿病なし、高血圧あり" keeps
-# 高血圧, and a word that only looks negative ("非小細胞肺癌", "無症候性") is not a cue unless it stands right before
-# the term. Schema fields for negation, subject and certainty need a prompt qualified on the model pair (D-359).
-_CLAUSE = re.compile(r"[。．、，,;；\n]|\bbut\b|しかし|ただし|但し", re.I)
-_NO = r"(?:なし|無し|ない|認めず|認めない|否定|陰性|\(\s*[-−－]\s*\)|（\s*[-−－]\s*）)"
-_NEG_AFTER = re.compile(
-    rf"^[\s:：はがも]*(?:の?(?:既往歴|既往|病歴)[はも]?)?[\s:：]*{_NO}"
-    r"|^\s*(?:(?:was|is|has\s+been)\s+)?(?:ruled\s+out|excluded|negative)\b",
-    re.I,
+# 高血圧. A cue after the term must end its clause ("高血圧なし→あり", "痛風否定できず", "陰性化", "ないし" are no
+# negation); a cue before it must stand right before the term or before a list joined by "or" / 及 / 或 ("no
+# hypertension or diabetes"), so "非小細胞肺癌", "無症候性" and "no chest pain and gout" keep the fact. When the
+# quote does not hold the term nothing binds a negation to it: the fact stays proposed and a person reads the quote.
+# Schema fields for negation, subject and certainty need a prompt qualified on the model pair (D-359).
+_CLAUSE = re.compile(r"[。．、，,;；\n]|(?<=\S)\.(?=\s|$)|\bbut\b|しかし|ただし|但し", re.I)
+_AFTER_JA = (
+    r"[\s:：はがもを]*(?:特に)?(?:の?(?:既往歴|既往|病歴)[はがも]?)?[\s:：]*"
+    r"(?:[(（]\s*(?:なし|無し|[-−－ｰー—–])\s*[)）]|なし|無し|無い|無|ない|なかった|ありません|ではない|でない|"
+    r"認めず|認めない|認められない|認められず|否定的?|陰性)"
 )
-_NEG_BEFORE = re.compile(
-    r"(?:\bno\b(?:\s+(?:history|evidence|signs?)\s+of)?|\bdenie[sd]\b|\bnegative\s+for\b|\bwithout\b|"
-    r"\bruled\s+out\b|否認|未見|沒有|没有|無)\s*$",
-    re.I,
+_AFTER_EN = r"\s*[-:]?\s*(?:(?:was|is|has\s+been)\s+)?(?:ruled\s+out|excluded|negative|absent|none|no)"
+_NEG_AFTER = re.compile(rf"^(?:{_AFTER_JA}|{_AFTER_EN})\s*(?:です|でした)?\s*[)）]?\s*$", re.I)
+_CUE_EN = (
+    r"\b(?:no(?:\s+known)?(?:\s+(?:history|evidence|signs?)\s+of)?|not|never(?:\s+had)?|denie[sd]|"
+    r"negative\s+for|without|free\s+of|ruled\s+out)"
 )
-_WHOLE_NEG = re.compile(rf"{_NO}\s*$|^\s*(?:no|denies|denied|negative\s+for|否認|未見|沒有|没有|無)\b", re.I)
+_CUE_ZH = r"(?:否認|否认|未見|未见|沒有|没有|無|无)"
+_NEG_BEFORE = re.compile(rf"(?:{_CUE_EN}[\s-]*(?:[^;]*?\s(?:or|nor)\s+)?|{_CUE_ZH}\s*(?:[^;]*?(?:及|或))?)$", re.I)
 
 
 def _negated(term: str, quote: str) -> bool:
     """Is every mention of ``term`` in ``quote`` negated in its own clause? A term the quote does not hold (the
-    model's own wording) is judged on the whole quote: one clause that is negated as a whole."""
+    model's own wording or language) binds nothing: not negated, the fact stays for a person."""
     text = messy.half_width(quote)
     clauses = [c for c in _CLAUSE.split(text) if c.strip()]
     t = messy.half_width(term).strip().lower()
     hits = [(c, m.start()) for c in clauses for m in re.finditer(re.escape(t), c.lower())] if t else []
-    if not hits:
-        return len(clauses) == 1 and bool(_WHOLE_NEG.search(clauses[0].strip()))
-    return all(bool(_NEG_BEFORE.search(c[:at])) or bool(_NEG_AFTER.search(c[at + len(t) :])) for c, at in hits)
+    return bool(hits) and all(
+        bool(_NEG_BEFORE.search(c[:at])) or bool(_NEG_AFTER.search(c[at + len(t) :])) for c, at in hits
+    )
 
 
 def normalise(raw: dict[str, Any]) -> dict[str, str] | None:

@@ -30,7 +30,28 @@ NEGATED = [
     ("hypertension", "No history of hypertension"),
     ("gout", "Patient denies gout."),
     ("malignancy", "negative for malignancy"),
-    ("cancer", "Cancer ruled out last year"),
+    ("cancer", "Cancer ruled out."),
+    ("糖尿病", "糖尿病（なし）"),
+    ("悪性腫瘍", "悪性腫瘍は特になし"),
+    ("高血圧", "高血圧ではない"),
+    ("高血圧", "高血圧はありません"),
+    ("高血圧", "高血圧を認めない"),
+    ("高血圧", "高血圧は認められない"),
+    ("高血圧", "高血圧は無い"),
+    ("高血圧", "高血圧はなかった"),
+    ("悪性腫瘍", "悪性腫瘍無"),
+    ("悪性腫瘍", "悪性腫瘍の既往無"),
+    ("diabetes", "diabetes - no"),
+    ("痛風", "痛風(ｰ)"),
+    ("malignancy", "no known malignancy"),
+    ("diabetes", "no hypertension or diabetes"),
+    ("diabetes", "denies hypertension or diabetes"),
+    ("糖尿病", "否認高血壓及糖尿病"),
+    ("diabetes", "no-diabetes"),
+    ("gout", "not gout"),
+    ("gout", "Gout absent"),
+    ("gout", "free of gout"),
+    ("gout", "never had gout"),
     ("hypertension", "no hypertension, no diabetes"),
     ("高血壓", "否認高血壓"),
     ("糖尿病", "無糖尿病"),
@@ -49,6 +70,18 @@ KEPT = [
     ("痛風", "痛風発作あり。腎結石なし"),
     ("gout", "Gout flare in March"),
     ("breast cancer", "breast cancer, no recurrence"),
+    # the review's missed exclusions: a cue that does not end its clause, or a word that only starts like one
+    ("高血圧", "高血圧ないし糖尿病"),
+    ("高血圧", "高血圧 ない時もある"),
+    ("糖尿病", "糖尿病がないとは言えない"),
+    ("高血圧", "高血圧なし→あり"),
+    ("痛風", "痛風(-)→(+)"),
+    ("痛風", "痛風否定できず"),
+    ("痛風", "痛風は否定できない"),
+    ("痛風", "痛風なしではない"),
+    ("diabetes", "diabetes negative urine glucose"),
+    ("肝炎", "C型肝炎 陰性化 (SVR)"),
+    ("gout", "no chest pain and gout"),
 ]
 
 
@@ -63,8 +96,18 @@ def test_the_patients_own_mention_stands(term: str, quote: str) -> None:
     assert got is not None and got["domain"] == "condition" and got["status"] == "proposed"
 
 
-def test_a_term_the_quote_does_not_hold_is_judged_on_the_whole_quote() -> None:
-    """The model's term may be its own wording ("malignant neoplasm" for 悪性腫瘍): then the quote as a whole decides,
-    and a quote that is one negated clause is no fact."""
-    assert normalise(_cond("malignant neoplasm", "悪性腫瘍なし")) is None
-    assert normalise(_cond("malignant neoplasm", "悪性腫瘍（2018年）")) is not None
+@pytest.mark.parametrize(
+    ("term", "quote"),
+    [
+        ("malignant neoplasm", "悪性腫瘍なし"),
+        ("breast cancer", "乳癌術後 再発なし"),
+        ("diabetes", "糖尿病あり 高血圧なし"),
+        ("2型糖尿病", "Type 2 DM on metformin. HTN: none. Cancer: なし"),
+        ("痛風", "Gout confirmed. Malignancy (-)"),
+    ],
+)
+def test_a_term_the_quote_does_not_hold_is_kept_for_a_person(term: str, quote: str) -> None:
+    """The model's term may be its own wording or language. Without the term in the quote nothing binds a negation to
+    the fact, so the fact stays proposed and a person reads the quote (review of D-657: dropping it lost real
+    diagnoses)."""
+    assert normalise(_cond(term, quote)) is not None
