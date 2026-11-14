@@ -27,6 +27,7 @@ from datetime import date
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from datacore.lifecycle import ON_STUDY
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
@@ -148,6 +149,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
         rec = record_key(record)
+        if to in ON_STUDY and store.study_state(rid).state == "closed":  # NEW-LIFE-6 (D-763)
+            raise Problem(409, "LIFE-STEP", "the study is closed", [], detail={"why": "closed", "to": to})
         if not _REC.match(rec) or (on_day and not _DAY.match(on_day)):
             raise Problem(400, "LIFE-STEP", "bad record or day", ["day"], detail={"why": "day"})
         body = {"to": to, "on_day": on_day, "reason": reason, "note": note[:300], "today": today().isoformat()}
@@ -173,6 +176,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
         rec = record_key(record)
+        if store.study_state(rid).state == "closed":  # NEW-LIFE-6 (D-763): an undo could put a subject back on study
+            raise Problem(409, "LIFE-STEP", "the study is closed", [], detail={"why": "closed"})
         out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/subjects/{quote(rec)}/undo", {}))
         au.append("console.life_step", ruleset=rid, actor=h.actor(sess), detail={"record": rec, "to": "undo"})
         return out

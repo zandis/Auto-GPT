@@ -19,10 +19,12 @@ recruitment" state in the words of the page. **Confirmed by a test** before the 
 ## The decision
 
 - **`closed` is refused while the study is not empty.** A subject consented, enrolled or on study
-  (`datacore.lifecycle.ON_STUDY`), or an SAE report still to send (`saerecord.OPEN`, through `Helpers.sae_open`),
+  (`datacore.lifecycle.ON_STUDY`), or a serious AE not done with (through `Helpers.sae_open`: every report still to
+  send, `saerecord.OPEN`; every serious AE with no reporting clock, which has no report row; every serious AE the
+  investigator has not acknowledged),
   keeps the study in its state: 409, and the page names the two counts and says to choose "Closed to recruitment /
-  paused" to stop recruiting. A study store or SAE register that cannot be read refuses too (`sstate.close_unknown`):
-  never closed by default. A box without the study store has no subjects nor register to count (as D-415's check).
+  paused" to stop recruiting. A study store or SAE register that cannot be read, whatever the failure, refuses too
+  (`sstate.close_unknown`, audited `close_unread`): never closed by default. A box without the study store has no subjects nor register to count (as D-415's check).
 - **"Paused" reads "Closed to recruitment / paused"** in the three languages (募集終了／一時停止, 停止收案／暫停).
   The state and its effect are unchanged: no new lists nor list mails; visits and SAEs of enrolled participants are
   still mailed.
@@ -31,6 +33,22 @@ recruitment" state in the words of the page. **Confirmed by a test** before the 
   store's lock (`set_study_state(..., take_back=True)`); the step is kept in the state history and audited
   (`console.study_state` with `take_back: true`) in the same transaction. Nobody else may, and not on a later day
   (409). "Closed" stays final after that day: a study that recruits again is a new study set-up (D-386).
+
+- **After the close, nobody goes back on study through the console, and anyone who does is still mailed.** The
+  console refuses a step into consented, enrolled or on study, and any undo, in a closed study (`life.why.closed`).
+  The orchestrator does not know the console's study state, and a REDCap read-back derives steps of its own; so a
+  closed study stays in the mail round's care states (`notify.CARE_STATES`): it gives no list, but a participant on
+  study after the close is mailed their visits and serious AEs. With the close check, a closed study normally has
+  nobody to mail.
+
+## The review
+
+One adversarial review: NOT SOUND on the first pass. A closed study could gain subjects on study after the close
+(undo, a step, the read-back) and then mailed nothing; serious AEs with no clock counted as zero; a failure inside
+the register came back as a 500; the closed state's text still said "final"; the tests stubbed the SAE count. All
+fixed as above and held by tests: the undo and the step refused after the close, a register failure refused with its
+reason, the count over the real register (an unacknowledged serious AE with no rule set), a sub-investigator refused
+the take-back, the take-back's audit event, and the closed study's care mail (`test_study_state_d386.py`).
 
 ## Reuse check
 

@@ -28,11 +28,13 @@ from urllib.parse import quote
 
 from datacore import lifecycle as lc
 from fastapi import FastAPI, Form, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, ConfigDict, Field
 from tb_common.authz import permit
 
 from console import actor, s28
 from console import studies as st
+from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
@@ -125,6 +127,13 @@ def _permit(h: Helpers, user: User, rid: str, action: str) -> bool:
 def may_change_state(h: Helpers, user: User, rid: str) -> bool:
     """D-386: may this account change the study's state and identifiers?"""
     return _permit(h, user, rid, "study.state")
+
+
+class TakeBack(BaseModel):
+    """The body of ``POST /api/v1/studies/{rs}/state/take-back`` (D-763)."""
+
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="", max_length=200)
 
 
 def may_take_back(h: Helpers, user: User, rid: str) -> bool:
@@ -538,7 +547,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             subs = (s28.call(bk, "GET", f"/studies/{rid}/subjects") or {}).get("subjects") or []
             sae = h.sae_open(rid) if h.sae_open is not None else 0
-        except (Problem, Unavailable):
+        except Exception as exc:  # the review of D-763: whatever failed, the close is refused with the plain reason
+            au.append("console.study_state", ruleset=rid, actor="console:close-check",
+                      detail={"action": "close_unread", "error": type(exc).__name__})  # fmt: skip
             return "sstate.close_unknown", {}
         on = sum(1 for s in subs if isinstance(s, dict) and s.get("state") in lc.ON_STUDY)
         if on or sae:
@@ -612,15 +623,23 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
+        status, err = apply_take_back(sess, rid, request.url.path, reason)
+        if err:
+            return state_page(request, sess, rid, status=status, err=err)
+        return RedirectResponse(f"/studies/{rid}/state?saved=state", status_code=303)
+
+    def apply_take_back(sess: Session, rid: str, path: str, reason: str) -> tuple[int, str]:
+        """The take-back of the page and of ``/api/v1`` (D-763): (200, "") when done, else the status and why. A
+        caller who is not the study's PI is 403 (audited ``console.denied``)."""
         if not may_take_back(h, sess.user, rid):
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         why = " ".join(reason.split())[:200]
         if not why:
-            return state_page(request, sess, rid, status=400, err="sstate.need_reason")
+            return 400, "sstate.need_reason"
         cur = store.study_state(rid)
         if not take_back_open(cur):
-            return state_page(request, sess, rid, status=409, err="sstate.take_back_late")
+            return 409, "sstate.take_back_late"
 
         def audit(new: StudyState) -> None:
             au.append("console.study_state", ruleset=rid, actor=h.actor(sess),
@@ -630,8 +649,27 @@ def register(app: FastAPI, h: Helpers) -> None:
             store.set_study_state(rid, str(cur.prev), why, h.actor(sess), h.clock().isoformat(), before_commit=audit,
                                   take_back=True)  # fmt: skip
         except ValueError:  # another person changed it first
-            return state_page(request, sess, rid, status=409, err="sstate.take_back_late")
-        return RedirectResponse(f"/studies/{rid}/state?saved=state", status_code=303)
+            return 409, "sstate.take_back_late"
+        return 200, ""
+
+    def first_take_back(sess: Session, request: Request) -> None:
+        """T-657 (D-444): the take-back's permit check, before the body is read (console.api_first)."""
+        rid = study_or_404(sess, request.path_params["rs"])
+        if not may_take_back(h, sess.user, rid):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
+    @app.post("/api/v1/studies/{rs}/state/take-back", response_model=None)
+    @before_body(first_take_back)
+    def api_take_back(request: Request, rs: str, body: TakeBack) -> Any:
+        """The page's twin (FIT-019, D-763): ``{"reason": ...}``; answers the study's state now."""
+        assert h.api_session is not None  # set by register() before any request
+        sess = h.api_session(request)
+        rid = study_or_404(sess, rs)
+        status, err = apply_take_back(sess, rid, request.url.path, body.reason)
+        if err:
+            return JSONResponse({"error": "request.refused", "detail": {"code": err}}, status_code=status)
+        return {"study": rid, "state": store.study_state(rid).state}
 
     @app.post("/studies/{rs}/identity")
     async def save_identity(request: Request, rs: str) -> Response:
