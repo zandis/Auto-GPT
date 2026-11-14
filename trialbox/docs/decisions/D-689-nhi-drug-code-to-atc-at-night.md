@@ -26,9 +26,13 @@ inclusion became unknown. The CGRD research database states no ATC column in any
    accepts `wider`, which is what the list says of every row: the product belongs to that ATC class. A load refuses
    any other word (`inexact`, `relatedto`: a candidate, never the code). Two answers, no entry, or a value that is
    not ATC-shaped (the parser drops it): no ATC, and the row is counted (`map:nhi_drug_list->atc`).
-3. **The level is the list's.** A level-4 class (`C10AA`) is kept as given: a value set at that level or above
-   reads it; a value set at level 5 does not, so such a criterion stays as it was without the map (unknown for an
-   inclusion; an exclusion does not fire). Nothing finer than the list is ever written.
+3. **Only a full (level 5) ATC code is written** (`target: atc5`). A coarser class from the list (`C10AA`, `M`) is
+   not written and the row is counted: the coverage rule reads any non-empty ATC as readable, and the value sets
+   match level-5 codes exactly, so a coarse class would turn an unknown inclusion into "no" (shown by the review).
+   One answer given twice is one answer. Nothing finer than the list is ever written.
+3a. **A mapped ATC never overrides the hospital's own.** A load refuses a mapping whose ATC map does not ask only
+   when the very column the hospital's ATC is written from is empty (a site that writes its ATC from another
+   column names that column in the element's `when`), and refuses one without `target: atc5`.
 4. **The mapped coding says it is not the hospital's** (`userSelected: false`), and the hospital's NHI coding is
    kept first. The lake reads it as the drug's ATC.
 5. **The night counts it**: the completeness report gives each table's rows that gained a mapped code (`mapped`)
@@ -54,6 +58,16 @@ inclusion became unknown. The CGRD research database states no ATC column in any
 - The first load (`adapter/backfill.py`) counts unmapped codes but not mapped ones.
 - The list gives the ATC of the newest validity period that states one; an NHI code whose class changed over time
   is read with today's class for every year.
+
+## The adversarial review (by running) and what it changed
+
+| Finding | Severity | Outcome |
+| --- | --- | --- |
+| A level 1-4 class from the list turned an unknown inclusion into "no" and an exclusion's pass into unknown (the coverage rule reads any ATC as readable; value sets match level-5 codes) | high | fixed, test first: only a full code is written, a coarser one is counted |
+| A site overlay writing its ATC from another column had the hospital's ATC overridden (the `when` named the base column) | medium | fixed, test first: a load refuses it and says what to change |
+| One answer given twice mapped nothing | low | fixed, test first |
+| A placeholder (`-`, `N/A`) in the ATC column stays as the ATC and the map is not asked | low | older than this card; owed (an ATC-shape condition on the hospital's coding) |
+| The OMOP store cannot tell a mapped ATC from a recorded one | low | known limit above |
 
 ## Evidence
 

@@ -24,7 +24,9 @@ MAP = {
     "AC00022200": [("L04AX03", "wider")],
     "AC00033300": [("L04AX03", "wider"), ("L01BA01", "wider")],  # two answers: nothing is chosen
     "AC00044400": [("M04AA01", "equivalent")],  # a relation this map never gives: not taken
-    "AC00055500": [("C10AA", "wider")],  # a level-4 class: kept, it is what the list says
+    "AC00055500": [("C10AA", "wider")],  # a level-4 class: too coarse for a level-5 value set, never written
+    "AC00066600": [("M", "wider")],  # a level-1 group
+    "AC00077700": [("C10AA05", "wider"), ("C10AA05", "wider")],  # the same answer twice: one answer
 }
 
 
@@ -66,7 +68,7 @@ def _atc_codings(res: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 @pytest.mark.parametrize(("nhi", "want"), [("AC00011100", "C10AA05"), ("AC00022200", "L04AX03"),
-                                           (" ac00022200 ", "L04AX03"), ("AC00055500", "C10AA")])  # fmt: skip
+                                           (" ac00022200 ", "L04AX03"), ("AC00077700", "C10AA05")])  # fmt: skip
 def test_a_medication_without_atc_gains_the_lists_atc_tagged_as_mapped(tmp_path: Path, nhi: str, want: str) -> None:
     mapper = _mapper(tmp_path, _map())
     res = _res(mapper, _rx(nhi))
@@ -87,8 +89,12 @@ def test_the_hospitals_own_atc_wins_and_the_map_is_not_asked(tmp_path: Path) -> 
     assert calls == [] and mapper.mapped_summary() == {}
 
 
-@pytest.mark.parametrize("nhi", ["AC00033300", "AC00044400", "AC09999900"])
-def test_two_answers_another_relation_or_no_entry_give_no_atc_and_are_counted(tmp_path: Path, nhi: str) -> None:
+@pytest.mark.parametrize("nhi", ["AC00033300", "AC00044400", "AC09999900", "AC00055500", "AC00066600"])
+def test_two_answers_another_relation_no_entry_or_a_coarse_class_give_no_atc_and_are_counted(
+    tmp_path: Path, nhi: str
+) -> None:
+    """The review: a level 1-4 class from the list made an inclusion at level 5 answer "no" (fail) where, with no
+    ATC, the coverage rule kept it unknown (any non-empty ATC is read as readable). Only a full code is written."""
     mapper = _mapper(tmp_path, _map())
     res = _res(mapper, _rx(nhi))
     assert _atc_codings(res) == [] and Flattener("Asia/Taipei").medication(res)["atc"] is None
@@ -209,3 +215,31 @@ def test_a_night_before_the_nhi_list_is_loaded_counts_its_rows_as_not_asked(
     med = json.loads((snapshot_dir(cfg.lake_dir, "2026-10-01") / COMPLETENESS).read_text(encoding="utf-8"))
     assert med["tables"]["medication"]["unmapped"] == {"map:nhi_drug_list->atc:unavailable": {"rows": 1, "codes": 1}}
     assert "mapped" not in med["tables"]["medication"]
+
+
+def test_a_site_whose_own_atc_comes_from_another_column_is_refused_until_the_mapped_element_follows_it(
+    tmp_path: Path,
+) -> None:
+    """The review: a site overlay that writes its ATC from its own column left the mapped element asking only when
+    the base `atc` column was empty, so the hospital's ATC was overridden. A load now refuses that mapping and says
+    what to change."""
+    site = tmp_path / "site.yaml"
+    site.write_text(
+        f"version: 1\nextends: {BASE}\ntables:\n  medication: {{source: medication, key: rx_no}}\noverlay:\n"
+        "  - type: MedicationRequest\n    table: medication\n    elements:\n"
+        "      medicationCodeableConcept.coding[1]: {builder: coding, column: hosp_atc, system: atc}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(MappingError, match="hosp_atc"):
+        Mapping.load(site)
+    site.write_text(site.read_text(encoding="utf-8") + (
+        "      medicationCodeableConcept.coding[2]: {builder: mapped_coding, column: nhi_drug_code, "
+        "from: nhi_drug_list, to: atc, accept: [wider], target: atc5, when: {column: hosp_atc, not_empty: false}}\n"
+    ), encoding="utf-8")  # fmt: skip
+    mapper = Mapper(Mapping.load(site), b"k" * 32, "s", concept_map=_map())
+    row = _rx("AC00011100")
+    row.pop("atc")
+    row["hosp_atc"] = "C10AA07"
+    (res,) = mapper.map_table("medication", iter([row]))
+    assert [c["code"] for c in _atc_codings(res)] == ["C10AA07"]
+    assert Flattener("Asia/Taipei").medication(res)["atc"] == "C10AA07"

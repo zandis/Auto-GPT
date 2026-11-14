@@ -485,6 +485,30 @@ class Mapping:
                         f"{path}: {r.type}.{element}: accept is a list of {', '.join(sorted(MAPPED_RELATIONS))} "
                         f"(an inexact or related entry is a candidate, never the code), not {accept!r}"
                     )
+        for r in resources:  # D-689: a mapped ATC only where the hospital's own ATC column is empty, and only in full
+            atc_cols = sorted({
+                str(sp.get("column"))
+                for sp in r.elements.values()
+                if isinstance(sp, dict) and sp.get("builder") == "coding"
+                and systems.get(str(sp.get("system"))) == ATC_SYSTEM
+            })  # fmt: skip
+            for element, spec in r.elements.items():
+                if not isinstance(spec, dict) or spec.get("builder") != "mapped_coding":
+                    continue
+                if "target" in spec and spec["target"] not in MAPPED_TARGETS:
+                    raise MappingError(f"{path}: {r.type}.{element}: target is one of {', '.join(MAPPED_TARGETS)}")
+                if systems.get(str(spec.get("to"))) != ATC_SYSTEM:
+                    continue
+                when = spec.get("when")
+                guarded = (isinstance(when, dict) and when.get("not_empty") is False and len(atc_cols) <= 1
+                           and (not atc_cols or when.get("column") == atc_cols[0]))  # fmt: skip
+                if spec.get("target") != "atc5" or not guarded:
+                    raise MappingError(
+                        f"{path}: {r.type}.{element} maps a code to ATC: it needs `target: atc5` and `when: {{column: "
+                        f"{atc_cols[0] if atc_cols else '<the ATC column>'}, not_empty: false}}`, the column the "
+                        f"hospital's own ATC is written from ({', '.join(atc_cols) or 'none'}), so that the hospital's "
+                        "ATC is never overridden"
+                    )
         return cls(
             unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
             date_columns=date_columns,
@@ -606,6 +630,10 @@ def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
 #: (``equivalent``, ``equal``) or belongs to it as to its class (``wider``: an NHI product in its ATC class). An
 #: ``inexact`` or ``relatedto`` entry is a candidate, never the code (D-592)
 MAPPED_RELATIONS = frozenset({"equivalent", "equal", "wider"})
+#: D-689: the shape a mapped code must have to be written (``target:``). ``atc5``: a full ATC code (level 5, the
+#: level of a drug value set). A coarser class from a map is not written: any ATC, however coarse, makes the row
+#: "readable" to the coverage rule, and a level-5 inclusion would then answer "no" where it was unknown
+MAPPED_TARGETS = {"atc5": re.compile(r"[A-Z]\d{2}[A-Z]{2}\d{2}")}
 
 _ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
 
@@ -1072,8 +1100,11 @@ class Mapper:
                 self._note_unmapped(rs.table, f"{name}:unavailable", fed)
                 return None
             rows = [t for t in asked if t.get("target_system") == target]
-            same = len(rows) == 1 and rows[0].get("relation") in accept and rows[0].get("target_code")
-            self._mapped[key] = str(rows[0]["target_code"]) if same else None
+            answers = {(str(t.get("target_code") or ""), t.get("relation")) for t in rows}  # one answer given twice
+            shape = MAPPED_TARGETS.get(str(args.get("target") or ""))
+            hit_code, rel = next(iter(answers)) if len(answers) == 1 else ("", None)
+            same = bool(hit_code) and rel in accept and (shape is None or shape.fullmatch(hit_code) is not None)
+            self._mapped[key] = hit_code if same else None
         hit = self._mapped[key]
         if hit is None:
             self._note_unmapped(rs.table, name, fed)  # as fed, so the count's own filter sees what it was
