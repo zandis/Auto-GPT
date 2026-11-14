@@ -83,3 +83,13 @@ reads_without_patient:
   GET /studies/{rs}/edc/map/suggest: "suggested field mappings"
   GET /registry: "per study, counts of the registry's states"
   GET /registry/{ruleset}/export.xlsx: "every chart number of a study; the handler verifies the signed person, role and studies itself (v2, D-273, S-09) and audits it"
+  # NEW-ARCH-3 (D-761): the night's data operations, read by the console's /data-ops page (D-443): a night's row
+  # (source, snapshot, attempt, state, who changed it and when; its gate detail is counts and table names) and its
+  # steps (old and new state, who, when, the reason typed); never a patient's row or identifier
+  GET /dataops/can-publish: "whether this service can publish an accepted night (a yes or no)"
+  GET /dataops/sources: "the newest night of each source: its batch row (states, counts, table names), no patient"
+  GET /dataops/held: "the held nights: their batch rows (states, counts, table names), no patient"
+  GET /dataops/counts: "how many nights in each state"
+  GET /dataops/history: "nights' batch rows, newest first (states, counts, table names), no patient"
+  GET /dataops/batches/{bid}: "one night's batch row (states, counts, table names), no patient"
+  GET /dataops/batches/{bid}/steps: "one night's steps: old and new state, who, when, the reason typed; no patient"
