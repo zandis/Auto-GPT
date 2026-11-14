@@ -37,6 +37,7 @@ more; a hit there, or a file the scan cannot read, means no bundle is written.
 from __future__ import annotations
 
 import argparse
+import errno
 import gzip
 import hashlib
 import io
@@ -412,10 +413,18 @@ def _audit_part(b: Bundle, env: Mapping[str, str]) -> None:
     from tools.trialbox import logs as tb_logs
 
     d = Path(env.get("TB_AUDIT_HOST_DIR") or tb_logs.DEFAULT_AUDIT)
-    if not d.is_dir():
+    try:
+        here = d.is_dir()
+    except OSError as exc:  # the volume's folder under /var/lib/docker, for an operator who is not root
+        why = errno.errorcode.get(exc.errno or 0, type(exc).__name__)
+        b.add("audit-verify.json", _json({"dir": str(d), "ok": None, "error": f"the audit folder could not be read "
+                                          f"({why}): run the bundle as root to verify the chain"}),
+              "tb_common.audit.verify")  # fmt: skip
+        here = None
+    if here is False:
         b.add("audit-verify.json", _json({"dir": str(d), "ok": None, "error": "the audit folder is not here"}),
               "tb_common.audit.verify")  # fmt: skip
-    else:
+    elif here:
         try:
             r = audit.verify(d)
             res: dict[str, Any] = {"dir": str(d), "ok": r.ok, "files": r.files, "lines": r.lines,

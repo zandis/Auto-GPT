@@ -57,3 +57,11 @@ the bundle is refused. The manifest's checksums are of the files as they leave.
   replacement holds the value. The refusal says which setting.
 - `TB_BACKUP_TARGETS` (a list of folders) holding a URL with a password: its userinfo is redacted where a line
   is, not by value. It holds folders on a box.
+
+## After train 15 (2026-11-14)
+
+The CI runner has Docker, so the audit volume's default folder (`/var/lib/docker/volumes/trialbox_audit-data/_data`)
+exists there and cannot be read by the runner's user. Four tests that did not set `TB_AUDIT_HOST_DIR` crashed the
+bundle with `PermissionError` in `_audit_part`, and an operator who is not root would hit the same crash on a box.
+`_audit_part` now writes `audit-verify.json` with "the audit folder could not be read (EACCES): run the bundle as
+root to verify the chain" and the bundle is written. The tests give the box its own audit folder.

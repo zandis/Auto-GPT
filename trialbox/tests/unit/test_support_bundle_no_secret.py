@@ -11,6 +11,7 @@ print it, and looks for each value in the finished archive."""
 from __future__ import annotations
 
 import gzip
+import json
 import re
 import secrets
 import tarfile
@@ -18,6 +19,7 @@ import urllib.parse
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -150,7 +152,10 @@ def _one_box(tmp_path: Path, env_lines: str, monkeypatch: pytest.MonkeyPatch) ->
         monkeypatch.delenv(k, raising=False)
     deploy = tmp_path / "deploy"
     (deploy / "secrets").mkdir(parents=True)
-    (deploy / ".env").write_text(f"TB_TZ=Asia/Taipei\nTB_LOG_DIR={tmp_path / 'logs'}\n" + env_lines, encoding="utf-8")
+    (deploy / ".env").write_text(  # the box's own folders, never the host's (a CI runner has /var/lib/docker)
+        f"TB_TZ=Asia/Taipei\nTB_LOG_DIR={tmp_path / 'logs'}\nTB_AUDIT_HOST_DIR={tmp_path / 'audit'}\n" + env_lines,
+        encoding="utf-8",
+    )
     (deploy / "settings.yaml").write_text('mrn_regex: "^\\\\d{8}$"\n', encoding="utf-8")
     return deploy
 
@@ -211,3 +216,27 @@ def test_a_secret_that_is_only_in_a_file_is_found_too(tmp_path: Path, monkeypatc
                    now=NOW, say=lambda _: None)  # fmt: skip
     text = _archive_text(out)
     assert "tok-orch-7f3a9c1e5d" not in text and "vllm-key-c0ffee11" not in text and "a public key" in text
+
+
+def test_an_audit_folder_the_operator_cannot_read_is_said_not_crashed_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Train 15: on a CI runner (and on a box, for an operator who is not root) the audit volume's folder exists under
+    /var/lib/docker and cannot be read: the bundle says so in audit-verify.json and is written."""
+    import errno
+
+    deploy = _one_box(tmp_path, "", monkeypatch)
+    audit_dir = tmp_path / "audit"
+    real_is_dir = Path.is_dir
+
+    def denied(self: Path, *a: Any, **kw: Any) -> bool:
+        if self == audit_dir:
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return real_is_dir(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "is_dir", denied)
+    out = sb.build(deploy, tmp_path / "usb", runner=_printing("nothing"), now=NOW, say=lambda _: None)
+    with tarfile.open(out, "r:gz") as tar:
+        name = next(m.name for m in tar.getmembers() if m.name.endswith("audit-verify.json"))
+        verify = json.loads(tar.extractfile(name).read())  # type: ignore[union-attr]
+    assert verify["ok"] is None and "could not be read" in verify["error"] and "EACCES" in verify["error"]
