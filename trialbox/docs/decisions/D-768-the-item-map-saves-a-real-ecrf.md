@@ -24,6 +24,14 @@ hundreds of items. **Confirmed by a test** before the change (kept failing outpu
   sentence in the three languages (`edc.err.form_too_large`: nothing saved, read the dictionary again), HTTP 413;
   never the framework's raw answer.
 
+## The review
+
+One adversarial review: SOUND. Applied: only the framework's "too many fields" answer gets the size sentence (413);
+another malformed form gets the console's page with its plain error (400); the over-limit test checks the sentence and
+that nothing was saved. Found and left for their own cards (the same framework default of 1,000 fields, and the
+app-wide handler that answers a form-parsing 400 with raw JSON): the sources page's REDCap attach (one checkbox per
+dictionary field, `data_sources.html`), the SDV list (one per subject) and a very large data-entry form.
+
 ## Reuse check
 
 The map page's own reads (`/edc/map/suggest`, `/edc`), its error partial (`_edc_err.html`), the CSRF check. No new

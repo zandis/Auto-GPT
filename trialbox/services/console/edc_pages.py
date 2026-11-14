@@ -647,8 +647,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             return map_page(request, sess, rid, err_of(exc), 409)
         try:
             form = await request.form(max_fields=(rows_known + 1) * MAP_ROW_FIELDS + MAP_FORM_FIELDS)
-        except StarletteHTTPException:
-            return map_page(request, sess, rid, {"code": "form_too_large", "fields": ""}, 413)
+        except StarletteHTTPException as exc:  # the review of D-768: only "too many fields" is the size sentence
+            too_many = "too many fields" in str(exc.detail).lower()
+            return map_page(request, sess, rid, {"code": "form_too_large" if too_many else "other", "fields": ""},
+                            413 if too_many else 400)  # fmt: skip
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
             raise h.problem(400, "csrf")
         items = [str(i) for i in form.getlist("item") if _ITEM.match(str(i))]

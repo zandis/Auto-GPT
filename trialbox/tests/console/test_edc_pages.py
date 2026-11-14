@@ -319,7 +319,8 @@ def test_a_form_past_the_dictionarys_size_gets_the_consoles_page(eb: dict[str, A
     page = crc.get("/studies/GZQO/edc/map").text
     form = {"csrf": _csrf(page), "item": [f"x{i}" for i in range(3000)]}
     r = crc.post("/studies/GZQO/edc/map", data=form)
-    assert r.status_code == 413 and "Too many fields" not in r.text and "<html" in r.text
+    assert r.status_code == 413 and "Too many fields" not in r.text and 'data-testid="edc-error"' in r.text
+    assert "dictionary allows; nothing was saved" in r.text and not eb["svc"].store.map("GZQO")
 
 
 def test_the_row_size_the_limit_counts_covers_the_templates_inputs() -> None:
