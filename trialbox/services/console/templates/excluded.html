@@ -14,6 +14,9 @@
 {% else %}
 <section class="card">
 <p data-testid="ex-run">{{ t('ex.run', day=doc.run_date, snapshot=doc.snapshot, n=total) }}</p>
+{#- D-652: what the run could not read from the lake is said, not shown as "none" -#}
+{% if doc.confirmed_facts == 'not read' %}<p class="attention" data-testid="ex-facts-unread">{{ t('ex.unread.facts') }}</p>{% endif %}
+{% if doc.coded_values == 'not read' %}<p class="attention" data-testid="ex-values-unread">{{ t('ex.unread.values') }}</p>{% endif %}
 {% if sent %}<p class="attention" data-testid="ex-sent-count">{{ t('ex.sent.title', n=sent|length) }}</p>{% endif %}
 <p class="chartlinks" data-testid="ex-filter">{{ t('ex.filter') }} <a href="/studies/{{ rs }}/not-matched"{% if not src %} aria-current="page"{% endif %}>{{ t('ex.filter.all') }}</a>{% for s in sources %}{% if counts[s] %} <a href="/studies/{{ rs }}/not-matched?src={{ s }}" data-testid="ex-src-{{ s }}"{% if src == s %} aria-current="page"{% endif %}>{{ t('ex.src.' + s) }} ({{ counts[s] }})</a>{% endif %}{% endfor %}</p>
 {% if not rows %}<p class="empty" data-testid="ex-none">{{ t('ex.none') }}</p>{% else %}

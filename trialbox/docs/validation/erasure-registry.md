@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-221 entries: 85 erase, 27 keep, 109 no patient data. 59 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+224 entries: 85 erase, 27 keep, 112 no patient data. 59 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -180,7 +180,10 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `omop.tb_term_grouper` | OMOP vocabulary and metadata |
 | `omop.tb_vocab_release` | OMOP vocabulary and metadata |
 | `omop.vocabulary` | OMOP vocabulary and metadata |
+| `orch.cohort_read` | D-648: the point in that record at which a merge read the tables (job, a number) |
+| `orch.cohort_stored` | D-648: each alliance table as it was stored (aggregate counts per quarter and criterion, the site, the sender's address, the job), kept so that a re-run reads the tables as they stood |
 | `orch.cohort_tables` | aggregate counts per quarter and criterion |
+| `orch.cohort_tables_before` | D-648: the alliance tables as the version that began the record found them (aggregate counts, as orch.cohort_tables) |
 | `orch.id_limits` | the identifier caps' use rows: staff and kind only |
 | `orch.mails` | a mail sent: message id, job, kind, subject |
 | `orch.trial_cache` | the public registry cache |

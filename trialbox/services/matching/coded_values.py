@@ -18,6 +18,7 @@ evidence what a person checks against the chart: the record's own value and unit
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping, MutableSequence
 from datetime import date
 from typing import Any, Protocol
@@ -57,6 +58,8 @@ FROM claim WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAS
 """
 CODE_SYSTEMS = (SYSTEMS["atc"], SYSTEMS["nhi_drug"], SYSTEMS["department"])
 PATIENTS = "SELECT pid, birth_date, sex FROM patient WHERE list_contains(CAST($1 AS VARCHAR[]), pid)"
+
+log = logging.getLogger("matching.coded_values")
 
 
 class _Lake(Protocol):
@@ -117,9 +120,11 @@ def attach(
     verdicts: Mapping[str, MutableSequence[CriterionVerdict]],
     run_date: date,
     snapshot: str | None,
-) -> int:
+) -> int | None:
     """Put the coded values on every coded answer of ``verdicts`` (``{pid: [CriterionVerdict]}``, changed in place).
-    Returns how many answers got one. Two lake reads for the whole run; a failing read changes nothing."""
+    Returns how many answers got one. Two lake reads for the whole run. A failing read changes nothing and returns
+    None (D-652): the answers stand with no ``coded`` on them, which claims nothing, and the caller says in its
+    output that the values were not read. Never an empty ``coded``: that says the run looked and found no record."""
     by_id = {c.id: c for c in criteria}
     want: dict[str, set[str]] = {}
     people: set[str] = set()
@@ -139,8 +144,9 @@ def attach(
                 rows.setdefault((str(r["domain"]), str(r["rid"])), _value(r))
         if people:
             pats = {str(r["pid"]): r for r in lake.query(PATIENTS, [sorted(people)], snapshot).to_pylist()}
-    except Exception:  # display only: an older snapshot without a table, a lake that is down; the answers stand
-        return 0
+    except Exception as exc:  # display only: an older snapshot without a table, a lake that is down; the answers stand
+        log.error("the coded values were not read from the lake (%s)", type(exc).__name__)
+        return None
     found: dict[str, list[CodedValue]] = {}
     for (_, rid), cv in rows.items():
         found.setdefault(rid, []).append(cv)

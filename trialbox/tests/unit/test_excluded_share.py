@@ -206,3 +206,101 @@ def test_a_screen_given_its_scope_does_not_ask_the_lake_again(monkeypatch: pytes
     assert seen == [["A"]] and asked == ["lake"]  # the scope as handed in; no second query
     screen.run_screen(ctx, GZQO, WED, "2026-10-06", select=nobody)  # type: ignore[arg-type]
     assert seen == [["A"], ["A"]] and asked == ["lake", "lake"]  # without it: asked, and the register applied
+
+
+# ------------------------------------------------------------------------------- the full-pass figure (lane C2's finding)
+class _SomeTurnExcluded(_Box):
+    """A box whose re-check finds an exclusion criterion failing for ``turn``: those pool rows are excluded as the
+    run leaves them, so they wait with the excluded patients, though nobody had counted them before the run."""
+
+    turn: tuple[str, ...] = ()
+
+    def evaluate_scope(self, ctx: Any, rs: Any, run_date: Any, snap: str, scoped: list[Any], **kw: Any) -> Any:
+        from orchestrator.scenarios.evaluate import PatientVerdicts
+        from tb_contracts import CriterionVerdict, Evidence
+
+        from tests.unit.test_microbatch_cadence import GZQO
+
+        cid = next(c.id for c in GZQO.active() if c.class_ == "structured" and c.kind == "exclusion")
+        self.evaluated.append([s.pid for s in scoped])
+        out = {}
+        for s in scoped:
+            fails = [CriterionVerdict(id=cid, verdict="fail", evidence=Evidence(resource_refs=["Condition/c1"]))]
+            out[s.pid] = PatientVerdicts(s.pid, fails if s.pid in self.turn else [], "excluded", [], 0)
+        return out
+
+
+def _turned(before: int, turn: int) -> _SomeTurnExcluded:
+    """Allowance 40 (a quarter is 10 places); ``before`` excluded patients counted at the start, ``turn`` pool
+    patients that the run's own re-check excludes."""
+    pool = [f"P{i:02d}" for i in range(20)]
+    new = [_new(f"N{i:02d}", FRI) for i in range(30)]
+    old = tuple(f"X{i}" for i in range(before))
+    box = _SomeTurnExcluded(
+        pool=pool, booked=dict.fromkeys(pool, FRI), budget=40, excluded_at_screen=old,
+        scope=[*new, *(_new(x, None) for x in old), *(_new(p, FRI) for p in pool[:turn])],
+    )  # fmt: skip
+    box.turn = tuple(pool[:turn])
+    return box
+
+
+def test_the_full_pass_figure_is_never_one_run_while_somebody_is_carried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lane C2's finding: the figure came from the nominal share (a quarter of 40 is 10) and the five in scope,
+    so it said "1 run" while three of the five were carried: two were kept places for (the two counted before the
+    run), three more became excluded by the run's own re-check."""
+    box = _turned(2, 3)
+    out = box.go(monkeypatch)
+    ev = box.budget_event()
+    assert (ev["excluded_kept"], ev["excluded_in_scope"], ev["excluded_rescreened"], ev["excluded_carried"]) == (
+        2,
+        5,
+        2,
+        3,
+    )
+    # the next run counts all five at its start and keeps five places: the pass ends in the second run
+    assert ev["excluded_full_pass_runs"] == 2
+    assert "a full pass takes 2 weekly runs" in out.summary_md
+
+
+def test_the_full_pass_figure_is_what_a_run_keeps_once_they_are_counted_not_what_tonight_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The review of the first fix: divided by tonight's kept places it said "7 runs" for seven in scope with one
+    kept, where the next run keeps seven; and at a small-cell threshold of 5 the figure 3 beside "5 in scope" gave
+    away that exactly two had been counted before the run."""
+    from tb_common import smallcell
+
+    box = _turned(1, 6)
+    out = box.go(monkeypatch)
+    ev = box.budget_event()
+    assert (ev["excluded_kept"], ev["excluded_in_scope"], ev["excluded_carried"]) == (1, 7, 6)
+    assert ev["excluded_full_pass_runs"] == 2 and "a full pass takes 2 weekly runs" in out.summary_md
+    box = _turned(2, 3)
+    monkeypatch.setattr(microbatch, "suppress", lambda n, cell: smallcell.suppress(n, 5))
+    out = box.go(monkeypatch)
+    assert "<5 of 5 in scope" in out.summary_md and "a full pass takes 2 weekly runs" in out.summary_md
+    assert "none was counted" not in out.summary_md
+
+
+def test_the_full_pass_figure_follows_from_how_the_night_went(monkeypatch: pytest.MonkeyPatch) -> None:
+    # nobody in scope: there is no pass to speak of
+    box = _box(pool=POOL, booked=dict.fromkeys(POOL, FRI), scope=[], excluded_at_screen=("X-GONE",), budget=4)
+    box.go(monkeypatch)
+    assert box.budget_event()["excluded_full_pass_runs"] is None
+    # nobody carried: the pass was made tonight, whatever the share (also a share of 0, with room left over)
+    box = _box(0, pool=["P1"], booked={}, scope=[_new("X1", None)], excluded_at_screen=("X1",), budget=4)
+    box.go(monkeypatch)
+    ev = box.budget_event()
+    assert (ev["excluded_rescreened"], ev["excluded_carried"], ev["excluded_full_pass_runs"]) == (1, 0, 1)
+    # three in scope, one place kept, and the others left room for all three: one run, as the figures beside it say
+    xs = [_new(f"X{i}", None) for i in range(3)]
+    box = _box(pool=["P1"], booked={}, scope=xs, excluded_at_screen=("X0", "X1", "X2"), budget=4)
+    box.go(monkeypatch)
+    ev = box.budget_event()
+    assert (ev["excluded_kept"], ev["excluded_rescreened"], ev["excluded_carried"]) == (1, 3, 0)
+    assert ev["excluded_full_pass_runs"] == 1
+    # somebody carried and no share kept: no run is sure to reach them
+    box = _box(0, pool=POOL, booked=dict.fromkeys(POOL, FRI), scope=xs, excluded_at_screen=("X0", "X1", "X2"), budget=4)
+    box.go(monkeypatch)
+    ev = box.budget_event()
+    assert ev["excluded_carried"] > 0 and ev["excluded_full_pass_runs"] is None

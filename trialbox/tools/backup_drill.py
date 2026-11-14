@@ -78,6 +78,13 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     t0 = time.perf_counter()
     res = e2e_simple.run(work, password, "ja")
     checks: list[tuple[str, bool, str]] = [("the box ran the whole path (e2e_simple)", bool(res["ok"]), "")]
+    if not res["ok"]:
+        # the failing checks of e2e_simple, whole, and the folder as the run left it: what follows (backup, wipe,
+        # restore) proves nothing on a run that did not finish, and the wipe would take the evidence
+        for st in res.get("stages") or []:
+            checks += [(f"e2e_simple: {st.name}: {what}", False, detail) for what, ok, detail in st.checks if not ok]
+        seconds = round(time.perf_counter() - t0, 1)
+        return {"ok": False, "checks": checks, "seconds": seconds, "kept": str(work)}
     lake = work / "lake"
     for day in ("2000-01-30", "2000-01-31"):  # older snapshots' NDJSON (synthetic) and a DuckDB spill file
         old = lake / "ndjson" / day
@@ -216,6 +223,9 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     checks.append(_extensions_check(ext_before, _extensions(), require_extensions))
     checks.append(_extensions_roundtrip(url, require_extensions))
     checks.append(roles_after_restore(base / "roles-cluster"))
+    from tools import role_paths  # D-720: and each service's real write paths, as its own role
+
+    checks.append(role_paths.check(base / "paths-cluster"))
     checks.append(_vec_check(vec_before, _vec(fill=False), require_extensions))
 
     # 5. a backup in the previous format restores
@@ -799,6 +809,8 @@ def main(argv: list[str] | None = None) -> int:
     out = run(a.dir, require_extensions=a.require_extensions)
     for name, ok, detail in out["checks"]:
         print(f"{'ok  ' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
+    if out.get("kept"):
+        print(f"the work folder is kept: {out['kept']}")
     print(f"backup drill {'PASSED' if out['ok'] else 'FAILED'} in {out['seconds']} s")
     return 0 if out["ok"] else 1
 

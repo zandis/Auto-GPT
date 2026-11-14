@@ -152,7 +152,8 @@ def test_a_failing_lake_read_changes_nothing() -> None:
             raise OSError("lake down")
 
     vs = [verdict(BMI, "pass", ["o-bmi-2"])]
-    assert cv.attach(Down(), [BMI], {"P1": vs}, RUN, None) == 0
+    # D-652: None, not 0: "not read" is not "none found"; the caller says so in its output
+    assert cv.attach(Down(), [BMI], {"P1": vs}, RUN, None) is None
     assert coded(vs[0]) is None
 
 
@@ -192,7 +193,7 @@ def test_the_cascade_answers_carry_codes_and_dates_on_a_real_lake(offlist: dict[
     results = {pid: verdicts_of(rs, t) for pid, t in res.traces.items() if t.in_scope}
     verdicts = {pid: pv.verdicts for pid, pv in results.items()}
     before = {pid: [v.verdict for v in vs] for pid, vs in verdicts.items()}
-    assert cv.attach(lake, rs.active(), verdicts, index_date(exp), None) > 0
+    assert (cv.attach(lake, rs.active(), verdicts, index_date(exp), None) or 0) > 0
     assert {pid: [v.verdict for v in vs] for pid, vs in verdicts.items()} == before
     decided = [v for vs in verdicts.values() for v in vs if v.verdict in ("pass", "fail")]
     assert decided

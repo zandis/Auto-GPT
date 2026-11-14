@@ -32,7 +32,7 @@ import httpx
 from tb_common import chartno, dates, instruments
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
-from tb_common.http import ServiceError
+from tb_common.http import ServiceError, kept_failure
 
 from sitesetup import charts, intake, mapping, messy, publish
 from sitesetup.ocr import Ocr, default_ocr
@@ -564,7 +564,8 @@ class SiteSetup:
             out = self._done(ws, str(rec["snapshot"]), str(rec["digest"]), dict(rec.get("counts") or {}), by)
             return out if rec.get("digest") == dg else None
         if state in ("refused", "failed"):
-            detail = str(st.get("detail") or state)[:300]
+            # D-700: a rebuild the lake records as "<ErrorType>: <the engine's text>" keeps its type on the page
+            detail = kept_failure(str(st.get("detail") or state))[:300]
             self._set_record(ws, {**rec, "state": "failed", "detail": detail})
             self.audit.append("setup.publish_failed", actor=by,
                               detail={"ws": ws, "snapshot": rec["snapshot"], "state": state})  # fmt: skip
@@ -630,7 +631,7 @@ def _failed(last: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, Any]:
         "unchanged": False,
         "pending": False,
         "failed": True,
-        "detail": str(rec.get("detail") or ""),
+        "detail": kept_failure(str(rec.get("detail") or "")),  # also a record kept before D-700
         "counts": last["counts"] if last else {},
     }
 

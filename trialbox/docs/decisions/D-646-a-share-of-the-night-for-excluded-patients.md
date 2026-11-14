@@ -30,7 +30,7 @@ five, at 50,000 patients, fills its allowance with re-checks, so its excluded pa
 4. **What the run says.** The summary's line reads "Earlier excluded patients screened again: N of M in scope";
    when some are carried over it adds how many weekly runs a full pass takes at the share kept. The audit event
    `microbatch.budget` gains `excluded_in_scope`, `excluded_percent`, `excluded_kept` and
-   `excluded_full_pass_runs` (null: nothing is kept, so no run is sure to reach them).
+   `excluded_full_pass_runs` (null: nobody is in scope, or nothing is kept, so no run is sure to reach them; item 8).
 5. **Where it does not apply.** The after-ingest run brings nobody back (D-642) and keeps nothing. With no night
    budget (0) everybody is reached in one run. With `incident=0` no new or excluded patient is screened, and
    nothing is kept. `0` restores D-642's order exactly.
@@ -47,6 +47,20 @@ five, at 50,000 patients, fills its allowance with re-checks, so its excluded pa
    - The sentence "a full pass takes N weekly runs" is printed only where the count of excluded patients in scope
      is itself printed (not small-cell suppressed): with the places a run keeps, N gives that count away. The
      audit holds the figure either way.
+
+8. **The full-pass figure agrees with how the night went** (lane C2's finding in the review of its run page,
+   2026-11-13, and the review of the first fix). The figure could say "1 run" while some were carried: the count
+   before the run does not hold the patients the run's own re-check excludes, so fewer places were kept than the
+   share allows. Now, in the audit and the summary:
+   - nobody in scope, or the after-ingest run: null;
+   - nobody carried: 1, the pass was made tonight (whatever the share, also 0);
+   - somebody carried: the number in scope divided by what a run keeps once all of them are counted at its start
+     (the share of the allowance, at most the number in scope), rounded up, and at least 2; null when that share
+     is no place at all (a share of 0, or under one patient: the summary says which).
+   It is not divided by the places tonight's run kept. That was the first fix, and it was wrong twice: the next
+   run counts everybody and keeps more (seven in scope with one kept read "7 runs" where the pass ends in the
+   second), and beside a printed number in scope the figure gave away how many had been counted before the run,
+   a count the small-cell rule may hide.
 
 ## What this changes on a box updated in place
 
@@ -67,6 +81,6 @@ and reaches its excluded patients instead. `TB_MICROBATCH_EXCLUDED_PERCENT=0` re
 
 ## Test
 
-`tests/unit/test_excluded_share.py` (nine tests; seven failed before the change); `test_weekly_recheck.py`,
+`tests/unit/test_excluded_share.py` (17 tests; the card began with nine, seven of which failed before the change); `test_weekly_recheck.py`,
 `test_microbatch_cadence.py`, `test_pool_version_basis.py` unchanged in what they assert (their stand-in screens
 take the new `scope` argument).

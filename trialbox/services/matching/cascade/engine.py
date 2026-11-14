@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from criteria_compiler.compile_sql.overlay import safe_sql
+from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
 from tb_common.reasons import CODES as REASON_CODES
@@ -278,12 +279,6 @@ ORDER BY p.pid
 """
 #: the consent query of S0: the registry's one rule (T-708, D-477); the name the stand-in lakes of the tests know
 CONSENT_SQL = REGISTRY_SQL
-
-
-def missing_table(exc: BaseException, table: str) -> bool:
-    """The lake (in process: DuckDB's catalog error; over HTTP: its text) says ``table`` does not exist."""
-    msg = str(exc)
-    return f"{table}" in msg and ("does not exist" in msg or "Catalog Error" in msg)
 
 
 NOTES_SQL = """
@@ -579,14 +574,11 @@ class _Run:
             return {}
         lo = min(self.traces[p].index_date for p in pids) - timedelta(days=366)
         hi = max(self.traces[p].index_date for p in pids)
-        try:
-            rows = self.lake.query(NOTES_SQL, [pids, lo.isoformat(), hi.isoformat()], self.cfg.snapshot).to_pylist()
-        except Exception as exc:
-            # a lake without a note table (MIMIC demo): every note pair is a data gap; any other failure stops the
-            # run instead of turning every note criterion into "unknown" without saying why (D-127, review F-04)
-            if not missing_table(exc, "document"):
-                raise
-            rows = []
+        # a lake without a note table (MIMIC demo): every note pair is a data gap. Whether it has none is asked of
+        # the lake, not read out of the failure's text (D-650); any other failure stops the run instead of turning
+        # every note criterion into "unknown" without saying why (D-127, review F-04)
+        params = [pids, lo.isoformat(), hi.isoformat()]
+        rows = lakeprobe.rows_or_no_table(self.lake, NOTES_SQL, params, self.cfg.snapshot, "document") or []
         out: dict[str, list[_Note]] = {}
         for r in rows:
             text = str(r["text"] or "")

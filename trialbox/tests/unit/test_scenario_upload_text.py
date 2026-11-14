@@ -121,3 +121,15 @@ def test_the_sentence_for_an_unreadable_file_is_one_plain_sentence() -> None:
     msg = exc.value.message
     assert msg.count("cannot be told") == 1 and "cp932" not in msg and "0.00" not in msg
     assert msg.startswith("chart.txt: ") and msg.endswith("Save it as UTF-8 and send it again.")
+
+
+def test_the_scenarios_make_no_second_check_of_their_own_the_decoder_refuses() -> None:
+    """The cases above pass through ``tb_common.encoding.decode_upload`` alone (lane E's fix, #481): the guard
+    this module had while the decoder read such bytes wrong is removed."""
+    from orchestrator.scenarios import upload_text as module
+    from tb_common.encoding import decode_upload
+
+    assert not hasattr(module, "_OTHERS")
+    for text, codec in (("患者は外来で経過観察中です。", "shift_jis"), ("病人今日回診，症狀穩定。", "big5")):
+        data = text.encode(codec)
+        assert module.read(data) == decode_upload(data)[0] == text

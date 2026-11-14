@@ -17,6 +17,7 @@
       {% if permit(r, 'conflicts.resolve') %}{{ item('/data/conflicts', 'conflicts.title', path.startswith('/data/conflicts')) }}{% endif %}
       {% if permit(r, 'dataops.view') %}{{ item('/data-ops', 'dataops.title', path.startswith('/data-ops')) }}{% endif %}
       {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}{# T-211c (D-451) #}
+      {% if permit(r, 'restore.release') %}{{ item('/ops/flags', 'nav.restore_hold', path.startswith('/ops/flags')) }}{% endif %}{# D-706 #}
     {% elif r == 'admin' %}
       {{ item('/home', 'nav.admin', path == '/home') }}
       {{ item('/home?view=studies', 'nav.studies', false) }}

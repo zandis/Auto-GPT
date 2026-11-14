@@ -80,9 +80,11 @@ closed). Checks:
   workstation (``TB_WIN_UPDATE_WINDOW_START`` and ``TB_WIN_UPDATE_WINDOW_HOURS``, the installer's
   ``-UpdateWindowStart`` and ``-UpdateWindowHours``) against the night's start (``data_source.nightly_at``). FAIL
   when the night starts inside the window, or when a recorded night (``tools/night_length.py``, NEW-B-20) ran
-  into it. Otherwise WARN, never PASS yet: with no recorded night it names the time between the night's start and
-  the window; with recorded nights, the least time between the end of their ingest and the window (the record
-  does not yet hold what the orchestrator does after ingest). The window is the one the Windows installer
+  into it (to the end of the orchestrator's work where that was measured, NEW-B-26). PASS when every recorded
+  night was measured to the end of the night's work and each ended before the window opens; the line gives the
+  least margin. WARN otherwise: no recorded night (the time between the night's start and the window), or nights
+  measured only to the end of ingest (what the orchestrator did after it is then not known). The window is the
+  one the Windows installer
   recorded (``deploy/site/box/windows-update-window``);
   without that file the declared one, said as unconfirmed; "kept" (the site's IT holds the policy) is a WARN. That
   Windows really holds this window is judged from Windows' side by ``deploy/windows/wsl2_policy.py``.
@@ -1169,6 +1171,28 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
 
 
+def check_anchor_mount(inp: DoctorInputs) -> Check:
+    """ANCHOR-MOUNT (D-638): the console's audit page checks the chain against the signed heads only when the anchor
+    folders are mounted into the console (``deploy/site/compose.anchors.yml``, written by the installer). WARN when
+    folders are set and the console does not get them: the night and ``tools/audit_verify.py --heads`` still check
+    the heads; the page then checks the chain against itself only."""
+    from tools.trialbox import anchors
+
+    if inp.platform:
+        return Check("anchor_mount", "PASS", "on a platform the console's folders are the cluster's to mount")
+    why = anchors.problem(inp.deploy or ROOT / "deploy", inp.env)
+    if why:
+        return Check(
+            "anchor_mount",
+            "WARN",
+            f"the audit page cannot check the signed heads: {why}. Run deploy/install.sh again: it mounts each "
+            f"folder of {anchors.ENV} into the console, read-only (D-638)",
+        )
+    if not (inp.env.get(anchors.ENV) or "").strip():
+        return Check("anchor_mount", "PASS", "no anchor folder is set (check audit_heads says what that means)")
+    return Check("anchor_mount", "PASS", "the console mounts every anchor folder, read-only")
+
+
 def check_memory_caps(inp: DoctorInputs) -> Check:
     """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
     (``tools.trialbox.memcaps``)."""
@@ -1361,39 +1385,60 @@ def check_update_window(inp: DoctorInputs) -> Check:
     # the nights that ran (NEW-B-20, D-661: tools/night_length.py, deploy/site/night-length.json)
     from tools.night_length import night_runs
 
-    runs = []
+    runs: list[tuple[datetime, datetime, bool]] = []  # began, ended, and whether the end is the whole night's
     for run in night_runs(inp.deploy) if inp.deploy is not None else []:
         try:
             began, ended = datetime.fromisoformat(run["start"]), datetime.fromisoformat(run["end"])
         except (KeyError, ValueError):
             continue
-        runs.append((began, ended))
+        # NEW-B-26 (D-667): with work_start and work_end the orchestrator's part of the night was measured too, and
+        # the night ends when that work ends. Without the two keys only the ingest was measured
+        whole = False
+        if "work_start" in run and "work_end" in run:
+            try:
+                work_end = datetime.fromisoformat(run["work_end"])
+            except ValueError:
+                work_end = None
+            if work_end is not None and work_end.utcoffset() is not None and work_end >= ended:
+                ended, whole = work_end, True
+        runs.append((began, ended, whole))
     if not runs:
         return Check(name, "WARN", f"{window}; the night starts at {at}, {room // 60} h {room % 60:02d} min before "
                      "the window opens. No night's length is recorded on the box yet: keep it shorter")  # fmt: skip
     # each recorded night on the clock of the day it began, in the site's own time (the record carries the offset)
     hit: list[str] = []
-    least: int | None = None
-    for began, ended in runs:
+    least: int | None = None  # over the nights measured whole
+    least_ingest: int | None = None  # over the nights measured to the end of ingest only
+    for began, ended, whole in runs:
         first = began.hour * 60 + began.minute
         length = max(0, int((ended - began).total_seconds() // 60))
         into = (first - start * 60) % 1440  # minutes after the window opened that the night began
         before = (start * 60 - first) % 1440  # minutes from the night's start to the window's next opening
         if into < hours * 60 or length > before:
             hit.append(f"{began:%Y-%m-%d} {began:%H:%M} to {ended:%H:%M}")
-        else:
+        elif whole:
             least = before - length if least is None else min(least, before - length)
+        else:
+            least_ingest = before - length if least_ingest is None else min(least_ingest, before - length)
     if hit:
         return Check(name, "FAIL", f"{window}, and {len(hit)} of the last {len(runs)} recorded nights ran inside it "
                      f"({'; '.join(hit[-3:])}): a restart would have cut the night. Move the window (start the "
                      "Windows installer again with -UpdateWindowStart) or nightly_at")  # fmt: skip
-    assert least is not None
-    # never a PASS yet: the record ends when the adapter's part of the night ends (ingest to the lake). What the
-    # orchestrator does after it (derive, screening) is not in the record, and the copy on the host is as old as
-    # the last backup run
-    return Check(name, "WARN", f"{window}; the last {len(runs)} recorded nights ended their ingest at least "
-                 f"{least // 60} h {least % 60:02d} min before the window opens. The work after ingest is not in the "
-                 "record yet: keep that margin larger than it takes")  # fmt: skip
+    measured = sum(1 for _b, _e, whole in runs if whole)
+    if measured == len(runs) and least is not None:
+        # every recorded night was measured to the end of the orchestrator's work, and each ended before the window
+        return Check(name, "PASS", f"{window}; the last {len(runs)} recorded nights, measured to the end of the "
+                     f"night's work, ended at least {least // 60} h {least % 60:02d} min before it opens")  # fmt: skip
+    # not a PASS: some nights are measured only to the end of ingest (the chain did not end, a retry by day), and
+    # what the orchestrator did after it is then unknown. The copy on the host is as old as the last backup run
+    parts = []
+    if least is not None:
+        parts.append(f"{measured} measured to the end of the night's work ended at least {least // 60} h "
+                     f"{least % 60:02d} min before the window opens")  # fmt: skip
+    if least_ingest is not None:
+        parts.append(f"{len(runs) - measured} measured only to the end of ingest, at least {least_ingest // 60} h "
+                     f"{least_ingest % 60:02d} min before it: the work after ingest is not known for them")  # fmt: skip
+    return Check(name, "WARN", f"{window}; of the last {len(runs)} recorded nights, {'; '.join(parts)}")
 
 
 def _nvidia_smi() -> tuple[str, str] | None:
@@ -1669,6 +1714,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_clock,
     check_ops_runner,
     check_audit_heads,
+    check_anchor_mount,
     check_memory_caps,
     check_db_passwords,
     check_wsl2_memory,

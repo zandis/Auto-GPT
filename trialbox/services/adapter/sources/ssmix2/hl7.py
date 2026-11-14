@@ -164,6 +164,22 @@ def charset_of(data: bytes) -> str:
     return fields[17] if len(fields) > 17 else ""
 
 
+#: HL7 table 0211 (alternate character sets), the names SS-MIX2 files carry in MSH-18, and what vendors also write
+_CHARSETS = frozenset({
+    "ASCII", "ISO IR6", "ISO IR13", "ISO IR14", "ISO IR87", "ISO IR159", "8859/1", "UNICODE", "UNICODE UTF-8",
+    "UNICODE UTF-16", "UNICODE UTF-32", "UTF-8", "SHIFT_JIS", "SJIS", "MS932", "CP932", "EUC-JP",
+})  # fmt: skip
+
+
+def _msh18(data: bytes) -> str:
+    """MSH-18 for a refusal's sentence (D-682): written out only when every part of it is a character set's name.
+    A damaged message has anything in that place (a field that slid, a name); the sentence then says so only."""
+    named = charset_of(data)
+    if all(part.strip().upper() in _CHARSETS for part in named.split("~") if part.strip()):
+        return f"MSH-18 {named!r}"
+    return "MSH-18 names no character set of HL7 table 0211"
+
+
 def decode_bytes(data: bytes) -> tuple[str, str]:
     """``(text, codec)`` of one message, read strictly (STD-020). Escape sequences: the ISO-2022-JP family
     (``iso2022_jp``, else the extended reading of :func:`_iso2022`). Bytes above 0x7F: UTF-8 when the bytes are valid
@@ -180,7 +196,9 @@ def decode_bytes(data: bytes) -> tuple[str, str]:
         try:
             return _iso2022(data), "iso2022_jp_ext"
         except (UnicodeDecodeError, KeyError) as exc:
-            raise Undecodable(f"ISO-2022-JP: {getattr(exc, 'reason', exc)}") from exc
+            # D-682: a codec's reason is one of its fixed phrases; a failed lookup's text is the bytes looked up
+            reason = exc.reason if isinstance(exc, UnicodeDecodeError) else "a character outside the code tables"
+            raise Undecodable(f"ISO-2022-JP: {reason}") from exc
     if not high:
         return data.decode("ascii"), "ascii"
     try:
@@ -190,9 +208,9 @@ def decode_bytes(data: bytes) -> tuple[str, str]:
     try:
         text = data.decode("cp932")
     except UnicodeDecodeError as exc:
-        raise Undecodable(f"neither UTF-8 nor Shift_JIS (MSH-18 {charset_of(data)!r})") from exc
+        raise Undecodable(f"neither UTF-8 nor Shift_JIS ({_msh18(data)})") from exc
     if any(c in _CP932_STRAYS for c in text):  # Python's cp932 reads these lone bytes; Shift_JIS has no such byte
-        raise Undecodable(f"neither UTF-8 nor Shift_JIS: a byte Shift_JIS does not use (MSH-18 {charset_of(data)!r})")
+        raise Undecodable(f"neither UTF-8 nor Shift_JIS: a byte Shift_JIS does not use ({_msh18(data)})")
     return text.translate(_CP932_TO_JIS), "cp932"
 
 

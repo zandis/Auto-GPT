@@ -22,6 +22,8 @@ allow:
   # ---------------------------------------------------------------- time limits on calls whose size does not grow with the hospital
   - {path: services/adapter/load_fhir.py, kind: timeout, value: 600, count: 2,
      reason: "one FHIR batch POST / one delete batch of a fixed size: the time per call does not grow with the hospital, the number of calls does; not a cut (a failed batch fails the load loudly)"}
+  - {path: services/datacore/optout_worker.py, kind: timeout, value: 10, count: 1,
+     reason: "D-683: 10 s to open one connection for one catalog question (is the store there), as tb_common.db opens every store; one row by key, not patients; a database that does not answer fails the store's clear by name; not a cut"}
   - {path: services/criteria_compiler/compile_cql/translator.py, kind: timeout, value: 600, count: 1,
      reason: "one CQL translation of one protocol: protocol size, not patients; fails loudly; not a cut"}
   - {path: services/model_guard/__init__.py, kind: timeout, value: 900, count: 1,
