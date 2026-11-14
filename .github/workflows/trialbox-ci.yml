@@ -1,6 +1,8 @@
 # TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
 # push to master runs these jobs (in tiers: D-564, D-578); `make ci` runs the same list locally. Job names are stable: branch protection on
-# master requires unit, checks, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3). Since D-578
+# master requires unit, checks, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3). D-725: a
+# matrix job (goldens, e2e-simple) reports under an unexpanded expression when it is skipped, so it cannot be required
+# by name; require goldens-gate and e2e-simple-gate instead (with property and security, D-501). Since D-578
 # `checks` holds what the jobs lint, types, docs, contracts, trace and shell held: where branch protection names `lint`
 # or `contracts`, it must name `checks` instead.
 # The security job (secret scan, static security scan) is T-654. The nightly drills are in trialbox-e2e.yml; the
@@ -534,6 +536,58 @@ jobs:
       # `make goldens REASON="D-nnn: ..."`
       - name: Goldens identical, or regenerated in the same commit
         run: make goldens-check
+
+  goldens-gate:
+    # D-725: the plain-named check for the goldens matrix pair. A matrix job's name is an expression; when the changes
+    # job skips it, GitHub reports it under the unexpanded expression, so a required "goldens" never reports. This job
+    # always runs, under its own name: it passes when both legs passed, or when the changes job (which itself
+    # passed) skipped them; it fails when a leg failed or was cancelled. No checkout, no action: seconds.
+    name: goldens-gate
+    runs-on: ubuntu-latest
+    needs: [changes, goldens]
+    if: always()
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Both legs of goldens passed, or were rightly not run
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RESULT: ${{ needs.goldens.result }}
+        run: |
+          echo "changes: $CHANGES; goldens (both lake sources): $RESULT"
+          [ "$CHANGES" = success ] || { echo "the changes job did not pass: goldens cannot be judged" >&2; exit 1; }
+          case "$RESULT" in
+            success|skipped) ;;
+            *) echo "goldens: $RESULT" >&2; exit 1 ;;
+          esac
+
+  e2e-simple-gate:
+    # D-725: the plain-named check for the e2e-simple matrix pair. A matrix job's name is an expression; when the changes
+    # job skips it, GitHub reports it under the unexpanded expression, so a required "e2e-simple" never reports. This job
+    # always runs, under its own name: it passes when both legs passed, or when the changes job (which itself
+    # passed) skipped them; it fails when a leg failed or was cancelled. No checkout, no action: seconds.
+    name: e2e-simple-gate
+    runs-on: ubuntu-latest
+    needs: [changes, e2e-simple]
+    if: always()
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Both legs of e2e-simple passed, or were rightly not run
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RESULT: ${{ needs.e2e-simple.result }}
+        run: |
+          echo "changes: $CHANGES; e2e-simple (both lake sources): $RESULT"
+          [ "$CHANGES" = success ] || { echo "the changes job did not pass: e2e-simple cannot be judged" >&2; exit 1; }
+          case "$RESULT" in
+            success|skipped) ;;
+            *) echo "e2e-simple: $RESULT" >&2; exit 1 ;;
+          esac
 
   data-scan:
     runs-on: ubuntu-latest

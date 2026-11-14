@@ -30,7 +30,11 @@ looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is 
 skips the others (reported as skipped, which satisfies a required check) when a pull request touches neither
 `trialbox/` nor a TrialBox workflow. `make ci` runs the same list locally. Each job has at most 15 minutes; a newer
 push to a pull request cancels the older run (pushes to master are never cancelled). The required checks on master
-(set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`, `e2e-simple`.
+(set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`, `e2e-simple`. D-725: `goldens`
+and `e2e-simple` are matrix pairs whose name is an expression; when they are skipped GitHub reports that expression,
+not the name, so they cannot be required as named. Require their gates instead, with the two D-501 adds:
+`goldens-gate`, `e2e-simple-gate`, `property`, `security`. Each gate always runs and passes when both legs passed
+or were rightly skipped.
 
 | Job | What it runs | Gates |
 | --- | --- | --- |
