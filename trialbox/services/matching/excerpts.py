@@ -47,9 +47,34 @@ GAP = CUT
 _SENT = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 
 
+# an English full stop that ends a sentence: ". " (a closing bracket or quote may follow it) before a capital, a digit
+# or an opening bracket or quote (A-SENT-EN)
+_EN_STOP = re.compile(r"\.[)\]\"']*\s+(?=[(\[\"'A-Z0-9])")
+# short forms a full stop does not end a sentence after; "No." only before a number ("No. 12")
+_SHORT = frozenset({"dr", "mr", "mrs", "ms", "prof", "st", "sr", "jr", "vs", "e.g", "i.e", "cf", "approx", "fig"})
+_WORD_BEFORE = re.compile(r"([^\s(\[\"']+)$")
+
+
+def _english(piece: str) -> list[str]:
+    """``piece`` split after each English full stop that ends a sentence, never after a short form (Dr., e.g.,
+    vs.), "No." before a number, or an initial ("J. Smith")."""
+    out, start = [], 0
+    for m in _EN_STOP.finditer(piece):
+        before = _WORD_BEFORE.search(piece[: m.start()])
+        word = before.group(1) if before else ""
+        nxt = piece[m.end() : m.end() + 1]
+        if word.lower() in _SHORT or (len(word) == 1 and word.isupper()) or (word.lower() == "no" and nxt.isdigit()):
+            continue
+        out.append(piece[start : m.end()])
+        start = m.end()
+    out.append(piece[start:])
+    return out
+
+
 def sentences(text: str) -> list[str]:
-    """The sentences of a note (Japanese and Chinese full stops, ``!``, ``?``, line ends), each stripped."""
-    return [s.strip() for s in _SENT.findall(text) if s.strip()]
+    """The sentences of a note (Japanese and Chinese full stops, ``!``, ``?``, line ends, and an English full stop
+    that ends a sentence), each stripped."""
+    return [p.strip() for s in _SENT.findall(text) for p in _english(s) if p.strip()]
 
 
 def note_tokens(text: str) -> int:
