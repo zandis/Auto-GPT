@@ -88,8 +88,9 @@ def load_ignores(path: Path, scan: str) -> list[Ignore]:
 
 
 def judge(findings: Iterable[Finding], ignores: Sequence[Ignore]) -> tuple[list[str], list[str]]:
-    """(failures, notes): a (file, rule) with more findings than its ignore accepts fails; an ignore that accepts
-    more than is found is a note (the code got better; lower the count)."""
+    """(failures, notes): a (file, rule) with more findings than its ignore accepts fails, and so does an ignore
+    with no finding at all; an ignore that accepts more than is found is a note (the code got better; lower the
+    count)."""
     by_key: dict[tuple[str, str], list[int]] = {}
     for f in findings:
         by_key.setdefault((f.path, f.rule), []).append(f.line)
@@ -100,10 +101,17 @@ def judge(findings: Iterable[Finding], ignores: Sequence[Ignore]) -> tuple[list[
         if len(lines) > n_ok:
             at = ", ".join(str(n) for n in sorted(lines))
             failures.append(f"{path}: {rule}: {len(lines)} found, {n_ok} accepted (lines {at})")
+    # security review 2026-11-13: an ignore that matches nothing is dead; it would let the next finding of its rule in
+    # that file pass unseen, so it fails until it is removed (a partly used one stays a note: lower its count)
+    failures += [
+        f"{i.path}: {i.rule}: the ignore accepts {i.count} and nothing is found: remove it"
+        for i in ignores
+        if not by_key.get((i.path, i.rule))
+    ]
     notes = [
         f"{i.path}: {i.rule}: the ignore accepts {i.count}, {len(by_key.get((i.path, i.rule), []))} found"
         for i in ignores
-        if len(by_key.get((i.path, i.rule), [])) < i.count
+        if 0 < len(by_key.get((i.path, i.rule), [])) < i.count
     ]
     return failures, notes
 

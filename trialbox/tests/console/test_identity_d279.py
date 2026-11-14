@@ -7,6 +7,7 @@ accounts only."""
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 from datetime import timedelta
 from pathlib import Path
@@ -263,3 +264,28 @@ def test_with_totp_on_a_signature_needs_a_fresh_code(eb: dict[str, Any]) -> None
     assert r.status_code in (401, 409) and len(eb["svc"].store.signatures("GZQO")) == 1
     failed = [e for e in _events(eb["backend"].audit_dir) if e["event"] == "console.edc_reauth_failed"]
     assert [e["detail"].get("reason") for e in failed][:2] == ["wrong", "wrong"]
+
+
+def test_the_command_line_names_the_account_and_fails_when_its_audit_is_not_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Security review 2026-11-13: the account events name the account, and outside DEV and TEST a change whose audit
+    event could not be written ends with exit 3 and says so, not with a warning and exit 0."""
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    users = UserStore()
+    assert cli.main(["add-user", "tester.c", "--role", "viewer"]) == 0
+    assert cli.main(["disable", "tester.c"]) == 0
+    lines = [json.loads(x) for f in sorted((tmp_path / "audit").glob("*")) if f.is_file()
+             for x in f.read_text(encoding="utf-8").splitlines() if x.startswith("{")]  # fmt: skip
+    acts = [(e["detail"]["action"], e["detail"].get("user")) for e in lines if e.get("event") == "console.user"]
+    assert acts == [("create", "tester.c"), ("disable", "tester.c")]
+
+    def broken(*_a: object, **_k: object) -> object:
+        raise OSError("journal unreachable")
+
+    monkeypatch.setattr("tb_common.audit_writer.open_audit", broken)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    assert cli.main(["add-user", "tester.d", "--role", "viewer"]) == 3
+    assert users.get("tester.d") is not None  # made: the exit code tells the operator its event is missing
+    monkeypatch.setenv("TB_ENV", "TEST")
+    assert cli.main(["add-user", "tester.e", "--role", "viewer"]) == 0  # a developer shell: a warning only

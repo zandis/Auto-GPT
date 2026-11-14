@@ -32,7 +32,7 @@ HW = {
 }  # fmt: skip
 
 
-def _box(tmp_path: Path, tpm: bool = True) -> dict[str, Any]:
+def _box(tmp_path: Path, tpm: bool = True, **extra: str) -> dict[str, Any]:
     folder = tmp_path / "firstrun"
     firstrun.write_private(folder / firstrun.HARDWARE, {**HW, "tpm": tpm})
     code = firstrun.make_code(folder)
@@ -41,7 +41,7 @@ def _box(tmp_path: Path, tpm: bool = True) -> dict[str, Any]:
     audit = AuditLog(backend.audit_dir)
     users = UserStore()
     env = {**PILOT_ENV, "TB_CONSOLE_DIR": str(tmp_path / "console"), "TB_FIRSTRUN_DIR": str(folder),
-           "TB_CONSOLE_MFA": "totp"}  # fmt: skip
+           "TB_CONSOLE_MFA": "totp", **extra}  # fmt: skip
     app = create_app(env, backend=backend, audit=audit, users=users)
     return {"app": app, "users": users, "folder": folder, "code": code, "audit": backend.audit_dir}
 
@@ -182,3 +182,16 @@ def test_the_pages_render_in_each_language(tmp_path: Path) -> None:
     for lang, word in (("en", "Set up this TrialBox"), ("ja", "初期設定"), ("zh-TW", "設定這台")):
         r = c.get(f"/login/first-run?lang={lang}")
         assert r.status_code == 200 and word in r.text and not check(r.text), lang
+
+
+def test_the_first_run_cookie_is_removed_with_the_flags_it_was_set_with(tmp_path: Path) -> None:
+    """Security review 2026-11-13: the removal of the one-time form cookie carries the same Secure, HttpOnly and
+    SameSite flags as its setting, so a browser that keeps Secure cookies apart does not keep it."""
+    b = _box(tmp_path, TB_CONSOLE_SECURE_COOKIE="1")
+    c = _with_code(b)
+    r, _ = _answers(c)
+    assert r.status_code == 200, r.text[-300:]
+    gone = [h for h in r.headers.get_list("set-cookie") if h.startswith("tb_firstrun=")]
+    assert gone, r.headers
+    flags = gone[0].lower()
+    assert "max-age=0" in flags and "secure" in flags and "httponly" in flags and "samesite=strict" in flags, gone
