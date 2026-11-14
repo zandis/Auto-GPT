@@ -610,13 +610,17 @@ def expected_state(t: Truth, today: date = TODAY) -> str:
     win = [(d, v) for d, v in t.urate if today - timedelta(days=365) <= date.fromisoformat(d) <= today]
     verdicts.append(None if not win else max(win)[1] >= 7.0)
 
-    # malignancy: ICD-10 C00-C96 except C44 (non-melanoma skin cancer, as the curated value set leaves it out)
+    # malignancy: ICD-10 C00-C96 with C44 and C4A (SCR-01: "any history of malignancy" has no skin-cancer exception);
+    # a personal history code (Z85) or a neoplasm malignant by behaviour (D45-D47) is in the family, unlisted: unknown
     def malignant(c: str) -> bool:
-        return c[:1] == "C" and c[1:3].isdigit() and int(c[1:3]) <= 96 and c[1:3] != "44"
+        return c[:1] == "C" and (c[1:3] == "4A" or (c[1:3].isdigit() and int(c[1:3]) <= 96))
+
+    def maybe(c: str) -> bool:
+        return c.startswith(("Z85", "D45", "D46", "D47"))
 
     excluded = any(malignant(c) for c in t.dx - t.undated)
-    if not excluded and any(malignant(c) for c in t.undated):
-        verdicts.append(None)  # an undated diagnosis cannot be placed in time: unknown, never "no malignancy"
+    if not excluded and (any(malignant(c) for c in t.undated) or any(maybe(c) for c in t.dx)):
+        verdicts.append(None)  # cannot be placed in time, or not known to be one: unknown, never "no malignancy"
     if excluded or any(v is False for v in verdicts):
         return "not_eligible"
     return "needs" if any(v is None for v in verdicts) else "ready"
