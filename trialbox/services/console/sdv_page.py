@@ -163,6 +163,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Unavailable as exc:
             raise h.problem(503, "request.refused", reason="the EDC did not answer") from exc
 
+    def opted(gone: Mapping[str, str], pid: str) -> str:
+        """The day of the subject's opt-out ("yes" for a merged chart), "" when not opted out (D-762)."""
+        return (gone[pid] or "yes") if pid and pid in gone else ""
+
     def pid_of(rid: str, one: Mapping[str, Any]) -> str:
         pid = str(one.get("pid") or "")
         if pid:
@@ -171,13 +175,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         return next((p for p, n in h.store.screening_nos(rid).items() if str(n).upper() == rec), "")
 
     def enrolled(rid: str) -> list[dict[str, Any]]:
-        """The study's subjects a monitor may open: enrolled, never opted out; the lifecycle facts only."""
+        """The study's subjects a monitor may open: enrolled; the lifecycle facts only. NEW-LIFE-5 (D-762): an
+        enrolled subject who opted out is a trial subject still (D-441): listed, with the day of the opt-out."""
         reply = core(f"/studies/{rid}/subjects?today={h.today().isoformat()}") or {}
-        gone = h.gone()
+        gone = h.opted_out_on()
         out = []
         for s in reply.get("subjects") or []:
-            if monitor_may_see(s) and pid_of(rid, s) not in gone:
-                out.append({k: s.get(k) for k in SUBJECT_KEYS})
+            if monitor_may_see(s):
+                pid = pid_of(rid, s)
+                out.append({**{k: s.get(k) for k in SUBJECT_KEYS}, "opted_out": opted(gone, pid)})
         return out
 
     def visits_of(sess: Session, rid: str, path: str, g: Entry | None) -> list[dict[str, Any]]:
@@ -212,10 +218,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         day = {str(s.get("new")): str(s.get("on_day") or "") for s in live_steps(list(reply.get("steps") or []))}
         one.setdefault("consented", day.get("consented", ""))
         one.setdefault("enrolled", day.get("enrolled", ""))
-        if pid_of(rid, one) in h.gone():
-            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
-                      detail={"action": path[:80], "why": "opted_out", "visit": visit})  # fmt: skip
-            raise h.problem(404, "notfound")
+        gone = opted(h.opted_out_on(), pid_of(rid, one))  # NEW-LIFE-5 (D-762): shown, never the pseudonym
         if not monitor_may_see(one):
             raise deny(sess, path, rid, why="not_enrolled", visit=visit)
         key = str(one.get("record") or rec).upper()
@@ -226,7 +229,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.monitor_view", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "visit": visit, "state": str(one.get("state") or ""),
                           "items": len(items)})  # fmt: skip
-        out = {"subject": {k: one.get(k) for k in SUBJECT_KEYS}, "items": items, **item_trail(trail, ids)}
+        out = {"subject": {**{k: one.get(k) for k in SUBJECT_KEYS}, "opted_out": gone}, "items": items,
+               **item_trail(trail, ids)}  # fmt: skip
         return rid, g, out
 
     def record_visit(sess: Session, path: str, rs: str, body: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:

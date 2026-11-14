@@ -160,6 +160,15 @@ class Helpers:
         chart, as the jobs read it."""
         return set(self.optout.effective()) if self.optout is not None else set()  # D-477 (M3): merged charts too
 
+    def opted_out_on(self) -> dict[str, str]:
+        """NEW-LIFE-5 (D-762): each pseudonym of :meth:`gone` with the site's day of its opt-out; "" for the
+        surviving chart of a merge, which has no opt-out event of its own. For the rows a numbered patient keeps
+        (the screening log, the monitor's sheet): the trial record of a consented or enrolled subject stays (D-441)."""
+        if self.optout is None:
+            return {}
+        days = {e.pid: local_date(e.at, site_zone(self.bk)) for e in self.optout.current()}
+        return {p: days.get(p, "") for p in self.gone()}
+
     def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
         """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,
         patient, candidate and SAE pages. Once the study's delegation log names a PI, an investigator sees them only
@@ -1547,10 +1556,14 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_screening_log(request: Request, rs: str) -> list[dict[str, Any]]:
         sess = api_session(request)
         rid = rows_or_403(sess, rs, request.url.path)
-        gone = h.gone()  # D-147: never an opted-out patient
+        # D-147: never an opted-out patient's pseudonym. NEW-LIFE-5 (D-762): a numbered one keeps the row, with
+        # the day of the opt-out ("yes" for a merged chart) and nothing of the contact work, as on the page
+        gone = h.opted_out_on()
         refs = h.team.latest_referrals(rid) if h.team is not None else {}
         return [
+            {"pid": "", "screening_no": b, "at": c, "referral_route": "", "referral_outcome": "",
+             "opted_out": gone[a] or "yes"} if a in gone else
             {"pid": a, "screening_no": b, "at": c, "referral_route": refs[a].route if a in refs else "",
-             "referral_outcome": refs[a].state if a in refs else ""}
-            for a, b, c in store.screening_rows(rid) if a not in gone
+             "referral_outcome": refs[a].state if a in refs else "", "opted_out": ""}
+            for a, b, c in store.screening_rows(rid)
         ]  # fmt: skip
