@@ -493,6 +493,15 @@ def _adm_new_study(s: Site, st: dict[str, Any]) -> None:
                                       "studies": ",".join([*acct.studies, NEW_RS]), "expires": acct.expires or ""},
                    users.text, follow_redirects=False)  # fmt: skip
         assert r.status_code == 303, (name, r.status_code, js.text(r.text)[-300:])
+    # D-719 (NEW-SEC-3): a protected account's studies change when a second person confirms; the steward does
+    stw = user("stw")
+    waiting = s.get(stw, "/ops/accounts/requests")
+    rids = re.findall(r'data-request="([a-f0-9]+)"', waiting.text)
+    assert len(rids) == 2, js.text(waiting.text)[-300:]
+    for rid in rids:
+        r = s.post(stw, "/ops/accounts/requests", {"request": rid, "decision": "confirm"}, waiting.text)
+        assert r.status_code == 200, (rid, r.status_code, js.text(r.text)[-300:])
+        waiting = s.get(stw, "/ops/accounts/requests")
     page = s.get(user("pi"), f"/pilot/jobs/{job}/approval")
     assert 'data-testid="approve-needs-pi"' in page.text and 'data-testid="approve"' not in page.text
 
