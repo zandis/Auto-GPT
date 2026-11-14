@@ -178,9 +178,41 @@ class _Llm(Protocol):
     def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> Any: ...
 
 
+# Deep review 2026-11-13 (screening, SCR-04), D-657: a negated mention ("悪性腫瘍なし", "No history of
+# hypertension", "否認高血壓") is never the patient's proposed diagnosis, whatever the model proposed. The negation is
+# bound to the fact's own term inside its own clause: a clause boundary stops it, so "糖尿病なし、高血圧あり" keeps
+# 高血圧, and a word that only looks negative ("非小細胞肺癌", "無症候性") is not a cue unless it stands right before
+# the term. Schema fields for negation, subject and certainty need a prompt qualified on the model pair (D-359).
+_CLAUSE = re.compile(r"[。．、，,;；\n]|\bbut\b|しかし|ただし|但し", re.I)
+_NO = r"(?:なし|無し|ない|認めず|認めない|否定|陰性|\(\s*[-−－]\s*\)|（\s*[-−－]\s*）)"
+_NEG_AFTER = re.compile(
+    rf"^[\s:：はがも]*(?:の?(?:既往歴|既往|病歴)[はも]?)?[\s:：]*{_NO}"
+    r"|^\s*(?:(?:was|is|has\s+been)\s+)?(?:ruled\s+out|excluded|negative)\b",
+    re.I,
+)
+_NEG_BEFORE = re.compile(
+    r"(?:\bno\b(?:\s+(?:history|evidence|signs?)\s+of)?|\bdenie[sd]\b|\bnegative\s+for\b|\bwithout\b|"
+    r"\bruled\s+out\b|否認|未見|沒有|没有|無)\s*$",
+    re.I,
+)
+_WHOLE_NEG = re.compile(rf"{_NO}\s*$|^\s*(?:no|denies|denied|negative\s+for|否認|未見|沒有|没有|無)\b", re.I)
+
+
+def _negated(term: str, quote: str) -> bool:
+    """Is every mention of ``term`` in ``quote`` negated in its own clause? A term the quote does not hold (the
+    model's own wording) is judged on the whole quote: one clause that is negated as a whole."""
+    text = messy.half_width(quote)
+    clauses = [c for c in _CLAUSE.split(text) if c.strip()]
+    t = messy.half_width(term).strip().lower()
+    hits = [(c, m.start()) for c in clauses for m in re.finditer(re.escape(t), c.lower())] if t else []
+    if not hits:
+        return len(clauses) == 1 and bool(_WHOLE_NEG.search(clauses[0].strip()))
+    return all(bool(_NEG_BEFORE.search(c[:at])) or bool(_NEG_AFTER.search(c[at + len(t) :])) for c, at in hits)
+
+
 def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
     """One model fact as a store fact (``sitesetup.store``), or None when it cannot be one (an unreadable date of
-    birth, a lab value that is not a number, a unit TrialBox does not know for the test)."""
+    birth, a lab value that is not a number, a unit TrialBox does not know for the test, a negated diagnosis)."""
     dom = str(raw.get("domain") or "")
     quote = str(raw.get("quote") or "").strip()
     term = re.sub(r"\s+", " ", messy.half_width(str(raw.get("term") or ""))).strip()[:120]
@@ -204,6 +236,8 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
         }.get(str(raw.get("value") or "").strip().lower())
         return {**base, "domain": "demographic", "code": "sex", "value": sx, "day": ""} if sx else None
     if dom == "condition":
+        if _negated(term, quote):  # SCR-04 (D-657): a negated mention proposes nothing
+            return None
         return {**base, "domain": "condition", "code": code if system else "", "system": system if code else ""}
     if dom == "medication":
         return {**base, "domain": "medication", "code": code if system == ATC else "", "system": ATC if code else ""}
