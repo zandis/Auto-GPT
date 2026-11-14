@@ -1931,41 +1931,24 @@ def sc_mimic(a: Any, work: Path) -> Result:
     return res
 
 
-# MedTxt-CR tags a disease that is no longer present as negative, not only one the text denies: "右乳癌術後",
-# "食道癌根治術施行" (lane G finding P6, run 20261114T061459Z). A mention is past, treated disease when the corpus's
-# markup after its negative tag shows an executed procedure or 術後, and the condition's quote shows the treatment
-# right after the mention too; the chart reader is asked for a diagnosis the patient "has or had"
-# (libs/tb_llm/prompts/chart_facts_v2.md), so such a condition is no negation error.
-_MT_TREATED = re.compile(r'state="executed"|術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR')
-_MT_DENIED = re.compile(r"なし|無し|認めず|認めな|みられな|見られな|ない|否定|陰性|（－）|（-）|\(-\)")
-_MT_TREATED_QUOTE = re.compile(r"術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR")
+# MedTxt-CR tags a disease that is no longer present as negative, not only one the text denies (lane G finding P6):
+# the chart reader is asked for a diagnosis the patient "has or had" (libs/tb_llm/prompts/chart_facts_v2.md), so a
+# condition on past, treated disease is no negation error. The reading is the corpus module's, shared with the
+# public-data site (tools.public_site keeps such a diagnosis as resolved).
 
 
 def medtxt_negative_kinds(raw: str) -> dict[str, set[str]]:
-    """Each mention ``raw`` (one MedTxt-CR article's markup) tags negative -> the kinds of its contexts: ``treated``,
-    ``denied`` or ``other`` (the 60 characters of markup after the tag)."""
-    import html as _html
-
+    """:func:`tools.medtxt_eval.negative_kinds`: each negative mention's contexts (treated, denied, other)."""
     from tools import medtxt_eval as mt
 
-    out: dict[str, set[str]] = {}
-    for m in mt.DTAG.finditer(raw):
-        if m.group(1) != "negative":
-            continue
-        text = " ".join(_html.unescape(mt.TAG.sub("", m.group(2))).split())
-        after = raw[m.end() : m.end() + 60]
-        kind = "treated" if _MT_TREATED.search(after) else "denied" if _MT_DENIED.search(after) else "other"
-        out.setdefault(text, set()).add(kind)
-    return out
+    return mt.negative_kinds(raw)
 
 
 def treated_in_quote(mention: str, quote: str, kinds: dict[str, set[str]]) -> bool:
-    """``mention`` (tagged negative) is past, treated disease in ``quote``: the corpus marks a treated context for it
-    and the quote names a treatment within 10 characters after it."""
-    if "treated" not in kinds.get(mention, set()):
-        return False
-    i = quote.find(mention)
-    return i >= 0 and bool(_MT_TREATED_QUOTE.search(quote[i + len(mention) : i + len(mention) + 10]))
+    """:func:`tools.medtxt_eval.treated_in_quote`: ``mention`` is past, treated disease in ``quote``."""
+    from tools import medtxt_eval as mt
+
+    return mt.treated_in_quote(mention, quote, kinds)
 
 
 def medtxt_reports(n: int) -> list[tuple[str, str, list[tuple[str, str]]]]:

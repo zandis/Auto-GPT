@@ -16,8 +16,9 @@ What is real and what is not is written next to the CSVs (``PROVENANCE.md``) and
 * **real**: every note text, verbatim (one patient per source document);
 * **derived from the text** by the fixed rules in this file: age and sex where the text states them (``"A 58-year-old
   woman"``, ``"６４歳男性"``; ``"60歳代"`` becomes 65 and is counted as approximate), and diagnoses the text names
-  without a negation, a family-history or a suspicion cue (a small EN/JA dictionary to ICD-10, ``DX``); a fact the
-  text does not state is left out, never guessed;
+  without a negation, a family-history or a suspicion cue (a small EN/JA dictionary to ICD-10, ``DX``); a disease
+  the MedTxt-CR markup tags negative because it was treated and is gone is a diagnosis kept as resolved (clinical
+  status ``R``), not skipped; a fact the text does not state is left out, never guessed;
 * **placed, not from the source**: chart numbers, the one outpatient visit each note is attached to (a date in the
   300 days before the snapshot), the birth date's month (1 July of the derived birth year), the clinic staff table,
   and next-visit appointments for every third patient (the sources have no dates or schedules; the box needs them to
@@ -133,7 +134,7 @@ class Derived:
     age: int | None = None
     age_approx: bool = False
     sex: str | None = None
-    dx: list[tuple[str, str, str]] = field(default_factory=list)  # (icd10, label, evidence sentence)
+    dx: list[tuple[str, str, str, str]] = field(default_factory=list)  # (icd10, label, evidence sentence, status)
 
 
 def _nfkc(s: str) -> str:
@@ -180,8 +181,29 @@ def _sentences(text: str, lang: str) -> list[str]:
     return [s for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
 
 
-def derive_dx(text: str, lang: str) -> list[tuple[str, str, str]]:
-    found: dict[str, tuple[str, str, str]] = {}
+def _treated(sent: str, start: int, end: int, kinds: dict[str, set[str]]) -> bool:
+    """The match ``sent[start:end]`` lies in a mention the corpus tags negative and that is past, treated disease
+    in this sentence (:func:`tools.medtxt_eval.treated_in_quote`, the reading the MedTxt scenario's check uses)."""
+    from tools import medtxt_eval
+
+    for mention in kinds:
+        i = sent.find(mention)
+        while 0 <= i <= start:
+            if i + len(mention) >= end and medtxt_eval.treated_in_quote(mention, sent[i:], kinds):
+                return True
+            i = sent.find(mention, i + 1)
+    return False
+
+
+def derive_dx(text: str, lang: str, kinds: dict[str, set[str]] | None = None) -> list[tuple[str, str, str, str]]:
+    """The diagnoses ``text`` names: (ICD-10, label, evidence sentence, status ``A`` active or ``R`` resolved).
+
+    ``kinds`` (a MedTxt-CR report's negative mentions, :func:`tools.medtxt_eval.negative_kinds`, keys in NFKC): a
+    mention the corpus tags negative because the disease was treated and is gone (``食道癌根治術施行``) is a diagnosis
+    the patient had, kept as resolved (lane G finding P6). A stated absence stays skipped, and so does a treated
+    mention the negation rule reads as denied. A code named both ways is active."""
+    found: dict[str, tuple[str, str, str, str]] = {}
+    past: dict[str, tuple[str, str, str, str]] = {}
     for sent in _sentences(text, lang):
         if lang == "ja" and JA_LITERATURE.search(sent):
             continue
@@ -195,7 +217,10 @@ def derive_dx(text: str, lang: str) -> list[tuple[str, str, str]]:
                         after = sent[m.end() :]
                         if JA_NEG_AFTER.search(after) or JA_FAMILY.search(sent[: m.start()]):
                             continue
-                        found[code] = (code, label, sent.strip()[:200])
+                        if kinds and _treated(sent, m.start(), m.end(), kinds):
+                            past.setdefault(code, (code, label, sent.strip()[:200], "R"))
+                            continue
+                        found[code] = (code, label, sent.strip()[:200], "A")
                         break
                     if code in found:
                         break
@@ -203,8 +228,9 @@ def derive_dx(text: str, lang: str) -> list[tuple[str, str, str]]:
                 for p in en_pats:
                     hit = re.search(p, sent, re.I)
                     if hit and not EN_NEG.search(sent[: hit.start()]):
-                        found[code] = (code, label, sent.strip()[:200])
+                        found[code] = (code, label, sent.strip()[:200], "A")
                         break
+    found = {**past, **found}
     # "1型糖尿病" also matches "糖尿病"; type 1 wins. A named cancer makes the generic one redundant.
     if "E10.9" in found:
         found.pop("E11.9", None)
@@ -229,12 +255,16 @@ def medtxt_docs() -> list[Derived]:
     if not (medtxt_eval.CACHE / "Test collection").is_dir():  # ENG-002: fetched at run time, never committed
         raise SystemExit(f"the MedTxt corpus is not in {medtxt_eval.CACHE}: fetch it once with `make public-data`")
     _items, notes = medtxt_eval.dataset()
+    raw = medtxt_eval.articles("CR", "ja")
     out = []
     for doc, sents in notes["ja"].items():
         text = "".join(sents) if isinstance(sents, list) else str(sents)
         src = "MedTxt-CR" if doc.startswith("CR:") else "MedTxt-RR"
         age, approx, sex = derive_ja(text)
-        out.append(Derived(src, doc, "ja", text, age, approx, sex, derive_dx(text, "ja")))
+        kinds: dict[str, set[str]] = {}
+        for mention, ks in medtxt_eval.negative_kinds(raw.get(doc, "")).items():
+            kinds.setdefault(_nfkc(mention), set()).update(ks)  # the sentences are NFKC (_sentences)
+        out.append(Derived(src, doc, "ja", text, age, approx, sex, derive_dx(text, "ja", kinds)))
     return out
 
 
@@ -270,9 +300,9 @@ def build(out: Path, ref: date = REF, sites: tuple[str, ...] = ("en", "ja")) -> 
         notes.append(
             [f"N{70000000 + i}", mrn, enc, (visit + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"), ntype, d.text]
         )
-        for j, (code, _label, _ev) in enumerate(d.dx, 1):
-            dx_day = visit.date().isoformat()
-            dxs.append([f"D{70000000 + i}{j:02d}", enc, mrn, code, dx_day, dx_day, "A"])
+        for j, (code, _label, _ev, status) in enumerate(d.dx, 1):
+            dx_day = visit.date().isoformat()  # status A active, R resolved: the HIS map's clinicalStatus codes
+            dxs.append([f"D{70000000 + i}{j:02d}", enc, mrn, code, dx_day, dx_day, status])
         if i % 3 == 0:  # placed: a next visit with the investigator in the coming two weeks (weekday, 09:00-11:30)
             day = ref + timedelta(days=1 + (i % 14))
             while day.weekday() >= 5:
@@ -288,7 +318,7 @@ def build(out: Path, ref: date = REF, sites: tuple[str, ...] = ("en", "ja")) -> 
                 "age": d.age,
                 "age_approx": d.age_approx,
                 "sex": d.sex,
-                "dx": [{"icd10": c, "label": lab, "evidence": ev} for c, lab, ev in d.dx],
+                "dx": [{"icd10": c, "label": lab, "evidence": ev, "status": st} for c, lab, ev, st in d.dx],
             }
         )
     _write(out / "patient.csv", ["mrn", "name", "id_no", "birth_date", "sex", "death_date", "phone"], pats)
@@ -321,6 +351,7 @@ def summarise(patients: list[dict[str, Any]], appointments: int) -> dict[str, An
         "sex_stated": sum(p["sex"] is not None for p in patients),
         "with_dx": sum(bool(p["dx"]) for p in patients),
         "dx_rows": sum(len(p["dx"]) for p in patients),
+        "dx_resolved": sum(d.get("status") == "R" for p in patients for d in p["dx"]),
         "dx_counts": dict(dx.most_common()),
         "appointments_placed": appointments,
     }
@@ -344,7 +375,9 @@ def provenance_md(s: dict[str, Any]) -> str:
         (
             "Diagnoses",
             "**Derived** by a fixed EN/JA dictionary to ICD-10, skipping negated, family-history and suspected "
-            f"mentions ({s['dx_rows']} rows on {s['with_dx']} patients); rule-based, so it can miss or over-read",
+            f"mentions ({s['dx_rows']} rows on {s['with_dx']} patients); a disease MedTxt-CR marks as treated and "
+            f"gone is kept as resolved ({s['dx_resolved']} rows), the rest as active; rule-based, so it can miss or "
+            "over-read",
         ),
         (
             f"Chart number, visit date, birth month, clinic staff, {s['appointments_placed']} next-visit appointments",

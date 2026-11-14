@@ -162,6 +162,16 @@ patient had and was treated for: `右乳癌術後（４年前）`, `食道癌根
   after it (`treated_in_quote`). A denial, or a negative mention in any other context, still fails. The part reports
   the split (`got.conditions_on_negated_mentions`, `got.conditions_on_treated_negative_mentions`). On the five
   quotes of this run all five are treated; a quote such as `食道癌の再発，転移徴候なし` still counts.
+- **The public-data site** (lane E's card 1, given to lane G by the integrator). `tools/public_site.py` did not skip
+  these diagnoses, as the card said: its own negation rule has no cue in such a quote, so it wrote them as active
+  (`A`). It now writes a diagnosis whose MedTxt-CR mention is past, treated disease (the same reading, moved to
+  `tools/medtxt_eval.py` and shared with the scenario's check) as resolved (`R`: the HIS map's clinicalStatus
+  `resolved`, the lake's condition `status`). A stated absence stays skipped, and so does a treated mention the
+  rule reads as denied; a code also named as present now stays active. On the corpus as fetched: 1 of 149 diagnosis
+  rows moves from active to resolved (`C80.1` of `CR:JP1553-37`, `７年前に胸腺癌手術`); patients 268, rows 149,
+  patients with a diagnosis 127 are unchanged. The public console run (`tools.public_e2e`, stub, ja) is 130 of 130
+  before and after, with the same feasibility counts and screening funnel: matching does not read the status
+  (lanes A2 and E, NEW-IR-STATUS). OMOP parity on `public-en+ja` stays identical.
 - Evidence: `public-2026-11-14/scenario-public-medtxt.json`; the markup of the MedTxt-CR training file (in `.cache`,
   never committed).
 
