@@ -110,6 +110,8 @@ $script:TbResumeTask = "TrialBox-Install-Resume"
 $script:TbMirroredBuild = 22621  # Windows 11 22H2: the first build with WSL2's mirrored networking (Microsoft Learn,
                                   # "Accessing network applications with WSL"); earlier builds take the port proxy
 $script:TbProxyTask = "TrialBox-Console-Proxy"
+# where this run finds its own files: the media's folder, or after a restart the copy in the state (the task runs it)
+$script:TbHere = $PSScriptRoot
 $script:TbConsolePort = 443  # the one port the stack publishes (deploy/docker-compose.identity.yml; a test holds the two together)
 $script:TbFirewallRule = "TrialBox-Console"
 $script:TbBootTask = "TrialBox-WSL2"  # the name host_facts.ps1 and wsl2_policy.py look for (D-421)
@@ -410,6 +412,28 @@ function Register-TbProxyTask([string]$Account, [string]$Script, [string]$Distro
   # the forwarding script registers its own task (one definition, as register_keepalive.ps1 for the boot task)
   & $Script -Register -User $Account -Distro $Distro -Port $Port -EveryMinutes $EveryMinutes -TaskName $TaskName | Out-Null
 }
+function Get-TbIpHelper {
+  # Windows' IP Helper service serves the port proxy: without it a rule is written and nothing listens
+  $svc = Get-Service -Name "iphlpsvc" -ErrorAction SilentlyContinue
+  if ($null -eq $svc) { return $null }
+  return @{ Status = [string]$svc.Status; StartType = [string]$svc.StartType }
+}
+function Set-TbIpHelperOn {
+  Set-Service -Name "iphlpsvc" -StartupType Automatic
+  Start-Service -Name "iphlpsvc"
+}
+function Get-TbProxyRowTarget([int]$Port) {
+  # the port proxy's row for 0.0.0.0:<port>, read only (console-proxy.ps1 reads the same table)
+  foreach ($line in @(& netsh.exe interface portproxy show v4tov4 2>$null)) {
+    if ([string]$line -match "^\s*0\.0\.0\.0\s+(\d+)\s+(\S+)\s+\d+\s*$" -and [int]$Matches[1] -eq $Port) { return $Matches[2] }
+  }
+  return ""
+}
+function Remove-TbProxyRow([int]$Port) {
+  & netsh.exe interface portproxy delete v4tov4 ("listenport={0}" -f $Port) "listenaddress=0.0.0.0" | Out-Null
+}
+function Unregister-TbProxyTask([string]$TaskName) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
+function Remove-TbHostFirewallRule([string]$RuleName) { Remove-NetFirewallRule -Name $RuleName }
 function Invoke-TbConsoleProxy([string]$Script, [string]$Distro, [int]$Port) {
   # the forwarding script run once, now; its own output says what it did
   $out = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script -Distro $Distro -Port $Port 2>&1)
@@ -715,8 +739,8 @@ function Step-WslEnable {
     # the copy the task runs must not depend on the media's drive letter after the restart
     $copy = Join-Path $script:TbStateDir "scripts"
     Protect-TbDirectory $copy $script:TbFacts.Account
-    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1")) {
-      $from = Join-Path $PSScriptRoot $n; $to = Join-Path $copy $n
+    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1", "console-proxy.ps1")) {
+      $from = Join-Path $script:TbHere $n; $to = Join-Path $copy $n
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
     # the run after the restart gets this run's settings (all checked: figures, a language of the list, a name)
@@ -749,7 +773,12 @@ function Step-WslConfig {
       # the account's own and is kept as it is
       $plain = @($bytes | Where-Object { $_ -eq 0 -or $_ -gt 127 }).Count -eq 0
       if (-not ($plain -and $text.StartsWith("# TrialBox"))) {
-        if ($text -notmatch "(?im)^\s*swap\s*=\s*0\s*$") { Say "wslconfig_kept_no_swap0" @($path) } else { Say "wslconfig_kept" @($path) }
+        $swap0 = $text -match "(?im)^\s*swap\s*=\s*0\s*$"
+        if ((Get-TbNetForm) -eq "proxy") {
+          # Windows 10 (D-613): WSL2's own localhost forwarding would take port 443 before the port proxy
+          if ($swap0 -and $text -match "(?im)^\s*localhostForwarding\s*=\s*false\s*$") { Say "wslconfig_kept_proxy" @($path) }
+          else { Say "wslconfig_kept_proxy_missing" @($path) }
+        } elseif (-not $swap0) { Say "wslconfig_kept_no_swap0" @($path) } else { Say "wslconfig_kept" @($path) }
         return "kept"
       }
       $old = $text
@@ -996,7 +1025,7 @@ function Set-TbConsoleProxy([bool]$Quiet) {
   # The forwarding script beside the state (administrators only), its task, and one run now. Returns the run's
   # @{ Status; Address }. A task that is there and runs this script is kept as it is.
   $script = Join-Path $script:TbStateDir "console-proxy.ps1"
-  $from = Join-Path $PSScriptRoot "console-proxy.ps1"
+  $from = Join-Path $script:TbHere "console-proxy.ps1"
   if ($from -ne $script) { Copy-Item -LiteralPath $from -Destination $script -Force }
   $info = Get-TbProxyTaskInfo $script:TbProxyTask
   if ($null -eq $info -or $info.State -eq "Disabled" -or -not ([string]$info.Action).Contains($script)) {
@@ -1007,9 +1036,30 @@ function Set-TbConsoleProxy([bool]$Quiet) {
   Write-TbLog ("    console forwarding: {0}, port {1} to WSL2 at {2}" -f $r.Status, $script:TbConsolePort, $r.Address)
   return $r
 }
+function Set-TbIpHelper {
+  # Returns "ok", "started" (it was only stopped or on demand) or "off" (switched off by the site, or missing: the
+  # site's IT decides; nothing is changed)
+  $ih = Get-TbIpHelper
+  if ($null -eq $ih -or $ih.StartType -eq "Disabled") { return "off" }
+  if ($ih.Status -eq "Running" -and $ih.StartType -eq "Automatic") { return "ok" }
+  Set-TbIpHelperOn
+  Write-TbLog ("    IP Helper (iphlpsvc): was {0}, {1}; now running, automatic" -f $ih.Status, $ih.StartType)
+  return "started"
+}
+function Remove-TbWin10Forwarding {
+  # a PC upgraded from Windows 10 to a Windows 11 with mirrored networking: the forwarding task, its row and the
+  # Windows Firewall rule would hold port 443 on the PC against WSL2's own (review finding 5)
+  $gone = @()
+  if ($null -ne (Get-TbProxyTaskInfo $script:TbProxyTask)) { Unregister-TbProxyTask $script:TbProxyTask; $gone += "task" }
+  if (Get-TbProxyRowTarget $script:TbConsolePort) { Remove-TbProxyRow $script:TbConsolePort; $gone += "row" }
+  if ($null -ne (Get-TbHostFirewallRule $script:TbFirewallRule)) { Remove-TbHostFirewallRule $script:TbFirewallRule; $gone += "firewall" }
+  if ($gone.Count -gt 0) { Write-TbLog ("    Windows 10 forwarding removed: {0}" -f ($gone -join ", ")) }
+}
 function Step-Network {
   if ((Get-TbNetForm) -eq "proxy") {
     # Windows 10 (NEW-WIN-10, D-613): WSL2 behind its own address; the port proxy passes the console's port to it
+    try { $ih = Set-TbIpHelper } catch { Stop-TbStep "proxy_failed" @([string]$_.Exception.Message) }
+    if ($ih -eq "off") { Stop-TbStep "iphelper_off" @() }
     try { $did = Set-TbHostFirewall $script:TbFirewallRule $script:TbConsolePort }
     catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
     Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did)
@@ -1018,6 +1068,9 @@ function Step-Network {
     catch { Stop-TbStep "proxy_failed" @([string]$_.Exception.Message) }
     if ($r.Status -eq "no_address") { Stop-TbStep "proxy_failed" @("WSL2 gave no address") }
     if ($r.Status -eq "refused") { Stop-TbStep "proxy_failed" @("netsh refused the rule") }
+    if ($r.Status -eq "conflict") {
+      Stop-TbStep "proxy_failed" @("another port-proxy rule takes port $($script:TbConsolePort) on one address: netsh interface portproxy show v4tov4")
+    }
     Say "network_proxy" @($script:TbConsolePort)
     return
   }
@@ -1026,6 +1079,7 @@ function Step-Network {
   $r = Invoke-TbSetup "network-mode" @()
   $mode = [string](@($r.Output) | Select-Object -Last 1)
   if ($r.ExitCode -ne 0 -or $mode -ne "mirrored") { Stop-TbStep "not_mirrored" @($mode) }
+  try { Remove-TbWin10Forwarding } catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
   try { $did = Set-TbConsoleFirewall $script:TbFirewallRule $script:TbConsolePort }
   catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
   Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did)
@@ -1120,11 +1174,15 @@ function Invoke-TbInstall {
       $root = [string]$script:TbState.data_drive; if ($root -match "^[A-Za-z]:$") { $root = $root + "\" }
       $script:TbSetupWsl = ConvertTo-TbWslPath (Join-Path (Join-Path (Join-Path $root "TrialBox") "install") "wsl-setup.sh")
       if ((Get-TbNetForm) -eq "proxy") {
-        $did = Set-TbHostFirewall $script:TbFirewallRule $script:TbConsolePort
-        if ($did -ne "kept") { Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did) }
-        $r = Set-TbConsoleProxy $true
-        if ($r.Status -eq "no_address" -or $r.Status -eq "refused") { Say "proxy_failed" @($r.Status) }
+        if ((Set-TbIpHelper) -eq "off") { Say "iphelper_off" @() }
+        else {
+          $did = Set-TbHostFirewall $script:TbFirewallRule $script:TbConsolePort
+          if ($did -ne "kept") { Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did) }
+          $r = Set-TbConsoleProxy $true
+          if (@("no_address", "refused", "conflict") -contains $r.Status) { Say "proxy_failed" @($r.Status) }
+        }
       } elseif (([string](@((Invoke-TbSetup "network-mode" @()).Output) | Select-Object -Last 1)) -eq "mirrored") {
+        Remove-TbWin10Forwarding
         $did = Set-TbConsoleFirewall $script:TbFirewallRule $script:TbConsolePort
         if ($did -ne "kept") { Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did); Say "network" @($script:TbConsolePort) }
       } else { Say "network_pending" @("not mirrored") }

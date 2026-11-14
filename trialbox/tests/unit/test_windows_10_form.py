@@ -30,7 +30,12 @@ def _lines(facts: dict[str, str], strict: bool = True) -> list[str]:
     return list(v.lines)
 
 
-WIN10_OK = {"windows_build": "19045", "console_proxy_to": "172.28.14.5", "console_proxy_task": "Ready"}
+WIN10_OK = {
+    "windows_build": "19045",
+    "console_proxy_to": "172.28.14.5",
+    "console_proxy_task": "Ready",
+    "ip_helper": "Running/Automatic",
+}
 
 
 def test_a_windows_10_box_with_its_forwarding_passes_and_is_told_its_support_has_ended() -> None:
@@ -49,6 +54,12 @@ def test_a_windows_10_box_with_its_forwarding_passes_and_is_told_its_support_has
         ({"console_proxy_to": ""}, "no port-proxy row passes port 443 to WSL2"),
         ({"console_proxy_task": "missing"}, "the task TrialBox-Console-Proxy is missing"),
         ({"console_proxy_task": "Disabled"}, "the task TrialBox-Console-Proxy is Disabled"),
+        # review finding 4: netsh writes the row with the service off, and nothing listens
+        (
+            {"ip_helper": "Stopped/Disabled"},
+            "the IP Helper service (iphlpsvc), which serves the port proxy, is Stopped/Disabled",
+        ),
+        ({"ip_helper": "missing"}, "the IP Helper service (iphlpsvc), which serves the port proxy, is missing"),
     ],
 )
 def test_a_windows_10_box_without_its_forwarding_fails_on_a_production_box(change: dict[str, str], says: str) -> None:
@@ -59,6 +70,22 @@ def test_a_windows_10_box_without_its_forwarding_fails_on_a_production_box(chang
 
 def test_windows_11_with_mirrored_networking_has_no_forwarding_to_check_and_no_support_warning() -> None:
     assert _lines({"windows_build": "26100", "console_proxy_to": "", "console_proxy_task": "missing"}) == []
+
+
+def test_the_ip_helper_fact_of_an_earlier_release_is_not_asked_for() -> None:
+    facts = {k: v for k, v in WIN10_OK.items() if k != "ip_helper"}
+    assert _lines(facts)[1].startswith("PASS  console forwarding")
+
+
+@pytest.mark.parametrize(
+    "left",
+    [{"console_proxy_to": "192.168.1.20"}, {"console_proxy_task": "Ready"}],
+)
+def test_windows_10_forwarding_left_after_an_upgrade_to_mirrored_networking_fails(left: dict[str, str]) -> None:
+    # review finding 5: the row and the task would hold port 443 on the PC against WSL2's own
+    facts = {"windows_build": "26100", "console_proxy_to": "", "console_proxy_task": "missing", **left}
+    lines = _lines(facts)
+    assert len(lines) == 1 and lines[0].startswith("FAIL  Windows 10 forwarding left on a Windows with mirrored"), lines
 
 
 def test_a_windows_11_build_before_22h2_needs_the_forwarding_too_but_is_not_windows_10() -> None:
@@ -73,7 +100,7 @@ def test_facts_of_an_earlier_release_add_no_line() -> None:
 def test_the_facts_and_the_installer_name_the_same_build_task_and_port() -> None:
     policy = _policy()
     assert f"$script:TbMirroredBuild = {policy.MIRRORED_BUILD}" in PS1
-    for fact in ("windows_build", "console_proxy_to", "console_proxy_task"):
+    for fact in ("windows_build", "console_proxy_to", "console_proxy_task", "ip_helper"):
         assert f'Fact "{fact}"' in FACTS_PS1, fact
     assert '"TrialBox-Console-Proxy"' in FACTS_PS1 and '$script:TbProxyTask = "TrialBox-Console-Proxy"' in PS1
     assert "interface portproxy show v4tov4" in FACTS_PS1  # read only: show, never add or set

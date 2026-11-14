@@ -416,14 +416,23 @@ def check_network_form(facts: Facts, v: Verdicts) -> None:
     if build < WIN11_BUILD:
         v.warn(f"Windows 10 (build {build}): Microsoft's standard support ended in October 2025; security updates "
                "come only with Extended Security Updates (ESU), which the site arranges")  # fmt: skip
-    if build >= MIRRORED_BUILD:
-        return  # mirrored networking: the Hyper-V firewall rule of D-604, checked by the installer
     to, task = facts.get("console_proxy_to", ""), facts.get("console_proxy_task", "")
+    if build >= MIRRORED_BUILD:
+        # mirrored networking: the Hyper-V firewall rule of D-604, checked by the installer. Forwarding left from
+        # Windows 10 (a PC upgraded) holds port 443 on the PC against WSL2's own: the installer removes it
+        if to or task not in ("", "missing"):
+            v.policy(f"Windows 10 forwarding left on a Windows with mirrored networking (build {build}): "
+                     f"port-proxy row to '{to or 'none'}', task TrialBox-Console-Proxy {task or 'missing'}. "
+                     "Start the Windows installer again: it removes them")  # fmt: skip
+        return
     problems = []
     if not to:
         problems.append("no port-proxy row passes port 443 to WSL2")
     if task in ("", "missing", "Disabled"):
         problems.append(f"the task TrialBox-Console-Proxy is {task or 'missing'}")
+    helper = facts.get("ip_helper")
+    if helper is not None and not helper.startswith("Running/"):
+        problems.append(f"the IP Helper service (iphlpsvc), which serves the port proxy, is {helper}")
     if problems:
         v.policy(f"console forwarding (build {build}, no mirrored networking): {'; '.join(problems)}: other "
                  "computers cannot reach the console. Start the Windows installer again")  # fmt: skip

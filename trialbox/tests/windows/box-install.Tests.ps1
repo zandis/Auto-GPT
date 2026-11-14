@@ -15,6 +15,7 @@ BeforeAll {
     foreach ($d in @("windows/wsl", "linux/debs")) { New-Item -ItemType Directory -Force -Path (Join-Path $media $d) | Out-Null }
     $files = @(
       "windows/box-install.ps1", "windows/box-install.messages.json", "windows/wsl-setup.sh", "windows/register_keepalive.ps1",
+      "windows/console-proxy.ps1",
       "windows/wsl/wsl.2.4.13.0.x64.msi", "windows/wsl/ubuntu-24.04-wsl-amd64.tar.gz",
       "linux/debs/docker-ce_27.deb", "linux/trialbox-host.tar", "linux/trialbox-1.0.0.tar", "linux/vendor_ed25519.pub"
     )
@@ -22,7 +23,7 @@ BeforeAll {
     foreach ($f in $files) {
       $p = Join-Path $media $f
       $src = Join-Path $script:Root ("deploy/windows/" + (Split-Path -Leaf $f))
-      if ($f -like "windows/box-install.*" -or $f -like "windows/wsl-setup.sh" -or $f -like "windows/register_keepalive.ps1") { Copy-Item -LiteralPath $src -Destination $p }
+      if ($f -like "windows/box-install.*" -or $f -like "windows/wsl-setup.sh" -or $f -like "windows/register_keepalive.ps1" -or $f -like "windows/console-proxy.ps1") { Copy-Item -LiteralPath $src -Destination $p }
       else { Set-Content -LiteralPath $p -Value ("content of " + $f) -NoNewline }
       $sums += ("{0}  {1}" -f (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLower(), $f)
     }
@@ -38,6 +39,7 @@ BeforeAll {
       BootInfo = $null; BootRegistered = 0; NetMode = "mirrored"; Firewall = @(); FwDefault = "Block"; FwRule = $null; FwBlockSet = 0
       HostFw = $null; HostFwWrites = New-Object System.Collections.ArrayList; HyperVCalls = 0
       ProxyTask = $null; ProxyRegistered = 0; ProxyRuns = 0; ProxyStatus = "added"; ProxyAddress = "172.28.14.5"
+      IpHelper = @{ Status = "Running"; StartType = "Automatic" }; IpHelperSet = 0; ProxyRow = ""; ProxyRemoved = New-Object System.Collections.ArrayList
       EgressVerdict = "verdict=held"; LanLine = "firewall open to '192.0.2.0/24'; this PC's network address '192.0.2.10/24'"
       Tpm = @{ Present = $true; Ready = $true }; BLCalls = New-Object System.Collections.ArrayList
       Asked = New-Object System.Collections.ArrayList; Answers = New-Object System.Collections.ArrayList
@@ -104,7 +106,20 @@ Describe "box-install.ps1" {
       $script:S.ProxyTask = @{ State = "Ready"; Action = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Script`" -Distro $Distro -Port $Port" }
       $script:S.ProxyScript = $Script; $script:S.ProxyEvery = $EveryMinutes; $script:S.ProxyAccount = $Account
     }
-    Mock Invoke-TbConsoleProxy { $script:S.ProxyRuns++; return @{ Status = [string]$script:S.ProxyStatus; Address = [string]$script:S.ProxyAddress } }
+    Mock Invoke-TbConsoleProxy {
+      $script:S.ProxyRuns++
+      if (Test-Path -LiteralPath $Script) { $script:S.ProxyRanFrom = $Script } else { throw "no file at $Script" }
+      if (@("added", "changed", "kept") -contains $script:S.ProxyStatus) { $script:S.ProxyRow = $script:S.ProxyAddress }
+      return @{ Status = [string]$script:S.ProxyStatus; Address = [string]$script:S.ProxyAddress }
+    }
+    Mock Get-TbIpHelper { return $script:S.IpHelper }
+    Mock Set-TbIpHelperOn { $script:S.IpHelperSet++; $script:S.IpHelper = @{ Status = "Running"; StartType = "Automatic" } }
+    Mock Get-TbProxyRowTarget { return [string]$script:S.ProxyRow }
+    Mock Remove-TbProxyRow { [void]$script:S.ProxyRemoved.Add("row"); $script:S.ProxyRow = "" }
+    Mock Unregister-TbProxyTask { [void]$script:S.ProxyRemoved.Add("task"); $script:S.ProxyTask = $null }
+    Mock Remove-TbHostFirewallRule { [void]$script:S.ProxyRemoved.Add("firewall"); $script:S.HostFw = $null }
+    # where the installer finds its own files: the media's folder, or its copy after a restart
+    $script:TbHere = Join-Path $script:Root "deploy/windows"
     Mock Write-TbConsoleFirewallRule {
       $script:S.Firewall += ,"$RuleName|$Port|exists=$Exists"
       $script:S.FwRule = @{ Enabled = "True"; Direction = "Inbound"; Action = "Allow"; Protocol = "TCP"; LocalPorts = [string]$Port
@@ -266,6 +281,7 @@ Describe "box-install.ps1" {
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.ps1") | Should -BeTrue
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/box-install.messages.json") | Should -BeTrue
       Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/register_keepalive.ps1") | Should -BeTrue
+      Test-Path -LiteralPath (Join-Path $script:S.StateDir "scripts/console-proxy.ps1") | Should -BeTrue   # NEW-WIN-10 review 1
       $script:S.ResumeScript | Should -Be (Join-Path $script:S.StateDir "scripts/box-install.ps1")
     }
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
@@ -814,6 +830,66 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 1
       Get-Log | Should -Match "STOP step 13/\d+ network: .*WSL2 gave no address"
       $script:S.Console.Count | Should -Be 0
+    }
+    It "after the restart, finds the forwarding script in its own copy, not on the media (review finding 1)" {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
+      $script:S.WslInstalled = $false
+      Invoke-Run | Should -Be 3010
+      # the task runs the copy: its own folder is the copy's, which holds only what was copied before the restart
+      $script:TbHere = Join-Path $script:S.StateDir "scripts"
+      Invoke-Run -Resume | Should -Be 0
+      $script:S.ProxyRuns | Should -Be 1
+      Split-Path -Parent $script:S.ProxyRanFrom | Should -Be $script:S.StateDir
+    }
+    It "starts the IP Helper service, which serves the port proxy, when it is only stopped (review finding 4)" {
+      $script:S.IpHelper = @{ Status = "Stopped"; StartType = "Manual" }
+      Invoke-Run | Should -Be 0
+      $script:S.IpHelperSet | Should -Be 1
+      Get-Log | Should -Match "IP Helper \(iphlpsvc\): was Stopped, Manual; now running, automatic"
+    }
+    It "stops, and changes nothing more, when the site has switched the IP Helper service off (review finding 4)" {
+      $script:S.IpHelper = @{ Status = "Stopped"; StartType = "Disabled" }
+      Invoke-Run | Should -Be 1
+      $script:S.IpHelperSet | Should -Be 0
+      $script:S.ProxyRuns | Should -Be 0
+      Get-Log | Should -Match "STOP step 13/\d+ network: .*IP Helper"
+      $script:S.IpHelper = $null
+      New-Scenario | Out-Null
+      $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }; $script:S.WslInstalled = $true
+      $script:S.Build = 19045; $script:S.Edition = "Professional"; $script:S.NetMode = "nat"; $script:S.IpHelper = $null
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "STOP step 13/\d+ network: .*IP Helper"
+    }
+    It "stops when another port-proxy rule already takes port 443 on one address (review finding 8)" {
+      $script:S.ProxyStatus = "conflict"
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "STOP step 13/\d+ network: .*another port-proxy rule"
+    }
+    It "says so when the account's own .wslconfig leaves WSL2's localhost forwarding on (review finding 6)" {
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      Set-Content -LiteralPath (Join-Path $p ".wslconfig") -Value "[wsl2]`nswap=0"
+      Invoke-Run | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Match "localhostForwarding=false"
+      New-Scenario | Out-Null
+      $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }; $script:S.WslInstalled = $true
+      $script:S.Build = 19045; $script:S.Edition = "Professional"; $script:S.NetMode = "nat"
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      Set-Content -LiteralPath (Join-Path $p ".wslconfig") -Value "[wsl2]`nswap=0`nlocalhostForwarding=false"
+      Invoke-Run | Should -Be 0
+      ($script:S.Said -join "`n") | Should -Not -Match "localhostForwarding=false"
+    }
+    It "removes the Windows 10 forwarding once the PC is upgraded to a Windows 11 with mirrored networking (review finding 5)" {
+      Invoke-Run | Should -Be 0
+      $script:S.ProxyRow | Should -Be "172.28.14.5"
+      $script:S.Build = 26100; $script:S.NetMode = "mirrored"
+      Invoke-Run | Should -Be 0                      # a finished install, run again after the upgrade
+      $script:S.ProxyRemoved | Should -Be @("task", "row", "firewall")
+      Get-Log | Should -Match "Windows 10 forwarding removed: task, row, firewall"
+      $script:S.ProxyRemoved.Clear()
+      Invoke-Run | Should -Be 0                      # and nothing to remove the time after
+      $script:S.ProxyRemoved.Count | Should -Be 0
     }
     It "keeps mirrored networking on Windows 11: no forwarding there" {
       $script:S.Build = 26100; $script:S.Edition = "ProfessionalWorkstation"; $script:S.NetMode = "mirrored"

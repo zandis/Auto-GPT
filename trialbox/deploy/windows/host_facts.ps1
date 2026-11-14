@@ -187,6 +187,9 @@ foreach ($row in @(& netsh.exe interface portproxy show v4tov4 2>$null)) {
 Fact "console_proxy_to" $proxyTo
 $proxyTask = Get-ScheduledTask -TaskName "TrialBox-Console-Proxy" -ErrorAction SilentlyContinue
 if ($null -eq $proxyTask) { Fact "console_proxy_task" "missing" } else { Fact "console_proxy_task" $proxyTask.State }
+# Windows' IP Helper service serves the port proxy: with it off a row is there and nothing listens (status/start type)
+$ipHelper = Get-Service -Name "iphlpsvc" -ErrorAction SilentlyContinue
+if ($null -eq $ipHelper) { Fact "ip_helper" "missing" } else { Fact "ip_helper" ("{0}/{1}" -f $ipHelper.Status, $ipHelper.StartType) }
 
 # the start-at-boot task that keeps WSL2 running whether or not anyone is signed in (register_keepalive.ps1)
 Fact "keepalive_task_name" $TaskName

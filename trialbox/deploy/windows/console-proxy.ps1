@@ -25,8 +25,9 @@ param(
 
 # ---- seams: the only places that touch Windows
 function Get-TbWslAddressText([string]$Name) {
-  # WSL2's addresses as Linux reports them, one line, separated by spaces
-  return [string](& wsl.exe -d $Name -u root --exec hostname -I 2>$null)
+  # eth0's IPv4 line as Linux reports it: the address the Windows side reaches WSL2 at. Not `hostname -I`, which
+  # also lists docker's bridges and WSL's DNS-tunnel address on lo, in no set order
+  return [string](@(& wsl.exe -d $Name -u root --exec ip -4 -o addr show dev eth0 2>$null) -join " ")
 }
 function Get-TbProxyTable { return @(& netsh.exe interface portproxy show v4tov4 2>$null) }
 function Invoke-TbNetsh([string[]]$Arguments) {
@@ -36,33 +37,38 @@ function Invoke-TbNetsh([string[]]$Arguments) {
 
 # ---- logic
 function Select-TbWslAddress([string]$Text) {
-  # the first IPv4 address that is not a loopback or a link-local one
-  foreach ($word in ($Text -split "\s+")) {
-    if ($word -notmatch "^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$") { continue }
-    $parts = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4])
+  # the first "inet a.b.c.d/n" of ip's line that is not a loopback, link-local or WSL's DNS-tunnel address
+  foreach ($m in [regex]::Matches($Text, "inet (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/\d{1,2}")) {
+    $parts = @([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value, [int]$m.Groups[4].Value)
     if (@($parts | Where-Object { $_ -gt 255 }).Count -gt 0) { continue }
+    $word = $parts -join "."
     if ($parts[0] -eq 127 -or ($parts[0] -eq 169 -and $parts[1] -eq 254) -or $parts[0] -eq 0) { continue }
+    if ($word -eq "10.255.255.254") { continue }  # WSL 2.x's DNS tunnel, on lo; Windows cannot reach it
     return $word
   }
   return ""
 }
-function Get-TbProxyTarget([string[]]$Lines, [int]$ListenPort) {
+function Get-TbProxyRows([string[]]$Lines) {
   # netsh's table in any display language: the headings differ, the rows are four figures
+  $rows = @()
   foreach ($line in $Lines) {
     if ([string]$line -match "^\s*(\S+)\s+(\d+)\s+(\S+)\s+(\d+)\s*$") {
-      if ($Matches[1] -eq "0.0.0.0" -and [int]$Matches[2] -eq $ListenPort) { return $Matches[3] }
+      $rows += @{ ListenAddress = $Matches[1]; ListenPort = [int]$Matches[2]; ConnectAddress = $Matches[3]; ConnectPort = [int]$Matches[4] }
     }
   }
-  return ""
+  return $rows
 }
 function Update-TbConsoleProxy([string]$Distro, [int]$Port) {
-  # Returns @{ Status = added | changed | kept | no_address | refused; Address = WSL2's address or "" }
+  # Returns @{ Status = added | changed | kept | no_address | conflict | refused; Address = WSL2's address or "" }
   $address = Select-TbWslAddress (Get-TbWslAddressText $Distro)
   if (-not $address) { return @{ Status = "no_address"; Address = "" } }
-  $now = Get-TbProxyTarget (Get-TbProxyTable) $Port
-  if ($now -eq $address) { return @{ Status = "kept"; Address = $address } }
+  $rows = @(Get-TbProxyRows (Get-TbProxyTable) | Where-Object { $_.ListenPort -eq $Port })
+  # a rule someone made for one address on this port: a second listener would be ambiguous, so it is left to them
+  if (@($rows | Where-Object { $_.ListenAddress -ne "0.0.0.0" }).Count -gt 0) { return @{ Status = "conflict"; Address = $address } }
+  $now = @($rows | Where-Object { $_.ListenAddress -eq "0.0.0.0" }) | Select-Object -First 1
+  if ($null -ne $now -and $now.ConnectAddress -eq $address -and $now.ConnectPort -eq $Port) { return @{ Status = "kept"; Address = $address } }
   $verb = "add"; $status = "added"
-  if ($now) { $verb = "set"; $status = "changed" }
+  if ($null -ne $now) { $verb = "set"; $status = "changed" }
   $rc = Invoke-TbNetsh @("interface", "portproxy", $verb, "v4tov4", ("listenport={0}" -f $Port), "listenaddress=0.0.0.0",
     ("connectport={0}" -f $Port), ("connectaddress={0}" -f $address))
   if ($rc -ne 0) { return @{ Status = "refused"; Address = $address } }
@@ -83,9 +89,11 @@ function Register-TbConsoleProxyTask([string]$Account, [string]$Name, [int]$Minu
   # (only an administrator changes the port proxy); the task runs this very file
   $self = $PSCommandPath
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`" -Distro {1} -Port {2}" -f $self, $Distro, $Port)
-  $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $Minutes)
+  # the repetition's length is set, not left to the Windows version's default (ten years: as long as the box)
+  $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
   $principal = New-ScheduledTaskPrincipal -UserId $Account -LogonType S4U -RunLevel Highest
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 2)  # a hung wsl.exe must not hold off the next runs for days
   Register-ScheduledTask -TaskName $Name -Action $action -Trigger @((New-ScheduledTaskTrigger -AtStartup), $repeat) -Principal $principal `
     -Settings $settings -Description "TrialBox: keep the console's forwarding pointed at WSL2 (NEW-WIN-10)" -Force | Out-Null
 }
@@ -103,5 +111,5 @@ if ($result.Status -ne "kept") {
   Write-TbProxyLog $LogPath ("console forwarding: {0}, port {1} to WSL2 at {2}" -f $result.Status, $Port, $result.Address)
 }
 Write-Output ("status={0} address={1}" -f $result.Status, $result.Address)
-if ($result.Status -eq "no_address" -or $result.Status -eq "refused") { exit 1 }
+if ($result.Status -eq "no_address" -or $result.Status -eq "refused" -or $result.Status -eq "conflict") { exit 1 }
 exit 0

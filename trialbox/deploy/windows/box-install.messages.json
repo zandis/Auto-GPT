@@ -438,5 +438,20 @@
     "en": "The console could not be forwarded to TrialBox inside WSL2 ({0}). Start the installer again; if this message comes again, send the installer's log.",
     "ja": "コンソールを WSL2 内の TrialBox に転送できませんでした（{0}）。インストーラーをもう一度起動してください。同じメッセージが再び出る場合は、インストーラーのログを送ってください。",
     "zh-TW": "無法將主控台轉送到 WSL2 內的 TrialBox（{0}）。請再次啟動安裝程式；如果再次出現此訊息，請寄送安裝程式的記錄檔。"
+  },
+  "iphelper_off": {
+    "en": "Windows' IP Helper service (iphlpsvc), which carries the console's forwarding on this Windows, is switched off or missing on this PC. Nothing more was changed. Ask the site's IT whether it may start automatically; then start the installer again.",
+    "ja": "この Windows でコンソールの転送を担う Windows の IP ヘルパー サービス（iphlpsvc）が、この PC では無効になっているか、存在しません。これ以上は何も変更していません。自動で起動してよいかをサイトの IT 担当者に確認し、その後インストーラーをもう一度起動してください。",
+    "zh-TW": "在這個 Windows 上負責主控台轉送的 Windows IP Helper 服務（iphlpsvc）在這台電腦上已停用或不存在。其他項目都未變更。請向院方 IT 人員確認是否可以讓它自動啟動，然後再次啟動安裝程式。"
+  },
+  "wslconfig_kept_proxy": {
+    "en": "{0} already exists and was not written by TrialBox: it was not changed. WSL2's memory, processors and disk limit are then that file's or WSL's own, not computed from this machine. networkingMode is not used on this Windows.",
+    "ja": "{0} はすでに存在し、TrialBox が書いたものではないため、変更していません。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になり、この機械から計算した値ではありません。この Windows では networkingMode は使われません。",
+    "zh-TW": "{0} 已存在，且不是 TrialBox 寫入的，因此未做變更。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值，而不是依這台機器計算。這個 Windows 不使用 networkingMode。"
+  },
+  "wslconfig_kept_proxy_missing": {
+    "en": "Warning: {0} already exists and was not written by TrialBox: it was not changed, but it does not set both swap=0 and localhostForwarding=false under [wsl2]. On this Windows TrialBox needs both: without swap=0 the host check reports it; without localhostForwarding=false WSL2 may take port 443 on this PC before the console's forwarding does. WSL2's memory, processors and disk limit are that file's or WSL's own. networkingMode is not used on this Windows.",
+    "ja": "注意: {0} はすでに存在し、TrialBox が書いたものではないため変更していませんが、[wsl2] の下に swap=0 と localhostForwarding=false の両方が設定されていません。この Windows では TrialBox は両方を必要とします。swap=0 がないとホスト検査がこれを報告し、localhostForwarding=false がないと、コンソールの転送より先に WSL2 がこの PC のポート 443 を使うことがあります。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になります。この Windows では networkingMode は使われません。",
+    "zh-TW": "警告：{0} 已存在，且不是 TrialBox 寫入的，因此未做變更，但其中 [wsl2] 下沒有同時設定 swap=0 與 localhostForwarding=false。在這個 Windows 上 TrialBox 兩者都需要：沒有 swap=0，主機檢查會回報此項；沒有 localhostForwarding=false，WSL2 可能比主控台的轉送更早占用這台電腦的連接埠 443。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值。這個 Windows 不使用 networkingMode。"
   }
 }

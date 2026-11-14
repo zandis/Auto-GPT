@@ -217,6 +217,9 @@ Microsoft's documentation (netsh `interface portproxy`; Task Scheduler with S4U)
 | 78 | **Does the rule follow WSL2.** `wsl --shutdown`, wait one minute, `wsl -d TrialBox -- hostname -I` (WSL2 starts again with a new address), then wait up to 6 minutes and run `netsh interface portproxy show v4tov4` | The row points at the new address; the console opens again from the second PC | The minutes until it pointed right; `C:\ProgramData\TrialBox\box-install\console-proxy.log`'s last lines |
 | 79 | **With nobody signed in.** Restart Windows, do not sign in, wait 6 minutes, then from the second PC open the console | It answers | Whether it answered before anyone signed in. With line 26a this decides whether Windows 10 serves a site unattended |
 | 80 | The host check (`deploy/check_host.sh`, an elevated terminal), its Windows lines | No FAIL for the network form; a WARN that Windows 10's support has ended | The lines whole |
+| 81 | **Is anything listening.** `Get-Service iphlpsvc \| Format-List Status,StartType`; `netstat -ano -p tcp \| findstr :443`; then `tasklist /svc /fi "PID eq <the PID netstat shows>"` | Running, Automatic; one `LISTENING` line on `0.0.0.0:443`, its process a `svchost.exe` that hosts `iphlpsvc` | All three outputs. A row in line 73 with no listener here means the IP Helper service does not serve it |
+| 82 | **The task's limits.** `$t = Get-ScheduledTask TrialBox-Console-Proxy`; `$t.Triggers \| ForEach-Object { $_.Repetition \| Format-List Interval,Duration }`; `$t.Settings.ExecutionTimeLimit` | One trigger with Interval `PT5M` and a Duration of about ten years (`P3650D`); ExecutionTimeLimit `PT2M` | The values. A Duration of one day or less means the five-minute runs stop |
+| 83 | **Which address is forwarded to.** `wsl -d TrialBox -u root --exec ip -4 -o addr show dev eth0`; `Get-NetIPAddress -AddressFamily IPv4 \| Where-Object InterfaceAlias -like 'vEthernet (WSL*' \| Format-List InterfaceAlias,IPAddress,PrefixLength` | eth0's address is the one in line 73's row, and inside the subnet of the `vEthernet (WSL...)` adapter | Both outputs, with the adapter's exact name: a later card may refuse an address outside that subnet (D-613) |
 
 ## What the answers decide
 
@@ -277,3 +280,7 @@ Microsoft's documentation (netsh `interface portproxy`; Task Scheduler with S4U)
 - Line 74 "Public": the console stays closed to other PCs until the site's IT names the network private or domain;
   the installer does not change a network's profile.
 - Line 79 "no": as line 26a "no".
+- Line 81 "no listener" with a row in line 73: the IP Helper service does not serve the port proxy on this PC; the
+  installer checks only that the service runs, so this is a card of its own.
+- Line 82 "a short Duration": the task is registered with the repetition written out another way
+  (`console-proxy.ps1`), a fix within lane W.
