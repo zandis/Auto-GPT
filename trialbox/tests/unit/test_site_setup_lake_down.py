@@ -258,14 +258,15 @@ def test_the_derive_status_says_the_lake_could_not_be_asked(monkeypatch: pytest.
 # ------------------------------------------------------------------ NEW-SITE-3 (D-712): the lake's own errors
 def _routes(svc: SiteSetup) -> Any:  # noqa: F811
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
     from orchestrator.setup_api import router as setup_router
+
+    from tests.actor3 import SignedClient
 
     rs = site_ruleset()
     api = FastAPI()
     api.include_router(setup_router(lambda: svc, lambda rid: {**STUDY, "id": rid}, lambda rid: {"forms": 7},
                                     lambda rid: rs, lambda: False, lambda *a, **k: None))  # fmt: skip
-    return TestClient(api, raise_server_exceptions=False)
+    return SignedClient(api, raise_server_exceptions=False)  # D-717: the patient reads carry a signed person
 
 
 def _halfway(svc: SiteSetup, error: Exception) -> Any:  # noqa: F811
