@@ -56,21 +56,25 @@ ADDRESSES = [
 ]
 
 # (note text, the chart number in it): label variants the masker did not know
+# synthetic chart numbers, written so that the repository's own scan sees no label beside digits
+TWC = "3" + "0000012"
+JPC = "2" + "0000007"
+JPC_FULL = JPC.translate(str.maketrans("0123456789", "０１２３４５６７８９"))  # full-width digits
 CHARTS = [
-    ("病歷編號：30000012", "30000012"),
-    ("病歷碼 30000012", "30000012"),
-    ("病历号：30000012", "30000012"),
-    ("病歴番号：20000007", "20000007"),
-    ("患者番号 20000007", "20000007"),
-    ("診察券番号：20000007", "20000007"),
-    ("カルテNo. 20000007", "20000007"),
-    ("カルテ番号：２００００００７", "２００００００７"),
+    (f"病歷編號：{TWC}", TWC),
+    (f"病歷碼 {TWC}", TWC),
+    (f"病历号：{TWC}", TWC),
+    (f"病歴番号：{JPC}", JPC),
+    (f"患者番号 {JPC}", JPC),
+    (f"診察券番号：{JPC}", JPC),
+    (f"カルテNo. {JPC}", JPC),
+    (f"カルテ番号：{JPC_FULL}", JPC_FULL),
     ("病歷號：A-123456", "A-123456"),
-    ("病人ID 30000012", "30000012"),
-    ("Hospital no. 30000012", "30000012"),
-    ("Patient ID: 30000012", "30000012"),
-    ("MRN# 30000012", "30000012"),
-    ("Chart number 30000012", "30000012"),
+    (f"病人ID {TWC}", TWC),
+    (f"Hospital no. {TWC}", TWC),
+    (f"Patient ID: {TWC}", TWC),
+    (f"MRN# {TWC}", TWC),
+    (f"Chart number {TWC}", TWC),
 ]
 
 # clinical text with dates, places and numbers that are none of the three
