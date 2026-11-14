@@ -38,6 +38,11 @@ atom's). Per quantifier:
 | `all` | met | may fail it |
 | `count>=` n | not met | the met rows, the unreadable ones and the undated ones that may meet it reach n |
 
+"Undated" is what the lake reads as undated (`lake.flatten` `effective`: no dateTime, no instant, no period start),
+in the CQL too: a result dated by an instant or a period only is dated in both engines. The evidence of an unknown
+lists only the undated rows that could change the answer (one that may meet the comparison; for `all`, one that may
+fail it).
+
 A met `any`, a failed `all`, a reached `count>=` stand whatever the undated rows say. With no dated row in the
 window the answer is unknown, as it was. Both generators say the same (the equivalence gate holds them equal).
 
@@ -69,6 +74,12 @@ Derived scores (BMI, DAS28, eGFR; 13 criteria of the shipped rulesets) read the 
 the same way, and an undated input is dropped there too. Making such a score unknown needs a reason the console,
 the PDFs and the mails can translate (`tb_common.reasons` is a closed set with catalogue keys), so it is a card of
 its own, with lane C2. Until then an undated input of a score is ignored, as before.
+
+What is not tested here: the CQL is translated to ELM (every shipped ruleset) and read against the SQL, but not
+evaluated (no local CQL engine; HAPI runs in the integration stack). The equivalence gate's cases and the
+synthetic sites' lab rows hold no undated lab result, so the gate does not yet compare the two engines on one. The
+CQL's evidence lists the dated rows only (the gate compares answers, not evidence). A `latest` with undated rows
+only stays unknown with no evidence, as before.
 
 ## Test
 

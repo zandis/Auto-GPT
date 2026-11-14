@@ -294,11 +294,14 @@ class CqlGenerator:
         comp = self.vs.is_component_set(atom.valueset)
         numeric = atom.value is not None and atom.value.op != "in"
         nf = q("N_" + p)  # the value in the criterion's unit (D-275)
+        # SCR-03: undated as the lake reads it (``lake.flatten`` ``effective``: a dateTime, else an instant, else a
+        # period's start). A result dated by an instant or a period only is dated in the SQL, never undated here
+        no_date = "(X.effective is null or (X.effective is FHIR.Period and (X.effective as FHIR.Period).start is null))"
         if comp:
             retrieve = (
                 f"[Observation] X where TB.ObsDate(X) in {win} and exists (X.component C where C.code in {vsname})"
             )
-            undated = f"[Observation] X where TB.ObsDate(X) is null and exists (X.component C where C.code in {vsname})"
+            undated = f"[Observation] X where {no_date} and exists (X.component C where C.code in {vsname})"
 
             def val(o: str) -> str:
                 c1 = f"First({o}.component C where C.code in {vsname})"
@@ -311,7 +314,7 @@ class CqlGenerator:
                 return f"(First({o}.component C where C.code in {vsname}).value as FHIR.Quantity).comparator.value"
         else:
             retrieve = f"[Observation: {vsname}] X where TB.ObsDate(X) in {win}"
-            undated = f"[Observation: {vsname}] X where TB.ObsDate(X) is null"
+            undated = f"[Observation: {vsname}] X where {no_date}"
 
             def val(o: str) -> str:
                 return f"{nf}({o}.value as FHIR.Quantity, {o}.code.coding)"

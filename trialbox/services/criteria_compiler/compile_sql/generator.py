@@ -334,12 +334,15 @@ class SqlGenerator:
         # the rows that met the comparison; when the answer is unknown and a row's unit could not be read, the
         # reason and those rows instead (D-275); when it is unknown for an undated row, the undated rows (SCR-03)
         bad_refs = f"string_agg(CASE WHEN o.unit_bad AND NOT o.undated THEN {ref} END, ';' ORDER BY o.effective, o.oid)"
+        # only the undated rows that could change the answer (one that may fail an "all", one that may meet the rest)
+        could = f"{c} IS NOT TRUE" if quant == "all" else f"{c} IS NOT FALSE"
+        could_refs = f"string_agg(CASE WHEN o.undated AND {could} THEN {ref} END, ';' ORDER BY o.oid)"
         cte = (
             f"{name} AS (\n  SELECT pid, index_date, {agg} AS v,\n"
             f"         concat_ws(';', CASE WHEN {agg} IS NULL AND bool_or(o.unit_bad) {dated} THEN "
             f"{lit(UNIT_MISMATCH)} END,\n"
             f"           CASE WHEN {agg} IS NULL THEN {bad_refs} END,\n"
-            f"           CASE WHEN {agg} IS NULL THEN {undated_refs} END,\n"
+            f"           CASE WHEN {agg} IS NULL THEN {could_refs} END,\n"
             f"           string_agg(CASE WHEN {c} AND NOT o.undated THEN {ref} END, ';' ORDER BY o.effective, o.oid))"
             f" AS ev\n"
             f"  FROM ({src}) o GROUP BY pid, index_date)"
