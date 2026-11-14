@@ -24,10 +24,12 @@ handler.
   404 and 409 as the adapter said them) and records `dataops.publish_started` under the verified person. Its state is
   read at `GET /dataops/publish/{rid}` (a night's state, no patient's row).
 - **The adapter takes `POST /publish` from the orchestrator only** (its route gate): another service's token is
-  refused (403, nothing touched). An open DEV/TEST box and the old shared token (DEV and TEST only) pass as
-  everywhere.
-- **The actor key stays with the orchestrator alone.** Verifying at the adapter would have meant a second holder of
-  the key that `service_auth` says no other service holds; the orchestrator already verifies every changing route.
+  refused (403, nothing touched). An open DEV/TEST box passes; the old shared token passes only on a box with no
+  token registry (there it is the box's one token and the actor key is derived from it, so nothing else could be told
+  apart); with a registry, an old token kept for a rotation is refused.
+- **No new holder of the actor key.** The console signs with it and the orchestrator checks with it, as for every
+  route that takes a signed person; verifying at the adapter would have made the adapter a third holder. The
+  orchestrator already verifies every changing route.
   This is the plan's line ("the adapter's publish checks the signed person and right") met by the route that starts
   it.
 - Route tables: a group `dataops` (the console's), stage `refuse`.
@@ -41,7 +43,23 @@ handler.
 
 ## Review
 
-See "What the adversarial review changed" when the review is in.
+### What the adversarial review changed
+
+One review by running (production trust: a token registry and real actor keys). The check held: every other
+service token, path and method trick at the adapter, and every bad claim at the orchestrator (no claim, another role,
+action, study, path, method or body, a service principal, a wrong key, a replay) was refused. It found:
+
+1. **A retry turned a started publish into "not started"** (blocking): the console's orchestrator client retries,
+   so after a lost answer the second POST met the running publish (409), which the console reads as "not started";
+   the night could then be rejected while it was being served, and a failed audit write after the start made that
+   happen. The publish is now posted with a client that never retries (`orch_once`), and the start is recorded
+   before the adapter is asked.
+2. **The orchestrator's own refusals before any start** (401, 403, 422, 503) left the night neither started nor
+   rejectable: they are now "not started".
+3. **The old shared token passed the adapter's gate outside DEV and TEST** (during a rotation with a registry): it is
+   refused on a registry box; the record said otherwise and is corrected.
+4. Hardening: the gate compares the route's path without a mount's prefix; the state route takes an adapter run id
+   (16 hex) only. The record's line on the actor key is corrected (the console signs with it).
 
 ## Reuse check
 

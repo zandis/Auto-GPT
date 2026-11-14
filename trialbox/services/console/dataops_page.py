@@ -96,13 +96,18 @@ def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
 
         body = {"snapshot": batch.snapshot, "source": batch.source, "attempt": batch.attempt}
         try:
-            started = bk.orch.post_raw(PUBLISH, body, sign("POST", PUBLISH, body)).json()
+            once = getattr(bk, "orch_once", None) or bk.orch  # never retried: a retry can meet the publish it started
+            started = once.post_raw(PUBLISH, body, sign("POST", PUBLISH, body)).json()
         except ServiceError as exc:
             # second review (H4): refused at once. 404: no held night of that date on the box and none published,
             # so nothing is served from it. 409: nothing was started by this accept
             if exc.status in (404, 409):
                 err = PromoteFailed(f"the adapter did not start the publish (HTTP {exc.status})")
                 err.nothing_served, err.not_started = exc.status == 404, exc.status == 409
+                raise err from exc
+            if exc.status in (401, 403, 422, 503):  # NEW-SEC-4 review: the orchestrator refused before any start
+                err = PromoteFailed(f"the orchestrator did not start the publish (HTTP {exc.status})")
+                err.not_started = True
                 raise err from exc
             raise RuntimeError(f"the adapter did not start the publish (HTTP {exc.status})") from exc
         rid = str(started.get("run") or "")

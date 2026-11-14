@@ -32,6 +32,7 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from tb_common import service_auth as sa
 from tb_common.http import make_app
 from tb_contracts import IngestRequest, dump
 
@@ -46,10 +47,17 @@ def _publish_gate(request: Any, caller: str | None) -> JSONResponse | None:
     """NEW-SEC-4 (D-760): the publish of a held night is the steward's accept, which the orchestrator checks (the
     signed person and ``dataops.decide``, with the actor key no other service holds) before it starts it here. So
     ``POST /publish`` takes the orchestrator's token only; another service's token is refused, nothing touched. An
-    open DEV/TEST box (no caller) and the old shared token (``legacy``, DEV and TEST only) pass as everywhere."""
-    if request.method == "POST" and request.url.path == "/publish" and caller not in (None, "legacy", "orchestrator"):
-        return JSONResponse({"detail": "route_not_allowed"}, status_code=403)
-    return None
+    open DEV/TEST box (no caller) passes, and so does the old shared token on a box with no token registry (there,
+    the actor key is that token's: nothing else can be told apart); with a registry it is refused here (the review:
+    an old token kept for a rotation must not publish with no steward). The path is the route's, without a mount's
+    prefix."""
+    from starlette._utils import get_route_path
+
+    if request.method != "POST" or get_route_path(request.scope) != "/publish" or caller in (None, "orchestrator"):
+        return None
+    if caller == "legacy" and sa.registry() is None:
+        return None
+    return JSONResponse({"detail": "route_not_allowed"}, status_code=403)
 
 
 app = make_app("adapter", route_gate=_publish_gate)

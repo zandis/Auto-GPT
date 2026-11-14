@@ -23,6 +23,7 @@ from tests.actor3 import signed
 from tools.trialbox.svc_secrets import IDENTITIES
 
 BODY = {"snapshot": "2026-10-02", "source": "csv", "attempt": 1}
+RUN = "0123456789abcdef"  # an adapter run id (os.urandom(8).hex())
 
 
 def _token(name: str) -> str:
@@ -71,7 +72,7 @@ class _Adapter:
 
     def publish(self, body: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(("publish", body))
-        return {"run": "r1", "state": "running"}
+        return {"run": RUN, "state": "running"}
 
     def publish_state(self, rid: str) -> dict[str, Any]:
         self.calls.append(("state", rid))
@@ -108,11 +109,11 @@ def test_the_orchestrator_starts_the_publish_only_for_the_steward_who_signed(orc
     assert adapter.calls == []
     steward = signed("dataops.decide", "", "POST", path, BODY, sub="console:stew", role="steward")
     r = client.post(path, json=BODY, headers=steward)
-    assert r.status_code == 202 and r.json() == {"run": "r1", "state": "running"}
+    assert r.status_code == 202 and r.json() == {"run": RUN, "state": "running"}
     assert adapter.calls == [("publish", BODY)]
     started = [e for e in events if e["event"] == "dataops.publish_started"]
     assert started and started[-1]["actor"] == "console:stew" and started[-1]["detail"]["snapshot"] == "2026-10-02"
-    assert client.get("/dataops/publish/r1").json() == {"run": "r1", "state": "done"}  # its state, no patient row
+    assert client.get(f"/dataops/publish/{RUN}").json() == {"run": RUN, "state": "done"}  # its state, no patient row
 
 
 # ---------------------------------------------------------------------------------------------- the console
@@ -151,3 +152,79 @@ def test_the_console_signs_the_publish_as_the_steward_who_accepts() -> None:
     assert path == "/dataops/publish" and body == BODY
     claim = actor_v3.verify(headers[actor_v3.HEADER])
     assert claim.sub == "console:stew" and claim.action == "dataops.decide" and claim.body == actor_v3.body_hash(BODY)
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+def test_the_publish_is_posted_once_and_a_refusal_before_the_start_is_not_started() -> None:
+    """The review of D-760 (F1, F2): a retried POST met the publish it had started (409) and read it as "not
+    started"; and the orchestrator's own refusals (403, 503) left the night neither started nor rejectable."""
+    from console.dataops_page import PromoteFailed, adapter_promoter
+    from tb_common.http import ServiceError
+
+    calls: list[str] = []
+
+    class Refusing:
+        def __init__(self, status: int) -> None:
+            self.status = status
+
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            calls.append(path)
+            raise ServiceError("orchestrator", self.status, "refused")
+
+    class NeverUsed:
+        def post_raw(self, *_a: Any, **_k: Any) -> Any:
+            raise AssertionError("the publish is posted with the client that does not retry")
+
+    class Batch:
+        snapshot, source, attempt = "2026-10-02", "csv", 1
+
+    for status in (401, 403, 422, 503, 409):
+        bk = type("Bk", (), {"orch": NeverUsed(), "orch_once": Refusing(status)})()
+        with pytest.raises(PromoteFailed) as got:
+            adapter_promoter(bk)(Batch(), lambda *_a: {})
+        assert got.value.not_started, status
+    assert calls == ["/dataops/publish"] * 5
+
+
+def test_the_backends_publish_client_never_retries() -> None:
+    import inspect
+
+    from console import backend
+
+    src = inspect.getsource(backend)
+    line = next(x for x in src.splitlines() if "self.orch_once = ServiceClient(" in x)
+    assert "retries=0" in line and "idempotent=False" in line
+
+
+def test_the_start_is_recorded_before_the_adapter_is_asked(orch_app: Any) -> None:
+    from tb_common.http import ServiceError
+
+    client, adapter, events = orch_app
+
+    def broken(body: dict[str, Any]) -> dict[str, Any]:
+        raise ServiceError("adapter", 502, "bad gateway")
+
+    adapter.publish = broken
+    path = "/dataops/publish"
+    steward = signed("dataops.decide", "", "POST", path, BODY, sub="console:stew", role="steward")
+    assert client.post(path, json=BODY, headers=steward).status_code >= 500
+    assert [e["actor"] for e in events if e["event"] == "dataops.publish_started"] == ["console:stew"]
+    assert client.get("/dataops/publish/..%2fjobs").status_code == 404  # only an adapter run id reaches its path
+    assert client.get("/dataops/publish/0123456789abcdef").status_code == 200
+
+
+def test_an_old_token_kept_for_a_rotation_does_not_publish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The review of D-760 (F3): with a token registry the old shared token (kept as ``legacy`` for a rotation) is
+    refused at the publish; with no registry it is the box's only token and passes."""
+    from adapter import app as adapter_app
+
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.delenv("TB_SERVICE_TOKEN_FILE", raising=False)
+    old = "new-sec-4-the-old-shared-token-0123456789"
+    doc = {"schema": sa.REGISTRY_SCHEMA, "services": {n: sa.token_hash(_token(n)) for n in IDENTITIES},
+           "legacy": sa.token_hash(old)}  # fmt: skip
+    (tmp_path / "tokens.json").write_text(json.dumps(doc), encoding="utf-8")
+    monkeypatch.setenv(sa.REGISTRY_ENV, str(tmp_path / "tokens.json"))
+    monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
+    http = TestClient(adapter_app.app, raise_server_exceptions=False)
+    assert http.post("/publish", json=BODY, headers={sa.TOKEN_HEADER: old}).status_code == 403

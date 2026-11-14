@@ -329,6 +329,9 @@ class HttpBackend:
         self.store = store
         self.audit_log = audit
         self.orch = ServiceClient(env.orchestrator_url, "orchestrator", timeout=60, retries=1)
+        # NEW-SEC-4 (D-760, its review): the publish of a held night is started once; a retry after a lost answer
+        # met the running publish (409) and read it as "not started", so the night could be rejected while served
+        self.orch_once = ServiceClient(env.orchestrator_url, "orchestrator", timeout=60, retries=0, idempotent=False)
         self.mail = ServiceClient(env.mail_gateway_url, "mail-gateway", timeout=15, retries=0)
         # T-690 (D-472): the ingest is started (202) and never waited for here; the request is short
         self.adapter = ServiceClient(env.adapter_url, "adapter", timeout=60, retries=0, idempotent=False)

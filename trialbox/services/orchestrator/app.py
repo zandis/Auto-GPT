@@ -861,15 +861,16 @@ def dataops_publish(body: PublishBody, claim: Claim = AS_DECIDER) -> dict[str, A
     adapter = orch().services.adapter
     if adapter is None:
         raise HTTPException(status_code=503, detail="this box has no adapter")
+    # the review: recorded before the start, so that no failure of the record can turn a started publish into an
+    # error the console reads as "not started"; the adapter's answer is the outcome
+    orch().audit.append("dataops.publish_started", actor=claim.sub,
+                        detail={"snapshot": body.snapshot, "source": body.source, "attempt": body.attempt})  # fmt: skip
     try:
         started = adapter.publish(sent)
     except ServiceError as exc:
         if exc.status in (404, 409):
             raise HTTPException(status_code=exc.status, detail="the adapter did not start the publish") from exc
         raise
-    orch().audit.append("dataops.publish_started", actor=claim.sub,
-                        detail={"snapshot": body.snapshot, "source": body.source, "attempt": body.attempt,
-                                "run": str(started.get("run") or "")})  # fmt: skip
     return started
 
 
@@ -877,11 +878,13 @@ def dataops_publish(body: PublishBody, claim: Claim = AS_DECIDER) -> dict[str, A
 def dataops_publish_state(rid: str) -> dict[str, Any]:
     """The state of a publish this service started (``running``, ``done``, ``busy``, ``stale``, ``failed`` and the
     step): a night's state, no patient's row."""
+    if not re.fullmatch(r"[0-9a-f]{16}", rid):  # the adapter's run id (the review: nothing else reaches its path)
+        raise HTTPException(status_code=404, detail="no such publish")
     adapter = orch().services.adapter
     if adapter is None:
         raise HTTPException(status_code=503, detail="this box has no adapter")
     try:
-        return adapter.publish_state(rid[:64])
+        return adapter.publish_state(rid)
     except ServiceError as exc:
         if exc.status == 404:
             raise HTTPException(status_code=404, detail="the adapter does not know this publish") from exc
