@@ -178,9 +178,45 @@ class _Llm(Protocol):
     def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> Any: ...
 
 
+# Deep review 2026-11-13 (screening, SCR-04), D-657: a negated mention ("悪性腫瘍なし", "No history of
+# hypertension", "否認高血壓") is never the patient's proposed diagnosis, whatever the model proposed. The negation is
+# bound to the fact's own term inside its own clause: a clause boundary stops it, so "糖尿病なし、高血圧あり" keeps
+# 高血圧. A cue after the term must end its clause ("高血圧なし→あり", "痛風否定できず", "陰性化", "ないし" are no
+# negation); a cue before it must stand right before the term or before a list joined by "or" / 及 / 或 ("no
+# hypertension or diabetes"), so "非小細胞肺癌", "無症候性" and "no chest pain and gout" keep the fact. When the
+# quote does not hold the term nothing binds a negation to it: the fact stays proposed and a person reads the quote.
+# Schema fields for negation, subject and certainty need a prompt qualified on the model pair (D-359).
+_CLAUSE = re.compile(r"[。．、，,;；\n]|(?<=\S)\.(?=\s|$)|\bbut\b|しかし|ただし|但し", re.I)
+_AFTER_JA = (
+    r"[\s:：はがもを]*(?:特に)?(?:の?(?:既往歴|既往|病歴)[はがも]?)?[\s:：]*"
+    r"(?:[(（]\s*(?:なし|無し|[-−－ｰー—–])\s*[)）]|なし|無し|無い|無|ない|なかった|ありません|ではない|でない|"
+    r"認めず|認めない|認められない|認められず|否定的?|陰性)"
+)
+_AFTER_EN = r"\s*[-:]?\s*(?:(?:was|is|has\s+been)\s+)?(?:ruled\s+out|excluded|negative|absent|none|no)"
+_NEG_AFTER = re.compile(rf"^(?:{_AFTER_JA}|{_AFTER_EN})\s*(?:です|でした)?\s*[)）]?\s*$", re.I)
+_CUE_EN = (
+    r"\b(?:no(?:\s+known)?(?:\s+(?:history|evidence|signs?)\s+of)?|not|never(?:\s+had)?|denie[sd]|"
+    r"negative\s+for|without|free\s+of|ruled\s+out)"
+)
+_CUE_ZH = r"(?:否認|否认|未見|未见|沒有|没有|無|无)"
+_NEG_BEFORE = re.compile(rf"(?:{_CUE_EN}[\s-]*(?:[^;]*?\s(?:or|nor)\s+)?|{_CUE_ZH}\s*(?:[^;]*?(?:及|或))?)$", re.I)
+
+
+def _negated(term: str, quote: str) -> bool:
+    """Is every mention of ``term`` in ``quote`` negated in its own clause? A term the quote does not hold (the
+    model's own wording or language) binds nothing: not negated, the fact stays for a person."""
+    text = messy.half_width(quote)
+    clauses = [c for c in _CLAUSE.split(text) if c.strip()]
+    t = messy.half_width(term).strip().lower()
+    hits = [(c, m.start()) for c in clauses for m in re.finditer(re.escape(t), c.lower())] if t else []
+    return bool(hits) and all(
+        bool(_NEG_BEFORE.search(c[:at])) or bool(_NEG_AFTER.search(c[at + len(t) :])) for c, at in hits
+    )
+
+
 def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
     """One model fact as a store fact (``sitesetup.store``), or None when it cannot be one (an unreadable date of
-    birth, a lab value that is not a number, a unit TrialBox does not know for the test)."""
+    birth, a lab value that is not a number, a unit TrialBox does not know for the test, a negated diagnosis)."""
     dom = str(raw.get("domain") or "")
     quote = str(raw.get("quote") or "").strip()
     term = re.sub(r"\s+", " ", messy.half_width(str(raw.get("term") or ""))).strip()[:120]
@@ -204,6 +240,8 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
         }.get(str(raw.get("value") or "").strip().lower())
         return {**base, "domain": "demographic", "code": "sex", "value": sx, "day": ""} if sx else None
     if dom == "condition":
+        if _negated(term, quote):  # SCR-04 (D-657): a negated mention proposes nothing
+            return None
         return {**base, "domain": "condition", "code": code if system else "", "system": system if code else ""}
     if dom == "medication":
         return {**base, "domain": "medication", "code": code if system == ATC else "", "system": ATC if code else ""}
