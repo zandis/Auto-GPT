@@ -42,6 +42,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+if [ "$REHEARSAL" = 1 ] && [ "$PREPARE" = 1 ]; then echo "box-install: --rehearsal with --prepare: a prepared box goes to a site" >&2; exit 2; fi
+if [ "$REHEARSAL" = 1 ] && [ "$FIRSTRUN" = 1 ]; then echo "box-install: --rehearsal with --firstrun: the first run finishes the box as it was installed" >&2; exit 2; fi
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'box-install: %s\n' "$*" >&2; exit 1; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
@@ -70,7 +72,7 @@ chmod 700 "$FR"
 chown 10001:10001 "$FR" 2>/dev/null || true   # the console's user (tb) writes the owner's answers there
 
 if [ "$FIRSTRUN" = 0 ]; then
-  [ -n "$BUNDLE" ] || die "usage: deploy/box-install.sh trialbox-<version>.tar [--prepare] [--yes]"
+  [ -n "$BUNDLE" ] || die "usage: deploy/box-install.sh trialbox-<version>.tar [--prepare | --rehearsal] [--yes]"
   [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"
   # ---------------------------------------------------------------------------------------------- 1. hardware
   say "this machine"

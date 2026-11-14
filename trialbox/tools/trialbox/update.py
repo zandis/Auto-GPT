@@ -1898,16 +1898,19 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     except ValueError as exc:  # a malformed record: never guessed
         print(f"update REFUSED: {updates / us.INSTALLED} is unreadable ({exc}); RUNBOOK §5; nothing was changed")
         return 1
-    if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
-        print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
-        return 0
     # D-633: a site box takes only a release built from a commit. Here, before either path: install.sh's first load
-    # below never runs the preflight, and a fresh box (no deploy/.env yet) is PRODUCTION
+    # below never runs the preflight, and a fresh box (no deploy/.env yet) is PRODUCTION (TEST only with the mark of
+    # a --rehearsal install, which install.sh refuses to leave behind for a site's install, D-726). Before the
+    # "already installed" answer too (D-726, review F6): a box made a site box by hand does not keep a rehearsal
+    # bundle by installing it again
     try:
         Updater(box, updates, say=print)._from_a_commit(plan)
     except UpdateRefused as exc:
         print(f"update REFUSED: {exc}; nothing was changed")
         return 1
+    if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
+        print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
+        return 0
     in_service = box_in_service(deploy, box)
     if not box.running():
         if in_service:

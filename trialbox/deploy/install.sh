@@ -197,14 +197,21 @@ echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), m
 
 # REHEARSAL (D-726): before anything loads
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
-# from here on, read from the mark until deploy/.env says so
+# from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
+# upper case); only DEV, TEST or nothing may become a rehearsal box
+RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
 if [ "$REHEARSAL" = 1 ]; then
-  RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
   case "$RH_ENV" in
-    PRODUCTION|VALIDATION) die "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box" ;;
+    ""|DEV|TEST) ;;
+    *) die "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box" ;;
   esac
   if [ ! -f deploy/site/rehearsal.json ]; then
-    RH_VOLS="$(docker volume ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-trialbox}" 2>/dev/null | tr '\n' ' ')"
+    for f in settings.yaml updates/installed.json; do
+      [ ! -e "deploy/$f" ] || die "--rehearsal: this box holds a site's install (deploy/$f) from no rehearsal: a rehearsal starts on an empty box"
+    done
+    RH_VOLS="$(docker volume ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-trialbox}")" \
+      || die "--rehearsal: docker cannot list the volumes, so the box's data cannot be checked (is Docker running?)"
+    RH_VOLS="$(printf '%s' "$RH_VOLS" | tr '\n' ' ')"
     [ -z "${RH_VOLS// /}" ] || die "--rehearsal: this box holds data from no rehearsal (volumes: $RH_VOLS): a rehearsal starts on an empty box"
   fi
   [ -f "$ROOT/tools/rehearse_box/standins.yml" ] || die "--rehearsal: no model stand-ins at tools/rehearse_box/standins.yml"
@@ -213,6 +220,9 @@ if [ "$REHEARSAL" = 1 ]; then
   export TB_COMPOSE_OVERRIDE="${TB_COMPOSE_OVERRIDE-$ROOT/tools/rehearse_box/standins.yml}"
   export TB_ACCEPT_UNMEASURED_GPU=1
   echo "install: note: a rehearsal box (TB_ENV TEST, ${TB_COMPOSE_OVERRIDE:-the real model servers}, an unmeasured card accepted)" >&2
+elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_REHEARSAL=1' deploy/.env; }; then
+  # a rehearsal box (or one left half emptied) never becomes a site box by an install without the argument
+  die "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
 fi
 # ---- end of REHEARSAL (D-726): before anything loads
 
@@ -305,8 +315,10 @@ WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
 # REHEARSAL (D-726): the box says TEST
 if [ "$REHEARSAL" = 1 ]; then
-  case "$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)" in
-    PRODUCTION|VALIDATION) die "--rehearsal: the answers make this box $(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1): a rehearsal box is TEST" ;;
+  RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  case "$RH_ENV" in
+    ""|DEV|TEST) ;;
+    *) die "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is TEST" ;;
   esac
   sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=TEST\nTB_REHEARSAL=1\n' >> deploy/.env
 fi
@@ -318,7 +330,12 @@ envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
 # D-726: what only a rehearsal box may use (the model stand-ins, an unmeasured card's trial boot)
 rehearsal_only() {
-  [ "$TB_ENV_SITE" = TEST ] || die "$1: only on a rehearsal box (TB_ENV TEST, deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
+  [ "$TB_ENV_SITE" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ] \
+    || die "$1: only on a rehearsal box (TB_ENV TEST and TB_REHEARSAL=1, deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
+}
+# D-726 (review F1): the stand-ins are known by what the file says, wherever it lies (a copy, the release tree's own)
+is_standins() {
+  grep -qx 'x-trialbox-rehearsal-standins: true' "$1"
 }
 # T-632 (OPS-011): the feed folder. The wizard wrote TB_SOURCE_DIR (the host folder) and TB_SOURCE_MOUNT (the
 # settings' data_source.path); compose mounts the one at the other. PRODUCTION never falls back to the test fixture
@@ -478,9 +495,7 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
   # may change it, and it must stay where it is
   [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || die "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"
   [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || die "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"
-  if [ "$OVR" = "$(cd "$ROOT/tools/rehearse_box" 2>/dev/null && pwd)/standins.yml" ]; then
-    rehearsal_only "the model stand-ins (TB_COMPOSE_OVERRIDE=tools/rehearse_box/standins.yml)"
-  fi
+  is_standins "$OVR" && rehearsal_only "the model stand-ins ($OVR says x-trialbox-rehearsal-standins)"
   echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
   COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
 fi

@@ -6,6 +6,7 @@ marked and a PRODUCTION box refuses it."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tarfile
 from pathlib import Path
@@ -31,7 +32,9 @@ def _block(marker: str) -> str:
     return INSTALL[start : INSTALL.index("\n# ---- end of " + marker.removeprefix("# "), start)]
 
 
-def _sh(tmp: Path, body: str, *, volumes: str = "", env_lines: str | None = None) -> subprocess.CompletedProcess[str]:
+def _sh(
+    tmp: Path, body: str, *, volumes: str = "", env_lines: str | None = None, docker_rc: int = 0, rehearsal: int = 1
+) -> subprocess.CompletedProcess[str]:
     """The installer's lines as they stand, in a folder laid out as an installer's, with a stand-in for docker."""
     (tmp / "deploy" / "site").mkdir(parents=True, exist_ok=True)
     (tmp / "tools" / "rehearse_box").mkdir(parents=True, exist_ok=True)
@@ -40,15 +43,16 @@ def _sh(tmp: Path, body: str, *, volumes: str = "", env_lines: str | None = None
         (tmp / "deploy" / ".env").write_text(env_lines, encoding="utf-8")
     script = (
         "set -euo pipefail\n"
-        f'ROOT="{tmp}"\ncd "$ROOT"\nREHEARSAL=1\n'
+        f'ROOT="{tmp}"\ncd "$ROOT"\nREHEARSAL={rehearsal}\n'
         'die() { echo "install: $*" >&2; exit 1; }\n'
         'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
         'envset() { sed -i "/^$1=/d" deploy/.env && printf \'%s=%s\\n\' "$1" "$2" >> deploy/.env; }\n'
-        f'docker() {{ printf "%s" "{volumes}"; }}\n'
+        f'docker() {{ printf "%s" "{volumes}"; return {docker_rc}; }}\n'
         f"{body}\n"
         'printf "override=%s\\nunmeasured=%s\\n" "${TB_COMPOSE_OVERRIDE:-}" "${TB_ACCEPT_UNMEASURED_GPU:-}"\n'
     )
-    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    env = {k: v for k, v in os.environ.items() if k not in ("TB_COMPOSE_OVERRIDE", "TB_ACCEPT_UNMEASURED_GPU")}
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, env=env)
 
 
 EARLY = "# REHEARSAL (D-726): before anything loads"
@@ -141,10 +145,17 @@ def test_after_the_settings_the_box_says_test_and_rehearsal(tmp_path: Path) -> N
 
 
 # ------------------------------------------------------ 3. the stand-ins and an unmeasured card only on TEST
-def _only_on_test(tmp: Path, env: str, what: str) -> subprocess.CompletedProcess[str]:
+def _only_on_test(tmp: Path, env: str, what: str, marked: bool = True) -> subprocess.CompletedProcess[str]:
     start = INSTALL.index("rehearsal_only() {")
     fn = INSTALL[start : INSTALL.index("\n}\n", start) + 3]
-    return _sh(tmp, f'TB_ENV_SITE={env}\n{fn}\nrehearsal_only "{what}"\necho through')
+    lines = f"TB_ENV={env}\n" + ("TB_REHEARSAL=1\n" if marked else "")
+    return _sh(tmp, f'TB_ENV_SITE={env}\n{fn}\nrehearsal_only "{what}"\necho through', env_lines=lines)
+
+
+def test_a_test_box_that_is_no_rehearsal_box_is_refused_too(tmp_path: Path) -> None:
+    """A hospital's own TEST box (review F5): TEST alone is not a rehearsal box."""
+    r = _only_on_test(tmp_path, "TEST", "the model stand-ins", marked=False)
+    assert r.returncode == 1 and "--rehearsal" in r.stderr
 
 
 @pytest.mark.parametrize(("env", "ok"), [("TEST", True), ("DEV", False), ("PRODUCTION", False), ("VALIDATION", False)])
@@ -225,3 +236,79 @@ def test_the_release_schema_knows_the_mark() -> None:
     assert schema["properties"]["rehearsal"] == {"type": "boolean", "description": schema["properties"]["rehearsal"][
         "description"]}  # fmt: skip
     assert "rehearsal" not in schema["required"]
+
+
+# ---------------------------------------------------------------------------------- the review's findings
+def test_the_stand_ins_are_known_by_their_content_wherever_they_lie(tmp_path: Path) -> None:
+    """F1: a copy, or the release tree's own (current/tools/...), is the stand-ins all the same."""
+    assert "\nx-trialbox-rehearsal-standins: true\n" in (ROOT / STANDINS).read_text(encoding="utf-8")
+    start = INSTALL.index("is_standins() {")
+    fn = INSTALL[start : INSTALL.index("\n}\n", start) + 3]
+    copy = tmp_path / "elsewhere.yml"
+    copy.write_text((ROOT / STANDINS).read_text(encoding="utf-8"), encoding="utf-8")
+    other = tmp_path / "site.yml"
+    other.write_text("services: {}\n", encoding="utf-8")
+    r = _sh(tmp_path, f'{fn}\nis_standins "{copy}" && echo copy-is\nis_standins "{other}" || echo other-not')
+    assert "copy-is" in r.stdout and "other-not" in r.stdout, r.stderr
+    assert 'is_standins "$OVR" && rehearsal_only "the model stand-ins' in INSTALL
+
+
+def test_doctor_fails_the_stand_ins_in_the_compose_files_of_a_site_box(tmp_path: Path) -> None:
+    c = doctor.check_rehearsal(
+        doctor.DoctorInputs(env={"TB_ENV": "PRODUCTION", "COMPOSE_FILE": f"a.yml:{ROOT / STANDINS}"}, deploy=tmp_path)
+    )
+    assert c.status == "FAIL" and "stand-ins" in c.detail
+    own_test = doctor.check_rehearsal(  # a hospital's own TEST box, not a rehearsal (F5)
+        doctor.DoctorInputs(env={"TB_ENV": "TEST", "COMPOSE_FILE": str(ROOT / STANDINS)}, deploy=tmp_path)
+    )
+    assert own_test.status == "FAIL"
+    rehearsal = doctor.check_rehearsal(
+        doctor.DoctorInputs(env={"TB_ENV": "TEST", "TB_REHEARSAL": "1", "COMPOSE_FILE": str(ROOT / STANDINS)})
+    )
+    assert rehearsal.status == "WARN"
+
+
+@pytest.mark.parametrize("where", ["mark", "env"])
+def test_a_site_install_on_a_box_left_a_rehearsal_is_refused(tmp_path: Path, where: str) -> None:
+    """F2: a leftover mark (a rehearsal that died, a box half emptied) never makes a site install TEST."""
+    (tmp_path / "deploy" / "site").mkdir(parents=True)
+    if where == "mark":
+        (tmp_path / "deploy" / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    r = _sh(tmp_path, _block(EARLY), rehearsal=0, env_lines="TB_REHEARSAL=1\n" if where == "env" else None)
+    assert r.returncode == 1 and "rehearsal" in r.stderr and "RUNBOOK" in r.stderr
+
+
+def test_a_site_install_on_a_box_never_rehearsed_goes_on(tmp_path: Path) -> None:
+    r = _sh(tmp_path, _block(EARLY), rehearsal=0, volumes="trialbox_db-data\n", env_lines="TB_ENV=PRODUCTION\n")
+    assert r.returncode == 0, r.stderr
+    assert "override=\n" in r.stdout and not (tmp_path / "deploy" / "site" / "rehearsal.json").exists()
+
+
+@pytest.mark.parametrize("value", ["production", '"PRODUCTION"', "PRODUCTION\r", " VALIDATION ", "STAGING"])
+@pytest.mark.parametrize("block", [EARLY, SETTINGS])
+def test_any_spelling_of_a_site_environment_is_refused(tmp_path: Path, value: str, block: str) -> None:
+    """F3: only DEV, TEST or nothing; the name as Python reads it (stripped, unquoted, upper case)."""
+    r = _sh(tmp_path, _block(block), env_lines=f"TB_ENV={value}\n")
+    assert r.returncode == 1 and "rehearsal" in r.stderr, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("left", ["deploy/settings.yaml", "deploy/updates/installed.json"])
+def test_a_box_with_settings_or_an_installed_release_is_refused(tmp_path: Path, left: str) -> None:
+    """F4: the box's data is not only in volumes."""
+    (tmp_path / left).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / left).write_text("{}\n", encoding="utf-8")
+    r = _sh(tmp_path, _block(EARLY))
+    assert r.returncode == 1 and left.removeprefix("deploy/") in r.stderr
+
+
+def test_docker_that_cannot_list_volumes_stops_the_rehearsal_with_a_reason(tmp_path: Path) -> None:
+    r = _sh(tmp_path, _block(EARLY), docker_rc=1)
+    assert r.returncode == 1 and "cannot list" in r.stderr
+
+
+@pytest.mark.parametrize("other", ["--prepare", "--firstrun"])
+def test_a_prepared_or_first_run_box_is_never_a_rehearsal(other: str) -> None:
+    """F7: a prepared box goes to a site."""
+    r = subprocess.run(["bash", str(ROOT / "deploy" / "box-install.sh"), "x.tar", "--rehearsal", other],
+                       capture_output=True, text=True, check=False, timeout=30)  # fmt: skip
+    assert r.returncode == 2 and "--rehearsal" in r.stderr and other in r.stderr

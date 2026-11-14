@@ -44,6 +44,16 @@ any environment honours, and nothing on the box or in the bundle says "rehearsal
    release.json `"rehearsal": true` (schema 1.2.0, optional). `Updater._from_a_commit` refuses it on PRODUCTION and
    VALIDATION, at install (`apply_update.sh`) and at update, before the box is touched.
 
+6. **After the review** (FIX FIRST, all nine findings fixed test-first): the stand-ins are known by their content
+   (`x-trialbox-rehearsal-standins: true` in `tools/rehearse_box/standins.yml`), not their path, so a copy or the
+   release tree's own is refused off a rehearsal box, and doctor fails a stand-ins file in `COMPOSE_FILE` on any box
+   that is not a rehearsal box; an install without `--rehearsal` refuses a box with the mark or `TB_REHEARSAL=1`, so
+   a leftover mark never makes a site install TEST; TB_ENV is read as Python reads it and only DEV, TEST or nothing
+   may become a rehearsal box; a box with `deploy/settings.yaml` or `deploy/updates/installed.json` and no mark is
+   refused, and a docker that cannot list volumes stops the install with a reason; `rehearsal_only` needs
+   `TB_REHEARSAL=1` as well as TEST; the release judgment comes before the "already installed" answer;
+   `box-install.sh` refuses `--rehearsal` with `--prepare` or `--firstrun`; RUNBOOK §16 lists everything to remove.
+
 **Not covered:** the blocks run on a real box only in the box rehearsal (`make rehearse-box`, Docker): not run in
 this card's session. The console banner (C2). An older box (before this card) validates release.json against schema
 1.1.0, which has no `rehearsal` field, and refuses a rehearsal bundle as malformed: refused either way.

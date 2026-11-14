@@ -120,8 +120,11 @@ keeps the real model servers, for an unmeasured card's trial boot) and `TB_ACCEP
 only. `trialbox doctor` says "rehearsal box" (WARN) and fails a rehearsal mark on any other environment. A bundle
 built with `tools/make_bundle.sh --rehearsal` says `"rehearsal": true` in its release.json; a PRODUCTION or
 VALIDATION box refuses it at install and at update. A rehearsal box never becomes a site box: before a site's
-install on the same machine, empty it: `docker compose --project-directory deploy down -v`, then remove
-`deploy/.env` and `deploy/site/rehearsal.json` (keep `deploy/site/serving_config.<profile>.json` from a trial boot).
+install on the same machine, empty it: `docker compose --project-directory deploy down -v`, then remove what the
+rehearsal's install wrote: `deploy/.env`, `deploy/settings.yaml`, `deploy/updates/`, `deploy/secrets/`,
+`deploy/site/registry.site.yaml` and `deploy/site/rehearsal.json` (keep `deploy/site/serving_config.<profile>.json`
+from a trial boot). Until the mark and `TB_REHEARSAL=1` are gone, `deploy/install.sh` without `--rehearsal` refuses the
+box, and doctor fails the stand-ins in the compose files of any box that is not a rehearsal box.
 
 **Prepared image:** Aimedics runs the same script with
 `--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
