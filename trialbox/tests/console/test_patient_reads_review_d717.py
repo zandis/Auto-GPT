@@ -91,7 +91,12 @@ def test_the_morning_mail_reads_as_its_principal_and_keeps_the_registry_statuses
 def test_a_round_reads_as_the_mail_whoever_started_it(site: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
     h = site["app"].state.helpers
     seen: list[Any] = []
-    monkeypatch.setattr(notify, "_collect", lambda *_a, **_k: seen.append(ca._READER.get()) or [])
+
+    def spy(*_a: Any, **_k: Any) -> list[Any]:
+        seen.append(ca._READER.get())
+        return []
+
+    monkeypatch.setattr(notify, "_collect", spy)
     admin = site["users"].get("admin")
     tok = ca._READER.set((h, Session(admin, "", "en", "")))  # the administrator's "Send notices now"
     try:
