@@ -472,7 +472,7 @@ def create_app(
     def account_tell(name: str, subject: str, body: str, by: str) -> None:
         """D-719 (a): the steward and the PI of each of the account's studies are told, as for break-glass."""
         stewards = [*us.users(), *us.disabled_users()]  # a disabled steward is told too (the review of D-719)
-        to = {u.mailbox for u in stewards if u.role == "steward" and u.mailbox}
+        to = {u.mailbox for u in stewards if permit(u.role, "breakglass.review").allowed and u.mailbox}
         target = us.get(name)
         team_store = getattr(account_team.get("h"), "team", None)
         if target is not None and team_store is not None:
@@ -697,9 +697,9 @@ def create_app(
         """D-719 (a): who reset which factor of this account when, or when it was opened; each line once."""
         if sess is None or not us.has_notices(sess.user.username):
             return []
-        stewards = ", ".join(u.username for u in us.users() if u.role == "steward") or translate(
-            lang, "account.notice.the_steward"
-        )
+        stewards = ", ".join(
+            u.username for u in us.users() if permit(u.role, "breakglass.review").allowed
+        ) or translate(lang, "account.notice.the_steward")
         return [
             translate(lang, f"account.notice.{kind}", by=by, at=at[:16].replace("T", " ") + " UTC", stewards=stewards)
             for kind, by, at in us.take_notices(sess.user.username)
@@ -978,6 +978,7 @@ def create_app(
             secure=settings.secure_cookie,
             lang_of=lang_of,
             client_source=client_source,
+            signed_in=lambda request: session_of(request) is not None,
         ),
     )
 

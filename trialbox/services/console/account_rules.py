@@ -200,6 +200,7 @@ class Hooks:
     secure: bool
     lang_of: Callable[[Request, Any], str]
     client_source: Callable[[Request], str]
+    signed_in: Callable[[Request], bool]
 
 
 def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
@@ -208,13 +209,15 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
     # ------------------------------------------------------------------ the holder's first sign-in
     def _enrol_page(request: Request, status: int = 200, **ctx: Any) -> Response:
         token = secrets.token_urlsafe(24)
-        stewards = ", ".join(u.username for u in us.users() if u.role == "steward")
+        stewards = ", ".join(u.username for u in us.users() if permit(u.role, "breakglass.review").allowed)
         resp = h.page(request, "enrol.html", None, status, login_csrf=token, stewards=stewards, **ctx)
         resp.set_cookie(h.login_cookie, token, httponly=True, samesite="strict", secure=h.secure, max_age=900)
         return resp
 
     @app.get("/enrol")
     def enrol_form(request: Request) -> Response:
+        if h.signed_in(request):  # the first sign-in is for a person who has no session yet
+            return RedirectResponse("/", status_code=303)
         return _enrol_page(request)
 
     @app.post("/enrol")

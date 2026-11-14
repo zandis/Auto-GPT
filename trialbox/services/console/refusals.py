@@ -13,6 +13,14 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    # D-719 (NEW-SEC-3): the account requests page
+    "an account with this name exists": ("この名前のアカウントはすでにあります", "已有此名稱的帳號"),
+    "this request is no longer waiting": ("この依頼はもう待っていません", "此申請已不在等待中"),
+    "unknown decision": ("不明な決定です", "未知的決定"),
+    "the other factor was set within 30 days": (
+        "もう一方の認証要素が30日以内に設定されています",
+        "另一項驗證因素已於 30 天內設定",
+    ),
     # DEMO-JA: a monitor grant names the field it lacks (the rehearsal saw only "could not be done")
     "a monitor grant needs the last day of the monitoring visit": (
         "モニターの許可には、モニタリング訪問の最終日が必要です",

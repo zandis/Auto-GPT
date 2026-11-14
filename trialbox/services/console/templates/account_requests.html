@@ -12,7 +12,7 @@
 <p class="warn">{{ t('requests.secret.once') }}</p>
 </section>{% elif done == 'confirmed' %}<p class="ok" role="status" data-testid="requests-done">{{ t('requests.done.confirmed') }}</p>{% endif %}
 {% if rows %}<table data-testid="requests">
-<thead><tr><th>{{ t('requests.col.what') }}</th><th>{{ t('login.user') }}</th><th>{{ t('requests.col.by') }}</th><th>{{ t('requests.col.at') }}</th><th></th></tr></thead>
+<thead><tr><th>{{ t('requests.col.what') }}</th><th>{{ t('login.user') }}</th><th>{{ t('requests.col.by') }}</th><th>{{ t('requests.col.at') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for r in rows %}<tr data-request="{{ r.id }}">
 <td>{{ t('requests.kind.' + r.kind) }}{% if r.kind == 'create' %} ({{ t('role.' + r.payload.role) }}){% endif %}{% if r.kind in ('create', 'scope') and r.payload.studies %} · {{ r.payload.studies }}{% endif %}</td>
 <td class="mono">{{ r.user }}</td><td class="mono">{{ r.by }}</td><td>{{ r.at[:16].replace('T', ' ') }} UTC</td>
