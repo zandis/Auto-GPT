@@ -47,6 +47,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.parse
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -107,6 +108,47 @@ def redact_secrets(text: str) -> tuple[str, int]:
                 n += 1
         out.append(line)
     return "\n".join(out) + ("\n" if text.endswith("\n") else ""), n
+
+
+#: D-723: a secret's value shorter than this is not looked for by value (a two-letter value would be replaced in every
+#: word); it is still redacted by its name. Every secret the box makes is far longer.
+MIN_VALUE = 4
+
+
+def secret_values(raw_env: Mapping[str, str], environ: Mapping[str, str]) -> dict[str, str]:
+    """D-723: the box's own secret values, by setting name: every setting of ``deploy/.env`` and of the process
+    environment whose name is secret-like (:data:`SECRET_KEY`, not a path or a mode). A name list is never complete
+    and a value can turn up where no name stands next to it, so the values themselves are what is looked for."""
+    out: dict[str, str] = {}
+    for source in (raw_env, environ):
+        for name, value in source.items():
+            v = str(value).strip().strip("\"'").strip()
+            if SECRET_KEY.search(name) and not SAFE_KEY.search(name) and len(v) >= MIN_VALUE and v != "[redacted]":
+                out.setdefault(name, v)
+    return out
+
+
+def _forms(value: str) -> list[str]:
+    """The value as text, and as a URL carries it (both percent-encodings)."""
+    forms = {value, urllib.parse.quote(value, safe=""), urllib.parse.quote(value), urllib.parse.quote_plus(value)}
+    return sorted(forms, key=len, reverse=True)
+
+
+def hide_values(text: str, values: Mapping[str, str]) -> tuple[str, int]:
+    """Every form of every value in ``values`` becomes ``[redacted]``; the text and how many were replaced."""
+    n = 0
+    for value in sorted(set(values.values()), key=len, reverse=True):
+        for form in _forms(value):
+            k = text.count(form)
+            if k:
+                text = text.replace(form, "[redacted]")
+                n += k
+    return text, n
+
+
+def still_held(text: str, values: Mapping[str, str]) -> list[str]:
+    """The NAMES of the settings whose value is still in ``text`` in some form (never the values)."""
+    return sorted(name for name, value in values.items() if any(f in text for f in _forms(value)))
 
 
 def mrn_pattern(deploy: Path) -> re.Pattern[str] | None:
@@ -383,6 +425,7 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
     env = {**_env_file(deploy), **{k: v for k, v in os.environ.items() if k in ("TB_LOG_DIR", "TB_AUDIT_HOST_DIR")}}
+    values = secret_values(_env_file(deploy), os.environ)
     extra = list(add)
     for p in extra:  # before any work: a refused path stops the whole bundle
         why = refusal(p, deploy, env)
@@ -411,6 +454,13 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         used.add(name)
         b.add(f"added/{name}", text, str(p), scrubbed=True, mrn=mrn)
     clean_lines(b, say)
+    # D-723: the box's own secret values, in every file and every form, whatever name (or none) stood next to them;
+    # before the manifest, so its checksums are of the files as they leave
+    hidden = 0
+    for name in list(b.members):
+        b.members[name], k = hide_values(b.members[name], values)
+        b.note(name, "secrets_hidden", k)
+        hidden += k
     manifest = {
         "made": now.isoformat(timespec="seconds"),
         "tool": "tools/support_bundle.py (T-209b, D-405)",
@@ -436,7 +486,8 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
             *(f"logs of {s}: {why}" for s, why in sorted(NEVER_LOGS.items())),
         ],
     }
-    b.members["MANIFEST.json"] = _json(manifest)
+    b.members["MANIFEST.json"], k = hide_values(_json(manifest), values)
+    hidden += k
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"trialbox-support-{now:%Y%m%dT%H%M%SZ}.tar.gz"
     part = out_dir / f".{target.name}.part"
@@ -450,13 +501,21 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         if hits:
             raise BundleRefused("the finished bundle still holds what the scan flags: " + "; ".join(
                 f"{Path(h.where).name}:{h.line}: {h.pattern}" for h in hits[:5]))  # fmt: skip
+        with tarfile.open(part, "r:gz") as tar:  # D-723: the last look is on the archive as it will leave
+            text = "\n".join(
+                (fh.read().decode("utf-8", errors="replace") if (fh := tar.extractfile(m)) else "")
+                for m in tar.getmembers()
+            )
+        held = still_held(text, values)
+        if held:
+            raise BundleRefused(f"the finished bundle still holds the secret value of {', '.join(held)}: not written")
         part.replace(target)
     finally:
         part.unlink(missing_ok=True)
     total = sum(int(v.get("lines_removed", 0)) for v in b.changed.values())
     red = sum(int(v.get("redacted", 0)) for v in b.changed.values())
-    say(f"wrote {target}: {len(b.members)} files; scrubber replaced {red} value(s); scan removed {total} line(s); "
-        "the finished bundle scans clean")  # fmt: skip
+    say(f"wrote {target}: {len(b.members)} files; scrubber replaced {red} value(s); {hidden} secret value(s) of the "
+        f"box replaced; scan removed {total} line(s); the finished bundle scans clean")  # fmt: skip
     return target
 
 
