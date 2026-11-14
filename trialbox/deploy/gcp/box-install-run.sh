@@ -896,7 +896,7 @@ step_g9_result() {
   d_candidates "$id" > "$REC/g9-candidates.json" 2>> "$STEP_LOG" || { STOP="the candidate list of job $id cannot be read"; return 1; }
   vm compare-lists "$REC/g9-baseline.json" "$REC/g9-candidates.json" > "$REC/g9-compare.json"
   note compare "$(cat "$REC/g9-compare.json")"
-  [ "$(job_state)" = done ] && [ "$(jget "$REC/g9-compare.json" equal)" = True ] && note pass true || note pass false
+  [ "$(job_state)" = "done" ] && [ "$(jget "$REC/g9-compare.json" equal)" = True ] && note pass true || note pass false
 }
 
 # ================================================================== G-10
