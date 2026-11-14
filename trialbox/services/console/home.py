@@ -161,13 +161,22 @@ class Helpers:
         return set(self.optout.effective()) if self.optout is not None else set()  # D-477 (M3): merged charts too
 
     def opted_out_on(self) -> dict[str, str]:
-        """NEW-LIFE-5 (D-762): each pseudonym of :meth:`gone` with the site's day of its opt-out; "" for the
-        surviving chart of a merge, which has no opt-out event of its own. For the rows a numbered patient keeps
-        (the screening log, the monitor's sheet): the trial record of a consented or enrolled subject stays (D-441)."""
+        """NEW-LIFE-5 (D-762): each pseudonym of :meth:`gone` with the site's day it was opted out (the first opt-out
+        event since its last lift); "" for the surviving chart of a merge, which has no opt-out event of its own. For
+        the rows a numbered patient keeps (the screening log, the monitor's sheet): the trial record of a consented
+        or enrolled subject stays (D-441)."""
         if self.optout is None:
             return {}
-        days = {e.pid: local_date(e.at, site_zone(self.bk)) for e in self.optout.current()}
-        return {p: days.get(p, "") for p in self.gone()}
+        # the review of D-762: the first opt-out since the patient's last lift, not a later repeat (a person's own
+        # opt-out after the registry's is an event of its own, D-441)
+        first: dict[str, str] = {}
+        for e in self.optout.events():
+            if e.action == "lift":
+                first.pop(e.pid, None)
+            elif e.action == "opt_out":
+                first.setdefault(e.pid, e.at)
+        tz = site_zone(self.bk)
+        return {p: local_date(first[p], tz) if p in first else "" for p in self.gone()}
 
     def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
         """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,

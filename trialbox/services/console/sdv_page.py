@@ -206,7 +206,8 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def sheet(sess: Session, path: str, rs: str, record: str) -> tuple[str, Entry, dict[str, Any]]:
         """One enrolled subject's source references. A candidate, a screen failure or a consented person who never
-        enrolled is 403; an opted-out patient 404; each refusal and each view audited with the visit."""
+        enrolled is 403; each refusal and each view audited with the visit. An enrolled subject who opted out is
+        shown with the day of the opt-out, never the pseudonym (NEW-LIFE-5, D-762)."""
         rid = study_or_404(sess, rs)
         g = need_grant(sess, path, rid)
         visit = g.training_ref or ""

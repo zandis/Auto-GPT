@@ -35,13 +35,31 @@ subject; the log did not. **Confirmed by a test** before the change (kept failin
   listed and opened, with the day of the opt-out, never the pseudonym (the monitor pages never showed it). The sheet
   is no longer refused with `why: opted_out`.
 - **One read of the register's days** (`Helpers.opted_out_on`): the pseudonyms of `gone()` (D-477, merged charts
-  included) with the site's day of each one's opt-out event.
+  included) with the site's day each was opted out: the first opt-out event since the patient's last lift, not a
+  later repeat (a person's own opt-out after the registry's is an event of its own, D-441).
+- **This narrows D-147 and D-273 (PV-4) for numbered patients, as LIFE-005 asks.** A number is given at referral,
+  before any approach, so a referred patient who never consented and then opted out now shows as a numbered row
+  that says "opted out". The row names nobody, but whoever knows which person a number is learns that they opted
+  out; so does a sponsor whose layout names `opted_out`. A numbered row is a trial-log fact the site must account
+  for (ICH E6(R3) screening log); a patient never numbered is still on no list.
+- **The monitor sees what was recorded; nothing new is recorded.** The monitor's sheet of an enrolled subject who
+  opted out shows the CRF values already decided, their citations and trail. The site's EDC pages still refuse new
+  entry and copy from the hospital's records for an opted-out patient (`edc.opted_out`, D-441): the opt-out stops
+  further use of the hospital's data, not the account of the trial record already made. A monitor's finding on such
+  a subject is answered on paper or in the sponsor's EDC, as for any value not drawn from the hospital's records.
 
 ## What the review of the old behaviour pinned
 
 `tests/console/test_sdv.py` held the old rule (the opted-out enrolled subject 404 and off the list). Its assertions
 now hold the new one: the sheet opens with `data-testid="sdv-opted-out"` and no pseudonym, the list names the
 subject with the day, and the visit record's subject list includes them.
+
+## The review
+
+One adversarial review: NOT SOUND on the first pass. The day shown was a later repeat of the opt-out (fixed and
+held by a test); the record did not say how the rule narrows D-147 for numbered patients, nor that the EDC still
+refuses new entry for them (both said above); the tests did not cover repeated events, a lifted opt-out, a numbered
+patient who never consented or a merged chart (added).
 
 ## Reuse check
 

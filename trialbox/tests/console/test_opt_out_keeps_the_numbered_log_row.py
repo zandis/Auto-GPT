@@ -99,3 +99,66 @@ def test_the_monitor_opens_an_enrolled_subject_who_opted_out(sb: dict[str, Any])
     assert PIDS["gone"] not in page.text
     listing = mon.get("/studies/GZQO/monitor")
     assert no in listing.text and PIDS["gone"] not in listing.text
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+def test_the_day_shown_is_the_first_opt_out_not_a_later_repeat(sb: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-762 (F1): a person's own opt-out after the registry's is written as a second event (D-441);
+    the day shown is the day the patient was first opted out, not the repeat's."""
+    no = _numbered_gone(sb)
+    sb["app"].state.helpers.optout.add(PIDS["gone"], "office", "", "stw", "2026-11-10T00:00:00+00:00")
+    api = TestClient(sb["app"])
+    tok = api.post("/api/v1/session", json={"username": "drsato", "password": PW}).json()["token"]
+    api.headers["Authorization"] = f"Bearer {tok}"
+    mine = [x for x in api.get("/api/v1/studies/GZQO/screening-log").json() if x["screening_no"] == no]
+    assert mine[0]["opted_out"] == "2026-11-03"
+
+
+def test_a_lifted_opt_out_gives_the_row_back_whole_and_a_new_one_counts_from_its_own_day(
+    sb: dict[str, Any],  # noqa: F811
+) -> None:
+    no = _numbered_gone(sb)
+    h = sb["app"].state.helpers
+    h.optout.lift(PIDS["gone"], "changed their mind", "stw", "2026-11-05T00:00:00+00:00")
+    assert h.opted_out_on().get(PIDS["gone"]) is None
+    pi, _ = login(sb["app"], "drsato", PW)
+    row = pi.get("/studies/GZQO/screening-log").text
+    assert PIDS["gone"][:8] in row[row.index(f'data-testid="log-{no}"') :][:800]  # the whole row again
+    h.optout.add(PIDS["gone"], "paper", "", "stw", "2026-11-12T00:00:00+00:00")
+    assert h.opted_out_on()[PIDS["gone"]] == "2026-11-12"  # the new opt-out's own day, not the first one's
+
+
+def test_a_patient_numbered_before_opting_out_keeps_a_row_without_the_pseudonym(sb: dict[str, Any]) -> None:  # noqa: F811
+    """A number is given at referral, before any approach (``team.py``): such a patient keeps the numbered row too,
+    with nothing that says who (LIFE-005 asks for it; D-762 says how this narrows D-147 for numbered patients)."""
+    h = sb["app"].state.helpers
+    never_no = h.store.assign_screening_no("GZQO", NEVER, StudySettings(), "2026-11-01T00:00:00+00:00")
+    _numbered_gone(sb)
+    pi, _ = login(sb["app"], "drsato", PW)
+    page = pi.get("/studies/GZQO/screening-log").text
+    row = page[page.index(f'data-testid="log-{never_no}"') :][:1500]
+    assert 'data-testid="log-opted-out"' in row and "2026-11-04" in row
+    assert NEVER not in page and NEVER[:8] not in page
+
+
+def test_a_merged_chart_without_an_event_of_its_own_reads_opted_out_without_a_day(sb: dict[str, Any]) -> None:  # noqa: F811
+    """D-477: the register hides the surviving chart of a merge too; it has no opt-out event, so no day."""
+    h = sb["app"].state.helpers
+    real = h.optout
+
+    class Merged:
+        def effective(self) -> set[str]:
+            return set(real.effective()) | {"p-0009-survivor"}
+
+        def current(self) -> Any:
+            return real.current()
+
+        def events(self, pid: str | None = None) -> Any:
+            return real.events(pid)
+
+    h.optout = Merged()
+    try:
+        got = h.opted_out_on()
+    finally:
+        h.optout = real
+    assert got["p-0009-survivor"] == "" and got[PIDS["gone"]] == "2026-11-03"
