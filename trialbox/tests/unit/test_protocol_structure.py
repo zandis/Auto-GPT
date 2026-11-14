@@ -15,7 +15,7 @@ of a second inclusion or exclusion section are each sent to a person (class ``hu
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from criteria_compiler.structure import check
@@ -162,3 +162,190 @@ def test_the_compile_sends_each_found_line_to_a_person_and_says_why(tmp_path: Pa
         by_text["Contraindication to MRI"].flags or []
     )
     assert any("alternatives" in w for w in res.warnings)
+
+
+# ------------------------------------------------------------------------------------------------- review fixes
+def test_a_cohort_documents_two_sections_are_its_population_and_its_counts(tmp_path: Path) -> None:
+    """Review: D-71 parses 世代定義 (who is in) and 計數條件 (what is counted) as two inclusion sections; the second
+    is no other phase. A cohort compile keeps them as before."""
+    lines = _lines(["痛風の診断がある者"], section="世代定義") + _lines(["尿酸値8.0 mg/dL以上"], section="計數條件")
+    assert check(lines, doc_kind="cohort").findings == []
+    assert check(lines).findings  # a trial with two inclusion sections still says so
+
+
+def test_the_shipped_cohort_documents_compile_as_before(tmp_path: Path) -> None:
+    res = _compile_doc(tmp_path, "GOUT-COH", ROOT / "tests/fixtures/protocols/GOUT-COH_世代定義_v1.docx", "cohort")
+    assert not [x.id for x in res.criteria if "structure" in (x.flags or [])]
+
+
+def test_a_text_in_two_sections_does_not_decide_which_section_came_first() -> None:
+    """Review: the parser keys a line's section by its text, so a line in both sections carries the later one."""
+    lines = [
+        {"text": "Age 18 years or older", "kind": "inclusion", "source_ref": "Inclusion Criteria (Part B) #1"},
+        {"text": "BMI 18 to 35", "kind": "inclusion", "source_ref": "Inclusion Criteria (Part A) #2"},
+        {"text": "Age 18 years or older", "kind": "inclusion", "source_ref": "Inclusion Criteria (Part B) #1"},
+        {"text": "Completed the treatment period", "kind": "inclusion", "source_ref": "Inclusion Criteria (Part B) #2"},
+    ]
+    got = _flags(lines)
+    assert 1 not in got and "second_section" in got[3]
+    assert 0 not in got and 2 not in got  # its section cannot be told: no section finding either way
+
+
+def test_the_public_early_ad_protocol_groups_its_alternatives_and_not_its_required_lines() -> None:
+    """NCT03887455 (public, ClinicalTrials.gov) as the parser gives it: the MCI group (lines 1 and 2) and the mild AD
+    dementia group (lines 4 and 5) go to a person; "Key Inclusion Criteria that must be met by all participants:"
+    (glued to line 5) opens no group, so age, MMSE, BMI and consent compile as before."""
+    import json
+
+    from doc_parser.parser import parse
+
+    data = json.loads((ROOT / "tests/fixtures/public_protocols/NCT03887455.json").read_text("utf-8"))
+
+    def find(o: Any) -> Any:
+        if isinstance(o, dict):
+            for k, v in o.items():
+                got = v if k == "eligibilityCriteria" else find(v)
+                if got:
+                    return got
+        return None
+
+    block = parse(find(data).encode(), "x.txt").ie_block
+    refs = block.refs or {}
+    lines = [{"text": t, "kind": "inclusion", "source_ref": refs.get(t, "")} for t in block.inclusion]
+    got = _flags(lines)
+    assert {"group_member"} <= got[1] and {"group_member"} <= got[2] and {"group_member"} <= got[4]
+    assert all(i not in got for i in range(6, 14))  # the lines all participants must meet
+    assert any("other_phase" in got.get(i, set()) for i in range(14, len(lines)))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Participants must meet one of the following: a. MCI due to AD b. Mild AD dementia",
+        "Any of the following prior therapies: methotrexate, leflunomide",
+        "Either MCI due to AD or mild AD dementia",
+        "At least one of the following findings",
+        "以下のいずれかに該当する患者",
+        "符合下列任一項條件者",
+        "符合下列條件之一者",
+    ],
+)
+def test_alternatives_inside_one_line_are_found(text: str) -> None:
+    assert "alternatives_in_line" in _flags(_lines([text])).get(0, set())
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Completed the 52-week double-blind treatment period",
+        "Eligible for Part 2 of the study",
+        "Rolled over from the parent study",
+        "Completed Period 1",
+        "延長試驗期：完成主試驗者",
+        "Assigned to Cohort B",
+    ],
+)
+def test_more_phase_and_cohort_forms(text: str) -> None:
+    assert "other_phase" in _flags(_lines([text])).get(0, set())
+
+
+def test_a_phase_in_the_section_title_flags_its_lines() -> None:
+    lines = _lines(["Age 18 or older"]) + _lines(
+        ["No new safety signal"], section="Inclusion Criteria for the Open-Label Extension"
+    )
+    assert "other_phase" in _flags(lines)[1]
+
+
+def test_a_lead_in_colon_followed_by_a_period_is_a_lead_in() -> None:
+    assert "group_heading" in _flags(_lines(["Meets the following criteria:."])).get(0, set())
+
+
+@pytest.mark.parametrize(
+    "lead",
+    [
+        "Key Inclusion Criteria that must be met by all participants:",
+        "All of the following:",
+        "Women of childbearing potential must agree to the following:",
+    ],
+)
+def test_a_lead_in_of_required_lines_opens_no_group(lead: str) -> None:
+    """Review: such a lead-in sent every later line of its section to a person as a possible alternative."""
+    got = _flags(_lines([lead, "Adequate hepatic function", "Signed informed consent"]))
+    assert 1 not in got and 2 not in got
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Meets all inclusion criteria of the parent protocol at screening",
+        "續用時仍須符合初次申請之納入條件",
+        "Scores 10 or less on Part B of the questionnaire",
+        "Completed week 4 of the run-in",
+    ],
+)
+def test_ordinary_wording_is_left_alone(text: str) -> None:
+    assert _flags(_lines([text])) == {}
+
+
+def test_a_criterion_the_reviewer_approved_keeps_its_decision_and_questions_say_what_to_do() -> None:
+    from criteria_compiler.structure import send_to_a_person
+
+    class C:
+        def __init__(self, cid: str, text: str) -> None:
+            self.id, self.text, self.flags, self.human_question, self.class_ = cid, text, None, None, "structured"
+
+        def model_copy(self, update: dict[str, Any]) -> C:
+            new = C(self.id, self.text)
+            new.__dict__.update(self.__dict__ | update)
+            return new
+
+    lines = _lines(["MCI due to AD:", "Global CDR score of 0.5"])
+    crits = [C("X-INC-01", "MCI due to AD:"), C("X-INC-02", "Global CDR score of 0.5")]
+    out, warnings = send_to_a_person(crits, check(lines), keep={1})
+    assert out[1].class_ == "structured" and len(warnings) == 1  # reused from the approved version: not re-opened
+    assert "heading" in out[0].human_question and "Confirm with the patient" not in out[0].human_question
+
+
+def _compile_doc(tmp_path: Path, ruleset: str, doc: Path, kind: Literal["trial", "nhi", "cohort"]) -> Any:
+    import tb_contracts as c
+    from criteria_compiler.repo import RulesetRepo
+    from criteria_compiler.service import Compiler, CompilerDeps
+    from criteria_compiler.terminology.mapper import Terminology
+    from doc_parser.parser import parse
+    from fastapi.testclient import TestClient
+    from llm_stub.app import app as stub
+    from tb_common.audit import AuditLog
+    from tb_common.llm import LlmClient
+    from tb_common.objstore import FsStore
+
+    from tests.rulesets_guard import copy_rulesets
+    from tests.unit.test_compiler_service import FakeGate, FakeTranslator
+
+    seed = tmp_path / "seed"
+    copy_rulesets(seed, "GZQO")
+    store = FsStore(tmp_path / "obj")
+    audit = AuditLog(tmp_path / "audit")
+    llm = LlmClient("http://stub/v1", "stub", audit=audit)
+    llm.http = TestClient(stub)
+    deps = CompilerDeps(
+        store=store,
+        repo=RulesetRepo(tmp_path / "repo", seed),
+        llm=llm,
+        term=Terminology(),
+        settings_thresholds={"equivalence_min_pct": 98.0},
+        translator=FakeTranslator(),  # type: ignore[arg-type]
+        audit=audit,
+        equivalence=FakeGate(),
+        mrn_regex=r"^\d{8}$",
+    )
+    store.put("a/p.json", c.dump_json(parse(doc.read_bytes(), doc.name, backend="lite")).encode())
+    return Compiler(deps).compile(
+        c.CompileRequest(
+            job_id="01JTEST0000000000000000002",
+            ruleset=ruleset,
+            kind=kind,
+            parsed_doc_key="a/p.json",
+            requested_by="crc1@hospa.test",
+            options={"index_date": "2026-10-05"},
+        )
+    )
