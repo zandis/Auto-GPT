@@ -29,7 +29,7 @@ from tb_common.crypto import ed25519_generate
 from tests.unit.test_audit_drain_malformed_row import _Con
 
 AT = datetime(2026, 11, 13, 9, 0, tzinfo=UTC)
-SERVICES = sorted(r for r in ROLE_EVENTS if r != "tb_audit_writer") + ["tb_somebody_new"]
+SERVICES = [*sorted(r for r in ROLE_EVENTS if r != "tb_audit_writer"), "tb_somebody_new"]
 
 
 def _lines(d: Path) -> list[dict[str, Any]]:
