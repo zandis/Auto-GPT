@@ -213,3 +213,17 @@ folder `g8-2026-11-14/`.
   NCT02629159 only; the extension-phase check, the one NCT03887455 was chosen for, is not measured yet.
 - Evidence: `g8-2026-11-14/g8-protocols.json` (`protocols.protocols`), `g8-2026-11-14/report.md`.
 - Still to measure: NCT03887455 after B14 is fixed (one short run, `complete_run.py --only g8-protocols`).
+
+## 6. Lane G's order of work (the integrator, 2026-11-14)
+
+Wave dates are no longer start gates. Lane G works in this order:
+
+1. R2: the production box start.
+2. The demo VM, before 2026-11-17.
+3. R4: the GPU run at 50,000 patients.
+4. NEW-PERF-1 (#333).
+
+The run matrix is D-502 (`docs/decisions/D-502-every-data-set-is-run-with-the-real-models-in-three-languages.md`):
+every data set, three languages, real models; lane G builds it from the replies in issue #579 and measures it
+after the screening-answer fixes (#567, #570, #572, #573, #576) and B14 are on master. Every launch needs the
+owner's yes on its estimate.
