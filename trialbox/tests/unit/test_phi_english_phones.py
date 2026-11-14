@@ -26,7 +26,7 @@ PHONES = [
     ("Fax 555-010-0177 to the GP.", "555-010-0177"),
     ("Next of kin on +44 20 7946 0958 (London).", "+44 20 7946 0958"),
     ("Mobile 07700 900123, prefers texts.", "07700 900123"),
-    ("tel. 020 7946 0999", "020 7946 0999"),
+    ("tel. 01632 960999", "01632 960999"),  # the range kept for drama
 ]
 
 # clinical text an English note holds: none of it is a phone number
