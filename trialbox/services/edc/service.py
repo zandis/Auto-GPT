@@ -464,10 +464,14 @@ class EdcService:
                 # the touched records' rows, with every field their branching logic and calculations read (T-302b)
                 recs = sorted({ids[str(d["record"]).upper()] for d in todo if str(d["record"]).upper() in ids})
                 look = watched(meta, {live[i].form for i in items}, items)
+                # NEW-EDC-2 (EDC-002): a repeat instance is judged whole, so every field of its row is read
+                look |= self._instance_fields(lay, meta, todo)
                 cur = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))], records=recs)
                            if recs else [], self.today())  # fmt: skip
                 imports: dict[Key, dict[str, str]] = {}
                 planned: list[tuple[dict[str, Any], str, Slot]] = []
+                taken: set[Key] = set()  # NEW-EDC-2: repeat instances that hold a value TrialBox did not write
+                judged: dict[Key, bool] = {}
                 for d in todo:
                     if str(d["record"]).upper() in twice:  # a wrong-subject write is worse than none (E-06)
                         out["duplicate"].append(_brief(d))
@@ -494,18 +498,46 @@ class EdcService:
                         continue
                     there = cur.value(rec, slot, str(d["item"]))
                     value = fmt[int(d["id"])]
+                    if slot.repeat:  # NEW-EDC-2: the instance is judged whole, at its first value, on REDCap's rows
+                        k = lay.key(rec, slot)
+                        if k not in judged:
+                            judged[k] = self._not_ours(rs, cur, live, rec, slot, str(d["record"]))
+                        if judged[k]:
+                            taken.add(k)
+                            wrote = self.store.last_written(rs, d["record"], d["visit"], d["item"])
+                            ours = forms.redcap_value(lf, wrote) if wrote else ""
+                            if there and there not in (value, ours):
+                                out["conflict"].append({**_brief(d), "redcap": there})
+                                self.store.record_sent(rs, d, "redcap", rec, "conflict", CONFLICT, by, at)
+                            else:
+                                out["instance_taken"].append(_brief(d))
+                                self.store.record_sent(rs, d, "redcap", rec, "instance_taken", INSTANCE_TAKEN, by, at)
+                            continue
                     if there == value:
                         out["already_there"].append(_brief(d))
                         self.store.record_sent(rs, d, "redcap", rec, "already_there", "", by, at)
                         continue
                     last = self.store.last_sent(rs, d["record"], d["visit"], d["item"])
                     if there and there != (forms.redcap_value(lf, last) if last else ""):
+                        if slot.repeat:  # NEW-EDC-2: the instance is someone else's; nothing of TrialBox's goes in
+                            taken.add(lay.key(rec, slot))
                         out["conflict"].append({**_brief(d), "redcap": there})
                         self.store.record_sent(rs, d, "redcap", rec, "conflict", "REDCap holds another value that "
                                                "TrialBox did not write; not overwritten", by, at)  # fmt: skip
                         continue
                     planned.append((d, rec, slot))
                     cur.lay(rec, slot, str(d["item"]), value)
+                # NEW-EDC-2 (EDC-002): a repeat instance is written whole or not at all. One that holds a value on any
+                # of its fields that TrialBox did not write is another person's entry or another event: every value
+                # of TrialBox's for it is held, never merged into it field by field
+                for d, rec, slot in list(planned):
+                    k = lay.key(rec, slot)
+                    if slot.repeat and k in taken:
+                        taken.add(k)
+                        planned.remove((d, rec, slot))
+                        cur.unlay(rec, slot, str(d["item"]))
+                        out["instance_taken"].append(_brief(d))
+                        self.store.record_sent(rs, d, "redcap", rec, "instance_taken", INSTANCE_TAKEN, by, at)
                 # T-302b: a value for a field REDCap would hide (with what is about to be sent laid over the row) is
                 # not sent; holding one back can hide another, so this runs until nothing changes
                 changed = True
@@ -607,9 +639,10 @@ class EdcService:
                 items = sorted({str(d["item"]) for d in decided if str(d["item"]) in live})
                 on_row = {str(m.get("form_name")) for m in meta.values()
                           if not lay.misplaced(slot, str(m.get("form_name")), set())}  # fmt: skip
-                look = watched(meta, on_row | {live[i].form for i in items}, items)
+                look = watched(meta, on_row | {live[i].form for i in items}, items) | self._slot_fields(lay, meta, slot)
                 cur = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))], records=[rec]),
                            self.today())  # fmt: skip
+                taken = bool(slot.repeat and self._not_ours(rs, cur, live, rec, slot, record))
         except RcError as exc:
             raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
         misplaced, hidden = [], []
@@ -634,7 +667,8 @@ class EdcService:
                     hidden.append({"item": item, "why": "logic"})
         calcs = cur.calcs(rec, slot)
         out = {"visit": vis, "event": slot.event, "instrument": slot.instrument, "instance": slot.instance,
-               "misplaced": misplaced, "hidden": hidden, "calc": calcs}  # fmt: skip
+               "misplaced": misplaced, "hidden": hidden, "calc": calcs,
+               "instance_taken": taken}  # fmt: skip  # NEW-EDC-2: every value would be held
         self._audit("edc.preview", rs, by, {"record": record, "visit": vis, "misplaced": len(misplaced),
                                             "hidden": len(hidden), "calc": len(calcs)})  # fmt: skip
         return out
@@ -809,6 +843,45 @@ class EdcService:
                                                "records": len(pids), **counts})  # fmt: skip
         return {"file": sha, "name": name[:120], "file_oid": f.file_oid, **out}
 
+    @staticmethod
+    def _slot_fields(lay: Any, meta: dict[str, Any], slot: Any) -> set[str]:
+        """Every field that lives on a repeat instance (NEW-EDC-2): the repeating instrument's, or for a repeating
+        event every instrument designated for it."""
+        if slot is None or not slot.repeat:
+            return set()
+        on = {slot.instrument} if slot.instrument else (lay.designated.get(slot.event) or set())
+        return {f for f, m in meta.items() if str(m.get("form_name") or "") in on or not on}
+
+    def _instance_fields(self, lay: Any, meta: dict[str, Any], todo: list[dict[str, Any]]) -> set[str]:
+        """Every field on the repeat instances the send touches."""
+        out: set[str] = set()
+        for d in todo:
+            out |= self._slot_fields(lay, meta, lay.slot(str(d["visit"])))
+        return out
+
+    def _not_ours(self, rs: str, cur: Any, live: dict[str, Any], rec: str, slot: Any, record: str) -> bool:
+        """Whether a repeat instance holds, on any field a person can enter, something other than what TrialBox
+        itself last wrote there (NEW-EDC-2): a value TrialBox never wrote (an ``already_there`` is not TrialBox's),
+        a value changed since, or a value of TrialBox's that a person cleared. What REDCap holds is read, never
+        what the send is about to lay over it. A calculated or descriptive field is REDCap's own and is not judged;
+        a ticked checkbox column (``field___code``) is a person's (TrialBox never writes a checkbox, EDC-003)."""
+        row = cur.rows.get(cur.layout.key(rec, slot)) or {}
+        for f in cur.on_row(rec, slot):
+            kind = str((cur.meta.get(f) or {}).get("field_type") or "")
+            if kind in ("calc", "descriptive"):
+                continue
+            if any(str(c).startswith(f"{f}___") and str(v) == "1" for c, v in row.items()):
+                return True
+            there = str(row.get(f) or "")
+            wrote = self.store.last_written(rs, record, slot.visit, f)
+            if wrote is None:
+                if there:
+                    return True
+                continue
+            if f not in live or (forms.redcap_value(live[f], wrote) if wrote else "") != there:
+                return True
+        return False
+
     def trail(self, rs: str, record: str) -> dict[str, Any]:
         return self.store.trail(rs, record)
 
@@ -816,7 +889,13 @@ class EdcService:
 #: what the send answers per value: written, or held back with the reason (the last four: T-115, D-368)
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
-                "repeating_form", "not_repeating_form", "hidden", "logic")  # fmt: skip
+                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken")  # fmt: skip
+#: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
+CONFLICT = "REDCap holds another value that TrialBox did not write; not overwritten"
+INSTANCE_TAKEN = (
+    "the repeat instance holds a value TrialBox did not write (a person's entry or another event); "
+    "nothing of TrialBox's is written into it: choose another instance"
+)
 #: why a value is not written to the row its visit names (T-302b, D-414), and the words kept in ``sent``
 PLACEMENT = {
     "not_on_event": "the item's instrument is not designated for this event; not sent",

@@ -280,16 +280,16 @@ def _halfway(svc: SiteSetup, error: Exception) -> Any:  # noqa: F811
 
 @pytest.mark.parametrize(
     ("status", "said"),
-    [(503, "the lake is restarting"), (404, "FileNotFoundError: snapshot"), (422, "IOException: LAKE-QUERY"),
-     (422, "LAKE-STALE: the snapshot was replaced"), (401, "service token required")],
+    [(503, "LAKE-STALE: the snapshot was replaced"), (503, "FileNotFoundError: snapshot"),
+     (500, "IOException: LAKE-QUERY"), (502, "bad gateway")],
 )  # fmt: skip
-def test_the_patient_check_says_lake_unread_for_every_way_the_lakes_query_fails(
+def test_the_patient_check_says_lake_unread_when_the_lake_failed(
     svc: SiteSetup,  # noqa: F811
     status: int,
     said: str,
 ) -> None:
-    """The real lake answers its own failures of a query with 404 and 422 (a snapshot file gone or damaged, a
-    stale snapshot), never 5xx (the review ran it): the status does not tell them from one another."""
+    """NEW-SITE-5 (D-715): with D-675 the status of a failed query says who failed. 500 and above is the lake
+    (it cannot serve the snapshot, it met a limit, it broke): "could not be read"."""
     from lake.client import LakeQueryFailed
 
     up = svc.main_lake
@@ -300,6 +300,82 @@ def test_the_patient_check_says_lake_unread_for_every_way_the_lakes_query_fails(
     svc.main_lake = up
 
 
+@pytest.mark.parametrize(
+    ("status", "said"),
+    [(400, "SqlRejected: only SELECT"), (422, "Binder Error: Referenced column x not found"),
+     (401, "service token required"), (403, "caller not allowed")],
+)  # fmt: skip
+def test_a_fault_of_the_question_at_the_patient_check_is_shown_as_a_fault(
+    svc: SiteSetup,  # noqa: F811
+    status: int,
+    said: str,
+) -> None:
+    """Below 500 the lake answered and the question (or the caller's set-up) is at fault: "could not be read, try
+    again" would be untrue of it and would hide it. D-712 could not tell a 422 of the lake's own from the
+    engine's complaint; D-675 gives them different statuses."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    c = _halfway(svc, LakeQueryFailed(status, said))
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 500 and "lake_unread" not in r.text
+    svc.main_lake = up
+
+
+def test_the_readiness_readers_tell_a_failed_lake_from_a_fault_of_their_own_question(svc: SiteSetup) -> None:  # noqa: F811
+    """They turned every failure of their query into "could not be read" (D-709, D-712). A fault of the box's own
+    fixed question (422) is a fault of this code: it goes on, and the readiness answer fails with it."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    for fn, args in ((readiness.feed_loaded, (svc,)), (readiness.unknown_share, (svc, MAIN))):
+        svc.main_lake = Halfway(LakeQueryFailed(503, "LAKE-STALE"))
+        with pytest.raises(readiness.LakeUnread):
+            fn(*args)
+        svc.main_lake = Halfway(LakeQueryFailed(422, "Binder Error"))
+        with pytest.raises(LakeQueryFailed):
+            fn(*args)
+    svc.main_lake = Halfway(LakeQueryFailed(422, "Binder Error"))
+    with pytest.raises(LakeQueryFailed):
+        readiness.readiness(svc, MAIN, STUDY, {"forms": 7})
+    svc.main_lake = up
+
+
+def test_the_readiness_route_fails_visibly_when_its_own_question_is_wrong(svc: SiteSetup) -> None:  # noqa: F811
+    """Through the route: a fault of a fixed question is a 500, not a page that says "could not be read"; a lake
+    that failed is still the page that says so."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    c = _routes(svc)
+    svc.main_lake = Halfway(LakeQueryFailed(422, "Binder Error: Referenced column x not found"))
+    r = c.get(f"/setup/{MAIN}/readiness?study=SITE5B")
+    assert r.status_code == 500 and "lake_unread" not in r.text
+    svc.main_lake = Halfway(LakeQueryFailed(503, "LAKE-STALE"))
+    r = c.get(f"/setup/{MAIN}/readiness?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True
+    svc.main_lake = up
+
+
+def test_a_library_lake_that_broke_is_unread_and_a_wrong_statement_on_it_is_a_fault(svc: SiteSetup) -> None:  # noqa: F811
+    """A space other than the hospital's reads its lake as a library, which raises the lake's own classes, not a
+    status: the lake's own rule (``lake.store.query_failure_status``) decides the same way."""
+    import duckdb
+    from lake.store import LakeLimitError
+
+    up = svc.main_lake
+    svc.main_lake = Halfway(LakeLimitError("LAKE-LIMIT: memory"))
+    with pytest.raises(readiness.LakeUnread):
+        readiness.feed_loaded(svc)
+    svc.main_lake = Halfway(OSError(5, "Input/output error"))
+    with pytest.raises(readiness.LakeUnread):
+        readiness.feed_loaded(svc)
+    svc.main_lake = Halfway(duckdb.BinderException("Referenced column x not found"))
+    with pytest.raises(duckdb.BinderException):
+        readiness.feed_loaded(svc)
+    svc.main_lake = up
+
+
 def test_the_counts_route_says_lake_unread_when_its_own_question_fails(
     svc: SiteSetup,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
@@ -307,7 +383,7 @@ def test_the_counts_route_says_lake_unread_when_its_own_question_fails(
     from lake.client import LakeQueryFailed
 
     def fails(*a: Any, **k: Any) -> Any:
-        raise LakeQueryFailed(422, "IOException: LAKE-QUERY")
+        raise LakeQueryFailed(500, "IOException: LAKE-QUERY")
 
     inp = help.practice_inputs()
     svc.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
@@ -331,18 +407,6 @@ def test_the_patient_check_says_lake_unread_when_the_lakes_queries_fail(svc: Sit
     svc.main_lake = Halfway(LakeBadAnswer(200, "is not a table"))  # a 200 that is not the lake's answer
     r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
     assert r.status_code == 200 and r.json() == want, r.text[:300]
-    svc.main_lake = up
-
-
-def test_a_query_the_lake_refuses_is_not_the_lake_being_unread(svc: SiteSetup) -> None:  # noqa: F811
-    """A 400 is the lake rejecting the statement itself (``SqlRejected``: not a plain read): a fault of the
-    criteria's SQL or of this code. "Could not be read, try again" would be untrue of it, and would hide it."""
-    from lake.client import LakeQueryFailed
-
-    up = svc.main_lake
-    c = _halfway(svc, LakeQueryFailed(400, "SqlRejected: only SELECT"))
-    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
-    assert r.status_code == 500 and "lake_unread" not in r.text
     svc.main_lake = up
 
 

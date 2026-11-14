@@ -831,6 +831,17 @@ class EdcStore:
                          (study, record, visit, item))  # fmt: skip
         return str(rows[0]["value"]) if rows else None
 
+    def last_written(self, study: str, record: str, visit: str, item: str) -> str | None:
+        """The value TrialBox itself last wrote into REDCap for this item (NEW-EDC-2): ``sent`` (written and read
+        back) or ``erased`` (written empty). An ``already_there`` line is not a write: the value was someone's
+        before TrialBox came. None: TrialBox never wrote it."""
+        rows = self._all("SELECT value, result FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? AND "
+                         "target = 'redcap' AND result IN ('sent', 'erased') ORDER BY id DESC LIMIT 1",
+                         (study, record, visit, item))  # fmt: skip
+        if not rows:
+            return None
+        return "" if rows[0]["result"] == "erased" else str(rows[0]["value"])
+
     # ------------------------------------------------------------------ copy-assist (D-434)
     def add_ticks(self, study: str, values: list[dict[str, Any]], action: str, *, reason: str = "", by: str, at: str,
                   before_commit: Callable[[list[int]], None] | None = None) -> list[int]:  # fmt: skip
