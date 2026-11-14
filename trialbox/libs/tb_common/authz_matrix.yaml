@@ -20,7 +20,7 @@
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
 # D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-434 (T-302c), D-436 (T-303), D-440 (T-204),
-# D-443 (T-112b), D-451 (T-211c), D-474 (T-746), D-701 (T-715e), D-706 (NEW-FLAG-1).
+# D-443 (T-112b), D-451 (T-211c), D-474 (T-746), D-701 (T-715e), D-706 (NEW-FLAG-1), D-719 (NEW-SEC-3).
 # D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
 # break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
 # keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
@@ -558,6 +558,62 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
+  # D-719 (NEW-SEC-3, the owner 2026-11-14): who may open an account of each class (``console.account_rules``); a
+  # protected class (all but aggregate) is opened with an enrolment code only, and waits for a second person
+  account.create.patient-data:
+    what: open a coordinator or investigator account (patient-level rights); the holder chooses the password with the enrolment code
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  account.create.steward:
+    what: open a data steward account; the holder chooses the password with the enrolment code
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  account.create.privacy:
+    what: open a privacy office account; the holder chooses the password with the enrolment code
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  account.create.admin:
+    what: open another administrator account; the holder chooses the password with the enrolment code
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  account.create.aggregate:
+    what: open a viewer or CRO account (aggregate results only); a one-time password is shown
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  account.confirm:
+    what: confirm another person's request to open, re-scope or reset a protected account (never one's own; D-719)
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
     privacy: false
 
   # ---------------------------------------------------------------- break-glass (D-280, OD-5; page: console.breakglass)

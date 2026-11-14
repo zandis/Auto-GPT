@@ -1,7 +1,13 @@
 # 3. Accounts
 
-Administrators add accounts on **Users** (`/ops/users`). The one-time password shows once, in a read-only field; hand
-it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 10
+Administrators add accounts on **Users** (`/ops/users`). For a viewer or CRO account the one-time password shows once,
+in a read-only field; hand it over in person or by phone (D-133). For a coordinator, investigator, steward, privacy or
+administrator account only an enrolment code is shown (D-719): its holder signs in once with it at **First sign-in
+with an enrolment code** (`/enrol`), chooses the password and sets up the authenticator; the code is good for
+`TB_CONSOLE_ENROL_CODE_HOURS` (default 24). Nobody else sets both factors of such an account within 30 days unless
+the holder signed in in between; where a steward or another administrator exists, the opening, a change of studies or
+a reset waits for them on **Account requests** (`/ops/accounts/requests`), and the code or password is shown to the
+person who confirms. Five failed sign-ins lock an account for 15 minutes; sessions end after 10
 minutes idle or 8 hours; local accounts give a TOTP code after the password ([§12](12-identity-and-tls.md)). Roles and the work they do: [User guide](../USER_GUIDE.md). In the POC container:
 `docker exec -i trialbox-console-1 python -m console.cli bootstrap-admin|add-user NAME --role ROLE|reset-password
 NAME|disable NAME|list-users`.

@@ -31,6 +31,10 @@ NOT_ACTIONS = re.compile(r"^/(login|logout|lang|static)(/|$)")
 EXEMPT: dict[str, str] = {
     "/account/password": "the account's own password, changed in the browser; D-279: the API refuses an account "
     "whose password someone else set and sends it to this page",
+    "/enrol": "the holder's first sign-in with an enrolment code (D-719): a browser sign-in like /login, which has "
+    "no page twin either; the API signs in only accounts that already chose their password",
+    "/ops/accounts/requests": "a second person confirms an account request in the browser, where the code or password "
+    "is shown once to them (D-719); the API holds no account's factors",
     "/demo/ack": "demo mode's acknowledgement of the page banner (D-328); the API shows no banner",
     "/feedback": "the feedback control about the page on screen (D-331); its comment names that page",
 }

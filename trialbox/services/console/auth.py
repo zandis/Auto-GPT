@@ -32,6 +32,7 @@ import base64
 import hashlib
 import hmac
 import ipaddress
+import json
 import re
 import secrets
 from collections.abc import Callable
@@ -147,7 +148,47 @@ ALTER TABLE users ADD COLUMN last_login TEXT
 SCHEMA_V5 = """
 ALTER TABLE users ADD COLUMN pw_history TEXT
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
+# D-719 (NEW-SEC-3): nobody holds both factors of a protected account. ``opened_by``: who was shown the account's
+# first enrolment code (the requester alone, or the person who confirmed); ``holder_set`` 0 until the holder chooses
+# the password with that code; ``enrol_used_at``: when the code was first used. Each factor an administrator set
+# (``factor_resets``), each request waiting for a second person (``account_requests``) and each notice the holder
+# reads at the next sign-in (``account_notices``). A half-done sign-in that came through the code skips it at the
+# authenticator step (``enrol_ok``). Accounts made before keep their factors: nothing here is filled for them.
+SCHEMA_V6 = """
+ALTER TABLE users ADD COLUMN opened_by TEXT;
+ALTER TABLE users ADD COLUMN holder_set INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN enrol_used_at TEXT;
+ALTER TABLE pending_logins ADD COLUMN enrol_ok INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE factor_resets (
+  username TEXT COLLATE "C" NOT NULL,
+  factor TEXT NOT NULL,
+  by_user TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL
+);
+CREATE INDEX factor_resets_user ON factor_resets (username, at);
+CREATE TABLE account_requests (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  username TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  requested_by TEXT NOT NULL,
+  requested_at TEXT COLLATE "C" NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending',
+  decided_by TEXT,
+  decided_at TEXT
+);
+CREATE TABLE account_notices (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  by_user TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL,
+  seen INTEGER NOT NULL DEFAULT 0
+)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
+FACTORS = ("password", "totp")
+FACTOR_WINDOW = timedelta(days=30)  # D-719: the owner's rule, not a setting: one factor at a time for 30 days
 _COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
@@ -393,6 +434,7 @@ class UserStore:
         self.absolute = absolute
         self.oidc_absolute = oidc_absolute
         self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
+        self.enrol_ttl = ENROL_TTL  # D-719: TB_CONSOLE_ENROL_CODE_HOURS, set by console.app
 
     def close(self) -> None:
         self.db.close()
@@ -768,7 +810,7 @@ class UserStore:
             n = tx.execute(
                 "UPDATE users SET totp_secret = NULL, totp_step = NULL, enrol_code_sha = ?, enrol_expires = ?, "
                 "enrol_reason = 'reset' WHERE username = ?",
-                (_sha(code), (self.clock() + ENROL_TTL).isoformat(), username),
+                (_sha(code), (self.clock() + self.enrol_ttl).isoformat(), username),
             )
             if n != 1:
                 raise AuthError(f"no user {username}")
@@ -784,7 +826,7 @@ class UserStore:
             "UPDATE users SET enrol_code_sha = ?, enrol_expires = ?, "
             "enrol_reason = COALESCE(enrol_reason, 'first') WHERE username = ? AND totp_secret IS NULL "
             "AND disabled = 0",
-            (_sha(code), (self.clock() + ENROL_TTL).isoformat(), username),
+            (_sha(code), (self.clock() + self.enrol_ttl).isoformat(), username),
         )
         if n != 1:
             raise AuthError("no account without an authenticator has this name")
@@ -807,16 +849,24 @@ class UserStore:
         typed = "-".join(p for p in re.split(r"[\s-]+", (code or "").strip().lower()) if p)
         return hmac.compare_digest(str(row[0]).encode(), _sha(typed).encode())
 
-    def new_pending(self, username: str) -> tuple[str, str]:
-        """A sign-in whose password was right and whose code is still to come: (browser token, form token)."""
+    def new_pending(self, username: str, enrol_ok: bool = False) -> tuple[str, str]:
+        """A sign-in whose password was right and whose code is still to come: (browser token, form token).
+        ``enrol_ok``: it came through the holder's enrolment code (D-719), which the authenticator step then does
+        not ask again."""
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
         with self.db.transaction() as tx:
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))  # one at a time per account
             tx.execute(
-                "INSERT INTO pending_logins (token_sha, username, csrf, created) VALUES (?,?,?,?)",
-                (_sha(token), username, csrf, self.clock().isoformat()),
+                "INSERT INTO pending_logins (token_sha, username, csrf, created, enrol_ok) VALUES (?,?,?,?,?)",
+                (_sha(token), username, csrf, self.clock().isoformat(), int(enrol_ok)),
             )
         return token, csrf
+
+    def pending_enrol_ok(self, token: str | None) -> bool:
+        """True when the half-done sign-in came through the holder's enrolment code (D-719)."""
+        if not token or len(token) > 256:
+            return False
+        return bool(self.db.fetchval("SELECT enrol_ok FROM pending_logins WHERE token_sha = ?", (_sha(token),)))
 
     def pending(self, token: str | None) -> tuple[str, str, str | None] | None:
         """(user name, form token, sealed enrolment secret) of a fresh half-done sign-in, or None."""
@@ -837,6 +887,146 @@ class UserStore:
 
     def drop_pending(self, token: str) -> None:
         self.db.execute("DELETE FROM pending_logins WHERE token_sha = ?", (_sha(token),))
+
+    # ------------------------------------------------------------------ both factors (D-719, NEW-SEC-3)
+    def open_by_code(self, username: str, role: Role, mailbox: str | None, shown_to: str) -> str:
+        """A protected account nobody knows a password of: the returned enrolment code (shown once to
+        ``shown_to``) lets its holder choose the password and set up the authenticator (``redeem``)."""
+        self.create(username, role, random_password(8), mailbox)
+        code = random_password(4)
+        with self.db.transaction() as tx:
+            tx.execute(
+                "UPDATE users SET holder_set = 0, opened_by = ?, enrol_code_sha = ?, enrol_expires = ?, "
+                "enrol_reason = 'first' WHERE username = ?",
+                (shown_to, _sha(code), (self.clock() + self.enrol_ttl).isoformat(), username),
+            )
+        self.note_factor_reset(username, "totp", shown_to)
+        return code
+
+    def opened_by(self, username: str) -> str:
+        """Who was shown the account's first enrolment code ("" for an account made before D-719 or not by code)."""
+        return str(self.db.fetchval("SELECT opened_by FROM users WHERE username = ?", (username,)) or "")
+
+    def holder_set(self, username: str) -> bool:
+        """False while a protected account's holder has not yet chosen a password with the enrolment code."""
+        v = self.db.fetchval("SELECT holder_set FROM users WHERE username = ?", (username,))
+        return v is None or bool(v)
+
+    def note_factor_reset(self, username: str, factor: str, by: str) -> None:
+        if factor not in FACTORS:
+            raise AuthError(f"factor must be one of {', '.join(FACTORS)}")
+        self.db.execute(
+            "INSERT INTO factor_resets (username, factor, by_user, at) VALUES (?,?,?,?)",
+            (username, factor, by, self.clock().isoformat()),
+        )
+
+    def factor_held(self, username: str, factor: str) -> tuple[str, datetime | None] | None:
+        """Why someone else may not set ``factor`` of the account now, or None (D-719): (the factor already set by
+        someone else, until when). The other factor was set by someone else within ``FACTOR_WINDOW`` and the
+        holder has not signed in since; or (``"code"``, None): the holder has not yet chosen a password with the
+        enrolment code, so nobody else sets one. An account with no such row (made before D-719) is never held."""
+        if factor == "password" and not self.holder_set(username):
+            return "code", None
+        other = "totp" if factor == "password" else "password"
+        since = (self.clock() - FACTOR_WINDOW).isoformat()
+        at = self.db.fetchval(
+            "SELECT max(at) FROM factor_resets WHERE username = ? AND factor = ? AND at > ?", (username, other, since)
+        )
+        if not at:
+            return None
+        last = self.db.fetchval("SELECT last_login FROM users WHERE username = ?", (username,))
+        if last and str(last) > str(at):  # the holder signed in with the other factor after it was set
+            return None
+        return other, datetime.fromisoformat(str(at)) + FACTOR_WINDOW
+
+    def enrol_used_at(self, username: str) -> str:
+        return str(self.db.fetchval("SELECT enrol_used_at FROM users WHERE username = ?", (username,)) or "")
+
+    def redeem(self, username: str, code: str, password: str, *, spend: bool) -> str:
+        """The holder's first sign-in (D-719): ``"ok"`` when ``code`` is the account's live enrolment code and the
+        holder has not chosen a password yet; the password becomes theirs. ``spend``: no authenticator step follows
+        (TOTP off), so the code is used up here; with TOTP on it is used up when the holder's authenticator is set.
+        ``"used"`` when the holder's password was already chosen with a code; ``"wrong"`` otherwise."""
+        if self.get(username) is None:
+            return "wrong"
+        if self.holder_set(username):
+            return "used" if self.enrol_used_at(username) else "wrong"
+        if not self.check_enrol_code(username, code):
+            return "wrong"
+        self.set_password(username, password, must_change=False)
+        sets = "holder_set = 1, enrol_used_at = ?"
+        if spend:
+            sets += ", enrol_code_sha = NULL, enrol_expires = NULL, enrol_reason = NULL"
+        n = self.db.execute(f"UPDATE users SET {sets} WHERE username = ? AND holder_set = 0",
+                            (self.clock().isoformat(), username))  # fmt: skip
+        return "ok" if n == 1 else "used"
+
+    def add_request(self, kind: str, username: str, payload: dict[str, str], by: str) -> str:
+        rid = secrets.token_hex(8)
+        self.db.execute(
+            "INSERT INTO account_requests (id, kind, username, payload, requested_by, requested_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (rid, kind, username, json.dumps(payload, sort_keys=True), by, self.clock().isoformat()),
+        )
+        return rid
+
+    def requests(self) -> list[dict[str, object]]:
+        """The requests waiting for a second person, oldest first."""
+        rows = self.db.fetchall(
+            "SELECT id, kind, username, payload, requested_by, requested_at FROM account_requests "
+            "WHERE state = 'pending' ORDER BY requested_at, id"
+        )
+        return [self._request(r) for r in rows]
+
+    def get_request(self, rid: str) -> dict[str, object] | None:
+        row = self.db.fetchone(
+            "SELECT id, kind, username, payload, requested_by, requested_at, state FROM account_requests WHERE id = ?",
+            (rid[:32],),
+        )
+        if row is None:
+            return None
+        out = self._request(row[:6])
+        out["state"] = str(row[6])
+        return out
+
+    @staticmethod
+    def _request(row: tuple[object, ...]) -> dict[str, object]:
+        rid, kind, username, payload, by, at = row
+        return {"id": str(rid), "kind": str(kind), "user": str(username), "payload": json.loads(str(payload)),
+                "by": str(by), "at": str(at), "state": "pending"}  # fmt: skip
+
+    def decide_request(self, rid: str, state: str, by: str) -> bool:
+        """Close a waiting request once (``confirmed`` or ``refused``); False when it was no longer waiting."""
+        n = self.db.execute(
+            "UPDATE account_requests SET state = ?, decided_by = ?, decided_at = ? WHERE id = ? AND state = 'pending'",
+            (state, by, self.clock().isoformat(), rid[:32]),
+        )
+        return n == 1
+
+    def set_opened_by(self, username: str, shown_to: str) -> None:
+        self.db.execute("UPDATE users SET opened_by = ? WHERE username = ?", (shown_to, username))
+
+    def add_notice(self, username: str, kind: str, by: str) -> None:
+        """A line the holder reads at the next sign-in (D-719): ``password``, ``totp`` or ``opened``."""
+        self.db.execute(
+            "INSERT INTO account_notices (id, username, kind, by_user, at) VALUES (?,?,?,?,?)",
+            (secrets.token_hex(8), username, kind, by, self.clock().isoformat()),
+        )
+
+    def take_notices(self, username: str) -> list[tuple[str, str, str]]:
+        """(kind, by, at) of the holder's unread notices, oldest first; read once."""
+        with self.db.transaction() as tx:
+            rows = tx.fetchall(
+                "SELECT id, kind, by_user, at FROM account_notices WHERE username = ? AND seen = 0 ORDER BY at, id",
+                (username,),
+            )
+            for r in rows:
+                tx.execute("UPDATE account_notices SET seen = 1 WHERE id = ?", (r[0],))
+        return [(str(k), str(b), str(a)) for _i, k, b, a in rows]
+
+    def has_notices(self, username: str) -> bool:
+        return bool(self.db.fetchval("SELECT count(*) FROM account_notices WHERE username = ? AND seen = 0",
+                                     (username,)))  # fmt: skip
 
     # ------------------------------------------------------------------ OIDC round trips (D-192)
     def put_oidc_state(self, state: str, nonce: str, verifier: str) -> None:
