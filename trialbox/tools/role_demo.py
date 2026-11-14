@@ -53,7 +53,9 @@ def orch_client(app: Any) -> Any:
 
     D-437: the process token is the console's, and the console may not call the model gateway as the orchestrator. So
     the box's orchestrator gets its own token too, in the registry and in a 0600 file beside it
-    (:func:`service_token_of`); the box's model calls carry that one (``tools.scenarios.gateway_client``)."""
+    (:func:`service_token_of`); the box's model calls carry that one (``tools.scenarios.gateway_client``). So does
+    the criteria compiler: G-8 compiles as it, as the box does (of the box's services only the compiler and the
+    document parser may extract criteria; defect B13)."""
     from fastapi.testclient import TestClient
 
     tok = os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
@@ -78,7 +80,7 @@ def orch_client(app: Any) -> Any:
 
 
 # the services of the one-process box, besides the console, that call another service under their own name
-OWN_TOKENS = ("orchestrator",)
+OWN_TOKENS = ("orchestrator", "criteria-compiler")
 
 
 def _token_file(registry: Path, service: str) -> Path:

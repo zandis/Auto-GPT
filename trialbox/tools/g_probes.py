@@ -672,7 +672,7 @@ def run_g8(a: Any) -> dict[str, Any]:
             "not_run": "no fixture on master",
             REPORT_KEYS[G8]: {"folder": str(where), "protocols": [], "result": "no fixture on master: not run"},
         }
-    llm, _ = _models(a)
+    llm, _ = _models(a, caller="criteria-compiler")  # as the box's compiler calls its gateway (defect B13)
     if llm is None:
         checks = [("the production judge is wired through the gateway (--model pair)", False, "needs --model pair")]
         return {"stages": _one(f"{TESTS[G8]} public protocols: no judge", checks, time.perf_counter() - t0),

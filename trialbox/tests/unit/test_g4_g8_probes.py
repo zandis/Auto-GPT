@@ -397,7 +397,13 @@ def test_g8_compiles_a_folder_with_the_judge(tmp_path: Path, monkeypatch: pytest
     (folder / "early-ad.txt").write_text(AD_TEXT, encoding="utf-8")
     monkeypatch.setenv("TB_G8_PROTOCOLS_DIR", str(folder))
     monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
-    monkeypatch.setattr(cr, "_models", lambda a: _stub_clients())
+    asked: list[str] = []
+
+    def models(a: Any, caller: str = "orchestrator") -> tuple[Any, Any]:
+        asked.append(caller)
+        return _stub_clients()
+
+    monkeypatch.setattr(cr, "_models", models)
     res = gp.run_g8(argparse.Namespace(dir=tmp_path / "run"))
     p = res["protocols"]["protocols"][0]
     assert "error" not in p, p
@@ -405,8 +411,76 @@ def test_g8_compiles_a_folder_with_the_judge(tmp_path: Path, monkeypatch: pytest
     assert {"id", "kind", "class", "needs_review", "time_sensitive"} <= set(p["per_criterion"][0])
     names = [c[0] for st in res["stages"] for c in st["checks"]]
     assert names[0] == "1 protocol(s) compiled with the production judge" and len(names) == 3
-    monkeypatch.setattr(cr, "_models", lambda a: (None, None))
+    assert asked == ["criteria-compiler"]  # the box's compiler's caller, not the orchestrator (defect B13)
+    monkeypatch.setattr(cr, "_models", lambda a, caller="orchestrator": (None, None))
     assert gp.run_g8(argparse.Namespace(dir=tmp_path / "run"))["not_run"] == "no model pair"
+
+
+def test_g8_compiles_as_the_criteria_compiler_through_the_installed_gateway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defect B13 (paid run 20261113T231557Z-0e9be8a5): G-8 took the run's model clients, which call the gateway as the
+    orchestrator, and the orchestrator may not use ``extract_criteria``: both public protocols ended ``CompileFailed:
+    ... gateway refused ir_extract: role_not_allowed``. G-8 now compiles as the box's compiler does: as
+    ``criteria-compiler``, with that service's token, through the gateway built as the box builds it. The policy is
+    the shipped one, unchanged: it still refuses the orchestrator."""
+    import httpx
+    from fastapi.testclient import TestClient
+    from gateway.policy import Refusal, RoutingPolicy
+    from llm_stub.app import app as stub
+    from orchestrator import app as oapp
+    from tb_common import service_auth as sa
+
+    from tools import scenarios
+    from tools.role_demo import orch_client
+
+    policy = RoutingPolicy.load()
+    with pytest.raises(Refusal, match="may not use role extract_criteria"):
+        policy.check_caller("orchestrator", "extract_criteria", "protocol_ingest")
+    policy.check_caller("criteria-compiler", "extract_criteria", "protocol_ingest")
+
+    seen: list[tuple[str, int]] = []
+    inner = TestClient(stub)
+
+    def card(request: httpx.Request) -> httpx.Response:  # the VM's vLLM pair behind nginx, answered by the stub
+        body = json.loads(request.content or b"{}")
+        hdr = {k: v for k, v in request.headers.items() if k.lower().startswith("x-tb-")}
+        r = inner.post("/v1/chat/completions", json=body, headers=hdr)
+        seen.append((request.url.path, r.status_code))
+        return httpx.Response(r.status_code, content=r.content, headers={"content-type": "application/json"})
+
+    real = scenarios.gateway_client
+
+    def on_the_card(env: dict[str, str], upstream: Any = None, **kw: Any) -> Any:
+        return real(env, httpx.Client(transport=httpx.MockTransport(card)), **kw)
+
+    monkeypatch.setattr(scenarios, "gateway_client", on_the_card)
+    monkeypatch.setenv("TB_ENV", "DEV")  # as deploy/gcp/complete-run-vm.sh starts the run
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+    monkeypatch.setenv("TB_CANARY_GATE", "off")  # scenarios.models turns it on: restored after the test
+    monkeypatch.delenv("TB_DATA_CLASS", raising=False)
+    for var in ("TB_SERVICE_TOKEN", "TB_SERVICE_TOKEN_FILE", sa.REGISTRY_ENV, sa.ACTOR_KEYS_ENV, sa.ACTOR_SIGN_KEY_ENV):
+        monkeypatch.delenv(var, raising=False)
+    orch_client(oapp.app)  # the run's box: one token per service, as `trialbox secrets init` makes them
+    folder = tmp_path / "protocols"
+    folder.mkdir()
+    (folder / "early-ad.txt").write_text(AD_TEXT, encoding="utf-8")
+    monkeypatch.setenv("TB_G8_PROTOCOLS_DIR", str(folder))
+    a = argparse.Namespace(dir=tmp_path / "run", part="g8-protocols", model="pair",
+                           judge_url="http://127.0.0.1:8080/judge/v1", verifier_url="http://127.0.0.1:8080/verifier/v1")  # fmt: skip
+    res = gp.run_g8(a)
+    p = res["protocols"]["protocols"][0]
+    assert "error" not in p, p
+    assert p["criteria"] >= 4
+    assert seen and {s[1] for s in seen} == {200}
+    audit = [
+        json.loads(line)
+        for f in sorted((a.dir / "gw-audit-g8-protocols").glob("*.jsonl"))
+        for line in f.read_text(encoding="utf-8").splitlines()
+    ]
+    calls = [r for r in audit if r.get("event") == "llm.gateway.call"]
+    assert calls and {r["detail"]["service"] for r in calls} == {"criteria-compiler"}
+    assert not [r for r in audit if r.get("event") == "llm.gateway.refuse"]
 
 
 # ---------------------------------------------------------------- the report

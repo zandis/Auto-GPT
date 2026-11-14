@@ -310,10 +310,10 @@ def _attach_shots(stages: list[dict[str, Any]], got: dict[str, dict[str, Any]]) 
             st["shot_error"] = r["error"]
 
 
-def _models(a: argparse.Namespace) -> tuple[Any, Any]:
+def _models(a: argparse.Namespace, caller: str = "orchestrator") -> tuple[Any, Any]:
     from tools import scenarios
 
-    return scenarios.models(a, a.dir / f"gw-audit-{a.part}")
+    return scenarios.models(a, a.dir / f"gw-audit-{a.part}", caller=caller)
 
 
 # ---------------------------------------------------------------- the parts (each in its own process)
