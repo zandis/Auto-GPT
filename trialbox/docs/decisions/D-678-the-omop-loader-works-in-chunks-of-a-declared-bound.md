@@ -34,6 +34,9 @@ diff alone would have saved under a tenth.
      (`tb_load_stage`), a chunk at a time: one row per key, the last line of a key winning with that line's
      position, as the whole-batch loader's dict did; the person, providers and care sites it names, its codes
      and its standard-only lookups are kept beside it;
+   - the batch is built and staged **before the load's lock**, as it was built before it when held whole (a date
+     of another calendar is refused first; the opt-out worker does not wait for a batch being built); the records
+     of a withheld patient are marked under the lock;
    - the **guard** (D-271) counts live and missing records in SQL against the stage;
    - **ids**: the person, provider and care-site maps are minted once from the distinct pseudonyms (as large as
      the patients and staff, not the records); each record's OMOP id is given in the batch's order a chunk at a
@@ -41,13 +44,19 @@ diff alone would have saved under a tenth.
      batch;
    - **concepts** are prepared from one stream of every code of the batch, before any record is resolved, so
      local concepts are minted in the order they were;
+   - the ids are kept **beside** the stage (`tb_load_ids`), not written into it (an update would write every
+     staged row again);
    - each chunk is then resolved (visits, providers, care sites, concepts, required dates, routing), diffed with
-     the stored records **of its own keys** (a join), and written;
+     the stored records **of its own keys** (a join with an analysed key table, so the planner reads the chunk's
+     stored rows, not all of them), and written;
+   - every scratch table of the load is made **once per transaction** and emptied for each chunk: made again for
+     every chunk, each kept its lock to the commit, and a load of many chunks ran PostgreSQL's shared lock table out
+     (and another session's migration with it);
    - what the batch no longer carries (or carries for a withheld patient) is found by an **anti-join** with the
      stage and tombstoned a chunk at a time, by record key.
 2. **The chunk is a declared setting**, `TB_OMOP_LOAD_CHUNK` (records). Unset, it is derived: a sixteenth of the
-   process's memory cap (cgroup v2, else the host's), at the measured 9.5 KB a record, the share the ingest's
-   sort runs take (D-473). On this 15 GB machine: about 106,000.
+   process's memory cap (cgroup v2, else the host's; cgroup v1 is not read), at the measured 12 KB a record of a
+   chunk, the share the ingest's sort runs take (D-473). On this 15 GB machine: 87,860.
 3. **The callers stream**: the dual write and `python -m omop load` pass `adapter.ndjson.readers` (each type read
    from its file again when iterated); the lake's OMOP source passes its re-readable streams as they are.
    `Medication` and `ClaimResponse` are still indexed whole (the records name them; 0 and 146 of them at 1,000
@@ -57,25 +66,32 @@ diff alone would have saved under a tenth.
 
 ## Measured after the change (the same machine, the same data)
 
-| batch | chunk | peak, first load | peak, again | time |
-|---|---|---|---|---|
-| 1,000 dense | derived (about 106,000) | 1,363 MiB | 1,329 MiB | 116 to 119 s |
-| 1,000 dense | 20,000 | 344 MiB | 338 MiB | 125 to 134 s |
+| batch | loader | chunk | peak, first load | peak, again | time |
+|---|---|---|---|---|---|
+| 1,000 dense | before, lists | whole | 5,476 MiB | 5,267 MiB | 57 to 70 s |
+| 1,000 dense | before, the same streams | whole | 2,645 MiB | | 54 s |
+| 1,000 dense | after | derived | 1,124 MiB | 1,091 MiB | 108 to 130 s |
+| 1,000 dense | after | 20,000 | 366 MiB | 346 MiB | 115 to 127 s |
 
-The peak follows the chunk, not the batch. **The load is slower**, about 1.7 to 1.9 times at 1,000 dense patients
-(staging, JSON in and out, more round trips); the dual write and a lake built from OMOP pay it, a legacy lake does
-not. The time was measured with a whole unit suite running on the same 4 cores for part of it.
+The peak follows the chunk, not the batch; the old loader fed streams is still linear (2.6 GiB here, about 130 GiB
+at 50,000 dense patients). **The load is slower**, about 2 to 2.4 times the old one fed the same streams (building
+and staging, JSON in and out, the passes over the stage); the dual write and a lake built from OMOP pay it, a
+legacy lake does not. The times were measured with a whole unit suite running on the same 4 cores.
+
+The stage takes about 1.4 times the batch's NDJSON in the database's temporary space while the transaction lasts
+(195 MiB for 143 MiB at 250 dense patients, measured by the review), the ids table a few bytes a record more.
 
 ## What this does not do
 
 - The export of a lake back from OMOP (`omop.export.export_rows`) is still whole (scale review F-17, T-702).
 - `_derive` reads per affected person, as before.
-- The staging table is in the database's temporary space: a batch needs about its NDJSON's size there for the
-  transaction's length.
+- The tombstone events of a batch are written in record-key order (the old loader wrote them in the order an
+  unordered query gave).
+- A temporary table is still made per load (about ten), each with its lock: a constant, not per chunk.
 
 ## Tests
 
-`tests/unit/test_omop_load_batches.py` (4 tests):
+`tests/unit/test_omop_load_batches.py` (5 tests):
 
 - **the peak does not grow with the batch**: four times the patients, the same chunk, the input streamed: below
   1.6 times the peak (on the parent: 4.5 times, failing);
@@ -85,6 +101,27 @@ not. The time was measured with a whole unit suite running on the same 4 cores f
   equal;
 - **a date of another calendar in a late chunk** refuses the batch, writes nothing, keeps the refusal;
 - **interrupt test**: a load cut after two chunks were written leaves the store as it was, and the next load
-  ends as it should.
+  ends as it should;
+- **the locks the load holds do not grow with its chunks** (after the review): 10 chunks and about 100 hold the same
+  number before the tombstones (5,918 against 757 before the fix).
+
+The equivalence and late-refusal tests also pass on the old loader (it ignores the chunk; it refused before
+writing): they guard the new one. The peak and interrupt tests fail on it.
 
 The 17 test files that load OMOP or build a lake from it pass unchanged (200 passed, 3 skipped).
+
+## Review
+
+One adversarial, read-only review by a fresh agent, by running. It loaded the same sequence into the old loader
+and the new one at chunk 37, the derived chunk and chunk 500 with streamed input: site A through the real adapter,
+a vocabulary so records route by domain, a site batch, a withheld patient, nights with deletions, updates,
+`deleted=`, duplicate ids, records without a person, encounters named by facts earlier in the batch, an unknown
+encounter, `withhold()`, restores, a release, a repeated night and an older batch. Every table, sequence and report
+was identical across the four, but for two tombstone event ids swapped (the order above). It also checked: the
+memory flat at chunk 5,000 (137 and 144 MiB at 250 and 1,000 dense); every temp table dropped at commit; a refusal
+after written chunks leaves the store byte-identical; the JSON round trip keeps every record's content sha.
+Findings, all taken: the lock table run out by per-chunk temp tables (fixed and tested); the unanalysed key joins
+and the visit lookup scanning the stage each chunk (fixed); the id pass rewriting every staged row (now beside
+it); building under the lock (now before it); the slowdown, the temp space and "a sixteenth of the cap" stated
+wrongly here (corrected with its numbers and ours). Not verified by it: cgroup v1; a deploy cluster's own lock
+table size; the backup drill and the roles tool's loads.

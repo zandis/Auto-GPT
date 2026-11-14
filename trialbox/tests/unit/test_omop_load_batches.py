@@ -213,3 +213,30 @@ def test_a_load_cut_in_a_later_chunk_leaves_the_store_as_it_was_and_the_next_loa
         assert rep.tombstoned == 5 and rep.inserted == 0
     finally:
         db.close()
+
+
+def test_the_locks_a_load_holds_do_not_grow_with_its_chunks(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The review: every chunk made its temporary tables again, and a table made in a transaction keeps its lock to
+    the commit; site A at chunk 8 ran PostgreSQL's shared lock table out (and another session's migration with it).
+    The locks the load's transaction holds before its tombstones are the same for 10 chunks and for 100."""
+    from omop import load as L
+
+    by = {"Patient": list(_Patients(50, 0, "Patient")), "Condition": list(_Patients(50, 20, "Condition"))}
+    held: dict[str, int] = {}
+    real = L._tombstone
+
+    def count(tx: Any, *a: Any, **k: Any) -> Any:
+        held[os.environ["TB_OMOP_LOAD_CHUNK"]] = int(
+            tx.fetchval("SELECT count(*) FROM pg_locks WHERE pid = pg_backend_pid()")
+        )
+        return real(tx, *a, **k)
+
+    monkeypatch.setattr(L, "_tombstone", count)
+    for chunk, prefix in (("105", "omoplocka"), ("11", "omoplockb")):  # 1,050 records: 10 chunks, then about 100
+        monkeypatch.setenv("TB_OMOP_LOAD_CHUNK", chunk)
+        db = _connect(db_url, prefix)
+        try:
+            L.load_batch(db, "feed", SNAP, by, tz=TZ)
+        finally:
+            db.close()
+    assert held["11"] <= held["105"] + 5, held

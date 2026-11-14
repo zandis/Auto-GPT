@@ -664,10 +664,11 @@ def load_batch(
 
 
 #: NEW-B-37 (D-678): the records one chunk of a load holds. Measured before the change: about 9.5 KB of memory a
-#: resource while the whole batch was held (1,000 dense patients: 559,056 resources, 5.4 GiB). Unset: a sixteenth of
-#: the process's memory cap at that size, as the ingest's sort runs take theirs (D-473)
+#: resource while the whole batch was held (1,000 dense patients: 559,056 resources, 5.4 GiB); about 12 KB a record of
+#: one chunk after it. Unset: a sixteenth of the process's memory cap at that size, as the ingest's sort runs take
+#: theirs (D-473)
 CHUNK_ENV = "TB_OMOP_LOAD_CHUNK"
-RECORD_BYTES = 9_500  # the measured memory of one resource with its records in the load (D-678)
+RECORD_BYTES = 12_000  # one record of a chunk, measured: (1,378 - 144) MiB / (110,981 - 5,000) records (D-678)
 CAP_SHARE = 16  # the share of the cap one chunk may take, the ingest sort's (adapter.ndjson.sort_run_bytes)
 
 
@@ -715,6 +716,9 @@ def _load(
     back in chunks: the guard, the ids, the concepts, the routing, the diff with ``tb_record`` and the writes; what
     the batch no longer carries is found in the database. Nothing of the batch is held whole."""
     with db.transaction() as tx:
+        # the batch is built and staged before the load's lock, as it was built before it when it was held whole: a
+        # date of another calendar is refused first, and the opt-out worker does not wait for a batch being built
+        _stage(tx, b, by_type, responses, stats, chunk)
         tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
         last = tx.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = ?", (kind,))
         if last is not None and batch < str(last):
@@ -722,8 +726,13 @@ def _load(
                 f"OMOP holds {kind} batch {last}; refusing the older batch {batch} (a store of record "
                 "moves forward; an older snapshot's lake is kept as it was built)"
             )
-        held = {str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")}  # D-441
-        _stage(tx, b, by_type, responses, stats, held, chunk)
+        # D-441: the records of a withheld patient, read under the lock (the worker's withhold takes it too); a
+        # consent statement stays (KEEP_WITHHELD)
+        tx.execute(
+            "UPDATE tb_load_stage SET held = true WHERE pid IN (SELECT pid FROM tb_withheld) "
+            "AND NOT (coalesce(cdm_table, '') = ANY(?))",
+            (sorted(KEEP_WITHHELD),),
+        )
         dqd_before: dict[str, int] | None = None
         if kind == "feed":
             rep.override = _tombstone_guard(tx, batch)
@@ -777,7 +786,6 @@ def _stage(
     by_type: Mapping[str, Iterable[Resource]],
     responses: Mapping[str, Resource],
     stats: dict[str, int],
-    held: set[str],
     chunk: int,
 ) -> None:
     """Build every record of the batch, in the batch's order (types sorted, then line by line), and keep it in the
@@ -787,19 +795,21 @@ def _stage(
     tx.execute(
         "CREATE TEMP TABLE tb_load_stage (seq BIGINT NOT NULL, resource_type TEXT NOT NULL, source_record_id TEXT "
         "NOT NULL, part INTEGER NOT NULL, held BOOLEAN NOT NULL, pid TEXT, providers TEXT[], sites TEXT[], "
-        "cdm_table TEXT, provider_id TEXT, codes TEXT, std TEXT, rec TEXT NOT NULL, record_id BIGINT, "
-        "person_id BIGINT, first_batch TEXT, PRIMARY KEY (resource_type, source_record_id, part)) "
-        "ON COMMIT DROP"
+        "cdm_table TEXT, provider_id TEXT, codes TEXT, std TEXT, rec TEXT NOT NULL, "
+        "PRIMARY KEY (resource_type, source_record_id, part)) ON COMMIT DROP"
     )
     tx.execute("CREATE INDEX ON tb_load_stage (seq)")
+    tx.execute(
+        "CREATE TEMP TABLE tb_load_ids (seq BIGINT PRIMARY KEY, cdm_table TEXT, record_id BIGINT, person_id BIGINT, "
+        "first_batch TEXT) ON COMMIT DROP"
+    )
     pending: dict[tuple[str, str, int], tuple[Any, ...]] = {}
     seq = 0
 
     def flush() -> None:
         if not pending:
             return
-        tx.execute("DROP TABLE IF EXISTS tb_load_in")
-        tx.execute("CREATE TEMP TABLE tb_load_in (LIKE tb_load_stage) ON COMMIT DROP")
+        _scratch(tx, "tb_load_in", ["CREATE TEMP TABLE IF NOT EXISTS tb_load_in (LIKE tb_load_stage) ON COMMIT DROP"])
         tx.copy_rows("tb_load_in", _STAGE_COLS, pending.values())
         again = int(tx.fetchval(f"SELECT count(*) FROM tb_load_in i JOIN tb_load_stage s USING {_KEY}") or 0)
         if again:  # one id twice in a file: the last line wins, as the NDJSON merge does
@@ -829,9 +839,8 @@ def _stage(
                 if rec.key in pending:
                     stats["duplicate_id"] = stats.get("duplicate_id", 0) + 1
                     del pending[rec.key]
-                out = rec.pid in held and rec.table not in KEEP_WITHHELD
                 pending[rec.key] = (
-                    seq, rec.rtype, rec.srcid, rec.part, out, rec.pid,
+                    seq, rec.rtype, rec.srcid, rec.part, False, rec.pid,  # held: marked under the load's lock
                     sorted({sid for k, sid in rec.refs.values() if k == "provider"}),
                     sorted({sid for k, sid in rec.refs.values() if k == "care_site"}),
                     rec.table,
@@ -851,8 +860,8 @@ def _staged(tx: Any, chunk: int) -> Iterable[list[Rec]]:
     after = -1
     while True:
         rows = tx.fetchall(
-            "SELECT seq, rec, cdm_table, record_id, person_id, first_batch FROM tb_load_stage WHERE NOT held "
-            "AND seq > ? ORDER BY seq LIMIT ?",
+            "SELECT s.seq, s.rec, i.cdm_table, i.record_id, i.person_id, i.first_batch FROM tb_load_stage s "
+            "JOIN tb_load_ids i USING (seq) WHERE NOT s.held AND s.seq > ? ORDER BY s.seq LIMIT ?",
             (after, chunk),
         )
         if not rows:
@@ -926,15 +935,33 @@ def _unpack(text: str) -> Rec:
     return Rec(**d)
 
 
+def _scratch(tx: Any, name: str, create: Sequence[str]) -> None:
+    """A temporary table of the load, made once per transaction and emptied for each chunk. Made again for every
+    chunk, each table kept its lock to the commit: a load of many chunks ran PostgreSQL's shared lock table out, and
+    other sessions with it (the review of D-678)."""
+    for sql in create:  # each statement may run again: CREATE ... IF NOT EXISTS, ALTER ... IF EXISTS
+        tx.execute(sql)
+    tx.execute(f"TRUNCATE {name}")
+
+
 def _keys_table(tx: Any, recs: Iterable[Rec]) -> None:
     """The keys of one chunk, for a join with ``tb_record``."""
-    tx.execute("DROP TABLE IF EXISTS tb_load_keys")
-    tx.execute(
-        "CREATE TEMP TABLE tb_load_keys (resource_type TEXT, source_record_id TEXT, part INTEGER) ON COMMIT DROP"
+    _keys(tx, ((r.rtype, r.srcid, r.part) for r in recs))
+
+
+def _keys(tx: Any, keys: Iterable[tuple[Any, ...]]) -> None:
+    """One chunk's keys, analysed, so that a join with ``tb_record`` reads the chunk's rows of it, not all of them
+    (unanalysed, the planner hashed every stored record of the kind, chunk after chunk: the review of D-678)."""
+    _scratch(
+        tx,
+        "tb_load_keys",
+        [
+            "CREATE TEMP TABLE IF NOT EXISTS tb_load_keys (resource_type TEXT, source_record_id TEXT, part INTEGER) "
+            "ON COMMIT DROP"
+        ],
     )
-    tx.copy_rows(
-        "tb_load_keys", ["resource_type", "source_record_id", "part"], ((r.rtype, r.srcid, r.part) for r in recs)
-    )
+    tx.copy_rows("tb_load_keys", ["resource_type", "source_record_id", "part"], keys)
+    tx.execute("ANALYZE tb_load_keys")
 
 
 def _ids_of(tx: Any) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
@@ -1063,11 +1090,7 @@ def _assign(
         if not rows:
             return
         after = int(rows[-1][0])
-        tx.execute("DROP TABLE IF EXISTS tb_load_keys")
-        tx.execute(
-            "CREATE TEMP TABLE tb_load_keys (resource_type TEXT, source_record_id TEXT, part INTEGER) ON COMMIT DROP"
-        )
-        tx.copy_rows("tb_load_keys", ["resource_type", "source_record_id", "part"], (r[1:4] for r in rows))
+        _keys(tx, (r[1:4] for r in rows))
         existing = {
             (str(t), str(s_), int(p_)): (tab, rid, fb)
             for t, s_, p_, tab, rid, fb in tx.fetchall(
@@ -1088,6 +1111,7 @@ def _assign(
             return old[0] == table or (table in ROUTABLE and old[0] == "observation")
 
         keyed = [((str(t), str(s_), int(p_)), tab, pid, prov) for _, t, s_, p_, tab, pid, prov in rows]
+        seq_of = {(str(t), str(s_), int(p_)): int(q) for q, t, s_, p_, *_ in rows}
         need = sum(1 for key, tab, _, _ in keyed if tab in ID_COL and not keeps_id(key, tab))
         nums = iter(int(x[0]) for x in tx.fetchall("SELECT nextval('tb_row_seq') FROM generate_series(1, ?)", (need,)))
         back = []
@@ -1109,22 +1133,9 @@ def _assign(
             ):  # an OMOP clinical row needs a person; the record is kept for provenance only
                 rep.skipped[f"no_patient:{key[0]}"] = rep.skipped.get(f"no_patient:{key[0]}", 0) + 1
                 table, record_id = None, None
-            back.append((*key, table, record_id, person_id, old[2] if old else batch))
-        tx.execute("DROP TABLE IF EXISTS tb_load_back")
-        tx.execute(
-            "CREATE TEMP TABLE tb_load_back (resource_type TEXT, source_record_id TEXT, part INTEGER, cdm_table TEXT, "
-            "record_id BIGINT, person_id BIGINT, first_batch TEXT) ON COMMIT DROP"
-        )
-        tx.copy_rows(
-            "tb_load_back",
-            ["resource_type", "source_record_id", "part", "cdm_table", "record_id", "person_id", "first_batch"],
-            back,
-        )
-        tx.execute(
-            "UPDATE tb_load_stage s SET cdm_table = k.cdm_table, record_id = k.record_id, person_id = k.person_id, "
-            "first_batch = k.first_batch FROM tb_load_back k WHERE (s.resource_type, s.source_record_id, s.part) = "
-            "(k.resource_type, k.source_record_id, k.part)"
-        )
+            back.append((seq_of[key], table, record_id, person_id, old[2] if old else batch))
+        # beside the stage, not in it: an update would write every staged row again (and leave the old ones)
+        tx.copy_rows("tb_load_ids", ["seq", "cdm_table", "record_id", "person_id", "first_batch"], back)
 
 
 def _resolve(
@@ -1144,8 +1155,9 @@ def _resolve(
     visits: dict[str, Any] = {}
     if named:
         for sid, rid in tx.fetchall(
-            "SELECT source_record_id, record_id FROM tb_load_stage WHERE NOT held AND cdm_table = 'visit_occurrence' "
-            "AND part = 0 AND source_record_id = ANY(?) ORDER BY seq",
+            "SELECT s.source_record_id, i.record_id FROM tb_load_stage s JOIN tb_load_ids i USING (seq) WHERE "
+            "s.resource_type = 'Encounter' AND s.part = 0 AND s.source_record_id = ANY(?) AND NOT s.held "
+            "AND i.cdm_table = 'visit_occurrence' ORDER BY s.seq",
             (named,),
         ):
             visits[str(sid)] = rid
@@ -1429,9 +1441,14 @@ def _write(
         cols = sorted(set().union(*rows))
         tx.copy_rows(table, cols, ([row.get(c) for c in cols] for row in rows))
         rep.by_table[table] = rep.by_table.get(table, 0) + len(rows)
-    tx.execute("DROP TABLE IF EXISTS tb_in_tmp")
-    tx.execute("CREATE TEMP TABLE tb_in_tmp (LIKE tb_record INCLUDING DEFAULTS, action TEXT) ON COMMIT DROP")
-    tx.execute("ALTER TABLE tb_in_tmp DROP COLUMN record_key")
+    _scratch(
+        tx,
+        "tb_in_tmp",
+        [
+            "CREATE TEMP TABLE IF NOT EXISTS tb_in_tmp (LIKE tb_record INCLUDING DEFAULTS, action TEXT) ON COMMIT DROP",
+            "ALTER TABLE tb_in_tmp DROP COLUMN IF EXISTS record_key",
+        ],
+    )
     tx.copy_rows("tb_in_tmp", [*TB_RECORD_COLS, "action"], staged)
     sets = ", ".join(
         f"{c} = i.{c}"
@@ -1455,9 +1472,13 @@ def _write(
     keys = {k: v[0] for k, v in old.items()}
     new_keys = [e[0] for e in events if e[0] not in keys]
     if new_keys:
-        tx.execute("DROP TABLE IF EXISTS tb_keys_tmp")
-        tx.execute(
-            "CREATE TEMP TABLE tb_keys_tmp (resource_type TEXT, source_record_id TEXT, part INTEGER) ON COMMIT DROP"
+        _scratch(
+            tx,
+            "tb_keys_tmp",
+            [
+                "CREATE TEMP TABLE IF NOT EXISTS tb_keys_tmp (resource_type TEXT, source_record_id TEXT, part INTEGER) "
+                "ON COMMIT DROP"
+            ],
         )
         tx.copy_rows("tb_keys_tmp", ["resource_type", "source_record_id", "part"], new_keys)
         for k, t, s, p in tx.fetchall(
@@ -1535,8 +1556,7 @@ def _tombstone(
             )
         )
         before = _drop_rows(tx, deletes)
-        tx.execute("DROP TABLE IF EXISTS tb_gone_tmp")
-        tx.execute("CREATE TEMP TABLE tb_gone_tmp (record_key BIGINT) ON COMMIT DROP")
+        _scratch(tx, "tb_gone_tmp", ["CREATE TEMP TABLE IF NOT EXISTS tb_gone_tmp (record_key BIGINT) ON COMMIT DROP"])
         tx.copy_rows("tb_gone_tmp", ["record_key"], [(v[0],) for _, v in gone])
         tx.execute(
             "UPDATE tb_record r SET status = 'tombstoned', tombstoned_at = now(), changed_at = now(), last_batch = ? "
