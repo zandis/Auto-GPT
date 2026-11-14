@@ -15,6 +15,7 @@ And the clock is off until the study's rule set is chosen: a country default giv
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from datacore import lifecycle as lc
 
@@ -85,7 +86,7 @@ def test_an_expected_pmda_row_has_no_made_up_follow_up_and_no_contradicting_flag
     from console import saerecord as sr
 
     rules = lc.clock_rules("jp_gcp_ii", "Asia/Tokyo")
-    ae = {**FATAL, "ae_expected": "1", "ae_related": "1", "record": "GZQO-0001", "event": "ae1"}
+    ae: dict[str, Any] = {**FATAL, "ae_expected": "1", "ae_related": "1", "record": "GZQO-0001", "event": "ae1"}
     ae["clock"] = lc.report_clock(ae, TODAY, rules["parties"])
     fu = sr.rule_followups(ae, TODAY, sr.followup_rules(""), {})
     assert not [f for f in fu if f["party"] == "regulator"]
