@@ -70,6 +70,7 @@ DETAIL_KEYS = (
     "quarantined",
     "duplicate_keys",
     "unmapped",
+    "unmapped_kinds",  # NEW-B-39 (D-740): the same rows per table split by kind, counts only
     "error",
     "step",
     "table",
