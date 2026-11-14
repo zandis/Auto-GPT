@@ -487,6 +487,10 @@ DECLARED: dict[str, Declared] = {
     "TB_DB_ROLES_CMD": Declared("str", "", "restore: the command that puts the service roles back (D-573)"),
     "TB_DB_URL": Declared("str", "", "the trial database URL"),
     "TB_DEMO_ACCOUNTS": Declared("str", "", "demo: accounts to create"),
+    # deploy/gcp/demo-vm.sh (the small demo VM, deploy/gcp/demo_vm.py has each reason): never 0.0.0.0/0, never empty
+    "TB_DEMO_ALLOW": Declared(
+        "str", "", "demo VM: the only source ranges of tcp:443, comma separated (required for up)"
+    ),
     "TB_DEMO_CONTAINER": Declared("str", "trialbox-demo", "demo: container name"),
     "TB_DEMO_DAY": Declared("str", "today", "demo: the day the demo shows"),
     "TB_DEMO_DIR": Declared("path", "", "demo: work folder"),
@@ -499,6 +503,42 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
     "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
+    # the small demo VM (deploy/gcp/demo-vm.sh): each limit's reason is in deploy/gcp/demo_vm.py (OD-10); prices are
+    # settings with their source and date because list prices change
+    "TB_DEMO_VM_DISK_GB": Declared(
+        "int", "30", "demo VM: boot disk GB (Debian, Docker, the demo image and its tarball)"
+    ),
+    "TB_DEMO_VM_DISK_PRICE_GB_MONTH": Declared("float", "0.11", "demo VM estimate: pd-balanced US$ per GB-month"),
+    "TB_DEMO_VM_HOST": Declared(
+        "str", "", "demo VM: a DNS name for a public certificate; refused (DNS-01 is not built)"
+    ),
+    "TB_DEMO_VM_HOURS": Declared(
+        "int", "12", "demo VM: hard stop, hours after each up (one working day with margin; a forgotten VM stops)"
+    ),
+    "TB_DEMO_VM_IMAGE": Declared("str", "", "demo VM: the demo image by digest, or gs:// tarball of make demo-bundle"),
+    "TB_DEMO_VM_IMAGE_SHA256": Declared("str", "", "demo VM: sha256 of the gs:// tarball, checked on the VM"),
+    "TB_DEMO_VM_IP_PRICE_HOUR": Declared("float", "0.005", "demo VM estimate: an in-use external IPv4, US$ per hour"),
+    "TB_DEMO_VM_MACHINE": Declared(
+        "str", "e2-standard-4", "demo VM: machine type (peak 1.8 GB + PostgreSQL, 4 cores for the seed); never a GPU"
+    ),
+    "TB_DEMO_VM_MIN_PREFIX": Declared(
+        "int", "16", "demo VM: an allowed IPv4 range broader than this prefix is refused (a home range is /24)"
+    ),
+    "TB_DEMO_VM_NAME": Declared("str", "tb-demo-vm", "demo VM: prefix of its VM, network, subnet, rule and tag"),
+    "TB_DEMO_VM_PRICE_DATE": Declared("str", "", "demo VM estimate: the date its prices were read (unset: unchecked)"),
+    "TB_DEMO_VM_PRICE_HOUR": Declared(
+        "float", "0.1528", "demo VM estimate: the machine's US$ per hour (e2-standard-4, asia-east1; check at order)"
+    ),
+    "TB_DEMO_VM_PRICE_SOURCE": Declared("str", "", "demo VM estimate: where its prices come from (unset: from memory)"),
+    # a name, never a value (the VM reads the value itself): named so that the scan of secrets that reach a container
+    # (tests/unit/test_compose_secret_reach.py) does not take it for one, as it took TB_DEMO_VM_SECRET
+    "TB_DEMO_VM_SM_NAME": Declared(
+        "str", "tb-demo-password", "demo VM: name of the Secret Manager entry that holds the demo password"
+    ),
+    "TB_DEMO_VM_STOP_WAIT_S": Declared(
+        "int", "300", "demo VM down: seconds to wait for TERMINATED (an e2 VM stops in under a minute)"
+    ),
+    "TB_DEMO_VM_ZONE": Declared("str", "asia-east1-a", "demo VM: zone (the owner's choice for the 2026-11-17 demo)"),
     "TB_DEMO_WAIT_S": Declared("float", "900", "demo: seconds to wait for health"),
     "TB_DIRECTORY_URL": Declared("str", "", "platform check: directory URL"),
     "TB_DOCKER": Declared("str", "docker", "the docker command"),
@@ -535,6 +575,12 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
     "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
     "TB_FONTS_DIR": Declared("path", "", "report fonts folder"),
+    # master has no real RA or early-AD protocol; the owner puts two public ones here before a G-8 launch
+    "TB_G8_PROTOCOLS_DIR": Declared(
+        "path",
+        "tests/fixtures/public_protocols",
+        "complete-run part g8-protocols (review G-8): public protocols folder",
+    ),
     "TB_GATEWAY_BREAKER_FAILURES": Declared("int", "5", "gateway: failures in a row that open an endpoint's breaker"),
     "TB_GATEWAY_BREAKER_OPEN_S": Declared("float", "30", "gateway: seconds a breaker stays open before one try"),
     "TB_GATEWAY_CALL_BUDGET_S": Declared("float", "210", "gateway: seconds one call may take, retry and fallbacks in"),
@@ -776,9 +822,20 @@ DECLARED: dict[str, Declared] = {
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),
     "TB_RUN_ID": Declared("str", "", "complete-run tool: run id"),
+    "TB_REPORT_DETAIL_CHARS": Declared(
+        "int", "300", "complete-run report: a failed check's detail cut in report.md (failed-checks.json has it all)"
+    ),
     "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
     "TB_ESTIMATE_LLM_SPEEDUP": Declared(
-        "float", "2", "complete-run estimate: most that N model calls in flight cut the screening time by"
+        "float", "", "complete-run estimate: override of G-3's measured gain, min(N, this) (unset: the curve)"
+    ),
+    "TB_BUCKET": Declared("str", "", "complete-run: gs:// bucket for the code and results (unset: through the door)"),
+    "TB_START_RETRIES": Declared(
+        "int", "3", "complete-run: retries of a VM start refused for a stockout (no other refusal is retried)"
+    ),
+    "TB_START_RETRY_SECONDS": Declared("int", "240", "complete-run: seconds between those retries of a VM start"),
+    "TB_DOOR_DIRECT": Declared(
+        "bool", "", "complete-run: launch in door mode though HTTPS_PROXY is set (this host reaches the VM directly)"
     ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),

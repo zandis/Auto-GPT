@@ -1,0 +1,96 @@
+{
+ "patients": 50000,
+ "seconds_per_note_patient": 6.3,
+ "parts": [
+  "g1"
+ ],
+ "llm_concurrency": [
+  16
+ ],
+ "llm_speedup": [
+  4.435
+ ],
+ "llm_speedup_override": null,
+ "max_num_seqs": 16,
+ "rows": [
+  {
+   "scenario": "VM start, both models resident",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "VM setup: packages, venv, browser, fonts",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "G-4 decoding: guided on/off, 16 in flight",
+   "patients": 0,
+   "model_items": 128,
+   "seconds": 283.9,
+   "tags": [
+    "g4-decoding"
+   ],
+   "hours": 0.08,
+   "usd": 0.22
+  },
+  {
+   "scenario": "G-7 clipped against whole note",
+   "patients": 0,
+   "model_items": 16,
+   "seconds": 140.5,
+   "tags": [
+    "g7-clipped"
+   ],
+   "hours": 0.04,
+   "usd": 0.11
+  }
+ ],
+ "hours": 0.62,
+ "usd": 1.69,
+ "cap_hours": 1,
+ "cap_usd": 2.74,
+ "provisioning": "SPOT",
+ "price_per_hour": 2.74,
+ "llm_concurrency_default": true,
+ "only": [
+  "g7-clipped",
+  "g4-decoding"
+ ],
+ "plan": {
+  "vms": 1,
+  "shards": [
+   {
+    "shard": 1,
+    "tags": [
+     "g4-decoding",
+     "g7-clipped"
+    ],
+    "rows": [
+     "G-4 decoding: guided on/off, 16 in flight",
+     "G-7 clipped against whole note"
+    ],
+    "hours": 0.62,
+    "usd": 1.69,
+    "cap_hours": 1,
+    "cap_usd": 2.74,
+    "provisioning": "SPOT",
+    "price_per_hour": 2.74,
+    "vm": "tb-gpu-sim",
+    "zone": "asia-east1-a"
+   }
+  ],
+  "wall_hours": 0.62,
+  "hours": 0.62,
+  "usd": 1.69,
+  "cap_usd": 2.74
+ }
+}

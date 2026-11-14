@@ -1,0 +1,465 @@
+{
+ "schema": "tb-complete-run/3",
+ "git": {
+  "head": "0e9be8a5f27c7a512a68e4fd270c779e80682a15",
+  "subject": "Lane G: G-5 measures the product's current token estimate (D-645)",
+  "dirty": false,
+  "source": "parts",
+  "heads": [
+   "0e9be8a5f27c7a512a68e4fd270c779e80682a15"
+  ]
+ },
+ "started": "2026-11-13T23:22:30+00:00",
+ "finished": "2026-11-13T23:22:52+00:00",
+ "model": "pair",
+ "models": [
+  "local/gemma-4-26b-a4b-nvfp4",
+  "local/qwen3.5-9b-awq"
+ ],
+ "path": "gateway (installed box, synthetic weight pins)",
+ "ocr": "tesseract",
+ "patients": 50000,
+ "langs": [
+  "ja",
+  "zh-TW"
+ ],
+ "host": {
+  "machine": "x86_64",
+  "cpus": 48,
+  "python": "3.12.3",
+  "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+ },
+ "run_ids": [
+  "20261113T231557Z-0e9be8a5-s1"
+ ],
+ "parts": [
+  {
+   "stages": [
+    {
+     "name": "G-5 token counts: /tokenize against the product's estimates",
+     "ok": true,
+     "seconds": 16.2,
+     "checks": [
+      [
+       "/tokenize counted all 200 excerpts of each language (ja, zh-TW, en)",
+       true,
+       {
+        "ja": 200,
+        "zh-TW": 200,
+        "en": 200
+       }
+      ],
+      [
+       "the largest real / estimated ratio x 1.05 fits the budget's share (1 / SAFETY = 1.176)",
+       true,
+       {
+        "max_ratio": 0.9888,
+        "safety_from_measurement": 0.85
+       }
+      ]
+     ],
+     "shot": "g5-tokens.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "tokens": {
+    "per_language": {
+     "ja": {
+      "budget": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.7273,
+       "p95": 0.8,
+       "max": 0.9143,
+       "mean": 0.7256
+      },
+      "cascade": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.7273,
+       "p95": 0.8,
+       "max": 0.9143,
+       "mean": 0.7256
+      },
+      "prompt": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.9018,
+       "p95": 0.9622,
+       "max": 0.9743,
+       "mean": 0.9041
+      }
+     },
+     "zh-TW": {
+      "budget": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.8317,
+       "p95": 0.8972,
+       "max": 0.9355,
+       "mean": 0.8267
+      },
+      "cascade": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.8317,
+       "p95": 0.8972,
+       "max": 0.9355,
+       "mean": 0.8267
+      },
+      "prompt": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.9392,
+       "p95": 0.9707,
+       "max": 0.9792,
+       "mean": 0.9394
+      }
+     },
+     "en": {
+      "budget": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.8429,
+       "p95": 0.9208,
+       "max": 0.9888,
+       "mean": 0.8401
+      },
+      "cascade": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.8429,
+       "p95": 0.9208,
+       "max": 0.9888,
+       "mean": 0.8401
+      },
+      "prompt": {
+       "n": 200,
+       "missing": 0,
+       "p50": 0.9494,
+       "p95": 0.9716,
+       "max": 0.9819,
+       "mean": 0.948
+      }
+     }
+    },
+    "max_ratio": 0.9888,
+    "margin": 1.05,
+    "safety": 0.85,
+    "limit": 1.1765,
+    "fits": true,
+    "safety_from_measurement": 0.85,
+    "excerpts": {
+     "ja": 200,
+     "zh-TW": 200,
+     "en": 200
+    },
+    "counted": {
+     "ja": 200,
+     "zh-TW": 200,
+     "en": 200
+    },
+    "chars": {
+     "ja": [
+      14,
+      420
+     ],
+     "zh-TW": [
+      12,
+      388
+     ],
+     "en": [
+      39,
+      1056
+     ]
+    }
+   },
+   "run": {
+    "id": "20261113T231557Z-0e9be8a5-s1",
+    "head": "0e9be8a5f27c7a512a68e4fd270c779e80682a15",
+    "subject": "Lane G: G-5 measures the product's current token estimate (D-645)",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 17.3,
+    "folder": "parts/g5-tokens",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 0.0,
+      "generation_tokens": 0.0,
+      "requests": 0.0,
+      "ttft_seconds_sum": 0.0,
+      "ttft_count": 0.0,
+      "queue_seconds_sum": 0.0,
+      "queue_count": 0.0,
+      "e2e_seconds_sum": 0.0,
+      "e2e_count": 0.0
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 0.0,
+      "generation_tokens": 0.0,
+      "requests": 0.0,
+      "ttft_seconds_sum": 0.0,
+      "ttft_count": 0.0,
+      "queue_seconds_sum": 0.0,
+      "queue_count": 0.0,
+      "e2e_seconds_sum": 0.0,
+      "e2e_count": 0.0
+     }
+    },
+    "gpu": {
+     "samples": 3,
+     "every_s": 10.0,
+     "util_mean_pct": 0.0,
+     "util_max_pct": 0.0,
+     "memory_peak_mib": 62576.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 36.0,
+     "power_max_w": 89.88
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 0.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.0
+     },
+     "verifier": {
+      "running_max": 0.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.0
+     }
+    }
+   },
+   "wall_seconds": 17.3,
+   "started_at": "2026-11-13T23:22:30+00:00",
+   "finished_at": "2026-11-13T23:22:48+00:00",
+   "part": "g5-tokens",
+   "lang": "",
+   "tag": "g5-tokens",
+   "seconds_total": 17.3
+  },
+  {
+   "stages": [
+    {
+     "name": "G-8 public protocols compiled with the production judge",
+     "ok": false,
+     "seconds": 1.8,
+     "checks": [
+      [
+       "2 protocol(s) compiled with the production judge",
+       false,
+       [
+        "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again",
+        "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again"
+       ]
+      ],
+      [
+       "no extension-phase line active without a warning",
+       false,
+       {}
+      ],
+      [
+       "alternative diagnosis groups not flattened to AND",
+       false,
+       {}
+      ]
+     ],
+     "shot": "g8-protocols.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "protocols": {
+    "folder": "/var/lib/tb/src/trialbox/tests/fixtures/public_protocols",
+    "protocols": [
+     {
+      "file": "NCT02629159.json",
+      "id": "NCT02629159",
+      "error": "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again"
+     },
+     {
+      "file": "NCT03887455.json",
+      "id": "NCT03887455",
+      "error": "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again"
+     }
+    ]
+   },
+   "run": {
+    "id": "20261113T231557Z-0e9be8a5-s1",
+    "head": "0e9be8a5f27c7a512a68e4fd270c779e80682a15",
+    "subject": "Lane G: G-5 measures the product's current token estimate (D-645)",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 2.1,
+    "folder": "parts/g8-protocols",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 0.0,
+      "generation_tokens": 0.0,
+      "requests": 0.0,
+      "ttft_seconds_sum": 0.0,
+      "ttft_count": 0.0,
+      "queue_seconds_sum": 0.0,
+      "queue_count": 0.0,
+      "e2e_seconds_sum": 0.0,
+      "e2e_count": 0.0
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 0.0,
+      "generation_tokens": 0.0,
+      "requests": 0.0,
+      "ttft_seconds_sum": 0.0,
+      "ttft_count": 0.0,
+      "queue_seconds_sum": 0.0,
+      "queue_count": 0.0,
+      "e2e_seconds_sum": 0.0,
+      "e2e_count": 0.0
+     }
+    },
+    "gpu": {
+     "samples": 2,
+     "every_s": 10.0,
+     "util_mean_pct": 0.0,
+     "util_max_pct": 0.0,
+     "memory_peak_mib": 62576.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 36.0,
+     "power_max_w": 89.85
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 0.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.0
+     },
+     "verifier": {
+      "running_max": 0.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.0
+     }
+    }
+   },
+   "refusals": {
+    "asked": 2,
+    "refused": 2,
+    "by_reason": {
+     "role_not_allowed": 2
+    },
+    "by_role": {
+     "extract_criteria": 2
+    }
+   },
+   "wall_seconds": 2.1,
+   "started_at": "2026-11-13T23:22:49+00:00",
+   "finished_at": "2026-11-13T23:22:52+00:00",
+   "part": "g8-protocols",
+   "lang": "",
+   "tag": "g8-protocols",
+   "seconds_total": 2.1
+  }
+ ],
+ "llm_concurrency": [
+  16
+ ],
+ "throughput": [
+  {
+   "tag": "g5-tokens",
+   "llm_concurrency": 16,
+   "calls": 0,
+   "calls_per_second": null,
+   "tokens_per_second": null,
+   "p50_s": null,
+   "p95_s": null,
+   "gpu_util_mean_pct": 0.0,
+   "gpu_memory_peak_mib": 62576.0,
+   "queue_mean_s": {},
+   "ttft_mean_s": {},
+   "breaker_opens": null,
+   "refused": null,
+   "candidates": null,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 0.0,
+   "kv_cache_peak": {
+    "judge": 0.0,
+    "verifier": 0.0
+   }
+  },
+  {
+   "tag": "g8-protocols",
+   "llm_concurrency": 16,
+   "calls": 0,
+   "calls_per_second": null,
+   "tokens_per_second": null,
+   "p50_s": null,
+   "p95_s": null,
+   "gpu_util_mean_pct": 0.0,
+   "gpu_memory_peak_mib": 62576.0,
+   "queue_mean_s": {},
+   "ttft_mean_s": {},
+   "breaker_opens": null,
+   "refused": {
+    "asked": 2,
+    "refused": 2,
+    "by_reason": {
+     "role_not_allowed": 2
+    },
+    "by_role": {
+     "extract_criteria": 2
+    }
+   },
+   "candidates": null,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 0.0,
+   "kv_cache_peak": {
+    "judge": 0.0,
+    "verifier": 0.0
+   }
+  }
+ ],
+ "repeats": [],
+ "candidates_compare": {},
+ "candidates_identical": {},
+ "door_secret": "door secret tb-gpu-door: enabled version(s) 2 remain (this run's not destroyed: none); destroy each with: gcloud secrets versions destroy <version> --secret tb-gpu-door --quiet",
+ "checks": 5,
+ "failed": 3,
+ "not_run": [],
+ "checks_never_ran": null,
+ "shots": 2,
+ "shots_ok": 2,
+ "findings": [],
+ "not_started": [],
+ "verdict": "FAILED",
+ "ok": false,
+ "seconds": 19.4,
+ "report_built": "2026-11-14T00:06:30+00:00",
+ "times_from_parts": true,
+ "langs_run": []
+}

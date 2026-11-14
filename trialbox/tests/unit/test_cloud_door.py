@@ -187,7 +187,7 @@ def _shim_env(tmp_path: Path, **kw: str) -> tuple[Path, dict[str, str]]:
     (tmp_path / "gc").mkdir()
     env = dict(PATH=f"{REH / 'driver-shims'}:{os.environ['PATH']}", TB_REH_STATE=str(state),
                TB_REH_CONTAINER="tb-no-such-container", CLOUDSDK_CONFIG=str(tmp_path / "gc"),
-               TB_SA_KEY_FILE="/dev/null", **kw)  # fmt: skip
+               TB_SA_KEY_FILE="/dev/null", TB_DOOR_DIRECT="1", **kw)  # fmt: skip
     return state, env
 
 
@@ -214,17 +214,20 @@ def test_the_driver_needs_the_secret_and_puts_only_its_name_in_the_metadata(tmp_
     r = _driver(tmp_path, "--no-wait", "--patients", "500", "--only", "scenario-it-dump", **env)
     calls = (state / "gcloud.log").read_text(encoding="utf-8")
     meta = sorted(p.name for p in (state / "metadata").iterdir())
-    assert "tb-key" not in meta and {"tb-door-secret", "tb-door-version", "tb-door-cert"} <= set(meta), meta
-    assert (state / "metadata" / "tb-door-version").read_text(encoding="utf-8") == "1"
-    sec = json.loads((state / "secrets" / "tb-gpu-door" / "1").read_text(encoding="utf-8"))
-    assert "PRIVATE KEY" in sec["tls_key"] and "PRIVATE KEY" not in (state / "metadata" / "tb-door-cert").read_text()
-    for f in (state / "metadata").iterdir():  # neither the key nor the TLS key in any metadata value
-        assert sec["key"] not in f.read_text(encoding="utf-8", errors="replace"), f.name
+    assert "tb-key" not in meta and {"tb-door-secret", "tb-door-cert"} <= set(meta), meta
+    assert "secrets versions add tb-gpu-door" in calls and "--metadata tb-door-secret=tb-gpu-door,tb-door-version=1," \
+        in calls  # fmt: skip
+    assert "PRIVATE KEY" not in (state / "metadata" / "tb-door-cert").read_text()
+    for f in (state / "metadata").iterdir():  # no private key in any metadata value
+        assert "PRIVATE KEY" not in f.read_text(encoding="utf-8", errors="replace"), f.name
     shard = tmp_path / "out" / "shard-1"
     assert not (shard / "door.key").exists() and not (shard / "door-secret.json").exists()  # only the VM has them
     assert calls.index("remove-metadata") < calls.index("instances start")
-    # the rehearsal's "VM" cannot boot here (no container): the start fails after the metadata, as a refused start would
-    assert "instances start" in calls
+    # the rehearsal's "VM" cannot boot here (no container): the start fails after the metadata, as a refused start
+    # would; the driver gives up, stops it and destroys the door's version (A8: no version left enabled)
+    assert "instances start" in calls and "the start failed" in r.stderr
+    assert "secrets versions destroy 1 --secret tb-gpu-door" in calls
+    assert not list((state / "secrets" / "tb-gpu-door").glob("[0-9]*"))
 
 
 # ------------------------------------------------------------------------------------- the VM script and the others

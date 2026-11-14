@@ -1,0 +1,3 @@
+#!/bin/bash
+# Box-run rehearsal shim: one card, 62574 of 97887 MiB used (the figures of tests/rehearsal/shims/nvidia-smi).
+echo "62574, 97887"
