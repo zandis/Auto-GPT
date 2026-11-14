@@ -24,6 +24,7 @@ nothing and writes nothing (the ask-the-box assistant never changes data; ``test
 from __future__ import annotations
 
 import base64
+import logging
 import re
 from collections.abc import Callable
 from typing import Any
@@ -130,6 +131,9 @@ def _intake_fail(exc: IntakeError) -> HTTPException:
     return HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "column": exc.column})
 
 
+log = logging.getLogger("orchestrator.setup")
+
+
 def router(
     get: Callable[[], SiteSetup],
     study_info: Callable[[str], dict[str, Any]],
@@ -229,7 +233,12 @@ def router(
             return {"study": rid, "approved": False, "patients": []}
         try:
             return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
-        except readiness.UNREAD:  # D-709: said, not a 500 and not "no patients"
+        except readiness.UNREAD as exc:  # D-709: said, not a 500 and not "no patients"
+            if not readiness.is_unread(exc):  # D-712: a rejected statement or another service's error goes on
+                raise
+            log.warning(
+                "site patient check: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
+            )
             return {"study": rid, "approved": True, "patients": [], "lake_unread": True}
 
     @r.get("/setup/{ws}/feasibility")
@@ -246,7 +255,12 @@ def router(
             return {"study": rid, "approved": True, "needs_bulk": True, "feas": None}
         try:
             return {**out, "feas": readiness.feasibility(svc, w, rs, svc.today())}
-        except readiness.UNREAD:
+        except readiness.UNREAD as exc:
+            if not readiness.is_unread(exc):
+                raise
+            log.warning(
+                "site counts: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
+            )
             return {**out, "feas": None, "lake_unread": True}
 
     @r.post("/setup/{ws}/sheets")
