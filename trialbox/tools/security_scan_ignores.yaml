@@ -20,10 +20,6 @@ secrets:
     rule: Basic Auth Credentials
     count: 1
     reason: the same throwaway db-image container password as test_db_image.py (T-203a starts its own container)
-  - path: tests/unit/test_backup_schedule.py
-    rule: Basic Auth Credentials
-    count: 1
-    reason: a made-up database URL written to a temporary .env to test parsing
   - path: tests/unit/test_update_path.py
     rule: Basic Auth Credentials
     count: 1
