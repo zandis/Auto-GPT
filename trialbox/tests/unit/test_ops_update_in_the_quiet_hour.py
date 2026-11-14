@@ -93,11 +93,10 @@ def test_a_quiet_request_is_not_expired_after_the_usual_hour(tmp_path: Path) -> 
 def test_with_no_quiet_hour_for_too_long_it_expires_and_never_runs(tmp_path: Path) -> None:
     r = Runner(tmp_path, now=NOT_QUIET)
     rid = _ask(r, when="quiet")
-    old = time.time() - (tb_ops.QUIET_WAIT_H * 3600 + 60)
-    import os
-
-    os.utime(tmp_path / "ops" / "requests" / f"{rid}.json", (old, old))
+    assert r.run_pending() == []  # first seen by the runner now
+    r = Runner(tmp_path, now=datetime.fromtimestamp(NOT_QUIET.timestamp() + tb_ops.QUIET_WAIT_H * 3600 + 60, UTC))
     res = r.run_pending()
+    assert [x["id"] for x in res] == [rid]
     assert [x["state"] for x in res] == ["expired"] and not res[0]["ok"] and r.applied == []
     assert "quiet hour" in res[0]["summary"] and "ask again" in res[0]["summary"]
 
@@ -139,3 +138,134 @@ def test_the_quiet_hour_is_read_in_the_site_s_clock(at: str, hours: str, now: da
 
 def test_a_box_with_a_broken_setting_has_no_quiet_hour() -> None:
     assert tb_ops.in_quiet_hour({**ENV, "TB_UPDATE_QUIET_AT": "five"}, IN_QUIET) is False
+
+
+# ------------------------------------------------------------------------------------------------ the review (D-731)
+def _req_file(tmp: Path, rid: str) -> Path:
+    return tmp / "ops" / "requests" / f"{rid}.json"
+
+
+def _stage(tmp: Path, body: bytes = b"bundle one") -> None:
+    inc = tmp / "deploy" / "updates" / "incoming"
+    inc.mkdir(parents=True, exist_ok=True)
+    (inc / "trialbox-2026.11-2.tar").write_bytes(body)
+
+
+@pytest.mark.parametrize("args", ["x", ["a"], 7])
+def test_a_request_whose_args_are_not_an_object_never_stops_the_runner(tmp_path: Path, args: object) -> None:
+    """H1: the console's user writes the request files; a malformed one is a failed result, and the requests after
+    it still run."""
+    import json
+
+    r = Runner(tmp_path)
+    (tmp_path / "ops" / "requests").mkdir(parents=True, exist_ok=True)
+    bad = "20261114T000000Z-aaaaaa"
+    _req_file(tmp_path, bad).write_text(json.dumps({"id": bad, "action": "update_apply", "by": "x", "at": "2026-11-14T00:00:00+00:00",
+                                                     "args": args}), encoding="utf-8")  # fmt: skip
+    good = _ask(r)
+    res = {x["id"]: x for x in r.run_pending()}
+    assert good in res and res[good]["ok"]
+    assert r.write_status()["waiting"] == []
+
+
+def test_touching_the_request_file_does_not_keep_a_quiet_update_alive(tmp_path: Path) -> None:
+    """M2: the wait is counted from when the runner first saw the request (its own stamp), not from the file's
+    time, which the console's user can move."""
+    import os
+
+    r = Runner(tmp_path, now=NOT_QUIET)
+    rid = _ask(r, when="quiet")
+    assert r.run_pending() == []  # first seen now
+    later = Runner(tmp_path, now=datetime.fromtimestamp(NOT_QUIET.timestamp() + tb_ops.QUIET_WAIT_H * 3600 + 60, UTC))
+    os.utime(_req_file(tmp_path, rid), None)  # the file says "just now"
+    res = later.run_pending()
+    assert [x["state"] for x in res] == ["expired"] and later.applied == []
+
+
+@pytest.mark.parametrize("when", ["Quiet", " quiet", "quiet_hour", "later", ""])
+def test_a_when_that_is_not_exactly_quiet_is_refused_not_run_now(tmp_path: Path, when: str) -> None:
+    """M3: an update asked for "later" in any other spelling never runs at once."""
+    r = Runner(tmp_path, now=NOT_QUIET, jobs=2)
+    rid = _ask(r, when=when)
+    res = r.run_pending()
+    assert [x["id"] for x in res] == [rid] and not res[0]["ok"] and r.applied == []
+    assert "when" in res[0]["summary"]
+
+
+def test_an_interrupted_quiet_update_is_never_run_again(tmp_path: Path) -> None:
+    import json
+
+    r = Runner(tmp_path)
+    rid = _ask(r, when="quiet")
+    marker = r.ops.marker(rid)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({"id": rid, "started": "2026-11-14T21:10:00+00:00"}), encoding="utf-8")
+    res = r.run_pending()
+    assert [x["state"] for x in res] == ["interrupted"] and r.applied == []
+
+
+def test_a_quiet_update_too_old_is_expired_even_inside_the_quiet_hour(tmp_path: Path) -> None:
+    r = Runner(tmp_path, now=NOT_QUIET)
+    rid = _ask(r, when="quiet")
+    r.run_pending()
+    late = Runner(tmp_path, now=datetime.fromtimestamp(IN_QUIET.timestamp() + 2 * 86400, UTC))
+    res = late.run_pending()
+    assert [x["id"] for x in res] == [rid] and res[0]["state"] == "expired" and late.applied == []
+
+
+def test_a_quiet_update_runs_once(tmp_path: Path) -> None:
+    r = Runner(tmp_path)
+    _ask(r, when="quiet")
+    r.run_pending()
+    assert r.run_pending() == [] and len(r.applied) == 1
+
+
+def test_a_bundle_replaced_while_it_waited_is_refused(tmp_path: Path) -> None:
+    """L5: the person confirmed the file they checked; a different file of that name is not applied."""
+    _stage(tmp_path, b"bundle one")
+    r = Runner(tmp_path, now=NOT_QUIET)
+    rid = _ask(r, when="quiet")
+    r.run_pending()  # first seen: its sha256 is kept
+    _stage(tmp_path, b"bundle two")
+    res = Runner(tmp_path).run_pending()
+    assert [x["id"] for x in res] == [rid] and not res[0]["ok"] and "changed" in res[0]["summary"]
+
+
+def test_an_update_applied_closes_the_quiet_ones_that_wait(tmp_path: Path) -> None:
+    """L4: an "apply now" of the same box makes a waiting quiet update superseded, so it is not applied again."""
+    r = Runner(tmp_path, now=NOT_QUIET)
+    quiet = _ask(r, when="quiet")
+    now = _ask(r)
+    res = {x["id"]: x for x in r.run_pending()}
+    assert res[now]["ok"] and res[quiet]["state"] == "superseded" and len(r.applied) == 1
+
+
+@pytest.mark.parametrize(
+    ("env", "said"),
+    [({"TB_TZ": ""}, "TB_TZ"), ({"TB_UPDATE_QUIET_HOURS": "24"}, "TB_UPDATE_QUIET_HOURS"),
+     ({"TB_UPDATE_QUIET_HOURS": "0"}, "TB_UPDATE_QUIET_HOURS"), ({"TB_UPDATE_QUIET_AT": "5h"}, "TB_UPDATE_QUIET_AT")],
+)  # fmt: skip
+def test_a_setting_that_does_not_read_is_said_as_such(tmp_path: Path, env: dict[str, str], said: str) -> None:
+    r = Runner(tmp_path)
+    r.box.env.update(env)
+    _ask(r, when="quiet")
+    assert r.run_pending() == [] and r.applied == []
+    why = r.write_status()["waiting"][0]["why"]
+    assert "does not read" in why and said in why
+
+
+def test_a_job_count_that_raises_is_not_known(tmp_path: Path) -> None:
+    class Raising(Runner):
+        def jobs_running(self) -> int | None:
+            raise RuntimeError("no compose")
+
+    r = Raising(tmp_path)
+    _ask(r, when="quiet")
+    assert r.run_pending() == [] and r.applied == []
+
+
+def test_the_window_is_real_time_on_a_daylight_saving_day() -> None:
+    """L6: on the night the clocks go back, a 01:00 window of 2 h lasts 2 real hours, not 3."""
+    env = {**ENV, "TB_TZ": "America/New_York", "TB_UPDATE_QUIET_AT": "01:00", "TB_UPDATE_QUIET_HOURS": "2"}
+    assert tb_ops.in_quiet_hour(env, datetime(2026, 11, 1, 5, 30, tzinfo=UTC))  # 01:30 EDT
+    assert not tb_ops.in_quiet_hour(env, datetime(2026, 11, 1, 7, 30, tzinfo=UTC))  # 02:30 EST, 2 h 30 later

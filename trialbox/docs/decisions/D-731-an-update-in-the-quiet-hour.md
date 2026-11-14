@@ -29,6 +29,23 @@ would have to stay until no job runs and apply it then; T-730 asks for updates a
 5. `status.json` lists the waiting updates under `waiting`, each with why it waits. The console's button and its
    rendering are lane C2's (asked in the PR).
 
+**The exception to D-178/J-09, stated.** J-09 keeps an update from starting without the person by it: a request
+older than an hour is not run. A quiet request is the one exception: an explicit instruction, confirmed for a time
+when the person is not there, and bounded (26 hours, then never). The console's confirmation must say so (C2), and a
+rollback must reach the owner (T-730's alert question).
+
+**After the review** (FIX FIRST; each fixed test-first):
+- a request whose `args` is not an object is a failed result, never a crash of the root runner that blocks the
+  queue (`_args`);
+- the wait is counted from the runner's own first-seen stamp (`seen/<id>.json`, root's), never from the request
+  file's time, which the console's user can move;
+- a `when` other than exactly `quiet` (or left out) is refused, never run at once;
+- the staged bundle's sha256 is kept at first sight: a different file of that name is refused ("ask again");
+- an update that ran closes the quiet updates still waiting as `superseded`: none is applied again on its own;
+- the window is compared in real time (UTC), so a day the clocks change keeps its hours;
+- a setting that does not read says which (`TB_TZ`, `TB_UPDATE_QUIET_AT`, `TB_UPDATE_QUIET_HOURS`);
+- a job count that raises is "not known", so it waits.
+
 The quiet hour's default (05:00 to 07:00, after the night and before the first morning notice) is this card's
 proposal; a site sets its own. On a Windows box the Windows Update window (D-606) is another setting; the site may
 set both to one window.

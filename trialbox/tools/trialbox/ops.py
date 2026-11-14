@@ -127,28 +127,53 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def in_quiet_hour(env: Mapping[str, str], now: datetime) -> bool:
-    """T-730b (D-731): ``now`` is inside the quiet hour: from ``TB_UPDATE_QUIET_AT`` (``HH:MM``, the site's clock,
-    ``TB_TZ``) for ``TB_UPDATE_QUIET_HOURS`` hours; a window may run over midnight. A setting that does not read, or
-    a box with no zone, has no quiet hour (an update then waits and expires, never runs at an unknown time)."""
-    from datetime import timedelta
+def _quiet_setting(env: Mapping[str, str]) -> tuple[Any, int, int, float] | str:
+    """The quiet hour's zone, start and length, or the name of the setting that does not read (D-731)."""
     from zoneinfo import ZoneInfo
 
     try:
         zone = ZoneInfo((env.get("TB_TZ") or "").strip())
-        at = (env.get("TB_UPDATE_QUIET_AT") or QUIET_DEFAULT_AT).strip()
-        hh, mm = (int(x) for x in at.split(":"))
-        hours = float((env.get("TB_UPDATE_QUIET_HOURS") or QUIET_DEFAULT_HOURS).strip())
-        if not (0 <= hh < 24 and 0 <= mm < 60 and 0 < hours <= 12):
-            return False
     except (ValueError, KeyError, OSError):
+        return "TB_TZ"
+    try:
+        hh, mm = (int(x) for x in (env.get("TB_UPDATE_QUIET_AT") or QUIET_DEFAULT_AT).strip().split(":"))
+        if not (0 <= hh < 24 and 0 <= mm < 60):
+            raise ValueError
+    except ValueError:
+        return "TB_UPDATE_QUIET_AT"
+    try:
+        hours = float((env.get("TB_UPDATE_QUIET_HOURS") or QUIET_DEFAULT_HOURS).strip())
+        if not 0 < hours <= 12:
+            raise ValueError
+    except ValueError:
+        return "TB_UPDATE_QUIET_HOURS"
+    return zone, hh, mm, hours
+
+
+def in_quiet_hour(env: Mapping[str, str], now: datetime) -> bool:
+    """T-730b (D-731): ``now`` is inside the quiet hour: from ``TB_UPDATE_QUIET_AT`` (``HH:MM``, the site's clock,
+    ``TB_TZ``) for ``TB_UPDATE_QUIET_HOURS`` real hours (0 to 12); a window may run over midnight, and on a day the
+    clocks change it still lasts its hours. A setting that does not read, or a box with no zone, has no quiet hour
+    (an update then waits and expires, never runs at an unknown time)."""
+    from datetime import timedelta
+
+    got = _quiet_setting(env)
+    if isinstance(got, str):
         return False
+    zone, hh, mm, hours = got
+    at = now.astimezone(UTC)
     local = now.astimezone(zone)
     for day in (local.date() - timedelta(days=1), local.date()):  # a window that began yesterday evening
-        start = datetime(day.year, day.month, day.day, hh, mm, tzinfo=zone)
-        if start <= local < start + timedelta(hours=hours):
+        start = datetime(day.year, day.month, day.day, hh, mm, tzinfo=zone).astimezone(UTC)
+        if start <= at < start + timedelta(hours=hours):
             return True
     return False
+
+
+def _args(req: Mapping[str, Any]) -> dict[str, Any]:
+    """A request's ``args`` when it is an object; else nothing (the console's user writes the file, D-731)."""
+    a = req.get("args")
+    return a if isinstance(a, dict) else {}
 
 
 # ------------------------------------------------------------------------------------------------ the shared folder
@@ -217,8 +242,9 @@ class OpsDir:
     def write_result(
         self, req: Mapping[str, Any], ok: bool, summary: str, lines: Sequence[str], started: str, state: str = ""
     ) -> None:
-        """``state``: ``done``, ``failed``, ``interrupted`` (it started and was cut off) or ``expired`` (it waited
-        longer than :data:`MAX_AGE_MIN`); the last two never ran to the end and are not run again."""
+        """``state``: ``done``, ``failed``, ``interrupted`` (it started and was cut off), ``expired`` (it waited
+        longer than :data:`MAX_AGE_MIN`, or a quiet update :data:`QUIET_WAIT_H`) or ``superseded`` (a quiet update
+        another update overtook, D-731); the last three never ran to the end and are not run again."""
         if not REQ_ID.match(str(req.get("id"))):
             raise OpsFailed(f"bad request id {str(req.get('id'))[:40]!r}")
         _write_json(
@@ -294,14 +320,49 @@ class OpsRunner:
 
         return ComposeBox(self.box.deploy).running_jobs()
 
+    def _job_count(self) -> int | None:
+        try:
+            return self.jobs_running()
+        except Exception:  # not known: not quiet
+            return None
+
+    def _seen(self, req: Mapping[str, Any]) -> dict[str, Any]:
+        """D-731: the runner's own record of a quiet update (``seen/<id>.json``, root's): when the runner first saw
+        it and the staged bundle's sha256 then. The wait is counted from it, not from the request file's time, which
+        the console's user can move; and the file applied is the one the person confirmed."""
+        rid = str(req.get("id"))
+        if not REQ_ID.match(rid):
+            raise OpsFailed(f"bad request id {rid[:40]!r}")
+        path = self.ops.root / "seen" / f"{rid}.json"
+        got = _read_json(path)
+        if got is None:
+            got = {"first_seen": self.now().timestamp(), "sha256": self._bundle_sha(req)}
+            _write_json(path, got)
+        return got
+
+    def _bundle_sha(self, req: Mapping[str, Any]) -> str | None:
+        import hashlib
+
+        p = self.box.incoming() / str(_args(req).get("bundle") or "")
+        if not BUNDLE.match(p.name) or not p.is_file():
+            return None
+        h = hashlib.sha256()
+        with p.open("rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                h.update(block)
+        return h.hexdigest()
+
     def quiet_reason(self, req: Mapping[str, Any]) -> str | None:
         """T-730b (D-731): why a ``when: quiet`` update does not run now; None when it may."""
+        bad = _quiet_setting(self.box.env)
+        if isinstance(bad, str):
+            return f"the quiet-hour setting does not read ({bad}): it waits, and expires unless the setting is mended"
         if not in_quiet_hour(self.box.env, self.now()):
             at = self.box.env.get("TB_UPDATE_QUIET_AT") or QUIET_DEFAULT_AT
             return (
                 f"waits for the quiet hour ({at}, {self.box.env.get('TB_UPDATE_QUIET_HOURS') or QUIET_DEFAULT_HOURS} h)"
             )
-        jobs = self.jobs_running()
+        jobs = self._job_count()
         if jobs is None:
             return "in the quiet hour, but the box cannot say whether a job runs: it waits"
         if jobs:
@@ -316,8 +377,10 @@ class OpsRunner:
             msg = "refused: only an update waits for the quiet hour; ask for this one without it"
             self.ops.write_result(req, False, msg, [], _now())
         else:
+            seen = self._seen(req)
             queued = req.get("queued")
-            if not isinstance(queued, int | float) or time.time() - queued <= QUIET_WAIT_H * 3600:
+            first = min(float(seen.get("first_seen") or 0), float(queued) if isinstance(queued, int | float) else 1e18)
+            if self.now().timestamp() - first <= QUIET_WAIT_H * 3600:
                 return None
             msg = f"not run: no quiet hour with no job running came within {QUIET_WAIT_H} hours; ask again"
             self.ops.write_result(req, False, msg, [], _now(), state="expired")
@@ -338,23 +401,55 @@ class OpsRunner:
             try:
                 done = []
                 for req in self.ops.pending():
-                    if (req.get("args") or {}).get("when") == "quiet" and not self.ops.marker(
-                        str(req.get("id"))
-                    ).is_file():
-                        res = self.take_quiet(req)
-                        if res is None and self.quiet_reason(req) is not None:
-                            continue  # T-730b (D-731): it waits for the quiet hour; the status says why
-                        res = res or self.run_one(req)
-                        self.audit(res)
-                        done.append(res)
-                        continue
-                    res = self.close_stale(req) or self.run_one(req)
+                    res = self._one(req)
+                    if res is None:
+                        continue  # T-730b (D-731): it waits for the quiet hour; the status says why
                     self.audit(res)
                     done.append(res)
+                if any(r.get("action") == "update_apply" and r.get("state") in ("done", "failed") for r in done):
+                    for res in self._supersede():
+                        self.audit(res)
+                        done.append(res)
                 self.write_status()
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
         return done
+
+    def _one(self, req: Mapping[str, Any]) -> dict[str, Any] | None:
+        """One pending request: its result, or None while a quiet update waits (D-731)."""
+        args = _args(req)
+        if "when" not in args or self.ops.marker(str(req.get("id"))).is_file():
+            return self.close_stale(req) or self.run_one(req)
+        if args.get("when") != "quiet":
+            # an update asked for "later" in any other words never runs at once (the plain path checks no job)
+            msg = f"refused: when is {str(args.get('when'))[:20]!r}; it is 'quiet' or left out. Ask again"
+            self.ops.write_result(req, False, msg, [], _now())
+            return self.ops.result(str(req.get("id")))
+        res = self.take_quiet(req)
+        if res is not None:
+            return res
+        if self.quiet_reason(req) is not None:
+            return None
+        seen = self._seen(req)
+        if seen.get("sha256") != self._bundle_sha(req):
+            msg = "refused: the staged bundle changed since the update was asked for; check it and ask again"
+            self.ops.write_result(req, False, msg, [], _now())
+            return self.ops.result(str(req.get("id")))
+        return self.run_one(req)
+
+    def _supersede(self) -> list[dict[str, Any]]:
+        """D-731: an update that ran (now, or in a quiet hour) closes the quiet updates still waiting: none is
+        applied again on its own. The person asks again for one they still want."""
+        out = []
+        for req in self.ops.pending():
+            if req.get("action") == "update_apply" and _args(req).get("when") == "quiet":
+                if self.ops.marker(str(req.get("id"))).is_file():
+                    continue
+                msg = "superseded: another update ran on this box; ask again if this one is still wanted"
+                self.ops.write_result(req, False, msg, [], _now(), state="superseded")
+                if (res := self.ops.result(str(req.get("id")))) is not None:
+                    out.append(res)
+        return out
 
     def close_stale(self, req: Mapping[str, Any]) -> dict[str, Any] | None:
         """A request that started and was cut off, or that waited too long, gets a result without running: an
@@ -568,9 +663,9 @@ class OpsRunner:
         st = snapshot(self.box)
         st["waiting"] = [  # T-730b (D-731): the updates that wait for the quiet hour, and why
             {"id": r.get("id"), "action": r.get("action"), "by": r.get("by", ""), "at": r.get("at"),
-             "bundle": (r.get("args") or {}).get("bundle"), "why": self.quiet_reason(r) or "runs in this round"}
+             "bundle": _args(r).get("bundle"), "why": self.quiet_reason(r) or "runs in the next round"}
             for r in self.ops.pending()
-            if (r.get("args") or {}).get("when") == "quiet" and r.get("action") == "update_apply"
+            if _args(r).get("when") == "quiet" and r.get("action") == "update_apply"
         ]  # fmt: skip
         _write_json(self.ops.root / "status.json", st)
         return st
@@ -730,7 +825,7 @@ def health_facts(box: Box) -> dict[str, Any]:
 def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
     """The folders; ``requests/`` is writable by the console's user (uid 10001 in the image), the rest only by root.
     As a non-root user (a test, the in-process box) the folders are only made."""
-    for sub, mode in (("requests", 0o770), ("results", 0o755), ("running", 0o755), ("network", 0o755)):
+    for sub, mode in (("requests", 0o770), ("results", 0o755), ("running", 0o755), ("network", 0o755), ("seen", 0o755)):
         d = ops.root / sub
         d.mkdir(parents=True, exist_ok=True)
         if hasattr(os, "geteuid") and os.geteuid() == 0:
