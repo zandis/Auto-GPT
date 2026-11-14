@@ -160,10 +160,11 @@ class DecisionContext:
             except _optout.NoRegistryTable as exc:
                 # D-654: a PRODUCTION box and a snapshot without a consent table. The job stops with the sentence
                 # (a general error would show only "Internal error"), at the step it is in; nothing is cached, the
-                # next read asks again. Logged here: a step failure is not logged where the job ends
+                # next read asks again. Logged here: a step failure is not logged where the job ends. The answer is
+                # the fixed sentence, not the error's text (tests/unit/test_error_answers.py)
                 step = str(getattr(getattr(self._ctx, "job", None), "state", "") or "running")
                 log.error("job stopped at %s: the lake snapshot has no consent table (D-654)", step)
-                raise StepFailed(step, str(exc)) from exc
+                raise StepFailed(step, _optout.NO_REGISTRY_TABLE) from exc
         return self._consent[key]
 
     def refused(self) -> frozenset[str]:
