@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -67,6 +68,10 @@ class WorkerEnv:
     extra: dict[str, Any] = field(default_factory=dict)
     #: stores that exist and could not be opened for this tick (D-683): their clear fails, the others run
     not_opened: frozenset[str] = frozenset()
+    #: D-685: the box's other OMOP stores, open, by schema name (``omop_<hash>``: a lake that is not the box's own)
+    omop_more: dict[str, Any] = field(default_factory=dict)
+    #: OMOP stores that opened and whose clear raised in this tick, by name (written by ``clear_omop``)
+    not_cleared: list[str] = field(default_factory=list)
 
 
 def clear_pool(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
@@ -116,14 +121,45 @@ class StoreNotOpened(RuntimeError):
     goes on), it is never reported as skipped."""
 
 
-def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
-    if "omop" in env.not_opened:  # D-683: the store is there and was not opened: failed, not "no store"
-        raise StoreNotOpened("omop")
-    if env.omop is None:
-        return {"skipped": 1}
-    from omop.load import withhold
+#: D-685: the names an OMOP store has (``omop.schema.schema_for``): the box's own, and one per other lake
+OMOP_STORE = re.compile(r"omop(_[0-9a-f]{10})?")
 
-    return withhold(env.omop, pids, ACTOR).as_dict()
+
+def _omop_open(env: WorkerEnv) -> list[tuple[str, Any]]:
+    """Every OMOP store open for this tick, the box's own first."""
+    return ([("omop", env.omop)] if env.omop is not None else []) + sorted(env.omop_more.items())
+
+
+def _omop_not_opened(env: WorkerEnv) -> list[str]:
+    return sorted(n for n in env.not_opened if OMOP_STORE.fullmatch(n.split("@", 1)[0]))
+
+
+def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """D-685: the patient is withheld in every OMOP store the box holds. Every store that opened is tried, each on
+    its own: one whose clear raises is named (``not_cleared``) and does not keep the later ones from being
+    cleared. Then a store that failed, or one that is there and was not opened (D-683), fails the clear: failed,
+    never "no store". The counts are sums over the stores (``withheld`` counts a patient once per store);
+    ``stores`` says how many."""
+    from omop import load
+
+    stores = _omop_open(env)
+    total: dict[str, int] = {}
+    for name, db in stores:
+        try:
+            counts = load.withhold(db, pids, ACTOR).as_dict()
+        except Exception as exc:
+            log.error("opt-out worker: the OMOP store %s was not cleared (%s)", name, type(exc).__name__)
+            env.not_cleared.append(name)
+            continue
+        for k, n in counts.items():
+            total[k] = total.get(k, 0) + int(n)
+    if env.not_cleared or _omop_not_opened(env):
+        raise StoreNotOpened("omop")
+    if not stores:
+        return {"skipped": 1}
+    if len(stores) > 1:
+        total["stores"] = len(stores)
+    return total
 
 
 #: the OMOP tables the withhold deletes by person (``note_nlp`` and ``fact_relationship`` go with their notes and
@@ -145,30 +181,37 @@ OMOP_BY_PERSON = (
 
 
 def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
-    if "omop" in env.not_opened:
+    """Rows left of an opted-out patient, per OMOP store (``<schema>.<table>``, D-685)."""
+    if _omop_not_opened(env):
         raise StoreNotOpened("omop")
-    if env.omop is None or not pids:
+    if not pids:
         return {}
-    db = env.omop
+    out: dict[str, int] = {}
+    for name, db in _omop_open(env):
+        out.update(_verify_one_omop(name, db, pids))
+    return out
+
+
+def _verify_one_omop(name: str, db: Any, pids: frozenset[str]) -> dict[str, int]:
     persons = [
         int(r[0])
         for r in db.fetchall(
             "SELECT omop_id FROM tb_id_map WHERE id_kind = 'person' AND source_id = ANY(?)", (sorted(pids),)
         )
     ]
-    out = {"omop.tb_withheld": len(pids - {str(r[0]) for r in db.fetchall("SELECT pid FROM tb_withheld")})}
+    out = {f"{name}.tb_withheld": len(pids - {str(r[0]) for r in db.fetchall("SELECT pid FROM tb_withheld")})}
     if not persons:
         return out
     for t in OMOP_BY_PERSON:
-        out[f"omop.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE person_id = ANY(?)", (persons,)))
-    out["omop.tb_record"] = int(
+        out[f"{name}.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE person_id = ANY(?)", (persons,)))
+    out[f"{name}.tb_record"] = int(
         db.fetchval(
             "SELECT count(*) FROM tb_record WHERE status <> 'tombstoned' AND (person_id = ANY(?) OR "
             "(cdm_table = 'person' AND record_id = ANY(?))) AND coalesce(cdm_table, '') <> 'tb_consent'",
             (persons, persons),
         )
     )
-    out["omop.note_nlp"] = int(
+    out[f"{name}.note_nlp"] = int(
         db.fetchval(
             "SELECT count(*) FROM note_nlp WHERE note_id IN (SELECT record_id FROM tb_record WHERE cdm_table = 'note' "
             "AND person_id = ANY(?))",
@@ -178,16 +221,23 @@ def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return out
 
 
+def _catalog(url: str) -> tuple[Any, str]:
+    """A connection for questions to the catalog, and the run's ``tb_prefix`` (D-683): the service's login role,
+    no store's group role. The catalog answers every role."""
+    import psycopg
+    from tb_common.db import split_url
+
+    dsn, prefix = split_url(url)
+    return psycopg.connect(dsn, autocommit=True, connect_timeout=10), prefix
+
+
 def store_has(url: str, schema: str, table: str) -> bool:
     """Whether the store ``schema`` (less ``tb_prefix``) holds ``table`` on this box (D-683). Asked of the catalog,
     which answers every role, on a connection of its own as the service's login role: never over another store's
     connection, which works as that store's group role (D-378) and is refused every question about a schema it
     may not use. "No such store" is a clear false; any failure to ask raises and is the caller's to name."""
-    import psycopg
-    from tb_common.db import split_url
-
-    dsn, prefix = split_url(url)
-    with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
+    con, prefix = _catalog(url)
+    with con:
         row = con.execute(
             "SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
             "WHERE n.nspname = %s AND c.relname = %s",  # any relation of the name: a view is not "no store"
@@ -315,6 +365,10 @@ def run_once(env: WorkerEnv) -> dict[str, Any]:
             log.error("opt-out worker: store %s still holds opted-out patients after its clear", c.name)
             out["left"][c.name] = left
             out["failed"].append(c.name)
+    if env.not_opened:  # which stores: schema names, never a patient's
+        out["not_opened"] = sorted(env.not_opened)
+    if env.not_cleared:
+        out["not_cleared"] = sorted(env.not_cleared)
     env.audit.append("optout.worker", actor=ACTOR, detail=out)
     return out
 
@@ -339,6 +393,56 @@ def _omop_store(reg: OptOutRegister) -> Any | None:
     from omop import schema
 
     return schema.connect(url)
+
+
+def omop_store_names(url: str) -> list[str]:
+    """D-685: every OMOP store the database holds, by schema name less ``tb_prefix``: a schema named as
+    :data:`OMOP_STORE` that holds ``tb_record``. Asked of the catalog on a connection of its own (D-683)."""
+    con, prefix = _catalog(url)
+    with con:
+        rows = con.execute(
+            "SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE c.relname = 'tb_record' AND left(n.nspname, %s) = %s",
+            (len(prefix), prefix),
+        ).fetchall()
+    names = {str(r[0])[len(prefix) :] for r in rows}
+    return sorted(n for n in names if OMOP_STORE.fullmatch(n))
+
+
+def _omop_stores(reg: OptOutRegister) -> tuple[Any | None, dict[str, Any], frozenset[str]]:
+    """The box's OMOP store, its other OMOP stores (open, by name) and the names of those that are there and
+    could not be opened. Never raises: a store that fails is named, the others are still given."""
+    from omop import schema
+
+    not_opened: set[str] = set()
+    box = None
+    try:
+        box = _omop_store(reg)
+    except Exception as exc:  # D-683: one store that cannot be opened does not stop the tick; it is named
+        log.error("opt-out worker: the OMOP store was not opened (%s)", type(exc).__name__)
+        not_opened.add("omop")
+    # the database the load writes to (TB_OMOP_DB_URL when the box names one) and the register's own: a store in
+    # either holds the patient (the review: only the first was listed)
+    first = os.environ.get("TB_OMOP_DB_URL") or str(reg.db.url)
+    urls = [first] + ([str(reg.db.url)] if str(reg.db.url) != first else [])
+    more: dict[str, Any] = {}
+    for i, url in enumerate(urls):
+        try:
+            names = [n for n in omop_store_names(url) if i or n != "omop"]  # the first one's `omop` is the box's
+        except Exception as exc:  # the catalog did not answer: no store can be called absent
+            log.error("opt-out worker: the OMOP stores were not listed (%s)", type(exc).__name__)
+            not_opened.add("omop")
+            continue
+        for name in names:
+            key = name if not i and name not in more else f"{name}@register"
+            try:
+                if not store_has(url, name, "tb_record"):
+                    continue  # gone since it was listed: opening it would make it (the worker makes no store)
+                more[key] = schema.connect(url, name)
+            except Exception as exc:
+                log.error("opt-out worker: the OMOP store %s was not opened (%s)", key, type(exc).__name__)
+                not_opened.add(key)
+    return box, more, frozenset(not_opened)
 
 
 #: what the orchestrator's ``/models`` reports for the health line (``tb_common.metrics.check_optout``)
@@ -367,17 +471,13 @@ def tick(orch: Any) -> dict[str, Any] | None:
         log.error("opt-out worker: no trial database (%s)", type(exc).__name__)
         _failed(orch, ["register"], now)
         return None
-    omop = None
-    not_opened: frozenset[str] = frozenset()
+    omop: Any | None = None
+    more: dict[str, Any] = {}
     try:
-        try:
-            omop = _omop_store(reg)
-        except Exception as exc:  # D-683: one store that cannot be opened does not stop the tick; it is named
-            log.error("opt-out worker: the OMOP store was not opened (%s)", type(exc).__name__)
-            not_opened = frozenset({"omop"})
+        omop, more, not_opened = _omop_stores(reg)
         env = WorkerEnv(
             register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop,
-            not_opened=not_opened,
+            not_opened=not_opened, omop_more=more,
         )  # fmt: skip
         out = run_once(env)
     except Exception as exc:
@@ -385,8 +485,9 @@ def tick(orch: Any) -> dict[str, Any] | None:
         _failed(orch, ["tick"], now)
         return None
     finally:
-        if omop is not None:
-            omop.close()
+        for db in (omop, *more.values()):
+            if db is not None:
+                db.close()
         reg.close()
     if out["failed"]:
         _failed(orch, list(out["failed"]), now)  # audited by name (never who) and the health line turns red
