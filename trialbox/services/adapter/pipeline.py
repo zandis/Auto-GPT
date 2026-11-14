@@ -796,18 +796,23 @@ def _run_ingest(
     except OSError:
         prior_record = None
     carried: set[str] = set()
-    if base is not None:
-        # NEW-B-36 (D-677; review DATA-006): a delta night carries the night before over, and a chart merged since
-        # must be applied to that too, whether or not tonight sends a patient row (the merges are read here then)
-        if not patient_pairs:
+    if not patient_pairs:
+        # NEW-B-36 (D-677; review DATA-006): the merges are applied to every night, whether or not it sends a patient
+        # row with a chart number (a FHIR bulk night never does), and on a delta night to what it carries over too.
+        # Without them a merged chart would stand as its own patient: the night is held and says why
+        try:
             pm = cfg.pidmap()
             try:
                 aliases = pm.aliases()
             finally:
                 pm.close()
-        if aliases:
-            survivors = set(aliases.values())
-            carried = {str(r["id"]) for r in read_type(base, "Patient") if str(r["id"]) in survivors}
+        except Exception as exc:
+            log.error("the chart merges could not be read: %s", type(exc).__name__)
+            errors.append(f"the chart merges could not be read ({type(exc).__name__}); the night is held")
+            aliases = {}
+    if base is not None and aliases:
+        survivors = set(aliases.values())
+        carried = {str(r["id"]) for r in read_type(base, "Patient") if str(r["id"]) in survivors}
     cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
     night = _NightPass(
         zone,
@@ -837,7 +842,7 @@ def _run_ingest(
         night.defaulted,
         night.presence_read,
         night.shifted,
-        night.aliases.moved,
+        night.aliases.moved + carried_moved.get("Patient", 0),  # tonight's and those carried over (D-677)
     )
     missing = night.missing_counts()
     tombstoned = tombstone_count(out_dir)
@@ -1205,8 +1210,8 @@ class _Aliases:
     def __call__(self, r: Resource) -> bool:
         if not self.aliases:
             return True
+        self._walk(r)  # a Patient's own references (``link``) too: the same rule as for a record carried over
         if r.get("resourceType") != "Patient":
-            self._walk(r)
             return True
         new = self.aliases.get(str(r.get("id")))
         if new is None:

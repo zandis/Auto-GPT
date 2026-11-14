@@ -214,3 +214,99 @@ def test_a_chain_of_merges_and_a_reference_in_a_list_are_moved(tmp_path: Path) -
     (o,) = read_type(tmp_path / "out", "Observation")
     assert o["subject"]["reference"] == "Patient/pc"
     assert [p["reference"] for p in o["performer"]] == ["Practitioner/x", "Patient/pc"]
+
+
+# ------------------------------------------------------------------------- the review's findings (by running)
+def _bulk(path: Path, resources: list[dict[str, Any]]) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    by: dict[str, list[dict[str, Any]]] = {}
+    for r in resources:
+        by.setdefault(r["resourceType"], []).append(r)
+    for t, rs in by.items():
+        (path / f"{t}.ndjson").write_text("\n".join(json.dumps(r) for r in rs) + "\n")
+
+
+def _merge_m1_into_m2(cfg: AdapterConfig) -> tuple[str, str]:
+    pm = cfg.pidmap()
+    try:
+        return pm.merge(KEY, "M1", "M2", "duplicate chart", "HIS-3")
+    finally:
+        pm.close()
+
+
+def test_a_full_bulk_night_after_a_merge_holds_what_the_delta_night_holds(tmp_path: Path) -> None:
+    """A FHIR bulk night stages no chart numbers, and the merges were read only when it did: a full bulk night after
+    a merge brought the merged patient back, and every record under its old pid."""
+    cfg = _cfg(tmp_path)
+    people = [{"resourceType": "Patient", "id": m} for m in ("M1", "M2")]
+    conds = [{"resourceType": "Condition", "id": c, "subject": {"reference": f"Patient/{m}"}}
+             for c, m in (("c1", "M1"), ("c2", "M2"))]  # fmt: skip
+    _bulk(tmp_path / "bulk1", [*people, *conds])
+    run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk1"), snapshot=FULL, load_fhir=False, rebuild_lake=False,
+               validate=False)  # fmt: skip
+    old, new = _merge_m1_into_m2(cfg)
+    rep = run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk1"), snapshot=DELTA, load_fhir=False, rebuild_lake=False,
+                     validate=False)  # fmt: skip
+    assert rep.passed, rep.errors
+    held = _held(cfg, DELTA)
+    assert held["patients"] == [new] and old not in held["text"]
+    assert set(held["about"]["Condition"].values()) == {json.dumps({"reference": f"Patient/{new}"})}
+
+
+def test_a_patients_own_reference_to_a_merged_chart_sent_tonight_is_moved(tmp_path: Path) -> None:
+    """The night's pass renamed a merged Patient but did not walk a Patient's own references (``link``); the records
+    carried over were walked. One rule for both."""
+    cfg = _cfg(tmp_path)
+    _bulk(tmp_path / "bulk1", [{"resourceType": "Patient", "id": m} for m in ("M1", "M2")])
+    run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk1"), snapshot=FULL, load_fhir=False, rebuild_lake=False,
+               validate=False)  # fmt: skip
+    old, _new = _merge_m1_into_m2(cfg)
+    linked = {
+        "resourceType": "Patient",
+        "id": "M2",
+        "link": [{"other": {"reference": "Patient/M1"}, "type": "replaces"}],
+    }
+    _bulk(tmp_path / "bulk2", [linked])
+    rep = run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk2"), since=FULL, snapshot=DELTA, load_fhir=False,
+                     rebuild_lake=False, validate=False)  # fmt: skip
+    assert rep.passed, rep.errors
+    assert old not in _held(cfg, DELTA)["text"]
+
+
+def test_a_night_whose_merges_cannot_be_read_is_held_with_the_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the merges a snapshot would hold a merged chart as its own patient: the night is held and says why,
+    by the error's type, and is never published."""
+    cfg = _cfg(tmp_path)
+    _bulk(tmp_path / "bulk1", [{"resourceType": "Patient", "id": "M1"}])
+    run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk1"), snapshot=FULL, load_fhir=False, rebuild_lake=False,
+               validate=False)  # fmt: skip
+
+    from adapter.pidmap import PidMap
+
+    def unreadable(self: PidMap) -> dict[str, str]:
+        raise ConnectionError("the database is down")
+
+    monkeypatch.setattr(PidMap, "aliases", unreadable)
+    _bulk(tmp_path / "bulk2", [{"resourceType": "Condition", "id": "c9", "subject": {"reference": "Patient/M1"}}])
+    rep = run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk2"), since=FULL, snapshot=DELTA, load_fhir=False,
+                     rebuild_lake=False, validate=False)  # fmt: skip
+    assert not rep.passed
+    said = " ".join(rep.errors or [])
+    assert "the chart merges could not be read (ConnectionError)" in said and "database is down" not in said
+
+
+def test_the_report_counts_the_patients_moved_from_the_night_before(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    _bulk(tmp_path / "bulk1", [{"resourceType": "Patient", "id": m} for m in ("M1", "M2")])
+    run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk1"), snapshot=FULL, load_fhir=False, rebuild_lake=False,
+               validate=False)  # fmt: skip
+    _merge_m1_into_m2(cfg)
+    _bulk(tmp_path / "bulk2", [{"resourceType": "Condition", "id": "c9", "subject": {"reference": "Patient/M2"}}])
+    rep = run_ingest(cfg, "fhir_bulk", str(tmp_path / "bulk2"), since=FULL, snapshot=DELTA, load_fhir=False,
+                     rebuild_lake=False, validate=False)  # fmt: skip
+    assert rep.passed, rep.errors
+    audit = [json.loads(x) for f in (tmp_path / "audit").glob("*.jsonl") for x in f.read_text().splitlines()]
+    done = [e for e in audit if e["event"] == "ingest.done" and e.get("snapshot") == DELTA]
+    assert done and done[-1]["detail"]["aliased"] == 1

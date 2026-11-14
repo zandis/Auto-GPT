@@ -29,12 +29,18 @@ night and a FHIR bulk night (tests below).
    - the merged chart's own Patient is dropped when the surviving patient has a record (carried over or sent
      tonight), else it takes the surviving id (and an identifier that held the old pid).
    Tonight's record of the surviving patient wins over a carried-over one, as before.
-2. **The merges are read on every delta night**, whether or not tonight sends a patient row (a FHIR bulk delta
-   sends only what changed). A full night is unchanged.
-3. **Only a line that names a merged pid is read and written again.** Every other carried-over line keeps its
+2. **The merges are read on every night**, whether or not it sends a patient row with a chart number. A FHIR bulk
+   night never does: before this card a full bulk night after a merge brought the merged patient back with every
+   record under its old pid (found by this card's review; the delta night alone would have disagreed with it).
+   A night whose merges cannot be read (the pid map's database or key) is **held**, and says so by the error's
+   type: "the chart merges could not be read (<type>); the night is held". Before, such a night wrote its snapshot
+   and failed later, at the publish's pid map step.
+3. **A Patient's own references** (`link`) are moved too, sent tonight or carried over: one rule for every record.
+4. **Only a line that names a merged pid is read and written again.** Every other carried-over line keeps its
    bytes, so a snapshot without a merge is byte for byte what it was, and a delta night over a snapshot already
    moved changes nothing.
-4. The night's log says how many carried-over records, per type, were written under the surviving patient.
+5. The night's log says how many carried-over records, per type, were written under the surviving patient; the
+   night's `aliased` count (its audit event) adds the carried-over patients to tonight's.
 
 ## What a person sees differently
 
@@ -50,24 +56,53 @@ full night of the same rows holds. The lake and OMOP built from it follow.
 - The pid map, the derived store, the twins and the OMOP store are not re-keyed here: they read the snapshot, or
   the merge map (`with_survivors`, the opt-out side).
 - A merge is not undone: `pid_alias` is append-only (D-370).
+- **Where a delta night and a full night can still differ** (the review, by running; each also without a merge, or
+  a rule this card did not make):
+  - two charts merged into a third that has no record of its own: the full night keeps the Patient sent first,
+    the delta night the merged Patient whose old pid sorts last in the night before; either's demographics, the
+    same pid and the same records under it;
+  - a feed delta never removes a Patient (opt-out's job), so a patient row the hospital deletes tonight stays as
+    the night before held it; a full night of the rows left does not have it.
+- The writer's own API, used with a tombstone or a left-out id of a merged Patient, lists ids the night before did
+  not hold; the pipeline never tombstones or leaves out a Patient.
 
 ## Cost
 
-On a delta night with merges on the box: one read of the base's Patient file (the surviving ids it holds), and a
-regular-expression test of each carried-over line, which `_base_lines` already reads and writes canonically. Not
-measured at 50,000; no new setting, no limit.
+On a delta night with merges on the box: two reads of the night before's Patient file (the surviving ids it
+holds, and its merged Patients; three when the file is not sorted), and a regular-expression test of each
+carried-over line. Measured by the review: `write_snapshot` over a 200,000-record night before (89 MB, four
+types) with 500 records tonight, 2.2 to 2.5 s without merges, 2.4 to 3.3 s with 1 to 2,000 merges, on 4 cores
+shared with a test run. No new setting, no limit.
 
 ## Tests
 
-`tests/unit/test_delta_night_chart_merge.py` (6 tests; all fail on the parent):
+`tests/unit/test_delta_night_chart_merge.py` (10 tests; all fail on the parent; the three of the writer alone
+fail there because the writer had no `aliases` to take, so they guard the new behaviour rather than show the
+defect, which the pipeline tests show):
 
 - a CSV full night, a merge, a delta night (the patient file with B only, and with both) against a full night of
   the same rows on its own lake: the same patients and, per record, the same patient; no trace of the old pid;
   the lake built from it holds one patient;
 - a FHIR bulk delta with no Patient tonight (fails with only the writer's change: the merges were not read);
+- after the review: a full bulk night after a merge holds what the delta night holds; a Patient sent tonight with
+  a `link` to the merged chart; a night whose merges cannot be read is held with the reason, no message text; the
+  night's `aliased` count includes the patients carried over;
 - the writer alone: carried-over references moved, the surviving patient's own record kept, a line naming no
   merge byte-identical, a second delta over it changes nothing; a merged patient takes the surviving id when no
   one holds it, and tonight's surviving record wins; a reference inside a list, and a chain of merges.
 
 No state change is added (the snapshot's files are written and moved in as before), so there is no interrupt
 test of its own.
+
+## Review
+
+One adversarial, read-only review by a fresh agent, by running (CSV nights of 20 patients and every table through
+the demo mapping, with A's rows changed under A's chart number, a tombstone of A's diagnosis, a chain of merges
+over two nights, a re-run; FHIR bulk nights with references in `contained`, extensions, lists and Coverage).
+On the CSV path the delta night matched a full night of every row the box received on every case, byte for byte
+but `meta.lastUpdated`; a re-run wrote the same bytes. Its findings, taken: a full bulk night never applied the
+merges (fixed: read on every night); a Patient's own references sent tonight were not moved (fixed); an unreadable
+pid map now failed the night without a reason (now held with one); the `aliased` count left out the carried-over
+patients (fixed); this record's claims on bulk, on "the same rules" and on the reads of the Patient file
+(corrected). Said, not changed: the two differences above, and the writer API's edges the pipeline never reaches.
+Not verified by it: a D-538 whole re-read and an SS-MIX2 delta; the FHIR store and OMOP loads (no servers).
