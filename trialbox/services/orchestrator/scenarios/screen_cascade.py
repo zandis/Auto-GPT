@@ -151,6 +151,24 @@ def job_vec_s2b(ctx: Ctx) -> bool:
     return on
 
 
+def screen_embedder(url: str, probe_timeout: float = 5.0) -> Any:
+    """The embedder SCREEN ranks note sentences with (NEW-LLM-2, LLM-002): the box's embed service when it serves a
+    real model, asked once per job; the local hash stub when the service serves the stub or does not answer, so
+    retrieval by meaning is off and a criterion with no lexicon term reads "not evaluated" (``require_retrieval``)."""
+    from embed_service.embedder import HashEmbedder, HttpEmbedder
+
+    try:
+        probe = HttpEmbedder(url, timeout=probe_timeout)
+        probe.embed(["probe"])
+    except Exception:  # no answer: the stub, said by the run's no_retrieval count
+        return HashEmbedder()
+    if str(probe.model).startswith("hash"):
+        return HashEmbedder()
+    served = HttpEmbedder(url)
+    served.model = probe.model
+    return served
+
+
 def s2b_source(lake: Any, snapshot: str, on: bool) -> Any:
     """The cascade's stored-vector source on the job's pinned snapshot when the flag is on, else None (the S2b path
     of every run before T-203b, byte for byte)."""
@@ -407,11 +425,10 @@ def screen_with_cascade(
     judge = OrchestratorJudge.from_note_judge(note_judge, in_flight) if note_judge is not None else None
     dctx = decision_of(ctx)
     may_block = dctx.note_block(note_judge).may_block
-    from embed_service.embedder import HashEmbedder
-
     from orchestrator import derive
 
     source = s2b_source(ctx.services.lake, snapshot, job_vec_s2b(ctx))  # once per job (D-449)
+    embedder = screen_embedder(ctx.cfg.env.embed_url)  # NEW-LLM-2: the box's embed service when it serves a model
     cfg = CascadeConfig(
         study_id=rs.id,
         run_date=run_date,
@@ -436,7 +453,7 @@ def screen_with_cascade(
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
             judge,
             lambda j: run_cascade(
-                ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None, s2b_source=source
+                ctx.services.lake, rs, cfg, judge=j, embedder=embedder, reviewer=None, s2b_source=source
             ),
         )
     except CascadeError as exc:
