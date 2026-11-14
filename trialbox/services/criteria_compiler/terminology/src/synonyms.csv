@@ -29,16 +29,44 @@ condition,malignancy,icd10cm,C3,prefix
 condition,malignancy,icd10cm,C40,prefix
 condition,malignancy,icd10cm,C41,prefix
 condition,malignancy,icd10cm,C43,prefix
+condition,malignancy,icd10cm,C44,prefix
 condition,malignancy,icd10cm,C45,prefix
 condition,malignancy,icd10cm,C46,prefix
 condition,malignancy,icd10cm,C47,prefix
 condition,malignancy,icd10cm,C48,prefix
 condition,malignancy,icd10cm,C49,prefix
+condition,malignancy,icd10cm,C4A,prefix
 condition,malignancy,icd10cm,C5,prefix
 condition,malignancy,icd10cm,C6,prefix
 condition,malignancy,icd10cm,C7,prefix
 condition,malignancy,icd10cm,C8,prefix
 condition,malignancy,icd10cm,C9,prefix
+condition,malignancy,icd10cm,D45,family
+condition,malignancy,icd10cm,D46,family
+condition,malignancy,icd10cm,D47,family
+condition,malignancy,icd10cm,Z85,family
+condition,malignancy except non-melanoma skin cancer,icd10cm,C0,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C1,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C2,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C3,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C40,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C41,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C43,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C45,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C46,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C47,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C48,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C49,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C4A,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C5,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C6,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C7,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C8,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,C9,prefix
+condition,malignancy except non-melanoma skin cancer,icd10cm,D45,family
+condition,malignancy except non-melanoma skin cancer,icd10cm,D46,family
+condition,malignancy except non-melanoma skin cancer,icd10cm,D47,family
+condition,malignancy except non-melanoma skin cancer,icd10cm,Z85,family
 condition,pregnancy,icd10cm,Z33.1,exact
 condition,pregnancy,icd10cm,O,prefix
 condition,myocardial infarction,icd10cm,I21,prefix

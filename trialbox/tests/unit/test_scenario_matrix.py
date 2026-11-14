@@ -80,7 +80,10 @@ def test_expected_state_is_the_site_study_by_hand() -> None:
     assert sc.expected_state(sc.Truth(adult, {"M10.9"}, [("2026-10-01", 6.0)])) == "not_eligible"
     assert sc.expected_state(sc.Truth(adult, {"M10.9"}, [("2024-01-01", 9.0)])) == "needs"  # outside the year
     assert sc.expected_state(sc.Truth(adult, {"M10.9", "C16.9"}, [("2026-10-01", 9.0)])) == "not_eligible"
-    assert sc.expected_state(sc.Truth(adult, {"M10.9", "C44.91"}, [("2026-10-01", 9.0)])) == "ready"  # skin, not C44
+    # SCR-01: a basal cell skin carcinoma and a Merkel cell carcinoma are malignancies; a history code is unknown
+    assert sc.expected_state(sc.Truth(adult, {"M10.9", "C44.91"}, [("2026-10-01", 9.0)])) == "not_eligible"
+    assert sc.expected_state(sc.Truth(adult, {"M10.9", "C4A.0"}, [("2026-10-01", 9.0)])) == "not_eligible"
+    assert sc.expected_state(sc.Truth(adult, {"M10.9", "Z85.3"}, [("2026-10-01", 9.0)])) == "needs"
     assert sc.expected_state(sc.Truth("2015-01-01", {"M10.9"}, [("2026-10-01", 9.0)])) == "not_eligible"
     assert sc.expected_state(sc.Truth("", {"M10.9"}, [("2026-10-01", 9.0)])) == "needs"
 

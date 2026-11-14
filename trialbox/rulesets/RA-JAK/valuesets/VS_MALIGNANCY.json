@@ -1056,6 +1056,594 @@
       "display": "Malignant melanoma of skin, unspecified"
      },
      {
+      "code": "C44",
+      "display": "Other and unspecified malignant neoplasm of skin"
+     },
+     {
+      "code": "C44.0",
+      "display": "Other and unspecified malignant neoplasm of skin of lip"
+     },
+     {
+      "code": "C44.00",
+      "display": "Unspecified malignant neoplasm of skin of lip"
+     },
+     {
+      "code": "C44.01",
+      "display": "Basal cell carcinoma of skin of lip"
+     },
+     {
+      "code": "C44.02",
+      "display": "Squamous cell carcinoma of skin of lip"
+     },
+     {
+      "code": "C44.09",
+      "display": "Other specified malignant neoplasm of skin of lip"
+     },
+     {
+      "code": "C44.1",
+      "display": "Other and unspecified malignant neoplasm of skin of eyelid, including canthus"
+     },
+     {
+      "code": "C44.10",
+      "display": "Unspecified malignant neoplasm of skin of eyelid, including canthus"
+     },
+     {
+      "code": "C44.101",
+      "display": "Unspecified malignant neoplasm of skin of unspecified eyelid, including canthus"
+     },
+     {
+      "code": "C44.102",
+      "display": "Unspecified malignant neoplasm of skin of right eyelid, including canthus"
+     },
+     {
+      "code": "C44.1021",
+      "display": "Unspecified malignant neoplasm of skin of right upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1022",
+      "display": "Unspecified malignant neoplasm of skin of right lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.109",
+      "display": "Unspecified malignant neoplasm of skin of left eyelid, including canthus"
+     },
+     {
+      "code": "C44.1091",
+      "display": "Unspecified malignant neoplasm of skin of left upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1092",
+      "display": "Unspecified malignant neoplasm of skin of left lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.11",
+      "display": "Basal cell carcinoma of skin of eyelid, including canthus"
+     },
+     {
+      "code": "C44.111",
+      "display": "Basal cell carcinoma of skin of unspecified eyelid, including canthus"
+     },
+     {
+      "code": "C44.112",
+      "display": "Basal cell carcinoma of skin of right eyelid, including canthus"
+     },
+     {
+      "code": "C44.1121",
+      "display": "Basal cell carcinoma of skin of right upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1122",
+      "display": "Basal cell carcinoma of skin of right lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.119",
+      "display": "Basal cell carcinoma of skin of left eyelid, including canthus"
+     },
+     {
+      "code": "C44.1191",
+      "display": "Basal cell carcinoma of skin of left upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1192",
+      "display": "Basal cell carcinoma of skin of left lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.12",
+      "display": "Squamous cell carcinoma of skin of eyelid, including canthus"
+     },
+     {
+      "code": "C44.121",
+      "display": "Squamous cell carcinoma of skin of unspecified eyelid, including canthus"
+     },
+     {
+      "code": "C44.122",
+      "display": "Squamous cell carcinoma of skin of right eyelid, including canthus"
+     },
+     {
+      "code": "C44.1221",
+      "display": "Squamous cell carcinoma of skin of right upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1222",
+      "display": "Squamous cell carcinoma of skin of right lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.129",
+      "display": "Squamous cell carcinoma of skin of left eyelid, including canthus"
+     },
+     {
+      "code": "C44.1291",
+      "display": "Squamous cell carcinoma of skin of left upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1292",
+      "display": "Squamous cell carcinoma of skin of left lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.13",
+      "display": "Sebaceous cell carcinoma of skin of eyelid, including canthus"
+     },
+     {
+      "code": "C44.131",
+      "display": "Sebaceous cell carcinoma of skin of unspecified eyelid, including canthus"
+     },
+     {
+      "code": "C44.132",
+      "display": "Sebaceous cell carcinoma of skin of right eyelid, including canthus"
+     },
+     {
+      "code": "C44.1321",
+      "display": "Sebaceous cell carcinoma of skin of right upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1322",
+      "display": "Sebaceous cell carcinoma of skin of right lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.139",
+      "display": "Sebaceous cell carcinoma of skin of left eyelid, including canthus"
+     },
+     {
+      "code": "C44.1391",
+      "display": "Sebaceous cell carcinoma of skin of left upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1392",
+      "display": "Sebaceous cell carcinoma of skin of left lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.19",
+      "display": "Other specified malignant neoplasm of skin of eyelid, including canthus"
+     },
+     {
+      "code": "C44.191",
+      "display": "Other specified malignant neoplasm of skin of unspecified eyelid, including canthus"
+     },
+     {
+      "code": "C44.192",
+      "display": "Other specified malignant neoplasm of skin of right eyelid, including canthus"
+     },
+     {
+      "code": "C44.1921",
+      "display": "Other specified malignant neoplasm of skin of right upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1922",
+      "display": "Other specified malignant neoplasm of skin of right lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.199",
+      "display": "Other specified malignant neoplasm of skin of left eyelid, including canthus"
+     },
+     {
+      "code": "C44.1991",
+      "display": "Other specified malignant neoplasm of skin of left upper eyelid, including canthus"
+     },
+     {
+      "code": "C44.1992",
+      "display": "Other specified malignant neoplasm of skin of left lower eyelid, including canthus"
+     },
+     {
+      "code": "C44.2",
+      "display": "Other and unspecified malignant neoplasm of skin of ear and external auricular canal"
+     },
+     {
+      "code": "C44.20",
+      "display": "Unspecified malignant neoplasm of skin of ear and external auricular canal"
+     },
+     {
+      "code": "C44.201",
+      "display": "Unspecified malignant neoplasm of skin of unspecified ear and external auricular canal"
+     },
+     {
+      "code": "C44.202",
+      "display": "Unspecified malignant neoplasm of skin of right ear and external auricular canal"
+     },
+     {
+      "code": "C44.209",
+      "display": "Unspecified malignant neoplasm of skin of left ear and external auricular canal"
+     },
+     {
+      "code": "C44.21",
+      "display": "Basal cell carcinoma of skin of ear and external auricular canal"
+     },
+     {
+      "code": "C44.211",
+      "display": "Basal cell carcinoma of skin of unspecified ear and external auricular canal"
+     },
+     {
+      "code": "C44.212",
+      "display": "Basal cell carcinoma of skin of right ear and external auricular canal"
+     },
+     {
+      "code": "C44.219",
+      "display": "Basal cell carcinoma of skin of left ear and external auricular canal"
+     },
+     {
+      "code": "C44.22",
+      "display": "Squamous cell carcinoma of skin of ear and external auricular canal"
+     },
+     {
+      "code": "C44.221",
+      "display": "Squamous cell carcinoma of skin of unspecified ear and external auricular canal"
+     },
+     {
+      "code": "C44.222",
+      "display": "Squamous cell carcinoma of skin of right ear and external auricular canal"
+     },
+     {
+      "code": "C44.229",
+      "display": "Squamous cell carcinoma of skin of left ear and external auricular canal"
+     },
+     {
+      "code": "C44.29",
+      "display": "Other specified malignant neoplasm of skin of ear and external auricular canal"
+     },
+     {
+      "code": "C44.291",
+      "display": "Other specified malignant neoplasm of skin of unspecified ear and external auricular canal"
+     },
+     {
+      "code": "C44.292",
+      "display": "Other specified malignant neoplasm of skin of right ear and external auricular canal"
+     },
+     {
+      "code": "C44.299",
+      "display": "Other specified malignant neoplasm of skin of left ear and external auricular canal"
+     },
+     {
+      "code": "C44.3",
+      "display": "Other and unspecified malignant neoplasm of skin of other and unspecified parts of face"
+     },
+     {
+      "code": "C44.30",
+      "display": "Unspecified malignant neoplasm of skin of other and unspecified parts of face"
+     },
+     {
+      "code": "C44.300",
+      "display": "Unspecified malignant neoplasm of skin of unspecified part of face"
+     },
+     {
+      "code": "C44.301",
+      "display": "Unspecified malignant neoplasm of skin of nose"
+     },
+     {
+      "code": "C44.309",
+      "display": "Unspecified malignant neoplasm of skin of other parts of face"
+     },
+     {
+      "code": "C44.31",
+      "display": "Basal cell carcinoma of skin of other and unspecified parts of face"
+     },
+     {
+      "code": "C44.310",
+      "display": "Basal cell carcinoma of skin of unspecified parts of face"
+     },
+     {
+      "code": "C44.311",
+      "display": "Basal cell carcinoma of skin of nose"
+     },
+     {
+      "code": "C44.319",
+      "display": "Basal cell carcinoma of skin of other parts of face"
+     },
+     {
+      "code": "C44.32",
+      "display": "Squamous cell carcinoma of skin of other and unspecified parts of face"
+     },
+     {
+      "code": "C44.320",
+      "display": "Squamous cell carcinoma of skin of unspecified parts of face"
+     },
+     {
+      "code": "C44.321",
+      "display": "Squamous cell carcinoma of skin of nose"
+     },
+     {
+      "code": "C44.329",
+      "display": "Squamous cell carcinoma of skin of other parts of face"
+     },
+     {
+      "code": "C44.39",
+      "display": "Other specified malignant neoplasm of skin of other and unspecified parts of face"
+     },
+     {
+      "code": "C44.390",
+      "display": "Other specified malignant neoplasm of skin of unspecified parts of face"
+     },
+     {
+      "code": "C44.391",
+      "display": "Other specified malignant neoplasm of skin of nose"
+     },
+     {
+      "code": "C44.399",
+      "display": "Other specified malignant neoplasm of skin of other parts of face"
+     },
+     {
+      "code": "C44.4",
+      "display": "Other and unspecified malignant neoplasm of skin of scalp and neck"
+     },
+     {
+      "code": "C44.40",
+      "display": "Unspecified malignant neoplasm of skin of scalp and neck"
+     },
+     {
+      "code": "C44.41",
+      "display": "Basal cell carcinoma of skin of scalp and neck"
+     },
+     {
+      "code": "C44.42",
+      "display": "Squamous cell carcinoma of skin of scalp and neck"
+     },
+     {
+      "code": "C44.49",
+      "display": "Other specified malignant neoplasm of skin of scalp and neck"
+     },
+     {
+      "code": "C44.5",
+      "display": "Other and unspecified malignant neoplasm of skin of trunk"
+     },
+     {
+      "code": "C44.50",
+      "display": "Unspecified malignant neoplasm of skin of trunk"
+     },
+     {
+      "code": "C44.500",
+      "display": "Unspecified malignant neoplasm of anal skin"
+     },
+     {
+      "code": "C44.501",
+      "display": "Unspecified malignant neoplasm of skin of breast"
+     },
+     {
+      "code": "C44.509",
+      "display": "Unspecified malignant neoplasm of skin of other part of trunk"
+     },
+     {
+      "code": "C44.51",
+      "display": "Basal cell carcinoma of skin of trunk"
+     },
+     {
+      "code": "C44.510",
+      "display": "Basal cell carcinoma of anal skin"
+     },
+     {
+      "code": "C44.511",
+      "display": "Basal cell carcinoma of skin of breast"
+     },
+     {
+      "code": "C44.519",
+      "display": "Basal cell carcinoma of skin of other part of trunk"
+     },
+     {
+      "code": "C44.52",
+      "display": "Squamous cell carcinoma of skin of trunk"
+     },
+     {
+      "code": "C44.520",
+      "display": "Squamous cell carcinoma of anal skin"
+     },
+     {
+      "code": "C44.521",
+      "display": "Squamous cell carcinoma of skin of breast"
+     },
+     {
+      "code": "C44.529",
+      "display": "Squamous cell carcinoma of skin of other part of trunk"
+     },
+     {
+      "code": "C44.59",
+      "display": "Other specified malignant neoplasm of skin of trunk"
+     },
+     {
+      "code": "C44.590",
+      "display": "Other specified malignant neoplasm of anal skin"
+     },
+     {
+      "code": "C44.591",
+      "display": "Other specified malignant neoplasm of skin of breast"
+     },
+     {
+      "code": "C44.599",
+      "display": "Other specified malignant neoplasm of skin of other part of trunk"
+     },
+     {
+      "code": "C44.6",
+      "display": "Other and unspecified malignant neoplasm of skin of upper limb, including shoulder"
+     },
+     {
+      "code": "C44.60",
+      "display": "Unspecified malignant neoplasm of skin of upper limb, including shoulder"
+     },
+     {
+      "code": "C44.601",
+      "display": "Unspecified malignant neoplasm of skin of unspecified upper limb, including shoulder"
+     },
+     {
+      "code": "C44.602",
+      "display": "Unspecified malignant neoplasm of skin of right upper limb, including shoulder"
+     },
+     {
+      "code": "C44.609",
+      "display": "Unspecified malignant neoplasm of skin of left upper limb, including shoulder"
+     },
+     {
+      "code": "C44.61",
+      "display": "Basal cell carcinoma of skin of upper limb, including shoulder"
+     },
+     {
+      "code": "C44.611",
+      "display": "Basal cell carcinoma of skin of unspecified upper limb, including shoulder"
+     },
+     {
+      "code": "C44.612",
+      "display": "Basal cell carcinoma of skin of right upper limb, including shoulder"
+     },
+     {
+      "code": "C44.619",
+      "display": "Basal cell carcinoma of skin of left upper limb, including shoulder"
+     },
+     {
+      "code": "C44.62",
+      "display": "Squamous cell carcinoma of skin of upper limb, including shoulder"
+     },
+     {
+      "code": "C44.621",
+      "display": "Squamous cell carcinoma of skin of unspecified upper limb, including shoulder"
+     },
+     {
+      "code": "C44.622",
+      "display": "Squamous cell carcinoma of skin of right upper limb, including shoulder"
+     },
+     {
+      "code": "C44.629",
+      "display": "Squamous cell carcinoma of skin of left upper limb, including shoulder"
+     },
+     {
+      "code": "C44.69",
+      "display": "Other specified malignant neoplasm of skin of upper limb, including shoulder"
+     },
+     {
+      "code": "C44.691",
+      "display": "Other specified malignant neoplasm of skin of unspecified upper limb, including shoulder"
+     },
+     {
+      "code": "C44.692",
+      "display": "Other specified malignant neoplasm of skin of right upper limb, including shoulder"
+     },
+     {
+      "code": "C44.699",
+      "display": "Other specified malignant neoplasm of skin of left upper limb, including shoulder"
+     },
+     {
+      "code": "C44.7",
+      "display": "Other and unspecified malignant neoplasm of skin of lower limb, including hip"
+     },
+     {
+      "code": "C44.70",
+      "display": "Unspecified malignant neoplasm of skin of lower limb, including hip"
+     },
+     {
+      "code": "C44.701",
+      "display": "Unspecified malignant neoplasm of skin of unspecified lower limb, including hip"
+     },
+     {
+      "code": "C44.702",
+      "display": "Unspecified malignant neoplasm of skin of right lower limb, including hip"
+     },
+     {
+      "code": "C44.709",
+      "display": "Unspecified malignant neoplasm of skin of left lower limb, including hip"
+     },
+     {
+      "code": "C44.71",
+      "display": "Basal cell carcinoma of skin of lower limb, including hip"
+     },
+     {
+      "code": "C44.711",
+      "display": "Basal cell carcinoma of skin of unspecified lower limb, including hip"
+     },
+     {
+      "code": "C44.712",
+      "display": "Basal cell carcinoma of skin of right lower limb, including hip"
+     },
+     {
+      "code": "C44.719",
+      "display": "Basal cell carcinoma of skin of left lower limb, including hip"
+     },
+     {
+      "code": "C44.72",
+      "display": "Squamous cell carcinoma of skin of lower limb, including hip"
+     },
+     {
+      "code": "C44.721",
+      "display": "Squamous cell carcinoma of skin of unspecified lower limb, including hip"
+     },
+     {
+      "code": "C44.722",
+      "display": "Squamous cell carcinoma of skin of right lower limb, including hip"
+     },
+     {
+      "code": "C44.729",
+      "display": "Squamous cell carcinoma of skin of left lower limb, including hip"
+     },
+     {
+      "code": "C44.79",
+      "display": "Other specified malignant neoplasm of skin of lower limb, including hip"
+     },
+     {
+      "code": "C44.791",
+      "display": "Other specified malignant neoplasm of skin of unspecified lower limb, including hip"
+     },
+     {
+      "code": "C44.792",
+      "display": "Other specified malignant neoplasm of skin of right lower limb, including hip"
+     },
+     {
+      "code": "C44.799",
+      "display": "Other specified malignant neoplasm of skin of left lower limb, including hip"
+     },
+     {
+      "code": "C44.8",
+      "display": "Other and unspecified malignant neoplasm of overlapping sites of skin"
+     },
+     {
+      "code": "C44.80",
+      "display": "Unspecified malignant neoplasm of overlapping sites of skin"
+     },
+     {
+      "code": "C44.81",
+      "display": "Basal cell carcinoma of overlapping sites of skin"
+     },
+     {
+      "code": "C44.82",
+      "display": "Squamous cell carcinoma of overlapping sites of skin"
+     },
+     {
+      "code": "C44.89",
+      "display": "Other specified malignant neoplasm of overlapping sites of skin"
+     },
+     {
+      "code": "C44.9",
+      "display": "Other and unspecified malignant neoplasm of skin, unspecified"
+     },
+     {
+      "code": "C44.90",
+      "display": "Unspecified malignant neoplasm of skin, unspecified"
+     },
+     {
+      "code": "C44.91",
+      "display": "Basal cell carcinoma of skin unspecified"
+     },
+     {
+      "code": "C44.92",
+      "display": "Squamous cell carcinoma of skin, unspecified"
+     },
+     {
+      "code": "C44.99",
+      "display": "Other specified malignant neoplasm of skin, unspecified"
+     },
+     {
       "code": "C45",
       "display": "Mesothelioma"
      },
@@ -1306,6 +1894,138 @@
      {
       "code": "C49.A9",
       "display": "Gastrointestinal stromal tumor of other sites"
+     },
+     {
+      "code": "C4A",
+      "display": "Merkel cell carcinoma"
+     },
+     {
+      "code": "C4A.0",
+      "display": "Merkel cell carcinoma of lip"
+     },
+     {
+      "code": "C4A.1",
+      "display": "Merkel cell carcinoma of eyelid, including canthus"
+     },
+     {
+      "code": "C4A.10",
+      "display": "Merkel cell carcinoma of unspecified eyelid, including canthus"
+     },
+     {
+      "code": "C4A.11",
+      "display": "Merkel cell carcinoma of right eyelid, including canthus"
+     },
+     {
+      "code": "C4A.111",
+      "display": "Merkel cell carcinoma of right upper eyelid, including canthus"
+     },
+     {
+      "code": "C4A.112",
+      "display": "Merkel cell carcinoma of right lower eyelid, including canthus"
+     },
+     {
+      "code": "C4A.12",
+      "display": "Merkel cell carcinoma of left eyelid, including canthus"
+     },
+     {
+      "code": "C4A.121",
+      "display": "Merkel cell carcinoma of left upper eyelid, including canthus"
+     },
+     {
+      "code": "C4A.122",
+      "display": "Merkel cell carcinoma of left lower eyelid, including canthus"
+     },
+     {
+      "code": "C4A.2",
+      "display": "Merkel cell carcinoma of ear and external auricular canal"
+     },
+     {
+      "code": "C4A.20",
+      "display": "Merkel cell carcinoma of unspecified ear and external auricular canal"
+     },
+     {
+      "code": "C4A.21",
+      "display": "Merkel cell carcinoma of right ear and external auricular canal"
+     },
+     {
+      "code": "C4A.22",
+      "display": "Merkel cell carcinoma of left ear and external auricular canal"
+     },
+     {
+      "code": "C4A.3",
+      "display": "Merkel cell carcinoma of other and unspecified parts of face"
+     },
+     {
+      "code": "C4A.30",
+      "display": "Merkel cell carcinoma of unspecified part of face"
+     },
+     {
+      "code": "C4A.31",
+      "display": "Merkel cell carcinoma of nose"
+     },
+     {
+      "code": "C4A.39",
+      "display": "Merkel cell carcinoma of other parts of face"
+     },
+     {
+      "code": "C4A.4",
+      "display": "Merkel cell carcinoma of scalp and neck"
+     },
+     {
+      "code": "C4A.5",
+      "display": "Merkel cell carcinoma of trunk"
+     },
+     {
+      "code": "C4A.51",
+      "display": "Merkel cell carcinoma of anal skin"
+     },
+     {
+      "code": "C4A.52",
+      "display": "Merkel cell carcinoma of skin of breast"
+     },
+     {
+      "code": "C4A.59",
+      "display": "Merkel cell carcinoma of other part of trunk"
+     },
+     {
+      "code": "C4A.6",
+      "display": "Merkel cell carcinoma of upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.60",
+      "display": "Merkel cell carcinoma of unspecified upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.61",
+      "display": "Merkel cell carcinoma of right upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.62",
+      "display": "Merkel cell carcinoma of left upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.7",
+      "display": "Merkel cell carcinoma of lower limb, including hip"
+     },
+     {
+      "code": "C4A.70",
+      "display": "Merkel cell carcinoma of unspecified lower limb, including hip"
+     },
+     {
+      "code": "C4A.71",
+      "display": "Merkel cell carcinoma of right lower limb, including hip"
+     },
+     {
+      "code": "C4A.72",
+      "display": "Merkel cell carcinoma of left lower limb, including hip"
+     },
+     {
+      "code": "C4A.8",
+      "display": "Merkel cell carcinoma of overlapping sites"
+     },
+     {
+      "code": "C4A.9",
+      "display": "Merkel cell carcinoma, unspecified"
      },
      {
       "code": "C50",
@@ -5479,6 +6199,10 @@
   },
   {
    "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C44"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
    "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C45"
   },
   {
@@ -5499,6 +6223,10 @@
   },
   {
    "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C4A"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
    "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C5"
   },
   {
@@ -5516,6 +6244,22 @@
   {
    "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
    "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|D45"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|D46"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|D47"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|Z85"
   }
  ],
  "id": "RA-JAK-VS-MALIGNANCY",
@@ -5524,5 +6268,5 @@
  "status": "active",
  "title": "malignancy",
  "url": "http://trialbox.local/fhir/ValueSet/RA-JAK-VS-MALIGNANCY",
- "version": "1.0.0-v9b720a86"
+ "version": "1.0.0-vbb06f0af"
 }

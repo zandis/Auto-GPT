@@ -157,7 +157,7 @@ def test_the_store_holds_all_39_cdm_tables(store: Any) -> None:
     assert set(schema.ALL_CDM_TABLES) <= tables
     keys = {str(r[0]) for r in store.fetchall("SELECT conname FROM pg_constraint WHERE contype = 'p'")}
     assert {"xpk_visit_detail", "xpk_specimen", "xpk_location", "xpk_metadata", "xpk_episode"} <= keys
-    assert store.fetchval("SELECT max(version) FROM _schema_version") == 7  # D-441: tb_withheld
+    assert store.fetchval("SELECT max(version) FROM _schema_version") == 8  # D-441 tb_withheld; D-655 family
 
 
 # ------------------------------------------------------------------------------------------------ domain routing
