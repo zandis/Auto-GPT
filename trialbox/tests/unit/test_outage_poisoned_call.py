@@ -4,7 +4,7 @@
 always fails with ``upstream_down`` (a 5xx that this request provokes, while the same model answers every other
 call) was sent again and again: alone, it spent the job's whole allowance and stopped the job; beside answering
 calls, each answer ended the outage and the call was sent again without end. Now, once the model has answered
-another call since this call first failed, the call's third ``upstream_down`` from then is its own failure: raised as it is
+another call between each of this call's tries, its sixth ``upstream_down`` in a row is its own failure: raised as it is
 (the caller's answer for one failed call), never charged to the job. A load refusal (``model_busy``,
 ``model_asleep``, ``model_unavailable``) still waits. Fake clock, no model.
 """
@@ -50,15 +50,13 @@ def test_a_call_that_fails_while_the_model_answers_others_is_raised_and_charges_
 
     def poisoned() -> str:
         tries["n"] += 1
-        if tries["n"] == 2:  # between its tries, another call of the same model is answered
+        if tries["n"] > 1:  # between its tries, other calls of the same model are answered
             outage.wait_and_retry(lambda: "ok", budget, "judge", fault_of)
         raise Refused("upstream_down")
 
     with pytest.raises(Refused):
         outage.wait_and_retry(poisoned, budget, "judge", fault_of)
-    assert (
-        tries["n"] <= 1 + outage.CALL_STRIKES + 1
-    )  # given up soon after the model was seen answering, not after 1800 s
+    assert tries["n"] == 1 + outage.CALL_STRIKES  # given up once the model was seen answering, not after 1800 s
     assert clock.now < 60.0
     assert budget.spent < 60.0  # the job's allowance is not used up by one call
     assert budget.fault("judge", "upstream_down") > 1700.0  # a real outage later still has its allowance
@@ -124,3 +122,57 @@ def test_another_models_answers_do_not_count(clock: Clock) -> None:
         return "ok"
 
     assert outage.wait_and_retry(judge_down_then_up, budget, "judge", fault_of) == "ok"
+
+
+def test_a_given_up_call_leaves_no_outage_open(clock: Clock) -> None:
+    """Review of D-659: the raise left the label's outage open, so its wait was charged later and a blip an hour on
+    stopped the job. A strike is never charged and opens no outage."""
+    budget = outage.OutageBudget(allowance=1800.0)
+    tries = {"n": 0}
+
+    def poisoned() -> str:
+        tries["n"] += 1
+        if tries["n"] > 1:  # the model answers another call between this call's tries
+            outage.wait_and_retry(lambda: "ok", budget, "judge", fault_of)
+        raise Refused("upstream_down")
+
+    with pytest.raises(Refused):
+        outage.wait_and_retry(poisoned, budget, "judge", fault_of)
+    clock.now += 3600.0  # an hour with no judge answer
+    assert budget.fault("verifier", "model_unavailable") > 1700.0
+    budget.answered("verifier")
+    outage.wait_and_retry(lambda: "ok", budget, "judge", fault_of)
+    assert budget.spent < 100.0
+
+
+def test_answers_before_a_real_outage_do_not_give_up_a_healthy_call(clock: Clock) -> None:
+    """Review of D-659: the model answered once, then went down for 300 s for everyone; the call waited, not given
+    up 15 s in."""
+    budget = outage.OutageBudget(allowance=1800.0)
+    tries = {"n": 0}
+
+    def call() -> str:
+        tries["n"] += 1
+        if tries["n"] == 2:  # after this call's first fault, the last answer before the outage
+            outage.wait_and_retry(lambda: "ok", budget, "judge", fault_of)
+        if clock.now < 300.0:
+            raise Refused("upstream_down")
+        return "ok"
+
+    assert outage.wait_and_retry(call, budget, "judge", fault_of) == "ok"
+
+
+def test_a_call_that_kills_its_connection_is_given_up_too(clock: Clock) -> None:
+    """A transport error the request provokes (the callers' ``unreachable``) beside answering calls."""
+    budget = outage.OutageBudget(allowance=1800.0)
+
+    def fault(exc: BaseException) -> tuple[str, float | None] | None:
+        return (exc.code, None) if isinstance(exc, Refused) else None
+
+    def poisoned() -> str:
+        outage.wait_and_retry(lambda: "ok", budget, "judge", fault)
+        raise Refused("unreachable")
+
+    with pytest.raises(Refused):
+        outage.wait_and_retry(poisoned, budget, "judge", fault)
+    assert budget.spent < 100.0
