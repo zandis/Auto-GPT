@@ -254,6 +254,14 @@ SEND_RESULTS = (
     "stale_map",
     "dictionary_changed",
     "format",
+    # T-302b placement and logic, and NEW-EDC-2 (D-690): a repeat instance someone else holds
+    "not_on_event",
+    "wrong_arm",
+    "repeating_form",
+    "not_repeating_form",
+    "hidden",
+    "logic",
+    "instance_taken",
 )  # T-115: held back, with the reason
 
 

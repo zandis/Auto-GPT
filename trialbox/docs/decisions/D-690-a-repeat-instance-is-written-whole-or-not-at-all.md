@@ -19,9 +19,13 @@ event's reason. The acceptance test of T-302b asserted exactly that outcome. Sho
 
 1. **A repeat instance is one unit.** Every field that lives on a repeat instance the send touches is read: the
    repeating instrument's fields, or every instrument designated for a repeating event.
-2. **An instance that holds, on any of its fields, a value TrialBox did not write there is another person's entry
-   or another event.** "TrialBox wrote it" means the field's last `sent` value, in REDCap's form, equals what REDCap
-   holds. A ticked checkbox column counts as another's (TrialBox never writes a checkbox, EDC-003).
+2. **An instance that holds, on any field a person can enter, something other than what TrialBox itself last
+   wrote there is another person's entry or another event**: a value TrialBox never wrote, a value changed since,
+   or a value of TrialBox's that a person cleared. "TrialBox wrote it" means its last `sent` (or `erased`) line for
+   that field; an `already_there` line is not a write (the value was someone's before TrialBox came). A
+   calculated or descriptive field is REDCap's own and is not judged. A ticked checkbox column counts as another's
+   (TrialBox never writes a checkbox, EDC-003). The instance is judged once, on REDCap's rows as read, before any
+   value is taken as already there.
 3. **Every value of TrialBox's for such an instance is held**: the field that differs is a `conflict` as before,
    every other value is `instance_taken`, with the reason in the trail ("choose another instance"). Nothing is
    written into the instance, and it stays so on every later send until a person moves TrialBox's values to
@@ -29,12 +33,30 @@ event's reason. The acceptance test of T-302b asserted exactly that outcome. Sho
 4. **An empty instance, and one whose every value TrialBox wrote, are written as before.**
 5. **A visit's base row is unchanged**: judged field by field, as the row is one subject's visit, not one of several
    events.
-6. The console names the new result in its three languages (`edc.result.instance_taken`; lane C2's file).
+6. The preview says when every value of a visit would be held (`instance_taken: true`).
+7. The console names the new result in its three languages (`edc.result.instance_taken`) and its send page counts
+   every result of the send (`console/edc_pages.py` lacked the placement results too; lane C2's files).
+8. **"Erase hidden values" is unchanged**: it erases only a field TrialBox wrote, whose value nobody changed, that
+   REDCap now hides, and only on a person's explicit action. The instance rule is about TrialBox adding values to
+   someone's instance; an erase of TrialBox's own stale value is REDCap's own hygiene (the review asked otherwise;
+   kept, and pinned by a test).
 
 ## Not in this card
 
 - Offering "the next free instance" (EDC-014): the person still types the visit; the reason says to choose another.
 - A person saving a value between TrialBox's read and its import (EDC-011, narrow window): unchanged.
+
+## The adversarial review (by running) and what it changed
+
+| Finding | Severity | Outcome |
+| --- | --- | --- |
+| A person's value equal to TrialBox's was taken as "already there" (TrialBox's), and TrialBox's other values went into the person's instance | high | fixed, test first: judged on TrialBox's own writes, before "already there" |
+| A calculated field REDCap computed on TrialBox's instance held every later correction for good | high | fixed, test first: calculated and descriptive fields are not judged |
+| A value of TrialBox's that a person cleared let TrialBox write into the instance again | medium | fixed, test first |
+| `erase_hidden` erased on an instance a person had changed | medium | kept (point 8), pinned by a test |
+| No test of TrialBox correcting its own instance | medium | added (with a calculated field) |
+| The preview did not say every value would be held | low | fixed, test first |
+| The console's send page did not count the result | low | fixed, test first |
 
 ## Evidence
 
