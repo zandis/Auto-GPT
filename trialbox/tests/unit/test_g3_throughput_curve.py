@@ -226,8 +226,9 @@ def test_the_default_cap_covers_what_was_measured_and_no_gain_beyond_it(tmp_path
             odd = cr.restrict(cr.estimate(patients, llm_concurrency=(8,)), only)  # 8: measured at no size
             assert fast["hours"] < odd["hours"] < slow["hours"] <= odd["cap_hours"], (only, patients)
     out = _dry(tmp_path, "--patients", "50000")
-    # 6.25 h x 1.3 = 8.1 h: 9 h (was 15 h on G1's figure)
-    assert "--max-run-duration=9h" in out
+    # 7.08 h x 1.3 = 9.2 h: 10 h (9 h at 6.25 h until the public scenarios were estimated from their measured parts,
+    # lane G B17; 15 h on G1's figure)
+    assert "--max-run-duration=10h" in out
 
 
 def test_one_value_reaches_the_vm_and_the_vm_script_passes_it_on(tmp_path: Path) -> None:
