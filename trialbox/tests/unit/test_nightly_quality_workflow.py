@@ -21,7 +21,8 @@ pytestmark = pytest.mark.nodb
 
 
 def _jobs() -> dict[str, Any]:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    jobs: dict[str, Any] = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    return jobs
 
 
 def _runs(job: dict[str, Any]) -> str:
