@@ -161,7 +161,14 @@ OPEN = "OPEN (its lane): catches every error, a 5xx too, and reads it as "
 #: by someone who read what it does with a 5xx (never "no data") and with a 4xx (a fault of the code: it stops).
 CALLERS: dict[tuple[str, str], str] = {
     ("lake/app.py", "query"): "the route: answers the status this card is about",
-    ("tb_common/optout.py", "registry_state"): RERAISES,
+    # master after train 14 (D-649, D-650, D-651): the lake is asked whether a table is there, not read by words;
+    # listed by lane C's NEW-SITE-5 on the integrator's request, each read
+    ("tb_common/lakeprobe.py", "no_table"): "handler: any failure answers False (not known to be missing), so the "
+    "caller raises its own failure; never 'no table'",
+    ("tb_common/lakeprobe.py", "rows_or_no_table"): "handler: None only when the lake answers that the table is not "
+    "there (no_table); any other failure goes on",
+    ("orchestrator/scenarios/feas_profile.py", "data_facts"): "handler: any failure gives the facts as not read "
+    "(read False; the report says so), never zero",
     ("tb_common/derived_store.py", "rows_from_lake"): GOES_ON,
     ("tb_common/derived_store.py", "mapping_version_of"): GOES_ON,
     ("lake/client.py", "LakeLocal.query"): GOES_ON,
@@ -189,14 +196,9 @@ CALLERS: dict[tuple[str, str], str] = {
     ("vec/index.py", "snapshot_notes"): GOES_ON,
     ("criteria_compiler/equivalence/gate.py", "sql_evaluations"): GOES_ON,
     ("console/audit_page.py", "audit_patient"): NOT_THE_LAKE,  # a filter's query string
-    ("matching/cascade/engine.py", "_Run.notes"): RERAISES,
-    ("matching/proposed.py", "Proposed.load"): RERAISES,
-    ("matching/proposed.py", "site_basis"): RERAISES,
     ("matching/coded_values.py", "attach"): OPEN + "no coded value to show (display only; the answers stand)",
-    ("orchestrator/scenarios/feas_profile.py", "build"): OPEN
-    + "a lake without the fact tables, for its facts query (the report says so); its other two queries go on",
+    ("orchestrator/scenarios/feas_profile.py", "build"): GOES_ON,  # its facts query moved to data_facts
     ("orchestrator/scenarios/screen.py", "practitioner_names"): OPEN + "no names (the settings' ids are shown)",
-    ("orchestrator/scenarios/screen.py", "confirmed_facts"): OPEN + "no confirmed fact",
     ("patient_profile/twin.py", "lake_schema"): OPEN + "a snapshot of schema 1",
     # closed by NEW-SITE-2/3/5 (D-709, D-712, D-715): a 5xx is "the lake could not be read" (the readiness answer
     # says so), a 4xx goes on as the fault of the question it is

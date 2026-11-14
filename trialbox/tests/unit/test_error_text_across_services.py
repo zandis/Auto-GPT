@@ -230,6 +230,9 @@ HANDED_MINE: dict[tuple[str, str], tuple[int, str]] = {
     ("sitesetup/service.py", "_held_refusal"): (1, "tests the lake's refusal for 'running job': a yes or no"),
 }
 HANDED_THEIRS: dict[tuple[str, str], int] = {
+    # lane B2's NEW-B-34 (D-675): the lake's /query answers its own failures 5xx and the question's 4xx by the
+    # error's class (`query_failure_status`, a number); listed by lane C's NEW-SITE-5, which is stacked on it
+    ("lake/app.py", "query_failure_status"): 2,
     ("adapter/app.py", "failure.log_failure"): 2, ("adapter/app.py", "failure.words"): 2,
     ("adapter/backfill.py", "failure.log_failure"): 1, ("adapter/backfill.py", "failure.words"): 1,
     # lane B2's #516 (adapter/failure.py local_lake): `error_answer` (D-664) turns anything that is not the lake's
