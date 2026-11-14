@@ -9,8 +9,9 @@ import json
 import re
 import shutil
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
@@ -572,7 +573,8 @@ def _stw_confirms_the_account(s: Site, st: dict[str, Any]) -> None:
     r = s.post(stw, "/ops/accounts/requests", {"request": rids[0], "decision": "confirm"}, waiting.text)
     code = re.search(r'data-testid="request-secret"[^>]*value="([a-z0-9-]+)"', r.text)
     assert r.status_code == 200 and code, js.text(r.text)[-300:]
-    assert 'data-testid="request-secret"' not in s.get(user("it"), "/ops/users").text  # shown once, to the steward
+    again = s.get(stw, "/ops/accounts/requests").text  # shown once, to the steward, and never again
+    assert 'data-testid="request-secret"' not in again and code.group(1) not in again
     # the new coordinator's first sign-in: the code, an own password, an authenticator set up from the page
     c = TestClient(s.served)
     tok = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/enrol").text)
@@ -588,8 +590,17 @@ def _stw_confirms_the_account(s: Site, st: dict[str, Any]) -> None:
     r = c.post("/login/totp", data={"code": s.code(NEW_CRC), "mfa_csrf": mfa.group(1)}, follow_redirects=False)
     assert r.status_code == 303, (r.status_code, js.text(r.text)[-300:])
     home = c.get("/home")
-    assert home.status_code == 200 and "My tasks" in js.text(home.text), (home.url, js.text(home.text)[:300])
+    assert home.url.path == "/home" and tr("en", "wb.crc.title") in js.text(home.text), (
+        home.url,
+        js.text(home.text)[:300],
+    )
     s.c[NEW_CRC] = c
+    c2 = TestClient(s.served)  # the code is spent: a second first sign-in with it is refused
+    tok = re.search(r'name="login_csrf" value="([^"]+)"', c2.get("/enrol").text)
+    assert tok
+    r = c2.post("/enrol", data={"username": NEW_CRC, "enrol_code": code.group(1), "password": NEW_CRC_PW + "x",
+                                "password2": NEW_CRC_PW + "x", "login_csrf": tok.group(1)}, follow_redirects=False)  # fmt: skip
+    assert r.status_code != 303 or r.headers.get("location") != "/login/totp", r.status_code
     made = [e for e in events(s, "console.user") if e["detail"].get("user") == NEW_CRC]
     assert made and made[-1]["detail"]["confirmed_by"] == stw and code.group(1) not in json.dumps(made)
 
@@ -609,7 +620,7 @@ def _crc_visit(s: Site, st: dict[str, Any]) -> None:
     name, no, today = user("crc"), s.state["screening_no"], s.h.today()
     forms = s.get(name, f"/studies/{RS}/forms")
     r = s.post(name, f"/studies/{RS}/forms/builtin", {}, forms.text)
-    assert r.status_code == 200, (r.status_code, js.text(r.text)[-300:])
+    assert r.status_code == 200 and "err" not in r.url.params and int(r.url.params.get("builtin") or 0) >= 7, r.url
     sched = s.get(name, f"/studies/{RS}/schedule")
     r = s.post(name, f"/studies/{RS}/schedule", {"action": "save", "visit": ["v1", "v2", ""],
                "label": ["Week 1", "Week 4", ""], "day": ["7", "28", ""], "before": ["7", "3", ""],
@@ -625,23 +636,33 @@ def _crc_visit(s: Site, st: dict[str, Any]) -> None:
     one = s.h.bk.study_api("GET", f"/studies/{RS}/subjects/{no}?today={today.isoformat()}")
     assert one["subject"]["state"] == "on_study" and one["visits"][0]["status"] == "done", one["subject"]
     assert [v["visit"] for v in one["visits"] if v["status"] != "done"] == ["v2"], one["visits"]  # Week 4 is next
+    page = s.get(name, f"/studies/{RS}/subjects/{no}").text  # and the participant page says so
+    assert 'data-state="on_study"' in page and 'data-testid="sv-v1" data-status="done"' in page
+    assert re.search(r'data-testid="sv-v2" data-status="(?!done)', page), js.text(page)[:400]
 
 
 @step("J-CRC-10")
 def _crc_sae(s: Site, st: dict[str, Any]) -> None:
     name, no, today = user("crc"), s.state["screening_no"], s.h.today()
+    now = s.h.clock().astimezone(ZoneInfo(cd.SITE_TW["site"]["tz"]))
+    aware = (now - timedelta(minutes=30)).strftime("%H:%M")  # known half an hour ago, at the site
+    assert (now - timedelta(minutes=30)).date() == today, now
     setup = s.get(name, f"/studies/{RS}/setup")
     r = s.post(name, f"/studies/{RS}/setup/sae", {"rule_set": "tw_trial"}, setup.text)
-    assert r.status_code == 200, (r.status_code, js.text(r.text)[-300:])
+    assert r.status_code == 200 and r.url.params.get("saved") == "sae", (r.url, js.text(r.text)[-300:])
+    now = re.search(r'data-testid="setup-sae-now">(.*?)</p>', r.text, re.S)
+    assert now and tr("en", "sae.set.tw_trial") in js.text(now.group(1)) and "warn" not in now.group(1), r.text[-300:]
     r = _entry(s, name, RS, no, "tb_adverse_event", {"ae_term": "Pneumonia", "ae_onset": today.isoformat(),
-               "ae_aware": today.isoformat(), "ae_aware_time": "09:00", "ae_serious": "1", "ae_serious_why": "3",
+               "ae_aware": today.isoformat(), "ae_aware_time": aware, "ae_serious": "1", "ae_serious_why": "3",
                "ae_severity": "3", "ae_related": "9"}, "ae1")  # fmt: skip
     assert 'data-testid="ae-ae1"' in r.text, js.text(r.text)[-300:]
-    assert 'data-testid="sae-banner"' in s.get(name, "/home").text
-    assert 'data-testid="sae-banner"' in s.get(user("pi"), "/week").text
+    for who, path in ((name, "/home"), (user("pi"), "/week")):  # the banner names this participant's AE
+        assert f'data-testid="sae-{no}-ae1"' in s.get(who, path).text, (who, path)
     case = s.get(name, f"/studies/{RS}/sae/{no}/ae1").text
     due = re.search(r'data-testid="sae-due-at-sponsor">([^<]+)<', case)
-    assert due and due.group(1).startswith((today + timedelta(days=1)).isoformat()), js.text(case)[:400]
+    assert due and due.group(1).strip() == f"{(today + timedelta(days=1)).isoformat()} {aware}", (
+        due.group(1) if due else js.text(case)[:400]
+    )  # 24 hours after awareness, at the site
 
 
 @step("J-CRC-11")
@@ -660,12 +681,17 @@ def _crc_edc_sign_send(s: Site, st: dict[str, Any]) -> None:
     d = {x["item"]: x for x in s.h.bk.study_api("GET", f"/studies/{rs}/edc/drafts?record={no}")}
     drafted = {k: v["value"] for k, v in d.items() if v["state"] == "drafted"}
     rev = s.get(name, f"/studies/{rs}/edc/review/{no}")
-    for k in drafted:  # each value checked against its source, then confirmed
-        r = s.post(name, f"/studies/{rs}/edc/decide/{d[k]['id']}", {"action": "confirm", "record": no}, rev.text)
+    offered = dict(re.findall(r'action="/studies/[^"]+/edc/decide/(\d+)"[^>]*>(?:(?!</form>).)*?data-testid="confirm-([a-z0-9_]+)"',
+                              rev.text, re.S))  # fmt: skip
+    assert set(offered.values()) == set(drafted), (offered, drafted)  # a Confirm button for each drafted value
+    for did, k in offered.items():  # each value checked against the source the page shows, then confirmed
+        assert int(did) == d[k]["id"], (k, did)
+        r = s.post(name, f"/studies/{rs}/edc/decide/{did}", {"action": "confirm", "record": no}, rev.text)
         assert r.status_code == 200, (k, js.text(r.text)[-300:])
     shown = s.get(name, f"/studies/{rs}/edc/review/{no}").text
-    seen = re.search(r'name="seen" value="([^"]*)"', shown)
-    form = {"record": no, "password": js.OWN_PW, "meaning_ack": "1", "seen": seen.group(1) if seen else ""}
+    seen = re.search(r'name="seen" value="([^"]+)"', shown)
+    assert seen, js.text(shown)[-300:]  # what the signer saw is what is signed
+    form = {"record": no, "password": js.OWN_PW, "meaning_ack": "1", "seen": seen.group(1)}
     refused = s.post(name, f"/studies/{rs}/edc/sign", form, shown)  # no authenticator code: nothing is signed
     assert refused.status_code == 401 and "Nothing was signed" in js.text(refused.text), refused.status_code
     signed = s.post(name, f"/studies/{rs}/edc/sign", {**form, "otp": s.code(name)}, shown)
@@ -686,13 +712,18 @@ def _mon_visit_record(s: Site, st: dict[str, Any]) -> None:
     r = s.post(name, f"/studies/{RS}/monitor/visits", {"visit_day": today.isoformat(), "subjects": [no],
                "findings": finding}, page.text)  # fmt: skip
     assert r.status_code == 200 and 'data-testid="sdv-visit-saved"' in r.text, js.text(r.text)[-300:]
-    rows = r.text[r.text.index('data-testid="sdv-visits"') :]
-    assert name in rows and no in rows and finding in rows and "MV-01" in rows, js.text(rows)[:400]
+    body = re.search(r'data-testid="sdv-visits">.*?<tbody>(.*?)</tbody>', r.text, re.S)
+    assert body, js.text(r.text)[-300:]
+    rows = [[js.text(c).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tr_, re.S)]
+            for tr_ in re.findall(r"<tr>(.*?)</tr>", body.group(1), re.S)]  # fmt: skip
+    assert [today.isoformat(), "MV-01", name, no, finding] in rows, rows
 
 
 @step("J-PI-09")
 def _pi_close(s: Site, st: dict[str, Any]) -> None:
-    from console import screening_log
+    import io
+
+    import openpyxl
 
     name, rs = user("pi"), "GZQO"
     why = "the sponsor stopped recruitment at every site"
@@ -701,6 +732,12 @@ def _pi_close(s: Site, st: dict[str, Any]) -> None:
     assert r.status_code == 200 and 'data-state="closed"' in r.text, (r.status_code, js.text(r.text)[-300:])
     assert why in js.text(r.text)
     log = js.text(s.get(name, f"/studies/{rs}/screening-log").text)
-    assert "Now: Closed" in log and name in log, log[:400]  # the log says the state, since when and who
-    assert ["state", "closed"] in screening_log.study_lines(s.h.store, rs)  # its exported study sheet, with the reason
-    assert any(x[0] == "state.closed" and x[-1] == why for x in screening_log.study_lines(s.h.store, rs))
+    assert re.search(rf"Now: Closed \(since {s.h.today().isoformat()} [0-9:]+, by {re.escape(name)}\)", log), log[:400]
+    xlsx = s.get(name, f"/studies/{rs}/screening-log.xlsx")  # the exported log, as the site downloads it
+    about = [
+        [str(c.value or "") for c in row] for row in openpyxl.load_workbook(io.BytesIO(xlsx.content))["about"].rows
+    ]
+    assert about[[r[0] for r in about].index("state")][:2] == ["state", "closed"], about
+    closed = next(r for r in about if r[0] == "state.closed")
+    at = datetime.fromisoformat(closed[1]).astimezone(ZoneInfo(cd.SITE_TW["site"]["tz"]))  # stored with its offset
+    assert at.date() == s.h.today() and name in closed[2] and closed[3] == why, closed

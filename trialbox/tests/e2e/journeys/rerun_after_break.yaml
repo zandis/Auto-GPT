@@ -4,21 +4,43 @@
 # Lunar New Year in Taiwan, a long hospital closure. Over a break the feed nights run unwatched, grants and opt-outs
 # wait, accounts and authenticators go unused. On the first working day the site re-runs these journeys (by hand, or
 # `tests/e2e/journeys/test_journeys.py` on the box's build) before the lists are used again; the other journeys wait
-# for their next change. `test_journeys.py` checks that every name below is a journey or a step of journeys.yaml.
+# for their next change. `test_journeys.py` checks that every name below is a journey or a step of journeys.yaml, and that no step done once
+# in a study's life is re-run.
 
 version: 1
 after: a break of 5 days or more (Golden Week, Lunar New Year, a hospital closure)
 
 rerun:
-  - journey: J-ADM
+  # NEW-JRN-20 (D-773): steps, not whole journeys, where a journey holds a step done once in a study's life (a new
+  # study's first approval, a new account, an SAE, a deviation, values sent to REDCap, a study closed for good);
+  # `test_journeys.py` refuses a re-run of such a step
+  - step: J-ADM-01
+    why: the administrator's second factor still works after days unused
+  - step: J-ADM-02
     why: the feed nights of the break; a held night must show on the readiness page before anyone reads a list
-  - journey: J-STW
-    why: break-glass grants opened during the break are reviewed; conflicts the nights recorded are settled
+  - step: J-ADM-03
+    why: the administrator still opens no patient
+  - step: J-ADM-04
+    why: break-glass still opens one patient and ends
+  - step: J-STW-02
+    why: break-glass grants opened during the break are reviewed
+  - step: J-STW-03
+    why: conflicts the nights recorded are settled
+  - step: J-STW-04
+    why: the held nights of the break are decided
   - journey: J-PRV
     why: paper opt-outs that arrived during the break are entered before the first new list
-  - journey: J-CRC
-    why: the first screening run after the break, the referrals and consents that waited, the EDC drafts
-  - journey: J-PI
-    why: criteria that waited for approval; the approach after a referral
+  - step: J-CRC-03
+    why: the first screening run after the break
+  - step: J-CRC-04
+    why: the referrals that waited
+  - step: J-CRC-06
+    why: the consents that waited
+  - step: J-CRC-07
+    why: the EDC drafts
+  - step: J-PI-03
+    why: the PI's patient sheet on the first list after the break
+  - step: J-PI-05
+    why: the approach after a referral
   - step: J-SI-01
     why: each investigator's second factor still works after days unused (the sign-in step of every role)
