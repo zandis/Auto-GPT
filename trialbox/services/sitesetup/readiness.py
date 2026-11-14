@@ -26,12 +26,14 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import httpx
 from matching.coverage import ICD10CM
 from tb_common.db import ENV as DB_ENV
 from tb_common.db import DatabaseError
+from tb_common.http import ServiceError
 
 from sitesetup import publish
-from sitesetup.service import LAKE_DOWN, SiteSetup, lake_down
+from sitesetup.service import LAKE_DOWN, SiteSetup
 
 
 class LakeUnread(RuntimeError):
@@ -54,11 +56,26 @@ def is_unread(exc: BaseException) -> bool:
       (``SqlRejected``): a fault of the criteria's SQL or of this code, which goes on.
 
     Another service's error is not "the lake could not be read": it goes on."""
-    from lake.client import LakeQueryFailed
+    status = getattr(exc, "status", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    return unread_of(type(exc), status, getattr(exc, "service", None))
 
-    if isinstance(exc, LakeQueryFailed):
-        return exc.status != 400  # the one status that is the statement's fault
-    return isinstance(exc, LakeUnread) or lake_down(exc)
+
+def unread_of(kind: type[BaseException], status: int | None, service: str | None) -> bool:
+    """:func:`is_unread` decided by the error's type, its HTTP status and the service that raised it, never by the
+    error itself (train 15: a handler hands these three, so the decision is visibly not the error's text)."""
+    from lake.client import LakeBadAnswer, LakeQueryFailed, LakeUnhealthy
+
+    if issubclass(kind, LakeQueryFailed):
+        return status != 400  # the one status that is the statement's fault
+    if issubclass(kind, LakeUnread | LakeUnhealthy | LakeBadAnswer):
+        return True  # D-712: a 200 that is not the lake's answer is the lake failing too, whatever its status
+    if issubclass(kind, ServiceError):
+        return service == "lake" and status is not None and (status >= 500 or status == 0)
+    if issubclass(kind, httpx.HTTPStatusError):
+        return status is not None and status >= 500
+    return issubclass(kind, httpx.HTTPError)
 
 
 UNKNOWN_SQL = """
@@ -198,7 +215,8 @@ def _or_unread(read: Any, unread: list[bool]) -> Any:
     try:
         return read()
     except UNREAD as exc:
-        if not is_unread(exc):
+        status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+        if not unread_of(type(exc), status, getattr(exc, "service", None)):
             raise
         unread.append(True)
         return None

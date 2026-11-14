@@ -241,7 +241,9 @@ def router(
         try:
             return {"study": rid, "approved": True, "patients": readiness.patient_check(svc, w, rs, svc.today())}
         except readiness.UNREAD as exc:  # D-709: said, not a 500 and not "no patients"
-            if not readiness.is_unread(exc):  # D-712: a rejected statement or another service's error goes on
+            status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            # D-712: a rejected statement or another service's error goes on (by its type, status and service)
+            if not readiness.unread_of(type(exc), status, getattr(exc, "service", None)):
                 raise
             log.warning(
                 "site patient check: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
@@ -263,7 +265,8 @@ def router(
         try:
             return {**out, "feas": readiness.feasibility(svc, w, rs, svc.today())}
         except readiness.UNREAD as exc:
-            if not readiness.is_unread(exc):
+            status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            if not readiness.unread_of(type(exc), status, getattr(exc, "service", None)):
                 raise
             log.warning(
                 "site counts: the lake could not be read (%s %s)", type(exc).__name__, getattr(exc, "status", "")
