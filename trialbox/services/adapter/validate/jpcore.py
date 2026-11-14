@@ -199,6 +199,18 @@ def _split(eid: str) -> list[tuple[str, str]]:
     return out
 
 
+def _base_problem(exc: Exception) -> str:
+    """D-668: what the base model refused, as the element and the kind of problem (pydantic's ``loc`` and ``type``
+    of its first error), never its message: the message quotes the value (``input_value='...'``). An error that is
+    not pydantic's is its type."""
+    try:
+        first = exc.errors(include_input=False, include_context=False, include_url=False)[0]  # type: ignore[attr-defined]
+        where = ".".join(str(part) for part in first["loc"] if isinstance(part, str | int))
+        return f"{where}: {first['type']}"
+    except Exception:
+        return type(exc).__name__
+
+
 class JpCoreValidator:
     """Checks resources against JP Core 1.1.0 (see the module text)."""
 
@@ -238,9 +250,8 @@ class JpCoreValidator:
 
         try:
             get_fhir_model_class(str(res.get("resourceType"))).model_validate(res)
-        except Exception as exc:  # pydantic's message: the first line names the element and the problem
-            lines = [ln.strip() for ln in str(exc).splitlines() if ln.strip()]
-            out.issues.append(Issue("error", str(res.get("resourceType")), "base R4: " + " ".join(lines[1:3])[:300]))
+        except Exception as exc:
+            out.issues.append(Issue("error", str(res.get("resourceType")), "base R4: " + _base_problem(exc)))
 
     def _profile(self, res: Resource, rtype: str, elements: dict[str, _El], out: Outcome) -> None:
         def slice_members(parent: Any, name: str, sl: str, sliced_id: str) -> list[Any]:
@@ -350,21 +361,21 @@ class JpCoreValidator:
             if system == ICD10CM:
                 cm = _icd10cm()
                 if cm and code not in cm:
-                    out.issues.append(Issue("error", path, f"{code} is not an ICD-10-CM code"))
+                    out.issues.append(Issue("error", path, "the code is not an ICD-10-CM code"))
             elif system == ICD10_WHO:
                 if not _WHO_SHAPE.match(code):
-                    out.issues.append(Issue("warning", path, f"{code} is not written as a WHO ICD-10 code"))
+                    out.issues.append(Issue("warning", path, "the code is not written as a WHO ICD-10 code"))
             elif system == LOINC and path.endswith(".coding"):
                 if re.fullmatch(r"L[AGP]\d+-\d", code):  # answer, group and part codes: their own numbering
                     continue
                 if not loinc_ok(code):
-                    out.issues.append(Issue("error", path, f"{code} is not a valid LOINC code (check digit)"))
+                    out.issues.append(Issue("error", path, "the code is not a valid LOINC code (check digit)"))
             elif system in _SHAPES:
                 label, shape, kind = _SHAPES[system]
                 if not shape.match(code):
-                    out.issues.append(Issue("error", path, f"{code} is not a {label} code"))
+                    out.issues.append(Issue("error", path, f"the code is not a {label} code"))
                 elif kind and self.licensed.get(kind) and code not in self.licensed[kind]:
-                    out.issues.append(Issue("warning", path, f"{code} is not in the loaded {label} release"))
+                    out.issues.append(Issue("warning", path, f"the code is not in the loaded {label} release"))
 
     # ------------------------------------------------------------------ a sample
     def validate(self, resources: list[Resource]) -> ValidationReport:

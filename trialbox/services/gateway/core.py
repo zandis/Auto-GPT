@@ -64,7 +64,7 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -104,6 +104,25 @@ UNAVAILABLE_MESSAGE = "the model server does not answer (its breaker is open); t
 # stays down into ``model_unavailable`` after a few of these
 RETRY_AFTER = {"model_busy": "5", "model_asleep": "5", "model_unavailable": "30", "upstream_down": "5"}
 _BUSY = ": busy"  # an error the caller may retry soon (an interactive timeout, no slot)
+
+
+class Upstream(str):
+    """One error of an attempt on an endpoint: its text (for the audit and the answer) and its kind. D-636: what the
+    gateway answers (busy, unavailable, down, failed) is decided from the kind, never from how the text ends."""
+
+    kind: str
+
+    def __new__(cls, text: str, kind: str = "other") -> Upstream:
+        self = super().__new__(cls, text)
+        self.kind = kind  # busy | open | retried | other
+        return self
+
+
+def only_kinds(errors: Sequence[str], kinds: set[str]) -> bool:
+    """There were errors and every one is of one of ``kinds``; a plain text has the kind ``other``."""
+    return bool(errors) and all(getattr(e, "kind", "other") in kinds for e in errors)
+
+
 _OPEN = ": unavailable (breaker open)"
 _RETRIED = " (tried twice)"  # a server error or a transport error that the one retry on the same build met again
 # T-601: a transport error or HTTP 5xx is tried once more on the same build after this pause
@@ -518,9 +537,9 @@ class Gateway:
                 return out
             call.fallbacks += 1
         interactive = bool(self.policy.roles.get(call.role, {}).get("interactive"))
-        if upstream_errors and all(e.endswith(_BUSY) for e in upstream_errors):
+        if only_kinds(upstream_errors, {"busy"}):
             raise Refusal("model_busy", BUSY_MESSAGE, status=503)
-        if upstream_errors and all(e.endswith((_BUSY, _OPEN)) for e in upstream_errors):
+        if only_kinds(upstream_errors, {"busy", "open"}):
             # T-608: nothing was sent to a server whose breaker is open; the front desk hears "busy"
             if interactive:
                 raise Refusal("model_busy", BUSY_MESSAGE, status=503)
@@ -530,7 +549,7 @@ class Gateway:
             # connection): ``upstream_down``, the one 502 a batch caller sends again. A timeout (the server may still
             # be working on the call), a malformed answer or a spent budget stays ``upstream_failed``, as a
             # configuration fault (400, 404) does: never sent again by anyone
-            down = all(e.endswith((_BUSY, _OPEN, _RETRIED)) for e in upstream_errors)
+            down = only_kinds(upstream_errors, {"busy", "open", "retried"})
             code = "upstream_down" if down else "upstream_failed"
             raise Refusal(code, "; ".join(upstream_errors)[:500], status=502)
         first = registry_refusals[0] if registry_refusals else None
@@ -666,7 +685,9 @@ class Gateway:
                 self.swap.touch(call.service)  # D-445: only the holder's own calls keep its hold alive
         lane = self.load.endpoints.get(ep.name)
         if lane is not None and not lane.breaker.allow():
-            errors.append(f"{ep.name}{_OPEN}")  # T-608: not sent; a fallback-any route tries its next build
+            errors.append(
+                Upstream(f"{ep.name}{_OPEN}", "open")
+            )  # T-608: not sent; a fallback-any route tries its next build
             return None
         ticket = None
         if lane is not None:
@@ -677,7 +698,7 @@ class Gateway:
             call.slot_wait_ms = round(call.slot_wait_ms + (time.perf_counter() - t_slot) * 1000, 2)
             if ticket is None:
                 lane.breaker.cancel()
-                errors.append(f"{ep.name}{_BUSY}")  # every slot taken: model_busy (T-608)
+                errors.append(Upstream(f"{ep.name}{_BUSY}", "busy"))  # every slot taken: model_busy (T-608)
                 return None
         try:
             resp = self._send(call, ep.name, url, upstream, headers, interactive, lane, errors)
@@ -705,8 +726,9 @@ class Gateway:
                     f"{ep.name}: HTTP {resp.status_code}{hint}; a configuration fault, no other build is tried",
                     status=502,
                 )
-            tried = _RETRIED if resp.status_code >= 500 else ""
-            errors.append(f"{ep.name}: HTTP {resp.status_code}{hint}{tried}")
+            again = resp.status_code >= 500  # a server error that the one retry on the same build met again
+            text = f"{ep.name}: HTTP {resp.status_code}{hint}{_RETRIED if again else ''}"
+            errors.append(Upstream(text, "retried" if again else "other"))
             return None
         try:
             payload = resp.json()
@@ -794,7 +816,7 @@ class Gateway:
                         breaker.cancel()
                     else:
                         breaker.failure("timeouts")
-                errors.append(f"{name}{_BUSY}" if interactive else f"{name}: {type(e).__name__}")
+                errors.append(Upstream(f"{name}{_BUSY}", "busy") if interactive else f"{name}: {type(e).__name__}")
                 return None
             except httpx.HTTPError as e:
                 if attempt == 1:
@@ -802,7 +824,7 @@ class Gateway:
                     continue  # T-601: a transport error is tried once more on the same build
                 if breaker is not None:
                     breaker.failure("connection errors")
-                errors.append(f"{name}: {type(e).__name__}{_RETRIED}")
+                errors.append(Upstream(f"{name}: {type(e).__name__}{_RETRIED}", "retried"))
                 return None
             call.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
             if resp.status_code >= 500 and attempt == 1:

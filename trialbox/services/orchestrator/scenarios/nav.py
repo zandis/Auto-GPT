@@ -347,38 +347,41 @@ def _draft(
 
 
 def _summary_pdf(rs: Ruleset, meta: ReportMeta, depts: list[str], counts: dict[str, int], window: int, t: int) -> bytes:
+    from orchestrator.reports import common
     from orchestrator.reports.common import pdf_fonts, pdf_invariant
 
     pdf_invariant()
     import io
+    from xml.sax.saxutils import escape
 
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Table
+    from reportlab.platypus import SimpleDocTemplate, Table
     from tb_common.smallcell import suppress
 
+    # every text of the page goes through the reports' glyph fallback (common.Paragraph, common.draw_string): a
+    # character the locale's font lacks and the other family has (検 on a zh-TW page, 查 on a Japanese one) is set
+    # in the other family, not left as a blank box
     reg, bold = pdf_fonts(meta.locale)
     body = ParagraphStyle("b", fontName=reg, fontSize=10, leading=14)
     h1 = ParagraphStyle("h", parent=body, fontName=bold, fontSize=15, leading=20)
     story: list[Any] = [
-        Paragraph(f"NHI navigation summary — {rs.manifest.title or rs.id}", h1),
-        Paragraph(
-            f"Departments {', '.join(depts)}; appointments in the next {window} days; "
+        common.Paragraph(f"NHI navigation summary — {escape(rs.manifest.title or rs.id)}", h1),
+        common.Paragraph(
+            f"Departments {escape(', '.join(depts))}; appointments in the next {window} days; "
             f"run {meta.run_date}, snapshot {meta.snapshot}.",
             body,
         ),
     ]
-    tbl = Table(
-        [["list", "patients"]] + [[k, str(suppress(v, t))] for k, v in counts.items()], colWidths=[60 * mm, 30 * mm]
-    )
+    cells = [["list", "patients"]] + [[k, str(suppress(v, t))] for k, v in counts.items()]
+    tbl = Table([[common.Paragraph(escape(c), body) for c in row] for row in cells], colWidths=[60 * mm, 30 * mm])
     tbl.setStyle([("FONTNAME", (0, 0), (-1, -1), reg), ("GRID", (0, 0), (-1, -1), 0.3, "#9aa9b8")])
     story.append(tbl)
 
     def foot(canvas: Any, doc: Any) -> None:
         canvas.saveState()
-        canvas.setFont(reg, 7)
-        canvas.drawString(15 * mm, 10 * mm, meta.footer)
+        common.draw_string(canvas, 15 * mm, 10 * mm, meta.footer, reg, 7)
         canvas.restoreState()
 
     buf = io.BytesIO()

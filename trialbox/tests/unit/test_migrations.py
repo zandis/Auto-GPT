@@ -455,9 +455,12 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
     # T-689 (D-456): orch version 3, a job's restart count (``jobs.attempts``) and its kept model answers
     # (``judge_answers``)
+    # D-648: orch version 4, the record of every table the alliance store was given (``cohort_stored``),
+    # of where a merge read (``cohort_read``), and the tables found at the update (``cohort_tables_before``)
     "orch": (
         "444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",
         "8333ee74b006be58803a9a2b9d78ab736096234963c149ec1549165e70ccf5b4",
+        "7dc9328a293c68018db4b8292e95bfb0e905cbf680987d7f3b90c6488020e610",
     ),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),

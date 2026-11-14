@@ -339,7 +339,10 @@ def data_facts(
     else:
         out.append(("facts.appts.box", {"n": f"{appts:,}"}))
     chunks = data.get("note_chunks")
-    out.append(("facts.notes.none", {}) if not chunks else ("facts.notes", {"n": f"{chunks:,}"}))
+    if chunks is None:  # D-652: not read is not "none": the report could not count them
+        out.append(("facts.notes.unknown", {}))
+    else:
+        out.append(("facts.notes.none", {}) if not chunks else ("facts.notes", {"n": f"{chunks:,}"}))
     sim = result.get("simulation") or {}
     out.append(("facts.rates.measured", {}) if sim.get("source") == "calibrated" else ("facts.rates.default", {}))
     n_na = len([f for f in result.get("funnel") or [] if f.get("applied") is False])

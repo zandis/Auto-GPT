@@ -106,12 +106,12 @@ def _params(tokens: list[str]) -> dict[str, str]:
     for tok in tokens:
         k, sep, v = tok.partition("=")
         if not sep:
-            raise GrammarError(f"{tok!r} must be key=value")
+            raise GrammarError("a parameter must be key=value")  # D-702: the rule, not what was typed
         k = k.lower()
         if k not in PARAM_KEYS:
-            raise GrammarError(f"unknown parameter {k!r}; allowed: {', '.join(sorted(PARAM_KEYS))}")
+            raise GrammarError(f"unknown parameter; allowed: {', '.join(sorted(PARAM_KEYS))}")
         if not _VALUE.match(v):
-            raise GrammarError(f"invalid value for {k}: {v!r}")
+            raise GrammarError(f"invalid value for {k}")
         if k in out:
             raise GrammarError(f"parameter {k} given twice")
         if k == "deadline" and not _DATE.match(v):
@@ -127,7 +127,7 @@ def _study(tok: str | None, *, allow_new: bool = False) -> str:
     if allow_new and s == "NEW":
         return s
     if not _STUDY.match(s):
-        raise GrammarError(f"invalid study code {tok!r}")
+        raise GrammarError("invalid study code")
     return s
 
 

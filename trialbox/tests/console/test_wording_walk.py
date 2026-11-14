@@ -51,20 +51,30 @@ def _pages(app: Any, values: dict[str, str]) -> list[str]:
     return out
 
 
-def _walk(b: dict[str, Any], user: str, lang: str) -> tuple[list[str], list[str]]:
+def _statement_of(page: str) -> str | None:
+    """The intended-use statement a page shows in its footer (TB-IU-01 C1), as a reader sees it; None when the page
+    has no such footer line."""
+    foot = page[page.rfind("<footer") :] if "<footer" in page else ""
+    m = re.search(r'data-testid="intended-use">(.*?)</p>', foot, re.S)
+    return html.unescape(m.group(1)) if m else None
+
+
+def _walk(b: dict[str, Any], user: str, lang: str) -> tuple[list[str], list[str], list[str]]:
     c, csrf = login(b["app"], user, PW)
     c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
     paths = _pages(b["app"], VALUES)
     for job in list(b["backend"].jobs):
         paths += _pages(b["app"], {**VALUES, "job_id": job})
-    seen, bad = [], []
+    seen, bad, unstated = [], [], []
     for path in sorted(set(paths)):
         r = c.get(path)
         if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
             continue
         seen.append(r.url.path)
         bad += [f"{path}: {h.word!r} in …{h.context}…" for h in check_page(_product_words(r.text))]
-    return seen, bad
+        if _statement_of(r.text) != STATEMENT[lang]:  # NEW-IU-1 (D-703): on every page, in the reader's language
+            unstated.append(path)
+    return seen, bad, unstated
 
 
 # the pages that carried the old words, per role: a clean walk that never reached them would mean nothing
@@ -92,10 +102,13 @@ def test_no_forbidden_word_on_any_role_page(box: dict[str, Any], role: str, lang
     box["users"].create("walker", role, PW, "walker@hospa.test")
     if role == "investigator":
         name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
-    seen, bad = _walk(box, "walker", lang)
+    seen, bad, unstated = _walk(box, "walker", lang)
     for must in MUST_REACH[role]:
         assert must in seen, f"the walk did not reach {must}"
     assert bad == []
+    # NEW-IU-1 (D-703): every page this role can open carries the intended-use statement, in the reader's language
+    assert unstated == [], f"{role}/{lang}: pages without the intended-use statement: {unstated}"
+    assert len(seen) >= 5
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -136,3 +149,19 @@ def test_a_planted_word_of_the_full_list_fails_the_walk(word: str) -> None:
     lang = "ja" if word in ("診断", "判定", "対象外") else "zh-TW" if word == "診斷" else "en"
     page = f"<main><p>{word}</p></main><footer><p>{STATEMENT[lang]}</p></footer>"
     assert [h.word for h in check_page(page)] == [word]
+
+
+def test_the_sign_in_page_carries_the_statement_before_anyone_signs_in(box: dict[str, Any]) -> None:  # noqa: F811
+    """NEW-IU-1 (D-703): the one page a person sees without an account. The language is the browser's."""
+    from fastapi.testclient import TestClient
+
+    for lang, accept in (("en", "en-GB"), ("ja", "ja-JP"), ("zh-TW", "zh-TW")):
+        r = TestClient(box["app"]).get("/login", headers={"Accept-Language": accept})
+        assert r.status_code == 200 and _statement_of(r.text) == STATEMENT[lang], lang
+
+
+def test_a_page_without_the_statement_or_with_another_languages_fails_the_walk() -> None:
+    assert _statement_of("<main><p>x</p></main>") is None
+    assert _statement_of(f"<p>{STATEMENT['en']}</p><footer><p>no statement here</p></footer>") is None
+    ja = f'<footer><p class="hint" data-testid="intended-use">{html.escape(STATEMENT["ja"])}</p></footer>'
+    assert _statement_of(ja) == STATEMENT["ja"] != STATEMENT["en"]

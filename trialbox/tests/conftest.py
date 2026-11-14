@@ -206,6 +206,32 @@ PURE_MODULES: tuple[str, ...] = (
 )
 
 
+# D-635 (PG-LEAK): a test gives its database connections back. Set up first, so torn down last: every other fixture
+# of the test has finished with its stores by then. tests/db_connections.py says why and what is left alone.
+from tests.db_connections import TRACKER as _CONNECTIONS  # noqa: E402
+
+_CONNECTIONS.install()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_fixture_setup(fixturedef: Any, request: pytest.FixtureRequest) -> Iterator[None]:
+    wide = fixturedef.scope != "function"
+    if wide:
+        _CONNECTIONS.wide(+1)
+    try:
+        yield
+    finally:
+        if wide:
+            _CONNECTIONS.wide(-1)
+
+
+@pytest.fixture(autouse=True)
+def _connections_given_back() -> Iterator[None]:
+    mark = _CONNECTIONS.mark()
+    yield
+    _CONNECTIONS.close_since(mark)
+
+
 @pytest.fixture(autouse=True)
 def _private_trial_db(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
     """Every test runs with its own TB_DB_URL, so nothing it stores leaks into another test; a ``nodb`` test gets a
@@ -296,6 +322,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    from tests.settings_kept import SettingsKept
+
+    config.pluginmanager.register(SettingsKept(), "tb-settings-kept")  # D-637
     if config.getoption("--shard", None):  # T-747: after every other selection (-m, -k), only this shard's files
         from tools import test_shard
 

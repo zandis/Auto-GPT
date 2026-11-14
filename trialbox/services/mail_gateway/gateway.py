@@ -21,7 +21,7 @@ from typing import Any
 from tb_common.audit import AuditLog, mask_ids
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
-from tb_common.http import ServiceClient, ServiceError
+from tb_common.http import ServiceClient, ServiceError, trace_of
 from tb_common.objstore import ObjectStore
 from tb_common.timeutil import now
 from tb_contracts import Job, JobCreate, SendRequest, SendResult
@@ -158,7 +158,10 @@ class Gateway:
                 self.db.release_send(key)  # the request itself is wrong: the caller hears it (422)
                 raise
             # the settings or the files changed while it waited: a person decides
-            return self._hold(req, key, message_id or "", False, [], "failed", attempts, f"prepare: {exc}")
+            # D-704: the reason a person reads holds the error's type; the log has where it was raised
+            log.error("mail held: prepare failed", extra={"key": key, **trace_of(exc)})
+            return self._hold(req, key, message_id or "", False, [], "failed", attempts,
+                              f"prepare: {type(exc).__name__}")  # fmt: skip
         over = self._over_limit(p.recipients)
         if over:  # T-108c: a recipient over the daily limit waits; the try is not counted
             return self._hold(req, key, p.message_id, p.encrypted, p.recipients, "queued", attempts,
@@ -170,15 +173,17 @@ class Gateway:
         except REFUSED_BEFORE_SENDING as exc:
             return self._not_sent(req, key, p, attempts, exc)
         except Exception as exc:  # the answer was lost: the message may have arrived; never resent automatically
+            log.error("mail held: the answer was lost", extra={"key": key, **trace_of(exc)})
             return self._hold(req, key, p.message_id, p.encrypted, p.recipients, "uncertain", attempts + 1,
-                              f"{type(exc).__name__}: {exc}")  # fmt: skip
+                              type(exc).__name__)  # fmt: skip
         # from here on the message has left: a failure makes the key "uncertain", never a second send
         try:
             res = self._after_main(req, p)
             self.db.finish_send(key, res.message_id, res.model_dump_json(), self._ts())
         except Exception as exc:
+            log.error("mail held: failed after the message left", extra={"key": key, **trace_of(exc)})
             return self._hold(req, key, p.message_id, p.encrypted, p.recipients, "uncertain", attempts + 1,
-                              f"after the message left: {type(exc).__name__}: {exc}")  # fmt: skip
+                              f"after the message left: {type(exc).__name__}")  # fmt: skip
         return Outcome(res, "sent")
 
     def _not_sent(self, req: SendRequest, key: str, p: Any, attempts: int, exc: BaseException) -> Outcome:

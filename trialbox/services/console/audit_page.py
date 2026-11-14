@@ -309,6 +309,21 @@ def csv_lines(rows: Iterator[Row], label: Any) -> Iterator[str]:
 
 
 # ------------------------------------------------------------------------------------------------ verify
+def _listable(target: Path) -> bool:
+    """Can this anchor folder be read: it is a folder, and its ``heads/`` (when there is one) can be listed.
+    NEW-FR-2 (D-711): a ``heads/`` the console may not list read as "no signed head yet", because a glob passes
+    over a folder it may not read. A folder with no ``heads/`` yet has no head and is reachable."""
+    try:
+        if not target.is_dir():
+            return False
+        heads = target / "heads"
+        if heads.is_symlink() or heads.exists():  # a link that points nowhere raises below
+            next(iter(heads.iterdir()), None)
+        return True
+    except OSError:
+        return False
+
+
 def verify_now(directory: Path, targets: list[Path] | None = None) -> dict[str, Any]:
     """The existing verification (``tb_common.audit.verify``) with the signed heads of every off-box anchor folder,
     as ``tools/audit_verify.py --heads`` runs it; the trusted keys are the anchor folders' ``keys/`` (a note says
@@ -316,11 +331,21 @@ def verify_now(directory: Path, targets: list[Path] | None = None) -> dict[str, 
     targets = tb_audit.anchor_targets() if targets is None else targets
     anchors: list[dict[str, Any]] = []
     heads: list[dict[str, Any]] = []
+    trusted: dict[str, bytes] = {}
     for t in targets:
-        if not t.is_dir():
+        if not _listable(t):
             anchors.append({"name": t.name or str(t), "reachable": False, "newest": None, "count": 0})
             continue
+        gone = {"name": t.name or str(t), "reachable": False, "newest": None, "count": 0}
         got = tb_audit.read_signed_heads(t)
+        if got and not any(got):  # every head file was unreadable (an empty record each): not read, not "no head"
+            anchors.append(gone)
+            continue
+        try:  # D-711: the folder's keys are read here, so a keys/ that cannot be read is said, not a failed page
+            trusted.update(tb_audit.read_public_keys([t / "keys"] if (t / "keys").is_dir() else []))
+        except OSError:
+            anchors.append(gone)
+            continue
         heads.extend(got)
         newest = got[-1] if got else None
         anchors.append({"name": t.name or str(t), "reachable": True, "count": len(got),
@@ -328,8 +353,6 @@ def verify_now(directory: Path, targets: list[Path] | None = None) -> dict[str, 
     signed = None
     notes: list[str] = []
     if targets:
-        keys = [t / "keys" for t in targets if (t / "keys").is_dir()]
-        trusted = tb_audit.read_public_keys(keys)
         res = tb_audit.verify(directory, signed_heads=heads, trusted_keys=trusted)
         notes.append("keys")
         good = [h for h in heads if isinstance(h.get("lines"), int)]

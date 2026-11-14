@@ -13,6 +13,16 @@
 | 1st of the month 05:30 | CALIBRATION | `calibration.json` |
 | quarterly 04:00 | COHORT tables | mail |
 
+**The console reads the same folders (D-638).** The installer mounts each folder of `TB_AUDIT_ANCHOR_TARGETS` into the
+console, read-only (`deploy/site/compose.anchors.yml`), so the audit page's Verify checks the chain against the
+signed heads. The folder must be there before the install (mount the hospital's share first) and readable by the
+console's user; the installer stops with the folder's name when it is not. After the folders change in
+`deploy/.env`, run `deploy/install.sh` again; `trialbox doctor` (`anchor_mount`) warns until then. From then on the
+console needs the folder at every start: with the share not mounted, the console does not start (docker does not
+make the folder: an empty folder on the box's own disk would take the night's signed heads and no one would see
+it). Mount the share at boot, before docker. Name a folder below the share's mount point, one that holds the signed
+heads only.
+
 The console's timers run when `TB_ENV` is VALIDATION or PRODUCTION (`TB_CONSOLE_TIMERS=on|off` forces it;
 `TB_NOTICE_N1_AT`, `TB_NOTICE_N2_AT`, `TB_REDCAP_READ_AT` move them). Everything is a job: see it on the
 administrator's Jobs page, or `docker compose exec orchestrator` with the operator token.

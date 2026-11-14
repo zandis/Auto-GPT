@@ -97,6 +97,12 @@ BEGIN
       EXECUTE format('CREATE ROLE %I NOLOGIN', grp);
     END IF;
     EXECUTE format('GRANT %I TO trialbox', grp);
+    -- D-683: a store that works in temporary tables (the OMOP load) does so as its group (tb_common.db sets the
+    -- role), and PUBLIC loses the right below: the tbs_ group holds it, as its member services do. TEMPORARY only,
+    -- never CREATE. Not an owned schema's roles (D-486): a service's session there stays the service itself
+    IF NOT sch = ANY(owned) THEN
+      EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO %I', current_database(), grp);
+    END IF;
     EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I AUTHORIZATION %I', sch, grp);
     EXECUTE format('ALTER SCHEMA %I OWNER TO %I', sch, grp);
     -- what an earlier release made in the schema (as trialbox) moves to the group; owned sequences follow their table

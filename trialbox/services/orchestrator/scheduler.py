@@ -68,7 +68,7 @@ HELD_AFTER_RESTORE = (*LIST_JOBS, "NAV")
 RESTORE_HELD = (
     "The box was restored from a backup and the restore is not complete: events recorded after the backup (opt-outs, "
     "erasures, consent changes) have to be re-applied first. No patient list is made until the hold is released "
-    "(the administrator: /ops/flags, screening.after_restore; RUNBOOK §5)."
+    "(the data steward or the administrator: /ops/flags, screening.after_restore; RUNBOOK §5)."
 )
 
 
