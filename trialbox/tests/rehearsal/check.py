@@ -1,6 +1,6 @@
 """The rehearsal's pass criteria (D-150; review of 2026-11-09 §5.2), one case at a time, from its evidence folder:
 
-    python tests/rehearsal/check.py run-a <evidence> --only TAG,TAG --head <sha>
+    python tests/rehearsal/check.py run-a <evidence> --only TAG,TAG --head <sha> [--repeats 2]
     python tests/rehearsal/check.py run-b <evidence> --only ... --head <sha> --previous <run id of run-a>
     python tests/rehearsal/check.py bucket <evidence> --only ... --head <sha>
     python tests/rehearsal/check.py served|no-upload|hang|hang-driven|busy <evidence>
@@ -21,11 +21,13 @@ state and timing are what the rehearsal holds, the layer the cloud run's failure
 from __future__ import annotations
 
 import argparse
+import gzip
 import io
 import json
 import re
 import sys
 import tarfile
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -162,6 +164,59 @@ def check_measured(r: Result, rep: dict[str, Any], res: dict[str, bytes], vm: st
          int((hosp.get("refusals") or {}).get("asked") or 0) > 0, hosp.get("refusals"))  # fmt: skip
 
 
+def check_batch6(r: Result, rep: dict[str, Any], res: dict[str, bytes], vm: str, repeats: int) -> None:
+    """Lane G batch 6 on the VM: each hospital result keeps its patients' answers (``answers.jsonl.gz``, header sha256
+    = the part's list); the part's metrics name the serving record's structured-output backend and image digests, count
+    the context reads (/v1/models) and the gateway's time-outs; with ``--repeats 2 --restart-between`` the servers are
+    restarted before the second repeat only, and the report compares the two lists criterion by criterion (G-3)."""
+    hosp = sorted((p for p in rep.get("parts") or [] if p.get("part") == "hospital" and not p.get("state")),
+                  key=lambda p: str(p.get("started_at") or ""))  # fmt: skip
+    if not hosp:
+        return
+    for p in hosp:
+        tag, cand = p["tag"], p.get("candidates") or {}
+        raw = res.get(f"parts/{tag}/answers.jsonl.gz")
+        r.ok(f"results.tgz has parts/{tag}/answers.jsonl.gz", raw is not None,
+             sorted(k for k in res if k.startswith(f"parts/{tag}/")))  # fmt: skip
+        lines = [json.loads(x) for x in gzip.decompress(raw).decode("utf-8").splitlines() if x.strip()] if raw else []
+        head = lines[0] if lines else {}
+        r.ok(f"{tag}: the answers' header names the part's list (sha256)",
+             head.get("kind") == "header" and head.get("list_sha256") == cand.get("sha256") != "",
+             {k: head.get(k) for k in ("schema", "list_sha256", "listed", "excluded")})  # fmt: skip
+        pats = [x for x in lines[1:] if x.get("kind") == "patient"]
+        r.ok(f"{tag}: one answer line per listed patient, each with its criteria", len(pats) == head.get("listed")
+             == cand.get("count") and all(x.get("c") for x in pats), (len(pats), head.get("listed"), cand.get("count")))  # fmt: skip
+        r.ok(f"{tag}: the counts of the patients not listed", isinstance(head.get("excluded"), int),
+             head.get("excluded"))  # fmt: skip
+        m = p.get("metrics") or {}
+        sv = m.get("serving") or {}
+        r.ok(f"{tag}: the serving record names each server's structured-output backend and image digests",
+             bool(sv.get("backend_named")) and bool(sv.get("digests")), sv.get("servers"))  # fmt: skip
+        cc = m.get("context_checks") or {}
+        r.ok(f"{tag}: the context reads (/v1/models) counted, none failed", "asked" in cc and cc.get("failed") == 0, cc)
+        r.ok(f"{tag}: the gateway's time-outs watched (none on the stand-ins)",
+             (m.get("after_timeout") or {}).get("timeouts") == 0, m.get("after_timeout"))  # fmt: skip
+    if repeats < 2:
+        return
+    first, later = hosp[0], hosp[1:]
+    r.ok(f"--repeats {repeats}: {repeats} hospital results", len(hosp) == repeats, [p["tag"] for p in hosp])
+    r.ok("--restart-between: not before the first hospital part", (first.get("restart") or {}).get("restarted")
+         is False, first.get("restart"))  # fmt: skip
+    for p in later:
+        rs = p.get("restart") or {}
+        r.ok(f"--restart-between: both servers restarted before {p['tag']}, healthy again",
+             rs.get("restarted") is True and rs.get("ok") is True, rs)  # fmt: skip
+    r.ok("vm.log: tb-restart-servers said TB-RESTART ok", "TB-RESTART ok" in vm,
+         [ln for ln in vm.splitlines() if "restart" in ln.lower()][:4])  # fmt: skip
+    r.ok("the report says the servers were restarted", (rep.get("restarts") or {}).get("restarted_before")
+         == [p["tag"] for p in later], rep.get("restarts"))  # fmt: skip
+    cmp = (rep.get("candidates_compare") or {}).get("ja") or {}
+    r.ok("the report compares the repeats' lists from the kept answers", cmp.get("answers") == "kept"
+         and "criteria_flipped" in cmp, {k: cmp.get(k) for k in ("identical", "answers", "patients_differ")})  # fmt: skip
+    g3 = [c for p in rep.get("parts") or [] if p.get("tag") == "g3-lists" for st in p["stages"] for c in st["checks"]]
+    r.ok("the report's G-3 check: one list at every setting and repeat", bool(g3) and all(c[1] for c in g3), g3[:2])
+
+
 def report_of(e: Path) -> dict[str, Any]:
     p = e / "out" / "report" / "report.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
@@ -215,7 +270,10 @@ def run_case(a: argparse.Namespace) -> int:
     r.ok("the report was written", bool(rep))
     tags = [p["tag"] for p in rep.get("parts") or []]
     want = {t for t in only} | ({"prepare"} if any(t.startswith("hospital-") for t in only) else set())
-    r.ok("the report has every planned part", want <= set(tags), sorted(want - set(tags)))
+    # a hospital part run --repeats N times is N results, hospital-<lang>@c<N>#r<k>, each its own row
+    bases = Counter(t.split("@", 1)[0] for t in tags if "@" in t)
+    have = set(tags) | {b for b, n in bases.items() if n >= a.repeats}
+    r.ok("the report has every planned part", want <= have, sorted(want - have))
     r.ok("no part crashed, did not report or lacked its data", not rep.get("not_run"), rep.get("not_run"))
     r.ok("the report's HEAD is the launched commit", (rep.get("git") or {}).get("head") == a.head,
          (rep.get("git") or {}).get("head"))  # fmt: skip
@@ -226,6 +284,7 @@ def run_case(a: argparse.Namespace) -> int:
         rep.get("path"),
     )
     check_measured(r, rep, res, vm)
+    check_batch6(r, rep, res, vm, a.repeats)
     bad = failing(rep)
     other = [b for b in bad if not any(re.search(t, b[0]) and re.search(c, b[2]) for t, c in MODEL_QUALITY)]
     r.ok("every failed check is about model quality (the stub's answers)", not other, other[:8])
@@ -410,6 +469,7 @@ def main() -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--head", default="")
     ap.add_argument("--previous", default="")
+    ap.add_argument("--repeats", type=int, default=1, help="run-a: the hospital part's --repeats (with a restart)")
     a = ap.parse_args()
     print(f"== check {a.case} ({a.evidence})")
     if a.case in ("run-a", "run-b", "bucket"):

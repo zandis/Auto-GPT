@@ -318,23 +318,105 @@ def _models(a: argparse.Namespace, caller: str = "orchestrator") -> tuple[Any, A
 
 # ---------------------------------------------------------------- the parts (each in its own process)
 def part_prepare(a: argparse.Namespace) -> dict[str, Any]:
-    """The synthetic hospital of ``--patients``, generated once and shared by both languages (read only)."""
+    """The synthetic hospital of ``--patients``, generated once and shared by ja and zh-TW (read only); with an
+    English hospital part in the plan (``--hospital-langs ... en``) also the English site's hospital, at its
+    profile's own size (:data:`HOSPITAL_LANG_PROFILE`, D-502)."""
     from tools import feas_demo as fd
     from tools.synth_hospital import run as synth_run
 
-    out = a.dir / f"synth-{a.patients}"
     t0 = time.perf_counter()
-    checks: list[tuple[str, bool, Any]]
-    if not (out / "summary.json").exists():
-        jp = a.patients // 2
-        res = synth_run(out, profile="ci", sites=f"jp-a:JP:{jp},tw-a:TW:{a.patients - jp}", ref_date=fd.REF)
-        checks = [("synthetic hospital generated, TB-DS-21 §6 checks pass", res.passed, "; ".join(res.failures[:3]))]
-    else:
-        checks = [("synthetic hospital reused", True, str(out))]
-    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
-    n = sum(int(s["patients"]) for s in summary["sites"])
-    checks.append((f"{a.patients} patients in two sites (JP and TW style)", n == a.patients, n))
-    return {"stages": _one("synthetic hospital", checks, time.perf_counter() - t0), "patients": n}
+    checks: list[tuple[str, bool, Any]] = []
+    langs = list(getattr(a, "hospital_langs", None) or LANGS)
+    done: dict[str, int] = {}
+    for lang in [x for x in langs if x in LANGS][:1] + [x for x in langs if x not in LANGS]:
+        out, want = synth_dir(a.dir, lang, a.patients), hospital_patients(lang, a.patients)
+        what = "two sites (JP and TW style)" if lang in LANGS else f"the {HOSPITAL_LANG_PROFILE[lang]} profile's sites"
+        if not (out / "summary.json").exists():
+            if lang in LANGS:
+                jp = a.patients // 2
+                res = synth_run(out, profile="ci", sites=f"jp-a:JP:{jp},tw-a:TW:{a.patients - jp}", ref_date=fd.REF)
+            else:
+                res = synth_run(out, profile=HOSPITAL_LANG_PROFILE[lang], ref_date=fd.REF)
+            checks.append((f"synthetic hospital generated ({out.name}), TB-DS-21 §6 checks pass", res.passed,
+                           "; ".join(res.failures[:3])))  # fmt: skip
+        else:
+            checks.append((f"synthetic hospital reused ({out.name})", True, str(out)))
+        summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+        n = sum(int(s["patients"]) for s in summary["sites"])
+        checks.append((f"{want} patients in {what}", n == want, n))
+        done[out.name] = n
+    n0 = next(iter(done.values()), 0)
+    return {"stages": _one("synthetic hospital", checks, time.perf_counter() - t0), "patients": n0,
+            "hospitals": done}  # fmt: skip
+
+
+# ---------------------------------------------------------------- the hospital's languages (D-502; item 6, lane G)
+# ja and zh-TW share one synthetic hospital of --patients (a JP-style and a TW-style site). English has its own: the
+# synthetic hospital's English site, profile ``ci-en`` of tools/synth_hospital (lane B2's card NEW-B-42), run at that
+# profile's size (D-502: 5,000), whatever --patients says. Until the profile is there an English hospital part is
+# refused before anything starts (:func:`hospital_lang_problem`).
+HOSPITAL_LANG_PROFILE = {"en": "ci-en"}
+
+
+def _synth_profiles() -> dict[str, Any]:
+    from tools import synth_hospital
+
+    return dict(synth_hospital.PROFILES)
+
+
+def hospital_lang_problem(lang: str) -> str:
+    """Why a hospital part in ``lang`` cannot run on this commit ("" when it can)."""
+    if lang in LANGS:
+        return ""
+    prof = HOSPITAL_LANG_PROFILE.get(lang)
+    if prof is None:
+        return f"hospital-{lang}: no synthetic hospital in that language (hospital parts: ja, zh-TW, en)"
+    if prof not in _synth_profiles():
+        return (f"hospital-{lang}: the synthetic hospital has no English site on this commit (profile {prof} of "
+                "tools/synth_hospital, lane B2 card NEW-B-42, is not there yet). An English hospital part starts with "
+                "no further change once it is; until then run ja and zh-TW (D-502)")  # fmt: skip
+    return ""
+
+
+def hospital_patients(lang: str, patients: int) -> int:
+    """The patients of the hospital part in ``lang``: ``--patients`` for ja and zh-TW; for English the size of its
+    profile (the sum of the profile's sites, ``site:style:patients[:mix]``)."""
+    prof = HOSPITAL_LANG_PROFILE.get(lang)
+    if prof is None or lang in LANGS:
+        return patients
+    sites = str((_synth_profiles().get(prof) or {}).get("sites") or "")
+    return sum(int(x.split(":")[2]) for x in sites.split(",") if x.count(":") >= 2) or patients
+
+
+def synth_dir(root: Path, lang: str, patients: int) -> Path:
+    """The prepared synthetic hospital a hospital part in ``lang`` reads."""
+    if lang in LANGS or lang not in HOSPITAL_LANG_PROFILE:
+        return root / f"synth-{patients}"
+    return root / f"synth-{HOSPITAL_LANG_PROFILE[lang]}-{hospital_patients(lang, patients)}"
+
+
+def hospital_refusals(a: argparse.Namespace) -> str:
+    """Why the hospital parts this invocation would plan cannot run ("" when they can): an English hospital part on a
+    commit whose synthetic hospital has no English site (lane G item 6)."""
+    if "hospital" in (getattr(a, "skip", None) or []):
+        return ""
+    only = list(getattr(a, "only", None) or []) + list(getattr(a, "report_parts", None) or [])
+    out = []
+    for lang in getattr(a, "langs", None) or []:
+        if not only or any(base_tag(t) == f"hospital-{lang}" or t == "hospital" for t in only):
+            out.append(hospital_lang_problem(lang))
+    return "; ".join(x for x in out if x)
+
+
+def langs_named(tags: Iterable[str]) -> list[str]:
+    """The languages of the hospital and public parts named by tags (``hospital-en``, ``hospital-en@c16#r2``)."""
+    out: list[str] = []
+    for t in tags:
+        b = base_tag(t)
+        for p in ("hospital-", "public-"):
+            if b.startswith(p) and b[len(p) :] and b[len(p) :] not in out:
+                out.append(b[len(p) :])
+    return out
 
 
 def part_install(a: argparse.Namespace) -> dict[str, Any]:
@@ -366,13 +448,17 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     from tools import e2e_simple, run_metrics
     from tools import feas_demo as fd
 
+    why = hospital_lang_problem(a.lang)
+    if why:
+        raise ValueError(why)
     work = a.dir / f"hospital-{a.lang}"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
-    (work / "synth").symlink_to((a.dir / f"synth-{a.patients}").resolve(), target_is_directory=True)
+    synth, patients = synth_dir(a.dir, a.lang, a.patients), hospital_patients(a.lang, a.patients)
+    (work / "synth").symlink_to(synth.resolve(), target_is_directory=True)
     # TB-DS-04 §3.4.1 asks 15 minutes for the 5,000-patient gate; a larger hospital gets the same rate. With the pair
     # the models read the notes: the whole path must then fit one night (8 h, TB-PLAN-03 §8 "inside the night window")
-    e2e_simple.BUDGET_S = max(15 * 60, 15 * 60 * a.patients // 5000) if a.model != "pair" else 8 * 3600
+    e2e_simple.BUDGET_S = max(15 * 60, 15 * 60 * patients // 5000) if a.model != "pair" else 8 * 3600
     llm, verifier = _models(a)
     canary: dict[str, Any] = {}
     if llm is not None:
@@ -401,13 +487,16 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     sj = box.orch.db.get(out["jobs"]["screen"])
     scr = e2e_simple._json_output(box, sj, "screen_")
     # the database-feed scenario (db-csv): model calls, and the models' exclusions against the generator's note truth
-    summary = json.loads((a.dir / f"synth-{a.patients}" / "summary.json").read_text(encoding="utf-8"))
-    truth = scenarios.note_truth([a.dir / f"synth-{a.patients}" / x["dir"] for x in summary["sites"]], fd.KEY)
+    summary = json.loads((synth / "summary.json").read_text(encoding="utf-8"))
+    truth = scenarios.note_truth([synth / x["dir"] for x in summary["sites"]], fd.KEY)
     # the main SCREEN's own verdicts (its list is the job's), not a later stage's one-patient SCREEN (M1, 2026-11-12)
     main = main_candidates(box, sj)
     tag = _tag("hospital", a.lang, getattr(a, "variant", ""))
     main["rows_file"] = f"parts/{tag}/screen-list.json"
     main["rows_saved"] = save_screen_rows(box, sj, a.dir / main["rows_file"])
+    # G-3 (lane G item 1): every listed patient's answer to each criterion, and the counts of the others, so that two
+    # settings or repeats can be compared criterion by criterion (parts/<tag>/answers.jsonl.gz, in results.tgz)
+    main["answers"] = save_answers(box, sj, a.dir / "parts" / tag / run_metrics.ANSWERS_FILE, main, tag)
     ours = [c for c in scenarios.CAPTURED if c["ruleset"] == e2e_simple.TRIAL]
     same = [c for c in ours if run_metrics.candidate_list(c["results"])["sha256"] == main["sha256"]]
     cap: dict[str, Any] = (same or ours or [{}])[0 if same else -1]
@@ -427,8 +516,9 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
         "candidates": main,
         "scenario": {
             "title": "Hospital database feed (CGRD-style CSV)",
-            "input": f"CGRD-style CSV export of {a.patients:,} synthetic patients (two sites, JP and TW style)",
-            "counts": {"patients": a.patients, "screen_funnel": dict(scr.get("funnel") or [])},
+            "input": f"CGRD-style CSV export of {patients:,} synthetic patients ("
+            + ("two sites, JP and TW style)" if a.lang in LANGS else f"profile {HOSPITAL_LANG_PROFILE[a.lang]})"),
+            "counts": {"patients": patients, "screen_funnel": dict(scr.get("funnel") or [])},
             "expected": "e2e_simple stages 0-1: lake = generator counts; FEAS INC-01/02 = recount from the CSVs",
             "got": {st["name"]: f"{sum(1 for c in st['checks'] if c[1])}/{len(st['checks'])}" for st in stages[:2]},
             "model_calls": scenarios.llm_calls(box),
@@ -466,6 +556,26 @@ def save_screen_rows(box: Any, job: Any, out: Path) -> int:
     out.write_text(json.dumps({"job": getattr(job, "job_id", ""), "rows": rows}, default=str, ensure_ascii=False),
                    encoding="utf-8")  # fmt: skip
     return len(rows)
+
+
+def save_answers(box: Any, job: Any, out: Path, main: dict[str, Any], tag: str) -> dict[str, Any]:
+    """The main SCREEN's answers per listed patient (:func:`run_metrics.answers_of_rows`) and the counts of the
+    patients it did not list (:func:`run_metrics.excluded_counts`), written to ``out``; the header carries the list's
+    sha256 (the part's ``candidates.sha256``). Returns the part's record of it, with ``file`` relative to the run."""
+    from tools import e2e_simple, run_metrics
+
+    try:
+        doc = e2e_simple._json_output(box, job, "candidate_list_")
+    except StopIteration:
+        return {"file": None, "why": "no candidate list"}
+    try:
+        ex: dict[str, Any] | None = e2e_simple._json_output(box, job, "excluded_")
+    except StopIteration:
+        ex = None
+    head = {"tag": tag, "job": getattr(job, "job_id", ""), "list_sha256": main.get("sha256", ""),
+            **run_metrics.excluded_counts(ex), "excluded_doc": ex is not None}  # fmt: skip
+    rec = run_metrics.write_answers(out, head, run_metrics.answers_of_rows(doc.get("rows") or []))
+    return {"file": f"parts/{tag}/{run_metrics.ANSWERS_FILE}", **rec}
 
 
 def screen_window(job: Any) -> dict[str, Any] | None:
@@ -912,6 +1022,78 @@ def _passed(res: dict[str, Any]) -> bool:
     return all(c[1] for st in res.get("stages") or [] for c in st["checks"]) and bool(res.get("stages"))
 
 
+RESTART_ENV = "TB_PART_RESTART"  # run_all -> the part's process: JSON of the restart before it (--restart-between)
+
+
+def restart_record(raw: str) -> dict[str, Any]:
+    """The part's ``restart`` block from what run_all handed over (``RESTART_ENV``): ``restarted`` True (with ``ok``,
+    ``seconds``, ``said``) or False with ``why``; also ``gateway_orchestrator``: they are always fresh, each part
+    being its own process with an in-process gateway and orchestrator, as a box restarts them with the stack."""
+    try:
+        rec = json.loads(raw) if raw else {}
+    except ValueError:
+        rec = {}
+    if not isinstance(rec, dict) or "restarted" not in rec:
+        rec = {"restarted": False, "asked": False, "why": "--restart-between not given"}
+    rec["gateway_orchestrator"] = "fresh: each part is its own process (in-process gateway and orchestrator)"
+    return rec
+
+
+def with_restart(res: dict[str, Any], raw: str) -> None:
+    """A hospital part's ``restart`` block (:func:`restart_record`); a restart that was made is a check of its own,
+    first among the part's stages: a failed restart is a failed part."""
+    r = res["restart"] = restart_record(raw)
+    if r.get("asked") and r.get("restarted"):
+        said = f"{r.get('seconds')} s; {r.get('said', '')}"[:300]
+        res["stages"] = _one("model servers restarted before this part (--restart-between)",
+                             [("both model servers restarted and healthy again", bool(r.get("ok")), said)],
+                             float(r.get("seconds") or 0)) + list(res.get("stages") or [])  # fmt: skip
+
+
+class ContextChecks:
+    """Counts the context-size reads of the gateway client in this part's process (``tb_llm.GatewayClient.contexts``:
+    ``GET /v1/models``, T-603) and the ones that failed (no answer, an error, an empty answer: the caller then keeps
+    its own default and sizes no prompt from the context). Lane G changes no product code: the method is wrapped while
+    the part runs and put back after (:meth:`uninstall` returns the part's ``context_checks`` block)."""
+
+    def __init__(self) -> None:
+        self.asked = self.failed = self.cached = 0
+        self.failed_at: list[str] = []
+        self.lock = threading.Lock()
+        self._orig: Any = None
+        self._cls: Any = None
+
+    def install(self) -> None:
+        try:
+            from tb_llm.client import GatewayClient
+        except ImportError:
+            return
+        orig, me = GatewayClient.contexts, self
+        self._cls, self._orig = GatewayClient, orig
+
+        def contexts(client: Any) -> dict[str, int | None]:
+            warm = bool(client._contexts) and time.monotonic() - client._contexts_at < client.CONTEXT_TTL_S
+            out: dict[str, int | None] = orig(client)
+            with me.lock:
+                if warm:
+                    me.cached += 1
+                else:
+                    me.asked += 1
+                    if not out:
+                        me.failed += 1
+                        me.failed_at.append(datetime.now(UTC).isoformat(timespec="seconds"))
+            return out
+
+        GatewayClient.contexts = contexts  # type: ignore[method-assign,assignment]
+
+    def uninstall(self) -> dict[str, Any]:
+        if self._cls is not None:
+            self._cls.contexts = self._orig
+            self._cls = None
+        return {"asked": self.asked, "failed": self.failed, "from_cache": self.cached, "failed_at": self.failed_at,
+                "source": "tb_llm.GatewayClient.contexts (GET /v1/models through the gateway)"}  # fmt: skip
+
+
 def run_part(a: argparse.Namespace) -> int:
     import logging
 
@@ -940,9 +1122,15 @@ def run_part(a: argparse.Namespace) -> int:
     pair = a.model == "pair" and a.part in MODEL_PARTS
     servers = {"judge": getattr(a, "judge_url", ""), "verifier": getattr(a, "verifier_url", "")} if pair else {}
     monitor = run_metrics.Monitor(a.dir / "parts" / tag, servers, os.environ.get("TB_GPU_KEY", ""))
+    watch = run_metrics.TimeoutWatch(a.dir / f"gw-audit-{a.part}", monitor.folder, servers,
+                                     os.environ.get("TB_GPU_KEY", ""))  # fmt: skip
+    ctx = ContextChecks()
     if a.part in MODEL_PARTS:
         shutil.rmtree(monitor.folder, ignore_errors=True)  # an earlier attempt's samples are not this result's
         monitor.start()
+        if pair:  # the servers' gauges right after each gateway time-out (OPS13-11), the context reads (T-603)
+            watch.start()
+            ctx.install()
     missing = data_missing(base_tag(tag))
     if missing:  # fail fast, before any box is built: no card time for a part that cannot run (review C-03)
         res = {"stages": _one(f"{tag}: data missing, not run", [("the part's data is on this machine", False,
@@ -958,12 +1146,18 @@ def run_part(a: argparse.Namespace) -> int:
             res = {"stages": _one(f"{tag} crashed", [("part ran", False, f"{exc!r} {' | '.join(tb)}"[:300])], 0),
                    "not_run": "crashed"}  # fmt: skip
     res["run"] = ident
+    if a.part == "hospital":  # --restart-between: were the model servers restarted before this part (run_all says)
+        with_restart(res, os.environ.get(RESTART_ENV, ""))
     # the calls in flight this part ran with, and what it measured (review G-3: tokens, queue, card, calls per second)
     from orchestrator.scenarios.screen_cascade import llm_concurrency
 
     res["llm_concurrency"] = llm_concurrency()
     if a.part in MODEL_PARTS:
         res["metrics"] = monitor.stop()
+        if pair:
+            res["metrics"]["after_timeout"] = watch.stop()
+            res["metrics"]["context_checks"] = ctx.uninstall()
+            res["metrics"]["serving"] = run_metrics.serving_block(a.live_record)
         calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began)
         refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began)
         if calls:
@@ -1046,6 +1240,9 @@ def _cmd(a: argparse.Namespace, part: str, lang: str, scenario: str, shots: Path
         cmd.append("--keep-work")
     if part == "profile":
         cmd += ["--profile-patients", str(a.profile_patients), "--profile-workers", str(a.profile_workers)]
+    if part == "prepare":  # the hospitals the plan's hospital parts read (English: its own profile, D-502)
+        langs = list(dict.fromkeys(lg for p, lg, _ in plan(a) if p == "hospital")) or list(LANGS)
+        cmd += ["--hospital-langs", *langs]
     return cmd
 
 
@@ -1215,13 +1412,18 @@ def run_all(a: argparse.Namespace) -> int:
         print(f"      model calls in flight (TB_SCREEN_LLM_CONCURRENCY): {', '.join(map(str, lc))}"
               + (" (default: the serving record's max_num_seqs)" if getattr(a, "lc_default", False) else "")
               + ("; the hospital part runs once per value" if len(lc) > 1 else ""), flush=True)  # fmt: skip
+    first_hospital = True
     for i, (part, lang, scenario) in enumerate(todo):
         tag = _tag(part, lang, scenario)
         t = time.perf_counter()
         print(f"[{i + 1}/{len(todo)}] {tag}", flush=True)
         if a.heartbeat:
             Path(a.heartbeat).touch()
-        rc = _run_part_process(a, _cmd(a, part, lang, scenario, shots), env)
+        penv = dict(env)
+        if part == "hospital" and getattr(a, "restart_between", False):
+            penv[RESTART_ENV] = json.dumps(restart_before(a, tag, head["head"], first_hospital))
+            first_hospital = False
+        rc = _run_part_process(a, _cmd(a, part, lang, scenario, shots), penv)
         f = a.dir / "parts" / f"{tag}.json"
         res: dict[str, Any] = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {
             "stages": _one(f"{tag} did not report", [("part ran", False, f"exit {rc}")], 0),
@@ -1248,6 +1450,39 @@ def run_all(a: argparse.Namespace) -> int:
           f"{rep['shots_ok']}/{rep['shots']} screenshots, {len(rep['findings'])} known findings, {rep['seconds']} s; "
           f"{report_dir / 'report.md'}")  # fmt: skip
     return 0 if rep["ok"] else 1
+
+
+def kept_result(a: argparse.Namespace, tag: str, head: str) -> bool:
+    """Whether ``--resume`` keeps ``tag``'s result (run_part's own rule): no part runs, so nothing to restart for."""
+    f = a.dir / "parts" / f"{tag}.json"
+    if not (a.resume and f.exists()):
+        return False
+    try:
+        old = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return same_run(old, a.run_id, head)[0] and _passed(old)
+
+
+def restart_before(a: argparse.Namespace, tag: str, head: str, first: bool) -> dict[str, Any]:
+    """``--restart-between`` (lane G item 3): before every hospital part after the first of this run (each setting
+    and each repeat), the operator's ``--restart-cmd`` restarts both model servers and returns once they are healthy
+    and serve their names (the VM: ``tb-restart-servers``, as the boot starts them). The gateway and the orchestrator
+    are fresh anyway: each part is its own process. Returns the record the part keeps (``restart``)."""
+    if first:
+        return {"asked": True, "restarted": False, "why": "the first hospital part of this run: the servers as booted"}
+    if kept_result(a, tag, head):
+        return {"asked": True, "restarted": False, "why": "kept from earlier in this run (--resume): it did not run"}
+    print(f"      --restart-between: restarting the model servers before {tag}", flush=True)
+    t0 = time.perf_counter()
+    try:
+        p = subprocess.run(a.restart_cmd, shell=True, cwd=ROOT, check=False, capture_output=True, text=True)
+        rc, said = p.returncode, " ".join((p.stdout + p.stderr).split())[-300:]
+    except OSError as exc:
+        rc, said = -1, f"{type(exc).__name__}: {exc}"
+    secs = round(time.perf_counter() - t0, 1)
+    print(f"      --restart-between: {'done' if rc == 0 else 'FAILED'} in {secs} s ({said[-120:]})", flush=True)
+    return {"asked": True, "restarted": True, "ok": rc == 0, "exit": rc, "seconds": secs, "said": said}
 
 
 def _write_report(a: argparse.Namespace, rows: list[dict[str, Any]], head: dict[str, Any], started: datetime,
@@ -1346,8 +1581,13 @@ def report(
                                      if r.get("llm_concurrency") and r.get("part") in MODEL_PARTS})  # fmt: skip
     rep["throughput"] = run_metrics.curve(rows)
     rep["repeats"] = run_metrics.repeat_summary(rows)
-    rep["candidates_compare"] = run_metrics.lists_compare(rows)
+    rep["candidates_compare"] = run_metrics.lists_compare(rows, Path(a.dir) if getattr(a, "dir", None) else None)
     rep["candidates_identical"] = {lang: v["identical"] for lang, v in rep["candidates_compare"].items()}
+    rep["restarts"] = restart_summary(rows)
+    g3 = g3_list_row(rep["candidates_compare"])
+    if g3 is not None:  # G-3's pass criterion, a check like any other: the list is identical at every setting
+        rows = [*rows, g3]
+        rep["parts"] = rows
     # A8: the door's secret after the collect (complete-run.sh writes door-secret.txt): none enabled, or what remains
     door = Path(a.dir) / DOOR_STATE if getattr(a, "dir", None) else None
     if door is not None and door.is_file():
@@ -1386,6 +1626,64 @@ def report(
         {str(r["lang"]) for r in ran if r.get("part") in ("hospital", "public") and r.get("lang")}
     )
     return rep
+
+
+G3_LISTS = "g3-lists"  # the report's own row: G-3's list identity across the settings and repeats of a language
+
+
+def g3_list_row(cmp: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """Plan v7 G-3's pass criterion, "the candidate list is identical at every setting", as one check per hospital
+    language with two or more results (its settings and their repeats). The detail names how many patients differ and
+    which criteria flipped (from the kept answers). None when no language has two results."""
+    if not cmp:
+        return None
+    checks = []
+    for lang, c in cmp.items():
+        if c["identical"] is None:
+            detail = f"not compared: {c['why']}"
+        else:
+            detail = f"{c.get('patients_differ', len(c.get('differ') or []))} patient(s) differ"
+            if c.get("answers") == "kept":
+                flips = c.get("criteria_flipped") or {}
+                detail += "; criteria flipped: " + (", ".join(f"{k} ({v})" for k, v in flips.items()) or "none")
+            elif c.get("answers"):
+                detail += f"; answers {c['answers']}"
+        name = (
+            f"hospital-{lang}: the candidate list is identical at every setting and repeat ({', '.join(c['settings'])})"
+        )
+        checks.append((name, c["identical"] is True, detail))
+    return {"part": G3_LISTS, "lang": "", "tag": G3_LISTS, "seconds_total": 0,
+            "stages": _one("G-3: one candidate list at every setting and repeat", checks, 0)}  # fmt: skip
+
+
+def restart_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Were the model servers restarted between the hospital parts (``--restart-between``)? ``asked``, the parts
+    each restart came before, the failed ones and their seconds; the gateway and orchestrator are fresh per part."""
+    hosp = [r for r in rows if r.get("part") == "hospital" and r.get("restart")]
+    done = [r for r in hosp if r["restart"].get("restarted")]
+    return {"asked": any(r["restart"].get("asked") for r in hosp),
+            "restarted_before": [str(r["tag"]) for r in done],
+            "failed": [str(r["tag"]) for r in done if not r["restart"].get("ok")],
+            "seconds": [r["restart"].get("seconds") for r in done],
+            "gateway_orchestrator": "fresh: each part is its own process"}  # fmt: skip
+
+
+def restart_sentence(rs: dict[str, Any] | None) -> str:
+    """The report's sentence on the servers' state between settings and repeats."""
+    rs = rs or {}
+    if not rs.get("asked"):
+        return ("The model servers were not restarted between settings or repeats (--restart-between not given): a "
+                "later part may find a warm prefix cache. The gateway and the orchestrator are fresh in every part "
+                "(each part is its own process).")  # fmt: skip
+    done, bad = rs.get("restarted_before") or [], rs.get("failed") or []
+    secs = [float(x) for x in rs.get("seconds") or [] if x is not None]
+    return (
+        f"The model servers were restarted (--restart-between) before {len(done)} part(s) "
+        f"({', '.join(done) or 'none'}), each restart "
+        + (f"{min(secs):g} to {max(secs):g} s" if secs else "unmeasured")
+        + (f"; FAILED before {', '.join(bad)}" if bad else "; all healthy again")
+        + ". The gateway and the orchestrator are fresh in every part (each part is its own process)."
+    )
 
 
 def _scenario_sections(rep: dict[str, Any]) -> list[str]:
@@ -1479,13 +1777,15 @@ def _throughput_section(rep: dict[str, Any]) -> list[str]:
             f"{run_metrics.refused_cell(r.get('refused'))} |" for r in rows]  # fmt: skip
     reps = run_metrics.repeat_summary(rep.get("parts") or [])
     if reps:  # B5: a setting run several times: the main SCREEN's calls/s of its repeats
-        out += ["", "Repeats (`--repeats`): the main SCREEN's calls/s per setting, over its repeats. The model servers "
-                "are not restarted between settings or repeats (not in scope); the order of every (setting, repeat) "
-                "is randomised from the recorded seed.", "",
+        out += ["", "Repeats (`--repeats`): the main SCREEN's calls/s per setting, over its repeats; the order of "
+                "every (setting, repeat) is randomised from the recorded seed.", "",
                 "| hospital | in flight | repeats | measured | main SCREEN calls/s mean | min | max |",
                 "| --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
         out += [f"| {x['lang']} | {x['llm_concurrency']} | {x['repeats']} | {x['measured']} | {cell(x['mean'])} | "
                 f"{cell(x['min'])} | {cell(x['max'])} |" for x in reps]  # fmt: skip
+    if reps or len([r for r in rep.get("parts") or [] if r.get("part") == "hospital"]) > 1:
+        out += ["", restart_sentence(rep.get("restarts") or restart_summary(rep.get("parts") or []))]
+    out += _serving_lines(rep)
     old = rep.get("candidates_identical") or {}
     cmp = rep.get("candidates_compare") or {lang: {"identical": v, "differ": [], "why": ""} for lang, v in old.items()}
     for lang, c in cmp.items():
@@ -1497,12 +1797,52 @@ def _throughput_section(rep: dict[str, Any]) -> list[str]:
             verdict = (f"**DIFFERENT** (the list must not depend on the calls in flight): {len(c['differ'])} "
                        "patient(s) not listed alike (pseudonymous ids; `-`: not listed at that setting).")  # fmt: skip
         out += ["", f"Candidate lists of hospital-{lang} at every setting: {verdict}"]
+        if c.get("answers") == "kept":  # lane G item 2: from each part's answers.jsonl.gz
+            flips = c.get("criteria_flipped") or {}
+            alike = c.get("flipped_listed_alike") or {}
+            out += ["", f"Kept answers (`parts/<part>/answers.jsonl.gz`): {c.get('patients_differ', 0)} patient(s) "
+                    "listed differently or answered differently; criteria flipped (patients): "
+                    + (", ".join(f"`{k}` {v}" for k, v in flips.items()) or "none")
+                    + (f"; {len(alike)} patient(s) listed alike with another answer" if alike else "")
+                    + "."]  # fmt: skip
+            exc = c.get("excluded_by_criterion") or {}
+            if exc:
+                out.append("Not listed, by excluding criterion (counts differ): " + "; ".join(
+                    f"`{k}` " + ", ".join(f"{t} {n}" for t, n in v.items()) for k, v in exc.items()) + ".")  # fmt: skip
+        elif c.get("answers"):
+            out += ["", f"Kept answers: {c['answers']}."]
         if c.get("differ"):
             tags = c.get("settings") or list(c["differ"][0]["tiers"])
-            out += ["", "| pid | " + " | ".join(tags) + " |", "| --- |" + " --- |" * len(tags)]
-            out += [f"| `{d['pid']}` | " + " | ".join(d["tiers"].get(t, "-") for t in tags) + " |"
+            flip = any("flipped" in d for d in c["differ"])
+            out += ["", "| pid | " + " | ".join(tags) + (" | criteria flipped |" if flip else " |"),
+                    "| --- |" + " --- |" * (len(tags) + flip)]  # fmt: skip
+            out += [f"| `{d['pid']}` | " + " | ".join(d["tiers"].get(t, "-") for t in tags)
+                    + (f" | {', '.join(d.get('flipped') or []) or '-'} |" if flip else " |")
                     for d in c["differ"][:50]]  # fmt: skip
     return out
+
+
+def _serving_lines(rep: dict[str, Any]) -> list[str]:
+    """Lane G item 5: per model part, the serving record (backend, image digests), the failed context reads and the
+    servers right after each gateway time-out."""
+    out: list[str] = []
+    for r in rep.get("parts") or []:
+        m = r.get("metrics") or {}
+        if not any(k in m for k in ("serving", "context_checks", "after_timeout")):
+            continue
+        sv, cc, at = m.get("serving") or {}, m.get("context_checks") or {}, m.get("after_timeout") or {}
+        servers = "; ".join(f"{role}: backend {x.get('structured_outputs_backend')}, image {x.get('image')} "
+                            f"({', '.join(x.get('image_digests') or []) or 'no digest'})"
+                            for role, x in (sv.get("servers") or {}).items()) or sv.get("why", "-")  # fmt: skip
+        after = "; ".join(
+            f"{n} running max {x.get('running_max')}, still running in {x.get('still_running')} of {x.get('samples')}"
+            for n, x in (at.get("servers") or {}).items()
+            if x.get("samples")
+        )
+        out.append(f"* `{r.get('tag')}`: serving {servers}. Context reads (/v1/models): {cc.get('asked', '-')} asked, "
+                   f"**{cc.get('failed', '-')} failed**. Gateway time-outs: {at.get('timeouts', '-')}"
+                   + (f" ({after})" if after else "") + ".")  # fmt: skip
+    return ["", "Serving and the gateway, per model part (lane G item 5):", "", *out] if out else []
 
 
 def _chat_template_section(rep: dict[str, Any]) -> list[str]:
@@ -1869,10 +2209,16 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
                 "public-medtxt": 15.0, "public-trec": 3.0, "gateway": 2.0}  # fmt: skip
 
 
+# --restart-between (lane G item 3): one restart of both model servers, as the boot starts them (judge, then the
+# verifier, each healthy before the next): the measured seconds to ready of each on the RTX PRO 6000 (2026-11-08,
+# docs/plan/measurements/gpu-run-2026-11-08/fit.json: judge 117 s, verifier 82 s), summed. OD-10: measured.
+RESTART_SECONDS = 117.0 + 82.0
+
+
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
              local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
              profile_patients: int = 400, llm_concurrency: tuple[int, ...] = (1,), repeats: int = 1,
-             order_seed: int | None = None) -> dict[str, Any]:  # fmt: skip
+             order_seed: int | None = None, restart_between: bool = False) -> dict[str, Any]:  # fmt: skip
     """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the measured parts
     of :data:`HOSPITAL_MEASURED` (:func:`hospital_split`: non-LLM time, the main SCREEN's calls and the other calls,
     each scaled with ``patients``), at the ``llm_concurrency`` model calls in flight; several values: one hospital
@@ -1905,28 +2251,35 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     lc = tuple(llm_concurrency) or (1,)
     reps = max(1, int(repeats))
     variants = hospital_variants(lc, reps, order_seed)
+    first_part = True
     for lang in langs if g1 else ():
-        notes = S3_SHARE * patients
+        hp = hospital_patients(lang, patients)  # English: its profile's size (D-502), not --patients
+        notes = S3_SHARE * hp
         for v in variants:
             n = variant_concurrency(v) if v else lc[0]
             # the measured parts (HOSPITAL_MEASURED) scaled with the patients and the calls in flight: non-LLM time,
             # the main SCREEN's calls and the other calls, each on its own. Below the smallest measured hospital the
             # old sum stays as a floor (the canary and the stub time do not shrink with the patients)
-            split = hospital_split(patients, n, lang)
-            small = patients < min(int(r["patients"]) for r in HOSPITAL_MEASURED)
-            model = notes * sec / llm_speedup(n) + CANARY_SECONDS + other("hospital", patients, local_patients)
+            split = hospital_split(hp, n, lang)
+            small = hp < min(int(r["patients"]) for r in HOSPITAL_MEASURED)
+            model = notes * sec / llm_speedup(n) + CANARY_SECONDS + other("hospital", hp, local_patients)
             many = len(lc) > 1 or reps > 1
             again = f", repeat {v.split('#r', 1)[1]}" if "#r" in v else ""
-            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''}{again})", patients, split["calls"],
-                            max(split["seconds"], model) if small else split["seconds"],
+            # --restart-between: every hospital part after the first pays one restart of both servers (on several
+            # VMs each VM's first one does not: the estimate counts one restart too many per extra VM, never too few)
+            extra = RESTART_SECONDS if restart_between and not first_part else 0.0
+            first_part = False
+            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''}{again})", hp, split["calls"],
+                            (max(split["seconds"], model) if small else split["seconds"]) + extra,
                             (_tag("hospital", lang, v),)))  # fmt: skip
+            rows[-1]["restart_seconds"] = extra
             rows[-1]["split"] = {k: round(float(split[k]), 1) for k in ("non_llm", "main", "other")}
             rows[-1]["source"] = split["runs"]
             # the cap's floor: the same part with no gain the measurements did not show at its size (a cap below
             # the part stops it mid-run, G1 bug A4)
-            fn = hospital_floor_n(patients, n, lang)
-            no_gain = notes * sec / llm_speedup(fn) + CANARY_SECONDS + other("hospital", patients, local_patients)
-            rows[-1]["floor_seconds"] = max(hospital_seconds(patients, fn, lang=lang), no_gain if small else 0.0)
+            fn = hospital_floor_n(hp, n, lang)
+            no_gain = notes * sec / llm_speedup(fn) + CANARY_SECONDS + other("hospital", hp, local_patients)
+            rows[-1]["floor_seconds"] = max(hospital_seconds(hp, fn, lang=lang), no_gain if small else 0.0) + extra
         rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
     for name in scenarios.SCENARIOS if g1 else ():
         t = (f"scenario-{name}",)
@@ -1954,7 +2307,7 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
         r["hours"] = round(r["seconds"] / 3600, 2)
     hours = sum(r["seconds"] for r in rows) / 3600
     head = {"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts), "llm_concurrency": list(lc),
-            "repeats": reps,
+            "repeats": reps, "restart_between": bool(restart_between), "restart_seconds": RESTART_SECONDS,
             "llm_speedup": [llm_speedup(n) for n in lc], "llm_speedup_override": speedup_override(),
             "max_num_seqs": record_max_seqs()}  # fmt: skip
     if g1 and langs:
@@ -1991,6 +2344,11 @@ def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
                          "hours": round(SECONDS / 3600, 2)})  # fmt: skip
     rows = fixed + [r for r in extra if r["tags"] == [G1_CHECK]] + [r for r in rows if r["tags"]] + [
         r for r in extra if r["tags"] != [G1_CHECK]]  # fmt: skip
+    first = next((r for r in rows if r.get("restart_seconds") is not None), None)
+    if first is not None and first["restart_seconds"]:  # the bounded run's first hospital part needs no restart
+        first["seconds"] -= first["restart_seconds"]
+        first["floor_seconds"] = float(first.get("floor_seconds") or first["seconds"]) - first["restart_seconds"]
+        first["restart_seconds"], first["hours"] = 0.0, round(first["seconds"] / 3600, 2)
     hours = sum(r["seconds"] for r in rows) / 3600
     return _priced({**e, "only": list(only)}, rows, hours)
 
@@ -2450,9 +2808,16 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
         out.append("  order: as given (--keep-order, or no seed)")
     if order.get("runs") and reps > 1:
         out.append(f"  run order: {' '.join(order['runs'])}")
-    if len(lc) > 1 or reps > 1:
-        out.append("  the model servers are not restarted between settings or repeats (not in scope): a later run "
-                   "may find a warm prefix cache")  # fmt: skip
+    if (len(lc) > 1 or reps > 1) and not e.get("restart_between"):
+        out.append("  the model servers are not restarted between settings or repeats (--restart-between not given): a "
+                   "later run may find a warm prefix cache")  # fmt: skip
+    if e.get("restart_between"):
+        n = sum(1 for r in e.get("rows") or [] if r.get("restart_seconds"))
+        out.append(f"  --restart-between: both model servers restarted before every hospital part after the first ({n} "
+                   f"restart(s) of about {float(e.get('restart_seconds') or RESTART_SECONDS):.0f} s: the measured "
+                   "seconds to ready, judge 117 + verifier 82, 2026-11-08; counted in those parts' hours); the gateway "
+                   "and the orchestrator are fresh in every part")  # fmt: skip
+    out += setting_lines(e)
     slots = int(seqs or GATEWAY_SLOTS)
     queue = [n for n in lc if n > slots]
     if queue and not seqs:
@@ -2463,6 +2828,29 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
         out.append(f"  note: {', '.join(map(str, over))} in flight is above the servers' max_num_seqs ({seqs}) and "
                    "the gateway's slots: the calls beyond wait in the gateway (measures the gateway queue, not a "
                    "larger batch)")  # fmt: skip
+    return out
+
+
+def setting_lines(e: dict[str, Any]) -> list[str]:
+    """Lane G item 4: per calls-in-flight setting, the hospital parts' hours and US$ (every language and repeat of
+    it), so the owner can pick which settings of the curve to pay for. Nothing when there is one setting."""
+    price = float(e.get("price_per_hour") or PRICE_PER_HOUR)
+    by: dict[int, list[dict[str, Any]]] = {}
+    for r in e.get("rows") or []:
+        t = (r.get("tags") or [""])[0]
+        if t.startswith("hospital-") and "@c" in t:
+            by.setdefault(variant_concurrency(t.split("@", 1)[1]), []).append(r)
+    if len(by) < 2:
+        return []
+    out = [f"  per setting (hospital parts only, US${price}/h; the VM's start and setup, {BOOT_HOURS + SETUP_HOURS} h, "
+           "once per VM on top):"]  # fmt: skip
+    for n in sorted(by):
+        rs = by[n]
+        hours = sum(float(r["seconds"]) for r in rs) / 3600
+        langs = ", ".join(sorted({base_tag(r["tags"][0]).removeprefix("hospital-") for r in rs}))
+        out.append(f"    {n:>3} in flight: {len(rs)} part(s) ({langs}), {hours:.2f} h, US${hours * price:.2f}"
+                   + (" (above max_num_seqs: measures the gateway queue)" if e.get("max_num_seqs")
+                      and n > int(e["max_num_seqs"]) else ""))  # fmt: skip
     return out
 
 
@@ -2481,9 +2869,10 @@ def hospital_source_lines(e: dict[str, Any]) -> list[str]:
     for r in e["rows"]:
         if r["tags"] and r["tags"][0].startswith("hospital-") and r.get("split"):
             x = r["split"]
+            again = f" + restart {float(r['restart_seconds']):,.0f} s" if r.get("restart_seconds") else ""
             out.append(
                 f"  {r['tags'][0]}: non-LLM {x['non_llm']:,.0f} s + main SCREEN {x['main']:,.0f} s + other "
-                f"calls {x['other']:,.0f} s; the cap's floor {float(r.get('floor_seconds', 0)):,.0f} s"
+                f"calls {x['other']:,.0f} s{again}; the cap's floor {float(r.get('floor_seconds', 0)):,.0f} s"
             )
     return out
 
@@ -2561,6 +2950,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.add_argument("--scenario", default="", choices=["", *scenarios.SCENARIOS, *SELFTESTS])
         ap.add_argument("--variant", default="", help="a hospital part's repeat, c<N>: the tag hospital-<lang>@c<N>")
         ap.add_argument("--shots", type=Path, required=True)
+        ap.add_argument("--hospital-langs", nargs="*", default=list(LANGS),
+                        help="prepare: the plan's hospital languages (English: its own hospital)")  # fmt: skip
         a = ap.parse_args(argv[1:])
         if a.repeats < 1:
             ap.error("--repeats: a whole number from 1")
@@ -2574,6 +2965,11 @@ def main(argv: list[str] | None = None) -> int:
                     "VM's watchdog; review H-03)")  # fmt: skip
     ap.add_argument("--heartbeat-seconds", type=float, default=30.0, help="--heartbeat: how often a busy part beats")
     ap.add_argument("--after-part", default="", help="a command to run after each part (the VM packs results.tgz)")
+    ap.add_argument("--restart-between", action="store_true",
+                    help="restart both model servers before every hospital part after the first (each setting and "
+                    "repeat; lane G item 3); a run needs --restart-cmd, the estimate counts the restarts")  # fmt: skip
+    ap.add_argument("--restart-cmd", default="", help="--restart-between: the command that restarts both model "
+                    "servers and returns once they are healthy (the VM: tb-restart-servers)")  # fmt: skip
     ap.add_argument("--planned-from", type=Path, default=os.environ.get("TB_PLANNED_FROM") or None,
                     help="a full run's report.json: the checks a crashed part would have run (M-03)")  # fmt: skip
     ap.add_argument("--quota-check", type=Path, help="a folder of gcloud quota JSON: refuse when too small (H-05)")
@@ -2605,6 +3001,13 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.repeats < 1:
         ap.error("--repeats: a whole number from 1")
+    # a hospital or public part named in another language (hospital-en: lane G item 6) brings its language in
+    for lang in langs_named([*a.only, *a.report_parts]):
+        if lang in ("ja", "zh-TW", "en") and lang not in a.langs:
+            a.langs.append(lang)
+    refused = hospital_refusals(a)
+    if a.restart_between and not a.restart_cmd and not (a.estimate or a.report_only):
+        ap.error("--restart-between: a run needs --restart-cmd (the command that restarts both model servers)")
     if a.merge_parts:
         for line in merge_parts(a.merge_parts, (a.parts_dir or [a.dir / "parts"])[0]):
             print(line)
@@ -2646,6 +3049,8 @@ def main(argv: list[str] | None = None) -> int:
         doc = json.loads(a.shard_now.read_text(encoding="utf-8"))
         print(json.dumps(shard_now(doc, a.shard_index, list(a.parts_dir), a.run_id, head)))
         return 0
+    if refused:  # before an estimate, a report or a run: said, nothing planned, nothing started
+        ap.error(refused)
     if a.estimate:
         local, n = _local_timings(a.estimate_from)
         parts = tuple(x for x in a.parts.split(",") if x)
@@ -2658,7 +3063,8 @@ def main(argv: list[str] | None = None) -> int:
             a.lc = shuffled(a.lc, a.order_seed)
         seed = a.order_seed if a.repeats > 1 else None
         try:
-            e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc, a.repeats, seed)
+            e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc, a.repeats, seed,
+                         a.restart_between)  # fmt: skip
             e["llm_concurrency_default"] = a.lc_default
             if len(a.lc) > 1 or a.repeats > 1:
                 e["llm_concurrency_order"] = {"seed": a.order_seed, "given": list(given),

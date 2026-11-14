@@ -13,6 +13,8 @@
 #                     ("1 4 16 48": the hospital part once per value, review test G-3); empty: the record's max_num_seqs
 #   tb-repeats, tb-order-seed  each value that many times (hospital-<lang>@c<N>#r<k>, B5), every (value, repeat) in
 #                     the order the seed gives (the plan's); default 1, no seed
+#   tb-restart-between  1: before every hospital part after the first, both model servers are restarted as this boot
+#                     starts them (tb-restart-servers below; lane G item 3); default 0
 #   tb-src-sha256     the sha256 of the code the driver uploads: anything else is refused before it is unpacked
 #   tb-max-minutes    hard cap of this boot (the driver sets the cloud cap too: max-run-duration, action STOP)
 #   tb-idle-minutes   the watchdog's idle limit in the run phase (default 20); tb-done-grace (default 30);
@@ -135,6 +137,7 @@ LLMC=$(md tb-llm-concurrency || true)
 REPEATS=$(md tb-repeats || true); ORDER_SEED=$(md tb-order-seed || true)
 case "$REPEATS" in ''|*[!0-9]*|0) REPEATS=1 ;; esac
 case "$ORDER_SEED" in *[!0-9]*) ORDER_SEED="" ;; esac   # "none": the order given (a metadata value is never empty)
+RESTART_BETWEEN=$(md tb-restart-between || echo 0); [ "$RESTART_BETWEEN" = 1 ] || RESTART_BETWEEN=0
 BUCKET=$(md tb-bucket || true)
 # metadata stays on a VM between runs: only a gs:// value is this run's bucket (the driver sets "none" in door mode,
 # so a bucket an earlier run left there is never used, and never ends a door-mode run early: B7)
@@ -500,6 +503,31 @@ exec docker run --rm --label tb-part=1 --gpus all --ipc host -v /models:/root/.c
 EOS
 chmod 0755 /usr/local/sbin/tb-embed-py
 
+# --restart-between (lane G item 3): both model servers stopped and started again as the boot starts them (the judge,
+# then the verifier, each healthy before the next: the verifier's memory share is taken with the judge resident), then
+# each must list exactly its served name through nginx. The waits are the boot's own (HEALTH_WAIT_S, CHECK_WAIT_S).
+# Its last line says how it went; a failure exits non-zero and the part that follows records a failed check.
+cat >/usr/local/sbin/tb-restart-servers <<EOS
+#!/bin/bash
+set -u
+t0=\$(date +%s)
+healthy() { docker exec "\$1" python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)" 2>/dev/null; }
+docker stop verifier judge >/dev/null 2>&1 || { echo "TB-RESTART-FAILED: docker stop"; exit 1; }
+for pair in "judge $JS" "verifier $VS"; do
+  read -r n served <<< "\$pair"
+  docker start "\$n" >/dev/null || { echo "TB-RESTART-FAILED: docker start \$n"; exit 1; }
+  ok=0
+  for _ in \$(seq 1 $((HEALTH_WAIT_S / 5))); do if healthy "\$n"; then ok=1; break; fi; touch "$HB"; sleep 5; done
+  [ "\$ok" = 1 ] || { echo "TB-RESTART-FAILED: \$n not healthy in $HEALTH_WAIT_S s"; exit 1; }
+  ids=\$(curl -fsS --max-time 30 "http://127.0.0.1:8080/\$n/v1/models" \
+    | python3 -c 'import json,sys; print(" ".join(m["id"] for m in json.load(sys.stdin)["data"]))' 2>/dev/null)
+  [ "\$ids" = "\$served" ] || { echo "TB-RESTART-FAILED: \$n serves '\$ids' after the restart, the run asks for '\$served'"; exit 1; }
+done
+echo "TB-RESTART ok: judge and verifier restarted, healthy and serving their names in \$((\$(date +%s) - t0)) s"
+EOS
+chmod 0755 /usr/local/sbin/tb-restart-servers
+RESTART_ARGS=(); [ "$RESTART_BETWEEN" = 0 ] || RESTART_ARGS=(--restart-between --restart-cmd /usr/local/sbin/tb-restart-servers)
+
 # ------------------------------------------------------------------ the run: model parts here, resumable, packed per part
 phase run
 touch "$HB"
@@ -513,7 +541,7 @@ NODE_PATH=/opt/node-tools/node_modules TB_GPU_KEY="$KEY" TB_ENV=DEV PYTHONPATH=l
   --ocr tesseract --judge-url http://127.0.0.1:8080/judge/v1 --verifier-url http://127.0.0.1:8080/verifier/v1 \
   --live-record $REC/serving_config.json --skip walk backup update scale --resume --heartbeat "$HB" \
   --after-part "/usr/local/sbin/tb-pack $RUN $BUCKET" ${LLMC:+--llm-concurrency "$LLMC"} --repeats "$REPEATS" \
-  ${ORDER_SEED:+--order-seed "$ORDER_SEED"} ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
+  ${ORDER_SEED:+--order-seed "$ORDER_SEED"} "${RESTART_ARGS[@]}" ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
 echo "TB-RUN-EXIT $?" | tee -a "$LOG"
 touch "$TB/run-ended"
 /usr/local/sbin/tb-pack "$RUN" "$BUCKET"

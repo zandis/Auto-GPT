@@ -20,7 +20,9 @@
 #   run-a      a fresh disk, a bounded run: --patients 500 --only hospital-ja public-ja scenario-gateway
 #              scenario-emr-fhir scenario-it-dump scenario-public-medtxt scenario-public-trec, driven with --no-wait
 #              and repeated --collect: setup, the data fetch (C-02, C-03), the model servers' check (H-02), the parts,
-#              results.tgz per part, power-off once collected;
+#              results.tgz per part, power-off once collected; the hospital part twice (--repeats 2) with the model
+#              servers restarted between (--restart-between, tb-restart-servers), each repeat's answers kept
+#              (parts/<tag>/answers.jsonl.gz) and the lists compared criterion by criterion (lane G batch 6);
 #   run-b      the same disk, a new run (scenario-gateway scenario-it-dump): nothing kept from run-a (H-01), a fresh
 #              log (M-01), the report's HEAD is the launched commit (M-02);
 #   bucket     the same disk, TB_BUCKET set (T-119): the code and the results go through the bucket, not the door;
@@ -200,8 +202,8 @@ for case in "${CASES[@]}"; do
   case "$case" in
     run-a)
       fresh_disk; start_case run-a
-      driven run-a 75 --patients 500 --only "$POS_ONLY" || true
-      end_case run-a; check run-a "$E" --only "$POS_ONLY" --head "$(git -C "$TBROOT" rev-parse HEAD)" ;;
+      driven run-a 75 --patients 500 --only "$POS_ONLY" --repeats 2 --restart-between || true
+      end_case run-a; check run-a "$E" --only "$POS_ONLY" --head "$(git -C "$TBROOT" rev-parse HEAD)" --repeats 2 ;;
     run-b)
       start_case run-b
       prev="$(cat "$REH/evidence/run-a/out/run-id" 2>/dev/null || echo none)"
