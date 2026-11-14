@@ -475,6 +475,16 @@ class Mapping:
                         f"{path}: {r.type}.{element} writes column atc under system {spec.get('system')!r}: {why}. "
                         "Write the atc column under `system: atc`"
                     )
+        for r in resources:  # D-689: a mapped coding takes only relations that say the code is the target
+            for element, spec in r.elements.items():
+                if not isinstance(spec, dict) or spec.get("builder") != "mapped_coding" or "accept" not in spec:
+                    continue
+                accept = spec["accept"]
+                if not isinstance(accept, list) or not accept or not set(accept) <= MAPPED_RELATIONS:
+                    raise MappingError(
+                        f"{path}: {r.type}.{element}: accept is a list of {', '.join(sorted(MAPPED_RELATIONS))} "
+                        f"(an inexact or related entry is a candidate, never the code), not {accept!r}"
+                    )
         return cls(
             unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
             date_columns=date_columns,
@@ -592,6 +602,11 @@ def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
 
 
 # D-593: an all-numeric ICD-9-CM code, with its dot (three places, then one or two) or without (three to five)
+#: D-689: the relations a ``mapped_coding`` element may accept (``accept:``): the map says the code IS the target
+#: (``equivalent``, ``equal``) or belongs to it as to its class (``wider``: an NHI product in its ATC class). An
+#: ``inexact`` or ``relatedto`` entry is a candidate, never the code (D-592)
+MAPPED_RELATIONS = frozenset({"equivalent", "equal", "wider"})
+
 _ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
 
 
@@ -609,7 +624,8 @@ class Mapper:
         # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
         # back-fill pass the box's own; without it ``mapped_coding`` maps nothing
         self.concept_map = concept_map
-        self._mapped: dict[tuple[str, str, str], str | None] = {}  # (from, to, code) → the one code, asked once
+        self._mapped: dict[tuple[str, ...], str | None] = {}  # (from, to, code, accepted) → the one code, asked once
+        self.mapped: Counter[tuple[str, str]] = Counter()  # D-689: rows that gained a mapped coding, by (table, map)
         self.m = mapping
         self.key = site_key
         self.site_id = site_id
@@ -1007,6 +1023,21 @@ class Mapper:
             coding["display"] = str(row[args["display_column"]])
         return coding
 
+    def _note_mapped(self, table: str, name: str) -> None:
+        """One row that gained a mapped coding (D-689), once per source row and name."""
+        at = ("mapped", name)
+        if self._row_seen is None or at not in self._row_seen:
+            self.mapped[(table, name)] += 1
+            if self._row_seen is not None:
+                self._row_seen.add(at)
+
+    def mapped_summary(self) -> dict[str, dict[str, int]]:
+        """``{table: {map: rows that gained its coding}}`` for the night's report (D-689): counts only."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, name), n in sorted(self.mapped.items()):
+            out.setdefault(table, {})[name] = n
+        return out
+
     def _b_mapped_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
         """D-593: the coding of a column's code in another system (``from`` → ``to``, names of ``systems``), only
         when the reference data's map has exactly one row for the code into that system and the row says the two
@@ -1032,7 +1063,8 @@ class Mapper:
         if code is None:
             self._note_unmapped(rs.table, name, fed)
             return None
-        key = (str(args["from"]), str(args["to"]), code)
+        accept = tuple(args.get("accept") or ("equivalent", "equal"))  # D-689: ``wider`` only where an element says
+        key = (str(args["from"]), str(args["to"]), code, *accept)
         if key not in self._mapped:
             target = self.m.systems[args["to"]]
             asked = self.concept_map(self.m.systems[args["from"]], code)
@@ -1040,12 +1072,13 @@ class Mapper:
                 self._note_unmapped(rs.table, f"{name}:unavailable", fed)
                 return None
             rows = [t for t in asked if t.get("target_system") == target]
-            same = len(rows) == 1 and rows[0].get("relation") in ("equivalent", "equal") and rows[0].get("target_code")
+            same = len(rows) == 1 and rows[0].get("relation") in accept and rows[0].get("target_code")
             self._mapped[key] = str(rows[0]["target_code"]) if same else None
         hit = self._mapped[key]
         if hit is None:
             self._note_unmapped(rs.table, name, fed)  # as fed, so the count's own filter sees what it was
             return None
+        self._note_mapped(rs.table, name)
         # userSelected false: not the code the hospital recorded, the one the map says it is
         return {"system": self.m.systems[args["to"]], "code": hit, "userSelected": False}
 
