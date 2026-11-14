@@ -24,7 +24,7 @@ every site's notes, and D-502 asks for English runs end to end.
 1. **One English phone form, `tb_common.phi_guard.EN_PHONE`**, read by all three doors (the guard service names it in
    `PHONE_PATTERNS`, not a copy):
    - anywhere: a number with its country code (`+1 555 010 0199`, `+44 20 7946 0958`); a North American number with
-     its area code (`(555) 010-0133`, `555-010-0133`, `555.010.0150`); a British national number (`020 7946 0958`,
+     its area code (`(555) 010-0133`, `555-010-0133`, `555.010.0150`); a British national number (`01632 960958`,
      `07700 900123`); never inside a code (a letter or digit before it: the JLAC10 lab code `3D046 0000 019`);
    - a local number of seven digits (`555-0133`) only after a word that says it is one: `tel`, `telephone`,
      `phone`, `ph`, `mobile`, `cell`, `fax`, `contact`, `call`, `number (is)`. Only the number is masked; the word
