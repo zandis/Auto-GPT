@@ -153,15 +153,17 @@ def test_a_generation_header_that_is_none_is_the_requests_fault_not_a_broken_lak
 
 # ------------------------------------------------------------------------------------------- every caller of query()
 GOES_ON = "no handler: the error goes on and the job or the request fails (5xx: the lake failed; 4xx: the code)"
-RERAISES = "handler: a missing table of an older snapshot (a 4xx sentence) is read as none; anything else goes on"
 NOT_THE_LAKE = "not the lake's client"
 OPEN = "OPEN (its lane): catches every error, a 5xx too, and reads it as "
+#: after train 14 (D-649 to D-652, lane A2): whether a table is there is asked of the lake, and a failure is said
+UNREAD = "handler: any failure is said as 'could not be read' (D-652), never as none"
+PROBE = "handler: a failure of the probe's own question answers 'not known'; the first failure then stops the run"
+ASKS = "handler: only the lake's plain 0 for the table is 'no such table' (D-649); every other failure is raised"
 
 #: (file under services/, function) -> what it does when the lake's query() raises. A new caller must be put here
 #: by someone who read what it does with a 5xx (never "no data") and with a 4xx (a fault of the code: it stops).
 CALLERS: dict[tuple[str, str], str] = {
     ("lake/app.py", "query"): "the route: answers the status this card is about",
-    ("tb_common/optout.py", "registry_state"): RERAISES,
     ("tb_common/derived_store.py", "rows_from_lake"): GOES_ON,
     ("tb_common/derived_store.py", "mapping_version_of"): GOES_ON,
     ("lake/client.py", "LakeLocal.query"): GOES_ON,
@@ -189,14 +191,12 @@ CALLERS: dict[tuple[str, str], str] = {
     ("vec/index.py", "snapshot_notes"): GOES_ON,
     ("criteria_compiler/equivalence/gate.py", "sql_evaluations"): GOES_ON,
     ("console/audit_page.py", "audit_patient"): NOT_THE_LAKE,  # a filter's query string
-    ("matching/cascade/engine.py", "_Run.notes"): RERAISES,
-    ("matching/proposed.py", "Proposed.load"): RERAISES,
-    ("matching/proposed.py", "site_basis"): RERAISES,
     ("matching/coded_values.py", "attach"): OPEN + "no coded value to show (display only; the answers stand)",
-    ("orchestrator/scenarios/feas_profile.py", "build"): OPEN
-    + "a lake without the fact tables, for its facts query (the report says so); its other two queries go on",
+    ("orchestrator/scenarios/feas_profile.py", "build"): GOES_ON,
+    ("orchestrator/scenarios/feas_profile.py", "data_facts"): UNREAD,
+    ("tb_common/lakeprobe.py", "no_table"): PROBE,
+    ("tb_common/lakeprobe.py", "rows_or_no_table"): ASKS,
     ("orchestrator/scenarios/screen.py", "practitioner_names"): OPEN + "no names (the settings' ids are shown)",
-    ("orchestrator/scenarios/screen.py", "confirmed_facts"): OPEN + "no confirmed fact",
     # NEW-B-35 (D-676): asks the lake for the column, no handler. Its one caller in the services, the night step
     # ``twin.after_ingest``, never fails the ingest: it logs the error's type and keeps no twin (the same for
     # ``read_lake`` below)

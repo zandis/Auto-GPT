@@ -243,6 +243,8 @@ HANDED_THEIRS: dict[tuple[str, str], int] = {
     ("adapter/sources/ssmix2/hl7.py", "getattr"): 1, ("adapter/validate/jpcore.py", "_base_problem"): 1,
     ("datacore/dataops.py", "getattr"): 2,
     ("lake/app.py", "error_answer"): 1, ("lake/store.py", "error_answer"): 1, ("lake/store.py", "error_kind"): 1,
+    # lane B2's NEW-B-34 (D-675): the status of a failed query by the error's class only (isinstance), no text
+    ("lake/app.py", "query_failure_status"): 2,
     ("mail_gateway/outbound.py", "NotSent"): 2,
     ("matching/cascade/engine.py", "missing_table"): 1,
     ("tracestore/app.py", "refusal"): 1,
