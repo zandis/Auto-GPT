@@ -32,6 +32,25 @@ before the change (kept failing output: `life7-fail.txt`).
   beside D-415's check of the SAE type. The installer's question for it is lane D's (asked on the inbox); this check
   holds until it exists.
 
+- **What "at once" means on each path.** A case written through the console (the AE form's save, the case page,
+  "bring up to date") is mailed in that request. A case that reaches the data core through the nightly REDCap
+  read-back is synced, and so mailed, at the end of that read-back (`console.rc_read`), not at the next morning
+  round. One written through the API with no console save is mailed at the next sync: the morning round's or a
+  person's. A case that is serious again after it was not is mailed again. Each is mailed once (the register writes
+  a new case once).
+- **A PI who cannot be mailed is said**: no PI on the log, or an account that is off or has no mailbox, is audited
+  (`pi_unreachable`), also when the office is told; nobody told at all is `notice_nobody`. The SAE worklist says when
+  the box has no office mailbox (`sae.no_mailbox`), which covers studies opened before the open check existed.
+- **A weekend digest does not move the working days' cursor.** It is logged as `N2-SAE`, once a day, so Monday's
+  digest still counts new pre-screens and marks from Friday's.
+
+## The review
+
+One adversarial review: NOT SOUND on the first pass. The weekend digest moved the cursor, so Monday lost the
+weekend's new pre-screens and marks; the mailbox was required only at the move to open, and a PI who could not be
+mailed was in no visible place; an SAE read back from REDCap waited for the morning round; a case serious again
+after a downgrade was not told again. All fixed as above and held by tests.
+
 ## Reuse check
 
 The register's own new-case path (`office_copy`, now `told_at_once` for the recipients), the delegation log's

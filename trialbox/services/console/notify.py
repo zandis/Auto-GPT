@@ -58,6 +58,7 @@ MAX_ROWS = 10  # per digest section; the rest is one line and the link
 # (the list, marks, calls, new pre-screens) go out only for an open study (``StudyState.runs``); a paused study keeps
 # its participants' visit and SAE lines, because a pause stops recruitment, not the care of those already enrolled.
 CARE_STATES = ("open", "paused")
+WEEKEND_N2 = "N2-SAE"  # D-764: the log kind of a weekend coordinator digest (it does not move the digest's cursor)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
@@ -70,6 +71,9 @@ class Notice:
     body: str
     day: str
     counts: dict[str, int] = field(default_factory=dict)
+    #: the kind the send is logged under, when not ``kind``: a weekend coordinator digest (only SAE reports) is logged
+    #: as ``N2-SAE``, so the next working day's digest still counts from the last full one (the review of D-764)
+    log_kind: str = ""
 
 
 def base_url() -> str:
@@ -275,7 +279,16 @@ def build_n2(
         counts["sae_reports"] = len(reports)
     if health is not None:
         counts["health_red"] = int(red)
-    return Notice("N2", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(), counts)
+    return Notice(
+        "N2",
+        user.username,
+        user.mailbox or "",
+        subject,
+        "\n".join(parts),
+        today.isoformat(),
+        counts,
+        log_kind=WEEKEND_N2 if weekend else "",
+    )
 
 
 def build_health(
@@ -354,6 +367,8 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
         kind = "N1" if u.can_mark else "N2" if u.can_request else None
         if kind is None or kind not in kinds or store.notice_sent(kind, u.username, today.isoformat()):
             continue
+        if kind == "N2" and store.notice_sent(WEEKEND_N2, u.username, today.isoformat()):
+            continue  # D-764: today's weekend digest went
         studies: list[Any] = []
         life: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess):
@@ -403,7 +418,7 @@ def send_all(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2"), by: str =
     sent = []
     for n in collect(h, today, kinds):
         h.bk.send_notice(n.kind, [n.to], n.subject, n.body, by)
-        h.store.log_notice(n.kind, n.username, n.day, h.clock().isoformat(), n.subject)
+        h.store.log_notice(n.log_kind or n.kind, n.username, n.day, h.clock().isoformat(), n.subject)
         h.au.append("console.notice", actor=by, detail={"action": n.kind, "to": n.to, "subject": n.subject})
         sent.append(n)
     return sent

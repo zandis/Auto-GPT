@@ -187,7 +187,10 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             rows = reg.sync(rid, a, SYNC, at, form_author(rid, *key))
             audit(rid, SYNC, *key, rows)
             written += rows
-            if any(w["action"] == "create" for w in rows):
+            # D-764: a new case, or one serious again after it was not (its review), is told at once
+            again = any(w["action"] == "change" and not (w["body"].get("serious") or {}).get("old")
+                        and (w["body"].get("serious") or {}).get("new") for w in rows)  # fmt: skip
+            if again or any(w["action"] == "create" for w in rows):
                 office_copy(
                     rid, case_view(a, reg.case(rid, *key), reg.reports(rid, *key), day, fu, now(), rules), rules
                 )
@@ -211,6 +214,9 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         u = h.users.get(pi.username) if pi is not None and pi.username else None
         if u is not None and u.mailbox:
             out.append(u.mailbox)
+        else:  # the review of D-764: a PI who cannot be mailed is said, also when the office is told
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "pi_unreachable", "why": "no_pi" if pi is None else "no_mailbox"})  # fmt: skip
         return list(dict.fromkeys(out))
 
     def office_copy(rid: str, v: dict[str, Any], rules: dict[str, Any]) -> None:
@@ -291,7 +297,8 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
                       dates=sum(1 for v in live if set(DATE_ALERTS) & set(v["flags"])),
                       downgraded=sum(1 for v in rows if v["downgraded"]),
                       rule_alerts=sorted(k for k, x in rules_by.items() if set(x.get("problems") or []) & RULE_ALERTS),
-                      today=day.isoformat(), **context(rules_by))  # fmt: skip
+                      today=day.isoformat(), no_mailbox=not os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip(),
+                      **context(rules_by))  # fmt: skip
 
     def find(views: list[dict[str, Any]], rec: str, ev: str) -> dict[str, Any] | None:
         return next((v for v in views if (str(v["record"]), str(v["event"])) == (rec, ev)), None)

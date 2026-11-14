@@ -55,7 +55,7 @@ def test_the_coordinators_overdue_report_mail_goes_on_a_weekend_day_and_only_it(
 
 
 # ---------------------------------------------------------------------------------------------- at once
-def _new_case(lb: dict[str, Any]) -> list[tuple[str, list[str], str, str]]:  # noqa: F811
+def _new_case(lb: dict[str, Any], before_sync: Any = None) -> list[tuple[str, list[str], str, str]]:  # noqa: F811
     name_pi(lb, "pi")
     no, _other = lb["nos"]
     c, csrf = login(lb["app"], "crc", PW)
@@ -64,6 +64,8 @@ def _new_case(lb: dict[str, Any]) -> list[tuple[str, list[str], str, str]]:  # n
     lb["clock"]["now"] = datetime(2026, 11, 6, 10, 0, tzinfo=UTC)  # Friday 18:00 in Taipei
     c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"}, follow_redirects=True)
     lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "ae1", "values": FATAL, "by": "rc:read"})
+    if before_sync is not None:
+        before_sync()
     assert c.post("/studies/GZQO/sae/sync", data={"csrf": csrf}).status_code in (200, 303)
     return list(lb["backend"].notices)
 
@@ -106,3 +108,65 @@ def test_a_study_that_reports_saes_does_not_open_on_a_box_without_the_office_mai
     monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
     r = c.post("/studies/GZQO/state", data={"csrf": _csrf(page), "state": "open"}, follow_redirects=False)
     assert r.status_code == 303
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+def test_a_weekend_digest_does_not_move_the_working_days_cursor() -> None:
+    """The review of D-764 (1): Sunday's SAE-only digest is logged as ``N2-SAE``, so Monday's digest still counts its
+    new pre-screens and marks from Friday's, and the weekend digest goes once a day."""
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from console.sitestore import SiteStore
+
+    from tests.console.test_study_state_d386 import _helpers
+
+    store = SiteStore()
+    store.save_notify_person(NotifyPerson("crc", None, lang="en"))
+    store.log_notice("N2", "crc", "2026-11-06", "2026-11-05T23:30:00+00:00", "Friday's digest")
+    life = {"today": [], "week": [], "overdue": [], "sae": 0,
+            "reports": [{"short": "aaaaaaaa", "due": "2026-11-07", "party": "sponsor"}]}  # fmt: skip
+    h = _helpers(store, life=life)
+    sent: list[Any] = []
+    h.bk = SimpleNamespace(registry_rows=lambda _rs: [], send_notice=lambda *a: sent.append(a))
+    h.clock = lambda: datetime(2026, 11, 7, 23, 30, tzinfo=UTC)
+    h.au = SimpleNamespace(append=lambda *a, **k: None)
+    got = notify.send_all(h, SUNDAY, ("N2",))
+    assert [n.log_kind for n in got] == ["N2-SAE"] and store.last_notice("N2", "crc") == "2026-11-05T23:30:00+00:00"
+    assert notify.send_all(h, SUNDAY, ("N2",)) == []  # once a day
+    assert notify.collect(h, SUNDAY + timedelta(days=1), ("N2",))[0].log_kind == ""
+
+
+def test_a_pi_who_cannot_be_mailed_is_said_and_the_worklist_says_no_mailbox(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The review of D-764 (2): the office is told while the PI's account has no mailbox: the audit says so; and the
+    SAE worklist says the box has no office mailbox, for the studies opened before the check."""
+    import json
+
+    monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
+    sent = _new_case(lb, before_sync=lambda: lb["users"].disable("pi"))  # the PI's account is off: no mailbox
+    assert [n[1] for n in sent] == [["trial-office@hospa.test"]]
+    events = [json.loads(x) for f in sorted(lb["backend"].audit_dir.glob("*.jsonl")) for x in f.read_text().splitlines()
+              if x]  # fmt: skip
+    assert any(e["event"] == "console.sae" and e["detail"].get("action") == "pi_unreachable" for e in events)
+    monkeypatch.delenv("TB_SAE_OFFICE_MAILBOX")
+    c, _ = login(lb["app"], "crc", PW)
+    assert 'data-testid="sae-no-mailbox"' in c.get("/sae").text
+
+
+def test_a_case_serious_again_after_a_downgrade_is_told_again(
+    lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: F811
+    """The review of D-764 (4)."""
+    monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
+    sent = _new_case(lb)
+    no, _other = lb["nos"]
+    c, csrf = login(lb["app"], "crc", PW)
+    lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "ae1", "values": {**FATAL, "ae_serious": "0",
+                                                                               "ae_outcome": "1"}, "by": "rc:read"})  # fmt: skip
+    c.post("/studies/GZQO/sae/sync", data={"csrf": csrf})
+    lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "ae1", "values": FATAL, "by": "rc:read"})
+    c.post("/studies/GZQO/sae/sync", data={"csrf": csrf})
+    assert len(lb["backend"].notices) == len(sent) + 1
