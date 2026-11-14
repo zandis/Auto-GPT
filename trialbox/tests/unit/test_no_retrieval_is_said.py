@@ -88,3 +88,12 @@ def test_without_the_flag_nothing_changes() -> None:
 def test_screen_asks_for_retrieval() -> None:
     src = (ROOT / "services" / "orchestrator" / "scenarios" / "screen_cascade.py").read_text("utf-8")
     assert "require_retrieval=True" in src
+
+
+def test_stored_vectors_retrieve_as_before() -> None:
+    """Review: with the vec.s2b flag on the stored vectors (the embed service's model) can rank sentences by meaning,
+    so the criterion goes on to S2b, not cut."""
+    run, c = _run(HashEmbedder(), True, "Interstitial lung disease or pulmonary fibrosis")
+    run.s2b_source = object()  # type: ignore[assignment]  # a stored-vector source (D-449)
+    _routes, zero = run.s2([c])
+    assert [z[1] for z in zero] == [c.id] and run.metrics.no_retrieval == {}

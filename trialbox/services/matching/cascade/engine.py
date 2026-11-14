@@ -354,7 +354,10 @@ class _Run:
         self.stages.append(StageLog(stage, p_in, p_out, q_in, q_out, PATIENT_CLASS, self.ir_hash, dict(detail)))
 
     def _semantic(self) -> bool:
-        """Can S2b find a sentence by meaning? Not with no embedder or the hash stub (NEW-LLM-2)."""
+        """Can S2b find a sentence by meaning? Not with no embedder or the hash stub (NEW-LLM-2); yes with stored
+        vectors (the flag vec.s2b, D-449: the embed service's model, known per query)."""
+        if self.s2b_source is not None:
+            return True
         return self.embedder is not None and not str(self.embedder.model).startswith("hash")
 
     def alive(self) -> list[PatientTrace]:
