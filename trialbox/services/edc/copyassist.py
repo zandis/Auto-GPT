@@ -86,7 +86,7 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
         v = records.setdefault(str(d["record"]), {}).setdefault(
             str(d["visit"]), {"visit": d["visit"], "visit_date": d["visit_date"], "waiting": 0, "forms": {}}
         )
-        if int(d["id"]) not in ok and d["fate"] != "rejected":
+        if int(d["id"]) not in ok and d["fate"] not in ("rejected", "retired"):
             v["waiting"] += 1  # open, or decided and not (validly) signed: counted, never shown
     for d in values:
         v = records[str(d["record"])][str(d["visit"])]
