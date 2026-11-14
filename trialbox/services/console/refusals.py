@@ -246,6 +246,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "カルテ番号を仮名IDに変えられませんでした",
         "無法將病歷號轉為假名代碼",
     ),
+    "the box holds no patient under this chart number": (  # NEW-JRN-6 (D-771): the disclosure report's lookup
+        "このカルテ番号の患者はこのボックスにいません",
+        "此裝置中沒有此病歷號的病人",
+    ),
 }
 
 UNTRANSLATED: dict[str, str] = {
