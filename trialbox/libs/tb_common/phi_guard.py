@@ -89,6 +89,35 @@ TW_ID = re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?![0-9])")
 PHONE = re.compile(
     r"(?<!\d)(?:\+886[-\s]?9\d{2}|09\d{2})[-\s]?\d{3}[-\s]?\d{3}(?!\d)|(?<!\d)\(?0[2-8]\)?[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)"
 )
+# NEW-B-43 (D-744): an English phone number (North American, British or any with a country code). The long forms
+# anywhere; a seven-digit local number, and a number written without separators, only after a word that says it is a
+# phone (``Tel``, ``phone (no.)``, ``mobile``, ``contact``, ``call``, ``pager``, ``T:`` ...). Separators never cross a
+# line: a prompt's variables are scanned one per line. Clinical ranges (100-300 mg, 4.5-11.0), runs of doses or counts
+# (250 500 1000), times (0800 1200), study, lot and kit numbers and a spaced lab code (JLAC10) have none of the shapes.
+# One pattern for the note masker, the gate before a call (:func:`scan`) and the guard service's recognisers. Group
+# ``v``: the number (the word stays).
+_SP = r"[^\S\n]"  # a space or tab, never a line break
+_DASH = r"[-.\u2010-\u2015\u2212]"  # hyphen, dot and the Unicode dashes
+_SEP = rf"(?:{_DASH}|{_SP})"
+_EN_PHONE_FULL = (
+    # with its country code (+ or 00), at least nine digits
+    rf"(?=(?:[^\d\n]{{0,3}}\d){{9}})(?:\+|(?<![\d.,])(?<!\d{_SP})00(?=[1-9]))\d{{1,3}}{_SEP}?\(?\d{{1,4}}\)?(?:{_SEP}?\d{{2,4}}){{2,3}}"
+    # North American: (area) or area and a dash, exchange, line; a leading 1 too
+    rf"|(?:1{_DASH})?(?:\([2-9]\d{{2}}\){_SP}?|[2-9]\d{{2}}{_DASH})\d{{3}}{_DASH}\d{{4}}"
+    # British national: the area code with a separator or in brackets, then the subscriber number
+    rf"|(?<!\d{_SP})(?:\(0\d{{4}}\){_SP}?|0\d{{4}}{_SEP})\d{{3}}{_SEP}?\d{{3}}"
+    rf"|(?<!\d{_SP})(?:\(0\d{{3}}\){_SP}?|0\d{{3}}{_SEP})\d{{3}}{_SEP}?\d{{4}}"
+    rf"|(?<!\d{_SP})(?:\(0\d{{2}}\){_SP}?|0\d{{2}}{_SEP})\d{{4}}{_SEP}?\d{{4}}"
+)
+_EN_PHONE_LABEL = (
+    r"(?i:\b(?:tel(?:ephone)?|phone|ph|mobile|mob|cell(?:phone)?|fax|pager|landline|helpline|contact|call|dial"
+    r"|home|number\s+is|[TM](?=\s*:))\b\.?"
+    rf"(?:{_SP}*(?:no\b\.?|number\b|#|details\b))?)(?:{_SP}|[:#.])*"
+)
+EN_PHONE = re.compile(
+    rf"{_EN_PHONE_LABEL}(?P<v>{_EN_PHONE_FULL}|0\d{{9,10}}|\d{{10}}|\d{{3}}{_SEP}?\d{{4}})(?![\dA-Za-z])(?!{_DASH}\d)"
+    rf"|(?<![A-Za-z0-9+.,])(?:{_EN_PHONE_FULL})(?![\dA-Za-z])(?!{_DASH}\d)"  # not inside a code (3D046 0000 019)
+)
 DATE = dates.PHI_SPAN  # Gregorian and 民國 written out (D-215: the pattern lives in tb_common.dates, unchanged)
 EN_NAME = re.compile(
     r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\bPatient(?: name)?:\s*[A-Z][a-z]+\s+[A-Z][a-z]+"
@@ -159,6 +188,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
             findings.append(("mrn", _mask(m.group(0))))
     for m in PHONE.finditer(text):
         findings.append(("phone", _mask(m.group(0))))
+    for m in EN_PHONE.finditer(text):
+        findings.append(("phone", _mask(m.group("v") or m.group(0))))
     for m in KEYWORDS.finditer(text):
         findings.append(("keyword", m.group(0)))
     names = _cjk_names(text)
@@ -183,7 +214,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
 # are untouched. ``○`` is how Taiwanese and Japanese records mask a name by hand; the tokenizer drops it, so a masked
 # span gives no token to the full-text index or the hash embedder.
 MASK_CHAR = "○"
-NOTE_MASK_VERSION = "1"  # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask
+# recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744)
+NOTE_MASK_VERSION = "2"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -210,6 +242,7 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("id", TW_ID),
     ("phone", PHONE),
+    ("phone", EN_PHONE),
     (
         "phone",
         re.compile(

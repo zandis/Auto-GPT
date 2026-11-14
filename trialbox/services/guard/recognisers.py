@@ -204,6 +204,7 @@ def recognisers(mrn_regex: str | None = None) -> list[tuple[str, Recogniser]]:
         ("passport_jp", lambda t: _spans(PASSPORT_JP, t, "PASSPORT")),
         ("phone_tw", lambda t: _spans(PHONE_TW, t, "PHONE")),
         ("phone_jp", lambda t: _spans(PHONE_JP, t, "PHONE")),
+        ("phone_en", lambda t: _spans(phi_guard.EN_PHONE, t, "PHONE", "v")),  # D-744: the v1 guard's, not a copy
         ("email", lambda t: _spans(EMAIL, t, "EMAIL")),
         ("address_zh", lambda t: _spans(ADDRESS_ZH, t, "ADDRESS")),
         ("address_ja", lambda t: _spans(ADDRESS_JA, t, "ADDRESS")),
