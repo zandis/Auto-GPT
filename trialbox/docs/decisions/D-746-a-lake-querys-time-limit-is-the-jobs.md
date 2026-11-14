@@ -72,4 +72,6 @@ an empty value turned the default off; the per-request wait also stretched the c
 limit; no bound on the limit (0, negative, or beyond the timer's maximum); duplicates and full-width digits accepted;
 a stand-in that dropped the limit said nothing; the wiring into a real job was untested. Seen, not changed: the
 criteria compiler's own lake client keeps 300 s (its queries are not job queries); a timer firing just after a query
-ends meets a closed connection, as before.
+ends meets a closed connection, as before. The setting's refusal is its own class (`QueryLimitsUnread`), listed in
+`tests/unit/test_error_answers.py`'s classes whose text may reach an answer: its text is the setting's part as written
+and the day bound.

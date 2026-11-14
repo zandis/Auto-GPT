@@ -94,6 +94,10 @@ log = logging.getLogger("orchestrator")
 GENERATION_OPTION = "lake_generation"  # the job record's copy of the generation it reads (T-724, D-490)
 
 
+class QueryLimitsUnread(ValueError):
+    """``TB_LAKE_QUERY_LIMITS`` cannot be read (D-746): its words are written here and name the setting."""
+
+
 def lake_query_limit(job_type: str, environ: Mapping[str, str] | None = None) -> int | None:
     """NEW-B-45 (D-746): the time limit of one lake query of a job of this type, seconds (``TB_LAKE_QUERY_LIMITS``,
     ``TYPE=seconds`` by commas); None for a type not listed (the lake's own limit). A value that is not a whole number
@@ -110,7 +114,7 @@ def lake_query_limit(job_type: str, environ: Mapping[str, str] | None = None) ->
         kind, sep, value = (x.strip() for x in part.partition("="))
         ok = sep and kind and value.isascii() and value.isdigit() and 0 < int(value) <= MAX_QUERY_LIMIT_S
         if not ok or kind.upper() in limits:
-            raise ValueError(
+            raise QueryLimitsUnread(
                 f"TB_LAKE_QUERY_LIMITS: {part!r} is not TYPE=seconds once per type (1 to {MAX_QUERY_LIMIT_S} s)"
             )
         limits[kind.upper()] = int(value)
@@ -121,7 +125,7 @@ def _job_query_limit(job_type: str) -> int | None:
     """The job's lake query limit; a setting that cannot be read fails the job in words that name it (D-746)."""
     try:
         return lake_query_limit(job_type)
-    except ValueError as exc:
+    except QueryLimitsUnread as exc:
         raise StepFailed("running", f"{exc}. Correct the setting and send the request again.") from None
 
 
