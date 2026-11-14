@@ -766,10 +766,24 @@ class _Run:
             else:
                 res = screen(self.embedder, query, [s for _, s in sents], thr)
                 res_above, best, top = res.above, res.best, [i for i, _ in res.top]
+            held = (
+                index_sweep
+                and res_above
+                and stored is None
+                and self.embedder is not None
+                and thr.source == "public_prior"
+                and not str(self.embedder.model).startswith("hash")
+            )
+            if held:
+                # NEW-LLM-2: the placeholder threshold was set for the hash stub; a real model's similarities clear it
+                # almost always, so its score above it never rescues an index condition until the refit (as D-449 for
+                # stored vectors), and a rescue held back is never an absence either: a person looks. A score below it
+                # keeps its earlier path
+                res_above = False
             if index_sweep:
                 if res_above and sents:
                     self._rescue(t, cid, "S2b", sents[top[0]][1])
-                elif not self.cfg.absence_semantics:
+                elif held or not self.cfg.absence_semantics:
                     t.outcomes[cid].reason = "index condition not coded and not found in the notes; review"
                 else:
                     o = t.outcomes[cid]
