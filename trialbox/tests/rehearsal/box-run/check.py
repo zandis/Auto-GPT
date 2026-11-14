@@ -174,9 +174,9 @@ if case == "step-fails":
     )
 
 if case == "cap":
-    ok("cost cap of 4 minutes reached" in poweroff, "the cap powered the VM off")
+    ok("cost cap of 12 minutes reached" in poweroff, "the cap powered the VM off")
     ok((S / "evidence" / "results-at-cap.tgz").stat().st_size > 0, "a results.tgz was packed at the cap")
-    ok("TB-WATCHDOG cost cap of 4 minutes reached" in vm_log, "the run log says why")
+    ok("TB-WATCHDOG cost cap of 12 minutes reached" in vm_log, "the run log says why")
     ok(state["ended"].startswith("TB-CAP-REACHED"), "the next boot ended at once: the cap counts every boot")
     ok(calls["qualify"] == 1 and calls["install"] == 1, "no step ran again after the cap")
     ok(

@@ -134,7 +134,9 @@ for case in "${CASES[@]}"; do
       "$HERE/standins/reboot.sh" "$S"          # a cut in the middle of step 05, not asked for
       power_cycle; to_the_end ;;
     cap)
-      setup "$case"; echo 60 > "$S/knobs/qualify-seconds"; printf 4 > "$S/metadata/tb-max-minutes"; boot
+      # 12 "minutes" (seconds here): steps 01 to 04 take about 4 s, up to 8 s on a busy machine (at a cap of 4 the
+      # cap fired before step 05 began when the unit suite ran four workers beside a scan: a false failure)
+      setup "$case"; echo 60 > "$S/knobs/qualify-seconds"; printf 12 > "$S/metadata/tb-max-minutes"; boot
       wait_for "the power-off by the cap" is_off
       cp "$S/vm/tb/out/results.tgz" "$S/evidence/results-at-cap.tgz"
       boot; to_the_end ;;
