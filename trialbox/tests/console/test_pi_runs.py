@@ -146,3 +146,31 @@ def test_four_patient_pages_show_data_as_of(box: dict[str, Any]) -> None:  # noq
     }
     for name, html in pages.items():
         assert 'data-testid="data-asof"' in html, name
+
+
+# ---------------------------------------------------------------------------------------------- NEW-JRN-3 (D-767)
+def test_the_pi_finds_the_run_controls_on_the_request_and_case_pages(box: dict[str, Any]) -> None:  # noqa: F811
+    """JRN-003: the PI had the right (T-512) but no control: "New request" said "you are signed in as a viewer" and
+    the CASE button was disabled. The forms now show for each study the account may run, and only those."""
+    _done_screen(box["backend"], _ulid(962))
+    pi = _user(box, "drsato", "investigator", studies="GZQO")
+    name_pi(box, "drsato")
+    page = pi.get("/pilot/request").text
+    assert 'data-testid="viewer-card"' not in page
+    assert 'data-testid="start-feas"' in page and 'data-testid="start-screen"' in page
+    assert 'value="GZQO"' in page
+    case = pi.get("/pilot/case").text
+    assert 'data-testid="case-submit"' in case
+    button = case[case.index('data-testid="case-submit"') - 80 : case.index('data-testid="case-submit"')]
+    assert "disabled" not in button
+
+
+def test_an_investigator_who_may_run_nothing_keeps_the_reading_card(box: dict[str, Any]) -> None:  # noqa: F811
+    """No PI entry on the study's log: nothing to start, the page says what to read instead."""
+    _done_screen(box["backend"], _ulid(963))
+    sub = _user(box, "drkato", "investigator", studies="GZQO")
+    page = sub.get("/pilot/request").text
+    assert 'data-testid="viewer-card"' in page and 'data-testid="start-feas"' not in page
+    case = sub.get("/pilot/case").text
+    button = case[case.index('data-testid="case-submit"') - 80 : case.index('data-testid="case-submit"')]
+    assert "disabled" in button

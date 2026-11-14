@@ -15,7 +15,7 @@
 </form>
 </section>
 {% endif %}
-{% if not user.can_request %}
+{% if not may_start %}
 <section class="card" data-testid="viewer-card">
 <h2>{{ t('request.viewer') }}</h2>
 <p>{{ t('request.viewer.help') }}</p>
@@ -31,11 +31,11 @@
 <div class="grid">
 <section class="card">
 <h2>{{ t('request.feas') }}</h2>
-{% if rulesets %}
+{% if feas_rulesets %}
 <form method="post" action="/pilot/request" data-testid="feas-form">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="FEAS">
   <label for="feas-rs">{{ t('col.ruleset') }}</label>
-  <select id="feas-rs" name="ruleset">{% for r in rulesets if r.kind == 'trial' %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
+  <select id="feas-rs" name="ruleset">{% for r in feas_rulesets %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
   <label for="feas-lb">{{ t('request.lookback') }}</label>
   <input id="feas-lb" name="lookback" type="number" inputmode="numeric" min="1" max="120" step="1">
   <button type="submit" data-testid="start-feas">{{ t('request.start.feas') }}</button>
@@ -44,11 +44,11 @@
 </section>
 <section class="card">
 <h2>{{ t('request.screen') }}</h2>
-{% if rulesets %}
+{% if screen_rulesets %}
 <form method="post" action="/pilot/request">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="SCREEN">
   <label for="scr-rs">{{ t('col.ruleset') }}</label>
-  <select id="scr-rs" name="ruleset">{% for r in rulesets if r.kind in ('trial', 'cohort') %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
+  <select id="scr-rs" name="ruleset">{% for r in screen_rulesets %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
   <label for="scr-pract">{{ t('request.pract') }}</label>
   <input id="scr-pract" name="pract" maxlength="400" placeholder="P12345,P23456">
   <button type="submit" data-testid="start-screen">{{ t('request.start.screen') }}</button>
@@ -56,6 +56,7 @@
 {% endif %}
 </section>
 </div>
+{% if user.can_request %}{# the free-text request proposes any command: the coordinator's (D-767 keeps it so) #}
 <section class="card">
 <h2>{{ t('request.free') }}</h2>
 <p class="hint">{{ t('request.free.help') }}</p>
@@ -66,5 +67,6 @@
   <button type="submit" data-testid="propose">{{ t('request.propose') }}</button>
 </form>
 </section>
+{% endif %}
 {% endif %}
 {% endblock %}
