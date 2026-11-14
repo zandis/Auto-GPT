@@ -236,7 +236,10 @@ class Terminology:
             for s in self.synonyms:
                 if s["domain"] == domain and norm(s["name"]) in candidates:
                     hits.extend(self.expand(s["table"], s["code"], s["match"]))
-                    if s["match"] == "prefix":
+                    # "family" (SCR-01): the codes under the prefix belong to the concept's family without being
+                    # listed: a record with one makes the answer unknown, not a silent "not present" (D-113). It is
+                    # for codes that mean the concept only sometimes or in the past (Z85, a history of malignancy)
+                    if s["match"] in ("prefix", "family"):
                         fams.add((SYSTEMS[s["table"]], s["code"]))
             return hits, fams | who_only_families(fams)
 

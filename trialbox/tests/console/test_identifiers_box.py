@@ -27,7 +27,7 @@ def test_the_two_open_routes_refuse_a_bare_token(orch_box: OrchBox) -> None:
     body: dict[str, Any] = {"mrn": mrn2, "status": "candidate"}
     r = c.post(f"/registry/{STUDY}", json=body)
     assert r.status_code == 403 and pid2 not in r.text, r.text[:200]
-    assert c.get(f"/registry/{STUDY}").json() == []  # and nothing was written
+    assert orch_box.read(f"/registry/{STUDY}").json() == []  # and nothing was written
     refused = orch_box.events("actor.refused")
     # the pseudonym route's door, and since T-715b (D-550) the registry's own stage, which comes before its door
     assert len(refused) == 2 and {e["detail"]["reason"] for e in refused} == {
@@ -36,7 +36,7 @@ def test_the_two_open_routes_refuse_a_bare_token(orch_box: OrchBox) -> None:
     # T-715b: a row by pseudonym is no lookup, and it too needs the verified person now
     body = {"pid": pid, "status": "candidate"}
     assert c.post(f"/registry/{STUDY}", json=body).status_code == 403
-    assert c.get(f"/registry/{STUDY}").json() == []
+    assert orch_box.read(f"/registry/{STUDY}").json() == []
 
 
 def test_a_verified_person_with_a_right_gets_the_pseudonym_and_it_is_on_the_record(orch_box: OrchBox) -> None:

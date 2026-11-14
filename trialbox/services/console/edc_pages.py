@@ -266,7 +266,13 @@ def register(app: FastAPI, h: Helpers) -> None:
     def act(
         sess: Session, method: str, path: str, body: dict[str, Any] | None = None, session: str | None = None
     ) -> Any:
-        """A call the orchestrator attributes to the signed-in person (their signed assertion and role, D-162)."""
+        """A call the orchestrator attributes to the signed-in person (their signed assertion and role, D-162). A
+        patient read (the copy sheet, the ODM export) carries the person's v3 claim instead (NEW-SEC-1, D-717): the
+        route verifies it and names that person."""
+        from tb_common import patient_reads
+
+        if method.upper() == "GET" and patient_reads.match(method, path) is not None:
+            return s28.call(bk, method, path, body)  # signed in s28.call from the request's account
         return s28.call(bk, method, path, body, headers=actor_header(sess.user.username, session, sess.user.role))
 
     def stand(sess: Session, rid: str) -> tuple[frozenset[str], bool, Any]:

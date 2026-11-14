@@ -370,22 +370,26 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-279: users.must_change, login_failures.source, sessions.via
     # T-209c (D-406): users.last_login, for the unused-account report
     # T-109b (D-447): users.pw_history, the account's earlier password hashes
+    # D-719: who opened an account, factor resets, account requests and notices
     "auth": (
         "44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",
         "d08533082518372c9c3972573a7370f745b1a7bb754798cb3c60408ecd9744a8",
         "bb7564dcd900b6be7567a5d5f0db38eff6ecef1d03f9127fcf353d55332dc1ce",
+        "cc898ef7e93cba0f79116b2e2ce6602150cf6e54b1535dddaf5f7d6d2d7054ca",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
     # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
     # T-202 (D-384): migration 6, the record's own before-image on tb_record_event
     # T-206a (D-441): migration 7, tb_withheld (the persons the opt-out worker keeps out)
+    # SCR-01 (D-655): migration 8, a grouper row may be a code family (match 'family')
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
         "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
         "139401a1b2873fdd27e3b299507dd52005abea7bc62666af95c9af45ec85fcf8",
         "8e3745a426403fc8446601c4221225fa3cee581f63569387c59de741041c4523",
+        "3c1516feffb316a4b8ac253e770fc5a7671553427ba6c400c57acc7426a44366",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table

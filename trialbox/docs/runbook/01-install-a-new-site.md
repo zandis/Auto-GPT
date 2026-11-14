@@ -12,9 +12,13 @@ A tier installs only when its profile has a serving record of its own uncapped c
 `deploy/measured/serving_config.<gpu>.json`, checked by `tools/serving_config.py measured`) and the machine's card
 is that card. Otherwise the installer stops before it touches anything (exit 3) and says what is missing. There is no
 override. `deploy/install.sh --tier large --tier-check` only asks. Today only `large` has a vendor record. To measure a
-new card: a trial boot with `TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh <bundle> --gpu <profile>`, then on the box
+new card: a trial boot on a rehearsal box (D-726; an unmeasured card is accepted on a TEST box only) with
+`TB_COMPOSE_OVERRIDE= TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh <bundle> --gpu <profile> --rehearsal` (the empty
+override keeps the real model servers, not the stand-ins), then on the box
 `python3 tools/serving_config.py capture --container judge=trialbox-llm-service-1 --container
 verifier=trialbox-llm-verifier-1 --models-dir deploy/models --out deploy/site/serving_config.<profile>.json`.
+The trial box stays a rehearsal box (TB_ENV TEST, doctor says "rehearsal box"): empty it before the site's install
+(RUNBOOK §16, "A rehearsal box"), keeping the record.
 `python -m tools.gpu_sizing` prints the hardware estimate. Feasibility needs no GPU; notes need one. The tier
 rule is held by `tests/unit/test_install_tiers.py`.
 

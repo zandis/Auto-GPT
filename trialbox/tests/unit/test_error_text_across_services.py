@@ -230,9 +230,6 @@ HANDED_MINE: dict[tuple[str, str], tuple[int, str]] = {
     ("sitesetup/service.py", "_held_refusal"): (1, "tests the lake's refusal for 'running job': a yes or no"),
 }
 HANDED_THEIRS: dict[tuple[str, str], int] = {
-    # lane B2's NEW-B-34 (D-675): the lake's /query answers its own failures 5xx and the question's 4xx by the
-    # error's class (`query_failure_status`, a number); listed by lane C's NEW-SITE-5, which is stacked on it
-    ("lake/app.py", "query_failure_status"): 2,
     ("adapter/app.py", "failure.log_failure"): 2, ("adapter/app.py", "failure.words"): 2,
     ("adapter/backfill.py", "failure.log_failure"): 1, ("adapter/backfill.py", "failure.words"): 1,
     # lane B2's #516 (adapter/failure.py local_lake): `error_answer` (D-664) turns anything that is not the lake's
@@ -247,6 +244,8 @@ HANDED_THEIRS: dict[tuple[str, str], int] = {
     ("adapter/sources/ssmix2/hl7.py", "getattr"): 1, ("adapter/validate/jpcore.py", "_base_problem"): 1,
     ("datacore/dataops.py", "getattr"): 2,
     ("lake/app.py", "error_answer"): 1, ("lake/store.py", "error_answer"): 1, ("lake/store.py", "error_kind"): 1,
+    # lane B2's NEW-B-34 (D-675): the status of a failed query by the error's class only (isinstance), no text
+    ("lake/app.py", "query_failure_status"): 2,
     ("mail_gateway/outbound.py", "NotSent"): 2,
     ("matching/cascade/engine.py", "missing_table"): 1,
     ("tracestore/app.py", "refusal"): 1,

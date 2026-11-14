@@ -16,6 +16,7 @@ from orchestrator.datacore_api import DataService, router
 from rc_sim.app import create_app
 from tb_common.audit import AuditLog
 
+from tests.actor3 import SignedClient
 from tests.rc_kit import sim_edit
 from tests.unit.test_datacore import dictionary_a, rc_client
 
@@ -30,7 +31,7 @@ def _api(tmp_path: Path, site_key: bytes | None = KEY) -> tuple[TestClient, Audi
                       (lambda: site_key) if site_key else None)  # fmt: skip
     app = FastAPI()
     app.include_router(router(lambda: svc))
-    c = TestClient(app)
+    c = SignedClient(app)  # D-717: its reads carry a person
     r = c.post("/studies/GZQO/forms/dictionary", json={"csv": dictionary_a(), "record_field": "record_id", "by": "crc"})
     assert r.status_code == 200, r.text
     c.sim = sim

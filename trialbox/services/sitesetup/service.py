@@ -601,13 +601,49 @@ class SiteSetup:
         if ws == "main":
             raise SetupError("SETUP-WS", "the hospital's own data cannot be reset here")
         ws_ok(ws)
-        self.store.reset(ws)
-        import shutil
+        # NEW-SITE-4 (D-714): under the lock a publish takes, from first to last: a publish between the drop and
+        # the deletion of the rows would make the store anew with the patients in it
+        with self._lock:
+            # first, and before anything else is deleted: when the store cannot be dropped the error goes on and
+            # the space is as it was (a reset that left the patients in the database must not say "reset")
+            omop = self._drop_space_store(ws)
+            self.store.reset(ws)
+            import shutil
 
-        with contextlib.suppress(FileNotFoundError):
-            shutil.rmtree(self.root / ws)
-        self._lakes.pop(ws, None)
-        self.audit.append("setup.reset", actor=by, detail={"ws": ws})
+            with contextlib.suppress(FileNotFoundError):
+                shutil.rmtree(self.root / ws)
+            self._lakes.pop(ws, None)
+            self.audit.append("setup.reset", actor=by, detail={"ws": ws, "omop_store": omop})
+
+    def _drop_space_store(self, ws: str) -> str:
+        """Drop the OMOP store of record a publish made for this space's own lake, when there is one (D-714).
+
+        With the lake built from OMOP (``lake.source`` = ``omop``) a publish of a space other than ``main`` loads
+        ``omop_<hash of the space's lake folder>`` (``omop.schema.schema_for``) in the database the OMOP stores
+        live in (``omop.schema.db_url``: ``TB_OMOP_DB_URL``, else the trial database), and an upload can hold a
+        site's real rows. The name comes from this space's own folder, so no other space's store and never the
+        hospital's (``omop``) can be the one dropped. Asked of the catalogue first, on a connection of its own
+        (never through another store's, which would make that store's schema there): nothing is made for a space
+        that never had one. Returns ``dropped`` or ``none``."""
+        import psycopg
+        from omop import schema
+        from tb_common.db import Database, split_url
+
+        url = schema.db_url()  # where the publish made it
+        if not url:
+            return "none"  # no database: no store of record was ever made
+        name = schema.schema_for(self.root / ws / "lake")
+        if name == schema.SCHEMA or not name.startswith(f"{schema.SCHEMA}_"):
+            raise SetupError("SETUP-WS", "the hospital's own data cannot be reset here")
+        dsn, prefix = split_url(url)
+        full = prefix + name
+        with psycopg.connect(dsn, autocommit=True) as con:  # the catalogue answers every role
+            if con.execute("SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %s", (full,)).fetchone() is None:
+                return "none"
+        self._lakes.pop(ws, None)  # this process's library lake of the space: its next use opens a new one
+        with Database.connect(url, name) as own:  # as the publish that made it (it exists: nothing is created)
+            own.execute(f'DROP SCHEMA "{full}" CASCADE')  # nosec B608 - our own name, checked above
+        return "dropped"
 
 
 def _pending(last: dict[str, Any] | None, wait: int, held: int, building: bool = False) -> dict[str, Any]:

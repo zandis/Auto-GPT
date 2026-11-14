@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import httpx
 from fastapi.testclient import TestClient
 from tb_common import actor_v3
 from tb_common.authz import MATRIX_ROLES, Standing, permit
@@ -54,10 +55,14 @@ class SignedClient(TestClient):
     def request(self, method: str, url: Any, **kw: Any) -> Any:
         headers = dict(kw.get("headers") or {})
         full = str(url)
+        if kw.get("params"):  # D-717: the signed target carries the query a read is sent with
+            full += ("&" if "?" in full else "?") + str(httpx.QueryParams(kw["params"]))
         path = full.split("?", 1)[0]
         hit = next(((a, i) for m, rx, a, i in self._actions if m == method.upper() and rx.match(path)), None)
         if hit is not None and actor_v3.HEADER not in headers and not self.strict:
             action, at = hit
+            if not isinstance(action, str):  # a read that takes one of several actions (D-717): the first
+                action = action[0]
             sub = self.sub
             body = kw.get("json")
             if isinstance(body, dict) and "by" in body:  # an older test's way to name the person

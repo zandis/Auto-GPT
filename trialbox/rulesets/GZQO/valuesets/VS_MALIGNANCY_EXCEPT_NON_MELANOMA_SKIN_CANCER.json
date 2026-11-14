@@ -1308,6 +1308,138 @@
       "display": "Gastrointestinal stromal tumor of other sites"
      },
      {
+      "code": "C4A",
+      "display": "Merkel cell carcinoma"
+     },
+     {
+      "code": "C4A.0",
+      "display": "Merkel cell carcinoma of lip"
+     },
+     {
+      "code": "C4A.1",
+      "display": "Merkel cell carcinoma of eyelid, including canthus"
+     },
+     {
+      "code": "C4A.10",
+      "display": "Merkel cell carcinoma of unspecified eyelid, including canthus"
+     },
+     {
+      "code": "C4A.11",
+      "display": "Merkel cell carcinoma of right eyelid, including canthus"
+     },
+     {
+      "code": "C4A.111",
+      "display": "Merkel cell carcinoma of right upper eyelid, including canthus"
+     },
+     {
+      "code": "C4A.112",
+      "display": "Merkel cell carcinoma of right lower eyelid, including canthus"
+     },
+     {
+      "code": "C4A.12",
+      "display": "Merkel cell carcinoma of left eyelid, including canthus"
+     },
+     {
+      "code": "C4A.121",
+      "display": "Merkel cell carcinoma of left upper eyelid, including canthus"
+     },
+     {
+      "code": "C4A.122",
+      "display": "Merkel cell carcinoma of left lower eyelid, including canthus"
+     },
+     {
+      "code": "C4A.2",
+      "display": "Merkel cell carcinoma of ear and external auricular canal"
+     },
+     {
+      "code": "C4A.20",
+      "display": "Merkel cell carcinoma of unspecified ear and external auricular canal"
+     },
+     {
+      "code": "C4A.21",
+      "display": "Merkel cell carcinoma of right ear and external auricular canal"
+     },
+     {
+      "code": "C4A.22",
+      "display": "Merkel cell carcinoma of left ear and external auricular canal"
+     },
+     {
+      "code": "C4A.3",
+      "display": "Merkel cell carcinoma of other and unspecified parts of face"
+     },
+     {
+      "code": "C4A.30",
+      "display": "Merkel cell carcinoma of unspecified part of face"
+     },
+     {
+      "code": "C4A.31",
+      "display": "Merkel cell carcinoma of nose"
+     },
+     {
+      "code": "C4A.39",
+      "display": "Merkel cell carcinoma of other parts of face"
+     },
+     {
+      "code": "C4A.4",
+      "display": "Merkel cell carcinoma of scalp and neck"
+     },
+     {
+      "code": "C4A.5",
+      "display": "Merkel cell carcinoma of trunk"
+     },
+     {
+      "code": "C4A.51",
+      "display": "Merkel cell carcinoma of anal skin"
+     },
+     {
+      "code": "C4A.52",
+      "display": "Merkel cell carcinoma of skin of breast"
+     },
+     {
+      "code": "C4A.59",
+      "display": "Merkel cell carcinoma of other part of trunk"
+     },
+     {
+      "code": "C4A.6",
+      "display": "Merkel cell carcinoma of upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.60",
+      "display": "Merkel cell carcinoma of unspecified upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.61",
+      "display": "Merkel cell carcinoma of right upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.62",
+      "display": "Merkel cell carcinoma of left upper limb, including shoulder"
+     },
+     {
+      "code": "C4A.7",
+      "display": "Merkel cell carcinoma of lower limb, including hip"
+     },
+     {
+      "code": "C4A.70",
+      "display": "Merkel cell carcinoma of unspecified lower limb, including hip"
+     },
+     {
+      "code": "C4A.71",
+      "display": "Merkel cell carcinoma of right lower limb, including hip"
+     },
+     {
+      "code": "C4A.72",
+      "display": "Merkel cell carcinoma of left lower limb, including hip"
+     },
+     {
+      "code": "C4A.8",
+      "display": "Merkel cell carcinoma of overlapping sites"
+     },
+     {
+      "code": "C4A.9",
+      "display": "Merkel cell carcinoma, unspecified"
+     },
+     {
       "code": "C50",
       "display": "Malignant neoplasm of breast"
      },
@@ -5499,6 +5631,10 @@
   },
   {
    "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C4A"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
    "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C5"
   },
   {
@@ -5516,13 +5652,29 @@
   {
    "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
    "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|D45"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|D46"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|D47"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|Z85"
   }
  ],
- "id": "GZQO-VS-MALIGNANCY",
- "name": "VS_MALIGNANCY",
+ "id": "GZQO-VS-MALIGNANCY-EXCEPT-NON-MELANOMA-SKIN-CANCER",
+ "name": "VS_MALIGNANCY_EXCEPT_NON_MELANOMA_SKIN_CANCER",
  "resourceType": "ValueSet",
  "status": "active",
- "title": "malignancy",
- "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-MALIGNANCY",
- "version": "1.0.0-v9b720a86"
+ "title": "malignancy except non-melanoma skin cancer",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-MALIGNANCY-EXCEPT-NON-MELANOMA-SKIN-CANCER",
+ "version": "1.0.0-v5da73b7e"
 }

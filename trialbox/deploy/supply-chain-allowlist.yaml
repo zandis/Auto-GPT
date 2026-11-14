@@ -510,6 +510,85 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
     reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.26.9; next base digest (D-340)
     review_by: 2026-12-10
     owner: security owner (to assign)
+  # Caddy, the TLS front of every PRODUCTION box (identity overlay). The gates did not look at this image before
+  # D-574 (their list left the overlay out). The owner's ruling of 2026-11-12: dated, reviewed entries scoped to the
+  # image, as for HAPI; building Caddy ourselves only if upstream stays silent at the review date. Each accepts one
+  # finding of the pinned image (amd64 and arm64 alike); a new finding blocks.
+  - id: GO-2026-5932
+    package: golang-org/x/crypto
+    image: caddy
+    reason: Go module inside the upstream Caddy binary, fixed in x/crypto 0.58.1; the advisory is for the openpgp package, which is not in the binary (checked); reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-78661
+    package: golang-org/x/net
+    image: caddy
+    reason: Go module inside the upstream Caddy binary, fixed in x/net 0.62.0; reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97054
+    package: stdlib
+    image: caddy
+    reason: Go standard library 1.27.3 inside the upstream Caddy binary, fixed in 1.27.4; reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  # Authelia, the hospital-account sign-in (identity overlay, profile oidc; off unless TB_OIDC_ENABLED=1). Same ruling,
+  # with the owner's condition for the login front: each entry says why the finding is not reachable in how the box
+  # runs Authelia. The facts they rest on (D-574): it listens in plain HTTP/1 on 9091 inside trialbox-net with no
+  # published port and no server.tls; only Caddy and the console reach it; the only outbound connection the egress
+  # rules allow it is LDAPS to the hospital's directory (its start-up time check is blocked); and the named code is or is not in the binary of the pinned image,
+  # checked on 2026-11-12. No fixed upstream image exists (4.39.28 is the newest). CVE-2026-111943 (crypto/x509) is
+  # the one finding that is not "not reachable": the LDAPS client verifies certificates. Its entry is the owner's
+  # ruling of 2026-11-13, for the image at the pinned digest, until the identity overlay mounts only the hospital's
+  # directory CA (card AUTHELIA-CA); that card removes the entry.
+  - id: CVE-2026-111943
+    package: stdlib
+    image: authelia/authelia
+    reason: "Accepted by the owner on 2026-11-13 for the image pinned at sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54, until the fix lands. The flaw: intermediates that crypto/x509 should no longer trust. On the box the only certificate check Authelia makes on a connection is LDAPS to the hospital's directory (the egress rules allow it no other outbound connection, and it serves plain HTTP inside trialbox-net). To use the flaw an attacker must be inside the hospital's network, between the box and the directory, and hold a certificate for the directory's name issued under one of those intermediates. The fix (card AUTHELIA-CA): the identity overlay mounts only the hospital's directory CA, so no public root or intermediate is trusted for LDAPS; that card must remove this entry."
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: GO-2026-5932
+    package: golang-org/x/crypto
+    image: authelia/authelia
+    reason: "Not reachable: the advisory is for golang.org/x/crypto/openpgp, and that package is not in the Authelia binary (no openpgp symbol; of this module the binary links bcrypt, hkdf, md4 and ocsp only)"
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-78661
+    package: golang-org/x/net
+    image: authelia/authelia
+    reason: "Not reachable: the flaw is in the HTML parser of golang.org/x/net/html (addText, fosterParent); the Authelia binary links only that package's init, no parser function, so no input reaches it"
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-78669
+    package: golang-org/x/net
+    image: authelia/authelia
+    reason: "Not reachable: of this module the Authelia binary links only idna and the init of html; there is no golang.org/x/net/http2 in it (the hpack tables are the standard library's own copy), so no HTTP/2 connection is handled by this module"
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-78669
+    package: stdlib
+    image: authelia/authelia
+    reason: "Not reachable: needs a malicious HTTP/2 peer. The binary has no HTTP/2 server (fasthttp, HTTP/1.1 only; Caddy speaks HTTP/1.1 to it) and its HTTP/2 client code runs only on an outbound HTTPS call; the box's configuration template makes none (no Duo, no client key URLs) and egress allows LDAPS to the directory only"
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-78667
+    package: stdlib
+    image: authelia/authelia
+    reason: "Not reachable: the flaw is in net/http's file serving (FileServer, ServeContent, ServeFile); none of them, nor net/http's server, is in the Authelia binary, which serves with fasthttp"
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97031
+    package: stdlib
+    image: authelia/authelia
+    reason: "Not reachable: the flaw is in the TLS server handshake (ECH); on the box Authelia listens in plain HTTP on tcp://0.0.0.0:9091 inside trialbox-net with no server.tls, and Caddy ends TLS; Authelia accepts no TLS connection"
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97054
+    package: stdlib
+    image: authelia/authelia
+    reason: "Not reachable: the race is in net/http's HTTP/1 server response when MaxBytesReader trips; net/http's server and its response type are not in the Authelia binary (fasthttp serves), so MaxBytesReader there has no such response to mark"
+    review_by: 2026-12-10
+    owner: security owner (to assign)
 
 licences:
   # The eight LGPL packages of the layer-2 review (docs/reviews/2026-11-09-component-review-layer2-verification.md
@@ -671,6 +750,16 @@ budgets:
     max: 179
     reason: HAPI FHIR server image unmodified (Apache-2.0 project); its jars carry no licence data for Syft
     review_by: 2027-02-01
+  - image: caddy
+    ecosystem: "*"
+    max: 148
+    reason: Official Caddy image unmodified (Apache-2.0 project); Go modules of its binary carry no licence data for Syft (D-574)
+    review_by: 2027-02-01
+  - image: authelia/authelia
+    ecosystem: "*"
+    max: 88
+    reason: Authelia image unmodified (Apache-2.0 project); Go modules of its binary carry no licence data for Syft (D-574)
+    review_by: 2027-02-01
   - image: greenmail/standalone
     ecosystem: "*"
     max: 36
@@ -686,3 +775,12 @@ budgets:
     max: 52
     reason: Mailpit test mail catcher image unmodified (MIT project, replaced MailHog in D-348); test profile only; Go modules of its binary carry no licence data for Syft
     review_by: 2027-02-01
+
+# An image whose OS package list the scanner cannot read (tools/supply_chain/allowlist.py, D-574). The owner's ruling
+# of 2026-11-12: one dated entry per image, by name; no blanket rule. The image's other packages are gated as always,
+# and an entry for an image that has become readable is refused.
+os_packages_unreadable:
+  - image: authelia/authelia
+    reason: The pinned image (a cut-down Ubuntu 26.04) ships no package database, so Trivy reads no OS package; its Go binary is scanned and gated, and Syft's SBOM lists the 13 Debian packages it finds
+    review_by: 2026-12-10
+    owner: security owner (to assign)

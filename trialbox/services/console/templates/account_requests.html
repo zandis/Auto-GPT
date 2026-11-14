@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ t('requests.title') }}{% endblock %}
+{% block content %}
+{# D-719 (NEW-SEC-3, (c)): a protected account's opening, studies or reset waits for a second person #}
+<h1>{{ t('requests.title') }}</h1>
+<p>{{ t('requests.help') }}</p>
+{% if done == 'refused' %}<p class="ok" role="status" data-testid="requests-done">{{ t('requests.done.refused') }}</p>{% endif %}
+{% if secret %}<section class="card attention" data-testid="requests-done" aria-labelledby="secret-h">
+<h2 id="secret-h">{{ t('requests.secret.' + secret_kind, user=secret_user) }}</h2>
+<label for="request-secret">{{ t('requests.secret.label') }}</label>
+<input id="request-secret" class="mono" readonly data-testid="request-secret" value="{{ secret }}" autocomplete="off" spellcheck="false">
+<p class="warn">{{ t('requests.secret.once') }}</p>
+</section>{% elif done == 'confirmed' %}<p class="ok" role="status" data-testid="requests-done">{{ t('requests.done.confirmed') }}</p>{% endif %}
+{% if rows %}<table data-testid="requests">
+<thead><tr><th>{{ t('requests.col.what') }}</th><th>{{ t('login.user') }}</th><th>{{ t('requests.col.by') }}</th><th>{{ t('requests.col.at') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
+<tbody>{% for r in rows %}<tr data-request="{{ r.id }}">
+<td>{{ t('requests.kind.' + r.kind) }}{% if r.kind == 'create' %} ({{ t('role.' + r.payload.role) }}){% endif %}{% if r.kind in ('create', 'scope') and r.payload.studies %} · {{ r.payload.studies }}{% endif %}</td>
+<td class="mono">{{ r.user }}</td><td class="mono">{{ r.by }}</td><td>{{ r.at[:16].replace('T', ' ') }} UTC</td>
+<td>{% if r.may %}<form method="post" action="/ops/accounts/requests" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="request" value="{{ r.id }}">
+<button type="submit" name="decision" value="confirm" data-testid="request-confirm">{{ t('requests.confirm') }}</button>
+<button type="submit" name="decision" value="refuse" class="secondary" data-testid="request-refuse">{{ t('requests.refuse') }}</button></form>
+{% elif r.mine %}<span class="hint">{{ t('requests.mine') }}</span>{% else %}<span class="hint">{{ t('requests.not_yours') }}</span>{% endif %}</td>
+</tr>{% endfor %}</tbody></table>
+{% else %}<p data-testid="requests-none">{{ t('requests.none') }}</p>{% endif %}
+{% endblock %}

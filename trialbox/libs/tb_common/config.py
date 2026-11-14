@@ -365,6 +365,12 @@ DECLARED_FAMILIES: dict[str, str] = {
 }
 
 DECLARED: dict[str, Declared] = {
+    "TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD": Declared(
+        "str", "", "acceptance overlay: the test mail server's TLS keystore password (tools.acceptance_env; secret)"
+    ),
+    "TB_ACCEPTANCE_MAIL_PASSWORD": Declared(
+        "str", "", "acceptance overlay: the test mail account's password (tools.acceptance_env; secret)"
+    ),
     "TB_ACTOR_KEYS_FILE": Declared("path", "", "file of keys that sign the console's user assertions (S-09)"),
     "TB_ACTOR_SIGN_KEY_FILE": Declared("path", "", "the console's own key that signs people (T-717, D-485)"),
     "TB_ADAPTER_RUN": Declared("str", "process", "adapter: the ingest runs as a process of its own, or thread (D-663)"),
@@ -445,6 +451,7 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_DIR": Declared("path", "/data/console", "console: data folder"),
     "TB_CONSOLE_FORWARDED_ALLOW_IPS": Declared("str", "127.0.0.1", "console: proxies trusted for forwarded headers"),
     "TB_CONSOLE_HOST": Declared("str", "127.0.0.1", "console: listen address"),
+    "TB_CONSOLE_ENROL_CODE_HOURS": Declared("int", "24", "console: hours an enrolment code is good for (1-72, D-719)"),
     "TB_CONSOLE_IDLE_MINUTES": Declared("int", "", "console: idle minutes before sign-out"),
     "TB_CONSOLE_MFA": Declared("str", "totp", "console: second factor (totp or off in DEV)"),
     "TB_CONSOLE_PILOT": Declared("str", "on", "console: pilot banner and limits"),
@@ -597,6 +604,9 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
     "TB_KMS_TOKEN": Declared("str", "", "kms KEK back end: the hospital KMS token (secret; T-319)"),
     "TB_KMS_URL": Declared("str", "", "kms KEK back end: the KMS transit address when it moved from kek.json's"),
+    "TB_LAKE_BUDGET_MB": Declared(
+        "int", "", "lake: MB its snapshots may take (unset: half its disk); month-end NDJSON goes first (D-679)"
+    ),
     "TB_LAKE_BUILD": Declared("str", "process", "lake: a rebuild runs as a process of its own, or thread (D-539)"),
     "TB_LAKE_DIR": Declared("path", "/data/lake", "lake folder"),
     "TB_LAKE_EMBEDDER": Declared("str", "http", "embedder of a lake build (lake: http; adapter local build: hash)"),
@@ -663,6 +673,7 @@ DECLARED: dict[str, Declared] = {
     "TB_OBJECT_STORE": Declared("str", "fs:/data/objects", "object store (fs:<path>)"),
     "TB_OIDC_CA_FILE": Declared("path", "", "OIDC: CA file"),
     "TB_OIDC_CLIENT_ID": Declared("str", "", "OIDC: client id"),
+    "TB_OIDC_CLIENT_SECRET": Declared("path", "", "OIDC: the file of the client secret (compose secret source)"),
     "TB_OIDC_CLIENT_SECRET_FILE": Declared("path", "", "OIDC: file with the client secret"),
     "TB_OIDC_ENABLED": Declared("bool", "0", "OIDC sign-in on"),
     "TB_OIDC_GROUPS_CLAIM": Declared("str", "groups", "OIDC: groups claim"),
@@ -676,6 +687,9 @@ DECLARED: dict[str, Declared] = {
     "TB_OMOP_CONCEPT_BLOCK": Declared("int", "", "OMOP: concept id block"),
     "TB_OMOP_DB_URL": Declared("str", "", "OMOP database URL (unset: TB_DB_URL)"),
     "TB_OMOP_DUAL_WRITE": Declared("bool", "", "OMOP dual write on"),
+    "TB_OMOP_LOAD_CHUNK": Declared(
+        "int", "", "OMOP load: records one chunk holds (unset: a sixteenth of the memory cap at 9.5 KB a record; D-678)"
+    ),
     "TB_OPPORTUNITY_APPROVED_FILE": Declared("path", "", "opportunity feed: steward's approved study list (D-467)"),
     "TB_OPPORTUNITY_PERIOD_DAYS": Declared(
         "int", "30", "opportunity feed: publication period, at least 28 days, so a day's change is not exposed"
@@ -743,6 +757,7 @@ DECLARED: dict[str, Declared] = {
     "TB_REDCAP_TEST_TIMEOUT_S": Declared("float", "120", "REDCap test instance (D-584): seconds one API call may take"),
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
+    "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box, TEST only; doctor says so (D-726)"),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),

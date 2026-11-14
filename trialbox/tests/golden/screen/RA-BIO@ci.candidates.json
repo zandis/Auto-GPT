@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "a5419544a4537ffec720d40fecc4bb13badb495e",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "SCR-01 (D-655): malignancy includes C44 and C4A; RA-JAK-EXC-08 and RA-BIO-EXC-04 exclude skin and Merkel cell carcinoma",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -134,7 +134,7 @@
     "f52e566fc933d39f0b9789fdad0aaf83"
    ],
    "candidates": 5,
-   "outcomes_sha": "7625d63a211f17fbb8c3614dd1205a86dcc87203401605dada84ddf048d1d847",
+   "outcomes_sha": "090a5910f0d0211a0906096ecfab1a8151a1b291d8c44dde1869681c04a0b93b",
    "patients": 400,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -188,8 +188,8 @@
      "unknown": 313
     },
     "RA-BIO-EXC-04": {
-     "met": 31,
-     "not_met": 369,
+     "met": 37,
+     "not_met": 363,
      "unknown": 0
     },
     "RA-BIO-EXC-05": {
@@ -295,7 +295,7 @@
     "f98d30f6a9ffe6bfb42a2bc7e5707416"
    ],
    "candidates": 47,
-   "outcomes_sha": "175a0935d0379373afce0c29d1835e99cfe4ad2b6402b9278f85a926e44fed2c",
+   "outcomes_sha": "8af9588662d0a36415ac8bbd5f9298a486b2fe2d285ebc1134a31253512f93b7",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -349,8 +349,8 @@
      "unknown": 1950
     },
     "RA-BIO-EXC-04": {
-     "met": 175,
-     "not_met": 2305,
+     "met": 195,
+     "not_met": 2285,
      "unknown": 20
     },
     "RA-BIO-EXC-05": {
@@ -475,7 +475,7 @@
     "f98d30f6a9ffe6bfb42a2bc7e5707416"
    ],
    "candidates": 66,
-   "outcomes_sha": "6c83d7c401778c7b01d2f4ad750ab757c0c1bcfd209ed58d1b2c17f148fea62d",
+   "outcomes_sha": "e70196c9f6b73f9ff19dc7fcbea924c7b9c3264bcdd5400d9649c25d5ea3010e",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -529,8 +529,8 @@
      "unknown": 1983
     },
     "RA-BIO-EXC-04": {
-     "met": 145,
-     "not_met": 2345,
+     "met": 164,
+     "not_met": 2326,
      "unknown": 10
     },
     "RA-BIO-EXC-05": {
@@ -620,7 +620,7 @@
     "f51b5bd2b6061ad7e76f11be17c61fd7"
    ],
    "candidates": 31,
-   "outcomes_sha": "11101fc4031a016de2e38febf33111152b43442621e530664e4e8809990596e3",
+   "outcomes_sha": "4f6638903cdcc39c8299d84744a0ae2288cfe4d329464e1673557dd8be66720a",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -674,8 +674,8 @@
      "unknown": 1947
     },
     "RA-BIO-EXC-04": {
-     "met": 183,
-     "not_met": 2299,
+     "met": 195,
+     "not_met": 2287,
      "unknown": 18
     },
     "RA-BIO-EXC-05": {

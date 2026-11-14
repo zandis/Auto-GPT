@@ -57,20 +57,19 @@ are not listed: each fails with the error.
   service failed." with the status; a 4xx there is a fault of the code and shows as one. Twenty-five callers:
   the job scenarios and their helpers, the cascade's stages, the twin's reader, the vector indexer, the
   equivalence gate, the EDC prefill, the lake's own uses.
-- **A handler that reads one thing and lets the rest go on** (`cascade._Run.notes`, `Proposed.load`,
-  `site_basis`, `tb_common.optout.registry_state`): a missing table of an older snapshot (a 4xx sentence) is read as none; anything else, every 5xx
-  with it, goes on.
+- **Whether a table is there is asked of the lake** (lane A2's D-649 to D-652, on master with train 14):
+  `tb_common.lakeprobe.rows_or_no_table` takes only the lake's plain 0 for the table as "no such table" and raises
+  every other failure; its question's own failure answers "not known" (`no_table`), and the first failure stops
+  the run. The cascade's notes, the proposed facts, the opt-out registry and the screen's confirmed facts read
+  through it now, not by `query()` directly.
+- **Said as "could not be read", never as none** (D-652): `scenarios/feas_profile.data_facts`.
 - **Open, not changed here (each is another lane's file; sent to the integrator): a handler that catches every
   error, a 5xx too, and reads it as something else:**
   - `matching/coded_values.attach`: no coded value to show (display only; the answers stand);
-  - `scenarios/feas_profile.build`: a lake without the fact tables, for its facts query (the report says so);
-    its other two queries have no handler and go on;
   - `scenarios/screen.practitioner_names`: no names (the settings' ids are shown);
-  - `scenarios/screen.confirmed_facts`: no confirmed fact;
-  - `patient_profile/twin.lake_schema`: a snapshot of schema 1;
   - `sitesetup/readiness.unknown_share` and `feed_loaded`: no diagnosis, no feed loaded.
   Each was written for "an older snapshot without the table". With this card each can narrow its handler to the
-  4xx and let a 5xx go on.
+  4xx and let a 5xx go on. (`patient_profile/twin.lake_schema` was on this list: NEW-B-35, D-676, asks the lake.)
 
 ## What this does not do
 

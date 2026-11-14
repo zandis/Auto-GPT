@@ -1193,6 +1193,61 @@ def check_anchor_mount(inp: DoctorInputs) -> Check:
     return Check("anchor_mount", "PASS", "the console mounts every anchor folder, read-only")
 
 
+STANDINS_MARK = "x-trialbox-rehearsal-standins: true"
+
+
+def _standins_in_compose(inp: DoctorInputs) -> str:
+    """The first file of ``COMPOSE_FILE`` that says it is the model stand-ins (D-726), or ``""``."""
+    base = inp.deploy or ROOT / "deploy"
+    for entry in (inp.env.get("COMPOSE_FILE") or "").split(":"):
+        if not entry.strip():
+            continue
+        path = Path(entry.strip())
+        path = path if path.is_absolute() else base / path
+        try:
+            if STANDINS_MARK in path.read_text(encoding="utf-8").splitlines():
+                return str(path)
+        except (OSError, UnicodeDecodeError):
+            continue
+    return ""
+
+
+def check_rehearsal(inp: DoctorInputs) -> Check:
+    """REHEARSAL (D-726): a rehearsal box says so. ``deploy/install.sh --rehearsal`` writes ``TB_REHEARSAL=1`` and
+    ``TB_ENV=TEST`` to deploy/.env and the mark ``deploy/site/rehearsal.json``: WARN "rehearsal box" on a TEST box
+    (model stand-ins, an unmeasured card, synthetic data only); FAIL when either is on a box of any other
+    environment (someone changed TB_ENV of a rehearsal box by hand)."""
+    marked = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
+    mark = _site_dir(inp) / "rehearsal.json"
+    if mark.is_file():
+        marked = True
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    standins = _standins_in_compose(inp)
+    if standins and (env != "TEST" or not marked):
+        what = env if env != "TEST" else "TEST box that is no rehearsal box"
+        return Check(
+            "rehearsal",
+            "FAIL",
+            f"the model stand-ins are in the compose files of a {what} ({standins}, deploy/.env COMPOSE_FILE): "
+            "they answer instead of the pinned models. Run deploy/install.sh without TB_COMPOSE_OVERRIDE (D-726)",
+        )
+    if not marked:
+        return Check("rehearsal", "PASS", "not a rehearsal box")
+    if env != "TEST":
+        return Check(
+            "rehearsal",
+            "FAIL",
+            f"a rehearsal mark (TB_REHEARSAL=1 or {mark}) on a {env} box: a rehearsal box is TEST only. Install "
+            "the site's box afresh (deploy/install.sh without --rehearsal, on an empty box), never this one",
+        )
+    return Check(
+        "rehearsal",
+        "WARN",
+        "rehearsal box: TEST, the model stand-ins and an unmeasured card are allowed; synthetic data only, never a "
+        "site's patients (D-726)",
+    )
+
+
 def check_memory_caps(inp: DoctorInputs) -> Check:
     """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
     (``tools.trialbox.memcaps``)."""
@@ -1715,6 +1770,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_ops_runner,
     check_audit_heads,
     check_anchor_mount,
+    check_rehearsal,
     check_memory_caps,
     check_db_passwords,
     check_wsl2_memory,

@@ -20,9 +20,10 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-#: the places found, each read (2026-11-13), with whose it is and what it does. One of this list is a decision by
-#: an error's text that can hide a failure; the others decide by a type, a status or a typed field inside a helper,
-#: or by a sentence of the service's own error class. A new place fails the test until it is read and listed.
+#: the places found, each read (2026-11-13), with whose it is and what it does: a type, a status or a typed field
+#: read inside a helper; a sentence of the service's own error class; or the words of another service's refusal
+#: (adapter/publish.py, sitesetup/service.py: the lake's). The one that gave "no facts" for a failure
+#: (services/edc/prefill.py) is gone with D-684. A new place fails the test until it is read and listed.
 LISTED: dict[str, tuple[int, str]] = {
     "libs/tb_common/jobpoll.py": (1, "library: no_answer(exc) reads the error's type and HTTP status, no text"),
     "libs/tb_llm/timeouts.py": (1, "models: dropped(exc) reads the error's type, no text"),
@@ -35,11 +36,6 @@ LISTED: dict[str, tuple[int, str]] = {
         1,
         "console: err_of(exc) builds the page's error from the EDC error's typed fields; no decision",
     ),
-    "services/edc/prefill.py": (
-        1,
-        "EDC (lane E): any failure whose text names site_fact gives no site facts; the same defect as D-649, "
-        "theirs to take off",
-    ),
     "services/orchestrator/app.py": (
         1,
         "orchestrator: one sentence of its own ActorError ('no signed-in user') picks 400 over 403",
@@ -47,16 +43,6 @@ LISTED: dict[str, tuple[int, str]] = {
     "services/orchestrator/lifecycle_api.py": (
         1,
         "orchestrator: 'classic' in the EDC adapter's own error message (a REDCap project without arms)",
-    ),
-    "services/orchestrator/setup_api.py": (
-        2,
-        "orchestrator: the site's patient check and counts log a lake failure by the error's type and status "
-        "(D-709, D-715, lane C's NEW-SITE-5), no text",
-    ),
-    "services/sitesetup/readiness.py": (
-        1,
-        "site set-up: is_unread(exc) reads the error's type and, through lake_down, its status (D-712, D-715), "
-        "no text",
     ),
     "services/sitesetup/service.py": (
         3,

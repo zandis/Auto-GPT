@@ -417,7 +417,7 @@
    "time_sensitive": false,
    "logic": {
     "domain": "condition",
-    "concept": "malignancy",
+    "concept": "malignancy except non-melanoma skin cancer",
     "quantifier": "any",
     "window": {
      "from_days": -1825,
@@ -427,7 +427,7 @@
    "concept_candidates": [
     {
      "domain": "condition",
-     "name": "malignancy",
+     "name": "malignancy except non-melanoma skin cancer",
      "synonyms": []
     }
    ]

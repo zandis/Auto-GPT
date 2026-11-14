@@ -585,13 +585,25 @@ c_ra_coh_inc_04 AS (
   FROM base b
   LEFT JOIN a_ra_coh_inc_04_1 ON a_ra_coh_inc_04_1.pid = b.pid AND a_ra_coh_inc_04_1.index_date = b.index_date),
 a_ra_coh_inc_05_1 AS (
-  SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
-         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
-  FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
-         FALSE AS unit_bad
-  FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
-  WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBSAG' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
+  SELECT d.pid, d.index_date, CASE WHEN (u.n IS NULL OR (d.v AND u.not_true = 0) OR (NOT d.v AND u.not_false = 0)) THEN d.v END AS v,
+         CASE WHEN (u.n IS NULL OR (d.v AND u.not_true = 0) OR (NOT d.v AND u.not_false = 0)) OR d.v IS NULL THEN d.ev ELSE u.ev END AS ev
+  FROM (SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || coalesce(strftime(o.effective, '%Y-%m-%d'), '') AS ev
+    FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
+          FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad, o.effective IS NULL AS undated
+  FROM base b JOIN observation o ON o.pid = b.pid
+   AND (o.effective::DATE <= b.index_date OR o.effective IS NULL)
+  WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBSAG' AND vs.system = o.system AND vs.code = o.code)) WHERE NOT undated) o WHERE rn = 1) d
+  LEFT JOIN (SELECT pid, index_date, count(*) AS n,
+         count(*) FILTER (WHERE (o.value_code IN ('LA6576-8')) IS NOT TRUE) AS not_true,
+         count(*) FILTER (WHERE (o.value_code IN ('LA6576-8')) IS NOT FALSE) AS not_false, string_agg(CASE WHEN o.undated THEN o.oid || '|' || coalesce(strftime(o.effective, '%Y-%m-%d'), '') END, ';' ORDER BY o.oid) AS ev
+    FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad, o.effective IS NULL AS undated
+  FROM base b JOIN observation o ON o.pid = b.pid
+   AND (o.effective::DATE <= b.index_date OR o.effective IS NULL)
+  WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBSAG' AND vs.system = o.system AND vs.code = o.code)) o WHERE o.undated GROUP BY pid, index_date) u
+    ON u.pid = d.pid AND u.index_date = d.index_date),
 -- RA-COH-INC-05 (inclusion): 最近一次 B 型肝炎表面抗原（HBsAg）陽性。
 c_ra_coh_inc_05 AS (
   SELECT b.pid, b.index_date, a_ra_coh_inc_05_1.v AS v,

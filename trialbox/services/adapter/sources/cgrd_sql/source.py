@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from datetime import date
+from typing import Any
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import Date, bindparam, create_engine, text
 
 from adapter.sources.base import Row
 
@@ -44,13 +46,26 @@ class SqlSource:
         except Exception:
             return {}
 
+    def any_in_window(self, source_name: str, delta_column: str, since: Any, until: Any) -> bool:
+        """Whether the table holds a row whose change time is in ``[since, until)`` (D-688): one row asked for at
+        most, nothing of it read. The bounds are bound as given (text, or a date for a column of a date type)."""
+        from sqlalchemy import column, select, table
+
+        if not _IDENT.match(source_name) or not _IDENT.match(delta_column):
+            raise ValueError(f"unsafe identifier in mapping: {source_name!r} / {delta_column!r}")
+        schema, _, name = source_name.rpartition(".")
+        col: Any = column(delta_column)
+        q = select(col).select_from(table(name, col, schema=schema or None)).where(col >= since, col < until).limit(1)
+        with self.engine.connect() as con:
+            return con.execute(q).first() is not None
+
     def rows(
         self,
         table: str,
         source_name: str,
         delta_column: str | None,
-        since: str | None,
-        until: str | None = None,
+        since: Any,
+        until: Any = None,
         columns: list[str] | None = None,
     ) -> Iterator[Row]:
         """``until`` (T-731): with ``since``, a window of the change-time column, its end not included; a row
@@ -67,7 +82,7 @@ class SqlSource:
             if all(_IDENT.match(c) for c in names):  # else every column is read and the others dropped here
                 what = ", ".join(names)
         sql = f"SELECT {what} FROM {source_name}"  # identifiers validated above; values are bound
-        params: dict[str, str] = {}
+        params: dict[str, Any] = {}
         if since and delta_column and delta_column.lower() in self._columns(source_name):
             if until:
                 sql += f" WHERE {delta_column} >= :since AND {delta_column} < :until"
@@ -75,16 +90,21 @@ class SqlSource:
             else:
                 sql += f" WHERE {delta_column} IS NULL OR {delta_column} >= :since"
                 params["since"] = since
+        stmt = text(sql)
+        typed = [bindparam(k, type_=Date()) for k, v in params.items() if isinstance(v, date)]
+        if typed:  # a day given as a date (D-688): bound as a date, for a column of a date type
+            stmt = stmt.bindparams(*typed)
         with self.engine.connect() as con:
             try:
-                result = con.execution_options(stream_results=True).execute(text(sql), params)
+                result = con.execution_options(stream_results=True).execute(stmt, params)
             except Exception:
                 if what == "*":
                     raise
                 # a column named by a word the database reserves: every column is read and the others dropped here
                 con.rollback()
                 sql = sql.replace(f"SELECT {what} FROM", "SELECT * FROM", 1)
-                result = con.execution_options(stream_results=True).execute(text(sql), params)
+                stmt = text(sql).bindparams(*typed) if typed else text(sql)
+                result = con.execution_options(stream_results=True).execute(stmt, params)
             cols = list(result.keys())
             for rec in result:
                 row = {c: (None if v is None else str(v)) for c, v in zip(cols, rec, strict=True)}

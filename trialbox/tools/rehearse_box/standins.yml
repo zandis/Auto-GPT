@@ -11,6 +11,8 @@
 # * egress-net: no route out at all, so whatever the box runs came from the offline media (stricter than a site, where
 #   deploy/network.sh allows the mail server and, if chosen, ClinicalTrials.gov).
 # Never on a real box.
+# D-726: what makes this file the stand-ins, wherever it lies: install.sh honours it on a rehearsal box only
+x-trialbox-rehearsal-standins: true
 
 x-standin-health: &health
   test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]

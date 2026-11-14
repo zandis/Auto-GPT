@@ -127,6 +127,9 @@ class CascadeConfig:
     confidence_floor: float = 0.75  # below: abstained (not hard, CAS-7)
     thresholds: ThresholdTable = field(default_factory=ThresholdTable)
     lexicon: Mapping[str, Sequence[str]] = field(default_factory=dict)  # approved terms per criterion id
+    # NEW-LLM-2 (LLM-002): SCREEN sets it. A note criterion with no lexicon term and only a non-semantic embedder (the
+    # hash stub) is "not evaluated" instead of judged on the first sentences of each note; counted in no_retrieval
+    require_retrieval: bool = False
     language: str = "zh-TW"  # language stratum of the site notes (S2b thresholds)
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
     seed: int = 20261025
@@ -189,6 +192,8 @@ class CascadeResult:
             "pairs_judged": dict(m.pairs_judged),
             "tokens": {"in": m.tokens_in, "out": m.tokens_out},
             "cache_hits": m.cache_hits,
+            "context_unknown": dict(sorted(m.context_unknown.items())),
+            "no_retrieval": dict(sorted(m.no_retrieval.items())),
             "llm_share": m.llm_share,
             "unprocessed": m.unprocessed,
             "rescue_yield": m.rescued,
@@ -348,6 +353,13 @@ class _Run:
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
         self.stages.append(StageLog(stage, p_in, p_out, q_in, q_out, PATIENT_CLASS, self.ir_hash, dict(detail)))
+
+    def _semantic(self) -> bool:
+        """Can S2b find a sentence by meaning? Not with no embedder or the hash stub (NEW-LLM-2); yes with stored
+        vectors (the flag vec.s2b, D-449: the embed service's model, known per query)."""
+        if self.s2b_source is not None:
+            return True
+        return self.embedder is not None and not str(self.embedder.model).startswith("hash")
 
     def alive(self) -> list[PatientTrace]:
         return [t for t in self.traces.values() if t.in_scope and t.exit_stage is None]
@@ -616,12 +628,26 @@ class _Run:
 
     def budget_of(self, c: CriterionIR, index_date: date) -> int:
         """Tokens of notes one judge prompt for ``c`` may hold: what the judge's and the verifier's context leave
-        (T-603, OD-10; the judge tells), else :data:`EXCERPT_TOKENS`. Worked out once per criterion."""
-        if c.id not in self._budgets:
-            fn = getattr(self.judge, "excerpt_budget", None)
-            room = fn(c, index_date) if callable(fn) else None
-            self._budgets[c.id] = room if isinstance(room, int) else EXCERPT_TOKENS
-        return self._budgets[c.id]
+        (T-603, OD-10; the judge tells), kept for the run once told. SCR-18: when the judge cannot tell (a failed
+        context lookup) this prompt gets :data:`EXCERPT_TOKENS` and the next one asks again, never the default for
+        the rest of the run; the prompt is counted in ``metrics.context_unknown``. A judge without
+        ``excerpt_budget`` (a test's) has the default, kept. A told 0 is kept (the prompt leaves no room); a judge
+        that raises raises here, as before."""
+        with self._lock:
+            if c.id in self._budgets:
+                return self._budgets[c.id]
+        fn = getattr(self.judge, "excerpt_budget", None)
+        if not callable(fn):
+            with self._lock:
+                self._budgets[c.id] = EXCERPT_TOKENS
+            return EXCERPT_TOKENS
+        room = fn(c, index_date)
+        with self._lock:
+            if isinstance(room, int) and not isinstance(room, bool):
+                self._budgets[c.id] = room
+                return room
+            self.metrics.context_unknown[c.id] = self.metrics.context_unknown.get(c.id, 0) + 1
+        return EXCERPT_TOKENS
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
     def s2(self, note_crit: list[CriterionIR]) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
@@ -652,6 +678,16 @@ class _Run:
                     )
                     continue
                 keys = terms(c)
+                if not keys and self.cfg.require_retrieval and not self._semantic():
+                    self.metrics.no_retrieval[c.id] = self.metrics.no_retrieval.get(c.id, 0) + 1
+                    t.outcomes[c.id] = Outcome(
+                        c.id,
+                        "unknown",
+                        "S2",
+                        unknown_kind="uncertain",
+                        reason="not evaluated: no lexicon term and no semantic embedder for this criterion",
+                    )
+                    continue
                 hits = [
                     (n, s) for n in win for s, low in zip(n.sents, n.low, strict=True) if any(k in low for k in keys)
                 ]

@@ -46,7 +46,9 @@ from typing import Any
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
+from console import actor
 from console.auth import Session, User
+from console.backend import Unavailable
 from console.home import Helpers
 from console.i18n import LANGS, translate
 from console.sitestore import NotifyPerson
@@ -299,6 +301,13 @@ def build_health(
 
 # ---------------------------------------------------------------------------------------------- collecting and sending
 def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[Notice]:
+    """The round's digests. NEW-SEC-1 (D-717, its review): every patient read of the round is signed as the morning
+    mail's principal, whoever started it (the timer, or an administrator's "Send notices now")."""
+    with actor.reading_as(actor.NOTIFY):
+        return _collect(h, today, kinds)
+
+
+def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[Notice]:
     store = h.store
     out: list[Notice] = []
     got: list[Any] = []
@@ -372,7 +381,7 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
                 retry = {o.pid: o.retry for o in store.outcomes(r.id) if o.outcome == "not_reached" and o.retry}
                 try:
                     reg = {e.pid: e.status for e in h.bk.registry_rows(r.id)}
-                except Exception:
+                except Unavailable:  # the D-717 review: a refused read is not "no status" (signed as NOTIFY above)
                     reg = {}
                 listed = {row["pid"] for row in wk["cl"].get("rows") or []} if wk.get("cl") else set()
                 team = getattr(h, "team", None)

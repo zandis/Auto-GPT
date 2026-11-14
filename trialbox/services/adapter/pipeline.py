@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -21,13 +22,24 @@ from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.unmapped import KINDS
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
 from adapter.mapping.engine import Mapper, Mapping, resource_id
-from adapter.ndjson import Spool, is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
+from adapter.ndjson import (
+    Spool,
+    alias_patient,
+    alias_references,
+    is_deleted_flag,
+    list_snapshots,
+    read_type,
+    snapshot_dir,
+    tombstone_count,
+    write_snapshot,
+)
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
 from adapter.validate.validator import (
@@ -516,6 +528,22 @@ def _run_ingest(
                 detail={"source": source_kind, "refused": "future_night", "reason": str(exc)},
             )
         raise
+    try:  # NEW-B-38 (D-679): before anything is read or written, the room for tonight's snapshot
+        check_room(cfg, snap)
+    except (NoRoomForNight, LakeBudgetError) as exc:
+        log.error("night refused: %s", exc)
+        if cfg.audit_dir:
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "ingest.failed",
+                snapshot=snap,
+                actor="adapter",
+                detail={
+                    "source": source_kind,
+                    "refused": "disk" if isinstance(exc, NoRoomForNight) else "setting",
+                    "reason": str(exc),
+                },
+            )
+        raise
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
@@ -761,17 +789,6 @@ def _run_ingest(
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
-    cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
-    night = _NightPass(
-        zone,
-        unit_defaults,
-        source_kind == "fhir_bulk",
-        _Aliases(aliases, patient_ids),
-        counts,
-        cfg.sample_fraction if validate else None,
-        cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
-        cap,
-    )
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
     # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
@@ -796,8 +813,46 @@ def _run_ingest(
         prior_record: str | None = (out_dir / PUBLISH_RECORD).read_text(encoding="utf-8")
     except OSError:
         prior_record = None
+    carried: set[str] = set()
+    if not patient_pairs:
+        # NEW-B-36 (D-677; review DATA-006): the merges are applied to every night, whether or not it sends a patient
+        # row with a chart number (a FHIR bulk night never does), and on a delta night to what it carries over too.
+        # Without them a merged chart would stand as its own patient: the night is held and says why
+        try:
+            pm = cfg.pidmap()
+            try:
+                aliases = pm.aliases()
+            finally:
+                pm.close()
+        except Exception as exc:
+            log.error("the chart merges could not be read: %s", type(exc).__name__)
+            errors.append(f"the chart merges could not be read ({type(exc).__name__}); the night is held")
+            aliases = {}
+    if base is not None and aliases:
+        survivors = set(aliases.values())
+        carried = {str(r["id"]) for r in read_type(base, "Patient") if str(r["id"]) in survivors}
+    cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
+    night = _NightPass(
+        zone,
+        unit_defaults,
+        source_kind == "fhir_bulk",
+        _Aliases(aliases, patient_ids, carried),
+        counts,
+        cfg.sample_fraction if validate else None,
+        cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
+        cap,
+    )
     removed: dict[str, int] = {}
-    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed)
+    carried_moved: dict[str, int] = {}
+    full_counts = write_snapshot(
+        out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
+        aliases=aliases if base is not None else None, moved=carried_moved,
+    )  # fmt: skip
+    if carried_moved:
+        log.info(
+            "records carried over from snapshot %s written under the surviving patient of a chart merge: %s",
+            last_good, dict(sorted(carried_moved.items())),
+        )  # fmt: skip
     if removed:  # D-528: counts per record type only
         log.info("records the feed's rows no longer give were removed: %s", dict(sorted(removed.items())))
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
@@ -805,7 +860,7 @@ def _run_ingest(
         night.defaulted,
         night.presence_read,
         night.shifted,
-        night.aliases.moved,
+        night.aliases.moved + carried_moved.get("Patient", 0),  # tonight's and those carried over (D-677)
     )
     missing = night.missing_counts()
     tombstoned = tombstone_count(out_dir)
@@ -971,7 +1026,17 @@ def _run_ingest(
         (out_dir / HELD).write_text(json.dumps({"snapshot": snap, "errors": errors}) + "\n", encoding="utf-8")
     else:
         (out_dir / HELD).unlink(missing_ok=True)
-    pruned = prune_snapshots(cfg, date.fromisoformat(snap)) if passed and rebuild_lake else []
+    pruning: PruneResult | None = None
+    budget_said: dict[str, Any] | None = None
+    if passed and rebuild_lake:
+        try:  # D-679: the night is published; its pruning failing is said, never the night's failure
+            pruning = prune_lake(cfg, date.fromisoformat(snap))
+            budget_said = pruning.as_dict()
+        except Exception as exc:
+            log.error("the lake's pruning did not end after the night (%s); it runs again after the next one",
+                      type(exc).__name__)  # fmt: skip
+            budget_said = {"error": type(exc).__name__}
+    pruned = pruning.gone if pruning is not None else []
     # T-659b (D-370): one gate record per night, the lineage and the contract checks beside the report
     sorted_out = {*completeness_msgs, *validation_msgs, *(e for e in errors if e.startswith("data contracts: "))}
     sorted_out |= {e for e in errors if e.startswith("night held: ")}
@@ -1010,6 +1075,8 @@ def _run_ingest(
                 "validation_error_pct": vsum.error_pct,
                 "jp_core": {"sampled": psum.sampled, "failed": psum.errors} if psum is not None else None,
                 "snapshots_pruned": pruned,
+                # NEW-B-38 (D-679): the byte budget, the month-end NDJSON removed for it, and whether it was met
+                "lake_budget": budget_said,
                 "tombstoned": tombstoned,
                 "held": held,
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
@@ -1025,6 +1092,8 @@ def _run_ingest(
                 # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (the codes: the file)
                 "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
                 or None,
+                # NEW-B-39 (D-740): the same rows per source table split by kind (KINDS); their sum is the total above
+                "unmapped_kinds": {t: unmapped_kinds(by) for t, by in sorted(unmapped_codes.items())} or None,
                 # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
                 "quarantined": quarantined or None,
                 # T-659b: the night's one gate record, rows set aside by the contracts, merged chart numbers
@@ -1053,9 +1122,6 @@ def _run_ingest(
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
     return report
-
-
-_REFERENCE = re.compile(r"^Patient/(.+)$")
 
 
 def _ops(cfg: AdapterConfig) -> Any:
@@ -1156,13 +1222,15 @@ class _Aliases:
     """:func:`apply_aliases` one resource at a time, in the order the night sent them (T-692). ``patient_ids`` are the
     ids of every Patient of the night, in that order; ``__call__`` returns False for a Patient to leave out."""
 
-    def __init__(self, aliases: dict[str, str], patient_ids: list[str]) -> None:
+    def __init__(self, aliases: dict[str, str], patient_ids: list[str], carried: Iterable[str] = ()) -> None:
         self.aliases = aliases
-        self.present = set(patient_ids) if aliases else set()
+        # NEW-B-36 (D-677): ``carried`` are the surviving patients a delta night carries over from the night before:
+        # a merged chart's Patient sent tonight is left out for them too, as a full night leaves it out
+        self.present = set(patient_ids) | set(carried) if aliases else set()
         self.moved = 0
         self.dropped = 0
         if aliases:  # how many Patients will be left out, known before the first is written (the sample's size)
-            seen = set(patient_ids)
+            seen = set(patient_ids) | set(carried)
             for pid in patient_ids:
                 new = aliases.get(pid)
                 if new is not None:
@@ -1174,8 +1242,8 @@ class _Aliases:
     def __call__(self, r: Resource) -> bool:
         if not self.aliases:
             return True
+        self._walk(r)  # a Patient's own references (``link``) too: the same rule as for a record carried over
         if r.get("resourceType") != "Patient":
-            self._walk(r)
             return True
         new = self.aliases.get(str(r.get("id")))
         if new is None:
@@ -1183,28 +1251,12 @@ class _Aliases:
         self.moved += 1
         if new in self.present:
             return False
-        r["id"] = new
-        for ident in r.get("identifier") or []:
-            if isinstance(ident, dict) and str(ident.get("value")) in self.aliases:
-                ident["value"] = new
+        alias_patient(r, new, self.aliases)
         self.present.add(new)
         return True
 
     def _walk(self, node: Any) -> None:
-        if isinstance(node, dict):
-            for k, v in node.items():
-                if (
-                    k == "reference"
-                    and isinstance(v, str)
-                    and (m := _REFERENCE.match(v))
-                    and m.group(1) in self.aliases
-                ):
-                    node[k] = f"Patient/{self.aliases[m.group(1)]}"
-                else:
-                    self._walk(v)
-        elif isinstance(node, list):
-            for x in node:
-                self._walk(x)
+        alias_references(node, self.aliases)
 
 
 class _NightPass:
@@ -1294,6 +1346,32 @@ PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night p
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
 
 
+#: NEW-B-39 (D-740): the kinds of D-580's counter (the owner's yes, 2026-11-13). ``code_unknown``: a code no look-up,
+#: list of known codes or map gives a single answer for (the row is left out, or kept without the code);
+#: ``unit_not_read``: a value whose unit is not the look-up's or that is implausible without one (D-590: the row is
+#: kept without the value); ``reference_data_not_reached``: a code the reference data could not be asked for (D-593:
+#: an outage, not a fault of the feed). Every place the mapping engine counts is named with its kind in a test
+_UNIT_NOT_READ = ("unit_mismatch", "no_unit_implausible")
+
+
+def unmapped_kind(name: str) -> str:
+    """The kind of one name of D-580's counter (a look-up, ``column:<c>``, ``map:<from>-><to>``, a unit check, or
+    ``<map>:unavailable``)."""
+    if name.endswith(":unavailable"):
+        return "reference_data_not_reached"
+    if name in _UNIT_NOT_READ:
+        return "unit_not_read"
+    return "code_unknown"
+
+
+def unmapped_kinds(by_name: dict[str, dict[str, int]]) -> dict[str, int]:
+    """One table's rows per kind (every kind, zero included): counts only, their sum the table's total."""
+    out = dict.fromkeys(KINDS, 0)
+    for name, codes in by_name.items():
+        out[unmapped_kind(name)] += sum(codes.values())
+    return out
+
+
 def unmapped_lines(table: str, by_kind: dict[str, dict[str, int]], file: str) -> list[str]:
     """What the night's log says about D-580's counter for one table (NEW-B-8, D-530): counts and the counter's
     own names, never a code. The counter holds rows left out (a code no look-up knows, D-580; an unknown status,
@@ -1314,6 +1392,31 @@ def unmapped_lines(table: str, by_kind: dict[str, dict[str, int]], file: str) ->
             "source still holds (D-538). The night is not held for this (D-530)"
         )
     return out
+
+
+class NoRoomForNight(RuntimeError):
+    """Less free disk on the lake's volume than the last snapshot took (D-679): the night is refused before it
+    reads or writes anything, as a night of the future is."""
+
+
+def check_room(cfg: AdapterConfig, snap: str) -> None:
+    """NEW-B-38 (D-679; review DATA-025): tonight's snapshot needs about the room the newest earlier snapshot took
+    (its NDJSON, Parquet and DuckDB); a disk with less free space refuses the night, saying both numbers. The first
+    night (no snapshot yet) has nothing to measure by."""
+    lake_budget(cfg.lake_dir)  # a budget setting that cannot be read refuses the night here (LakeBudgetError)
+    base = merge_base(cfg.lake_dir, snap)  # the newest earlier night that passed and still holds its NDJSON
+    if base is None:
+        return
+    lake = cfg.lake_dir
+    need = _bytes(
+        [lake / "ndjson" / base, lake / "parquet" / f"snapshot={base}", *(lake / "db").glob(f"{base}.duckdb*")]
+    )
+    free = shutil.disk_usage(cfg.lake_dir).free
+    if free < need:
+        raise NoRoomForNight(
+            f"not enough free disk for tonight's snapshot: about {need / 2**20:.1f} MB needed (snapshot {base} took "
+            f"that), {free / 2**20:.1f} MB free on the lake's volume; free space or lower the kept snapshots (D-679)"
+        )
 
 
 class FutureNight(ValueError):
@@ -1578,6 +1681,8 @@ def merge_base(lake_dir: Path, snap: str) -> str | None:
     cur = _current(lake_dir)
     if cur in prev:
         good.append(str(cur))
+    # D-679: a month-end snapshot whose NDJSON the byte budget removed holds nothing to merge over
+    good = [s for s in good if not (snapshot_dir(lake_dir, s) / NDJSON_REMOVED).exists()]
     return max(good) if good else None
 
 
@@ -1591,11 +1696,107 @@ def _built_not_served(lake_dir: Path, snap: str) -> bool:
 
 
 def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
+    """The snapshots :func:`prune_lake` removed whole."""
+    return prune_lake(cfg, today).gone
+
+
+#: NEW-B-38 (D-679): the lake's byte budget, in MB (declared); unset, this share of the disk the lake is on. The rest
+#: of that disk is for what shares it on a box (the database, the backup's staging, the logs) and for a night's build
+#: while the last one is still kept
+BUDGET_ENV = "TB_LAKE_BUDGET_MB"
+LAKE_DISK_SHARE = 0.5
+#: written in a month-end snapshot's folder when its NDJSON was removed for the budget: the folder, its reports and
+#: its ``passed.json`` stay; no night merges over it (it holds nothing to merge)
+NDJSON_REMOVED = "ndjson_removed.json"
+
+
+class LakeBudgetError(ValueError):
+    """``TB_LAKE_BUDGET_MB`` is not a whole number of megabytes above 0 (D-679): the night is refused before it reads,
+    so that a typo is found by the first night, not at the end of one."""
+
+
+@dataclass
+class PruneResult:
+    """What a night's pruning did (NEW-B-38, D-679): the snapshots removed whole, the month-end snapshots whose
+    NDJSON was removed (the lake still serves them; they can no longer be rebuilt from it), the lake's size and its
+    budget after, and whether the budget could be met (``said``: why not)."""
+
+    gone: list[str]
+    ndjson_dropped: list[str]
+    used_bytes: int
+    budget_bytes: int
+    unmet: bool = False
+    said: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"snapshots_gone": self.gone, "ndjson_dropped": self.ndjson_dropped, "used_bytes": self.used_bytes,
+                "budget_bytes": self.budget_bytes, "unmet": self.unmet, "said": self.said or None}  # fmt: skip
+
+
+def lake_budget(lake_dir: Path) -> int:
+    """The lake's byte budget: ``TB_LAKE_BUDGET_MB``, else :data:`LAKE_DISK_SHARE` of the disk it is on."""
+    raw = os.environ.get(BUDGET_ENV, "").strip()
+    if raw:
+        try:
+            mb = int(raw)
+        except ValueError:
+            raise LakeBudgetError(f"{BUDGET_ENV} must be a whole number of megabytes above 0") from None
+        if mb < 1:
+            raise LakeBudgetError(f"{BUDGET_ENV} must be a whole number of megabytes above 0")
+        return mb * 1024 * 1024
+    probe = lake_dir if lake_dir.exists() else lake_dir.parent
+    return int(shutil.disk_usage(probe).total * LAKE_DISK_SHARE)
+
+
+def _bytes(paths: Iterable[Path], seen: set[tuple[int, int]] | None = None) -> int:
+    """The bytes the files under ``paths`` take, a file with several names (the lake's reader links) once and a
+    symbolic link not followed. A file or folder that goes while it is counted (a rebuild's spill, a reader's link)
+    is left out, never an error: the count runs after a night was published."""
+    seen = set() if seen is None else seen
+    n = 0
+
+    def one(path: str) -> int:
+        try:
+            st = os.lstat(path)
+        except FileNotFoundError:
+            return 0
+        if not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) in seen:
+            return 0
+        seen.add((st.st_dev, st.st_ino))
+        return st.st_size
+
+    for root in paths:
+        n += one(str(root))
+        for folder, _dirs, names in os.walk(root):  # os.walk leaves out a folder it cannot list (gone)
+            n += sum(one(os.path.join(folder, name)) for name in names)
+    return n
+
+
+def _snapshot_paths(lake_dir: Path, s: str) -> list[Path]:
+    """Every file of snapshot ``s``: its NDJSON, Parquet, DuckDB (and side files) and generations."""
+    return [
+        lake_dir / "ndjson" / s,
+        lake_dir / "parquet" / f"snapshot={s}",
+        *(lake_dir / "db").glob(f"{s}.duckdb*"),
+        *(lake_dir / "db" / "gen").glob(f"{s}.g*"),
+    ]
+
+
+def snapshot_bytes(lake_dir: Path, s: str) -> int:
+    """How many bytes snapshot ``s`` takes (D-679: the free space a night must find before it writes its own)."""
+    return _bytes(_snapshot_paths(lake_dir, s))
+
+
+def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
     """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
     DuckDB); the current snapshot is always kept, and so is every snapshot a running job holds (T-305b, D-403: a
-    long SCREEN, or one waiting for an approval, still reads its night after N newer ones arrived)."""
-    import shutil
+    long SCREEN, or one waiting for an approval, still reads its night after N newer ones arrived).
 
+    NEW-B-38 (D-679; review DATA-025): then the lake is kept within its byte budget (:func:`lake_budget`). While it
+    is over, the NDJSON of the oldest month-end snapshot goes (its DuckDB and Parquet stay: the lake still serves
+    it), then, when every month-end NDJSON is gone, the oldest month-end snapshot whole. The served snapshot, the N
+    nightly ones (the delta's merge base among them) and a snapshot a job holds never go. A budget that cannot be met
+    is logged and returned (``unmet``, ``said``): the night is not held for it."""
     from lake.store import SnapshotBuilding, building, drop_reader_links, held_snapshots, lake_lock
     from tb_common.retention import snapshots_to_keep
 
@@ -1609,22 +1810,73 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb") if not _built_not_served(cfg.lake_dir, p.stem)}
     good |= {current} if current else set()
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
+    nightly = snapshots_to_keep(snaps, today, cfg.keep_nightly, 0, good) | {current or ""}
+    budget = lake_budget(cfg.lake_dir)
     gone: list[str] = []
-    with lake_lock(cfg.lake_dir):  # D-462: no hold lands between reading the holds and the deletes
-        keep |= set(held_snapshots(cfg.lake_dir).values())
-        for s in sorted(s for s in snaps if s not in keep):
-            try:
-                # D-462: a snapshot that is being rebuilt is left alone (the build would bring it back at its swap)
-                with building(cfg.lake_dir, s):
+    ndjson_dropped: list[str] = []
+
+    def drop(s: str, whole: bool) -> bool:
+        try:
+            # D-462: a snapshot that is being rebuilt is left alone (the build would bring it back at its swap)
+            with building(cfg.lake_dir, s):
+                if whole:
                     shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
+                else:  # the records go; the night's folder, its reports and its passed.json stay (D-679)
+                    nd = cfg.lake_dir / "ndjson" / s
+                    for f in nd.glob("*.ndjson"):
+                        f.unlink(missing_ok=True)
+                    (nd / NDJSON_REMOVED).write_text(
+                        json.dumps({"snapshot": s, "why": "the lake's byte budget (D-679)"}) + "\n", encoding="utf-8"
+                    )
+                if whole:
                     shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
                     for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
                         f.unlink(missing_ok=True)
                     for f in (cfg.lake_dir / "db" / "gen").glob(f"{s}.g*"):  # T-724 (D-490): its generations
                         f.unlink(missing_ok=True)
                     drop_reader_links(cfg.lake_dir, s)
-            except SnapshotBuilding:
-                log.info("lake snapshot %s is being rebuilt: not pruned this time", s)
-                continue
-            gone.append(s)
-    return gone
+        except SnapshotBuilding:
+            log.info("lake snapshot %s is being rebuilt: not pruned this time", s)
+            return False
+        return True
+
+    with lake_lock(cfg.lake_dir):  # D-462: no hold lands between reading the holds and the deletes
+        held = set(held_snapshots(cfg.lake_dir).values())
+        keep |= held
+        for s in sorted(s for s in snaps if s not in keep):
+            if drop(s, whole=True):
+                gone.append(s)
+        used = _bytes([cfg.lake_dir])
+        # the month-end snapshots the count keeps, oldest first; never the served one, a nightly one or a held one
+        month_ends = sorted(s for s in keep if s and s not in nightly and s not in held and s in snaps)
+        for s in month_ends:
+            if used <= budget:
+                break
+            nd = cfg.lake_dir / "ndjson" / s
+            if any(nd.glob("*.ndjson")):
+                size = _bytes(nd.glob("*.ndjson"))
+                if drop(s, whole=False):
+                    ndjson_dropped.append(s)
+                    used -= size
+        for s in month_ends:
+            if used <= budget:
+                break
+            size = snapshot_bytes(cfg.lake_dir, s)
+            if drop(s, whole=True):
+                gone.append(s)
+                used -= size
+        used = _bytes([cfg.lake_dir])
+    res = PruneResult(sorted(gone), ndjson_dropped, used, budget)
+    if used > budget:
+        res.unmet = True
+        res.said = (
+            f"the lake's byte budget cannot be met: {used // 2**20} MB used, {budget // 2**20} MB budget; what is "
+            f"left is the served snapshot, the {cfg.keep_nightly} nightly ones and those a job holds ({BUDGET_ENV})"
+        )
+        log.error("%s", res.said)
+    if ndjson_dropped:
+        log.warning(
+            "lake over its byte budget: the NDJSON of month-end snapshots %s was removed; the lake still serves them, "
+            "they can no longer be rebuilt from it (D-679)", ", ".join(ndjson_dropped),
+        )  # fmt: skip
+    return res

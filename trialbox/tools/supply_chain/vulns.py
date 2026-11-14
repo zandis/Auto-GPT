@@ -200,10 +200,13 @@ def expected_lang_types(ref: str) -> frozenset[str]:
     return frozenset()
 
 
-def parse_trivy(data: Any, expect_lang: frozenset[str] | None = None) -> TrivyReport:
+def parse_trivy(data: Any, expect_lang: frozenset[str] | None = None, *, os_unreadable: bool = False) -> TrivyReport:
     """Trivy ``--format json --list-all-pkgs`` (schema 2). Refuses a report that does not show what it scanned.
 
-    ``expect_lang`` defaults to what the scanned image must contain (``expected_lang_types`` of its name)."""
+    ``expect_lang`` defaults to what the scanned image must contain (``expected_lang_types`` of its name).
+    ``os_unreadable`` (D-574): the allow-list has an ``os_packages_unreadable`` entry for this image. The report
+    may then show no OS packages, must still show language packages (its binary), and is refused when it does show OS
+    packages (the entry is stale)."""
     if not isinstance(data, dict) or not data.get("ArtifactName"):
         raise ReportError("not a Trivy JSON report (no ArtifactName)")
     artifact = str(data["ArtifactName"])
@@ -213,7 +216,12 @@ def parse_trivy(data: Any, expect_lang: frozenset[str] | None = None) -> TrivyRe
     if not isinstance(results, list) or not results:
         raise ReportError(f"{artifact}: Trivy found nothing to scan (no Results)")
     classes = {(r.get("Class"), r.get("Type")) for r in results if isinstance(r, dict) and r.get("Packages")}
-    if not any(c == "os-pkgs" for c, _ in classes):
+    has_os = any(c == "os-pkgs" for c, _ in classes)
+    if os_unreadable and has_os:
+        raise ReportError(f"{artifact}: the report shows OS packages; remove its os_packages_unreadable entry")
+    if os_unreadable and not any(c == "lang-pkgs" for c, _ in classes):
+        raise ReportError(f"{artifact}: no language packages in the report either; its binary was not scanned")
+    if not has_os and not os_unreadable:
         raise ReportError(f"{artifact}: no OS packages in the report (run with --list-all-pkgs)")
     missing = sorted(t for t in expect_lang if ("lang-pkgs", t) not in classes)
     if missing:
@@ -318,7 +326,9 @@ def trivy_gate(
         errors.append("no Trivy reports given")
     for path in reports:
         try:
-            findings += parse_trivy(load_json(path)).findings
+            data = load_json(path)
+            name = str(data.get("ArtifactName", "")) if isinstance(data, dict) else ""
+            findings += parse_trivy(data, os_unreadable=allow.os_unreadable(name) is not None).findings
         except ReportError as exc:
             errors.append(f"{path.name}: {exc}")
     return gate(findings, allow, fails=trivy_fails(severities, fail_unfixed), errors=errors)

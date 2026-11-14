@@ -46,9 +46,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -609,14 +610,18 @@ def load_batch(
     db: Database,
     kind: str,
     batch: str,
-    by_type: Mapping[str, list[Resource]],
+    by_type: Mapping[str, Iterable[Resource]],
     files: Mapping[str, str] | None = None,
     tz: str | None = None,
     site_name: str = "",
     deleted: Mapping[str, Iterable[str]] | None = None,
 ) -> LoadReport:
     """Load one complete batch of ``kind``; return what changed. See the module docstring. ``deleted``: resource
-    type -> source ids the source deleted in this batch (``tombstones.json``), for the tombstone's reason."""
+    type -> source ids the source deleted in this batch (``tombstones.json``), for the tombstone's reason.
+
+    NEW-B-37 (D-678): the values of ``by_type`` may be streams (``adapter.ndjson.readers``); the batch is taken a
+    chunk of :func:`load_chunk` records at a time. ``Medication`` and ``ClaimResponse`` are read twice (the index the
+    other records name them by, then as records), so their values must be re-readable."""
     if kind not in KINDS:
         raise OmopError(f"unknown source kind {kind!r}")
     t0 = time.perf_counter()
@@ -631,38 +636,21 @@ def load_batch(
     for cr in by_type.get("ClaimResponse", []):  # the flattener's join: the last response to a claim wins
         req = ((cr.get("request") or {}).get("reference") or "").split("/")[-1]
         responses[req] = cr
-    keyed: dict[tuple[str, str, int], Rec] = {}
-    for rtype in sorted(by_type):
-        for line, r in enumerate(by_type[rtype], start=1):
-            prov = {k: _iso(v) for k, v in b.fl.provenance(r).items() if v is not None}
-            from_note = note_source(r)
-            try:
-                built = b.build(rtype, r, line, responses)
-            except NotWesternYear as exc:
-                # NEW-B-2 (D-521): one date of another calendar refuses the batch whole, before anything is
-                # written (a feed that writes one date so writes all of them so). The refusal is kept (D-271)
-                why = f"{rtype} line {line}: {exc}"
-                with db.transaction() as tx:
-                    tx.execute(
-                        "INSERT INTO tb_load (source_kind, batch, seconds, counts) VALUES (?, ?, 0, ?::jsonb)",
-                        (f"{kind}-refused", batch, json.dumps({"refused": why})),
-                    )
-                raise OmopError(
-                    f"{why}: refused, nothing loaded (the lake keeps its CURRENT snapshot). Correct the feed's "
-                    "dates to the western calendar and run the night again"
-                ) from None
-            for rec in built:
-                rec.extra.update(prov)  # DATA-010: kept with the record, outside its content sha
-                if from_note and rec.part == 0:  # T-202: a fact read from a chart, for NOTE_NLP
-                    rec.extra["from_note"], rec.extra["from_note_term"] = from_note
-                if rec.key in keyed:  # one id twice in a file: the last line wins, as the NDJSON merge does
-                    stats["duplicate_id"] = stats.get("duplicate_id", 0) + 1
-                    del keyed[rec.key]
-                keyed[rec.key] = rec
-    recs = list(keyed.values())
     dead = {(str(t), str(i)) for t, ids in (deleted or {}).items() for i in ids}
     try:
-        return _load(db, kind, batch, recs, files, tz, site_name, stats, rep, t0, dead)
+        return _load(db, kind, batch, by_type, b, responses, files, site_name, stats, rep, t0, dead, load_chunk())
+    except _NotWestern as w:
+        # NEW-B-2 (D-521): one date of another calendar refuses the batch whole; the load's transaction is rolled
+        # back with everything staged or written so far, and the refusal is kept (D-271)
+        with db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO tb_load (source_kind, batch, seconds, counts) VALUES (?, ?, 0, ?::jsonb)",
+                (f"{kind}-refused", batch, json.dumps({"refused": str(w)})),
+            )
+        raise OmopError(
+            f"{w}: refused, nothing loaded (the lake keeps its CURRENT snapshot). Correct the feed's "
+            "dates to the western calendar and run the night again"
+        ) from None
     except _Refused as r:  # rolled back; the refusal itself is kept (D-271)
         with db.transaction() as tx:
             tx.execute(
@@ -675,6 +663,35 @@ def load_batch(
         ) from None
 
 
+#: NEW-B-37 (D-678): the records one chunk of a load holds. Measured before the change: about 9.5 KB of memory a
+#: resource while the whole batch was held (1,000 dense patients: 559,056 resources, 5.4 GiB); about 12 KB a record of
+#: one chunk after it. Unset: a sixteenth of the process's memory cap at that size, as the ingest's sort runs take
+#: theirs (D-473)
+CHUNK_ENV = "TB_OMOP_LOAD_CHUNK"
+RECORD_BYTES = 12_000  # one record of a chunk, measured: (1,378 - 144) MiB / (110,981 - 5,000) records (D-678)
+CAP_SHARE = 16  # the share of the cap one chunk may take, the ingest sort's (adapter.ndjson.sort_run_bytes)
+
+
+def load_chunk() -> int:
+    """How many records one chunk of a load holds: ``TB_OMOP_LOAD_CHUNK``, else derived from the memory cap."""
+    raw = os.environ.get(CHUNK_ENV, "").strip()
+    if raw:
+        try:
+            n = int(raw)
+        except ValueError:
+            raise OmopError(f"{CHUNK_ENV} must be a whole number of records") from None
+        if n < 1:
+            raise OmopError(f"{CHUNK_ENV} must be a whole number of records") from None
+        return n
+    from adapter.ndjson import _memory_cap
+
+    return max(1, _memory_cap() // CAP_SHARE // RECORD_BYTES)
+
+
+class _NotWestern(Exception):
+    """A date of another calendar in the batch (NEW-B-2, D-521): the whole batch is refused."""
+
+
 class _Refused(Exception):
     """A feed batch that would tombstone (nearly) every live person (D-271)."""
 
@@ -683,16 +700,25 @@ def _load(
     db: Database,
     kind: str,
     batch: str,
-    recs: list[Rec],
+    by_type: Mapping[str, Iterable[Resource]],
+    b: _Builder,
+    responses: Mapping[str, Resource],
     files: Mapping[str, str],
-    tz: str,
     site_name: str,
     stats: dict[str, int],
     rep: LoadReport,
     t0: float,
-    dead: set[tuple[str, str]] | None = None,
+    dead: set[tuple[str, str]],
+    chunk: int,
 ) -> LoadReport:
+    """The batch in one transaction, a chunk of records at a time (NEW-B-37, D-678): the records are built and
+    staged in a temporary table of the transaction (the last line of a key wins there), then every step reads them
+    back in chunks: the guard, the ids, the concepts, the routing, the diff with ``tb_record`` and the writes; what
+    the batch no longer carries is found in the database. Nothing of the batch is held whole."""
     with db.transaction() as tx:
+        # the batch is built and staged before the load's lock, as it was built before it when it was held whole: a
+        # date of another calendar is refused first, and the opt-out worker does not wait for a batch being built
+        _stage(tx, b, by_type, responses, stats, chunk)
         tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
         last = tx.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = ?", (kind,))
         if last is not None and batch < str(last):
@@ -700,23 +726,42 @@ def _load(
                 f"OMOP holds {kind} batch {last}; refusing the older batch {batch} (a store of record "
                 "moves forward; an older snapshot's lake is kept as it was built)"
             )
+        # D-441: the records of a withheld patient, read under the lock (the worker's withhold takes it too); a
+        # consent statement stays (KEEP_WITHHELD)
+        tx.execute(
+            "UPDATE tb_load_stage SET held = true WHERE pid IN (SELECT pid FROM tb_withheld) "
+            "AND NOT (coalesce(cdm_table, '') = ANY(?))",
+            (sorted(KEEP_WITHHELD),),
+        )
         dqd_before: dict[str, int] | None = None
         if kind == "feed":
-            rep.override = _tombstone_guard(tx, batch, recs)
+            rep.override = _tombstone_guard(tx, batch)
             from omop.dqd import relational_violations
 
             dqd_before = relational_violations(tx, person_only=True)
-        recs, held_out = _without_withheld(tx, recs)  # D-441: an opted-out patient never re-enters the store
         concepts = Concepts(tx)
-        concepts.prepare((c for r in recs for c in r.codes), (p for r in recs for p in r.std_only))
-        _resolve(tx, kind, batch, recs, concepts, rep)
-        affected_persons, affected_providers = _write(tx, kind, batch, recs, files, rep, dead or set(), held_out)
+        persons, providers, sites = _ids_of(tx)
+        _assign(tx, kind, batch, persons, providers, rep, chunk)
+        affected_persons: set[int] = set()
+        affected_providers: set[int] = set()
+        # every code's local concept minted before any record is resolved, as for the batch whole: one stream of the
+        # batch's codes (the concepts keep only the distinct ones), its standard-only lookups gathered first
+        std_only = dict.fromkeys(_staged_codes(tx, chunk, "std"))
+        concepts.prepare(_staged_codes(tx, chunk, "codes"), list(std_only))
+        for recs in _staged(tx, chunk):
+            _resolve(tx, kind, recs, concepts, providers, sites, rep)
+            ap, aq = _write(tx, kind, batch, recs, files, rep)
+            affected_persons |= ap
+            affected_providers |= aq
+        ap, aq = _tombstone(tx, kind, batch, rep, dead, chunk)
+        affected_persons |= ap
+        affected_providers |= aq
         _derive(tx, affected_persons, affected_providers, batch, rep, site_name)
         if kind == "site":
             _note_nlp(tx, kind, batch)
         if dqd_before is not None:
-            held = _dqd_hold(tx, batch, dqd_before)
-            rep.override = "; ".join(x for x in (rep.override, held) if x)
+            held_msg = _dqd_hold(tx, batch, dqd_before)
+            rep.override = "; ".join(x for x in (rep.override, held_msg) if x)
         rep.concepts_minted = concepts.minted
         rep.skipped = dict(sorted({**stats, **rep.skipped}.items()))
         rep.seconds = round(time.perf_counter() - t0, 2)
@@ -725,6 +770,211 @@ def _load(
             (kind, batch, rep.seconds, json.dumps(rep.as_dict())),
         )
     return rep
+
+
+# ------------------------------------------------------------------------------------- the staged batch (D-678)
+_KEY = "(resource_type, source_record_id, part)"
+_STAGE_COLS = [
+    "seq", "resource_type", "source_record_id", "part", "held", "pid", "providers", "sites", "cdm_table",
+    "provider_id", "codes", "std", "rec",
+]  # fmt: skip
+
+
+def _stage(
+    tx: Any,
+    b: _Builder,
+    by_type: Mapping[str, Iterable[Resource]],
+    responses: Mapping[str, Resource],
+    stats: dict[str, int],
+    chunk: int,
+) -> None:
+    """Build every record of the batch, in the batch's order (types sorted, then line by line), and keep it in the
+    transaction's ``tb_load_stage``: one row per key, the last line of a key winning (as the NDJSON merge does)
+    with the position of that line. A record of a withheld patient is kept marked ``held`` (D-441): it counts as
+    sent for the guard, and is tombstoned as opted out."""
+    tx.execute(
+        "CREATE TEMP TABLE tb_load_stage (seq BIGINT NOT NULL, resource_type TEXT NOT NULL, source_record_id TEXT "
+        "NOT NULL, part INTEGER NOT NULL, held BOOLEAN NOT NULL, pid TEXT, providers TEXT[], sites TEXT[], "
+        "cdm_table TEXT, provider_id TEXT, codes TEXT, std TEXT, rec TEXT NOT NULL, "
+        "PRIMARY KEY (resource_type, source_record_id, part)) ON COMMIT DROP"
+    )
+    tx.execute("CREATE INDEX ON tb_load_stage (seq)")
+    tx.execute(
+        "CREATE TEMP TABLE tb_load_ids (seq BIGINT PRIMARY KEY, cdm_table TEXT, record_id BIGINT, person_id BIGINT, "
+        "first_batch TEXT) ON COMMIT DROP"
+    )
+    pending: dict[tuple[str, str, int], tuple[Any, ...]] = {}
+    seq = 0
+
+    def flush() -> None:
+        if not pending:
+            return
+        _scratch(tx, "tb_load_in", ["CREATE TEMP TABLE IF NOT EXISTS tb_load_in (LIKE tb_load_stage) ON COMMIT DROP"])
+        tx.copy_rows("tb_load_in", _STAGE_COLS, pending.values())
+        again = int(tx.fetchval(f"SELECT count(*) FROM tb_load_in i JOIN tb_load_stage s USING {_KEY}") or 0)
+        if again:  # one id twice in a file: the last line wins, as the NDJSON merge does
+            stats["duplicate_id"] = stats.get("duplicate_id", 0) + again
+        cols = ", ".join(_STAGE_COLS)
+        tx.execute(
+            f"INSERT INTO tb_load_stage ({cols}) SELECT {cols} FROM tb_load_in ON CONFLICT {_KEY} DO UPDATE SET "
+            + ", ".join(
+                f"{c} = EXCLUDED.{c}" for c in _STAGE_COLS if c not in ("resource_type", "source_record_id", "part")
+            )
+        )
+        pending.clear()
+
+    for rtype in sorted(by_type):
+        for line, r in enumerate(by_type[rtype], start=1):
+            prov = {k: _iso(v) for k, v in b.fl.provenance(r).items() if v is not None}
+            from_note = note_source(r)
+            try:
+                built = b.build(rtype, r, line, responses)
+            except NotWesternYear as exc:
+                raise _NotWestern(f"{rtype} line {line}: {exc}") from None
+            for rec in built:
+                rec.extra.update(prov)  # DATA-010: kept with the record, outside its content sha
+                if from_note and rec.part == 0:  # T-202: a fact read from a chart, for NOTE_NLP
+                    rec.extra["from_note"], rec.extra["from_note_term"] = from_note
+                seq += 1
+                if rec.key in pending:
+                    stats["duplicate_id"] = stats.get("duplicate_id", 0) + 1
+                    del pending[rec.key]
+                pending[rec.key] = (
+                    seq, rec.rtype, rec.srcid, rec.part, False, rec.pid,  # held: marked under the load's lock
+                    sorted({sid for k, sid in rec.refs.values() if k == "provider"}),
+                    sorted({sid for k, sid in rec.refs.values() if k == "care_site"}),
+                    rec.table,
+                    rec.refs["provider_id"][1] if "provider_id" in rec.refs else None,
+                    json.dumps([[c.system, c.code, c.display, c.domain] for c in rec.codes], ensure_ascii=False),
+                    json.dumps(rec.std_only, ensure_ascii=False),
+                    _pack(rec),
+                )  # fmt: skip
+                if len(pending) >= chunk:
+                    flush()
+    flush()
+
+
+def _staged(tx: Any, chunk: int) -> Iterable[list[Rec]]:
+    """The staged records of patients who are not withheld, in the batch's order, a chunk at a time, with the ids
+    :func:`_assign` gave them."""
+    after = -1
+    while True:
+        rows = tx.fetchall(
+            "SELECT s.seq, s.rec, i.cdm_table, i.record_id, i.person_id, i.first_batch FROM tb_load_stage s "
+            "JOIN tb_load_ids i USING (seq) WHERE NOT s.held AND s.seq > ? ORDER BY s.seq LIMIT ?",
+            (after, chunk),
+        )
+        if not rows:
+            return
+        after = int(rows[-1][0])
+        out = []
+        for _, text, table, record_id, person_id, first in rows:
+            r = _unpack(text)
+            r.table, r.record_id, r.person_id = table, record_id, person_id
+            r.row["_first_batch"] = first
+            out.append(r)
+        yield out
+
+
+def _staged_codes(tx: Any, chunk: int, column: str) -> Iterator[Any]:
+    """The staged records' codes (``codes``) or standard-only lookups (``std``), one at a time in the batch's order."""
+    after = -1
+    while True:
+        rows = tx.fetchall(
+            f"SELECT seq, {column} FROM tb_load_stage WHERE NOT held AND seq > ? ORDER BY seq LIMIT ?", (after, chunk)
+        )
+        if not rows:
+            return
+        after = int(rows[-1][0])
+        for _, text in rows:
+            for x in json.loads(text):
+                yield Code(*x) if column == "codes" else tuple(x)
+
+
+def _encoded(v: Any) -> Any:
+    if isinstance(v, datetime):  # before date: a datetime is a date
+        return {"~dt": v.isoformat()}
+    if isinstance(v, date):
+        return {"~d": v.isoformat()}
+    if isinstance(v, Decimal):
+        return {"~n": str(v)}
+    if isinstance(v, Code):
+        return {"~c": [v.system, v.code, v.display, v.domain]}
+    raise TypeError(f"a staged record holds a {type(v).__name__}")
+
+
+def _decoded(d: dict[str, Any]) -> Any:
+    if len(d) == 1:
+        ((k, x),) = d.items()
+        if k == "~dt":
+            return datetime.fromisoformat(x)
+        if k == "~d":
+            return date.fromisoformat(x)
+        if k == "~n":
+            return Decimal(x)
+        if k == "~c":
+            return Code(*x)
+    return d
+
+
+def _pack(r: Rec) -> str:
+    """A staged record as text, each value with its type (a date, a datetime, a decimal, a code), so that it reads
+    back as it was built and its content sha is the same (D-678). The ids are kept beside it (:func:`_assign`)."""
+    return json.dumps(
+        {f: getattr(r, f) for f in Rec.__dataclass_fields__ if f not in ("record_id", "person_id")},
+        default=_encoded,
+        ensure_ascii=False,
+    )
+
+
+def _unpack(text: str) -> Rec:
+    d = json.loads(text, object_hook=_decoded)
+    d["refs"] = {k: tuple(v) for k, v in d["refs"].items()}
+    d["std_only"] = [tuple(x) for x in d["std_only"]]
+    d["route"] = tuple(d["route"]) if d["route"] is not None else None
+    return Rec(**d)
+
+
+def _scratch(tx: Any, name: str, create: Sequence[str]) -> None:
+    """A temporary table of the load, made once per transaction and emptied for each chunk. Made again for every
+    chunk, each table kept its lock to the commit: a load of many chunks ran PostgreSQL's shared lock table out, and
+    other sessions with it (the review of D-678)."""
+    for sql in create:  # each statement may run again: CREATE ... IF NOT EXISTS, ALTER ... IF EXISTS
+        tx.execute(sql)
+    tx.execute(f"TRUNCATE {name}")
+
+
+def _keys_table(tx: Any, recs: Iterable[Rec]) -> None:
+    """The keys of one chunk, for a join with ``tb_record``."""
+    _keys(tx, ((r.rtype, r.srcid, r.part) for r in recs))
+
+
+def _keys(tx: Any, keys: Iterable[tuple[Any, ...]]) -> None:
+    """One chunk's keys, analysed, so that a join with ``tb_record`` reads the chunk's rows of it, not all of them
+    (unanalysed, the planner hashed every stored record of the kind, chunk after chunk: the review of D-678)."""
+    _scratch(
+        tx,
+        "tb_load_keys",
+        [
+            "CREATE TEMP TABLE IF NOT EXISTS tb_load_keys (resource_type TEXT, source_record_id TEXT, part INTEGER) "
+            "ON COMMIT DROP"
+        ],
+    )
+    tx.copy_rows("tb_load_keys", ["resource_type", "source_record_id", "part"], keys)
+    tx.execute("ANALYZE tb_load_keys")
+
+
+def _ids_of(tx: Any) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """The person, provider and care site ids of every pseudonym the batch names (minted once, ``tb_id_map``):
+    one map each, as large as the patients, staff and departments, not the records."""
+    pids = [str(x[0]) for x in tx.fetchall("SELECT DISTINCT pid FROM tb_load_stage WHERE NOT held AND pid IS NOT NULL")]
+    provs = [str(x[0]) for x in tx.fetchall("SELECT DISTINCT unnest(providers) FROM tb_load_stage WHERE NOT held")]
+    sites = [str(x[0]) for x in tx.fetchall("SELECT DISTINCT unnest(sites) FROM tb_load_stage WHERE NOT held")]
+    return (
+        _map_ids(tx, "person", pids, "tb_person_seq"),
+        _map_ids(tx, "provider", provs, "tb_provider_seq"),
+        _map_ids(tx, "care_site", sites, "tb_care_site_seq"),
+    )
 
 
 #: the extension a site fact read from a chart carries (``sitesetup.publish``): the chart's DocumentReference id
@@ -765,21 +1015,23 @@ def _note_nlp(tx: Any, kind: str, batch: str) -> None:
     )
 
 
-def _tombstone_guard(tx: Any, batch: str, recs: list[Rec]) -> str:
+def _tombstone_guard(tx: Any, batch: str) -> str:
     """D-271: a feed batch that would tombstone every live record of a CDM table (persons, conditions, measurements,
     ...), or more than ``TB_FEED_MAX_DROP_PCT`` (default 20) % of them, is a missing or broken extract, not a hospital
     that lost its data overnight: refused (``_Refused``) unless ``TB_FEED_DROP_OVERRIDE`` names this batch with a
-    reason, which is returned (kept in ``tb_load``)."""
-    seen = {r.key for r in recs}
+    reason, which is returned (kept in ``tb_load``). The records the batch sends are the staged ones, a withheld
+    patient's too (D-678: counted in the database, not in memory)."""
     live: dict[str, int] = defaultdict(int)
     gone: dict[str, int] = defaultdict(int)
-    for t, s, p, table in tx.fetchall(
-        "SELECT resource_type, source_record_id, part, cdm_table FROM tb_record WHERE source_kind = 'feed' "
-        "AND status <> 'tombstoned'"
+    for table, n, missing in tx.fetchall(
+        "SELECT r.cdm_table, count(*), count(*) FILTER (WHERE s.seq IS NULL) FROM tb_record r LEFT JOIN "
+        "tb_load_stage s ON (s.resource_type, s.source_record_id, s.part) = "
+        "(r.resource_type, r.source_record_id, r.part) WHERE r.source_kind = 'feed' AND r.status <> 'tombstoned' "
+        "GROUP BY r.cdm_table"
     ):
-        live[str(table)] += 1
-        if (str(t), str(s), int(p)) not in seen:
-            gone[str(table)] += 1
+        live[str(table)] += int(n)
+        if missing:
+            gone[str(table)] += int(missing)
     try:
         pct = feedguard.max_drop_pct()
     except feedguard.FeedGuardError as e:
@@ -815,56 +1067,101 @@ def _dqd_hold(tx: Any, batch: str, before: dict[str, int]) -> str:
     return f"{what}; override: {reason}"
 
 
-def _resolve(tx: Any, kind: str, batch: str, recs: list[Rec], concepts: Concepts, rep: LoadReport) -> None:
-    """Ids for every record: the person, provider and care site behind each pseudonym, the visit a fact names,
-    the record's own OMOP id (kept across loads), concept ids and the imputed required dates."""
-    persons = _map_ids(tx, "person", (r.pid for r in recs if r.pid is not None), "tb_person_seq")
-    refs: dict[str, set[str]] = defaultdict(set)
-    for r in recs:
-        for kind_, sid in r.refs.values():
-            refs[kind_].add(sid)
-    providers = _map_ids(tx, "provider", refs["provider"], "tb_provider_seq")
-    sites = _map_ids(tx, "care_site", refs["care_site"], "tb_care_site_seq")
-    existing = {
-        (str(t), str(s), int(p)): (tab, rid, fb)
-        for t, s, p, tab, rid, fb in tx.fetchall(
-            "SELECT resource_type, source_record_id, part, cdm_table, record_id, first_batch FROM tb_record "
-            "WHERE source_kind = ?",
-            (kind,),
+def _assign(
+    tx: Any,
+    kind: str,
+    batch: str,
+    persons: Mapping[str, int],
+    providers: Mapping[str, int],
+    rep: LoadReport,
+    chunk: int,
+) -> None:
+    """The ids of every staged record, in the batch's order, a chunk at a time: the person behind its pseudonym, the
+    record's own OMOP id (kept across loads, else the next of ``tb_row_seq``) and the batch it first came in. A
+    clinical record without a person is kept for provenance only. Before any record is resolved further, so that a
+    fact can name the visit of an encounter later in the batch (D-678). Kept beside the staged record."""
+    after = -1
+    while True:
+        rows = tx.fetchall(
+            "SELECT seq, resource_type, source_record_id, part, cdm_table, pid, provider_id FROM tb_load_stage "
+            "WHERE NOT held AND seq > ? ORDER BY seq LIMIT ?",
+            (after, chunk),
         )
-    }
+        if not rows:
+            return
+        after = int(rows[-1][0])
+        _keys(tx, (r[1:4] for r in rows))
+        existing = {
+            (str(t), str(s_), int(p_)): (tab, rid, fb)
+            for t, s_, p_, tab, rid, fb in tx.fetchall(
+                "SELECT r.resource_type, r.source_record_id, r.part, r.cdm_table, r.record_id, r.first_batch FROM "
+                "tb_record r JOIN tb_load_keys k ON (r.resource_type, r.source_record_id, r.part) = "
+                "(k.resource_type, k.source_record_id, k.part) WHERE r.source_kind = ?",
+                (kind,),
+            )
+        }
 
-    def keeps_id(r: Rec) -> bool:
-        old = existing.get(r.key)
-        if old is None or old[1] is None:
-            return False
-        # a record routed to OBSERVATION by its domain (``_route``, after this) keeps its id there too
-        return old[0] == r.table or (r.table in ROUTABLE and old[0] == "observation")
+        def keeps_id(
+            key: tuple[str, str, int], table: str | None, existing: dict[tuple[str, str, int], Any] = existing
+        ) -> bool:
+            old = existing.get(key)
+            if old is None or old[1] is None:
+                return False
+            # a record routed to OBSERVATION by its domain (``_route``, after this) keeps its id there too
+            return old[0] == table or (table in ROUTABLE and old[0] == "observation")
 
-    need = [r for r in recs if r.table in ID_COL and not keeps_id(r)]
-    nums = [int(x[0]) for x in tx.fetchall("SELECT nextval('tb_row_seq') FROM generate_series(1, ?)", (len(need),))]
-    fresh = dict(zip((id(r) for r in need), nums, strict=True))
-    for r in recs:
-        old = existing.get(r.key)
-        if r.table in ID_COL:
-            r.record_id = fresh.get(id(r)) or (old[1] if old else None)
-        elif r.table == "person":
-            r.record_id = persons[str(r.pid)]
-        elif r.table == "provider":
-            r.record_id = providers[r.refs["provider_id"][1]]
-        r.person_id = persons.get(str(r.pid)) if r.pid is not None else None
-        if (
-            r.table is not None
-            and r.table != "provider"
-            and r.person_id is None
-            and r.table not in ("tb_appointment", "tb_claim", "tb_consent")
-        ):  # an OMOP clinical row needs a person; the record is kept for provenance only
-            rep.skipped[f"no_patient:{r.rtype}"] = rep.skipped.get(f"no_patient:{r.rtype}", 0) + 1
-            r.table, r.record_id = None, None
-        r.row["_first_batch"] = old[2] if old else batch
-    # the visit a fact names: this batch's encounters first, then any loaded encounter (another kind's)
-    visits = {r.srcid: r.record_id for r in recs if r.table == "visit_occurrence" and r.part == 0}
-    want = sorted({sid for r in recs for k, sid in r.refs.values() if k == "visit" and sid not in visits})
+        keyed = [((str(t), str(s_), int(p_)), tab, pid, prov) for _, t, s_, p_, tab, pid, prov in rows]
+        seq_of = {(str(t), str(s_), int(p_)): int(q) for q, t, s_, p_, *_ in rows}
+        need = sum(1 for key, tab, _, _ in keyed if tab in ID_COL and not keeps_id(key, tab))
+        nums = iter(int(x[0]) for x in tx.fetchall("SELECT nextval('tb_row_seq') FROM generate_series(1, ?)", (need,)))
+        back = []
+        for key, table, pid, prov in keyed:
+            old = existing.get(key)
+            record_id: int | None = None
+            if table in ID_COL:
+                record_id = next(nums) if not keeps_id(key, table) else (old[1] if old else None)
+            elif table == "person":
+                record_id = persons[str(pid)]
+            elif table == "provider":
+                record_id = providers[str(prov)]
+            person_id = persons.get(str(pid)) if pid is not None else None
+            if (
+                table is not None
+                and table != "provider"
+                and person_id is None
+                and table not in ("tb_appointment", "tb_claim", "tb_consent")
+            ):  # an OMOP clinical row needs a person; the record is kept for provenance only
+                rep.skipped[f"no_patient:{key[0]}"] = rep.skipped.get(f"no_patient:{key[0]}", 0) + 1
+                table, record_id = None, None
+            back.append((seq_of[key], table, record_id, person_id, old[2] if old else batch))
+        # beside the stage, not in it: an update would write every staged row again (and leave the old ones)
+        tx.copy_rows("tb_load_ids", ["seq", "cdm_table", "record_id", "person_id", "first_batch"], back)
+
+
+def _resolve(
+    tx: Any,
+    kind: str,
+    recs: list[Rec],
+    concepts: Concepts,
+    providers: Mapping[str, int],
+    sites: Mapping[str, int],
+    rep: LoadReport,
+) -> None:
+    """The rest of one chunk's ids (the visit a fact names, providers, care sites), its concepts, the imputed
+    required dates and the table of its concept's domain."""
+    # the visit a fact names: this batch's encounters first (staged, any chunk), then any loaded encounter (another
+    # kind's)
+    named = sorted({sid for r in recs for k, sid in r.refs.values() if k == "visit"})
+    visits: dict[str, Any] = {}
+    if named:
+        for sid, rid in tx.fetchall(
+            "SELECT s.source_record_id, i.record_id FROM tb_load_stage s JOIN tb_load_ids i USING (seq) WHERE "
+            "s.resource_type = 'Encounter' AND s.part = 0 AND s.source_record_id = ANY(?) AND NOT s.held "
+            "AND i.cdm_table = 'visit_occurrence' ORDER BY s.seq",
+            (named,),
+        ):
+            visits[str(sid)] = rid
+    want = sorted(sid for sid in named if sid not in visits)
     if want:
         visits.update(
             {
@@ -1059,20 +1356,19 @@ def _write(
     recs: list[Rec],
     files: Mapping[str, str],
     rep: LoadReport,
-    dead: set[tuple[str, str]] | None = None,
-    held_out: set[tuple[str, str, int]] | None = None,
 ) -> tuple[set[int], set[int]]:
-    """Diff the batch against ``tb_record`` and write inserts, updates, tombstones and restores. ``held_out``: the
-    keys of the records left out because their patient is withheld (D-441), for the tombstone's reason."""
+    """Diff one chunk of the batch against ``tb_record`` (the chunk's own keys, read by a join: D-678) and write its
+    inserts, updates and restores. What the batch no longer carries is :func:`_tombstone`'s."""
+    _keys_table(tx, recs)
     old = {
         (str(t), str(s), int(p)): (int(k), tab, rid, sha, st, pid)
         for k, t, s, p, tab, rid, sha, st, pid in tx.fetchall(
-            "SELECT record_key, resource_type, source_record_id, part, cdm_table, record_id, content_sha, status, "
-            "person_id FROM tb_record WHERE source_kind = ?",
+            "SELECT r.record_key, r.resource_type, r.source_record_id, r.part, r.cdm_table, r.record_id, "
+            "r.content_sha, r.status, r.person_id FROM tb_record r JOIN tb_load_keys k ON (r.resource_type, "
+            "r.source_record_id, r.part) = (k.resource_type, k.source_record_id, k.part) WHERE r.source_kind = ?",
             (kind,),
         )
     }
-    seen: set[tuple[str, str, int]] = set()
     staged: list[tuple[Any, ...]] = []
     inserts: dict[str, list[dict[str, Any]]] = defaultdict(list)
     deletes: dict[str, list[int]] = defaultdict(list)
@@ -1080,7 +1376,6 @@ def _write(
     persons: set[int] = set()
     providers: set[int] = set()
     for r in recs:
-        seen.add(r.key)
         row = _omop_row(r)
         content = {k: v for k, v in r.extra.items() if k not in PROVENANCE_COLS}  # a new night alone is no update
         sha = _sha([r.table, row, r.basis, content, r.imputed, r.status if r.status == "rejected" else None])
@@ -1130,17 +1425,8 @@ def _write(
                 action,
             )
         )
-    gone = [(k, v) for k, v in old.items() if k not in seen and v[4] != "tombstoned"]
-    for _, v in gone:
-        if v[1] in ID_COL and v[2] is not None:
-            deletes[str(v[1])].append(int(v[2]))
-        if v[1] == "person" and v[2] is not None:
-            persons.add(int(v[2]))
-        if v[1] == "provider" and v[2] is not None:
-            providers.add(int(v[2]))
-    rep.tombstoned = len(gone)
     # T-202 (D-384): the record's own before-image, for the lake exported as of an earlier time (omop.export)
-    changed = [old[e[0]][0] for e in events if e[0] in old] + [v[0] for _, v in gone]
+    changed = [old[e[0]][0] for e in events if e[0] in old]
     rec_before: dict[int, str] = {}
     if changed:
         for k, js in tx.fetchall(
@@ -1155,8 +1441,14 @@ def _write(
         cols = sorted(set().union(*rows))
         tx.copy_rows(table, cols, ([row.get(c) for c in cols] for row in rows))
         rep.by_table[table] = rep.by_table.get(table, 0) + len(rows)
-    tx.execute("CREATE TEMP TABLE tb_in_tmp (LIKE tb_record INCLUDING DEFAULTS, action TEXT) ON COMMIT DROP")
-    tx.execute("ALTER TABLE tb_in_tmp DROP COLUMN record_key")
+    _scratch(
+        tx,
+        "tb_in_tmp",
+        [
+            "CREATE TEMP TABLE IF NOT EXISTS tb_in_tmp (LIKE tb_record INCLUDING DEFAULTS, action TEXT) ON COMMIT DROP",
+            "ALTER TABLE tb_in_tmp DROP COLUMN IF EXISTS record_key",
+        ],
+    )
     tx.copy_rows("tb_in_tmp", [*TB_RECORD_COLS, "action"], staged)
     sets = ", ".join(
         f"{c} = i.{c}"
@@ -1176,23 +1468,17 @@ def _write(
     )
     all_cols = ", ".join(TB_RECORD_COLS)
     tx.execute(f"INSERT INTO tb_record ({all_cols}) SELECT {all_cols} FROM tb_in_tmp WHERE action = 'insert'")
-    if gone:
-        tx.execute(
-            "CREATE TEMP TABLE tb_gone_tmp (resource_type TEXT, source_record_id TEXT, part INTEGER) ON COMMIT DROP"
-        )
-        tx.copy_rows("tb_gone_tmp", ["resource_type", "source_record_id", "part"], [k for k, _ in gone])
-        tx.execute(
-            "UPDATE tb_record r SET status = 'tombstoned', tombstoned_at = now(), changed_at = now(), last_batch = ? "
-            "FROM tb_gone_tmp g WHERE r.source_kind = ? AND (r.resource_type, r.source_record_id, r.part) = "
-            "(g.resource_type, g.source_record_id, g.part)",
-            (batch, kind),
-        )
     ev_rows: list[tuple[Any, ...]] = []
     keys = {k: v[0] for k, v in old.items()}
     new_keys = [e[0] for e in events if e[0] not in keys]
     if new_keys:
-        tx.execute(
-            "CREATE TEMP TABLE tb_keys_tmp (resource_type TEXT, source_record_id TEXT, part INTEGER) ON COMMIT DROP"
+        _scratch(
+            tx,
+            "tb_keys_tmp",
+            [
+                "CREATE TEMP TABLE IF NOT EXISTS tb_keys_tmp (resource_type TEXT, source_record_id TEXT, part INTEGER) "
+                "ON COMMIT DROP"
+            ],
         )
         tx.copy_rows("tb_keys_tmp", ["resource_type", "source_record_id", "part"], new_keys)
         for k, t, s, p in tx.fetchall(
@@ -1206,12 +1492,11 @@ def _write(
         prev = old.get(key)
         bjs = before.get((str(prev[1]), int(prev[2]))) if prev and prev[1] in ID_COL and prev[2] else None
         ev_rows.append((keys[key], batch, action, frm, to, bsha, bjs, rec_before.get(keys[key]), None))
-    dead = dead or set()
-    held_out = held_out or set()
-    for k, v in gone:
-        bjs = before.get((str(v[1]), int(v[2]))) if v[1] in ID_COL and v[2] is not None else None
-        why = OPTED_OUT if k in held_out else DELETED_AT_SOURCE if (k[0], k[1]) in dead else LEFT_THE_FEED
-        ev_rows.append((v[0], batch, "tombstone", v[4], "tombstoned", v[3], bjs, rec_before.get(v[0]), why))
+    _events(tx, ev_rows)
+    return persons, providers
+
+
+def _events(tx: Any, ev_rows: list[tuple[Any, ...]]) -> None:
     if ev_rows:
         tx.copy_rows(
             "tb_record_event",
@@ -1228,7 +1513,62 @@ def _write(
             ],
             ev_rows,
         )
-    return persons, providers
+
+
+def _tombstone(
+    tx: Any, kind: str, batch: str, rep: LoadReport, dead: set[tuple[str, str]], chunk: int
+) -> tuple[set[int], set[int]]:
+    """Every live record of this kind the batch no longer carries (or carries for a withheld patient, D-441): its
+    OMOP row deleted, ``tb_record`` tombstoned, the event with its reason (opted out, deleted at the source, left the
+    feed). Found by an anti-join with the staged batch and taken a chunk at a time, by record key (D-678)."""
+    persons: set[int] = set()
+    providers: set[int] = set()
+    after = -1
+    while True:
+        gone = [
+            ((str(t), str(s_), int(p_)), (int(k), tab, rid, sha, st, held))
+            for k, t, s_, p_, tab, rid, sha, st, held in tx.fetchall(
+                "SELECT r.record_key, r.resource_type, r.source_record_id, r.part, r.cdm_table, r.record_id, "
+                "r.content_sha, r.status, s.held FROM tb_record r LEFT JOIN tb_load_stage s ON (s.resource_type, "
+                "s.source_record_id, s.part) = (r.resource_type, r.source_record_id, r.part) WHERE r.source_kind = ? "
+                "AND r.status <> 'tombstoned' AND r.record_key > ? AND (s.seq IS NULL OR s.held) "
+                "ORDER BY r.record_key LIMIT ?",
+                (kind, after, chunk),
+            )
+        ]
+        if not gone:
+            return persons, providers
+        after = gone[-1][1][0]
+        deletes: dict[str, list[int]] = defaultdict(list)
+        for _, v in gone:
+            if v[1] in ID_COL and v[2] is not None:
+                deletes[str(v[1])].append(int(v[2]))
+            if v[1] == "person" and v[2] is not None:
+                persons.add(int(v[2]))
+            if v[1] == "provider" and v[2] is not None:
+                providers.add(int(v[2]))
+        rep.tombstoned += len(gone)
+        rec_before = dict(
+            (int(k), js)
+            for k, js in tx.fetchall(
+                "SELECT record_key, row_to_json(r)::text FROM tb_record r WHERE record_key = ANY(?)",
+                ([v[0] for _, v in gone],),
+            )
+        )
+        before = _drop_rows(tx, deletes)
+        _scratch(tx, "tb_gone_tmp", ["CREATE TEMP TABLE IF NOT EXISTS tb_gone_tmp (record_key BIGINT) ON COMMIT DROP"])
+        tx.copy_rows("tb_gone_tmp", ["record_key"], [(v[0],) for _, v in gone])
+        tx.execute(
+            "UPDATE tb_record r SET status = 'tombstoned', tombstoned_at = now(), changed_at = now(), last_batch = ? "
+            "FROM tb_gone_tmp g WHERE r.record_key = g.record_key",
+            (batch,),
+        )
+        ev_rows: list[tuple[Any, ...]] = []
+        for k, v in gone:
+            bjs = before.get((str(v[1]), int(v[2]))) if v[1] in ID_COL and v[2] is not None else None
+            why = OPTED_OUT if v[5] else DELETED_AT_SOURCE if (k[0], k[1]) in dead else LEFT_THE_FEED
+            ev_rows.append((v[0], batch, "tombstone", v[4], "tombstoned", v[3], bjs, rec_before.get(v[0]), why))
+        _events(tx, ev_rows)
 
 
 def _drop_rows(tx: Any, deletes: Mapping[str, list[int]]) -> dict[tuple[str, int], str]:
@@ -1489,20 +1829,6 @@ def set_status(db: Database, key: tuple[str, str, str, int], to: str, by: str, r
 # ------------------------------------------------------------------------------------------------ D-441 withheld
 #: the tables a withheld patient keeps: the consent statements that say no (D-441)
 KEEP_WITHHELD = ("tb_consent",)
-
-
-def _without_withheld(tx: Any, recs: list[Rec]) -> tuple[list[Rec], set[tuple[str, str, int]]]:
-    """The batch without the records of withheld patients (``tb_withheld``), and the keys left out. The patient's
-    consent statements stay (:data:`KEEP_WITHHELD`): the refusal itself must reach the lake, or the registry would
-    read as silent and an OMOP-built lake would undo the opt-out (review HIGH-1)."""
-    held = {str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")}
-    if not held:
-        return recs, set()
-
-    def out(r: Rec) -> bool:
-        return r.pid in held and r.table not in KEEP_WITHHELD
-
-    return [r for r in recs if not out(r)], {r.key for r in recs if out(r)}
 
 
 EVENT_COLS = [

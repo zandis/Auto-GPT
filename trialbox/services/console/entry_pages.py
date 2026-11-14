@@ -209,7 +209,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if fmt not in FORMATS:
             raise h.problem(404, "notfound")
-        out = s28.call(bk, "GET", f"/studies/{rid}/export/{fmt}?by={quote(h.actor(sess))}")
+        out = s28.call(bk, "GET", f"/studies/{rid}/export/{fmt}")  # signed by the account (D-717): no typed name
         data = base64.b64decode(out["b64"]) if "b64" in out else str(out.get("text") or "").encode("utf-8")
         au.append("console.data_export", ruleset=rid, actor=h.actor(sess), detail={"format": fmt})
         return str(out["name"]), str(out["media_type"]), data

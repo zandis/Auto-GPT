@@ -153,22 +153,17 @@ def test_a_generation_header_that_is_none_is_the_requests_fault_not_a_broken_lak
 
 # ------------------------------------------------------------------------------------------- every caller of query()
 GOES_ON = "no handler: the error goes on and the job or the request fails (5xx: the lake failed; 4xx: the code)"
-RERAISES = "handler: a missing table of an older snapshot (a 4xx sentence) is read as none; anything else goes on"
 NOT_THE_LAKE = "not the lake's client"
 OPEN = "OPEN (its lane): catches every error, a 5xx too, and reads it as "
+#: after train 14 (D-649 to D-652, lane A2): whether a table is there is asked of the lake, and a failure is said
+UNREAD = "handler: any failure is said as 'could not be read' (D-652), never as none"
+PROBE = "handler: a failure of the probe's own question answers 'not known'; the first failure then stops the run"
+ASKS = "handler: only the lake's plain 0 for the table is 'no such table' (D-649); every other failure is raised"
 
 #: (file under services/, function) -> what it does when the lake's query() raises. A new caller must be put here
 #: by someone who read what it does with a 5xx (never "no data") and with a 4xx (a fault of the code: it stops).
 CALLERS: dict[tuple[str, str], str] = {
     ("lake/app.py", "query"): "the route: answers the status this card is about",
-    # master after train 14 (D-649, D-650, D-651): the lake is asked whether a table is there, not read by words;
-    # listed by lane C's NEW-SITE-5 on the integrator's request, each read
-    ("tb_common/lakeprobe.py", "no_table"): "handler: any failure answers False (not known to be missing), so the "
-    "caller raises its own failure; never 'no table'",
-    ("tb_common/lakeprobe.py", "rows_or_no_table"): "handler: None only when the lake answers that the table is not "
-    "there (no_table); any other failure goes on",
-    ("orchestrator/scenarios/feas_profile.py", "data_facts"): "handler: any failure gives the facts as not read "
-    "(read False; the report says so), never zero",
     ("tb_common/derived_store.py", "rows_from_lake"): GOES_ON,
     ("tb_common/derived_store.py", "mapping_version_of"): GOES_ON,
     ("lake/client.py", "LakeLocal.query"): GOES_ON,
@@ -197,9 +192,15 @@ CALLERS: dict[tuple[str, str], str] = {
     ("criteria_compiler/equivalence/gate.py", "sql_evaluations"): GOES_ON,
     ("console/audit_page.py", "audit_patient"): NOT_THE_LAKE,  # a filter's query string
     ("matching/coded_values.py", "attach"): OPEN + "no coded value to show (display only; the answers stand)",
-    ("orchestrator/scenarios/feas_profile.py", "build"): GOES_ON,  # its facts query moved to data_facts
+    ("orchestrator/scenarios/feas_profile.py", "build"): GOES_ON,
+    ("orchestrator/scenarios/feas_profile.py", "data_facts"): UNREAD,
+    ("tb_common/lakeprobe.py", "no_table"): PROBE,
+    ("tb_common/lakeprobe.py", "rows_or_no_table"): ASKS,
     ("orchestrator/scenarios/screen.py", "practitioner_names"): OPEN + "no names (the settings' ids are shown)",
-    ("patient_profile/twin.py", "lake_schema"): OPEN + "a snapshot of schema 1",
+    # NEW-B-35 (D-676): asks the lake for the column, no handler. Its one caller in the services, the night step
+    # ``twin.after_ingest``, never fails the ingest: it logs the error's type and keeps no twin (the same for
+    # ``read_lake`` below)
+    ("patient_profile/twin.py", "lake_schema"): GOES_ON,
     # closed by NEW-SITE-2/3/5 (D-709, D-712, D-715): a 5xx is "the lake could not be read" (the readiness answer
     # says so), a 4xx goes on as the fault of the question it is
     ("sitesetup/readiness.py", "unknown_share"): "handler: a 5xx is raised as LakeUnread, never (0, 0); a 4xx goes on",
