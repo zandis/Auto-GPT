@@ -55,6 +55,17 @@ NOT_PARTS = {"plan.json", "TB_HEAD.json", "gpu_peak.json", "report.json", "repor
 # Change it with --window-share or the plan's window.usable_share.
 WINDOW_SHARE = 0.7
 ROLE_OF_ENDPOINT = {"serving": "judge", "verifier": "verifier"}  # the gateway's endpoint names (tools/run_metrics.py)
+# The public data sets a part may run on (D-502), each with its licence and who to credit. A part on public data makes
+# "Synthetic data only" false: the README says which public data sets the run read instead, and capacity_inputs.json
+# carries the same list (lane G finding B16).
+PUBLIC_DATA = (
+    ("scenario-public-medtxt", "MedTxt-CR Japanese case reports (CC BY 4.0, Sociocom, NAIST; NTCIR-16 Real-MedNLP)"),
+    ("scenario-public-trec", "TREC Clinical Trials 2021/2022 topics and qrels (NIST) and trial texts from "
+                             "ClinicalTrials.gov (the NCBI TrialGPT corpus)"),
+    ("scenario-public-mimic", "the MIMIC-IV clinical database demo on FHIR (PhysioNet, ODbL)"),
+    ("public-", "the public-data site's notes (tools/public_site.py): MedTxt-CR and MedTxt-RR (CC BY 4.0, "
+                "Sociocom, NAIST) and the SIGIR 2016 patient descriptions (NCBI, public domain)"),
+)  # fmt: skip
 DETAIL_CHARS = 300  # a check's detail in DEFECTS.md: the part writer cuts its own crash text at the same length
 
 
@@ -543,11 +554,26 @@ def g3_lines(lang: str, g: dict[str, Any]) -> list[str]:
     return out
 
 
+def public_data(rows: list[dict[str, Any]]) -> list[str]:
+    """The public data sets the planned parts read (:data:`PUBLIC_DATA`), each once, in that table's order."""
+    tags = [str(r["tag"]) for r in rows]
+    return [name for key, name in PUBLIC_DATA if any(t == key or (key.endswith("-") and t.startswith(key))
+                                                     for t in tags)]  # fmt: skip
+
+
+def data_line(rows: list[dict[str, Any]]) -> str:
+    sets = public_data(rows)
+    if not sets:
+        return "Synthetic data only."
+    return "Synthetic and public data only. Public data read by this run: " + "; ".join(sets) + "."
+
+
 def readme(v: dict[str, Any]) -> str:
     ident, c, one = v["identity"], v["cost"], v["g1"]
     counts = Counter(r["status"] for r in v["rows"])
     out = [MARK, "", f"# Cloud run results: {ident['run_id'] or 'run id not in the folder'}", "",
-           "Synthetic data only. Written from the collected results folder by `deploy/gcp/results_report.py`.", "",
+           data_line(v["rows"]) + " Written from the collected results folder by `deploy/gcp/results_report.py`.",
+           "",
            f"- **Run id**: {', '.join(f'`{x}`' for x in ident['run_ids']) or 'not in the folder'}",
            f"- **Commit**: {', '.join(f'`{x}`' for x in ident['commits']) or 'not in the folder'}"
            + (" (the tree was dirty)" if ident["dirty"] else ""),
@@ -622,7 +648,8 @@ def capacity(v: dict[str, Any]) -> dict[str, Any]:
         return {k: x for k, x in s.items() if not k.startswith("_")}
 
     return {"schema": SCHEMA, "run_id": ident["run_id"], "run_ids": ident["run_ids"], "commit": ident["commit"],
-            "commits": ident["commits"], "card": ident["card"], "synthetic_data_only": True,
+            "commits": ident["commits"], "card": ident["card"],
+            "synthetic_data_only": not public_data(v["rows"]), "public_data": public_data(v["rows"]),
             "complete": v["verdict"] == PASSED, "verdict": v["verdict"],
             "parts": {r["tag"]: r["status"] for r in v["rows"]},
             "g1": {k: x for k, x in v["g1"].items() if k != "file"},
