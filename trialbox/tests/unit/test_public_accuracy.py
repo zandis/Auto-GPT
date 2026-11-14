@@ -197,9 +197,9 @@ def test_site_build_keeps_the_gold_out_of_the_site(tmp_path: Path) -> None:
     site_text = "".join(f.read_text(encoding="utf-8") for f in s.rglob("*") if f.is_file())
     for word in ("eligible", "excluded", "not excluded", "trec2021:1"):
         assert word not in site_text, f"gold word {word!r} leaked into the site"
-    pats = list(csv.DictReader((s / "hospital" / "patient.csv").open(encoding="utf-8")))
+    pats = list(csv.DictReader((s / "hospital" / "patient.csv").open(encoding="utf-8-sig")))
     assert [p["mrn"] for p in pats] == ["71000001", "71000002"] and pats[1]["birth_date"] == ""  # never guessed
-    appts = list(csv.DictReader((s / "hospital" / "appointment.csv").open(encoding="utf-8")))
+    appts = list(csv.DictReader((s / "hospital" / "appointment.csv").open(encoding="utf-8-sig")))
     pi = ids["investigators"]["NCT90000001"]
     assert {a["mrn"] for a in appts if a["staff_id"] == pi} == {"71000001", "71000002"}
     prof = (s / "profiles" / "NCT90000001.yaml").read_text(encoding="utf-8")
@@ -215,13 +215,14 @@ def test_site_build_keeps_the_gold_out_of_the_site(tmp_path: Path) -> None:
     }
     assert ids["pair_of"] == {"TW0001": "NCT90000001", "NCT90000001": "TW0001"} or ids["pair_of"]["TW0001"]
     assert summary["appointments"] == 2
+    assert (s / "hospital" / "note.csv").read_bytes().startswith(b"\xef\xbb\xbf")  # UTF-8 with a BOM, unambiguous
 
 
 def test_a_compile_only_set_gets_one_placeholder_chart(tmp_path: Path) -> None:
     b = sets.Bundle("chia")
     b.trials = {"NCT90000007": sets.Trial("NCT90000007", "en", "x", ["Adult"], [])}
     site.build(b, tmp_path)
-    rows = list(csv.DictReader((tmp_path / "site" / "hospital" / "note.csv").open(encoding="utf-8")))
+    rows = list(csv.DictReader((tmp_path / "site" / "hospital" / "note.csv").open(encoding="utf-8-sig")))
     assert len(rows) == 1 and rows[0]["text"].startswith("Placeholder chart")
 
 

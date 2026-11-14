@@ -91,7 +91,9 @@ def profile_yaml(ruleset: str, title: str, pi: str) -> str:
 
 
 def _write(path: Path, header: list[str], rows: list[list[Any]]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as fh:
+    # UTF-8 with a BOM, as a hospital's export often is: without one the adapter weighs the code page, and an English
+    # note file with few non-ASCII characters was quarantined as "cannot be told for certain" (dry run 2026-11-14)
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh)
         w.writerow(header)
         w.writerows(rows)

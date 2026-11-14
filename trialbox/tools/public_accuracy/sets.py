@@ -287,15 +287,25 @@ def trec_sample(pairs: list[Pair], n_pairs: int, per_patient_min: int = 2, seed:
         rng.shuffle(ps)
     have = Counter((p.patient, p.label) for p in chosen)
     patients = sorted({p.patient for p in pairs})
-    for r in range(per_patient_min):  # round by round, so every patient is covered before any gets a second pair
-        for lab in ("eligible", "excluded"):
-            for pat in patients:
-                if have[(pat, lab)] > r:
-                    continue
-                nxt = next((p for p in by_pat.get((pat, lab), []) if (p.patient, p.trial) not in seen), None)
-                if nxt is not None and len(chosen) < n_pairs:
-                    take(nxt)
-                    have[(pat, lab)] += 1
+    total = Counter(p.label for p in chosen)
+
+    def give(pat: str, labs: tuple[str, ...]) -> None:
+        for lab in sorted(labs, key=lambda x: total[x]):  # the label the sample has fewer of first
+            nxt = next((p for p in by_pat.get((pat, lab), []) if (p.patient, p.trial) not in seen), None)
+            if nxt is not None and len(chosen) < n_pairs:
+                take(nxt)
+                have[(pat, lab)] += 1
+                total[lab] += 1
+                return
+
+    for r in range(per_patient_min):  # every patient covered before any patient gets its next pair
+        for pat in patients:
+            if have[(pat, "eligible")] + have[(pat, "excluded")] <= 2 * r:
+                give(pat, ("eligible", "excluded"))
+        for pat in patients:
+            for lab in ("eligible", "excluded"):
+                if have[(pat, lab)] <= r:
+                    give(pat, (lab,))
     rest = {
         lab: [p for p in pairs if p.label == lab and (p.patient, p.trial) not in seen] for lab in TREC_LABEL.values()
     }
@@ -871,7 +881,8 @@ def read_tcga(cache: Path, n_reports: int = 20, get: Any = None) -> Bundle:
             f"Public test protocol: {proj}",
             [crit],
             [],
-            notes=["a test protocol written for the TCGA set, not a real trial"],
+            ["Aged 18 years or older"],  # SCREEN runs a ruleset with at least one structured criterion
+            notes=["a test protocol written for the TCGA set, not a real trial; the age line placed"],
         )
     for c in chosen:
         b.patients[c] = Patient(c, "en", " ".join(reports[by_case[c]].split()), notes=["OCR'd pathology report"])

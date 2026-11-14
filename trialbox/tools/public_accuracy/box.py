@@ -44,6 +44,10 @@ TODAY_OFFSET = 1  # the box's day: the snapshot day plus one (as tools.public_e2
 # stop the run after 20 protocols; the run sets the site's own per-type override (0 = no limit), as an installed box's
 # settings.yaml would for the accuracy run (a setting, not a code change: deploy/settings.example.yaml line 26)
 RUN_SETTINGS = {"rate_limits_per_day": {"FEAS": 0, "SCREEN": 0}}
+# The mail gateway's outbound limit to one address a day (TB_MAIL_PER_RECIPIENT_PER_DAY, mail_gateway.app; 200)
+# held the coordinator's review mails once 200 had gone out (a 30-protocol dry run sends that many); an installed
+# box's .env sets it to 0 for the run, as here
+MAIL_PER_RECIPIENT_PER_DAY = 0
 
 
 def _serve(handler: Any) -> ThreadingHTTPServer:
@@ -171,6 +175,7 @@ def run(built: Path, work: Path, screen: bool = True, approve: bool = True) -> d
         settings_update=RUN_SETTINGS,
         extra_profiles=site / "profiles",
     )
+    box.gw.per_recipient_per_day = MAIL_PER_RECIPIENT_PER_DAY
     key = secrets.token_hex(16)  # the stand-ins' key for this run only
     urls, servers = standin_pair(key)
     gw = gateway_clients(work, urls, key)
