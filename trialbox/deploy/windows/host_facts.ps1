@@ -177,6 +177,17 @@ if ($members.Count -gt 0) {
 }
 Fact "admin_accounts" $adminCount
 
+# NEW-WIN-10 (D-613): the Windows build, and on a build without WSL2's mirrored networking the console's forwarding:
+# the port-proxy row for 0.0.0.0:443 (netsh's rows are figures in every display language) and the task that keeps it
+Fact "windows_build" ((Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuildNumber)
+$proxyTo = ""
+foreach ($row in @(& netsh.exe interface portproxy show v4tov4 2>$null)) {
+  if ([string]$row -match "^\s*0\.0\.0\.0\s+443\s+(\S+)\s+443\s*$") { $proxyTo = $Matches[1] }
+}
+Fact "console_proxy_to" $proxyTo
+$proxyTask = Get-ScheduledTask -TaskName "TrialBox-Console-Proxy" -ErrorAction SilentlyContinue
+if ($null -eq $proxyTask) { Fact "console_proxy_task" "missing" } else { Fact "console_proxy_task" $proxyTask.State }
+
 # the start-at-boot task that keeps WSL2 running whether or not anyone is signed in (register_keepalive.ps1)
 Fact "keepalive_task_name" $TaskName
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue

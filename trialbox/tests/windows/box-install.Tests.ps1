@@ -36,6 +36,8 @@ BeforeAll {
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
       BootInfo = $null; BootRegistered = 0; NetMode = "mirrored"; Firewall = @(); FwDefault = "Block"; FwRule = $null; FwBlockSet = 0
+      HostFw = $null; HostFwWrites = New-Object System.Collections.ArrayList; HyperVCalls = 0
+      ProxyTask = $null; ProxyRegistered = 0; ProxyRuns = 0; ProxyStatus = "added"; ProxyAddress = "172.28.14.5"
       EgressVerdict = "verdict=held"; LanLine = "firewall open to '192.0.2.0/24'; this PC's network address '192.0.2.10/24'"
       Tpm = @{ Present = $true; Ready = $true }; BLCalls = New-Object System.Collections.ArrayList
       Asked = New-Object System.Collections.ArrayList; Answers = New-Object System.Collections.ArrayList
@@ -86,9 +88,23 @@ Describe "box-install.ps1" {
     Mock Unregister-TbResumeTask { $script:S.ResumeTask = $false }
     Mock Restart-TbComputer { $script:S.Restarted++ }
     # the Hyper-V firewall (NEW-WIN-4): WSL's default for inbound traffic and the one rule, as plain values
-    Mock Get-TbWslInboundDefault { return [string]$script:S.FwDefault }
-    Mock Set-TbWslInboundBlock { $script:S.FwDefault = "Block"; $script:S.FwBlockSet++ }
-    Mock Get-TbConsoleFirewallRule { return $script:S.FwRule }
+    Mock Get-TbWslInboundDefault { $script:S.HyperVCalls++; return [string]$script:S.FwDefault }
+    Mock Set-TbWslInboundBlock { $script:S.HyperVCalls++; $script:S.FwDefault = "Block"; $script:S.FwBlockSet++ }
+    Mock Get-TbConsoleFirewallRule { $script:S.HyperVCalls++; return $script:S.FwRule }
+    # Windows 10 (NEW-WIN-10): a Windows Firewall rule, the forwarding task and one run of the forwarding script
+    Mock Get-TbHostFirewallRule { return $script:S.HostFw }
+    Mock Write-TbHostFirewallRule {
+      [void]$script:S.HostFwWrites.Add("$RuleName|$Port|exists=$Exists")
+      $script:S.HostFw = @{ Enabled = "True"; Direction = "Inbound"; Action = "Allow"; Protocol = "TCP"; LocalPort = [string]$Port
+        RemoteAddress = "LocalSubnet"; Profile = "Domain, Private" }
+    }
+    Mock Get-TbProxyTaskInfo { return $script:S.ProxyTask }
+    Mock Register-TbProxyTask {
+      $script:S.ProxyRegistered++
+      $script:S.ProxyTask = @{ State = "Ready"; Action = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Script`" -Distro $Distro -Port $Port" }
+      $script:S.ProxyScript = $Script; $script:S.ProxyEvery = $EveryMinutes; $script:S.ProxyAccount = $Account
+    }
+    Mock Invoke-TbConsoleProxy { $script:S.ProxyRuns++; return @{ Status = [string]$script:S.ProxyStatus; Address = [string]$script:S.ProxyAddress } }
     Mock Write-TbConsoleFirewallRule {
       $script:S.Firewall += ,"$RuleName|$Port|exists=$Exists"
       $script:S.FwRule = @{ Enabled = "True"; Direction = "Inbound"; Action = "Allow"; Protocol = "TCP"; LocalPorts = [string]$Port
@@ -185,16 +201,16 @@ Describe "box-install.ps1" {
       ($script:S.Calls -join "`n") | Should -Not -Match "import|msiexec"
       Get-Log | Should -Match "STOP step 2/\d+ windows: .*Core"
     }
-    It "refuses a build before Windows 11" {
-      $script:S.Build = 19045
+    It "refuses a build before Windows 10 22H2 (owner ruling D-503 lowered it from Windows 11 22H2)" {
+      $script:S.Build = 19044
       Invoke-Run | Should -Be 1
       Get-Log | Should -Match "STOP step 2/\d+ windows"
     }
-    It "tells a Windows 11 before 22H2 which build it needs, not which edition (NEW-WIN-4, review L10)" {
-      $script:S.Build = 22000
+    It "tells a Windows before 10 22H2 which build it needs, not which edition (NEW-WIN-4, review L10)" {
+      $script:S.Build = 19041
       Invoke-Run | Should -Be 1
       Should -Invoke Enable-TbFeature -Times 0
-      Get-Log | Should -Match "STOP step 2/\d+ windows: This Windows is build 22000. TrialBox needs build 22621"
+      Get-Log | Should -Match "STOP step 2/\d+ windows: This Windows is build 19041. TrialBox needs build 19045"
     }
     It "refuses a machine without virtualisation" {
       $script:S.VirtFirmware = $false; $script:S.Hypervisor = $false
@@ -255,7 +271,7 @@ Describe "box-install.ps1" {
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
       $MinFreeGB = 200; $script:S.FreeGB = 250
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22621 -StartWaitSeconds 120 -DesktopSharePercent 25 -UpdateWindowStart 19 -UpdateWindowHours 6 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 19045 -ProxyEveryMinutes 5 -StartWaitSeconds 120 -DesktopSharePercent 25 -UpdateWindowStart 19 -UpdateWindowHours 6 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -724,6 +740,94 @@ Describe "box-install.ps1" {
       foreach ($name in @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
           "packages", "gpu-container", "host-tree", "boot-task", "network", "linux-install")) { $log | Should -Match ("step \d+/14 " + $name + ": ok") }
       Should -Invoke Invoke-TbNative -Times 0 -ParameterFilter { ($Arguments -join " ") -match "wsl-setup\.sh install" }
+    }
+  }
+
+  Context "Windows 10 22H2 (NEW-WIN-10, D-613; owner ruling D-503)" {
+    BeforeEach {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }
+      $script:S.WslInstalled = $true
+      $script:S.Build = 19045; $script:S.Edition = "Professional"; $script:S.NetMode = "nat"
+    }
+    It "installs on Windows 10 Pro 22H2 to the end, with the console forwarded through WSL2's own address" {
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).finished | Should -BeTrue
+      $script:S.HostFwWrites | Should -Be @("TrialBox-Console|443|exists=False")
+      $script:S.ProxyRegistered | Should -Be 1
+      $script:S.ProxyRuns | Should -Be 1
+      $script:S.ProxyAccount | Should -Be "BOX\owner"
+      $script:S.ProxyEvery | Should -Be 5
+      Test-Path -LiteralPath $script:S.ProxyScript | Should -BeTrue      # copied where only administrators write
+      Split-Path -Parent $script:S.ProxyScript | Should -Be $script:S.StateDir
+      $script:S.HyperVCalls | Should -Be 0                             # no Hyper-V firewall on Windows 10
+      Get-Log | Should -Match "console forwarding: added, port 443 to WSL2 at 172\.28\.14\.5"
+      ($script:S.Said -join "`n") | Should -Match "forwarded to TrialBox"
+    }
+    It "writes .wslconfig without the setting Windows 10 does not have, and keeps WSL2's localhost forwarding off" {
+      Invoke-Run | Should -Be 0
+      $cfg = Get-Content -LiteralPath (Join-Path $script:S.Base "profile/.wslconfig") -Raw
+      $cfg | Should -Not -Match "networkingMode"
+      $cfg | Should -Match "(?m)^localhostForwarding=false"
+      $cfg | Should -Match "(?m)^memory=144GB"
+      $cfg | Should -Match "(?m)^swap=0"
+    }
+    It "refuses Windows 10 before 22H2 and Windows 10 Home, and changes nothing" {
+      $script:S.Build = 19044
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "build 19044\. TrialBox needs build 19045 or later"
+      New-Scenario | Out-Null
+      $script:S.Build = 19045; $script:S.Edition = "Core"
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "edition Core"
+      $script:S.HostFwWrites.Count | Should -Be 0
+    }
+    It "keeps its rule and task on a second run and only re-points the forwarding" {
+      Invoke-Run | Should -Be 0
+      Invoke-Run | Should -Be 0
+      $script:S.HostFwWrites.Count | Should -Be 1
+      $script:S.ProxyRegistered | Should -Be 1
+      $script:S.ProxyRuns | Should -Be 2
+    }
+    It "puts a Windows Firewall rule of its name right when it is wider, on a public network, or switched off" {
+      foreach ($bad in @(@{ RemoteAddress = "Any" }, @{ Profile = "Any" }, @{ Profile = "Public" }, @{ LocalPort = "443,8090" }, @{ Enabled = "False" })) {
+        New-Scenario | Out-Null
+        $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }; $script:S.WslInstalled = $true
+        $script:S.Build = 19045; $script:S.Edition = "Professional"; $script:S.NetMode = "nat"
+        $rule = @{ Enabled = "True"; Direction = "Inbound"; Action = "Allow"; Protocol = "TCP"; LocalPort = "443"; RemoteAddress = "LocalSubnet"; Profile = "Domain, Private" }
+        foreach ($k in $bad.Keys) { $rule[$k] = $bad[$k] }
+        $script:S.HostFw = $rule
+        Invoke-Run | Should -Be 0 -Because ($bad.Keys -join ",")
+        $script:S.HostFwWrites | Should -Be @("TrialBox-Console|443|exists=True") -Because ($bad.Keys -join ",")
+      }
+    }
+    It "registers the forwarding task again when it was deleted or switched off" {
+      Invoke-Run | Should -Be 0
+      $script:S.ProxyTask = $null
+      Invoke-Run | Should -Be 0
+      $script:S.ProxyRegistered | Should -Be 2
+      $script:S.ProxyTask.State = "Disabled"
+      Invoke-Run | Should -Be 0
+      $script:S.ProxyRegistered | Should -Be 3
+    }
+    It "stops when WSL2 gives no address to forward to, and says what to do" {
+      $script:S.ProxyStatus = "no_address"; $script:S.ProxyAddress = ""
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "STOP step 13/\d+ network: .*WSL2 gave no address"
+      $script:S.Console.Count | Should -Be 0
+    }
+    It "keeps mirrored networking on Windows 11: no forwarding there" {
+      $script:S.Build = 26100; $script:S.Edition = "ProfessionalWorkstation"; $script:S.NetMode = "mirrored"
+      Invoke-Run | Should -Be 0
+      $script:S.ProxyRegistered | Should -Be 0
+      $script:S.ProxyRuns | Should -Be 0
+      $script:S.HostFwWrites.Count | Should -Be 0
+      $script:S.Firewall | Should -Be @("TrialBox-Console|443|exists=False")
+    }
+    It "takes the Windows 10 form on a Windows 11 build without mirrored networking (21H2)" {
+      $script:S.Build = 22000; $script:S.Edition = "Professional"; $script:S.NetMode = "nat"
+      Invoke-Run | Should -Be 0
+      $script:S.ProxyRegistered | Should -Be 1
+      $script:S.HyperVCalls | Should -Be 0
     }
   }
 

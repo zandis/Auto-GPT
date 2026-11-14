@@ -403,6 +403,34 @@ def check_admin_accounts(facts: Facts, v: Verdicts) -> None:
                "keep them to the box owner and hospital IT; desktop staff sign in with standard accounts")  # fmt: skip
 
 
+MIRRORED_BUILD = 22621  # Windows 11 22H2: the first build with WSL2's mirrored networking (box-install.ps1)
+WIN11_BUILD = 22000  # the first Windows 11 build
+
+
+def check_network_form(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-10 (D-613; owner ruling D-503): on a Windows without mirrored networking the console is forwarded to
+    WSL2 by one port-proxy row that a task keeps pointed; Windows 10's support has ended (a site risk, no refusal)."""
+    build = _int(facts.get("windows_build"))
+    if build is None:
+        return  # facts of a release before NEW-WIN-10
+    if build < WIN11_BUILD:
+        v.warn(f"Windows 10 (build {build}): Microsoft's standard support ended in October 2025; security updates "
+               "come only with Extended Security Updates (ESU), which the site arranges")  # fmt: skip
+    if build >= MIRRORED_BUILD:
+        return  # mirrored networking: the Hyper-V firewall rule of D-604, checked by the installer
+    to, task = facts.get("console_proxy_to", ""), facts.get("console_proxy_task", "")
+    problems = []
+    if not to:
+        problems.append("no port-proxy row passes port 443 to WSL2")
+    if task in ("", "missing", "Disabled"):
+        problems.append(f"the task TrialBox-Console-Proxy is {task or 'missing'}")
+    if problems:
+        v.policy(f"console forwarding (build {build}, no mirrored networking): {'; '.join(problems)}: other "
+                 "computers cannot reach the console. Start the Windows installer again")  # fmt: skip
+    else:
+        v.ok(f"console forwarding: port 443 to WSL2 at {to}, kept pointed by TrialBox-Console-Proxy ({task})")
+
+
 def check_keepalive(facts: Facts, v: Verdicts) -> None:
     name = facts.get("keepalive_task_name", "TrialBox-WSL2")
     if facts.get("keepalive_task_found") != "1":
@@ -485,6 +513,7 @@ CHECKS: tuple[Callable[[Facts, Verdicts], None], ...] = (
     check_shutdown_right,
     check_gpu_programs,
     check_admin_accounts,
+    check_network_form,
     check_keepalive,
     check_clock,
     check_vhdx,

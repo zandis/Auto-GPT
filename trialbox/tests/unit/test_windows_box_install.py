@@ -386,6 +386,26 @@ def test_boot_check_wants_docker_and_the_stack_enabled(box: Box) -> None:
     assert box.run("boot-check").returncode == 0
 
 
+def test_the_console_forwarding_task_has_one_definition_with_the_boot_tasks_sign_in() -> None:
+    """NEW-WIN-10 (D-613): on Windows 10 the forwarding script registers its own task; the installer only calls it."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    proxy = (WIN / "console-proxy.ps1").read_text(encoding="utf-8")
+    keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")
+    name = re.search(r'\$script:TbProxyTask = "([^"]+)"', ps1)
+    assert name and f'[string]$TaskName = "{name.group(1)}"' in proxy
+    assert "New-ScheduledTaskTrigger -AtStartup" in proxy and "-LogonType S4U -RunLevel Highest" in proxy
+    assert "-LogonType S4U -RunLevel Highest" in keep  # the same sign-in as the boot task: no stored password
+    assert "& $Script -Register -User $Account" in ps1
+    # it changes the console's port only, from every address of this PC, and nothing else
+    assert "listenaddress=0.0.0.0" in proxy and "portproxy" in proxy
+    assert (
+        "portproxy delete" not in proxy
+        and "portproxy reset" not in proxy
+        and "interface portproxy add v4tov6" not in proxy
+    )
+    assert proxy.isascii()
+
+
 def test_the_boot_task_has_one_definition_and_the_name_the_host_check_looks_for() -> None:
     ps1 = PS1.read_text(encoding="utf-8")
     keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")

@@ -35,9 +35,9 @@
     "zh-TW": "這次安裝是由 Windows 帳戶 {0} 開始的，您目前以 {1} 登入。請以 {0} 登入後再啟動安裝程式：TrialBox 系統屬於該帳戶。"
   },
   "edition": {
-    "en": "This Windows is edition {0}, build {1}. TrialBox needs Windows 11 Pro, Pro for Workstations, Enterprise or Education. Nothing was changed.",
-    "ja": "この Windows はエディション {0}、ビルド {1} です。TrialBox には Windows 11 Pro、Pro for Workstations、Enterprise または Education が必要です。何も変更していません。",
-    "zh-TW": "這台 Windows 的版本是 {0}，組建 {1}。TrialBox 需要 Windows 11 專業版、工作站專業版、企業版或教育版。沒有做任何變更。"
+    "en": "This Windows is edition {0}, build {1}. TrialBox needs Windows 10 22H2 or Windows 11, as Pro, Pro for Workstations, Enterprise or Education. Nothing was changed.",
+    "ja": "この Windows はエディション {0}、ビルド {1} です。TrialBox には Windows 10 22H2 または Windows 11 の Pro、Pro for Workstations、Enterprise、Education のいずれかが必要です。何も変更していません。",
+    "zh-TW": "這個 Windows 是 {0} 版，組建 {1}。TrialBox 需要 Windows 10 22H2 或 Windows 11 的 Pro、Pro for Workstations、Enterprise 或 Education 版。未做任何變更。"
   },
   "virtualisation": {
     "en": "CPU virtualisation is off. Turn on Intel VT-x or AMD-V (SVM) in the firmware (BIOS) settings of this machine, then start the installer again. Nothing was changed.",
@@ -350,9 +350,9 @@
     "zh-TW": "主控台會以這台電腦的名稱與連接埠 {0}，回應與這台電腦位於同一網路的電腦。TrialBox 的其他部分無法從網路連入。"
   },
   "windows_too_old": {
-    "en": "This Windows is build {0}. TrialBox needs build {1} or later (Windows 11 22H2): install the Windows updates, then start the installer again. Nothing was changed.",
-    "ja": "この Windows はビルド {0} です。TrialBox にはビルド {1} 以降（Windows 11 22H2）が必要です。Windows の更新プログラムをインストールしてから、もう一度インストーラーを起動してください。何も変更していません。",
-    "zh-TW": "這台 Windows 的組建是 {0}。TrialBox 需要組建 {1} 以上（Windows 11 22H2）：請安裝 Windows 更新後再啟動安裝程式。沒有做任何變更。"
+    "en": "This Windows is build {0}. TrialBox needs build {1} or later (Windows 10 22H2, or Windows 11): install the Windows updates, then start the installer again. Nothing was changed.",
+    "ja": "この Windows はビルド {0} です。TrialBox にはビルド {1} 以降（Windows 10 22H2 または Windows 11）が必要です。Windows の更新をインストールしてから、インストーラーをもう一度起動してください。何も変更していません。",
+    "zh-TW": "這個 Windows 是組建 {0}。TrialBox 需要組建 {1} 或更新版本（Windows 10 22H2 或 Windows 11）：請安裝 Windows 更新，然後再次啟動安裝程式。未做任何變更。"
   },
   "wsl_inbound_blocked": {
     "en": "Note: Windows let network traffic into WSL by default (it was set to {0}). The installer closed that for every WSL system on this PC, not only TrialBox; only the console's port is let in.",
@@ -428,5 +428,15 @@
     "en": "Drive {0}: could not be checked or marked ({1}). Is the disk plugged in and unlocked? Nothing was changed; start the installer again with -BackupDrive when it is.",
     "ja": "ドライブ {0}: を確認または登録できませんでした（{1}）。ディスクは接続され、ロックが解除されていますか。何も変更していません。準備ができたら、-BackupDrive を付けてインストーラーをもう一度起動してください。",
     "zh-TW": "無法檢查或標記磁碟機 {0}:（{1}）。磁碟是否已接上並解除鎖定？未做任何變更；準備好後，請加上 -BackupDrive 再次啟動安裝程式。"
+  },
+  "network_proxy": {
+    "en": "The console will answer on this PC's name, port {0}, to computers on the same network as this PC, when Windows counts that network as private or domain. Windows passes that one port forwarded to TrialBox inside WSL2; nothing else of TrialBox is reachable from the network.",
+    "ja": "コンソールは、この PC と同じネットワーク上のコンピューターに対して、この PC の名前とポート {0} で応答します（Windows がそのネットワークをプライベートまたはドメインとして扱っている場合）。Windows はこのポートだけを WSL2 内の TrialBox に転送します。TrialBox のそれ以外の部分にはネットワークから到達できません。",
+    "zh-TW": "主控台會以這台電腦的名稱與連接埠 {0}，回應與這台電腦位於同一網路的電腦（前提是 Windows 將該網路視為私人或網域網路）。Windows 只把這一個連接埠轉送到 WSL2 內的 TrialBox；TrialBox 的其他部分無法從網路連入。"
+  },
+  "proxy_failed": {
+    "en": "The console could not be forwarded to TrialBox inside WSL2 ({0}). Start the installer again; if this message comes again, send the installer's log.",
+    "ja": "コンソールを WSL2 内の TrialBox に転送できませんでした（{0}）。インストーラーをもう一度起動してください。同じメッセージが再び出る場合は、インストーラーのログを送ってください。",
+    "zh-TW": "無法將主控台轉送到 WSL2 內的 TrialBox（{0}）。請再次啟動安裝程式；如果再次出現此訊息，請寄送安裝程式的記錄檔。"
   }
 }
