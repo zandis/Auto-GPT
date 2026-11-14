@@ -430,6 +430,10 @@ class Evidence(BaseModel):
     """
     When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.
     """
+    coded_read: bool | None = None
+    """
+    D-653: false when the coded records behind this answer could not be read from the lake by the run that last looked (the answer stands; its values are not shown). Absent: they were read, or the answer has none.
+    """
     coded: list[CodedValue] | None = None
     """
     T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.
@@ -2082,6 +2086,10 @@ class TierSummary(BaseModel):
     high: int
     review: int
     excluded: int
+    coded_values_not_read: int | None = None
+    """
+    D-653: how many rows of this list carry coded_values 'not read'. Absent: none.
+    """
 
 
 class TrialSimStep(BaseModel):
@@ -2873,6 +2881,10 @@ class CandidateRow(BaseModel):
     changed: list[str] | None = None
     """
     microbatch: criterion ids whose verdict changed
+    """
+    coded_values: Literal["not read"] | None = None
+    """
+    D-653: 'not read' when the values behind one or more of this row's coded answers could not be read from the lake by the run that last looked at the row (a carried row keeps it until a run reads the row again). Absent: read.
     """
 
 

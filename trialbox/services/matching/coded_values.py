@@ -124,7 +124,9 @@ def attach(
     """Put the coded values on every coded answer of ``verdicts`` (``{pid: [CriterionVerdict]}``, changed in place).
     Returns how many answers got one. Two lake reads for the whole run. A failing read changes nothing and returns
     None (D-652): the answers stand with no ``coded`` on them, which claims nothing, and the caller says in its
-    output that the values were not read. Never an empty ``coded``: that says the run looked and found no record."""
+    output that the values were not read. Never an empty ``coded``: that says the run looked and found no record.
+    D-653: each answer whose values would have been read is marked ``evidence.coded_read: false``; a later read
+    that is made takes the mark away."""
     by_id = {c.id: c for c in criteria}
     want: dict[str, set[str]] = {}
     people: set[str] = set()
@@ -146,6 +148,13 @@ def attach(
             pats = {str(r["pid"]): r for r in lake.query(PATIENTS, [sorted(people)], snapshot).to_pylist()}
     except Exception as exc:  # display only: an older snapshot without a table, a lake that is down; the answers stand
         log.error("the coded values were not read from the lake (%s)", type(exc).__name__)
+        # D-653: each answer whose values would have been read says so itself, so it is true of the row wherever
+        # the row goes next (the pool, a later run's list)
+        for vs in verdicts.values():
+            for i, v in enumerate(vs):
+                person = v.verdict in ("pass", "fail") and any(_demographic(by_id.get(v.id)))
+                if _wanted(v) or person:
+                    vs[i] = _unread(v, True)
         return None
     found: dict[str, list[CodedValue]] = {}
     for (_, rid), cv in rows.items():
@@ -153,6 +162,8 @@ def attach(
     n = 0
     for pid, vs in verdicts.items():
         for i, v in enumerate(vs):
+            if unread(v):  # read now: an answer a failed read had marked no longer says "not read" (D-653)
+                v = vs[i] = _unread(v, False)
             c = by_id.get(v.id)
             doms: set[str] = {a.domain for a in atoms(c.logic if c is not None else None)} or set(DOMAINS)
             shown: list[CodedValue] = []
@@ -171,6 +182,21 @@ def attach(
                 vs[i] = _with(v, shown)
                 n += 1
     return n
+
+
+def unread(v: CriterionVerdict) -> bool:
+    """The values behind this answer could not be read by the run that last looked (D-653)."""
+    return v.evidence is not None and v.evidence.coded_read is False
+
+
+def mark_unread(v: CriterionVerdict) -> CriterionVerdict:
+    """``v`` saying that the values behind it could not be read (D-653)."""
+    return _unread(v, True)
+
+
+def _unread(v: CriterionVerdict, yes: bool) -> CriterionVerdict:
+    ev = v.evidence or Evidence(resource_refs=[])
+    return v.model_copy(update={"evidence": ev.model_copy(update={"coded_read": False if yes else None})})
 
 
 def _with(v: CriterionVerdict, coded: list[CodedValue]) -> CriterionVerdict:
