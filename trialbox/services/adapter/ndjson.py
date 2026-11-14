@@ -15,6 +15,7 @@ import heapq
 import io
 import json
 import os
+import re
 import shutil
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
@@ -57,6 +58,73 @@ def is_deleted_flag(value: object) -> bool:
 
 def _canon(r: Resource) -> str:
     return json.dumps(r, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+_REFERENCE = re.compile(r"^Patient/(.+)$")
+_QUOTED_REFERENCE = re.compile(r'"Patient/([^"\\]+)"')  # in a canonical line: a quick test before it is read
+
+
+def alias_references(node: Any, aliases: Mapping[str, str]) -> int:
+    """T-659b (D-370): every ``reference`` ``Patient/<old>`` of a merged chart becomes ``Patient/<surviving>``, in
+    place. Returns how many were changed. One rule for the night's records and the records a delta night carries
+    over (NEW-B-36, D-677)."""
+    n = 0
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "reference" and isinstance(v, str) and (m := _REFERENCE.match(v)) and m.group(1) in aliases:
+                node[k] = f"Patient/{aliases[m.group(1)]}"
+                n += 1
+            else:
+                n += alias_references(v, aliases)
+    elif isinstance(node, list):
+        for x in node:
+            n += alias_references(x, aliases)
+    return n
+
+
+def alias_patient(r: Resource, new: str, aliases: Mapping[str, str]) -> None:
+    """A merged chart's Patient written as the surviving one (T-659b): its id, and an identifier that holds a
+    merged pid."""
+    r["id"] = new
+    for ident in r.get("identifier") or []:
+        if isinstance(ident, dict) and str(ident.get("value")) in aliases:
+            ident["value"] = new
+
+
+def _carried_over(
+    old: Iterable[_Item], rtype: str, aliases: Mapping[str, str], moved: dict[str, int] | None
+) -> Iterator[_Item]:
+    """NEW-B-36 (D-677; review DATA-006): the previous snapshot's records as a delta night carries them over, with
+    the chart merges applied, as tonight's records get them: a reference to a merged patient names the surviving
+    one. A merged chart's own Patient is left out here (:func:`_merged_patients` gives it under the surviving id).
+    Only a line that names a merged pid is read and written again; every other line passes as it is."""
+    for rid, seq, body in old:
+        if rtype == "Patient" and rid in aliases:
+            continue
+        if any(m.group(1) in aliases for m in _QUOTED_REFERENCE.finditer(body)):
+            r = json.loads(body)
+            if alias_references(r, aliases):
+                body = _canon(r)
+                if moved is not None:
+                    moved[rtype] = moved.get(rtype, 0) + 1
+        yield rid, seq, body
+
+
+def _merged_patients(base: Path, aliases: Mapping[str, str], moved: dict[str, int] | None) -> list[_Item]:
+    """The previous snapshot's Patients of a merged chart, each under its surviving id, sorted, placed before every
+    other record of that id: the surviving patient's own record, from the previous snapshot or tonight, wins over
+    it (T-659b: the merged chart's Patient is dropped when the surviving one is there, else it takes its id)."""
+    out: list[_Item] = []
+    for n, r in enumerate(read_type(base, "Patient")):
+        new = aliases.get(str(r.get("id")))
+        if new is None:
+            continue
+        alias_patient(r, new, aliases)
+        alias_references(r, aliases)
+        out.append((new, n - 2**63, _canon(r)))
+        if moved is not None:
+            moved["Patient"] = moved.get("Patient", 0) + 1
+    return sorted(out)
 
 
 def _memory_cap() -> int:
@@ -187,6 +255,8 @@ def write_snapshot(
     run_bytes: int | None = None,
     left_out: Mapping[str, Iterable[str]] | None = None,
     removed: dict[str, int] | None = None,
+    aliases: Mapping[str, str] | None = None,
+    moved: dict[str, int] | None = None,
 ) -> dict[str, int]:
     """Write all resource types; with ``base`` (previous snapshot) resources are merged by id.
 
@@ -202,7 +272,11 @@ def write_snapshot(
     T-692 (D-473): in streams. ``by_type`` may be a :class:`Spool`; the night's records are sorted in runs of at most
     ``run_bytes`` (:func:`sort_run_bytes`) and merged with the previous snapshot's file, which is read line by line
     (it is sorted by id: this function wrote it). ``transform`` sees each record of the night once, in the order it
-    was sent, before it is sorted; it may change it in place, and returns False to leave it out."""
+    was sent, before it is sorted; it may change it in place, and returns False to leave it out.
+
+    ``aliases`` (old pid -> surviving pid, NEW-B-36, D-677): the chart merges, applied to the records carried over
+    from ``base`` as ``transform`` applies them to the night's; ``moved`` counts, per type, the carried-over records
+    they changed."""
     directory.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
     dead = {t: set(ids) for t, ids in (tombstones or {}).items()}
@@ -232,11 +306,16 @@ def write_snapshot(
             left = [0]
             try:
                 n, gone = _write_type(
-                    directory, rtype, night, base if has_base else None, dead, True, budget, work, out.get(rtype), left
-                )
+                    directory, rtype, night, base if has_base else None, dead, True, budget, work, out.get(rtype), left,
+                    aliases, moved,
+                )  # fmt: skip
             except _Unsorted:
                 left[0] = 0
-                n, gone = _write_type(directory, rtype, night, base, dead, False, budget, work, out.get(rtype), left)
+                if moved is not None:
+                    moved.pop(rtype, None)
+                n, gone = _write_type(
+                    directory, rtype, night, base, dead, False, budget, work, out.get(rtype), left, aliases, moved
+                )
         finally:
             shutil.rmtree(work, ignore_errors=True)
             night.unlink(missing_ok=True)
@@ -264,6 +343,8 @@ def _write_type(
     work: Path,
     left_out: set[str] | None = None,
     left: list[int] | None = None,
+    aliases: Mapping[str, str] | None = None,
+    moved: dict[str, int] | None = None,
 ) -> tuple[int, list[str]]:
     """One type: the previous snapshot's records and the night's, by id; per id the night's last record, else the
     previous snapshot's last one unless the source deleted it. Returns (records written, ids dropped).
@@ -278,6 +359,10 @@ def _write_type(
             if base_sorted
             else _sorted(_base_lines(base, rtype, check=False), budget, work / "base")
         )
+        if aliases:
+            old = _carried_over(old, rtype, aliases, moved)
+            if rtype == "Patient":
+                old = heapq.merge(_merged_patients(base, aliases, moved), old)
     killed = dead.get(rtype, set())
     gone: list[str] = []
     n = 0
