@@ -46,6 +46,7 @@ def test_default_install_passes() -> None:
         "channel_engine",
         "secure_cookie",
         "console_mfa",
+        "ldap_ca",  # D-722
         "publish_gate",
         "note_block",
         "judge_route",
