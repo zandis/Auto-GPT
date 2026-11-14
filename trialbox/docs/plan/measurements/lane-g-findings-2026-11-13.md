@@ -1,6 +1,7 @@
 # Lane G findings of 2026-11-13, for the integrator
 
-Synthetic data only. Three paid runs on one RTX PRO 6000 VM (spot), about US$7 in all:
+Synthetic data, and from run `20261114T061459Z` public data (MedTxt-CR, CC BY 4.0, Sociocom, NAIST; TREC CT,
+NIST). Three paid runs on one RTX PRO 6000 VM (spot), about US$7 in all:
 
 | Run | Commit | What | Folder |
 | --- | --- | --- | --- |
@@ -10,7 +11,9 @@ Synthetic data only. Three paid runs on one RTX PRO 6000 VM (spot), about US$7 i
 
 Later runs: the 50,000-patient run (section 2) and `20261113T231557Z-0e9be8a5` (0e9be8a5, D-645 in: G-5 and G-8;
 0.8 VM hours, about US$2.19 at the spot price; folder `g5-g8-2026-11-14/`) and `20261114T014216Z-cb850470`
-(cb850470, B13 fixed: G-8 only; VM up 01:42 to 01:54 UTC, about 0.2 VM hours, about US$0.55; folder `g8-2026-11-14/`).
+(cb850470, B13 fixed: G-8 only; VM up 01:42 to 01:54 UTC, about 0.2 VM hours, about US$0.55; folder `g8-2026-11-14/`)
+and `20261114T061459Z-02858674` (02858674, master after train 14 and lane G: the public data with the real pair;
+2026-11-14, 06:16 to 08:16 UTC, 2.0 VM hours spot, about US$5.48; folder `public-2026-11-14/`; section 7).
 
 ## 1. Product findings
 
@@ -128,6 +131,77 @@ the criteria-compiler lane.
   pins that (`test_g8_records_a_protocol_that_does_not_compile_and_measures_the_other`). The run kept no raw model
   answer, so which CDR line named the concept is not recorded.
 
+### P6. MedTxt-CR: the "negated" conditions shown are past, treated disease; the check counts them (owner of `tools/scenarios.py`)
+
+Run `20261114T061459Z`, part `scenario-public-medtxt`: 432 conditions proposed from 148 case reports; 8 rest on a
+mention the corpus tags negative (the check wants 0). The part keeps five of the eight; all five are disease the
+patient had and was treated for: `右乳癌術後（４年前）`, `食道癌根治術施行`, `７年前に胸腺癌手術`, `５年前に下肢静脈瘤手術`,
+`上行結腸早期癌ＥＭＲ`.
+
+- **The corpus's convention.** In the MedTxt-CR markup each of these mentions is tagged `certainty="negative"` and is
+  followed by an executed procedure (`<r state="executed">手術</r>`, `根治術`, `ＥＭＲ`) or `術後`: MedTxt tags a disease
+  that is no longer present as negative, not only one the text denies. Of the 195 negative mentions in the 148
+  reports, 63 have such a treated context, 90 a stated absence after them (one has both) and 43 neither (lane G's
+  reading of the markup, `tools/complete_run.py` `medtxt_negative_kinds`).
+- **The product's rule.** The chart reader's prompt asks for "a diagnosis the chart says the patient has or had"
+  (`libs/tb_llm/prompts/chart_facts_v2.md`): a resected cancer is a "had", so these five are the facts it is asked
+  for. For them the check is wrong, not the product: it counts a labelling convention as a negation.
+- **PR #572** (SCR-04 negation, D-657, not on this commit) drops a condition only on a negation cue in its own clause;
+  none of the five quotes has one, so #572 keeps them and the check would still fail on them. #573 (family history)
+  does not touch them either.
+- **Open, and product.** A condition fact has no field for "had, treated" against "has now" (the fact columns in
+  `services/sitesetup/store.py`: term, code, value, unit, day, status, quote; `day` is the date as written). A
+  criterion such as "active malignancy" against "history of malignancy within 5 years" needs it. Not shown to be a
+  defect by this run; a question for lane A2 (the SCR-04 cards) and lane E.
+- **Not known.** The other three of the eight: the part kept five examples. They may be real denials, the case #572
+  is for. The next run keeps every condition with its class and the context of its negative mention (section 7).
+- MT-01 (11 conditions on a suspected mention) is the review's known finding, reported, unchanged.
+- Evidence: `public-2026-11-14/scenario-public-medtxt.json`; the markup of the MedTxt-CR training file (in `.cache`,
+  never committed).
+
+### P7. TREC CT: 12 of 50 eligible pairs lost is the validation's own figure for these pairs; the check's 3.1 % is not comparable (owner of `tools/scenarios.py`, lane A)
+
+Run `20261114T061459Z`, part `scenario-public-trec`: 12 of 50 eligible pairs lost (the check allows 10 %, citing
+"VALIDATION §3: 3.1 % on the deployed files"), 23 of 50 excluded pairs caught.
+
+- **What the scenario measures.** The first 50 eligible and the first 50 excluded pairs of `trec_ct_eval.dataset()`
+  (N-12's seeded sample; all 100 from 2021), every criterion of each trial (1,256) to both models straight on the card
+  with N-12's prompt (`tools/mlbench.py`: `response_format` json_object, temperature 0); a criterion blocks when both
+  models block it, a pair is lost when one of its criteria blocks. No age or sex filter first.
+- **What 3.1 % is.** N-12's audit-adjusted projection (`eval/trec_ct/results/n12_deployed_2026-11-08.md`): the
+  per-criterion false block (1.97 %) projected by `tools.hospital_sim project` with the structured filters first and
+  42 % of criteria reaching the model, then adjusted by a sampled check of NIST labels by Claude. VALIDATION §3 gives
+  the gate figure as the unadjusted projection, 9.4 % (fails 5 %, D-343). Neither is a pair rate with every criterion
+  sent to the models.
+- **The comparable figure.** N-12's raw pair-level score of the deployed pair (`eval/trec_ct/results/scores.json`,
+  `both_must_block`): 209 of 1,200 eligible pairs lost (17.4 %), 254 of 500 excluded caught (50.8 %). On exactly the
+  scenario's 100 pairs, the answers N-12 recorded on 2026-11-08 (`eval/trec_ct/results/raw/local__*.jsonl.gz`) give
+  **12 of 50 lost and 21 of 50 caught**. The run gives 12 and 23. The run reproduces the validation; 23 of 50 caught
+  is as expected.
+- **The losses** (from the recorded answers; the run kept no per-criterion answer): 5 inclusion and 7 exclusion
+  criteria. Two are age lines ("4-21 years of age", "75 years old") that the box's S1 age filter decides before any
+  model; one is a negated exclusion ("No evidence of pituitary adenoma on MRI"), the pattern of the `negation` variant
+  in `tools/trec_ct_eval.py`; the rest need the qrels audit (`eval/trec_ct/AUDIT.md`). Whether the run's twelve are
+  the same twelve is not known; the next run keeps each criterion (section 7).
+- **So.** Not a new product defect: the product finding behind it is N-12 (the gate fails, D-343, lane A). The check
+  must compare like with like: the raw pair rate of its own sample from the recorded answers (12 of 50), or apply the
+  S1 filter first as N-12's projection does. Lane A gives the figure; the owner of `tools/scenarios.py` changes the
+  check.
+
+### P8. TREC CT: 7 criteria unanswered are answers outside the criterion's labels, at the validation's rate (owner of `tools/scenarios.py`; lane D for P3)
+
+- **What counts.** `mlbench.judge`'s `error`: an HTTP failure after retries, JSON that does not parse, or a label not
+  in the criterion type's list (`bad label: ...`). Not a time-out: each server answered 1,256 requests (its
+  `/metrics`) and the client waits 600 s. An unanswered criterion never blocks, so it cannot lose a pair.
+- **The recorded answers.** On the scenario's 100 pairs N-12 has 3 unanswered, all the verifier's: twice "not
+  excluded" given for an inclusion criterion, once JSON that does not parse. Over N-12 the verifier has 55 of 20,096
+  (36 "not excluded" and 3 "excluded" for an inclusion criterion, 16 unparseable), the judge none. At that rate 2,512
+  answers give about 3 to 4; the run gave 7. Which model gave them is not known (kept from the next run).
+- **P3?** The same kind of symptom, not the same path: this evaluation path asks for a JSON object with no schema, so it
+  does not test the box's guided decoding. The check's zero tolerance fails at the validation's own rate; the owner
+  of `tools/scenarios.py` should state a tolerance. Whether the box's verifier schema allows a label of the other
+  criterion type is a question for lane D with P3.
+
 ## 2. Throughput (G-3), main SCREEN only
 
 | Calls in flight | ja calls/s | zh-TW calls/s |
@@ -183,6 +257,10 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 | B11 | a bucket name left in the VM's metadata by an earlier run was read by a later door-mode run | fixed, with a test |
 | B12 | a Node.js download cut short was kept on the disk and broke the next set-up | fixed: fetched again, with a test |
 | B13 | G-8 compiled the public protocols with the run's model client, which calls the gateway as the orchestrator; the orchestrator may not use `extract_criteria`, so in run `20261113T231557Z` both protocols ended `CompileFailed: ir_extract: ... gateway refused ir_extract: role_not_allowed` | fixed, with a test: G-8 calls as `criteria-compiler` with that service's token, as the box's compiler does; the gateway policy is unchanged |
+| B15 | the run metrics recorded 0 model calls for both public scenarios: the MedTxt-CR scenario's box writes the gateway's audit in its own work folder, the TREC CT scenario calls the servers straight, and the part read only `gw-audit-scenario` after removing the work folder | fixed, with a test: the part reads both before the folder goes; the throughput names the direct source |
+| B16 | the results reader wrote "Synthetic data only" for a run on public data | fixed, with a test: it names each public set, its licence and who to credit |
+| B17 | the estimate of the public scenarios was 1,371 s and 1,143 s; they took 2,806.7 s and 2,709.7 s (each asks one call at a time: the "in flight" of their row is the setting, not what they used) | fixed, with a test: the estimate reads the measured parts |
+| B18 | a part started without `--live-record` failed reading the serving record (`test_a_part_without_its_data_fails_at_once_and_says_so` failed since batch 6) | fixed |
 
 ## 4. Asked of other lanes
 
@@ -191,6 +269,11 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 3. Lane D: `tools/e2e_simple.py` `Stage.check` cuts check detail at 300 characters.
 4. Lane D: name the structured-output backend in the serving record and look at P3.
 5. The criteria-compiler lane: B14 (an undefined value set fails the whole protocol instead of one criterion).
+6. The owner of `tools/scenarios.py` (lane D by the plan's table; built by TB-PLAN-04 step 9): the MedTxt-CR check
+   counts treated, past disease as negation (P6); the TREC CT check compares a raw pair rate with an adjusted
+   projection (P7) and allows no unanswered criterion (P8).
+7. Lane A: the TREC CT scenario's expected figure for its sample in VALIDATION §3 (P7); with lane E, whether a
+   condition fact must say "had" or "has" (P6).
 
 ## 5. G-8: public protocols compiled with the production judge
 
@@ -227,3 +310,33 @@ The run matrix is D-502 (`docs/decisions/D-502-every-data-set-is-run-with-the-re
 every data set, three languages, real models; lane G builds it from the replies in issue #579 and measures it
 after the screening-answer fixes (#567, #570, #572, #573, #576) and B14 are on master. Every launch needs the
 owner's yes on its estimate.
+
+## 7. The public data with the real pair (run `20261114T061459Z-02858674`)
+
+02858674 (master after train 14 and lane G). 2026-11-14, 06:16 to 08:16 UTC; 2.0 VM hours spot, about US$5.48 (the
+estimate was 1.92 h, the cap 3 h). 262 of 265 checks; folder `public-2026-11-14/`.
+
+| Part | Checks | What |
+| --- | --- | --- |
+| `public-ja` | 130/130 | 268 real-note patients, 90 listed; 525 model calls, 0 refused; 4 disagreements, 0 judging failures |
+| `public-zh-TW` | 130/130 | 268 patients, 90 listed; 517 calls, 0 refused; 4 disagreements, 1 judging failure |
+| `scenario-public-medtxt` | 2/3 | 148 reports, 432 conditions; 8 on a negative mention (P6); 11 on a suspected one (MT-01) |
+| `scenario-public-trec` | 0/2 | 100 pairs, 1,256 criteria; 7 unanswered (P8); 12 of 50 eligible lost, 23 of 50 excluded caught (P7) |
+
+The throughput table shows 0 calls for the two scenario parts: B15. The servers' own counters show the calls
+(MedTxt-CR: judge 203, verifier 54, with the canary; TREC CT: 1,256 each), one at a time.
+
+What the next run must keep to settle the open questions (built in lane G batch 6 after this run, with tests; public
+data only, kept in the run's `results.tgz`, never committed):
+
+1. Each public scenario's cases in `parts/scenario-<name>/answers.jsonl.gz` (`tb-scenario-cases/1`) and a summary in
+   the part's result (`cases`). TREC CT: each criterion's label per model, `block`, which criteria lost an eligible
+   pair and why a criterion is unanswered, per model (P7, P8). MedTxt-CR: every proposed condition with its class,
+   the corpus's negative mention in its quote and that mention's context (treated, denied, other), not five examples
+   (P6).
+2. The scenario parts' calls, from their own audit and their calls straight to the card (B15).
+3. To settle P7: compare the run's TREC answers criterion by criterion with N-12's recorded answers for the same 100
+   pairs (no card time). To settle P6: after #572 and #573, the conditions on a negative mention split by context; a
+   treated one is not a negation error.
+4. Still open: the time-out watch (OPS13-11) reads the part's `gw-audit-scenario`, not a scenario's own audit, so a
+   scenario's gateway time-outs are not sampled.
