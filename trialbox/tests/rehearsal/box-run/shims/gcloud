@@ -1,16 +1,19 @@
 #!/bin/bash
 # Box-run rehearsal shim for gcloud on the "VM": only what the VM's own service account does in box-install-run.sh.
-#   gcloud secrets versions access VERSION --secret=NAME   from $BR_S/secrets/NAME/VERSION
+#   gcloud secrets versions access VERSION --secret=NAME [--out-file=F]   from $BR_S/secrets/NAME/VERSION
 #   gcloud storage cp SRC DST                              gs://<bucket>/<path> is $BR_S/bucket/<bucket>/<path>
-# Anything else fails and is logged, so a new cloud call (above all one that starts or stops a VM) is noticed here.
-echo "$1 $2 $3" >> "$BR_S/vm-gcloud.log"   # never the arguments' values
+# Anything else fails and is logged (NOT-REHEARSED), so a new cloud call (above all one that starts or stops a VM) is
+# noticed here. The log has the command and the secret's NAME, never a value.
 gs() { case "$1" in gs://*) echo "$BR_S/bucket/${1#gs://}" ;; *) echo "$1" ;; esac; }
 case "$1 $2 $3" in
   "secrets versions access")
-    name=""; for a in "$@"; do case "$a" in --secret=*) name=${a#--secret=} ;; esac; done
+    name=""; out=""
+    for a in "$@"; do case "$a" in --secret=*) name=${a#--secret=} ;; --out-file=*) out=${a#--out-file=} ;; esac; done
+    echo "secrets versions access $name" >> "$BR_S/vm-gcloud.log"
     [ -f "$BR_S/secrets/$name/$4" ] || { echo "ERROR: NOT_FOUND: $name version $4" >&2; exit 1; }
-    cat "$BR_S/secrets/$name/$4" ;;
+    if [ -n "$out" ]; then cat "$BR_S/secrets/$name/$4" > "$out"; else cat "$BR_S/secrets/$name/$4"; fi ;;
   "storage cp "*)
+    echo "storage cp" >> "$BR_S/vm-gcloud.log"
     src=$(gs "$3"); dst=$(gs "${!#}")
     [ -f "$src" ] || { echo "ERROR: $3 not found" >&2; exit 1; }
     mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;

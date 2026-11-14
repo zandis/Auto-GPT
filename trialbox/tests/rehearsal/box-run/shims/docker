@@ -1,22 +1,23 @@
 #!/bin/bash
-# Box-run rehearsal shim for docker on the "VM": only what box-install-run.sh itself asks of docker.
-#   docker inspect --format '{{.State.Pid}}' NAME     a live process of the "VM" (its resident memory is real, small)
-#   docker inspect --format '{{.Config.Image}}' NAME  the image of $BR_S/knobs/vllm-image
-#   docker restart NAME    the stand-in box is unhealthy for a moment, and the stand-in screen repeats its calls in
-#                          flight (standins/tool.py interrupt); written to $BR_S/calls.log
-#   docker info            a daemon
+# Box-run rehearsal shim for docker on the "VM". The installed box's containers are not here: compose ps / exec /
+# restart / stop / start and the feed's `docker run` go to standins/box.py (the box stand-in; the paid run: the box's
+# real containers). `docker inspect` answers for the stand-in's containers (cid-<service>): the State.Pid is a live
+# process of the "VM" (its resident memory is real, small), the image is $BR_S/knobs/vllm-image.
+# `docker image inspect` gives the RepoDigests images.lock pins; `Config.Cmd` the shipped judge's flags.
 # Anything else fails: a new docker call of the script is noticed here first.
 case "$1" in
   info) echo "Server Version: box-run rehearsal"; exit 0 ;;
+  compose|run) exec python3 "$BR_HERE/standins/box.py" "$@" ;;
+  image)   # image inspect --format '{{json .RepoDigests}}' REF: the digest images.lock pins (knob image-differs: another)
+    if [ -f "$BR_S/knobs/image-differs" ]; then echo '["vllm/vllm-openai@sha256:'"$(printf '%064d' 1)"'"]'
+    else python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(["vllm/vllm-openai@" + d["third_party"]["vllm"]["digest"]]))' "$BR_S/box-root/deploy/images.lock"; fi ;;
   inspect)
-    [ -f "$BR_S/box/wizard-done" ] || { echo "Error: No such object: ${!#}" >&2; exit 1; }
+    case "${!#}" in cid-*) ;; *) echo "Error: No such object: ${!#}" >&2; exit 1 ;; esac
     case "$3" in
       *State.Pid*) cat "$BR_S/vm.pgid" ;;
       *Config.Image*) cat "$BR_S/knobs/vllm-image" ;;
+      *Config.Cmd*) printf '["--model", "/models/judge", "--chat-template", "/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja", "--max-num-seqs", "16"]\n' ;;
       *) exit 1 ;;
     esac ;;
-  restart)
-    echo "docker-restart $2" >> "$BR_S/calls.log"
-    python3 "$BR_HERE/standins/tool.py" interrupt; echo "$2" ;;
   *) echo "box-run rehearsal docker: not rehearsed: $1" >&2; exit 1 ;;
 esac
