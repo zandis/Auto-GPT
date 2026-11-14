@@ -8,6 +8,9 @@ Synthetic data only. Three paid runs on one RTX PRO 6000 VM (spot), about US$7 i
 | `20261113T072836Z-70087268` | 70087268 | G-7, G-4: failed at set-up after 11 minutes (finding B6) | none: no results |
 | `20261113T081311Z-c25cea6b` | c25cea6b (master 96f955f0, trains 4 and 5 in) | G-7 and G-4 again | `g7-2026-11-13/` |
 
+Later runs: the 50,000-patient run (section 2) and `20261113T231557Z-0e9be8a5` (0e9be8a5, D-645 in: G-5 and G-8;
+0.8 VM hours, about US$2.19 at the spot price; folder `g5-g8-2026-11-14/`).
+
 ## 1. Product findings
 
 ### P1. LLM-001 on real models: a clipped note excluded a patient (before D-479 and D-641); gone on master
@@ -25,9 +28,26 @@ Synthetic data only. Three paid runs on one RTX PRO 6000 VM (spot), about US$7 i
 - **Limit of this evidence.** Two synthetic notes, one run each.
 - Evidence: `g3-2026-11-13/parts/g7-clipped.json` and `g7-2026-11-13/parts/g7-clipped.json`, block `clipped.cases`.
 
-### P2. The token estimate runs low for zh-TW (lane D: the budget's SAFETY)
+### P2. The token estimate ran low for zh-TW (lane D: the budget's SAFETY); resolved on master with D-645
 
-Real tokens (the judge server's `/tokenize`) divided by the product's estimate, 200 synthetic excerpts per language.
+**Resolved.** On 0e9be8a5 (D-645: G-5 measures the product's current token estimate), run
+`20261113T231557Z-0e9be8a5` gives a worst real / estimated ratio of 0.9143 for ja, 0.9355 for zh-TW and 0.9888 for
+en (the budget's estimator). The worst, 0.9888, times the probe's 5 % margin is 1.038, which fits 1 / SAFETY =
+1.176: SAFETY may stay 0.85. All 200 excerpts of each language were counted.
+
+| Language | Estimator | n | p50 | p95 | max |
+| --- | --- | --- | --- | --- | --- |
+| ja | budget | 200 | 0.7273 | 0.8000 | 0.9143 |
+| ja | prompt | 200 | 0.9018 | 0.9622 | 0.9743 |
+| zh-TW | budget | 200 | 0.8317 | 0.8972 | 0.9355 |
+| zh-TW | prompt | 200 | 0.9392 | 0.9707 | 0.9792 |
+| en | budget | 200 | 0.8429 | 0.9208 | 0.9888 |
+| en | prompt | 200 | 0.9494 | 0.9716 | 0.9819 |
+
+The cascade's estimator gives the same figures as the budget's in every row. Evidence:
+`g5-g8-2026-11-14/g5-tokens.json`, block `tokens.per_language`, and `g5-g8-2026-11-14/report.md`.
+
+**Before D-645** (run `20261113T044219Z`). Real tokens (the judge server's `/tokenize`) divided by the product's estimate, 200 synthetic excerpts per language.
 SAFETY is 0.85, so the budget allows a ratio of 1 / 0.85 = 1.176; with the probe's 5 % margin the worst ratio fits
 only if SAFETY is 0.7857 or lower.
 
@@ -116,10 +136,11 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 | B6 | `playwright install --with-deps` ran apt without the dpkg lock wait; run `20261113T072836Z` ended at TB-SETUP-FAILED | fixed, with a test |
 | B7 | in bucket mode the VM stayed up about five minutes after the last collect, until `--stop` | fixed: the VM powers off after its last upload went through; rehearsed |
 | B8 | the results reader took its rates from the whole part, not the main SCREEN | fixed, with a test |
-| B9 | G-5 does not measure English | built (synthetic English notes); not yet run on the GPU |
+| B9 | G-5 does not measure English | fixed: English measured in run `20261113T231557Z` (P2) |
 | B10 | the estimate for a 50,000-patient part was 3.8 times the measured time | fixed: the estimate reads the measured parts of both runs and names them |
 | B11 | a bucket name left in the VM's metadata by an earlier run was read by a later door-mode run | fixed, with a test |
 | B12 | a Node.js download cut short was kept on the disk and broke the next set-up | fixed: fetched again, with a test |
+| B13 | G-8 compiled the public protocols with the run's model client, which calls the gateway as the orchestrator; the orchestrator may not use `extract_criteria`, so in run `20261113T231557Z` both protocols ended `CompileFailed: ir_extract: ... gateway refused ir_extract: role_not_allowed` | fixed, with a test: G-8 calls as `criteria-compiler` with that service's token, as the box's compiler does; the gateway policy is unchanged |
 
 ## 4. Asked of other lanes
 
@@ -127,3 +148,9 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 2. Lane D: the gateway's audit records each call's slot wait.
 3. Lane D: `tools/e2e_simple.py` `Stage.check` cuts check detail at 300 characters.
 4. Lane D: name the structured-output backend in the serving record and look at P3.
+
+## 5. Not yet measured
+
+G-8 (public protocols compiled with the production judge) has no measurement: its only run so far,
+`20261113T231557Z-0e9be8a5`, was refused by the gateway (B13), so its three checks failed without a model answer.
+It needs one short run after the B13 fix (`complete_run.py --only g8-protocols`).

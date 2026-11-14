@@ -1,0 +1,128 @@
+{
+ "stages": [
+  {
+   "name": "G-8 public protocols compiled with the production judge",
+   "ok": false,
+   "seconds": 1.8,
+   "checks": [
+    [
+     "2 protocol(s) compiled with the production judge",
+     false,
+     [
+      "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again",
+      "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again"
+     ]
+    ],
+    [
+     "no extension-phase line active without a warning",
+     false,
+     {}
+    ],
+    [
+     "alternative diagnosis groups not flattened to AND",
+     false,
+     {}
+    ]
+   ],
+   "shot": "g8-protocols.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "protocols": {
+  "folder": "/var/lib/tb/src/trialbox/tests/fixtures/public_protocols",
+  "protocols": [
+   {
+    "file": "NCT02629159.json",
+    "id": "NCT02629159",
+    "error": "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again"
+   },
+   {
+    "file": "NCT03887455.json",
+    "id": "NCT03887455",
+    "error": "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again"
+   }
+  ]
+ },
+ "run": {
+  "id": "20261113T231557Z-0e9be8a5-s1",
+  "head": "0e9be8a5f27c7a512a68e4fd270c779e80682a15",
+  "subject": "Lane G: G-5 measures the product's current token estimate (D-645)",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 16,
+ "metrics": {
+  "sampled": true,
+  "seconds": 2.1,
+  "folder": "parts/g8-protocols",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   }
+  },
+  "gpu": {
+   "samples": 2,
+   "every_s": 10.0,
+   "util_mean_pct": 0.0,
+   "util_max_pct": 0.0,
+   "memory_peak_mib": 62576.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 36.0,
+   "power_max_w": 89.85
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   },
+   "verifier": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   }
+  }
+ },
+ "refusals": {
+  "asked": 2,
+  "refused": 2,
+  "by_reason": {
+   "role_not_allowed": 2
+  },
+  "by_role": {
+   "extract_criteria": 2
+  }
+ },
+ "wall_seconds": 2.1,
+ "started_at": "2026-11-13T23:22:49+00:00",
+ "finished_at": "2026-11-13T23:22:52+00:00"
+}
