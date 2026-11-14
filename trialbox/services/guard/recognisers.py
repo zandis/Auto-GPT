@@ -103,7 +103,7 @@ PHONE_JP = re.compile(
     r"|0[789]0[-\s]?\d{4}[-\s]?\d{4}"
     r"|0\d{1,4}-\d{1,4}-\d{4})(?!\d)"
 )
-EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+EMAIL = phi_guard.EMAIL  # D-745: the masker reads the same form
 PASSPORT_JP = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{7}(?![0-9])")
 PASSPORT_CTX = re.compile(
     r"(?:護照(?:號碼|号码|號)?|旅券(?:番号)?|パスポート(?:番号)?|(?i:passport)(?:\s*(?:no\.?|number|#))?)"
