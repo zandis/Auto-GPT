@@ -38,7 +38,7 @@ def _put(box: Any, key: str, age_days: int) -> None:
     os.utime(box.store.root / key, (t, t))
 
 
-def _job(box: Any, jid: str, type_: str, ruleset: str) -> None:
+def _job(box: Any, jid: str, type_: Any, ruleset: str) -> None:
     from tb_contracts import Job
 
     box.orch.db.put(Job(job_id=jid, type=type_, ruleset=ruleset, requested_by="crc@hospa.test",
@@ -75,7 +75,9 @@ def test_a_study_that_is_not_closed_keeps_its_old_files(tmp_path: Path, state: s
     _put(box, f"outputs/{JID}/candidate_list.xlsx", 400)
     _put(box, "attachments/J-PILOT/request.pdf", 120)  # of no study: its age applies
     report = _retention(box)
-    assert box.store.exists(f"attachments/{JID}/protocol.pdf") and box.store.exists(f"outputs/{JID}/candidate_list.xlsx")
+    assert box.store.exists(f"attachments/{JID}/protocol.pdf") and box.store.exists(
+        f"outputs/{JID}/candidate_list.xlsx"
+    )
     assert not box.store.exists("attachments/J-PILOT/request.pdf")
     assert report["held_for_running_studies"] == 2
 
