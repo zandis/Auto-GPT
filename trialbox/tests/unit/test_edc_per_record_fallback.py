@@ -208,7 +208,12 @@ def test_a_partly_refused_send_is_not_audited_as_a_refused_send(
     _lock_record_1(monkeypatch)
     seen: list[dict[str, Any]] = []
     real = svc._audit
-    monkeypatch.setattr(svc, "_audit", lambda ev, rs, by, detail: (seen.append(detail), real(ev, rs, by, detail)))
+
+    def keep(ev: str, rs: str, by: str, detail: dict[str, Any]) -> None:
+        seen.append(detail)
+        real(ev, rs, by, detail)
+
+    monkeypatch.setattr(svc, "_audit", keep)
     svc.send_redcap(k.STUDY, "crc")
     line = [d for d in seen if "target" in d][-1]
     assert "refused" not in line and line["records_refused"] == 2 and line["sent"] == 1
