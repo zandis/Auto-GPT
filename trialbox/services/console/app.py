@@ -757,6 +757,8 @@ def create_app(
             "given": given,
             "num": _num,
             "console_js": CONSOLE_JS,
+            # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
+            "monitoring": lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else [],
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path

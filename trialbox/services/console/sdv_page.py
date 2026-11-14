@@ -11,6 +11,8 @@ monitoring visit; ``console.team``):
   pseudonym), then per CRF value a person decided (confirmed or changed) the citation its EDC draft holds (the
   source item the value was taken from), and the value's decisions and signatures. Nothing else of the patient's
   record: no open draft, no patient twin, no narrative, no chart number. It prints as the per-subject sheet.
+  NEW-JRN-8 (D-772): below them, the subject's values in TrialBox's built-in forms, who entered each and when, and
+  every change to them (``form_values``; the data core's record read takes the monitor's row for this).
 * ``POST /studies/{rs}/monitor/visits``: the monitoring-visit record (date, the CRA = the signed-in account, the visit
   id of the grant, the subjects verified, findings), row ``monitor.visit``.
 
@@ -29,6 +31,7 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
+from datacore.builtin import RECORD_FIELD, TITLES
 from datacore.lifecycle import live_steps
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
@@ -51,6 +54,10 @@ SUBJECT_KEYS = ("record", "state", "since", "reason", "consented", "icf_version"
 ITEM_KEYS = ("id", "visit", "visit_date", "item", "form", "cdash", "fate", "decided_by", "decided_at", "sent_at")
 CITE_KEYS = ("kind", "table", "row", "snapshot", "day", "text", "quote", "name", "sha256", "path")
 SIG_KEYS = ("printed_name", "role", "meaning", "at", "method")
+#: NEW-JRN-8 (D-772): TrialBox's own forms, whose values the sheet shows with their trail (the screening number is the
+#: record's key, not a value)
+BUILTIN_FORMS = tuple(TITLES)
+NOT_A_VALUE = (RECORD_FIELD,)
 DECIDED = ("confirmed", "edited")
 
 
@@ -110,6 +117,31 @@ def item_trail(trail: Mapping[str, Any], ids: set[int]) -> dict[str, list[dict[s
         for s in trail.get("signatures") or []
     ]  # fmt: skip
     return {"decisions": decisions, "signatures": [s for s in signatures if s["items"]]}
+
+
+def form_values(record: Mapping[str, Any], fields: list[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """NEW-JRN-8 (D-772): one subject's values in TrialBox's built-in forms (who entered each and when) and every change
+    to them, in the forms' order. A field of any other form (a REDCap dictionary's, the EDC's) is not shown: the
+    monitor sees those as cited items only."""
+    known = {str(f.get("name")): (BUILTIN_FORMS.index(str(f.get("form"))), n, f) for n, f in enumerate(fields)
+             if f.get("form") in BUILTIN_FORMS and f.get("name") not in NOT_A_VALUE}  # fmt: skip
+    rows = []
+    for event, vals in (record.get("values") or {}).items():
+        for name, v in (vals or {}).items():
+            if name in known:
+                f = known[name][2]
+                rows.append({"event": str(event), "field": name, "form": str(f.get("form")),
+                             "form_titles": TITLES[str(f.get("form"))],
+                             "label": str(f.get("label") or name), "labels": dict(f.get("labels") or {}),
+                             "options": dict(f.get("options") or {}),
+                             "option_labels": dict(f.get("option_labels") or {}), "value": v.get("value"),
+                             "by": str(v.get("by") or ""), "at": str(v.get("at") or "")})  # fmt: skip
+    rows.sort(key=lambda r: (known[r["field"]][0], r["event"], known[r["field"]][1]))
+    trail = [{"at": str(x.get("at") or ""), "by": str(x.get("by") or ""), "event": str(x.get("event") or ""),
+              "field": str(x.get("field")), "old": x.get("old"), "new": x.get("new"),
+              "source": str(x.get("source") or "")}
+             for x in record.get("history") or [] if x.get("field") in known]  # fmt: skip
+    return {"forms": rows, "form_trail": trail}
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -223,10 +255,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         items = cited_items(drafts)
         trail = edc(f"/studies/{rid}/edc/trail/{quote(key)}") or {}
         ids = {int(x["id"]) for x in items if x.get("id") is not None}
+        typed = form_values(core(f"/studies/{rid}/records/{quote(key)}") or {},
+                            list((core(f"/studies/{rid}/sources") or {}).get("fields") or []))  # fmt: skip
         au.append("console.monitor_view", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "visit": visit, "state": str(one.get("state") or ""),
-                          "items": len(items)})  # fmt: skip
-        out = {"subject": {k: one.get(k) for k in SUBJECT_KEYS}, "items": items, **item_trail(trail, ids)}
+                          "items": len(items), "forms": len(typed["forms"])})  # fmt: skip
+        out = {"subject": {k: one.get(k) for k in SUBJECT_KEYS}, "items": items, **item_trail(trail, ids), **typed}
         return rid, g, out
 
     def record_visit(sess: Session, path: str, rs: str, body: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
