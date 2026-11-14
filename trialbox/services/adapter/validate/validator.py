@@ -323,16 +323,13 @@ def _issue_line(fname: str, issue: dict[str, Any]) -> str:
     return f"{name} {place}: {kind}" + (f" ({mid})" if mid else "")
 
 
-def _parse_problem(exc: Exception) -> str:
+def _count_line(count: int, model: str) -> str:
     """What the night's report keeps of a resource the R4B model refused (D-669): pydantic's count line
-    ("1 validation error for Patient"), made from the error's own count and model name, never from its text (its
-    other lines quote the value); any other error is its type."""
-    from pydantic import ValidationError
-
-    if isinstance(exc, ValidationError) and re.fullmatch(r"[A-Za-z]+", str(exc.title)):
-        n = exc.error_count()
-        return f"{n} validation error{'' if n == 1 else 's'} for {exc.title}"
-    return type(exc).__name__
+    ("1 validation error for Patient"), made from the error's own count and model name (typed fields), never from
+    its text (its other lines quote the value). A model name that is not a plain name is not kept."""
+    if not re.fullmatch(r"[A-Za-z]+", model):
+        return "ValidationError"
+    return f"{count} validation error{'' if count == 1 else 's'} for {model}"
 
 
 class StructuralValidator:
@@ -340,6 +337,7 @@ class StructuralValidator:
 
     def validate(self, resources: list[Resource]) -> ValidationResult:
         from fhir.resources.R4B import get_fhir_model_class
+        from pydantic import ValidationError
 
         errors = 0
         messages: list[str] = []
@@ -347,8 +345,10 @@ class StructuralValidator:
             problems = missing_required(r)
             try:
                 get_fhir_model_class(r["resourceType"]).model_validate(r)
+            except ValidationError as exc:  # the count and the model name only: typed fields, no text
+                problems.append(_count_line(exc.error_count(), str(exc.title)))
             except Exception as exc:
-                problems.append(_parse_problem(exc))
+                problems.append(type(exc).__name__)
             if problems:
                 errors += 1
                 messages.append(f"{r['resourceType']}/{r['id']}: {'; '.join(problems)}")
