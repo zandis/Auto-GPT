@@ -180,7 +180,9 @@ class Generator:
         self.index_offset = index_offset
         self.with_practitioners = practitioners
         self.mix = mix
-        self.lang_mix = dict(lang_mix or {"zh-TW": 1.0})
+        self.lang_mix = dict(lang_mix or ({"en": 1.0} if style == "EN" else {"zh-TW": 1.0}))
+        if style == "EN" and any(w > 0 for code, w in self.lang_mix.items() if code != "en"):
+            raise ValueError(f"an English site's notes are English only (D-743), not {self.lang_mix}")
         self.langs = {code: Lang(code, alt_dates=gold, rng=self.lrng) for code in self.lang_mix}
         self.primary_lang = max(self.lang_mix, key=lambda k: self.lang_mix[k])
         self.L = self.langs[self.primary_lang]

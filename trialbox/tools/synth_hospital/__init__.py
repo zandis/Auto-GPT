@@ -1,4 +1,4 @@
-"""The synthetic hospital (TB-DS-21): JP- and TW-style sites, notes in JA / zh-TW / EN, gold files and checks.
+"""The synthetic hospital (TB-DS-21): JP-, TW- and EN-style sites, notes in JA / zh-TW / EN, gold files and checks.
 
 Builds on ``tools.synth.generator`` (same landing tables, so the ingest, rulesets and tests read it unchanged) and
 adds: one or more sites per run, each in Japanese or Taiwanese record style; a note-language mix per site; planted
@@ -22,6 +22,7 @@ import hashlib
 import io
 import json
 import math
+import re
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -61,6 +62,8 @@ PROFILES: dict[str, dict[str, Any]] = {
     },
 }
 DEFAULT_LANG_MIX = {"JP": {"ja": 0.9, "en": 0.1}, "TW": {"zh-TW": 0.9, "en": 0.1}, "EN": {"en": 1.0}}
+EN_ID = re.compile(r"SYN\d{7}")  # D-743: an English site's identifier, the form of no country's number
+EN_PHONE = re.compile(r"555-01\d\d")  # D-743: 555-0100 to 555-0199, the range kept for fiction
 DEFAULT_STUDIES = ["GOUT-COH", "GZQO", "ONC-OSI", "RA-BIO", "RA-COH"]
 
 # TB-DS-21 §5.1: the note criteria the generator has a finding slot for (criterion -> slot names)
@@ -130,6 +133,8 @@ def parse_sites(text: str, seed: int, lang_mix: dict[str, dict[str, float]]) -> 
         style = style.upper()
         if style not in DEFAULT_LANG_MIX:
             raise SystemExit(f"--sites: style must be one of {', '.join(DEFAULT_LANG_MIX)}, got {style!r}")
+        if style == "EN" and any(w > 0 for code, w in lang_mix.get(style, {}).items() if code != "en"):
+            raise SystemExit(f"--sites: {site_id} is an English site, whose notes are English only (D-743)")
         mix = rest[0] if rest else "mix"
         if mix not in RATES["site"]:
             raise SystemExit(f"--sites: unknown patient mix {mix!r} (rates.yaml site: {', '.join(RATES['site'])})")
@@ -329,6 +334,8 @@ def collect(res: SiteResult, g: Generator, data: SiteData) -> None:
                 res.reserved_hits.append(f"{row['mrn']}: {kind} {value}")
         if g.style == "TW" and tw_id_valid(row["id_no"]):
             res.reserved_hits.append(f"{row['mrn']}: national ID with a valid check digit")
+        if g.style == "EN" and not (EN_ID.fullmatch(row["id_no"]) and EN_PHONE.fullmatch(row["phone"])):
+            res.reserved_hits.append(f"{row['mrn']}: English site identifier or phone not of the fictional form")
 
 
 # ------------------------------------------------------------------------------------------------ checks

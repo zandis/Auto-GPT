@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import csv
 import re
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
+
+import pytest
 
 from tools.synth.generator import Generator
 from tools.synth.reserved import is_reserved
@@ -20,7 +23,11 @@ from tools.synth_hospital import DEFAULT_LANG_MIX, PROFILES, parse_sites, run
 
 ROOT = Path(__file__).resolve().parents[2]
 REF = date(2026, 11, 1)
-CJK = re.compile(r"[　-ヿ㐀-鿿＀-￯]")
+# the forms of a real identifier an English site must never write: the TW national number, TW and JP phones,
+# the JP insurer number of the JP style
+REAL_FORMS = re.compile(
+    r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?!\d)|(?<!\d)09\d{8}(?!\d)|(?<!\d)0[789]0-\d{4}-\d{4}|(?<![A-Za-z0-9])00\d{6}(?!\d)"
+)
 
 
 def test_an_english_site_writes_english_identities_and_notes() -> None:
@@ -32,11 +39,38 @@ def test_an_english_site_writes_english_identities_and_notes() -> None:
         assert re.fullmatch(r"555-01\d\d", p["phone"]), p["phone"]  # the range kept for fiction
         assert not is_reserved("phone", p["phone"]) and not is_reserved("name", p["name"])
     assert set(g.note_lang.values()) == {"en"}
-    assert data.tables["note"] and not any(CJK.search(n["text"]) for n in data.tables["note"])
-    assert data.tables["practitioner"] and not any(CJK.search(r["name"]) for r in data.tables["practitioner"])
-    for table, rows in data.tables.items():  # nothing of the site is written in Chinese or Japanese
+    assert data.tables["note"] and data.tables["practitioner"]
+    for table, rows in data.tables.items():  # every value of the site is plain English text, no real identifier form
         for r in rows:
-            assert not any(isinstance(v, str) and CJK.search(v) for v in r.values()), (table, r)
+            for v in r.values():
+                assert not isinstance(v, str) or (v.isascii() and not REAL_FORMS.search(v)), (table, v)
+    texts = {n["note_no"]: n["text"] for n in data.tables["note"]}
+    names = [
+        texts[gn["note_no"]][sp["start"] : sp["end"]] for gn in g.gold_notes for sp in gn["phi"] if sp["type"] == "name"
+    ]
+    assert names and not [n for n in names if is_reserved("name", n)]  # never a well-known real person's name
+
+
+def test_an_english_site_is_english_whatever_the_mix() -> None:
+    """Review: the style alone did not make a site English: no mix gave zh-TW notes, and a mix with zh-TW gave
+    Chinese patient names beside SYN identifiers."""
+    g = Generator(7, "EN-T", REF, 60, "4", style="EN")
+    g.run()
+    assert set(g.note_lang.values()) == {"en"}
+    with pytest.raises(ValueError, match="English"):
+        Generator(7, "EN-T", REF, 60, "4", style="EN", lang_mix={"zh-TW": 0.5, "en": 0.5})
+    with pytest.raises(SystemExit, match="English"):
+        parse_sites("en-a:EN:60", 1, {**DEFAULT_LANG_MIX, "EN": {"zh-TW": 0.5, "en": 0.5}})
+
+
+def test_the_hospitals_checks_see_an_english_identity_of_a_real_form(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Review: the hospital's checks looked at the TW national number only; an English site writing one passed."""
+    monkeypatch.setattr(Generator, "en_identity", lambda self, sex: ("John Smith", "A123456789", "09" + "1" * 8))
+    got = run(tmp_path, sites="en-a:EN:50", chunk=50)
+    assert not got.passed
+    assert any("English site" in f for f in got.failures), got.failures
 
 
 def test_the_profile_and_the_sites_option_know_the_style() -> None:
@@ -68,5 +102,13 @@ def test_the_taiwanese_mapping_reads_an_english_site(tmp_path: Path) -> None:
     rep = run_ingest(cfg, "csv", str(tmp_path / "synth" / "en-a"), snapshot="2026-10-31", load_fhir=False,
                      rebuild_lake=False, validate=False)  # fmt: skip
     assert rep.passed, rep.errors
+    with (tmp_path / "synth" / "en-a" / "note.csv").open(encoding="utf-8", newline="") as fh:
+        notes = len(list(csv.DictReader(fh)))
     assert rep.counts["Patient"] == 200 and rep.counts.get("Condition", 0) > 0
-    assert rep.counts.get("DocumentReference", 0) > 0  # the English notes
+    assert rep.counts.get("DocumentReference") == notes  # every English note read
+    tw = tmp_path / "tw"
+    run(tw / "synth", sites="tw-a:TW:200", chunk=200)
+    twrep = run_ingest(replace(cfg, lake_dir=tw / "lake", site_id="TW-A"), "csv", str(tw / "synth" / "tw-a"),
+                       snapshot="2026-10-31", load_fhir=False, rebuild_lake=False, validate=False)  # fmt: skip
+    # the mapping leaves nothing more unread in an English site than in the Taiwanese site it was written for
+    assert set(rep.fhir_unread or {}) <= set(twrep.fhir_unread or {})
