@@ -123,9 +123,7 @@ def test_an_undated_row_that_cannot_change_the_answer_is_not_its_evidence(got: d
     assert any("a-P-LOW-UND-HIGH-1" in e for e in got["P-LOW-UND-HIGH"]["evidence"]["ANY"])  # the undated 11.2 %
 
 
-UNDATED_CQL = (
-    "(X.effective is null or (X.effective is FHIR.Period and (X.effective as FHIR.Period).start is null))"
-)
+UNDATED_CQL = "(X.effective is null or (X.effective is FHIR.Period and (X.effective as FHIR.Period).start is null))"
 
 
 def test_the_cql_carries_the_undated_records_for_every_value_quantifier() -> None:
