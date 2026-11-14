@@ -27,6 +27,7 @@ per context either way). Code outside a job (a route, a timer) uses :func:`regis
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -36,6 +37,8 @@ from tb_common import optout as _optout  # by module: a test that replaces the r
 from tb_common.optout import RegistryState
 from tb_common.ruleset import Ruleset
 
+from orchestrator.clients import StepFailed
+
 if TYPE_CHECKING:
     from orchestrator.scenarios.evaluate import NoteJudge
 
@@ -43,6 +46,8 @@ if TYPE_CHECKING:
 REFUSED_REASON = "research-use opt-out (FHIR Consent rejected)"
 #: the action of a patient whose latest statement denies contact: never on a list (D-441)
 NO_CONTACT_ACTION = "contact: deny (FHIR Consent) — never listed"
+
+log = logging.getLogger("orchestrator.decision")
 
 
 @dataclass(frozen=True)
@@ -144,13 +149,22 @@ class DecisionContext:
     # ------------------------------------------------------------------------------------ consent
     def consent(self, day: date | None = None, snapshot: str | None = None) -> RegistryState | None:
         """What the hospital's registry says per patient as of ``day`` (the run date) on the job's snapshot, by the
-        one rule. None: the lake has no consent table (the registry was never ingested). Any other failure raises
-        (D-127)."""
+        one rule. None: the lake has no consent table (the registry was never ingested), on a DEV or TEST box; on
+        a PRODUCTION box that stops the job (D-654). Any other failure raises (D-127)."""
         if self.lake is None:
             return None  # no lake: no registry was ingested
         key = (snapshot, (day or self.run_date).isoformat())
         if key not in self._consent:
-            self._consent[key] = _optout.registry_state(self.lake, snapshot, key[1])
+            try:
+                self._consent[key] = _optout.registry_state(self.lake, snapshot, key[1])
+            except _optout.NoRegistryTable as exc:
+                # D-654: a PRODUCTION box and a snapshot without a consent table. The job stops with the sentence
+                # (a general error would show only "Internal error"), at the step it is in; nothing is cached, the
+                # next read asks again. Logged here: a step failure is not logged where the job ends. The answer is
+                # the fixed sentence, not the error's text (tests/unit/test_error_answers.py)
+                step = str(getattr(getattr(self._ctx, "job", None), "state", "") or "running")
+                log.error("job stopped at %s: the lake snapshot has no consent table (D-654)", step)
+                raise StepFailed(step, _optout.NO_REGISTRY_TABLE) from exc
         return self._consent[key]
 
     def refused(self) -> frozenset[str]:
