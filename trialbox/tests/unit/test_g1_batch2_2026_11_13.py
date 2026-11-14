@@ -45,7 +45,8 @@ def _env(tmp: Path, *, docker_ok: bool = False, **kw: str) -> dict[str, str]:
     env = dict(os.environ, PATH=":".join([*path, os.environ["PATH"]]), CLOUDSDK_CONFIG=str(tmp / "gc"),
                TB_SA_KEY_FILE="/dev/null", TB_COMPLETE_DIR=str(tmp / "out"), PY=PY, GC_TIMEOUT_S="20",
                TB_REH_STATE=str(tmp / "state"), TB_REH_CONTAINER="tb-no-such-container", TB_DOOR_DIRECT="1",
-               TB_LOCK_DIR=str(tmp / "locks"), TB_SETTLE_S="5", TB_START_RETRY_SECONDS="0", **kw)  # fmt: skip
+               TB_LOCK_DIR=str(tmp / "locks"), TB_SETTLE_S="5", TB_START_RETRY_SECONDS="0",
+               TB_NOT_PRODUCT_EVIDENCE="1", **kw)  # fmt: skip  # plumbing: past the reset gate, as rehearsed
     for k in ("TB_ZONES", "TB_BUCKET", "TB_RUN_ID", "TB_DRIVER_LOCK_HELD", "TB_DRIVER_CHILD", "TB_RUNS_DIR",
               "TB_START_RETRIES", "TB_PROVISIONING"):  # fmt: skip
         if k not in kw:

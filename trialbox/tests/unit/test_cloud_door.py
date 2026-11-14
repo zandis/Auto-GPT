@@ -187,7 +187,8 @@ def _shim_env(tmp_path: Path, **kw: str) -> tuple[Path, dict[str, str]]:
     (tmp_path / "gc").mkdir()
     env = dict(PATH=f"{REH / 'driver-shims'}:{os.environ['PATH']}", TB_REH_STATE=str(state),
                TB_REH_CONTAINER="tb-no-such-container", CLOUDSDK_CONFIG=str(tmp_path / "gc"),
-               TB_SA_KEY_FILE="/dev/null", TB_DOOR_DIRECT="1", **kw)  # fmt: skip
+               TB_SA_KEY_FILE="/dev/null", TB_DOOR_DIRECT="1",
+               TB_NOT_PRODUCT_EVIDENCE="1", **kw)  # fmt: skip  # plumbing: past the reset gate, as rehearsed
     return state, env
 
 

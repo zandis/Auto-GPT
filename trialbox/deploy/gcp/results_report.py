@@ -9,8 +9,10 @@ the part files may also lie flat in the folder, as in ``docs/plan/measurements/g
 
 * ``README.md``: run id, commit, hours, cost against the estimate and the cap, one row per part with its status, the
   G-1 verdict (plan v7 section 7.1) and the G-3 table;
-* ``capacity_inputs.json``: the measured figures the capacity statement and the hardware note read (T-667, T-637,
-  T-734);
+* ``capacity_inputs.json``: the run's measured figures, machine-readable, with ``product_evidence`` (false unless the
+  launch recorded the shipped serving setup and only product-path parts: the validation reset of 2026-11-14,
+  ``docs/plan/measurements/validation-reset-2026-11-14.md``). Nothing may feed a capacity statement (T-667) from a
+  run whose ``product_evidence`` is false;
 * ``DEFECTS.md``: one entry per failed part or failed check, for the integrator, with empty Cause, Fix and Card.
 
 The reader only reads: it calls no service, runs no command and needs no network. Standard library only. A part with
@@ -195,6 +197,19 @@ def cost(
     return {"hours": hours, "hours_source": source, "part_hours": part_hours, "price_per_hour": price, "usd": usd,
             "estimate_hours": plan.get("hours"), "estimate_usd": plan.get("usd"), "cap_hours": plan.get("cap_hours"),
             "cap_usd": cap_usd, "over_cap": over}  # fmt: skip
+
+
+def not_product(run: dict[str, Any]) -> list[str]:
+    """Why the run is not evidence of the shipped product (the validation reset of 2026-11-14): what the report says
+    (tools/product_evidence.py), else what the launch recorded in plan.json, else that it was not recorded."""
+    rep, plan = run["report"], run["plan"]
+    if "not_product_evidence" in rep:
+        return [str(x) for x in rep["not_product_evidence"] or []]
+    if plan.get("product_evidence") is True:
+        return []
+    return [str(x) for x in plan.get("not_product_evidence") or []] or [
+        "serving: not recorded as the shipped compose's (a run launched before the validation reset of 2026-11-14)"
+    ]
 
 
 # ---------------------------------------------------------------- G-1
@@ -525,6 +540,10 @@ def readme(v: dict[str, Any]) -> str:
            f"- **Parts**: {counts[PASSED]} passed, {counts[FAILED]} failed, {counts[PENDING]} pending, "
            f"{counts[MISSING]} missing, of {len(v['rows'])} planned",
            f"- **Verdict**: **{v['verdict']}**"]  # fmt: skip
+    if v["not_product_evidence"]:
+        out += ["- **Product evidence: NO.** Do not quote these results as evidence of the shipped product "
+                "(`docs/plan/measurements/validation-reset-2026-11-14.md`):",
+                *[f"  - {x}" for x in v["not_product_evidence"]]]  # fmt: skip
     if len(ident["run_ids"]) > 1 or len(ident["commits"]) > 1:
         out.append("- **FAIL: the parts come from more than one run or commit.** Every one is named above.")
     out += ["", "## Parts", ""]
@@ -555,7 +574,7 @@ def readme(v: dict[str, Any]) -> str:
         "",
         f"{len(v['defects'])} entry(ies) in `DEFECTS.md`." if v["defects"] else "None: `DEFECTS.md` is empty.",
         "",
-        "Files: `capacity_inputs.json` (the figures T-667, T-637 and T-734 read), `DEFECTS.md`.",
+        "Files: `capacity_inputs.json` (the run's figures, machine-readable; not a capacity statement), `DEFECTS.md`.",
         "",
     ]
     return "\n".join(out)
@@ -589,6 +608,7 @@ def capacity(v: dict[str, Any]) -> dict[str, Any]:
     return {"schema": SCHEMA, "run_id": ident["run_id"], "run_ids": ident["run_ids"], "commit": ident["commit"],
             "commits": ident["commits"], "card": ident["card"], "synthetic_data_only": True,
             "complete": v["verdict"] == PASSED, "verdict": v["verdict"],
+            "product_evidence": not v["not_product_evidence"], "not_product_evidence": v["not_product_evidence"],
             "parts": {r["tag"]: r["status"] for r in v["rows"]},
             "g1": {k: x for k, x in v["g1"].items() if k != "file"},
             "g3": {lang: {"chosen_in_flight": g["chosen"], "chosen_how": g["chosen_how"],
@@ -613,6 +633,7 @@ def build(folder: Path, args: argparse.Namespace) -> dict[str, Any]:
     else:
         v["verdict"] = "INCOMPLETE" if any(r["status"] != PASSED for r in row_list) or not row_list else PASSED
     v["model_ids"] = model_ids(run)
+    v["not_product_evidence"] = not_product(run)
     return v
 
 
