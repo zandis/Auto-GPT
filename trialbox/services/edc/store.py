@@ -124,6 +124,9 @@ APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event"
                "copy_tick")  # fmt: skip
 #: the send's lines that say what REDCap held for an item after TrialBox's write, and the write itself (NEW-EDC-8)
 READ_BACK = ("attempt", "sent", "readback", "erased", "already_there", "conflict", "instance_taken", "refused")
+#: NEW-EDC-5b: the words before REDCap's value in a ``changed_in_redcap`` line, and the ledger detail's length
+CHANGED_SAYS = "REDCap holds another value than TrialBox sent: "
+DETAIL_MAX = 300
 REENTRY_SOURCES = ("admin", "pq")  # who wrote the record: an administrator with the filed report, or the PQ tooling
 SIG_VERSION = 2
 METHODS = ("password", "password+totp", "oidc+mfa")  # how the signer re-authenticated (D-279; T-205: at the directory)
@@ -951,7 +954,7 @@ class EdcStore:
             tx.execute("INSERT INTO sent (study, record, visit, item, draft_id, value, target, target_record, result, "
                        "detail, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                        (study, d["record"], d["visit"], d["item"], int(d["id"]), d["final"] or "", target,
-                        target_record, result, detail[:300], by, at))  # fmt: skip
+                        target_record, result, detail[:DETAIL_MAX], by, at))  # fmt: skip
             if result in ("sent", "already_there"):
                 tx.execute("UPDATE draft SET sent_value = ?, sent_at = ? WHERE id = ?", (d["final"], at, int(d["id"])))
 
@@ -959,6 +962,26 @@ class EdcStore:
         if record is None:
             return self._all("SELECT * FROM sent WHERE study = ? ORDER BY id", (study,))
         return self._all("SELECT * FROM sent WHERE study = ? AND record = ? ORDER BY id", (study, record))
+
+    def redcap_changes(self, study: str, record: str | None = None) -> dict[tuple[str, str, str], str]:
+        """NEW-EDC-5b (D-686): what REDCap holds for each item whose last read-again line is an open
+        ``changed_in_redcap`` (D-695), by (record, visit, item). The ledger's detail is cut at 300 characters: a
+        value cut there ends in "…"."""
+        rows = self._all("SELECT record, visit, item, result, detail FROM sent WHERE study = ? AND target = 'redcap' "
+                         "AND result IN ('sent', 'already_there', 'erased', 'changed_in_redcap', 'equal_again') "
+                         + ("AND record = ? " if record else "") + "ORDER BY id",
+                         (study, record) if record else (study,))  # fmt: skip
+        last: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for r in rows:
+            last[(str(r["record"]), str(r["visit"]), str(r["item"]))] = r
+        out: dict[tuple[str, str, str], str] = {}
+        for key, r in last.items():
+            if r["result"] != "changed_in_redcap":
+                continue
+            detail = str(r["detail"])
+            value = detail.split(CHANGED_SAYS, 1)[1] if CHANGED_SAYS in detail else ""
+            out[key] = value + ("…" if len(detail) >= DETAIL_MAX else "")
+        return out
 
     def last_delivered(self, study: str, record: str, visit: str, item: str) -> str | None:
         """What REDCap last held of TrialBox's for this item (NEW-EDC-5): the value of its last ``sent`` or

@@ -49,7 +49,7 @@ from edc import mapping, odm, prefill
 from edc.layout import Layout, Slot, split_visit
 from edc.logic import LogicError
 from edc.rows import Key, Rows, watched
-from edc.store import EdcError, EdcStore
+from edc.store import CHANGED_SAYS, EdcError, EdcStore
 
 log = logging.getLogger("edc")
 
@@ -731,8 +731,9 @@ class EdcService:
                         mark = hashlib.sha256(there.encode("utf-8")).hexdigest()[:12]
                         if open_ and last is not None and f"[{mark}]" in last["detail"]:
                             continue  # the same change read again
-                        self.store.record_sent(rs, d, "redcap", rec, "changed_in_redcap", f"[{mark}] REDCap holds "
-                                               f"another value than TrialBox sent: {there}", by, at)  # fmt: skip
+                        self.store.record_sent(
+                            rs, d, "redcap", rec, "changed_in_redcap", f"[{mark}] {CHANGED_SAYS}{there}", by, at
+                        )
             except RcError as exc:
                 self._audit("edc.reconciled", rs, by, {"record": record or "*", "refused": exc.code})
                 raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc

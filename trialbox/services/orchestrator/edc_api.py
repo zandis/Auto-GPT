@@ -281,8 +281,10 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         store = get().store
         rows = store.drafts(rid, _rec(record) if record else None, visit or None)
         covered = store.covered_ids(rid, rows)  # D-461: "signed" only while an intact signature covers the value
+        changed = store.redcap_changes(rid, _rec(record) if record else None)  # NEW-EDC-5b (D-686)
         for d in rows:
             d["covered"] = int(d["id"]) in covered
+            d["redcap_now"] = changed.get((str(d["record"]), str(d["visit"]), str(d["item"])))
         if record:  # the signature beside each covered value: who, as what, when, and its meaning (E-12)
             sigs = {int(s["id"]): s for s in store.signatures(rid, _rec(record))}
             for d in rows:
