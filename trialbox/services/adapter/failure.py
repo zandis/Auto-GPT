@@ -29,11 +29,14 @@ def _own() -> tuple[type[BaseException], ...]:
     from tb_common.crypto import KeyMissingError
     from tb_common.feedguard import FeedGuardError
 
-    from adapter.pipeline import FutureNight, SiteKeyError
+    from adapter.pipeline import FutureNight, LakeBudgetError, NoRoomForNight, SiteKeyError
     from adapter.publish import NothingToPublish
     from adapter.runs import RunLockHeld
 
-    return (SiteKeyError, FutureNight, NothingToPublish, RunLockHeld, FeedGuardError, KeyMissingError)
+    return (
+        SiteKeyError, FutureNight, NothingToPublish, RunLockHeld, FeedGuardError, KeyMissingError, NoRoomForNight,
+        LakeBudgetError,
+    )  # fmt: skip
 
 
 def words(exc: BaseException, run: str = "") -> str:
