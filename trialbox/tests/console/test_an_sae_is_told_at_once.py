@@ -48,7 +48,10 @@ def test_the_coordinators_overdue_report_mail_goes_on_a_weekend_day_and_only_it(
     n = notify.build_n2(CRC, person, SATURDAY, [("GZQO", [], {})], None, life)
     assert n is not None and n.counts.get("sae_reports") == 1
     assert "aaaaaaaa" in n.body and "bbbbbbbb" not in n.body  # the weekend digest is the SAE reports only
-    assert notify.build_n2(CRC, person, SATURDAY, [("GZQO", [], {})], None, {"GZQO": {"today": life["GZQO"]["today"]}}) is None
+    assert (
+        notify.build_n2(CRC, person, SATURDAY, [("GZQO", [], {})], None, {"GZQO": {"today": life["GZQO"]["today"]}})
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------------------------- at once
@@ -65,7 +68,9 @@ def _new_case(lb: dict[str, Any]) -> list[tuple[str, list[str], str, str]]:  # n
     return list(lb["backend"].notices)
 
 
-def test_a_new_case_is_mailed_at_once_to_the_pi_and_the_office(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+def test_a_new_case_is_mailed_at_once_to_the_pi_and_the_office(
+    lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: F811
     monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
     sent = _new_case(lb)
     assert len(sent) == 1
