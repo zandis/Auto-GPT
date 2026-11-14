@@ -72,7 +72,11 @@ number written against its label (`MRN` and the number) is caught again: the fir
   year before "Court", "peer address:", "to address:", decision numbers after "chart number", "入住:".
 - **The synthetic hospital** (TW and JP styles, planted PHI): every planted name, chart number, phone, insurance
   number and address masked, every clinical finding kept, nothing else masked.
-- No harm on the goldens: `make goldens-check` (in the PR's gates).
+- **The goldens**: every funnel, ruleset result and lake table is unchanged except the chunk table's masked text,
+  tokens and hashes of the four synthetic sets (`synthetic-jp-a`, its two later nights, `synthetic-tw-a`) and
+  `ssmix2-jp`: the 1,151 planted addresses of the synthetic hospital's notes (住所, 住址, Address) are now masked, and
+  nothing else is (compared span by span with master's masker on the `ci` hospital's 8,889 notes).
+  `tests/golden/lake/tables@ci.json` is rewritten with that reason; `public-en` (the SIGIR notes) is unchanged.
 
 ## Not in this card
 

@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "934a1666cd74d845ac3749f6b73475baa2e26db1",
+  "head": "50bf437bc19c07583b4efd08fda46cd2c8280c5f",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "the shared mapping gains the mapped ICD-10-CM coding of an ICD-9-CM diagnosis (D-593): the mapping version moves; no synthetic site has ICD-9-CM years, so no data column moves",
+  "reason": "D-745: the note masker masks the synthetic hospital's planted addresses (住所, 住址, Address); only the masked chunk text, its tokens and hashes move",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -347,13 +347,13 @@
       "date": "5698d83279b4f2a9401ed4b5e81dc415c072e1ca8d6d92c146e7b8c57cd86194",
       "did": "59250cf903074173d50fb9ad6fab614ad5d09d0be08499f22f82d4f454dfbb2a",
       "pid": "9b44290bf29745348e18f3aa09148165d4da122eddd012734e57ec63bd3caa64",
-      "sha": "d1d98d82007fb94bd6b7a7003e9ec25d463a362c53cb660d45cb7c61d88eae5b",
-      "text": "8da3a16f5cd2d1699119974ae6adaa4538fb4c224bc1bed22a56ac890673b027",
-      "tok": "65eb3e68a8e6f155a5a613fd064860f1528c15821983e41b75f812be6a2bd75e",
+      "sha": "bd2e0df8a996b138c9f24029ddec4cd0d19e30e24d687b05f5880c345e462b6a",
+      "text": "18bc58226cb4114afdd55582d7e04fdc5d3636fd473e5a841fb75d5a4ff17c74",
+      "tok": "d28617ca4270aba34be33c79b58683b11d4c7bd6d5090050577e91a8571a99fd",
       "type": "59fbac7ac4d91ea58d0a0eddeaa4f366cca2cd40a301e7828cd32d2c54208730"
      },
      "rows": 900,
-     "sha": "f83bd0d3ec7631cc6f02b634ea32939b49d117b89e6f78ee8308732b2b7fc087"
+     "sha": "20611a2026dcda5d826e4ea01fb4201743dc6ce8074732ee04d9131a98974a43"
     },
     "encounter": {
      "columns": {
@@ -596,13 +596,13 @@
       "date": "8757c404f0db4bc54b566b58105b90cde1278fc2a210282ede3dd539e884dcfa",
       "did": "d7ff0518fdd246385c8e5cc65aa190038401bb69187ffd940f9f4f7d99ecc69a",
       "pid": "094e98efb0e7d5670673106980147de1796b18cebf3333b50938356ccbb8779e",
-      "sha": "f1a90266d524f3c4d00ad0e4811dbbc0df291ae77af8e41f594abca538d44817",
-      "text": "b823988e4cc970bd6696193dd8246f66fed0b691e1e54107a341dbfce3826d5c",
-      "tok": "72c0a10abda4067bde909abb434c7c88fd9b3a6c86f7f92f86713e1d32788a41",
+      "sha": "1df94c075ec4feaefdcf96766369d56fac994ae180e8a3b40f14087303990e53",
+      "text": "f3b12a11d2b341ed87323c3e54c09da322faa016305384ea3f88f853abfde3d0",
+      "tok": "f9b13c9d19b5a2fb80291d47aa63490c0177e02b43c0b53d827d1cb07e18d37c",
       "type": "c1ad61fd196ea5522a68db0a01ca3a66932f8fd958327c5e9942e68f3c61adf5"
      },
      "rows": 5740,
-     "sha": "20621ab9ac33c42b9a379aa9dfff68c7a1a0e00e2a765580da67e53882b707a2"
+     "sha": "2051d6183e4db17eaced789ee5776be0f3a2b7e73a01fe30166b685adb2a9108"
     },
     "encounter": {
      "columns": {
@@ -845,13 +845,13 @@
       "date": "dd32264393cffc321f827bb3b64e7c83ecb3fce93a8657683c5b0a265e2fc1bb",
       "did": "955c66ba240069809adc89650d63e4007a1e5a479551646406ce6f6dda97ff0c",
       "pid": "c5ec18b46e8de1f39c061bbb85ab846ac2801374f98e4cddb889303a34b5d39c",
-      "sha": "bc8887e6201ff7bc1b4d7e2bc733bcd6f48d2f7f0fafe3606e3688db58823109",
-      "text": "2d1220b920f2e411abef302cbd0e847c7671e42c8ba83a0414d363c153a49ad9",
-      "tok": "d25c5d7befa0e9404cab6f80613b2b31eef1913eed48fa88a7ddfa3d2efb8cf8",
+      "sha": "cb5defeb8e02d36b2e891fa29af41725760dc77d01d341c38193ea32051cc21f",
+      "text": "192866bbdedb77d7a979f0866489553d1154f13c1eea54e4d4f22a71baa7fb6f",
+      "tok": "a67d047f70fea94c629bfe8a7d599a61e50b755316e4682dcd1cbcd902c98381",
       "type": "da5143cef663fa8b301177a352638959156e0319eaf7baa00c2ce2e6a2ec7f2b"
      },
      "rows": 5171,
-     "sha": "6c485975ffca7e467edcaeb5794fa9b0854a37f2e6c50d82fbaf41c0ba61efeb"
+     "sha": "4f683e00ae2b43d9b8d7a6f3cc99cd40344a5ffe2fb47120f9933c52bd6a000d"
     },
     "encounter": {
      "columns": {
@@ -1094,13 +1094,13 @@
       "date": "8757c404f0db4bc54b566b58105b90cde1278fc2a210282ede3dd539e884dcfa",
       "did": "d7ff0518fdd246385c8e5cc65aa190038401bb69187ffd940f9f4f7d99ecc69a",
       "pid": "094e98efb0e7d5670673106980147de1796b18cebf3333b50938356ccbb8779e",
-      "sha": "f1a90266d524f3c4d00ad0e4811dbbc0df291ae77af8e41f594abca538d44817",
-      "text": "b823988e4cc970bd6696193dd8246f66fed0b691e1e54107a341dbfce3826d5c",
-      "tok": "72c0a10abda4067bde909abb434c7c88fd9b3a6c86f7f92f86713e1d32788a41",
+      "sha": "1df94c075ec4feaefdcf96766369d56fac994ae180e8a3b40f14087303990e53",
+      "text": "f3b12a11d2b341ed87323c3e54c09da322faa016305384ea3f88f853abfde3d0",
+      "tok": "f9b13c9d19b5a2fb80291d47aa63490c0177e02b43c0b53d827d1cb07e18d37c",
       "type": "c1ad61fd196ea5522a68db0a01ca3a66932f8fd958327c5e9942e68f3c61adf5"
      },
      "rows": 5740,
-     "sha": "20621ab9ac33c42b9a379aa9dfff68c7a1a0e00e2a765580da67e53882b707a2"
+     "sha": "2051d6183e4db17eaced789ee5776be0f3a2b7e73a01fe30166b685adb2a9108"
     },
     "encounter": {
      "columns": {
@@ -1343,13 +1343,13 @@
       "date": "86e936f7065b3f169c6bca0efdabde0612dc8248366a9b8804b83e1d5eacc685",
       "did": "c2eda04f2c7bf389ca4456f135a8e68dd15b954cd419d7434ff14369d80b09c7",
       "pid": "2527f8ee47e3e5560ad82df133013165b16250cf2db7ff8a384e55d5e8dedd4b",
-      "sha": "eec3889faefb74f3a7cb4712b447dcc26333c148a1dddf933acaa993188cf5f8",
-      "text": "2c1d038431366c133463684dfc6d3f0b1cf9087a66566b6a78dbed5b9997061a",
-      "tok": "eec0b86ca2dda4a8f08e46fa25b40352ac8baf65442daae0ccb59e0bdf8c96fb",
+      "sha": "8c65f6b45240f0a38bd075811fc55358c047f2f5941db5c68663ec3b354a8994",
+      "text": "18ec6c8fef73090cdc8fb28a04c8b41121cfbd87c30fcae2881afbed74fbc250",
+      "tok": "026cff660efe30c1a8d8c7fd4e8a2b44d729798dc8c8ad92dc47ba21f8467014",
       "type": "895fcc4085d756436043cece0f7cf8564bb4accedbd5ea5d4dd173f2b85db8d0"
      },
      "rows": 5874,
-     "sha": "5e918fdfd97058f7bc2393973e955822a11481d28678b75d61daa739ecd9139f"
+     "sha": "875436a86006e4ebb0bf09576183a5adfc1732f7f71ebf94a6c672f8fb5e8854"
     },
     "encounter": {
      "columns": {
