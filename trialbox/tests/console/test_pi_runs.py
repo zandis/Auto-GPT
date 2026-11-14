@@ -189,4 +189,6 @@ def test_the_free_text_request_stays_the_coordinators_and_the_coordinator_page_i
     page = crc.get("/pilot/request").text
     assert 'data-testid="propose"' in page and 'data-testid="start-feas"' in page
     case = crc.get("/pilot/case").text
-    assert "disabled" not in case[case.index('data-testid="case-submit"') - 80 : case.index('data-testid="case-submit"')]
+    assert (
+        "disabled" not in case[case.index('data-testid="case-submit"') - 80 : case.index('data-testid="case-submit"')]
+    )
