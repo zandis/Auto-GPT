@@ -120,13 +120,16 @@ SECRET_SETTINGS = (
     "POSTGRES_WF_PASSWORD", "TB_DB_PW_ADAPTER", "TB_DB_PW_AUDIT_WRITER", "TB_DB_PW_CONSOLE",
     "TB_DB_PW_CRITERIA_COMPILER", "TB_DB_PW_FHIR_STORE", "TB_DB_PW_GATEWAY", "TB_DB_PW_LAKE", "TB_DB_PW_MAIL_GATEWAY",
     "TB_DB_PW_ORCHESTRATOR", "TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD", "TB_ACCEPTANCE_MAIL_PASSWORD",
-    "TB_DEMO_PASSWORD", "TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE", "TB_KMS_TOKEN", "TB_OIDC_CLIENT_SECRET",
+    "TB_DEMO_PASSWORD", "TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE", "TB_KMS_TOKEN",
     "TB_RC_CASSETTE_TOKEN", "OPENROUTER_API_KEY", "SPRING_DATASOURCE_PASSWORD", "TB_BAKEOFF_API_KEY", "VLLM_API_KEY",
     "TB_SOURCE_DSN", "TB_PG_DSN",
 )  # fmt: skip
 #: secret-LOOKING names whose value is not a secret, with why: their line is still redacted by the name rule, but
 #: their value is not replaced in every file (that wrecked JSON, memory limits and host names)
-NOT_SECRETS = {"TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)"}
+NOT_SECRETS = {
+    "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
+    "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
+}
 #: a setting not in the list whose name says it holds a secret's value: looked for too (a site's own setting)
 _SECRET_VALUE_NAME = re.compile(r"PASS|_PW_|SECRET|TOKEN|PHRASE|API_KEY|_DSN$|CREDENTIAL|PRIVATE_KEY", re.I)
 _NOT_A_SECRET = frozenset({"true", "false", "yes", "no", "on", "off", "0", "1", "none", "null", "[redacted]"})
