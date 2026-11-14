@@ -23,18 +23,34 @@ Three rule sets showed a wrong or noisy regulator clock, and an unchosen set ran
 
 ## The decision
 
-- **The regulator clock is for a suspected reaction.** An SAE answered "not related" (`ae_related` 0) has no
-  regulator row; "unknown" (9) or no answer counts as suspected. The sponsor and the IRB are told of every SAE as
+- **The regulator clock is for a suspected reaction.** An SAE the investigator answers "not related" (`ae_related`
+  0) has no regulator row, unless the sponsor answers related (`ae_sponsor_related` 1: ICH E2A, either one's
+  judgment); "unknown" (9) or no answer counts as suspected. The sponsor and the IRB are told of every SAE as
   before.
 - **An expected reaction follows the set's own row for it** (`EXPECTED_REGULATOR`, not a party): `jp_gcp_ii` gives an
   expected fatal or life-threatening reaction its 15-day PMDA report; an expected non-grave reaction, and every
   expected reaction under the other sets, needs no regulator report (LIFE-024).
 - **`tw_trial_sponsor`**: a sponsor's trial at a Taiwan site: sponsor 24 hours, IRB 7/15 days, no site regulator
   clock (the sponsor reports to TFDA). Named in the three languages.
-- **No deadline until the study's set is chosen.** With no set named (by the study, or by the box's `TB_SAE_RULES`)
-  the clock has no party and the problem is `unconfirmed`, an alert in the three languages ("no deadline is shown
-  until it does"); the regulator's name of the country is still shown. A serious AE under it is a no-clock alert
-  (S-16) and keeps a study from closing (D-763).
+- **No deadline until the study's set is chosen.** With no set named by the study, the clock has no party and the
+  problem is `unconfirmed`, an alert in the three languages; the regulator's name (from the box's `TB_SAE_RULES`, else
+  the site's country) is still shown. A box-wide `TB_SAE_RULES` runs no clock of its own: only each study's choice,
+  made on its set-up page by its trial office, does (it put a TFDA clock on every sponsor trial). A serious AE with no
+  clock is listed with the overdue reports on the home page, the week page and the coordinator's mail as "no deadline
+  yet: choose the study's SAE rule set", never left out; it is a no-clock alert (S-16) on the SAE pages. An existing
+  case's register trail records its deadlines going to none, as it records every change.
+- **The expected row is not a party.** `EXPECTED_REGULATOR` does not show in the rules line; an override that turns
+  the regulator off (`TB_SAE_REPORT_DAYS=regulator=0`) turns it off too; the 7 + 8 regulator follow-up is for an
+  unexpected reaction, not the expected row; `expected_noreg` is not said when the set keeps a regulator row. A bad
+  override is said whether or not a set is chosen.
+
+## The review
+
+One adversarial review: NOT SOUND on the first pass. The sponsor's causality was ignored; studies with no set
+chosen lost their overdue reports from the home page and mail with nothing in their place; a box-wide set counted as
+chosen (and brought back the sponsor-trial TFDA clock); `expected_noreg` contradicted the expected PMDA row; the
+expected row leaked into the rules line and past an override; the regulator follow-up made a "day 23" for an
+expected reaction; a bad override was hidden before a set was chosen. All fixed as above and held by tests.
 
 ## What the old tests pinned
 

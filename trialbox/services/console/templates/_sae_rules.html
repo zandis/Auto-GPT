@@ -2,7 +2,7 @@
    country), the same word in every language; each study's rule set with its deadlines, their legend, and who confirmed
    it on the study set-up page. #}
 {% macro pname(p, reg='') %}{% if p == 'regulator' and reg %}{{ t('sae.party.regulator', name=reg) }}{% elif p == 'regulator' %}{{ t('sae.party.regulator_any') }}{% else %}{{ t('life.clock.party.' + p) }}{% endif %}{% endmacro %}
-{% macro rules_line(rules, reg='') %}{% for p, d in rules.items() %}{{ pname(p, reg) }} {% if d[0] or d[1] %}{{ d[0] }}/{{ d[1] }}{% else %}–{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}{% endmacro %}
+{% macro rules_line(rules, reg='') %}{% for p, d in rules.items() if p != 'regulator_expected' %}{{ pname(p, reg) }} {% if d[0] or d[1] %}{{ d[0] }}/{{ d[1] }}{% else %}–{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}{% endmacro %}
 {% macro rules_card(study_rules, fu_rules, tz) %}<section class="card" data-testid="sae-rules">
 {% for rs_, x in study_rules.items() %}<div data-testid="sae-rules-{{ rs_ }}">
 <p><strong>{{ t('sae.rule.set', rs=rs_, name=t('sae.set.' + x.name) if x.name else '–', regulator=x.regulator or '–') }}</strong></p>

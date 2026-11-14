@@ -111,3 +111,19 @@ def _audit(log: Any) -> list[dict[str, Any]]:
     import json
 
     return [json.loads(x) for f in sorted(log.directory.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+
+
+def test_a_serious_ae_with_no_set_chosen_is_listed_and_the_rules_line_names_parties_only(lb: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-766 (2, 5): no set chosen gives no deadline, and the SAE is still on the home page's overdue
+    list as "no deadline yet", never left out; a jp_gcp_ii rules line shows its parties, not the internal row."""
+    name_pi(lb, "pi")
+    no, _other = lb["nos"]
+    c, csrf = login(lb["app"], "crc", PW)
+    c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
+    c.get("/studies/GZQO/subjects")
+    fatal = {"ae_term": "Myocardial infarction", "ae_onset": "2026-11-08", "ae_aware": "2026-11-09",
+             "ae_serious": "1", "ae_serious_why": "1", "ae_severity": "3", "ae_outcome": "5", "ae_related": "9"}  # fmt: skip
+    _save(c, csrf, no, "tb_adverse_event", fatal, "ae1", "subject")
+    assert "no deadline yet" in c.get("/home").text
+    c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "jp_gcp_ii"})
+    assert "regulator_expected" not in c.get("/sae").text

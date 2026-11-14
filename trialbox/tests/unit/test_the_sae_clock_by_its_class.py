@@ -54,3 +54,40 @@ def test_no_deadline_until_the_studys_rule_set_is_chosen() -> None:
     assert lc.report_clock(FATAL, TODAY, rules["parties"]) == []
     chosen = lc.clock_rules("tw_trial", "Asia/Taipei")
     assert chosen["parties"] and "unconfirmed" not in chosen["problems"]
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+def test_the_sponsors_causality_makes_it_a_suspected_reaction() -> None:
+    """The review of D-766 (1): ICH E2A: either the investigator's or the sponsor's judgment."""
+    e = {**FATAL, "ae_expected": "0", "ae_related": "0"}
+    assert _parties("jp_gcp_ii", {**e, "ae_sponsor_related": "1"}).get("regulator") == 7
+    assert "regulator" not in _parties("jp_gcp_ii", {**e, "ae_sponsor_related": "0"})
+
+
+def test_a_box_wide_set_runs_no_clock_and_names_the_regulator() -> None:
+    """The review of D-766 (3): only the study's own set runs a clock (a box set put TFDA on every sponsor trial)."""
+    rules = lc.clock_rules("", "Asia/Taipei", "", "tw")
+    assert rules["parties"] == {} and "unconfirmed" in rules["problems"] and rules["regulator"] == "TFDA"
+
+
+def test_an_override_off_turns_the_expected_row_off_and_a_bad_one_is_said_before_a_set() -> None:
+    """The review of D-766 (5, 7)."""
+    rules = lc.clock_rules("jp_gcp_ii", "Asia/Tokyo", "regulator=0")
+    assert lc.EXPECTED_REGULATOR not in rules["parties"]
+    assert "regulator" not in {r["party"] for r in lc.report_clock({**FATAL, "ae_expected": "1"}, TODAY,
+                                                                   rules["parties"])}  # fmt: skip
+    assert "bad_override" in lc.clock_rules("", "Asia/Taipei", "irb=x")["problems"]
+
+
+def test_an_expected_pmda_row_has_no_made_up_follow_up_and_no_contradicting_flag() -> None:
+    """The review of D-766 (4, 6): the 7 + 8 follow-up is for an unexpected reaction; ``expected_noreg`` says no
+    regulator report, which is untrue when the set keeps one."""
+    from console import saerecord as sr
+
+    rules = lc.clock_rules("jp_gcp_ii", "Asia/Tokyo")
+    ae = {**FATAL, "ae_expected": "1", "ae_related": "1", "record": "GZQO-0001", "event": "ae1"}
+    ae["clock"] = lc.report_clock(ae, TODAY, rules["parties"])
+    fu = sr.rule_followups(ae, TODAY, sr.followup_rules(""), {})
+    assert not [f for f in fu if f["party"] == "regulator"]
+    v = sr.case_view(ae, None, [], TODAY, sr.followup_rules(""), None, rules)
+    assert "expected_noreg" not in v["flags"]

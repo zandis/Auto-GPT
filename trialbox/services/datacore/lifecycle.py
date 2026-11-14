@@ -226,40 +226,48 @@ def apply_override(parties: dict[str, tuple[int, int]], override: str) -> list[s
 
 
 def clock_rules(study_set: str = "", tz: str = "", override: str = "", box_set: str = "") -> dict[str, Any]:
-    """The clock in force for one study: the study's named set, else the box's (``TB_SAE_RULES``), else the default
-    of the site's country (from ``site.tz``), then ``override``. Returns ``name``, ``country``, ``regulator``,
+    """The clock in force for one study: the study's named set, then ``override``; with none named, no clock and the
+    ``unconfirmed`` alert (D-766), the regulator's name from the box's ``TB_SAE_RULES`` or the site's country. Returns
+    ``name``, ``country``, ``regulator``,
     ``parties`` (party -> (fatal or life-threatening, other) days), ``source`` (study, box, country) and
     ``problems`` (:data:`RULE_PROBLEMS`). An unknown name, a zone of no known country or an unreadable override is
     a problem the pages show as an alert, never the Taiwan clock (CR-009)."""
     country = _site_country(tz)
-    asked = (study_set or box_set or "").strip().lower()
+    # the review of D-766: only the study's own set runs a clock ("confirmed by each trial office"); a box-wide
+    # ``TB_SAE_RULES`` is named on the page but gives no deadline (it put a TFDA clock on every sponsor trial)
+    asked = (study_set or "").strip().lower()
     name = RULE_ALIASES.get(asked, asked)
     source = "study" if study_set else ("box" if box_set else "country")
     problems: list[str] = []
+    if apply_override({}, override):  # said whatever the set, also before one is chosen
+        problems.append("bad_override")
     if name:
         rs = RULE_SETS.get(name)
         if rs is None:
             problems.append("unknown_rules")
-    else:  # NEW-LIFE-8 (D-766): no deadline until the study (or the box) names its set
+    else:  # NEW-LIFE-8 (D-766): no deadline until the study names its set
         rs = None
         problems.append("unconfirmed" if COUNTRY_DEFAULT.get(country) else "no_country")
     if rs is not None and country and rs.country != country:
         problems.append("other_country")
     parties = dict(rs.parties) if rs is not None else {}
-    if rs is not None and apply_override(parties, override):
-        problems.append("bad_override")
+    if rs is not None:
+        apply_override(parties, override)
+        if parties.get("regulator") == (0, 0):  # an override that turns the regulator off turns the expected row off
+            parties.pop(EXPECTED_REGULATOR, None)
     if "unconfirmed" not in problems and not any(max(v) > 0 for k, v in parties.items() if k in REPORT_PARTIES):
         problems.append("noclock")
-    shown = rs if rs is not None else RULE_SETS.get(COUNTRY_DEFAULT.get(country, "")) if not name else None
+    boxed = RULE_SETS.get(RULE_ALIASES.get(box_set.strip().lower(), box_set.strip().lower())) if box_set else None
+    shown = rs if rs is not None else boxed or RULE_SETS.get(COUNTRY_DEFAULT.get(country, "")) if not name else None
     return {"name": rs.name if rs is not None else name[:40], "country": rs.country if rs is not None else country,
             "regulator": shown.regulator if shown is not None else "", "parties": parties, "source": source,
             "problems": problems}  # fmt: skip
 
 
 def report_rules(tz: str = "", override: str = "", rules: str = "") -> dict[str, tuple[int, int]]:
-    """The parties of :func:`clock_rules` for a box-wide name (``rules``) or the site's zone; what the pages show as
-    a problem is in :func:`clock_rules`."""
-    return dict(clock_rules("", tz, override, rules)["parties"])
+    """The parties of :func:`clock_rules` for a named set (``rules``, as a study names it) in the site's zone; what the
+    pages show as a problem is in :func:`clock_rules`. No set named: no parties (D-766)."""
+    return dict(clock_rules(rules, tz, override)["parties"])
 
 
 def is_serious(e: dict[str, Any]) -> bool:
@@ -311,7 +319,9 @@ def report_clock(e: dict[str, Any], today: date, rules: dict[str, tuple[int, int
     tz = now.tzinfo if now is not None else None
     began = start_at(e, tz)
     expected = e.get("ae_expected") == "1"
-    unrelated = e.get("ae_related") == "0"  # D-766: "unknown" (9) or no answer counts as a suspected reaction
+    # D-766: a suspected reaction unless the investigator says "not related" and the sponsor does not say related
+    # (ICH E2A: either one's judgment of a reasonable possibility); "unknown" (9) or no answer counts as suspected
+    unrelated = e.get("ae_related") == "0" and e.get("ae_sponsor_related") != "1"
     out = []
     for party in REPORT_PARTIES:
         days = rules.get(party, (0, 0))[0 if grave(e) else 1]
