@@ -3,7 +3,6 @@
 # Docker, the bundle's images and a GPU; the paid run runs the real one. It writes the .env the install would (the
 # passwords the wizard's apply keeps, the feed folder) and ends as the real one does with a FAIL list on a box with
 # no backup yet: "TrialBox is running", exit 1.
-d="$(cd "$(dirname "$0")" && pwd)"
 echo "install-inner $*" >> "$BR_S/calls.log"
 echo install >> "$BR_S/calls.log"
 mkdir -p "$BR_S/feed"
