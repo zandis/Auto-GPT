@@ -89,6 +89,20 @@ TW_ID = re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?![0-9])")
 PHONE = re.compile(
     r"(?<!\d)(?:\+886[-\s]?9\d{2}|09\d{2})[-\s]?\d{3}[-\s]?\d{3}(?!\d)|(?<!\d)\(?0[2-8]\)?[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)"
 )
+# NEW-B-43 (D-744): an English phone number (North American, British or any with a country code). A local number of
+# seven digits only after a word that says it is one (``Tel``, ``phone``, ``mobile``, ``contact``, ``number`` ...);
+# the longer forms anywhere. Clinical ranges (100-300 mg, 4.5-11.0) and dates have neither shape. One pattern for the
+# note masker, the gate before a call (:func:`scan`) and the guard service's recognisers. Group ``v``: the number.
+_EN_PHONE_FULL = (
+    r"\+\d{1,3}[-.\s]?\(?\d{1,4}\)?(?:[-.\s]?\d{2,4}){2,3}"  # any number with its country code
+    r"|\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]\d{4}"  # North American: area code, exchange, line
+    r"|0\d{2,4}\s\d{3,4}\s?\d{3,4}"  # British national: a leading 0, the area code, two groups
+)
+_EN_PHONE_LABEL = r"(?i:\b(?:tel(?:ephone)?|phone|ph|mobile|cell|fax|contact|call|number(?:\s+is)?)\b\.?)[\s:#.]*"
+EN_PHONE = re.compile(
+    rf"{_EN_PHONE_LABEL}(?P<v>(?:{_EN_PHONE_FULL}|\d{{3}}[-.]\d{{4}}))(?![\d-])"
+    rf"|(?<![A-Za-z0-9+])(?:{_EN_PHONE_FULL})(?![\d-])"  # not inside a code (JLAC10 3D046 0000 019)
+)
 DATE = dates.PHI_SPAN  # Gregorian and 民國 written out (D-215: the pattern lives in tb_common.dates, unchanged)
 EN_NAME = re.compile(
     r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\bPatient(?: name)?:\s*[A-Z][a-z]+\s+[A-Z][a-z]+"
@@ -159,6 +173,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
             findings.append(("mrn", _mask(m.group(0))))
     for m in PHONE.finditer(text):
         findings.append(("phone", _mask(m.group(0))))
+    for m in EN_PHONE.finditer(text):
+        findings.append(("phone", _mask(m.group("v") or m.group(0))))
     for m in KEYWORDS.finditer(text):
         findings.append(("keyword", m.group(0)))
     names = _cjk_names(text)
@@ -183,7 +199,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
 # are untouched. ``○`` is how Taiwanese and Japanese records mask a name by hand; the tokenizer drops it, so a masked
 # span gives no token to the full-text index or the hash embedder.
 MASK_CHAR = "○"
-NOTE_MASK_VERSION = "1"  # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask
+# recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744)
+NOTE_MASK_VERSION = "2"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -210,6 +227,7 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("id", TW_ID),
     ("phone", PHONE),
+    ("phone", EN_PHONE),
     (
         "phone",
         re.compile(
