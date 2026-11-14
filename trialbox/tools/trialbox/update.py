@@ -1063,7 +1063,9 @@ class ComposeBox(_DockerImages):
     def running_services(self) -> list[str] | None:
         """D-724: the compose services that run now; None when compose cannot answer."""
         try:
-            return self.run(self._c("ps", "--status", "running", "--services")).split()
+            # a service that is restarting (crash-looping under `restart: unless-stopped`) or paused comes back
+            return self.run(self._c("ps", "--status", "running", "--status", "restarting", "--status", "paused",
+                                    "--services")).split()  # fmt: skip
         except (UpdateFailed, OSError):
             return None
 

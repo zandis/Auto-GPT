@@ -8,7 +8,8 @@ place. The drill could not see it: its box is idle while it backs up."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -52,37 +53,109 @@ def _copied_audit(box: dict[str, Any], tmp_path: Path, files: list[Path]) -> Pat
     return into / "dirs" / "audit"
 
 
-@pytest.mark.parametrize("between", ["day file then head", "head then day file"])
-def test_an_event_written_during_the_copy_leaves_a_chain_and_head_that_agree(
-    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, between: str
-) -> None:
-    """An event is written between the copies of the day file and of the head anchor, in either order."""
+def _fresh_chain(box: dict[str, Any], n: int = 3) -> tuple[Path, AuditLog]:
     audit_dir = box["dirs"]["audit"]
-    (audit_dir / "2026" / "log.jsonl").unlink()  # the fixture's line is not a chain; this test writes a real one
+    (audit_dir / "2026" / "log.jsonl").unlink()  # the fixture's line is not a chain; these tests write a real one
     (audit_dir / "2026").rmdir()
-    log = _chain(audit_dir, 3)
+    return audit_dir, _chain(audit_dir, n)
+
+
+def _verifies(box: dict[str, Any], tmp_path: Path, files: list[Path]) -> audit.VerifyResult:
+    res = audit.verify(_copied_audit(box, tmp_path, files))
+    assert res.ok, res.errors
+    assert audit.verify(box["dirs"]["audit"]).ok  # and the box's own chain is whole
+    return res
+
+
+def test_an_event_written_between_the_day_file_and_the_head_anchor(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The finding as it was: the day file copied, an event written, then the head anchor copied."""
+    _, log = _fresh_chain(box)
     real = bk._add
     wrote: list[str] = []
 
-    def add_and_write(tar: Any, path: Path, arcname: str, *a: Any, **kw: Any) -> tuple[str, int]:
-        day = arcname.startswith("dirs/audit/") and arcname.endswith(".jsonl") and not wrote
-        if day and between == "head then day file":  # after the head anchor was read, before the day file is copied
-            log.append("test.event", ts=AT, actor="test", detail={"i": "during"})
-            wrote.append(arcname)
+    def add_then_write(tar: Any, path: Path, arcname: str, *a: Any, **kw: Any) -> tuple[str, int]:
         out = real(tar, path, arcname, *a, **kw)
-        if day and between == "day file then head":  # after the day file, before the head anchor
+        if arcname.startswith("dirs/audit/") and arcname.endswith(".jsonl") and not wrote:
             log.append("test.event", ts=AT, actor="test", detail={"i": "during"})
             wrote.append(arcname)
         return out
 
-    monkeypatch.setattr(bk, "_add", add_and_write)
+    monkeypatch.setattr(bk, "_add", add_then_write)
     files = _backup(box, tmp_path)
-    assert wrote, "the copy never reached the audit chain"
-    copied = _copied_audit(box, tmp_path, files)
-    res = audit.verify(copied)
-    assert res.ok, res.errors
-    assert res.lines in (3, 4)  # the chain as it stood at one moment: before the event, or with it
-    assert audit.verify(audit_dir).ok  # and the box's own chain is whole
+    assert wrote
+    assert _verifies(box, tmp_path, files).lines == 3  # the chain as it stood at the moment
+
+
+def test_a_new_day_file_started_after_the_folder_was_listed(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found by the review, by running (1 backup in 25 with the day moving): the folder was listed before the
+    moment; an event of a new day written in between made a day file the copy did not know, while the head anchor
+    read at the moment pointed into it."""
+    _, log = _fresh_chain(box)
+    real = bk.select_files
+    wrote: list[str] = []
+
+    def list_then_write(name: str, root: Path) -> Any:
+        out = real(name, root)
+        if name == "audit" and not wrote:
+            log.append("test.event", ts=AT + timedelta(days=1), actor="test", detail={"i": "next day"})
+            wrote.append(name)
+        return out
+
+    monkeypatch.setattr(bk, "select_files", list_then_write)
+    files = _backup(box, tmp_path)
+    assert wrote
+    res = _verifies(box, tmp_path, files)
+    assert res.lines == 4 and res.files == 2  # the new day's file is in the backup, with its event
+
+
+def test_the_first_event_ever_written_after_the_folder_was_listed(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audit_dir = box["dirs"]["audit"]
+    (audit_dir / "2026" / "log.jsonl").unlink()
+    (audit_dir / "2026").rmdir()
+    real = bk.select_files
+    wrote: list[str] = []
+
+    def list_then_write(name: str, root: Path) -> Any:
+        out = real(name, root)
+        if name == "audit" and not wrote:
+            AuditLog(audit_dir, tz="UTC").append("test.event", ts=AT, actor="test", detail={})
+            wrote.append(name)
+        return out
+
+    monkeypatch.setattr(bk, "select_files", list_then_write)
+    files = _backup(box, tmp_path)
+    assert _verifies(box, tmp_path, files).lines == 1
+
+
+def test_a_torn_last_line_repaired_between_the_moment_and_the_copy(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found by the review, by running: the length read at the moment ran past the last whole line; the writer then
+    cut the torn tail and wrote new events, and the copy took them up to that length."""
+    audit_dir, log = _fresh_chain(box)
+    (day,) = audit_dir.glob("*.jsonl")
+    with day.open("ab") as fh:
+        fh.write(b'{"ts": "2026-11-14T01:00:00+00:00", "event": "torn' + b"x" * 3000)  # a write cut by a crash
+    real = bk._add
+    wrote: list[str] = []
+
+    def write_then_add(tar: Any, path: Path, arcname: str, *a: Any, **kw: Any) -> tuple[str, int]:
+        if arcname.startswith("dirs/audit/") and arcname.endswith(".jsonl") and not wrote:
+            log.append("test.event", ts=AT, actor="test", detail={"i": "after the repair"})  # cuts the tail first
+            log.append("test.event", ts=AT, actor="test", detail={"i": "and one more"})
+            wrote.append(arcname)
+        return real(tar, path, arcname, *a, **kw)
+
+    monkeypatch.setattr(bk, "_add", write_then_add)
+    files = _backup(box, tmp_path)
+    assert wrote
+    assert _verifies(box, tmp_path, files).lines == 3
 
 
 def test_the_backup_never_creates_the_writers_lock_file(box: dict[str, Any], tmp_path: Path) -> None:
@@ -201,3 +274,70 @@ def test_the_command_asks_the_box_which_services_run(
     seen.clear()
     assert cli([*args, "--services-stopped"]) == 1
     assert seen["running"]() == ["db"]
+
+
+# --------------------------------------------------------------------------------- found by the review of D-724
+def test_a_restore_keeps_the_modes_of_folders_and_files(box: dict[str, Any], tmp_path: Path) -> None:
+    """Found by the review, by running: every folder came back 0755 (an audit folder of 0700 readable by all), a
+    0660 file came back 0640. A folder gets the mode (and owner) of the same folder it replaced, else of the
+    volume's top folder; a file the mode of its backup member (no set-id bits)."""
+    lake = box["dirs"]["lake"]
+    (lake / "db" / "gen").mkdir(parents=True)
+    (lake / "db" / "gen" / "x.json").write_text("{}", encoding="utf-8")
+    (lake / "shared.txt").write_text("s", encoding="utf-8")
+    (lake / "shared.txt").chmod(0o660)
+    for d in (lake, lake / "db", lake / "db" / "gen"):
+        d.chmod(0o700)
+    files = _backup(box, tmp_path)
+    out = bk.restore(files[0], box["priv"], env=_env(box), dirs=box["dirs"], public_key=box["pub"],
+                     keep_to=tmp_path / "kept", running=lambda: ["db"])  # fmt: skip
+    assert out["ok"]
+    for d in (lake, lake / "db", lake / "db" / "gen"):
+        assert d.stat().st_mode & 0o7777 == 0o700, d
+    assert (lake / "shared.txt").stat().st_mode & 0o7777 == 0o660
+
+
+def test_a_failed_restore_leaves_no_audit_file_that_only_root_can_write(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found by the review, by running: `backup.restore_failed` was written as root into the live audit folder, and
+    the audit writer (another user) could not write the day's chain after it. Every audit write of the restore
+    gives the files it made to the folder's owner."""
+    files = _backup(box, tmp_path)
+    audit_dir = box["dirs"]["audit"]
+    given: dict[str, tuple[int, int]] = {}
+    monkeypatch.setattr(bk, "_is_root", lambda: True)
+    monkeypatch.setattr(bk, "_chown", lambda p, uid, gid: given.__setitem__(str(p), (uid, gid)))
+    real = bk._uid_gid
+    monkeypatch.setattr(bk, "_uid_gid", lambda p: (10001, 10002) if Path(p) == audit_dir else real(p))
+
+    def broken(*_a: Any, **_kw: Any) -> dict[str, Any]:
+        return {"snapshots": 0, "problems": ["a synthetic problem"], "unsigned": 0}  # the restore then stops
+
+    monkeypatch.setattr(bk, "lake_check", broken)
+    with pytest.raises(bk.BackupError):
+        bk.restore(files[0], box["priv"], env=_env(box), dirs=box["dirs"], public_key=box["pub"],
+                   keep_to=tmp_path / "kept", running=lambda: ["db"])  # fmt: skip
+    made = [p for p in audit_dir.rglob("*") if p.is_file() and real(p) == (os.geteuid(), os.getegid())]
+    assert made, "the failed restore wrote no audit file: the test does not reach the failure path"
+    for p in made:
+        assert given.get(str(p)) == (10001, 10002), p
+
+
+def test_a_service_that_is_restarting_or_paused_counts_as_running() -> None:
+    """Found by the review, by reading: a crash-looping service (restart: unless-stopped) is `restarting`, not
+    `running`, and would come back during the restore."""
+    from tools.trialbox.update import ComposeBox
+
+    asked: list[list[str]] = []
+
+    def run(argv: list[str], *a: Any, **kw: Any) -> str:
+        asked.append(list(argv))
+        return "db\norchestrator\n"
+
+    box = ComposeBox.__new__(ComposeBox)
+    box.compose, box.run = ["docker", "compose"], run
+    assert box.running_services() == ["db", "orchestrator"]
+    (argv,) = asked
+    for status in ("running", "restarting", "paused"):
+        assert ["--status", status] == argv[argv.index(status) - 1 : argv.index(status) + 1], status
