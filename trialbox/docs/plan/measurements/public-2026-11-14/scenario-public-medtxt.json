@@ -1,0 +1,136 @@
+{
+ "stages": [
+  {
+   "name": "MedTxt-CR (ja): case reports pasted, conditions read, negations kept out",
+   "ok": false,
+   "seconds": 2805.0,
+   "checks": [
+    [
+     "the corpus is here",
+     true,
+     "MedTxt in .cache/medtxt"
+    ],
+    [
+     "every report read, one call each",
+     true,
+     "(148, 148)"
+    ],
+    [
+     "no proposed condition rests only on a mention the corpus marks negative",
+     false,
+     "['CR:JP0245-4: 右乳癌術後（４年前）', 'CR:JP1220-162: 平成２年４月４日に食道癌根治術施行。', 'CR:JP1553-37: ７年前に胸腺癌手術', 'CR:JP1553-37: ５年前に下肢静脈瘤手術。', 'CR:JP1553-72: 既往に開腹胆摘、上行結腸早期癌ＥＭＲがある。']"
+    ]
+   ],
+   "shot": "scenario-public-medtxt-00.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": "ja"
+  }
+ ],
+ "scenario": {
+  "input": "148 MedTxt-CR case reports (ja, real clinician text, CC BY 4.0)",
+  "counts": {
+   "conditions": 432,
+   "on_positive_mention": 389,
+   "positive_tags": 1427,
+   "negative_tags": 195,
+   "on_untagged_text": 24,
+   "on_suspected_mention": 11,
+   "on_negated_mention": 8
+  },
+  "expected": {
+   "conditions_on_negated_mentions": 0
+  },
+  "got": {
+   "conditions_on_negated_mentions": 8
+  },
+  "model_calls": 148,
+  "seconds": 2805.0,
+  "title": "Real data: MedTxt-CR Japanese case reports as pasted charts (CC BY 4.0)"
+ },
+ "findings": [
+  {
+   "id": "MT-01",
+   "what": "conditions proposed from a mention the corpus marks suspected (疑い)",
+   "expected": "0",
+   "got": 11,
+   "holds": false
+  }
+ ],
+ "run": {
+  "id": "20261114T061459Z-02858674-s1",
+  "head": "02858674236585c0b0a227e409ae7a34e3c5524c",
+  "subject": "Lane G: D-502, every data set is run with the real models in three languages; lane G's order of work",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 16,
+ "metrics": {
+  "sampled": true,
+  "seconds": 2806.7,
+  "folder": "parts/scenario-public-medtxt",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 136365.0,
+    "generation_tokens": 115344.0,
+    "requests": 203.0,
+    "ttft_seconds_sum": 11.021,
+    "ttft_count": 203.0,
+    "queue_seconds_sum": 0.291,
+    "queue_count": 203.0,
+    "e2e_seconds_sum": 2663.42,
+    "e2e_count": 203.0,
+    "ttft_mean_s": 0.0543,
+    "queue_mean_s": 0.0014,
+    "e2e_mean_s": 13.1203
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 18428.0,
+    "generation_tokens": 5245.0,
+    "requests": 54.0,
+    "ttft_seconds_sum": 2.605,
+    "ttft_count": 54.0,
+    "queue_seconds_sum": 0.065,
+    "queue_count": 54.0,
+    "e2e_seconds_sum": 94.113,
+    "e2e_count": 54.0,
+    "ttft_mean_s": 0.0482,
+    "queue_mean_s": 0.0012,
+    "e2e_mean_s": 1.7428
+   }
+  },
+  "gpu": {
+   "samples": 281,
+   "every_s": 10.0,
+   "util_mean_pct": 33.1,
+   "util_max_pct": 41.0,
+   "memory_peak_mib": 62592.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 47.0,
+   "power_max_w": 168.21
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 1.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.006743036071367725
+   },
+   "verifier": {
+    "running_max": 1.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.006230529595015577
+   }
+  }
+ },
+ "wall_seconds": 2806.7,
+ "started_at": "2026-11-14T06:42:45+00:00",
+ "finished_at": "2026-11-14T07:29:32+00:00"
+}
