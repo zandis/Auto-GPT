@@ -100,6 +100,9 @@ class Helpers:
     submit: Callable[..., Job] | None = None  # console.app.submit: a request as if mailed (D-108 refresh)
     # set by register(): the rows the pages show, read again by console.notify (D-108)
     week_bundle: Callable[..., dict[str, Any] | None] | None = None
+    #: NEW-SEC-1 (D-717): the weekly list as the morning mail reads it (signed as the mail's principal), for the
+    #: box's own tools and drills that build it with no person
+    mail_week: Callable[[str], dict[str, Any] | None] | None = None
     trials: Callable[..., list[Any]] | None = None
     settings_of: Callable[[str], StudySettings] | None = None
     api_session: Callable[[Request], Session] | None = None  # set by register(): bearer sign-in for /api/v1
@@ -496,6 +499,12 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # the notices (console.notify) read the same rows as the pages
     h.week_bundle = week_bundle
+
+    def mail_week(rs: str) -> dict[str, Any] | None:
+        with console_actor.reading_as(console_actor.NOTIFY):
+            return week_bundle(None, rs)  # type: ignore[arg-type]
+
+    h.mail_week = mail_week
     h.trials = trials
     h.settings_of = settings_of
     h.crit_of = crit_of

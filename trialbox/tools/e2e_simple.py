@@ -248,7 +248,7 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     today = local_today(h.clock(), site_zone(h.bk))  # the site's date (07:00 in Tokyo is the day before in UTC)
     # a new participant: the next listed patient without a screening number gets one
     have = set(h.store.screening_nos(rs))
-    pid = next(r["pid"] for r in h.week_bundle(None, rs)["rows"] if r["pid"] not in have)
+    pid = next(r["pid"] for r in h.mail_week(rs)["rows"] if r["pid"] not in have)
     no = h.store.assign_screening_no(rs, pid, h.settings_of(rs), h.clock().isoformat())
     # the visit schedule, defined in TrialBox
     page = crc.get(f"/studies/{rs}/schedule")
@@ -1019,7 +1019,7 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
         == 403,
     )
     cand = sub.get(f"/studies/{TRIAL}/candidates")
-    week = h.week_bundle(None, TRIAL)
+    week = h.mail_week(TRIAL)
     rows = [r for r in (week["cl"] or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
     shown = re.search(r'data-testid="cand-count">\D*(\d+)', cand.text)
     s.check("the sub-investigator sees every candidate of the study's run",
@@ -1097,7 +1097,7 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
     s.check("an opt-out entered by chart number is registered under the patient's pseudonym",
             r.status_code == 303 and y in h.optout.active() and mrn_y not in json.dumps(
                 [e.__dict__ for e in h.optout.events()]), r.status_code)  # fmt: skip
-    after = [str(v.get("pid")) for v in (h.week_bundle(None, TRIAL)["cl"] or {}).get("rows") or []]
+    after = [str(v.get("pid")) for v in (h.mail_week(TRIAL)["cl"] or {}).get("rows") or []]
     cand = pi.get(f"/studies/{TRIAL}/candidates").text
     s.check(
         "the opted-out patient leaves the list and the candidates (the count stays)",
@@ -1698,7 +1698,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     from console import studies as st
 
     today = h.today()
-    wrows = h.week_bundle(None, TRIAL)["rows"]
+    wrows = h.mail_week(TRIAL)["rows"]
     ready = [r for r in wrows if st.in_worklist(r, "ready", today)]
     needs = [r for r in wrows if st.in_worklist(r, "needs", today)]
     s.check("ready and needs information do not overlap", not {r["pid"] for r in ready} & {r["pid"] for r in needs})

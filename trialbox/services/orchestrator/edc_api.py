@@ -212,8 +212,13 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
                            detail={"action": action, "code": code})  # fmt: skip
 
     def who(request: Request, action: str, fallback: str | None = None, rs: str = "") -> Actor:
-        """The verified person and role, allowed to take ``action`` (D-162)."""
-        a = claim(request, fallback)
+        """The verified person and role, allowed to take ``action`` (D-162). On a patient read (the copy sheet, the
+        ODM export) the route's dependency verified the person's v3 claim already (NEW-SEC-1, D-717): that person."""
+        v3 = getattr(request.state, "tb_actor", None)
+        if v3 is not None and not v3.is_service and v3.sub.startswith("console:"):
+            a = Actor(name=v3.sub.split(":", 1)[1], session=v3.session, verified=True, role=v3.role)
+        else:
+            a = claim(request, fallback)
         if not a.role or not edc_role_may(a.role, action):
             refused(rs, a, action, "edc.role")
             raise HTTPException(status_code=403, detail={"code": "edc.role", "message": "this role may not do that"})

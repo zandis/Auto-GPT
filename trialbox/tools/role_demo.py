@@ -219,6 +219,26 @@ class InprocBackend:
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str:
         return str(self.box.mail(subject, tuple(files), sender=sender))
 
+    #: the demo's coordinator: the person a patient read of the box's own drills is signed for when no request's
+    #: account is bound (the demo's changing calls name the same person)
+    DEMO_READER = ("console:crc1", "coordinator")
+
+    def _read_headers(self, method: str, path: str, headers: dict[str, str] | None = None) -> dict[str, str]:
+        """NEW-SEC-1 (D-717): a patient read signed as the console's real backend signs it (the bound account, or
+        the mail's principal inside ``reading_as``); a drill's own read with nobody bound is signed for the demo's
+        coordinator on the route's study. The orchestrator checks every one as on a box."""
+        from console.actor import read_headers
+        from tb_common import actor_v3, patient_reads
+
+        out = read_headers(method, path, headers)
+        hit = patient_reads.match(method, path)
+        if hit is None or actor_v3.HEADER in out:
+            return out
+        sub, role = self.DEMO_READER
+        out[actor_v3.HEADER] = actor_v3.mint(sub=sub, role=role, action=hit[1][0], method=method.upper(), path=path,
+                                             study=hit[2])  # fmt: skip
+        return out
+
     # registry
     def _call(self, method: str, path: str, body: Any = None, sign: Any = None) -> Any:
         from console.backend import Refused
@@ -226,7 +246,10 @@ class InprocBackend:
 
         payload = body if body is None or isinstance(body, dict) else dump(body)
         headers = sign(method, path, payload) if sign else None
-        r = self.c.get(path) if method == "GET" else self.c.post(path, json=payload, headers=headers)
+        if method == "GET":  # NEW-SEC-1 (D-717): a patient read is signed as the console's real backend signs it
+            r = self.c.get(path, headers=self._read_headers("GET", path))
+        else:
+            r = self.c.post(path, json=payload, headers=headers)
         if r.status_code in (400, 403, 404, 422, 429):
             raise Refused(str(r.json().get("detail")))
         return r.json()
@@ -277,6 +300,8 @@ class InprocBackend:
                   headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         from console.backend import problem_of
 
+        if method.upper() == "GET":  # NEW-SEC-1 (D-717): a patient read carries its person
+            headers = self._read_headers(method, path, headers)
         kw: dict[str, Any] = {"headers": headers} if headers else {}
         r = self.c.request(method, path, json=body, **kw) if body is not None else self.c.request(method, path, **kw)
         if r.status_code >= 400:

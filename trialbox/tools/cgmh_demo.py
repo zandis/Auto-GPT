@@ -134,7 +134,7 @@ def screen(s: dict[str, Any], rs: str, pract: str = "") -> dict[str, Any]:
     assert r.status_code == 303, (rs, r.status_code, r.text[-400:])
     job = box.orch.db.get(r.headers["location"].rsplit("/", 1)[-1])
     assert job is not None and job.state == "done", (rs, job and job.state, job and job.error)
-    wk = s["h"].week_bundle(None, rs)
+    wk = s["h"].mail_week(rs)
     assert wk is not None and wk["job"].job_id == job.job_id
     return {"job": job, "rows": {str(r["pid"]): r for r in (wk["cl"] or {}).get("rows") or []}}
 
