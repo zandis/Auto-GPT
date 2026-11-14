@@ -1359,7 +1359,7 @@ class ReleaseGates(BaseModel):
 
 class ReleaseRecord(BaseModel):
     """
-    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.1.0 (1.1.0, D-367: component kind host, the host tree). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
+    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.2.0 (1.1.0, D-367: component kind host, the host tree; 1.2.0, D-726: rehearsal, a bundle built for a rehearsal box). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
     """
 
     model_config = ConfigDict(
@@ -1375,6 +1375,10 @@ class ReleaseRecord(BaseModel):
     release_seq: int = Field(..., ge=1)
     created_at: AwareDatetime
     source: ReleaseSource = Field(..., title="ReleaseSource")
+    rehearsal: bool | None = None
+    """
+    D-726: true when tools/make_bundle.sh --rehearsal built it, for a rehearsal box (deploy/install.sh --rehearsal, TB_ENV TEST). A PRODUCTION or VALIDATION box refuses it at install and update. Absent on a bundle built for a site.
+    """
     gates: ReleaseGates = Field(..., title="ReleaseGates")
     """
     The release-gate record (tools/supply_chain release-gates, D-186) the images passed.

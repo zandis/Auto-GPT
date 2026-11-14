@@ -743,6 +743,7 @@ DECLARED: dict[str, Declared] = {
     "TB_REDCAP_TEST_TIMEOUT_S": Declared("float", "120", "REDCap test instance (D-584): seconds one API call may take"),
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
+    "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box, TEST only; doctor says so (D-726)"),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),

@@ -111,6 +111,18 @@ Under WSL2 (the Windows form; the script reads the kernel's release) the address
 printed and not written to the box's screen file, and the host's time zone is left to Windows (D-571).
 When the answers are applied the script writes `deploy/site/box/applied`; a start that finds it (the window
 closed before the last line) shows no new code and finishes the set-up (D-576).
+**A rehearsal box** (D-726). `deploy/install.sh <bundle> --rehearsal` (or `deploy/box-install.sh <bundle>
+--rehearsal`, which hands it on) makes a box that says it is a rehearsal: it is TEST from before the bundle loads (the
+mark `deploy/site/rehearsal.json`), and deploy/.env gets `TB_ENV=TEST` and `TB_REHEARSAL=1`. The installer refuses
+it on a PRODUCTION or VALIDATION box and on a box whose Docker volumes hold data from no rehearsal. The model
+stand-ins (`tools/rehearse_box/standins.yml`, the default override of a rehearsal; `TB_COMPOSE_OVERRIDE=` set empty
+keeps the real model servers, for an unmeasured card's trial boot) and `TB_ACCEPT_UNMEASURED_GPU=1` work on a TEST box
+only. `trialbox doctor` says "rehearsal box" (WARN) and fails a rehearsal mark on any other environment. A bundle
+built with `tools/make_bundle.sh --rehearsal` says `"rehearsal": true` in its release.json; a PRODUCTION or
+VALIDATION box refuses it at install and at update. A rehearsal box never becomes a site box: before a site's
+install on the same machine, empty it: `docker compose --project-directory deploy down -v`, then remove
+`deploy/.env` and `deploy/site/rehearsal.json` (keep `deploy/site/serving_config.<profile>.json` from a trial boot).
+
 **Prepared image:** Aimedics runs the same script with
 `--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
 first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the wizard, the apply). The rehearsal of

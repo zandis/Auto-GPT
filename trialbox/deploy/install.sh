@@ -11,7 +11,8 @@
 # Tiers (D-138, tools/tiers.py): small = rtx5090, medium = gb10, large = rtxpro6000 (the boxes of D-124). A tier is
 # installed only from a measured serving record of its own uncapped card (deploy/site/ or deploy/measured/
 # serving_config.<gpu>.json, tools/serving_config.py measured); there is no override. --gpu with
-# TB_ACCEPT_UNMEASURED_GPU=1 stays for a trial boot of an unmeasured card, and is not a tier install.
+# TB_ACCEPT_UNMEASURED_GPU=1 stays for a trial boot of an unmeasured card, and is not a tier install; since D-726 only
+# on a rehearsal box (--rehearsal sets it; TB_COMPOSE_OVERRIDE= empty keeps the real model servers).
 #
 # What it does, in order, and stops at the first failure:
 #   1. host:      Docker Engine + compose plugin present and running; GPU driver when --mode gpu (auto when nvidia-smi
@@ -48,6 +49,10 @@
 # TPM) leaves the site keys to the box's apply step, which seals them under the passphrase the owner set.
 # TB_COMPOSE_OVERRIDE=<file> adds one compose file after the others (the box rehearsal's model stand-ins, D-176); it is
 # printed and kept in deploy/.env COMPOSE_FILE so every later compose command uses it too.
+# --rehearsal (D-726): a rehearsal box, which says so. It is TEST from before the bundle loads (deploy/site/
+# rehearsal.json), refused on a PRODUCTION or VALIDATION box and on a box whose volumes hold data from no rehearsal;
+# deploy/.env gets TB_ENV=TEST and TB_REHEARSAL=1, doctor says "rehearsal box", and a site box refuses a bundle
+# built with make_bundle.sh --rehearsal. The model stand-ins and TB_ACCEPT_UNMEASURED_GPU=1 work on a TEST box only.
 # Re-running is safe: every step is idempotent. Nothing leaves the host: no registry, no download, no telemetry.
 # The one exception: when live ClinicalTrials.gov is chosen, one HTTPS request to clinicaltrials.gov (no data sent)
 # checks that this host can reach it (D-140).
@@ -56,7 +61,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
-TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0
+TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -68,6 +73,7 @@ while [ $# -gt 0 ]; do
     --ctgov) CTGOV="$2"; shift ;;
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
+    --rehearsal) REHEARSAL=1 ;;
     -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -189,6 +195,27 @@ if [ -f "$BUNDLE.sha256" ]; then
 fi
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
 
+# REHEARSAL (D-726): before anything loads
+# the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
+# from here on, read from the mark until deploy/.env says so
+if [ "$REHEARSAL" = 1 ]; then
+  RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
+  case "$RH_ENV" in
+    PRODUCTION|VALIDATION) die "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box" ;;
+  esac
+  if [ ! -f deploy/site/rehearsal.json ]; then
+    RH_VOLS="$(docker volume ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-trialbox}" 2>/dev/null | tr '\n' ' ')"
+    [ -z "${RH_VOLS// /}" ] || die "--rehearsal: this box holds data from no rehearsal (volumes: $RH_VOLS): a rehearsal starts on an empty box"
+  fi
+  [ -f "$ROOT/tools/rehearse_box/standins.yml" ] || die "--rehearsal: no model stand-ins at tools/rehearse_box/standins.yml"
+  mkdir -p deploy/site && printf '{"rehearsal": true}\n' > deploy/site/rehearsal.json
+  # the stand-ins unless TB_COMPOSE_OVERRIDE is set: set empty, the real model servers (an unmeasured card's trial boot)
+  export TB_COMPOSE_OVERRIDE="${TB_COMPOSE_OVERRIDE-$ROOT/tools/rehearse_box/standins.yml}"
+  export TB_ACCEPT_UNMEASURED_GPU=1
+  echo "install: note: a rehearsal box (TB_ENV TEST, ${TB_COMPOSE_OVERRIDE:-the real model servers}, an unmeasured card accepted)" >&2
+fi
+# ---- end of REHEARSAL (D-726): before anything loads
+
 # ------------------------------------------------------------------------------------------------ 2. bundle
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
@@ -276,11 +303,23 @@ fi
 # D-126: the host tools reach the one trial database as `trialbox`; each service has its own role (D-378)
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
+# REHEARSAL (D-726): the box says TEST
+if [ "$REHEARSAL" = 1 ]; then
+  case "$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)" in
+    PRODUCTION|VALIDATION) die "--rehearsal: the answers make this box $(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1): a rehearsal box is TEST" ;;
+  esac
+  sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=TEST\nTB_REHEARSAL=1\n' >> deploy/.env
+fi
+# ---- end of REHEARSAL (D-726): the box says TEST
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
 grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# D-726: what only a rehearsal box may use (the model stand-ins, an unmeasured card's trial boot)
+rehearsal_only() {
+  [ "$TB_ENV_SITE" = TEST ] || die "$1: only on a rehearsal box (TB_ENV TEST, deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
+}
 # T-632 (OPS-011): the feed folder. The wizard wrote TB_SOURCE_DIR (the host folder) and TB_SOURCE_MOUNT (the
 # settings' data_source.path); compose mounts the one at the other. PRODUCTION never falls back to the test fixture
 SRC_DIR="$(envget TB_SOURCE_DIR)"
@@ -376,9 +415,10 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
       || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
     echo "    $GPU profile measured: $REC"
   elif [ -z "$TIER" ] && [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
+    rehearsal_only "TB_ACCEPT_UNMEASURED_GPU=1 (an unmeasured card's trial boot)"
     echo "install: warning: $GPU profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture deploy/site/serving_config.$GPU.json after the first boot (RUNBOOK §8)" >&2
   else
-    die "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run with TB_ACCEPT_UNMEASURED_GPU=1, then capture the record (RUNBOOK §8)"
+    die "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run as a rehearsal box (TB_COMPOSE_OVERRIDE= deploy/install.sh <bundle> --gpu $GPU --rehearsal), then capture the record (RUNBOOK §1)"
   fi ;;
 esac
 case "$MODE:$GPU" in
@@ -438,6 +478,9 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
   # may change it, and it must stay where it is
   [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || die "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"
   [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || die "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"
+  if [ "$OVR" = "$(cd "$ROOT/tools/rehearse_box" 2>/dev/null && pwd)/standins.yml" ]; then
+    rehearsal_only "the model stand-ins (TB_COMPOSE_OVERRIDE=tools/rehearse_box/standins.yml)"
+  fi
   echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
   COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
 fi

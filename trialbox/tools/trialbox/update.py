@@ -575,6 +575,11 @@ class Updater:
             ]
         if not strict:
             return []
+        if plan.release.get("rehearsal") is True:  # D-726: tools/make_bundle.sh --rehearsal
+            raise UpdateRefused(
+                f"{plan.bundle_id} is a rehearsal bundle (release.json says rehearsal; tools/make_bundle.sh "
+                f"--rehearsal): a {env} box refuses it. It goes on a rehearsal box (deploy/install.sh --rehearsal)"
+            )
         source = plan.release.get("source")
         dirty = source.get("dirty") if isinstance(source, dict) else None
         if dirty is True:
@@ -1057,8 +1062,12 @@ class ComposeBox(_DockerImages):
     def environment(self) -> str:
         """D-633: ``TB_ENV`` of ``deploy/.env`` (its last line, as install.sh reads it), PRODUCTION when it is not
         set or there is no file yet (D-127). Never the process environment: a ``TB_ENV=DEV`` typed in front of the
-        installer is not written to the box."""
-        return (_env_file(self.deploy / ".env").get("TB_ENV") or "PRODUCTION").strip().upper()
+        installer is not written to the box. D-726: a rehearsal box (``install.sh --rehearsal``) is TEST from before
+        the bundle loads, by its mark ``deploy/site/rehearsal.json``, until deploy/.env says; deploy/.env wins."""
+        named = _env_file(self.deploy / ".env").get("TB_ENV")
+        if not named and (self.deploy / "site" / "rehearsal.json").is_file():
+            return "TEST"
+        return (named or "PRODUCTION").strip().upper()
 
     def running(self) -> bool:
         try:

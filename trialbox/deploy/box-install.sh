@@ -4,6 +4,7 @@
 #
 #   sudo deploy/box-install.sh trialbox-<version>.tar [--yes]       # hardware the site bought: install, then the wizard
 #   sudo deploy/box-install.sh trialbox-<version>.tar --prepare      # Aimedics, before shipping: stop before the wizard
+#   sudo deploy/box-install.sh trialbox-<version>.tar --rehearsal    # a rehearsal box: TEST, stand-ins (D-726)
 #   deploy/box-install.sh --firstrun                                 # the prepared box's first boot (trialbox-firstrun.service)
 #
 # What it does, in order:
@@ -28,13 +29,14 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0
+BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
     --prepare) PREPARE=1 ;;
     --firstrun) FIRSTRUN=1 ;;
-    -h|--help) sed -n 2,28p "$0"; exit 0 ;;
+    --rehearsal) REHEARSAL=1 ;;
+    -h|--help) sed -n 2,29p "$0"; exit 0 ;;
     -*) echo "box-install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -91,6 +93,7 @@ EOP
   rm -f "$BOX/applied"  # D-576: a new install: the answers are provisional again and the wizard is due
   ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --provisional --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)"
   read -r -a INSTALL_ARGS <<< "${ARGS_LINE#install-args: }"
+  [ "$REHEARSAL" = 1 ] && INSTALL_ARGS+=(--rehearsal)  # D-726: a rehearsal box, handed on to install.sh
   DEFER=0; [ "$(json_get "$BOX/hardware.json" tpm)" = True ] || DEFER=1
   echo "    install: ${INSTALL_ARGS[*]}"
   [ "$DEFER" = 0 ] || echo "    no TPM: the site keys are sealed after the wizard, under the owner's passphrase"
