@@ -37,6 +37,15 @@ class CompileError(ValueError):
     """IR that cannot be compiled deterministically (blocks the ruleset; flagged needs_review)."""
 
 
+class UnknownValueSet(CompileError, KeyError):
+    """B14 (D-502): IR naming a value set that no concept candidate defined (a model answer can). A
+    :class:`CompileError`, so the criterion goes to a person and the rest compiles; still a ``KeyError`` for any caller
+    that caught one."""
+
+    def __str__(self) -> str:  # KeyError would quote the message
+        return str(self.args[0]) if self.args else ""
+
+
 class Kind(StrEnum):
     PRESENCE = "presence"  # exists/count/none over coded events (never null)
     OBS_VALUE = "obs_value"  # observation value comparison (null when no observation)
