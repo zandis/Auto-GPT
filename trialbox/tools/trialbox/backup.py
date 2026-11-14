@@ -63,6 +63,7 @@ import tarfile
 import tempfile
 import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -670,6 +671,11 @@ def _starts_with(path: Path, n: int, sha: Any) -> bool:
     return bool(h.digest() == sha.digest())
 
 
+# D-724: the length up to which each audit day file is copied (``_audit_moment``), by its name in the backup, for
+# the audit folder's copy; ``_add`` keeps its three arguments, so every caller and replacement of it stays as it was
+_UPTO: ContextVar[Mapping[str, int] | None] = ContextVar("tb_backup_upto", default=None)
+
+
 def _add(tar: tarfile.TarFile, path: Path, arcname: str, limit: int | None = None) -> tuple[str, int]:
     """Add one file; return the sha256 and size of exactly the bytes that went into the tar (one read per try).
 
@@ -684,7 +690,10 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str, limit: int | None = Non
     whole earlier state and the copy is kept. Without this a busy
     night made every backup fail ("kept changing"), which is the product being too strict, not the box being
     unsafe. The lines appended later are in the next backup, and a restore lists what the box wrote after the
-    backup (``events_to_reapply``)."""
+    backup (``events_to_reapply``). ``limit`` (or, when not given, the audit moment's length of this file): the copy
+    ends there (D-724)."""
+    if limit is None:
+        limit = (_UPTO.get() or {}).get(arcname)
     grows = _append_only(arcname)
     for _ in range(READ_TRIES):
         with path.open("rb") as fh:
@@ -1101,18 +1110,20 @@ def backup(
                     if dname == "audit":  # what the moment saw, even what the listing before it did not
                         rels = sorted({*rels, *lengths, *(["HEAD.json"] if head is not None else [])})
                     n = 0
+                    upto = _UPTO.set({f"dirs/{dname}/{rel}": end for rel, end in lengths.items()})
                     for rel in rels:
                         arc = f"dirs/{dname}/{rel}"
                         try:
                             if dname == "audit" and rel == "HEAD.json" and head is not None:
                                 got = _add_read(tar, root / rel, arc, head)
                             else:
-                                got = _add(tar, root / rel, arc, lengths.get(rel))
+                                got = _add(tar, root / rel, arc)
                             manifest["files"][arc], manifest["sizes"][arc] = got
                         except FileNotFoundError:  # removed since the listing (a retention prune): not in the backup
                             left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
                             continue
                         n += 1
+                    _UPTO.reset(upto)
                     manifest["dirs"][dname] = {"path": str(root), "files": n}
                     if left:
                         manifest["excluded"][dname] = left
