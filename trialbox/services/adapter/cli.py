@@ -37,7 +37,7 @@ from tb_contracts import RebuildResult, dump
 
 from adapter.governance import contracts_dir
 from adapter.mapping.site import resolve as resolve_mapping
-from adapter.pipeline import AdapterConfig, FutureNight, SiteKeyError, run_ingest
+from adapter.pipeline import AdapterConfig, FutureNight, LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
 
 MAPPING_ROOT = Path(__file__).resolve().parent  # the image's mappings (adapter.mapping.site: the site's come first)
 
@@ -265,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
             rebuild_lake=not args.no_lake,
             validate=not args.no_validate,
         )
-    except (SiteKeyError, FutureNight) as exc:
+    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError) as exc:
         print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))

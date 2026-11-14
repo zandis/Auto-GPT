@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -518,14 +519,18 @@ def _run_ingest(
         raise
     try:  # NEW-B-38 (D-679): before anything is read or written, the room for tonight's snapshot
         check_room(cfg, snap)
-    except NoRoomForNight as exc:
+    except (NoRoomForNight, LakeBudgetError) as exc:
         log.error("night refused: %s", exc)
         if cfg.audit_dir:
             open_audit(cfg.audit_dir, cfg.tz).append(
                 "ingest.failed",
                 snapshot=snap,
                 actor="adapter",
-                detail={"source": source_kind, "refused": "disk", "reason": str(exc)},
+                detail={
+                    "source": source_kind,
+                    "refused": "disk" if isinstance(exc, NoRoomForNight) else "setting",
+                    "reason": str(exc),
+                },
             )
         raise
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
@@ -983,7 +988,16 @@ def _run_ingest(
         (out_dir / HELD).write_text(json.dumps({"snapshot": snap, "errors": errors}) + "\n", encoding="utf-8")
     else:
         (out_dir / HELD).unlink(missing_ok=True)
-    pruning = prune_lake(cfg, date.fromisoformat(snap)) if passed and rebuild_lake else None
+    pruning: PruneResult | None = None
+    budget_said: dict[str, Any] | None = None
+    if passed and rebuild_lake:
+        try:  # D-679: the night is published; its pruning failing is said, never the night's failure
+            pruning = prune_lake(cfg, date.fromisoformat(snap))
+            budget_said = pruning.as_dict()
+        except Exception as exc:
+            log.error("the lake's pruning did not end after the night (%s); it runs again after the next one",
+                      type(exc).__name__)  # fmt: skip
+            budget_said = {"error": type(exc).__name__}
     pruned = pruning.gone if pruning is not None else []
     # T-659b (D-370): one gate record per night, the lineage and the contract checks beside the report
     sorted_out = {*completeness_msgs, *validation_msgs, *(e for e in errors if e.startswith("data contracts: "))}
@@ -1024,7 +1038,7 @@ def _run_ingest(
                 "jp_core": {"sampled": psum.sampled, "failed": psum.errors} if psum is not None else None,
                 "snapshots_pruned": pruned,
                 # NEW-B-38 (D-679): the byte budget, the month-end NDJSON removed for it, and whether it was met
-                "lake_budget": pruning.as_dict() if pruning is not None else None,
+                "lake_budget": budget_said,
                 "tombstoned": tombstoned,
                 "held": held,
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
@@ -1340,15 +1354,19 @@ def check_room(cfg: AdapterConfig, snap: str) -> None:
     """NEW-B-38 (D-679; review DATA-025): tonight's snapshot needs about the room the newest earlier snapshot took
     (its NDJSON, Parquet and DuckDB); a disk with less free space refuses the night, saying both numbers. The first
     night (no snapshot yet) has nothing to measure by."""
-    prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
-    if not prev:
+    lake_budget(cfg.lake_dir)  # a budget setting that cannot be read refuses the night here (LakeBudgetError)
+    base = merge_base(cfg.lake_dir, snap)  # the newest earlier night that passed and still holds its NDJSON
+    if base is None:
         return
-    need = snapshot_bytes(cfg.lake_dir, max(prev))
+    lake = cfg.lake_dir
+    need = _bytes(
+        [lake / "ndjson" / base, lake / "parquet" / f"snapshot={base}", *(lake / "db").glob(f"{base}.duckdb*")]
+    )
     free = shutil.disk_usage(cfg.lake_dir).free
     if free < need:
         raise NoRoomForNight(
-            f"not enough free disk for tonight's snapshot: about {need // 2**20} MB needed (snapshot {max(prev)} took "
-            f"that), {free // 2**20} MB free on the lake's volume; free space or lower the kept snapshots (D-679)"
+            f"not enough free disk for tonight's snapshot: about {need / 2**20:.1f} MB needed (snapshot {base} took "
+            f"that), {free / 2**20:.1f} MB free on the lake's volume; free space or lower the kept snapshots (D-679)"
         )
 
 
@@ -1614,6 +1632,8 @@ def merge_base(lake_dir: Path, snap: str) -> str | None:
     cur = _current(lake_dir)
     if cur in prev:
         good.append(str(cur))
+    # D-679: a month-end snapshot whose NDJSON the byte budget removed holds nothing to merge over
+    good = [s for s in good if not (snapshot_dir(lake_dir, s) / NDJSON_REMOVED).exists()]
     return max(good) if good else None
 
 
@@ -1636,6 +1656,14 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
 #: while the last one is still kept
 BUDGET_ENV = "TB_LAKE_BUDGET_MB"
 LAKE_DISK_SHARE = 0.5
+#: written in a month-end snapshot's folder when its NDJSON was removed for the budget: the folder, its reports and
+#: its ``passed.json`` stay; no night merges over it (it holds nothing to merge)
+NDJSON_REMOVED = "ndjson_removed.json"
+
+
+class LakeBudgetError(ValueError):
+    """``TB_LAKE_BUDGET_MB`` is not a whole number of megabytes above 0 (D-679): the night is refused before it reads,
+    so that a typo is found by the first night, not at the end of one."""
 
 
 @dataclass
@@ -1663,27 +1691,35 @@ def lake_budget(lake_dir: Path) -> int:
         try:
             mb = int(raw)
         except ValueError:
-            raise ValueError(f"{BUDGET_ENV} must be a whole number of megabytes above 0") from None
+            raise LakeBudgetError(f"{BUDGET_ENV} must be a whole number of megabytes above 0") from None
         if mb < 1:
-            raise ValueError(f"{BUDGET_ENV} must be a whole number of megabytes above 0")
+            raise LakeBudgetError(f"{BUDGET_ENV} must be a whole number of megabytes above 0")
         return mb * 1024 * 1024
     probe = lake_dir if lake_dir.exists() else lake_dir.parent
     return int(shutil.disk_usage(probe).total * LAKE_DISK_SHARE)
 
 
 def _bytes(paths: Iterable[Path], seen: set[tuple[int, int]] | None = None) -> int:
-    """The bytes the files under ``paths`` take, a file with several names (the lake's reader links) once."""
+    """The bytes the files under ``paths`` take, a file with several names (the lake's reader links) once and a
+    symbolic link not followed. A file or folder that goes while it is counted (a rebuild's spill, a reader's link)
+    is left out, never an error: the count runs after a night was published."""
     seen = set() if seen is None else seen
     n = 0
+
+    def one(path: str) -> int:
+        try:
+            st = os.lstat(path)
+        except FileNotFoundError:
+            return 0
+        if not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) in seen:
+            return 0
+        seen.add((st.st_dev, st.st_ino))
+        return st.st_size
+
     for root in paths:
-        if not root.exists():
-            continue
-        files = [root] if root.is_file() else (p for p in root.rglob("*") if p.is_file() and not p.is_symlink())
-        for f in files:
-            st = f.stat()
-            if (st.st_dev, st.st_ino) not in seen:
-                seen.add((st.st_dev, st.st_ino))
-                n += st.st_size
+        n += one(str(root))
+        for folder, _dirs, names in os.walk(root):  # os.walk leaves out a folder it cannot list (gone)
+            n += sum(one(os.path.join(folder, name)) for name in names)
     return n
 
 
@@ -1734,7 +1770,15 @@ def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
         try:
             # D-462: a snapshot that is being rebuilt is left alone (the build would bring it back at its swap)
             with building(cfg.lake_dir, s):
-                shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
+                if whole:
+                    shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
+                else:  # the records go; the night's folder, its reports and its passed.json stay (D-679)
+                    nd = cfg.lake_dir / "ndjson" / s
+                    for f in nd.glob("*.ndjson"):
+                        f.unlink(missing_ok=True)
+                    (nd / NDJSON_REMOVED).write_text(
+                        json.dumps({"snapshot": s, "why": "the lake's byte budget (D-679)"}) + "\n", encoding="utf-8"
+                    )
                 if whole:
                     shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
                     for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
@@ -1760,8 +1804,8 @@ def prune_lake(cfg: AdapterConfig, today: date) -> PruneResult:
             if used <= budget:
                 break
             nd = cfg.lake_dir / "ndjson" / s
-            if nd.exists():
-                size = _bytes([nd])
+            if any(nd.glob("*.ndjson")):
+                size = _bytes(nd.glob("*.ndjson"))
                 if drop(s, whole=False):
                     ndjson_dropped.append(s)
                     used -= size
