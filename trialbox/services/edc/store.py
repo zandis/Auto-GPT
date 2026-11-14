@@ -924,6 +924,22 @@ class EdcStore:
             return self._all("SELECT * FROM sent WHERE study = ? ORDER BY id", (study,))
         return self._all("SELECT * FROM sent WHERE study = ? AND record = ? ORDER BY id", (study, record))
 
+    def last_delivered(self, study: str, record: str, visit: str, item: str) -> str | None:
+        """What REDCap last held of TrialBox's for this item (NEW-EDC-5): the value of its last ``sent`` or
+        ``already_there`` line, or "" after its own ``erased``. None: nothing delivered."""
+        rows = self._all("SELECT value, result FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? AND "
+                         "target = 'redcap' AND result IN ('sent', 'already_there', 'erased') ORDER BY id DESC LIMIT 1",
+                         (study, record, visit, item))  # fmt: skip
+        if not rows:
+            return None
+        return "" if rows[0]["result"] == "erased" else str(rows[0]["value"])
+
+    def last_redcap_line(self, study: str, record: str, visit: str, item: str) -> dict[str, Any] | None:
+        """The item's last ``redcap`` ledger line (NEW-EDC-5: a change read again adds no line)."""
+        rows = self._all("SELECT result, detail FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? "
+                         "AND target = 'redcap' ORDER BY id DESC LIMIT 1", (study, record, visit, item))  # fmt: skip
+        return dict(rows[0]) if rows else None
+
     def last_written(self, study: str, record: str, visit: str, item: str) -> str | None:
         """The value TrialBox itself last wrote into REDCap for this item (NEW-EDC-2): ``sent`` (written and read
         back) or ``erased`` (written empty). An ``already_there`` line is not a write: the value was someone's

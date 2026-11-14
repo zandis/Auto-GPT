@@ -145,6 +145,7 @@ groups:
     - POST /studies/{rs}/edc/sign
     - POST /studies/{rs}/edc/import/odm
     - POST /studies/{rs}/edc/send/redcap
+    - POST /studies/{rs}/edc/reconcile    # NEW-EDC-5 (D-695): what REDCap now holds differently
     - GET /studies/{rs}/edc/export/odm
     - GET /studies/{rs}/edc/trail/{record}
     - GET /studies/{rs}/edc/copy        # copy-assist (D-434): services/console/copy_assist_page.py

@@ -426,7 +426,9 @@ class EdcService:
                     **({"source_changed": len(out["source_changed"])} if out["source_changed"] else {}),
                 },
             )
-            return {**out, "count": 0, "calc": [], "hidden_in_redcap": []}
+            drift, unread = self._reread(rs, by, record)
+            return {**out, "changed_in_redcap": drift, "reread": unread, "count": 0, "calc": [],
+                    "hidden_in_redcap": []}  # fmt: skip
         key, rid = str(target["key_field"]), str(target["id_field"])
         try:
             with self.client(str(target["token_ref"])) as c:
@@ -648,7 +650,88 @@ class EdcService:
                                             for k, v in out.items()},
                                          "calc_differs": sum(1 for x in calc_out if x["equal"] is False),
                                          "hidden_in_redcap": len(hidden_out)})  # fmt: skip
-        return {**out, "count": len(out["sent"]), "calc": calc_out, "hidden_in_redcap": hidden_out}
+        drift, unread = self._reread(rs, by, record)  # NEW-EDC-5: after the send's own audit line
+        return {**out, "changed_in_redcap": drift, "reread": unread, "count": len(out["sent"]), "calc": calc_out,
+                "hidden_in_redcap": hidden_out}  # fmt: skip
+
+    def _reread(self, rs: str, by: str, record: str | None) -> tuple[list[dict[str, Any]], str]:
+        """The send's re-read (NEW-EDC-5): the changes in REDCap and "", or none and why REDCap could not be read now
+        (the send itself is done and audited; the next send or a reconcile reads again)."""
+        try:
+            return self.reconcile(rs, by, record), ""
+        except EdcError as exc:
+            return [], exc.code
+        except Exception as exc:  # the values are written: the send answers, and the re-read says why not
+            log.error("EDC re-read after the send failed for study %s (%s)", rs, type(exc).__name__)
+            return [], "edc.reread"
+
+    def reconcile(self, rs: str, by: str, record: str | None = None) -> list[dict[str, Any]]:
+        """NEW-EDC-5 (EDC-005): read REDCap for every value TrialBox delivered (signed, sent as it is, and written by
+        TrialBox itself at least once: a value only ever found already there is the person's, D-693) and list each
+        one REDCap now holds differently, with both values. Each change gets one `changed_in_redcap` line in the
+        ledger (the same change read again adds none). Taking REDCap's value is an edit with a reason; keeping
+        TrialBox's leaves it listed. Audited."""
+        self.store.require_on(rs)
+        target = self.store.target(rs)
+        if target is None:
+            raise EdcError("edc.target", "no REDCap target is set for this study")
+        gone = set(self.optouts())
+        delivered = [d for d in self.store.signed(rs, record) if d["sent_at"] and d["sent_value"] == d["final"]
+                     and str(d["pid"]) not in gone
+                     and self.store.last_written(rs, d["record"], d["visit"], d["item"]) is not None]  # fmt: skip
+        compared = 0
+        drift: list[dict[str, Any]] = []
+        if delivered:
+            key, rid, at = str(target["key_field"]), str(target["id_field"]), self.stamp()
+            try:
+                with self.client(str(target["token_ref"])) as c:
+                    lay = self._layout(c, rs, by, record)
+                    meta = {str(m.get("field_name")): m for m in c.metadata()}
+                    live = {f.name: f for f in (forms.field_of(m) for m in meta.values())}
+                    items = sorted({str(d["item"]) for d in delivered if str(d["item"]) in live})
+                    found: dict[str, set[str]] = {}
+                    keys = c.records(fields=[rid, key])
+                    if lay.repeats and keys and any("redcap_repeat_instance" not in r for r in keys):
+                        raise EdcError("edc.repeat_keys", "the project repeats instruments or events, but REDCap's "
+                                       "export has no redcap_repeat_instance: nothing is compared")  # fmt: skip
+                    for r in keys:
+                        if str(r.get(key) or "").strip():
+                            found.setdefault(str(r[key]).strip().upper(), set()).add(str(r[rid]))
+                    ids = {k: next(iter(v)) for k, v in found.items() if len(v) == 1}
+                    recs = sorted({ids[str(d["record"]).upper()] for d in delivered
+                                   if str(d["record"]).upper() in ids})  # fmt: skip
+                    cur = Rows(lay, meta, rid, c.records(fields=[rid, *items], records=recs) if recs and items
+                               else [], self.today())  # fmt: skip
+                    for d in delivered:
+                        rec, slot, item = ids.get(str(d["record"]).upper()), lay.slot(str(d["visit"])), str(d["item"])
+                        if rec is None or slot is None or item not in live:
+                            continue
+                        if d.get("dict_sha") and forms.field_sha(live[item]) != d["dict_sha"]:
+                            continue  # the entry changed since: the value is not formatted as REDCap holds it now
+                        compared += 1
+                        # what TrialBox last delivered there: its value, or "" after its own erase (D-414)
+                        wrote = self.store.last_delivered(rs, d["record"], d["visit"], item)
+                        there = cur.value(rec, slot, item)
+                        ours = forms.redcap_value(live[item], wrote) if wrote else ""
+                        last = self.store.last_redcap_line(rs, d["record"], d["visit"], item)
+                        open_ = last is not None and last["result"] == "changed_in_redcap"
+                        if there == ours:
+                            if open_:  # equal again: the change is closed, with a line
+                                self.store.record_sent(rs, d, "redcap", rec, "equal_again", "REDCap holds the "
+                                                       "value TrialBox sent again", by, at)  # fmt: skip
+                            continue
+                        drift.append({**_brief(d), "trialbox": ours, "redcap": there})
+                        mark = hashlib.sha256(there.encode("utf-8")).hexdigest()[:12]
+                        if open_ and last is not None and f"[{mark}]" in last["detail"]:
+                            continue  # the same change read again
+                        self.store.record_sent(rs, d, "redcap", rec, "changed_in_redcap", f"[{mark}] REDCap holds "
+                                               f"another value than TrialBox sent: {there}", by, at)  # fmt: skip
+            except RcError as exc:
+                self._audit("edc.reconciled", rs, by, {"record": record or "*", "refused": exc.code})
+                raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+        self._audit("edc.reconciled", rs, by, {"record": record or "*", "read": compared,
+                                               "changed_in_redcap": len(drift)})  # fmt: skip
+        return drift
 
     def _one_record(self, c: RedcapClient, target: dict[str, Any], record: str) -> str:
         key, rid = str(target["key_field"]), str(target["id_field"])
@@ -983,7 +1066,7 @@ class EdcService:
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
                 "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused",
-                "source_changed")  # fmt: skip
+                "source_changed", "changed_in_redcap")  # fmt: skip
 #: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
 ATTEMPT = "about to be written; REDCap's answer not read yet"  # NEW-EDC-8: closed by the next read-back
 ATTEMPT_HELD = ("REDCap holds the value of a TrialBox send whose answer was lost, or a person's equal entry; TrialBox "

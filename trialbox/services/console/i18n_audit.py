@@ -231,6 +231,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "edc.reentry": ("EDC re-entry", "EDC 再入力", "EDC 重新輸入"),
     "edc.refused": ("EDC call refused", "EDC 呼出の拒否", "拒絕 EDC 呼叫"),
     "edc.sent": ("EDC values sent", "EDC 値の送信", "送出 EDC 數值"),
+    "edc.reconciled": (
+        "EDC values read again from REDCap",
+        "EDC 値を REDCap から再読込",
+        "從 REDCap 重新讀取 EDC 數值",
+    ),
     "edc.sign": ("EDC values signed", "EDC 値の署名", "簽署 EDC 數值"),
     "edc.switch": ("EDC prefill switched", "EDC 事前入力の切替", "切換 EDC 預填"),
     "redcap.connection": (

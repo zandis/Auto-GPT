@@ -265,6 +265,7 @@ SEND_RESULTS = (
     "instance_taken",
     "refused",  # NEW-EDC-7 (D-692): REDCap refused the import of the record
     "source_changed",  # NEW-EDC-4 (D-694): the source changed since the value was decided
+    "changed_in_redcap",  # NEW-EDC-5 (D-695): a value TrialBox sent that REDCap now holds differently
 )  # T-115: held back, with the reason
 
 

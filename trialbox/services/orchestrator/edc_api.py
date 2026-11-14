@@ -16,7 +16,8 @@ here (``edc.service``).
   person confirms and signs (D-435); refused whole with a named ``odm.*`` reason.
 * ``GET /studies/{rs}/edc/copy?record=&format=``: the copy-assist sheet (D-434), signed values only, audited;
   ``POST /studies/{rs}/edc/copy/tick``: "copied" ticks (or their undo, with a reason) on values of the sheet.
-* ``POST /studies/{rs}/edc/send/redcap``; ``GET /studies/{rs}/edc/export/odm``;
+* ``POST /studies/{rs}/edc/send/redcap``; ``POST /studies/{rs}/edc/reconcile`` (NEW-EDC-5: what REDCap now holds
+  differently from what TrialBox sent); ``GET /studies/{rs}/edc/export/odm``;
   ``GET /studies/{rs}/edc/trail/{record}``.
 
 Who acts (D-162, review E-01): every route that changes something, and the export, takes the person from the
@@ -345,6 +346,16 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
     def send(rs: str, body: SendBody, request: Request) -> dict[str, Any]:
         a = who(request, "send", body.by, rs)
         return run(lambda: get().send_redcap(_rs(rs), a.name, body.record.upper() if body.record else None))
+
+    @r.post("/studies/{rs}/edc/reconcile")
+    def reconcile(rs: str, body: SendBody, request: Request) -> dict[str, Any]:
+        """NEW-EDC-5 (D-695): the values TrialBox sent that REDCap now holds differently, both values each."""
+        a = who(request, "send", body.by, rs)
+        return run(
+            lambda: {
+                "changed_in_redcap": get().reconcile(_rs(rs), a.name, body.record.upper() if body.record else None)
+            }
+        )
 
     @r.get("/studies/{rs}/edc/export/odm", dependencies=[PATIENT_READ])
     def export_odm(rs: str, request: Request, by: str | None = None) -> dict[str, Any]:
