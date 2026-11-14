@@ -77,13 +77,24 @@ def kept_for_open_studies(ctx: Ctx) -> set[str]:
     return keep
 
 
-def held_for_running_studies(ctx: Ctx) -> Callable[[str], bool]:
-    """NEW-LIFE-9 (D-765, LIFE-009; T-305c without waiting for T-305b): whether the objects of one job (its
-    ``attachments/<job>/`` and ``outputs/<job>/``) are held: the job belongs to a study that is not ``closed``. A
-    study whose state cannot be read is held (keep rather than delete). A job of no study, or one this box no longer
-    knows, keeps the configured ages. One read per job and per study."""
+def held_study(rid: str) -> bool:
+    """D-765: a study the console has a recorded state for that is not ``closed`` (or whose state cannot be read)."""
     from orchestrator import scheduler
 
+    try:
+        state = scheduler.recorded_study_state(rid)
+    except Exception:
+        return True
+    return state is not None and state != CLOSED
+
+
+def held_for_running_studies(ctx: Ctx) -> Callable[[str], bool]:
+    """NEW-LIFE-9 (D-765, LIFE-009; T-305c without waiting for T-305b): whether the objects of one job (its
+    ``attachments/<job>/`` and ``outputs/<job>/``) are held: the job's ruleset is a study the console has a recorded
+    state for, and that state is not ``closed``. A study whose state cannot be read is held (keep rather than
+    delete). A ruleset with no recorded state (a feasibility of a trial the site declined, a cohort, a case: never set
+    up as a study), a job of no ruleset and a job this box no longer knows keep the configured ages (the review of
+    D-765: "no row" is not a running study). One read per job and per ruleset."""
     studies: dict[str, bool] = {}
     jobs: dict[str, bool] = {}
 
@@ -92,10 +103,7 @@ def held_for_running_studies(ctx: Ctx) -> Callable[[str], bool]:
             job = ctx.orch.db.get(group) if group else None
             rid = str(job.ruleset or "") if job is not None else ""
             if rid and rid not in studies:
-                try:
-                    studies[rid] = scheduler.study_state(rid) != CLOSED
-                except Exception:
-                    studies[rid] = True
+                studies[rid] = held_study(rid)
             jobs[group] = studies.get(rid, False)
         return jobs[group]
 
@@ -145,6 +153,8 @@ def run(ctx: Ctx) -> Outcome:
     approved = {
         rid for rid in list_rulesets(ctx.rulesets_dir) if approved_or_none(ctx, rid, None, run=False) is not None
     }
+    # the review of D-765: a running study's pool and marks are kept too, even while its approval has lapsed
+    approved |= {rid for rid in ctx.orch.db.pool_rulesets() if held_study(rid)}
     cutoff = (now - timedelta(days=round(pool_months * 30.44))).isoformat()
     pools = ctx.orch.db.prune_inactive(approved, cutoff)
     if pools["pool"] or pools["feedback"]:
