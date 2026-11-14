@@ -177,8 +177,15 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
         return c.post(path, json=body, headers=signed("request.prepare", "GZQO", "POST", path, body))
 
+    from tests.actor3 import signed
+
+    def read(path: str, study: str = "GZQO") -> Any:
+        """D-717: a read of the registry's patients carries the reading person's assertion too."""
+        return c.get(path, headers=signed("phi.view", study, "GET", path))
+
     first = {"mrn": "10000001", "status": "candidate"}
     assert c.post("/registry/GZQO", json=first).status_code == 403  # nobody
+    assert c.get("/registry/GZQO").status_code == 403  # D-717: nobody reads it either
     r = send(first)
     assert (
         r.status_code == 200 and r.json()["status"] == "candidate" and r.json()["pid"] == pid_for_mrn(KEY, "10000001")
@@ -189,12 +196,17 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert send({"mrn": "10000001", "status": "nope"}).status_code == 422
     assert send({**first, "by": "a@b"}).status_code == 422  # a typed person is not a field of the request
     assert c.get("/registry").json()[0]["counts"] == {"candidate": 1}
-    assert len(c.get("/registry/GZQO").json()) == 1 and len(c.get("/registry/GZQO/events").json()) == 1
+    assert len(read("/registry/GZQO").json()) == 1 and len(read("/registry/GZQO/events").json()) == 1
     assert send({}, "/registry/GZQO/promote").json() == {"added": 0}
     assert c.get("/registry/GZQO/export.xlsx").status_code == 400  # S-09: a named user, always
     r = c.get("/registry/GZQO/export.xlsx?by=crc1@hospa.test")
     assert r.status_code == 200 and r.content.startswith(b"PK")
-    assert c.get("/registry/bad%20id").status_code == 400
+    # D-717: no assertion can name a study that is not one, so a bad id is refused by the person check now,
+    # before the handler's own 400; one signed for a real study is refused as another study's
+    with pytest.raises(ValueError, match="not one study"):
+        read("/registry/bad%20id", "bad id")
+    r = c.get("/registry/bad%20id", headers=signed("phi.view", "GZQO", "GET", "/registry/bad%20id"))
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "ACTOR"
 
 
 def _reg_for_api(tmp_path: Path) -> CandidateRegistry:

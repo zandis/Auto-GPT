@@ -73,6 +73,15 @@ class OrchBox:
         headers = {sa.TOKEN_HEADER: token_of(service)} if service else {}
         return TestClient(self.app, headers=headers, raise_server_exceptions=False)
 
+    def read(self, path: str) -> Any:
+        """A patient read as a coordinator of the study, for a test that checks what was stored: since NEW-SEC-1
+        (D-717) such a read takes a verified claim (``phi.view`` on the path's study; none for ``/setup/``)."""
+        from tests.actor3 import signed
+
+        study = "" if path.startswith("/setup/") else path.split("?", 1)[0].split("/")[2].upper()
+        headers = signed("phi.view", study, "GET", path, sub="console:test-reader", role="coordinator")
+        return self.client("console").get(path, headers=headers)
+
     def backend(self) -> BoxBackend:
         return BoxBackend(self)
 

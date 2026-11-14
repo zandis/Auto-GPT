@@ -36,9 +36,16 @@ from sitesetup import publish, readiness
 from sitesetup.intake import IntakeError
 from sitesetup.service import SiteSetup, ws_ok
 from sitesetup.store import SetupError
+from tb_common.patient_reads import PHI as _PHI
+
+from orchestrator.actor import require_actor as _require_actor
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 LANGS = ("ja", "zh-TW", "en")
+
+#: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
+#: patient-level data on the route's study (tb_common.patient_reads)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 
 
 class SheetBody(BaseModel):
@@ -189,12 +196,12 @@ def router(
         st = study_info(rid) if rid else {"id": "", "exists": False}
         return readiness.readiness(svc, w, st, records(rid) if rid else {})
 
-    @r.get("/setup/{ws}/inputs")
+    @r.get("/setup/{ws}/inputs", dependencies=[PATIENT_READ])
     def get_inputs(ws: str) -> list[dict[str, Any]]:
         rows = get().store.inputs(ws_of(ws))
         return [{k: v for k, v in x.items() if k not in ("path", "sha256")} for x in rows]
 
-    @r.get("/setup/{ws}/facts")
+    @r.get("/setup/{ws}/facts", dependencies=[PATIENT_READ])
     def get_facts(ws: str, status: str = "", pid: str = "") -> list[dict[str, Any]]:
         return get().store.facts(ws_of(ws), status or None, pid or None)
 
@@ -202,15 +209,15 @@ def router(
     def get_codes(ws: str) -> list[dict[str, Any]]:
         return get().store.locals(ws_of(ws))
 
-    @r.get("/setup/{ws}/checks")
+    @r.get("/setup/{ws}/checks", dependencies=[PATIENT_READ])
     def get_checks(ws: str, open_only: bool = False) -> list[dict[str, Any]]:
         return get().store.checks(ws_of(ws), open_only)
 
-    @r.get("/setup/{ws}/fixes")
+    @r.get("/setup/{ws}/fixes", dependencies=[PATIENT_READ])
     def get_fixes(ws: str) -> list[dict[str, Any]]:
         return get().store.fixes(ws_of(ws))
 
-    @r.get("/setup/{ws}/people")
+    @r.get("/setup/{ws}/people", dependencies=[PATIENT_READ])
     def get_people(ws: str) -> dict[str, Any]:
         """Patients by pseudonym with the inputs each one came from, and the disagreements between inputs."""
         svc, w = get(), ws_of(ws)
@@ -225,7 +232,7 @@ def router(
         people = [{"pid": p, "short": p[:8], "inputs": sorted(k)} for p, k in sorted(by.items())]
         return {"people": people, "disagreements": publish.disagreements(facts)}
 
-    @r.get("/setup/{ws}/patients")
+    @r.get("/setup/{ws}/patients", dependencies=[PATIENT_READ])
     def get_patients(ws: str, study: str) -> dict[str, Any]:
         svc, w, rid = get(), ws_of(ws), rs_of(study)
         rs = approved(rid)

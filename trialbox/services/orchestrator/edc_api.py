@@ -43,6 +43,8 @@ from edc.store import EdcError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from tb_common.authz import edc_role_may
+from tb_common.patient_reads import MONITOR as _MONITOR
+from tb_common.patient_reads import PHI as _PHI
 from tb_common.service_auth import (
     ACTOR_HEADER,
     ACTOR_KEYS_ENV,
@@ -54,6 +56,8 @@ from tb_common.service_auth import (
     verify_actor,
 )
 
+from orchestrator.actor import require_actor as _require_actor
+
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _VISIT = re.compile(r"^([a-z][a-z0-9_]{0,99})?$")
@@ -61,6 +65,12 @@ _USER = r"^[a-z0-9:._@-]{1,120}$"
 REAUTH = "reauth-"  # the session part of an assertion the console signs right after re-authenticating a signer
 T = TypeVar("T")
 Claim = Callable[[Request, "str | None"], Actor]
+
+#: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
+#: patient-level data on the route's study (tb_common.patient_reads)
+PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
+#: D-389: the four reads of the monitor's page (a sponsor's CRA under a monitor grant) take its row too
+MONITOR_READ = _require_actor(_MONITOR)
 
 
 class SwitchBody(BaseModel):
@@ -215,7 +225,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         except EdcError as exc:
             raise _fail(exc) from exc
 
-    @r.get("/studies/{rs}/edc")
+    @r.get("/studies/{rs}/edc", dependencies=[MONITOR_READ])  # D-717 review: its subjects are patients' rows
     def status(rs: str) -> dict[str, Any]:
         return get().status(_rs(rs))
 
@@ -256,7 +266,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         a = who(request, "draft", body.by, rs)
         return run(lambda: get().build(_rs(rs), body.record.upper(), body.pid, body.visit, body.visit_date, a.name))
 
-    @r.get("/studies/{rs}/edc/drafts")
+    @r.get("/studies/{rs}/edc/drafts", dependencies=[MONITOR_READ])
     def list_drafts(rs: str, record: str | None = None, visit: str | None = None) -> list[dict[str, Any]]:
         if visit is not None and not _VISIT.match(visit):
             raise HTTPException(status_code=400, detail={"code": "edc.visit", "message": "not a visit name"})
@@ -309,7 +319,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
             raise HTTPException(status_code=400, detail=msg) from exc
         return run(lambda: get().import_odm(_rs(rs), data, a.name, body.name))
 
-    @r.get("/studies/{rs}/edc/copy")
+    @r.get("/studies/{rs}/edc/copy", dependencies=[PATIENT_READ])
     def copy_sheet(rs: str, request: Request, record: str | None = None, format: str = "page",
                    by: str | None = None) -> dict[str, Any]:  # fmt: skip
         if by is not None and not re.match(_USER, by):
@@ -329,7 +339,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         a = who(request, "send", body.by, rs)
         return run(lambda: get().send_redcap(_rs(rs), a.name, body.record.upper() if body.record else None))
 
-    @r.get("/studies/{rs}/edc/export/odm")
+    @r.get("/studies/{rs}/edc/export/odm", dependencies=[PATIENT_READ])
     def export_odm(rs: str, request: Request, by: str | None = None) -> dict[str, Any]:
         if by is not None and not re.match(_USER, by):
             raise HTTPException(status_code=400, detail={"code": "edc.by", "message": "who is exporting"})
@@ -338,7 +348,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         text = run(lambda: get().export_odm(rid, a.name))
         return {"name": f"{rid}-edc-prefill.odm.xml", "media_type": "application/xml", "text": text}
 
-    @r.get("/studies/{rs}/edc/trail/{record}")
+    @r.get("/studies/{rs}/edc/trail/{record}", dependencies=[MONITOR_READ])
     def trail(rs: str, record: str) -> dict[str, Any]:
         return get().trail(_rs(rs), _rec(record))
 

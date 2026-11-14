@@ -24,7 +24,7 @@ def test_a_name_in_the_body_changes_nothing_and_names_nobody(orch_box: OrchBox) 
     assert r.status_code == 403, r.text[:300]
     assert c.get(f"/studies/{STUDY}/sae-rule").json()["rule_set"] == ""  # nothing was saved
     r = c.post(f"/studies/{STUDY}/subjects/refresh", json={"screening": {"GZQO-0001": "a" * 32}, "by": "dr_tanaka"})
-    assert r.status_code == 403 and c.get(f"/studies/{STUDY}/subjects").json()["subjects"] == []
+    assert r.status_code == 403 and orch_box.read(f"/studies/{STUDY}/subjects").json()["subjects"] == []
     r = c.put(f"/studies/{STUDY}/sponsor/layout", json={"layout": {"log": []}, "by": "console:dr_tanaka"})
     assert r.status_code == 403
     named = [e for kind in ("life.sae_rule", "life.step", "life.log_sync", "sponsor.layout")
