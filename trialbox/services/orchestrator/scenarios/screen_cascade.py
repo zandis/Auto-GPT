@@ -18,6 +18,7 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -115,6 +116,7 @@ class OrchestratorJudge(NoteJudge):
         )
 
 
+log = logging.getLogger("orchestrator")
 VEC_FLAG = "vec.s2b"  # T-203b (D-449): S2b from the vector store; off until the S2b threshold refit after G1 (D-429)
 
 
@@ -151,22 +153,74 @@ def job_vec_s2b(ctx: Ctx) -> bool:
     return on
 
 
-def screen_embedder(url: str, probe_timeout: float = 5.0) -> Any:
+class _Served:
+    """The embed service's model for one job. NEW-LLM-2 (review): a service that stops answering, or changes its model,
+    after the probe stops the job with a sentence; never a generic error, never two embedders in one run."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+        self.model = str(inner.model)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from matching.cascade.engine import CascadeError
+
+        try:
+            out = self.inner.embed(texts)
+        except Exception as exc:
+            raise CascadeError(
+                f"the embed service stopped answering during the run ({type(exc).__name__}); send the request again"
+            ) from exc
+        if str(self.inner.model) != self.model:
+            raise CascadeError(
+                f"the embed service changed its model during the run ({self.model} to {self.inner.model}); send the "
+                f"request again"
+            )
+        return list(out)
+
+
+def screen_embedder(url: str | None, probe_timeout: float = 2.0) -> Any:
     """The embedder SCREEN ranks note sentences with (NEW-LLM-2, LLM-002): the box's embed service when it serves a
-    real model, asked once per job; the local hash stub when the service serves the stub or does not answer, so
-    retrieval by meaning is off and a criterion with no lexicon term reads "not evaluated" (``require_retrieval``)."""
+    real model; the local hash stub when there is no service, it serves the stub or it does not answer (said in the
+    log), so retrieval by meaning is off and a criterion with no lexicon term reads "not evaluated"."""
     from embed_service.embedder import HashEmbedder, HttpEmbedder
 
+    if not url:
+        return HashEmbedder()
+    probe = None
     try:
         probe = HttpEmbedder(url, timeout=probe_timeout)
         probe.embed(["probe"])
-    except Exception:  # no answer: the stub, said by the run's no_retrieval count
+    except Exception as exc:
+        log.warning(
+            "screening ranks note sentences with the hash stub: the embed service did not answer (%s)",
+            type(exc).__name__,
+        )
         return HashEmbedder()
+    finally:
+        if probe is not None:
+            probe.client.close()
     if str(probe.model).startswith("hash"):
         return HashEmbedder()
     served = HttpEmbedder(url)
     served.model = probe.model
-    return served
+    return _Served(served)
+
+
+_JOB_EMBEDDER: dict[str, Any] = {}  # job id -> its embedder: one probe per job (MICROBATCH screens many studies)
+
+
+def job_embedder(ctx: Any) -> Any:
+    """:func:`screen_embedder` once per job."""
+    job_id = str(getattr(getattr(ctx, "job", None), "job_id", "") or "")
+    if job_id and job_id in _JOB_EMBEDDER:
+        return _JOB_EMBEDDER[job_id]
+    url = getattr(getattr(getattr(ctx, "cfg", None), "env", None), "embed_url", None)
+    got = screen_embedder(url)
+    if job_id:
+        while len(_JOB_EMBEDDER) >= 32:
+            _JOB_EMBEDDER.pop(next(iter(_JOB_EMBEDDER)))
+        _JOB_EMBEDDER[job_id] = got
+    return got
 
 
 def s2b_source(lake: Any, snapshot: str, on: bool) -> Any:
@@ -429,7 +483,7 @@ def screen_with_cascade(
     from orchestrator import derive
 
     source = s2b_source(ctx.services.lake, snapshot, job_vec_s2b(ctx))  # once per job (D-449)
-    embedder = screen_embedder(ctx.cfg.env.embed_url)  # NEW-LLM-2: the box's embed service when it serves a model
+    embedder = job_embedder(ctx)  # NEW-LLM-2: the box's embed service when it serves a model, probed once per job
     cfg = CascadeConfig(
         study_id=rs.id,
         run_date=run_date,
