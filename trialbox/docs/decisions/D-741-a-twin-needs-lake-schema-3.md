@@ -32,11 +32,27 @@ or 2 built, the encounter query failed with the engine's sentence (a 422), so no
 - **The generation ledger has no field for a reason**: it shows "building", not why. A column for it is a
   migration of its own; the reason is in the log.
 - The lake itself keeps serving schemas 1 and 2 to every other reader.
+- The floor is a version check. `observation.value_cmp` came without a schema bump (D-142, B-01, before T-106b's
+  schema 3 by the decisions' order, inferred): a file without it passes the floor and fails at the observation query
+  with the engine's sentence (the review reproduced it on an altered file).
+- A refused night leaves the console's twin page on the last twin built (or "not found"), as any night whose twins
+  were not built does.
 
 ## Tests
 
-In `tests/unit/test_twin_lake_failure.py` (4 new tests fail on the parent): a real lake file made to say schema 1
+In `tests/unit/test_twin_lake_failure.py` (4 new tests fail on the parent; a fifth, after the review, pins the floor
+from above: a schema-3 file is read): a real lake file made to say schema 1
 (no version column) and schema 2, through the service and in process: refused with the sentence; the reader asks
 only the layout before it refuses; the night step logs the sentence and keeps no twin. **One existing test of
 NEW-B-35's changed its expectation**: it read a schema-1 file's rows without provenance; that is the behaviour this
 card removes, and the new test above replaces it. No state change.
+
+## Review
+
+One adversarial, read-only review by a fresh agent, by running (altered real lake files of schemas 1 to 4, through
+the service and in process; mutants of the floor). It found no defect in the change. It verified: every column the
+twin asks for exists from schema 3 on (the compat view gives `patient.deceased` below 4); a schema-4 file is read;
+the refusal's text holds a snapshot's name and a number only and goes to the log alone; nothing catches the error
+into a wrong answer. Its findings, taken: nothing pinned the floor from above (a reader refusing schema 3 passed: a
+test now reads a schema-3 file); `value_cmp` and the console's twin page are said above; D-676 still described the
+test this card replaced (corrected).

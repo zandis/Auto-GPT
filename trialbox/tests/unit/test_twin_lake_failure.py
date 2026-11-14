@@ -161,6 +161,32 @@ def test_a_snapshot_older_than_schema_3_is_refused_with_a_plain_sentence(
         assert f"lake schema {version or 1}" in said and "schema 3 or later" in said and "rebuild" in said
 
 
+def test_a_snapshot_of_schema_3_is_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The floor is 3, not 4: a file of schema 3 (no ``patient.deceased``, which came with schema 4; the lake's compat
+    view gives it as null) is read, through the service and in process (the review: a reader that refused schema 3
+    passed every other test)."""
+    real, night = _real_lake(tmp_path / "lake")
+    done: set[tuple[int, int]] = set()
+    for f in (tmp_path / "lake" / "db").rglob("*.duckdb"):
+        st = f.stat()
+        if ".open" in f.parts or (st.st_dev, st.st_ino) in done:  # one file may have two names (a generation)
+            continue
+        done.add((st.st_dev, st.st_ino))
+        con = duckdb.connect(str(f))
+        con.execute("ALTER TABLE patient DROP COLUMN IF EXISTS deceased")
+        con.execute("UPDATE lake_meta SET schema_version = 3")
+        con.execute("CHECKPOINT")
+        con.close()
+    for lake in (
+        LakeLocal(tmp_path / "lake", real_embedder(), real.tz),
+        _http(monkeypatch, store.Lake(tmp_path / "lake", real.tz)),
+    ):
+        assert twin.lake_schema(lake, night) == 3
+        pids = [r["pid"] for r in lake.query("SELECT pid FROM patient", [], night).to_pylist()]
+        rows = twin.read_lake(lake, pids, night)
+        assert pids and all(rows[p]["patient"] and rows[p]["patient"][0]["deceased"] is None for p in pids)
+
+
 def test_the_reader_asks_only_the_layout_before_it_refuses() -> None:
     asked: list[str] = []
 

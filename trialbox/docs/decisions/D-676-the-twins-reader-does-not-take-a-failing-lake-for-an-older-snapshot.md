@@ -79,9 +79,8 @@ else changes for a lake of any readable layout.
   the version question after the column was found stops (the new contract, against a stand-in);
 - `read_lake` asks for no rows after the layout question failed;
 - a real small lake says its version through the service and in process, and a night it does not hold is 503;
-- a built snapshot with **only the version column dropped** answers 0 and is schema 1, through the service and
-  in process. It is not a snapshot as schema 1 built it (see above), and the parent's code passes this one once
-  it has the question: it guards the answer, it does not show the defect.
+- a built snapshot with **only the version column dropped** answered 0 and read as schema 1; D-741 (NEW-B-40) replaced
+  that test: a snapshot older than schema 3 is now refused with a sentence, and a schema-3 file is read.
 
 The caller's line in `tests/unit/test_lake_query_status.py` moves from OPEN to "no handler: the error goes on".
 No state change is added.
