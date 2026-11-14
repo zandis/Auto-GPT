@@ -488,7 +488,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     # ------------------------------------------------------------------ 3 list, S5, marks (replace, withdraw), outcomes
     s = Stage("3 list, S5 and marks")
     t = time.perf_counter()
-    week = h.week_bundle(None, TRIAL)
+    week = h.mail_week(TRIAL)
     rows = week["rows"]
     s.check("the list has at least three patients", len(rows) >= 3, len(rows))
     days = sorted(d for d in notify.clinic_days(rows, ld.PI_PRACTITIONER) if d.weekday() < 5)
@@ -647,7 +647,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     today = local_today(h.clock(), site_zone(h.bk))
     have = set(h.store.screening_nos(TRIAL))
     # the last listed patient without a number (the walk's own patient, the first one not marked, stays untouched)
-    life_pid = next(r["pid"] for r in reversed(h.week_bundle(None, TRIAL)["rows"]) if r["pid"] not in have)
+    life_pid = next(r["pid"] for r in reversed(h.mail_week(TRIAL)["rows"]) if r["pid"] not in have)
     life_no = h.store.assign_screening_no(TRIAL, life_pid, h.settings_of(TRIAL), h.clock().isoformat())
     page = crc.get(f"/studies/{TRIAL}/schedule")
     r = crc.post(f"/studies/{TRIAL}/schedule", data={
@@ -897,7 +897,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
-    rows_now = h.week_bundle(None, TRIAL)["rows"]
+    rows_now = h.mail_week(TRIAL)["rows"]
     fresh = next((r["pid"] for r in rows_now if r["pid"][:8] not in out["picks"] and r["pid"] != life_pid),
                  rows_now[-1]["pid"])  # fmt: skip
     out["walk"] = {

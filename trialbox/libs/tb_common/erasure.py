@@ -230,7 +230,20 @@ TABLES: dict[str, Entry] = {
         ("contact_rule", "form", "owner", "sae_rule", "schedule", "schedule_version", "source_cfg", "sponsor_layout"),
         _CONFIG,
     ),
-    **_each("auth", ("login_failures", "oidc_pending", "pending_logins", "sessions", "users"), _STAFF),
+    **_each(
+        "auth",
+        (
+            "account_notices",
+            "account_requests",
+            "factor_resets",
+            "login_failures",
+            "oidc_pending",
+            "pending_logins",
+            "sessions",
+            "users",
+        ),
+        _STAFF,
+    ),
     "site.contact_outcomes": _owed("a contact attempt's outcome, by pseudonym"),
     "site.excluded_review": _owed("the review of an excluded patient, by pseudonym"),
     "site.pi_marks": _owed(
@@ -411,6 +424,12 @@ OBJECTS: dict[str, Entry] = {
 OUTSIDE: dict[str, Entry] = {
     "outside:fhir_store": _owed("the FHIR store (HAPI, database hapi): every resource of the patient"),
     "outside:backups": _owed("every backup: the databases, the lake, the FHIR store", "the backups (with T-728)"),
+    "outside:sitesetup_space_omop": _owed(
+        "the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake "
+        "folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of "
+        "the space drops it whole (D-714)",
+        "the opt-out's clear in a practice space's store",
+    ),
     "outside:audit": _keep(
         "D-394",
         "the audit chain and its journal: append-only, hash-chained; the opt-out's own "

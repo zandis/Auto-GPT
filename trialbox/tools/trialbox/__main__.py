@@ -109,6 +109,14 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
     r.add_argument(
+        "--deploy",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "deploy",
+        help="the box's deploy folder: which services run (D-724)",
+    )
+    r.add_argument("--services-stopped", action="store_true",
+                   help="every service but db is stopped (only when docker compose cannot say so itself)")  # fmt: skip
+    r.add_argument(
         "--public",
         type=Path,
         default=Path(os.environ.get("TB_BACKUP_PUBKEY", "deploy/secrets/backup.pub")),
@@ -153,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         "anchors-compose", help="the compose file that mounts the anchor folders into the console (D-638)"
     )
     ac.add_argument("--deploy", type=Path, default=deploy)
+    om = sub.add_parser("omop-store", help="make a second lake's OMOP store for the OMOP group (D-721)")
+    om.add_argument("--lake", type=Path, required=True, help="the lake's folder, as the services name it")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
     lg.add_argument("action", choices=["collect", "prune", "archive-audit", "daily"])
     lg.add_argument("--deploy", type=Path, default=deploy)
@@ -244,6 +254,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import anchors
 
         return anchors.main_action(a.deploy)
+    if a.cmd == "omop-store":
+        from tools.trialbox import omop_store
+
+        return omop_store.main_action(a.lake)
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 
@@ -431,9 +445,14 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         if not a.yes:
             print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
             return 2
+        from tools.trialbox.update import ComposeBox
+
+        def running() -> list[str] | None:  # D-724 (DATA-011): only the database may run while a box is restored
+            return ["db"] if a.services_stopped else ComposeBox(a.deploy).running_services()
+
         out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata,
                          public_key=a.public, keep_to=a.keep_to, no_copy=a.no_copy, other_site=a.other_site,
-                         max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS)  # fmt: skip
+                         max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS, running=running)  # fmt: skip
         print(json.dumps(out, indent=1, ensure_ascii=False))
         for w in out["warnings"]:
             print(f"restore: warning: {w}", file=sys.stderr)

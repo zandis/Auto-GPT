@@ -48,6 +48,8 @@ from tb_common import sheets
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
+from tb_common.patient_reads import MONITOR as _MONITOR
+from tb_common.patient_reads import PHI as _PHI
 
 from orchestrator.actor import require_actor
 from orchestrator.candidates import RegistryError
@@ -68,6 +70,13 @@ LIFE_FORMS = ("tb_screening_log", "tb_consent", "tb_enrolment", "tb_visit", "tb_
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 log = logging.getLogger("orchestrator")
+
+#: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
+#: patient-level data on the route's study (tb_common.patient_reads)
+PATIENT_READ = require_actor(_PHI)  # D-717 review: no service principal
+NOTIFY_READ = require_actor(_PHI, service=True)  # the morning mail's visits and AEs, signed as its principal
+#: D-389: the four reads of the monitor's page (a sponsor's CRA under a monitor grant) take its row too
+MONITOR_READ = require_actor(_MONITOR, service=True)
 
 
 class Host(Protocol):
@@ -454,7 +463,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         nos = {k.strip().upper(): v.strip().lower() for k, v in body.screening.items() if _REC.match(k.strip())}
         return refresh(svc, rid, nos, who.name)
 
-    @r.get("/studies/{rs}/subjects")
+    @r.get("/studies/{rs}/subjects", dependencies=[MONITOR_READ])
     def get_subjects(rs: str, today: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         life, day = Lifecycle(svc.dc), _today(svc, today)
@@ -465,7 +474,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return {"study": rid, "today": day.isoformat(), "subjects": subs,
                 "counts": {s: sum(1 for x in subs if x["state"] == s) for s in lc.STATES}}  # fmt: skip
 
-    @r.get("/studies/{rs}/subjects/{record}")
+    @r.get("/studies/{rs}/subjects/{record}", dependencies=[MONITOR_READ])
     def get_subject(rs: str, record: str, today: str = "") -> dict[str, Any]:
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life, day = Lifecycle(svc.dc), _today(svc, today)
@@ -576,14 +585,14 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
                                 {"en": str(e.get("event_name") or name)}))  # fmt: skip
         return put(rid, visits, "redcap", who.name)
 
-    @r.get("/studies/{rs}/visits")
+    @r.get("/studies/{rs}/visits", dependencies=[NOTIFY_READ])
     def get_visits(rs: str, today: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         day = _today(svc, today)
         rows = visit_rows(Lifecycle(svc.dc), rid, day)
         return {"study": rid, "today": day.isoformat(), "rows": rows, "list": lc.worklist(rows, day)}
 
-    @r.get("/studies/{rs}/aes")
+    @r.get("/studies/{rs}/aes", dependencies=[NOTIFY_READ])
     def get_aes(rs: str, today: str = "", now: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         day = _today(svc, today)
@@ -642,7 +651,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
                                  "new": [row["max_attempts"], row["min_days"]]})  # fmt: skip
         return {"study": rid, **row}
 
-    @r.get("/studies/{rs}/deviations/possible")
+    @r.get("/studies/{rs}/deviations/possible", dependencies=[PATIENT_READ])
     def get_possible_deviations(rs: str, today: str = "", icf: str = "") -> dict[str, Any]:
         """D-407 (LIFE-025): the possible deviations the box's facts show, each open, confirmed or dismissed."""
         svc, rid = get(), _rs(rs)
@@ -683,7 +692,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
                                  "outcome": one.get("ae_outcome", "")})  # fmt: skip
         return {"study": rid, "record": rec, "event": event, "ack_by": ack["who"], "ack_at": ack["at"]}
 
-    @r.get("/studies/{rs}/report")
+    @r.get("/studies/{rs}/report", dependencies=[PATIENT_READ])
     def get_report(rs: str) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         life = Lifecycle(svc.dc)

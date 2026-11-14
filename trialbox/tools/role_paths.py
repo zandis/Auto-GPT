@@ -141,10 +141,81 @@ def optout_tick(url: str) -> None:
         raise RuntimeError(f"the tick left stores not cleared: {sorted(out['failed'])}")
 
 
+def second_lake(url: str) -> None:
+    """D-721: a second lake's OMOP store. A service does not make it (it would be the service's own); the admin's
+    step makes it for the OMOP group; the adapter loads it and the lake, the orchestrator and the console read it."""
+    from omop import load, schema
+    from omop.schema import OmopError
+
+    from tools.trialbox import omop_store
+
+    folder = Path("/srv/drill-second-lake")  # a name only: nothing is read from or written to it
+    name = schema.schema_for(folder)
+    try:
+        schema.connect(_as(url, "tb_lake"), name, lake_dir=folder).close()
+    except OmopError:
+        pass
+    else:
+        raise RuntimeError(f"tb_lake made the store {name} itself: it is the lake's own now")
+    omop_store.make(url, folder)
+    writer = schema.connect(_as(url, "tb_adapter"), name, lake_dir=folder)
+    try:
+        load.load_batch(writer, "feed", SNAPSHOT, _patient())
+    finally:
+        writer.close()
+    for role in ("tb_lake", "tb_orchestrator", "tb_console"):
+        db = schema.connect(_as(url, role), name, lake_dir=folder)
+        try:
+            if db.fetchval("SELECT count(*) FROM person") != 1:
+                raise RuntimeError(f"{role} does not read what tb_adapter loaded into {name}")
+        finally:
+            db.close()
+
+
+def site_space(url: str) -> None:
+    """A site space other than ``main`` (``sitesetup``: a lake under the orchestrator's own data folder, built in
+    the orchestrator's process, which has no ``TB_LAKE_DIR``) with the OMOP lake source: the orchestrator makes the
+    space's store, loads it and reads its rows back; it is the orchestrator's own, so no other service reads it;
+    and the orchestrator can drop it (what a Reset of the space owes)."""
+    import psycopg
+    from lake.source import lake_rows
+    from omop import schema
+    from psycopg import sql
+    from tb_common.config import site_tz
+
+    folder = Path("/data/orch/sitesetup/drill/lake")  # a name only: nothing is read from or written to it
+    name = schema.schema_for(folder)
+    before = os.environ.get("TB_DB_URL")
+    os.environ["TB_DB_URL"] = _as(url, "tb_orchestrator")
+    try:
+        rows = lake_rows(_patient(), {}, tz=site_tz(None), snapshot=SNAPSHOT, source="omop", lake_dir=folder)
+    finally:
+        if before is None:
+            os.environ.pop("TB_DB_URL", None)
+        else:
+            os.environ["TB_DB_URL"] = before
+    if not any(len(list(v)) for v in rows.values()):
+        raise RuntimeError(f"the space's rows did not come back from {name}")
+    try:
+        with psycopg.connect(_as(url, "tb_lake"), autocommit=True) as con:
+            con.execute(sql.SQL("SELECT count(*) FROM {}.person").format(sql.Identifier(name)))
+    except psycopg.errors.InsufficientPrivilege:
+        pass
+    else:
+        raise RuntimeError(f"tb_lake reads the orchestrator's own store {name}")
+    with psycopg.connect(_as(url, "tb_orchestrator"), autocommit=True) as con:
+        con.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(name)))
+
+
 PATHS: list[tuple[str, Callable[[str], None]]] = [
     ("the OMOP load as tb_adapter", omop_load),
     ("the OMOP export as of a time as tb_lake", omop_export),
     ("the opt-out tick as tb_orchestrator", optout_tick),
+    (
+        "a second lake's OMOP store: refused to the lake service, made by the admin, loaded and read as the group",
+        second_lake,
+    ),
+    ("a site space's OMOP store as tb_orchestrator: made, loaded, read, its own, dropped", site_space),
 ]
 
 

@@ -32,6 +32,7 @@ from typing import Any
 
 import yaml
 
+from console.account_rules import protected
 from console.auth import AuthError, UserStore, random_password
 
 
@@ -212,8 +213,10 @@ def main(argv: list[str] | None = None) -> int:
             if generated:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "reset-password":
+            _one_factor(store, args.name, "password")  # D-719: one factor at a time on a protected account
             pw, generated = _password(args)
             store.set_password(args.name, pw, must_change=True)  # D-279: someone else set it
+            store.note_factor_reset(args.name, "password", "cli")
             _audit("console.user", detail={"action": "reset-password"})
             print(f"console: password of '{args.name}' changed; all sessions ended")
             if generated:
@@ -232,20 +235,34 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "reset-totp":
             if store.is_sso(args.name):
                 raise AuthError("this account signs in through the identity provider")
+            _one_factor(store, args.name, "totp")
             code = store.reset_totp(args.name)
+            store.note_factor_reset(args.name, "totp", "cli")
             _audit("console.totp_reset", detail={"user": args.name})
             print(f"console: authenticator of '{args.name}' reset; all sessions ended")
             print(f"console: enrolment code (shown once, valid 24 hours): {code}")
         elif args.cmd == "enrol-code":
             if store.is_sso(args.name):
                 raise AuthError("this account signs in through the identity provider")
+            _one_factor(store, args.name, "totp")
             code = store.issue_enrol_code(args.name)
+            store.note_factor_reset(args.name, "totp", "cli")
             _audit("console.enrol_code", detail={"user": args.name})
             print(f"console: enrolment code for '{args.name}' (shown once, valid 24 hours): {code}")
     except AuthError as exc:
         print(f"console: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def _one_factor(store: UserStore, name: str, factor: str) -> None:
+    """D-719: the command line holds a protected account's rule as the pages do (one factor at a time for 30 days
+    unless the holder signs in). Its user holds the box's shell, so this is a record, not a wall: the record says so."""
+    role = store.role_of(name)  # disabled or past its end date too
+    held = store.factor_held(name, factor) if role and protected(role) else None
+    if held is not None:
+        until = held[1].isoformat()[:16] if held[1] is not None else "the holder chooses a password with the code"
+        raise AuthError(f"the {held[0]} of '{name}' was set by someone else and not used since; not before {until}")
 
 
 if __name__ == "__main__":

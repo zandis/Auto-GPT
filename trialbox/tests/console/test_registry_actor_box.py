@@ -17,7 +17,7 @@ ACT = "request.prepare"
 
 
 def _rows(ob: OrchBox) -> list[dict[str, Any]]:
-    return list(ob.client("console").get(f"/registry/{STUDY}").json())
+    return list(ob.read(f"/registry/{STUDY}").json())  # a signed read (D-717)
 
 
 def test_a_name_in_the_body_sets_no_status_and_promotes_nobody(orch_box: OrchBox) -> None:

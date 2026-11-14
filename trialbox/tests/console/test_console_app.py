@@ -1511,7 +1511,7 @@ def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
             "csrf": csrf,
             "action": "add",
             "username": "Nurse.Lin",
-            "role": "coordinator",
+            "role": "viewer",  # D-719: an aggregate account; a protected one is opened with a code only
             "mailbox": "lin@hospa.test",
         },
         follow_redirects=False,
@@ -1525,7 +1525,7 @@ def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
     assert 'data-testid="handover"' in page and pw.group(1) not in c.get("/ops/users").text  # shown once only
     assert all(pw.group(1) not in repr(e) for e in read_audit(box["dir"] / "audit"))  # never in the audit trail
     n, _ = login(box["app"], "nurse.lin", pw.group(1))  # the one-time password works once handed over
-    assert "study coordinator" in n.get("/").text
+    assert "viewer (read only)" in n.get("/").text
     # reset signs the person out everywhere and shows a new password once
     r = c.post(
         "/ops/users",

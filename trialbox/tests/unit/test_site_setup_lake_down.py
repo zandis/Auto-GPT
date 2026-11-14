@@ -211,15 +211,16 @@ def test_the_lake_up_is_read_as_before(svc: SiteSetup) -> None:  # noqa: F811
 
 def test_the_routes_answer_that_the_lake_could_not_be_read(down: SiteSetup) -> None:
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
     from orchestrator.setup_api import router as setup_router
+
+    from tests.actor3 import SignedClient
 
     rs = site_ruleset()
     inp = help.practice_inputs()
     api = FastAPI()
     api.include_router(setup_router(lambda: down, lambda rid: {**STUDY, "id": rid}, lambda rid: {"forms": 7},
                                     lambda rid: rs, lambda: False, lambda *a, **k: None))  # fmt: skip
-    c = TestClient(api, raise_server_exceptions=False)
+    c = SignedClient(api, raise_server_exceptions=False)  # D-717: its reads carry a person
     r = c.get(f"/setup/{MAIN}/feasibility?study=SITE5B")  # nothing uploaded: still not "needs a bulk input"
     assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["needs_bulk"] is False
     down.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")  # patients of the set-up's own store
@@ -252,3 +253,109 @@ def test_the_derive_status_says_the_lake_could_not_be_asked(monkeypatch: pytest.
     orch = SimpleNamespace(services=SimpleNamespace(lake=SimpleNamespace(snapshot=lambda: "2026-11-09")))
     got = derive.status(orch)
     assert got is not None and "lake_unread" not in got and check_derive(got).level == OK
+
+
+# ------------------------------------------------------------------ NEW-SITE-3 (D-712): the lake's own errors
+def _routes(svc: SiteSetup) -> Any:  # noqa: F811
+    from fastapi import FastAPI
+    from orchestrator.setup_api import router as setup_router
+
+    from tests.actor3 import SignedClient
+
+    rs = site_ruleset()
+    api = FastAPI()
+    api.include_router(setup_router(lambda: svc, lambda rid: {**STUDY, "id": rid}, lambda rid: {"forms": 7},
+                                    lambda rid: rs, lambda: False, lambda *a, **k: None))  # fmt: skip
+    return SignedClient(api, raise_server_exceptions=False)  # D-717: the patient reads carry a signed person
+
+
+def _halfway(svc: SiteSetup, error: Exception) -> Any:  # noqa: F811
+    """Patients in the set-up's own store (uploaded while the lake was up), then a lake that names its snapshot
+    and answers every query with ``error``."""
+    inp = help.practice_inputs()
+    svc.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
+    svc.main_lake = Halfway(error)
+    return _routes(svc)
+
+
+@pytest.mark.parametrize(
+    ("status", "said"),
+    [(503, "the lake is restarting"), (404, "FileNotFoundError: snapshot"), (422, "IOException: LAKE-QUERY"),
+     (422, "LAKE-STALE: the snapshot was replaced"), (401, "service token required")],
+)  # fmt: skip
+def test_the_patient_check_says_lake_unread_for_every_way_the_lakes_query_fails(
+    svc: SiteSetup,  # noqa: F811
+    status: int,
+    said: str,
+) -> None:
+    """The real lake answers its own failures of a query with 404 and 422 (a snapshot file gone or damaged, a
+    stale snapshot), never 5xx (the review ran it): the status does not tell them from one another."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    c = _halfway(svc, LakeQueryFailed(status, said))
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["patients"] == [], r.text[:300]
+    assert said not in r.text
+    svc.main_lake = up
+
+
+def test_the_counts_route_says_lake_unread_when_its_own_question_fails(
+    svc: SiteSetup,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lake.client import LakeQueryFailed
+
+    def fails(*a: Any, **k: Any) -> Any:
+        raise LakeQueryFailed(422, "IOException: LAKE-QUERY")
+
+    inp = help.practice_inputs()
+    svc.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
+    monkeypatch.setattr(readiness, "feasibility", fails)
+    r = _routes(svc).get(f"/setup/{MAIN}/feasibility?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["feas"] is None
+
+
+def test_the_patient_check_says_lake_unread_when_the_lakes_queries_fail(svc: SiteSetup) -> None:  # noqa: F811
+    """D-709 left this open: the client raised a plain RuntimeError for a failed query. With D-673 it is the lake's
+    service error, with its status."""
+    from lake.client import LakeBadAnswer, LakeQueryFailed
+
+    up = svc.main_lake
+    c = _halfway(svc, LakeQueryFailed(503, "the lake is restarting"))
+    want = {"study": "SITE5B", "approved": True, "patients": [], "lake_unread": True}
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 200 and r.json() == want, r.text[:300]
+    r = c.get(f"/setup/{MAIN}/feasibility?study=SITE5B")
+    assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["feas"] is None
+    svc.main_lake = Halfway(LakeBadAnswer(200, "is not a table"))  # a 200 that is not the lake's answer
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 200 and r.json() == want, r.text[:300]
+    svc.main_lake = up
+
+
+def test_a_query_the_lake_refuses_is_not_the_lake_being_unread(svc: SiteSetup) -> None:  # noqa: F811
+    """A 400 is the lake rejecting the statement itself (``SqlRejected``: not a plain read): a fault of the
+    criteria's SQL or of this code. "Could not be read, try again" would be untrue of it, and would hide it."""
+    from lake.client import LakeQueryFailed
+
+    up = svc.main_lake
+    c = _halfway(svc, LakeQueryFailed(400, "SqlRejected: only SELECT"))
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 500 and "lake_unread" not in r.text
+    svc.main_lake = up
+
+
+def test_another_services_error_at_the_routes_is_not_the_lake_being_unread(
+    svc: SiteSetup,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def other(*a: Any, **k: Any) -> Any:
+        raise ServiceError("embed", 503, "x")
+
+    c = _routes(svc)
+    inp = help.practice_inputs()
+    svc.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")
+    monkeypatch.setattr(readiness, "patient_check", other)
+    r = c.get(f"/setup/{MAIN}/patients?study=SITE5B")
+    assert r.status_code == 500 and "lake_unread" not in r.text

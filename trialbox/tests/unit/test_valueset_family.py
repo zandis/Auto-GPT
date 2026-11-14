@@ -58,7 +58,9 @@ def _run(sql: str, codes: dict[str, list[str]]) -> dict[str, bool | None]:
 PATIENTS = {
     "listed": ["C50.911"],  # in the list
     "offlist": ["C50.9Z"],  # inside the C5 family, a local code that is in no ICD-10-CM release
-    "skin": ["C44.91"],  # basal cell skin cancer: outside every malignancy family (C44 is not listed)
+    # outside every malignancy family: a benign melanocytic naevus (before SCR-01 this was C44.91, a basal cell skin
+    # carcinoma, which the grouper wrongly left out; it is listed now)
+    "skin": ["D22.5"],
     "none": ["M10.00"],
     "both": ["C50.9Z", "C61"],
 }
@@ -71,7 +73,7 @@ def test_grouper_keeps_its_families_on_the_valueset() -> None:
     codes = {c.code for c in res.concepts}
     assert {"C80.1", "C50.9", "C25.9"} <= codes, "the public-data cancer codes are in the demo terminology"
     # D-122: the grouper expands over the full ICD-10-CM list, not only the demo rows
-    assert {"C50.912", "C7A.01", "C96.9"} <= codes and "C44.91" not in codes
+    assert {"C50.912", "C7A.01", "C96.9", "C44.91", "C4A.0"} <= codes and "D22.5" not in codes  # SCR-01: C44, C4A
     vs = _vs(term)
     assert any(e["url"] == FAMILY_EXT and e["valueString"] == f"{ICD}|C5" for e in vs["VS_MALIGNANCY"]["extension"])
     assert ValueSets("FAM", vs).families("VS_MALIGNANCY") == res.families

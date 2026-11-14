@@ -26,6 +26,14 @@ from collections.abc import Callable, Mapping
 #: of the model server: sending it again changes nothing) and its batch read timeout (the server may still be
 #: working on the call: D-445, T-608). ``upstream_down`` is a 5xx or a transport error after the gateway's own retry
 MODEL_FAULTS = frozenset({"model_busy", "model_unavailable", "model_asleep", "upstream_down"})
+#: D-659: the model faults a call can cause itself while the same model answers the other calls: a 5xx this request
+#: provokes (``upstream_down``) or a connection it kills (the callers' ``unreachable``). Load and state refusals
+#: (busy, asleep, unavailable) are never the call's
+CALL_FAULTS = frozenset({"upstream_down", "unreachable"})
+#: how many such faults of one call in a row, each after the model answered another call since the call's previous
+#: fault, make it the call's own failure (about 30 s at the poll): a model coming back from a restart can refuse a
+#: healthy call a few times while it answers others, and a real outage answers nobody
+CALL_STRIKES = 6
 WAIT_S = 1800.0
 POLL_S = 5.0  # between two tries when the gateway named no Retry-After: its own value for a busy model
 ENV = "TB_LLM_OUTAGE_WAIT_S"
@@ -85,6 +93,7 @@ class OutageBudget:
         self._on_end = on_end
         self._on_start = on_start
         self._down: dict[str, tuple[float, str]] = {}  # client label -> (since, the first refusal code)
+        self._answers: dict[str, int] = {}  # client label -> calls answered so far (D-659)
         self._used_up = False
         self._lock = threading.Lock()
 
@@ -119,11 +128,27 @@ class OutageBudget:
         if self._on_end is not None:
             self._on_end(label, hit[1], waited, outcome)
 
+    def answers(self, label: str) -> int:
+        """How many calls of ``label`` were answered so far (D-659: is the model answering others?)."""
+        with self._lock:
+            return self._answers.get(label, 0)
+
     def answered(self, label: str) -> None:
+        with self._lock:
+            self._answers[label] = self._answers.get(label, 0) + 1
         self._end(label, "resumed")
 
     def gave_up(self, label: str) -> None:
         self._end(label, "gave_up")
+
+
+def _wait(delay: float, before_try: Callable[[], None] | None) -> None:
+    while delay > 0:  # in short steps, so a cancel is seen while the job waits
+        if before_try is not None:
+            before_try()
+        step = min(delay, POLL_S)
+        pause(step)
+        delay -= step
 
 
 def wait_and_retry[T](
@@ -137,7 +162,16 @@ def wait_and_retry[T](
 
     ``fault_of(exc)``: ``(refusal code, Retry-After or None)`` for a model fault, None for any other error (raised
     as it is). ``before_try``: called before every wait step (a job's cancel check; it may raise). With no budget,
-    or one of 0 s, a fault is raised at once."""
+    or one of 0 s, a fault is raised at once.
+
+    D-659: a :data:`CALL_FAULTS` refusal that follows an answer of the same model (``label``) to another call since
+    this call's previous fault is a strike: the model works, this call does not. A strike is waited out without
+    charging the job's allowance or opening an outage; :data:`CALL_STRIKES` of them in a row raise the refusal as it
+    is, as with no allowance. A fault with no answer since the previous one is an outage, as before, and ends the
+    run of strikes. (The call used to be sent again until the job's whole allowance was gone, or without end beside
+    answering calls.)"""
+    seen: int | None = None  # the model's answers at this call's previous fault
+    strikes = 0
     while True:
         try:
             out = send()
@@ -146,17 +180,21 @@ def wait_and_retry[T](
             if fault is None or budget is None or not budget.waits:
                 raise
             reason, retry_after = fault
+            now_seen = budget.answers(label)
+            struck = seen is not None and reason in CALL_FAULTS and now_seen > seen
+            seen = now_seen
+            if struck:
+                strikes += 1
+                if strikes >= CALL_STRIKES:
+                    raise  # the model answers others: this call fails on its own (D-659)
+                _wait(retry_after if retry_after else POLL_S, before_try)  # not charged: the model is up
+                continue
+            strikes = 0
             left = budget.fault(label, reason)
             if left <= 0:
                 budget.gave_up(label)
                 raise OutageExhausted(label, reason, budget.spent, budget.allowance_s) from exc
-            delay = min(left, retry_after if retry_after else POLL_S)
-            while delay > 0:  # in short steps, so a cancel is seen while the job waits
-                if before_try is not None:
-                    before_try()
-                step = min(delay, POLL_S)
-                pause(step)
-                delay -= step
+            _wait(min(left, retry_after if retry_after else POLL_S), before_try)
             continue
         if budget is not None:
             budget.answered(label)
@@ -164,6 +202,8 @@ def wait_and_retry[T](
 
 
 __all__ = [
+    "CALL_FAULTS",
+    "CALL_STRIKES",
     "ENV",
     "MODEL_FAULTS",
     "POLL_S",

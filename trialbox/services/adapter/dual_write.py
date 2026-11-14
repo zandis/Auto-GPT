@@ -86,7 +86,7 @@ def load_night(cfg: AdapterConfig, snap: str, ndjson_dir: Path) -> OmopLoadSumma
         return out
 
     try:
-        db = schema.connect(_omop_url(cfg), name)
+        db = schema.connect(_omop_url(cfg), name, lake_dir=cfg.lake_dir)
     except Exception as exc:
         log.error("omop dual write %s: the store cannot be opened (%s)", snap, type(exc).__name__)
         return done("failed", error=type(exc).__name__)
@@ -103,10 +103,10 @@ def _load(
     from omop.load import load_batch
     from omop.schema import OmopError
 
-    from adapter.ndjson import read_all
+    from adapter.ndjson import readers
 
     try:
-        feed = read_all(ndjson_dir)
+        feed = readers(ndjson_dir)  # read a chunk at a time by the load, never held whole (D-678)
         files = {k: f"ndjson/{snap}/{k}.ndjson" for k in feed}
         site = os.environ.get("TB_SITE_ID") or cfg.site_id
         dead = _tombstones(ndjson_dir)

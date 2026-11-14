@@ -251,6 +251,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         """N1/N2 (D-134): the study's visits on ``day`` and its serious AEs, by pseudonym (the mail adds the screening
         number beside it, D-136; never a chart number in mail)."""
         refresh(rid, actor.NOTIFY)
+        with actor.reading_as(actor.NOTIFY):  # NEW-SEC-1 (D-717): the morning mail's patient reads, signed as it
+            return mail_rows(rid, day)
+
+    def mail_rows(rid: str, day: date) -> dict[str, Any]:
         if h.sae_sync is not None:
             h.sae_sync(rid)  # D-277: the daily job writes what reached the data core another way (REDCap, the API)
         v = visits_of(rid, day)

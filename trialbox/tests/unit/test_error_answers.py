@@ -45,6 +45,7 @@ OWN_TEXT: dict[str, frozenset[str]] = {
             "len(problems)",
             "rep.filename",
             "=RESTORE_HELD",
+            "=_optout.NO_REGISTRY_TABLE",  # D-654: a fixed sentence, no snapshot, date or chart in it
             "=_ingest_ended(st)",
             "=_ingest_errors(report)",
             "=message",

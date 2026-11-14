@@ -252,6 +252,22 @@ def test_a_consent_table_error_stops_the_run(lake: LakeLocal) -> None:
         _run(_ConsentFails(lake, RuntimeError("lake error 503: backend unavailable")), rs, ["P-HIT"], judge)
 
 
+def test_on_a_production_box_a_lake_without_a_consent_table_stops_the_cascade(
+    lake: LakeLocal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-654 (the owner's decision): the control above is a TEST box. On PRODUCTION a snapshot without the table
+    was not built by this software, and the cascade does not run on it with no opt-out applied."""
+    from tb_common.optout import NoRegistryTable
+
+    rs = ruleset([INC])
+    judge = ScriptedJudge(quoting("pass", FLARE))
+    said = RuntimeError("Catalog Error: Table with name consent does not exist!")
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    with pytest.raises(NoRegistryTable, match="no consent table"):
+        _run(_NoConsentTable(lake, said), rs, ["P-HIT"], judge)
+    assert _run(lake, rs, ["P-HIT"], judge).traces["P-HIT"].in_scope  # a snapshot that has the table: as on any box
+
+
 # ------------------------------------------------------------------------------------------------ S-10
 def test_not_met_is_not_final_when_the_budget_left_evidence_out(lake: LakeLocal) -> None:
     """Six notes hold the evidence sentence and two fit the excerpt budget. Both models read the same two, so their

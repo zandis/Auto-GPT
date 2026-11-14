@@ -1,7 +1,13 @@
 # 3. Accounts
 
-Administrators add accounts on **Users** (`/ops/users`). The one-time password shows once, in a read-only field; hand
-it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 10
+Administrators add accounts on **Users** (`/ops/users`). For a viewer or CRO account the one-time password shows once,
+in a read-only field; hand it over in person or by phone (D-133). For a coordinator, investigator, steward, privacy or
+administrator account only an enrolment code is shown (D-719): its holder signs in once with it at **First sign-in
+with an enrolment code** (`/enrol`), chooses the password and sets up the authenticator; the code is good for
+`TB_CONSOLE_ENROL_CODE_HOURS` (default 24). Nobody else sets both factors of such an account within 30 days unless
+the holder signed in in between; where a steward or another administrator exists, the opening, a change of studies or
+a reset waits for them on **Account requests** (`/ops/accounts/requests`), and the code or password is shown to the
+person who confirms. Five failed sign-ins lock an account for 15 minutes; sessions end after 10
 minutes idle or 8 hours; local accounts give a TOTP code after the password ([§12](12-identity-and-tls.md)). Roles and the work they do: [User guide](../USER_GUIDE.md). In the POC container:
 `docker exec -i trialbox-console-1 python -m console.cli bootstrap-admin|add-user NAME --role ROLE|reset-password
 NAME|disable NAME|list-users`.
@@ -30,7 +36,11 @@ looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is 
 skips the others (reported as skipped, which satisfies a required check) when a pull request touches neither
 `trialbox/` nor a TrialBox workflow. `make ci` runs the same list locally. Each job has at most 15 minutes; a newer
 push to a pull request cancels the older run (pushes to master are never cancelled). The required checks on master
-(set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`, `e2e-simple`.
+(set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`, `e2e-simple`. D-725: `goldens`
+and `e2e-simple` are matrix pairs whose name is an expression; when they are skipped GitHub reports that expression,
+not the name, so they cannot be required as named. Require their gates instead, with the two D-501 adds:
+`goldens-gate`, `e2e-simple-gate`, `property`, `security`. Each gate always runs and passes when both legs passed
+or were rightly skipped.
 
 | Job | What it runs | Gates |
 | --- | --- | --- |

@@ -135,6 +135,30 @@ def unmapped_of(detail: Any) -> list[tuple[str, int]]:
     return sorted(rows, key=lambda r: (-r[1], r[0]))
 
 
+def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
+    """NEW-B-39 (D-740): the same rows per source table split by kind (``tb_common.unmapped.KINDS``: a code no look-up
+    knows, a unit not read, the reference data not reached); counts only. A table whose split is not counts of the
+    named kinds adding up to the table's total (:func:`unmapped_of`) is not shown."""
+    from tb_common.unmapped import KINDS
+
+    kept = detail.get("unmapped_kinds") if isinstance(detail, dict) else None
+    if not isinstance(kept, dict):
+        return {}
+    totals = dict(unmapped_of(detail))
+    out: dict[str, dict[str, int]] = {}
+    for table, kinds in kept.items():
+        if (
+            isinstance(table, str)
+            and table
+            and isinstance(kinds, dict)
+            and set(kinds) == set(KINDS)
+            and all(type(n) is int and n >= 0 for n in kinds.values())
+            and sum(kinds.values()) == totals.get(table)
+        ):
+            out[table] = {k: kinds[k] for k in KINDS}
+    return out
+
+
 def light(state: str) -> str:
     return LIGHT.get(state, "amber")
 
@@ -315,8 +339,10 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
         b = read(lambda: ops.batch(bid))
         if b is None:
             raise h.problem(404, "notfound")
+        kinds = unmapped_kinds_of(b.detail)  # NEW-B-39 (D-740)
         return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid)),
-                "unmapped": [{"table": t, "rows": n} for t, n in unmapped_of(b.detail)]}  # fmt: skip
+                "unmapped": [{"table": t, "rows": n, **({"kinds": kinds[t]} if t in kinds else {})}
+                             for t, n in unmapped_of(b.detail)]}  # fmt: skip
 
     @app.post("/api/v1/data/batches/{bid}/decide")
     @page_twin("/data-ops/batches/{bid}/decide")  # T-657 (D-444): the page's twin (FIT-019)

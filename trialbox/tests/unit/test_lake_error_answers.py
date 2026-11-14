@@ -69,7 +69,7 @@ def test_the_lakes_own_refusals_are_passed_on_whole(api: Any, monkeypatch: pytes
 
     monkeypatch.setattr(lake_app.lake(), "query", limit)
     r = api.post("/query", json={"sql": "SELECT 1"})
-    assert r.status_code == 422 and r.json()["detail"] == (
+    assert r.status_code == 503 and r.json()["detail"] == (  # D-675: the lake could not serve it; the words stay
         "LakeLimitError: LAKE-LIMIT: the lake query needed more than the box allows (memory_limit 1GB)"
     )
 

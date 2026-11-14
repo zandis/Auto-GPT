@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import fcntl
 import hashlib
 import io
 import json
@@ -61,7 +62,8 @@ import subprocess
 import tarfile
 import tempfile
 import threading
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -669,7 +671,12 @@ def _starts_with(path: Path, n: int, sha: Any) -> bool:
     return bool(h.digest() == sha.digest())
 
 
-def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
+# D-724: the length up to which each audit day file is copied (``_audit_moment``), by its name in the backup, for
+# the audit folder's copy; ``_add`` keeps its three arguments, so every caller and replacement of it stays as it was
+_UPTO: ContextVar[Mapping[str, int] | None] = ContextVar("tb_backup_upto", default=None)
+
+
+def _add(tar: tarfile.TarFile, path: Path, arcname: str, limit: int | None = None) -> tuple[str, int]:
     """Add one file; return the sha256 and size of exactly the bytes that went into the tar (one read per try).
 
     The box is running: a file whose size or modification time changed while it was read (a DuckDB file rewritten
@@ -683,7 +690,10 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
     whole earlier state and the copy is kept. Without this a busy
     night made every backup fail ("kept changing"), which is the product being too strict, not the box being
     unsafe. The lines appended later are in the next backup, and a restore lists what the box wrote after the
-    backup (``events_to_reapply``)."""
+    backup (``events_to_reapply``). ``limit`` (or, when not given, the audit moment's length of this file): the copy
+    ends there (D-724)."""
+    if limit is None:
+        limit = (_UPTO.get() or {}).get(arcname)
     grows = _append_only(arcname)
     for _ in range(READ_TRIES):
         with path.open("rb") as fh:
@@ -695,8 +705,8 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
                 # bytes, and the manifest would name the hash of nothing for a file a restore writes whole. Every
                 # name is stored with its own bytes: no member of a backup needs another one to be read
                 info.type, info.linkname, info.size = tarfile.REGTYPE, "", before.st_size
-            if grows:  # never a line that is being written
-                info.size = _line_end(fh, before.st_size)
+            if grows:  # never a line that is being written; D-724: never past the length the head anchor was read with
+                info.size = _line_end(fh, before.st_size if limit is None else min(limit, before.st_size))
                 fh.seek(0)
             hr = _HashReader(fh)
             try:
@@ -712,6 +722,46 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
         if grows and after.st_ino == before.st_ino and after.st_size >= hr.n and _starts_with(path, hr.n, hr.sha):
             return hr.sha.hexdigest(), hr.n  # appended to while it was read: what was read is still its beginning
     raise BackupError(f"{arcname} kept changing while it was backed up ({READ_TRIES} reads); run the backup again")
+
+
+def _audit_moment(root: Path) -> tuple[bytes | None, dict[str, int]]:
+    """D-724 (DATA-009): the audit chain at one moment: ``HEAD.json``'s bytes, and every day file there is with its
+    length up to its last whole line, all read together under the writer's own lock (``audit/.lock``, the ``flock``
+    every ``tb_common.audit`` write takes), so no event is written between the reads. The folder is listed under the
+    lock too: a day file the writer started after an earlier listing (the day changed, or the first event ever) is in
+    it. The copy takes each day file up to that length, so the backup's chain ends where its head anchor says, even
+    when the writer cuts a torn last line and writes on before the copy. The lock is held for those reads, not for
+    the copy. A box whose chain was never written has no lock file, and none is made: the backup runs as root, and a
+    lock file it made would be root's, which the writer could not open."""
+    lock = root / ".lock"
+
+    def read() -> tuple[bytes | None, dict[str, int]]:
+        head = root / "HEAD.json"
+        data = head.read_bytes() if head.is_file() else None
+        lengths: dict[str, int] = {}
+        for rel in _walk(root):
+            if _append_only(f"dirs/audit/{rel}"):
+                with (root / rel).open("rb") as fh:
+                    lengths[rel] = _line_end(fh, os.fstat(fh.fileno()).st_size)
+        return data, lengths
+
+    if not lock.is_file():
+        return read()
+    with lock.open("rb") as fh:  # read-only: flock needs no write access
+        fcntl.flock(fh.fileno(), fcntl.LOCK_SH)
+        try:
+            return read()
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _add_read(tar: tarfile.TarFile, path: Path, arcname: str, data: bytes) -> tuple[str, int]:
+    """One member from bytes already read (the head anchor of :func:`_audit_moment`), with the file's own owner,
+    mode and time."""
+    info = tar.gettarinfo(str(path), arcname=arcname)
+    info.size = len(data)
+    tar.addfile(info, io.BytesIO(data))
+    return hashlib.sha256(data).hexdigest(), len(data)
 
 
 @contextlib.contextmanager
@@ -1056,15 +1106,24 @@ def backup(
                             manifest["excluded"][dname] = left
                         continue
                     rels, left = select_files(dname, root)
+                    head, lengths = _audit_moment(root) if dname == "audit" else (None, {})
+                    if dname == "audit":  # what the moment saw, even what the listing before it did not
+                        rels = sorted({*rels, *lengths, *(["HEAD.json"] if head is not None else [])})
                     n = 0
+                    upto = _UPTO.set({f"dirs/{dname}/{rel}": end for rel, end in lengths.items()})
                     for rel in rels:
                         arc = f"dirs/{dname}/{rel}"
                         try:
-                            manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+                            if dname == "audit" and rel == "HEAD.json" and head is not None:
+                                got = _add_read(tar, root / rel, arc, head)
+                            else:
+                                got = _add(tar, root / rel, arc)
+                            manifest["files"][arc], manifest["sizes"][arc] = got
                         except FileNotFoundError:  # removed since the listing (a retention prune): not in the backup
                             left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
                             continue
                         n += 1
+                    _UPTO.reset(upto)
                     manifest["dirs"][dname] = {"path": str(root), "files": n}
                     if left:
                         manifest["excluded"][dname] = left
@@ -1178,9 +1237,12 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
         fh.seek(0)
         hr = _HashReader(fh)
         reader = io.BufferedReader(_ChunkReader(decrypt_stream(hr, sk)), buffer_size=CHUNK)
+        owners: dict[str, list[int]] = {}
         try:
             with _tar_reader(reader, header) as tar:
                 tar.extractall(into, filter="data")
+                # D-724 (DATA-010): the ``data`` filter does not write each member's owner; the members read keep it
+                owners = {m.name: [m.uid, m.gid, m.mode] for m in tar.getmembers()}
         except (tarfile.TarError, zstandard.ZstdError, EOFError) as e:
             raise BackupError(f"backup is damaged: its content cannot be read ({type(e).__name__})") from e
         while reader.read(CHUNK):  # the rest after the tar's end: authenticated to the final chunk all the same
@@ -1203,6 +1265,7 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
             + _named("unlisted", extra)
         )
     manifest["_sha256"] = hr.sha.hexdigest()
+    manifest["_owners"] = owners  # not in the signed manifest: read from the tar members, as the files are
     return manifest
 
 
@@ -1518,6 +1581,9 @@ def hold_screening(env: Mapping[str, str], audit_dir: Path | None, reason: str) 
         return "held"
     except Exception as exc:
         return f"NOT set: {type(exc).__name__}"
+    finally:
+        with contextlib.suppress(OSError):
+            _own_writes(audit_dir)  # D-724: the flag's audit event was written as root
 
 
 def release_own_hold(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
@@ -1531,6 +1597,9 @@ def release_own_hold(env: Mapping[str, str], audit_dir: Path | None, reason: str
         return "released"
     except Exception:
         return "held"
+    finally:
+        with contextlib.suppress(OSError):
+            _own_writes(audit_dir)  # D-724: the flag's audit event was written as root
 
 
 def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
@@ -1543,7 +1612,91 @@ def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: st
 
     log = AuditLog(Path(where), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(where))
     log.append(event, actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", input_sha=sha, detail=detail)
+    _own_writes(Path(where))  # D-724: also on a failed restore's way out
     return str(where)
+
+
+#: D-724 (DATA-011): the services a restore leaves running: the database it restores into, nothing that writes
+#: a volume the restore renames aside
+RESTORE_MAY_RUN = frozenset({"db"})
+
+
+def _only_the_database_runs(names: list[str] | None) -> None:
+    if names is None:
+        raise BackupError(
+            "the restore cannot tell which services run (docker compose did not answer): stop every service but db "
+            "(docker compose stop), then run the restore again with --services-stopped"
+        )
+    others = sorted(set(names) - RESTORE_MAY_RUN)
+    if others:
+        raise BackupError(
+            f"these services are running: {', '.join(others)}. A restore moves their folders aside, and what they "
+            f"write meanwhile is lost: stop them first (docker compose stop {' '.join(others)}; keep db running), "
+            "run the restore, then start them. Nothing was changed"
+        )
+
+
+def _is_root() -> bool:
+    return os.geteuid() == 0
+
+
+def _chown(path: Path, uid: int, gid: int) -> None:
+    os.chown(path, uid, gid, follow_symlinks=False)
+
+
+def _uid_gid(path: Path) -> tuple[int, int]:
+    st = os.lstat(path)
+    return st.st_uid, st.st_gid
+
+
+def _own_writes(folder: Path | None) -> None:
+    """D-724: what this process wrote as root in the box's audit folder (an audit event, the writer's lock file, a
+    new day file) is given to the folder's owner: the audit writer, another user, could not write the day's chain
+    after it. Files that belong to someone else are left as they are."""
+    if folder is None or not _is_root() or not Path(folder).is_dir():
+        return
+    owner = _uid_gid(Path(folder))
+    me = os.geteuid()
+    if owner[0] == me:
+        return
+    for p in Path(folder).rglob("*"):
+        if not p.is_symlink() and _uid_gid(p)[0] == me:
+            _chown(p, owner[0], owner[1])
+
+
+def _give_back_owners(
+    dest: Path, dname: str, owners: Mapping[str, list[int]], top: tuple[int, int, int] | None, aside: Path | None
+) -> None:
+    """D-724 (DATA-010): a restore run as root made every file and folder root's, folders 0755 and files without
+    group write; the services, which run as their own user, could not write their volumes after it. Each file gets
+    the owner and mode of its backup member (never a set-id bit); each folder the owner and mode of the same folder
+    it replaced (else of the folder at the volume's top); a file the restore wrote itself (its audit event, the
+    writer's lock file) the top folder's owner. Owners only as root (a user who is not root cannot give a file away)."""
+    root = _is_root()
+    for p in [dest, *sorted(dest.rglob("*"))]:
+        if p.is_symlink():
+            continue
+        rel = p.relative_to(dest)
+        if p.is_dir():
+            was = aside / rel if aside is not None and str(rel) != "." else None
+            if was is not None and was.is_dir():
+                st = was.stat()
+                like: tuple[int, int, int] | None = (st.st_uid, st.st_gid, st.st_mode)
+            else:
+                like = top
+            if like is not None:
+                p.chmod(like[2] & 0o777)
+                if root:
+                    _chown(p, like[0], like[1])
+            continue
+        own = owners.get(f"dirs/{dname}/{rel}")
+        if own is not None:
+            if len(own) > 2:
+                p.chmod(int(own[2]) & 0o777)
+            if root:
+                _chown(p, int(own[0]), int(own[1]))
+        elif root and top is not None:
+            _chown(p, top[0], top[1])
 
 
 def restore(
@@ -1559,6 +1712,7 @@ def restore(
     no_copy: bool = False,
     other_site: bool = False,
     max_age_days: float | None = RESTORE_MAX_AGE_DAYS,
+    running: Callable[[], list[str] | None] | None = None,
 ) -> dict[str, Any]:
     """Restore the databases and directories of ``file``, the hospital's own reference rows and, from the pack files
     in ``refdata_dir``, the vendor packs a layout-2 backup leaves out; return what was restored, with rows checked.
@@ -1584,6 +1738,8 @@ def restore(
     when = now or datetime.now(UTC)
     stamp = when.strftime("%Y%m%dT%H%M%SZ")
     warnings: list[str] = []
+    if running is not None:  # D-724 (DATA-011): a box's restore, before anything is read or changed
+        _only_the_database_runs(running())
     refdata: dict[str, list[str]] = {"reloaded": [], "missing": []}
     with tempfile.TemporaryDirectory(prefix="tb-restore-") as tmp:
         work = Path(tmp)
@@ -1762,10 +1918,12 @@ def restore(
                 back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
                 raise BackupError(f"{msg} (the databases are restored already){back}")
         asides: dict[str, Path] = {}
+        placed: dict[str, tuple[Path, tuple[int, int, int] | None]] = {}
         for dname in manifest["dirs"]:
             if dname == HOST and HOST not in targets:
                 continue
             dest = targets[dname]
+            top = (dest.stat().st_uid, dest.stat().st_gid, dest.stat().st_mode) if dest.is_dir() else None
             if dest.exists() and any(dest.iterdir()):
                 aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}"), 1
                 while aside.exists():  # a second restore within the same second: never over the first one's data
@@ -1776,6 +1934,8 @@ def restore(
             src = work / "dirs" / dname
             if src.exists():
                 shutil.copytree(src, dest, dirs_exist_ok=True)
+            _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
+            placed[dname] = (dest, top)
         since, since_from = snapshot_time(manifest)
         audit_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
         reapply = events_to_reapply(audit_dir, since)  # D-455 (M3): read from the restored chain, before our events
@@ -1819,6 +1979,8 @@ def restore(
             **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
             "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
             "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
+        for dname, (dest, top) in placed.items():  # D-724: the restore's own audit events were written as root
+            _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,

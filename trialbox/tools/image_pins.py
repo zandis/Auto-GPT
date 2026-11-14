@@ -84,9 +84,12 @@ def read_env(path: Path) -> list[str]:
 
 
 def resolve(
-    deploy: Path, files: list[Path], has: Inspect | None = None
+    deploy: Path, files: list[Path], has: Inspect | None = None, used: set[str] | None = None
 ) -> tuple[dict[str, str | None], list[str], list[str]]:
-    """``({variable: image id, or None to clear}, notes, missing references)`` for this box's compose files."""
+    """``({variable: image id, or None to clear}, notes, missing references)`` for this box's compose files.
+    ``used`` (OPS-004b, D-574): the images the rendered stack runs (``docker compose config --images`` with the
+    box's overrides). A pinned variable whose image no service runs is noted and not asked for; without the list
+    every pinned variable is asked for."""
     has = has or docker_has
     pins = read_pins(deploy / PINS)
     env = {}
@@ -101,6 +104,9 @@ def resolve(
         current = env.get(var, "")
         if current and not IMAGE_ID.match(current):
             notes.append(f"{var}: the site's own {current} (left alone)")
+            continue
+        if used is not None and ref not in used and not (current and current in used):
+            notes.append(f"{var}: {ref}: no service of this box's stack runs it (not needed on this box)")
             continue
         if has(ref):
             notes.append(f"{var}: {ref} on this box by its digest")
@@ -139,12 +145,13 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("resolve")
     r.add_argument("--deploy", type=Path, required=True)
     r.add_argument("--files", required=True, help="the compose files, ':'-separated (deploy/.env COMPOSE_FILE)")
+    r.add_argument("--used", default="", help="the images the rendered stack runs, one per line or word (D-574)")
     a = ap.parse_args(argv)
     if a.cmd == "merge":
         print(f"image pins: {merge(a.pins, a.deploy)} from the bundle")
         return 0
     files = [Path(f) for f in a.files.split(":") if f]
-    changes, notes, missing = resolve(a.deploy, files)
+    changes, notes, missing = resolve(a.deploy, files, used=set(a.used.split()) or None)
     for n in notes:
         print(f"image pins: {n}")
     if missing:

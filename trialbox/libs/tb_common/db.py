@@ -124,6 +124,10 @@ _GROUP_SQL = (
     "SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner "
     "WHERE n.nspname = %s AND r.rolname = %s AND pg_has_role(current_user, r.oid, 'MEMBER')"
 )
+_OWNING_GROUP_SQL = (
+    "SELECT r.rolname FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner "
+    "WHERE n.nspname = %s AND r.rolname LIKE %s AND NOT r.rolcanlogin AND pg_has_role(current_user, r.oid, 'MEMBER')"
+)
 #: D-486 (T-718): a schema on the role script's ``owned`` list belongs to ``tbo_<schema>`` (its one member is
 #: ``trialbox``); a service is a member of ``tbw_<schema>`` (rows) or ``tbr_<schema>`` (reads) and makes nothing there
 OWNER_PREFIX = "tbo_"
@@ -240,6 +244,23 @@ def split_url(url: str) -> tuple[str, str]:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, rest, parts.fragment)), prefix
 
 
+def ask_once(url: str, text: str, params: Sequence[Any] = ()) -> tuple[Any, ...] | None:
+    """One row of one statement on a connection of its own, as the URL's user and with no schema chosen (nothing is
+    made, no role is set): what a caller needs to know before it opens a store. None when the database cannot be
+    reached or the statement returns no row."""
+    dsn, _prefix = split_url(url)
+    try:
+        psycopg = importlib.import_module("psycopg")
+        con = psycopg.connect(dsn, autocommit=True, connect_timeout=10)
+    except Exception:
+        return None
+    try:
+        row = con.execute(text, tuple(params)).fetchone()
+        return tuple(row) if row is not None else None
+    finally:
+        con.close()
+
+
 def sql(text: str) -> str:
     """``?`` placeholders -> ``%s``; literal ``%`` escaped."""
     return text.replace("%", "%%").replace("?", "%s")
@@ -325,6 +346,12 @@ class Database:
             group = (GROUP_PREFIX + schema)[:63]
             if con.execute(_GROUP_SQL, (schema, group)).fetchone() is not None:
                 con.execute(f'SET ROLE "{group}"')
+            else:
+                # D-721: a schema that the admin made for another store's group (a second lake's OMOP store, owned
+                # by tbs_omop) is used as that group too, by its members, for the same reason
+                row = con.execute(_OWNING_GROUP_SQL, (schema, GROUP_PREFIX.replace("_", r"\_") + "%")).fetchone()
+                if row is not None:
+                    con.execute(f'SET ROLE "{row[0]}"')
             # D-486: a schema with an owner role of its own. The host tools' admin (a member) works as the owner, so
             # the migrate step's tables are the owner's; a service (no member) stays itself and makes nothing
             owner = (OWNER_PREFIX + schema)[:63]

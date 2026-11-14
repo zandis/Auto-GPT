@@ -111,7 +111,9 @@ def test_a_console_that_signs_something_else_gets_no_chart_number(
     r = _reveal(site, pid)
     assert r.status_code == 409 and ob.mrn[pid] not in r.text
     assert not ob.events("screen.reveal") and not ob.events("console.reveal_patient")
-    refused = ob.events(event)
+    # the reveal's own refusal: the page's patient reads (signed through the same bent mint, D-717) are refused too
+    refused = [e for e in ob.events(event) if e["detail"].get("route", "POST /jobs/{job_id}/reveal")
+               == "POST /jobs/{job_id}/reveal"]  # fmt: skip
     assert len(refused) == 1 and refused[0]["detail"]["reason"] == why and refused[0]["actor"] == "console:crc"
     assert ob.events("console.reveal_refused")[-1]["detail"]["refused"] == "back end"
 

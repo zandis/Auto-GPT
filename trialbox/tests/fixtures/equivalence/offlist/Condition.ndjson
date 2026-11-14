@@ -1,6 +1,6 @@
 {"resourceType": "Condition", "id": "c-listed", "subject": {"reference": "Patient/OFF-LISTED"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C50.911"}]}, "onsetDateTime": "2026-03-01"}
 {"resourceType": "Condition", "id": "c-offlist", "subject": {"reference": "Patient/OFF-OFFLIST"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C50.9Z"}]}, "onsetDateTime": "2026-03-01"}
-{"resourceType": "Condition", "id": "c-skin", "subject": {"reference": "Patient/OFF-SKIN"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C44.91"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-skin", "subject": {"reference": "Patient/OFF-SKIN"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "D22.5"}]}, "onsetDateTime": "2026-03-01"}
 {"resourceType": "Condition", "id": "c-both-off", "subject": {"reference": "Patient/OFF-BOTH"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C50.9Z"}]}, "onsetDateTime": "2026-03-01"}
 {"resourceType": "Condition", "id": "c-both-c61", "subject": {"reference": "Patient/OFF-BOTH"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C61"}]}, "onsetDateTime": "2026-04-01"}
 {"resourceType": "Condition", "id": "c-none", "subject": {"reference": "Patient/OFF-NONE"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "M10.00"}]}, "onsetDateTime": "2026-03-01"}

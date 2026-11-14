@@ -37,6 +37,11 @@ A finding is accepted only by a written entry: which package, why, and until whe
         reason: ...
         review_by: 2027-02-01
 
+    os_packages_unreadable:              # D-574: a third-party image whose OS package list the scanner cannot read
+      - image: authelia/authelia         # one image repository; never one of ours, never a pattern
+        reason: ...                      # the report is then read without OS packages; its other packages are
+        review_by: 2026-12-10            # gated as always; an entry for an image that is readable is refused
+
 The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a date
 in the past or more than 180 days ahead, an unknown or duplicate key, a duplicate entry, a vulnerability entry without
 a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. An entry for every id (D-622,
@@ -50,6 +55,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,6 +71,8 @@ LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
 _VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image"}
 _LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
 _BUDGET_KEYS = {"image", "ecosystem", "max", "reason", "review_by", "owner"}
+_OS_KEYS = {"image", "reason", "review_by", "owner"}
+_REPO_PART = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")  # one path component of an image repository, ASCII only
 EVERY_ID = "*"  # D-622: a vulnerability entry for every finding of one package in one third-party image
 IMAGES_LOCK = ROOT / "deploy" / "images.lock"
 # in our own images and the lock, an unknown licence in these ecosystems is never budgeted: each needs an entry
@@ -110,11 +118,26 @@ class BudgetEntry:
     review_by: dt.date
 
 
+@dataclass(frozen=True)
+class OsUnreadableEntry:
+    image: str  # a third-party image repository whose OS package list the scanner cannot read (D-574)
+    reason: str
+    review_by: dt.date
+
+
 @dataclass
 class Allowlist:
     vulnerabilities: list[VulnEntry]
     licences: list[LicenceEntry]
     budgets: list[BudgetEntry] = field(default_factory=list)
+    os_packages_unreadable: list[OsUnreadableEntry] = field(default_factory=list)
+
+    def os_unreadable(self, subject: str) -> OsUnreadableEntry | None:
+        """The entry that lets the report of ``subject`` (a scanned image reference) show no OS packages."""
+        for e in self.os_packages_unreadable:
+            if same_repository(e.image, subject):
+                return e
+        return None
 
     def vuln(self, ids: set[str], package: str, subject: str | None = None) -> VulnEntry | None:
         """The entry accepting a finding known by any of ``ids`` in ``package``, if one does. An entry scoped to an
@@ -265,10 +288,11 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
     if not isinstance(data, dict):
         return out, ["the allow-list must be a mapping with 'vulnerabilities' and 'licences'"]
     errors += [
-        f"unknown top-level key {k!r}" for k in sorted(set(data) - {"vulnerabilities", "licences", "budgets"}, key=str)
+        f"unknown top-level key {k!r}"
+        for k in sorted(set(data) - {"vulnerabilities", "licences", "budgets", "os_packages_unreadable"}, key=str)
     ]
     lists: dict[str, list[Any]] = {}
-    for list_key in ("vulnerabilities", "licences", "budgets"):
+    for list_key in ("vulnerabilities", "licences", "budgets", "os_packages_unreadable"):
         value = data.get(list_key)
         if value is None:
             lists[list_key] = []
@@ -362,6 +386,31 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
         errors += errs
         if not errs and when is not None and image and eco and isinstance(top, int):
             out.budgets.append(BudgetEntry(image, eco, top, str(raw["reason"]).strip(), when))
+    seen_o: set[str] = set()
+    for i, raw in enumerate(lists["os_packages_unreadable"]):
+        if not isinstance(raw, dict):
+            errors.append(f"os_packages_unreadable[{i}]: must be a mapping")
+            continue
+        image = _text(raw, "image")
+        where = f"os_packages_unreadable[{i}] ({image})"
+        errs, when = _common(where, raw, _OS_KEYS, today)
+        if not image:
+            errs.append(f"{where}: needs an image")
+        elif image != image_repository(image):
+            errs.append(f"{where}: image must be an image repository without tag or digest, got {image!r}")
+        elif not all(_REPO_PART.fullmatch(part) for part in image.split("/")):
+            errs.append(f"{where}: image must name one image repository, not a pattern, got {image!r}")
+        elif is_own(image):
+            errs.append(f"{where}: our own images always show their OS packages; no entry for them")
+        elif image not in third_party_repositories():
+            errs.append(f"{where}: {image!r} is not a third-party image of deploy/images.lock, by its full name")
+        if image:
+            if image in seen_o:
+                errs.append(f"{where}: duplicate entry")
+            seen_o.add(image)
+        errors += errs
+        if not errs and when is not None and image:
+            out.os_packages_unreadable.append(OsUnreadableEntry(image, str(raw["reason"]).strip(), when))
     return out, errors
 
 

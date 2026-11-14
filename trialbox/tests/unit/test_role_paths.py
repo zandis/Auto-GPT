@@ -72,7 +72,8 @@ def test_the_export_path_reaches_the_temporary_table_of_the_wind_back(
     _name, ok, detail = role_paths.check(tmp_path / "cluster")
     assert ok, detail
     assert "CREATE TEMP TABLE tb_asof_tmp" in seen  # the export's wind-back
-    assert "CREATE TEMP TABLE tb_in_tmp" in seen  # the load
+    # the load (D-678: made once per load, ``CREATE TEMP TABLE IF NOT EXISTS``)
+    assert "CREATE TEMP TABLE IF NOT EXISTS tb_in_tmp" in seen
     assert "CREATE TEMP TABLE tb_drill_tmp" in seen  # the line of every store connection
 
 

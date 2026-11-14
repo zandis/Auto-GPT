@@ -4,7 +4,7 @@
 box's GPU profile has a serving-configuration record taken on its own, uncapped card (the record rule of
 ``tools/serving_config.py measured``, D-112). There is no override: a tier is a promise that the box was measured.
 A trial boot of an unmeasured card stays possible with ``--gpu <profile>`` and ``TB_ACCEPT_UNMEASURED_GPU=1``, which
-is not a tier install.
+is not a tier install, on a rehearsal box only (``--rehearsal``, D-726).
 
     ========  ==============  =====================================  ===================================
     tier      ``--gpu``       box                                    serving
@@ -81,12 +81,13 @@ def profile_of(arch: str, card: str, deploy: Path) -> str:
 
 def how_to_measure(tier: str, gpu: str) -> str:
     return (
-        f"To get a record: boot this box once as a trial with `TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh <bundle> "
-        f"--gpu {gpu}` (not a tier install), let both model servers start, then run `python3 tools/serving_config.py "
+        f"To get a record: boot this box once as a trial, a rehearsal box (D-726), with `TB_COMPOSE_OVERRIDE= "
+        f"deploy/install.sh <bundle> --gpu {gpu} --rehearsal` (not a tier install), let both model servers start, "
+        "then run `python3 tools/serving_config.py "
         f"capture --container judge=trialbox-llm-service-1 --container verifier=trialbox-llm-verifier-1 "
         f"--models-dir deploy/models --out deploy/site/serving_config.{gpu}.json` on the box (RUNBOOK section 1, "
         "'Tiers'); or ask Aimedics for the vendor record of this card (deploy/measured/). "
-        f"Then re-run with --tier {tier}."
+        f"Then empty the trial box (RUNBOOK section 1) and install the site with --tier {tier}."
     )
 
 

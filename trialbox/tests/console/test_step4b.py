@@ -113,7 +113,7 @@ def test_one_time_password_never_in_a_url_and_readable(box: dict[str, Any]) -> N
     c, csrf = login(box["app"], "admin", ADMIN_PW)
     r = c.post(
         "/ops/users",
-        data={"csrf": csrf, "action": "add", "username": "newcrc", "role": "coordinator"},
+        data={"csrf": csrf, "action": "add", "username": "newcrc", "role": "viewer"},  # D-719: aggregate
         follow_redirects=False,
     )
     loc = r.headers["location"]

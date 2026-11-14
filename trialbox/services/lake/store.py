@@ -262,6 +262,30 @@ def error_kind(exc: BaseException) -> str:
     return head if _KIND.fullmatch(head) else ""
 
 
+def query_failure_status(exc: BaseException) -> int:
+    """The HTTP status of a query that failed (NEW-B-34, D-675): who failed, the question or the lake?
+
+    * **422, the question**: what the engine files under a wrong statement or wrong data (the DB-API groups
+      ``ProgrammingError``, ``DataError``, ``NotSupportedError``, ``IntegrityError``: a table or column that is
+      not there, a value that does not convert), and the lake's own refusal in words (:class:`LakeSaid`). A
+      caller that gets one has a fault in its code: it stops.
+    * **503, the lake cannot serve it**: the snapshot is not there, too old, of a layout this reader does not
+      serve; the query met the box's memory or spill limit; it was interrupted at its time limit.
+    * **500, the lake broke**: an I/O error, an error inside the engine, anything nobody expected.
+
+    A caller's rule: ``status >= 500`` is "the lake failed", never "no data". The engine's classes are placed by
+    the engine's own grouping, not by a list kept here. (400, a statement the guard refused, is the route's.)"""
+    if isinstance(exc, (FileNotFoundError, StaleSnapshotError, LakeSchemaError, LakeLimitError)):
+        return 503
+    if isinstance(exc, duckdb.InterruptException):
+        return 503
+    if isinstance(exc, (duckdb.ProgrammingError, duckdb.DataError, duckdb.NotSupportedError, duckdb.IntegrityError)):
+        return 422
+    if isinstance(exc, LakeSaid):
+        return 422
+    return 500
+
+
 def error_answer(exc: BaseException, what: str = "query") -> str:
     """What the lake says of a query or a build that failed (NEW-B-23, D-664; ``/query``'s 422, a rebuild job's
     ``failed`` detail): never a value of a row, never the query's own text. The answer travels: into a job's

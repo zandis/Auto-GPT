@@ -7,6 +7,7 @@
 #       --gates build/supply-chain/gates.json [--sbom-dir dist/sbom] [--models deploy/models] [--rulesets dist/rulesets] \
 #       [--refdata dist/trialbox-refdata-<date>.tar ...] [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
 #       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
+#       [--rehearsal]                (a bundle for a rehearsal box: release.json says so; a site box refuses it, D-726)
 #
 # The release gates are not optional (T-110b, D-340; CR-046): --gates names the passing record of `make release-gates`
 # (D-186), and the bundle is refused unless every image it carries is a passing image of that record (Trivy, SBOM and
@@ -25,7 +26,7 @@
 # /opt/trialbox/releases/<id> and switch /opt/trialbox/current to it; a rollback switches back.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""
+KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""; REHEARSAL=()
 IMAGES=(); REFDATA=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,7 +44,8 @@ while [ $# -gt 0 ]; do
     --allow-dirty)
       case "${2:-}" in ""|--*) echo "make_bundle: --allow-dirty needs a reason (--allow-dirty \"a rehearsal\")" >&2; exit 2 ;; esac
       DIRTY=1; DIRTY_WHY="$2"; shift ;;
-    -h|--help) sed -n 2,25p "$0"; exit 0 ;;
+    --rehearsal) REHEARSAL=(--rehearsal) ;;
+    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -197,7 +199,7 @@ else
 fi
 echo "==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$ID" \
-  --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" "${SAVED[@]}" "${ITEMS[@]}") \
+  --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" ${REHEARSAL[@]+"${REHEARSAL[@]}"} "${SAVED[@]}" "${ITEMS[@]}") \
   || { echo "make_bundle: no release record: the bundle is not built" >&2; exit 1; }
 while IFS= read -r it; do [ -n "$it" ] && ITEMS+=("$it"); done < "$STAGE/meta/items.txt"
 mkdir -p "$(dirname "$OUT")"

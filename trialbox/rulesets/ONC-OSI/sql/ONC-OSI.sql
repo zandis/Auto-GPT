@@ -71,13 +71,25 @@ c_onc_osi_inc_02 AS (
   LEFT JOIN a_onc_osi_inc_02_1_nd ON a_onc_osi_inc_02_1_nd.pid = b.pid AND a_onc_osi_inc_02_1_nd.index_date = b.index_date
   LEFT JOIN a_onc_osi_inc_02_1_off ON a_onc_osi_inc_02_1_off.pid = b.pid AND a_onc_osi_inc_02_1_off.index_date = b.index_date),
 a_onc_osi_inc_03_1 AS (
-  SELECT pid, index_date, (o.value_code IN ('LA9633-4')) AS v,
-         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
-  FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
-         FALSE AS unit_bad
-  FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
-  WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_MUTATION' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
+  SELECT d.pid, d.index_date, CASE WHEN (u.n IS NULL OR (d.v AND u.not_true = 0) OR (NOT d.v AND u.not_false = 0)) THEN d.v END AS v,
+         CASE WHEN (u.n IS NULL OR (d.v AND u.not_true = 0) OR (NOT d.v AND u.not_false = 0)) OR d.v IS NULL THEN d.ev ELSE u.ev END AS ev
+  FROM (SELECT pid, index_date, (o.value_code IN ('LA9633-4')) AS v,
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || coalesce(strftime(o.effective, '%Y-%m-%d'), '') AS ev
+    FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
+          FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad, o.effective IS NULL AS undated
+  FROM base b JOIN observation o ON o.pid = b.pid
+   AND (o.effective::DATE <= b.index_date OR o.effective IS NULL)
+  WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_MUTATION' AND vs.system = o.system AND vs.code = o.code)) WHERE NOT undated) o WHERE rn = 1) d
+  LEFT JOIN (SELECT pid, index_date, count(*) AS n,
+         count(*) FILTER (WHERE (o.value_code IN ('LA9633-4')) IS NOT TRUE) AS not_true,
+         count(*) FILTER (WHERE (o.value_code IN ('LA9633-4')) IS NOT FALSE) AS not_false, string_agg(CASE WHEN o.undated THEN o.oid || '|' || coalesce(strftime(o.effective, '%Y-%m-%d'), '') END, ';' ORDER BY o.oid) AS ev
+    FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad, o.effective IS NULL AS undated
+  FROM base b JOIN observation o ON o.pid = b.pid
+   AND (o.effective::DATE <= b.index_date OR o.effective IS NULL)
+  WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_MUTATION' AND vs.system = o.system AND vs.code = o.code)) o WHERE o.undated GROUP BY pid, index_date) u
+    ON u.pid = d.pid AND u.index_date = d.index_date),
 -- ONC-OSI-INC-03 (inclusion): 腫瘤組織檢測證實具 EGFR 基因突變（exon 19 deletion 或 L858R）。
 c_onc_osi_inc_03 AS (
   SELECT b.pid, b.index_date, a_onc_osi_inc_03_1.v AS v,

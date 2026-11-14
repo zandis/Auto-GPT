@@ -22,6 +22,7 @@
   <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
   <button type="submit" data-testid="login-submit">{{ t('login.submit') }}</button>
 </form>
+<p class="hint" data-testid="login-enrol"><a href="/enrol">{{ t('login.enrol') }}</a></p>
 <p class="hint" data-testid="login-help">{% if admin_mail %}{{ t('login.ask.mail', mail=admin_mail) }}{% else %}{{ t('login.ask') }}{% endif %}</p>
 </section>
 {% endblock %}
