@@ -89,19 +89,34 @@ TW_ID = re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?![0-9])")
 PHONE = re.compile(
     r"(?<!\d)(?:\+886[-\s]?9\d{2}|09\d{2})[-\s]?\d{3}[-\s]?\d{3}(?!\d)|(?<!\d)\(?0[2-8]\)?[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)"
 )
-# NEW-B-43 (D-744): an English phone number (North American, British or any with a country code). A local number of
-# seven digits only after a word that says it is one (``Tel``, ``phone``, ``mobile``, ``contact``, ``number`` ...);
-# the longer forms anywhere. Clinical ranges (100-300 mg, 4.5-11.0) and dates have neither shape. One pattern for the
-# note masker, the gate before a call (:func:`scan`) and the guard service's recognisers. Group ``v``: the number.
+# NEW-B-43 (D-744): an English phone number (North American, British or any with a country code). The long forms
+# anywhere; a seven-digit local number, and a number written without separators, only after a word that says it is a
+# phone (``Tel``, ``phone (no.)``, ``mobile``, ``contact``, ``call``, ``pager``, ``T:`` ...). Separators never cross a
+# line: a prompt's variables are scanned one per line. Clinical ranges (100-300 mg, 4.5-11.0), runs of doses or counts
+# (250 500 1000), times (0800 1200), study, lot and kit numbers and a spaced lab code (JLAC10) have none of the shapes.
+# One pattern for the note masker, the gate before a call (:func:`scan`) and the guard service's recognisers. Group
+# ``v``: the number (the word stays).
+_SP = r"[^\S\n]"  # a space or tab, never a line break
+_DASH = r"[-.\u2010-\u2015\u2212]"  # hyphen, dot and the Unicode dashes
+_SEP = rf"(?:{_DASH}|{_SP})"
 _EN_PHONE_FULL = (
-    r"\+\d{1,3}[-.\s]?\(?\d{1,4}\)?(?:[-.\s]?\d{2,4}){2,3}"  # any number with its country code
-    r"|\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]\d{4}"  # North American: area code, exchange, line
-    r"|0\d{2,4}\s\d{3,4}\s?\d{3,4}"  # British national: a leading 0, the area code, two groups
+    # with its country code (+ or 00), at least nine digits
+    rf"(?=(?:[^\d\n]{{0,3}}\d){{9}})(?:\+|(?<![\d.,])(?<!\d{_SP})00(?=[1-9]))\d{{1,3}}{_SEP}?\(?\d{{1,4}}\)?(?:{_SEP}?\d{{2,4}}){{2,3}}"
+    # North American: (area) or area and a dash, exchange, line; a leading 1 too
+    rf"|(?:1{_DASH})?(?:\([2-9]\d{{2}}\){_SP}?|[2-9]\d{{2}}{_DASH})\d{{3}}{_DASH}\d{{4}}"
+    # British national: the area code with a separator or in brackets, then the subscriber number
+    rf"|(?<!\d{_SP})(?:\(0\d{{4}}\){_SP}?|0\d{{4}}{_SEP})\d{{3}}{_SEP}?\d{{3}}"
+    rf"|(?<!\d{_SP})(?:\(0\d{{3}}\){_SP}?|0\d{{3}}{_SEP})\d{{3}}{_SEP}?\d{{4}}"
+    rf"|(?<!\d{_SP})(?:\(0\d{{2}}\){_SP}?|0\d{{2}}{_SEP})\d{{4}}{_SEP}?\d{{4}}"
 )
-_EN_PHONE_LABEL = r"(?i:\b(?:tel(?:ephone)?|phone|ph|mobile|cell|fax|contact|call|number(?:\s+is)?)\b\.?)[\s:#.]*"
+_EN_PHONE_LABEL = (
+    r"(?i:\b(?:tel(?:ephone)?|phone|ph|mobile|mob|cell(?:phone)?|fax|pager|landline|helpline|contact|call|dial"
+    r"|home|number\s+is|[TM](?=\s*:))\b\.?"
+    rf"(?:{_SP}*(?:no\b\.?|number\b|#|details\b))?)(?:{_SP}|[:#.])*"
+)
 EN_PHONE = re.compile(
-    rf"{_EN_PHONE_LABEL}(?P<v>(?:{_EN_PHONE_FULL}|\d{{3}}[-.]\d{{4}}))(?![\d-])"
-    rf"|(?<![A-Za-z0-9+])(?:{_EN_PHONE_FULL})(?![\d-])"  # not inside a code (JLAC10 3D046 0000 019)
+    rf"{_EN_PHONE_LABEL}(?P<v>{_EN_PHONE_FULL}|0\d{{9,10}}|\d{{10}}|\d{{3}}{_SEP}?\d{{4}})(?![\dA-Za-z])(?!{_DASH}\d)"
+    rf"|(?<![A-Za-z0-9+.,])(?:{_EN_PHONE_FULL})(?![\dA-Za-z])(?!{_DASH}\d)"  # not inside a code (3D046 0000 019)
 )
 # NEW-B-44 (D-745): a date of birth, a postal address and a chart number after any of its labels. The owner's run of
 # ``mask_note`` on a month of real notes (counts only) found these three surviving. One definition each for the note

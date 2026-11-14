@@ -27,6 +27,22 @@ PHONES = [
     ("Next of kin on +44 20 7946 0958 (London).", "+44 20 7946 0958"),
     ("Mobile 07700 900123, prefers texts.", "07700 900123"),
     ("tel. 01632 960999", "01632 960999"),  # the range kept for drama
+    # review: forms a clinician writes that the first version missed
+    ("Phone no: 555-0133 (mother).", "555-0133"),
+    ("Tel. no. 555-0142", "555-0142"),
+    ("Contact details: 555-0150.", "555-0150"),
+    ("Mobile 07700900123, prefers texts.", "07700900123"),
+    ("Home (01632) 960 123 after six.", "(01632) 960 123"),
+    ("Mob: 07700-900123", "07700-900123"),
+    ("Tel: 555\u2013010\u20130133", "555\u2013010\u20130133"),
+    ("Call 5550100133 to rebook.", "5550100133"),
+    ("Ph 555 0133", "555 0133"),
+    ("Tel 5550133", "5550133"),
+    ("Pager 555-0177", "555-0177"),
+    ("T: 555-0188", "555-0188"),
+    ("Dial 001 555 010 0133 from abroad.", "001 555 010 0133"),
+    ("Helpline 1-800-555-0199.", "1-800-555-0199"),
+    ("Tel 555-0133-ext 4", "555-0133"),
 ]
 
 # clinical text an English note holds: none of it is a phone number
@@ -38,6 +54,15 @@ CLINICAL = [
     "NCT04157751 screening; visit 3 of 12. Creatinine 1.2 mg/dL on 2025-03-04, 2025-06-10.",
     "Phoned about the results. Contact the rheumatology clinic for the next dose.",
     "HbA1c NGSP JLAC10 3D046 0000 019 (a lab code, spaced as the design documents write it).",
+    # review: false positives of the first version
+    "HbA1c JLAC10 3D046 0000 019 062 02; creatinine 3C015 0000 023 271 01.",
+    "3D046\t0000\t023\t271\t01",
+    "Protocol number: 202-1234. Site number 840-0001. Lot number: 234-5678. Kit number 123.4567.",
+    "Insulin at %s; obs at %s." % (" ".join(["0800", "1200", "1800"]), " ".join(["0600", "1400", "2200"])),  # noqa: UP031
+    "Stamp 251103 1430. Dose cohorts 250 500 1000 mg; N = 300 600 1200.",
+    "Titre +100000; change +12 345 678 cells.",
+    "Scores 0.0031023784901758012 and 0.007998569807607214; p 0.025 100 1000.",
+    "Encounter/0020305175026d62da8d342 (a resource id).",
 ]
 
 
@@ -71,14 +96,30 @@ def test_english_clinical_text_is_left_alone(text: str) -> None:
     assert [f for f in G.detect(text) if f.kind == "PHONE"] == []
 
 
+def test_numbers_on_separate_lines_are_not_one_phone() -> None:
+    """The gate scans a prompt's variables one per line (``variables_text``): three numbers are not a phone."""
+    from tb_common.phi_guard import variables_text
+
+    assert not scan(variables_text({"a": 250, "b": 300, "c": 1000})).hit
+
+
+@pytest.mark.parametrize(("text", "phone"), PHONES[:3], ids=[p for _, p in PHONES[:3]])
+def test_the_guard_service_redacts_the_number_and_keeps_its_word(text: str, phone: str) -> None:
+    red = G.redact(text)
+    label = text[: text.index(phone)].strip(" :.(")
+    assert phone not in red and label in red, red
+
+
 def test_the_masks_version_says_the_masking_changed() -> None:
     """Chunks masked by the old recognisers say so: the vector index and the lake re-mask a note whose chunks carry
     another version (D-337)."""
     assert int(NOTE_MASK_VERSION) >= 2  # 2: this card; D-745 (3) changes the masking again
 
 
-def test_one_english_phone_form_serves_every_door() -> None:
-    """The three doors read one definition, so they cannot drift apart again."""
-    from guard import recognisers
+def test_one_english_phone_form_serves_every_door(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard service reads the v1 guard's form at each call, not a copy: replacing it changes what is found."""
+    import re
 
-    assert phi_guard.EN_PHONE.pattern in {p.pattern for p in recognisers.PHONE_PATTERNS}
+    assert phi_guard.EN_PHONE in [rx for _kind, rx in phi_guard._NOTE_PATTERNS]
+    monkeypatch.setattr(phi_guard, "EN_PHONE", re.compile(r"(?P<v>zz-phone-zz)"))
+    assert "PHONE" in {f.kind for f in Guard("^\\d{8}$").detect("call zz-phone-zz")}
