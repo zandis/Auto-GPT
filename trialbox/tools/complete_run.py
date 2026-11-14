@@ -1677,11 +1677,14 @@ def _priced(e: dict[str, Any], rows: list[dict[str, Any]], hours: float) -> dict
             "cap_usd": round(cap * price, 2), "provisioning": model, "price_per_hour": price}  # fmt: skip
 
 
+# Validation reset (2026-11-14): the measured constants below come from runs of lane G's own serving and in-process
+# box (docs/plan/measurements/*/SUPERSEDED.md). They size a run's hours and US$ cap only: never a capacity figure,
+# never product evidence (docs/plan/measurements/validation-reset-2026-11-14.md).
 SETUP_HOURS = 0.25  # apt (PostgreSQL, tesseract jpn/chi_tra/eng, node), the venv, Playwright's Chromium, fonts
 BOOT_HOURS = 0.25  # VM start, both models resident (PRO6000-RUN-READY in about 15 minutes, D-139)
 CANARY_SECONDS = 300.0  # the pair canary (D-117, 54 cases) at the start of every box that has the pair
 S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient hospital, D-139; GOUT-COH: none)
-PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
+PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (superseded run; estimate only)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
 # A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (OD-10: the estimator's source data;
