@@ -67,7 +67,7 @@ def test_the_note_search_answers_503_with_the_limits_words(lake: store.Lake, mon
 
     monkeypatch.setenv("TB_LAKE_MEMORY_LIMIT", TINY)
     monkeypatch.setattr(lake_app, "lake", lambda: lake)
-    monkeypatch.setattr(lake_app, "embedder", lambda: HashEmbedder())
+    monkeypatch.setattr(lake_app, "embedder", HashEmbedder)
     got = TestClient(lake_app.app, raise_server_exceptions=False).post(
         "/chunks/search", json={"pid": "p1", "query": "chest pain", "k": 3}
     )
