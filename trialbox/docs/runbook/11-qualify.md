@@ -1,5 +1,7 @@
 # RUNBOOK §11 section: qualify a model pair (D-313)
 
+**Reader:** the people who build TrialBox.
+
 A model pair is fit to screen patients on a card only when `trialbox eval qualify` has written a `passed` record for
 that card's profile. G1b runs through this command. It costs nothing by itself: it calls the models already serving.
 

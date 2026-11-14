@@ -1,5 +1,7 @@
 # 8. DGX Spark end to end
 
+**Reader:** Aimedics (an other install form: the DGX Spark by hand).
+
 ```sh
 make spark-e2e                       # GB10: the pinned judge and verifier
 TB_LLM_MODE=stub make spark-e2e      # any Docker host, no GPU: the stub

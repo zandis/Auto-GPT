@@ -1,5 +1,7 @@
 # RUNBOOK §22 part: moving the box to another address
 
+**Reader:** the box owner, with hospital IT for the new address.
+
 *T-635 (OPS-074). Another room, another network, or a new host name.*
 
 **Drill (T-213b):** `test_runbook_22_moving_the_box` (Docker drill: change the host name and address by these steps;

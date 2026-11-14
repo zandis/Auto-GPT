@@ -1,5 +1,7 @@
 # 12. Identity and TLS (D-192, D-193)
 
+**Reader:** hospital IT (the name, the certificate, the hospital sign-in).
+
 The console is reached at `https://<TB_TLS_HOSTNAME>` through Caddy on 443; its own port is no longer published.
 Local accounts sign in with a password and a TOTP code. The hospital account (AD through Authelia, OIDC) is optional
 and off by default. All settings are in `deploy/.env`; the list with comments is

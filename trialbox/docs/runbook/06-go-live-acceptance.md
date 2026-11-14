@@ -1,5 +1,7 @@
 # 6. Go-live acceptance
 
+**Reader:** Aimedics and the box owner, who sign the acceptance together.
+
 `tools/acceptance.py` writes one result per criterion under `acceptance/`; `tools/acceptance.py report` sums them.
 
 1. `ingest --report <ingest_report.json>`

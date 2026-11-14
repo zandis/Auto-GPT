@@ -1,5 +1,7 @@
 # 14. Judge bake-off: the current judge against Gemma 4 31B (D-181)
 
+**Reader:** the people who build TrialBox.
+
 `tools/judge_bakeoff.py` runs a labelled set through any OpenAI-compatible endpoint with the box's own judge prompt
 and parser, and gates on wrong exclusions. It needs a GPU only for the real model; a dry run uses its stub:
 `python -m tools.judge_bakeoff --stub --sources synthetic --require-sources synthetic --out /tmp/jb-stub` (no

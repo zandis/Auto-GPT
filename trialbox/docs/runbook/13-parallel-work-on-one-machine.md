@@ -1,5 +1,7 @@
 # 13. Working in parallel on one machine (D-201)
 
+**Reader:** the people who build TrialBox.
+
 For developers and agent sessions that run the suite side by side on one machine; not for a box.
 
 - **One temp root per branch.** `make` sets `TB_TEST_ROOT` to `$TB_SCRATCH/tb-tests-<branch>` (`TB_SCRATCH`: your

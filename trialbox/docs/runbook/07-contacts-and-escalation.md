@@ -1,5 +1,7 @@
 # 7. Contacts and escalation
 
+**Reader:** the box owner.
+
 - Box contact: `settings.site.contact`. Vendor support: send `ingest_report.json`, `docker compose ps` and the failing
   job id, **never** patient lists or the pid map.
 - Suspected PHI exposure: stop mail (`docker compose stop mail-gateway`), keep the box running for the audit, follow the

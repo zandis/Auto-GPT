@@ -1,5 +1,7 @@
 # 17. On a hospital platform
 
+**Reader:** hospital IT (an other install form: the hospital's own platform).
+
 For a hospital that runs TrialBox on its own shared GPU platform (CGMH's B200) or, in the interim, on its private
 cloud with GPU (D-211). The same images as the appliance; no `install.sh`. The platform team applies the manifests in
 TrialBox's own namespace; Aimedics runs the install checks there; the hospital witnesses (IT pack §A.6).

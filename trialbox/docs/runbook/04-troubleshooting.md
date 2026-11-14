@@ -1,5 +1,7 @@
 # 4. Troubleshooting
 
+**Reader:** the box owner, with Aimedics on request.
+
 | Symptom | Check | Fix |
 | --- | --- | --- |
 | No reply to a mail | `docker compose logs mail-gateway --since 1h` | sender not allowed, SPF/DKIM failed, or the rate limit; the log says which (no PHI) |
