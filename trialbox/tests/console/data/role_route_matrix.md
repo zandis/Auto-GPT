@@ -296,6 +296,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/sources/redcap/undo` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/studies/{rs}/state` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/aes/{event}/ack` | - | - | - | n | - | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/step` | - | U | - | - | U | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/undo` | - | U | - | - | U | - | - | - | - |

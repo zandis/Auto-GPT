@@ -255,7 +255,7 @@ def test_the_coordinator_pauses_the_study_and_the_ids_print_on_the_log(box: dict
     assert _events(box, "console.study_identity")[0]["detail"]["jrct"] == JRCT
     log = crc.get("/studies/GZQO/screening-log").text
     assert f'data-testid="log-id-jrct">{JRCT}<' in log and f'data-testid="log-id-tw">{TW}<' in log
-    assert "Paused" in log
+    assert "Closed to recruitment / paused" in log  # D-763 (LIFE-006): the label says what the state means
     x = crc.get("/studies/GZQO/screening-log.xlsx")
     assert x.status_code == 200
     about = {row[0]: row[1:] for row in load_workbook(io.BytesIO(x.content))["about"].iter_rows(values_only=True)}
@@ -300,4 +300,4 @@ def test_the_strings_exist_in_every_language() -> None:
     for lang, cat in CATALOGUES.items():
         for st in STUDY_STATES:
             assert cat[f"sstate.{st}"] and cat[f"sstate.effect.{st}"], (lang, st)
-    assert CATALOGUES["ja"]["sstate.paused"] == "一時停止" and CATALOGUES["zh-TW"]["sstate.open"] == "收案中"
+    assert CATALOGUES["ja"]["sstate.paused"] == "募集終了／一時停止" and CATALOGUES["zh-TW"]["sstate.open"] == "收案中"

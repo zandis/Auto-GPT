@@ -243,6 +243,14 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
 
     h.life_reports = life_reports
 
+    def sae_open(rid: str) -> int:
+        """NEW-LIFE-6 (D-763): the study's SAE reports still to send (``saerecord.OPEN``), for the close check.
+        Raises ``Problem`` or ``Unavailable`` when the register cannot be read: the caller refuses the close."""
+        views, _lost, _rules = load(rid, today())
+        return sum(int(v.get("open") or 0) for v in views)
+
+    h.sae_open = sae_open
+
     def context(rules_by: dict[str, dict[str, Any]]) -> dict[str, Any]:
         return {"study_rules": rules_by, "fu_rules": followup_rules(os.environ.get("TB_SAE_FOLLOWUP_DAYS", "")),
                 "tz": str(getattr(tz, "key", "UTC")), "parties": PARTIES}  # fmt: skip
