@@ -17,6 +17,9 @@ systems:
   atc: http://www.whocc.no/atc
   snomed: http://snomed.info/sct
   nhi_drug: https://trialbox.local/fhir/CodeSystem/nhi-drug
+  # NEW-STD-5 (D-689): the reference data's name for the same NHI 藥品代號 (its nhi_drug_atc map, D-170); only the
+  # map is asked under it, the medication keeps its code under nhi_drug
+  nhi_drug_list: urn:tw:nhi:drug
   nhi_order: https://trialbox.local/fhir/CodeSystem/nhi-order
   department: https://trialbox.local/fhir/CodeSystem/department
   score: https://trialbox.local/fhir/CodeSystem/clinical-score
@@ -262,6 +265,12 @@ resources:
       intent: {const: order}
       medicationCodeableConcept.coding[0]: {builder: coding, column: nhi_drug_code, system: nhi_drug, display_column: drug_name}
       medicationCodeableConcept.coding[1]: {builder: coding, column: atc, system: atc}
+      # NEW-STD-5 (D-689): no ATC from the hospital: the one full (level 5) ATC code the NHIA list gives for the NHI
+      # code (relation `wider`: the product is in that class), tagged userSelected false. Two answers, a coarser
+      # class, no entry, or a hospital ATC: nothing is mapped; a row with no answer is counted
+      # (`map:nhi_drug_list->atc`). No reference data: as before. A site that writes its ATC from another column
+      # names that column in this `when` too (a load refuses it otherwise)
+      medicationCodeableConcept.coding[2]: {builder: mapped_coding, column: nhi_drug_code, from: nhi_drug_list, to: atc, accept: [wider], target: atc5, when: {column: atc, not_empty: false}}
       # TW Core slice nhi-medication-tw (after the codings the lake reads; JP Core puts HOT9 at [2])
       medicationCodeableConcept.coding[3]: {builder: coding, column: nhi_drug_code, system: tw_nhi_drug, when: {fhir_profiles: tw-core}}
       medicationCodeableConcept.text: {column: drug_name}
