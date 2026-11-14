@@ -753,6 +753,7 @@ class _Run:
                 res_above, best, top = res.above, res.best, [i for i, _ in res.top]
             held = (
                 index_sweep
+                and res_above
                 and stored is None
                 and self.embedder is not None
                 and thr.source == "public_prior"
@@ -760,8 +761,9 @@ class _Run:
             )
             if held:
                 # NEW-LLM-2: the placeholder threshold was set for the hash stub; a real model's similarities clear it
-                # almost always, so its score never rescues an index condition until the refit (as D-449 for stored
-                # vectors), and a rescue held back is never an absence either: a person looks
+                # almost always, so its score above it never rescues an index condition until the refit (as D-449 for
+                # stored vectors), and a rescue held back is never an absence either: a person looks. A score below it
+                # keeps its earlier path
                 res_above = False
             if index_sweep:
                 if res_above and sents:
