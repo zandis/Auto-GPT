@@ -265,52 +265,86 @@ class SqlGenerator:
         else:
             num = value_sql("o.value_num", "o.unit", "o.system", "o.code", v.unit)
             bad = f"(o.value_num IS NOT NULL AND {num} IS NULL)"
+        # SCR-03: an undated row (no effective date: a chart line without a date, a sheet row without a day, an old
+        # system's import) comes along, marked, as the presence atom's undated records do (DUMP-01)
         return (
             f"SELECT b.pid, b.index_date, o.oid, o.effective, {num} AS value_num, o.value_cmp, o.value_code,\n"
-            f"         {bad} AS unit_bad\n"
-            f"  FROM base b JOIN observation o ON o.pid = b.pid AND {in_window('o.effective::DATE', w)}\n"
+            f"         {bad} AS unit_bad, o.effective IS NULL AS undated\n"
+            f"  FROM base b JOIN observation o ON o.pid = b.pid\n"
+            f"   AND ({in_window('o.effective::DATE', w)} OR o.effective IS NULL)\n"
             f"  WHERE {self._vs_match(atom.valueset, 'o.system', 'o.code')}"
         )
 
     def _obs_value(self, name: str, atom: Atom, w: Window) -> tuple[list[str], str, str]:
+        """A value comparison over the rows in the window. SCR-03: an undated row cannot be placed in the window (nor,
+        for ``latest``, before or after the dated ones). The dated rows' answer stands only when every undated row,
+        inside the window or not, newest or not, leaves it the same; otherwise the answer is unknown (NULL) and the
+        undated rows are its evidence. With no dated row the answer is unknown, as it was."""
         quant = atom.quantifier or "any"
         src = self._obs_source(atom, w)
-        ref = "o.oid || '|' || strftime(o.effective, '%Y-%m-%d')"
+        ref = "o.oid || '|' || coalesce(strftime(o.effective, '%Y-%m-%d'), '')"
+        c = obs_cmp_sql(atom)
+        undated_refs = f"string_agg(CASE WHEN o.undated THEN {ref} END, ';' ORDER BY o.oid)"
         if quant == "latest":
+            # the newest dated row; an undated row that could give another answer (or none) leaves it unknown
+            stands = "(u.n IS NULL OR (d.v AND u.not_true = 0) OR (NOT d.v AND u.not_false = 0))"
             cte = (
-                f"{name} AS (\n  SELECT pid, index_date, {obs_cmp_sql(atom)} AS v,\n"
+                f"{name} AS (\n  SELECT d.pid, d.index_date, CASE WHEN {stands} THEN d.v END AS v,\n"
+                f"         CASE WHEN {stands} OR d.v IS NULL THEN d.ev ELSE u.ev END AS ev\n"
+                f"  FROM (SELECT pid, index_date, {c} AS v,\n"
                 f"         CASE WHEN o.unit_bad THEN {lit(UNIT_MISMATCH + ';')} ELSE '' END || {ref} AS ev\n"
-                f"  FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, "
-                f"oid DESC) AS rn\n        FROM ({src})) o WHERE rn = 1)"
+                f"    FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, "
+                f"oid DESC) AS rn\n          FROM ({src}) WHERE NOT undated) o WHERE rn = 1) d\n"
+                f"  LEFT JOIN (SELECT pid, index_date, count(*) AS n,\n"
+                f"         count(*) FILTER (WHERE {c} IS NOT TRUE) AS not_true,\n"
+                f"         count(*) FILTER (WHERE {c} IS NOT FALSE) AS not_false, {undated_refs} AS ev\n"
+                f"    FROM ({src}) o WHERE o.undated GROUP BY pid, index_date) u\n"
+                f"    ON u.pid = d.pid AND u.index_date = d.index_date)"
             )
             return [cte], f"{name}.v", f"{name}.ev"
-        c = obs_cmp_sql(atom)
+        dated = "FILTER (WHERE NOT o.undated)"
+        none_dated = f"count(*) {dated} = 0"
         # D-142 (review B-01): a row whose comparison is NULL (no readable number) leaves the answer unknown unless
         # the readable rows settle it; it never counts as a failed test
-        unread = f"count(*) FILTER (WHERE {c} IS NULL) > 0"
-        anyv = f"(CASE WHEN bool_or({c}) THEN TRUE WHEN {unread} THEN NULL ELSE FALSE END)"
+        unread_n = f"count(*) FILTER (WHERE NOT o.undated AND {c} IS NULL)"
+        unread = f"{unread_n} > 0"
+        may_true = f"count(*) FILTER (WHERE o.undated AND {c} IS NOT FALSE)"  # an undated row that may meet it
+        may_false = f"count(*) FILTER (WHERE o.undated AND {c} IS NOT TRUE)"  # one that may fail it
+        anyv = (
+            f"(CASE WHEN {none_dated} THEN NULL WHEN bool_or({c}) {dated} THEN TRUE WHEN {unread} THEN NULL "
+            f"WHEN {may_true} > 0 THEN NULL ELSE FALSE END)"
+        )
         if quant == "any":
             agg = anyv
         elif quant == "none":
             agg = f"(NOT {anyv})"
         elif quant == "all":
-            agg = f"(CASE WHEN NOT bool_and({c}) THEN FALSE WHEN {unread} THEN NULL ELSE TRUE END)"
-        elif quant == "count>=":
-            met = f"count(*) FILTER (WHERE {c})"
             agg = (
-                f"(CASE WHEN {met} >= {atom.count} THEN TRUE "
-                f"WHEN {met} + count(*) FILTER (WHERE {c} IS NULL) >= {atom.count} THEN NULL ELSE FALSE END)"
+                f"(CASE WHEN {none_dated} THEN NULL WHEN NOT bool_and({c}) {dated} THEN FALSE WHEN {unread} THEN NULL "
+                f"WHEN {may_false} > 0 THEN NULL ELSE TRUE END)"
+            )
+        elif quant == "count>=":
+            met = f"count(*) FILTER (WHERE NOT o.undated AND {c})"
+            agg = (
+                f"(CASE WHEN {none_dated} THEN NULL WHEN {met} >= {atom.count} THEN TRUE "
+                f"WHEN {met} + {unread_n} + {may_true} >= {atom.count} THEN NULL ELSE FALSE END)"
             )
         else:
             raise CompileError(f"quantifier {quant}")
         # the rows that met the comparison; when the answer is unknown and a row's unit could not be read, the
-        # reason and those rows instead (D-275)
-        bad_refs = f"string_agg(CASE WHEN o.unit_bad THEN {ref} END, ';' ORDER BY o.effective, o.oid)"
+        # reason and those rows instead (D-275); when it is unknown for an undated row, the undated rows (SCR-03)
+        bad_refs = f"string_agg(CASE WHEN o.unit_bad AND NOT o.undated THEN {ref} END, ';' ORDER BY o.effective, o.oid)"
+        # only the undated rows that could change the answer (one that may fail an "all", one that may meet the rest)
+        could = f"{c} IS NOT TRUE" if quant == "all" else f"{c} IS NOT FALSE"
+        could_refs = f"string_agg(CASE WHEN o.undated AND {could} THEN {ref} END, ';' ORDER BY o.oid)"
         cte = (
             f"{name} AS (\n  SELECT pid, index_date, {agg} AS v,\n"
-            f"         concat_ws(';', CASE WHEN {agg} IS NULL AND bool_or(o.unit_bad) THEN {lit(UNIT_MISMATCH)} END,\n"
+            f"         concat_ws(';', CASE WHEN {agg} IS NULL AND bool_or(o.unit_bad) {dated} THEN "
+            f"{lit(UNIT_MISMATCH)} END,\n"
             f"           CASE WHEN {agg} IS NULL THEN {bad_refs} END,\n"
-            f"           string_agg(CASE WHEN {c} THEN {ref} END, ';' ORDER BY o.effective, o.oid)) AS ev\n"
+            f"           CASE WHEN {agg} IS NULL THEN {could_refs} END,\n"
+            f"           string_agg(CASE WHEN {c} AND NOT o.undated THEN {ref} END, ';' ORDER BY o.effective, o.oid))"
+            f" AS ev\n"
             f"  FROM ({src}) o GROUP BY pid, index_date)"
         )
         return [cte], f"{name}.v", f"{name}.ev"

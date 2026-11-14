@@ -294,10 +294,14 @@ class CqlGenerator:
         comp = self.vs.is_component_set(atom.valueset)
         numeric = atom.value is not None and atom.value.op != "in"
         nf = q("N_" + p)  # the value in the criterion's unit (D-275)
+        # SCR-03: undated as the lake reads it (``lake.flatten`` ``effective``: a dateTime, else an instant, else a
+        # period's start). A result dated by an instant or a period only is dated in the SQL, never undated here
+        no_date = "(X.effective is null or (X.effective is FHIR.Period and (X.effective as FHIR.Period).start is null))"
         if comp:
             retrieve = (
                 f"[Observation] X where TB.ObsDate(X) in {win} and exists (X.component C where C.code in {vsname})"
             )
+            undated = f"[Observation] X where {no_date} and exists (X.component C where C.code in {vsname})"
 
             def val(o: str) -> str:
                 c1 = f"First({o}.component C where C.code in {vsname})"
@@ -310,6 +314,7 @@ class CqlGenerator:
                 return f"(First({o}.component C where C.code in {vsname}).value as FHIR.Quantity).comparator.value"
         else:
             retrieve = f"[Observation: {vsname}] X where TB.ObsDate(X) in {win}"
+            undated = f"[Observation: {vsname}] X where {no_date}"
 
             def val(o: str) -> str:
                 return f"{nf}({o}.value as FHIR.Quantity, {o}.code.coding)"
@@ -322,36 +327,51 @@ class CqlGenerator:
 
         if comp and atom.value is not None and atom.value.op == "in":
             raise CompileError("coded comparisons on panel components are not supported")
-        defs = [f"define {q('Q_' + p)}:\n  {retrieve}"]
+        # SCR-03, as the SQL: an undated record cannot be placed in the window (nor before or after the dated ones);
+        # the dated records' answer stands only when every undated one leaves it the same, else null (unknown)
+        defs = [f"define {q('Q_' + p)}:\n  {retrieve}", f"define {q('U_' + p)}:\n  {undated}"]
         if numeric:
             assert atom.value is not None
             defs.insert(0, unit_function("N_" + p, atom.value.unit))
         quant = atom.quantifier or "any"
-        qn = q("Q_" + p)
+        qn, un = q("Q_" + p), q("U_" + p)
+        c = cmp_expr(atom, val("X"), code("X"), censor("X"))
+        may_true = f"exists ({un} X where ({c}) is not false)"  # an undated record that may meet the comparison
+        may_false = f"exists ({un} X where ({c}) is not true)"  # one that may fail it
         if quant == "latest":
             defs.append(f"define {q('L_' + p)}:\n  TB.LatestObs({qn})")
             ln = q("L_" + p)
-            a = f"if {ln} is null then null else {cmp_expr(atom, val(ln), code(ln), censor(ln))}"
+            cl = cmp_expr(atom, val(ln), code(ln), censor(ln))
+            a = (
+                f"if {ln} is null then null as Boolean else if ({cl}) is true and not {may_false} then true "
+                f"else if ({cl}) is false and not {may_true} then false else null as Boolean"
+            )
             ev = f"if {ln} is null then List<String>{{}} else {{ {ln}.id + '|' + ToString(TB.ObsDate({ln})) }}"
             return defs, a, ev
-        c = cmp_expr(atom, val("X"), code("X"), censor("X"))
         # D-142 (review B-01), as the SQL: a record without a readable number leaves the answer unknown unless the
         # readable records settle it; it never counts as a failed test
         unread = f"exists ({qn} X where ({c}) is null)"
         if quant == "any":
-            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then true else if {unread} then null else false"
+            a = (
+                f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then true else if {unread} then null "
+                f"else if {may_true} then null else false"
+            )
         elif quant == "none":
-            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then false else if {unread} then null else true"
+            a = (
+                f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then false else if {unread} then null "
+                f"else if {may_true} then null else true"
+            )
         elif quant == "all":
             a = (
                 f"if not exists ({qn}) then null else if exists ({qn} X where not ({c})) then false "
-                f"else if {unread} then null else true"
+                f"else if {unread} then null else if {may_false} then null else true"
             )
         elif quant == "count>=":
             met = f"Count({qn} X where {c})"
             a = (
                 f"if not exists ({qn}) then null else if {met} >= {atom.count} then true "
-                f"else if {met} + Count({qn} X where ({c}) is null) >= {atom.count} then null else false"
+                f"else if {met} + Count({qn} X where ({c}) is null) + Count({un} X where ({c}) is not false) "
+                f">= {atom.count} then null else false"
             )
         else:
             raise CompileError(f"quantifier {quant}")
