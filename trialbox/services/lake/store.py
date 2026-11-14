@@ -305,7 +305,7 @@ def error_answer(exc: BaseException, what: str = "query") -> str:
     name = type(exc).__name__
     if isinstance(exc, (LakeLimitError, LakeSchemaError, StaleSnapshotError, LakeSaid)):
         return f"{name}: {str(exc)[:500]}"
-    if isinstance(exc, duckdb.OutOfMemoryException):  # D-742: the box's limit, in the lake's words
+    if isinstance(exc, duckdb.OutOfMemoryException) and what != "build":  # D-742: the box's limit, the lake's words
         return f"{name}: {_limit_message(exc)[:500]}"
     first = str(exc).splitlines()[0] if str(exc) else ""
     if any(shape.fullmatch(first) for shape in _PASSED_ON):
@@ -626,8 +626,12 @@ def _compat_views(con: duckdb.DuckDBPyConnection, version: int) -> None:
         return
     row = con.execute("SELECT current_database()").fetchone()
     db = str(row[0]).replace('"', '""') if row else "main"
-    with contextlib.suppress(duckdb.Error):  # no patient table (a partial test lake): nothing to add
+    try:
         con.execute(f'CREATE TEMP VIEW patient AS SELECT *, CAST(NULL AS BOOLEAN) AS deceased FROM "{db}".main.patient')
+    except duckdb.OutOfMemoryException:  # D-742: the box's limit is said, not read as a table that is not there
+        raise
+    except duckdb.Error:  # no patient table (a partial test lake): nothing to add
+        pass
 
 
 def _file_sha(path: Path) -> str:
@@ -766,12 +770,16 @@ def _write_parquet(rows: Iterable[dict[str, Any]], schema: pa.Schema, path: Path
     return n
 
 
+def _first_line(exc: BaseException) -> str:
+    return (str(exc).splitlines() or [""])[0][:200]
+
+
 def _limit_message(exc: Exception) -> str:
     return (
         "LAKE-LIMIT: the lake query needed more than the box allows (memory_limit "
         f"{memory_limit()}, spill limit TB_LAKE_MAX_TEMP) and was stopped before it filled the disk. This usually "
         "means a join that multiplies rows (one patient listed twice); raise TB_LAKE_MAX_TEMP only if the data "
-        f"really is that large. DuckDB: {str(exc).splitlines()[0][:200]}"
+        f"really is that large. DuckDB: {_first_line(exc)}"
     )
 
 
@@ -1564,7 +1572,7 @@ class Lake:
         try:
             return self._open(snapshot)
         except duckdb.OutOfMemoryException as exc:
-            log.error("lake snapshot not opened: the memory limit was met: %s", str(exc).splitlines()[0][:200])
+            log.error("lake snapshot not opened: the memory limit was met: %s", _first_line(exc))
             raise LakeLimitError(_limit_message(exc)) from exc
 
     def _open(self, snapshot: str | None) -> duckdb.DuckDBPyConnection:
@@ -1621,7 +1629,7 @@ class Lake:
         try:
             return con.execute(sql, params or []).to_arrow_table()
         except duckdb.OutOfMemoryException as exc:
-            log.error("lake query stopped at its limit: %s", str(exc).splitlines()[0][:200])
+            log.error("lake query stopped at its limit: %s", _first_line(exc))
             raise LakeLimitError(_limit_message(exc)) from exc
         finally:
             timer.cancel()
