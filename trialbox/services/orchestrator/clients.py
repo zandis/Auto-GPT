@@ -59,6 +59,10 @@ class MailAPI(Protocol):
 class AdapterAPI(Protocol):
     def run(self, req: IngestRequest) -> IngestReport: ...
 
+    def publish(self, body: dict[str, Any]) -> dict[str, Any]: ...  # NEW-SEC-4 (D-760)
+
+    def publish_state(self, rid: str) -> dict[str, Any]: ...
+
 
 def _ingest_ended(st: dict[str, Any]) -> str:
     """Why an ingest that is not done ended, for the job's record (D-557). The adapter's own sentence when it wrote
@@ -174,6 +178,16 @@ class AdapterHttp:
 
     def run(self, req: IngestRequest) -> IngestReport:
         return self.run_followed(req, None)
+
+    def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+        """NEW-SEC-4 (D-760): start the publish of a held night (the steward's accept, checked by the caller's route);
+        the adapter's answer (202 and a run id) as it is. A refusal (404, 409) is raised as the ``ServiceError``."""
+        out: dict[str, Any] = self.c.post_raw("/publish", body).json()
+        return out
+
+    def publish_state(self, rid: str) -> dict[str, Any]:
+        out: dict[str, Any] = self.c.get_json(f"/publish/{rid}")
+        return out
 
     def run_followed(self, req: IngestRequest, on_run: Callable[[str, bool], None] | None) -> IngestReport:
         """:meth:`run`, telling the caller which adapter run the job is on as soon as it is known

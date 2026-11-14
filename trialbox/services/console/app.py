@@ -1301,6 +1301,7 @@ def create_app(
 
     # T-112b (D-443): /data-ops and /api/v1/data/*, the nights of every source. T-723 (D-489): accept publishes the
     # held night through the adapter
+    # NEW-SEC-4 (D-760): through the orchestrator, which checks the steward; a console with no adapter accepts nothing
     promoter = dataops_page.adapter_promoter(helpers.bk) if getattr(helpers.bk, "adapter", None) is not None else None
     dataops_page.register(app, helpers, promote=promoter)
     from console import instruments_page

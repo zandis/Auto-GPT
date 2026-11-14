@@ -52,9 +52,9 @@ def _promoter(http: Any, lost: list[bool] | None = None) -> Any:
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
-    class Adapter:
-        def post_raw(self, path: str, body: Any) -> Any:
-            r = http.post(path, json=body)
+    class Adapter:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
             if lost and lost[0]:
                 raise ServiceError("adapter", 502, "bad gateway")
             if r.status_code >= 400:
@@ -62,12 +62,17 @@ def _promoter(http: Any, lost: list[bool] | None = None) -> Any:
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path).json()
+            return http.get(path.replace("/dataops/publish", "/publish")).json()
 
     class Bk:
-        adapter = Adapter()
+        orch = orch_once = Adapter()
 
-    return adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+
+    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
+        promoter(batch, lambda _m, _p, _b: {})
+
+    return promote
 
 
 def _accept(ops: DataOps, tmp_path: Path, bid: int, promote: Any) -> Any:
