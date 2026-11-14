@@ -735,6 +735,11 @@ class LakeLimitError(RuntimeError):
     ``TB_LAKE_MAX_TEMP``). The query is stopped; nothing is left on disk."""
 
 
+#: D-746: the longest time limit a caller may give one lake query. A day: no query of the night runs that long, and
+#: a timer beyond ``threading.TIMEOUT_MAX`` would never fire (the query would run with no limit at all).
+MAX_QUERY_LIMIT_S = 86400
+
+
 class LakeTimeLimitError(LakeLimitError):
     """NEW-B-45 (D-746): a lake query ran past the time limit its caller sent (a job's: ``TB_LAKE_QUERY_LIMITS``)
     and was stopped. The lake's limit, as memory is (503): the caller says the lake could not answer in time, never
@@ -1629,6 +1634,8 @@ class Lake:
         from lake.sqlguard import check_select
 
         check_select(sql)
+        if not 0 < timeout_s <= MAX_QUERY_LIMIT_S:  # D-746: a limit of 0, below or above a day is no limit
+            raise LakeSaid(f"a lake query's time limit is 1 to {MAX_QUERY_LIMIT_S} s, not {timeout_s}")
         con = self.connect(snapshot)
         stopped = threading.Event()
 

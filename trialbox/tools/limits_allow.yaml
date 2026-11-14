@@ -8,7 +8,7 @@
 allow:
   # ---------------------------------------------------------------- time limits that grow with the hospital
   - {path: services/lake/client.py, kind: timeout, value: 330, count: 1,
-     reason: "F-01: the site publish waits 330 s on a whole-lake rebuild (805 s at 50k), and every lake query (F-29); T-690 makes the rebuild a polled job, T-694 gives queries a limit per job type"}
+     reason: "F-01: the site publish waits 330 s on a whole-lake rebuild (805 s at 50k), and every lake query (F-29); T-690 makes the rebuild a polled job; a job's query sends its own limit and the client then waits that plus 30 s (D-746)"}
   - {path: services/adapter/validate/validator.py, kind: timeout, value: 1800, count: 1,
      reason: "F-06 (rest): 1,800 s per validator run of 5,000 files; the sample's absolute cap per type is T-693"}
   - {path: services/orchestrator/twophase.py, kind: timeout, value: 600, count: 1,

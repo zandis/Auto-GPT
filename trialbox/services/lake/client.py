@@ -130,7 +130,14 @@ class LakeHttp:
         day, headers = self._named(snapshot)
         limit = {} if timeout_s is None else {"timeout_s": int(timeout_s)}
         body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day, **limit))
-        wait = httpx.USE_CLIENT_DEFAULT if timeout_s is None else float(timeout_s + READ_MARGIN_S)
+        own = self.client.timeout  # the connect, write and pool waits stay the client's; only the read follows
+        wait: Any = (
+            httpx.USE_CLIENT_DEFAULT
+            if timeout_s is None
+            else httpx.Timeout(
+                connect=own.connect, read=float(timeout_s + READ_MARGIN_S), write=own.write, pool=own.pool
+            )
+        )
         resp = self.client.post(f"{self.base}/query", json=body, headers=headers, timeout=wait)
         if resp.status_code != 200:
             raise LakeQueryFailed(resp.status_code, _detail(resp))
@@ -300,8 +307,12 @@ class LakeLocal:
     def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
         return self.lake.vec_s2b(pid, dids, query, self.embedder, self.vec_store, snapshot)
 
-    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
-        return self.lake.query(sql, params, snapshot)
+    def query(
+        self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None
+    ) -> pa.Table:
+        if timeout_s is None:
+            return self.lake.query(sql, params, snapshot)
+        return self.lake.query(sql, params, snapshot, timeout_s)
 
     def chunks_search(
         self,
