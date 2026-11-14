@@ -400,11 +400,11 @@ def problem(f: Field, value: str) -> dict[str, str] | None:
         if x is not None and hi is not None and x > hi:
             return {**p, "code": "max", "max": f.vmax}
     if f.kind in ("date", "dateTime"):  # ISO dates compare as text
-        lo, hi = _day_limit(f.vmin), _day_limit(f.vmax)  # NEW-JRN-7 (D-770): REDCap's ``today`` is the site's day
-        if lo and value[:10] < lo:
-            return {**p, "code": "min", "min": lo}
-        if hi and value[:10] > hi:
-            return {**p, "code": "max", "max": hi}
+        first, last = _day_limit(f.vmin), _day_limit(f.vmax)  # D-770: REDCap's ``today`` is the site's day
+        if first and value[:10] < first:
+            return {**p, "code": "min", "min": first}
+        if last and value[:10] > last:
+            return {**p, "code": "max", "max": last}
     return None
 
 
