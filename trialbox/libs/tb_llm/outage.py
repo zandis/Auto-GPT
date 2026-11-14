@@ -26,6 +26,13 @@ from collections.abc import Callable, Mapping
 #: of the model server: sending it again changes nothing) and its batch read timeout (the server may still be
 #: working on the call: D-445, T-608). ``upstream_down`` is a 5xx or a transport error after the gateway's own retry
 MODEL_FAULTS = frozenset({"model_busy", "model_unavailable", "model_asleep", "upstream_down"})
+#: D-659: the one model fault a call can cause itself: a 5xx (or a transport error) that this request provokes while
+#: the same model answers the other calls. Load and state refusals (busy, asleep, unavailable) are never the call's
+CALL_FAULTS = frozenset({"upstream_down"})
+#: how many such faults of one call, counted once the model was seen answering other calls, make it the call's own
+#: failure: more than one, as a model coming back from a restart can refuse a call a last time after it answered
+#: another one (T-689's sixteen calls in flight)
+CALL_STRIKES = 3
 WAIT_S = 1800.0
 POLL_S = 5.0  # between two tries when the gateway named no Retry-After: its own value for a busy model
 ENV = "TB_LLM_OUTAGE_WAIT_S"
@@ -85,6 +92,7 @@ class OutageBudget:
         self._on_end = on_end
         self._on_start = on_start
         self._down: dict[str, tuple[float, str]] = {}  # client label -> (since, the first refusal code)
+        self._answers: dict[str, int] = {}  # client label -> calls answered so far (D-659)
         self._used_up = False
         self._lock = threading.Lock()
 
@@ -119,7 +127,14 @@ class OutageBudget:
         if self._on_end is not None:
             self._on_end(label, hit[1], waited, outcome)
 
+    def answers(self, label: str) -> int:
+        """How many calls of ``label`` were answered so far (D-659: is the model answering others?)."""
+        with self._lock:
+            return self._answers.get(label, 0)
+
     def answered(self, label: str) -> None:
+        with self._lock:
+            self._answers[label] = self._answers.get(label, 0) + 1
         self._end(label, "resumed")
 
     def gave_up(self, label: str) -> None:
@@ -137,7 +152,14 @@ def wait_and_retry[T](
 
     ``fault_of(exc)``: ``(refusal code, Retry-After or None)`` for a model fault, None for any other error (raised
     as it is). ``before_try``: called before every wait step (a job's cancel check; it may raise). With no budget,
-    or one of 0 s, a fault is raised at once."""
+    or one of 0 s, a fault is raised at once.
+
+    D-659: once the same model (``label``) has answered another call since this call first failed, the call's
+    :data:`CALL_STRIKES`-th :data:`CALL_FAULTS` refusal counted from then is its own failure: raised as it is, as
+    with no allowance, and never charged to the job (it used to be sent again until the job's whole allowance was
+    gone, or without end beside answering calls)."""
+    seen: int | None = None  # the model's answers when this call first failed
+    strikes = 0
     while True:
         try:
             out = send()
@@ -146,6 +168,12 @@ def wait_and_retry[T](
             if fault is None or budget is None or not budget.waits:
                 raise
             reason, retry_after = fault
+            if seen is None:
+                seen = budget.answers(label)
+            elif reason in CALL_FAULTS and budget.answers(label) > seen:
+                strikes += 1
+                if strikes >= CALL_STRIKES:
+                    raise  # the model answers others: this call fails on its own (D-659)
             left = budget.fault(label, reason)
             if left <= 0:
                 budget.gave_up(label)
@@ -164,6 +192,8 @@ def wait_and_retry[T](
 
 
 __all__ = [
+    "CALL_FAULTS",
+    "CALL_STRIKES",
     "ENV",
     "MODEL_FAULTS",
     "POLL_S",
