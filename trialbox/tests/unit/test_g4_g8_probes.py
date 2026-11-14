@@ -11,7 +11,6 @@ import json
 import os
 import subprocess
 import threading
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +150,13 @@ def test_decoding_summary_and_the_profile() -> None:
                                  {"status": 0, "seconds": 0.1, "error": "refused"}]  # fmt: skip
     s = gp.decoding_summary(res, 2.0)
     assert (s["calls"], s["answered"], s["errors"], s["schema_failures"]) == (3, 2, 1, 1)
+    assert s["unanswered"] == [{"status": 0, "error": "refused"}]  # every call accounted for, the lost one with why
+    block = {"backend": {"backend": "auto", "from": "x"}, "prompts": 3, "in_flight": 3, "profile": "p",
+             "eager": {"result": "r", "enforce_eager": None}, "guided_on": s, "guided_off": gp.decoding_summary(res[:2], 2.0)}  # fmt: skip
+    text = "\n".join(gp.report_lines({"parts": [{"tag": "g4-decoding", "decoding": block}]}))
+    assert "schema failures (of answered)" in text
+    assert 'guided on: 1 call(s) not answered; the first 1 (status, why):\n\n- 0: `"refused"`' in text
+    assert text.count("not answered") == 1  # guided off lost none, so it has no such line
     assert s["calls_per_second"] == 1.0 and s["p50_s"] == 1.0 and s["p95_s"] == 3.0 and s["completion_tokens"] == 120
     on = {"calls_per_second": 2.0, "schema_failures": 0, "errors": 0}
     assert gp.faster_setting(on, {"calls_per_second": 3.0, "schema_failures": 0, "errors": 0}) == "guided decoding off"
@@ -174,7 +180,7 @@ def test_an_answer_is_checked_against_the_judge_schema() -> None:
 @pytest.fixture()
 def standin() -> Any:
     s, _, _ = vs.build(["--model=/models/judge", "--served-model-name=local/judge", "--api-key", KEY], {})
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), vs.make_handler(s))
+    srv = vs.serve(s)  # vLLM's backlog: G-4 sends the judge's 16 slots at once (vs.BACKLOG)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield s, f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
