@@ -36,18 +36,20 @@ def _cell(v: Any) -> str:
 # ------------------------------------------------------------------------------------------------ PDF
 def render_pdf(frozen: Mapping[str, Any]) -> bytes:
     obj = verify_frozen(frozen)
+    from orchestrator.reports import common
     from reportlab import rl_config
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, PageBreak, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    # D-687: every paragraph and the footer go through the reports' glyph fallback (common.Paragraph, draw_string):
+    # a character the pack's font lacks (a Japanese site's name on this zh-TW page) is drawn in the other family
+    Paragraph = common.Paragraph  # noqa: N806 - the class, under the name the body uses
     rl_config.invariant = 1
     try:
-        from orchestrator.reports.common import pdf_fonts
-
-        regular, bold = pdf_fonts("zh-TW")
+        regular, bold = common.pdf_fonts("zh-TW")
     except Exception:  # fonts not fetched: built-in Helvetica (CJK text then shows as boxes)
         regular, bold = "Helvetica", "Helvetica-Bold"
     ss = getSampleStyleSheet()
@@ -79,13 +81,15 @@ def render_pdf(frozen: Mapping[str, Any]) -> bytes:
 
     def footer(canvas: Any, _doc: Any) -> None:
         canvas.saveState()
-        canvas.setFont(regular, 8)
-        canvas.drawString(
+        common.draw_string(
+            canvas,
             14 * mm,
             8 * mm,
             f"TrialBox {obj['site']['id']} · DL-1 {obj['study_id']} · ruleset {obj['ruleset']['id']} "
             f"v{obj['ruleset']['version']} · snapshot {obj['snapshot']['id']} · disclosure {prof['name']} "
             f"v{prof['version']} · object {frozen['sha256'][:19]} · page {canvas.getPageNumber()}",
+            regular,
+            8,
         )
         canvas.restoreState()
 
