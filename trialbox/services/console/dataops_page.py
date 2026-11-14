@@ -61,7 +61,12 @@ PAGE = 50
 LIGHT = {"PUBLISHED": "green", "HELD": "red", "FAILED": "red", "REJECTED": "amber"}
 ERRORS = ("reason", "decision", "state", "promote", "publishing")
 
-Promote = Callable[[Any], None]
+#: (method, path, body) -> the headers of the accepting person's signed claim (``console.actor.assert_for``)
+Sign = Callable[[str, str, Any], dict[str, str]]
+Promote = Callable[[Any, Sign], None]
+
+
+PUBLISH = "/dataops/publish"  # the orchestrator's route of the steward's accept (NEW-SEC-4, D-760)
 
 
 class PromoteFailed(RuntimeError):
@@ -75,22 +80,23 @@ class PromoteFailed(RuntimeError):
 
 
 def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
-    """T-723 (D-489): the promoter of an accepted night. It starts the adapter's publish of the held night
-    (``POST /publish``: pid map, OMOP, the FHIR store, the lake, promote last; the same function a night that
+    """T-723 (D-489): the promoter of an accepted night. It starts the adapter's publish of the held night through
+    the orchestrator (NEW-SEC-4, D-760: ``POST /dataops/publish``, signed as the steward who accepts, which checks
+    the person and ``dataops.decide`` and starts the adapter's ``POST /publish``, the orchestrator's alone: pid
+    map, OMOP, the FHIR store, the lake, promote last; the same function a night that
     passed the gate goes through) and follows it to its end (a polled job, never timed: D-472). Anything but
     ``done`` raises and the night stays held; the adapter keeps the step that failed, and a second accept resumes
     there. A publish that ended without serving the night raises with ``nothing_served`` (the night can still be
     rejected); one whose end could not be read (the adapter restarted, the job was lost) raises without it: the
     accept stays recorded, and a second accept is answered "done" by the adapter if the night was published."""
 
-    def promote(batch: Any) -> None:
+    def promote(batch: Any, sign: Sign) -> None:
         from tb_common.http import ServiceError
         from tb_common.jobpoll import JobLost, Poll
 
+        body = {"snapshot": batch.snapshot, "source": batch.source, "attempt": batch.attempt}
         try:
-            started = bk.adapter.post_raw(
-                "/publish", {"snapshot": batch.snapshot, "source": batch.source, "attempt": batch.attempt}
-            ).json()
+            started = bk.orch.post_raw(PUBLISH, body, sign("POST", PUBLISH, body)).json()
         except ServiceError as exc:
             # second review (H4): refused at once. 404: no held night of that date on the box and none published,
             # so nothing is served from it. 409: nothing was started by this accept
@@ -103,12 +109,12 @@ def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
 
         def read() -> dict[str, Any]:
             try:
-                body: dict[str, Any] = bk.adapter.get_json(f"/publish/{rid}")
+                state: dict[str, Any] = bk.orch.get_json(f"{PUBLISH}/{rid}")
             except ServiceError as exc:
                 if exc.status == 404:
                     raise JobLost(f"the adapter no longer knows publish {rid} (it restarted)") from None
                 raise
-            return body
+            return state
 
         st = started if started.get("state") != "running" else (poll or Poll()).until_done(read, "publish")
         if st.get("state") != "done":
@@ -199,10 +205,15 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
         if decision == "accept" and promote is None:
             raise DataOpsError("promote", "accepting a held night needs the lake's promotion, not built yet (D-443)")
 
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:  # NEW-SEC-4 (D-760): the steward who accepts
+            from console import actor
+
+            return actor.assert_for(h, sess, DECIDE, None, method, path, body)
+
         def run(b: Any) -> None:
             assert promote is not None
             try:
-                promote(b)
+                promote(b, sign)
             except Exception as e:
                 log.warning("promotion of batch %s failed (%s)", bid, type(e).__name__)
                 err = PromoteFailed(type(e).__name__)

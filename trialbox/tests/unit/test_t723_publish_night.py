@@ -387,20 +387,24 @@ def test_the_stewards_accept_goes_through_the_adapter_and_a_failed_publish_keeps
     monkeypatch.setattr(adapter_app, "_spawn", lambda run: run())  # the job runs in the request (a test)
     http = TestClient(adapter_app.app)
 
-    class Adapter:
-        def post_raw(self, path: str, body: Any) -> Any:
-            r = http.post(path, json=body)
+    class Orch:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
             if r.status_code >= 400:
                 raise ServiceError("adapter", r.status_code, r.text)
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path).json()
+            return http.get(path.replace("/dataops/publish", "/publish")).json()
 
     class Bk:
-        adapter = Adapter()
+        orch = Orch()
 
-    promote = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+
+    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
+        promoter(batch, lambda _m, _p, _b: {})
+
     audit = AuditLog(tmp_path / "audit")
     ops = DataOps()
     try:
@@ -638,9 +642,9 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
     http = _adapter(cfg, monkeypatch)
     lost = [True]
 
-    class Adapter:
-        def post_raw(self, path: str, body: Any) -> Any:
-            r = http.post(path, json=body)
+    class Orch:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
             if lost[0]:  # the publish ran; its answer never reached the console
                 raise ServiceError("adapter", 502, "bad gateway")
             if r.status_code >= 400:
@@ -648,12 +652,16 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path).json()
+            return http.get(path.replace("/dataops/publish", "/publish")).json()
 
     class Bk:
-        adapter = Adapter()
+        orch = Orch()
 
-    promote = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+
+    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
+        promoter(batch, lambda _m, _p, _b: {})
+
     audit_dir = tmp_path / "audit"
     audit = AuditLog(audit_dir)
     ops = DataOps()
@@ -698,20 +706,24 @@ def test_a_publish_that_ended_without_serving_the_night_can_still_be_rejected(
     row = _held_night(tmp_path, cfg)
     http = _adapter(cfg, monkeypatch)
 
-    class Adapter:
-        def post_raw(self, path: str, body: Any) -> Any:
-            r = http.post(path, json=body)
+    class Orch:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
             if r.status_code >= 400:
                 raise ServiceError("adapter", r.status_code, r.text)
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path).json()
+            return http.get(path.replace("/dataops/publish", "/publish")).json()
 
     class Bk:
-        adapter = Adapter()
+        orch = Orch()
 
-    promote = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+
+    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
+        promoter(batch, lambda _m, _p, _b: {})
+
     audit = AuditLog(tmp_path / "audit")
     ops = DataOps()
     try:

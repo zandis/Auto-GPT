@@ -40,7 +40,19 @@ from adapter.cli import build_config
 from adapter.pipeline import SiteKeyError, run_ingest
 
 log = logging.getLogger("adapter")
-app = make_app("adapter")
+
+
+def _publish_gate(request: Any, caller: str | None) -> JSONResponse | None:
+    """NEW-SEC-4 (D-760): the publish of a held night is the steward's accept, which the orchestrator checks (the
+    signed person and ``dataops.decide``, with the actor key no other service holds) before it starts it here. So
+    ``POST /publish`` takes the orchestrator's token only; another service's token is refused, nothing touched. An
+    open DEV/TEST box (no caller) and the old shared token (``legacy``, DEV and TEST only) pass as everywhere."""
+    if request.method == "POST" and request.url.path == "/publish" and caller not in (None, "legacy", "orchestrator"):
+        return JSONResponse({"detail": "route_not_allowed"}, status_code=403)
+    return None
+
+
+app = make_app("adapter", route_gate=_publish_gate)
 _running = threading.Lock()
 #: T-723 review: set while a steward's accept publishes a held night. A nightly run that arrives then waits for it
 #: (its job says ``waiting``) and is not refused: an accept must never make the night's ingest fail

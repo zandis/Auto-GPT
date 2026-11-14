@@ -24,7 +24,7 @@ from tb_common.audit_writer import open_audit
 from tb_common.authz import permit
 from tb_common.config import get_config, tb_env
 from tb_common.fhir import FhirEvaluator
-from tb_common.http import make_app
+from tb_common.http import ServiceError, make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
 from tb_common.ruleset import seed_working_copy
@@ -839,6 +839,47 @@ class RegistryPromoteBody(BaseModel):
 
 
 AS_REQUESTER = route_actor.require_actor("request.prepare")
+AS_DECIDER = route_actor.require_actor("dataops.decide")  # NEW-SEC-4 (D-760): the steward's accept of a held night
+
+
+class PublishBody(BaseModel):
+    """The held night to publish, as the adapter's ``POST /publish`` takes it."""
+
+    model_config = ConfigDict(extra="forbid")
+    snapshot: str = Field(min_length=1, max_length=40)
+    source: str = Field(default="", max_length=80)
+    attempt: int | None = None
+
+
+@app.post("/dataops/publish", status_code=202)
+def dataops_publish(body: PublishBody, claim: Claim = AS_DECIDER) -> dict[str, Any]:
+    """NEW-SEC-4 (D-760): the steward's accept publishes a held night. The signed person and ``dataops.decide`` are
+    checked here, as on every changing route; the adapter's publish (which takes this service's token only) is
+    started with this service's token and its answer given back as it is (202 and a run id; 404 and 409 as the
+    adapter said them). Recorded under the verified person."""
+    sent = body.model_dump()
+    try:
+        started = orch().services.adapter.publish(sent)
+    except ServiceError as exc:
+        if exc.status in (404, 409):
+            raise HTTPException(status_code=exc.status, detail="the adapter did not start the publish") from exc
+        raise
+    orch().audit.append("dataops.publish_started", actor=claim.sub,
+                        detail={"snapshot": body.snapshot, "source": body.source, "attempt": body.attempt,
+                                "run": str(started.get("run") or "")})  # fmt: skip
+    return started
+
+
+@app.get("/dataops/publish/{rid}")
+def dataops_publish_state(rid: str) -> dict[str, Any]:
+    """The state of a publish this service started (``running``, ``done``, ``busy``, ``stale``, ``failed`` and the
+    step): a night's state, no patient's row."""
+    try:
+        return orch().services.adapter.publish_state(rid[:64])
+    except ServiceError as exc:
+        if exc.status == 404:
+            raise HTTPException(status_code=404, detail="the adapter does not know this publish") from exc
+        raise
 
 
 @app.post("/registry/{ruleset}")

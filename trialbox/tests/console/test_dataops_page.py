@@ -120,7 +120,8 @@ def _with_promoter(b: dict[str, Any], promote: Any) -> None:
 def test_accept_promotes_and_a_failed_promotion_keeps_the_night_held(box: dict[str, Any]) -> None:
     seen: list[str] = []
 
-    def promote(batch: Any) -> None:
+    def promote(batch: Any, sign: Any) -> None:
+        assert sign("POST", "/dataops/publish", {})  # NEW-SEC-4 (D-760): signed as the steward who accepts
         if batch.snapshot == "2026-11-08":
             raise RuntimeError("lake refused")
         seen.append(batch.snapshot)
