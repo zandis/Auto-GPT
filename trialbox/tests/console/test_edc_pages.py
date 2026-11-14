@@ -324,10 +324,8 @@ def test_a_form_past_the_dictionarys_size_gets_the_consoles_page(eb: dict[str, A
 
 def test_the_row_size_the_limit_counts_covers_the_templates_inputs() -> None:
     """D-768: the limit counts ``MAP_ROW_FIELDS`` inputs per item; an input added to the map's row must raise it."""
-    from pathlib import Path as P
-
     from console.edc_pages import MAP_ROW_FIELDS
 
-    html = (P(__file__).resolve().parents[2] / "services/console/templates/edc_map.html").read_text(encoding="utf-8")
+    html = (Path(__file__).resolve().parents[2] / "services/console/templates/edc_map.html").read_text(encoding="utf-8")
     per_item = set(re.findall(r'name="([a-z_]+)-\{\{ *r\.item *\}\}"', html))
     assert len(per_item) + 1 <= MAP_ROW_FIELDS  # its named inputs and the hidden item
