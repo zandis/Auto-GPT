@@ -261,10 +261,10 @@ def test_home_page_never_reads_no_sae_when_unknown(lb: dict[str, Any]) -> None: 
 
     real = lb["backend"].study_api
 
-    def flaky(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def flaky(method: str, path: str, body: dict[str, Any] | None = None, headers: Any = None) -> Any:
         if "/aes" in path:
             raise Unavailable("orchestrator down")
-        return real(method, path, body)
+        return real(method, path, body, headers=headers) if headers else real(method, path, body)
 
     lb["backend"].study_api = flaky
     assert 'data-testid="sae-home-failed"' in c.get("/home").text
@@ -279,6 +279,9 @@ def test_rule_follow_ups_reach_the_home_page_and_the_mail(lb: dict[str, Any]) ->
     lb["clock"]["now"] = datetime(2026, 11, 30, 1, 0, tzinfo=UTC)
     sent = {"ae_rep_sponsor": "2026-11-09", "ae_rep_irb": "2026-11-10", "ae_rep_reg": "2026-11-10"}
     _save(c, csrf, no, "tb_adverse_event", {**FATAL, **sent}, "ae1")
-    rows = lb["app"].state.helpers.life_reports("GZQO")
+    from console import actor as console_actor
+
+    with console_actor.reading_as(console_actor.NOTIFY):  # as the morning mail asks (D-717: a signed read)
+        rows = lb["app"].state.helpers.life_reports("GZQO")
     assert [(r["party"], r.get("kind")) for r in rows] == [("regulator", "followup")]
     assert f'data-testid="sae-report-{no}-ae1-regulator"' in c.get("/home").text

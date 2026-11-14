@@ -12,10 +12,10 @@ import pytest
 from edc import copyassist
 from edc.store import MIGRATIONS, SIG_VERSION, EdcStore, draft_sha
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from orchestrator.edc_api import router as edc_router
 
 from tests import edc_kit as k
+from tests.actor3 import SignedClient
 
 
 def _signed(tmp_path: Path) -> Any:
@@ -113,7 +113,7 @@ def test_the_review_list_says_signed_only_while_the_signature_covers_the_value(t
     svc = _signed(tmp_path)
     api = FastAPI()
     api.include_router(edc_router(lambda: svc))
-    oc = TestClient(api)
+    oc = SignedClient(api)  # D-717: its reads carry a person
 
     def listed() -> dict[str, dict[str, Any]]:
         r = oc.get(f"/studies/{k.STUDY}/edc/drafts", params={"record": k.RECORD})

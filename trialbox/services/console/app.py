@@ -53,6 +53,7 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
+from console import actor as console_actor
 from console import api_first, demo_guard, feedback, firstrun, i18n_roles
 from console.admin_accounts import end_date
 from console.auth import (
@@ -545,6 +546,8 @@ def create_app(
             au.append("console.sso_rejected", actor=f"console:{username}", detail={"reason": str(exc)[:80]})
             return None
 
+    reader: dict[str, Any] = {}  # the workspace's helpers, once they exist (D-717)
+
     def session_of(request: Request) -> Session | None:
         # D-192 review H3: a page's own auto-refresh (?auto=1, base.html) is not activity: the idle lock still runs
         return us.session(request.cookies.get(COOKIE), touch=request.query_params.get("auto") != "1")
@@ -565,6 +568,8 @@ def create_app(
             raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
+        if reader:  # NEW-SEC-1 (D-717): this account signs the patient reads of its pages (the workspace's helpers)
+            console_actor.bind_reader(reader["h"], sess)
         return sess
 
     def _aggregate_denied(path: str) -> bool:
@@ -1140,7 +1145,7 @@ def create_app(
     from console.home import register as register_home
     from console.sitestore import SiteStore
 
-    helpers = Helpers(
+    helpers = reader["h"] = Helpers(
         need=need,
         page=page,
         confirm=confirm_step,

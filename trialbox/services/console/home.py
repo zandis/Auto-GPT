@@ -32,6 +32,7 @@ from tb_common.authz import permit as permit_row
 from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
+from console import actor as console_actor
 from console import coded_view, s28
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -1371,6 +1372,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if h.scope_check is not None:  # D-146 (J-03): the API refuses what the page refuses, in one place
             h.scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
+        console_actor.bind_reader(h, sess)  # NEW-SEC-1 (D-717): this account signs the patient reads of the API
         return sess
 
     h.api_session = api_session  # the other /api/v1 routes (console.data_pages) sign in the same way

@@ -43,9 +43,15 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     report = [r for r in rows if r[2] == "report" and r[0] not in sa.SAFE_METHODS]
     # lifecycle, sponsor, the registry and the study router converted; the rest counted
     assert len(refuse) >= 22 and len(report) == 23
-    assert {r[3] for r in refuse} <= set(MATRIX) and all(r[4] == () for r in refuse)
+    # D-717: a patient read names the actions it takes (phi.view, or monitor.read too); each is a matrix row
+    assert {a for r in refuse for a in ((r[3],) if isinstance(r[3], str) else r[3])} <= set(MATRIX)
+    # NEW-SEC-1 (D-717): a refuse route takes no person from its request; the two EDC reads of the v2 group keep
+    # their v2 handler, whose `by` is a fallback name refused outside DEV and TEST (D-162)
+    v2_reads = {"GET /studies/{rs}/edc/copy", "GET /studies/{rs}/edc/export/odm"}
+    assert all(r[4] == () for r in refuse if f"{r[0]} {r[1]}" not in v2_reads)
     # the stage is the group's: every changing lifecycle and sponsor route, and no other, refuses
-    groups = {CALLER_GATE.table.group_of(f"{m} {p}") for m, p, *_ in refuse}
+    # NEW-SEC-1 (D-717): a patient read refuses whatever its group's stage; the groups are those of the changing routes
+    groups = {CALLER_GATE.table.group_of(f"{m} {p}") for m, p, *_ in refuse if m not in sa.SAFE_METHODS}
     # T-716: the chart number; T-715b (D-550): the registry; T-715d (D-554): the study router
     assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal", "registry", "study"}
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
@@ -374,6 +380,7 @@ def test_every_refuse_route_refuses_an_unsigned_call_and_a_role_without_the_righ
         body = None if method == "GET" else {"x": 1}
         kw = {} if body is None else {"json": body}
         assert "no signed-in user" in _refused(client.request(method, path, **kw)), template
+        action = action if isinstance(action, str) else action[0]  # D-717: a read's first action
         wrong = signed(action, study, method, path, body, role="viewer")
         assert _refused(client.request(method, path, headers=wrong, **kw)) == "right", template
         if named:  # a job's route has none: its handler compares it

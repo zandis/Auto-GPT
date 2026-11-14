@@ -211,15 +211,16 @@ def test_the_lake_up_is_read_as_before(svc: SiteSetup) -> None:  # noqa: F811
 
 def test_the_routes_answer_that_the_lake_could_not_be_read(down: SiteSetup) -> None:
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
     from orchestrator.setup_api import router as setup_router
+
+    from tests.actor3 import SignedClient
 
     rs = site_ruleset()
     inp = help.practice_inputs()
     api = FastAPI()
     api.include_router(setup_router(lambda: down, lambda rid: {**STUDY, "id": rid}, lambda rid: {"forms": 7},
                                     lambda rid: rs, lambda: False, lambda *a, **k: None))  # fmt: skip
-    c = TestClient(api, raise_server_exceptions=False)
+    c = SignedClient(api, raise_server_exceptions=False)  # D-717: its reads carry a person
     r = c.get(f"/setup/{MAIN}/feasibility?study=SITE5B")  # nothing uploaded: still not "needs a bulk input"
     assert r.status_code == 200 and r.json()["lake_unread"] is True and r.json()["needs_bulk"] is False
     down.add_sheet(MAIN, "dump", inp["dump"][0], inp["dump"][1], {}, "crc")  # patients of the set-up's own store

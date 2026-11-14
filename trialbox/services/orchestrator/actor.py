@@ -66,7 +66,10 @@ def load(path: Path = TABLE_PATH) -> dict[str, Any]:
         if stage == "no_person" and not all(str((doc.get(stage) or {}).get(g) or "").strip() for g in groups):
             raise ValueError(f"{path.name}: every no_person group needs its reason")
     principals = {str(k): frozenset(str(a) for a in v or []) for k, v in (doc.get("principals") or {}).items()}
-    return {**stages, "principals": principals}
+    reads = {str(k): str(v or "") for k, v in (doc.get("reads_without_patient") or {}).items()}
+    if not all(why.strip() for why in reads.values()):
+        raise ValueError(f"{path.name}: every read without a patient's row needs its reason")
+    return {**stages, "principals": principals, "reads_without_patient": reads}
 
 
 TABLE = load()
@@ -134,7 +137,7 @@ def _refuse(request: Request, action: str, reason: str, who: str | None, study: 
 template, refusal = _template, _refuse  # for a door behind the dependency (orchestrator.identifiers, T-719)
 
 
-def check(claim: actor_v3.Claim, action: str, study: str | None, service: bool = False, *,
+def check(claim: actor_v3.Claim, action: str | tuple[str, ...], study: str | None, service: bool = False, *,
           study_in_handler: bool = False, grant: bool = False) -> str:  # fmt: skip
     """Why this claim may not take ``action`` on ``study`` ("" when it may): the claim is for another action or
     another study, or the matrix refuses the signed role with the signed standing. A service principal passes only
@@ -144,18 +147,21 @@ def check(claim: actor_v3.Claim, action: str, study: str | None, service: bool =
     with the record's. ``grant`` (T-716, D-484): the route admits a break-glass grant in place of the action's own
     row; a claim that names one must hold ``breakglass.open``, and the handler must read the grant row itself
     (``orchestrator.grants.verify_grant``): the claim's word for it opens nothing."""
-    if claim.action != action:
+    if claim.action not in ((action,) if isinstance(action, str) else tuple(action)):
         return "action"
     if not study_in_handler and (study or "") != claim.study:
         return "study"
+    asked = claim.action  # one of the route's actions (checked above): the matrix is asked for the one claimed
     if claim.is_service:
-        return "" if service and action in TABLE["principals"].get(claim.sub, frozenset()) else "principal"
+        return "" if service and asked in TABLE["principals"].get(claim.sub, frozenset()) else "principal"
     if claim.grant is not None:
         return "" if grant and permit(claim.role, "breakglass.open", claim.standing()).allowed else "grant"
-    return "" if permit(claim.role, action, claim.standing()).allowed else "right"
+    return "" if permit(claim.role, asked, claim.standing()).allowed else "right"
 
 
-def require_actor(action: str, *, service: bool = False, study_in_handler: bool = False, grant: bool = False) -> Any:
+def require_actor(
+    action: str | tuple[str, ...], *, service: bool = False, study_in_handler: bool = False, grant: bool = False
+) -> Any:
     """The dependency of a changing route: the verified person, allowed ``action`` on the route's study (see
     :func:`check` for the three options)."""
 
@@ -164,20 +170,25 @@ def require_actor(action: str, *, service: bool = False, study_in_handler: bool 
         try:
             claim = actor_v3.verify(request.headers.get(actor_v3.HEADER))
         except ActorError as exc:
-            raise _refuse(request, action, str(exc), None, study) from exc
+            raise _refuse(request, _named(action), str(exc), None, study) from exc
         why = check(claim, action, study, service, study_in_handler=study_in_handler, grant=grant)
         if not why and not _same_target(claim.target, request):
             why = "request"
         if not why and claim.body != actor_v3.body_hash(await request.body()):
             why = "body"
         if why:
-            raise _refuse(request, action, why, claim.sub, study)
+            raise _refuse(request, _named(action), why, claim.sub, study)
         request.state.tb_actor = claim
         return claim
 
     dep.tb_actor_stage = "refuse"  # type: ignore[attr-defined]
     dep.tb_actor_action = action  # type: ignore[attr-defined]
     return Depends(dep)
+
+
+def _named(action: str | tuple[str, ...]) -> str:
+    """The action(s) of a route as its refusal records them."""
+    return action if isinstance(action, str) else " | ".join(action)
 
 
 def _study(request: Request) -> str | None:
@@ -336,15 +347,33 @@ def route_problems(app: Any, group_of: Callable[[str], str | None], table: dict[
     every changing route's group is in exactly one stage, its dependency is that stage's, a ``refuse`` route names
     a matrix action and takes no person from its request, and the table names no group without a changing route."""
     from tb_common.authz import MATRIX
+    from tb_common.patient_reads import PATIENT_READS
 
     tbl = TABLE if table is None else table
     stage_of_group = {g: s for s in STAGES for g in tbl[s]}
+    # the reads are classified when the table lists them (the real one always does; a test's toy table may not)
+    classify = "reads_without_patient" in tbl
+    others = tbl.get("reads_without_patient") or {}
     bad: list[str] = []
     changing_groups: set[str] = set()
     for method, path, stage, action, person in walk(app):
         key = f"{method} {path}"
         group = group_of(key) or ""
         changing = method not in SAFE_METHODS
+        # NEW-SEC-1 (D-717): a read returns a patient's row and checks the person and the study, or says why not
+        patient = PATIENT_READS.get(key)
+        if method == "GET" and classify:
+            if patient is None and key not in others:
+                bad.append(f"{key}: a GET route in neither list (tb_common.patient_reads, reads_without_patient)")
+            elif patient is not None and key in others:
+                bad.append(f"{key}: in both lists of reads")
+            elif patient is not None and (stage, action) != ("refuse", patient):
+                bad.append(f"{key}: returns a patient's row and has no require_actor({patient!r})")
+            elif patient is not None:
+                for one in (action,) if isinstance(action, str) else action:
+                    if one not in MATRIX:
+                        bad.append(f"{key}: require_actor names {one!r}, which is not a row of the matrix")
+                continue  # the check is the read's own, whatever stage the group's changing routes are in
         if changing:
             changing_groups.add(group)
         want = stage_of_group.get(group)

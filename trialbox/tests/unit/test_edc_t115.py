@@ -23,6 +23,7 @@ from tb_common.service_auth import actor_header
 
 from tests import edc_kit as k
 from tests import odm_xsd
+from tests.actor3 import SignedClient
 
 NS = {"o": "http://www.cdisc.org/ns/odm/v1.3"}
 SHEET = {"text": "ward scale sheet", "day": "2026-11-05"}
@@ -278,7 +279,7 @@ def test_e14_only_an_administrator_records_the_reentry_result(tmp_path: Path) ->
     svc, _, _ = k.service(tmp_path)
     app = FastAPI()
     app.include_router(router(lambda: svc))
-    c = TestClient(app)
+    c = SignedClient(app)  # D-717: its reads carry a person
     body = {"pages": 30, "accuracy": 0.99, "document": "QA-RE-0010"}
     for role in ("investigator", "coordinator"):
         r = c.post(f"/studies/{k.STUDY}/edc/reentry", json=body, headers=actor_header("pi", role=role))
@@ -294,7 +295,7 @@ def test_e12_each_signed_value_shows_who_signed_when_and_the_meaning(tmp_path: P
     svc, _, _ = _signed(tmp_path)
     app = FastAPI()
     app.include_router(router(lambda: svc))
-    rows = TestClient(app).get(f"/studies/{k.STUDY}/edc/drafts", params={"record": k.RECORD}).json()
+    rows = SignedClient(app).get(f"/studies/{k.STUDY}/edc/drafts", params={"record": k.RECORD}).json()
     signed = {d["item"]: d["signature"] for d in rows if d.get("signature_id")}
     assert set(signed) == {"brthdat", "sex", "weight", "urate", "mh_gout", "tophus"}
     assert (

@@ -37,6 +37,9 @@ def call(bk: object, method: str, path: str, body: dict[str, Any] | None = None,
     fn = getattr(bk, "study_api", None)
     if not callable(fn):
         raise Unavailable("this backend has no study store")
+    from console.actor import read_headers  # here: console.actor calls this module
+
+    headers = read_headers(method, path, headers) or None  # NEW-SEC-1 (D-717): a patient read is signed
     if headers:
         return fn(method, path, body, headers=headers)
     return fn(method, path, body)

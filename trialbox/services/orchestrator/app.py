@@ -27,6 +27,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
+from tb_common.patient_reads import PHI as _PHI
 from tb_common.ruleset import seed_working_copy
 from tb_common.service_auth import (
     ACTOR_HEADER,
@@ -42,6 +43,7 @@ from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryP
 
 from orchestrator import actor as route_actor
 from orchestrator import identifiers
+from orchestrator.actor import require_actor as _require_actor
 from orchestrator.callers import Gate
 from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -59,6 +61,10 @@ from orchestrator.study_api import router as study_router
 from orchestrator.studystore import StudyStore
 
 _orch: Orchestrator | None = None
+
+#: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
+#: patient-level data on the route's study (tb_common.patient_reads)
+PATIENT_READ = _require_actor(_PHI, service=True)
 
 
 def _pinned_today() -> Callable[[], date] | None:
@@ -803,7 +809,7 @@ def registry_summaries() -> list[RegistrySummary]:
     return registry_of(orch()).summaries()
 
 
-@app.get("/registry/{ruleset}")
+@app.get("/registry/{ruleset}", dependencies=[PATIENT_READ])
 def registry_rows(ruleset: str) -> list[RegistryEntry]:
     try:
         return registry_of(orch()).rows(ruleset)
@@ -811,7 +817,7 @@ def registry_rows(ruleset: str) -> list[RegistryEntry]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/registry/{ruleset}/events")
+@app.get("/registry/{ruleset}/events", dependencies=[PATIENT_READ])
 def registry_events(ruleset: str, pid: str | None = None) -> list[RegistryEvent]:
     try:
         return registry_of(orch()).events(ruleset, pid)

@@ -10,9 +10,12 @@ first (``Helpers.permit``, the question every page asks): the console cannot sig
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+from collections.abc import Iterator
 from typing import Any
 
-from tb_common import actor_v3
+from tb_common import actor_v3, patient_reads
 from tb_common import service_auth as sa
 from tb_common.authz import NO_STANDING
 
@@ -23,6 +26,51 @@ NOTIFY = "service:console-notify"  # the morning notices: no session (route_acto
 #: T-719 (D-487): a page asks whether a running case's subject is on the opt-out register. The reader may be anyone
 #: who sees the job and never sees the pseudonym, so the lookup is the console's, under this name, capped and logged
 OPTOUT_CHECK = "service:console-optout-check"
+
+
+#: NEW-SEC-1 (D-717): the console's helpers and the signed-in session of this request, set by ``need`` (one value
+#: per request: a context variable), so that every patient read a page makes is signed by its account
+_READER: contextvars.ContextVar[tuple[Any, Any] | None] = contextvars.ContextVar("tb_console_reader", default=None)
+
+
+def bind_reader(h: Any, sess: Any) -> None:
+    """The account of this request signs the patient reads its pages make (:func:`read_headers`)."""
+    _READER.set((h, sess))
+
+
+@contextlib.contextmanager
+def reading_as(principal: str) -> Iterator[None]:
+    """Inside the block, the patient reads a timer makes are signed as ``principal`` (a service principal that
+    ``route_actors.yaml`` lets read patient rows), and as nobody else after it: a timer's thread is used again."""
+    token = _READER.set((None, principal))
+    try:
+        yield
+    finally:
+        _READER.reset(token)
+
+
+def read_headers(method: str, path: str, headers: dict[str, str] | None = None) -> dict[str, str]:
+    """``headers`` with the signed claim of a patient read (``tb_common.patient_reads``): ``phi.view`` on the
+    path's study (none for a set-up route of the whole site) by the signed-in account of this request. Refused here
+    (403, ``console.denied``) when the account may not see patient-level data in that study. A call that is not a
+    patient read, or already carries a claim, is left as it is; with no account (a timer) nothing is added, and the
+    orchestrator refuses the read."""
+    out = dict(headers or {})
+    hit = patient_reads.match(method, path)
+    bound = _READER.get()
+    if hit is None or actor_v3.HEADER in out or bound is None:
+        return out
+    h, sess = bound
+    _, actions, study = hit
+    rid = study or None
+    if h is None:  # a timer's principal (reading_as): the orchestrator admits it only where the route says so
+        out.update(assert_service(str(sess), actions[0], rid, method.upper(), path))
+        return out
+    # the first of the route's actions this account holds in that study (a monitor reads with its own row); none:
+    # the first, which assert_for refuses and records
+    action = next((a for a in actions if h.permit(sess.user, a, rid).allowed), actions[0])
+    out.update(assert_for(h, sess, action, rid, method.upper(), path))
+    return out
 
 
 def assert_for(
