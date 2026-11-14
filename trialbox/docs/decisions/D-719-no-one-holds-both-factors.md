@@ -35,9 +35,13 @@ then of its authenticator gave the administrator both factors the same way.
 - **(c) where the box has a second person.** Opening a protected account, changing its studies or resetting a factor
   is a request (`console.account_request`) that takes effect only when another person with `account.confirm`
   confirms it on `/ops/accounts/requests` (`console.account_confirmed`, or `console.account_refused`); nothing changes
-  before. Nobody confirms their own request; a person the requester opened (was shown the first code of) or who
-  opened the requester is no second person, so an administrator who opened a second administrator alone cannot have
-  it confirm their requests, and with no other person (b) alone applies. The code or password goes to the person who
+  before. Nobody confirms their own request. A second person is an account with `account.confirm` other than the
+  requester whose holder chose the password (an account opened by code counts once its holder used the code; so the
+  box's first steward, whom the administrator opens, is the administrator's second person from then on) and that is
+  not past its end date; a disabled one still counts, so disabling the steward makes requests wait rather than lets
+  the administrator act alone. Every confirmation records who opened the confirming account
+  (`confirmer_opened_by`), so an account one person opened alone shows as such wherever it confirms. With no second
+  person, (b) alone applies. The code or password goes to the person who
   confirms, never to the one who asked; that person hands it over.
 - **(a) always: the holder and the steward are told.** At the next sign-in the holder reads, once, on the first
   page: "your password / authenticator was reset by <name> at <time>" or "your account was opened at <time> (code
@@ -64,12 +68,42 @@ made and reset as before.
   database and the key file. It records its resets and refuses the other factor within 30 days, but `add-user` still
   sets a password for any role (the box's installer and its tests use it). It is a record there, not a wall.
 - **The first-run wizard** opens the owner's own first accounts before any account exists (D-466); unchanged.
-- **Disable and enable** of an account change no factor and are not held.
+- **Disable and enable** of an account change no factor and are not held; a disabled confirming person still counts
+  as the second person, and a disabled steward is still mailed.
+- **With TOTP off** (DEV and TEST boxes only: `TB_CONSOLE_MFA=off` is refused elsewhere) an account has one factor,
+  so a password reset gives it whole; the rule's 30 days and the second person still hold for the reset itself.
+- **On a box with no steward and one administrator**, the administrator can use a new account's code themselves:
+  "enrolled by the holder on their own device" cannot be enforced there. What remains is the holder's own attempt
+  failing as "used" (audited), the mail to the PI of the account's studies where one has a mailbox, and the audit
+  trail. An account opened that way that later confirms is marked with its opener in the audit.
 - Directory (OIDC) and trusted-header accounts have no console factors; unchanged.
 
 ## Review
 
-See "What the adversarial review changed" when the review is in.
+### What the adversarial review changed
+
+One review by running (a fresh reviewer, the console with TOTP on and off, with and without a steward). It found:
+
+1. **A disabled or expired account skipped every rule** (critical): the reset looked the account up with `get`,
+   which answers None for those, so the old reset ran (password shown, no record, no request); enabling it then let
+   the administrator give the other factor. The role is now read whatever the account's state (`role_of`) on the
+   pages, at `/ops/identity` and on the command line.
+2. **A steward the administrator opened was never the administrator's second person** (critical): the "opened by"
+   exclusion never lapsed, so (c) was void on the normal box. Now an account opened by code counts once its holder
+   used the code, and each confirmation records the confirming account's opener.
+3. **Disabling the steward removed (c) and its mail** (critical): a disabled confirming person now still counts (the
+   request waits), and a disabled steward is still mailed.
+4. **Chains of accounts one person opened alone looked like two-person control** (major): the audit of every
+   confirmation now names who opened the confirming account; the record says plainly what a one-person box is.
+5. Minor: a confirmed request that could not be applied stayed "confirmed"; it is now "failed" and audited as
+   `console.account_refused` (`not_applied`). `/enrol` said "already used" to anyone; it now says so only to a
+   person who types the spent code (its hash is kept, `enrol_spent_sha`). An expired steward no longer counts.
+
+What did not break it: the 30-day order in every sequence at `/ops/users` and `/ops/identity`; a password before the
+holder used the code; confirming one's own request; a double confirmation; a role without the row; the secret
+reaching the requester (URL, audit, users page); `/api/v1` (no account routes; its sign-in needs both factors);
+`/enrol` on an account with a password, an aggregate or unknown name, brute force (throttle and lock), the code
+step's flag in another browser; accounts made before the update; the notices; every new string in ja and zh-TW.
 
 ## Reuse check
 

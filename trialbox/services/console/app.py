@@ -471,7 +471,8 @@ def create_app(
 
     def account_tell(name: str, subject: str, body: str, by: str) -> None:
         """D-719 (a): the steward and the PI of each of the account's studies are told, as for break-glass."""
-        to = {u.mailbox for u in us.users() if u.role == "steward" and u.mailbox}
+        stewards = [*us.users(), *us.disabled_users()]  # a disabled steward is told too (the review of D-719)
+        to = {u.mailbox for u in stewards if u.role == "steward" and u.mailbox}
         target = us.get(name)
         team_store = getattr(account_team.get("h"), "team", None)
         if target is not None and team_store is not None:
@@ -1114,7 +1115,7 @@ def create_app(
                 expires = end_date(role, expires or None, us.today()) or ""  # D-406 (OPS-059): at most 12 months
                 if protected(role):  # D-719 (b): a code and no password; (c): a second person confirms first
                     name = check_username(name)
-                    if us.get(name) is not None or name in {u.username for u in us.disabled_users()}:
+                    if us.role_of(name):  # any state
                         raise AuthError(f"user {name} exists")
                     payload = {"role": role, "mailbox": mailbox.strip(), "affiliation": affiliation,
                                "studies": studies, "expires": expires}  # fmt: skip
@@ -1148,14 +1149,14 @@ def create_app(
                     text = translate(lang_of(request, sess), "confirm.reset", user=name)
                     return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
                                         "/ops/users")  # fmt: skip
-                target = us.get(name)
-                if target is not None and protected(target.role):  # D-719: one factor at a time, a second person
+                role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
+                if role_now and protected(role_now):  # D-719: one factor at a time, a second person
                     held = account_rules.refuse_held(name, "password", me)
                     if held is not None:
                         return page(request, "factor_held.html", sess, 409, account=name, held=held[0],
                                     until=held[1], back="/ops/users")  # fmt: skip
                     if account_rules.second_person(me):
-                        account_rules.request("password", name, {}, me, target.role)
+                        account_rules.request("password", name, {}, me, role_now)
                         return RedirectResponse("/ops/users?done=requested#requested", status_code=303)
                     password = account_rules.reset_password(name, requested_by=me, confirmed_by="")
                     keep_once(sess, name, password)
@@ -1170,10 +1171,11 @@ def create_app(
                 was = next((u for u in us.users() if u.username == name), None)
                 if was is not None:  # D-406 (OPS-059): a local account's end date, at most 12 months ahead
                     expires = end_date(was.role, expires or None, us.today(), sso=us.is_sso(name)) or ""
-                if was is not None and protected(was.role) and account_rules.second_person(me):  # D-719 (c)
-                    scope_values(affiliation, studies, expires or None, was.role)
+                role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
+                if role_now and protected(role_now) and account_rules.second_person(me):  # D-719 (c)
+                    scope_values(affiliation, studies, expires or None, role_now)
                     account_rules.request("scope", name, {"affiliation": affiliation, "studies": studies,
-                                                          "expires": expires}, me, was.role)  # fmt: skip
+                                                          "expires": expires}, me, role_now)  # fmt: skip
                     return RedirectResponse("/ops/users?done=requested#requested", status_code=303)
                 u2 = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(

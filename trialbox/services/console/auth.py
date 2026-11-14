@@ -150,7 +150,8 @@ ALTER TABLE users ADD COLUMN pw_history TEXT
 """
 # D-719 (NEW-SEC-3): nobody holds both factors of a protected account. ``opened_by``: who was shown the account's
 # first enrolment code (the requester alone, or the person who confirmed); ``holder_set`` 0 until the holder chooses
-# the password with that code; ``enrol_used_at``: when the code was first used. Each factor an administrator set
+# the password with that code; ``enrol_used_at``: when the code was first used, and ``enrol_spent_sha`` its hash (so
+# only a person who types that code learns it was used). Each factor an administrator set
 # (``factor_resets``), each request waiting for a second person (``account_requests``) and each notice the holder
 # reads at the next sign-in (``account_notices``). A half-done sign-in that came through the code skips it at the
 # authenticator step (``enrol_ok``). Accounts made before keep their factors: nothing here is filled for them.
@@ -158,6 +159,7 @@ SCHEMA_V6 = """
 ALTER TABLE users ADD COLUMN opened_by TEXT;
 ALTER TABLE users ADD COLUMN holder_set INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE users ADD COLUMN enrol_used_at TEXT;
+ALTER TABLE users ADD COLUMN enrol_spent_sha TEXT;
 ALTER TABLE pending_logins ADD COLUMN enrol_ok INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE factor_resets (
   username TEXT COLLATE "C" NOT NULL,
@@ -949,19 +951,44 @@ class UserStore:
         ``"used"`` when the holder's password was already chosen with a code; ``"wrong"`` otherwise."""
         if self.get(username) is None:
             return "wrong"
-        if self.holder_set(username):
-            return "used" if self.enrol_used_at(username) else "wrong"
+        typed = "-".join(p for p in re.split(r"[\s-]+", (code or "").strip().lower()) if p)
+        if self.holder_set(username):  # the review: "used" only to a person who types the spent code
+            spent = self.db.fetchval("SELECT enrol_spent_sha FROM users WHERE username = ?", (username,))
+            return "used" if spent and hmac.compare_digest(str(spent).encode(), _sha(typed).encode()) else "wrong"
         if not self.check_enrol_code(username, code):
             return "wrong"
         self.set_password(username, password, must_change=False)
         sql = (
-            "UPDATE users SET holder_set = 1, enrol_used_at = ?, enrol_code_sha = NULL, enrol_expires = NULL, "
-            "enrol_reason = NULL WHERE username = ? AND holder_set = 0"
+            "UPDATE users SET holder_set = 1, enrol_used_at = ?, enrol_spent_sha = enrol_code_sha, "
+            "enrol_code_sha = NULL, enrol_expires = NULL, enrol_reason = NULL WHERE username = ? AND holder_set = 0"
             if spend
-            else "UPDATE users SET holder_set = 1, enrol_used_at = ? WHERE username = ? AND holder_set = 0"
+            else "UPDATE users SET holder_set = 1, enrol_used_at = ?, enrol_spent_sha = enrol_code_sha "
+            "WHERE username = ? AND holder_set = 0"
         )
         n = self.db.execute(sql, (self.clock().isoformat(), username))
         return "ok" if n == 1 else "used"
+
+    def role_of(self, username: str) -> str:
+        """The account's role whatever its state (disabled or past its end date too): the review of D-719 found a
+        disabled account's reset skipping every rule because ``get`` answers None for it."""
+        return str(self.db.fetchval("SELECT role FROM users WHERE username = ?", (username,)) or "")
+
+    def confirming_accounts(self) -> list[tuple[User, bool]]:
+        """(account, disabled) of every account that has chosen its own password and is not past its end date:
+        a disabled one still counts as the box's second person (the review: disabling the steward must not void
+        the rule), an expired one does not (its end date is not the administrator's to bring forward)."""
+        rows = self.db.fetchall(f"SELECT {_COLS}, disabled FROM users WHERE holder_set = 1 ORDER BY username")
+        out = []
+        for r in rows:
+            u = _row_user(r[:6])
+            if not self._expired(u):
+                out.append((u, bool(r[6])))
+        return out
+
+    def fail_request(self, rid: str, by: str) -> None:
+        """A confirmed request that could not be applied (the account changed in between) is marked failed."""
+        self.db.execute("UPDATE account_requests SET state = 'failed', decided_by = ?, decided_at = ? WHERE id = ?",
+                        (by, self.clock().isoformat(), rid[:32]))  # fmt: skip
 
     def add_request(self, kind: str, username: str, payload: dict[str, str], by: str) -> str:
         rid = secrets.token_hex(8)

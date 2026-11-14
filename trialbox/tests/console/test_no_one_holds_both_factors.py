@@ -293,19 +293,106 @@ def test_a_refused_request_changes_nothing_and_scope_waits_too(tmp_path: Path) -
     assert r.status_code == 303
 
 
-def test_a_person_the_requester_opened_does_not_count_as_a_second_person(tmp_path: Path) -> None:
-    """An administrator who opens a second administrator alone cannot then have it confirm their requests."""
-    app, users, _, clock = _box(tmp_path, steward=False)
+def test_the_steward_the_administrator_opened_counts_once_its_holder_used_the_code(tmp_path: Path) -> None:
+    """The review of D-719 (critical 2): a box's first steward is opened by the administrator; once its holder used
+    the code, it is the administrator's second person, and every confirmation says who opened the confirming
+    account (an account one person opened alone shows as such: misuse is seen, not impossible)."""
+    app, users, audit_dir, clock = _box(tmp_path, steward=False)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
-    code = _code_in(_add(admin, csrf, "adm2", "admin").text)
-    assert code and users.get("adm2") is not None  # one person: (b) alone, a code and no password
+    code = _code_in(_add(admin, csrf, "stew2", "steward").text)
+    assert code and users.get("stew2") is not None  # one person: (b) alone, a code and no password
+    r = _add(admin, csrf, "shadow", "coordinator")  # before its holder used it, the code is no second person
+    assert 'data-testid="account-requested"' not in r.text and _code_in(r.text)
     clock.tick(minutes=1)
-    assert _redeem(app, "adm2", code, "adm2-own-password-01").status_code == 303
+    assert _redeem(app, "stew2", code, "stew2-own-password-01").status_code == 303
+    r = _add(admin, csrf, "shadow2", "coordinator")
+    assert 'data-testid="account-requested"' in r.text and users.get("shadow2") is None  # now it waits
+    stew, scsrf = _signin(app, "stew2", "stew2-own-password-01")
+    (rid,) = _request_ids(_requests(stew))
+    assert (
+        stew.post("/ops/accounts/requests", data={"csrf": scsrf, "request": rid, "decision": "confirm"}).status_code
+        == 200
+    )
+    ev = [e for e in _events(audit_dir) if e["event"] == "console.account_confirmed"]
+    assert ev[-1]["detail"]["confirmer_opened_by"] == "admin"
+
+
+def test_a_disabled_or_expired_account_is_held_as_any_other(tmp_path: Path) -> None:
+    """The review of D-719 (critical 1): a reset of a disabled account went the old way (password shown, no record),
+    and enabling it then let the administrator give the other factor."""
+    app, users, audit_dir, _ = _box(tmp_path, steward=False)
+    users.create("crc", "coordinator", CRC_PW, "crc@hospa.test")
+    admin, csrf = _signin(app, "admin", ADMIN_PW)
+    users.disable("crc")
+    r = admin.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "crc", "confirm": "yes"})
+    assert r.status_code == 200 and 'data-testid="users-pw-field"' in r.text
+    assert users.factor_held("crc", "totp") is not None  # on record, whatever the account's state
+    users.enable("crc")
+    r = admin.post("/ops/identity", data={"csrf": csrf, "action": "enrol_code", "username": "crc"})
+    assert r.status_code == 409
+    users.create("old", "coordinator", CRC_PW)
+    users.set_scope("old", "hospital", "", "2020-01-01")  # past its end date
+    r = admin.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "old", "confirm": "yes"})
+    assert r.status_code == 200 and users.factor_held("old", "totp") is not None
+    assert any(e["event"] == "console.factor_refused" for e in _events(audit_dir))
+
+
+def test_disabling_the_steward_does_not_void_the_second_person(tmp_path: Path) -> None:
+    """The review of D-719 (critical 3): the request waits for the disabled steward, who is still told by mail."""
+    app, users, _, _ = _box(tmp_path, steward=True)
+    admin, csrf = _signin(app, "admin", ADMIN_PW)
+    users.disable("stew")
     r = _add(admin, csrf, "shadow", "coordinator")
-    assert 'data-testid="account-requested"' not in r.text and _code_in(r.text)  # still (b) alone: adm2 is no one
-    adm2, csrf2 = _signin(app, "adm2", "adm2-own-password-01")
-    r = _add(adm2, csrf2, "shadow2", "coordinator")
-    assert 'data-testid="account-requested"' not in r.text  # and the opener is no second person for adm2
+    assert 'data-testid="account-requested"' in r.text and not _code_in(r.text) and users.get("shadow") is None
+    users.create("crc", "coordinator", CRC_PW, "crc@hospa.test")
+    users.enable("stew")
+    stew, _ = _signin(app, "stew", STEWARD_PW)
+    rids = _request_ids(_requests(stew))
+    assert len(rids) == 1
+    users.disable("stew")
+    users.create("stew9", "steward", STEWARD_PW, "stew9@hospa.test")  # another steward confirms meanwhile
+    s9, csrf9 = _signin(app, "stew9", STEWARD_PW)
+    r = s9.post("/ops/accounts/requests", data={"csrf": csrf9, "request": rids[0], "decision": "confirm"})
+    assert r.status_code == 200
+    code = re.search(r'data-testid="request-secret"[^>]*value="([a-z0-9-]+)"', r.text)
+    assert code and _redeem(app, "shadow", code.group(1), CRC_PW).status_code == 303  # the holder opens it
+    notices = app.state.test_backend.notices
+    assert any("stew@hospa.test" in to for _k, to, _s, _b in notices)  # the disabled steward was told too
+
+
+def test_a_confirmation_that_cannot_be_applied_is_failed_not_confirmed(tmp_path: Path) -> None:
+    app, users, audit_dir, _ = _box(tmp_path, steward=True)
+    admin, csrf = _signin(app, "admin", ADMIN_PW)
+    users.create("crc", "coordinator", CRC_PW)
+    users.create("reader", "viewer", VIEWER_PW)
+    r = admin.post(
+        "/ops/users", data={"csrf": csrf, "action": "scope", "username": "crc", "affiliation": "smo", "studies": "GZQO"}
+    )
+    assert 'data-testid="account-requested"' in r.text
+    stew, scsrf = _signin(app, "stew", STEWARD_PW)
+    (rid,) = _request_ids(_requests(stew))
+    users.db.execute("DELETE FROM users WHERE username = ?", ("crc",))  # the account is gone in between
+    r = stew.post("/ops/accounts/requests", data={"csrf": scsrf, "request": rid, "decision": "confirm"})
+    assert r.status_code == 409
+    req = users.get_request(rid)
+    assert req is not None and req["state"] == "failed"
+    assert not any(e["event"] == "console.account_confirmed" for e in _events(audit_dir))
+    assert any(e["event"] == "console.account_refused" and e["detail"].get("reason") == "not_applied"
+               for e in _events(audit_dir))  # fmt: skip
+
+
+def test_only_the_spent_code_learns_that_it_was_used(tmp_path: Path) -> None:
+    """The review of D-719 (minor): "used" told anyone which accounts were opened by code, and when."""
+    app, _, audit_dir, clock = _box(tmp_path, steward=False)
+    admin, csrf = _signin(app, "admin", ADMIN_PW)
+    code = _code_in(_add(admin, csrf, "shadow", "coordinator").text)
+    clock.tick(minutes=1)
+    assert _redeem(app, "shadow", code, CRC_PW).status_code == 303
+    r = _redeem(app, "shadow", "aaaa-bbbb-cccc-dddd", "another-password-0002")
+    assert r.status_code == 401 and 'data-testid="enrol-code-used"' not in r.text  # a guess learns nothing
+    assert not any(e["event"] == "console.enrol_code_reused" for e in _events(audit_dir))
+    r = _redeem(app, "shadow", code, "another-password-0002")
+    assert r.status_code == 401 and 'data-testid="enrol-code-used"' in r.text
 
 
 def test_a_role_without_the_row_may_not_confirm(tmp_path: Path) -> None:

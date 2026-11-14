@@ -375,7 +375,7 @@ ADDED: dict[str, tuple[str, ...]] = {
         "44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",
         "d08533082518372c9c3972573a7370f745b1a7bb754798cb3c60408ecd9744a8",
         "bb7564dcd900b6be7567a5d5f0db38eff6ecef1d03f9127fcf353d55332dc1ce",
-        "311f3b04781cf748967b034d82dbfc2baaa9004223b7028e749de1f1cfd3eab0",
+        "cc898ef7e93cba0f79116b2e2ce6602150cf6e54b1535dddaf5f7d6d2d7054ca",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year

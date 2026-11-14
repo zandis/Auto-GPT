@@ -66,24 +66,28 @@ class Rules:
     audit: Any
     tell: Callable[[str, str, str, str], None]  # (account, subject, body, by)
 
-    def confirmers(self, requester: str) -> list[User]:
-        """The people who may confirm ``requester``'s requests: ``account.confirm``, not the requester, and neither
-        opened by the requester nor the requester's opener."""
-        mine = self.users.opened_by(requester)
+    def _confirming(self, requester: str) -> list[tuple[User, bool]]:
+        """(account, disabled) of the people other than ``requester`` with ``account.confirm`` whose holder chose
+        the password (an account opened by code counts once its holder used the code), not past their end date."""
         return [
-            u
-            for u in self.users.users()
-            if u.username != requester
-            and permit(u.role, "account.confirm").allowed
-            and self.users.opened_by(u.username) != requester
-            and u.username != mine
+            (u, off)
+            for u, off in self.users.confirming_accounts()
+            if u.username != requester and permit(u.role, "account.confirm").allowed
         ]
 
     def second_person(self, requester: str) -> bool:
-        return bool(self.confirmers(requester))
+        """Does the box have a second person for ``requester``? A disabled one counts (the review of D-719:
+        disabling the steward must not let the administrator act alone); the request then waits for them."""
+        return bool(self._confirming(requester))
 
     def may_confirm(self, confirmer: str, requester: str) -> bool:
-        return any(u.username == confirmer for u in self.confirmers(requester))
+        return any(u.username == confirmer and not off for u, off in self._confirming(requester))
+
+    def opener_note(self, confirmer: str) -> dict[str, str]:
+        """The confirming account's own opening, in the audit (the review: an account one person opened alone and
+        whose code that person may have used shows as such wherever it confirms)."""
+        opener = self.users.opened_by(confirmer)
+        return {"confirmer_opened_by": opener} if opener else {}
 
     def refuse_held(self, username: str, factor: str, by: str) -> tuple[str, str] | None:
         """(held factor, until) when ``factor`` may not be set by someone else now; the refusal is audited."""
@@ -308,7 +312,7 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
             why = {"action": "/ops/accounts/requests", "request": req["id"], "reason": "not_second"}
             au.append("console.denied", actor=f"console:{me}", detail=why)
             raise h.problem(403, "forbidden")
-        detail = {"request": req["id"], "kind": kind, "user": name, "requested_by": by}
+        detail = {"request": req["id"], "kind": kind, "user": name, "requested_by": by, **rules.opener_note(me)}
         if decision == "refuse":
             if not us.decide_request(str(req["id"]), "refused", me):
                 raise h.problem(409, "request.refused", reason="this request is no longer waiting")
@@ -320,7 +324,7 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
             factor = kind
             if rules.refuse_held(name, factor, me) is not None:
                 raise h.problem(409, "request.refused", reason="the other factor was set within 30 days")
-        if kind == "create" and us.get(name) is not None:
+        if kind == "create" and us.role_of(name):  # disabled or past its end date too
             raise h.problem(409, "request.refused", reason="an account with this name exists")
         if not us.decide_request(str(req["id"]), "confirmed", me):
             raise h.problem(409, "request.refused", reason="this request is no longer waiting")
@@ -334,7 +338,9 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
                 secret = rules.reset_totp(name, payload.get("how", "reset_totp"), requested_by=by, confirmed_by=me)
             elif kind == "scope":
                 rules.set_scope(name, payload, requested_by=by, confirmed_by=me)
-        except AuthError as exc:
+        except AuthError as exc:  # the account changed in between: the request is failed, not "confirmed"
+            us.fail_request(str(req["id"]), me)
+            au.append("console.account_refused", actor=f"console:{me}", detail={**detail, "reason": "not_applied"})
             raise h.problem(409, "request.refused", reason=str(exc)) from exc
         au.append("console.account_confirmed", actor=f"console:{me}", detail=detail)
         # shown once, on this answer only, to the person who confirmed (never in a URL, a log or the audit)

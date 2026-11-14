@@ -680,8 +680,8 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             raise h.problem(400, "request.refused", reason="another administrator does this for your account")
         if us.is_sso(name):
             raise h.problem(400, "request.refused", reason="this account signs in through the identity provider")
-        target = us.get(name)
-        if h.rules is not None and target is not None and protected(target.role):  # D-719: nobody holds both
+        role_now = us.role_of(name)  # whatever the account's state (the review of D-719)
+        if h.rules is not None and role_now and protected(role_now):  # D-719: nobody holds both
             if action == "reset_totp" and confirm != "yes":
                 text = h.translate(h.lang_of(request, sess), "identity.confirm.reset", user=name)
                 return h.confirm(request, sess, text, "/ops/identity", {"action": "reset_totp", "username": name},
@@ -692,7 +692,7 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
                 return h.page(request, "factor_held.html", sess, 409, account=name, held=held[0], until=held[1],
                               back="/ops/identity")  # fmt: skip
             if h.rules.second_person(me):
-                h.rules.request("totp", name, {"how": action}, me, target.role)
+                h.rules.request("totp", name, {"how": action}, me, role_now)
                 return _admin_page(request, sess, done="requested")
             try:
                 code = h.rules.reset_totp(name, action, requested_by=me, confirmed_by="")
