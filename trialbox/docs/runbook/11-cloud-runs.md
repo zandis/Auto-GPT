@@ -359,3 +359,49 @@ home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). Fr
 `TB_DEMO_VM_STOP_WAIT_S`, 300 s; else it fails and says to stop it in the console). The disk stays (about US$0.11 a
 day). `deploy/gcp/demo-vm.sh delete --yes` deletes the VM and its disk, the rule, the subnet and the network (the
 secret stays). Check afterwards: `gcloud compute instances list` shows no `tb-demo-vm`, or shows it `TERMINATED`.
+
+**The box run: the shipped box on the GPU VM** (lane G's main paid line since 2026-11-14: R2, and plan v7 §7.1 G-2,
+G-6, G-9, G-10). The models are started only by the installed box's own compose: no private model-server start.
+`deploy/gcp/box-run.sh` is the driver; the work runs on the VM (`deploy/gcp/box-install-run.sh`, with
+`deploy/gcp/box_vm.py` as its helper); `tools/box_run.py` holds the estimate, the metadata and the results reader.
+Owner's yes first for anything but `--estimate` and `--dry-run`.
+
+    export CLOUDSDK_CONFIG=<a private folder> TB_SA_KEY_FILE=<the deployer's key file> TB_BUCKET=gs://trialbox-demo-runs
+    deploy/gcp/box-run.sh --estimate --steps build,start,g6,g9,g10     # free: hours and US$ with their sources
+    deploy/gcp/box-run.sh --steps build --release-id <ID> --release-seq <N> --commit <sha> --key-version <V> --no-wait
+    deploy/gcp/box-run.sh --collect <run id> [--follow]
+    deploy/gcp/box-run.sh --steps start,g6,g9,g10 --release-id <ID> --study <RULESET> --g10-image <image> --no-wait
+    deploy/gcp/box-run.sh --collect <run id> --follow   # does the G-9 power cycle when the VM asks for it
+    deploy/gcp/box-run.sh --stop <run id>               # TERMINATED checked; spot, usual startup script, default account
+
+- **Build (R2).** The VM runs as the service account `TB_BUNDLE_SIGNER_SA` (default `tb-bundle-signer`), the only
+  reader of the secret `TB_VENDOR_KEY_SM_NAME` (default `tb-vendor-signing-key`). The metadata holds the secret's
+  name and version, never the key. The release gates run in enforcing mode first; only then is the key written by
+  gcloud itself to a tmpfs file of mode 600, used by `tools/make_bundle.sh` and shredded (a trap, and again after
+  the step). The bundle is verified with the vendor PUBLIC key (`tools/verify_update.py`) and read as a PRODUCTION
+  box reads its release record (no rehearsal mark, D-726; not dirty and the declared commit, D-633), then uploaded
+  with its `.sha256` to `$TB_BUCKET/r2/<ID>/`. The git bundle of the release commit and the public key must be in
+  the bucket first (`r2/<ID>/src.bundle`, `r2/keys/vendor_ed25519.pub`); the owner's one-time steps make the secret
+  and the account.
+- **Start (G-2).** From the uploaded bundle: its sha256 and every payload against the signed manifest (streamed),
+  the host tree from the signed bundle as the installer's bootstrap, the vendor public key placed at
+  `deploy/keys/vendor_ed25519.pub`, then `deploy/box-install.sh --prepare --yes`, then `--firstrun` with the
+  wizard answered over HTTPS as a browser would (the one-time code read off the box's screen; the answers from the
+  secret `tb-r2-answers`: a synthetic site), pin, serving record, G-1 identity, canary, `trialbox eval qualify`,
+  promote, resolve, `trialbox doctor`. G-1 identity records the template the judge was started with against
+  `models/registry.yaml`, each model server's image digest against `deploy/images.lock`, the weights against their
+  pins and the prompt versions served in PRODUCTION (`records/identity.json`). Every report names the commit, the
+  bundle id, its signature and signing key, the image digests, the weight manifests, the chat template's sha256
+  and the served prompt versions.
+- **G-6, G-9, G-10** on the installed box: the 50,000 dense night (each stage's wall time and each container's
+  peak memory from its cgroup; an OOM kill is recorded, not hidden: T-692), restarts and the judge's outage and a
+  power cycle in the middle of a screen (pass: the job ends done and its list equals the undisturbed one), and the
+  canary and qualify on the image an update bundle brings.
+- **Fail-safe.** The cloud cap (`--max-run-duration`, the sum of the groups' caps, STOP), the VM's own cap and
+  watchdog, results in the bucket after every step, and a VM that powers itself off once its last upload went
+  through. A pre-emption keeps every finished step: `--resume <run id>`. Every box call of the VM script is one
+  `d_*` function: what differs on a real box shows as a stop with its log in the first paid minutes.
+- **Rehearsal (free).** `tests/rehearsal/box-run/rehearse-box-run.sh` (a few minutes, US$0): the real VM script and
+  helper, the real signer and verifier over the real host tree, the real `deploy/box-install.sh` and the console's
+  real first-run pages; its header names each stand-in and what the paid run puts in its place. It uses free local
+  ports only, so it may run beside `make rehearse`.
