@@ -1992,7 +1992,8 @@ def create_app(
     def case_form(request: Request, ruleset: str = "") -> Response:
         sess = need(request)
         rs = _case_rulesets(sess)
-        return page(request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=bool(rs))
+        may = sess.user.can_request or bool(rs)  # the review of D-767: a coordinator with no trial yet, as before
+        return page(request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may)
 
     @app.post("/pilot/case")
     async def case_submit(
@@ -2030,7 +2031,7 @@ def create_app(
                 selected=rs,
                 langs=LANGS,
                 error=msg,
-                may_case=bool(_case_rulesets(sess)),
+                may_case=sess.user.can_request or bool(_case_rulesets(sess)),
             )
         parts = ["CASE", rs]
         chart_no = re.sub(r"\s+", "", mrn)

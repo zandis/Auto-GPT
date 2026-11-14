@@ -28,6 +28,14 @@ coordinator's row), not the account's run rights. **Confirmed by a test** before
 - The POST routes already checked the right per study (`_need_role` with `may_run`, and the orchestrator checks the
   role again); nothing about who may run changes.
 
+## The review
+
+One adversarial review: SOUND. What the page lists and what the POST accepts are one function (`may_run`), so the
+page never offers more than the server allows. One low regression fixed: a coordinator on a box with no approved
+trial saw the viewer warning on the CASE page (the button follows `can_request` for them, as before). Found and left
+for its own card, not introduced here: a coordinator scoped to studies (SMO) is offered, and may post, FEAS, SCREEN
+and CASE for studies outside their scope (`_trial_rulesets` and `may_run` do not ask `sees_study` for that role).
+
 ## Reuse check
 
 `Helpers.may_run` (the one rule of T-512), the request and CASE pages, their POST checks. No new route or permission.

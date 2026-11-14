@@ -174,3 +174,19 @@ def test_an_investigator_who_may_run_nothing_keeps_the_reading_card(box: dict[st
     case = sub.get("/pilot/case").text
     button = case[case.index('data-testid="case-submit"') - 80 : case.index('data-testid="case-submit"')]
     assert "disabled" in button
+
+
+def test_the_free_text_request_stays_the_coordinators_and_the_coordinator_page_is_unchanged(
+    box: dict[str, Any],  # noqa: F811
+) -> None:
+    """The review of D-767: the PI gets the forms, not the free-text card (it proposes any command); a coordinator's
+    page keeps the free-text card and its forms."""
+    _done_screen(box["backend"], _ulid(964))
+    pi = _user(box, "drsato", "investigator", studies="GZQO")
+    name_pi(box, "drsato")
+    assert 'data-testid="propose"' not in pi.get("/pilot/request").text
+    crc = _user(box, "crc9", "coordinator")
+    page = crc.get("/pilot/request").text
+    assert 'data-testid="propose"' in page and 'data-testid="start-feas"' in page
+    case = crc.get("/pilot/case").text
+    assert "disabled" not in case[case.index('data-testid="case-submit"') - 80 : case.index('data-testid="case-submit"')]
