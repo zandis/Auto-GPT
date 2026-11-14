@@ -13,9 +13,16 @@ from embed_service.embedder import Embedder
 from tb_common.http import ServiceError
 from tb_contracts import ChunkSearchRequest, LakeQuery, dump
 
+#: NEW-B-45 (D-746): how much longer the client waits than the time limit it sends, so that the lake's own answer
+#: (503, LAKE-TIME) is what a caller sees, not the client's timeout. The 30 s the client always had over the lake's
+#: 300 s (330).
+READ_MARGIN_S = 30
+
 
 class LakeAPI(Protocol):
-    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table: ...
+    def query(
+        self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None
+    ) -> pa.Table: ...
 
     def chunks_search(
         self,
@@ -115,10 +122,16 @@ class LakeHttp:
         snap, seq = split_generation(snapshot)
         return date.fromisoformat(snap), ({GENERATION_HEADER: str(seq)} if seq is not None else {})
 
-    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
+    def query(
+        self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None
+    ) -> pa.Table:
+        """``timeout_s``: the query's time limit on the lake (a job's, D-746); None keeps the lake's own. The client
+        then waits :data:`READ_MARGIN_S` longer."""
         day, headers = self._named(snapshot)
-        body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day))
-        resp = self.client.post(f"{self.base}/query", json=body, headers=headers)
+        limit = {} if timeout_s is None else {"timeout_s": int(timeout_s)}
+        body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day, **limit))
+        wait = httpx.USE_CLIENT_DEFAULT if timeout_s is None else float(timeout_s + READ_MARGIN_S)
+        resp = self.client.post(f"{self.base}/query", json=body, headers=headers, timeout=wait)
         if resp.status_code != 200:
             raise LakeQueryFailed(resp.status_code, _detail(resp))
         return _table(resp)

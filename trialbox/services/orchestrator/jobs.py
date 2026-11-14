@@ -94,6 +94,25 @@ log = logging.getLogger("orchestrator")
 GENERATION_OPTION = "lake_generation"  # the job record's copy of the generation it reads (T-724, D-490)
 
 
+def lake_query_limit(job_type: str, environ: Mapping[str, str] | None = None) -> int | None:
+    """NEW-B-45 (D-746): the time limit of one lake query of a job of this type, seconds (``TB_LAKE_QUERY_LIMITS``,
+    ``TYPE=seconds`` by commas); None for a type not listed (the lake's own limit). A value that is not a whole number
+    of seconds above 0 is refused, naming the setting."""
+    from tb_common.config import DECLARED
+
+    raw = (os.environ if environ is None else environ).get("TB_LAKE_QUERY_LIMITS")
+    text = DECLARED["TB_LAKE_QUERY_LIMITS"].default if raw is None else raw
+    limits: dict[str, int] = {}
+    for part in (p.strip() for p in text.split(",")):
+        if not part:
+            continue
+        kind, sep, value = part.partition("=")
+        if not sep or not kind.strip() or not value.strip().isdigit() or int(value) <= 0:
+            raise ValueError(f"TB_LAKE_QUERY_LIMITS: {part!r} is not TYPE=seconds (a whole number above 0)")
+        limits[kind.strip().upper()] = int(value)
+    return limits.get(job_type.upper())
+
+
 class PinnedLake:
     """A job's view of the lake: every query and note search on the one snapshot it pinned, and, where the lake has
     generations (T-724, D-490), on the one generation of that date it pinned: a rebuild of the date meanwhile (a
@@ -109,8 +128,17 @@ class PinnedLake:
         holder: str | None = None,
         generation: str | None = None,
         on_generation: Callable[[str], None] | None = None,
+        query_limit_s: int | None = None,
     ) -> None:
         self.lake = lake
+        # D-746: the job's time limit of one lake query, sent to a lake that takes one (a stand-in may not)
+        self.query_limit_s = query_limit_s
+        import inspect
+
+        try:
+            self._sends_limit = "timeout_s" in inspect.signature(lake.query).parameters
+        except (AttributeError, TypeError, ValueError):
+            self._sends_limit = False
         self.pinned = pinned
         self.holder = holder
         self.held = False
@@ -193,8 +221,14 @@ class PinnedLake:
     def snapshot(self) -> str | None:
         return self.pin()
 
-    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+    def query(
+        self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None
+    ) -> Any:
+        """``timeout_s``: a caller's own limit for this query; else the job's (D-746)."""
         self.pin()
+        limit = self.query_limit_s if timeout_s is None else timeout_s
+        if limit is not None and self._sends_limit:
+            return self.lake.query(sql, params, self._reads(snapshot), timeout_s=limit)
         return self.lake.query(sql, params, self._reads(snapshot))
 
     def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> Any:
@@ -242,6 +276,7 @@ def pinned_services(ctx: Ctx) -> Services:
         holder=job.job_id,
         generation=str((job.options or {}).get(GENERATION_OPTION) or "") or None,
         on_generation=record_generation,
+        query_limit_s=lake_query_limit(job.type),
     )
     return replace(base, lake=lake)
 

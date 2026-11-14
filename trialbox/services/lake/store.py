@@ -735,6 +735,12 @@ class LakeLimitError(RuntimeError):
     ``TB_LAKE_MAX_TEMP``). The query is stopped; nothing is left on disk."""
 
 
+class LakeTimeLimitError(LakeLimitError):
+    """NEW-B-45 (D-746): a lake query ran past the time limit its caller sent (a job's: ``TB_LAKE_QUERY_LIMITS``)
+    and was stopped. The lake's limit, as memory is (503): the caller says the lake could not answer in time, never
+    "no data"."""
+
+
 class _NdjsonFile:
     """One NDJSON file of a snapshot or of the site's inputs, parsed line by line each time it is iterated (T-692)."""
 
@@ -1624,10 +1630,24 @@ class Lake:
 
         check_select(sql)
         con = self.connect(snapshot)
-        timer = threading.Timer(timeout_s, con.interrupt)
+        stopped = threading.Event()
+
+        def stop() -> None:
+            stopped.set()
+            con.interrupt()
+
+        timer = threading.Timer(timeout_s, stop)
         timer.start()
         try:
             return con.execute(sql, params or []).to_arrow_table()
+        except duckdb.InterruptException as exc:
+            if not stopped.is_set():  # interrupted for another reason: as before
+                raise
+            log.error("lake query stopped at its time limit of %s s", timeout_s)
+            raise LakeTimeLimitError(
+                f"LAKE-TIME: the lake query was stopped at its time limit of {timeout_s} s. A job's limit is "
+                "TB_LAKE_QUERY_LIMITS (per job type); a query over the whole lake grows with the number of patients"
+            ) from exc
         except duckdb.OutOfMemoryException as exc:
             log.error("lake query stopped at its limit: %s", _first_line(exc))
             raise LakeLimitError(_limit_message(exc)) from exc
