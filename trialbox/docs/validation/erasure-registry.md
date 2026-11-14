@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-225 entries: 86 erase, 27 keep, 112 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+228 entries: 86 erase, 27 keep, 115 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -120,6 +120,9 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | --- | --- |
 | `app.flag` | settings and configuration, no patient |
 | `app.flag_event` | settings and configuration, no patient |
+| `auth.account_notices` | staff, accounts or sign-in state, no patient |
+| `auth.account_requests` | staff, accounts or sign-in state, no patient |
+| `auth.factor_resets` | staff, accounts or sign-in state, no patient |
 | `auth.login_failures` | staff, accounts or sign-in state, no patient |
 | `auth.oidc_pending` | staff, accounts or sign-in state, no patient |
 | `auth.pending_logins` | staff, accounts or sign-in state, no patient |

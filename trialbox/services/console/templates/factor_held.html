@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ t('factor.held.title') }}{% endblock %}
+{% block content %}
+{# D-719 (NEW-SEC-3): nobody holds both factors of a protected account #}
+<section class="card narrow" data-testid="factor-held">
+<h1>{{ t('factor.held.title') }}</h1>
+{% if held == 'code' %}<p class="error" role="alert">{{ t('factor.held.code', user=account) }}</p>
+{% else %}<p class="error" role="alert">{{ t('factor.held.' + held, user=account, until=until.replace('T', ' ') + ' UTC') }}</p>{% endif %}
+<p>{{ t('factor.held.why') }}</p>
+<p class="actions"><a class="button secondary" href="{{ back }}">{{ t('problem.back') }}</a></p>
+</section>
+{% endblock %}

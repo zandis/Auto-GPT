@@ -29,7 +29,7 @@ import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode
@@ -55,6 +55,10 @@ from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import actor as console_actor
 from console import api_first, demo_guard, feedback, firstrun, i18n_roles
+from console.account_rules import Hooks as AccountHooks
+from console.account_rules import Rules as AccountRules
+from console.account_rules import account_class, protected
+from console.account_rules import register as register_accounts
 from console.admin_accounts import end_date
 from console.auth import (
     AFFILIATIONS,
@@ -63,6 +67,7 @@ from console.auth import (
     Session,
     User,
     UserStore,
+    check_username,
     csrf_ok,
     random_password,
     scope_values,
@@ -462,6 +467,33 @@ def create_app(
     au: AuditLog = audit
     us: UserStore = users
     us.zone = site_tz  # an account's end date is a site day (D-270)
+    us.enrol_ttl = timedelta(hours=settings.identity.enrol_hours)  # D-719: TB_CONSOLE_ENROL_CODE_HOURS
+    account_team: dict[str, Any] = {}  # the study team store, once the workspace registers it (D-719: the PIs)
+
+    def account_tell(name: str, subject: str, body: str, by: str) -> None:
+        """D-719 (a): the steward and the PI of each of the account's studies are told, as for break-glass."""
+        stewards = [*us.users(), *us.disabled_users()]  # a disabled steward is told too (the review of D-719)
+        to = {u.mailbox for u in stewards if permit(u.role, "breakglass.review").allowed and u.mailbox}
+        target = us.get(name)
+        team_store = getattr(account_team.get("h"), "team", None)
+        if target is not None and team_store is not None:
+            for rid in target.studies:
+                pi = team_store.pi_of(rid, us.today())
+                found = us.get(pi.username) if pi is not None else None
+                if found is not None and found.mailbox:
+                    to.add(found.mailbox)
+        if not to:
+            au.append("console.account_notice", actor=f"console:{by}", detail={"user": name, "sent": 0})
+            return
+        try:
+            bk.send_notice("ACCOUNT", sorted(to), subject, body, f"console:{by}")
+        except Exception as exc:  # best effort, as break-glass: a mail that fails is an audit event
+            au.append("console.account_notice", actor=f"console:{by}",
+                      detail={"user": name, "sent": 0, "error": type(exc).__name__})  # fmt: skip
+            return
+        au.append("console.account_notice", actor=f"console:{by}", detail={"user": name, "sent": len(to)})
+
+    account_rules = AccountRules(us, au, account_tell)
 
     boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
 
@@ -666,6 +698,18 @@ def create_app(
             return []
         return list(hp.pi_missing(sess.user))
 
+    def _account_notices(sess: Session | None, lang: str) -> list[str]:
+        """D-719 (a): who reset which factor of this account when, or when it was opened; each line once."""
+        if sess is None or not us.has_notices(sess.user.username):
+            return []
+        stewards = ", ".join(
+            u.username for u in us.users() if permit(u.role, "breakglass.review").allowed
+        ) or translate(lang, "account.notice.the_steward")
+        return [
+            translate(lang, f"account.notice.{kind}", by=by, at=at[:16].replace("T", " ") + " UTC", stewards=stewards)
+            for kind, by, at in us.take_notices(sess.user.username)
+        ]
+
     def page(request: Request, name: str, sess: Session | None, status: int = 200, **ctx: Any) -> HTMLResponse:
         lang = lang_of(request, sess)
 
@@ -713,6 +757,7 @@ def create_app(
             "given": given,
             "num": _num,
             "console_js": CONSOLE_JS,
+            "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path
             + "?"
@@ -921,6 +966,24 @@ def create_app(
             secure=settings.secure_cookie,
             session_cookie=COOKIE,
             home="/home" if settings.pilot else "/",
+            rules=account_rules,
+        ),
+    )
+    register_accounts(  # D-719: the holder's first sign-in with the code, and the second person's confirmations
+        app,
+        account_rules,
+        AccountHooks(
+            need=need,
+            page=page,
+            problem=_Problem,
+            csrf_ok=csrf_ok,
+            ident=ident,
+            login_cookie=LOGIN_COOKIE,
+            session_cookie=COOKIE,
+            secure=settings.secure_cookie,
+            lang_of=lang_of,
+            client_source=client_source,
+            signed_in=lambda request: session_of(request) is not None,
         ),
     )
 
@@ -1000,6 +1063,8 @@ def create_app(
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
         made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
+        pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
         off = us.disabled_users()
         return page(
@@ -1010,6 +1075,8 @@ def create_app(
             disabled=off,
             undo=undo if undo in {u.username for u in off} else "",  # D-178: the toast's Undo after Disable
             done=done if done in ("enabled",) else "",
+            requested=done == "requested",  # D-719 (c): it waits for a second person
+            code=code,
             roles=ROLES,
             role_desc={r: role_description(r, lang_of(request, sess)) for r in ROLES},  # ROLE-018: from the matrix
             affiliations=AFFILIATIONS,
@@ -1041,13 +1108,29 @@ def create_app(
             au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
             raise _Problem(403, "forbidden")
         try:
+            me = sess.user.username
             if action == "add":
                 if role not in ROLES:
                     raise AuthError("unknown role")
+                if not permit(sess.user.role, f"account.create.{account_class(role)}").allowed:  # D-719
+                    au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users add {role}"})
+                    raise _Problem(403, "forbidden")
                 scope_values(
                     affiliation, studies, expires or None, role
                 )  # refuse a bad scope before the account exists
                 expires = end_date(role, expires or None, us.today()) or ""  # D-406 (OPS-059): at most 12 months
+                if protected(role):  # D-719 (b): a code and no password; (c): a second person confirms first
+                    name = check_username(name)
+                    if us.role_of(name):  # any state
+                        raise AuthError(f"user {name} exists")
+                    payload = {"role": role, "mailbox": mailbox.strip(), "affiliation": affiliation,
+                               "studies": studies, "expires": expires}  # fmt: skip
+                    if account_rules.second_person(me):
+                        account_rules.request("create", name, payload, me, role)
+                        return RedirectResponse("/ops/users?done=requested#requested", status_code=303)
+                    code = account_rules.open_account(name, payload, shown_to=me, requested_by=me, confirmed_by="")
+                    keep_once(sess, name, "code:" + code)
+                    return RedirectResponse("/ops/users#made", status_code=303)
                 password = random_password()
                 us.create(name, role, password, mailbox.strip() or None, must_change=True)  # D-279: the owner's first
                 made_user = us.set_scope(name, affiliation, studies, expires or None)
@@ -1072,6 +1155,18 @@ def create_app(
                     text = translate(lang_of(request, sess), "confirm.reset", user=name)
                     return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
                                         "/ops/users")  # fmt: skip
+                role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
+                if role_now and protected(role_now):  # D-719: one factor at a time, a second person
+                    held = account_rules.refuse_held(name, "password", me)
+                    if held is not None:
+                        return page(request, "factor_held.html", sess, 409, account=name, held=held[0],
+                                    until=held[1], back="/ops/users")  # fmt: skip
+                    if account_rules.second_person(me):
+                        account_rules.request("password", name, {}, me, role_now)
+                        return RedirectResponse("/ops/users?done=requested#requested", status_code=303)
+                    password = account_rules.reset_password(name, requested_by=me, confirmed_by="")
+                    keep_once(sess, name, password)
+                    return RedirectResponse("/ops/users#made", status_code=303)
                 password = random_password()
                 us.set_password(name, password, must_change=True)  # D-279: the owner replaces it at sign-in
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
@@ -1082,6 +1177,12 @@ def create_app(
                 was = next((u for u in us.users() if u.username == name), None)
                 if was is not None:  # D-406 (OPS-059): a local account's end date, at most 12 months ahead
                     expires = end_date(was.role, expires or None, us.today(), sso=us.is_sso(name)) or ""
+                role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
+                if role_now and protected(role_now) and account_rules.second_person(me):  # D-719 (c)
+                    scope_values(affiliation, studies, expires or None, role_now)
+                    account_rules.request("scope", name, {"affiliation": affiliation, "studies": studies,
+                                                          "expires": expires}, me, role_now)  # fmt: skip
+                    return RedirectResponse("/ops/users?done=requested#requested", status_code=303)
                 u2 = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(
                     "console.user",
@@ -1181,6 +1282,7 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    account_team["h"] = helpers  # D-719: the account notices find each study's PI here
     sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)

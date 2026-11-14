@@ -48,6 +48,7 @@ from fastapi.responses import RedirectResponse
 from tb_common.audit import AuditLog
 
 from console import totp
+from console.account_rules import protected
 from console.auth import MAX_FAILURES, AuthError, Session, User, UserStore, source_of
 from console.i18n import EN, JA, ZH
 from console.oidc import Identity as Found
@@ -97,6 +98,7 @@ class IdentitySettings:
     totp_key_file: Path = Path("/data/console/totp.key")
     totp_issuer: str = "TrialBox"
     oidc: OidcSettings = field(default_factory=OidcSettings)
+    enrol_hours: int = 24  # D-719: how long an enrolment code is good for (TB_CONSOLE_ENROL_CODE_HOURS)
 
     @property
     def totp_required(self) -> bool:
@@ -125,6 +127,7 @@ class IdentitySettings:
             totp_key_file=Path(key) if key else data_dir / "totp.key",
             totp_issuer=(env.get("TB_CONSOLE_TOTP_ISSUER") or "TrialBox").strip()[:40] or "TrialBox",
             oidc=oidc,
+            enrol_hours=_int_in(env, "TB_CONSOLE_ENROL_CODE_HOURS", 24, 1, 72),
         )
 
 
@@ -245,6 +248,7 @@ class Hooks:
     secure: bool
     session_cookie: str
     home: str
+    rules: Any = None  # D-719: console.account_rules.Rules, for the protected accounts
 
 
 @dataclass
@@ -274,8 +278,9 @@ class Identity:
         """A local account signs in with a TOTP code when TOTP is on; provider accounts get their factor there."""
         return self.settings.totp_required and not self.users.is_sso(user.username)
 
-    def second_step(self, user: User) -> Response:
-        token, _ = self.users.new_pending(user.username)
+    def second_step(self, user: User, enrol_ok: bool = False) -> Response:
+        """The authenticator step next; ``enrol_ok``: the holder came through the enrolment code (D-719)."""
+        token, _ = self.users.new_pending(user.username, enrol_ok=enrol_ok)
         resp = RedirectResponse("/login/totp", status_code=303)
         resp.set_cookie(MFA_COOKIE, token, httponly=True, samesite="strict", secure=self.secure, max_age=600)
         return resp
@@ -420,6 +425,7 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             ) from exc
 
     def _code_form(request: Request, username: str, csrf: str, sealed_enrol: str | None, **ctx: Any) -> Response:
+        ctx.setdefault("code_given", us.pending_enrol_ok(request.cookies.get(MFA_COOKIE)))  # D-719
         enrol = None
         if sealed_enrol is not None:
             secret = _open(username, sealed_enrol)
@@ -473,7 +479,9 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         why = "first"
         if enrolling:
             _live, why = us.enrol_state(username)
-            if not us.check_enrol_code(username, enrol_code[:64]):
+            if us.pending_enrol_ok(token):  # D-719: the holder came through the code at /enrol a moment ago
+                pass
+            elif not us.check_enrol_code(username, enrol_code[:64]):
                 reason = "enrol_code"  # the administrator's code is wrong, used or expired
         if not reason:
             step = totp.verify(secret, code[:32], now, None if enrolling else last)
@@ -672,6 +680,25 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             raise h.problem(400, "request.refused", reason="another administrator does this for your account")
         if us.is_sso(name):
             raise h.problem(400, "request.refused", reason="this account signs in through the identity provider")
+        role_now = us.role_of(name)  # whatever the account's state (the review of D-719)
+        if h.rules is not None and role_now and protected(role_now):  # D-719: nobody holds both
+            if action == "reset_totp" and confirm != "yes":
+                text = h.translate(h.lang_of(request, sess), "identity.confirm.reset", user=name)
+                return h.confirm(request, sess, text, "/ops/identity", {"action": "reset_totp", "username": name},
+                                 "/ops/identity")  # fmt: skip
+            me = sess.user.username
+            held = h.rules.refuse_held(name, "totp", me)
+            if held is not None:
+                return h.page(request, "factor_held.html", sess, 409, account=name, held=held[0], until=held[1],
+                              back="/ops/identity")  # fmt: skip
+            if h.rules.second_person(me):
+                h.rules.request("totp", name, {"how": action}, me, role_now)
+                return _admin_page(request, sess, done="requested")
+            try:
+                code = h.rules.reset_totp(name, action, requested_by=me, confirmed_by="")
+            except AuthError as exc:
+                raise h.problem(400, "request.refused", reason=str(exc)) from exc
+            return _admin_page(request, sess, done=action, code_for=name, code=code)
         if action == "enrol_code":
             try:
                 code = us.issue_enrol_code(name)

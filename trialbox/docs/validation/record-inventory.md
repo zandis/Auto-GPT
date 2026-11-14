@@ -115,7 +115,7 @@ are marked "files".
 | `services/console/breakglass_store.py` | `grants` | R-12 |
 | `services/console/breakglass_store.py` | `uses` | R-12 |
 | `services/orchestrator/db.py` | `id_limits` | R-12 |
-| `services/console/auth.py` | `users` | R-13 |
+| `services/console/auth.py` | `users`, `factor_resets`, `account_requests` | R-13 |
 | `libs/tb_common/flags.py` | `flag`, `flag_event` | R-14 |
 | `services/orchestrator/studystore.py` | `study_settings`, `rc_connection`, `rc_project_link`, `screen_scope` | R-15 |
 | `services/console/sitestore.py` | `study_settings` | R-15 |
@@ -139,7 +139,7 @@ are marked "files".
 | `services/datacore/dataops.py` | `batch`, `batch_step`, `built`, `built_kept` | R-28 |
 | `services/datacore/sponsor.py` | `sponsor_layout` | R-10 |
 | `services/patient_profile/twin.py` | `tb_patient_profile` | R-29 |
-| `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
+| `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures`, `account_notices` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
 | `services/orchestrator/db.py` | `pool`, `feedback` | O-05 |

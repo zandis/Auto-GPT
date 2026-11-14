@@ -73,12 +73,14 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/data/instruments` | Y | - | - | - | - | - | - | - | - |
 | GET | `/data/items` | - | - | - | - | - | - | - | Y | - |
 | GET | `/demo/ack` | n | n | n | n | n | n | n | n | n |
+| GET | `/enrol` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/feedback/export.csv` | Y | - | - | - | - | - | - | - | - |
 | GET | `/help` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/home` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/jobs` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/metrics` | Y | - | - | - | - | - | - | - | - |
 | GET | `/notices/received` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/ops/accounts/requests` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/ops/flags` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
 | GET | `/ops/users` | Y | - | - | - | - | - | - | - | - |
@@ -210,7 +212,9 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/data/conflicts/{cid}/resolve` | - | - | - | - | - | - | - | Y | - |
 | POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - | - | - |
 | POST | `/demo/ack` | n | n | n | n | n | n | n | n | n |
+| POST | `/enrol` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/feedback` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/ops/accounts/requests` | Y | - | - | - | - | - | - | Y | - |
 | POST | `/ops/flags` | Y | - | - | - | - | - | - | - | - |
 | POST | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
 | POST | `/ops/ingest` | Y | - | - | - | - | - | - | - | - |

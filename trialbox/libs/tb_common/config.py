@@ -451,6 +451,7 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_DIR": Declared("path", "/data/console", "console: data folder"),
     "TB_CONSOLE_FORWARDED_ALLOW_IPS": Declared("str", "127.0.0.1", "console: proxies trusted for forwarded headers"),
     "TB_CONSOLE_HOST": Declared("str", "127.0.0.1", "console: listen address"),
+    "TB_CONSOLE_ENROL_CODE_HOURS": Declared("int", "24", "console: hours an enrolment code is good for (1-72, D-719)"),
     "TB_CONSOLE_IDLE_MINUTES": Declared("int", "", "console: idle minutes before sign-out"),
     "TB_CONSOLE_MFA": Declared("str", "totp", "console: second factor (totp or off in DEV)"),
     "TB_CONSOLE_PILOT": Declared("str", "on", "console: pilot banner and limits"),

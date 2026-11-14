@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ t('enrol.title') }}{% endblock %}
+{% block content %}
+{# D-719 (NEW-SEC-3): the holder's first sign-in with the enrolment code; the holder chooses the password here #}
+<section class="card narrow">
+<h1>{{ t('enrol.title') }}</h1>
+<p>{{ t('enrol.help') }}</p>
+{% if failed == 'used' %}<div class="error" role="alert" data-testid="enrol-code-used"><p><strong>{{ t('enrol.used', at=used_at) }}</strong></p><p>{{ t('enrol.used.tell', stewards=stewards or t('account.notice.the_steward')) }}</p></div>
+{% elif failed == 'mismatch' %}<p class="error" role="alert" data-testid="enrol-error">{{ t('enrol.mismatch') }}</p>
+{% elif failed == 'policy' %}<p class="error" role="alert" data-testid="enrol-error">{{ t(reason) }}</p>
+{% elif failed == 'slowed' %}<p class="error" role="alert" data-testid="enrol-error">{{ t('enrol.slowed') }}</p>
+{% elif failed == 'locked' %}<p class="error" role="alert" data-testid="enrol-error">{{ t('enrol.locked') }}</p>
+{% elif failed %}<p class="error" role="alert" data-testid="enrol-error">{{ t('enrol.wrong') }}</p>{% endif %}
+<form method="post" action="/enrol">
+  <input type="hidden" name="login_csrf" value="{{ login_csrf }}">
+  <label for="username">{{ t('login.user') }}</label>
+  <input id="username" name="username" value="{{ username or '' }}" autocomplete="username" required maxlength="64" autocapitalize="none" spellcheck="false">
+  <label for="enrol_code">{{ t('totp.enrol.code') }}</label>
+  <input id="enrol_code" name="enrol_code" required maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" data-testid="enrol-code">
+  <label for="password">{{ t('enrol.password') }}</label>
+  <input id="password" name="password" type="password" autocomplete="new-password" required maxlength="256">
+  <label for="password2">{{ t('enrol.password2') }}</label>
+  <input id="password2" name="password2" type="password" autocomplete="new-password" required maxlength="256">
+  <button type="submit" data-testid="enrol-submit">{{ t('enrol.submit') }}</button>
+</form>
+<p class="hint"><a href="/login">{{ t('enrol.back') }}</a></p>
+</section>
+{% endblock %}

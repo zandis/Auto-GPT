@@ -45,6 +45,18 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.unlock": ("Account unlocked", "アカウントのロック解除", "解除帳號鎖定"),
     "console.enrol_code": ("Enrolment code issued", "登録コードの発行", "核發註冊碼"),
     "console.user": ("Account changed", "アカウントの変更", "帳號變更"),
+    # D-719: nobody holds both factors of a protected account
+    "console.account_request": ("Account request made", "アカウントの依頼", "提出帳號申請"),
+    "console.account_confirmed": ("Account request confirmed", "アカウント依頼の確認", "確認帳號申請"),
+    "console.account_refused": ("Account request refused", "アカウント依頼の拒否", "拒絕帳號申請"),
+    "console.account_opened": ("Account opened by its holder", "本人によるアカウント開設", "帳號由本人開通"),
+    "console.account_notice": ("Account notice mailed", "アカウント通知の送信", "寄送帳號通知"),
+    "console.enrol_code_reused": (
+        "Used enrolment code tried again",
+        "使用済み登録コードの再試行",
+        "再次嘗試已使用的註冊碼",
+    ),
+    "console.factor_refused": ("Second factor change refused", "認証要素の変更の拒否", "拒絕變更驗證因素"),
     "console.staff": ("Staff directory changed", "スタッフ名簿の変更", "人員名錄變更"),
     # reveals of chart numbers (D-438) and views of patients
     "console.reveal_patient": ("Chart number shown", "カルテ番号の表示", "顯示病歷號"),
