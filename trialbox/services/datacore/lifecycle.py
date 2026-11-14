@@ -176,7 +176,7 @@ RULE_SETS: dict[str, RuleSet] = {
     # NEW-LIFE-8 (D-766): an expected fatal or life-threatening reaction still has a 15-day PMDA report here
     "jp_gcp_ii": RuleSet(
         "jp_gcp_ii", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15), EXPECTED_REGULATOR: (15, 0)}
-    ),  # fmt: skip
+    ),
     "jp_crb": RuleSet("jp_crb", "JP", "MHLW", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (7, 15)}),
     "jp_guideline": RuleSet("jp_guideline", "JP", "MHLW", {"sponsor": (0, 0), "irb": (1, 1), "regulator": (0, 0)}),
     "tw_trial": RuleSet("tw_trial", "TW", "TFDA", {"sponsor": (1, 1), "irb": (7, 15), "regulator": (7, 15)}),
@@ -185,10 +185,11 @@ RULE_SETS: dict[str, RuleSet] = {
     # sponsor (24 hours) and the IRB
     "tw_trial_sponsor": RuleSet(
         "tw_trial_sponsor", "TW", "TFDA", {"sponsor": (1, 1), "irb": (7, 15), "regulator": (0, 0)}
-    ),  # fmt: skip
+    ),
 }
 RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)
-COUNTRY_DEFAULT = {"JP": "jp_gcp_ii", "TW": "tw_trial"}  # the country's strictest set, until the study names one
+# the country's strictest set: only its regulator's name is shown before a set is chosen (D-766)
+COUNTRY_DEFAULT = {"JP": "jp_gcp_ii", "TW": "tw_trial"}
 REPORT_RULES: dict[str, dict[str, tuple[int, int]]] = {k: dict(RULE_SETS[v].parties) for k, v in RULE_ALIASES.items()}
 # what the resolved rules can say is wrong; every one is an alert, never a quiet fallback (CR-009)
 # NEW-LIFE-8 (D-766): ``unconfirmed``: the study has not chosen its set, so no deadline is shown (an alert; it was the
