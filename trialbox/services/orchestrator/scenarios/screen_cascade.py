@@ -336,6 +336,7 @@ def summary(res: CascadeResult) -> dict[str, Any]:
             "llm_share": m.llm_share,
             "unprocessed": m.unprocessed,
             "gateway_refusals": m.gateway_refusals,
+            "context_unknown": dict(sorted(m.context_unknown.items())),  # SCR-18: prompts sized on the default
         },
         "applied": list(res.applied),
         "note_criteria": list(res.note_criteria),

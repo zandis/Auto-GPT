@@ -133,9 +133,10 @@ class CascadeMetrics:
     sampled_patients: int = 0
     gateway_refusals: int = 0
     notes_over_budget: int = 0  # patients flagged because an evidence note did not fit the excerpts (T-603)
-    # SCR-18: criteria whose judge prompt was sized on the default because the model's context could not be told
-    # (a failed GET /v1/models); in the run manifest's cascade block, so a run that could not tell says so
-    context_unknown: list[str] = field(default_factory=list)
+    # SCR-18: criterion id -> how many of its judge prompts were sized on the default because the model's context
+    # could not be told (a failed GET /v1/models); in the run manifest's cascade block and the screen summary, so a
+    # run that could not tell says so (two patients of one run may then have had other excerpts)
+    context_unknown: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

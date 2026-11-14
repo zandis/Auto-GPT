@@ -36,7 +36,7 @@ class Judge:
             return None if self.asked <= self.unknown else 9_000
 
 
-def _run(judge: Judge) -> _Run:
+def _run(judge: object) -> _Run:
     rs = Ruleset.load(ROOT / "rulesets" / "GOUT-COH")
     return _Run(None, rs, CascadeConfig(study_id="S-1", run_date=IDX), judge, None)  # type: ignore[arg-type]
 
@@ -48,14 +48,14 @@ def test_an_unknown_context_is_asked_again_and_a_told_one_is_kept() -> None:
     assert run.budget_of(c, IDX) == EXCERPT_TOKENS  # this prompt only
     assert run.budget_of(c, IDX) == 9_000  # asked again: the context is known now
     assert run.budget_of(c, IDX) == 9_000 and judge.asked == 2  # kept once told
-    assert run.metrics.context_unknown == [c.id]  # the run says it sized a prompt on the default
+    assert run.metrics.context_unknown == {c.id: 1}  # the run says it sized one prompt on the default
 
 
 def test_a_run_that_could_tell_lists_nothing() -> None:
     run = _run(Judge(unknown=0))
     c = run.rs.active()[0]
     assert run.budget_of(c, IDX) == 9_000
-    assert run.metrics.context_unknown == []
+    assert run.metrics.context_unknown == {}
 
 
 def test_each_criterion_is_listed_once_in_a_run_that_never_could_tell() -> None:
@@ -67,7 +67,7 @@ def test_each_criterion_is_listed_once_in_a_run_that_never_could_tell() -> None:
         t.start()
     for t in threads:
         t.join()
-    assert sorted(run.metrics.context_unknown) == sorted(c.id for c in cs)
+    assert run.metrics.context_unknown == {c.id: 20 * 4 for c in cs}  # how many prompts used the default
     assert judge.asked == 20 * len(threads)  # never kept: asked every time
 
 
@@ -82,4 +82,32 @@ def test_the_manifest_block_carries_the_list() -> None:
         ir_hash=run.ir_hash, criterion_hashes=run.hashes, index_dates=[IDX], traces={}, stages=[],
         metrics=run.metrics, queue=[], final_list=[], applied=[], note_criteria=[c.id], human_criteria=[],
     )  # fmt: skip
-    assert res.manifest_block()["context_unknown"] == [c.id]
+    assert res.manifest_block()["context_unknown"] == {c.id: 1}
+    from orchestrator.scenarios.screen_cascade import summary
+
+    assert summary(res)["metrics"]["context_unknown"] == {c.id: 1}  # screen_<stem>.json and the console
+
+
+def test_the_manifest_lists_criteria_in_one_order_whatever_the_order_they_were_met() -> None:
+    from matching.cascade.engine import CascadeResult
+
+    run = _run(Judge(unknown=10**6))
+    a, b = run.rs.active()[:2]
+    run.budget_of(b, IDX)
+    run.budget_of(a, IDX)
+    res = CascadeResult(
+        study_id="S-1", ruleset=run.rs.id, ruleset_version=run.rs.version, semantics=run.semantics,
+        ir_hash=run.ir_hash, criterion_hashes=run.hashes, index_dates=[IDX], traces={}, stages=[],
+        metrics=run.metrics, queue=[], final_list=[], applied=[], note_criteria=[a.id, b.id], human_criteria=[],
+    )  # fmt: skip
+    assert list(res.manifest_block()["context_unknown"]) == sorted([a.id, b.id])
+
+
+def test_a_boolean_is_no_budget() -> None:
+    class Odd:
+        def excerpt_budget(self, c: object, index_date: date) -> object:
+            return True
+
+    run = _run(Odd())
+    c = run.rs.active()[0]
+    assert run.budget_of(c, IDX) == EXCERPT_TOKENS and run.metrics.context_unknown == {c.id: 1}
