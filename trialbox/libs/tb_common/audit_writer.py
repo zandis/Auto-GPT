@@ -309,7 +309,7 @@ ROLE_EVENTS: dict[str, frozenset[str]] = {
     "tb_lake": frozenset({"lake"}),
     "tb_adapter": frozenset({"ingest", "terminology"}),
     "tb_criteria_compiler": frozenset({"approve", "compile", "ctgov", "llm"}),
-    "tb_audit_writer": frozenset({"audit"}),
+    "tb_audit_writer": frozenset({"audit", "journal"}),  # D-718: the drain's own record of a reserved name
 }
 
 
@@ -470,7 +470,8 @@ class Drain:
             # T-721 (D-488): who may say what, and when. The mark is part of the record the event is written in,
             # so there is no moment at which the event is in the chain without it.
             marks = flags_of(str(role), str(event), stamp, at) + (["unreadable"] if problem else [])
-            if str(event).split(".", 1)[0] == RESERVED and foreign(str(role), str(event)):
+            # the audit's family, and the drain's own (a service sending `journal.reserved_name` itself)
+            if str(event).split(".", 1)[0] in (RESERVED, "journal") and foreign(str(role), str(event)):
                 # D-718: never a record of the chain's own family from a service; what was sent is kept, flagged
                 f["detail"] = {**dict(f.get("detail") or {}), "sent_event": str(event)[:120]}
                 event = RESERVED_NAME

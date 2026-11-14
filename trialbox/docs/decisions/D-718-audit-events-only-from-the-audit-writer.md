@@ -30,7 +30,9 @@ failed on it.
   read from the anchor folders).
 - **The drain writes any other `audit.*` row from a service under `journal.reserved_name`**, with the name it
   was sent as (`detail.sent_event`), flagged `reserved` (and `role`), so `audit_verify --foreign` lists it. What
-  was sent is kept, as the journal's rule is (never dropped); it is never a record of the chain's own family.
+  was sent is kept, as the journal's rule is (never dropped); it is never a record of the chain's own family. The
+  drain's own family (`journal`) is reserved the same way, so a service cannot send a record that passes for the
+  drain's rename. The console's audit browser labels it, in three languages, and shows the name it was sent as.
 - **`verify` takes a key rotation only from a record the chain's writer wrote**: a rotation that came through the
   journal (any chain written before this card may hold one) is noted and not taken as a rotation.
 - Every service role is tested, and a role the table does not know.
@@ -43,9 +45,23 @@ failed on it.
 - A compromised orchestrator can still send `audit.head_signed`; verify trusts nothing in it.
 - The other review findings on the audit (SEC-11, heads only nightly; SEC-26, missing events) are not this card.
 
-## Review
+## What the adversarial review changed
 
-See "What the adversarial review changed" when the review is in.
+One review by a fresh reviewer, by running. Verdict: sound; the attack is closed.
+
+- Ran: case variants, blanks, look-alike letters and a zero-width space in the name, a bare `audit`, the
+  drain's own `audit.journal_resync` and `audit.reanchored` from a service, a `journal` key in the fields, a
+  rotation inside another event's detail: each was renamed or written under its odd name and flagged, and no key
+  was handed over. The legitimate paths hold: the nightly signer, the drain's own record, a rotation by the
+  host's tool (which writes the chain itself), the administrator's role.
+- Fixed: the new name had no label in the audit browser and its `sent_event` was not shown; a service could send
+  `journal.reserved_name` itself (it could be told apart, but now it is renamed like any reserved name).
+- **For the owner:** a chain that already holds a forged rotation sent before this card (as the console or the
+  orchestrator, whose roles had the family then, so it was not flagged) now verifies, with a note shown by
+  `tools/audit_verify.py` and on the console's verify page; earlier notes can push it past the first ten shown.
+  Accepting it lets the nightly signing resume; whether it should be louder (a warning, or listed by
+  `--foreign`) is the owner's to say.
+- Not checked by the reviewer: the real database journal and role script; the signer on a real box.
 
 ## Reuse check
 

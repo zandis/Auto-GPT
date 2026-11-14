@@ -102,3 +102,23 @@ def test_verify_takes_a_key_rotation_only_from_the_chains_own_writer(tmp_path: P
     assert res.ok, res.errors
     assert any("not taken as a key rotation" in n for n in res.notes), res.notes
     assert head["lines"] >= 1
+
+
+def test_a_service_cannot_send_the_drains_own_name_as_if_renamed(tmp_path: Path) -> None:
+    """The review's case: a service sends ``journal.reserved_name`` itself, with its own ``sent_event``. It is
+    renamed and flagged like any reserved name, so it cannot pass for the drain's own record of a rename."""
+    rows = [(1, AT, "tb_console", "journal.reserved_name", AT.isoformat(),
+             {"actor": "x", "detail": {"sent_event": ROTATED_EVENT}})]  # fmt: skip
+    drain = Drain("postgresql://x@h/db", tmp_path, "Asia/Taipei", connect=lambda: _Con(rows))
+    drain.open()
+    drain.run(once=True, alive=None)
+    (rec,) = [r for r in _lines(tmp_path) if r.get("journal")]
+    assert rec["event"] == "journal.reserved_name" and rec["detail"]["sent_event"] == "journal.reserved_name"
+    assert "reserved" in rec["journal"]["flag"]
+
+
+def test_the_renamed_record_has_its_label_and_shows_what_was_sent() -> None:
+    from console import audit_page, i18n_audit
+
+    assert "journal.reserved_name" in i18n_audit.EVENTS
+    assert "sent_event" in audit_page.SHOWN

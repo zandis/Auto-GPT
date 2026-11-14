@@ -24,6 +24,12 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "簽署鏈首並存至本機外",
     ),
     "audit.signing_key_rotated": ("Audit signing key handed over", "監査署名鍵の引き継ぎ", "稽核簽章金鑰交接"),
+    # D-718: a service sent a name of the audit's own records; kept under this name, flagged
+    "journal.reserved_name": (
+        "A service sent a name reserved for the audit's own records (kept, flagged)",
+        "サービスが監査記録専用の名前で送信（保存・印付け）",
+        "服務以稽核專用的名稱送出（已保存並標記）",
+    ),
     "audit.journal_resync": ("Audit journal resynchronised", "監査ジャーナルの再同期", "稽核日誌重新同步"),
     # reading the audit (this page)
     "console.audit_search": ("Audit trail searched", "監査証跡の検索", "搜尋稽核軌跡"),
@@ -427,6 +433,7 @@ KEYS: dict[str, tuple[str, str, str]] = {
     "ok": ("passed", "合格", "通過"),
     "head": ("head", "先頭", "鏈首"),
     "key_id": ("key", "鍵", "金鑰"),
+    "sent_event": ("name as sent", "送信時の名前", "送出時的名稱"),  # D-718
     "anchors": ("anchor folders", "アンカーフォルダ", "錨點資料夾"),
     "source": ("source", "ソース", "來源"),
     "run": ("run", "実行", "執行"),
