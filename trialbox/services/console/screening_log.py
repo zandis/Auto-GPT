@@ -35,6 +35,7 @@ from console import studies as st
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.i18n import translate
 from console.studies import known_study
 from console.timefmt import local_date, site_zone
 
@@ -127,6 +128,75 @@ def study_lines(store: Any, rid: str) -> list[list[str]]:
     for e in store.state_history(rid):
         out.append([f"state.{e.state}", e.at, e.by, e.reason])
     return out
+
+
+#: NEW-UX-3: a column whose machine word a person reads in their language, by its catalogue prefix
+WORDS = {"pi_mark": "mark.", "pi_mark_reason": "reason.", "last_contact_outcome": "outcome.",
+         "status": "registry.status.", "referral_route": "team.route.", "referral_outcome": "team.state.",
+         "referral_reason": "team.decline."}  # fmt: skip
+#: a column that lists machine words (comma-separated): the IRB warnings an approach went ahead despite
+LISTS = {"approach_irb_override": "team.irb.w."}
+
+
+def _word(lang: str, prefix: str, code: str) -> str:
+    key = prefix + code
+    word = translate(lang, key)
+    return word if word != key else code
+
+
+def _width(text: str) -> int:
+    """How wide a text prints: a CJK (wide or full-width) character is about two widths."""
+    import unicodedata
+
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
+
+
+def printable(wb: Any, lang: str, table: list[list[Any]]) -> Any:
+    """NEW-UX-3 (D-698, UX-003): the screening log as a person reads and prints it, put first in the workbook: the
+    headings and the words of the reader's language, dates as dates, the header frozen and printed on every page,
+    landscape and one page wide. The machine-readable sheets stay as they are, for the systems that read them."""
+    from datetime import date
+
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    keep = wb.active  # the machine sheet stays the one the workbook opens on (readers take the active sheet)
+    ws = wb.create_sheet(translate(lang, "log.xlsx.sheet")[:31], 0)
+    wb.active = wb.index(keep)
+    heads = [translate(lang, "log.no" if c == "screening_no" else f"log.xlsx.col.{c}") for c in sponsor.LOG_COLUMNS]
+    ws.append(heads)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for line in table:
+        out: list[Any] = []
+        for col, v in zip(sponsor.LOG_COLUMNS, line, strict=False):
+            if col in WORDS and isinstance(v, str) and v:
+                out.append(_word(lang, WORDS[col], v))
+            elif col in LISTS and isinstance(v, str) and v:
+                sep = ", " if lang == "en" else "、"
+                out.append(sep.join(_word(lang, LISTS[col], w.strip()) for w in v.split(",") if w.strip()))
+            elif col in sponsor.DATE_COLUMNS and isinstance(v, str) and len(v) >= 10:
+                try:
+                    out.append(date.fromisoformat(v[:10]))
+                except ValueError:
+                    out.append(v)
+            else:
+                out.append(v)
+        ws.append(out)
+    for i, head in enumerate(heads, 1):
+        letter = get_column_letter(i)
+        longest = max([_width(str(head))] + [_width(str(c.value or "")) for c in ws[letter][1:]])
+        ws.column_dimensions[letter].width = min(max(longest + 2, 10), 40)
+        for c in ws[letter][1:]:
+            if isinstance(c.value, date):
+                c.number_format = "yyyy-mm-dd"
+    ws.freeze_panes = "A2"
+    ws.print_title_rows = "1:1"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    return ws
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -336,7 +406,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 ws.append(line)
             about = wb.create_sheet("about")
             about.append(["study", rid])
-            about.append(["made", h.clock().isoformat(timespec="seconds")])
+            about.append(["made", h.clock().astimezone(tz).isoformat(timespec="seconds")])
             about.append(
                 ["layout", f"{cur['layout'].get('sponsor', '')} (layout {cur.get('id', '')}, {cur.get('at', '')})"]
             )
@@ -352,6 +422,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         ws.append(list(sponsor.LOG_COLUMNS))
         for line in table:
             ws.append(line)
+        printable(wb, sess.lang, table)  # NEW-UX-3 (D-698): the first sheet is the log for people
         pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark
         pre.append(["pseudonym", "first_listed", "criteria_version", "pi_mark", "pi_mark_reason", "pi_mark_date",
                     "pi_mark_by", "later", "screening_no", "referral_outcome", "referral_reason", "status",
@@ -363,7 +434,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                         rf.reason if rf else "", p["status"], p["reason"]])  # fmt: skip
         about = wb.create_sheet("about")
         about.append(["study", rid])
-        about.append(["made", h.clock().isoformat(timespec="seconds")])
+        about.append(["made", h.clock().astimezone(tz).isoformat(timespec="seconds")])  # NEW-UX-3: the site's zone
         about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
         for row in study_lines(store, rid):  # D-386 (LIFE-008, LIFE-013): identifiers and the state's dates
             about.append(row)
