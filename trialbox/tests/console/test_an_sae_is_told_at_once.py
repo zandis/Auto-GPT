@@ -71,8 +71,9 @@ def _new_case(lb: dict[str, Any], before_sync: Any = None) -> list[tuple[str, li
 
 
 def test_a_new_case_is_mailed_at_once_to_the_pi_and_the_office(
-    lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: F811
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
     sent = _new_case(lb)
     assert len(sent) == 1
@@ -157,8 +158,9 @@ def test_a_pi_who_cannot_be_mailed_is_said_and_the_worklist_says_no_mailbox(
 
 
 def test_a_case_serious_again_after_a_downgrade_is_told_again(
-    lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: F811
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The review of D-764 (4)."""
     monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
     sent = _new_case(lb)
