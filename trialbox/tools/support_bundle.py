@@ -47,6 +47,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.parse
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -66,7 +67,7 @@ NEVER_LOGS = {"db": "PostgreSQL logs a failed statement with its values (OPS-035
               "llm-service": "vLLM may log prompts, which hold note text"}  # fmt: skip
 REFUSED_SUFFIXES = (".key", ".tbbak", ".dump", ".sql", ".sql.gz", ".parquet", ".duckdb", ".db", ".sqlite", ".age")
 REFUSED_NAMES = re.compile(r"^(?:\.env|secrets\.env|pidmap.*|.*\.token|id_[a-z0-9]+)$", re.I)
-SECRET_KEY = re.compile(r"PASSW(?:OR)?D|SECRET|TOKEN|KEY|CREDENTIAL|PRIVATE|DSN|AUTH|SALT|PEPPER|COOKIE|PIN", re.I)
+SECRET_KEY = re.compile(r"PASS|_PW|SECRET|TOKEN|KEY|CREDENTIAL|PRIVATE|DSN|AUTH|SALT|PEPPER|COOKIE|PIN", re.I)
 SAFE_KEY = re.compile(r"_(?:FILE|PATH|DIR|DAYS|HOURS|MODE|TARGETS)$", re.I)  # a path or a number, not a secret
 ASSIGN = re.compile(r"^(?P<lead>\s*-?\s*)(?P<key>[A-Za-z_][A-Za-z0-9_.\-]*)(?P<sep>\s*[:=]\s*)(?P<val>.*)$")
 USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*://)[^/@\s:]+:[^/@\s]+@")
@@ -107,6 +108,140 @@ def redact_secrets(text: str) -> tuple[str, int]:
                 n += 1
         out.append(line)
     return "\n".join(out) + ("\n" if text.endswith("\n") else ""), n
+
+
+#: D-723: a secret's value shorter than this is not looked for by value (a two-letter value would be replaced in every
+#: word); it is still redacted by its name. Every secret the box makes is far longer.
+MIN_VALUE = 4
+#: every setting of the tree that holds a secret's VALUE (not a path to one). A test
+#: (tests/unit/test_support_bundle_no_secret.py) fails on a secret-like setting in neither this list nor NOT_SECRETS.
+SECRET_SETTINGS = (
+    "IMAP_PASS", "SMTP_PASS", "CLOUD_LLM_API_KEY", "TB_LLM_API_KEY", "TB_SERVICE_TOKEN", "POSTGRES_PASSWORD",
+    "POSTGRES_WF_PASSWORD", "TB_DB_PW_ADAPTER", "TB_DB_PW_AUDIT_WRITER", "TB_DB_PW_CONSOLE",
+    "TB_DB_PW_CRITERIA_COMPILER", "TB_DB_PW_FHIR_STORE", "TB_DB_PW_GATEWAY", "TB_DB_PW_LAKE", "TB_DB_PW_MAIL_GATEWAY",
+    "TB_DB_PW_ORCHESTRATOR", "TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD", "TB_ACCEPTANCE_MAIL_PASSWORD",
+    "TB_DEMO_PASSWORD", "TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE", "TB_KMS_TOKEN",
+    "TB_RC_CASSETTE_TOKEN", "OPENROUTER_API_KEY", "SPRING_DATASOURCE_PASSWORD", "TB_BAKEOFF_API_KEY", "VLLM_API_KEY",
+    "TB_SOURCE_DSN", "TB_PG_DSN",
+)  # fmt: skip
+#: secret-LOOKING names whose value is not a secret, with why: their line is still redacted by the name rule, but
+#: their value is not replaced in every file (that wrecked JSON, memory limits and host names)
+NOT_SECRETS = {
+    "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
+    "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
+}
+#: a setting not in the list whose name says it holds a secret's value: looked for too (a site's own setting)
+_SECRET_VALUE_NAME = re.compile(r"PASS|_PW_|SECRET|TOKEN|PHRASE|API_KEY|_DSN$|CREDENTIAL|PRIVATE_KEY", re.I)
+_NOT_A_SECRET = frozenset({"true", "false", "yes", "no", "on", "off", "0", "1", "none", "null", "[redacted]"})
+#: D-723: files of the secrets folders larger than this are not read for their values (a secret file is a token, a
+#: key or a short .env; a large file there is something else)
+MAX_SECRET_FILE = 64 * 1024
+
+
+def env_value(raw: str) -> list[str]:
+    """The value of one ``.env`` line's right side as compose reads it, and as it is written: a quoted value is what
+    is between its quotes (``\\"`` and ``\\\\`` unescaped in double quotes); an unquoted one ends before `` #``."""
+    raw = raw.strip()
+    forms = [raw.strip("\"'")]
+    if raw[:1] == '"':
+        end, out, k = raw.find('"', 1), [], 1
+        while k < len(raw):
+            ch = raw[k]
+            if ch == "\\" and k + 1 < len(raw):
+                out.append(raw[k + 1])
+                k += 2
+                continue
+            if ch == '"':
+                break
+            out.append(ch)
+            k += 1
+        forms.append("".join(out))
+        if end > 0:
+            forms.append(raw[1:end])
+    elif raw[:1] == "'":
+        end = raw.find("'", 1)
+        forms.append(raw[1:end] if end > 0 else raw[1:])
+    else:
+        forms.append(re.split(r"\s+#", raw, maxsplit=1)[0].strip())
+    return [f for f in dict.fromkeys(forms) if f]
+
+
+def _wanted(name: str, value: str) -> bool:
+    if name in NOT_SECRETS or SAFE_KEY.search(name) or value.lower() in _NOT_A_SECRET or len(value) < MIN_VALUE:
+        return False
+    return name in SECRET_SETTINGS or bool(_SECRET_VALUE_NAME.search(name))
+
+
+def _secret_files(roots: Iterable[Path]) -> dict[str, str]:
+    """The values of the box's secret FILES, by a name that says only where: every line of a small text file of the
+    secrets folders (a token, a key's hex, a ``.env`` line's value). Public files (``*.pub``, certificates) are not
+    read. The files themselves never go in a bundle (:func:`refusal`)."""
+    out: dict[str, str] = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for f in sorted(root.rglob("*")):
+            if not f.is_file() or f.suffix in (".pub", ".crt", ".pem") or f.stat().st_size > MAX_SECRET_FILE:
+                continue
+            try:
+                text = f.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for i, line in enumerate(text.splitlines()):
+                line = line.strip()
+                if not line or line.startswith(("#", "-----")):
+                    continue
+                key, sep, rest = line.partition("=")
+                values = env_value(rest) if sep and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else [line]
+                for k, v in enumerate(values):
+                    if len(v) >= MIN_VALUE and v.lower() not in _NOT_A_SECRET:
+                        out[f"a secret file ({f.name}, line {i + 1}.{k})"] = v
+    return out
+
+
+def secret_values(raw_env: Mapping[str, str], environ: Mapping[str, str], files: Iterable[Path] = ()) -> dict[str, str]:
+    """D-723: the box's own secret values, by a name that never shows a value: the secret settings of
+    ``deploy/.env`` and of the process environment (a passphrase typed in front of the command), each in every form
+    compose could read it, and the values of the secrets folders' files. A name list is never complete and a value
+    can turn up where no name stands next to it, so the values themselves are what is looked for."""
+    out: dict[str, str] = {}
+    for source in (raw_env, environ):
+        for name, raw in source.items():
+            for k, v in enumerate(env_value(str(raw))):
+                if _wanted(name, v):
+                    out.setdefault(name if k == 0 else f"{name} ({k})", v)
+    out.update(_secret_files(files))
+    return out
+
+
+def _forms(value: str) -> list[str]:
+    """The value as text, as a URL carries it (both percent-encodings) and as JSON writes it."""
+    forms = {
+        value,
+        urllib.parse.quote(value, safe=""),
+        urllib.parse.quote(value),
+        urllib.parse.quote_plus(value),
+        json.dumps(value)[1:-1],
+        json.dumps(value, ensure_ascii=False)[1:-1],
+    }
+    return sorted(forms, key=len, reverse=True)
+
+
+def hide_values(text: str, values: Mapping[str, str]) -> tuple[str, int]:
+    """Every form of every value in ``values`` becomes ``[redacted]``; the text and how many were replaced."""
+    n = 0
+    for value in sorted(set(values.values()), key=len, reverse=True):
+        for form in _forms(value):
+            k = text.count(form)
+            if k:
+                text = text.replace(form, "[redacted]")
+                n += k
+    return text, n
+
+
+def still_held(text: str, values: Mapping[str, str]) -> list[str]:
+    """The NAMES of the settings whose value is still in ``text`` in some form (never the values)."""
+    return sorted(name for name, value in values.items() if any(f in text for f in _forms(value)))
 
 
 def mrn_pattern(deploy: Path) -> re.Pattern[str] | None:
@@ -208,6 +343,21 @@ def _read(path: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+
+
+def _raw_env(deploy: Path) -> dict[str, str]:
+    """``deploy/.env`` as written: the right side of each line whole (quotes and comments in it), the last line of a
+    name winning, as compose reads it."""
+    out: dict[str, str] = {}
+    text = _read(deploy / ".env") or ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        key, sep, rest = line.partition("=")
+        if sep and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key.strip()):
+            out[key.strip()] = rest
+    return out
 
 
 def _env_file(deploy: Path) -> dict[str, str]:
@@ -383,6 +533,9 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
     env = {**_env_file(deploy), **{k: v for k, v in os.environ.items() if k in ("TB_LOG_DIR", "TB_AUDIT_HOST_DIR")}}
+    raw = {k: v for k, v in _raw_env(deploy).items()}
+    sec = [deploy / "secrets", *(Path(p) for p in (raw.get("TB_SECRETS_HOST_DIR") or "").split(os.pathsep) if p)]
+    values = secret_values(raw, os.environ, sec)
     extra = list(add)
     for p in extra:  # before any work: a refused path stops the whole bundle
         why = refusal(p, deploy, env)
@@ -411,6 +564,13 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         used.add(name)
         b.add(f"added/{name}", text, str(p), scrubbed=True, mrn=mrn)
     clean_lines(b, say)
+    # D-723: the box's own secret values, in every file and every form, whatever name (or none) stood next to them;
+    # before the manifest, so its checksums are of the files as they leave
+    hidden = 0
+    for name in list(b.members):
+        b.members[name], k = hide_values(b.members[name], values)
+        b.note(name, "secrets_hidden", k)
+        hidden += k
     manifest = {
         "made": now.isoformat(timespec="seconds"),
         "tool": "tools/support_bundle.py (T-209b, D-405)",
@@ -436,7 +596,8 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
             *(f"logs of {s}: {why}" for s, why in sorted(NEVER_LOGS.items())),
         ],
     }
-    b.members["MANIFEST.json"] = _json(manifest)
+    b.members["MANIFEST.json"], k = hide_values(_json(manifest), values)
+    hidden += k
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"trialbox-support-{now:%Y%m%dT%H%M%SZ}.tar.gz"
     part = out_dir / f".{target.name}.part"
@@ -450,13 +611,21 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         if hits:
             raise BundleRefused("the finished bundle still holds what the scan flags: " + "; ".join(
                 f"{Path(h.where).name}:{h.line}: {h.pattern}" for h in hits[:5]))  # fmt: skip
+        with tarfile.open(part, "r:gz") as tar:  # D-723: the last look is on the archive as it will leave
+            text = "\n".join(
+                (fh.read().decode("utf-8", errors="replace") if (fh := tar.extractfile(m)) else "")
+                for m in tar.getmembers()
+            )
+        held = still_held(text, values)
+        if held:
+            raise BundleRefused(f"the finished bundle still holds the secret value of {', '.join(held)}: not written")
         part.replace(target)
     finally:
         part.unlink(missing_ok=True)
     total = sum(int(v.get("lines_removed", 0)) for v in b.changed.values())
     red = sum(int(v.get("redacted", 0)) for v in b.changed.values())
-    say(f"wrote {target}: {len(b.members)} files; scrubber replaced {red} value(s); scan removed {total} line(s); "
-        "the finished bundle scans clean")  # fmt: skip
+    say(f"wrote {target}: {len(b.members)} files; scrubber replaced {red} value(s); {hidden} secret value(s) of the "
+        f"box replaced; scan removed {total} line(s); the finished bundle scans clean")  # fmt: skip
     return target
 
 

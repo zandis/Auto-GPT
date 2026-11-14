@@ -365,6 +365,12 @@ DECLARED_FAMILIES: dict[str, str] = {
 }
 
 DECLARED: dict[str, Declared] = {
+    "TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD": Declared(
+        "str", "", "acceptance overlay: the test mail server's TLS keystore password (tools.acceptance_env; secret)"
+    ),
+    "TB_ACCEPTANCE_MAIL_PASSWORD": Declared(
+        "str", "", "acceptance overlay: the test mail account's password (tools.acceptance_env; secret)"
+    ),
     "TB_ACTOR_KEYS_FILE": Declared("path", "", "file of keys that sign the console's user assertions (S-09)"),
     "TB_ACTOR_SIGN_KEY_FILE": Declared("path", "", "the console's own key that signs people (T-717, D-485)"),
     "TB_ADAPTER_RUN": Declared("str", "process", "adapter: the ingest runs as a process of its own, or thread (D-663)"),
@@ -663,6 +669,7 @@ DECLARED: dict[str, Declared] = {
     "TB_OBJECT_STORE": Declared("str", "fs:/data/objects", "object store (fs:<path>)"),
     "TB_OIDC_CA_FILE": Declared("path", "", "OIDC: CA file"),
     "TB_OIDC_CLIENT_ID": Declared("str", "", "OIDC: client id"),
+    "TB_OIDC_CLIENT_SECRET": Declared("path", "", "OIDC: the file of the client secret (compose secret source)"),
     "TB_OIDC_CLIENT_SECRET_FILE": Declared("path", "", "OIDC: file with the client secret"),
     "TB_OIDC_ENABLED": Declared("bool", "0", "OIDC sign-in on"),
     "TB_OIDC_GROUPS_CLAIM": Declared("str", "groups", "OIDC: groups claim"),
