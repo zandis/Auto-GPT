@@ -766,6 +766,11 @@ class _Run:
             else:
                 res = screen(self.embedder, query, [s for _, s in sents], thr)
                 res_above, best, top = res.above, res.best, [i for i, _ in res.top]
+                if index_sweep and thr.source == "public_prior" and not str(self.embedder.model).startswith("hash"):
+                    # NEW-LLM-2: the placeholder threshold was set for the hash stub; a real model's similarities clear
+                    # it almost always, so its score never rescues an index condition until the refit (as D-449 for
+                    # stored vectors); it still picks the excerpts
+                    res_above = False
             if index_sweep:
                 if res_above and sents:
                     self._rescue(t, cid, "S2b", sents[top[0]][1])
