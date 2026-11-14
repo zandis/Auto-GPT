@@ -5,6 +5,7 @@
 {% if by_chart %}{# NEW-JRN-6 (D-771): for a chart number; the pseudonym is never on this page #}
 <div class="headrow"><h1 data-testid="audit-report-by-chart">{{ t('audit.report.title_chart') }}</h1><a href="/audit">{{ t('audit.report.back') }}</a></div>
 <p class="hint">{{ t('audit.report.help_chart') }}</p>
+{% if unknown %}<p class="warn" role="alert" data-testid="audit-report-unknown">{{ t('audit.report.unknown_chart') }}</p>{% endif %}
 <section class="card">
 {% else %}
 <div class="headrow"><h1 data-testid="audit-report-title">{{ t('audit.report.title', pid=f.pid) }}</h1><a href="/audit">{{ t('audit.report.back') }}</a></div>

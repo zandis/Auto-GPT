@@ -30,6 +30,21 @@ output: `jrn6-fail.txt`).
   pseudonym in their address; a note says when older events exist). The report itself is audited
   (`console.audit_report`, `by: chart`).
 
+- **A number the box holds no patient under is refused** (409: "the box holds no patient under this chart number"),
+  so a slip of the hand never reads as "nobody saw this record"; one the box cannot say about is shown with a
+  warning to check the number (D-544).
+- **The lookup's own lines hide the pseudonym** in the audit browser for every reader (`console.chart_lookup` with
+  `for: disclosure`, `console.audit_report` with `by: chart`), so it is not one click away for the privacy office,
+  which holds `audit.ids`. The audit chain keeps it, as for every event. The steward, who holds the same rights,
+  may make the report too: it is the privacy office's and the steward's tool for a patient's request (D-380).
+
+## The review
+
+One adversarial review: NOT SOUND on the first pass. The pseudonym was one click away (the lookup's own lines in the
+browser) and an unknown chart number gave a report that looked complete. Both fixed as above and held by tests, with
+the cap shared with the opt-out door (one counter per person and hour) and the form shown only when the workspace,
+which has the door, is on.
+
 ## Remains
 
 The second half of JRN-006: a request log (access, erasure) with its state; erasure is T-206b's.

@@ -97,7 +97,7 @@ SHOWN = (
     "pid", "study", "purpose", "reason", "basis", "via", "cap", "count", "refused", "grant", "kind", "what", "where",
     "role", "affiliation", "action", "filename", "tag", "type", "format", "from", "to", "event", "who", "job",
     "lines", "ok", "head", "key_id", "anchors", "source", "run", "subject", "line", "bytes", "records", "patients",
-    "breakglass", "page",
+    "breakglass", "page", "for", "by",  # D-771: a chart number's disclosure lookup and its report say so
 )  # fmt: skip
 
 
@@ -270,6 +270,13 @@ def hide_pids(row: Row) -> Row:
     return replace(row, detail={k: one(k, v) for k, v in row.detail.items()})
 
 
+def from_chart(row: Row) -> bool:
+    """D-771: a line written by a disclosure report for a chart number (its lookup, its report)."""
+    return (row.event == "console.chart_lookup" and row.detail.get("for") == "disclosure") or (
+        row.event == "console.audit_report" and row.detail.get("by") == "chart"
+    )
+
+
 def kind_of(event: str) -> str:
     for k in REPORT_KINDS:
         if event in KINDS[k]:
@@ -411,7 +418,10 @@ def register(app: FastAPI, h: Hooks) -> None:
     def shown_to(sess: Session, rows: list[Row]) -> list[Row]:
         """D-380 (CR-023): a reader without ``audit.ids`` would see every pseudonym hidden. Both roles of
         ``audit.browse`` hold it today; the rule stays so a later row cannot widen what a reader sees."""
-        return rows if permit(sess.user.role, "audit.ids") else [hide_pids(r) for r in rows]
+        ids = permit(sess.user.role, "audit.ids")
+        # NEW-JRN-6 (the review of D-771): a disclosure lookup's own lines never show the pseudonym the chart number
+        # gave, whoever reads them (the reader of the report would otherwise find it one click away)
+        return [r if ids and not from_chart(r) else hide_pids(r) for r in rows]
 
     def label_of(lang: str) -> Any:
         return lambda event: i18n_audit.event_label(lang, event)
@@ -437,6 +447,7 @@ def register(app: FastAPI, h: Hooks) -> None:
         h.au.append("console.audit_search", actor=h.actor(sess),
                     detail={**f.audit_detail(), **({"page": "next"} if before else {})})  # fmt: skip
         return h.page(request, "audit.html", sess, records=rows, f=f, next_before=nxt, kinds=tuple(KINDS),
+                      by_chart_on="chart_to_pid" in h.doors,
                       events=i18n_audit.event_names(), bad_pid=bad == "pid" or (bool(pid.strip()) and not f.pid),
                       first=not before)  # fmt: skip
 
@@ -476,19 +487,21 @@ def register(app: FastAPI, h: Hooks) -> None:
         return h.page(request, "audit_patient.html", sess, records=rows, f=f, next_before=nxt, counts=counts,
                       kinds=REPORT_KINDS, rq=f.query(with_pid=False))  # fmt: skip
 
-    def report_by_chart(sess: Session, chart_no: str, fmt: str) -> tuple[Filter, list[Row], bool]:
+    def report_by_chart(sess: Session, chart_no: str, fmt: str) -> tuple[Filter, list[Row], bool, bool | None]:
         """D-771: the chart number's report for the page and ``/api/v1``: the door (capped, audited), the newest
         events of the patient with every pseudonym hidden, the report's own audit event."""
         door = h.doors.get("chart_to_pid")
         if door is None:
             raise h.problem(404, "notfound")
-        pid = str(door(sess, chart_no[:64], "disclosure"))
-        f = report_filter(pid, "", "", "")
+        pid, known = door(sess, chart_no[:64], "disclosure")
+        if known is False:  # the review of D-771: a number the box holds no patient under (a slip of the hand)
+            raise h.problem(409, "request.refused", reason="the box holds no patient under this chart number")
+        f = report_filter(str(pid), "", "", "")
         rows, more = search(directory(), f, REPORT_PAGE, "")
         rows = [hide_pids(r) for r in rows]  # whatever the reader's rights: never the pseudonym
         h.au.append("console.audit_report", actor=h.actor(sess),
                     detail={**f.audit_detail(), "format": fmt, "by": "chart"})  # fmt: skip
-        return f, rows, bool(more)
+        return f, rows, bool(more), known
 
     h.doors["report_by_chart"] = report_by_chart
 
@@ -501,12 +514,12 @@ def register(app: FastAPI, h: Hooks) -> None:
         sess = guard(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        f, rows, more = report_by_chart(sess, chart_no, "page")
+        f, rows, more, known = report_by_chart(sess, chart_no, "page")
         counts = {k: 0 for k in (*REPORT_KINDS, "other")}
         for r in rows:
             counts[kind_of(r.event)] += 1
         return h.page(request, "audit_patient.html", sess, records=rows, f=f, next_before=None, counts=counts,
-                      kinds=REPORT_KINDS, rq="", by_chart=True, more=bool(more))  # fmt: skip
+                      kinds=REPORT_KINDS, rq="", by_chart=True, more=bool(more), unknown=known is None)  # fmt: skip
 
     @app.get("/audit/patients/{pid}/report.csv")
     def audit_patient_csv(request: Request, pid: str, kind: str = "", since: str = "", until: str = "") -> Response:
@@ -534,6 +547,7 @@ def register(app: FastAPI, h: Hooks) -> None:
         rows, nxt = search(directory(), Filter(), PAGE)
         rows = shown_to(sess, rows)
         return h.page(request, "audit.html", sess, records=rows, f=Filter(), next_before=nxt, kinds=tuple(KINDS),
+                      by_chart_on="chart_to_pid" in h.doors,
                       events=i18n_audit.event_names(), bad_pid=False, first=True, verified=result)  # fmt: skip
 
 
@@ -575,6 +589,7 @@ def register_api(app: FastAPI, h: Hooks, api_session: Callable[[Request], Sessio
         report = h.doors.get("report_by_chart")
         if report is None:
             raise h.problem(404, "notfound")
-        _f, rows, more = report(sess, body.chart_no, "api")
-        return {"events": [{"ts": r.ts, "event": r.event, "actor": r.actor, "ruleset": r.ruleset, "detail": r.detail}
-                           for r in rows], "more": more}  # fmt: skip
+        _f, rows, more, known = report(sess, body.chart_no, "api")
+        events = [{"ts": r.ts, "event": r.event, "actor": r.actor, "ruleset": r.ruleset, "detail": r.detail}
+                  for r in rows]  # fmt: skip
+        return {"known": known, "events": events, "more": more}

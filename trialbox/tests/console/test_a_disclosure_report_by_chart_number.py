@@ -76,3 +76,46 @@ def test_the_api_twin_gives_the_events_without_the_pseudonym(door: dict[str, Any
                  headers={"Authorization": f"Bearer {tok}"})  # fmt: skip
     assert r.status_code == 200, r.text[:300]
     assert any(e["event"] == "console.reveal" for e in r.json()["events"]) and B not in r.text and B[:8] not in r.text
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+def test_the_lookups_own_lines_do_not_show_the_pseudonym_in_the_browser(door: dict[str, Any]) -> None:
+    """The review of D-771 (M1): the privacy office holds ``audit.ids``, so its own lookup line would show the
+    pseudonym one click away; a disclosure's lines hide it for every reader."""
+    dpo = _user(door, "dpo4", "privacy")
+    dpo.post("/audit/patients/by-chart", data={"csrf": _csrf(dpo.get("/audit").text), "chart_no": "SYN-0001"})
+    for q in ("event=console.chart_lookup", "event=console.audit_report"):  # other events show it (audit.ids)
+        page = dpo.get(f"/audit?{q}").text
+        assert B not in page, q
+
+
+def test_a_chart_number_the_box_holds_no_patient_under_is_refused_and_one_it_cannot_say_is_warned(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The review of D-771 (M2): a slip of the hand must not read as "nobody saw this record"."""
+    answer: dict[str, Any] = {"known": False}
+
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
+        if path == "/setup/pseudonym":
+            return {"pid": B, **answer}
+        raise Unavailable("no study store in this test")
+
+    monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)
+    dpo = _user(box, "dpo5", "privacy")
+    csrf = _csrf(dpo.get("/audit").text)
+    assert dpo.post("/audit/patients/by-chart", data={"csrf": csrf, "chart_no": "SYN-9999"}).status_code == 409
+    answer.pop("known")
+    r = dpo.post("/audit/patients/by-chart", data={"csrf": csrf, "chart_no": "SYN-9998"})
+    assert r.status_code == 200 and 'data-testid="audit-report-unknown"' in r.text
+
+
+def test_the_cap_is_shared_with_the_opt_out_door(door: dict[str, Any]) -> None:
+    dpo = _user(door, "dpo6", "privacy")
+    for i in range(20):
+        door_page = dpo.get("/site/opt-outs").text
+        dpo.post("/site/opt-outs", data={"csrf": _csrf(door_page), "chart_no": f"SYN-{i:04d}"})
+    csrf = _csrf(dpo.get("/audit").text)
+    codes = [dpo.post("/audit/patients/by-chart", data={"csrf": csrf, "chart_no": f"SYN-1{i:03d}"}).status_code
+             for i in range(11)]  # fmt: skip
+    assert codes[:10] == [200] * 10 and codes[10] == 429
