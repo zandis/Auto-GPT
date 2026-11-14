@@ -1969,14 +1969,17 @@ def create_app(
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 
     # ------------------------------------------------------------------ single case (CASE, D-91)
-    def _trial_rulesets() -> list[Any]:
-        """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8)."""
-        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")]
+    def _trial_rulesets(sess: Session) -> list[Any]:
+        """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8).
+        SEC-SCOPE (D-769): only this site's studies the account sees, as the request page lists them (D-120, D-104):
+        a scoped account is not shown other studies' names (the CASE page and the registry's home)."""
+        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")
+                and (not settings.studies or r.id in settings.studies) and sess.user.sees_study(r.id)]  # fmt: skip
 
     @app.get("/pilot/case", response_class=HTMLResponse)
     def case_form(request: Request, ruleset: str = "") -> Response:
         sess = need(request)
-        return page(request, "case.html", sess, rulesets=_trial_rulesets(), selected=ruleset, langs=LANGS)
+        return page(request, "case.html", sess, rulesets=_trial_rulesets(sess), selected=ruleset, langs=LANGS)
 
     @app.post("/pilot/case")
     async def case_submit(
@@ -2006,7 +2009,7 @@ def create_app(
         if not files:
             msg = translate(lang_of(request, sess), "case.need_file")
             return page(
-                request, "case.html", sess, 422, rulesets=_trial_rulesets(), selected=rs, langs=LANGS, error=msg
+                request, "case.html", sess, 422, rulesets=_trial_rulesets(sess), selected=rs, langs=LANGS, error=msg
             )
         parts = ["CASE", rs]
         chart_no = re.sub(r"\s+", "", mrn)
@@ -2044,7 +2047,7 @@ def create_app(
     def registry_home(request: Request) -> Response:
         sess = need(request)
         summaries = {s.ruleset: s for s in bk.registry_summaries()}
-        rulesets = _trial_rulesets()
+        rulesets = _trial_rulesets(sess)
         known = {r.id for r in rulesets}
         # a registry may outlive its ruleset version (e.g. after a re-approval): still list it
         rulesets += [RulesetInfo(rs_id, None, "registry", "trial") for rs_id in sorted(summaries) if rs_id not in known]
