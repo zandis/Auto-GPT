@@ -14,7 +14,7 @@ from tools.synth_hospital import CHUNK, DEFAULT_STUDIES, PROFILES, parse_lang_mi
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.synth_hospital", description=__doc__)
     ap.add_argument("--profile", choices=sorted(PROFILES), default="ci")
-    ap.add_argument("--sites", help="site:style:patients,... (style JP or TW); default from the profile")
+    ap.add_argument("--sites", help="site:style:patients,... (style JP, TW or EN); default from the profile")
     ap.add_argument("--lang-mix", nargs="*", help="STYLE=lang:w,lang:w ... e.g. JP=ja:0.9,en:0.1")
     ap.add_argument("--studies", default=",".join(DEFAULT_STUDIES))
     ap.add_argument("--ref-date", default="2026-11-01")

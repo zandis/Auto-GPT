@@ -38,7 +38,7 @@ from tools.synth.lang import PHI_TEMPLATES, Lang
 from tools.synth.reserved import is_reserved
 
 Row = dict[str, Any]
-STYLES = ("TW", "JP")
+STYLES = ("TW", "JP", "EN")  # EN: the TW table layout with English identities and notes (D-743)
 
 
 @dataclass(frozen=True)
@@ -466,6 +466,8 @@ class Generator:
         self.note_lang[mrn] = self.L.code
         if self.style == "JP":
             name, id_no, phone = self.jp_identity(sex)
+        elif self.style == "EN":
+            name, id_no, phone = self.en_identity(sex)
         else:
             letter = self.rng.choice("ABCDEFGHJKLMNPQRSTUVXYWZIO")
             name = N.fake_name(self.rng) if self.L.code != "en" else self.fake_person_name(self.rng, sex)
@@ -495,6 +497,12 @@ class Generator:
                 }
             )
         return mrn
+
+    def en_identity(self, sex: str) -> tuple[str, str, str]:
+        """English name, an identifier of no country (``SYN`` and seven digits: not a national number's form) and a
+        phone number of 555-0100 to 555-0199, the range kept for fiction (D-743)."""
+        name = self.fake_person_name(self.rng, sex)
+        return name, f"SYN{self.rng.randint(1_000_000, 9_999_999)}", f"555-01{self.rng.randint(0, 99):02d}"
 
     def jp_identity(self, sex: str) -> tuple[str, str, str]:
         """Japanese name (kanji), insurer number and phone. Insurer numbers use 法別番号 00, which is never issued."""
@@ -1081,6 +1089,8 @@ class Generator:
                 name = (
                     f"{names_ja.FAMILY[k % len(names_ja.FAMILY)][0]}　{names_ja.GIVEN_M[k % len(names_ja.GIVEN_M)][0]}"
                 )
+            elif self.style == "EN":
+                name = f"{names_en.GIVEN_M[k % len(names_en.GIVEN_M)]} {names_en.FAMILY[k % len(names_en.FAMILY)]}"
             self.t["practitioner"].append({"staff_id": pid, "name": name, "dept_code": dept})
         mix = list(rate("site", self.mix).items())
         if self.with_practitioners and any(k == "ad" for k, _ in mix):  # the memory clinic's doctors (T-503)
@@ -1088,6 +1098,9 @@ class Generator:
                 if self.style == "JP":
                     fam = names_ja.FAMILY[(3 * k + 1) % len(names_ja.FAMILY)][0]
                     name = f"{fam}　{names_ja.GIVEN_F[k % len(names_ja.GIVEN_F)][0]}"
+                elif self.style == "EN":
+                    fam_en = names_en.FAMILY[(3 * k + 1) % len(names_en.FAMILY)]
+                    name = f"{names_en.GIVEN_F[k % len(names_en.GIVEN_F)]} {fam_en}"
                 self.t["practitioner"].append({"staff_id": pid, "name": name, "dept_code": dept})
         kinds = [k for k, w in mix for _ in range(round(w * self.n))]
         while len(kinds) < self.n:

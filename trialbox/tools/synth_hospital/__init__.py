@@ -43,6 +43,8 @@ PROFILES: dict[str, dict[str, Any]] = {
     # Japanese-style (records and notes in Japanese and English) or both Taiwanese-style (zh-TW and English)
     "ci-ja": {"sites": "jp-a:JP:2500,jp-b:JP:2500", "tolerance": 0.05},
     "ci-zh-TW": {"sites": "tw-a:TW:2500,tw-b:TW:2500", "tolerance": 0.05},
+    # D-743: English sites (the TW table layout, English identities, every note English) for D-502's en runs
+    "ci-en": {"sites": "en-a:EN:2500,en-b:EN:2500", "tolerance": 0.05},
     # scenario J1 (T-503): one Japanese site with a memory clinic (``ad`` patients), notes in Japanese and English
     # only, for the trial AD-MAB and the registry NEUR-COH. ``site:style:patients:mix`` names the rates.yaml mix.
     "jp-ad": {
@@ -58,7 +60,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "studies": ["RA-JAK", "GZQO", "RA-COH", "RA-BIO"],
     },
 }
-DEFAULT_LANG_MIX = {"JP": {"ja": 0.9, "en": 0.1}, "TW": {"zh-TW": 0.9, "en": 0.1}}
+DEFAULT_LANG_MIX = {"JP": {"ja": 0.9, "en": 0.1}, "TW": {"zh-TW": 0.9, "en": 0.1}, "EN": {"en": 1.0}}
 DEFAULT_STUDIES = ["GOUT-COH", "GZQO", "ONC-OSI", "RA-BIO", "RA-COH"]
 
 # TB-DS-21 §5.1: the note criteria the generator has a finding slot for (criterion -> slot names)
@@ -127,7 +129,7 @@ def parse_sites(text: str, seed: int, lang_mix: dict[str, dict[str, float]]) -> 
         site_id, style, n, *rest = part.strip().split(":")
         style = style.upper()
         if style not in DEFAULT_LANG_MIX:
-            raise SystemExit(f"--sites: style must be JP or TW, got {style!r}")
+            raise SystemExit(f"--sites: style must be one of {', '.join(DEFAULT_LANG_MIX)}, got {style!r}")
         mix = rest[0] if rest else "mix"
         if mix not in RATES["site"]:
             raise SystemExit(f"--sites: unknown patient mix {mix!r} (rates.yaml site: {', '.join(RATES['site'])})")
