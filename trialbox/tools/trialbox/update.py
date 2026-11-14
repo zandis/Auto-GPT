@@ -575,6 +575,11 @@ class Updater:
             ]
         if not strict:
             return []
+        if plan.release.get("rehearsal") is True:  # D-726: tools/make_bundle.sh --rehearsal
+            raise UpdateRefused(
+                f"{plan.bundle_id} is a rehearsal bundle (release.json says rehearsal; tools/make_bundle.sh "
+                f"--rehearsal): a {env} box refuses it. It goes on a rehearsal box (deploy/install.sh --rehearsal)"
+            )
         source = plan.release.get("source")
         dirty = source.get("dirty") if isinstance(source, dict) else None
         if dirty is True:
@@ -1057,8 +1062,12 @@ class ComposeBox(_DockerImages):
     def environment(self) -> str:
         """D-633: ``TB_ENV`` of ``deploy/.env`` (its last line, as install.sh reads it), PRODUCTION when it is not
         set or there is no file yet (D-127). Never the process environment: a ``TB_ENV=DEV`` typed in front of the
-        installer is not written to the box."""
-        return (_env_file(self.deploy / ".env").get("TB_ENV") or "PRODUCTION").strip().upper()
+        installer is not written to the box. D-726: a rehearsal box (``install.sh --rehearsal``) is TEST from before
+        the bundle loads, by its mark ``deploy/site/rehearsal.json``, until deploy/.env says; deploy/.env wins."""
+        named = _env_file(self.deploy / ".env").get("TB_ENV")
+        if not named and (self.deploy / "site" / "rehearsal.json").is_file():
+            return "TEST"
+        return (named or "PRODUCTION").strip().upper()
 
     def running_services(self) -> list[str] | None:
         """D-724: the compose services that run now; None when compose cannot answer."""
@@ -1898,16 +1907,19 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     except ValueError as exc:  # a malformed record: never guessed
         print(f"update REFUSED: {updates / us.INSTALLED} is unreadable ({exc}); RUNBOOK §5; nothing was changed")
         return 1
-    if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
-        print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
-        return 0
     # D-633: a site box takes only a release built from a commit. Here, before either path: install.sh's first load
-    # below never runs the preflight, and a fresh box (no deploy/.env yet) is PRODUCTION
+    # below never runs the preflight, and a fresh box (no deploy/.env yet) is PRODUCTION (TEST only with the mark of
+    # a --rehearsal install, which install.sh refuses to leave behind for a site's install, D-726). Before the
+    # "already installed" answer too (D-726, review F6): a box made a site box by hand does not keep a rehearsal
+    # bundle by installing it again
     try:
         Updater(box, updates, say=print)._from_a_commit(plan)
     except UpdateRefused as exc:
         print(f"update REFUSED: {exc}; nothing was changed")
         return 1
+    if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
+        print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
+        return 0
     in_service = box_in_service(deploy, box)
     if not box.running():
         if in_service:

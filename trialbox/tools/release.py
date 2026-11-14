@@ -269,6 +269,7 @@ def build(
     images_lock: Path = IMAGES_LOCK,
     now: dt.datetime | None = None,
     pyproject: Path = PYPROJECT,
+    rehearsal: bool = False,
 ) -> dict[str, Any]:
     """Check the bundle's images against the gate record, collect their SBOMs, write release.json and images.lock.
 
@@ -386,6 +387,8 @@ def build(
         "sboms": sboms,
         "components": components,
     }
+    if rehearsal:  # D-726: a bundle for a rehearsal box; a PRODUCTION or VALIDATION box refuses it
+        rel["rehearsal"] = True
     from tb_contracts import validate
 
     validate("release", rel)
@@ -478,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out-dir", type=Path, required=True)
     b.add_argument("--images-lock", type=Path, default=IMAGES_LOCK)
     b.add_argument("--image", action="append", default=[], metavar="REF=ARCHIVE")
+    b.add_argument("--rehearsal", action="store_true", help="a bundle for a rehearsal box only (D-726)")
     b.add_argument("items", nargs="*", help="kind:path[=dest], every payload file of the bundle")
     c = sub.add_parser("check", help="does a built bundle's release.json name every component?")
     c.add_argument("bundle", type=Path)
@@ -503,6 +507,7 @@ def main(argv: list[str] | None = None) -> int:
                 images=imgs,
                 items=[parse_item(i) for i in args.items],
                 images_lock=args.images_lock,
+                rehearsal=args.rehearsal,
             )
             print(
                 f"release: {rel['version']} {rel['release_id']} (seq {rel['release_seq']}): {len(rel['images'])} "

@@ -97,7 +97,8 @@ def _install_to_the_host_step(tmp: Path, *args: str, **env: str) -> subprocess.C
 
 
 def run_install_trial_boot(tmp: Path) -> None:
-    _install_to_the_host_step(tmp, "--gpu", "rtxpro6000", TB_ACCEPT_UNMEASURED_GPU="1")
+    _install_to_the_host_step(tmp, "--gpu", "rtxpro6000", "--rehearsal", TB_COMPOSE_OVERRIDE="",
+                              TB_ACCEPT_UNMEASURED_GPU="1")  # fmt: skip
 
 
 def run_install_tier(tmp: Path) -> None:
@@ -327,7 +328,10 @@ def run_import_example(tmp: Path) -> None:
 RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"tools/serving_config\.py measured", run_serving_measured),
     (r"deploy/install\.sh --tier large --tier-check", run_tier_check),
-    (r"TB_ACCEPT_UNMEASURED_GPU=1 deploy/install\.sh <bundle> --gpu <profile>", run_install_trial_boot),
+    (
+        r"TB_COMPOSE_OVERRIDE= TB_ACCEPT_UNMEASURED_GPU=1 deploy/install\.sh <bundle> --gpu <profile> --rehearsal",
+        run_install_trial_boot,
+    ),
     (r"python3 tools/serving_config\.py capture .*", run_capture),
     (r"python -m tools\.gpu_sizing", run_gpu_sizing),
     (r"sudo deploy/install\.sh trialbox-<version>\.tar --tier large --answers site\.yaml", run_install_tier),
