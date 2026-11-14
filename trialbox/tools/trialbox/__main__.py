@@ -153,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
         "anchors-compose", help="the compose file that mounts the anchor folders into the console (D-638)"
     )
     ac.add_argument("--deploy", type=Path, default=deploy)
+    om = sub.add_parser("omop-store", help="make a second lake's OMOP store for the OMOP group (D-721)")
+    om.add_argument("--lake", type=Path, required=True, help="the lake's folder, as the services name it")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
     lg.add_argument("action", choices=["collect", "prune", "archive-audit", "daily"])
     lg.add_argument("--deploy", type=Path, default=deploy)
@@ -244,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import anchors
 
         return anchors.main_action(a.deploy)
+    if a.cmd == "omop-store":
+        from tools.trialbox import omop_store
+
+        return omop_store.main_action(a.lake)
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 

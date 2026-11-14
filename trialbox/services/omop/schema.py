@@ -422,9 +422,53 @@ def schema_for(lake_dir: Path | None) -> str:
     return f"{SCHEMA}_" + hashlib.sha1(str(path).encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
 
 
-def connect(url: str | None = None, name: str = SCHEMA) -> Database:
-    """The OMOP schema ``name`` (``<tb_prefix>omop`` by default), migrated to the current version."""
-    db = Database.connect(url or db_url(), name)
+#: D-721: the two services that write and read one lake between them (the adapter loads, the lake builds and
+#: exports). A store one of them made alone is never right: the other could not open it. The orchestrator's site
+#: spaces (``sitesetup``: a lake under its own data folder, read by its own process only) are the orchestrator's own.
+LAKE_SHARERS = ("tb_lake", "tb_adapter")
+
+
+def _a_sharer_would_make_it(url: str, name: str) -> bool:
+    """Under the role script (the OMOP group exists), asked by the lake service's or the adapter's role: is the
+    store ``name`` missing, so that opening it would make it that one service's own?"""
+    from tb_common.db import GROUP_PREFIX, ask_once, split_url
+
+    prefix = split_url(url)[1]
+    row = ask_once(
+        url,
+        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = %s), "
+        "EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = %s), session_user::text",
+        ((GROUP_PREFIX + prefix + SCHEMA)[:63], prefix + name),
+    )
+    if row is None:
+        return False  # no database: the open below says so in its own words
+    has_group, there, user = row
+    return bool(has_group) and not there and user in LAKE_SHARERS
+
+
+def connect(
+    url: str | None = None, name: str = SCHEMA, *, lake_dir: Path | None = None, admin: bool = False
+) -> Database:
+    """The OMOP schema ``name`` (``<tb_prefix>omop`` by default), migrated to the current version.
+
+    D-721: a store other than the box's own (``schema_for`` of a lake that is not ``TB_LAKE_DIR``) is on no
+    service's list. Under the role script, if the lake service or the adapter opened a missing one it would make it
+    and own it, and the other could not open it; so those two refuse, and the admin's step makes the store for the
+    OMOP group (``python3 -m tools.trialbox omop-store``, which passes ``admin``). The same refusal stops a lake
+    service that was started without ``TB_LAKE_DIR``. The orchestrator's site spaces are its own: it makes their
+    stores. ``lake_dir`` is the folder the name was made from, for the sentence."""
+    url = url or db_url()
+    if name != SCHEMA and not admin and url and _a_sharer_would_make_it(url, name):
+        box = os.environ.get("TB_LAKE_DIR")
+        folder = str(lake_dir) if lake_dir is not None else "<folder>"
+        named = f"TB_LAKE_DIR={box}" if box else "not named: TB_LAKE_DIR is not set for this service"
+        raise OmopError(
+            f"the OMOP store {name} of the lake {folder} does not exist, and this service does not make one alone: "
+            f"the lake service and the adapter share a lake's store. The box's lake is {named}. Set TB_LAKE_DIR to "
+            "this lake's folder if it is the box's lake; for a second lake, make its store as the admin: "
+            f"python3 -m tools.trialbox omop-store --lake {folder}"
+        )
+    db = Database.connect(url, name)
     db.migrate(migrations())
     from omop import vocab
 
