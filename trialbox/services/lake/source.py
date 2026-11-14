@@ -132,7 +132,8 @@ def lake_rows(
 
     T-692 (D-473): with ``stream`` the values of ``feed`` and ``site`` may be re-readable streams (readers of NDJSON
     files) and the legacy rows come back as re-readable streams (:meth:`Flattener.stream`), one table at a time; the
-    ``omop`` path still loads the whole snapshot (scale review F-17, card T-702)."""
+    ``omop`` path loads them a chunk at a time (NEW-B-37, D-678); the export back from OMOP is still whole (scale
+    review F-17, card T-702)."""
     if source is None:
         source, origin = rebuild_source()  # read once, when the rebuild starts (D-207)
         record_source(lake_dir, snapshot, source, origin)
@@ -144,6 +145,8 @@ def lake_rows(
         for k, v in site.items():  # D-135: the site's own inputs join every snapshot (after the hospital's)
             merged.setdefault(k, []).extend(v)
         return Flattener(tz).flatten(merged)
+    if stream:  # NEW-B-37 (D-678): re-readable streams go to the OMOP load as they are, read a chunk at a time
+        return omop_rows(feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
     feed_l: Resources = {k: list(v) for k, v in feed.items()}
     site_l: Resources = {k: list(v) for k, v in site.items()}
     return omop_rows(feed_l, site_l, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
@@ -161,8 +164,8 @@ class _Joined:
 
 
 def omop_rows(
-    feed: Resources,
-    site: Resources,
+    feed: Mapping[str, Iterable[dict[str, Any]]],
+    site: Mapping[str, Iterable[dict[str, Any]]],
     *,
     tz: str,
     snapshot: str,

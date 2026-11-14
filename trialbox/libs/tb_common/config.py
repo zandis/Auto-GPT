@@ -686,6 +686,9 @@ DECLARED: dict[str, Declared] = {
     "TB_OMOP_CONCEPT_BLOCK": Declared("int", "", "OMOP: concept id block"),
     "TB_OMOP_DB_URL": Declared("str", "", "OMOP database URL (unset: TB_DB_URL)"),
     "TB_OMOP_DUAL_WRITE": Declared("bool", "", "OMOP dual write on"),
+    "TB_OMOP_LOAD_CHUNK": Declared(
+        "int", "", "OMOP load: records one chunk holds (unset: a sixteenth of the memory cap at 9.5 KB a record; D-678)"
+    ),
     "TB_OPPORTUNITY_APPROVED_FILE": Declared("path", "", "opportunity feed: steward's approved study list (D-467)"),
     "TB_OPPORTUNITY_PERIOD_DAYS": Declared(
         "int", "30", "opportunity feed: publication period, at least 28 days, so a day's change is not exposed"

@@ -68,8 +68,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "load":
             snap = a.snapshot or (a.lake / "CURRENT").read_text().strip()
-            feed = _read(a.lake / "ndjson" / snap)
-            site = _read(a.lake / "site")
+            from adapter.ndjson import readers
+
+            feed = readers(a.lake / "ndjson" / snap)  # a chunk at a time, never held whole (D-678)
+            site = readers(a.lake / "site")
             out = [
                 load_batch(db, "feed", snap, feed, None, a.tz).as_dict(),
                 load_batch(db, "site", f"site@{snap}", site, None, a.tz).as_dict(),

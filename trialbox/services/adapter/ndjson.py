@@ -51,6 +51,21 @@ def read_all(directory: Path) -> dict[str, list[Resource]]:
     return {p.stem: list(read_type(directory, p.stem)) for p in sorted(directory.glob("*.ndjson"))}
 
 
+class Reread:
+    """The records of one type of a snapshot, read from its file again each time they are iterated: never held."""
+
+    def __init__(self, directory: Path, rtype: str) -> None:
+        self.directory, self.rtype = directory, rtype
+
+    def __iter__(self) -> Iterator[Resource]:
+        return read_type(self.directory, self.rtype)
+
+
+def readers(directory: Path) -> dict[str, Iterable[Resource]]:
+    """Every type of a snapshot as a :class:`Reread` (NEW-B-37, D-678: the OMOP load takes them a chunk at a time)."""
+    return {p.stem: Reread(directory, p.stem) for p in sorted(directory.glob("*.ndjson"))}
+
+
 def is_deleted_flag(value: object) -> bool:
     """A source's "deleted" marker: ``1``, ``true``, ``y``, ``yes``, ``d``, ``deleted`` (any case) means deleted."""
     return str(value if value is not None else "").strip().lower() in _DELETED
