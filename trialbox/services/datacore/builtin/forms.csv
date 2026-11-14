@@ -8,12 +8,12 @@ sl_criterion,tb_screening_log,text,Criterion not met (its id),満たさなかっ
 sl_crit_version,tb_screening_log,text,Criteria version,基準の版,條件版本,,,,,,,[sl_eligible] = '0',
 sl_approached,tb_screening_log,radio,Told about the study,研究について説明した,已向病人說明研究,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,[sl_eligible] = '1',
 sl_note,tb_screening_log,notes,Note,メモ,備註,,,,,,,,
-ic_date,tb_consent,text,Date of consent,同意取得日,簽署同意日期,,,,date_ymd,2000-01-01,today,,y
+ic_date,tb_consent,text,Date of consent,同意取得日,簽署同意日期,,,,date_ymd,2000-01-01,,,y
 ic_version,tb_consent,text,Consent form version,同意説明文書の版,受試者同意書版本,,,,,,,,y
 ic_by,tb_consent,text,Consent taken by (initials),同意取得者(イニシャル),取得同意者(姓名縮寫),,,,,,,,
 ic_copy,tb_consent,radio,Copy given to the participant,写しを参加者に渡した,已交付副本給受試者,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
 ic_reconsent,tb_consent,radio,Consent again on a new version,新しい版で再同意,依新版本重新同意,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
-ic_reconsent_date,tb_consent,text,Date of the new consent,再同意日,重新同意日期,,,,date_ymd,2000-01-01,today,[ic_reconsent] = '1',y
+ic_reconsent_date,tb_consent,text,Date of the new consent,再同意日,重新同意日期,,,,date_ymd,2000-01-01,,[ic_reconsent] = '1',y
 ic_reconsent_version,tb_consent,text,Version of the new consent form,再同意の同意説明文書の版,重新同意的同意書版本,,,,,,,[ic_reconsent] = '1',
 ic_lang,tb_consent,radio,Language of the consent form,同意説明文書の言語,同意書的語言,"1, Japanese | 2, Chinese (Traditional) | 3, English | 4, Other","1, 日本語 | 2, 中国語（繁体字） | 3, 英語 | 4, その他","1, 日文 | 2, 繁體中文 | 3, 英文 | 4, 其他",,,,,
 ic_think_date,tb_consent,text,Date the form was given to think it over,検討のため説明文書を渡した日,交付同意書供考慮的日期,,,,date_ymd,2000-01-01,,,

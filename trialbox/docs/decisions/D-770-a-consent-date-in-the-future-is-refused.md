@@ -11,18 +11,33 @@
 
 The built-in consent form saved "Consent: given 2027-03-01" without a word, and the screening log and the enrolment
 report carried it. Consent before any study procedure is the first thing an inspector checks, and a typing error
-became the record. **Confirmed by a test** before the change (kept failing output: `jrn7-fail.txt`).
+became the record. **Confirmed by tests** before the change (kept failing output: `jrn7-fail.txt`).
 
 ## The decision
 
-- **REDCap's `today` is a date field's limit**, read as the site's day (`datacore.forms.site_today`, `site.tz`):
-  `text_validation_min`/`max` of `today` (or `now`) is that day, a date as written stays as it is.
-- **The consent dates take `today` as their maximum** (`ic_date`, `ic_reconsent_date` in the built-in forms): a
-  later day is refused with the `max` reason (naming the day), as any value out of range, on every save path that
-  checks the form (the console's entry page, the API).
-- **The entry page's date picker stops at the site's day** too (the page shows `today` resolved).
-- Consent after enrolment or after a visit was already flagged (`enrolment_before_consent`, `visit_before_consent`,
-  and the possible deviation `consent_after`); nothing changes there.
+- **A consent date after the site's day is refused when a person enters or changes it.** The built-in consent
+  form's dates (`ic_date`, `ic_reconsent_date`; `lifecycle.CONSENT_DATES`) are checked by name in the data core's
+  two entry paths (`sync.enter`, `PUT /studies/{rs}/data`; `sync.save_form`, the console's entry page): a day
+  later than the site's day of the service's clock (`at`: a pinned test day included; `site.tz` from `TB_TZ`) is
+  refused with the `max` reason naming that day. By name, so every study is held, also one that added the built-in
+  forms before this rule (its stored copy of the form carries no limit). Only a value entered or changed is checked:
+  a value already stored never blocks a later save of the form.
+- **One that arrives another way is flagged.** The REDCap read-back writes REDCap's values as they are; a consent
+  dated after the subject page's day is shown as `consent_in_future` in the three languages (`consent_order`).
+- **A visit done before consent is a possible deviation** (`consent_after_visit`, deviation kind 2), as an enrolment
+  before consent was (`consent_after`); the subject page already flagged both (`visit_before_consent`,
+  `enrolment_before_consent`).
+- **Not done:** a general `today` in the forms' limits (REDCap's word). Its first version here moved under stored
+  values (a sponsor field with `min today` became invalid the next day), went out literally in the FHIR and ODM
+  exports and did not reach existing studies; the review replaced it with the rule above. Paths that call the form
+  check but are not a person's entry (the ODM import, EDC prefill) are not changed by this card.
+
+## The review
+
+One adversarial review: NOT SOUND on the first pass (the limit did not reach studies that added the forms before;
+`today` moved under stored values; the exports carried the literal word; the site day ignored the pinned clock; the
+read-back stored a future date silently; a visit before consent was no possible deviation). All met by the decision
+above and held by tests on the real data core and lifecycle routes.
 
 ## Reuse check
 

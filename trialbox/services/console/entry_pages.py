@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from datacore.branching import css_rules
-from datacore.forms import fields_of, site_today, titles_of
+from datacore.forms import fields_of, titles_of
 from datacore.lifecycle import icf_check
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -66,11 +66,6 @@ def record_key(record: str) -> str:
     return rec.lower() if _PID.match(rec) else rec.upper()
 
 
-def _limit(v: str) -> str:
-    """D-770: REDCap's ``today`` in a date field's limit as the site's day, so the date picker stops there too."""
-    return site_today().isoformat() if v.strip().lower() in ("today", "now") else v
-
-
 def form_view(q: dict[str, Any]) -> dict[str, Any]:
     """A Questionnaire as the entry page shows it; labels in every language (the template picks the page's)."""
     fields = []
@@ -79,7 +74,7 @@ def form_view(q: dict[str, Any]) -> dict[str, Any]:
             "name": f.name, "kind": f.kind, "label": f.label or f.name, "labels": f.labels,
             "options": [{"code": c, "label": d, "labels": {g: f.option_labels.get(g, {}).get(c, "")
                                                          for g in f.option_labels}} for c, d in f.options.items()],
-            "required": f.required, "vmin": _limit(f.vmin), "vmax": _limit(f.vmax), "branching": f.branching,
+            "required": f.required, "vmin": f.vmin, "vmax": f.vmax, "branching": f.branching,
             "entered": f.kind in ENTERED,
         })  # fmt: skip
     return {"name": q.get("name", ""), "titles": titles_of(q), "fields": fields}

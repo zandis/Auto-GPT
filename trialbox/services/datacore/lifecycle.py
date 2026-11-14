@@ -132,7 +132,8 @@ CONTACT_DEFAULT = (3, 1)  # (maximum attempts, minimum days between two attempts
 CONTACT_BOUNDS = ((1, 20), (0, 60))
 # D-407 (LIFE-025): the kinds of possible deviation the box proposes from its own facts, with the deviation form's
 # kind (``dv_kind``) each one becomes when confirmed
-PROPOSAL_KINDS = {"visit_window": "3", "consent_version": "2", "consent_after": "2", "eligibility": "1"}
+PROPOSAL_KINDS = {"visit_window": "3", "consent_version": "2", "consent_after": "2", "consent_after_visit": "2",
+                  "eligibility": "1"}  # fmt: skip
 DECISIONS = ("confirm", "dismiss")
 # D-407 (LIFE-020): randomisation is the sponsor's IRT's act; the enrolment form records that it happened, the day and
 # the randomisation number. No arm is ever stored (blinding).
@@ -359,7 +360,10 @@ def check_visit(v: Visit) -> None:
 # {version, effective_from ('' = from the start), irb_approved_on, reconsent (a new version asks for re-consent)}.
 RC_EVENT = re.compile(r"^rc(\d{1,3})$")
 ICF_WARNINGS = ("icf_none", "icf_not_listed", "icf_unapproved", "icf_not_yet", "icf_superseded")
-CONSENT_FLAGS = ("enrolment_before_consent", "visit_before_consent", "no_consent_form")
+CONSENT_FLAGS = ("enrolment_before_consent", "visit_before_consent", "no_consent_form", "consent_in_future")
+#: NEW-JRN-7 (D-770): the built-in consent form's dates; one after the site's day is refused when a person enters it
+#: (``datacore.sync``) and flagged when it arrives another way (a REDCap read-back)
+CONSENT_DATES = ("ic_date", "ic_reconsent_date")
 ON_STUDY = ("consented", "enrolled", "on_study")  # who is asked to consent again on a new version
 
 
@@ -559,7 +563,8 @@ class Lifecycle:
         """The study records consent in TrialBox (it has the built-in consent form); else the sponsor's CRF does."""
         return "ic_date" in self.dc.fields(study)
 
-    def consent_record(self, study: str, record: str, state: str = "", here: bool | None = None) -> dict[str, Any]:
+    def consent_record(self, study: str, record: str, state: str = "", here: bool | None = None,
+                       today: date | None = None) -> dict[str, Any]:  # fmt: skip
         """D-399 (FIT-009, LIFE-018, LIFE-019): every consent the forms record (the first, the old re-consent slot and
         each ``rcN`` event), oldest first; the last one; what is out of order (an enrolment or a visit dated before
         the first consent, a subject past consent with no consent form in a study that records consent here); and
@@ -568,7 +573,7 @@ class Lifecycle:
         for r in self.dc.values(study, record):
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
         cs = consents_of(vals)
-        flags = consent_order(vals, cs)
+        flags = consent_order(vals, cs, today)
         here = self.records_consent(study) if here is None else here
         if here and not cs and state in (*ON_STUDY, "completed", "withdrawn"):
             flags.append({"flag": "no_consent_form", "day": "", "event": "", "consent_day": ""})
@@ -864,6 +869,14 @@ class Lifecycle:
             out.append({"kind": "consent_after", "key": "consent_after:enrolment", "day": en.isoformat(),
                         "detail": {"enrolled": en.isoformat(), "consented": ic.isoformat()},
                         "text": f"Enrolled on {en.isoformat()}, before consent on {ic.isoformat()}."})  # fmt: skip
+        for ev, v in sorted(vals.items()):  # NEW-JRN-7 (D-770): a visit done before consent, as for enrolment
+            vd = _day(v.get("vs_date", ""))
+            if ev and ic is not None and v.get("vs_status") == "1" and vd is not None and vd < ic:
+                out.append({"kind": "consent_after_visit", "key": f"consent_after:visit:{ev[:40]}",
+                            "day": vd.isoformat(),
+                            "detail": {"visit": ev[:40], "done": vd.isoformat(), "consented": ic.isoformat()},
+                            "text": f"Visit {ev[:40]} done on {vd.isoformat()}, before consent on "
+                                    f"{ic.isoformat()}."})  # fmt: skip
         if en is not None and once.get("en_eligible") == "1" and once.get("sl_eligible") == "0":
             crit = once.get("sl_criterion", "").strip()
             crit = crit if CRITERION.match(crit) else ""
@@ -1094,13 +1107,20 @@ def consents_of(vals: dict[str, dict[str, str]]) -> list[dict[str, str]]:
     return out
 
 
-def consent_order(vals: dict[str, dict[str, str]], consents: list[dict[str, str]]) -> list[dict[str, str]]:
+def consent_order(vals: dict[str, dict[str, str]], consents: list[dict[str, str]],
+                  today: date | None = None) -> list[dict[str, str]]:  # fmt: skip
     """LIFE-019: an enrolment or a visit done dated before the first consent. Each is flagged (the subject page
-    offers a deviation entry); the dates are never changed."""
+    offers a deviation entry); the dates are never changed. NEW-JRN-7 (D-770): a consent dated after ``today`` (it
+    came by a REDCap read-back, which writes REDCap's values as they are) is flagged too."""
     if not consents:
         return []
     first = consents[0]["day"]
     out: list[dict[str, str]] = []
+    if today is not None:
+        for c in consents:
+            if c["day"] > today.isoformat():
+                out.append({"flag": "consent_in_future", "day": c["day"], "event": c.get("event", ""),
+                            "consent_day": c["day"]})  # fmt: skip
     en = vals.get("", {}).get("en_date", "")
     if _day(en) is not None and en[:10] < first:
         out.append({"flag": "enrolment_before_consent", "day": en[:10], "event": "", "consent_day": first})

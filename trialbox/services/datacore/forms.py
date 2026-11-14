@@ -18,7 +18,6 @@ import csv
 import io
 import re
 from dataclasses import dataclass, field
-from datetime import date
 from typing import Any
 
 # REDCap's data dictionary column headers (export names and the short API names)
@@ -338,24 +337,6 @@ def xml_text(text: str) -> str:
     return XML_ILLEGAL.sub("\ufffd", text)
 
 
-def site_today() -> date:
-    """The site's calendar day (``site.tz``): what REDCap's ``today`` means in a date field's limit (D-770)."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    from tb_common.config import site_tz
-
-    return datetime.now(ZoneInfo(site_tz())).date()
-
-
-def _day_limit(v: str) -> str:
-    """A date field's limit as ``YYYY-MM-DD``: a date as written, REDCap's ``today`` (or ``now``) as the site's day,
-    "" for none."""
-    if v.strip().lower() in ("today", "now"):
-        return site_today().isoformat()
-    return v[:10] if _DATE.match(v[:10]) else ""
-
-
 def problem(f: Field, value: str) -> dict[str, str] | None:
     """None if ``value`` (a raw code) fits the field's type and range, else ``{field, code, ...}``. The code names
     the reason (chars, choice, date, datetime, integer, decimal, min, max, not_entered), for a message in any
@@ -400,11 +381,10 @@ def problem(f: Field, value: str) -> dict[str, str] | None:
         if x is not None and hi is not None and x > hi:
             return {**p, "code": "max", "max": f.vmax}
     if f.kind in ("date", "dateTime"):  # ISO dates compare as text
-        first, last = _day_limit(f.vmin), _day_limit(f.vmax)  # D-770: REDCap's ``today`` is the site's day
-        if first and value[:10] < first:
-            return {**p, "code": "min", "min": first}
-        if last and value[:10] > last:
-            return {**p, "code": "max", "max": last}
+        if _DATE.match(f.vmin[:10]) and value[:10] < f.vmin[:10]:
+            return {**p, "code": "min", "min": f.vmin}
+        if _DATE.match(f.vmax[:10]) and value[:10] > f.vmax[:10]:
+            return {**p, "code": "max", "max": f.vmax}
     return None
 
 
