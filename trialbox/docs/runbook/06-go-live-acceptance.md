@@ -12,6 +12,13 @@
 6. `reproduce --results rerun.jsonl`, after `docker compose exec orchestrator python -m orchestrator.rerun <job ids>
    > rerun.jsonl`
 7. `audit --dir <audit copy>`
+8. `capacity --jobs night.json` (T-317a, D-730): one night of the site's own data, the jobs as the orchestrator lists
+   them (`GET /jobs?limit=500`) saved as one JSON list. The night's chain (its ingest, then screen, nav and
+   retention) must end `done` before the first morning notice (`TB_NOTICE_N1_AT`, 07:00 by default, in `TB_TZ`)
+   with at least an hour to spare. `--night <name>` picks a night other than the newest.
+9. `power-cycle --doctor doctor-after.json --audit-dir <audit copy>` (T-317a, D-730): during the planned power cut
+   of §22, or a test of it before go-live. After the power comes back, run `trialbox doctor --json > doctor-after.json`:
+   no FAIL, and the audit chain verifies.
 
 Also run `make test-egress` (§1 of [Security](../SECURITY.md)) and keep the host check output.
 
