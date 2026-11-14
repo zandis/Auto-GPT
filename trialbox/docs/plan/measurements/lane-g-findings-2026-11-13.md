@@ -131,7 +131,7 @@ the criteria-compiler lane.
   pins that (`test_g8_records_a_protocol_that_does_not_compile_and_measures_the_other`). The run kept no raw model
   answer, so which CDR line named the concept is not recorded.
 
-### P6. MedTxt-CR: the "negated" conditions shown are past, treated disease; the check counts them (owner of `tools/scenarios.py`)
+### P6. MedTxt-CR: the "negated" conditions shown are past, treated disease; the check counted them (check corrected by lane G)
 
 Run `20261114T061459Z`, part `scenario-public-medtxt`: 432 conditions proposed from 148 case reports; 8 rest on a
 mention the corpus tags negative (the check wants 0). The part keeps five of the eight; all five are disease the
@@ -156,10 +156,16 @@ patient had and was treated for: `右乳癌術後（４年前）`, `食道癌根
 - **Not known.** The other three of the eight: the part kept five examples. They may be real denials, the case #572
   is for. The next run keeps every condition with its class and the context of its negative mention (section 7).
 - MT-01 (11 conditions on a suspected mention) is the review's known finding, reported, unchanged.
+- **Corrected** (the integrator's ruling of 2026-11-14: lane G changes the check, lane D is told). `sc_medtxt` in
+  `tools/scenarios.py` no longer counts a condition whose negative mentions are all past, treated disease: the
+  corpus marks a treated context for the mention (`medtxt_negative_kinds`) and the quote names the treatment right
+  after it (`treated_in_quote`). A denial, or a negative mention in any other context, still fails. The part reports
+  the split (`got.conditions_on_negated_mentions`, `got.conditions_on_treated_negative_mentions`). On the five
+  quotes of this run all five are treated; a quote such as `食道癌の再発，転移徴候なし` still counts.
 - Evidence: `public-2026-11-14/scenario-public-medtxt.json`; the markup of the MedTxt-CR training file (in `.cache`,
   never committed).
 
-### P7. TREC CT: 12 of 50 eligible pairs lost is the validation's own figure for these pairs; the check's 3.1 % is not comparable (owner of `tools/scenarios.py`, lane A)
+### P7. TREC CT: 12 of 50 eligible pairs lost is the validation's own figure for these pairs; the check's 3.1 % was not comparable (check corrected by lane G)
 
 Run `20261114T061459Z`, part `scenario-public-trec`: 12 of 50 eligible pairs lost (the check allows 10 %, citing
 "VALIDATION §3: 3.1 % on the deployed files"), 23 of 50 excluded pairs caught.
@@ -183,12 +189,15 @@ Run `20261114T061459Z`, part `scenario-public-trec`: 12 of 50 eligible pairs los
   model; one is a negated exclusion ("No evidence of pituitary adenoma on MRI"), the pattern of the `negation` variant
   in `tools/trec_ct_eval.py`; the rest need the qrels audit (`eval/trec_ct/AUDIT.md`). Whether the run's twelve are
   the same twelve is not known; the next run keeps each criterion (section 7).
-- **So.** Not a new product defect: the product finding behind it is N-12 (the gate fails, D-343, lane A). The check
-  must compare like with like: the raw pair rate of its own sample from the recorded answers (12 of 50), or apply the
-  S1 filter first as N-12's projection does. Lane A gives the figure; the owner of `tools/scenarios.py` changes the
-  check.
+- **So.** Not a new product defect: the product finding behind it is N-12 (the gate fails, D-343, lane A).
+- **Corrected** (lane G, the integrator's ruling of 2026-11-14). The check now compares like with like: with the pair
+  it reads N-12's recorded answers of the deployed pair (`n12_recorded`), counts the eligible pairs they lose on the
+  scenario's own pairs, and passes when the run loses no more than the upper 95 % bound of that rate on those pairs
+  (`binom_upper`; the bound's level, `BOUND_Q` 0.975, is a declared setting: the upper end of a two-sided 95 %
+  interval, as N-12 states its figures). For this run's 100 pairs: recorded 12 of 50, bound 18, run 12: pass. The
+  check no longer cites VALIDATION §3; the part's `expected` is the recorded figures (12 lost, 21 caught).
 
-### P8. TREC CT: 7 criteria unanswered are answers outside the criterion's labels, at the validation's rate (owner of `tools/scenarios.py`; lane D for P3)
+### P8. TREC CT: 7 criteria unanswered are answers outside the criterion's labels, at the validation's rate (check corrected by lane G; lane D for P3)
 
 - **What counts.** `mlbench.judge`'s `error`: an HTTP failure after retries, JSON that does not parse, or a label not
   in the criterion type's list (`bad label: ...`). Not a time-out: each server answered 1,256 requests (its
@@ -198,9 +207,12 @@ Run `20261114T061459Z`, part `scenario-public-trec`: 12 of 50 eligible pairs los
   (36 "not excluded" and 3 "excluded" for an inclusion criterion, 16 unparseable), the judge none. At that rate 2,512
   answers give about 3 to 4; the run gave 7. Which model gave them is not known (kept from the next run).
 - **P3?** The same kind of symptom, not the same path: this evaluation path asks for a JSON object with no schema, so it
-  does not test the box's guided decoding. The check's zero tolerance fails at the validation's own rate; the owner
-  of `tools/scenarios.py` should state a tolerance. Whether the box's verifier schema allows a label of the other
-  criterion type is a question for lane D with P3.
+  does not test the box's guided decoding. Whether the box's verifier schema allows a label of the other criterion
+  type is a question for lane D with P3.
+- **Corrected** (lane G, the integrator's ruling of 2026-11-14). With the pair, "criteria unanswered within N-12's
+  recorded rate" allows the upper 95 % bound of N-12's recorded share (55 of 40,192 answers) over the answers the
+  scenario asks: 7 of 2,512 for this run's sample, so this run's 7 pass. On the stub the check stays "every
+  criterion answered".
 
 ## 2. Throughput (G-3), main SCREEN only
 
@@ -269,9 +281,8 @@ Results: `g3-50k-2026-11-13/`. 2.0 VM hours, about US$5.48 at the spot price.
 3. Lane D: `tools/e2e_simple.py` `Stage.check` cuts check detail at 300 characters.
 4. Lane D: name the structured-output backend in the serving record and look at P3.
 5. The criteria-compiler lane: B14 (an undefined value set fails the whole protocol instead of one criterion).
-6. The owner of `tools/scenarios.py` (lane D by the plan's table; built by TB-PLAN-04 step 9): the MedTxt-CR check
-   counts treated, past disease as negation (P6); the TREC CT check compares a raw pair rate with an adjusted
-   projection (P7) and allows no unanswered criterion (P8).
+6. Lane D, told (the owner of `tools/scenarios.py` by the plan's table): lane G corrected the three public-data
+   checks there on the integrator's ruling (P6 to P8).
 7. Lane A: the TREC CT scenario's expected figure for its sample in VALIDATION §3 (P7); with lane E, whether a
    condition fact must say "had" or "has" (P6).
 

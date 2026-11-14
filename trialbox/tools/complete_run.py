@@ -750,26 +750,11 @@ def trec_cases(a: argparse.Namespace, block: dict[str, Any]) -> tuple[dict[str, 
     return head, records, summary
 
 
-# The corpus context of a mention MedTxt tags negative: a treated disease (an executed procedure or 術後 follows it), a
-# stated absence (a denial follows it) or other. MedTxt tags a disease that is no longer present as negative too.
-_MT_TREATED = re.compile(r'state="executed"|術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR')
-_MT_DENIED = re.compile(r"なし|無し|認めず|認めな|みられな|見られな|ない|否定|陰性|（－）|（-）|\(-\)")
-
-
 def medtxt_negative_kinds(raw: str) -> dict[str, set[str]]:
-    """Each mention ``raw`` (one MedTxt-CR article's markup) tags negative -> the kinds of its contexts: ``treated``,
-    ``denied`` or ``other`` (the 60 characters of markup after the tag)."""
-    from tools import medtxt_eval as mt
+    """:func:`tools.scenarios.medtxt_negative_kinds`: each negative mention's contexts (treated, denied, other)."""
+    from tools import scenarios
 
-    out: dict[str, set[str]] = {}
-    for m in mt.DTAG.finditer(raw):
-        if m.group(1) != "negative":
-            continue
-        text = " ".join(html.unescape(mt.TAG.sub("", m.group(2))).split())
-        after = raw[m.end() : m.end() + 60]
-        kind = "treated" if _MT_TREATED.search(after) else "denied" if _MT_DENIED.search(after) else "other"
-        out.setdefault(text, set()).add(kind)
-    return out
+    return scenarios.medtxt_negative_kinds(raw)
 
 
 def medtxt_cases(a: argparse.Namespace, block: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]],

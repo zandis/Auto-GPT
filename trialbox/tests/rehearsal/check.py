@@ -40,7 +40,7 @@ MODEL_QUALITY = [
     (r".", r"canary"),
     (r"^(hospital|public)-", r"only when (both|two) models agree"),
     (r"^scenario-", r"^the pair judged: judge and verifier both named"),
-    (r"^scenario-public-trec$", r"^every criterion answered$"),
+    (r"^scenario-public-trec$", r"^(every criterion answered$|criteria unanswered within N-12)"),
 ]
 
 

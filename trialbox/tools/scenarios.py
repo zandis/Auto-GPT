@@ -1931,6 +1931,43 @@ def sc_mimic(a: Any, work: Path) -> Result:
     return res
 
 
+# MedTxt-CR tags a disease that is no longer present as negative, not only one the text denies: "右乳癌術後",
+# "食道癌根治術施行" (lane G finding P6, run 20261114T061459Z). A mention is past, treated disease when the corpus's
+# markup after its negative tag shows an executed procedure or 術後, and the condition's quote shows the treatment
+# right after the mention too; the chart reader is asked for a diagnosis the patient "has or had"
+# (libs/tb_llm/prompts/chart_facts_v2.md), so such a condition is no negation error.
+_MT_TREATED = re.compile(r'state="executed"|術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR')
+_MT_DENIED = re.compile(r"なし|無し|認めず|認めな|みられな|見られな|ない|否定|陰性|（－）|（-）|\(-\)")
+_MT_TREATED_QUOTE = re.compile(r"術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR")
+
+
+def medtxt_negative_kinds(raw: str) -> dict[str, set[str]]:
+    """Each mention ``raw`` (one MedTxt-CR article's markup) tags negative -> the kinds of its contexts: ``treated``,
+    ``denied`` or ``other`` (the 60 characters of markup after the tag)."""
+    import html as _html
+
+    from tools import medtxt_eval as mt
+
+    out: dict[str, set[str]] = {}
+    for m in mt.DTAG.finditer(raw):
+        if m.group(1) != "negative":
+            continue
+        text = " ".join(_html.unescape(mt.TAG.sub("", m.group(2))).split())
+        after = raw[m.end() : m.end() + 60]
+        kind = "treated" if _MT_TREATED.search(after) else "denied" if _MT_DENIED.search(after) else "other"
+        out.setdefault(text, set()).add(kind)
+    return out
+
+
+def treated_in_quote(mention: str, quote: str, kinds: dict[str, set[str]]) -> bool:
+    """``mention`` (tagged negative) is past, treated disease in ``quote``: the corpus marks a treated context for it
+    and the quote names a treatment within 10 characters after it."""
+    if "treated" not in kinds.get(mention, set()):
+        return False
+    i = quote.find(mention)
+    return i >= 0 and bool(_MT_TREATED_QUOTE.search(quote[i + len(mention) : i + len(mention) + 10]))
+
+
 def medtxt_reports(n: int) -> list[tuple[str, str, list[tuple[str, str]]]]:
     """``n`` MedTxt-CR case reports in Japanese (CC BY 4.0, Sociocom NAIST; in .cache, never committed): (id, plain
     text, [(certainty, tagged finding)])."""
@@ -1978,11 +2015,16 @@ def sc_medtxt(a: Any, work: Path) -> Result:
             s.check(f"report {i} read", False, str(exc)[:160])
     tally: Counter[str] = Counter()
     bad: list[str] = []
+    treated: list[str] = []
+    from tools import medtxt_eval as mt
+
+    raw = mt.articles("CR", "ja")
     for i, (rid, _text, tags) in enumerate(reports):
         pid = svc.pseudonym(f"{50000001 + i:08d}")
         pos = {x for c, x in tags if c == "positive" and len(x) >= 2}
         neg = {x for c, x in tags if c == "negative" and len(x) >= 2} - pos
         sus = {x for c, x in tags if c == "suspicious" and len(x) >= 2} - pos
+        kinds = medtxt_negative_kinds(raw.get(rid, ""))
         for f in svc.store.facts(ws, pid=pid):
             if f["domain"] != "condition":
                 continue
@@ -1991,6 +2033,10 @@ def sc_medtxt(a: Any, work: Path) -> Result:
             if any(x in q for x in pos):
                 tally["on_positive_mention"] += 1
             elif any(x in q for x in neg):
+                if all(treated_in_quote(x, q, kinds) for x in neg if x in q):  # a "had": past, treated disease (P6)
+                    tally["on_treated_negative_mention"] += 1
+                    treated.append(f"{rid}: {q[:80]}")
+                    continue
                 tally["on_negated_mention"] += 1
                 bad.append(f"{rid}: {q[:80]}")
             elif any(x in q for x in sus):
@@ -2001,7 +2047,11 @@ def sc_medtxt(a: Any, work: Path) -> Result:
         tally["negative_tags"] += len(neg)
     calls = llm_calls(w.box, "chart_facts") - calls0
     s.check("every report read, one call each", read == len(reports) and calls >= read, (read, calls))
-    s.check("no proposed condition rests only on a mention the corpus marks negative", not bad, bad[:5])
+    s.check(
+        "no proposed condition rests only on a mention the corpus marks negative, past treated disease apart",
+        not bad,
+        {"denied_or_other": bad[:5], "treated_not_counted": len(treated)},
+    )
     res.finding(
         "MT-01",
         "conditions proposed from a mention the corpus marks suspected (疑い)",
@@ -2015,11 +2065,58 @@ def sc_medtxt(a: Any, work: Path) -> Result:
         "input": f"{len(reports)} MedTxt-CR case reports (ja, real clinician text, CC BY 4.0)",
         "counts": dict(tally),
         "expected": {"conditions_on_negated_mentions": 0},
-        "got": {"conditions_on_negated_mentions": tally["on_negated_mention"]},
+        "got": {
+            "conditions_on_negated_mentions": tally["on_negated_mention"],
+            "conditions_on_treated_negative_mentions": tally["on_treated_negative_mention"],
+        },
+        "treated_negative_mentions": treated[:50],
         "model_calls": calls,
     }
     res.app, res.pages = w.app, [("crc", f"/site/facts?ws={ws}&study={SITE_RS}")]
     return res
+
+
+# The upper end of a two-sided 95 % interval, as N-12 states its own figures (Wilson 95 %, tools/trec_ct_eval.py): a
+# count above it is not the recorded rate's sampling noise. A declared setting (OD-10), not a measurement.
+BOUND_Q = 0.975
+
+
+def binom_upper(n: int, p: float, q: float = BOUND_Q) -> int:
+    """The smallest k with P(X <= k) >= ``q`` for X ~ Binomial(``n``, ``p``): the most of ``n`` a rate ``p`` gives
+    at that bound."""
+    if n <= 0 or p <= 0.0:
+        return 0
+    if p >= 1.0:
+        return n
+    pmf = (1.0 - p) ** n
+    cdf, k = pmf, 0
+    while cdf < q and k < n:
+        pmf *= (n - k) / (k + 1) * p / (1.0 - p)
+        k += 1
+        cdf += pmf
+    return k
+
+
+def n12_recorded(pick: list[dict[str, Any]]) -> dict[str, Any]:
+    """What N-12's recorded answers of the deployed pair (``eval/trec_ct/results/raw``, 2026-11-08: the same prompt,
+    every criterion to both models, no filter first) give on the pairs ``pick``: eligible pairs lost and excluded
+    pairs caught (a criterion blocks when both models block it), and the share of answers left unanswered over the
+    whole recording (lane G findings P7 and P8). Raises OSError when a recording is missing."""
+    from tools import mlbench, pin_model, trec_ct_eval
+
+    rec = {m: trec_ct_eval.load(m) for m in (pin_model.JUDGE_SERVED, pin_model.VERIFIER_SERVED)}
+    if any(v is None for v in rec.values()):
+        raise OSError("N-12's recorded answers are not complete")
+    ans = {m: v for m, v in rec.items() if v is not None}
+    lost = caught = 0
+    for p in pick:
+        ids = [f"{p['patient']}|{p['trial']}|{i}" for i in range(len(p["criteria"]))]
+        blocked = any(all((ans[m].get(x, {}).get("label") or "") in mlbench.BLOCKS for m in ans) for x in ids)
+        lost += p["label"] == "2" and blocked
+        caught += p["label"] == "1" and blocked
+    answers = sum(len(v) for v in ans.values())
+    errors = sum(1 for v in ans.values() for r in v.values() if r.get("error"))
+    return {"eligible_lost": lost, "excluded_caught": caught, "unanswered": errors, "answers": answers}
 
 
 def sc_trec(a: Any, work: Path) -> Result:
@@ -2066,20 +2163,40 @@ def sc_trec(a: Any, work: Path) -> Result:
         caught += p["label"] == "1" and blocked
     n2 = sum(1 for p in pick if p["label"] == "2")
     n1 = len(pick) - n2
-    s.check("every criterion answered", errors == 0, errors)
-    if a.model == "pair":
-        s.check(
-            "eligible patients lost by the pair <= 10 % (VALIDATION §3: 3.1 % on the deployed files)",
-            n2 and lost / n2 <= 0.10,
-            (lost, n2),
-        )
+    expected: dict[str, Any] = {"eligible_lost": 0, "excluded_caught": n1}
+    if a.model == "pair":  # like with like: N-12's recorded answers on these same pairs (P7, P8)
+        try:
+            n12 = n12_recorded(pick)
+        except OSError as exc:
+            n12 = {"error": str(exc)[:160]}
+        if "error" in n12:
+            s.check("N-12's recorded answers of the deployed pair are here", False, n12["error"])
+        else:
+            asked = len(cps) * len(answers)
+            most = binom_upper(asked, n12["unanswered"] / n12["answers"])
+            s.check(
+                "criteria unanswered within N-12's recorded rate (upper 95 % bound)",
+                errors <= most,
+                {"unanswered": errors, "bound": most, "asked": asked,
+                 "recorded": f"{n12['unanswered']} of {n12['answers']}"},
+            )  # fmt: skip
+            bound = binom_upper(n2, n12["eligible_lost"] / n2) if n2 else 0
+            s.check(
+                "eligible pairs lost within N-12's recorded answers on these pairs (raw pair rate, every criterion "
+                "to both models; upper 95 % bound)",
+                bool(n2) and lost <= bound,
+                {"lost": lost, "recorded": n12["eligible_lost"], "bound": bound, "eligible": n2},
+            )
+            expected = {"eligible_lost": n12["eligible_lost"], "excluded_caught": n12["excluded_caught"]}
+    else:
+        s.check("every criterion answered", errors == 0, errors)
     s.seconds = time.perf_counter() - t
     res.stages.append(s)
     res.block = {
         "input": f"{len(pick)} TREC CT 2021/22 patient-trial pairs ({n2} eligible, {n1} excluded by the "
         f"qrels), {len(cps)} criteria",
         "counts": {"criteria": len(cps), "models": list(answers)},
-        "expected": {"eligible_lost": 0, "excluded_caught": n1},
+        "expected": expected,
         "got": {"eligible_lost": lost, "excluded_caught": caught},
         "model_calls": len(cps) * len(answers),
         "note": "judged by tools.mlbench's prompt straight to the model (an evaluation path, not the box)",

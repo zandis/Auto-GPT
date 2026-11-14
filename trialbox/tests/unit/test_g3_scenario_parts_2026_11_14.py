@@ -194,3 +194,74 @@ def test_the_public_scenarios_are_estimated_from_their_measured_parts() -> None:
     rows = {r["scenario"]: r for r in e["rows"]}
     assert rows["public-medtxt"]["seconds"] == pytest.approx(2806.7, abs=1.0)
     assert rows["public-trec"]["seconds"] == pytest.approx(2709.7, abs=1.0)
+
+
+# ---------------------------------------------------------------- 5. the corrected checks of the public scenarios
+def test_the_binomial_bound_is_derived_not_set() -> None:
+    # N-12's verifier left 55 of 40,192 answers unanswered; the scenario asks 2,512: at most 7 at the upper 95 % bound
+    assert scenarios.binom_upper(2512, 55 / 40192) == 7
+    assert scenarios.binom_upper(50, 12 / 50) == 18  # N-12's recorded answers lose 12 of the scenario's 50
+    assert (
+        scenarios.binom_upper(50, 0.0) == 0 and scenarios.binom_upper(0, 0.5) == 0 and scenarios.binom_upper(4, 1) == 4
+    )
+
+
+def _recorded(lost_ids: set[str], errors: int, answers: int) -> dict[str, dict[str, Any]]:
+    out = {f"x{i}": {"label": "not enough information", "error": "unparseable" if i < errors else None}
+           for i in range(answers)}  # fmt: skip
+    out.update({x: {"label": "not included"} for x in lost_ids})
+    return out
+
+
+def _sc_trec(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, labels: dict[str, str | None],
+             recorded_lost: set[str], recorded_errors: int) -> tuple[list[Any], dict[str, Any]]:  # fmt: skip
+    from tools import trec_ct_eval
+
+    _trec(monkeypatch)
+    (tmp_path / "cache").mkdir(exist_ok=True)
+    (tmp_path / "cache" / "sample_trials.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(trec_ct_eval, "CACHE", tmp_path / "cache")
+    rec = _recorded(recorded_lost, recorded_errors, 1000)
+    monkeypatch.setattr(trec_ct_eval, "load", lambda m: rec)
+
+    def judge(_c: Any, name: str, _lang: str, p: Any, _note: Any) -> mlbench.Result:
+        lab = labels.get(p.annotation_id, "not enough information")
+        return mlbench.Result(model=name, lang="en", annotation_id=p.annotation_id, label=lab,
+                              error=None if lab else "unparseable")  # fmt: skip
+
+    monkeypatch.setattr(mlbench, "judge", judge)
+    a = argparse.Namespace(model="pair", patients=5000, judge_url="http://127.0.0.1:9/v1",
+                           verifier_url="http://127.0.0.1:9/v1")  # fmt: skip
+    res = scenarios.sc_trec(a, tmp_path)
+    return res.stages[0].checks, res.block
+
+
+def test_trec_compares_with_n12s_recorded_answers_on_the_same_pairs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7, P8: the check compared a raw pair rate with an adjusted projection (3.1 %) and allowed no unanswered
+    criterion. It now derives both bounds from N-12's recorded answers of the deployed pair on the same pairs."""
+    lost = {"synthetic-t1|NCT00000001|0"}
+    checks, block = _sc_trec(tmp_path, monkeypatch, {"synthetic-t1|NCT00000001|0": "not included"}, lost, 0)
+    names = {c[0]: c[1] for c in checks}
+    assert names["criteria unanswered within N-12's recorded rate (upper 95 % bound)"] is True
+    eligible = next(k for k in names if k.startswith("eligible pairs lost within N-12's recorded answers"))
+    assert names[eligible] is True and not any("3.1 %" in k for k in names)
+    assert block["expected"] == {"eligible_lost": 1, "excluded_caught": 0}
+    # the recording lost none of these pairs and answered every criterion: a loss and an unanswered criterion fail
+    checks, _ = _sc_trec(tmp_path, monkeypatch, {"synthetic-t1|NCT00000001|0": "not included",
+                                                  "synthetic-t2|NCT00000002|1": None}, set(), 0)  # fmt: skip
+    assert [c[1] for c in checks] == [False, False]
+
+
+MARKUP_CR = ('既往歴：<d certainty="negative">合成胃癌</d><r state="executed">手術</r>。'
+             '<d certainty="negative">合成肺炎</d>なし。')  # fmt: skip
+
+
+def test_medtxt_counts_past_treated_disease_apart_from_a_denial() -> None:
+    """P6: MedTxt tags a disease no longer present negative; a condition quoting it with its treatment is a "had"."""
+    kinds = scenarios.medtxt_negative_kinds(MARKUP_CR)
+    assert scenarios.treated_in_quote("合成胃癌", "合成胃癌手術（４年前）", kinds) is True
+    assert scenarios.treated_in_quote("合成胃癌", "合成胃癌の再発なし", kinds) is False  # no treatment in the quote
+    assert scenarios.treated_in_quote("合成肺炎", "合成肺炎手術", kinds) is False  # the corpus says denied
+    assert cr.medtxt_negative_kinds(MARKUP_CR) == kinds
