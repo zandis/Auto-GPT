@@ -21,6 +21,7 @@ from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.unmapped import KINDS
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
 
@@ -1025,6 +1026,8 @@ def _run_ingest(
                 # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (the codes: the file)
                 "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
                 or None,
+                # NEW-B-39 (D-740): the same rows per source table split by kind (KINDS); their sum is the total above
+                "unmapped_kinds": {t: unmapped_kinds(by) for t, by in sorted(unmapped_codes.items())} or None,
                 # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
                 "quarantined": quarantined or None,
                 # T-659b: the night's one gate record, rows set aside by the contracts, merged chart numbers
@@ -1292,6 +1295,32 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+
+
+#: NEW-B-39 (D-740): the kinds of D-580's counter (the owner's yes, 2026-11-13). ``code_unknown``: a code no look-up,
+#: list of known codes or map gives a single answer for (the row is left out, or kept without the code);
+#: ``unit_not_read``: a value whose unit is not the look-up's or that is implausible without one (D-590: the row is
+#: kept without the value); ``reference_data_not_reached``: a code the reference data could not be asked for (D-593:
+#: an outage, not a fault of the feed). Every place the mapping engine counts is named with its kind in a test
+_UNIT_NOT_READ = ("unit_mismatch", "no_unit_implausible")
+
+
+def unmapped_kind(name: str) -> str:
+    """The kind of one name of D-580's counter (a look-up, ``column:<c>``, ``map:<from>-><to>``, a unit check, or
+    ``<map>:unavailable``)."""
+    if name.endswith(":unavailable"):
+        return "reference_data_not_reached"
+    if name in _UNIT_NOT_READ:
+        return "unit_not_read"
+    return "code_unknown"
+
+
+def unmapped_kinds(by_name: dict[str, dict[str, int]]) -> dict[str, int]:
+    """One table's rows per kind (every kind, zero included): counts only, their sum the table's total."""
+    out = dict.fromkeys(KINDS, 0)
+    for name, codes in by_name.items():
+        out[unmapped_kind(name)] += sum(codes.values())
+    return out
 
 
 def unmapped_lines(table: str, by_kind: dict[str, dict[str, int]], file: str) -> list[str]:
