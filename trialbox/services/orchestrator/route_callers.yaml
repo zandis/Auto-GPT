@@ -149,9 +149,15 @@ groups:
     - GET /studies/{rs}/edc/trail/{record}
     - GET /studies/{rs}/edc/copy        # copy-assist (D-434): services/console/copy_assist_page.py
     - POST /studies/{rs}/edc/copy/tick
-  dataops:   # NEW-SEC-4 (D-760): the steward's accept publishes a held night, through this service to the adapter
-    - POST /dataops/publish
-    - GET /dataops/publish/{rid}
+  dataops:   # NEW-ARCH-3 (D-761): the night's data operations; the steward's accept publishes a held night (D-760)
+    - GET /dataops/can-publish
+    - GET /dataops/sources
+    - GET /dataops/held
+    - GET /dataops/counts
+    - GET /dataops/history
+    - GET /dataops/batches/{bid}
+    - GET /dataops/batches/{bid}/steps
+    - POST /dataops/batches/{bid}/decide
   api_docs:   # FastAPI's own schema pages
     - GET /openapi.json
     - GET /docs

@@ -275,7 +275,7 @@ _SHARED = ("audit", "flag", "flow", "llm", "mail")  # written through tb_common 
 _ORCH = ("actor", "case", "cohort", "consent", "data", "derive", "edc", "feas", "job", "lake", "life", "microbatch",
          "nav", "notice", "notmatched", "opportunity", "optout", "redcap", "registry", "rerun", "retention",
          "scheduler", "screen", "selftest", "service", "setup", "sponsor", "study", "terminology", "twpas")  # fmt: skip
-_CONSOLE = ("console", "dataops", "demo", "edc", "feedback", "instrument", "notmatched", "optout", "registry",
+_CONSOLE = ("console", "demo", "edc", "feedback", "instrument", "notmatched", "optout", "registry",
             "setup", "sponsor", "terminology")  # fmt: skip
 #: The host's `trialbox` tools (backup, update, watchdog, the operations runner) and `deploy/install.sh` send their
 #: events from inside the orchestrator's container (`compose exec -T orchestrator python -c "... open_audit()"`),

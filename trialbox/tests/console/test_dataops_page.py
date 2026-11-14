@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from console import dataops_page, i18n_dataops
+from console import i18n_dataops
 from datacore.dataops import HELD, PUBLISHED, REJECTED, DataOps
 from tb_common.audit import AuditLog
 from tb_common.wording import check
@@ -28,6 +28,14 @@ from tests.console.test_role_pages import PW, _user
 from tests.console.test_site_setup_pages import sb  # noqa: F401 - the fixture is used by name
 
 AT = "2026-11-11T02:00:00+09:00"
+
+
+@pytest.fixture(autouse=True)
+def _orch(box: dict[str, Any]) -> None:
+    """NEW-ARCH-3 (D-761): the page reads and decides over the orchestrator's routes (no adapter: cannot publish)."""
+    from tests.console.dataops_orch import attach
+
+    box["dataops"] = attach(box["backend"], box["audit"])
 
 
 def _night(b: dict[str, Any], snap: str, *, held: bool = True, passed: bool = False, source: str = "csv") -> int:
@@ -109,24 +117,25 @@ def test_the_steward_sees_the_feed_red_and_rejects_the_held_night(box: dict[str,
                   follow_redirects=False).status_code == 404  # fmt: skip
 
 
-def _with_promoter(b: dict[str, Any], promote: Any) -> None:
-    """Register the page again with a promoter (the lake side is not built: D-443 Open)."""
-    app = b["app"]
-    app.router.routes[:] = [r for r in app.router.routes if not getattr(r, "path", "").startswith(("/data-ops",
-                                                                                               "/api/v1/data/"))]  # fmt: skip
-    dataops_page.register(app, app.state.helpers, promote=promote)
+class _Adapter:
+    """The adapter's publish as the orchestrator's routes call it (NEW-ARCH-3: the publish runs there)."""
+
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+        if body["snapshot"] == "2026-11-08":
+            raise RuntimeError("lake refused")
+        self.seen.append(body["snapshot"])
+        return {"run": "0123456789abcdef", "state": "done"}
+
+    def publish_state(self, rid: str) -> dict[str, Any]:
+        return {"run": rid, "state": "done"}
 
 
 def test_accept_promotes_and_a_failed_promotion_keeps_the_night_held(box: dict[str, Any]) -> None:
-    seen: list[str] = []
-
-    def promote(batch: Any, sign: Any) -> None:
-        assert sign("POST", "/dataops/publish", {})  # NEW-SEC-4 (D-760): signed as the steward who accepts
-        if batch.snapshot == "2026-11-08":
-            raise RuntimeError("lake refused")
-        seen.append(batch.snapshot)
-
-    _with_promoter(box, promote)
+    adapter = _Adapter()
+    box["dataops"]["adapter"] = adapter
     bad, good = _night(box, "2026-11-08"), _night(box, "2026-11-10")
     c = _user(box, "stw3", "steward")
     page = c.get("/data-ops").text
@@ -140,7 +149,9 @@ def test_accept_promotes_and_a_failed_promotion_keeps_the_night_held(box: dict[s
     assert [e["detail"]["phase"] for e in _events(box, "dataops.decide")] == ["started", "ended"]
     r = c.post(f"/data-ops/batches/{good}/decide", data={"csrf": tok, "decision": "accept", "reason": "checked"},
                follow_redirects=False)  # fmt: skip
-    assert r.headers["location"].endswith("done=accept") and _state(good) == PUBLISHED and seen == ["2026-11-10"]
+    assert (
+        r.headers["location"].endswith("done=accept") and _state(good) == PUBLISHED and adapter.seen == ["2026-11-10"]
+    )
     r = c.post(f"/data-ops/batches/{bad}/decide", data={"csrf": tok, "decision": "maybe", "reason": "r"},
                follow_redirects=False)  # fmt: skip
     assert r.headers["location"].endswith("err=decision") and _state(bad) == HELD

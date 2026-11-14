@@ -370,12 +370,12 @@ def test_accept_publishes_the_held_night_with_the_same_function(
 def test_the_stewards_accept_goes_through_the_adapter_and_a_failed_publish_keeps_the_night_held(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The console's promoter (``adapter_promoter``) over the adapter's ``/publish`` job, inside
+    """The orchestrator's promoter (``orchestrator.dataops_api.promoter``, NEW-ARCH-3) over the adapter's ``/publish`` job, inside
     ``DataOps.decide``: a publish that fails leaves the night held with the step in ``publish.json``; a second
     accept resumes there and the night is PUBLISHED."""
     from adapter import app as adapter_app
-    from console.dataops_page import adapter_promoter
     from fastapi.testclient import TestClient
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
@@ -397,13 +397,16 @@ def test_the_stewards_accept_goes_through_the_adapter_and_a_failed_publish_keeps
         def get_json(self, path: str) -> Any:
             return http.get(path.replace("/dataops/publish", "/publish")).json()
 
-    class Bk:
-        orch = Orch()
+    class AsAdapter:  # NEW-ARCH-3 (D-761): the orchestrator's adapter client; the publish runs at the orchestrator
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().post_raw("/publish", body).json()
+            return out
 
-    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().get_json(f"/publish/{rid}")
+            return out
 
-    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
-        promoter(batch, lambda _m, _p, _b: {})
+    promote = promoter(AsAdapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
 
     audit = AuditLog(tmp_path / "audit")
     ops = DataOps()
@@ -629,8 +632,8 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
     answer was lost). Before: the row stayed HELD with no trace, a second accept got 404 for ever, and a reject
     was recorded while the night was served. Now the accept is in the audit and in the row before the publish
     starts, a reject is refused, and a second accept is answered "done" and records the night as published."""
-    from console.dataops_page import adapter_promoter
     from datacore.dataops import ACCEPTING, DataOpsError
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
@@ -654,13 +657,16 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
         def get_json(self, path: str) -> Any:
             return http.get(path.replace("/dataops/publish", "/publish")).json()
 
-    class Bk:
-        orch = Orch()
+    class AsAdapter:  # NEW-ARCH-3 (D-761): the orchestrator's adapter client; the publish runs at the orchestrator
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().post_raw("/publish", body).json()
+            return out
 
-    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().get_json(f"/publish/{rid}")
+            return out
 
-    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
-        promoter(batch, lambda _m, _p, _b: {})
+    promote = promoter(AsAdapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
 
     audit_dir = tmp_path / "audit"
     audit = AuditLog(audit_dir)
@@ -695,7 +701,7 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
 def test_a_publish_that_ended_without_serving_the_night_can_still_be_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from console.dataops_page import adapter_promoter
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
@@ -716,13 +722,16 @@ def test_a_publish_that_ended_without_serving_the_night_can_still_be_rejected(
         def get_json(self, path: str) -> Any:
             return http.get(path.replace("/dataops/publish", "/publish")).json()
 
-    class Bk:
-        orch = Orch()
+    class AsAdapter:  # NEW-ARCH-3 (D-761): the orchestrator's adapter client; the publish runs at the orchestrator
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().post_raw("/publish", body).json()
+            return out
 
-    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().get_json(f"/publish/{rid}")
+            return out
 
-    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
-        promoter(batch, lambda _m, _p, _b: {})
+    promote = promoter(AsAdapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
 
     audit = AuditLog(tmp_path / "audit")
     ops = DataOps()

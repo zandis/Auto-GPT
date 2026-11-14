@@ -48,6 +48,14 @@ def _section(page: str) -> str:
     return m.group(1)
 
 
+@pytest.fixture(autouse=True)
+def _orch(box: dict[str, Any]) -> None:
+    """NEW-ARCH-3 (D-761): the page reads over the orchestrator's routes."""
+    from tests.console.dataops_orch import attach
+
+    attach(box["backend"], box["audit"])
+
+
 def test_the_nights_page_lists_every_table_with_its_count_the_largest_first(box: dict[str, Any]) -> None:
     bid = _night(box, "2026-11-10", {"medication": 3, "lab": 1200, "visit": 41})
     c, _ = _steward(box)

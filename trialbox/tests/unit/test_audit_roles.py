@@ -85,7 +85,9 @@ def test_the_closure_follows_what_a_process_runs() -> None:
     mods = _modules()
     console = _closure("console", mods)
     # a store the console's own page opens inside a function is the console's
-    assert "datacore.dataops" in console and "orchestrator.candidates" in console
+    assert "omop.conflicts" in console and "orchestrator.candidates" in console
+    # NEW-ARCH-3 (D-761): the night's data operations are the orchestrator's; the console imports none of them
+    assert "datacore.dataops" not in console
     # the orchestrator's app, reached only through imports inside the orchestrator's own functions, is not
     assert "orchestrator.app" not in console and "orchestrator.callers" not in console
     assert "orchestrator.callers" in _closure("orchestrator", mods)
