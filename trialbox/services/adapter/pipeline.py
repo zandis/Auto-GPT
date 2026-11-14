@@ -27,7 +27,17 @@ from tb_contracts.landing import Severity
 from adapter import governance
 from adapter.instants import to_site_offset
 from adapter.mapping.engine import Mapper, Mapping, resource_id
-from adapter.ndjson import Spool, is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
+from adapter.ndjson import (
+    Spool,
+    alias_patient,
+    alias_references,
+    is_deleted_flag,
+    list_snapshots,
+    read_type,
+    snapshot_dir,
+    tombstone_count,
+    write_snapshot,
+)
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
 from adapter.validate.validator import (
@@ -761,17 +771,6 @@ def _run_ingest(
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
-    cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
-    night = _NightPass(
-        zone,
-        unit_defaults,
-        source_kind == "fhir_bulk",
-        _Aliases(aliases, patient_ids),
-        counts,
-        cfg.sample_fraction if validate else None,
-        cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
-        cap,
-    )
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
     # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
@@ -796,8 +795,41 @@ def _run_ingest(
         prior_record: str | None = (out_dir / PUBLISH_RECORD).read_text(encoding="utf-8")
     except OSError:
         prior_record = None
+    carried: set[str] = set()
+    if base is not None:
+        # NEW-B-36 (D-677; review DATA-006): a delta night carries the night before over, and a chart merged since
+        # must be applied to that too, whether or not tonight sends a patient row (the merges are read here then)
+        if not patient_pairs:
+            pm = cfg.pidmap()
+            try:
+                aliases = pm.aliases()
+            finally:
+                pm.close()
+        if aliases:
+            survivors = set(aliases.values())
+            carried = {str(r["id"]) for r in read_type(base, "Patient") if str(r["id"]) in survivors}
+    cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
+    night = _NightPass(
+        zone,
+        unit_defaults,
+        source_kind == "fhir_bulk",
+        _Aliases(aliases, patient_ids, carried),
+        counts,
+        cfg.sample_fraction if validate else None,
+        cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
+        cap,
+    )
     removed: dict[str, int] = {}
-    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed)
+    carried_moved: dict[str, int] = {}
+    full_counts = write_snapshot(
+        out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
+        aliases=aliases if base is not None else None, moved=carried_moved,
+    )  # fmt: skip
+    if carried_moved:
+        log.info(
+            "records carried over from snapshot %s written under the surviving patient of a chart merge: %s",
+            last_good, dict(sorted(carried_moved.items())),
+        )  # fmt: skip
     if removed:  # D-528: counts per record type only
         log.info("records the feed's rows no longer give were removed: %s", dict(sorted(removed.items())))
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
@@ -1055,9 +1087,6 @@ def _run_ingest(
     return report
 
 
-_REFERENCE = re.compile(r"^Patient/(.+)$")
-
-
 def _ops(cfg: AdapterConfig) -> Any:
     from datacore.dataops import DataOps
 
@@ -1156,13 +1185,15 @@ class _Aliases:
     """:func:`apply_aliases` one resource at a time, in the order the night sent them (T-692). ``patient_ids`` are the
     ids of every Patient of the night, in that order; ``__call__`` returns False for a Patient to leave out."""
 
-    def __init__(self, aliases: dict[str, str], patient_ids: list[str]) -> None:
+    def __init__(self, aliases: dict[str, str], patient_ids: list[str], carried: Iterable[str] = ()) -> None:
         self.aliases = aliases
-        self.present = set(patient_ids) if aliases else set()
+        # NEW-B-36 (D-677): ``carried`` are the surviving patients a delta night carries over from the night before:
+        # a merged chart's Patient sent tonight is left out for them too, as a full night leaves it out
+        self.present = set(patient_ids) | set(carried) if aliases else set()
         self.moved = 0
         self.dropped = 0
         if aliases:  # how many Patients will be left out, known before the first is written (the sample's size)
-            seen = set(patient_ids)
+            seen = set(patient_ids) | set(carried)
             for pid in patient_ids:
                 new = aliases.get(pid)
                 if new is not None:
@@ -1183,28 +1214,12 @@ class _Aliases:
         self.moved += 1
         if new in self.present:
             return False
-        r["id"] = new
-        for ident in r.get("identifier") or []:
-            if isinstance(ident, dict) and str(ident.get("value")) in self.aliases:
-                ident["value"] = new
+        alias_patient(r, new, self.aliases)
         self.present.add(new)
         return True
 
     def _walk(self, node: Any) -> None:
-        if isinstance(node, dict):
-            for k, v in node.items():
-                if (
-                    k == "reference"
-                    and isinstance(v, str)
-                    and (m := _REFERENCE.match(v))
-                    and m.group(1) in self.aliases
-                ):
-                    node[k] = f"Patient/{self.aliases[m.group(1)]}"
-                else:
-                    self._walk(v)
-        elif isinstance(node, list):
-            for x in node:
-                self._walk(x)
+        alias_references(node, self.aliases)
 
 
 class _NightPass:
