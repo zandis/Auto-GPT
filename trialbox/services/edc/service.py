@@ -523,7 +523,8 @@ class EdcService:
                     # NEW-EDC-8 (EDC-008): TrialBox's own write whose answer never came back; REDCap holding its value
                     # means it landed, under the person who sent it then
                     att = self.store.open_attempt(rs, d["record"], d["visit"], d["item"])
-                    landed = att is not None and there == (forms.redcap_value(lf, att["value"]) if att["value"] else "")
+                    # NEW-EDC-8c: an erase attempt (a blank value) is never a landed write of TrialBox's value
+                    landed = att is not None and bool(att["value"]) and there == forms.redcap_value(lf, att["value"])
                     if slot.repeat:  # NEW-EDC-2: the instance is judged whole, at its first value, on REDCap's rows
                         k = lay.key(rec, slot)
                         if k not in judged:
@@ -717,8 +718,8 @@ class EdcService:
                             continue  # the entry changed since: the value is not formatted as REDCap holds it now
                         compared += 1
                         # what TrialBox last delivered there: its value, or "" after its own erase (D-414)
-                        wrote = self.store.last_delivered(rs, d["record"], d["visit"], item)
                         there = cur.value(rec, slot, item)
+                        wrote = self.store.last_delivered(rs, d["record"], d["visit"], item)
                         ours = forms.redcap_value(live[item], wrote) if wrote else ""
                         last = self.store.last_redcap_line(rs, d["record"], d["visit"], item)
                         open_ = last is not None and last["result"] == "changed_in_redcap"
@@ -852,7 +853,30 @@ class EdcService:
                     else:
                         kept.append({"item": f, "why": "not_written_by_trialbox"})
                 if erased:
-                    c.import_records([{**lay.import_row(rid, rec, slot), **dict.fromkeys(erased, "")}], erase=True)
+                    # NEW-EDC-8c: the erase is ledgered as an attempt first, as the send is (D-691)
+                    drafts_of = {f: next((x for x in reversed(mine) if str(x["item"]) == f and x.get("sent_at")),
+                                         None) for f in erased}  # fmt: skip
+                    for d in drafts_of.values():
+                        if d is not None:
+                            self.store.record_sent(rs, {**d, "final": ""}, "redcap", rec, "attempt", ATTEMPT, by, at)
+                    try:
+                        c.import_records([{**lay.import_row(rid, rec, slot), **dict.fromkeys(erased, "")}],
+                                         erase=True)  # fmt: skip
+                    except RcError as exc:
+                        if exc.refused:  # REDCap said no: nothing was erased, and the attempt is closed
+                            for d in drafts_of.values():
+                                if d is not None:
+                                    self.store.record_sent(
+                                        rs,
+                                        {**d, "final": ""},
+                                        "redcap",
+                                        rec,
+                                        "refused",
+                                        f"REDCap refused the erase: {exc.message}",
+                                        by,
+                                        at,
+                                    )
+                        raise
                     back = Rows(lay, meta, rid, c.records(fields=[rid, *look], records=[rec]), self.today())
                     for f in erased:
                         d = next((x for x in reversed(mine) if str(x["item"]) == f and x.get("sent_at")), None)
