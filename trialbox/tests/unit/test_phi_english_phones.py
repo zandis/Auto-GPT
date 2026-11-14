@@ -113,7 +113,7 @@ def test_the_guard_service_redacts_the_number_and_keeps_its_word(text: str, phon
 def test_the_masks_version_says_the_masking_changed() -> None:
     """Chunks masked by the old recognisers say so: the vector index and the lake re-mask a note whose chunks carry
     another version (D-337)."""
-    assert NOTE_MASK_VERSION == "2"
+    assert int(NOTE_MASK_VERSION) >= 2  # 2: this card; D-745 (3) changes the masking again
 
 
 def test_one_english_phone_form_serves_every_door(monkeypatch: pytest.MonkeyPatch) -> None:
