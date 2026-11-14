@@ -123,7 +123,7 @@ def build_n1(
     all_rows = [(rs, r) for rs, rows in studies for r in rows]
     known = bool(person.practitioner_id)
     sae = sum(int(lf.get("sae") or 0) for lf in (life or {}).values())
-    alert = sae > 0 and today.weekday() < 5  # P-02: an unacknowledged SAE is mailed every working day
+    alert = sae > 0  # P-02, NEW-LIFE-7 (D-764): an unacknowledged SAE is mailed every day, weekends too
     if known:
         mine = [(rs, r) for rs, r in all_rows if r.get("practitioner_id") == person.practitioner_id]
         if today not in clinic_days((r for _rs, r in mine), person.practitioner_id):
@@ -202,8 +202,7 @@ def build_n2(
     """The coordinator's digest. ``studies``: (study, weekly rows, extra) with extra = {marks: [Mark], retry: {pid:
     date}, registry: {pid: status}}; ``since``: the time of the last digest (None = the last 24 hours); ``health``:
     the box's health now (``tb_common.metrics.Health``, T-209a), one line at the top."""
-    if today.weekday() >= 5:
-        return None
+    weekend = today.weekday() >= 5  # NEW-LIFE-7 (D-764): a weekend digest carries the overdue SAE reports only
     lang = person.lang
     url = base_url()
     cut = since or (datetime.combine(today, datetime.min.time()) - timedelta(days=1)).isoformat()
@@ -241,6 +240,8 @@ def build_n2(
                          party=translate(lang, "life.clock.party." + r["party"]))
                for rs, lf in by_study for r in lf.get("reports", [])]  # fmt: skip
     red = health is not None and health.level == "red"
+    if weekend:
+        visits, steps, new, marks, due, late, red, health = [], [], [], [], [], [], False, None
     if not (visits or steps or new or marks or due or late or reports or red):
         return None
     parts = [translate(lang, "n2.hello"), ""]

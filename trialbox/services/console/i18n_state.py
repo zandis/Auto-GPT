@@ -32,6 +32,7 @@ EN: dict[str, str] = {
     "sstate.need_reason": "Give a reason to pause or close the study.",
     # T-629 (FIT-U06): the study's type for SAE reporting selects the reporting table; no study opens without it
     "sstate.sae_type": "Not opened: choose this study's type for serious adverse event reporting on the set-up page first. The type decides who is told of a serious adverse event and by when.",
+    "sstate.sae_mailbox": "Not opened: this box has no trial office mailbox (TB_SAE_OFFICE_MAILBOX). A new serious adverse event is mailed at once to the office and the study's PI; ask the administrator to set the mailbox first.",
     "sstate.sae_unknown": "Not opened: TrialBox could not read this study's SAE reporting type just now. Try again in a minute.",
     "sstate.readonly": "The study coordinator or the study's PI changes the state and the identifiers.",
     "sstate.history": "State history",
@@ -115,6 +116,7 @@ JA: dict[str, str] = {
     "sstate.bad_move": "今の状態からはその変更はできません。",
     "sstate.need_reason": "一時停止または終了の理由を入力してください。",
     "sstate.sae_type": "開始していません：先に設定ページで、この試験の重篤な有害事象の報告上の種類を選んでください。種類によって、誰にいつまでに報告するかが決まります。",
+    "sstate.sae_mailbox": "開始していません：この機器に治験事務局のメールアドレス（TB_SAE_OFFICE_MAILBOX）がありません。新しい重篤な有害事象は事務局と試験の責任医師にすぐメールされます。先に管理者に設定を依頼してください。",
     "sstate.sae_unknown": "開始していません：この試験の SAE 報告上の種類をいま読めませんでした。少し待ってからやり直してください。",
     "sstate.readonly": "状態と識別番号は、試験の CRC または試験責任医師が変更します。",
     "sstate.history": "状態の履歴",
@@ -198,6 +200,7 @@ ZH: dict[str, str] = {
     "sstate.bad_move": "目前的狀態無法做這項變更。",
     "sstate.need_reason": "請填寫暫停或結束試驗的原因。",
     "sstate.sae_type": "未開始：請先在設定頁面選擇本試驗在嚴重不良事件通報上的類型。類型決定須通報誰、期限為何。",
+    "sstate.sae_mailbox": "未開始：本機器尚未設定試驗辦公室的信箱（TB_SAE_OFFICE_MAILBOX）。新的嚴重不良事件會立即寄給辦公室與試驗主持人，請先請管理員設定信箱。",
     "sstate.sae_unknown": "未開始：目前無法讀取本試驗的 SAE 通報類型。請稍後再試。",
     "sstate.readonly": "狀態與識別編號由試驗的研究護理師或試驗主持人變更。",
     "sstate.history": "狀態紀錄",

@@ -199,16 +199,33 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
                 written += rows
         return written
 
+    def told_at_once(rid: str) -> list[str]:
+        """NEW-LIFE-7 (D-764): who hears of a new case at once: the trial office's mailbox (FIT-025) and the study's
+        PI on the delegation log today, by the mailbox of their account (``get`` gives only an enabled account that
+        has not expired)."""
+        out: list[str] = []
+        office = os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip()
+        if office:
+            out.append(office)
+        pi = h.team.pi_of(rid, today()) if h.team is not None else None
+        u = h.users.get(pi.username) if pi is not None and pi.username else None
+        if u is not None and u.mailbox:
+            out.append(u.mailbox)
+        return list(dict.fromkeys(out))
+
     def office_copy(rid: str, v: dict[str, Any], rules: dict[str, Any]) -> None:
-        """FIT-025: a new case goes to the trial office's mailbox (an internal address), without the AE term. A mail
-        that fails is in the audit; the register and the pages do not depend on it."""
-        to = os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip()
+        """FIT-025, NEW-LIFE-7 (D-764): a new case goes at once to the trial office's mailbox and the study's PI,
+        without the AE term. Nobody to tell is audited (``notice_nobody``); a mail that fails is in the audit; the
+        register and the pages do not depend on it."""
+        to = told_at_once(rid)
         if not to:
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "notice_nobody", "record": v["record"], "event": v["event"]})  # fmt: skip
             return
         subject, body = office_notice(rid, v, rules)
         try:
-            bk.send_notice("N2", [to], subject, body, SYNC)
-            detail = {"action": "office_copy", "record": v["record"], "event": v["event"], "to": to}
+            bk.send_notice("N2", to, subject, body, SYNC)
+            detail = {"action": "office_copy", "record": v["record"], "event": v["event"], "to": ", ".join(to)}
             au.append("console.sae", ruleset=rid, actor=SYNC, detail=detail)
         except Exception as exc:
             au.append("console.sae", ruleset=rid, actor=SYNC,
