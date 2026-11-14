@@ -1060,6 +1060,13 @@ class ComposeBox(_DockerImages):
         installer is not written to the box."""
         return (_env_file(self.deploy / ".env").get("TB_ENV") or "PRODUCTION").strip().upper()
 
+    def running_services(self) -> list[str] | None:
+        """D-724: the compose services that run now; None when compose cannot answer."""
+        try:
+            return self.run(self._c("ps", "--status", "running", "--services")).split()
+        except (UpdateFailed, OSError):
+            return None
+
     def running(self) -> bool:
         try:
             return "orchestrator" in self.run(self._c("ps", "--status", "running", "--services")).split()

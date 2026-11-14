@@ -109,6 +109,14 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
     r.add_argument(
+        "--deploy",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "deploy",
+        help="the box's deploy folder: which services run (D-724)",
+    )
+    r.add_argument("--services-stopped", action="store_true",
+                   help="every service but db is stopped (only when docker compose cannot say so itself)")  # fmt: skip
+    r.add_argument(
         "--public",
         type=Path,
         default=Path(os.environ.get("TB_BACKUP_PUBKEY", "deploy/secrets/backup.pub")),
@@ -423,9 +431,14 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         if not a.yes:
             print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
             return 2
+        from tools.trialbox.update import ComposeBox
+
+        def running() -> list[str] | None:  # D-724 (DATA-011): only the database may run while a box is restored
+            return ["db"] if a.services_stopped else ComposeBox(a.deploy).running_services()
+
         out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata,
                          public_key=a.public, keep_to=a.keep_to, no_copy=a.no_copy, other_site=a.other_site,
-                         max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS)  # fmt: skip
+                         max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS, running=running)  # fmt: skip
         print(json.dumps(out, indent=1, ensure_ascii=False))
         for w in out["warnings"]:
             print(f"restore: warning: {w}", file=sys.stderr)
