@@ -360,15 +360,88 @@ def _stats(calls: list[dict[str, Any]]) -> dict[str, Any]:
             "mean_in_flight": round(sum(lat) / busy, 2) if busy > 0 else 0.0}  # fmt: skip
 
 
+GATEWAY_SOURCE = "gateway audit (llm.gateway.call)"
+DIRECT_SOURCE = "the part's calls straight to the model servers (their response cache), not through the gateway"
+
+
 def call_stats(calls: list[dict[str, Any]]) -> dict[str, Any]:
     """Calls per second, tokens per second and p50 / p95 call time over every call a server answered, and per
     endpoint (the judge is ``serving``, the verifier ``verifier``). ``mean_in_flight``: the calls' summed time over
-    the busy time. ``cached``: the calls the gateway answered from its cache (no server time: counted apart)."""
+    the busy time. ``cached``: the calls the gateway answered from its cache (no server time: counted apart).
+    ``source`` names where the calls were read: the gateway's audit, and the calls a part made straight to the servers
+    (:func:`direct_calls`, ``"direct": true``) when it made some; ``direct`` counts those (absent when none)."""
     sent = [c for c in calls if not c.get("cached")]
-    out = {"source": "gateway audit (llm.gateway.call)", **_stats(sent), "cached": len(calls) - len(sent)}
+    direct = sum(1 for c in sent if c.get("direct"))
+    source = GATEWAY_SOURCE if not direct else DIRECT_SOURCE
+    if direct and direct < len(sent):
+        source = f"{GATEWAY_SOURCE}; {DIRECT_SOURCE}"
+    out = {"source": source, **_stats(sent), "cached": len(calls) - len(sent), **({"direct": direct} if direct else {})}
     out["endpoints"] = {ep: _stats([c for c in sent if c["endpoint"] == ep])
                         for ep in sorted({c["endpoint"] for c in sent})}  # fmt: skip
     return out
+
+
+def direct_calls(cache: Path, endpoints: dict[str, str]) -> list[dict[str, Any]]:
+    """The calls a part made straight to a model server, not through the gateway (``tools.mlbench.Client``: the
+    TREC CT scenario judges as the validation run did), from that client's response cache in ``cache``: one file per
+    answered call (``usage``, ``_seconds``, ``model``). A call ends when its file is written (its mtime). The answer's
+    ``model`` names the server: ``endpoints`` maps a served model name to the gateway's endpoint name (``serving``,
+    ``verifier``), so the rows read as the gateway's do; any other name is ``direct``. A failed call is not cached,
+    so it is not counted (the part counts its own unanswered criteria). Lane G finding B15: the run of 2026-11-14
+    recorded 0 calls for the two public scenarios."""
+    out: list[dict[str, Any]] = []
+    for f in sorted(cache.glob("*.json")) if cache.is_dir() else []:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            end = f.stat().st_mtime
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or not data.get("choices"):
+            continue
+        u = data.get("usage") or {}
+        out.append({"end": end, "latency_s": float(data.get("_seconds") or 0.0),
+                    "tokens_in": int(u.get("prompt_tokens") or 0), "tokens_out": int(u.get("completion_tokens") or 0),
+                    "endpoint": endpoints.get(str(data.get("model") or ""), "direct"), "cached": False,
+                    "direct": True})  # fmt: skip
+    return out
+
+
+CASES_SCHEMA = "tb-scenario-cases/1"
+
+
+def write_cases(path: Path, header: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
+    """A scenario part's per-case answers (``parts/<tag>/answers.jsonl.gz``, gzip, one JSON line each, as
+    :func:`write_answers`): the header (``kind`` header, :data:`CASES_SCHEMA`, the counts), then one line per case.
+    Public data only (MedTxt-CR, TREC CT): kept in the run's results, never committed. Returns the file, its bytes
+    and sha256, and the header's counts."""
+    import gzip
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    head = {"kind": "header", "schema": CASES_SCHEMA, **header, "cases": len(records)}
+    lines = [json.dumps(head, ensure_ascii=False, sort_keys=True)]
+    lines += [json.dumps({**r, "kind": "case"}, ensure_ascii=False, sort_keys=True) for r in records]
+    data = gzip.compress(("\n".join(lines) + "\n").encode("utf-8"), compresslevel=9, mtime=0)
+    tmp = path.with_suffix(path.suffix + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    return {"cases": len(records), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def read_cases(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The header and the cases of a :func:`write_cases` file (raises OSError or ValueError)."""
+    import gzip
+
+    head: dict[str, Any] = {}
+    out: list[dict[str, Any]] = []
+    for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines():
+        rec = json.loads(line) if line.strip() else {}
+        if rec.get("kind") == "header":
+            head = rec
+        elif rec.get("kind") == "case":
+            out.append(rec)
+    if head.get("schema") != CASES_SCHEMA:
+        raise ValueError(f"{path}: not {CASES_SCHEMA}")
+    return head, out
 
 
 # ---------------------------------------------------------------- the gateway's refusals

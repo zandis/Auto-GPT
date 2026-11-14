@@ -57,6 +57,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -653,9 +654,190 @@ def part_scenario(a: argparse.Namespace) -> dict[str, Any]:
         for st in stages:
             st["shot"] = f"scenario-{a.scenario}.png"
         _attach_shots(stages, {f"scenario-{a.scenario}": got[f"scenario-{a.scenario}"]})
+    # read before the work folder goes: the scenario's own model calls (B15) and, for the public data, each case's
+    # answer (the next run must say which criteria and mentions failed, not five examples)
+    calls, refused = scenario_calls(work)
+    cases = keep_cases(a, block)
     if not a.keep_work:
         shutil.rmtree(work, ignore_errors=True)  # disk: a scenario's boxes and lakes are not kept
-    return {"stages": stages, "scenario": block, "findings": res.findings}
+    out: dict[str, Any] = {"stages": stages, "scenario": block, "findings": res.findings}
+    if cases:
+        out["cases"] = cases
+    return {**out, "_calls": calls, "_refused": refused}
+
+
+# ---------------------------------------------------------------- a scenario's own calls and cases
+def scenario_calls(work: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The model calls a scenario made in its own work folder, read before that folder is removed (lane G finding
+    B15: run ``20261114T061459Z`` recorded 0 calls for both public scenarios). ``tools.scenarios.world`` builds its box
+    with the gateway's audit in ``<work>/gw-audit``, not in the part's ``gw-audit-scenario`` that :func:`run_part`
+    reads; the TREC CT scenario calls the servers straight, as the validation run did (``<work>/responses``, the
+    client's response cache). Returns (calls, refusals) in :func:`tools.run_metrics.audit_calls`' shape."""
+    from tools import run_metrics
+
+    endpoints = {pin_model.JUDGE_SERVED: "serving", pin_model.VERIFIER_SERVED: "verifier"}
+    calls = run_metrics.audit_calls(work / "gw-audit") + run_metrics.direct_calls(work / "responses", endpoints)
+    return calls, run_metrics.audit_refusals(work / "gw-audit")
+
+
+def _cache_only(url: str, cache: Path) -> Any:
+    """The TREC CT scenario's client (``tools.trialgpt_compare.Client`` on ``url``) answering from its response cache
+    only: the answers the scenario got, read again with no call. A request not in the cache failed in the run."""
+    from tools.trialgpt_compare import Client
+
+    class CacheOnly(Client):
+        def chat(self, model: str, msgs: list[dict[str, str]]) -> dict[str, Any]:
+            path = self.cache / f"{self.key(self.body(model, msgs))}.json"
+            if path.is_file():
+                return dict(json.loads(path.read_text(encoding="utf-8")))
+            return {"_error": "no answer kept: the call failed"}
+
+    return CacheOnly(url, "", cache)
+
+
+def trec_cases(a: argparse.Namespace, block: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]],
+                                                                        dict[str, Any]]:  # fmt: skip
+    """Each criterion of the TREC CT scenario's pairs with each model's label, read again from the scenario's
+    response cache: ``id`` (``topic|NCT id|criterion index``, public ids), ``pair`` (eligible or excluded by the
+    qrels), ``type`` (inclusion, exclusion), ``a`` (role -> label), ``e`` (role -> why it is unanswered) and ``block``
+    (every model blocks it). The pairs are picked as ``tools.scenarios.sc_trec`` picks them; ``picks_match`` says
+    whether their criteria are as many as the part counted. Public data: no patient or trial text."""
+    from tools import mlbench, scenarios, trec_ct_eval
+
+    k = scenarios.sizes(a.patients)["public-trec"]
+    pairs, notes, _, _ = trec_ct_eval.dataset()
+    pick = [p for p in pairs if p["label"] == "2"][:k] + [p for p in pairs if p["label"] == "1"][:k]
+    cps = trec_ct_eval.criterion_pairs(pick)
+    work = a.dir / f"scenario-{a.scenario}"
+    if getattr(a, "model", "stub") == "pair":
+        clients = [(a.judge_url, pin_model.JUDGE_SERVED, "judge"), (a.verifier_url, pin_model.VERIFIER_SERVED,
+                                                                     "verifier")]  # fmt: skip
+    else:
+        clients = [("http://stub/v1", "stub", "stub")]
+    got: dict[str, dict[str, Any]] = {}
+    for url, name, role in clients:
+        c = _cache_only(url, work / "responses")
+        got[role] = {p.annotation_id: mlbench.judge(c, name, "en", p, notes[p.patient_id]) for p in cps}
+    records: list[dict[str, Any]] = []
+    lost: list[str] = []
+    unanswered: list[dict[str, str]] = []
+    eligible_lost = excluded_caught = 0
+    for p in pick:
+        blocked = False
+        for i, (kind, _text) in enumerate(p["criteria"]):
+            cid = f"{p['patient']}|{p['trial']}|{i}"
+            labels = {r: got[r][cid].label for r in got}
+            errors = {r: str(got[r][cid].error)[:40] for r in got if got[r][cid].error}
+            both = all((x or "") in mlbench.BLOCKS for x in labels.values())
+            blocked = blocked or both
+            rec: dict[str, Any] = {"id": cid, "pair": "eligible" if p["label"] == "2" else "excluded", "type": kind,
+                                   "a": labels, "block": both}  # fmt: skip
+            if errors:
+                rec["e"] = errors
+                unanswered += [{"id": cid, "role": r, "error": e} for r, e in errors.items()]
+            if both and p["label"] == "2":
+                lost.append(cid)
+            records.append(rec)
+        eligible_lost += p["label"] == "2" and blocked
+        excluded_caught += p["label"] == "1" and blocked
+    head = {"pairs": len(pick), "criteria": len(cps), "roles": sorted(got),
+            "picks_match": len(cps) == (block.get("counts") or {}).get("criteria")}  # fmt: skip
+    lost_ids = set(lost)
+    summary = {**head, "eligible_lost": eligible_lost, "excluded_caught": excluded_caught, "lost": lost,
+               "lost_by_kind": dict(Counter(r["type"] for r in records if r["id"] in lost_ids)),
+               "unanswered": unanswered,
+               "unanswered_by_error": dict(Counter(u["error"] for u in unanswered))}  # fmt: skip
+    return head, records, summary
+
+
+# The corpus context of a mention MedTxt tags negative: a treated disease (an executed procedure or 術後 follows it), a
+# stated absence (a denial follows it) or other. MedTxt tags a disease that is no longer present as negative too.
+_MT_TREATED = re.compile(r'state="executed"|術後|手術|術施行|根治術|切除|摘出|ＥＭＲ|EMR')
+_MT_DENIED = re.compile(r"なし|無し|認めず|認めな|みられな|見られな|ない|否定|陰性|（－）|（-）|\(-\)")
+
+
+def medtxt_negative_kinds(raw: str) -> dict[str, set[str]]:
+    """Each mention ``raw`` (one MedTxt-CR article's markup) tags negative -> the kinds of its contexts: ``treated``,
+    ``denied`` or ``other`` (the 60 characters of markup after the tag)."""
+    from tools import medtxt_eval as mt
+
+    out: dict[str, set[str]] = {}
+    for m in mt.DTAG.finditer(raw):
+        if m.group(1) != "negative":
+            continue
+        text = " ".join(html.unescape(mt.TAG.sub("", m.group(2))).split())
+        after = raw[m.end() : m.end() + 60]
+        kind = "treated" if _MT_TREATED.search(after) else "denied" if _MT_DENIED.search(after) else "other"
+        out.setdefault(text, set()).add(kind)
+    return out
+
+
+def medtxt_cases(a: argparse.Namespace, block: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]],
+                                                                          dict[str, Any]]:  # fmt: skip
+    """Each condition the MedTxt-CR scenario's box proposed, from its fact store while the box is still up: ``rid``
+    (the corpus's report id), ``fid``, ``class`` (as ``tools.scenarios.sc_medtxt`` counts it: positive, negative,
+    suspected, untagged), the fact's ``code``, ``system``, ``day`` and ``status``, ``q`` (the quote, cut at 80
+    characters as the part's check cuts it: the corpus's own short text, CC BY 4.0) and, on a negative one, ``neg``
+    (the corpus's negative mentions in the quote) and ``neg_kind`` (:func:`medtxt_negative_kinds`)."""
+    from orchestrator import app as orch_app
+    from orchestrator.app import setup_of
+
+    from tools import medtxt_eval as mt
+    from tools import scenarios
+
+    if orch_app._orch is None:
+        raise RuntimeError("no box: the scenario did not build one")
+    svc = setup_of(orch_app._orch)  # the scenario's box (``tools.scenarios.world`` sets it)
+    reports = scenarios.medtxt_reports(scenarios.sizes(a.patients)["public-medtxt"])
+    raw = mt.articles("CR", "ja") if reports else {}
+    records: list[dict[str, Any]] = []
+    for i, (rid, _text, tags) in enumerate(reports):
+        pos = {x for c, x in tags if c == "positive" and len(x) >= 2}
+        neg = {x for c, x in tags if c == "negative" and len(x) >= 2} - pos
+        sus = {x for c, x in tags if c == "suspicious" and len(x) >= 2} - pos
+        kinds = medtxt_negative_kinds(raw.get(rid, ""))
+        for f in svc.store.facts("medtxt", pid=svc.pseudonym(f"{50000001 + i:08d}")):  # as sc_medtxt pastes report i
+            if f["domain"] != "condition":
+                continue
+            q = str(f.get("quote") or "")
+            cls = ("positive" if any(x in q for x in pos) else "negative" if any(x in q for x in neg)
+                   else "suspected" if any(x in q for x in sus) else "untagged")  # fmt: skip
+            rec = {"rid": rid, "fid": f.get("id"), "class": cls, "q": q[:80],
+                   **{k: str(f.get(k) or "") for k in ("code", "system", "day", "status")}}  # fmt: skip
+            if cls == "negative":
+                rec["neg"] = sorted(x for x in neg if x in q)
+                rec["neg_kind"] = sorted({k for x in rec["neg"] for k in kinds.get(x, {"other"})})
+            records.append(rec)
+    negs = [r for r in records if r["class"] == "negative"]
+    head = {"reports": len(reports), "conditions": len(records),
+            "picks_match": len(records) == (block.get("counts") or {}).get("conditions")}  # fmt: skip
+    summary = {**head, "by_class": dict(Counter(r["class"] for r in records)),
+               "on_negated_by_kind": dict(Counter("+".join(r["neg_kind"]) for r in negs)),
+               "on_negated": [f"{r['rid']}: {r['q']} [{'+'.join(r['neg_kind'])}]" for r in negs][:50]}  # fmt: skip
+    return head, records, summary
+
+
+SCENARIO_CASES: dict[str, Callable[[argparse.Namespace, dict[str, Any]],
+                                   tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]]] = {
+    "public-trec": trec_cases, "public-medtxt": medtxt_cases}  # fmt: skip
+
+
+def keep_cases(a: argparse.Namespace, block: dict[str, Any]) -> dict[str, Any]:
+    """A public scenario's per-case answers in ``parts/scenario-<name>/answers.jsonl.gz``
+    (:func:`tools.run_metrics.write_cases`) and their summary for the part's result; empty for the other scenarios.
+    A failure to read them is said, never a failed part."""
+    from tools import run_metrics
+
+    fn = SCENARIO_CASES.get(str(getattr(a, "scenario", "")))
+    if fn is None:
+        return {}
+    try:
+        head, records, summary = fn(a, block)
+    except Exception as exc:  # the cases are evidence beside the checks: their loss must not cost the part
+        return {"kept": False, "why": f"{exc!r}"[:300]}
+    rel = Path("parts") / f"scenario-{a.scenario}" / run_metrics.ANSWERS_FILE
+    got = run_metrics.write_cases(a.dir / rel, {"scenario": a.scenario, **head}, records)
+    return {"kept": True, "file": rel.as_posix(), **got, **summary}
 
 
 def part_walk(a: argparse.Namespace) -> dict[str, Any]:
@@ -1146,6 +1328,7 @@ def run_part(a: argparse.Namespace) -> int:
             res = {"stages": _one(f"{tag} crashed", [("part ran", False, f"{exc!r} {' | '.join(tb)}"[:300])], 0),
                    "not_run": "crashed"}  # fmt: skip
     res["run"] = ident
+    own_calls, own_refused = res.pop("_calls", []), res.pop("_refused", [])  # never written into the result
     if a.part == "hospital":  # --restart-between: were the model servers restarted before this part (run_all says)
         with_restart(res, os.environ.get(RESTART_ENV, ""))
     # the calls in flight this part ran with, and what it measured (review G-3: tokens, queue, card, calls per second)
@@ -1157,9 +1340,10 @@ def run_part(a: argparse.Namespace) -> int:
         if pair:
             res["metrics"]["after_timeout"] = watch.stop()
             res["metrics"]["context_checks"] = ctx.uninstall()
-            res["metrics"]["serving"] = run_metrics.serving_block(a.live_record)
-        calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began)
-        refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began)
+            res["metrics"]["serving"] = run_metrics.serving_block(getattr(a, "live_record", None))
+        # a scenario's own calls (its work folder's audit, its calls straight to the servers: B15) join the part's
+        calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began) + own_calls
+        refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began) + own_refused
         if calls:
             res["throughput"] = run_metrics.call_stats(calls)
         win = (res.get("screen") or {}).get("window")
@@ -2005,6 +2189,12 @@ CANARY_SECONDS = 300.0  # the pair canary (D-117, 54 cases) at the start of ever
 S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient hospital, D-139; GOUT-COH: none)
 PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
+# The public scenarios measured on the card (run 20261114T061459Z-02858674, docs/plan/measurements/public-2026-11-14):
+# each asks the models one call at a time, so the calls in flight do not shorten them. MedTxt-CR: 148 reports in
+# 2,806.7 s (one chart_facts call each, the canary at the start); TREC CT: 100 pairs (1,256 criteria, both models) in
+# 2,709.7 s. The estimate before was 1,371 s and 1,143 s (lane G finding B17). OD-10: measured.
+MEDTXT_SECONDS_PER_REPORT = 2806.7 / 148
+TREC_SECONDS_PER_PAIR = 2709.7 / 100
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
 # A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (OD-10: the estimator's source data;
 # a newer measurement replaces these rows). Each row is one part result, ``parts/<tag>.json`` of the run named:
@@ -2289,12 +2479,14 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
             screens = 2 if name == "site-excel" else 1  # before and after the lists
             items = S3_SHARE * n * screens
             rows.append(row(name, n, items, items * sec + CANARY_SECONDS + other(name, n, n0), t))
-        elif name in ("chart-paste", "chart-files", "public-medtxt"):
-            charts = z[name] * (1.25 if name != "public-medtxt" else 1)
+        elif name in ("chart-paste", "chart-files"):
+            charts = z[name] * 1.25
             rows.append(row(name, z[name], charts, charts * sec + CANARY_SECONDS + other(name, z[name], base[name]), t))
-        elif name == "public-trec":
-            checks = 2 * z[name] * 19 * 2  # pairs of both labels, about 19 criteria each, two models
-            rows.append(row(name, 2 * z[name], checks, checks * SECONDS_PER_CHECK + other(name, 1, 1), t))
+        elif name == "public-medtxt":  # measured on the card (B17), the canary and the box's set-up included
+            rows.append(row(name, z[name], z[name], z[name] * MEDTXT_SECONDS_PER_REPORT, t))
+        elif name == "public-trec":  # measured on the card (B17): pairs of both labels, about 12.6 criteria each
+            checks = round(2 * z[name] * 12.56 * 2)  # two models
+            rows.append(row(name, 2 * z[name], checks, 2 * z[name] * TREC_SECONDS_PER_PAIR, t))
         else:  # no model call on the card (the IT dump, the registry, MIMIC on the stub path, the probe)
             items = 2 if name == "gateway" else 0
             rows.append(row(name, z.get(name, 0), items, other(name, z.get(name, 1), base.get(name, 1)), t))
