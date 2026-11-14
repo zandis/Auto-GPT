@@ -48,22 +48,40 @@ _SENT = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 
 
 # an English full stop that ends a sentence: ". " (a closing bracket or quote may follow it) before a capital, a digit
-# or an opening bracket or quote (A-SENT-EN)
+# or an opening bracket or quote (A-SENT-EN, D-786)
 _EN_STOP = re.compile(r"\.[)\]\"']*\s+(?=[(\[\"'A-Z0-9])")
 # short forms a full stop does not end a sentence after; "No." only before a number ("No. 12")
-_SHORT = frozenset({"dr", "mr", "mrs", "ms", "prof", "st", "sr", "jr", "vs", "e.g", "i.e", "cf", "approx", "fig"})
-_WORD_BEFORE = re.compile(r"([^\s(\[\"']+)$")
+_SHORT = frozenset(
+    {"dr", "mr", "mrs", "ms", "prof", "st", "sr", "jr", "vs", "e.g", "i.e", "cf", "approx", "fig", "al", "pt", "hx",
+     "dx", "rx", "sx", "tx", "vit", "wd", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov",
+     "dec"}
+)  # fmt: skip
+# a label: words then a colon and white space ("Family history: …", "Denies: …"), never a time ("10:00")
+_LABEL = re.compile(r":\s")
+_CJK_ANY = re.compile(r"[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]")
 
 
 def _english(piece: str) -> list[str]:
-    """``piece`` split after each English full stop that ends a sentence, never after a short form (Dr., e.g.,
-    vs.), "No." before a number, or an initial ("J. Smith")."""
+    """``piece`` (one line, or the part of it up to a CJK stop) split after each English full stop that ends a
+    sentence; never after a short form (Dr., e.g., Pt., Jan.), "No." before a number, a list number ("1."), or an
+    initial ("J. Smith"). From the first sentence that carries a label ("Family history: …", "Denies: …") the rest
+    of the line stays one unit, so an item is never shown without its label (review of D-786). A piece with
+    Japanese or Chinese in it is not split here: it splits as it always did."""
+    if _CJK_ANY.search(piece):
+        return [piece]
     out, start = [], 0
     for m in _EN_STOP.finditer(piece):
-        before = _WORD_BEFORE.search(piece[: m.start()])
-        word = before.group(1) if before else ""
+        if _LABEL.search(piece, start, m.start()):
+            break  # this sentence carries a label: it and the rest of the line are one unit
+        tail = piece[max(start, m.start() - 40) : m.start()]  # a bounded look back: linear in the line's length
+        word = tail.rsplit(None, 1)[-1].lstrip("([\"'") if tail.strip() else ""
         nxt = piece[m.end() : m.end() + 1]
-        if word.lower() in _SHORT or (len(word) == 1 and word.isupper()) or (word.lower() == "no" and nxt.isdigit()):
+        if (
+            word.lower() in _SHORT
+            or (len(word) == 1 and word.isupper())
+            or word.isdigit()
+            or (word.lower() == "no" and nxt.isdigit())
+        ):
             continue
         out.append(piece[start : m.end()])
         start = m.end()
