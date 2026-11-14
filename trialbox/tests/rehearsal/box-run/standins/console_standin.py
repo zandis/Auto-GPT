@@ -6,7 +6,7 @@ tests' FakeBackend; the first run asks nothing of it). Its accounts store is a t
 (as the unit tests use), removed when the console stops. The paid run reaches the installed box's console through Caddy
 on 443.
 
-    <venv python> console.py <first-run folder> <work folder> <port> <cert> <key>
+    <venv python> console_standin.py <first-run folder> <work folder> <port> <cert> <key>
 """
 
 import sys

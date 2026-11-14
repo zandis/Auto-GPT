@@ -20,7 +20,7 @@
 #     TB_BOX_COMPOSE, TB_BOX_HOST_CHECK) -> deploy/install.sh, docker compose and deploy/check_host.sh of the bundle;
 #   * standins/box.py: the installed box's containers and tools (pin, qualify, doctor, selftest, the screen job, the
 #     ingest, the backup, memory in cgroup files) -> the box the real installer starts, with the real models;
-#   * standins/console.py: the console's container and Caddy -> the box's console behind Caddy on 443;
+#   * standins/console_standin.py: the console's container and Caddy -> the box's console behind Caddy on 443;
 #   * the build's `make venv scanners images trivy-db release-gates` and tools/make_bundle.sh (a Makefile and a
 #     script in a small git repository made here; the script signs with the real signer, as above) -> the release
 #     commit's own targets and make_bundle.sh (docker save of ~12 GB of images);
@@ -153,7 +153,7 @@ PY
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$S/driver/console.key" -out "$S/driver/console.crt" -days 2 \
     -subj /CN=box1.local -addext subjectAltName=DNS:box1.local >/dev/null 2>&1
   mkdir -p "$S/vm/firstrun" "$S/console"
-  "$VPY" "$HERE/standins/console.py" "$S/vm/firstrun" "$S/console" "$cport" "$S/driver/console.crt" "$S/driver/console.key" \
+  "$VPY" "$HERE/standins/console_standin.py" "$S/vm/firstrun" "$S/console" "$cport" "$S/driver/console.crt" "$S/driver/console.key" \
     > "$S/console.log" 2>&1 &
   CONSOLE_PID=$!
   m tb-console-connect "127.0.0.1:$cport"; m tb-console-cacert "$S/driver/console.crt"
