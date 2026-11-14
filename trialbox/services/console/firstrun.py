@@ -240,5 +240,5 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             "chartno_rule": answers.chartno_rule,
         })  # fmt: skip
         resp = h.page(request, "firstrun.html", None, step="done", steward=plans[0].username)
-        resp.delete_cookie(COOKIE)
+        resp.delete_cookie(COOKIE, httponly=True, samesite="strict", secure=h.secure)  # the flags it was set with
         return resp
