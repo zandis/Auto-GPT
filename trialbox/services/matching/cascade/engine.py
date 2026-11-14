@@ -189,6 +189,7 @@ class CascadeResult:
             "pairs_judged": dict(m.pairs_judged),
             "tokens": {"in": m.tokens_in, "out": m.tokens_out},
             "cache_hits": m.cache_hits,
+            "context_unknown": dict(sorted(m.context_unknown.items())),
             "llm_share": m.llm_share,
             "unprocessed": m.unprocessed,
             "rescue_yield": m.rescued,
@@ -616,12 +617,26 @@ class _Run:
 
     def budget_of(self, c: CriterionIR, index_date: date) -> int:
         """Tokens of notes one judge prompt for ``c`` may hold: what the judge's and the verifier's context leave
-        (T-603, OD-10; the judge tells), else :data:`EXCERPT_TOKENS`. Worked out once per criterion."""
-        if c.id not in self._budgets:
-            fn = getattr(self.judge, "excerpt_budget", None)
-            room = fn(c, index_date) if callable(fn) else None
-            self._budgets[c.id] = room if isinstance(room, int) else EXCERPT_TOKENS
-        return self._budgets[c.id]
+        (T-603, OD-10; the judge tells), kept for the run once told. SCR-18: when the judge cannot tell (a failed
+        context lookup) this prompt gets :data:`EXCERPT_TOKENS` and the next one asks again, never the default for
+        the rest of the run; the prompt is counted in ``metrics.context_unknown``. A judge without
+        ``excerpt_budget`` (a test's) has the default, kept. A told 0 is kept (the prompt leaves no room); a judge
+        that raises raises here, as before."""
+        with self._lock:
+            if c.id in self._budgets:
+                return self._budgets[c.id]
+        fn = getattr(self.judge, "excerpt_budget", None)
+        if not callable(fn):
+            with self._lock:
+                self._budgets[c.id] = EXCERPT_TOKENS
+            return EXCERPT_TOKENS
+        room = fn(c, index_date)
+        with self._lock:
+            if isinstance(room, int) and not isinstance(room, bool):
+                self._budgets[c.id] = room
+                return room
+            self.metrics.context_unknown[c.id] = self.metrics.context_unknown.get(c.id, 0) + 1
+        return EXCERPT_TOKENS
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
     def s2(self, note_crit: list[CriterionIR]) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
