@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
 from tb_common.ruleset import Ruleset
@@ -100,9 +99,6 @@ def test_dated_results_still_decide(tmp_path: Path) -> None:
     assert got["P-DATED-LOW"] == {"UNL-EXC-01": False, "UNL-INC-01": False}
 
 
-# Not fixed by the review: both generators (SQL and CQL, which the equivalence gate holds equal) drop an undated
-# result before the comparison, and the fix re-compiles every approved ruleset. The card that fixes it flips this.
-@pytest.mark.xfail(strict=True, reason="SCR-03: an undated lab result falls out of the window test (SQL and CQL)")
 def test_an_undated_result_leaves_the_criterion_unknown_where_the_dated_ones_do_not_settle_it(tmp_path: Path) -> None:
     got = _results(tmp_path)["P-UNDATED-HIGH"]
     assert got["UNL-EXC-01"] is None  # an undated 11.2 % may lie in the window: never a silent "clear"
