@@ -195,3 +195,12 @@ def test_the_results_reader_marks_every_old_folder_not_product_evidence(tmp_path
     assert "**Product evidence: NO.**" in readme and "T-667, T-637" not in readme
     assert cap["product_evidence"] is False and cap["not_product_evidence"]
     assert rr.not_product({"report": {}, "plan": {"product_evidence": True}}) == []
+
+
+def test_every_results_folder_is_marked_superseded() -> None:
+    m = ROOT / "docs" / "plan" / "measurements"
+    for d in sorted(p for p in m.iterdir() if p.is_dir() and p.name != "b200-g1b"):
+        assert (d / "SUPERSEDED.md").is_file(), d.name
+        readme = d / "README.md"
+        if readme.exists():
+            assert readme.read_text(encoding="utf-8").startswith("> **SUPERSEDED on 2026-11-14"), d.name

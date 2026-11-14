@@ -1,3 +1,6 @@
+> **SUPERSEDED on 2026-11-14** ([validation-reset-2026-11-14.md](validation-reset-2026-11-14.md)): a 2026-11-08 run from a local branch (`realdata-local`, never pushed),
+> on a serving setup that is not the shipped one. History only; not evidence of the shipped product.
+
 # Public-data e2e: browser walk results (one row per check)
 
 | function | screen | role | language / view | result | evidence screenshot |
