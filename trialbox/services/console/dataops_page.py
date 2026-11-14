@@ -29,8 +29,8 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -63,10 +63,6 @@ ERRORS = ("reason", "decision", "state", "promote", "publishing")
 
 #: (method, path, body) -> the headers of the accepting person's signed claim (``console.actor.assert_for``)
 Sign = Callable[[str, str, Any], dict[str, str]]
-Promote = Callable[[Any, Sign], None]
-
-
-PUBLISH = "/dataops/publish"  # the orchestrator's route of the steward's accept (NEW-SEC-4, D-760)
 
 
 class PromoteFailed(RuntimeError):
@@ -74,62 +70,146 @@ class PromoteFailed(RuntimeError):
     served (an ordinary held night again); otherwise its end is not known (the accept stays recorded)."""
 
     nothing_served = False
-    #: the adapter refused to start the publish (409: an ingest or a publish runs, or the attempt is not the newest
-    #: of its night): this accept started nothing and learned nothing about an earlier one
+    #: refused before anything started (the adapter was busy, or the orchestrator refused): this accept started
+    #: nothing and learned nothing about an earlier one
     not_started = False
 
 
-def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
-    """T-723 (D-489): the promoter of an accepted night. It starts the adapter's publish of the held night through
-    the orchestrator (NEW-SEC-4, D-760: ``POST /dataops/publish``, signed as the steward who accepts, which checks
-    the person and ``dataops.decide`` and starts the adapter's ``POST /publish``, the orchestrator's alone: pid
-    map, OMOP, the FHIR store, the lake, promote last; the same function a night that
-    passed the gate goes through) and follows it to its end (a polled job, never timed: D-472). Anything but
-    ``done`` raises and the night stays held; the adapter keeps the step that failed, and a second accept resumes
-    there. A publish that ended without serving the night raises with ``nothing_served`` (the night can still be
-    rejected); one whose end could not be read (the adapter restarted, the job was lost) raises without it: the
-    accept stays recorded, and a second accept is answered "done" by the adapter if the night was published."""
+@dataclass(frozen=True)
+class NightRow:
+    """One ``dataops.batch`` row as the orchestrator's routes answer it (the fields of ``datacore.dataops.Batch``;
+    the console imports no module of the store, NEW-ARCH-3)."""
 
-    def promote(batch: Any, sign: Sign) -> None:
+    id: int
+    source: str
+    snapshot: str
+    attempt: int
+    state: str
+    seq: int
+    started_at: str
+    changed_at: str
+    changed_by: str
+    detail: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return dict(self.__dict__)
+
+
+class DecisionRefused(ValueError):
+    """The store refused the steward's decision; ``why`` as ``datacore.dataops.DataOpsError`` says it (``decision``,
+    ``reason``, ``not_found``, ``not_held``, ``publishing``, ``promote``)."""
+
+    def __init__(self, why: str, message: str = "") -> None:
+        super().__init__(why)
+        self.why = why
+        self.message = message or why
+
+
+@dataclass(frozen=True)
+class Decided:
+    """The steward's decision as the orchestrator answered it: the row, and ``publishing`` when the accept is
+    recorded and the night's publish still runs there (it ends as PUBLISHED, or held again)."""
+
+    row: NightRow
+    publishing: bool = False
+
+
+class OrchOps:
+    """NEW-ARCH-3 (D-761): the night's data operations over the orchestrator's routes (``/dataops/...``), with the
+    method names of ``datacore.dataops.DataOps`` that this page reads. The console opens no ``dataops`` store and its
+    database role leaves the schema. The steward's decision is one signed request; the orchestrator runs the
+    publish of an accepted night (D-760). Posted with the client that never retries: a retry could meet the publish
+    the first request started."""
+
+    def __init__(self, bk: Any) -> None:
+        self.bk = bk
+
+    @staticmethod
+    def _batch(row: dict[str, Any]) -> NightRow:
+        from dataclasses import fields
+
+        return NightRow(**{f.name: row[f.name] for f in fields(NightRow)})
+
+    def _get(self, path: str) -> Any:
+        return self.bk.orch.get_json(path)
+
+    def can_publish(self) -> bool:
+        return bool(self._get("/dataops/can-publish").get("publish"))
+
+    def sources(self) -> list[Any]:
+        return [self._batch(r) for r in self._get("/dataops/sources")]
+
+    def held(self) -> list[Any]:
+        return [self._batch(r) for r in self._get("/dataops/held")]
+
+    def counts(self) -> dict[str, int]:
+        out: dict[str, int] = self._get("/dataops/counts")
+        return out
+
+    def history(self, state: str | None, source: str | None, *, limit: int, before: int | None) -> list[Any]:
+        from urllib.parse import urlencode
+
+        q = {"limit": limit, **({"state": state} if state else {}), **({"source": source} if source else {}),
+             **({"before": before} if before else {})}  # fmt: skip
+        return [self._batch(r) for r in self._get(f"/dataops/history?{urlencode(q)}")]
+
+    def batch(self, bid: int) -> Any:
         from tb_common.http import ServiceError
-        from tb_common.jobpoll import JobLost, Poll
 
-        body = {"snapshot": batch.snapshot, "source": batch.source, "attempt": batch.attempt}
         try:
-            once = getattr(bk, "orch_once", None) or bk.orch  # never retried: a retry can meet the publish it started
-            started = once.post_raw(PUBLISH, body, sign("POST", PUBLISH, body)).json()
+            return self._batch(self._get(f"/dataops/batches/{int(bid)}"))
         except ServiceError as exc:
-            # second review (H4): refused at once. 404: no held night of that date on the box and none published,
-            # so nothing is served from it. 409: nothing was started by this accept
-            if exc.status in (404, 409):
-                err = PromoteFailed(f"the adapter did not start the publish (HTTP {exc.status})")
-                err.nothing_served, err.not_started = exc.status == 404, exc.status == 409
+            if exc.status == 404:
+                return None
+            raise
+
+    def steps(self, bid: int) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = self._get(f"/dataops/batches/{int(bid)}/steps")
+        return out
+
+    def decide(self, bid: int, decision: str, reason: str, sign: Sign) -> Any:
+        """The steward's accept or reject, signed as the steward. Raises ``DecisionRefused`` with the store's ``why``
+        (409) and ``PromoteFailed`` with the publish's marks (502)."""
+        from tb_common.http import ServiceError
+
+        if decision not in ("accept", "reject"):  # the review: refused here as the store refuses it, nothing sent
+            raise DecisionRefused("decision", "decision must be accept or reject")
+        path, body = f"/dataops/batches/{int(bid)}/decide", {"decision": decision, "reason": reason}
+        once = getattr(self.bk, "orch_once", None) or self.bk.orch
+        try:
+            r = once.post_raw(path, body, sign("POST", path, body))
+            got = r.json()
+            row = self._batch(got)
+            return Decided(row, bool(got.get("publishing")))
+        except ServiceError as exc:
+            detail = _detail(exc.detail)
+            if exc.status == 409:
+                raise DecisionRefused(str(detail.get("why") or "state"), str(detail.get("message") or "")) from exc
+            if exc.status == 502:
+                err = PromoteFailed("the publish did not end done")
+                err.nothing_served = bool(detail.get("nothing_served"))
+                err.not_started = bool(detail.get("not_started"))
                 raise err from exc
-            if exc.status in (401, 403, 422, 503):  # NEW-SEC-4 review: the orchestrator refused before any start
-                err = PromoteFailed(f"the orchestrator did not start the publish (HTTP {exc.status})")
+            if exc.status == 422:  # the request's shape: the store never saw it
+                raise DecisionRefused("decision", "the decision was not understood") from exc
+            if exc.status in (401, 403):  # the orchestrator refused the person before anything started
+                if decision != "accept":
+                    raise DecisionRefused("forbidden", "the orchestrator refused the decision") from exc
+                err = PromoteFailed(f"the orchestrator refused the decision (HTTP {exc.status})")
                 err.not_started = True
                 raise err from exc
-            raise RuntimeError(f"the adapter did not start the publish (HTTP {exc.status})") from exc
-        rid = str(started.get("run") or "")
+            if exc.status == 0 and decision == "accept":  # no answer: the accept may be recorded, its end not known
+                raise PromoteFailed("no answer to the accept") from exc
+            raise
 
-        def read() -> dict[str, Any]:
-            try:
-                state: dict[str, Any] = bk.orch.get_json(f"{PUBLISH}/{rid}")
-            except ServiceError as exc:
-                if exc.status == 404:
-                    raise JobLost(f"the adapter no longer knows publish {rid} (it restarted)") from None
-                raise
-            return state
 
-        st = started if started.get("state") != "running" else (poll or Poll()).until_done(read, "publish")
-        if st.get("state") != "done":
-            err = PromoteFailed(f"the publish ended {st.get('state')}: {st.get('steps')}")
-            # ``promoted`` is what the lake serves, read by the adapter at the publish's end; without it (a
-            # publish that raised before it could be read) the end is not known
-            err.nothing_served = st.get("promoted") is False
-            raise err
-
-    return promote
+def _detail(text: str) -> dict[str, Any]:
+    """The ``detail`` object of an orchestrator refusal ({} when it is not one)."""
+    try:
+        got = json.loads(text).get("detail")
+    except (ValueError, AttributeError):
+        return {}
+    return got if isinstance(got, dict) else {}
 
 
 def unmapped_of(detail: Any) -> list[tuple[str, int]]:
@@ -174,27 +254,23 @@ def light(state: str) -> str:
     return LIGHT.get(state, "amber")
 
 
-def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
-    lock = threading.Lock()
-    held: dict[str, Any] = {}
+def register(app: FastAPI, h: Helpers) -> None:
+    ops_client = OrchOps(h.bk)
 
     def store() -> Any:
-        """The ``dataops`` schema of the trial database (``TB_DB_URL``), opened once; 503 when it cannot be reached."""
-        from datacore.dataops import DataOps
-
-        with lock:
-            if "ops" not in held:
-                try:
-                    held["ops"] = DataOps()
-                except DatabaseError as e:
-                    log.warning("dataops store unreachable (%s)", type(e).__name__)
-                    raise h.problem(503, "dataops.err.store") from e
-            return held["ops"]
+        """The night's data operations, over the orchestrator's routes (NEW-ARCH-3, D-761)."""
+        return ops_client
 
     def read(fn: Callable[[], Any]) -> Any:
+        from tb_common.http import ServiceError
+
+        from console.backend import Unavailable
+
         try:
             return fn()
-        except DatabaseError as e:
+        except (DatabaseError, Unavailable, ServiceError) as e:  # the orchestrator or its store cannot answer
+            if isinstance(e, ServiceError) and 0 < e.status < 500:  # the review: 0 is "no answer", not a refusal
+                raise
             log.warning("dataops store failed (%s)", type(e).__name__)
             raise h.problem(503, "dataops.err.store") from e
 
@@ -216,43 +292,27 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
         return datetime.now(ZoneInfo(site_tz())).isoformat(timespec="seconds")
 
     def history(state: str, source: str, limit: int, before: int | None) -> tuple[list[Any], int | None]:
-        from datacore.dataops import STATES
-
         ops = store()
-        st = state if state in STATES else None
+        st = state.strip()[:20] or None  # the orchestrator reads only a state of the store
         rows = read(lambda: ops.history(st, source.strip()[:80] or None, limit=limit + 1, before=before))
         more = len(rows) > limit
         rows = rows[:limit]
         return rows, (rows[-1].id if more and rows else None)
 
     def decide(sess: Session, bid: int, decision: str, reason: str) -> Any:
-        """The steward's accept or reject (``DataOps.decide``). Raises ``DataOpsError`` with ``why``: ``decision``,
+        """The steward's accept or reject (``DataOps.decide``, at the orchestrator). Raises ``DecisionRefused``
+        with ``why``: ``decision``,
         ``reason``, ``not_found``, ``not_held``, ``step`` or ``promote``."""
-        from datacore.dataops import DataOpsError
 
         why = reason.strip()[:MAX_REASON]
-        if decision == "accept" and promote is None:
-            raise DataOpsError("promote", "accepting a held night needs the lake's promotion, not built yet (D-443)")
 
-        def sign(method: str, path: str, body: Any) -> dict[str, str]:  # NEW-SEC-4 (D-760): the steward who accepts
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:  # NEW-SEC-4 (D-760): the steward who decides
             from console import actor
 
             return actor.assert_for(h, sess, DECIDE, None, method, path, body)
 
-        def run(b: Any) -> None:
-            assert promote is not None
-            try:
-                promote(b, sign)
-            except Exception as e:
-                log.warning("promotion of batch %s failed (%s)", bid, type(e).__name__)
-                err = PromoteFailed(type(e).__name__)
-                err.nothing_served = bool(getattr(e, "nothing_served", False))
-                err.not_started = bool(getattr(e, "not_started", False))
-                raise err from e
-
         ops = store()
-        hook = run if promote is not None else None
-        return read(lambda: ops.decide(h.au, bid, decision, by=h.actor(sess), at=now(), reason=why, promote=hook))
+        return read(lambda: ops.decide(bid, decision, why, sign))
 
     # ------------------------------------------------------------------ pages
     @app.get("/data-ops", response_class=HTMLResponse)
@@ -284,8 +344,8 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
             source=source,
             next_before=nxt,
             may_decide=permit(sess.user.role, DECIDE),
-            can_accept=promote is not None,
-            done=done if done in ("accept", "reject") else "",
+            can_accept=read(ops.can_publish),  # NEW-ARCH-3: the orchestrator says whether an accept can publish
+            done=done if done in ("accept", "reject", "publishing") else "",
             err=err if err in ERRORS else "",
         )
 
@@ -304,7 +364,7 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
             steps=read(lambda: ops.steps(bid)),
             unmapped=unmapped_of(b.detail),
             may_decide=permit(sess.user.role, DECIDE),
-            can_accept=promote is not None,
+            can_accept=read(ops.can_publish),  # NEW-ARCH-3: the orchestrator says whether an accept can publish
         )
 
     @app.post("/data-ops/batches/{bid}/decide")
@@ -314,19 +374,21 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
         sess = guard(request, DECIDE)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        from datacore.dataops import DataOpsError
-
         try:
-            decide(sess, bid, decision, reason)
-        except DataOpsError as e:
+            got = decide(sess, bid, decision, reason)
+        except DecisionRefused as e:
             if e.why == "not_found":
                 raise h.problem(404, "notfound") from e
+            if e.why == "forbidden":
+                raise h.problem(403, "forbidden") from e
             code = {"not_held": "state", "step": "state", "by": "reason"}.get(e.why, e.why)
             return RedirectResponse(f"/data-ops?err={code if code in ERRORS else 'state'}", status_code=303)
         except PromoteFailed as e:  # the night stays held; its accept stays recorded unless nothing is served
-            return RedirectResponse(f"/data-ops?err={'promote' if e.nothing_served else 'publishing'}",
+            served_none = e.nothing_served or e.not_started  # nothing published: an ordinary held night
+            return RedirectResponse(f"/data-ops?err={'promote' if served_none else 'publishing'}",
                                     status_code=303)  # fmt: skip
-        return RedirectResponse(f"/data-ops?done={decision}", status_code=303)
+        done = "publishing" if got.publishing else decision
+        return RedirectResponse(f"/data-ops?done={done}", status_code=303)
 
     # ------------------------------------------------------------------ /api/v1 (the same functions)
     @app.get("/api/v1/data/sources")
@@ -370,22 +432,22 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
             body = None
         if not isinstance(body, dict):
             raise h.problem(400, "request.refused", code="DATAOPS-BODY", reason="a JSON object", fields="")
-        from datacore.dataops import DataOpsError
-
         decision, reason = str(body.get("decision") or ""), str(body.get("reason") or "")
         try:
             b = decide(sess, bid, decision, reason)
-        except DataOpsError as e:
+        except DecisionRefused as e:
             if e.why == "not_found":
                 raise h.problem(404, "notfound") from e
+            if e.why == "forbidden":
+                raise h.problem(403, "forbidden") from e
             status = 409 if e.why in ("not_held", "step", "promote") else 400
             raise h.problem(status, "request.refused", code=f"DATAOPS-{e.why.upper()}", reason=e.message,
                             fields="") from e  # fmt: skip
         except PromoteFailed as e:  # the night stays held
             why = (
                 "the publish failed and nothing is served; the night stays held"
-                if e.nothing_served
+                if e.nothing_served or e.not_started
                 else "the end of the publish is not known; the accept is recorded: accept again to record its end"
             )
             raise h.problem(409, "request.refused", code="DATAOPS-PROMOTE", reason=why, fields="") from e
-        return {"batch": b.as_dict()}
+        return {"batch": b.row.as_dict(), "publishing": b.publishing}

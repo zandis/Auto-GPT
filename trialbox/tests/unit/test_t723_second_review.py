@@ -47,14 +47,15 @@ AT = "2026-10-02T09:00:00+08:00"
 
 
 def _promoter(http: Any, lost: list[bool] | None = None) -> Any:
-    """The console's promoter over the adapter's app (``lost``: the answer to the start never reaches the console)."""
-    from console.dataops_page import adapter_promoter
+    """The orchestrator's promoter over the adapter's app (NEW-ARCH-3, D-761; ``lost``: the answer to the start never
+    reaches the orchestrator)."""
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
-    class Adapter:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
-        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
-            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
+    class Adapter:
+        def post_raw(self, path: str, body: Any) -> Any:
+            r = http.post(path, json=body)
             if lost and lost[0]:
                 raise ServiceError("adapter", 502, "bad gateway")
             if r.status_code >= 400:
@@ -62,17 +63,17 @@ def _promoter(http: Any, lost: list[bool] | None = None) -> Any:
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path.replace("/dataops/publish", "/publish")).json()
+            return http.get(path).json()
 
-    class Bk:
-        orch = orch_once = Adapter()
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = self.post_raw("/publish", body).json()
+            return out
 
-    promoter = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = self.get_json(f"/publish/{rid}")
+            return out
 
-    def promote(batch: Any) -> None:  # DataOps.decide calls its hook with the batch; the page binds the signer
-        promoter(batch, lambda _m, _p, _b: {})
-
-    return promote
+    return promoter(Adapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
 
 
 def _accept(ops: DataOps, tmp_path: Path, bid: int, promote: Any) -> Any:

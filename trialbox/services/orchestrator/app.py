@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -24,7 +25,7 @@ from tb_common.audit_writer import open_audit
 from tb_common.authz import permit
 from tb_common.config import get_config, tb_env
 from tb_common.fhir import FhirEvaluator
-from tb_common.http import ServiceError, make_app
+from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
 from tb_common.patient_reads import PHI as _PHI
@@ -50,6 +51,7 @@ from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import NotRetryable, Orchestrator, Rejected, Services
 from orchestrator.datacore_api import router as datacore_router
+from orchestrator.dataops_api import router as dataops_router
 from orchestrator.db import JobDB
 from orchestrator.edc_api import router as edc_router
 from orchestrator.lifecycle_api import router as lifecycle_router
@@ -787,6 +789,23 @@ def edc_of(o: Orchestrator) -> Any:
 
 app.include_router(edc_router(lambda: edc_of(orch()), _claim))  # the person from the signed assertion (D-162)
 
+_DATAOPS: dict[str, Any] = {}
+_DATAOPS_LOCK = threading.Lock()
+
+
+def _dataops_store() -> Any:
+    """The ``dataops`` schema of the trial database, opened once (NEW-ARCH-3, D-761: the console no longer opens it)."""
+    from datacore.dataops import DataOps
+
+    with _DATAOPS_LOCK:
+        if "ops" not in _DATAOPS:
+            _DATAOPS["ops"] = DataOps()
+        return _DATAOPS["ops"]
+
+
+# NEW-ARCH-3 (D-761): the night's data operations, and the steward's accept that publishes a held night (D-760)
+app.include_router(dataops_router(_dataops_store, lambda: orch().services.adapter, lambda: orch().audit))
+
 
 class DeceasedRequest(BaseModel):
     pids: list[str] = Field(default_factory=list, max_length=20000)
@@ -846,56 +865,6 @@ class RegistryPromoteBody(BaseModel):
 
 
 AS_REQUESTER = route_actor.require_actor("request.prepare")
-AS_DECIDER = route_actor.require_actor("dataops.decide")  # NEW-SEC-4 (D-760): the steward's accept of a held night
-
-
-class PublishBody(BaseModel):
-    """The held night to publish, as the adapter's ``POST /publish`` takes it."""
-
-    model_config = ConfigDict(extra="forbid")
-    snapshot: str = Field(min_length=1, max_length=40)
-    source: str = Field(default="", max_length=80)
-    attempt: int | None = None
-
-
-@app.post("/dataops/publish", status_code=202)
-def dataops_publish(body: PublishBody, claim: Claim = AS_DECIDER) -> dict[str, Any]:
-    """NEW-SEC-4 (D-760): the steward's accept publishes a held night. The signed person and ``dataops.decide`` are
-    checked here, as on every changing route; the adapter's publish (which takes this service's token only) is
-    started with this service's token and its answer given back as it is (202 and a run id; 404 and 409 as the
-    adapter said them). Recorded under the verified person."""
-    sent = body.model_dump()
-    adapter = orch().services.adapter
-    if adapter is None:
-        raise HTTPException(status_code=503, detail="this box has no adapter")
-    # the review: recorded before the start, so that no failure of the record can turn a started publish into an
-    # error the console reads as "not started"; the adapter's answer is the outcome
-    orch().audit.append("dataops.publish_started", actor=claim.sub,
-                        detail={"snapshot": body.snapshot, "source": body.source, "attempt": body.attempt})  # fmt: skip
-    try:
-        started = adapter.publish(sent)
-    except ServiceError as exc:
-        if exc.status in (404, 409):
-            raise HTTPException(status_code=exc.status, detail="the adapter did not start the publish") from exc
-        raise
-    return started
-
-
-@app.get("/dataops/publish/{rid}")
-def dataops_publish_state(rid: str) -> dict[str, Any]:
-    """The state of a publish this service started (``running``, ``done``, ``busy``, ``stale``, ``failed`` and the
-    step): a night's state, no patient's row."""
-    if not re.fullmatch(r"[0-9a-f]{16}", rid):  # the adapter's run id (the review: nothing else reaches its path)
-        raise HTTPException(status_code=404, detail="no such publish")
-    adapter = orch().services.adapter
-    if adapter is None:
-        raise HTTPException(status_code=503, detail="this box has no adapter")
-    try:
-        return adapter.publish_state(rid)
-    except ServiceError as exc:
-        if exc.status == 404:
-            raise HTTPException(status_code=404, detail="the adapter does not know this publish") from exc
-        raise
 
 
 @app.post("/registry/{ruleset}")
