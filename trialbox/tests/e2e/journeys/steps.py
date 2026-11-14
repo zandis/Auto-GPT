@@ -545,3 +545,162 @@ def _crc_first_list(s: Site, st: dict[str, Any]) -> None:
     assert res["job"].ruleset_version == "1.0.0", res["job"].ruleset_version
     page = s.c[user("crc")].get(f"/studies/{NEW_RS}/week")
     assert page.status_code == 200, page.status_code
+
+
+# ------------------------------------------------------------ NEW-JRN-20 (D-773): the steps a site needs to run a study
+NEW_CRC = "tw.crc2"
+NEW_CRC_PW = "journey-crc2-own-password-0001"
+
+
+@step("J-ADM-06")
+def _adm_new_account(s: Site, st: dict[str, Any]) -> None:
+    it = user("it")
+    page = s.get(it, "/ops/users")
+    r = s.post(it, "/ops/users", {"action": "add", "username": NEW_CRC, "role": "coordinator", "affiliation": "hospital",
+                                  "studies": "", "expires": ""}, page.text)  # fmt: skip
+    assert r.status_code == 200 and 'data-testid="account-requested"' in r.text, js.text(r.text)[-300:]
+    assert 'data-testid="enrol-code-value"' not in r.text and 'data-testid="users-pw-field"' not in r.text
+    assert s.h.users.get(NEW_CRC) is None  # nothing exists until the second person confirms (D-719)
+
+
+@step("J-STW-06")
+def _stw_confirms_the_account(s: Site, st: dict[str, Any]) -> None:
+    stw = user("stw")
+    waiting = s.get(stw, "/ops/accounts/requests")
+    rids = re.findall(r'data-request="([a-f0-9]+)"', waiting.text)
+    assert len(rids) == 1, js.text(waiting.text)[-300:]
+    r = s.post(stw, "/ops/accounts/requests", {"request": rids[0], "decision": "confirm"}, waiting.text)
+    code = re.search(r'data-testid="request-secret"[^>]*value="([a-z0-9-]+)"', r.text)
+    assert r.status_code == 200 and code, js.text(r.text)[-300:]
+    assert 'data-testid="request-secret"' not in s.get(user("it"), "/ops/users").text  # shown once, to the steward
+    # the new coordinator's first sign-in: the code, an own password, an authenticator set up from the page
+    c = TestClient(s.served)
+    tok = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/enrol").text)
+    assert tok
+    r = c.post("/enrol", data={"username": NEW_CRC, "enrol_code": code.group(1), "password": NEW_CRC_PW,
+                               "password2": NEW_CRC_PW, "login_csrf": tok.group(1)}, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and r.headers["location"] == "/login/totp", (r.status_code, js.text(r.text)[-300:])
+    page = c.get("/login/totp").text
+    key = re.search(r'data-testid="totp-key"[^>]*value="([^"]+)"|value="([^"]+)"[^>]*data-testid="totp-key"', page)
+    mfa = re.search(r'name="mfa_csrf" value="([^"]+)"', page)
+    assert key and mfa, js.text(page)[-300:]
+    s.secrets_[NEW_CRC] = (key.group(1) or key.group(2)).replace(" ", "")
+    r = c.post("/login/totp", data={"code": s.code(NEW_CRC), "mfa_csrf": mfa.group(1)}, follow_redirects=False)
+    assert r.status_code == 303, (r.status_code, js.text(r.text)[-300:])
+    home = c.get("/home")
+    assert home.status_code == 200 and "My tasks" in js.text(home.text), (home.url, js.text(home.text)[:300])
+    s.c[NEW_CRC] = c
+    made = [e for e in events(s, "console.user") if e["detail"].get("user") == NEW_CRC]
+    assert made and made[-1]["detail"]["confirmed_by"] == stw and code.group(1) not in json.dumps(made)
+
+
+def _entry(s: Site, name: str, rs: str, record: str, form: str, values: dict[str, str], event: str = "",
+           back: str = "subject") -> Any:  # fmt: skip
+    """A built-in form saved through the entry page, as the person fills it in."""
+    page = s.get(name, f"/studies/{rs}/entry?record={record}&form={form}&event={event}&back={back}")
+    data = {"record": record, "event": event, "form": form, "back": back, **{f"f_{k}": v for k, v in values.items()}}
+    r = s.post(name, f"/studies/{rs}/entry", data, page.text)
+    assert r.status_code == 200, (form, r.status_code, js.text(r.text)[-400:])
+    return r
+
+
+@step("J-CRC-09")
+def _crc_visit(s: Site, st: dict[str, Any]) -> None:
+    name, no, today = user("crc"), s.state["screening_no"], s.h.today()
+    forms = s.get(name, f"/studies/{RS}/forms")
+    r = s.post(name, f"/studies/{RS}/forms/builtin", {}, forms.text)
+    assert r.status_code == 200, (r.status_code, js.text(r.text)[-300:])
+    sched = s.get(name, f"/studies/{RS}/schedule")
+    r = s.post(name, f"/studies/{RS}/schedule", {"action": "save", "visit": ["v1", "v2", ""],
+               "label": ["Week 1", "Week 4", ""], "day": ["7", "28", ""], "before": ["7", "3", ""],
+               "after": ["7", "3", ""],
+               "anchor": ["enrolment", "enrolment", "enrolment"]}, sched.text)  # fmt: skip
+    assert 'data-testid="schedule-saved"' in r.text, js.text(r.text)[-300:]
+    page = s.get(name, f"/studies/{RS}/visits").text
+    row = re.search(rf'data-testid="visit-{no}-v1"(.*?)</(?:tr|li)>', page, re.S)
+    assert row and "In the window" in js.text(row.group(1)), js.text(page)[:600]
+    r = _entry(s, name, RS, no, "tb_visit", {"vs_status": "1", "vs_date": today.isoformat(), "vs_window": "1"}, "v1",
+               "visits")  # fmt: skip
+    assert 'data-testid="visit-saved"' in r.text and f'data-testid="visit-{no}-v1"' not in r.text
+    one = s.h.bk.study_api("GET", f"/studies/{RS}/subjects/{no}?today={today.isoformat()}")
+    assert one["subject"]["state"] == "on_study" and one["visits"][0]["status"] == "done", one["subject"]
+    assert [v["visit"] for v in one["visits"] if v["status"] != "done"] == ["v2"], one["visits"]  # Week 4 is next
+
+
+@step("J-CRC-10")
+def _crc_sae(s: Site, st: dict[str, Any]) -> None:
+    name, no, today = user("crc"), s.state["screening_no"], s.h.today()
+    setup = s.get(name, f"/studies/{RS}/setup")
+    r = s.post(name, f"/studies/{RS}/setup/sae", {"rule_set": "tw_trial"}, setup.text)
+    assert r.status_code == 200, (r.status_code, js.text(r.text)[-300:])
+    r = _entry(s, name, RS, no, "tb_adverse_event", {"ae_term": "Pneumonia", "ae_onset": today.isoformat(),
+               "ae_aware": today.isoformat(), "ae_aware_time": "09:00", "ae_serious": "1", "ae_serious_why": "3",
+               "ae_severity": "3", "ae_related": "9"}, "ae1")  # fmt: skip
+    assert 'data-testid="ae-ae1"' in r.text, js.text(r.text)[-300:]
+    assert 'data-testid="sae-banner"' in s.get(name, "/home").text
+    assert 'data-testid="sae-banner"' in s.get(user("pi"), "/week").text
+    case = s.get(name, f"/studies/{RS}/sae/{no}/ae1").text
+    due = re.search(r'data-testid="sae-due-at-sponsor">([^<]+)<', case)
+    assert due and due.group(1).startswith((today + timedelta(days=1)).isoformat()), js.text(case)[:400]
+
+
+@step("J-CRC-11")
+def _crc_deviation(s: Site, st: dict[str, Any]) -> None:
+    name, no, today = user("crc"), s.state["screening_no"], s.h.today()
+    what = "Week 1 blood draw taken outside the protocol window"
+    r = _entry(s, name, RS, no, "tb_deviation", {"dv_date": today.isoformat(), "dv_kind": "3", "dv_what": what},
+               "dv1")  # fmt: skip
+    row = re.search(r'data-testid="dv-dv1">(.*?)</li>', r.text, re.S)
+    assert row and today.isoformat() in row.group(1) and what in row.group(1), js.text(r.text)[-300:]
+
+
+@step("J-CRC-12")
+def _crc_edc_sign_send(s: Site, st: dict[str, Any]) -> None:
+    rs, name, no = cd.REGISTRY, user("crc"), s.state["reg_no"]
+    d = {x["item"]: x for x in s.h.bk.study_api("GET", f"/studies/{rs}/edc/drafts?record={no}")}
+    drafted = {k: v["value"] for k, v in d.items() if v["state"] == "drafted"}
+    rev = s.get(name, f"/studies/{rs}/edc/review/{no}")
+    for k in drafted:  # each value checked against its source, then confirmed
+        r = s.post(name, f"/studies/{rs}/edc/decide/{d[k]['id']}", {"action": "confirm", "record": no}, rev.text)
+        assert r.status_code == 200, (k, js.text(r.text)[-300:])
+    shown = s.get(name, f"/studies/{rs}/edc/review/{no}").text
+    seen = re.search(r'name="seen" value="([^"]*)"', shown)
+    form = {"record": no, "password": js.OWN_PW, "meaning_ack": "1", "seen": seen.group(1) if seen else ""}
+    refused = s.post(name, f"/studies/{rs}/edc/sign", form, shown)  # no authenticator code: nothing is signed
+    assert refused.status_code == 401 and "Nothing was signed" in js.text(refused.text), refused.status_code
+    signed = s.post(name, f"/studies/{rs}/edc/sign", {**form, "otp": s.code(name)}, shown)
+    assert signed.status_code == 200, js.text(signed.text)[-400:]
+    sent = s.post(name, f"/studies/{rs}/edc/send", {"record": no}, signed.text)
+    assert sent.status_code == 200 and re.search(r"Sent [1-9]\d*\..*Read-back differences 0", js.text(sent.text)), (
+        js.text(sent.text)[:400]
+    )
+    held = s.state["rc"].records()[0]
+    assert all(held.get(k) == v for k, v in drafted.items()), (drafted, held)
+
+
+@step("J-MON-04")
+def _mon_visit_record(s: Site, st: dict[str, Any]) -> None:
+    name, no, today = user("cra"), s.state["screening_no"], s.h.today()
+    page = s.get(name, f"/studies/{RS}/monitor")
+    finding = "consent form copy not filed in the subject binder"
+    r = s.post(name, f"/studies/{RS}/monitor/visits", {"visit_day": today.isoformat(), "subjects": [no],
+               "findings": finding}, page.text)  # fmt: skip
+    assert r.status_code == 200 and 'data-testid="sdv-visit-saved"' in r.text, js.text(r.text)[-300:]
+    rows = r.text[r.text.index('data-testid="sdv-visits"') :]
+    assert name in rows and no in rows and finding in rows and "MV-01" in rows, js.text(rows)[:400]
+
+
+@step("J-PI-09")
+def _pi_close(s: Site, st: dict[str, Any]) -> None:
+    from console import screening_log
+
+    name, rs = user("pi"), "GZQO"
+    why = "the sponsor stopped recruitment at every site"
+    page = s.get(name, f"/studies/{rs}/state")
+    r = s.post(name, f"/studies/{rs}/state", {"state": "closed", "reason": why}, page.text)
+    assert r.status_code == 200 and 'data-state="closed"' in r.text, (r.status_code, js.text(r.text)[-300:])
+    assert why in js.text(r.text)
+    log = js.text(s.get(name, f"/studies/{rs}/screening-log").text)
+    assert "Now: Closed" in log and name in log, log[:400]  # the log says the state, since when and who
+    assert ["state", "closed"] in screening_log.study_lines(s.h.store, rs)  # its exported study sheet, with the reason
+    assert any(x[0] == "state.closed" and x[-1] == why for x in screening_log.study_lines(s.h.store, rs))

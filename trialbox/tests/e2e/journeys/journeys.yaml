@@ -31,6 +31,13 @@ topics:
   break_glass: a break-glass grant and its steward review
   conflict: a conflict resolved by the steward
   held_feed: a held feed night seen on the readiness page
+  new_account: an account made in the console, confirmed by a second person, and its holder's first sign-in
+  visits: a participant's visit recorded against the study's visit schedule
+  sae: a serious adverse event recorded, with its reporting clock
+  deviation: a protocol deviation recorded on the participant
+  edc_sign_send: EDC values confirmed against their source, signed and sent to REDCap
+  monitor_visit: the monitor's record of a monitoring visit
+  study_close: a study closed to recruitment for good
 
 journeys:
   - id: J-ADM
@@ -64,6 +71,11 @@ journeys:
         expect: The criteria wait for approval as GOUT-NEW v1.0.0; the approval page says that nobody can approve
           until the data steward names the principal investigator; both accounts list GOUT-NEW.
         covers: [protocol_to_criteria]
+      - id: J-ADM-06
+        do: A new coordinator joins. On "Users", add the account tw.crc2 (coordinator, hospital).
+        expect: The account waits for a second person (the steward); you are shown no password and no code, and
+          the account does not exist yet.
+        covers: [new_account]
 
   - id: J-STW
     role: steward
@@ -97,6 +109,12 @@ journeys:
         expect: The log of GOUT-NEW opens before the study has approved criteria; after you name the PI the task
           is gone.
         covers: [protocol_to_criteria]
+      - id: J-STW-06
+        do: On "Account requests", confirm the administrator's request for tw.crc2 and hand the enrolment code to
+          the new coordinator, who opens "First sign-in", chooses a password and sets up the authenticator.
+        expect: The code is shown once, to you; the coordinator signs in to "My work"; the audit names you as the
+          person who confirmed.
+        covers: [new_account]
 
   - id: J-CRC
     role: coordinator
@@ -140,6 +158,29 @@ journeys:
           set-up page and ask for its first list.
         expect: The run ends and "This week's patients" of GOUT-NEW v1.0.0 opens.
         covers: [screening_run]
+      - id: J-CRC-09
+        do: On RA-JAK add TrialBox's forms, set the visit schedule (Week 1 on day 7 after enrolment, 7 days either
+          side; Week 4 on day 28, 3 days either side), then on "Visits" record the enrolled participant's Week 1
+          as done today.
+        expect: '"Schedule saved"; the Week 1 visit is in its window, then saved and gone from the list; the
+          participant is "On study" with Week 4 next.'
+        covers: [visits]
+      - id: J-CRC-10
+        do: On RA-JAK's SAE set-up choose Taiwan's trial rules. On the participant page record an adverse event
+          (pneumonia, serious because of a hospital stay, known today).
+        expect: The SAE banner on your home page and on the PI's; the SAE case gives the sponsor report's due time,
+          one day after you knew.
+        covers: [sae]
+      - id: J-CRC-11
+        do: On the participant page record a deviation (visit window, what happened).
+        expect: The deviation is listed on the participant page with its date and what happened.
+        covers: [deviation]
+      - id: J-CRC-12
+        do: On the GOUT-COH review of J-CRC-07, confirm each drafted value against its source, sign with your
+          password, then with your password and an authenticator code, and send.
+        expect: Without the code nothing is signed; after signing, "Sent" with no read-back difference; REDCap
+          holds the confirmed values.
+        covers: [edc_sign_send]
 
   - id: J-PI
     role: investigator
@@ -180,6 +221,11 @@ journeys:
         expect: Before the steward named you (J-STW-05) the page had no "Approve all"; now GOUT-NEW is approved at
           v1.0.0.
         covers: [protocol_to_criteria]
+      - id: J-PI-09
+        do: GZQO stops recruiting for good. On GZQO's "Study state", close it with a reason.
+        expect: GZQO is "Closed" with your reason; the screening log says "Now - Closed" since today, by you, and
+          its exported study sheet lists the change with the date, you and the reason.
+        covers: [study_close]
 
   - id: J-SI
     role: investigator
@@ -213,6 +259,10 @@ journeys:
       - id: J-MON-03
         do: Under the grant of J-PI-06, open the enrolled participant of J-CRC-06 on the monitor page.
         expect: The participant's record opens read-only with the visit id MV-01, without the pseudonym.
+      - id: J-MON-04
+        do: Record the monitoring visit MV-01 with today's date, the participant you verified and a finding.
+        expect: '"Monitoring visit recorded"; the record lists you as the CRA, the participant and the finding.'
+        covers: [monitor_visit]
 
   - id: J-VWR
     role: viewer
@@ -295,3 +345,11 @@ walk:
   - J-STW-05
   - J-PI-08
   - J-CRC-08
+  - J-ADM-06
+  - J-STW-06
+  - J-CRC-09
+  - J-CRC-10
+  - J-CRC-11
+  - J-CRC-12
+  - J-MON-04
+  - J-PI-09
