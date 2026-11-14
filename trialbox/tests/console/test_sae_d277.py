@@ -21,7 +21,7 @@ from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - t
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 
 TPE = timezone(timedelta(hours=8))
-TW = lc.report_rules("Asia/Taipei")
+TW = lc.report_rules("Asia/Taipei", rules="tw_trial")  # D-766: a named set (no set chosen gives no clock)
 
 
 def _ae(**kw: str) -> dict[str, Any]:
@@ -101,8 +101,9 @@ def test_named_rule_sets_and_the_regulator_from_the_site_country() -> None:
     or a zone of no known country is an alert, never the Taiwan clock."""
     jp = lc.clock_rules("jp_crb", "Asia/Tokyo")
     assert jp["regulator"] == "MHLW" and jp["parties"]["irb"] == (7, 15) and jp["problems"] == []
+    # NEW-LIFE-8 (D-766): no set chosen: no clock (it was the country's default), an alert, the regulator still named
     tw = lc.clock_rules("", "Asia/Taipei")
-    assert tw["name"] == "tw_trial" and tw["regulator"] == "TFDA" and tw["problems"] == ["default_rules"]
+    assert tw["parties"] == {} and tw["regulator"] == "TFDA" and tw["problems"] == ["unconfirmed"]
     assert lc.clock_rules("", "Asia/Tokyo")["regulator"] == "PMDA"
     assert lc.clock_rules("", "Japan")["country"] == "JP"  # site.tz: Japan is Japan, not Taiwan (CR-009)
     unknown = lc.clock_rules("jp_gcp_typo", "Asia/Tokyo")
@@ -112,7 +113,8 @@ def test_named_rule_sets_and_the_regulator_from_the_site_country() -> None:
     assert "other_country" in lc.clock_rules("jp_gcp", "Asia/Taipei")["problems"]
     bad = lc.clock_rules("tw_trial", "Asia/Taipei", "irb=7/x, sponsor=1")
     assert "bad_override" in bad["problems"] and bad["parties"]["irb"] == (7, 15)
-    assert set(lc.RULE_SETS) >= {"jp_gcp", "jp_gcp_ii", "jp_crb", "jp_guideline", "tw_trial", "tw_research"}
+    assert set(lc.RULE_SETS) >= {"jp_gcp", "jp_gcp_ii", "jp_crb", "jp_guideline", "tw_trial", "tw_research",
+                                 "tw_trial_sponsor"}  # fmt: skip
 
 
 def test_clocks_zero_raise_an_alert() -> None:
@@ -276,6 +278,7 @@ def test_rule_follow_ups_reach_the_home_page_and_the_mail(lb: dict[str, Any]) ->
     c, csrf = login(lb["app"], "crc", PW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
     c.get("/studies/GZQO/subjects")
+    c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"})  # D-766: the clock runs once chosen
     lb["clock"]["now"] = datetime(2026, 11, 30, 1, 0, tzinfo=UTC)
     sent = {"ae_rep_sponsor": "2026-11-09", "ae_rep_irb": "2026-11-10", "ae_rep_reg": "2026-11-10"}
     _save(c, csrf, no, "tb_adverse_event", {**FATAL, **sent}, "ae1")

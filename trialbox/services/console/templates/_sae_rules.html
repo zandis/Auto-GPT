@@ -8,7 +8,7 @@
 <p><strong>{{ t('sae.rule.set', rs=rs_, name=t('sae.set.' + x.name) if x.name else '–', regulator=x.regulator or '–') }}</strong></p>
 <p>{{ t('sae.rule', rules=rules_line(x.parties or {}, x.regulator)) }}</p>
 {% if x.confirmed_by %}<p data-testid="sae-confirmed">{{ t('sae.rule.by', who=x.confirmed_by|who, at=x.confirmed_at|local) }}</p>{% else %}<p class="warn" data-testid="sae-unconfirmed">{{ t('sae.rule.unconfirmed') }}{% if x.source in ('box', 'country') %} {{ t('sae.rule.source.' + x.source) }}{% endif %}</p>{% endif %}
-{% for f in x.problems or [] %}{% if f != 'default_rules' %}<p class="error" data-testid="sae-rule-problem-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endif %}{% endfor %}
+{% for f in x.problems or [] %}<p class="error" data-testid="sae-rule-problem-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}
 </div>{% endfor %}
 {% set regs = study_rules.values()|map(attribute='regulator')|unique|list %}
 <p>{{ t('sae.rule.followup', rules=rules_line(fu_rules, regs[0] if regs|length == 1 else '')) }}</p>

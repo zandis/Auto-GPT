@@ -23,7 +23,7 @@
 <p>{{ t('sae.dates', onset=one.onset or '–', aware=one.aware or '–') }}{% if one.aware_time %} {{ one.aware_time }}{% endif %}</p>
 {% if one.expected %}<p data-testid="sae-expected">{{ t('sae.case.expected', v=t('sae.yesno.' + one.expected)) }}</p>{% endif %}
 {% if one.unblinded == '1' %}<p class="warn" data-testid="sae-unblinded">{{ t('sae.case.unblinded', day=one.unblind_date or '–') }}</p>{% endif %}
-{% for f in one.flags %}<p class="{% if f in ('nostart', 'aware_before_onset', 'future_date', 'bad_sent', 'downgraded', 'noclock', 'serious_mismatch', 'unknown_rules', 'no_country', 'other_country', 'bad_override') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}
+{% for f in one.flags %}<p class="{% if f in ('nostart', 'aware_before_onset', 'future_date', 'bad_sent', 'downgraded', 'noclock', 'serious_mismatch', 'unknown_rules', 'no_country', 'other_country', 'bad_override', 'unconfirmed') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}
 <p>{% if one.downgraded %}<span class="pill warn" data-testid="sae-downgraded">{{ t('sae.downgraded', n=one.open) }}</span>{% elif one.ack_by %}{{ t('sae.ack.yes', who=one.ack_by|who, at=one.ack_at|local) }}{% else %}<span class="pill warn">{{ t('sae.ack.no') }}</span>{% if may_ack %}
 <form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="sae-case-ack">{{ t('sae.ack.do') }}</button></form>{% endif %}{% endif %}</p>
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="sae-reports">
