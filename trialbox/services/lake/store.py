@@ -277,6 +277,8 @@ def query_failure_status(exc: BaseException) -> int:
     the engine's own grouping, not by a list kept here. (400, a statement the guard refused, is the route's.)"""
     if isinstance(exc, (FileNotFoundError, StaleSnapshotError, LakeSchemaError, LakeLimitError)):
         return 503
+    if isinstance(exc, duckdb.OutOfMemoryException):  # D-742: the engine met the box's limit, wherever it was
+        return 503
     if isinstance(exc, duckdb.InterruptException):
         return 503
     if isinstance(exc, (duckdb.ProgrammingError, duckdb.DataError, duckdb.NotSupportedError, duckdb.IntegrityError)):
@@ -303,6 +305,8 @@ def error_answer(exc: BaseException, what: str = "query") -> str:
     name = type(exc).__name__
     if isinstance(exc, (LakeLimitError, LakeSchemaError, StaleSnapshotError, LakeSaid)):
         return f"{name}: {str(exc)[:500]}"
+    if isinstance(exc, duckdb.OutOfMemoryException):  # D-742: the box's limit, in the lake's words
+        return f"{name}: {_limit_message(exc)[:500]}"
     first = str(exc).splitlines()[0] if str(exc) else ""
     if any(shape.fullmatch(first) for shape in _PASSED_ON):
         return f"{name}: {first}"
@@ -1556,6 +1560,14 @@ class Lake:
     # ------------------------------------------------------------------ query
     def connect(self, snapshot: str | None = None) -> duckdb.DuckDBPyConnection:
         """Read-only connection with FTS loaded, external file access disabled and configuration locked."""
+        # NEW-B-41 (D-742): the box's memory limit met while the snapshot is opened is the lake's limit, as in a query
+        try:
+            return self._open(snapshot)
+        except duckdb.OutOfMemoryException as exc:
+            log.error("lake snapshot not opened: the memory limit was met: %s", str(exc).splitlines()[0][:200])
+            raise LakeLimitError(_limit_message(exc)) from exc
+
+    def _open(self, snapshot: str | None) -> duckdb.DuckDBPyConnection:
         # DuckDB shares one database instance per file inside a process: a concurrent connection finds the
         # instance already hardened (FTS loaded, external access off, configuration locked) and must not re-set it.
         with _CONNECT_LOCK:
@@ -1569,24 +1581,33 @@ class Lake:
                 except duckdb.IOException:
                     if path.exists() or attempt == 2:  # a link removed by a swap meanwhile: look again
                         raise
-            row = con.execute("SELECT current_setting('lock_configuration')").fetchone()
-            if not (row and row[0]):
-                con.execute(f"LOAD '{fts_extension_path()}'")
-                # bounded memory, spill to the lake volume: a hospital-scale FEAS must not take the host down (D-80)
-                tmp = temp_dir(self.dir)
-                tmp.mkdir(parents=True, exist_ok=True)
-                con.execute(f"SET memory_limit = '{memory_limit()}'")
-                con.execute(f"SET temp_directory = '{tmp}'")
-                con.execute(f"SET max_temp_directory_size = '{temp_limit(tmp)}'")
-                con.execute("SET preserve_insertion_order = false")
-                con.execute("SET enable_external_access = false")
-                con.execute("SET lock_configuration = true")
+            try:
+                self._harden(con)
+            except Exception:  # the limit met while it is set up: the connection is not left open
+                con.close()
+                raise
         try:
             _compat_views(con, check_schema(con, snapshot or self.current() or ""))
-        except LakeSchemaError:
+        except (LakeSchemaError, duckdb.OutOfMemoryException):
             con.close()
             raise
         return con
+
+    def _harden(self, con: duckdb.DuckDBPyConnection) -> None:
+        """A new instance hardened once: FTS loaded, bounded memory and spill, no external access, configuration
+        locked (a later connection to the same instance finds it so)."""
+        row = con.execute("SELECT current_setting('lock_configuration')").fetchone()
+        if not (row and row[0]):
+            con.execute(f"LOAD '{fts_extension_path()}'")
+            # bounded memory, spill to the lake volume: a hospital-scale FEAS must not take the host down (D-80)
+            tmp = temp_dir(self.dir)
+            tmp.mkdir(parents=True, exist_ok=True)
+            con.execute(f"SET memory_limit = '{memory_limit()}'")
+            con.execute(f"SET temp_directory = '{tmp}'")
+            con.execute(f"SET max_temp_directory_size = '{temp_limit(tmp)}'")
+            con.execute("SET preserve_insertion_order = false")
+            con.execute("SET enable_external_access = false")
+            con.execute("SET lock_configuration = true")
 
     def query(
         self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int = 300
