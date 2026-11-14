@@ -826,13 +826,6 @@ class EdcStore:
             return self._all("SELECT * FROM sent WHERE study = ? ORDER BY id", (study,))
         return self._all("SELECT * FROM sent WHERE study = ? AND record = ? ORDER BY id", (study, record))
 
-    def last_sent(self, study: str, record: str, visit: str, item: str) -> str | None:
-        """The value TrialBox last wrote to the EDC for this item (None: never written)."""
-        rows = self._all("SELECT value FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? AND "
-                         "target = 'redcap' AND result IN ('sent', 'already_there') ORDER BY id DESC LIMIT 1",
-                         (study, record, visit, item))  # fmt: skip
-        return str(rows[0]["value"]) if rows else None
-
     def last_written(self, study: str, record: str, visit: str, item: str) -> str | None:
         """The value TrialBox itself last wrote into REDCap for this item (NEW-EDC-2): ``sent`` (written and read
         back) or ``erased`` (written empty). An ``already_there`` line is not a write: the value was someone's

@@ -530,7 +530,8 @@ class EdcService:
                         out["already_there"].append(_brief(d))
                         self.store.record_sent(rs, d, "redcap", rec, "already_there", "", by, at)
                         continue
-                    last = self.store.last_sent(rs, d["record"], d["visit"], d["item"])
+                    # NEW-EDC-8b (EDC-012): ownership from TrialBox's own writes; `already_there` is the person's
+                    last = self.store.last_written(rs, d["record"], d["visit"], d["item"])
                     if landed and there:  # review finding: TrialBox's lost write, or a person's equal entry
                         if slot.repeat:
                             taken.add(lay.key(rec, slot))
@@ -622,9 +623,9 @@ class EdcService:
                         for cv in back.calcs(rec, slot):
                             calc_out.append({"record": name, "visit": slot.visit, **cv})
                         for f in back.hidden_values(rec, slot):
-                            last = self.store.last_sent(rs, name, slot.visit, f)
-                            mine = last is not None and f in live and forms.redcap_value(live[f], last) == back.value(
-                                rec, slot, f)  # fmt: skip
+                            last = self.store.last_written(rs, name, slot.visit, f)  # NEW-EDC-8b
+                            mine = last is not None and last != "" and f in live and forms.redcap_value(
+                                live[f], last) == back.value(rec, slot, f)  # fmt: skip
                             hidden_out.append({"record": name, "visit": slot.visit, "item": f, "trialbox": mine})
         except RcError as exc:
             self._audit("edc.sent", rs, by, {"record": record or "*", "refused": exc.code, "attempted": attempted})
@@ -742,8 +743,8 @@ class EdcService:
                 look = sorted(watched(meta, on_row, []))
                 cur = Rows(lay, meta, rid, c.records(fields=[rid, *look], records=[rec]), self.today())
                 for f in cur.hidden_values(rec, slot):
-                    last = self.store.last_sent(rs, record, vis, f)
-                    if last is not None and f in live and forms.redcap_value(live[f], last) == cur.value(rec, slot, f):
+                    last = self.store.last_written(rs, record, vis, f)  # NEW-EDC-8b: never a person's value
+                    if last and f in live and forms.redcap_value(live[f], last) == cur.value(rec, slot, f):
                         erased.append(f)
                     else:
                         kept.append({"item": f, "why": "not_written_by_trialbox"})
@@ -752,7 +753,7 @@ class EdcService:
                     back = Rows(lay, meta, rid, c.records(fields=[rid, *look], records=[rec]), self.today())
                     for f in erased:
                         d = next((x for x in reversed(mine) if str(x["item"]) == f and x.get("sent_at")), None)
-                        if d is None:  # pragma: no cover - last_sent found a send, so its draft exists
+                        if d is None:  # pragma: no cover - last_written found a send, so its draft exists
                             continue
                         ok = back.value(rec, slot, f) == ""
                         self.store.record_sent(rs, {**d, "final": ""}, "redcap", rec, "erased" if ok else "readback",
