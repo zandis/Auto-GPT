@@ -781,6 +781,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
         )
 
+    unread_of: dict[str, Any] = {}  # the last run asked and its answer (one entry)
+
+    def values_unread(job: Job | None) -> bool:
+        """NEW-CAND-1 (D-713): did this run say it could not read the values behind its coded answers? The run
+        keeps that in its stored "not matched" list (``coded_values: not read``, D-652). A run that read them, a
+        list from before the field existed and a run with no stored list all answer no: nothing is said. An
+        after-ingest or weekly run (``MICROBATCH``) stores no such list and records no flag, so nothing is said
+        while it is the study's latest run (D-713, "What it does not do").
+
+        The answer of the last run asked is kept: a finished run's stored list does not change, and the weekly
+        list's side panel asks for every view (it shows no coded value, but shares this context)."""
+        if job is None:
+            return False
+        if unread_of.get("job") != job.job_id:
+            said = (load(job, "excluded_", ".json") or {}).get("coded_values") == "not read"
+            unread_of.update(job=job.job_id, said=said)
+        return bool(unread_of["said"])
+
     def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid):
             raise h.problem(404, "notfound")
@@ -801,6 +819,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "rs": rid,
             "pid": pid,
             "job": wk["job"],
+            "values_unread": values_unread(wk["job"]),
             "asof": wk["asof"],
             "row": row,
             "listed": listed,
