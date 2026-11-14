@@ -1,5 +1,7 @@
 # TrialBox ネットワーク・ポート・秘密情報一覧
 
+**Reader:** hospital IT（病院情報システム部門。オーナーが it-one-page.ja.md と一緒に渡します）。
+
 下記の compose ファイルから tools/network_sheet.py で生成（D-138）。コンソールのポート以外、外部から到達できるものはありません。秘密情報の値はこの一覧に載せていません。
 
 **compose ファイル:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`

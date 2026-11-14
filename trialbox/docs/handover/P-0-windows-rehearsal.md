@@ -1,5 +1,7 @@
 # P-0: the Windows installer rehearsed on a Windows 11 PC with an NVIDIA card
 
+**Reader:** the box owner, who runs the rehearsal, and the people who build TrialBox, who read its result.
+
 Plan v7.2 section 7.2, test P-0; plan step 8a (due 2027-01-08). Cards NEW-WIN-1 (D-600), then NEW-WIN-3, NEW-WIN-2
 and NEW-WIN-8 as they land: this sheet grows one part per card.
 

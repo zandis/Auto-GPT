@@ -1,5 +1,7 @@
 # Offline media layout (D-125, D-138)
 
+**Reader:** Aimedics, who make the media, and the box owner, who starts the installer from it.
+
 The Windows workstation never reaches the internet, at install or after (D-125). Everything comes on one USB disk
 (or the same folder copied to a local drive; a mapped network drive is not used: a window that runs as
 administrator does not see another sign-in's mapped drives), made by Aimedics from a signed release. The box owner starts

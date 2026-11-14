@@ -72,6 +72,12 @@ T: dict[str, dict[str, str]] = {
         "zh-TW": "由下列 compose 檔以 tools/network_sheet.py 產生（D-138）。"
         "除主控台連接埠外，外部無法連到本機任何服務。本表不含任何機密的值。",
     },
+    # T-735b (D-732): the sheet names its reader, as every handover page does
+    "reader": {
+        "en": "hospital IT (the box owner hands it to IT with IT's one page, it-one-page.en.md).",
+        "ja": "hospital IT（病院情報システム部門。オーナーが it-one-page.ja.md と一緒に渡します）。",
+        "zh-TW": "hospital IT（醫院資訊室；由擁有者連同 it-one-page.zh-TW.md 一起交給資訊室）。",
+    },
     "files": {"en": "Compose files", "ja": "compose ファイル", "zh-TW": "compose 檔"},
     "ports": {"en": "Listening ports", "ja": "待ち受けポート", "zh-TW": "監聽連接埠"},
     "service": {"en": "Service", "ja": "サービス", "zh-TW": "服務"},
@@ -560,6 +566,7 @@ def render_md(files: list[str], env: dict[str, str] | None, lang: str, root: Pat
 
     parts = [
         f"# {L('title')}",
+        f"**Reader:** {L('reader')}",
         L("intro"),
         f"**{L('files')}:** " + ", ".join(f"`{f}`" for f in files),
         f"## {L('ports')}",
@@ -598,7 +605,7 @@ def render_html(files: list[str], env: dict[str, str] | None, lang: str, root: P
         return f"<table><tr>{th}</tr>{trs}</table>"
 
     body = [
-        f"<h1>{L('title')}</h1><p>{L('intro')}</p>",
+        f"<h1>{L('title')}</h1><p><b>Reader:</b> {L('reader')}</p><p>{L('intro')}</p>",
         f"<p><b>{L('files')}:</b> " + ", ".join(f"<code>{html.escape(f)}</code>" for f in files) + "</p>",
         f"<h2>{L('ports')}</h2>"
         + table([L("service"), L("port"), L("host"), L("nets"), L("who"), L("when")], t["ports"]),

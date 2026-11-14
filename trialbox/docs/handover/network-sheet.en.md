@@ -1,5 +1,7 @@
 # TrialBox network, port and secret sheet
 
+**Reader:** hospital IT (the box owner hands it to IT with IT's one page, it-one-page.en.md).
+
 Generated from the compose files below by tools/network_sheet.py (D-138). Nothing on the box is reachable from outside except the console port. No secret value is on this sheet.
 
 **Compose files:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`

@@ -1,5 +1,7 @@
 # P-0, for the owner: from a fresh checkout to a Windows PC running the installer
 
+**Reader:** the box owner, for the P-0 rehearsal.
+
 One page. What you need, the commands in order, and what you do on the Windows PC. The questions P-0 answers are
 on the sheet `docs/handover/P-0-windows-rehearsal.md`; this page gets you to its line 1.
 
