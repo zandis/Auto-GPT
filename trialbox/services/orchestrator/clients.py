@@ -59,6 +59,10 @@ class MailAPI(Protocol):
 class AdapterAPI(Protocol):
     def run(self, req: IngestRequest) -> IngestReport: ...
 
+    def publish(self, body: dict[str, Any]) -> dict[str, Any]: ...  # NEW-SEC-4 (D-760)
+
+    def publish_state(self, rid: str) -> dict[str, Any]: ...
+
 
 def _ingest_ended(st: dict[str, Any]) -> str:
     """Why an ingest that is not done ended, for the job's record (D-557). The adapter's own sentence when it wrote

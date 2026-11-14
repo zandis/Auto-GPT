@@ -51,9 +51,11 @@ def test_the_adapter_takes_the_publish_from_the_orchestrator_only(
     monkeypatch.delenv("TB_SERVICE_TOKEN_FILE", raising=False)
     _registry(tmp_path, monkeypatch)
     started: list[Any] = []
-    monkeypatch.setattr(
-        adapter_app, "build_config", lambda: started.append(1) or (_ for _ in ()).throw(RuntimeError("x"))
-    )
+    def config() -> Any:  # the handler was reached: its configuration is the first thing it asks for
+        started.append(1)
+        raise RuntimeError("the test's adapter has no configuration")
+
+    monkeypatch.setattr(adapter_app, "build_config", config)
     http = TestClient(adapter_app.app, raise_server_exceptions=False)
     r = http.post("/publish", json=BODY, headers=_auth("console"))
     assert r.status_code == 403 and started == []  # the console's token alone publishes nothing

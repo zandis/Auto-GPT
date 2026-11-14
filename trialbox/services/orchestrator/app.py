@@ -858,8 +858,11 @@ def dataops_publish(body: PublishBody, claim: Claim = AS_DECIDER) -> dict[str, A
     started with this service's token and its answer given back as it is (202 and a run id; 404 and 409 as the
     adapter said them). Recorded under the verified person."""
     sent = body.model_dump()
+    adapter = orch().services.adapter
+    if adapter is None:
+        raise HTTPException(status_code=503, detail="this box has no adapter")
     try:
-        started = orch().services.adapter.publish(sent)
+        started = adapter.publish(sent)
     except ServiceError as exc:
         if exc.status in (404, 409):
             raise HTTPException(status_code=exc.status, detail="the adapter did not start the publish") from exc
@@ -874,8 +877,11 @@ def dataops_publish(body: PublishBody, claim: Claim = AS_DECIDER) -> dict[str, A
 def dataops_publish_state(rid: str) -> dict[str, Any]:
     """The state of a publish this service started (``running``, ``done``, ``busy``, ``stale``, ``failed`` and the
     step): a night's state, no patient's row."""
+    adapter = orch().services.adapter
+    if adapter is None:
+        raise HTTPException(status_code=503, detail="this box has no adapter")
     try:
-        return orch().services.adapter.publish_state(rid[:64])
+        return adapter.publish_state(rid[:64])
     except ServiceError as exc:
         if exc.status == 404:
             raise HTTPException(status_code=404, detail="the adapter does not know this publish") from exc
