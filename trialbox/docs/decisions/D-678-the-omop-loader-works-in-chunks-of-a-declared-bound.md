@@ -108,7 +108,7 @@ The stage takes about 1.4 times the batch's NDJSON in the database's temporary s
 The equivalence and late-refusal tests also pass on the old loader (it ignores the chunk; it refused before
 writing): they guard the new one. The peak and interrupt tests fail on it.
 
-The 17 test files that load OMOP or build a lake from it pass unchanged (200 passed, 3 skipped).
+The test files that load OMOP or build a lake from it pass. **One existing test's expected text changed**: `tests/unit/test_role_paths.py` looked for the load's `CREATE TEMP TABLE tb_in_tmp`; it now looks for `CREATE TEMP TABLE IF NOT EXISTS tb_in_tmp` (the table is made once per load). Its point stands: the load makes its temporary table under the store's own role. Found by the whole unit suite.
 
 ## Review
 
