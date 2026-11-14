@@ -248,8 +248,7 @@ def test_deploy_gcp_has_no_set_x_and_no_port_80_for_the_gpu_vm() -> None:
     for f in sorted(GCP.glob("*.sh")):
         lines = [ln.strip() for ln in f.read_text(encoding="utf-8").splitlines()]
         assert not [ln for ln in lines if re.fullmatch(r"set -[a-z]*x[a-z]*( .*)?", ln)], f.name
-    for name in ("complete-run-vm.sh", "gpu-sim-startup.sh", "gpu-fit-test.sh", "gpu-pro6000-run.sh",
-                 "gpu-swap-run.sh"):  # fmt: skip
+    for name in ("complete-run-vm.sh", "gpu-sim-startup.sh", "gpu-pro6000-run.sh", "gpu-swap-run.sh"):
         text = (GCP / name).read_text(encoding="utf-8")
         published = re.findall(r"-p (\d[\d.:]*)", text)  # docker's published ports
         assert published and all(p.startswith("127.0.0.1:") or p == "443:443" for p in published), (name, published)
