@@ -464,10 +464,13 @@ class EdcService:
                 # the touched records' rows, with every field their branching logic and calculations read (T-302b)
                 recs = sorted({ids[str(d["record"]).upper()] for d in todo if str(d["record"]).upper() in ids})
                 look = watched(meta, {live[i].form for i in items}, items)
+                # NEW-EDC-2 (EDC-002): a repeat instance is judged whole, so every field of its row is read
+                look |= self._instance_fields(lay, meta, todo)
                 cur = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))], records=recs)
                            if recs else [], self.today())  # fmt: skip
                 imports: dict[Key, dict[str, str]] = {}
                 planned: list[tuple[dict[str, Any], str, Slot]] = []
+                taken: set[Key] = set()  # NEW-EDC-2: repeat instances that hold a value TrialBox did not write
                 for d in todo:
                     if str(d["record"]).upper() in twice:  # a wrong-subject write is worse than none (E-06)
                         out["duplicate"].append(_brief(d))
@@ -500,12 +503,25 @@ class EdcService:
                         continue
                     last = self.store.last_sent(rs, d["record"], d["visit"], d["item"])
                     if there and there != (forms.redcap_value(lf, last) if last else ""):
+                        if slot.repeat:  # NEW-EDC-2: the instance is someone else's; nothing of TrialBox's goes in
+                            taken.add(lay.key(rec, slot))
                         out["conflict"].append({**_brief(d), "redcap": there})
                         self.store.record_sent(rs, d, "redcap", rec, "conflict", "REDCap holds another value that "
                                                "TrialBox did not write; not overwritten", by, at)  # fmt: skip
                         continue
                     planned.append((d, rec, slot))
                     cur.lay(rec, slot, str(d["item"]), value)
+                # NEW-EDC-2 (EDC-002): a repeat instance is written whole or not at all. One that holds a value on any
+                # of its fields that TrialBox did not write is another person's entry or another event: every value
+                # of TrialBox's for it is held, never merged into it field by field
+                for d, rec, slot in list(planned):
+                    k = lay.key(rec, slot)
+                    if slot.repeat and (k in taken or self._not_ours(rs, cur, live, rec, slot, str(d["record"]))):
+                        taken.add(k)
+                        planned.remove((d, rec, slot))
+                        cur.unlay(rec, slot, str(d["item"]))
+                        out["instance_taken"].append(_brief(d))
+                        self.store.record_sent(rs, d, "redcap", rec, "instance_taken", INSTANCE_TAKEN, by, at)
                 # T-302b: a value for a field REDCap would hide (with what is about to be sent laid over the row) is
                 # not sent; holding one back can hide another, so this runs until nothing changes
                 changed = True
@@ -809,6 +825,36 @@ class EdcService:
                                                "records": len(pids), **counts})  # fmt: skip
         return {"file": sha, "name": name[:120], "file_oid": f.file_oid, **out}
 
+    @staticmethod
+    def _instance_fields(lay: Any, meta: dict[str, Any], todo: list[dict[str, Any]]) -> set[str]:
+        """Every field that lives on a repeat instance the send touches (NEW-EDC-2): the repeating instrument's, or
+        for a repeating event every instrument designated for it."""
+        out: set[str] = set()
+        for d in todo:
+            slot = lay.slot(str(d["visit"]))
+            if slot is None or not slot.repeat:
+                continue
+            on = {slot.instrument} if slot.instrument else (lay.designated.get(slot.event) or set())
+            out |= {f for f, m in meta.items() if str(m.get("form_name") or "") in on or not on}
+        return out
+
+    def _not_ours(self, rs: str, cur: Any, live: dict[str, Any], rec: str, slot: Any, record: str) -> bool:
+        """Whether a repeat instance holds, on any of its fields, a value TrialBox did not write there (NEW-EDC-2).
+        What REDCap holds is read, not what the send is about to lay over it; a checkbox counts by its ticked
+        columns (``field___code``)."""
+        row = cur.rows.get(cur.layout.key(rec, slot)) or {}
+        for f in cur.on_row(rec, slot):
+            ticked = [c for c, v in row.items() if str(c).startswith(f"{f}___") and str(v) == "1"]
+            there = str(row.get(f) or "")
+            if ticked:
+                return True  # TrialBox never writes a checkbox (EDC-003): a tick is a person's
+            if not there:
+                continue
+            last = self.store.last_sent(rs, record, slot.visit, f)
+            if last is None or f not in live or forms.redcap_value(live[f], last) != there:
+                return True
+        return False
+
     def trail(self, rs: str, record: str) -> dict[str, Any]:
         return self.store.trail(rs, record)
 
@@ -816,7 +862,12 @@ class EdcService:
 #: what the send answers per value: written, or held back with the reason (the last four: T-115, D-368)
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
-                "repeating_form", "not_repeating_form", "hidden", "logic")  # fmt: skip
+                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken")  # fmt: skip
+#: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
+INSTANCE_TAKEN = (
+    "the repeat instance holds a value TrialBox did not write (a person's entry or another event); "
+    "nothing of TrialBox's is written into it: choose another instance"
+)
 #: why a value is not written to the row its visit names (T-302b, D-414), and the words kept in ``sent``
 PLACEMENT = {
     "not_on_event": "the item's instrument is not designated for this event; not sent",
