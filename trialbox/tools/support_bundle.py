@@ -494,11 +494,18 @@ def _logs_part(b: Bundle, deploy: Path, env: Mapping[str, str], days: int, mrn: 
     return [d.name for d in chosen]
 
 
+def last_look(archive: Path) -> list[Any]:
+    """The scan of the finished archive before it leaves (D-723), with the exits' patterns (D-747)."""
+    from tools import data_scan as ds
+
+    return ds.run([archive], patterns=ds.load_patterns(exits=True), in_repo=False)
+
+
 def clean_lines(b: Bundle, say: Callable[[str], None]) -> None:
     """Remove every line the data-handling scan flags, in every member, and say so (counts and pattern ids only)."""
     from tools import data_scan as ds
 
-    patterns, allow = ds.load_patterns(), ds.load_allow()
+    patterns, allow = ds.load_patterns(exits=True), ds.load_allow()  # D-747: the bundle leaves the box
     for name in sorted(b.members):
         lines = ds._lines(b.members[name])
         removed: Counter[str] = Counter()
@@ -537,7 +544,6 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
           say: Callable[[str], None] = print) -> Path:  # fmt: skip
     """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
     not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written."""
-    from tools import data_scan as ds
 
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
@@ -616,7 +622,7 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         with tempfile.TemporaryDirectory(prefix="tb-support-scan-") as tmp:  # the scan names a member by path
             scan_copy = Path(tmp) / target.name
             scan_copy.write_bytes(part.read_bytes())
-            hits = ds.run([scan_copy], in_repo=False)
+            hits = last_look(scan_copy)
         if hits:
             raise BundleRefused("the finished bundle still holds what the scan flags: " + "; ".join(
                 f"{Path(h.where).name}:{h.line}: {h.pattern}" for h in hits[:5]))  # fmt: skip

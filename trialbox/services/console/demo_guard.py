@@ -317,7 +317,7 @@ def scan_stored(
     may not read (D-711)."""
     from tools import data_scan as ds
 
-    patterns, allow = ds.load_patterns(), ds.load_allow()
+    patterns, allow = ds.load_patterns(exits=True), ds.load_allow()  # D-747: the scan of input that may leave
     files = ds._expand(paths)
     hits = list(ds.run(files, ds.ROOT, patterns, allow, in_repo=False))
     if db_url:

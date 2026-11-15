@@ -141,7 +141,7 @@ def _scanner() -> Any:
         from tools import data_scan as ds
     except ImportError:
         return None
-    patterns, allow = ds.load_patterns(), ds.load_allow()
+    patterns, allow = ds.load_patterns(exits=True), ds.load_allow()  # D-747: the export leaves the box
     return lambda text: sorted({h.pattern for h in ds.scan_text(text, "feedback", patterns, allow)})
 
 
