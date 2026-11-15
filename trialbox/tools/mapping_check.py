@@ -349,6 +349,11 @@ def check(
         need, optional, wanted = _wanted(m, table, tspec, specs)
         got = []
         cut = False
+        if source_kind == "cgrd_sql" and not src.has_table(tspec["source"]):  # CGRD-SQL (D-814): absent, said
+            why = src.absent_why.get(tspec["source"], "absent")  # the kind of error, as when the read raised it
+            report["tables"][table] = {"source": tspec["source"], "rows_read": 0, "cannot_be_read": why}
+            report["missing_columns"] += len(need)
+            continue
         delta = tspec.get("delta") if (since or until) else None
         local_delta = {c: loc for loc, c in (tspec.get("rename") or {}).items()}.get(delta, delta) if delta else None
         forms: list[str] | None = None
