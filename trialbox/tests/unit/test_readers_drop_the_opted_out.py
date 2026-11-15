@@ -1,10 +1,10 @@
-"""T-206b part 2a (D-804; the owner's ruling D-513): the kept files are withheld on read.
+"""T-206b part 2a (D-860; the owner's ruling D-513): the kept files are withheld on read.
 
 D-513: the lake's kept snapshots, the job outputs and the attachments are not rewritten for an opt-out; every reader
 drops an opted-out pseudonym on read, and the files go when retention rewrites them. This part:
 
 * every job's lake read of patients is already scoped without an opted-out pseudonym, at receipt and at publish,
-  audited by count (D-441); the review of D-804 kept it there (a second filter at the lake hid those counts);
+  audited by count (D-441); the review of D-860 kept it there (a second filter at the lake hid those counts);
 * the console's two raw downloads of a patient-level output refuse a file that names a patient opted out since it
   was made, as the workbook already did: a per-patient file (a TWPAS bundle, a draft) by its own patient, a list in
   text by its content (any case), a compressed list by the job's text lists;
@@ -37,10 +37,10 @@ def test_a_patient_level_file_naming_an_opted_out_patient_is_withheld(monkeypatc
     assert capp._names_opted_out(job, "candidate_list.csv", f"pid\n{A.upper()}\n".encode(), store.get)  # any case
     assert not capp._names_opted_out(job, "candidate_list.json", f'[{{"pid": "{C}"}}]'.encode(), store.get)
     assert capp._names_opted_out(job, "list.pdf", b"%PDF compressed", store.__getitem__)  # judged by the JSON list
-    # the review of D-804: a per-patient file by its own patient; a TWPAS bundle holds no pseudonym at all
+    # the review of D-860: a per-patient file by its own patient; a TWPAS bundle holds no pseudonym at all
     assert capp._names_opted_out(job, f"twpas_GZQO_{A[:12]}.json", b'{"name": "synthetic"}', store.get)
     assert not capp._names_opted_out(job, f"draft_GZQO_{C[:12]}.docx", b"PK compressed", store.__getitem__)
-    # the re-check of D-804: a CASE sheet named by its job id (a ULID can hold 12 hex characters) is judged by content
+    # the re-check of D-860: a CASE sheet named by its job id (a ULID can hold 12 hex characters) is judged by content
     sheet = f"<p>{A}</p>".encode()
     assert capp._names_opted_out(job, "case_GZQO_01M7FEVY0Y2Y5SEE55AAA65600.html", sheet, store.get)
     alone = SimpleNamespace(outputs=[SimpleNamespace(tag="phi", filename="list.pdf", minio_key="k")])

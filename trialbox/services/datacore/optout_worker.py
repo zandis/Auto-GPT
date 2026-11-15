@@ -349,7 +349,7 @@ OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
     )),
     ("orch", (
         ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
-        # D-513 (the owner, 2026-11-15; D-804): a dry run goes; a live submission is NHI's send-once guard and the
+        # D-513 (the owner, 2026-11-15; D-860): a dry run goes; a live submission is NHI's send-once guard and the
         # record of a disclosure already made, and stays
         ("submissions", "SELECT count(*) FROM submissions WHERE pid = ANY(?) AND dry_run = 1",
          "DELETE FROM submissions WHERE pid = ANY(?) AND dry_run = 1"),

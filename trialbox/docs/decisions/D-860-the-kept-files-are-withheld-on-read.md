@@ -1,4 +1,4 @@
-# D-804 The kept files are withheld on read (T-206b, part 2a; the owner's ruling D-513)
+# D-860 The kept files are withheld on read (T-206b, part 2a; the owner's ruling D-513)
 
 - **Task:** T-206b, the code-complete sprint, item 4, part 2a. D-513 (the owner, 2026-11-15) chose a tombstone list over a rebuild: a file that names an opted-out patient stays until retention rewrites it, and every reader drops the patient on read. · **Date:** 2026-11-15
 - **The lake:** every job's per-patient read of the lake is already scoped without an opted-out pseudonym, at receipt (`ctx.decision.drop`) and again at publish (`drop_now`), and audited by count (D-441): SCREEN, MICROBATCH, NAV, CASE, FEAS and COHORT (`uncounted`), and the cascade through its given population. The derive batch skips the register (D-798). The adversarial review rejected a second filter at the lake (`PinnedLake`): it hid the audited counts, changed the scope read at receipt, and still missed pid-keyed queries and note searches. It is not built.

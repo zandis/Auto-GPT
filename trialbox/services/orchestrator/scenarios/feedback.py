@@ -39,7 +39,7 @@ def run(ctx: Ctx) -> Outcome:
         raise StepFailed("feedback", "Attach screen_feedback.csv (pid, outcome, reason_code, note).")
     ctx.state("running")
     pool = {p["pid"] for p in ctx.orch.db.pool(ruleset)}
-    gone = ctx.decision.register_now()  # D-513 (D-804): a row naming a patient opted out since is refused
+    gone = ctx.decision.register_now()  # D-513 (D-860): a row naming a patient opted out since is refused
     good: list[dict[str, Any]] = []
     errors: list[str] = []
     for f in files:
