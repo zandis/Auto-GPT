@@ -408,6 +408,12 @@ if command -v python3 >/dev/null; then
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER and TB_MEM_LAKE keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
+# T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
+# a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | sed 's/^/    /'
+  [ "${PIPESTATUS[0]}" = 0 ] || die "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
+fi
 chmod 600 deploy/.env
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
