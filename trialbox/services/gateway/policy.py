@@ -366,10 +366,14 @@ class RoutingPolicy:
     ) -> tuple[Route, list[Candidate]]:
         """Ordered candidates permitted for this call. Raises :class:`Refusal` with ``no_route`` when no row
         matches and ``class_route_mismatch`` when a row matches but none of its builds may receive the class."""
-        try:
-            check_env(label, env)
-        except PolicyError as e:
-            raise Refusal("class_not_allowed_in_env", str(e)) from e
+        # D-794 (the owner's blocker 2): in VALIDATION a D3 model call (the screen's judge on public or synthetic
+        # data) may go to the box's own model servers and nowhere else; VALIDATION's ceiling stays D2 for all else
+        box_only = env == Environment.VALIDATION and label.data_class == DataClass.D3
+        if not box_only:
+            try:
+                check_env(label, env)
+            except PolicyError as e:
+                raise Refusal("class_not_allowed_in_env", str(e)) from e
         r = self.route(role, label, topology, env, profile)
         if r is None:
             raise Refusal("no_route", f"no route for role={role} class={label.tag} topology={topology} env={env}")
@@ -386,6 +390,8 @@ class RoutingPolicy:
             if requires and not set(requires) <= flags:
                 continue
             if not may_reach(label, ep.destination, topology, cloud_opt_in=cloud_opt_in):
+                continue
+            if box_only and ep.zone != "perimeter":
                 continue
             out.append(Candidate(alias, ep, r.id, requires))
         if not out:

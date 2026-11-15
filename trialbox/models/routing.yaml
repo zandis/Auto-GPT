@@ -221,7 +221,8 @@ routes:
     fallback: none # a failed judge is an error, never the verifier's answer (D-276, LLM-002)
     classes: [D3]
     topologies: [A, B, C]
-    environments: [PRODUCTION]
+    # D-794: VALIDATION too (public or synthetic data); the gateway sends a VALIDATION D3 call to the box only
+    environments: [VALIDATION, PRODUCTION]
     builds: [j-workhorse@serving, v-verifier@verifier] # never external
   - id: patient-validation
     roles: ["@patient"]
@@ -229,6 +230,14 @@ routes:
     classes: [D2-L]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
+    builds: [j-workhorse@serving, v-verifier@verifier]
+  - id: qualify
+    # D-794: qualify's own calls (class D0, synthetic items) on a VALIDATION box; its record promotes the pair
+    roles: [judge]
+    fallback: none
+    classes: [D0]
+    topologies: [A, B, C]
+    environments: [VALIDATION]
     builds: [j-workhorse@serving, v-verifier@verifier]
   - id: vectors
     roles: ["@vectors"]
