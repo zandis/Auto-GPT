@@ -39,7 +39,7 @@ COPY --chown=tb:tb models /app/models
 COPY --chown=tb:tb deploy/settings.example.yaml /app/deploy/settings.example.yaml
 # D-838: what `trialbox eval qualify` reads on a box (tests/unit/test_qualify_in_the_image.py runs it on these files only)
 COPY --chown=tb:tb deploy/images.lock /app/deploy/images.lock
-COPY --chown=tb:tb tests/fixtures/llm/judge_set.jsonl /app/tests/fixtures/llm/judge_set.jsonl
+COPY --chown=tb:tb eval/qualification/judge_set.jsonl /app/eval/qualification/judge_set.jsonl
 COPY --chown=tb:tb docs/licences/register.csv /app/docs/licences/register.csv
 COPY --chown=tb:tb docs/validation/model-change-protocol.md /app/docs/validation/model-change-protocol.md
 COPY --chown=tb:tb eval/qualification/schema_probes.yaml /app/eval/qualification/schema_probes.yaml

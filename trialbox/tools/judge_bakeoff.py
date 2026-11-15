@@ -14,7 +14,7 @@ So the harness scores what the box would do with that model, not a separate prom
 
 The items (``--sources``):
 
-* ``synthetic``: ``tests/fixtures/llm/judge_set.jsonl`` from :mod:`tools.make_judge_set` (the synthetic hospital,
+* ``synthetic``: ``eval/qualification/judge_set.jsonl`` from :mod:`tools.make_judge_set` (the synthetic hospital,
   planted note truth: pass, fail or unknown per criterion); the criterion kind from the ruleset IR. 39 of the 300
   items have no note in the criterion's window: the product asks no model then (unknown), so they count in ``n`` but
   not in ``asked``. 100 are kind ``renewal``, which the product's ``eligibility`` scores like an inclusion.
@@ -102,7 +102,7 @@ from tb_common.quotes import quote_in  # noqa: E402
 
 from tools.bakeoff_live import BACKOFF_S, MAX_WORKERS, _pct  # noqa: E402
 
-SYNTH_SET = ROOT / "tests" / "fixtures" / "llm" / "judge_set.jsonl"
+SYNTH_SET = ROOT / "eval" / "qualification" / "judge_set.jsonl"
 SOURCES = ("synthetic", "medtxt", "trec_ct")
 GATED = {"synthetic": True, "medtxt": True, "trec_ct": False}
 WRONG_EXCLUSION_MAX = 0.02
