@@ -31,7 +31,8 @@ from tools.supply_chain.allowlist import Allowlist
 # bundle carries them (tools/make_bundle.sh leaves the test file out, OPS-017), and bundle_problems refuses any image
 # with a report-mode finding anyway. Every image a bundle can carry blocks: ours, and the third-party HAPI FHIR, vLLM
 # and identity images, whose open findings are dated per-image entries of deploy/supply-chain-allowlist.yaml
-# (deploy/security/known-image-findings.md). `--vuln-mode report` changes nothing for any other image.
+# (deploy/security/known-image-findings.md). D-827: the mail servers are report-only in every mode, block too (their
+# newest releases carry the findings, no patched tag exists); `--vuln-mode` changes nothing for any other image.
 VULN_REPORT_ONLY = frozenset(
     {
         "greenmail/standalone",
@@ -50,8 +51,9 @@ def report_only(ref: str) -> bool:
 def split_report_mode(
     failing: list[vulns.Finding], ref: str, vuln_mode: str
 ) -> tuple[list[vulns.Finding], list[vulns.Finding]]:
-    """(blocking, deferred): only a fixable CRITICAL/HIGH finding of a report-mode image is deferred."""
-    if vuln_mode != "report" or not report_only(ref):
+    """(blocking, deferred): only a fixable CRITICAL/HIGH finding of a report-mode image is deferred, in every
+    mode (D-827). ``vuln_mode`` is checked by run_gates; it no longer changes the split."""
+    if not report_only(ref):
         return list(failing), []
     blocking: list[vulns.Finding] = []
     deferred: list[vulns.Finding] = []
@@ -180,7 +182,7 @@ def run_gates(
 ) -> dict[str, Any]:
     """Scan and gate every target; return the record (also written to ``out_dir/gates.json``).
 
-    ``vuln_mode="report"``: for the images in ``VULN_REPORT_ONLY`` only, a fixable CRITICAL/HIGH finding is
+    For the images in ``VULN_REPORT_ONLY`` only, in either ``vuln_mode`` (D-827), a fixable CRITICAL/HIGH finding is
     recorded and shown but does not fail the image. Everything else still fails: such findings in any other image,
     a missing or odd severity, an unreadable or empty report, a scan or SBOM that does not name the image."""
     if vuln_mode not in VULN_MODES:
@@ -258,7 +260,7 @@ def run_gates(
                 sbom_sha256=sbom.sha256(sbom_path),
                 failing=[f"{f.id} {f.package} {f.version}" for f in blocking],
                 failing_detail=[finding_row(f) for f in blocking],
-                vuln_mode="report" if vuln_mode == "report" and report_only(target.ref) else "block",
+                vuln_mode="report" if report_only(target.ref) else "block",
                 report_mode_findings=[finding_row(f) for f in deferred],
                 accepted=[f"{f.id} {f.package}: {why}" for f, why in result.accepted],
                 reported=len(result.reported),
@@ -314,9 +316,8 @@ def summary_markdown(record: dict[str, Any]) -> str:
         + (
             " (fixable CRITICAL/HIGH findings in the test-only images "
             + ", ".join(sorted(VULN_REPORT_ONLY))
-            + " are reported, not blocking; no bundle carries them; see deploy/security/known-image-findings.md)"
-            if mode == "report"
-            else ""
+            + " are reported, not blocking, in every mode (D-827); no bundle carries them; see"
+            " deploy/security/known-image-findings.md)"
         ),
         "",
         "| Image | Platform | Result | Blocking findings | Reported findings | Errors |",
