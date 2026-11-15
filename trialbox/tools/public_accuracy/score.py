@@ -147,12 +147,15 @@ def summarise(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for lang, rs in by_lang.items():
         el = [r for r in rs if r["gold"] == "eligible"]
         ex = [r for r in rs if r["gold"] == "excluded"]
-        n_el, n_ex = sum(r["n"] for r in el), sum(r["n"] for r in ex)
+        # over the pairs the box answered (2026-11-15, Gate C): an unanswered pair is not a pair the box kept, so it
+        # never enters eligible lost or excluded caught; the unanswered share is its own line
+        n_el, n_ex = sum(r["n"] - r["unanswered"] for r in el), sum(r["n"] - r["unanswered"] for r in ex)
         lost, caught = sum(r["excluded"] for r in el), sum(r["excluded"] for r in ex)
         boxed = lost + caught
         answered = [r for r in rs if r["gold"] in ("eligible", "excluded")]
         n_all = sum(r["n"] for r in answered)
         out[lang] = {
+            "answered": n_el + n_ex,
             "eligible_lost": rate(lost, n_el),
             "excluded_caught": rate(caught, n_ex),
             "wrong_exclusions": rate(lost, boxed),
@@ -251,11 +254,19 @@ def score_criteria(
                 "block_is": "catch" if right else "wrong exclusion" if wrong else "-",
             }
         )
+
+    # over the criteria the box answered (2026-11-15, Gate C): a criterion not compiled or a patient unanswered is
+    # counted on its own line, never as a "no block" in a rate's denominator
+    def answered(r: dict[str, Any]) -> int:
+        return sum(int(r.get(k, 0)) for k in ("block", "open", "no_block"))
+
     blocks_wrong = sum(int(r.get("block", 0)) for r in rows if r["block_is"] == "wrong exclusion")
-    n_wrongable = sum(int(r["n"]) for r in rows if r["block_is"] == "wrong exclusion")
+    n_wrongable = sum(answered(r) for r in rows if r["block_is"] == "wrong exclusion")
     caught = sum(int(r.get("block", 0)) for r in rows if r["block_is"] == "catch")
-    n_catchable = sum(int(r["n"]) for r in rows if r["block_is"] == "catch")
+    n_catchable = sum(answered(r) for r in rows if r["block_is"] == "catch")
     return {
+        "answered": sum(answered(r) for r in rows),
+        "unanswered": sum(int(r.get("unanswered", 0)) for r in rows),
         "rows": rows,
         "wrong_exclusion": rate(blocks_wrong, n_wrongable),
         "caught": rate(caught, n_catchable),
@@ -367,4 +378,22 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
         "class_split": class_split(drafts),
         "screened": sum(1 for a in answers.values() if a.get("screen") == "done"),
     }
+    # a set with gold rows the box answered none of has no figure (Gate C: "not scored, because"), never a 0 %
+    why = not_scored_because(out)
+    if why:
+        out["not_scored_because"] = why
     return out
+
+
+def not_scored_because(out: dict[str, Any]) -> str | None:
+    """Why a scored folder has no figure, or None. Pair and criterion sets need answered rows; compile sets need
+    compiled criteria."""
+    if "pairs" in out or "criteria" in out:
+        n = int((out.get("criteria") or {}).get("answered") or 0)
+        n += sum(int(v.get("answered") or 0) for v in ((out.get("pairs") or {}).get("summary") or {}).values())
+        if n == 0:
+            return "the box answered none of the set's gold rows (no SCREEN finished for them)"
+        return None
+    if not (out.get("compiled") or {}).get("criteria"):
+        return "the box compiled no criteria"
+    return None

@@ -1769,8 +1769,30 @@ ACC_CUR=""
 prog_acc() {
   local p
   p=$(vm acc-progress --work "$ACC/$ACC_CUR/work" --built "$ACC/$ACC_CUR/built")
+  acc_services "$ACC_CUR"
   acc_pack "$ACC_CUR" partial
   "$PY" -c 'import json,sys; d=json.loads(sys.argv[1]); print("set %s: protocols %s/%s, patients answered %s, set clock %s of %s s;" % (sys.argv[2], d["protocols_done"], d["protocols"], d["patients_answered"], d["used_s"], d["deadline_s"]))' "$p" "$ACC_CUR"
+  prog_box "$(st kv _ "acc_t0_$ACC_CUR")"
+}
+# F23 (2026-11-15): what SCREEN does between model calls. Its note stage embeds every window sentence through the
+# embed service (on the CPU, by the product's design; vec.s2b off) before the judge is asked, and those requests are
+# not in the gateway's audit: the line gives the embed service's requests since the set began and the CPU of the
+# embed service and the orchestrator.
+prog_box() {
+  local since=$1 n cpu
+  [ -n "$since" ] || return 0
+  n=$(dc logs --no-log-prefix --since "${since}Z" embed-service 2>/dev/null | grep -c "POST /embed")
+  cpu=$(docker stats --no-stream --format '{{.Name}} {{.CPUPerc}}' 2>/dev/null | grep -E "embed-service|orchestrator" | sed -E 's/^[a-z0-9]+[-_]//; s/[-_][0-9]+ / /' | tr '\n' ' ')
+  printf 'embed requests %s since the set began; CPU %s;' "${n:-?}" "${cpu:-?}"
+}
+# the orchestrator's and the embed service's own lines about the set (warnings, errors, the screen's stages and the
+# embedder it took), cut to 300 characters a line: in the set's work (bucket and run folder only, never committed)
+acc_services() {
+  local name=$1 since
+  since=$(st kv _ "acc_t0_$name"); [ -n "$since" ] || return 0
+  dc logs --no-log-prefix --since "${since}Z" orchestrator embed-service 2>/dev/null \
+    | grep -iE "warn|error|exception|traceback|screen|cascade|embed|stage|hash|stub|budget|timeout" | grep -v "POST /embed" \
+    | cut -c1-300 | tail -n 400 > "$ACC/$name/work/services.log" 2>/dev/null || true
 }
 ACC_UP=false
 acc_pack() {  # acc_pack <set> [partial]: the set's gold, provenance and work so far to the bucket (ACC_UP: uploaded)
@@ -1812,8 +1834,26 @@ step_acc_set() {
     vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
       --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID" ${co[@]+"${co[@]}"} \
       --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" || return 1
-  # the box's measured slowdown, from the first set that finished: its seconds over its plan high bound
-  if [ -z "$(st kv _ acc_rate)" ]; then
+  # F22 (2026-11-15): a set that answered nothing has no figure (a SCREEN set needs patients answered, a compile-only
+  # set compiled criteria). The first set of the run is the gate: it stops the run, its work packed first. A later set
+  # says "not scored, because" and the group goes on (a product fault is skipped, said, never shown as a figure).
+  local p ok
+  acc_services "$name"
+  p=$(vm acc-progress --work "$ACC/$name/work" --built "$ACC/$name/built" 2>> "$STEP_LOG")
+  note screen_jobs "$(printf '%s' "$p" | "$PY" -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("screen_jobs")))' 2>/dev/null || echo null)"
+  ok=$(printf '%s' "$p" | "$PY" -c 'import json,sys; d = json.load(sys.stdin); print(1 if (d.get("compiled") if sys.argv[1] else d.get("patients_answered")) else "")' "${co[*]+x}" 2>/dev/null)
+  if [ -z "$ok" ]; then
+    local why="it answered no patient: no SCREEN of it finished"
+    [ ${#co[@]} -gt 0 ] && why="it compiled no protocol"
+    note not_scored "\"$why\""; note pass false
+    if [ "$name" = "$(printf '%s\n' $ACC_SETS | head -n 1 | cut -d: -f1)" ]; then
+      acc_pack "$name" || true
+      STOP="the gate set $name is not scored: $why (see logs/$STEP.log, its notes and checkpoints)"; return 1
+    fi
+  fi
+  # the box's measured slowdown, from the first set that finished WHOLE (answered, nothing cut by its time budget):
+  # its seconds over its plan high bound (F22: a set cut short or answering nothing measures nothing)
+  if [ -n "$ok" ] && [ -z "$(st kv _ acc_rate)" ] && [ "$(printf '%s' "$p" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("cut_by_time") or 0)' 2>/dev/null)" = 0 ]; then
     high=$(printf '%s\n' $ACC_PLAN | sed -n "s/^$name:[0-9]*://p" | head -n 1)
     sec=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("used_s") or 0)' "$ACC/$name/work/set-clock.json" 2>/dev/null)
     r=$("$PY" -c 'import sys; s, h = float(sys.argv[1] or 0), float(sys.argv[2] or 0); print(round(max(0.05, s / h), 3) if h > 0 and s > 0 else "")' "${sec:-0}" "${high:-0}")

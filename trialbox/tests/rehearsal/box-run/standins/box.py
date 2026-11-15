@@ -205,8 +205,13 @@ def snippet(svc: str, text: str) -> int:
 
 
 def compose(argv: list[str]) -> int:
-    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run"))
+    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run", "logs"))
     cmd, rest = argv[i], argv[i + 1 :]
+    if cmd == "logs":  # the set's progress line and its services' lines (F23): an embed request and a screen stage
+        called("compose-logs " + " ".join(a for a in rest if not a.startswith("-")))
+        print('INFO: 172.18.0.9:0 - "POST /embed HTTP/1.1" 200 OK')
+        print("orchestrator: screen stage S2b: 3 patients, embedder e-embed-1")
+        return 0
     if cmd == "run":  # a one-off service command (the direct route's adapter keys-init)
         called("compose-run " + " ".join(a for a in rest if not a.startswith("-")))
         return 0
@@ -424,6 +429,8 @@ def _acc_outputs(job: dict[str, Any]) -> dict[str, bytes]:
         mrns = sorted({r["mrn"] for r in csv.DictReader(appts.open(encoding="utf-8-sig")) if r["staff_id"] == pract})
         rows: list[dict[str, Any]] = []
         excl: list[dict[str, Any]] = []
+        if flag("acc-screen-empty"):  # F22: the screen finishes and answers nobody (the phase-C tcga of 2026-11-15)
+            mrns = []
         for i, m in enumerate(mrns):
             pid = _pid(m)
             crit = [{"id": "exc-2", "verdict": "fail" if i % 2 else "pass", "basis": "pair",

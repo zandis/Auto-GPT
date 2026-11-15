@@ -284,6 +284,19 @@ def test_score_joins_by_ids_after_the_run(tmp_path: Path) -> None:
     assert cp["local"] == "TW0001" and cp["n_local"] == 1 and cp["n_en"] == 2 and cp["age_agree"] is False
 
 
+def test_unanswered_rows_never_score_as_zero(tmp_path: Path) -> None:
+    """Gate C (2026-11-15): a set whose SCREEN answered nobody has no figure, not a 0 % with a tight interval."""
+    built, work = _answers(tmp_path)
+    answers = json.loads((work / "answers.json").read_text(encoding="utf-8"))
+    for a in answers.values():
+        a["patients"] = {}
+    (work / "answers.json").write_text(json.dumps(answers), encoding="utf-8")
+    r = score.score(built, work)
+    assert r["criteria"]["answered"] == 0 and r["criteria"]["wrong_exclusion"]["n"] == 0
+    assert r["pairs"]["summary"]["en"]["answered"] == 0 and r["pairs"]["summary"]["en"]["eligible_lost"]["n"] == 0
+    assert "answered none" in r["not_scored_because"]
+
+
 def test_evidence_hit_against_the_deciding_sentence() -> None:
     sents = ["A 61-year-old woman.", "She has diabetes.", "No pregnancy."]
     assert score.evidence_hit("She has diabetes.", sents, [1]) is True

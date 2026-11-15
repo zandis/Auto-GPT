@@ -1033,9 +1033,21 @@ def acc_progress(work: Path, built: Path) -> dict[str, Any]:
             clock = json.loads(c.read_text(encoding="utf-8"))
     total = len(list((built / "site" / "protocols").glob("*.txt")))
     done = sum(1 for a in prog.values() if isinstance(a, dict) and a.get("finished"))
-    pats = sum(len(a.get("patients") or {}) for a in prog.values() if isinstance(a, dict))
+    rows = [a for a in prog.values() if isinstance(a, dict)]
+    pats = sum(len(a.get("patients") or {}) for a in rows)
+    # F22 (2026-11-15): what the step's verdict and the next sets' budgets are read from: protocols compiled (a
+    # draft), protocols cut by the set's time budget, and each finished SCREEN job's own seconds and patients scoped
+    compiled = sum(1 for a in rows if a.get("draft"))
+    cut = sum(1 for a in rows if a.get("outcome") == "not_run_time_budget")
+    jobs = [
+        {"patients_scoped": int(m.get("patients_scoped") or 0), "seconds": float(m.get("wall_seconds") or 0.0),
+         "llm_calls": int(m.get("llm_calls") or 0)}
+        for a in rows
+        if a.get("screen") == "done" and isinstance(m := a.get("screen_metrics"), dict)
+    ]  # fmt: skip
     return {"protocols_done": done, "protocols": total, "patients_answered": pats, "used_s": clock.get("used_s"),
-            "deadline_s": clock.get("deadline_s")}  # fmt: skip
+            "deadline_s": clock.get("deadline_s"), "compiled": compiled, "cut_by_time": cut,
+            "screen_jobs": jobs}  # fmt: skip
 
 
 def routes_verdict(gw: dict[str, Any], emb: dict[str, Any]) -> dict[str, Any]:

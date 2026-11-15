@@ -66,6 +66,8 @@
 #                      route, then G-1, canary, qualify: no bundle, no signature
 #   acc-cut            the first set's own time budget is spent mid-way (slow jobs): no new protocol is started, the
 #                      finished ones are kept and uploaded; progress lines and the partial in the bucket while it runs
+#   acc-gate           every SCREEN finishes and answers nobody: the first set (the gate) is "not scored", its step
+#                      stops the run with the reason and its work in the bucket, never "done" (F22)
 #   qualify-timebox    validation: qualify runs longer than its time box (the owner's probe): it is ended, a checkpoint
 #                      a "second" while it ran (the gate it was in, the audit's calls), the run goes on
 #   probe              a facts-only launch (tb-steps probe): the VM's facts written (names and sizes), the run ends
@@ -82,7 +84,7 @@ VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
-     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox)
+     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -346,6 +348,7 @@ for CASE in "${CASES[@]}"; do
       setup "$CASE" build; build_setup; m tb-mode validation; rm -f "$S/metadata/tb-vendor-key-secret" "$S/metadata/tb-vendor-key-version"
       boot; to_the_end ;;
     acc) setup "$CASE" "start acc" acc-tripwire; start_setup; acc_setup; boot; to_the_end; acc_collect ;;
+    acc-gate) setup "$CASE" "start acc" acc-screen-empty; start_setup; acc_setup; boot; to_the_end ;;
     acc-preempt)
       setup "$CASE" "start acc"; echo 1.5 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup
       m tb-acc-tripwire-setting TB_GATEWAY_PHI_TRIPWIRE=off; boot

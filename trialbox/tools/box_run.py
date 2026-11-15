@@ -715,6 +715,9 @@ def acc_score(d: Path) -> dict[str, Any]:
             if k in ("pairs", "criteria", "compile_pairs", "chia", "compiled")
         }
         (sd / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+        if res.get("not_scored_because"):
+            out[sd.name] = {"scored": False, "why": res["not_scored_because"], "summary": res.get("summary")}
+            continue
         out[sd.name] = {"scored": True, "summary": res.get("summary") if isinstance(res, dict) else None}
     return out
 

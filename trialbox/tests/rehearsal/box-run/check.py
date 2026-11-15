@@ -404,9 +404,23 @@ if case == "acc-cut":
        "acc-cut: the set's partial went to the bucket while it ran, and its final after")  # fmt: skip
     ok("TB-PROGRESS" in vm_log and "set jmed: protocols" in vm_log, "acc-cut: progress lines with protocols done/all")
     ok(
-        parts["61-acc-sigir"]["detail"].get("rate_used") not in (None, "not measured yet: 4"),
-        "acc-cut: the next set's budget used the slowdown the first set measured",
+        parts["61-acc-sigir"]["detail"].get("rate_used") == "not measured yet: 4",
+        "acc-cut: a set cut by its budget measures no slowdown; the next set's budget keeps 4 (F22)",
     )
+
+if case == "acc-cut":
+    ok("embed requests" in vm_log and "CPU embed-service" in vm_log, "acc-cut: the progress line says the embed "
+       "service's requests and CPU (what SCREEN does between model calls, F23)")  # fmt: skip
+    ok(any(c.startswith("compose-logs ") and c.endswith(" orchestrator embed-service") for c in calls),
+       "acc-cut: the set's services' own lines read into its work")  # fmt: skip
+
+if case == "acc-gate":
+    j = parts["60-acc-jmed"]
+    ok(j["status"] == "stop" and "the gate set jmed is not scored" in j["stop"]["reason"],
+       "acc-gate: the gate set answered nobody: its step stopped the run with the reason, not 'done'")  # fmt: skip
+    ok("61-acc-sigir" not in parts, "acc-gate: no later set ran")
+    ok((BKT / "boxruns" / f"rehearsal-{case}" / "acc" / "jmed.tgz").exists(), "acc-gate: its work is in the bucket")
+    ok(j["detail"].get("not_scored", "").startswith("it answered no patient"), "acc-gate: the part says why")
 
 if case == "qualify-timebox":
     q = parts["08-qualify"]
@@ -510,7 +524,14 @@ if case in ("acc", "acc-preempt"):
     ok(not any(k.startswith(("APPROVE TF", "SCREEN TF", "APPROVE F", "SCREEN F")) for k in news),
        "the compile-only set was compiled, never approved or screened")  # fmt: skip
     score = json.loads((S / "evidence" / "acc-score.json").read_text())
-    ok(set(score) == set(ACC_SETS) and all(v["scored"] for v in score.values()), "every set scored outside the box")
+    if case == "acc":  # tfda's one protocol was refused by the tripwire: nothing compiled, so no figure (F22)
+        ok(set(score) == set(ACC_SETS) and score["tfda"]["scored"] is False and "compiled no" in score["tfda"]["why"]
+           and all(score[n]["scored"] for n in ("jmed", "sigir")),
+           "the screened sets scored outside the box; tfda (nothing compiled) is 'not scored, because'")  # fmt: skip
+        ok(parts["62-acc-tfda"]["detail"].get("not_scored") == "it compiled no protocol"
+           and "79-acc-result" in parts, "62: tfda says why it is not scored, and the group went on (not the gate)")  # fmt: skip
+    else:
+        ok(set(score) == set(ACC_SETS) and all(v["scored"] for v in score.values()), "every set scored outside the box")
     pairs = json.loads((S / "evidence" / "collected" / "acc" / "jmed" / "score.json").read_text())["pairs"]["rows"]
     ok(
         sum(r["excluded"] + r["listed"] + r["open"] for r in pairs) > 0,
