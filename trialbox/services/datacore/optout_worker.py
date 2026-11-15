@@ -332,11 +332,42 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 # The adversarial review of D-798 kept four out: site.weekly_seen (the kept screening-log row's first-listed day),
 # orch.submissions (NHI's send-once guard), team.candidate_views (the reveal cap's ledger) and tuned.tuned_patients (a
 # reviewed week's sample would be drawn again); they stay on the owed list with why.
-OWED_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("site", ("contact_outcomes", "excluded_review")),
-    ("team", ("approach_overrides", "referral_events", "referrals")),
-    ("orch", ("feedback",)),
-)
+#: per store, per table: the count and the delete of the patients' rows (written out: no SQL is put together)
+OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+    ("site", (
+        ("contact_outcomes", "SELECT count(*) FROM contact_outcomes WHERE pid = ANY(?)",
+         "DELETE FROM contact_outcomes WHERE pid = ANY(?)"),
+        ("excluded_review", "SELECT count(*) FROM excluded_review WHERE pid = ANY(?)",
+         "DELETE FROM excluded_review WHERE pid = ANY(?)"),
+    )),
+    ("team", (
+        ("approach_overrides", "SELECT count(*) FROM approach_overrides WHERE pid = ANY(?)",
+         "DELETE FROM approach_overrides WHERE pid = ANY(?)"),
+        ("referral_events", "SELECT count(*) FROM referral_events WHERE pid = ANY(?)",
+         "DELETE FROM referral_events WHERE pid = ANY(?)"),
+        ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),
+    )),
+    ("orch", (
+        ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
+    )),
+)  # fmt: skip
+
+
+def _open(url: str, schema: str) -> Any:
+    """The store's connection, each named here (the schemas the code opens are enumerated, D-378)."""
+    from tb_common.db import Database
+
+    if schema == "site":
+        return Database.connect(url, "site")
+    if schema == "team":
+        return Database.connect(url, "team")
+    if schema == "orch":
+        return Database.connect(url, "orch")
+    if schema == "derived":
+        return Database.connect(url, "derived")
+    raise ValueError(f"no owed table in store {schema!r}")
+
+
 #: the derived store: the input links and conflicts of a score row go before the row (their foreign keys)
 DERIVED = "derived"
 
@@ -344,18 +375,20 @@ DERIVED = "derived"
 def _derived(db: Any, pids: list[str], delete: bool) -> dict[str, int]:
     """The derived store's rows of ``pids``: counted, or deleted (counts). ``batch_run.failed_pids`` (a JSON list)
     loses the pseudonyms; the batch itself stays (it holds no other patient data)."""
-    rows = "SELECT id FROM score_row WHERE pid = ANY(?)"
     out: dict[str, int] = {}
     if delete:
         # a conflict carried from one of the patient's (always the patient's own): unlink before the delete
         db.execute("UPDATE conflict SET carried_from = NULL WHERE carried_from IN (SELECT id FROM conflict WHERE"
                    " pid = ANY(?)) AND NOT (pid = ANY(?))", (pids, pids))  # fmt: skip
-        out["derived.input_link"] = db.execute(f"DELETE FROM input_link WHERE row_id IN ({rows})", (pids,))
+        out["derived.input_link"] = db.execute(
+            "DELETE FROM input_link WHERE row_id IN (SELECT id FROM score_row WHERE pid = ANY(?))", (pids,)
+        )
         out["derived.conflict"] = db.execute("DELETE FROM conflict WHERE pid = ANY(?)", (pids,))
         out["derived.score_row"] = db.execute("DELETE FROM score_row WHERE pid = ANY(?)", (pids,))
     else:
-        out["derived.input_link"] = int(db.fetchval(f"SELECT count(*) FROM input_link WHERE row_id IN ({rows})",
-                                                    (pids,)))  # fmt: skip
+        out["derived.input_link"] = int(db.fetchval(
+            "SELECT count(*) FROM input_link WHERE row_id IN (SELECT id FROM score_row WHERE pid = ANY(?))", (pids,)
+        ))  # fmt: skip
         out["derived.conflict"] = int(db.fetchval("SELECT count(*) FROM conflict WHERE pid = ANY(?)", (pids,)))
         out["derived.score_row"] = int(db.fetchval("SELECT count(*) FROM score_row WHERE pid = ANY(?)", (pids,)))
     gone = set(pids)
@@ -376,24 +409,22 @@ def _derived(db: Any, pids: list[str], delete: bool) -> dict[str, int]:
 
 
 def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
-    from tb_common.db import Database
-
     url = str(env.register.db.url)
     want = sorted(pids)
     out: dict[str, int] = {}
     for schema, tables in OWED_TABLES:
-        here = [t for t in tables if store_has(url, schema, t)]
+        here = [x for x in tables if store_has(url, schema, x[0])]
         if not here or not want:
-            out.update({f"{schema}.{t}": 0 for t in here})
+            out.update({f"{schema}.{t}": 0 for t, _c, _d in here})
             continue
-        with Database.connect(url, schema) as db, db.transaction() as tx:  # one schema's deletes: all or none
-            for t in here:
+        with _open(url, schema) as db, db.transaction() as tx:  # one schema's deletes: all or none
+            for t, count, drop in here:
                 if delete:
-                    out[f"{schema}.{t}"] = int(tx.execute(f"DELETE FROM {t} WHERE pid = ANY(?)", (want,)) or 0)
+                    out[f"{schema}.{t}"] = int(tx.execute(drop, (want,)) or 0)
                 else:
-                    out[f"{schema}.{t}"] = int(tx.fetchval(f"SELECT count(*) FROM {t} WHERE pid = ANY(?)", (want,)))
+                    out[f"{schema}.{t}"] = int(tx.fetchval(count, (want,)))
     if store_has(url, DERIVED, "score_row") and want:
-        with Database.connect(url, DERIVED) as db:
+        with _open(url, DERIVED) as db:
             if delete:
                 with db.transaction() as tx:
                     out.update({k: int(v or 0) for k, v in _derived(tx, want, True).items()})
