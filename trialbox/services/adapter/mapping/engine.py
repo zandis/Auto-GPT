@@ -88,7 +88,7 @@ _COMPACT_FORMS = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
 _DIGIT_RUN_RE = re.compile(r"\d+")
 _FRACTION_RE = re.compile(r"\.\d+")
 # NEW-DIN-1 (D-589): the calendars a site may declare for a date column (``tables.<t>.dates: {col: roc}``)
-CALENDARS = ("western", "roc", "era")
+CALENDARS = ("western", "roc", "era", "roc_or_western")  # F8 (D-807): roc_or_western, an export that writes both
 DATE_TYPES = ("date", "datetime", "instant")
 _NOT_CALENDAR = "\x00not-a-date-of:"  # what ``normalize`` leaves for the date readers to refuse, with the value
 _CLOCK = r"(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
@@ -111,6 +111,30 @@ def _clock(h: str | None, mi: str | None, sec: str | None) -> str | None:
         return ""
     hh, mm, ss = int(h), int(mi), int(sec or 0)
     return f" {hh:02d}:{mm:02d}:{ss:02d}" if hh < 24 and mm < 60 and ss < 60 else None
+
+
+# F8 (D-807): a western date no ROC form can be: a four-digit year with separators, or 8, 12 or 14 digits
+_WESTERN_SURE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?)?")
+_WESTERN_COMPACT_LENGTHS = (8, 12, 14)
+
+
+def western_sure(raw: str) -> str | None:
+    """``YYYY-MM-DD[ hh:mm:ss]`` of a western date that cannot be a ROC one (F8, D-807); None for anything else."""
+    text = raw.strip()
+    if text.isascii() and text.isdigit() and len(text) in _WESTERN_COMPACT_LENGTHS:
+        parts: tuple[str | None, ...] = (text[:4], text[4:6], text[6:8], text[8:10] or None, text[10:12] or None,
+                                         text[12:14] or None)  # fmt: skip
+    elif m := _WESTERN_SURE.fullmatch(text):
+        parts = m.groups()
+    else:
+        return None
+    y, mo, d, h, mi, sec = parts
+    try:
+        day = date(int(str(y)), int(str(mo)), int(str(d)))
+    except ValueError:
+        return None
+    clock = _clock(h, mi, sec)
+    return None if clock is None else day.isoformat() + clock
 
 
 def to_western(raw: str, calendar: str) -> str | None:
@@ -292,6 +316,15 @@ class Mapping:
     empty_dates: frozenset[str] = frozenset()
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
+    # F8 (D-807): the western values read in a ``roc_or_western`` column, by (table, column): counts only
+    western_read: Counter[tuple[str, str]] = field(default_factory=Counter)
+
+    def read_as_western(self) -> dict[str, dict[str, int]]:
+        """Per table and column, how many values a ``roc_or_western`` column read as western (F8, D-807)."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, col), n in sorted(self.western_read.items()):
+            out.setdefault(table, {})[col] = n
+        return out
 
     @staticmethod
     def _plausible_of(lk: dict[str, Any]) -> tuple[float, float] | None:
@@ -582,6 +615,12 @@ class Mapping:
                     continue
                 if text in self.empty_dates or _MIDNIGHT.sub("", text) in self.empty_dates:
                     out[col] = ""  # the placeholder, also when a date-time column adds its midnight
+                elif calendars.get(col) == "roc_or_western":
+                    # F8 (D-807): ROC read as ROC; a western date that no ROC form can be read as written, counted
+                    western = to_western(text, "roc")
+                    if western is None and (western := western_sure(text)) is not None:
+                        self.western_read[(table, col)] += 1
+                    out[col] = western if western is not None else f"{_NOT_CALENDAR}{calendars[col]}\x00{text}"
                 elif calendars.get(col, "western") != "western":
                     western = to_western(text, calendars[col])
                     # not raised here: the row is refused where refused rows are counted (the date readers)
