@@ -30,7 +30,8 @@ import re
 import secrets
 import threading
 import time
-from datetime import datetime
+from collections.abc import Iterable
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -50,6 +51,7 @@ SUPPORTED = {
     "arm",
     "formEventMapping",
     "repeatingFormsEvents",
+    "log",  # CGRD-B5c (D-845)
 }
 NO_PERMISSION = "You do not have permissions to use the API"
 
@@ -157,8 +159,15 @@ def _export_records(proj: dict[str, Any], form: Any) -> list[dict[str, Any]]:
         if with_dag:
             row["redcap_data_access_group"] = rec.get("redcap_data_access_group", "")
         for col in cols:
-            if col != rid:
-                row[col] = str(rec.get(col, ""))
+            if col == rid:
+                continue
+            m: dict[str, Any] = next((x for x in proj["metadata"] if x["field_name"] == col), {})
+            if m.get("field_type") == "checkbox":  # NEW-EDC-3b: REDCap exports one column per choice
+                have = str(rec.get(col, "")).split(",")
+                for code in _codes(m):
+                    row[_column(col, code)] = "1" if code in have else "0"
+                continue
+            row[col] = str(rec.get(col, ""))
         rows.append(row)
     return rows
 
@@ -189,17 +198,11 @@ def odm_rows(proj: dict[str, Any], text: str) -> list[dict[str, str]] | None:
     rows: list[dict[str, str]] = []
 
     def items(parent: ET.Element, row: dict[str, str]) -> None:
-        ticks: dict[str, list[str]] = {}
         for item in (el for el in parent.iter() if _local(el.tag) == "ItemData"):
             oid, val = str(item.get("ItemOID") or ""), str(item.get("Value") or "")
-            base, sep, code = oid.partition("___")
-            if sep and base in checkbox:
-                ticks.setdefault(base, [])
-                if val == "1":
-                    ticks[base].append(code)
-            elif oid != rid:
+            base, sep, _code = oid.partition("___")
+            if (sep and base in checkbox) or oid != rid:  # a checkbox's choice stays its own column (NEW-EDC-3b)
                 row[oid] = val
-        row.update({k: ",".join(v) for k, v in ticks.items()})
 
     for sd in (el for el in root.iter() if _local(el.tag) == "SubjectData"):
         for se in (el for el in sd if _local(el.tag) == "StudyEventData"):
@@ -231,10 +234,81 @@ def odm_rows(proj: dict[str, Any], text: str) -> list[dict[str, str]] | None:
     return rows
 
 
+TICKS = "\x00ticks:"  # NEW-EDC-3b: a checkbox's ``___`` columns of one import row, carried through the checks as one
+
+
+def _codes(meta: dict[str, Any]) -> list[str]:
+    """A checkbox's choice codes (``1, Toe | 2, Ankle``)."""
+    raw = str(meta.get("select_choices_or_calculations") or "")
+    return [p.split(",", 1)[0].strip() for p in raw.split("|") if p.strip()]
+
+
+def _column(field: str, code: str) -> str:
+    """REDCap's column of a checkbox choice: the code lowercased, ``-`` and ``.`` written ``_`` (``x____99``)."""
+    return f"{field}___{code.lower().replace('-', '_').replace('.', '_')}"
+
+
+def _checkbox_columns(rows: list[dict[str, Any]], meta: dict[str, Any]) -> str | None:
+    """REDCap's flat form of a checkbox (NEW-EDC-3b, EDC-001 on this point): one ``field___code`` column per choice,
+    ``1`` ticked, ``0`` not, blank left as it is. A bare checkbox column, or a code the field has no choice for, is
+    refused as REDCap refuses it. Each row's columns of a checkbox are carried as one value until the write."""
+    boxes = {f: _codes(m) for f, m in meta.items() if m.get("field_type") == "checkbox"}
+    for r in rows:
+        bare = sorted(f for f in r if f in boxes)
+        if bare:
+            return f"The following fields were not found in the project as real data fields: {', '.join(bare)}"
+        ticks: dict[str, dict[str, str]] = {}
+        for col in list(r):
+            base, sep, _ = str(col).partition("___")
+            if not sep or base not in boxes:
+                continue
+            v = str(r.pop(col))
+            code = next((c for c in boxes[base] if _column(base, c) == col), None)
+            if code is None or v not in ("0", "1", ""):
+                return f"The following fields were not found in the project: {col}"
+            ticks.setdefault(base, {})[code] = v
+        for base, t in ticks.items():
+            r[base] = TICKS + ",".join(f"{c}={v}" for c, v in t.items())
+    return None
+
+
+def _real_day(y: str, m: str, d: str) -> bool:
+    try:
+        date(int(y), int(m), int(d))
+    except ValueError:
+        return False
+    return True
+
+
+def _day(value: str) -> bool:
+    """CGRD-B5a (D-843): a date as REDCap's import reads it, whatever the field shows: Y-M-D or M/D/Y, a real day."""
+    if m := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", value):
+        return _real_day(m.group(1), m.group(2), m.group(3))
+    if m := re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", value):
+        return _real_day(m.group(3), m.group(1), m.group(2))
+    return False
+
+
 def _fits(meta: dict[str, Any], value: str) -> bool:
-    """REDCap's check of a value against the field's decimal validation (STD-061, T-115): ``number_1dp`` takes
-    exactly one decimal place, a ``_comma_decimal`` type takes the comma. The other types are not checked here."""
+    """REDCap's check of a value against its field (STD-061, T-115; CGRD-B5a, D-843): a choice field takes one of
+    its codes (yes/no and true/false: 0 or 1); ``integer`` and ``number`` take a number; a date or date-time takes
+    Y-M-D or M/D/Y (a time after it for a date-time); ``number_1dp`` takes exactly one decimal place, a
+    ``_comma_decimal`` type takes the comma. A range is not checked: REDCap's import does not refuse it."""
+    ftype = str(meta.get("field_type") or "")
+    if ftype in ("yesno", "truefalse"):
+        return value in ("0", "1")
+    if ftype in ("radio", "dropdown"):
+        return value in _codes(meta)
     vt = str(meta.get("text_validation_type_or_show_slider_number") or "")
+    if vt == "integer":
+        return re.fullmatch(r"-?\d+", value) is not None
+    if vt == "number":
+        return re.fullmatch(r"-?\d+(\.\d+)?", value) is not None
+    if vt.startswith("date_"):
+        return _day(value)
+    if vt.startswith("datetime_"):
+        day, _, clock = value.partition(" ")
+        return _day(day) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?", clock) is not None
     m = re.fullmatch(r"number_(\d)dp(_comma_decimal)?", vt)
     if m:
         sep = "," if m.group(2) else r"\."
@@ -263,6 +337,9 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
         return _err(400, "The data being imported is not in a valid format")
     rid = _record_id_field(proj)
     meta = {m["field_name"]: m for m in proj["metadata"]}
+    refused = _checkbox_columns(rows, meta)
+    if refused:
+        return _err(400, refused)
     extra = EXTRA_COLS
     longitudinal = bool(int(proj["project"].get("is_longitudinal", 0)))
     repeat = _repeat_set(proj)
@@ -318,6 +395,15 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
             return _err(400, f"The data access group '{dag}' is not valid")
     auto = str(form.get("forceAutoNumber") or "").lower() == "true"
     erase = str(form.get("overwriteBehavior") or "normal") == "overwrite"
+    for r in rows:  # CGRD-B5c (D-845): one row touching a locked form refuses the whole import, as REDCap does
+        ev = str(r.get("redcap_event_name") or "")
+        for k in r:
+            m = meta.get(k)
+            if k == rid or m is None:
+                continue
+            form_name = str(m.get("form_name") or "")
+            if (str(r[rid]), form_name, ev) in proj.setdefault("locks", set()):
+                return _err(400, f"Record {r[rid]}: the form {form_name} is locked and cannot be changed")
     stamp = _local_now()
     used = [int(x[rid]) for x in proj["records"] if str(x.get(rid, "")).isdigit()]
     next_id = max(used, default=0) + 1
@@ -332,17 +418,36 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
             name = renamed[name]
         key = _key({**r, rid: name}, rid, longitudinal)
         hit = next((x for x in proj["records"] if _key(x, rid, longitudinal) == key), None)
+        new = hit is None and not any(str(x.get(rid)) == name for x in proj["records"])
         if hit is None:
             hit = {f: "" for f in meta}
             hit[rid] = name
             proj["records"].append(hit)
+        before = dict(hit)
         for k, v in r.items():
             if k == rid:
                 continue
             if str(v) == "" and not erase:  # overwriteBehavior=normal: a blank never erases
                 continue
+            if str(v).startswith(TICKS):  # NEW-EDC-3b: each choice ticked (1) or not (0); a blank one left
+                have = [c for c in str(hit.get(k) or "").split(",") if c]
+                for pair in str(v)[len(TICKS) :].split(","):
+                    code, _, tick = pair.partition("=")
+                    if tick == "1" and code not in have:
+                        have.append(code)
+                    elif (tick == "0" or (tick == "" and erase)) and code in have:
+                        have.remove(code)
+                order = _codes(meta[k])
+                hit[k] = ",".join(sorted(have, key=lambda c: order.index(c) if c in order else len(order)))
+                continue
             hit[k] = str(v)
+        typed = {f: hit[f] for f in hit if f in meta and hit[f] != before.get(f) and f != rid}
         _calculate(proj, hit)
+        computed = {f: hit[f] for f in hit if f in meta and hit[f] != before.get(f) and f not in typed and f != rid}
+        # CGRD-B5c (D-845): REDCap's log of the write, naming the user and the values it changed
+        _log(proj, f"{'Create' if new else 'Update'} record (import) {name}", name, typed)
+        if computed:
+            _log(proj, f"Update record (import) (Auto calculation) {name}", name, computed)
         hit["_changed"] = stamp
         if name not in written:
             written.append(name)
@@ -353,6 +458,15 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
         back = {v: k for k, v in renamed.items()}
         return [f"{w},{back.get(w, w)}" for w in written]
     return {"count": len(written)}
+
+
+def _log(proj: dict[str, Any], action: str, record: str, values: dict[str, Any], user: str | None = None) -> None:
+    """CGRD-B5c (D-845): one entry of the project's log, as REDCap writes it: the user, the action, the record and
+    the values (``field = 'value'``)."""
+    proj.setdefault("log", []).append({
+        "timestamp": _local_now(), "username": user or str(proj.get("username") or "tb_api"), "action": action,
+        "record": record, "details": ", ".join(f"{f} = '{v}'" for f, v in values.items()),
+    })  # fmt: skip
 
 
 def _calculate(proj: dict[str, Any], row: dict[str, Any]) -> None:
@@ -413,8 +527,25 @@ def _repeat(r: dict[str, Any]) -> dict[str, str]:
             "custom_form_label": ""}  # fmt: skip
 
 
-def create_app(fixtures_dir: Path | None = None, version: str | None = None, rate_limit: int | None = None) -> FastAPI:
-    """Build a simulator app (each app holds its own copy of the fixtures, so tests stay independent)."""
+def _dictionary_refused(meta: list[dict[str, Any]], not_offered: frozenset[str]) -> str | None:
+    """CGRD-B5b (D-844): what a real REDCap refuses in a data dictionary: ``^`` in a calculation, and a validation
+    the instance does not offer (its administrator's choice). None when it takes the dictionary."""
+    for m in meta:
+        name = str(m.get("field_name") or "")
+        if str(m.get("field_type") or "") == "calc" and "^" in str(m.get("select_choices_or_calculations") or ""):
+            return f"The calculation of {name} is not valid: ^ is not an operator REDCap takes"
+        vt = str(m.get("text_validation_type_or_show_slider_number") or "")
+        if vt and vt in not_offered:
+            return f"The validation type of {name} ({vt}) is not offered on this instance"
+    return None
+
+
+def create_app(fixtures_dir: Path | None = None, version: str | None = None, rate_limit: int | None = None,
+               not_offered: Iterable[str] = ()) -> FastAPI:  # fmt: skip
+    """Build a simulator app (each app holds its own copy of the fixtures, so tests stay independent).
+    ``not_offered`` (CGRD-B5b, D-844): the validation types the instance does not offer; a dictionary using one is
+    refused, as on a REDCap whose administrator turned it off."""
+    refused_validations = frozenset(not_offered)
     state = SimState(
         copy.deepcopy(load_projects(fixtures_dir or FIXTURES)),
         version or os.environ.get("TB_RC_SIM_VERSION", "16.0.10"),
@@ -450,6 +581,11 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
         if content == "metadata":
             fields = set(_form_list(form, "fields"))
             return [m for m in proj["metadata"] if not fields or m["field_name"] in fields]
+        if content == "log":  # CGRD-B5c (D-845): the project's log, newest last; logtype=record: the writes only
+            entries = list(proj.get("log") or [])
+            if str(form.get("logtype") or "") == "record":
+                entries = [e for e in entries if "record" in str(e["action"]).split(" (")[0].lower()]
+            return entries
         if content == "dag":
             return proj["dags"]
         if content == "repeatingFormsEvents":  # REDCap answers it only for a project that repeats something
@@ -500,6 +636,26 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             n += 1
         return {"count": n}
 
+    @app.post("/sim/lock")
+    async def sim_lock(request: Request) -> Any:
+        """CGRD-B5c (D-845): lock or unlock one form of one record (on a real REDCap a person or an administrator
+        does it): ``{"project_id", "record", "form", "event", "lock": true|false, "username"}``. Logged."""
+        body = await request.json()
+        proj = next((p for p in state.projects.values() if int(p["project"]["project_id"]) == int(body["project_id"])),
+                    None)  # fmt: skip
+        if proj is None:
+            return _err(404, "no such project")
+        key = (str(body["record"]), str(body["form"]), str(body.get("event") or ""))
+        locks = proj.setdefault("locks", set())
+        if body.get("lock", True):
+            locks.add(key)
+        else:
+            locks.discard(key)
+        word = "Lock" if body.get("lock", True) else "Unlock"
+        details = {"Record": key[0], "Form": key[1], "Event": key[2] or "(none)"}
+        _log(proj, f"{word} instrument", key[0], details, str(body.get("username") or "") or None)
+        return {"locked": sorted(f"{r}/{f}/{e}" for r, f, e in locks)}
+
     @app.post("/sim/projects")
     async def sim_projects(request: Request) -> Any:
         """Add an empty project: ``{"title", "metadata": [dictionary rows], "events": [unique event names, or
@@ -510,6 +666,9 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
         meta = list(body.get("metadata") or [])
         if not meta or any("field_name" not in m or "form_name" not in m for m in meta):
             return _err(400, "A data dictionary with field_name and form_name is needed")
+        why = _dictionary_refused(meta, refused_validations)
+        if why:  # CGRD-B5b (D-844): as a real REDCap refuses the dictionary
+            return _err(400, why)
         events = [e if isinstance(e, dict) else {"unique_event_name": str(e)} for e in body.get("events") or []]
         pid = max((int(p["project"]["project_id"]) for p in state.projects.values()), default=100) + 1
         token = secrets.token_hex(16).upper()
@@ -530,6 +689,9 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             "repeating": [_repeat(r) for r in body.get("repeating") or []],
             "dags": [],
             "records": [],
+            "username": str(body.get("username") or "tb_api"),  # CGRD-B5c (D-845): who the log names
+            "locks": set(),
+            "log": [],
         }
         return {"project_id": pid, "token": token}
 

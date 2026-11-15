@@ -269,7 +269,8 @@ def test_seal_keys_wraps_the_plain_keys_under_a_tpm_sealed_kek(tmp_path: Path) -
         (sec / k).write_bytes(os.urandom(32))
         (sec / k).chmod(0o600)
     # systemd-creds stand-in: the "sealed" credential is a marked copy (the real one is bound to host key and TPM)
-    bin_dir = _stubs(tmp_path, {"systemd-creds": '[ "$1" = encrypt ] || exit 2\n'
+    # D-836: seal_keys.sh asks `systemd-creds has-tpm2` first: the stand-in's TPM is usable
+    bin_dir = _stubs(tmp_path, {"systemd-creds": '[ "$1" = has-tpm2 ] && exit 0\n[ "$1" = encrypt ] || exit 2\n'
                                 '{ echo SEALED; cat "$4"; } > "$5"\n'})  # fmt: skip
     conf = tmp_path / "h.conf"
     conf.write_text("KEK_BACKEND=tpm\n", encoding="utf-8")

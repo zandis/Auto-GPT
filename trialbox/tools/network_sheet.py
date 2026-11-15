@@ -53,9 +53,11 @@ IMAGE_PORTS = {"postgres": 5432, "hapiproject/hapi": 8080, "vllm/vllm-openai": 8
 # (D-394), which only reads the database and writes the audit volume
 NO_LISTEN = frozenset({"judge-sleep-init", "model-swap-init", "judge-wake-init", "audit-writer"})
 # the services of the test, demo and acceptance overlays (docker-compose.test.yml, docker-compose.testbench.yml,
-# docker-compose.acceptance.yml: T-213a, D-410)
+# docker-compose.acceptance.yml: T-213a, D-410); mail-sink: the box
+# rehearsal's SMTP stand-in, tools/rehearse_box/standins.yml (D-882)
 TEST_ONLY = frozenset({"greenmail", "mailpit", "testbench", "testbench-work", "acceptance-directory",
-                       "acceptance-directory-seed", "acceptance-mail"})  # fmt: skip
+                       "acceptance-directory-seed", "acceptance-mail",
+                       "mail-sink"})  # fmt: skip
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}")
 
 T: dict[str, dict[str, str]] = {

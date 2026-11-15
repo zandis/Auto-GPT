@@ -2,7 +2,7 @@
 synthetic sites: excerpts = the patient's notes inside the criterion's window at the reference date (newest first,
 ≤ 28k tokens, i.e. the full-record path), gold = planted note truth (yes/no/unknown -> pass/fail/unknown).
 
-    python tools/make_judge_set.py [--out tests/fixtures/llm/judge_set.jsonl]
+    python tools/make_judge_set.py [--out eval/qualification/judge_set.jsonl]
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def build(seed: int = 7) -> list[dict[str, object]]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", type=Path, default=ROOT / "tests" / "fixtures" / "llm" / "judge_set.jsonl")
+    ap.add_argument("--out", type=Path, default=ROOT / "eval" / "qualification" / "judge_set.jsonl")
     args = ap.parse_args(argv)
     rows = build()
     args.out.parent.mkdir(parents=True, exist_ok=True)

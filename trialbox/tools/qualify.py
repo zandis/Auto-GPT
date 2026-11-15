@@ -72,7 +72,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field, replace
@@ -471,6 +471,21 @@ def pinned_template_sha256(build_id: str) -> str | None:
     return str(sha) if sha else None
 
 
+def code_note(head: str) -> str:
+    """D-881: what the record says of a code named by the image alone."""
+    return "no release tree: code named by the image digest" if head.startswith("image:") else ""
+
+
+def code_problems(head: str, env: Mapping[str, str]) -> list[str]:
+    """Why ``head`` cannot name the code of this record: unknown, or (D-881) only an image id on a box that is not
+    run under the poc host profile (a site box has its signed release tree)."""
+    if head == "unknown":
+        return ["no git HEAD and no signed release tree (HOST-SHA256SUMS): the record cannot name its code"]
+    if head.startswith("image:") and (env.get("TB_HOST_PROFILE") or "").strip() != "poc":
+        return ["no signed release tree: an image id alone names a site box's code only under TB_HOST_PROFILE=poc"]
+    return []
+
+
 def step_serving_record(ctx: Ctx) -> StepResult:
     from gateway.policy import RoutingPolicy
     from tb_llm.prompt_registry import default_registry
@@ -492,9 +507,9 @@ def step_serving_record(ctx: Ctx) -> StepResult:
         "chat_template_sha256": pinned_template_sha256(ctx.builds["judge"].build_id),
     }
     ctx.state["serving"] = detail
-    problems = []
-    if head == "unknown":
-        problems.append("no git HEAD and no signed release tree (HOST-SHA256SUMS): the record cannot name its code")
+    if code_note(head):
+        detail["code"] = code_note(head)
+    problems = code_problems(head, os.environ)
     if dirty and ctx.opts.profile != "ci":
         problems.append(dirty_problem(head, dirty))
     if ctx.opts.profile != "ci" and detail["driver"] == "none":
@@ -889,9 +904,43 @@ def pair_item(judge: QClient, verifier: QClient, it: Any) -> Any:
     return row
 
 
-def run_pair(judge: QClient, verifier: QClient, items: list[Any], workers: int) -> list[Any]:
-    with ThreadPoolExecutor(max(1, workers)) as ex:
-        return list(ex.map(lambda it: pair_item(judge, verifier, it), items))
+PROGRESS_EVERY_S = 30.0  # D-838: the pair gate's heartbeat (a box's watchdog took 20 silent minutes for a hang)
+
+
+def run_pair(
+    judge: QClient,
+    verifier: QClient,
+    items: list[Any],
+    workers: int,
+    say: Callable[[str], None] | None = None,
+    every_s: float = PROGRESS_EVERY_S,
+) -> list[Any]:
+    """Each item through the pair, in the items' order. D-838: every ``every_s`` seconds, and once at the end, one
+    line says how many are answered, whichever item is slow."""
+    say = say or (lambda m: print(m, file=sys.stderr, flush=True))
+    n, done, t0 = len(items), [0], time.monotonic()
+    stop, lock = threading.Event(), threading.Lock()
+
+    def heartbeat() -> None:
+        while not stop.wait(every_s):
+            say(f"qualify: pair_gate: {done[0]}/{n} items answered ({time.monotonic() - t0:.0f} s)")
+
+    def one(it: Any) -> Any:
+        row = pair_item(judge, verifier, it)
+        with lock:
+            done[0] += 1
+        return row
+
+    beat = threading.Thread(target=heartbeat, daemon=True)
+    beat.start()
+    try:
+        with ThreadPoolExecutor(max(1, workers)) as ex:
+            rows = list(ex.map(one, items))
+    finally:
+        stop.set()
+        beat.join()
+    say(f"qualify: pair_gate: {n}/{n} items answered ({time.monotonic() - t0:.0f} s)")
+    return rows
 
 
 def _gate(ctx: Ctx) -> Any:

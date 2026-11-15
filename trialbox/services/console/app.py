@@ -248,6 +248,46 @@ class _MustChange(Exception):
     """A page asked by an account whose password someone else set (D-279): it goes to /account first."""
 
 
+#: D-513 (D-860): a patient-level file that names a patient opted out since it was made is not served (the files are
+#: kept until retention, withheld on read); the job's pages show its list without them
+OPTED_OUT_SINCE = "a patient on this file has opted out since it was made; run the list again"
+_TEXT_SUFFIXES = (".json", ".jsonl", ".html", ".htm", ".csv", ".txt", ".yaml", ".md")
+#: a per-patient file names its patient by the pseudonym's first 12 characters as the last ``_`` part of its name
+#: (``twpas_<rs>_<pid12>.json``, ``draft_<rs>_<pid12>.docx``): it is judged by that patient alone. The whole part, not
+#: any run of hex: a job id (a ULID, ``case_<rs>_<job>.html``) can hold one (the review of D-860)
+_OWNER = re.compile(r"_([0-9a-f]{12,32})$")
+
+
+def _names_opted_out(job: Any, filename: str, data: bytes, get: Any, gone: Any) -> bool:
+    """Whether a patient-level output names a patient on the opt-out register now (merged charts too).
+
+    The review of D-860: a per-patient file (its name carries the pseudonym's prefix; a TWPAS bundle holds no
+    pseudonym at all) is judged by its own patient; a list file in text is searched (any case); a list file that is
+    compressed (PDF, zip) is judged by the job's text list files, which list the same patients. ``get``: the
+    console's object store read (``Backend.get_object``); ``gone``: the opt-out register now, as the console reads it
+    (``Helpers.gone``)."""
+    if not gone:
+        return False
+    owner = _OWNER.search(Path(filename).stem.lower())
+    if owner is not None:
+        return any(pid.lower().startswith(owner.group(1)) for pid in gone)
+    if filename.lower().endswith(_TEXT_SUFFIXES):
+        texts = [data.lower()]
+    else:
+        texts = []
+        for o in job.outputs or []:
+            name = o.filename.lower()
+            if o.tag == "aggregate" or not name.endswith(_TEXT_SUFFIXES) or _OWNER.search(Path(name).stem):
+                continue
+            try:
+                texts.append(bytes(get(o.minio_key)).lower())
+            except Exception:
+                return True  # a list that cannot be read: withheld (fail closed)
+        if not texts:  # nothing to judge it by: withheld (fail closed)
+            return True
+    return any(pid.lower().encode("ascii") in t for t in texts for pid in gone)
+
+
 class _Problem(Exception):
     def __init__(self, status: int, key: str, **values: object) -> None:
         super().__init__(key)
@@ -1480,6 +1520,10 @@ def create_app(
         if out.tag != "aggregate" and grant is None:  # D-273 (PV-3): an investigator reads it only as delegated
             helpers.delegated(sess, job.ruleset or "", request.url.path)
         data = bk.get_object(out.minio_key)
+        if out.tag != "aggregate" and _names_opted_out(
+            job, filename, data, bk.get_object, helpers.gone()
+        ):  # D-513 (D-860)
+            raise _Problem(409, "request.refused", reason=OPTED_OUT_SINCE)
         au.append(
             "console.view",
             job_id=job_id,
@@ -1803,6 +1847,10 @@ def create_app(
             data = helpers.reveal.workbook(sess, job, out, request.url.path)  # T-103 (D-438): the one path
         else:
             data = bk.get_object(out.minio_key)
+            if out.tag == "phi" and _names_opted_out(
+                job, filename, data, bk.get_object, helpers.gone()
+            ):  # D-513 (D-860)
+                raise _Problem(409, "request.refused", reason=OPTED_OUT_SINCE)
         au.append(
             "console.download",
             job_id=job_id,

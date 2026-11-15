@@ -3,6 +3,7 @@
 #
 #   sudo deploy/install.sh trialbox-<version>.tar --tier small|medium|large [--answers site.yaml] [--yes]
 #   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu rtxpro6000|gb10|rtx5090|rtx4090] [--yes]
+#        [--environment DEV|TEST|VALIDATION|PRODUCTION]   (D-837; default PRODUCTION, D-127)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
@@ -62,6 +63,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
+ENVIRONMENT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -74,6 +76,7 @@ while [ $# -gt 0 ]; do
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
     --rehearsal) REHEARSAL=1 ;;
+    --environment) ENVIRONMENT="$2"; shift ;;
     -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -287,6 +290,8 @@ fi
 # ------------------------------------------------------------------------------------------------ 3. settings
 say "settings"
 FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
+# D-837: a TB_ENV written into deploy/.env before the wizard rewrites the file (ENVIRONMENT below keeps it)
+PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
 mkdir -p deploy/keys deploy/secrets deploy/site/mapping
 # T-632 (OPS-011): the site's own mapping is in deploy/site/mapping, never in the image; the wizard and the adapter see
 # it at /etc/trialbox/mapping and look there first (adapter.mapping.site). A mapping folder beside the answers file
@@ -363,11 +368,42 @@ if [ "$REHEARSAL" = 1 ]; then
   sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=TEST\nTB_REHEARSAL=1\n' >> deploy/.env
 fi
 # ---- end of REHEARSAL (D-726): the box says TEST
+# ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
+# silently (a pre-written VALIDATION was lost and the D-127 default below made the box PRODUCTION)
+NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+if [ -n "$ENVIRONMENT" ]; then
+  ENVIRONMENT="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
+  case "$ENVIRONMENT" in DEV|TEST|VALIDATION|PRODUCTION) ;; *) die "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT" ;; esac
+  [ "$REHEARSAL" != 1 ] || [ "$ENVIRONMENT" = TEST ] || die "--rehearsal makes a TEST box, not $ENVIRONMENT"
+  [ -z "$NOW_ENV" ] || [ "$NOW_ENV" = "$ENVIRONMENT" ] \
+    || die "deploy/.env says TB_ENV=$NOW_ENV and --environment says $ENVIRONMENT: a box's environment is not changed by an install"
+  sed -i '/^TB_ENV=/d' deploy/.env && echo "TB_ENV=$ENVIRONMENT" >> deploy/.env
+elif [ -z "$NOW_ENV" ] && [ -n "$PRE_ENV" ]; then
+  sed -i '/^TB_ENV=/d' deploy/.env && echo "TB_ENV=$PRE_ENV" >> deploy/.env
+  echo "    TB_ENV=$PRE_ENV kept (written in deploy/.env before the settings wizard)"
+fi
+# ---- end of ENVIRONMENT
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
 grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# HOST PROFILE (D-837): TB_HOST_PROFILE=poc, a proof of concept or validation run on a plain VM: the host-facility
+# checks (TPM seal, LUKS, egress table, systemd units, firewall, SSH, cron) WARN and are listed, here, in
+# check_host.sh and in doctor. Never on PRODUCTION. It sets TB_SYSTEMD's default to 0 (no units on such a VM)
+HOST_PROFILE="${TB_HOST_PROFILE:-$(envget TB_HOST_PROFILE)}"; HOST_PROFILE="${HOST_PROFILE:-site}"
+case "$HOST_PROFILE" in
+  site) ;;
+  poc)
+    [ "$TB_ENV_SITE" != PRODUCTION ] \
+      || die "TB_HOST_PROFILE=poc is never a PRODUCTION box: install with --environment VALIDATION (or TEST), or without the profile"
+    envset TB_HOST_PROFILE poc
+    TB_SYSTEMD="${TB_SYSTEMD:-0}"; export TB_SYSTEMD
+    echo "    host profile poc ($TB_ENV_SITE): WARN, not FAIL, for the TPM seal, LUKS, the egress table, the systemd units, the firewall, SSH and cron (listed by the host check)"
+    ;;
+  *) die "TB_HOST_PROFILE must be site or poc, not '$HOST_PROFILE'" ;;
+esac
+# ---- end of HOST PROFILE
 # D-726: what only a rehearsal box may use (the model stand-ins, an unmeasured card's trial boot)
 rehearsal_only() {
   [ "$TB_ENV_SITE" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ] \
@@ -465,17 +501,23 @@ if [ "$MODE" = gpu ]; then
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
   done
   say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
+  # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
+  # was only a warning: lane G's box went on with no model pinned); a pin that fails stops the install
+  alive_start "hashing the model weights"
   tree_args
-  docker run --rm -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
-    || echo "install: warning: a model of the $GPU pair is not pinned (see above): it routes nothing until its weights are in deploy/models and install runs again (RUNBOOK §8)" >&2
+    || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
+  alive_stop
   if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
     # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
     say "checking the pinned model weights (tools/pin_model.py --verify-all)"
+    alive_start "checking the model weights"
     tree_args
     docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
       python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
       || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+    alive_stop
   else
     echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
   fi
@@ -618,17 +660,22 @@ say "site keys (made once, never replaced)"
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
   || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
 # T-634 (D-408; OPS-043): sealed at once, before any service opens them. VALIDATION and PRODUCTION always; a DEV or TEST
-# box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (KEK_BACKEND, default tpm); the
+# box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (TB_KEK_BACKEND in the installer's
+# environment, else hardening.conf's KEK_BACKEND, default tpm; D-836); the
 # host check FAILs a plain site key in VALIDATION and PRODUCTION
 HB_CONF="$ROOT/deploy/site/hardening.conf"
 if [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
   echo "    site keys: sealed at the box's apply step, under the owner's passphrase (box-install.sh, T-729)"
+elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
+    && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
+  # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
+  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE seals them); the host check lists it"
 elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
-    || die "the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md"
+    || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
@@ -652,8 +699,10 @@ fi
 # the retries); the stop, from the longest stop grace. Without PyYAML on the host, the waits of before (900 s, 300 s).
 BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" || BOOT_WAIT=900
 STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
+alive_start "waiting for every service to be healthy (up to ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} s)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
-  || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+  || { alive_stop; "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+alive_stop
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
   # gateway would get 404 or 401 on every call and the box would screen nothing (doctor check "serving")
@@ -742,7 +791,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   QUAL_DIR="$(readlink -f deploy/qualification 2>/dev/null || true)"; [ -d "$QUAL_DIR" ] || QUAL_DIR="$ROOT/deploy/site"
   LOCK_FILE="$(readlink -f deploy/images.lock 2>/dev/null || true)"
   pin_tool() {
-    docker run --rm -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
+    docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
       python -m tools.pin_model "$@" --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /'
     return "${PIPESTATUS[0]}"
   }

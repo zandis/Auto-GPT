@@ -263,15 +263,18 @@ class SimAdmin(Admin):
         return Instance(
             "stand-in", version, "inproc://rc-sim", int(main["project_id"]), int(logic["project_id"]),
             {"full": token, "export_only": token, "dag": token, "expired": token, "logic": str(logic["token"])},
-            ["the stand-in has one token per project: no rights, no expiry, no data access group (R4 cannot pass)",
-             "the stand-in has no locking (R3 cannot pass)", "the stand-in has no log (R9 cannot pass)"],
+            ["the stand-in has one token per project: no rights, no expiry, no data access group (R4 cannot pass)"],
         )  # fmt: skip
 
     def lock(self, inst: Instance, record: str, event: str, form: str) -> str:
-        return "the stand-in has no locking"
+        """CGRD-B5c (D-845): the simulator's lock, as the locker; "" when done."""
+        r = self.http.post("/sim/lock", json={"project_id": inst.project_id, "record": record, "event": event,
+                                              "form": form, "lock": True, "username": "tb_locker"})  # fmt: skip
+        return "" if r.status_code == 200 else f"the stand-in did not lock the form ({r.status_code})"
 
     def unlock(self, inst: Instance, record: str, event: str, form: str) -> None:
-        return None
+        self.http.post("/sim/lock", json={"project_id": inst.project_id, "record": record, "event": event,
+                                          "form": form, "lock": False, "username": "tb_locker"})  # fmt: skip
 
     def set_autonumber(self, inst: Instance, on: bool) -> str:
         return "the stand-in does not switch auto-numbering"
@@ -520,10 +523,19 @@ def r2_checkbox(admin: Admin, inst: Instance) -> dict[str, Any]:
     post, tok = admin.post(), inst.tokens["full"]
     key = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1}
     bare = import_rows(post, tok, [{**key, "joints": "1,3"}])
-    cols = import_rows(post, tok, [{**key, "joints___1": "1", "joints___2": "0", "joints___3": "1"}])
+    # REDCap names a choice's column from the code lowercased, "-" and "." written "_" (D-842): -99 is joints____99
+    cols = import_rows(post, tok, [{**key, "joints___1": "1", "joints___2": "0", "joints___3": "1",
+                                    "joints____99": "0"}])  # fmt: skip
     rows = export_rows(post, tok, **{"records[0]": "1", "fields[0]": "record_id", "fields[1]": "joints"})
-    back = {c: v for r in rows or [] for c, v in r.items() if c.startswith("joints")}
-    ok = _refused(bare) and not _refused(cols) and back.get("joints___1") == "1" and back.get("joints___3") == "1"
+    mine = [
+        r
+        for r in rows or []
+        if r.get("redcap_event_name", key["redcap_event_name"]) == key["redcap_event_name"]
+        and not r.get("redcap_repeat_instrument")
+    ]  # the row written: a record's other rows have their own boxes
+    back = {c: v for r in mine for c, v in r.items() if c.startswith("joints")}
+    ok = (_refused(bare) and not _refused(cols) and back.get("joints___1") == "1" and back.get("joints___3") == "1"
+          and back.get("joints____99") == "0")  # fmt: skip
     return {"pass": ok, "bare_column": _said(bare), "three_columns": _said(cols), "exported": back,
             "export_read": rows is not None}  # fmt: skip
 
