@@ -1059,7 +1059,14 @@ d_direct_pin() {
 d_direct_keys() { dc run --rm --no-deps -T adapter python -m adapter.cli keys-init; }
 d_direct_db()   { dc up -d --pull never --wait db; }
 d_direct_dbup() { box_tool trialbox db-up --deploy "$BOXROOT/deploy"; }
-d_direct_up()   { dc up -d --pull never --wait --wait-timeout 900; }
+# after a reboot the bind of the VM's /models into deploy/models is gone, and the model servers and the embedder that
+# Docker restarted on the empty folder are unhealthy (F15): the bind again, those three restarted, then the wait
+d_models_bind() {
+  if [ -n "${TB_BOXRUN_MOUNT:-}" ]; then $TB_BOXRUN_MOUNT "$MODELS" "$BOXROOT/deploy/models"; return 0; fi
+  mountpoint -q "$BOXROOT/deploy/models" && return 0
+  mount --bind "$MODELS" "$BOXROOT/deploy/models" && dc restart llm-service llm-verifier embed-service
+}
+d_direct_up()   { d_models_bind && dc up -d --pull never --wait --wait-timeout 900; }
 d_direct_serving() {  # as install.sh:616-617: on model-net, the box's .env, deploy/ at /app/deploy, the model key file
   IMG_NET=trialbox-model-net img_tool --env-file "$BOXROOT/deploy/.env" -v "$BOXROOT/deploy:/app/deploy:ro" \
     -v "$(readlink -f "$BOXROOT/current"):/app/current:ro" -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
