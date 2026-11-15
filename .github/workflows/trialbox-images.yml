@@ -66,6 +66,9 @@ concurrency:
 
 jobs:
   images:
+    # Stays on GitHub-hosted runners when TB_RUNNER is trialbox. `docker builder prune -af` and the toolchain
+    # deletion below would remove other projects' data on the shared self-hosted daemon, and the amd64 leg must be
+    # a native build (qemu on the ARM host is the unreliable path). The arm64 leg already uses ubuntu-24.04-arm.
     # D-578: for a merge train, on master, for a release tag, weekly and by hand; not for a card's pull request (129
     # runs and about 2,900 billed minutes on 2026-11-12). A card that changes an image says so and goes on a train.
     if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'train/')
@@ -164,7 +167,9 @@ jobs:
           retention-days: 90
 
   multiarch:
-    # a release tag or a run by hand; a push to master (D-578) is not a release
+    # a release tag or a run by hand; a push to master (D-578) is not a release.
+    # Stays on ubuntu-24.04. It builds amd64 and arm64 with qemu into a registry on the runner, then deletes hosted
+    # tool caches. On the ARM host the amd64 build is emulated and that deletion is not safe for the shared daemon.
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 120

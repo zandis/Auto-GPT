@@ -13,6 +13,10 @@
 # the memory cap of its compose service (a cgroup made with systemd-run), with the slow model stand-in; today's
 # failures are strict expected failures by card (EXPECTED in tools/scale_gate.py; empty since T-689).
 # workflow_dispatch runs the same jobs by hand; the first scheduled run after a change to this file is its proof.
+# nightly, random-order and compose follow TB_RUNNER the same way as trialbox-ci.yml (trialbox = self-hosted labels;
+# anything else, and every fork pull request, stays on ubuntu-24.04). scale-50k stays on ubuntu-24.04: it needs
+# passwordless sudo and systemd-run cgroups, deletes GitHub-hosted tool caches, and a 50,000-patient night can fill
+# the self-hosted disk. There is no pull_request trigger here; the fork clause is the same expression anyway.
 name: TrialBox nightly
 
 on:
@@ -37,8 +41,13 @@ env:
 
 jobs:
   nightly:
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
-    timeout-minutes: 45
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04. A fork pull request stays on ubuntu-24.04.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
+    # 45 on the GitHub-hosted image. perf-5k is CPU-bound and the ARM cores are slower; the first run may also
+    # apt-install PostgreSQL 16. 90 still ends a hang. The gate scales its baseline by a CPU calibration up to 3x
+    # (tools/bench.py); a host further off than that needs its own baseline.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -110,8 +119,10 @@ jobs:
   # never named its one failure; a shard ends inside the limit the gate's shards have, with the test's name.
   random-order:
     name: random-order (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40  # = unit-shard of trialbox-ci.yml (D-564: 1.5 times its slowest shard's median)
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04. A fork pull request stays on ubuntu-24.04.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
+    timeout-minutes: 70  # = unit-shard of trialbox-ci.yml (D-564, plus room for the 4-core ARM host)
     strategy:
       fail-fast: false  # every shard reports: one night shows every order dependence
       matrix:
@@ -157,6 +168,9 @@ jobs:
   # 40 s from call 300, one restart (30 s down) after call 900 (the cascade made 1,362 calls at 50,000 in
   # eval/hospital_sim/results/scale.json). The report is the job summary and an artifact.
   scale-50k:
+    # Not switched by TB_RUNNER. Stays on the GitHub-hosted image: passwordless sudo and systemd-run cgroups, the
+    # deletion of hosted tool caches below, and a 50,000-patient tree on a disk with about 37 GB free and no swap.
+    # On the one ARM runner this job would also block the other nightly jobs for most of the night.
     runs-on: ubuntu-24.04  # 4 cores, 16 GB, systemd and cgroup v2, password-less sudo; PostgreSQL 16 for pglocal
     timeout-minutes: 340  # under GitHub's 360-minute job limit: the night is measured, not budgeted; a hang ends here
     env:
@@ -222,8 +236,13 @@ jobs:
   # ENG-017 (T-653): the tests that need the compose stack, a browser or both. One runner with Docker: the images are
   # built here (as trialbox-images.yml builds them), the stack started with the stub model, and nothing may skip.
   compose:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04. A fork pull request stays on ubuntu-24.04.
+    # Published host ports are the test stack's (127.0.0.1 only). None is 4000: that port is LiteLLM on the host.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
+    # 150 on a GitHub-hosted 4-core x64 image. Native image builds plus Playwright on the ARM host are slower; 240
+    # still ends a hang. Containers and volumes of this compose project are removed at the end; the host daemon is not pruned.
+    timeout-minutes: 240
     env:
       PLAYWRIGHT_VERSION: "1.63.0"  # = trialbox/tools/package.json and deploy/gcp/complete-run-vm.sh (test_browser_lock)
     steps:
@@ -252,13 +271,25 @@ jobs:
       - name: PostgreSQL server binaries and gpg
         run: |
           tools/ci_postgres.sh  # the one major of deploy/images.lock (D-371)
-          command -v gpg >/dev/null || sudo apt-get install -y gnupg
+          # sudo -n: a password prompt would hang a self-hosted job. GitHub-hosted images already have gpg.
+          command -v gpg >/dev/null || sudo -n apt-get install -y gnupg
+      # GitHub-hosted images ship Node. The self-hosted Ubuntu does not; Playwright 1.63 needs it (DEP-025).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
       - name: Node Playwright with Chromium (outside the repository; NODE_PATH points at it)
         run: |
           mkdir -p "$RUNNER_TEMP/node-tools"
           cp tools/package.json tools/package-lock.json "$RUNNER_TEMP/node-tools/"  # the hashed lock (DEP-025, D-393)
           npm ci --prefix "$RUNNER_TEMP/node-tools" --no-fund --no-audit
-          (cd "$RUNNER_TEMP/node-tools" && npx playwright install --with-deps chromium)
+          # --with-deps apt-installs browser libraries and needs passwordless sudo (the GitHub-hosted image has it).
+          # Without sudo, install the browser only: the libraries must already be on the host.
+          if sudo -n true 2>/dev/null; then
+            (cd "$RUNNER_TEMP/node-tools" && npx playwright install --with-deps chromium)
+          else
+            echo "ci: no passwordless sudo; installing Chromium without apt packages"
+            (cd "$RUNNER_TEMP/node-tools" && npx playwright install chromium)
+          fi
           echo "NODE_PATH=$RUNNER_TEMP/node-tools/node_modules" >> "$GITHUB_ENV"
       # D-639: the browser walk below reads the MedTxt corpus (public, CC BY 4.0), which git does not carry; the same
       # cache as the public-e2e run. Fetched before the images and the stack: a fetch that fails stops the job early
@@ -285,7 +316,11 @@ jobs:
         run: make logs || true
       - name: Stop the test stack
         if: always()
-        run: make down || true
+        run: |
+          make down || true
+          # this project's containers, networks and volumes only. Never `docker system prune` or `docker builder prune`.
+          docker compose --project-directory deploy -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.test.yml --profile stub --profile test down -v --remove-orphans || true
       - name: The POC stack (box, mail, console) and the console POC test; no skip allowed
         env:
           TB_CONSOLE_SCREENSHOTS: ${{ runner.temp }}/compose/console-poc
@@ -295,7 +330,12 @@ jobs:
             -m e2e tests/e2e/test_console_poc.py --junitxml "$RUNNER_TEMP/compose/junit-console-poc.xml"
       - name: Stop the POC stack
         if: always()
-        run: make poc-down || true
+        run: |
+          make poc-down || true
+          # poc.sh down keeps volumes. Drop this project's volumes; leave every other project on the daemon.
+          docker compose --project-directory deploy -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml \
+            --profile stub --profile test down -v --remove-orphans || true
       - name: Keep the junit files, the walk result and the screenshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
