@@ -110,7 +110,9 @@ def test_a_rehearsal_box_warns_for_the_egress_table_every_other_box_fails() -> N
     block = CHECK_HOST[start : CHECK_HOST.index("\nfi\n", start)]
     assert "if rehearsal_box; then" in block and "no NET_ADMIN" in block
     helper = next(ln for ln in CHECK_HOST.splitlines() if ln.startswith("rehearsal_box()"))
-    assert '[ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]' in helper
+    # TB_REHEARSAL=1 on TEST, or on VALIDATION with the mark file (D-887, the integrator's (i))
+    assert '[ "$(envget TB_REHEARSAL)" = 1 ]' in helper and '[ "$TBENV" = TEST ]' in helper
+    assert '[ "$TBENV" = VALIDATION ] && [ -f "$(dirname "$ENV_FILE")/site/rehearsal.json" ]' in helper
     luks = CHECK_HOST[CHECK_HOST.index('LUKS_DEVS=""') : CHECK_HOST.index("done", CHECK_HOST.index('LUKS_DEVS=""'))]
     assert "elif rehearsal_box; then" in luks and 'facility fail "LUKS:' in luks
     assert 'facility fail "egress allowlist not loaded' in block

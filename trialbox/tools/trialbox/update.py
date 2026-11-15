@@ -575,6 +575,12 @@ class Updater:
             ]
         if not strict:
             return []
+        rehearsal_box = getattr(self.box, "rehearsal_box", None)
+        if rehearsal_box is not None and env == "VALIDATION" and rehearsal_box():
+            # D-887 (the integrator's (i)): a rehearsal box is VALIDATION, marked by deploy/install.sh --rehearsal
+            # (deploy/site/rehearsal.json and TB_REHEARSAL=1): it takes the rehearsal bundle of a working tree. A
+            # VALIDATION box without the mark refuses it below, as before; a PRODUCTION box always does
+            return []
         if plan.release.get("rehearsal") is True:  # D-726: tools/make_bundle.sh --rehearsal
             raise UpdateRefused(
                 f"{plan.bundle_id} is a rehearsal bundle (release.json says rehearsal; tools/make_bundle.sh "
@@ -821,6 +827,9 @@ class Updater:
             record["dirty"] = source["dirty"]  # D-633: built from a working tree (a DEV or TEST box took it)
         if (plan.release or {}).get("rehearsal") is True:
             record["rehearsal"] = True  # D-887: the pin reads it (a site box refuses such a bundle)
+        marked = getattr(self.box, "rehearsal_mark", None)
+        if marked is not None and marked():
+            record["rehearsal_box"] = True  # D-887 (i): install.sh --rehearsal's mark, recorded; the pin reads it
         mode = ((plan.release or {}).get("gates") or {}).get("vuln_mode")
         if isinstance(mode, str) and mode:
             record["vuln_mode"] = mode  # D-884: the release gates' mode, said by `apply_update.sh status` and install
@@ -1076,6 +1085,18 @@ class ComposeBox(_DockerImages):
         if not named and (self.deploy / "site" / "rehearsal.json").is_file():
             return "TEST"
         return (named or "PRODUCTION").strip().upper()
+
+    def rehearsal_mark(self) -> bool:
+        """D-887 (the integrator's (i)): the mark only ``deploy/install.sh --rehearsal`` writes."""
+        return (self.deploy / "site" / "rehearsal.json").is_file()
+
+    def rehearsal_box(self) -> bool:
+        """A rehearsal box: the mark, and deploy/.env says TB_REHEARSAL=1 (or names no environment yet: the first
+        load, before the installer writes deploy/.env). The mark without TB_REHEARSAL is a box touched by hand."""
+        if not self.rehearsal_mark():
+            return False
+        env = _env_file(self.deploy / ".env")
+        return env.get("TB_REHEARSAL", "").strip() == "1" or not env.get("TB_ENV")
 
     def running_services(self) -> list[str] | None:
         """D-724: the compose services that run now; None when compose cannot answer."""

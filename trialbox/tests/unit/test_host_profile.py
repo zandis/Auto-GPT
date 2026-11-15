@@ -71,8 +71,10 @@ def test_a_conflicting_environment_is_refused(tmp_path: Path) -> None:
     assert res.returncode == 1 and "PRODUCTION" in res.stderr and "VALIDATION" in res.stderr
     bad = _install(tmp_path, "ENVIRONMENT", "\n", ENVIRONMENT="STAGING")
     assert bad.returncode == 1 and "--environment" in bad.stderr
-    rehearsal = _install(tmp_path, "ENVIRONMENT", "\n", ENVIRONMENT="VALIDATION", REHEARSAL="1")
-    assert rehearsal.returncode == 1 and "TEST" in rehearsal.stderr
+    # D-887 (the integrator's (i)): --rehearsal makes a VALIDATION box; any other --environment is refused
+    for other in ("TEST", "PRODUCTION"):
+        rehearsal = _install(tmp_path, "ENVIRONMENT", "\n", ENVIRONMENT=other, REHEARSAL="1")
+        assert rehearsal.returncode == 1 and "VALIDATION" in rehearsal.stderr and other in rehearsal.stderr
 
 
 def test_install_takes_the_environment_option() -> None:

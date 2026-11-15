@@ -32,9 +32,9 @@
 #
 # Writes $TB_REHEARSE_DIR/report.md and report.json; exit 0 only when every step passes.
 #
-# TB_REHEARSE_VARIANT=validation (D-887): VALIDATION's settings on the rehearsal box (it stays TEST: the model
-# stand-ins are honoured there only, D-726): no TPM and the passphrase KEK (TB_KEK_BACKEND=passphrase, a throwaway
-# synthetic passphrase), TB_HOST_PROFILE=poc, a root-owned deploy/site, and a second install of the same bundle.
+# The rehearsal box is VALIDATION (D-887, the integrator's (i)), run as a validation run on a plain VM: no TPM and the
+# passphrase KEK (TB_KEK_BACKEND=passphrase, a throwaway synthetic passphrase), TB_HOST_PROFILE=poc.
+# TB_REHEARSE_VARIANT=validation adds a root-owned deploy/site and a second install of the same bundle.
 # Knobs: TB_REHEARSE_DIR (default a fresh mktemp dir; the same path is mounted in the box container, docker-outside-of-
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
@@ -221,10 +221,9 @@ host_up() {
   # --network host: the console's published 127.0.0.1 port is the host's; no NET_ADMIN, so the installer's nftables
   # step (deploy/network.sh apply) cannot touch the Docker host's firewall and reports that it was not applied
   # D-887: the box host sees the secrets volume by its host path, as a site's host does (the host check hands it to the
-  # doctor); the validation variant's seal also writes the KEK where the services mount it, /run/trialbox
+  # doctor); the seal also writes the KEK where the services mount it, /run/trialbox
   local droot; droot="$(docker info --format '{{.DockerRootDir}}')" || return 1
-  local site=(-v "$droot/volumes:$droot/volumes")
-  [ "$VARIANT" = validation ] && site+=(-v "/run/trialbox:/run/trialbox")
+  local site=(-v "$droot/volumes:$droot/volumes" -v "/run/trialbox:/run/trialbox")
   docker run -d --name "$HOST_CT" --hostname trialbox-rehearsal --network host --restart no \
     -v "$SOCK:/var/run/docker.sock" -v "$W:$W" ${site[@]+"${site[@]}"} "$HOST_IMG" sleep infinity || return 1
   docker exec "$HOST_CT" sh -c '. /etc/os-release; echo "ok: box host $PRETTY_NAME, $(docker compose version)"'
@@ -267,10 +266,9 @@ teardown() {
     >>"$LOGS/teardown.log" 2>&1 || true
   docker rm -f "$HOST_CT" >/dev/null 2>&1 || true
   docker image rm "$HOST_IMG" >/dev/null 2>&1 || true
-  if [ "$VARIANT" = validation ]; then  # D-887: the rehearsal's KEK and its throwaway passphrase do not outlive it
-    docker run --rm -v /run/trialbox:/k ubuntu:24.04 rm -f /k/kek >/dev/null 2>&1 || true
-    rm -f "$W/vendor/kek-pass"
-  fi
+  # D-887: the rehearsal's KEK and its throwaway passphrase do not outlive it
+  docker run --rm -v /run/trialbox:/k ubuntu:24.04 rm -f /k/kek >/dev/null 2>&1 || true
+  rm -f "$W/vendor/kek-pass"
   restore_images
   # keep the report and logs; drop the media and the box (gigabytes)
   docker run --rm --user 0:0 -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \

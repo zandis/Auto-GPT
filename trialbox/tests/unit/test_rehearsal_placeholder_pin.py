@@ -51,6 +51,7 @@ def _box(tmp: Path, *, rehearsal_bundle: bool = True, real_verifier: bool = Fals
     rec: dict[str, Any] = {"format": "trialbox-installed/1", "release_seq": 1, "bundle_id": "rehearsal-x", "state": {}}
     if rehearsal_bundle:
         rec["rehearsal"] = True
+    rec["rehearsal_box"] = True  # the mark of install.sh --rehearsal, recorded at the load (the integrator's (i))
     (deploy / "updates" / "installed.json").write_text(json.dumps(rec))
     return models, deploy / "site" / "registry.site.yaml"
 
@@ -65,9 +66,10 @@ def test_all_three_hold_the_pair_is_pinned_as_rehearsal_placeholder_candidates(t
     assert {e["weights"]["trust"] for e in doc.values()} == {"rehearsal_placeholder"}
     reg = Registry.load(DEFAULT_PATH, out)
     assert reg.resolve("j-workhorse", "serving", role="judge", env=Environment.TEST).build.build_id == JUDGE
-    for env in (Environment.VALIDATION, Environment.PRODUCTION):  # never beyond a TEST box
-        with pytest.raises(RegistryError):
-            reg.resolve("j-workhorse", "serving", role="judge", env=env)
+    # never PRODUCTION; VALIDATION is a rehearsal box's environment since the integrator's (i) (D-887), where it
+    # routes only with the recorded mark (tests/unit/test_rehearsal_validation_box.py)
+    with pytest.raises(RegistryError):
+        reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
 
 
 @pytest.mark.parametrize(
@@ -77,7 +79,9 @@ def test_all_three_hold_the_pair_is_pinned_as_rehearsal_placeholder_candidates(t
         ({"TB_REHEARSAL": "1"}, True, "rehearsal box"),  # TB_ENV missing
         (REHEARSAL_BOX, False, "rehearsal bundle"),
         ({"TB_ENV": "PRODUCTION", "TB_REHEARSAL": "1"}, True, "rehearsal box"),
-        ({"TB_ENV": "VALIDATION", "TB_REHEARSAL": "1"}, True, "rehearsal box"),
+        # VALIDATION with TB_REHEARSAL=1 is a rehearsal box since (i) when installed.json records the mark; without
+        # the record it is refused (test_rehearsal_validation_box.py); DEV never is
+        ({"TB_ENV": "DEV", "TB_REHEARSAL": "1"}, True, "rehearsal box"),
     ],
 )
 def test_one_condition_missing_refuses_the_pin(tmp_path: Path, env: dict[str, str], bundle: bool, why: str) -> None:

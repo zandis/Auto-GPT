@@ -169,7 +169,7 @@ class Build:
 
     @property
     def rehearsal_placeholder(self) -> bool:
-        """D-887: pinned from the box rehearsal's placeholder weights (never a model; TEST only, never promoted)."""
+        """D-887: the box rehearsal's placeholder weights (never a model; a rehearsal box only, never promoted)."""
         return self.weights.get("trust") == "rehearsal_placeholder"
 
     @property
@@ -266,8 +266,10 @@ class Registry:
                 reasons.append(f"{b.build_id}: sha256 not pinned [build_unpinned]")
                 continue
             why = b.unexpected_weights()
-            # D-887: the box rehearsal's placeholder pin (tools/pin_model.py) routes on a TEST box only, as candidate
-            if why and env == Environment.TEST and b.status == Status.CANDIDATE and b.rehearsal_placeholder:
+            # D-887: the box rehearsal's placeholder pin (tools/pin_model.py), as candidate, on a rehearsal box's
+            # environment (TEST, or VALIDATION where D3 stays on the box); never PRODUCTION
+            rehearsal_env = env in (Environment.TEST, Environment.VALIDATION)
+            if why and rehearsal_env and b.status == Status.CANDIDATE and b.rehearsal_placeholder:
                 why = ""
             if why:
                 reasons.append(f"{b.build_id}: {why} [weights_unexpected]")
