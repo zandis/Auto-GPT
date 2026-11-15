@@ -277,7 +277,7 @@ def test_without_masking_the_tripwire_hits_the_same_sections(gateway: Any, tmp_p
     masked_text = "\n".join(f"{s['title']}\n{s['text']}" for s in masked)
     assert not Guard(None).tripwire(masked_text).hit
     _locator(gateway)([{"title": s.title, "text": s.text} for s in secs])  # on the box: answered, not refused
-    # at the gateway, on a route that leaves the box (review of D-790): the unmasked text is refused, the masked not
+    # at the gateway, on a route that leaves the box (review of D-792): the unmasked text is refused, the masked not
     from tb_common.policy.classes import Environment
 
     from tests.unit.test_gateway import JUDGE_VARS, H, _gw, _judge_body

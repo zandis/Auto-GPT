@@ -21,7 +21,7 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
    suites); a free-form role (no prompt header) is not resolved;
 3. route lookup: ``(role, class, topology, environment, profile)`` → ordered candidates, each checked with
    ``may_reach`` (§7.2) — no route or no permitted endpoint is refused (``no_route``, ``class_route_mismatch``);
-4. PHI tripwire on D0–D2 calls (LLM-15, D-790): a hit keeps the call on the box (topology A's perimeter) or blocks
+4. PHI tripwire on D0–D2 calls (LLM-15, D-792): a hit keeps the call on the box (topology A's perimeter) or blocks
    it when no on-box build is left; it is never relabelled;
 5. registry resolution of each candidate alias to a pinned build (S1-07; unpinned builds are refused); a candidate
    outside the perimeter (``external``, ``dev_public``) also needs a provider pin for that endpoint (S1-14), because a
@@ -177,7 +177,7 @@ class GatewayConfig:
 
 
 def _tripwire_setting(raw: str | None) -> bool:
-    """``TB_GATEWAY_PHI_TRIPWIRE`` (D-790): ``off`` (``0``, ``false``, ``no``) turns the tripwire off; unset, ``on``
+    """``TB_GATEWAY_PHI_TRIPWIRE`` (D-792): ``off`` (``0``, ``false``, ``no``) turns the tripwire off; unset, ``on``
     (``1``, ``true``, ``yes``) keeps it on; any other value keeps it on and says so."""
     v = (raw or "on").strip().lower()
     if v in ("off", "0", "false", "no"):
@@ -281,7 +281,7 @@ class Gateway:
         self.registry = registry
         self.audit = audit
         self.config = config or GatewayConfig()
-        if not self.config.phi_tripwire:  # D-790: the owner's setting; said once at start, and on every call's audit
+        if not self.config.phi_tripwire:  # D-792: the owner's setting; said once at start, and on every call's audit
             log.warning(
                 "the PHI tripwire is off (TB_GATEWAY_PHI_TRIPWIRE=off): D0-D2 calls may leave the box unchecked "
                 "(environment %s)",
@@ -544,7 +544,7 @@ class Gateway:
             call.guard = "hit:" + ",".join(verdict.kinds) if verdict.hit else "clear"
             if verdict.hit:
                 # on the box: a perimeter endpoint on topology A only. On topology B the perimeter is the tenant's
-                # serving router, which is not on the box (D-142, ``RoutingPolicy.perimeter_checked``; review of D-790)
+                # serving router, which is not on the box (D-142, ``RoutingPolicy.perimeter_checked``; review of D-792)
                 on_box = [c for c in candidates if c.endpoint.zone == "perimeter" and cfg.topology == Topology.A]
                 if not on_box:
                     raise Refusal(
@@ -553,7 +553,7 @@ class Gateway:
                 if call.expected_alias not in {c.alias for c in on_box}:
                     call.expected_alias = on_box[
                         0
-                    ].alias  # defensive: no shipped route puts an external build first (D-790)
+                    ].alias  # defensive: no shipped route puts an external build first (D-792)
                 candidates = on_box
                 call.guard += ":on_box"
 

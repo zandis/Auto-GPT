@@ -1,4 +1,4 @@
-# D-790 The PHI tripwire guards the routes that leave the box
+# D-792 The PHI tripwire guards the routes that leave the box
 
 - **Task:** blocker 4 of lane G's first real-model accuracy run (the owner's ruling D-506, relayed by the integrator
   on #639, 2026-11-15)
