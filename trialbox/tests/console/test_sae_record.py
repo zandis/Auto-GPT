@@ -365,7 +365,8 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     # review H4: downgraded on the AE form with three overdue reports: it stays in the alert with its last clock
     c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/sae"})
     _save(c, csrf, no, "tb_adverse_event", {**fatal, "ae_term": "Sepsis", "ae_outcome": "1", "ae_onset": "2026-11-01",
-                                            "ae_aware": "2026-11-01", "ae_serious": "0", "ae_serious_why": ""}, "ae2")  # fmt: skip
+                                            "ae_aware": "2026-11-01", "ae_serious": "0", "ae_serious_why": ""}, "ae2",
+          reason="the investigator judged it not serious")  # D-778: a saved value changes with a reason  # fmt: skip
     page = c.get("/sae").text
     assert f'data-testid="sae-row-GZQO-{no}-ae2"' in page and f'data-testid="sae-downgraded-{no}-ae2"' in page
     assert 'data-testid="sae-alert-downgraded"' in page and "No longer serious, with open reports: 1" in page
