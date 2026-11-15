@@ -51,6 +51,7 @@ SUPPORTED = {
     "arm",
     "formEventMapping",
     "repeatingFormsEvents",
+    "log",  # CGRD-B5c (D-845)
 }
 NO_PERMISSION = "You do not have permissions to use the API"
 
@@ -394,6 +395,15 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
             return _err(400, f"The data access group '{dag}' is not valid")
     auto = str(form.get("forceAutoNumber") or "").lower() == "true"
     erase = str(form.get("overwriteBehavior") or "normal") == "overwrite"
+    for r in rows:  # CGRD-B5c (D-845): one row touching a locked form refuses the whole import, as REDCap does
+        ev = str(r.get("redcap_event_name") or "")
+        for k in r:
+            m = meta.get(k)
+            if k == rid or m is None:
+                continue
+            form_name = str(m.get("form_name") or "")
+            if (str(r[rid]), form_name, ev) in proj.setdefault("locks", set()):
+                return _err(400, f"Record {r[rid]}: the form {form_name} is locked and cannot be changed")
     stamp = _local_now()
     used = [int(x[rid]) for x in proj["records"] if str(x.get(rid, "")).isdigit()]
     next_id = max(used, default=0) + 1
@@ -408,10 +418,12 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
             name = renamed[name]
         key = _key({**r, rid: name}, rid, longitudinal)
         hit = next((x for x in proj["records"] if _key(x, rid, longitudinal) == key), None)
+        new = hit is None and not any(str(x.get(rid)) == name for x in proj["records"])
         if hit is None:
             hit = {f: "" for f in meta}
             hit[rid] = name
             proj["records"].append(hit)
+        before = dict(hit)
         for k, v in r.items():
             if k == rid:
                 continue
@@ -429,7 +441,13 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
                 hit[k] = ",".join(sorted(have, key=lambda c: order.index(c) if c in order else len(order)))
                 continue
             hit[k] = str(v)
+        typed = {f: hit[f] for f in hit if f in meta and hit[f] != before.get(f) and f != rid}
         _calculate(proj, hit)
+        computed = {f: hit[f] for f in hit if f in meta and hit[f] != before.get(f) and f not in typed and f != rid}
+        # CGRD-B5c (D-845): REDCap's log of the write, naming the user and the values it changed
+        _log(proj, f"{'Create' if new else 'Update'} record (import) {name}", name, typed)
+        if computed:
+            _log(proj, f"Update record (import) (Auto calculation) {name}", name, computed)
         hit["_changed"] = stamp
         if name not in written:
             written.append(name)
@@ -440,6 +458,15 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
         back = {v: k for k, v in renamed.items()}
         return [f"{w},{back.get(w, w)}" for w in written]
     return {"count": len(written)}
+
+
+def _log(proj: dict[str, Any], action: str, record: str, values: dict[str, Any], user: str | None = None) -> None:
+    """CGRD-B5c (D-845): one entry of the project's log, as REDCap writes it: the user, the action, the record and
+    the values (``field = 'value'``)."""
+    proj.setdefault("log", []).append({
+        "timestamp": _local_now(), "username": user or str(proj.get("username") or "tb_api"), "action": action,
+        "record": record, "details": ", ".join(f"{f} = '{v}'" for f, v in values.items()),
+    })  # fmt: skip
 
 
 def _calculate(proj: dict[str, Any], row: dict[str, Any]) -> None:
@@ -554,6 +581,11 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
         if content == "metadata":
             fields = set(_form_list(form, "fields"))
             return [m for m in proj["metadata"] if not fields or m["field_name"] in fields]
+        if content == "log":  # CGRD-B5c (D-845): the project's log, newest last; logtype=record: the writes only
+            entries = list(proj.get("log") or [])
+            if str(form.get("logtype") or "") == "record":
+                entries = [e for e in entries if "record" in str(e["action"]).split(" (")[0].lower()]
+            return entries
         if content == "dag":
             return proj["dags"]
         if content == "repeatingFormsEvents":  # REDCap answers it only for a project that repeats something
@@ -604,6 +636,26 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             n += 1
         return {"count": n}
 
+    @app.post("/sim/lock")
+    async def sim_lock(request: Request) -> Any:
+        """CGRD-B5c (D-845): lock or unlock one form of one record (on a real REDCap a person or an administrator
+        does it): ``{"project_id", "record", "form", "event", "lock": true|false, "username"}``. Logged."""
+        body = await request.json()
+        proj = next((p for p in state.projects.values() if int(p["project"]["project_id"]) == int(body["project_id"])),
+                    None)  # fmt: skip
+        if proj is None:
+            return _err(404, "no such project")
+        key = (str(body["record"]), str(body["form"]), str(body.get("event") or ""))
+        locks = proj.setdefault("locks", set())
+        if body.get("lock", True):
+            locks.add(key)
+        else:
+            locks.discard(key)
+        word = "Lock" if body.get("lock", True) else "Unlock"
+        details = {"Record": key[0], "Form": key[1], "Event": key[2] or "(none)"}
+        _log(proj, f"{word} instrument", key[0], details, str(body.get("username") or "") or None)
+        return {"locked": sorted(f"{r}/{f}/{e}" for r, f, e in locks)}
+
     @app.post("/sim/projects")
     async def sim_projects(request: Request) -> Any:
         """Add an empty project: ``{"title", "metadata": [dictionary rows], "events": [unique event names, or
@@ -637,6 +689,9 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             "repeating": [_repeat(r) for r in body.get("repeating") or []],
             "dags": [],
             "records": [],
+            "username": str(body.get("username") or "tb_api"),  # CGRD-B5c (D-845): who the log names
+            "locks": set(),
+            "log": [],
         }
         return {"project_id": pid, "token": token}
 
