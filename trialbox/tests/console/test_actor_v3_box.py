@@ -63,7 +63,7 @@ def test_a_step_derived_from_a_saved_form_names_a_verified_person_or_nobody(orch
     builtin = f"/studies/{STUDY}/forms/builtin"
     assert c.post(builtin, json={"ctcae": ""}).status_code == 403  # unsigned: refused
     b = {"ctcae": ""}
-    assert c.post(builtin, json=b, headers=signed("task.enter_data", STUDY, "POST", builtin, b)).status_code == 200
+    assert c.post(builtin, json=b, headers=signed("study.setup", STUDY, "POST", builtin, b)).status_code == 200
     path = f"/studies/{STUDY}/entry/{STUDY}-0042"
     body = {"form": "tb_consent", "event": "", "values": {"ic_date": "2026-10-05", "ic_version": "v1", "ic_copy": "1"}}
     assert c.post(path, json=body).status_code == 403  # unsigned

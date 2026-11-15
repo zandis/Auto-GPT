@@ -57,8 +57,9 @@ PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 #: NEW-JRN-8 (D-772): one record's values and history, which the monitor's sheet reads too (tb_common.patient_reads)
 MONITOR_READ = _require_actor(_MONITOR)
 #: T-715f (D-799): the changing routes refuse a call without a verified person for the action: the study's set-up
-#: (forms, sources, syncs, imports, conflicts) or data entry (the SAE page's day sent is an entry on the AE form: the
-#: console asks ``sae.record`` itself, a narrower row, and signs the entry)
+#: (forms, the built-in forms included, sources, syncs, imports, conflicts) or data entry. The SAE page's day sent is
+#: an entry on the AE form: the console asks ``sae.record`` itself and signs the entry; the orchestrator gates the
+#: entry at ``task.enter_data`` and does not enforce ``sae.record``
 AS_SETUP = _require_actor("study.setup")
 AS_ENTER = _require_actor("task.enter_data")
 
@@ -126,8 +127,9 @@ class RedcapSourceBody(BaseModel):
 
 
 class SheetBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
     """A PI's spreadsheet, one import (TB-PLAN-04 step 3): CSV text, or XLSX as base64 in ``xlsx_b64``."""
+
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
 
     name: str = Field(default="sheet", pattern=r"^[a-z0-9][a-z0-9_-]{0,31}$")
     csv: str = ""
@@ -358,7 +360,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
 
     # ------------------------------------------------------------------ built-in capture (TB-PLAN-04 step 4)
     @r.post("/studies/{rs}/forms/builtin")
-    def add_builtin(rs: str, body: BuiltinBody, who: Claim = AS_ENTER) -> dict[str, Any]:
+    def add_builtin(rs: str, body: BuiltinBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         """TrialBox's seven forms in one call. A built-in field name another form of the study already uses is
         refused (FORM-DUP), so a REDCap dictionary's fields are never shadowed; adding them again replaces them.
         ``ctcae`` names the study's CTCAE version: the AE form then grades each AE 1 to 5 by it (D-396)."""

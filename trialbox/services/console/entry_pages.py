@@ -148,7 +148,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         CTCAE version (D-396)."""
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
-        out = dict(actor.call(h, sess, "task.enter_data", rid, "POST", f"/studies/{rid}/forms/builtin",
+        out = dict(actor.call(h, sess, "study.setup", rid, "POST", f"/studies/{rid}/forms/builtin",
                               {"ctcae": ctcae[:16]}))  # fmt: skip
         au.append("console.data_forms", ruleset=rid, actor=h.actor(sess),
                   detail={"forms": len(out.get("forms") or []), "origin": "builtin",

@@ -539,3 +539,25 @@ def test_a_report_route_keeps_why_a_claim_was_not_a_verified_person() -> None:
         headers=signed("optout.keep", "", "POST", "/setup/pseudonym", body, role="steward"),
     )
     assert why == ["right", "no v3 assertion", ""]
+
+
+def test_a_report_stage_route_that_names_a_study_counts_a_claim_for_another() -> None:
+    """The review of D-799 (4): the last report routes name no study, so the report stage's study check is held here,
+    on a route of its own that names one."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    mini = FastAPI()
+
+    @mini.post("/studies/{rs}/x", dependencies=[ra.report_actor])
+    def x(rs: str) -> dict[str, str]:
+        return {"rs": rs}
+
+    c, path, body = TestClient(mini), "/studies/GZQO/x", {"a": 1}
+    key = "POST /studies/{rs}/x"
+    before = ra.UNSIGNED[(key, "study")]
+    r = c.post(path, json=body, headers=signed("study.setup", "OTHER", "POST", path, body))
+    assert r.status_code == 200 and ra.UNSIGNED[(key, "study")] == before + 1  # let through, counted
+    mine = ra.UNSIGNED[(key, "study")]
+    c.post(path, json=body, headers=signed("study.setup", "GZQO", "POST", path, body))
+    assert ra.UNSIGNED[(key, "study")] == mine  # its own study: not counted

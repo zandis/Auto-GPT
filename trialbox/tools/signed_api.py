@@ -7,9 +7,10 @@ action. :func:`signed` wraps a backend's ``study_api`` so that such a call carri
 (``console:<by>``, the coordinator by default) for the route's own action, and the ``by`` field is dropped. Other calls
 pass unchanged.
 
-The assertion is minted with this process's actor key, as the console mints one: on a box with no token (DEV, TEST,
-where the walks run) the MAC is empty and only such a box accepts it. This is a tool of the in-process walks, never a
-service: a deployed console signs only for a signed-in session (``console.actor``)."""
+The assertion is minted with this process's actor key (``tb_common.service_auth.signing_key``), which on a box with a
+key or a token makes it fully valid: so :func:`signed` refuses to run unless the environment is DEV or TEST, where the
+in-process walks run. It is never a service: a deployed console signs only for a signed-in session
+(``console.actor``)."""
 
 from __future__ import annotations
 
@@ -39,6 +40,12 @@ def _actions() -> list[tuple[str, re.Pattern[str], str, int]]:
 def signed(study_api: Api, *, by: str = "crc1", role: str = "coordinator") -> Api:
     """``study_api`` with each changing call to a refuse route signed as ``console:<by>`` (the body's own ``by``,
     when it names one, wins and is dropped)."""
+    import os
+
+    from tb_common.config import environment_name
+
+    if environment_name(os.environ) not in ("DEV", "TEST"):  # the review of D-799: never a minting door on a box
+        raise RuntimeError("tools.signed_api runs in DEV or TEST only (an in-process walk's seeding)")
     table = _actions()
 
     def api(method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> Any:
