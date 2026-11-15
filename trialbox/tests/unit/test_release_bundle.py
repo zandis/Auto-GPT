@@ -72,7 +72,7 @@ elif args[:2] == ["image", "inspect"]:
         print("sha256:" + image_id(ref))
     else:
         print(json.dumps([{"Id": "sha256:" + image_id(ref), "RepoDigests": [], "Os": "linux",
-                           "Architecture": "amd64"}]))
+                           "Architecture": "amd64", "Size": int(os.environ.get("FAKE_IMAGE_SIZE", "0"))}]))
 elif args[:1] in (["tag"], ["pull"]):
     pass
 elif args[:1] == ["save"]:
@@ -199,6 +199,19 @@ def test_a_failed_compose_render_shows_compose_own_error(kit: dict[str, Any], mo
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
     assert res.returncode == 2
     assert env_err in res.stderr
+    assert not (kit["tmp"] / "out.tar").exists()
+
+
+def test_too_little_disk_stops_the_build_before_the_first_save(
+    kit: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-830: the space is said before any image is saved (TMPDIR moves the staging)."""
+    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    monkeypatch.setenv("FAKE_IMAGE_SIZE", str(1 << 60))
+    res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
+    assert res.returncode == 2
+    assert "needs about" in res.stderr and "TMPDIR" in res.stderr
+    assert not [line for line in kit["log"].read_text(encoding="utf-8").splitlines() if line.startswith("save ")]
     assert not (kit["tmp"] / "out.tar").exists()
 
 

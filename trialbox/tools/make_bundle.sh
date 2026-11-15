@@ -127,6 +127,10 @@ done
 echo "==> release gates ($GATES)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.supply_chain bundle-check --gates "$GATES" \
   "${IMAGES[@]}") || { echo "make_bundle: images are not covered by a passing gate record" >&2; exit 1; }
+# D-830: the space the saves and the bundle need, said before the first image is saved (TMPDIR moves the staging)
+mkdir -p "$(dirname "$OUT")"
+(cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.bundle_space --stage "$STAGE" --out "$OUT" ${MODELS:+--models "$MODELS"} \
+  "${IMAGES[@]}") || exit 2
 
 ITEMS=(); PINS=(); SAVED=()
 CONFIG_ID='import json, sys

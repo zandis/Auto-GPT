@@ -107,14 +107,18 @@ def cmd_bundle_check(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError) as exc:
         print(f"bundle-check: cannot read {args.gates}: {exc}", file=sys.stderr)
         return 1
-    images = {}
+    images: dict[str, tuple[str, ...]] = {}
+    platforms: dict[str, str] = {}
     for ref in args.image:
         try:
-            images[ref] = release.inspect_local(ref)["image_id"]
+            local = release.inspect_local(ref)
         except vulns.ReportError as exc:
             print(f"bundle-check: {exc}", file=sys.stderr)
             return 1
-    problems = release.bundle_problems(record, images)
+        # D-830: the Id and every repo digest (on the containerd store the Id is the index digest), with the platform
+        images[ref] = (local["image_id"], *(str(d).rsplit("@", 1)[-1] for d in local["repo_digests"]))
+        platforms[ref] = local["platform"]
+    problems = release.bundle_problems(record, images, platforms=platforms)
     for p in problems:
         print(f"bundle-check: {p}", file=sys.stderr)
     print(f"bundle-check: {'FAIL' if problems else 'PASS'} ({len(images)} images)")
