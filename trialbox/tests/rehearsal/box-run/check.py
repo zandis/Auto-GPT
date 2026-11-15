@@ -409,8 +409,10 @@ if case == "acc-cut":
     )
 
 if case == "acc-cut":
-    ok("embed requests" in vm_log and "CPU embed-service" in vm_log, "acc-cut: the progress line says the embed "
-       "service's requests and CPU (what SCREEN does between model calls, F23)")  # fmt: skip
+    ok(any(ln.startswith("TB-PROGRESS") and "set jmed: protocols" in ln and "embed requests 1 " in ln
+           and "embed-service 97.5% 1.2GiB" in ln and "oom_killed=false restarts=0" in ln for ln in vm_log.splitlines()),
+       "acc-cut: one progress line says the set, the embed service's requests, CPU, memory and its kills or restarts "
+       "(F23, F26)")  # fmt: skip
     ok(any(c.startswith("compose-logs ") and c.endswith(" orchestrator embed-service") for c in calls),
        "acc-cut: the set's services' own lines read into its work")  # fmt: skip
 

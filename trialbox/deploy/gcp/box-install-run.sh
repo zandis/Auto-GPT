@@ -1776,8 +1776,8 @@ prog_acc() {
   p=$(vm acc-progress --work "$ACC/$ACC_CUR/work" --built "$ACC/$ACC_CUR/built")
   acc_services "$ACC_CUR"
   acc_pack "$ACC_CUR" partial
-  "$PY" -c 'import json,sys; d=json.loads(sys.argv[1]); print("set %s: protocols %s/%s, patients answered %s, set clock %s of %s s;" % (sys.argv[2], d["protocols_done"], d["protocols"], d["patients_answered"], d["used_s"], d["deadline_s"]))' "$p" "$ACC_CUR"
-  prog_box "$(st kv _ "acc_t0_$ACC_CUR")"
+  "$PY" -c 'import json,sys; d=json.loads(sys.argv[1]); print("set %s: protocols %s/%s, patients answered %s, set clock %s of %s s; " % (sys.argv[2], d["protocols_done"], d["protocols"], d["patients_answered"], d["used_s"], d["deadline_s"]), end="")' "$p" "$ACC_CUR"
+  prog_box "$(st kv _ "acc_t0_$ACC_CUR")"   # on the same line (F26: a second line never reached the console)
 }
 # F23 (2026-11-15): what SCREEN does between model calls. Its note stage embeds every window sentence through the
 # embed service (on the CPU, by the product's design; vec.s2b off) before the judge is asked, and those requests are
@@ -1786,18 +1786,31 @@ prog_acc() {
 prog_box() {
   local since=$1 n cpu
   [ -n "$since" ] || return 0
-  n=$(dc logs --no-log-prefix --since "${since}Z" embed-service 2>/dev/null | grep -c "POST /embed")
-  cpu=$(docker stats --no-stream --format '{{.Name}} {{.CPUPerc}}' 2>/dev/null | grep -E "embed-service|orchestrator" | sed -E 's/^[a-z0-9]+[-_]//; s/[-_][0-9]+ / /' | tr '\n' ' ')
-  printf 'embed requests %s since the set began; CPU %s;' "${n:-?}" "${cpu:-?}"
+  # the service logs a request as JSON ("path": "/embed") or as uvicorn's access line ("POST /embed")
+  n=$(dc logs --no-log-prefix --since "${since}Z" embed-service 2>/dev/null | grep -cE 'POST /embed|"path": "/embed"')
+  cpu=$(docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' 2>/dev/null | grep -E "embed-service|orchestrator" | sed -E 's/^[a-z0-9]+[-_]//; s/[-_][0-9]+ / /' | tr '\n' ',')
+  printf 'embed requests %s since the set began; CPU and memory %s %s;' "${n:-?}" "${cpu:-?}" "$(embed_state)"
+}
+# F26: whether the embed service was killed for memory or restarted (Docker's own record), and whether the host
+# watchdog (T-108a) is installed on this box: a SCREEN job that loses the service says why
+embed_state() {
+  local c
+  c=$(dc ps -q embed-service 2>/dev/null | head -n 1)
+  [ -n "$c" ] || { echo "embed service: no container"; return 0; }
+  printf 'embed service: %s; watchdog timer %s' \
+    "$(docker inspect --format 'oom_killed={{.State.OOMKilled}} restarts={{.RestartCount}} started={{.State.StartedAt}} mem_limit={{.HostConfig.Memory}}' "$c" 2>/dev/null || echo '?')" \
+    "$(systemctl is-active trialbox-watchdog.timer 2>/dev/null || true)"
 }
 # the orchestrator's and the embed service's own lines about the set (warnings, errors, the screen's stages and the
 # embedder it took), cut to 300 characters a line: in the set's work (bucket and run folder only, never committed)
 acc_services() {
   local name=$1 since
   since=$(st kv _ "acc_t0_$name"); [ -n "$since" ] || return 0
-  dc logs --no-log-prefix --since "${since}Z" orchestrator embed-service 2>/dev/null \
-    | grep -iE "warn|error|exception|traceback|screen|cascade|embed|stage|hash|stub|budget|timeout" | grep -v "POST /embed" \
-    | cut -c1-300 | tail -n 400 > "$ACC/$name/work/services.log" 2>/dev/null || true
+  { embed_state; echo
+    dc logs --no-log-prefix --since "${since}Z" orchestrator embed-service 2>/dev/null \
+      | grep -iE "warn|error|exception|traceback|screen|cascade|embed|stage|hash|stub|budget|timeout|killed|uvicorn|loading" \
+      | grep -vE 'POST /embed|"path": "/embed", "status": 200' | cut -c1-300 | tail -n 400
+  } > "$ACC/$name/work/services.log" 2>/dev/null || true
 }
 ACC_UP=false
 acc_pack() {  # acc_pack <set> [partial]: the set's gold, provenance and work so far to the bucket (ACC_UP: uploaded)
