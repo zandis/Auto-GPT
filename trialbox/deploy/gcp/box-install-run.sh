@@ -1685,6 +1685,35 @@ step_acc_data() {
     [ -f "$ACC/$name/built/gold/ids.json" ] || { STOP="the build of $name wrote no gold/ids.json"; return 1; }
   done
 }
+# the site's own setting for the tables a public-data site does not have (settings.yaml feed_completeness.optional_tables,
+# deploy/settings.example.yaml:44): every table of the mapping (data_source.mapping, in the box's image) that the
+# merged feed holds no row of. Without it the first night is held ("table missing and no earlier good night had it",
+# F17). Written in the box's image, checked by the settings wizard as the services check it, recorded before and after.
+ACC_OPTIONAL='
+import csv, json, pathlib, sys, yaml
+p, feed = "/d/settings.yaml", pathlib.Path("/feed")
+text = open(p, encoding="utf-8").read()
+head = "".join(x for x in text.splitlines(True) if x.startswith("#"))
+doc = yaml.safe_load(text) or {}
+rel = (doc.get("data_source") or {}).get("mapping") or "mapping/tw_core/demo_his.yaml"
+m = next((q for q in (pathlib.Path("/d/site") / rel, pathlib.Path("/app/services/adapter") / rel) if q.is_file()), None)
+tables = list((yaml.safe_load(open(m, encoding="utf-8")) or {}).get("tables") or {}) if m else []
+def rows(t):
+    f = feed / (t + ".csv")
+    if not f.is_file():
+        return 0
+    with open(f, encoding="utf-8-sig", newline="") as fh:
+        return max(0, sum(1 for _ in csv.reader(fh)) - 1)
+before = dict(doc.get("feed_completeness") or {})
+opt = sorted(set(before.get("optional_tables") or []) | {t for t in tables if t != "patient" and rows(t) == 0})
+doc["feed_completeness"] = {**before, "optional_tables": opt}
+open(p, "w", encoding="utf-8").write(head + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False))
+print(json.dumps({"mapping": str(m), "before": before, "after": doc["feed_completeness"]}))
+'
+d_optional_tables() {  # $1 the merged feed folder on the host
+  docker run --rm --network none --user 0 -v "$BOXROOT/deploy:/d" -v "$1:/feed:ro" "$(img_py)" sh -c \
+    "python -c '$ACC_OPTIONAL' && python -m tools.settings_wizard --check /d/settings.yaml"
+}
 step_acc_ingest() {
   local feed mount sites=() item ref snap before t0
   feed=$(envget TB_SOURCE_DIR); mount=$(envget TB_SOURCE_MOUNT)
@@ -1692,6 +1721,7 @@ step_acc_ingest() {
   case "$feed" in /*) ;; *) feed="$BOXROOT/deploy/$feed" ;; esac
   for item in $ACC_SETS; do sites+=("$ACC/${item%%:*}/built/site/hospital"); done
   need "the sets' hospital feeds as one feed in the box's feed folder (acc/)" vm acc-merge-feed --into "$feed/acc" "${sites[@]}" || return 1
+  need "the site's optional tables for a public-data feed (settings.yaml feed_completeness)" d_optional_tables "$feed/acc" || return 1
   ref=$(acc_today); snap=$(date -d "$ref -1 day" +%F); note snapshot "\"$snap\""
   before=$(d_current 2>/dev/null)
   need "the box's ingest of the feed" d_ingest "$mount/acc" "$snap" || return 1

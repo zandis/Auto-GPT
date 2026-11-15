@@ -643,6 +643,10 @@ def main() -> int:
     if a[:1] == ["run"]:
         if "tools.public_accuracy" in a:
             return acc_data(a[1:])
+        if any("optional_tables" in x for x in a):  # the site's optional tables for a public feed (54)
+            called("acc-optional")
+            print(json.dumps({"after": {"optional_tables": ["claim", "lab"]}}))
+            return 0
         if any("settings_wizard" in x for x in a):
             return acc_limits()
         if "--entrypoint" in a and "tools.chat_template_check" in a:

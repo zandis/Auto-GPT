@@ -479,6 +479,8 @@ if case in ("acc", "acc-preempt", "acc-blocked"):
         "51: the declared limit settings (D-775) off from the install's answers, recorded; settings.yaml untouched",
     )
     ok("own" in st_["authserv"], "51: the box's own MTA id from the answers (D-825), not the run's")
+    if case != "acc-blocked":  # it stops at 52, before the data
+        ok(calls["acc-optional"] >= 1, "54: the site's optional tables for the public feed set before the ingest")
     if case == "acc-preempt":  # the driver's default for a validation run: the declared setting turns it off
         ok(st_["tripwire"] == "set by the declared setting TB_GATEWAY_PHI_TRIPWIRE=off", "51: the tripwire off, said")
         ok(st_["limits"]["environment"] == "VALIDATION", "51: the box's environment after the change")
