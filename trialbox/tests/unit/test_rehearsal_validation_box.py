@@ -259,3 +259,16 @@ def test_the_record_says_what_the_rehearsal_reaches_and_what_it_cannot() -> None
         assert reached in flat, reached
     for unreached in ("a real model", "a GPU", "the shipped egress rules", "a TPM"):
         assert unreached in flat, unreached
+
+
+def test_the_rehearsal_installs_the_example_study_as_an_operator_does_on_a_validation_box() -> None:
+    """A VALIDATION box seeds no example (D-640): the seventh run's SCREEN found no approved GZQO. The rehearsal
+    installs it by the operator's synthetic-run command of RUNBOOK §1 step 2, before SCREEN; and its own doctor call
+    reads the box's deploy/.env as the host check's does (db_passwords and chartno_rule were not judged)."""
+    box = (ROOT / "tools" / "rehearse_box" / "box.sh").read_text(encoding="utf-8")
+    screen = box[box.index("\nscreen)") : box.index("in_svc mail-gateway", box.index("\nscreen)"))]
+    assert 'python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by "synthetic-run:box-rehearsal"' in screen
+    runbook = " ".join((ROOT / "docs" / "runbook" / "01-install-a-new-site.md").read_text(encoding="utf-8").split())
+    assert 'python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by "synthetic-run:<who>"' in runbook
+    helper = box[box.index("doctor() {") : box.index("\n}\n", box.index("doctor() {"))]
+    assert "--env-file /app/deploy/.env" in helper

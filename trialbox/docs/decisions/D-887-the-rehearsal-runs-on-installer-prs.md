@@ -78,6 +78,9 @@
      PRODUCTION). The first two are host facilities under the poc profile now, as the anchor mount was (a stale or
      broken head where a folder is set stays a FAIL); install.sh sets `TB_CONSOLE_SECURE_COOKIE=1` on a box with
      `TB_TLS_HOSTNAME`, keeping a value the site wrote.
+   - Its seventh run installed and reinstalled on VALIDATION; SCREEN found no approved study (a VALIDATION box seeds
+     no example, D-640). The rehearsal installs GZQO by the operator's synthetic-run command of RUNBOOK §1 step 2
+     before SCREEN, and its own doctor call reads the box's deploy/.env as the host check's does.
 
 ## Test
 
