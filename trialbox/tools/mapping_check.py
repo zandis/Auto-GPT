@@ -215,6 +215,12 @@ def _wanted(m: Any, table: str, tspec: dict[str, Any], specs: list[Any]) -> tupl
     need.add(str(tspec.get("key", "")))
     need.add(str((tspec.get("rows") or {}).get("column") or ""))  # CGRD-A2 (D-813): the column the rows are told by
     need.discard("")
+    pv = tspec.get("pivot")  # CGRD-A8 (D-846): the source has the keys, the item and the value; the pivot the rest
+    if pv:
+        made = set(pv["columns"].values()) | {str(tspec.get("key") or "")}
+        need.difference_update(made)
+        optional.difference_update(made)
+        need.update([*pv["keys"], pv["item"], pv["value"]])
     for col, parts in (tspec.get("join") or {}).items():  # F10 (D-809): a joined key is made of columns the source has
         for group in (need, optional):
             if col in group:
@@ -393,7 +399,17 @@ def check(
             report["tables"][table] = bad
             report["missing_columns"] += len(need)
             continue
+        pivoted: dict[str, int] = {}
+        if tspec.get("pivot"):  # CGRD-A8 (D-846): one item per row, turned into one row per patient and time
+            import tempfile
+
+            from adapter.mapping.engine import pivot_rows
+
+            with tempfile.TemporaryDirectory() as work:
+                got = list(pivot_rows(iter(got), tspec["pivot"], str(tspec.get("key") or ""), Path(work), pivoted))
         t: dict[str, Any] = {"source": tspec["source"], "rows_read": len(got), "cut_at_rows_limit": cut}
+        if pivoted:
+            t["pivot"] = dict(sorted(pivoted.items()))
         if source_kind == "cgrd_sql":
             have = src.columns(tspec["source"])
             low = {c.lower() for c in have}
