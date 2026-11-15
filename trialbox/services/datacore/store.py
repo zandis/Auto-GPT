@@ -43,9 +43,12 @@ CREATE TABLE IF NOT EXISTS src_record (study TEXT NOT NULL, source TEXT NOT NULL
   source_id TEXT NOT NULL, PRIMARY KEY (study, source, record))
 """
 TRIALBOX = "trialbox"
+# D-778 (LIFE-011): why a saved value was changed, kept with the change (version 9; empty for a first entry or a source)
+HISTORY_REASON = "ALTER TABLE history ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT ''"
 # EDC-009 (D-582): the trail tables. ``history`` and ``subject_step``: inserts only. ``conflict``: never deleted; the
 # one UPDATE allowed closes an open conflict (``resolved`` was empty and is set) and changes no other column.
-APPEND_ONLY = ("history", "subject_step")
+APPEND_ONLY = ("history", "subject_step", "ae_ack", "deviation_call")  # D-778: the SAE acknowledgements and the
+# decisions on possible deviations too (each is written once: ``ON CONFLICT DO NOTHING``)
 _TRAIL_FUNCTIONS = (
     "CREATE OR REPLACE FUNCTION datacore_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
     "RAISE EXCEPTION USING MESSAGE = 'datacore.' || TG_TABLE_NAME || ' is append-only', "
@@ -92,7 +95,7 @@ class DataCore:
         from datacore.lifecycle import SCHEMA as LIFECYCLE
         from datacore.sponsor import SCHEMA as SPONSOR
 
-        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR])  # SPONSOR: version 8 (D-435)
+        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR, HISTORY_REASON])  # SPONSOR: version 8 (D-435)
         self._append_only()
 
     def _append_only(self) -> None:
@@ -162,8 +165,9 @@ class DataCore:
                                                (study,))]  # fmt: skip
 
     def write(self, study: str, record: str, event: str, field: str, value: str, by: str, at: str, source: str,
-              seen: str | None = None, keep_seen: bool = True) -> bool:  # fmt: skip
+              seen: str | None = None, keep_seen: bool = True, reason: str = "") -> bool:  # fmt: skip
         """Set a value (no ownership check here; ``DataService`` and ``SyncEngine`` check). False if unchanged.
+        ``reason``: why a person changed it (D-778), kept in the value's history.
         The last door of EDC-010 (D-581): a value or a key with a character XML 1.0 does not allow is never stored,
         whichever path brought it (a source's read-back, the lifecycle, a resolved conflict)."""
         if any(XML_ILLEGAL.search(x) for x in (value, record, event, field)):
@@ -185,9 +189,9 @@ class DataCore:
             )
             if cur is None or cur["value"] != value:
                 tx.execute(
-                    'INSERT INTO history (study, record, event, field, old, new, "by", at, source) VALUES '
-                    "(?,?,?,?,?,?,?,?,?)",
-                    (study, record, event, field, cur["value"] if cur else None, value, by, at, source),
+                    'INSERT INTO history (study, record, event, field, old, new, "by", at, source, reason) VALUES '
+                    "(?,?,?,?,?,?,?,?,?,?)",
+                    (study, record, event, field, cur["value"] if cur else None, value, by, at, source, reason[:300]),
                 )
             return True
 

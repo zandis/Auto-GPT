@@ -508,10 +508,13 @@ class Lifecycle:
             )
 
     def undo(self, study: str, record: str, *, by: str, at: str, note: str = "") -> dict[str, Any]:
-        """Reverse the last step (a mistake), as a new step; the trail keeps both."""
+        """Reverse the last step (a mistake), as a new step; the trail keeps both, and the reason (D-778)."""
         cur = self.subject(study, record)
         if cur is None:
             raise LifeError("none", "no subject with that screening number or patient code in this study")
+        note = " ".join(note.split())
+        if not note:  # D-778 (LIFE-011): a recorded step is put right only with the reason, kept in the trail
+            raise LifeError("undo_reason", "give the reason for the undo (the step recorded by mistake)")
         live = live_steps(self.steps(study, record))
         if len(live) <= 1 or live[-1]["new"] != cur["state"]:
             raise LifeError("undo", "there is no step to undo", state=str(cur["state"]))
