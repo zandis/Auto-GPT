@@ -330,7 +330,7 @@ def test_onbox_is_one_program_named_for_the_stand_in_and_imports_no_lane_g_tool(
     assert src.splitlines()[0] == "# tb-boxrun: acc"
     assert not re.search(r"^\s*(from|import) tools\b", src, re.M), "the box's image has no lane G tool"
     assert set(re.findall(r'"(\w+)": cmd_', src)) == {"env", "send", "wait", "fetch", "routes", "embedder",
-                                                      "pidmap", "audit"}  # fmt: skip
+                                                      "pidmap", "audit", "traces"}  # fmt: skip
 
 
 def test_the_validation_sites_answers_make_a_validation_box_through_the_real_wizard(tmp_path: Path) -> None:

@@ -17,6 +17,8 @@ printf 'site: {id: ACC-VALIDATION}\nrate_limit_per_sender_per_day: 20\n' > "$BR_
 python3 "$BR_HERE/standins/box.py" wizard-done
 echo "    admin password: standin-admin-pw-0001"
 echo "    enrolment code: ENROL-424242-STANDIN"
+# install.sh pins the pair from deploy/models (pin_model --install ... --out deploy/site/registry.site.yaml)
+mkdir -p "$BR_S/box-root/deploy/site" && echo "builds: {}  # stand-in pins" > "$BR_S/box-root/deploy/site/registry.site.yaml"
 echo '  TrialBox is running.'
 echo 'install: FAIL: no backup yet' >&2
 exit 1

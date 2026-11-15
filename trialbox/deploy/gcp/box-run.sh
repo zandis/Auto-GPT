@@ -23,7 +23,10 @@
 #   the box itself stops at 52-acc-routes with the reason, after the install, so the install is paid for nothing).
 #   deploy/gcp/box-run.sh --collect <run id> [--follow]   # results so far; a power cycle G-9 asked for; the report;
 #                                                         # each finished accuracy set fetched and scored HERE
-#   deploy/gcp/box-run.sh --resume <run id>               # start it again after a pre-emption (finished steps kept)
+#   deploy/gcp/box-run.sh --resume <run id> [--only ...]   # start it again (finished steps kept): after a pre-emption,
+#       or after a STOP once this script or the helper was fixed: the VM gets this tree's startup script and helper
+#       and a new tb-retry, which clears the run's end and the stopped step (its part kept in logs/), so that step
+#       runs again; lane G's accuracy tools are uploaded again and re-fetched; --only replaces the sets still to run
 #   deploy/gcp/box-run.sh --stop [<run id>]               # stop, check TERMINATED, put the VM back as it is kept
 #
 # What a launch does (each gcloud call through `gc`, deploy/gcp/gcloud-auth.sh: timeouts, re-activation):
@@ -68,6 +71,7 @@ while [ $# -gt 0 ]; do
     --answers-version) V[tb-answers-version]="$2"; shift 2 ;;
     --doctor-expected) V[tb-doctor-expected]="${2//,/ }"; shift 2 ;;
     --qualify-evidence) V[tb-qualify-evidence]="$2"; shift 2 ;;
+    --acc-tripwire) V[tb-acc-tripwire-setting]="$2"; shift 2 ;;
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
@@ -184,6 +188,20 @@ fi
 if [ -n "$RESUME" ]; then
   [ "$(status)" = TERMINATED ] || { echo "VM $VM is not TERMINATED" >&2; exit 2; }
   cap="$(cat "$OUT/cap-hours" 2>/dev/null || echo 4)"
+  # this tree's startup script and helper, and a new tb-retry: a step that stopped runs again with the fix
+  mkdir -p "$OUT/md"; date -u +%Y%m%dT%H%M%SZ > "$OUT/md/tb-retry"
+  RFILES="startup-script=$ROOT/deploy/gcp/box-install-run.sh,tb-helper=$ROOT/deploy/gcp/box_vm.py,tb-retry=$OUT/md/tb-retry"
+  if [ -s "$OUT/acc-tools.json" ]; then   # an accuracy run: lane G's tools at this commit, fetched again on the VM
+    br acc-tools --out "$OUT/acc-tools.tgz" > "$OUT/acc-tools.json" || exit 2
+    gc storage cp "$OUT/acc-tools.tgz" "$OBJ/acc-tools.tgz" >/dev/null
+  fi
+  if [ -n "$ONLY" ]; then   # the sets still to run (a finished set is kept either way)
+    br metadata --steps acc --mode "$MODE" --only "$ONLY" --out "$OUT/md-only" --set tb-acc-tools=x > /dev/null || exit 2
+    cp "$OUT/md-only/tb-acc-sets" "$OUT/md/tb-acc-sets"; RFILES="$RFILES,tb-acc-sets=$OUT/md/tb-acc-sets"
+  fi
+  grep -qw tb-retry "$OUT/metadata-keys" 2>/dev/null || echo "$(cat "$OUT/metadata-keys" 2>/dev/null) tb-retry" > "$OUT/metadata-keys"
+  echo "resume $RUN_ID: retry $(cat "$OUT/md/tb-retry") with this tree ($(git rev-parse --short HEAD)), cloud cap ${cap} h"
+  gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file "$RFILES"
   gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${cap}h" --instance-termination-action=STOP
   gc compute instances start "$VM" --zone "$ZONE"
   [ "$WAIT" = 0 ] && exit 0
@@ -220,6 +238,9 @@ else
     fi ;;
   esac
 fi
+case " $STEPS " in *" acc "*)  # the public-data run turns the PHI tripwire off by its declared setting (D-506, D-511)
+  [ "$MODE" != validation ] || V[tb-acc-tripwire-setting]="${V[tb-acc-tripwire-setting]:-TB_GATEWAY_PHI_TRIPWIRE=off}" ;;
+esac
 case " $STEPS " in *" acc "*)  # lane G's accuracy tools at this commit (git archive), for the VM to fetch and build with
   br acc-tools --out "$OUT/acc-tools.tgz" > "$OUT/acc-tools.json" || exit 2
   V[tb-acc-tools]="$OBJ/acc-tools.tgz"

@@ -154,6 +154,36 @@ BUCKET=$(md tb-bucket || true)
 mkdir -p "$RUN/parts" "$RUN/logs" "$RUN/records"
 printf '%s' "$RUN" > "$TB/current-run"; printf '%s' "$BUCKET" > "$TB/current-bucket"
 echo "== boot $(date -u +%FT%TZ) run $RUN_ID boot ${BOOT_ID:0:8}" >> "$LOG"
+# A retry (box-run.sh --resume after a fix of this script, tb-retry a new value): the run's end and each step that
+# STOPPED are cleared, so that step runs again with the fixed script; every finished step is kept. The stopped
+# step's part is kept beside the logs (logs/<step>.stop-<retry>.json): the first-contact failure stays on record.
+# The cost cap starts again (the driver set the cloud's own cap for this launch).
+RETRY=$(md tb-retry || true)
+if [ -n "$RETRY" ] && [ "$RETRY" != "$(cat "$RUN/retry-seen" 2>/dev/null)" ]; then
+  "$PY" - "$RUN" "$RETRY" <<'PY'
+import json, os, sys
+run, retry = sys.argv[1], sys.argv[2]
+p = os.path.join(run, "state.json")
+if os.path.exists(p):
+    st = json.load(open(p))
+    st.pop("ended", None)
+    for name, s in list(st.get("steps", {}).items()):
+        if s.get("status") == "stop":
+            part = os.path.join(run, "parts", name + ".json")
+            if os.path.exists(part):
+                os.replace(part, os.path.join(run, "logs", f"{name}.stop-{retry}.json"))
+            del st["steps"][name]
+            print(f"TB-RETRY {retry}: step {name} cleared (it stopped before; it runs again)")
+    if "50-acc-tools" in st.get("steps", {}):  # lane G's tools are fetched again: a fix may be in them
+        del st["steps"]["50-acc-tools"]
+        print(f"TB-RETRY {retry}: 50-acc-tools cleared (the tools are fetched again)")
+    with open(p + ".tmp", "w") as fh:
+        json.dump(st, fh, indent=1, sort_keys=True); fh.write("\n")
+    os.replace(p + ".tmp", p)
+PY
+  rm -f "$RUN/cap-used-s"
+  printf '%s' "$RETRY" > "$RUN/retry-seen"
+fi
 
 # results.tgz of the run so far, renamed into place; with a bucket also uploaded, and $TB/uploaded says it went
 cat > "$SBIN/tb-boxrun-pack" <<EOS
@@ -488,9 +518,45 @@ box_tool() { (cd "$BOXROOT" && PYTHONPATH="$BOXROOT/libs:$BOXROOT" exec "$BOXPY"
 in_svc() { dc exec -T "$1" python -; }   # a snippet on stdin in a service's container (as make rehearse-box does)
 d_install()  { "$INSTALLER" "$1" --prepare --yes; }
 d_firstrun() { "$INSTALLER" --firstrun; }                                     # waits for the owner's answers
-d_pin()      { box_tool pin_model --install "$PROFILE" --models-root "$MODELS"; }
-d_qualify()  { box_tool trialbox eval qualify --profile "$PROFILE" --out "$@"; }   # [--evidence step=file ...]
-d_weights()  { box_tool pin_model --verify-all "$MODELS"; }
+# A box tool that needs the product's code (services/: the gateway, the registry, the orchestrator) runs in the box's
+# own python image, as install.sh runs pin_model: the host tree of the bundle carries no services/ (tools/host_tree.py).
+# img_tool [-v SRC:DST[:ro] | -e NAME[=VALUE] ...] <tool> [args]; IMG_NET names the network (default none).
+img_tool() {
+  local o=()
+  while [ $# -gt 1 ]; do case "$1" in -v|-e) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
+  docker run --rm --user 0 --network "${IMG_NET:-none}" -v "$BOXROOT/deploy:/d" ${o[@]+"${o[@]}"} "$(img_py)" \
+    python -m "tools.$1" "${@:2}"
+}
+SITE_PINS=/d/site/registry.site.yaml   # the site pins install.sh writes (pin_model --install ... --out)
+d_pin()      { [ -s "$BOXROOT/deploy/site/registry.site.yaml" ]; }   # install.sh pinned the pair (its own step)
+d_weights()  { img_tool pin_model --verify-all /d/models --out "$SITE_PINS"; }
+# trialbox eval qualify --box (BOX-QUALIFY, D-737) in the box's image (its code needs services/), with what --box
+# needs to ask the running box: the host's docker CLI, its compose plugin and socket, and the host paths it finds
+# (the weight folders under the box root, the servers' json-file logs, the audit volume) at the same paths. The
+# gateway at its compose name on trialbox-net, with the operator's token (tools/trialbox/svc_secrets.py: the
+# administrator's token on the host); the qualify cache (medtxt) in $TB/qualify-cache. $1 the record, rest evidence.
+d_qualify() {
+  local out=$1 tok=() m=() p; shift
+  for p in /var/run/docker.sock /var/lib/docker/containers /var/lib/docker/volumes "$BOXROOT" "$MODELS"; do
+    [ -e "$p" ] && m+=(-v "$p:$p")
+  done
+  p=$(command -v docker); [ -n "$p" ] && m+=(-v "$p:/usr/local/bin/docker:ro")
+  for p in /usr/libexec/docker/cli-plugins /usr/lib/docker/cli-plugins /usr/local/lib/docker/cli-plugins; do
+    [ -d "$p" ] && m+=(-v "$p:$p:ro")
+  done
+  if [ -s "$BOXROOT/deploy/secrets/services/operator.token" ]; then
+    tok=(-v "$BOXROOT/deploy/secrets/services/operator.token:/run/tb-operator.token:ro" -e TB_SERVICE_TOKEN_FILE=/run/tb-operator.token)
+  fi
+  mkdir -p "$TB/qualify-cache" "$TB/qualify-out"; rm -f "$TB/qualify-out/record.json"
+  IMG_NET=trialbox-net img_tool ${m[@]+"${m[@]}"} ${tok[@]+"${tok[@]}"} -v "$TB/qualify-cache:/app/.cache" -v "$TB/qualify-out:/q" \
+    -e "TB_COMPOSE=docker compose --project-directory $BOXROOT/deploy" -e TB_DOCKER=docker \
+    trialbox eval qualify --box --profile "$PROFILE" --gateway-url http://gateway:8020/v1 --operator lane-g-box-run \
+    --out /q/record.json "$@"
+  local rc=$?
+  [ -s "$TB/qualify-out/record.json" ] && cp "$TB/qualify-out/record.json" "$out"
+  return $rc
+}
+d_medtxt()   { IMG_NET=bridge img_tool -v "$TB/qualify-cache:/app/.cache" medtxt_eval fetch; }   # qualify's medtxt items
 d_cmd()      { docker inspect --format '{{json .Config.Cmd}}' "$1"; }
 d_sha_in()   { dc exec -T "$1" sha256sum "$2"; }                              # a file inside a service's container
 d_digests()  { docker image inspect --format '{{json .RepoDigests}}' "$1"; }
@@ -509,8 +575,43 @@ served = [{"id": e.id, "version": e.version, "sha256": getattr(e, "sha256", None
 print(json.dumps({"builds": builds, "served_prompts": served}))
 EOF
 }
-d_promote()  { box_tool pin_model --promote "$1" --record "$2" --environment "$ENVNAME"; }
-d_resolve()  { box_tool pin_model --resolve --environment "$ENVNAME"; }       # {"judge": {"build", "promoted"}, ...}
+d_promote()  { img_tool -v "$(dirname "$2"):/q:ro" pin_model --promote "$1" --record "/q/$(basename "$2")" \
+                 --environment "$ENVNAME" --out "$SITE_PINS"; }
+d_resolve()  { img_tool pin_model --resolve --env-file /d/.env --out "$SITE_PINS"; }   # one line a role and class (D-738)
+d_gw_restart() { dc up -d --force-recreate --wait gateway; }   # the gateway reads the site pins at start
+# G-1's token half (chat_template_check, D-739): the prompts, the ids the judge's server gives through model-guard's
+# keyed /tokenize (asked from the gateway's container: the only one with the key and on model-net), and the ids of
+# the weights folder's own tokenizer, in the model server's image (it carries transformers), offline
+d_g1_prompts() { docker run --rm --network none "$(img_py)" python -c \
+  'import json; from tools.chat_template_check import prompts; print(json.dumps(prompts(), ensure_ascii=False))'; }
+# d_g1_server <the prompts file> <the judge's served name>
+d_g1_server() { in_svc gateway <<EOF
+# tb-boxrun: g1-tokens
+import base64, json, os, urllib.request
+msgs = json.loads(base64.b64decode("$(base64 -w0 < "$1")").decode("utf-8"))
+url = (os.environ.get("TB_EP_SERVING_URL") or "http://llm-service:8000/v1").rstrip("/")
+root = url[:-3] if url.endswith("/v1") else url
+kf = os.environ.get("TB_LLM_API_KEY_FILE", "")
+key = open(kf).read().strip() if kf and os.path.exists(kf) else os.environ.get("TB_LLM_API_KEY", "")
+op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+ids, errors = [], []
+for m in msgs:
+    body = json.dumps({"model": "$2", "messages": m, "add_generation_prompt": True}).encode()
+    req = urllib.request.Request(root + "/tokenize", data=body, headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+    try:
+        with op.open(req, timeout=60) as r:
+            ids.append([int(x) for x in json.loads(r.read())["tokens"]])
+    except Exception as exc:
+        ids.append(None); errors.append(str(exc)[:200])
+print(json.dumps({"ids": ids, "errors": errors, "url": root + "/tokenize", "keyed": bool(key)}))
+EOF
+}
+d_g1_hf() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model path, $4 the work folder, [$5 template]
+  local t=(); [ -z "${5:-}" ] || t=(--template "$5")
+  docker run --rm --network none --user 0 --entrypoint python3 -e HF_HUB_OFFLINE=1 -e PYTHONPATH=/tbt \
+    -v "$2:/models:ro" -v "$BOXROOT/tools:/tbt/tools:ro" -v "$4:/w" "$1" \
+    -m tools.chat_template_check hf --model "$3" --prompts /w/prompts.json --out /w/hf.json ${t[@]+"${t[@]}"}
+}
 # validation mode: deploy/install.sh with a synthetic site's answers (env_extra TB_ENV: VALIDATION); its log redacted
 # (it prints the first administrator's password and enrolment code once, and this log goes to the bucket)
 d_install_v() {  # as box-install.sh judges it: a FAIL list at the end (no backup target yet) leaves the stack running
@@ -772,9 +873,12 @@ step_wizard() {
   note host_check_exit "$rc"   # the installer's last line is the host check: judged by 10-doctor, not here
 }
 QREC="$REC/qualification.json"
-step_pin() { need "pinning the $PROFILE pair from $MODELS" d_pin; }
+step_pin() {  # install.sh pinned the pair (pin_model --install, its own step): the site pins are there
+  need "the site pins install.sh wrote (deploy/site/registry.site.yaml)" d_pin || return 1
+  note site_pins_sha256 "\"$(sha256sum "$BOXROOT/deploy/site/registry.site.yaml" | cut -d' ' -f1)\""
+}
 step_g1() {
-  local jc tpl sha s img wrc
+  local jc tpl sha s img wrc served model src g1w hrc
   jc=$(cid "$JUDGE_S")
   tpl=$(vm cmd-arg "$(d_cmd "$jc" 2>> "$STEP_LOG")" --flag=--chat-template)
   note judge_chat_template "\"$tpl\""
@@ -788,37 +892,82 @@ step_g1() {
   done
   sed -i 's/,$/}/' "$RUN/logs/images.json"
   watched d_weights; wrc=$?
+  # the token half (D-739): the judge server's own ids through model-guard's keyed /tokenize against the weights
+  # folder's tokenizer, with the folder's template and with the passed one. A part that cannot run is said, not
+  # guessed: the identity half stands on its own and the record names what did not run.
+  g1w="$TB/g1-tokens"; rm -rf "$g1w"; mkdir -p "$g1w"
+  served=$(vm cmd-arg "$(d_cmd "$jc" 2>> "$STEP_LOG")" --flag=--served-model-name)
+  model=$(vm cmd-arg "$(d_cmd "$jc" 2>> "$STEP_LOG")" --flag=--model)
+  src=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/models"}}{{.Source}}{{end}}{{end}}' "$jc" 2>> "$STEP_LOG")
+  img=$(docker inspect --format '{{.Config.Image}}' "$jc" 2>> "$STEP_LOG")
+  note judge_served_name "\"$served\""
+  if d_g1_prompts > "$g1w/prompts.json" 2>> "$STEP_LOG" && [ -s "$g1w/prompts.json" ]; then
+    d_g1_server "$g1w/prompts.json" "$served" > "$g1w/server.json" 2>> "$STEP_LOG" || note tokens_server_exit $?
+    hrc=0
+    if [ -n "$src" ] && [ -n "$model" ] && [ -n "$img" ]; then
+      watched d_g1_hf "$img" "$src" "$model" "$g1w" "$tpl"; hrc=$?
+    else hrc=99; fi
+    note tokens_hf_exit "$hrc"
+  else
+    note tokens_prompts "\"not made (the box's image cannot run tools.chat_template_check prompts)\""
+  fi
+  cp "$g1w/chat_template.folder.jinja" "$REC/chat_template.folder.jinja" 2>/dev/null
+  vm g1-tokens --server "$g1w/server.json" --hf "$g1w/hf.json" --notes "$NOTES" > "$REC/g1-tokens.json" 2>> "$STEP_LOG"
   vm identity --box "$REC/identity-box.json" --lock "$BOXROOT/deploy/images.lock" --template-sha "$sha" \
-    --images "$RUN/logs/images.json" --weights-exit "$wrc" --notes "$NOTES" > "$REC/identity.json"
+    --images "$RUN/logs/images.json" --weights-exit "$wrc" --tokens "$REC/g1-tokens.json" --notes "$NOTES" > "$REC/identity.json"
 }
 step_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" = 0 ] && note pass true || note pass false; }
+# qualify, promote, resolve. In production a qualification that does not pass stops the run (G-2's rule). In
+# validation (the owner's ruling D-511: a failed gate is a RESULT): the record and each step's verdict are kept, the
+# pair is promoted only from a passing record, and the run goes on: a VALIDATION box routes a candidate pair (D-823);
+# whether it really routes the run's calls is asked of the box's own gateway at 52-acc-routes.
 step_qualify() {
-  local args=() e
+  local args=() e rc
   for e in $QEVIDENCE; do   # step=gs://...: the evidence results qualify reads (fetched, named in the part)
     mkdir -p "$TB/evidence"
     need "fetching qualify evidence ${e%%=*}" fetch "${e#*=}" "$TB/evidence/${e%%=*}.json" || return 1
     args+=(--evidence "${e%%=*}=$TB/evidence/${e%%=*}.json")
   done
   note evidence "\"${QEVIDENCE:-none}\""
-  need "the full qualification" d_qualify "$QREC" "${args[@]}" || return 1
+  watched d_medtxt; note medtxt_fetch_exit $?
+  if [ "$MODE" = validation ]; then
+    watched d_qualify "$QREC" ${args[@]+"${args[@]}"}; rc=$?
+    note qualify_exit "$rc"
+    [ -s "$QREC" ] || { STOP="the qualification wrote no record (exit $rc)"; return 1; }
+    note verdict "$(vm qualify-verdict "$QREC")"
+    [ "$rc" = 0 ] && note pass true || note pass false
+    return 0
+  fi
+  need "the full qualification" d_qualify "$QREC" ${args[@]+"${args[@]}"} || return 1
   [ -s "$QREC" ] || { STOP="the qualification wrote no record"; return 1; }
 }
 step_promote() {
-  local build; build=$(jget "$QREC" "builds.$1")
+  local build; build=$(jget "$QREC" "builds.$1.build_id")
+  [ -n "$build" ] || build=$(jget "$QREC" "builds.$1")   # an older record form: the build id itself
   [ -n "$build" ] || { STOP="the qualification record names no $1 build (builds.$1)"; return 1; }
   note build "\"$build\""
-  need "promoting the $1 build" d_promote "$build" "$QREC"
+  if [ "$MODE" = validation ] && [ "$(jget "$QREC" status)" != passed ] && [ "$(jget "$QREC" passed)" != True ]; then
+    note promoted false; note why "\"the record did not pass ($(jget "$QREC" status)): not promoted; VALIDATION routes it as $(jget "$QREC" "builds.$1.registry_status")\""
+    return 0
+  fi
+  need "promoting the $1 build" d_promote "$build" "$QREC" || return 1
+  note promoted true
+  st set "$STEP" promoted_any 1
 }
 step_resolve() {
-  local res="$REC/production-resolves.json" role build
-  d_resolve > "$res" 2>> "$STEP_LOG" || { STOP="PRODUCTION does not resolve (exit $?)"; return 1; }
-  for role in judge verifier; do
-    build=$(jget "$QREC" "builds.$role")
-    [ "$(jget "$res" "$role.build")" = "$build" ] && [ "$(jget "$res" "$role.promoted")" = True ] \
-      || { STOP="PRODUCTION resolves $role to '$(jget "$res" "$role.build")' (promoted: $(jget "$res" "$role.promoted")), not to the promoted build"; return 1; }
-    note "$role" "\"$build\""
+  local res="$REC/production-resolves.txt" role build line
+  [ -z "$(st kv _ promoted_any)" ] || need "the gateway restarted on the new pins" d_gw_restart || return 1
+  d_resolve > "$res" 2>> "$STEP_LOG"; note resolve_exit $?
+  [ -s "$res" ] || { STOP="pin_model --resolve printed nothing"; return 1; }
+  for role in judge:judge second_opinion:verifier; do   # the routing role and the record's role (D-738)
+    build=$(jget "$QREC" "builds.${role#*:}.build_id")
+    line=$(grep -E "^${role%%:*} D3 -> " "$res" | head -n 1)
+    note "${role%%:*}_d3" "$(printf '%s' "$line" | "$PY" -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+    if [ "$MODE" != validation ]; then
+      case "$line" in "${role%%:*} D3 -> $build "*) ;; *) STOP="PRODUCTION resolves ${role%%:*} to '${line:-nothing}', not to the promoted build $build"; return 1 ;; esac
+    fi
   done
-  note production_resolves_promoted true
+  [ "$MODE" = validation ] || note production_resolves_promoted true
 }
 cid() { dc ps -q "$1" 2>/dev/null | head -n 1; }
 wsl_kernel_into() {  # $1 a serving record (tb-serving-config/1) this script wrote; [$2 /proc/version, $3 the release]
@@ -868,7 +1017,10 @@ PY
 }
 step_doctor() {
   d_doctor > "$REC/doctor.json" 2>> "$STEP_LOG"; note doctor_exit $?
-  [ -s "$REC/doctor.json" ] || { STOP="trialbox doctor --json wrote nothing"; return 1; }
+  if [ ! -s "$REC/doctor.json" ]; then   # validation: said, not a stop (the run's evidence is the accuracy group)
+    [ "$MODE" = validation ] && { note pass false; note why "\"trialbox doctor --json wrote nothing\""; return 0; }
+    STOP="trialbox doctor --json wrote nothing"; return 1
+  fi
   vm doctor-verdict "$REC/doctor.json" --expected "$(echo $DOCTOR_EXPECTED | tr ' ' ,)" --notes "$NOTES" >> "$STEP_LOG" 2>&1 \
     && note pass true || note pass false
 }
@@ -1045,8 +1197,8 @@ step_g10_image() {
 step_g10_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" = 0 ] && note pass true || note pass false; }
 step_g10_qualify() {
   watched d_qualify "$REC/qualification-g10.json"; local rc=$?
-  note qualify_exit "$rc"; note passed "\"$(jget "$REC/qualification-g10.json" passed)\""
-  [ "$rc" = 0 ] && [ "$(jget "$REC/qualification-g10.json" passed)" = True ] && note pass true || note pass false
+  note qualify_exit "$rc"; note status "\"$(jget "$REC/qualification-g10.json" status)\""
+  [ "$rc" = 0 ] && [ "$(jget "$REC/qualification-g10.json" status)" = passed ] && note pass true || note pass false
 }
 
 # ================================================================== acc (the public accuracy run on the installed box)
@@ -1173,6 +1325,10 @@ step_acc_set() {
       --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID" ${co[@]+"${co[@]}"} \
       --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" || return 1
   acc_call gateway audit "{\"since\": \"$t0\"}" > "$ACC/$name/work/gateway-audit.json" 2>> "$STEP_LOG" || rm -f "$ACC/$name/work/gateway-audit.json"
+  # the raw answers (both models' outputs per call, as the box's trace store keeps them): with the set's results in
+  # the bucket and the operator's run folder, never committed
+  acc_call gateway traces "{\"since\": \"$t0\"}" > "$ACC/$name/work/raw-traces.json" 2>> "$STEP_LOG" \
+    && note raw_traces "$(jget "$ACC/$name/work/raw-traces.json" calls)" || { rm -f "$ACC/$name/work/raw-traces.json"; note raw_traces '"not read"'; }
   mkdir -p "$ACC/$name/built/site-provenance"; cp "$ACC/$name/built/site/PROVENANCE.md" "$ACC/$name/built/site-provenance/" 2>/dev/null
   tar -czf "$ACC/$name.tgz" -C "$ACC/$name" built/gold built/site-provenance work 2>> "$STEP_LOG" || { STOP="the set $name could not be packed"; return 1; }
   if [ -n "$BUCKET" ] && gcloud storage cp "$ACC/$name.tgz" "$BUCKET/boxruns/$RUN_ID/acc/$name.tgz" >/dev/null 2>&1; then up=true; fi

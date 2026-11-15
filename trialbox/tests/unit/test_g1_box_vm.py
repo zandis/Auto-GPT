@@ -227,3 +227,32 @@ def test_cmd_arg_reads_the_judges_template_flag() -> None:
     cmd = ["--model", "/m", "--chat-template", "/t.jinja"]
     assert vm.cmd_arg(cmd, "--chat-template") == "/t.jinja"
     assert vm.cmd_arg(["--chat-template=/u"], "--chat-template") == "/u" and vm.cmd_arg([], "--x") == ""
+
+
+def test_g1s_token_half_three_verdicts_and_what_did_not_run() -> None:
+    ids = [[1, 2, 3], [4, 5]]
+    hf = {"ids": ids, "ids_passed": ids, "folder_template_sha256": "a", "passed_template_sha256": "a"}
+    same = vm.g1_tokens({"ids": ids, "url": "u", "keyed": True}, hf)
+    assert same["pass"] is True and same["verdicts"] == {
+        "server_vs_folder_token_ids": True,
+        "passed_vs_folder_token_ids": True,
+        "passed_vs_folder_text_sha256": True,
+    }
+    diff = vm.g1_tokens({"ids": [[1, 2, 9], None], "errors": ["401"]}, {**hf, "passed_template_sha256": "b"})
+    assert diff["pass"] is False and diff["verdicts"]["server_vs_folder_token_ids"] is False
+    assert diff["server_different"][0] == {"prompt": 0, "first_difference_at": 2, "lengths": [3, 3]}
+    assert (
+        diff["verdicts"]["passed_vs_folder_text_sha256"] is False and "1 of 2 prompts unanswered" in diff["not_run"][0]
+    )
+    none = vm.g1_tokens({}, {})
+    assert (
+        none["pass"] is False and none["verdicts"]["server_vs_folder_token_ids"] is None and len(none["not_run"]) == 2
+    )
+
+
+def test_qualifys_verdict_per_step() -> None:
+    rec = {"status": "failed", "failed_steps": ["n12"], "qualifies_production": False,
+           "steps": {"pin": {"status": "passed", "reason": "ok"}, "n12": {"status": "failed", "reason": "no evidence"}}}  # fmt: skip
+    v = vm.qualify_verdict(rec)
+    assert v["status"] == "failed" and v["failed_steps"] == ["n12"]
+    assert v["steps"]["n12"] == {"status": "failed", "reason": "no evidence"}

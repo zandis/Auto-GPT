@@ -125,6 +125,12 @@ def job_state(job: dict[str, Any]) -> str:
     return str(job["state"])
 
 
+def standin_ids(msgs: list[dict[str, str]]) -> list[int]:
+    """A stand-in tokenizer: one id per character of the rendered messages (the server's and the folder's agree;
+    knob tokens-differ: the server's differ at the first prompt)."""
+    return [ord(c) for c in json.dumps(msgs, ensure_ascii=False)][:64]
+
+
 def snippet(svc: str, text: str) -> int:
     """`docker compose exec -T <svc> python -` with a snippet of the VM script: its first line names it."""
     head = text.lstrip().splitlines()[0] if text.strip() else ""
@@ -155,6 +161,16 @@ def snippet(svc: str, text: str) -> int:
         )
         env = {**os.environ, "PYTHONPATH": f"{box / 'libs'}:{box}"}
         return subprocess.run([os.environ["TB_BOX_PY"], "-c", code], env=env, check=False).returncode
+    if what == "g1-tokens":  # the judge server's /tokenize through model-guard (D-739): a stand-in tokenizer
+        import base64
+        import re
+
+        called("g1-tokenize")
+        b64 = re.search(r'b64decode\("([A-Za-z0-9+/=]+)"\)', text)
+        msgs = json.loads(base64.b64decode(b64.group(1)).decode()) if b64 else []
+        print(json.dumps({"ids": [standin_ids(m) for m in msgs], "errors": [], "url": "http://llm-service:8000/tokenize",
+                          "keyed": True}))  # fmt: skip
+        return 0
     if what == "screen-start":
         n = len(list((BOX / "jobs").glob("*.json"))) + 1 if (BOX / "jobs").exists() else 1
         tag = "g9" if "g9" in text.split("comment", 1)[1].split("\n", maxsplit=1)[0] else "screen"
@@ -243,6 +259,62 @@ def compose(argv: list[str]) -> int:
     return 2
 
 
+def mapped(argv: list[str]) -> list[str]:
+    """``docker run`` arguments with each container path of a ``-v src:dst`` mount put back to its host path."""
+    vols = [a.split(":")[:2] for k, a in enumerate(argv) if k and argv[k - 1] == "-v"]
+    vols.sort(key=lambda v: -len(v[1]))
+    out = []
+    for a in argv:
+        for src, dst in vols:
+            if a == dst or a.startswith(dst + "/"):
+                a = src + a[len(dst) :]
+                break
+        out.append(a)
+    return out
+
+
+def img_run(argv: list[str]) -> int:
+    """`docker run ... <the box's python image> python -m tools.<name> ARGS` (img_tool): the box's tool, with its
+    container paths put back to the host's."""
+    i = argv.index("-m")
+    name = argv[i + 1].removeprefix("tools.")
+    return tool(name, mapped(argv)[i + 2 :])
+
+
+def g1_prompts() -> int:
+    """`docker run ... python -c '...tools.chat_template_check prompts...'`: the REAL prompts, with the venv."""
+    import subprocess
+
+    called("g1-prompts")
+    code = (
+        "import json; from tools.chat_template_check import prompts; print(json.dumps(prompts(), ensure_ascii=False))"
+    )
+    env = {**os.environ, "PYTHONPATH": f"{IMAGE_ROOT / 'libs'}:{IMAGE_ROOT}"}
+    return subprocess.run([os.environ["TB_BOX_PY"], "-c", code], env=env, check=False).returncode
+
+
+def g1_hf(argv: list[str]) -> int:
+    """The tokenizer side in the model server's image (`--entrypoint python3 ... -m tools.chat_template_check hf`):
+    the stand-in tokenizer over the prompts; the folder's template is the passed one unless knob tokens-differ."""
+    import hashlib
+
+    called("g1-hf")
+    m = mapped(argv)
+    prompts = json.loads(Path(arg(m, "--prompts")).read_text())
+    out = Path(arg(m, "--out"))
+    ids = [standin_ids(x) for x in prompts]
+    folder_tpl = "{{ standin template }}" + (" differs" if flag("tokens-differ") else "")
+    sha = hashlib.sha256(folder_tpl.encode()).hexdigest()
+    passed_sha = hashlib.sha256(b"{{ standin template }}").hexdigest()
+    if flag("tokens-differ"):
+        ids[0] = [*ids[0][:-1], 0]
+    out.write_text(json.dumps({"model": arg(m, "--model"), "transformers": "standin", "folder_template_sha256": sha,
+                               "folder_template_chars": len(folder_tpl), "ids": ids, "ids_passed": ids,
+                               "passed_template_sha256": passed_sha}))  # fmt: skip
+    (out.parent / "chat_template.folder.jinja").write_text(folder_tpl)
+    return 0
+
+
 def feed(argv: list[str]) -> int:
     """`docker run ... -v <host>:/out <image> python -c <generator> N /out/site REF PROFILE`: a small synthetic feed."""
     host = next(a.split(":", 1)[0] for k, a in enumerate(argv) if k and argv[k - 1] == "-v" and a.endswith(":/out"))
@@ -279,6 +351,14 @@ def acc_data(argv: list[str]) -> int:
     called("acc-data " + " ".join(rest[:3]))
     fixture = Path(__file__).with_name("acc_fixture.py")
     return subprocess.run([os.environ["TB_BOX_PY"], str(fixture), *rest], check=False).returncode
+
+
+def _env_val(name: str) -> str:
+    env = S / "box-root" / "deploy" / ".env"
+    vals = (
+        [x.split("=", 1)[1] for x in env.read_text().splitlines() if x.startswith(name + "=")] if env.exists() else []
+    )
+    return vals[-1] if vals else ""
 
 
 def _env_of_box() -> str:
@@ -375,7 +455,7 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
                           "intake": "trialbox@hospa.test", "authserv": "mx.acc.invalid", "require_spf_dkim": True,
                           "rate_limit_per_sender_per_day": 20, "rate_limits_per_day": lim,
                           "mail_per_recipient_per_day": "0" if lim else "",
-                          "tripwire_settings": {"TB_GATEWAY_TRIPWIRE": ""} if flag("tripwire-setting") else {},
+                          "tripwire_settings": {"TB_GATEWAY_PHI_TRIPWIRE": _env_val("TB_GATEWAY_PHI_TRIPWIRE")},
                           "data_class": ""}))  # fmt: skip
         return 0
     if cmd == "routes":
@@ -445,6 +525,12 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
         print(json.dumps({"since": a.get("since"), "calls_by_prompt": {"ir_extract@3": n, "judge@5": 2 * n},
                           "refusals": {"phi_tripwire": 1} if flag("acc-tripwire") else {}, "refusals_by_job": {}}))  # fmt: skip
         return 0
+    if cmd == "traces":  # the trace store's raw answers since a time: one synthetic row per mailed request
+        mids = jload(BOX / "acc-mids.json", {})
+        rows = [{"call_id": f"standin-call-{i}", "prompt": "[synthetic]", "output": '{"verdict": "met"}'}
+                for i, _ in enumerate(mids)]  # fmt: skip
+        print(json.dumps({"since": a.get("since"), "calls": len(rows), "traces": rows}))
+        return 0
     print(f"box stand-in: onbox {cmd} is not rehearsed", file=sys.stderr)
     return 2
 
@@ -461,17 +547,26 @@ def tool(name: str, argv: list[str]) -> int:
             return 0 if roles == ["judge", "verifier"] else 1
         if "--promote" in argv:
             called("promote " + arg(argv, "--promote"))
-            if not json.loads(Path(arg(argv, "--record")).read_text()).get("passed"):
+            if json.loads(Path(arg(argv, "--record")).read_text()).get("status") != "passed":
                 return 1
             jsave(BOX / "promoted.json", [*jload(BOX / "promoted.json", []), arg(argv, "--promote")])
             return 0
         if "--verify-all" in argv:
             called("verify-weights")
             return 0
-        if "--resolve" in argv:
+        if "--resolve" in argv:  # D-738: one line a role and class; a candidate does not route in PRODUCTION
+            called("resolve")
             by = {b.split("-")[1]: b for b in jload(BOX / "promoted.json", [])}
-            print(json.dumps({r: {"build": by.get(r, ""), "promoted": r in by} for r in ("judge", "verifier")}))
+            print("PRODUCTION, topology A, profile P-PRO6000, site pins /d/site/registry.site.yaml")
+            for role, rec in (("judge", "judge"), ("second_opinion", "verifier")):
+                for cls in ("D1", "D3"):
+                    b = by.get(rec)
+                    print(f"{role} {cls} -> {b} (j-workhorse@serving, served standin; route patient)" if b
+                          else f"{role} {cls} -> none (route patient): j-workhorse@serving: no_eligible_build")  # fmt: skip
             return 0
+    if name == "medtxt_eval":
+        called("medtxt-fetch")
+        return 0
     if name == "serving_config":
         called("capture")
         Path(arg(argv, "--out")).write_text(json.dumps({"standin": True, "containers": argv.count("--container")}))
@@ -484,14 +579,24 @@ def tool(name: str, argv: list[str]) -> int:
             time.sleep(0.2)
         if flag("fail-qualify"):
             print("qualify: FAIL stand-in gate: schema failures 3 of 54", flush=True)
-            return 1
-        rec = {
+        if "--box" not in argv:
+            print("qualify: the box run asks for --box (D-737)", file=sys.stderr)
+            return 2
+        qrec: dict[str, Any] = {
             "standin": True,
-            "passed": True,
-            "builds": {"judge": "standin-judge-1", "verifier": "standin-verifier-1"},
+            "status": "passed",
+            "failed_steps": [],
+            "builds": {
+                "judge": {"build_id": "standin-judge-1", "registry_status": "candidate"},
+                "verifier": {"build_id": "standin-verifier-1", "registry_status": "candidate"},
+            },
+            "steps": {"pin": {"status": "passed", "reason": "stand-in"}},
         }
-        Path(arg(argv, "--out")).write_text(json.dumps(rec))
-        return 0
+        if flag("fail-qualify"):  # a record that failed a gate: a result in validation mode, a stop in production
+            qrec.update(status="failed", failed_steps=["schema"])
+            qrec["steps"]["schema"] = {"status": "failed", "reason": "stand-in gate: schema failures 3 of 54"}
+        Path(arg(argv, "--out")).write_text(json.dumps(qrec))
+        return 1 if flag("fail-qualify") else 0
     if name == "trialbox" and argv[:1] == ["doctor"]:
         called("doctor")
         checks = [
@@ -524,6 +629,12 @@ def main() -> int:
             return acc_data(a[1:])
         if any("settings_wizard" in x for x in a):
             return acc_limits()
+        if "--entrypoint" in a and "tools.chat_template_check" in a:
+            return g1_hf(a[1:])
+        if "-c" in a and "chat_template_check" in a[a.index("-c") + 1]:
+            return g1_prompts()
+        if "-m" in a and a[a.index("-m") + 1].startswith("tools."):
+            return img_run(a[1:])
         return feed(a[1:])
     if a[:1] == ["interrupt"]:
         interrupt(a[1])

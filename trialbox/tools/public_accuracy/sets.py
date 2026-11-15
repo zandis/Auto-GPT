@@ -881,8 +881,9 @@ def read_tcga(cache: Path, n_reports: int = 20, get: Any = None) -> Bundle:
             f"Public test protocol: {proj}",
             [crit],
             [],
-            ["Aged 18 years or older"],  # SCREEN runs a ruleset with at least one structured criterion
-            notes=["a test protocol written for the TCGA set, not a real trial; the age line placed"],
+            # a note criterion only: SCREEN takes a ruleset of note criteria alone since D-788 (train 20), so the
+            # age line once placed for it is gone (TCGA reports carry no age to check it against)
+            notes=["a test protocol written for the TCGA set, not a real trial; note criterion only"],
         )
     for c in chosen:
         b.patients[c] = Patient(c, "en", " ".join(reports[by_case[c]].split()), notes=["OCR'd pathology report"])

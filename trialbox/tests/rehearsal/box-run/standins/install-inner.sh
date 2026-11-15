@@ -7,6 +7,8 @@ echo "install-inner $*" >> "$BR_S/calls.log"
 echo install >> "$BR_S/calls.log"
 mkdir -p "$BR_S/feed"
 printf 'POSTGRES_PASSWORD=made-by-install\nTB_SOURCE_DIR=%s\nTB_SOURCE_MOUNT=/data/source/site-a\nTB_ENV=PRODUCTION\n' "$BR_S/feed" > "$BR_S/box-root/deploy/.env"
+# install.sh pins the pair from deploy/models (pin_model --install ... --out deploy/site/registry.site.yaml)
+mkdir -p "$BR_S/box-root/deploy/site" && echo "builds: {}  # stand-in pins" > "$BR_S/box-root/deploy/site/registry.site.yaml"
 echo '  TrialBox is running.'
 echo 'install: FAIL: no backup yet' >&2
 exit 1

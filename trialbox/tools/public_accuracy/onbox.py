@@ -21,6 +21,10 @@ What each command uses, and in which container (the product path, and where it i
   join the answers to the gold by ids outside the box. Only placed chart numbers of public data are mapped.
 * ``audit`` (gateway): the gateway's own audit of the model calls since a time: counts per served prompt version and
   per refusal code, per job (no text: the audit holds none).
+* ``traces`` (gateway): the raw model answers of the run since a time, as the box's own trace store keeps them (the
+  prompt and the output of each call, redacted at write by the box's guard; TB_TRACESTORE on), read through the
+  store's read API with a user and a purpose, so each read is in its access log. Public data only (a VALIDATION
+  box); they stay in the run's results and are never committed.
 
 Every command prints one JSON line last; ``wait`` prints a line whenever the job's state changes (the VM's watchdog
 reads a growing log as a heartbeat).
@@ -259,6 +263,23 @@ def cmd_audit(a: dict[str, Any]) -> None:
     out({"since": since, "calls_by_prompt": by_prompt, "refusals": refusals, "refusals_by_job": per_job})
 
 
+def cmd_traces(a: dict[str, Any]) -> None:
+    from tracestore.store import TraceStore
+
+    since = str(a.get("since") or "")
+    store = TraceStore()
+    roles = frozenset({store.settings.read_role})
+    ids = [
+        r[0] for r in store.db.fetchall("SELECT DISTINCT call_id FROM traces WHERE ts >= ? ORDER BY call_id", (since,))
+    ]
+    rows: list[Any] = []
+    for cid in ids:
+        rows += store.read(
+            cid, user="lane-g-accuracy-run", purpose="public-data accuracy run: raw answers", roles=roles
+        )
+    out({"since": since, "calls": len(ids), "traces": rows})
+
+
 COMMANDS = {
     "env": cmd_env,
     "send": cmd_send,
@@ -268,6 +289,7 @@ COMMANDS = {
     "embedder": cmd_embedder,
     "pidmap": cmd_pidmap,
     "audit": cmd_audit,
+    "traces": cmd_traces,
 }
 
 if __name__ == "__main__":

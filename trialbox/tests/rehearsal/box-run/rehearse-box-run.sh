@@ -42,7 +42,8 @@
 #   wizard-refused     the answers break the console's password rule: the wizard step stops, the installer is ended
 #   oom                T-692: the ingest is killed at the adapter's cap: recorded (pass false, oom_kills 1), run goes on
 #   list-differs       the disturbed screen lists other patients: G-9's result is pass false
-#   identity-differs   the judge's served template and image are not the pinned ones: 06-g1 says so (pass false)
+#   identity-differs   the judge's served template and image are not the pinned ones, and the server's token ids and
+#                      the weights folder's template differ from the folder tokenizer's: 06-g1 says so (pass false)
 #   build-validation   validation mode's build: a THROWAWAY key made on the VM (the real sign_bundle.py keygen), the
 #                      vendor key never read, verified with the throwaway public key, uploaded beside the bundle,
 #                      records/bundle.json says "not a release"
@@ -56,6 +57,11 @@
 #                      steps and protocols, waits for the jobs already started, never mails a protocol twice
 #   acc-blocked        the box's gateway would refuse the screen's judge call (today's VALIDATION ceiling): the run
 #                      stops at 52-acc-routes with the reason, before any data is fetched
+#   resume-after-stop  the qualification fails (a stop), then the driver's --resume after a fix: a new tb-retry clears
+#                      the run's end and the stopped step (its part kept in logs/), the next boot runs it again and
+#                      keeps every finished step
+#   acc-qualify-fails  validation mode: the qualification fails a gate; that is a result (the record's failed step and
+#                      its figure), the pair is not promoted, resolve says what PRODUCTION routes, the run goes on
 # Needs: bash, python3 (with PyYAML), the repo's venv (.venv: cryptography, the console), curl, openssl, git, make,
 # tar, setsid. Evidence stays in $TB_BOXRUN_REHEARSAL_DIR/<case>/ (default /tmp/tb-boxrun-rehearsal).
 # Ports: one free local port per case for the door and one for the console (asked of the kernel), never a fixed
@@ -66,7 +72,8 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
-     refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked)
+     refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
+     resume-after-stop acc-qualify-fails)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -293,13 +300,23 @@ for CASE in "${CASES[@]}"; do
     wizard-refused) setup "$CASE" start weak-password; start_setup; boot; to_the_end ;;
     oom) setup "$CASE" "start g6" oom-ingest; start_setup; boot; to_the_end ;;
     list-differs) setup "$CASE" "start g9" list-differs; start_setup; boot; power_cycle; to_the_end ;;
-    identity-differs) setup "$CASE" start template-differs image-differs; start_setup; boot; to_the_end ;;
+    identity-differs) setup "$CASE" start template-differs image-differs tokens-differ; start_setup; boot; to_the_end ;;
+    resume-after-stop)
+      setup "$CASE" start fail-qualify; start_setup; boot
+      wait_for "the done marker" is_done; wait_for "the power-off" is_off
+      rm -f "$S/knobs/fail-qualify"; m tb-retry "retry-1"   # the fix, and the driver's --resume (a new tb-retry)
+      boot; to_the_end ;;
+    acc-qualify-fails)
+      setup "$CASE" start fail-qualify; start_setup; m tb-mode validation
+      cp "$ROOT/deploy/gcp/validation-site-answers.yaml" "$S/metadata/tb-site-answers"
+      rm -f "$S/metadata/tb-answers-secret" "$S/metadata/tb-answers-version"; boot; to_the_end ;;
     build-validation)
       setup "$CASE" build; build_setup; m tb-mode validation; rm -f "$S/metadata/tb-vendor-key-secret" "$S/metadata/tb-vendor-key-version"
       boot; to_the_end ;;
     acc) setup "$CASE" "start acc" acc-tripwire; start_setup; acc_setup; boot; to_the_end; acc_collect ;;
     acc-preempt)
-      setup "$CASE" "start acc"; echo 1.5 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup; boot
+      setup "$CASE" "start acc"; echo 1.5 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup
+      m tb-acc-tripwire-setting TB_GATEWAY_PHI_TRIPWIRE=off; boot
       wait_for "the first set's second protocol to be mailed" grep -q '^acc-send FEAS MNCT90000002 new$' "$S/calls.log"
       "$HERE/standins/reboot.sh" "$S"            # a pre-emption in the middle of the set
       to_the_end; acc_collect ;;

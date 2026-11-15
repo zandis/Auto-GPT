@@ -438,8 +438,15 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
       deploy/gcp/box-run.sh --mode validation --steps build --release-id val-<commit12> --release-seq 1 --commit <sha>
       deploy/gcp/box-run.sh --mode validation --steps start,acc --release-id val-<commit12> --no-wait
 
-  **Not runnable on train 17** (validation-check exits 3, and a validation launch with `acc` refuses until it
-  passes): VALIDATION routes the pair only as champion, which needs a qualification record that `qualify` cannot
-  make on the box (its calls are D0, no D0 route there); and the screen's judge calls are D3 against VALIDATION's D2
-  ceiling, while one `TB_DATA_CLASS` serves the compiler and the orchestrator alike. Both are lane D's (product);
-  `first-accuracy-run` notes for the owner list them.
+  **Runnable since train 20** (validation-check exits 0: D-823 routes a candidate pair and qualify's D0 calls in
+  VALIDATION; the screen's D3 calls stay on the box's own model servers). On the box: `trialbox eval qualify --box`
+  (D-737) runs in the box's python image with the host's docker CLI and socket, so `--box` asks the running box for
+  its weight folders, server logs and audit folder; `pin_model --promote`, `--verify-all` and `--resolve` (D-738) run
+  in the same image on the site pins install.sh wrote. G-1 has both halves: identity, and the judge server's token
+  ids through model-guard's keyed `/tokenize` (D-739) against the weights folder's tokenizer (in the model server's
+  image, offline). In validation mode a qualification that fails a gate is a result, not a stop: the pair is
+  promoted only from a passing record. A validation `acc` launch turns the PHI tripwire off by its declared setting
+  (`--acc-tripwire TB_GATEWAY_PHI_TRIPWIRE=off`, the default; D-506) and records it. Each set keeps the box's raw
+  answers (the trace store, read through its access-logged API) in its upload; they are never committed.
+  `--resume <run id>` after a fix sends this tree's VM script and helper with a new `tb-retry`: the stopped step runs
+  again, every finished step is kept, the stop's part stays in `logs/`.

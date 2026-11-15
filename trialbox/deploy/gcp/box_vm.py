@@ -494,6 +494,75 @@ def identity(
     }
 
 
+def g1_tokens(server: dict[str, Any], hf: dict[str, Any]) -> dict[str, Any]:
+    """G-1's token half on the shipped serving (``tools/chat_template_check.py``'s three verdicts, D-739): the ids the
+    judge's server gives each prompt through model-guard's keyed ``/tokenize`` against the ids of the weights folder's
+    own tokenizer (with the folder's template, and with the template the server was started with), and the two
+    template texts by sha256. A side that did not run is ``None`` with its reason, never a pass."""
+
+    def diff(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
+        out = []
+        for i, (x, y) in enumerate(zip(a, b, strict=False)):
+            if x is None or list(x) != list(y):
+                at = next((k for k, (p_, q) in enumerate(zip(x or [], y, strict=False)) if p_ != q),
+                          min(len(x or []), len(y)))  # fmt: skip
+                out.append({"prompt": i, "first_difference_at": at, "lengths": [len(x or []), len(y)]})
+        if len(a) != len(b):
+            out.append({"prompt": -1, "lengths": [len(a), len(b)]})
+        return out
+
+    srv = server.get("ids") if isinstance(server.get("ids"), list) else None
+    folder = hf.get("ids") if isinstance(hf.get("ids"), list) else None
+    passed = hf.get("ids_passed") if isinstance(hf.get("ids_passed"), list) else None
+    d_srv = diff(srv, folder) if srv is not None and folder is not None else None
+    d_pas = diff(passed, folder) if passed is not None and folder is not None else None
+    fsha, psha = hf.get("folder_template_sha256"), hf.get("passed_template_sha256")
+    verdicts = {
+        "server_vs_folder_token_ids": None if d_srv is None else not d_srv,
+        "passed_vs_folder_token_ids": None if d_pas is None else not d_pas,
+        "passed_vs_folder_text_sha256": None if not (fsha and psha) else fsha == psha,
+    }
+    not_run = []
+    if srv is None:
+        not_run.append("the server side (/tokenize): no answer file")
+    elif any(x is None for x in srv):
+        not_run.append(f"the server side: {sum(1 for x in srv if x is None)} of {len(srv)} prompts unanswered "
+                       f"({'; '.join((server.get('errors') or [])[:2])})")  # fmt: skip
+    if folder is None:
+        not_run.append("the tokenizer side (the model server's image, transformers): no ids")
+    return {
+        "prompts": len(folder or srv or []),
+        "tokens": sum(len(x) for x in folder or []),
+        "server": {"url": server.get("url"), "keyed": server.get("keyed")},
+        "transformers": hf.get("transformers"),
+        "folder_template_sha256": fsha,
+        "passed_template_sha256": psha,
+        "verdicts": verdicts,
+        "server_different": d_srv,
+        "passed_different": d_pas,
+        "not_run": not_run,
+        "pass": d_srv == [] and not not_run,
+    }
+
+
+def qualify_verdict(rec: dict[str, Any]) -> dict[str, Any]:
+    """The qualification record's verdict per step (status and reason; hashes, counts and codes only, D-313)."""
+    steps = rec.get("steps") or {}
+    per_step = {
+        k: {"status": (v or {}).get("status"), "reason": str((v or {}).get("reason") or "")[:300]}
+        for k, v in steps.items()
+        if isinstance(v, dict)
+    }
+    return {
+        "status": rec.get("status"),
+        "failed_steps": rec.get("failed_steps"),
+        "qualifies_production": rec.get("qualifies_production"),
+        "record_id": rec.get("record_id"),
+        "git_head": rec.get("git_head"),
+        "steps": per_step,
+    }
+
+
 # ------------------------------------------------------------------------------------------------ the command
 # ------------------------------------------------------------------------------------------------ the accuracy run
 REDACT = re.compile(r"(password|passwort|enrol|enroll|secret|token)", re.I)
@@ -853,7 +922,14 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--template-sha", default="")
     i.add_argument("--images", type=Path, required=True)
     i.add_argument("--weights-exit", type=int)
+    i.add_argument("--tokens", type=Path, help="G-1's token half (g1-tokens), folded into the record")
     i.add_argument("--notes")
+    gt = sub.add_parser("g1-tokens")
+    gt.add_argument("--server", type=Path, required=True)
+    gt.add_argument("--hf", type=Path, required=True)
+    gt.add_argument("--notes")
+    qv = sub.add_parser("qualify-verdict")
+    qv.add_argument("record", type=Path)
     t = sub.add_parser("top-costs")
     t.add_argument("parts", type=Path)
     sub.add_parser("redact")
@@ -908,6 +984,23 @@ def main(argv: list[str] | None = None) -> int:
                          "embedder": res["embedder"]})  # fmt: skip
         print(json.dumps(res))
         return 0 if res["routes_ok"] else 1
+    if a.cmd in ("g1-tokens", "qualify-verdict"):
+
+        def jl2(p: Path) -> dict[str, Any]:
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return {}
+            return d if isinstance(d, dict) else {}
+
+        if a.cmd == "qualify-verdict":
+            print(json.dumps(qualify_verdict(jl2(a.record))))
+            return 0
+        res = g1_tokens(jl2(a.server), jl2(a.hf))
+        _notes(a.notes, {"tokens_verdicts": res["verdicts"], "tokens_not_run": res["not_run"],
+                         "tokens_pass": res["pass"]})  # fmt: skip
+        print(json.dumps(res))
+        return 0
     if a.cmd == "redact":
         sys.stdout.writelines(redact(sys.stdin))
         return 0
@@ -1007,6 +1100,8 @@ def main(argv: list[str] | None = None) -> int:
             return d if isinstance(d, dict) else {}
 
         res = identity(load(a.box), load(a.lock), a.template_sha, load(a.images), a.weights_exit)
+        if a.tokens is not None:  # the token half beside the identity half: each its own verdict
+            res["token_identity"] = load(a.tokens)
         _notes(a.notes, {"identity": res, "pass": res["pass"]})
         print(json.dumps(res))
         return 0

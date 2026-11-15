@@ -88,7 +88,13 @@ def test_every_box_call_is_one_function() -> None:
 def test_the_vm_script_starts_no_model_server() -> None:
     """Audit C (2026-11-14): the models are started only by the installed box's compose; no private vLLM start."""
     code = "\n".join(line for line in VM_SCRIPT.read_text().splitlines() if not line.lstrip().startswith("#"))
-    assert "vllm/vllm-openai" not in code and "docker run" not in code.replace("docker run --rm --network none", "")
+    assert "vllm/vllm-openai" not in code and "vllm serve" not in code and "vllm.entrypoints" not in code
+    # every other container is a one-shot tool: off the network, or the box's own python image (img_tool, whose
+    # network is none unless a call names the box's own network); the token half's tokenizer runs in the judge's
+    # image with python3 as its entrypoint (no server) and no network
+    for line in (x for x in code.splitlines() if "docker run" in x):
+        assert "docker run --rm --network none" in line or ('"$(img_py)"' in line and "IMG_NET:-none" in line), line
+    assert code.count("--entrypoint") == 1 and "--entrypoint python3" in code
     assert "--chat-template" in code  # read from the running judge, never passed
 
 

@@ -181,6 +181,15 @@ if full_start:
         len(idn["served_prompts"]) > 0 and all("version" in p for p in idn["served_prompts"]),
         "06-g1 names the served prompt versions",
     )
+    tk = idn.get("token_identity") or {}
+    ok(
+        tk.get("pass") is True
+        and tk["verdicts"]["server_vs_folder_token_ids"] is True
+        and tk["prompts"] == 20
+        and tk["server"]["keyed"] is True
+        and calls["g1-tokenize"] == 1,
+        "06-g1's token half: 20 prompts, the server's ids (keyed /tokenize) equal the folder tokenizer's",
+    )
     ok(
         parts["07-canary"].get("pass") is True and parts["12-doctor"].get("pass") is True,
         "the canary passed; doctor: no unexpected FAIL",
@@ -310,7 +319,43 @@ if case == "identity-differs":
         and not idn["checks"]["images_in_images_lock"],
         "06-g1: a template and an image that are not pinned: pass false",
     )
+    tk = idn.get("token_identity") or {}
+    ok(
+        tk.get("pass") is False
+        and tk["verdicts"]["server_vs_folder_token_ids"] is False
+        and tk["verdicts"]["passed_vs_folder_text_sha256"] is False
+        and tk["server_different"][0]["prompt"] == 0,
+        "06-g1's token half: the server's ids and the folder's template differ: said, with the prompt",
+    )
     ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "a test rule, not a stop: the run went on")
+
+if case == "resume-after-stop":
+    ok(list(parts) == START and all(parts[n]["status"] == "done" for n in START), "after the retry: every start step")
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the retried run ended complete")
+    kept = sorted(p.name for p in (R / "logs").glob("08-qualify.stop-*.json"))
+    ok(len(kept) == 1, f"the first stop's part is kept beside the logs {kept}")
+    ok(calls["qualify"] == 2 and calls["install"] == 1, "qualify ran again; the installer and the steps before it kept")
+    ok(all(parts[n]["attempts"] == 1 for n in START[:7]), "the steps before 08 ran once")
+    ok("TB-RETRY" in vm_log or "TB-RETRY" in "".join(
+        f.read_text(errors="replace") for f in S.glob("boot-*.out")), "the boot said what the retry cleared")  # fmt: skip
+
+if case == "acc-qualify-fails":
+    ok(list(parts) == START and all(parts[n]["status"] == "done" for n in START), "validation: no stop at 08")
+    q = parts["08-qualify"]
+    ok(
+        q.get("pass") is False and q["detail"]["verdict"]["status"] == "failed"
+        and q["detail"]["verdict"]["failed_steps"] == ["schema"]
+        and "3 of 54" in q["detail"]["verdict"]["steps"]["schema"]["reason"],
+        "08: the failed gate is a result: which step and its figure",
+    )  # fmt: skip
+    for n in ("09-promote-judge", "10-promote-verifier"):
+        ok(
+            parts[n]["detail"]["promoted"] is False and "did not pass" in parts[n]["detail"]["why"],
+            f"{n}: not promoted",
+        )
+    ok(not any(c.startswith("promote ") for c in calls), "no promotion was asked")
+    ok("none" in parts["11-resolve"]["detail"]["judge_d3"], "11: PRODUCTION routes no judge (a candidate pair)")
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the run went on to its end")
 
 # ---------------------------------------------------------------- validation mode and the accuracy group
 if case == "build-validation":
@@ -341,8 +386,9 @@ if case in ("acc", "acc-preempt", "acc-blocked"):
         "the synthetic site's committed answers, no secret read",
     )
     ok(
-        parts["11-resolve"]["detail"].get("production_resolves_promoted") is True,
-        "VALIDATION resolves the promoted pair",
+        "standin-judge-1" in parts["11-resolve"]["detail"].get("judge_d3", "")
+        and "standin-verifier-1" in parts["11-resolve"]["detail"].get("second_opinion_d3", ""),
+        "11: pin_model --resolve names the promoted pair on D3 (judge and second opinion)",
     )
     st_ = parts["51-acc-settings"]["detail"]
     ok(
@@ -351,7 +397,11 @@ if case in ("acc", "acc-preempt", "acc-blocked"):
         and st_["limits"]["before"]["rate_limits_per_day"] == {},
         "51: the site's daily limits off for the run, recorded before and after",
     )
-    ok(st_["tripwire"].startswith("on: no setting used"), "51: the tripwire stays on, and the record says so")
+    if case == "acc-preempt":  # the driver's default for a validation run: the declared setting turns it off
+        ok(st_["tripwire"] == "set by the declared setting TB_GATEWAY_PHI_TRIPWIRE=off", "51: the tripwire off, said")
+        ok(st_["limits"]["environment"] == "VALIDATION", "51: the box's environment after the change")
+    else:
+        ok(st_["tripwire"].startswith("on: no setting used"), "51: the tripwire stays on, and the record says so")
 if case in ("acc", "acc-preempt"):
     ok(list(parts) == START + ACC, f"every step of start and acc in order ({len(parts)} parts)")
     ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the run ended complete")
@@ -363,6 +413,8 @@ if case in ("acc", "acc-preempt"):
     ok("hash stand-in" in rt["embedder"], "52: the embedder SCREEN ranks with is recorded (#589 not in)")
     for n in ACC_SETS:
         ok((BKT / "boxruns" / f"rehearsal-{case}" / "acc" / f"{n}.tgz").exists(), f"{n}: uploaded as it finished")
+        raw = S / "evidence" / "collected" / "acc" / n / "work" / "raw-traces.json"
+        ok(raw.exists() and json.loads(raw.read_text())["calls"] >= 0, f"{n}: the raw answers came with the set")
     sent = [c for c in calls if c.startswith("acc-send ")]
     news = Counter(" ".join(c.split()[1:3]) for c in sent if c.endswith(" new"))
     ok(all(v == 1 for v in news.values()), "no request mailed twice as a new job (a re-sent mail is the same job)")

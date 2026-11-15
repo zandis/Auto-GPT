@@ -16,7 +16,8 @@ case "$1" in
     case "$3" in
       *State.Pid*) cat "$BR_S/vm.pgid" ;;
       *Config.Image*) cat "$BR_S/knobs/vllm-image" ;;
-      *Config.Cmd*) printf '["--model", "/models/judge", "--chat-template", "/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja", "--max-num-seqs", "16"]\n' ;;
+      *Config.Cmd*) printf '["--model=/models/judge", "--served-model-name=local/standin-judge", "--chat-template", "/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja", "--max-num-seqs", "16"]\n' ;;
+      *Mounts*) echo "$BR_S/models" ;;
       *) exit 1 ;;
     esac ;;
   *) echo "box-run rehearsal docker: not rehearsed: $1" >&2; exit 1 ;;
