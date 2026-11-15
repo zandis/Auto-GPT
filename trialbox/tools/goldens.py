@@ -89,8 +89,10 @@ def sha(obj: Any) -> str:
 
 
 def git_head() -> str:
-    out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False)
-    return out.stdout.strip() or "unknown"
+    """The code the goldens were computed on: a commit, or a box's ``release:<sha256>`` (D-734)."""
+    from tools import code_identity
+
+    return code_identity.head(ROOT)[0]
 
 
 # ------------------------------------------------------------------------------------------------ the lake schema
