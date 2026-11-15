@@ -347,6 +347,8 @@ def check_sae_mailbox(inp: DoctorInputs) -> Check:
         ": nobody is mailed when a serious adverse event is entered; set it in deploy/.env (D-736, RUNBOOK §1)"
     )
     return Check("sae_mailbox", "WARN", why)
+
+
 def check_mail_auth(inp: DoctorInputs) -> Check:
     """D-825 (D-369): the mail gateway trusts sender results only from the MTA ``TB_MAIL_AUTHSERV_ID`` names; empty, it
     refuses every request mail (fails closed). WARN on a site box (VALIDATION, PRODUCTION), never a FAIL: a box
