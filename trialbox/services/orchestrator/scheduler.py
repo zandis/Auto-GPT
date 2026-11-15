@@ -124,6 +124,33 @@ def recorded_study_state(ruleset: str, url: str | None = None) -> str | None:
     return str(state) if state else None
 
 
+def recorded_close(ruleset: str, url: str | None = None) -> tuple[str, str, int | None] | None:
+    """D-779 (T-305c): the study's latest recorded state row as (state, at, keep_years), or None when nothing is
+    recorded (as :func:`recorded_study_state`). A database error is raised. A box whose console predates the period
+    has no ``keep_years`` column: read as None (the default period)."""
+    from tb_common.db import Database
+
+    url = url or os.environ.get("TB_DB_URL")
+    if not url:
+        return None
+    with Database.connect(url, "site") as site:
+        if site.fetchval("SELECT to_regclass(?)", (f'"{site.schema}".study_state',)) is None:
+            return None
+        has_years = site.fetchval(
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'study_state'"
+            " AND column_name = 'keep_years'",
+            (site.schema,),
+        )
+        years = "keep_years" if has_years else "NULL"
+        row = site.fetchone(
+            f"SELECT state, at, {years} FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1",
+            ((ruleset or "").upper(),),
+        )
+    if row is None:
+        return None
+    return str(row[0]), str(row[1]), (int(row[2]) if row[2] is not None else None)
+
+
 def require_open(ruleset: str | None) -> None:
     """A list scenario's first check (D-386): refuse to make a list for a study that is not open. The job fails
     with the reason; nothing is listed or mailed. An unreachable trial database is logged and left to the run's own
