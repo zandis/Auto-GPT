@@ -492,9 +492,11 @@ DECLARED: dict[str, Declared] = {
     "TB_DB_ROLES_CMD": Declared("str", "", "restore: the command that puts the service roles back (D-573)"),
     "TB_DB_URL": Declared("str", "", "the trial database URL"),
     "TB_DEMO_ACCOUNTS": Declared("str", "", "demo: accounts to create"),
-    # deploy/gcp/demo-vm.sh (the small demo VM, deploy/gcp/demo_vm.py has each reason): never 0.0.0.0/0, never empty
+    # deploy/gcp/demo-vm.sh (the small demo VM, deploy/gcp/demo_vm.py has each reason): never empty; the world only
+    # through the explicit word "any" (the owner's ruling of 2026-11-15: a PoC with synthetic data only, reachable from
+    # anywhere, kept by the sign-in password and TLS alone)
     "TB_DEMO_ALLOW": Declared(
-        "str", "", "demo VM: the only source ranges of tcp:443, comma separated (required for up)"
+        "str", "", "demo VM: tcp:443 source ranges, comma separated, or any (open; owner 2026-11-15, PoC, synthetic)"
     ),
     "TB_DEMO_CONTAINER": Declared("str", "trialbox-demo", "demo: container name"),
     "TB_DEMO_DAY": Declared("str", "today", "demo: the day the demo shows"),
@@ -514,6 +516,12 @@ DECLARED: dict[str, Declared] = {
         "int", "30", "demo VM: boot disk GB (Debian, Docker, the demo image and its tarball)"
     ),
     "TB_DEMO_VM_DISK_PRICE_GB_MONTH": Declared("float", "0.11", "demo VM estimate: pd-balanced US$ per GB-month"),
+    "TB_DEMO_VM_ENROL_HOURS": Declared(
+        "int", "24", "demo VM: hours an unused one-time code is good for (one working day; product range 1-72, D-719)"
+    ),
+    "TB_DEMO_VM_HANDOFF": Declared(
+        "str", "", "demo VM: private gs:// place of the people's one-time codes (unset: $TB_BUCKET/demo-vm)"
+    ),
     "TB_DEMO_VM_HOST": Declared(
         "str", "", "demo VM: a DNS name for a public certificate; refused (DNS-01 is not built)"
     ),
@@ -530,16 +538,19 @@ DECLARED: dict[str, Declared] = {
         "int", "16", "demo VM: an allowed IPv4 range broader than this prefix is refused (a home range is /24)"
     ),
     "TB_DEMO_VM_NAME": Declared("str", "tb-demo-vm", "demo VM: prefix of its VM, network, subnet, rule and tag"),
+    "TB_DEMO_VM_NETWORK": Declared(
+        "str", "default", "demo VM: default (the project's network; no networkAdmin, a deny-all on its tag) or own"
+    ),
+    "TB_DEMO_VM_PEOPLE": Declared(
+        "str",
+        "owner:investigator,guest:coordinator",
+        "demo VM: one account per person, name:role; each sets a password",
+    ),
     "TB_DEMO_VM_PRICE_DATE": Declared("str", "", "demo VM estimate: the date its prices were read (unset: unchecked)"),
     "TB_DEMO_VM_PRICE_HOUR": Declared(
         "float", "0.1528", "demo VM estimate: the machine's US$ per hour (e2-standard-4, asia-east1; check at order)"
     ),
     "TB_DEMO_VM_PRICE_SOURCE": Declared("str", "", "demo VM estimate: where its prices come from (unset: from memory)"),
-    # a name, never a value (the VM reads the value itself): named so that the scan of secrets that reach a container
-    # (tests/unit/test_compose_secret_reach.py) does not take it for one, as it took the old name ending in _SECRET
-    "TB_DEMO_VM_SM_NAME": Declared(
-        "str", "tb-demo-password", "demo VM: name of the Secret Manager entry that holds the demo password"
-    ),
     "TB_DEMO_VM_STOP_WAIT_S": Declared(
         "int", "300", "demo VM down: seconds to wait for TERMINATED (an e2 VM stops in under a minute)"
     ),
