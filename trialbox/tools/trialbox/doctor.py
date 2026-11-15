@@ -431,6 +431,14 @@ def _override(inp: DoctorInputs) -> Path:
     return Path(raw) if raw else _site_dir(inp) / "registry.site.yaml"
 
 
+def placeholder_note(reg: Any) -> str:
+    """D-887: the box rehearsal's placeholder pins, named wherever pins are shown ("" when there is none)."""
+    names = [b.build_id for b in reg.builds if getattr(b, "rehearsal_placeholder", False)]
+    if not names:
+        return ""
+    return f"; {', '.join(names)}: rehearsal placeholder (not a model: proves the path, never promoted)"
+
+
 def check_registry_pins(inp: DoctorInputs) -> Check:
     from registry.registry import DEFAULT_PATH, Registry, Status
 
@@ -447,7 +455,7 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     env = inp.env.get("TB_ENV", "DEV")
     if env in ("VALIDATION", "PRODUCTION") and not any(b.status == Status.CHAMPION for b in pinned):
         return Check("registry_pins", "WARN", f"pinned: {names}; none is champion, so {env} roles route nothing")
-    return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
+    return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}{placeholder_note(reg)}")
 
 
 def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
@@ -730,7 +738,7 @@ def check_serving(inp: DoctorInputs) -> Check:
         return Check("serving", "FAIL", "; ".join(fails))
     if warns:
         return Check("serving", "WARN", "; ".join(warns))
-    return Check("serving", "PASS", "; ".join(good) + "; key required")
+    return Check("serving", "PASS", "; ".join(good) + "; key required" + placeholder_note(reg))
 
 
 MAPPING_ROOT = ROOT / "services" / "adapter"

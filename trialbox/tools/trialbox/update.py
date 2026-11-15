@@ -819,6 +819,8 @@ class Updater:
         source = (plan.release or {}).get("source")
         if isinstance(source, dict) and isinstance(source.get("dirty"), bool):
             record["dirty"] = source["dirty"]  # D-633: built from a working tree (a DEV or TEST box took it)
+        if (plan.release or {}).get("rehearsal") is True:
+            record["rehearsal"] = True  # D-887: the pin reads it (a site box refuses such a bundle)
         mode = ((plan.release or {}).get("gates") or {}).get("vuln_mode")
         if isinstance(mode, str) and mode:
             record["vuln_mode"] = mode  # D-884: the release gates' mode, said by `apply_update.sh status` and install

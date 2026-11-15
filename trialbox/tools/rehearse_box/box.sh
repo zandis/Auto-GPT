@@ -220,6 +220,8 @@ doctor)
   [ "$rc" = 0 ] && echo "$out" | grep -q "^doctor passed" || fail "trialbox doctor --live did not pass"
   echo "$out" | grep -q "^PASS  serving" || fail "the live serving check did not PASS"
   echo "$out" | grep -q "^PASS  registry_pins" || fail "registry_pins did not PASS"
+  # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
+  echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
   ok "trialbox doctor --live: passed"
   ;;
 
@@ -244,8 +246,11 @@ for build, b in sorted(pins.items()):
         host, default = want[ep]
         served = stats[host]["served"]
         assert served == [name], f"{build}: pinned {name!r} on {ep}, {host} serves {served}"
-        assert b.get("status") == "champion" and b.get("sha256"), f"{build}: not a pinned champion"
-        print(f"ok: {build} pinned {name!r} ({b['sha256'][:12]}) = what {host} serves")
+        # D-887: the media's placeholder weights, pinned as candidate on a rehearsal box only: not a model
+        trust = (b.get("weights") or {}).get("trust")
+        assert trust == "rehearsal_placeholder" and b.get("status") == "candidate" and b.get("sha256"), \
+            f"{build}: not a rehearsal placeholder candidate pin (trust {trust!r}, status {b.get('status')!r})"
+        print(f"ok: {build} pinned {name!r} ({b['sha256'][:12]}, rehearsal placeholder, candidate) = what {host} serves")
 assert {ep for b in pins.values() for ep in (b.get("served") or {})} == {"serving", "verifier"}, "a pair member is missing"
 EOF
   ;;

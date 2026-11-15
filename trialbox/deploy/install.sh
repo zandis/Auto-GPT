@@ -508,11 +508,12 @@ if [ "$MODE" = gpu ]; then
   # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
   # was only a warning: lane G's box went on with no model pinned); a pin that fails stops the install
   alive_start "hashing the model weights"
+  # D-887: the box (TB_ENV, TB_REHEARSAL) goes to the pin, which pins the rehearsal media's placeholders on a
+  # rehearsal box only, from a rehearsal bundle (deploy/updates/installed.json), every folder a placeholder
   tree_args
-  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL \
+    -e TB_ENV="$TB_ENV_SITE" -e TB_REHEARSAL="$(envget TB_REHEARSAL)" "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
-    || { [ "${TB_ENV_SITE:-}" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ] \
-         && echo "    rehearsal box: the media's placeholder weights are not the release's, so no build is pinned; the model stand-ins answer (D-887)"; } \
     || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
   alive_stop
   if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then

@@ -165,7 +165,8 @@ media() (  # a subshell: set -e stops the step, not the run
   # no bundle without its checks (T-110b, D-340): the release gates over exactly these images, then the bundle
   make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$W/vendor/gates" SC_IMAGES="${imgs[*]}" || { echo "the release gates did not pass"; return 1; }
   # D-631: a rehearsal builds from the working tree and says so; a release for a site never passes --allow-dirty
-  tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" \
+  # D-726, D-887: a rehearsal bundle (release.json says so): a site box refuses it; a rehearsal box pins its placeholders
+  tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" --rehearsal \
     --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
     --out "$MEDIA/linux/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
     --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
