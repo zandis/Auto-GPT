@@ -46,8 +46,15 @@ unpack_release() {  # the release tree from the media into a fresh folder: what 
 
 # doctor <args...>: trialbox doctor where the gateway's model network is (as install.sh runs it), with the box's env
 doctor() {  # the model key as the gateway reads it: the key file only (D-437, D-450), not deploy/.env's copy
+  # D-887: what the host check hands the doctor too: the release tree the deploy/ links point into (D-570), the site
+  # keys where the services read them, and the KEK when the box has one
+  local more=() sec
+  [ -L "$BOX/current" ] && more+=(-v "$(readlink -f "$BOX/current"):/app/current:ro")
+  sec="$(docker volume inspect -f '{{.Mountpoint}}' trialbox_tb-secrets 2>/dev/null)"
+  [ -n "$sec" ] && [ -d "$sec" ] && more+=(-v "$sec:/run/secrets/trialbox:ro")
+  [ -d /run/trialbox ] && more+=(-v /run/trialbox:/run/trialbox:ro)
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
-    -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
+    ${more[@]+"${more[@]}"} -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
     --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml "$@"
 }
 
@@ -213,9 +220,16 @@ served)
   stats="$(standin_stats)" || fail "cannot ask the stand-ins"
   echo "stand-ins: $stats"
   python3 - "$BOX/deploy/site/registry.site.yaml" "$stats" "$(envget JUDGE_MODEL)" "$(envget VERIFIER_MODEL)" <<'EOF' || fail "pins and served names differ"
-import json, sys, yaml
-pins = yaml.safe_load(open(sys.argv[1]))["builds"]
+import json, os, sys, yaml
 stats = json.loads(sys.argv[2])
+if not os.path.exists(sys.argv[1]):
+    # D-887: the media's placeholder weights are never the release's, so a rehearsal box pins nothing (install.sh
+    # says so); the stand-ins must serve exactly the names the gateway calls (JUDGE_MODEL, VERIFIER_MODEL)
+    for host, name in (("llm-service", sys.argv[3]), ("llm-verifier", sys.argv[4])):
+        assert name and stats[host]["served"] == [name], f"{host} serves {stats[host]['served']}, the gateway calls {name!r}"
+        print(f"ok: {host} serves exactly {name!r}, the name the gateway calls (no pin on a rehearsal box)")
+    sys.exit(0)
+pins = yaml.safe_load(open(sys.argv[1]))["builds"]
 want = {"serving": ("llm-service", "gemma-4-26b-a4b-it"), "verifier": ("llm-verifier", "qwen3.5-9b")}
 for build, b in sorted(pins.items()):
     for ep, name in (b.get("served") or {}).items():
@@ -382,7 +396,8 @@ EOF
 screen)
   tag="${2:-first}"
   if [ ! -f "$W/ingested" ]; then
-    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot 2026-10-04 \
+    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383)
+    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$(date -u +%F)" \
       | tail -5 || fail "ingest of synthetic hospital A failed"
     touch "$W/ingested"
   fi

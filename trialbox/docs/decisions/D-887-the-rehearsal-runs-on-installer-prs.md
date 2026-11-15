@@ -30,6 +30,11 @@
    failed on the re-run and every service reading a key would fail on a sealed box. seal_keys.sh and the boot unseal
    unit now hand them to the secrets folder's owner; modes stay 0600 (the folder 0700). The host check gives the
    doctor a missing secrets folder when it cannot see the volume (WARN, not a false FAIL).
+7. Its fourth run passed install and the second install and showed where the rehearsal had fallen behind the box:
+   a rehearsal box's host has no encrypted disk (LUKS: WARN there only, as the egress table); the rehearsal's own
+   doctor call now mounts the release tree, the secrets volume and the KEK as the host check does; with no pins on a
+   rehearsal box the served step checks the stand-ins serve exactly the names the gateway calls; the synthetic
+   ingest takes today's snapshot date, not 2026-10-04 (older than the box's 3-day limit, D-383).
 
 ## Test
 
