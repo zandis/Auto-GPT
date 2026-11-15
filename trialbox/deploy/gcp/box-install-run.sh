@@ -619,13 +619,16 @@ d_qualify() {
     for p in tests docs eval; do m+=(-v "$TB/qsrc/trialbox/$p:/app/$p:ro"); done
     m+=(-v "$TB/qsrc/trialbox/deploy/images.lock:/app/deploy/images.lock:ro")
   fi
-  mkdir -p "$TB/qualify-cache" "$TB/qualify-out"; rm -f "$TB/qualify-out/record.json"
+  rm -rf "$TB/qualify-out"; mkdir -p "$TB/qualify-cache" "$TB/qualify-out"
   IMG_NET=trialbox-net img_tool ${m[@]+"${m[@]}"} ${tok[@]+"${tok[@]}"} -v "$TB/qualify-cache:/app/.cache" -v "$TB/qualify-out:/q" \
     -e "TB_COMPOSE=docker compose --project-directory $BOXROOT/deploy" -e TB_DOCKER=docker \
+    -e "TB_ENV=$(envget TB_ENV)" \
     trialbox eval qualify --box --profile "$PROFILE" --gateway-url http://gateway:8020/v1 --operator lane-g-box-run \
-    --out /q/record.json "$@"
-  local rc=$?
-  [ -s "$TB/qualify-out/record.json" ] && cp "$TB/qualify-out/record.json" "$out"
+    --out /q "$@"
+  local rc=$? rec
+  # --out is the records' folder (qualify writes <profile>-<build>-<time>.json in it): the newest one is this run's
+  rec=$(ls -t "$TB/qualify-out"/*.json 2>/dev/null | head -n 1)
+  [ -n "$rec" ] && [ -s "$rec" ] && cp "$rec" "$out"
   return $rc
 }
 d_medtxt()   { IMG_NET=bridge img_tool -v "$TB/qualify-cache:/app/.cache" medtxt_eval fetch; }   # qualify's medtxt items
@@ -1213,6 +1216,9 @@ step_qualify() {
     args+=(--evidence "${e%%=*}=$TB/evidence/${e%%=*}.json")
   done
   note evidence "\"${QEVIDENCE:-none}\""
+  # a boot after the start's (a resume): the stack restarts by itself, the model servers load for minutes; qualify
+  # starts only once compose says every service, both model servers too, is healthy (F14: model_unavailable)
+  if [ -n "$DIRECT" ]; then WATCH_IO=1 need "the stack healthy before qualify (compose up --wait)" d_direct_up || return 1; fi
   watched d_medtxt; note medtxt_fetch_exit $?
   # the box's own commit, for the files qualify reads that the image lacks (F13): the source bundle beside the bundle
   if [ -n "$COMMIT" ] && [ ! -d "$TB/qsrc/trialbox" ]; then

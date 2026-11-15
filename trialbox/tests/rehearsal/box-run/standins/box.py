@@ -605,7 +605,10 @@ def tool(name: str, argv: list[str]) -> int:
         if flag("fail-qualify"):  # a record that failed a gate: a result in validation mode, a stop in production
             qrec.update(status="failed", failed_steps=["schema"])
             qrec["steps"]["schema"] = {"status": "failed", "reason": "stand-in gate: schema failures 3 of 54"}
-        Path(arg(argv, "--out")).write_text(json.dumps(qrec))
+        out = Path(arg(argv, "--out"))
+        if out.is_dir():  # qualify's --out is the records' folder (<profile>-<build>-<time>.json in it)
+            out = out / "rtxpro6000-standin-judge-1-20261120T000000Z.json"
+        out.write_text(json.dumps(qrec))
         return 1 if flag("fail-qualify") else 0
     if name == "trialbox" and argv[:1] in (["secrets"], ["db-up"]):  # the direct route's host tools
         called(f"trialbox-{argv[0]}")
