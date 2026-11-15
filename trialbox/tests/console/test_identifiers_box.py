@@ -29,9 +29,9 @@ def test_the_two_open_routes_refuse_a_bare_token(orch_box: OrchBox) -> None:
     assert r.status_code == 403 and pid2 not in r.text, r.text[:200]
     assert orch_box.read(f"/registry/{STUDY}").json() == []  # and nothing was written
     refused = orch_box.events("actor.refused")
-    # the pseudonym route's door, and since T-715b (D-550) the registry's own stage, which comes before its door
+    # since T-715b (D-550) the registry's own stage and since T-715g (D-803) the pseudonym route's, before the door
     assert len(refused) == 2 and {e["detail"]["reason"] for e in refused} == {
-        "a chart number needs a verified person", "no signed-in user on this call (X-TB-Actor-Assertion)"}  # fmt: skip
+        "no signed-in user on this call (X-TB-Actor-Assertion)"}  # fmt: skip
     assert not orch_box.events("screen.to_pid")
     # T-715b: a row by pseudonym is no lookup, and it too needs the verified person now
     body = {"pid": pid, "status": "candidate"}
@@ -61,7 +61,7 @@ def test_a_verified_person_with_a_right_gets_the_pseudonym_and_it_is_on_the_reco
         (signed("optout.keep", "", "POST", "/setup/pseudonym", body, role="viewer"), "right"),
         (signed("study.setup", "", "POST", "/setup/pseudonym", body), "action"),
         (signed("optout.keep", "", "POST", "/setup/pseudonym", {"chart_no": mrn2}, sub="console:stw", role="steward"),
-         "a chart number needs a verified person"),
+         "body"),  # T-715g (D-803): the route's own stage refuses a claim for another body
     ):  # fmt: skip
         r = c.post("/setup/pseudonym", json=body, headers=headers)
         assert r.status_code == 403 and orch_box.events("actor.refused")[-1]["detail"]["reason"] == why
@@ -112,11 +112,11 @@ def test_site_setup_turns_no_chart_number_into_a_pseudonym_for_a_bare_token(orch
     import base64
 
     c = orch_box.client("console")
-    chart = {"chart_no": "10000001", "text": "synthetic note", "by": "nobody", "lang": "en"}
-    sheet = {"kind": "sheet", "name": "list.csv", "roles": {}, "by": "nobody",
+    chart = {"chart_no": "10000001", "text": "synthetic note", "lang": "en"}  # D-803: no typed person
+    sheet = {"kind": "sheet", "name": "list.csv", "roles": {},
              "b64": base64.b64encode(b"chart,age\n10000001,61\n10000002,58\n").decode("ascii")}  # fmt: skip
     for path, body in (("/setup/main/charts", chart), ("/setup/main/sheets", sheet),
-                       ("/setup/main/sheets/1/roles", {"roles": {}, "by": "nobody"})):  # fmt: skip
+                       ("/setup/main/sheets/1/roles", {"roles": {}})):  # fmt: skip
         r = c.post(path, json=body)
         assert r.status_code == 403, (path, r.status_code, r.text[:200])
         assert orch_box.events("actor.refused")[-1]["detail"]["route"].endswith(path.rsplit("/", 1)[-1])

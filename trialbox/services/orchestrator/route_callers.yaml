@@ -131,6 +131,7 @@ groups:
     - GET /setup/terminology
     - GET /setup/remote
     - PUT /setup/remote
+  assist:   # T-715g (D-803): the help page's draft answer phrased by the local model; reads and writes nothing
     - POST /assist
   edc:   # services/orchestrator/edc_api.py (EDC prefill; the person from the signed assertion, D-160, D-162)
     - GET /studies/{rs}/edc
@@ -169,7 +170,7 @@ groups:
 services:
   console:   # the front desk: services/console/backend.py, s28.call (data, entry, EDC, set-up, lifecycle pages)
     groups: [jobs_start, job_read, jobs_list, job_cancel, job_retry_scheduled, job_reveal, notices, models_read, models_canary, rulesets,
-             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, edc, dataops]
+             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, assist, edc, dataops]
   mail-gateway:   # parses hostile mail: starts the mail commands and reads the jobs that came in by mail, nothing else
     groups: [jobs_start, job_read]
     job_types: [FEAS, SCREEN, COHORT, NAV, APPROVE, STATUS, CANCEL, SUBMIT, FEEDBACK, CONSENT, RELEASE, CASE]

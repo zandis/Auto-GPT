@@ -180,7 +180,6 @@ def _queue() -> dict[str, Any]:
 CALLER_GATE = Gate(load_callers(), lambda: orch().audit)
 route_actor.bind(lambda: orch().audit)  # T-715 (D-483): where a refused person is recorded
 #: the stage before `require_actor` (route_actors.yaml): a changing call without a v3 assertion is counted
-REPORT = [route_actor.report_actor]
 app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
 
 
@@ -762,8 +761,7 @@ app.include_router(
             request, None, orch().db, orch().audit, _now(orch()), actions=actions, service=service
         ),
     ),
-    dependencies=REPORT,
-)
+)  # T-715g (D-803): refuse, route by route
 
 # ---------------------------------------------------------------------------- EDC prefill (D-160)
 _edcs: dict[str, Any] = {}

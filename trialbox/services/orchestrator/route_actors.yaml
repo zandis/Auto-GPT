@@ -24,9 +24,9 @@ refuse:
   - study                 # T-715d (D-554): the study's set-up, its REDCap link and the box's connections
   - dataops               # NEW-SEC-4 (D-760): the steward's accept of a held night (dataops.decide)
   - datacore              # T-715f (D-799): the study's set-up, data entry and an SAE report's day sent
+  - setup                 # T-715g (D-803): the site's set-up, the opt-out desk's pseudonym, the remote help switch
 
-report:
-  - setup
+report: []
 
 v2:
   - jobs_start            # the signed role authorises a console job; a mailed job has no person (D-146, D-464)
@@ -38,6 +38,7 @@ v2:
 no_person:
   models_canary: the pair canary of the box; it changes no record and names nobody
   patients: a read sent as POST (pseudonyms in the body); nothing changes
+  assist: the help page's draft answer phrased by the local model; it reads and writes nothing (T-715g, D-803)
 
 # service principals: a console timer has no session. Each may take only the actions listed, on routes that say so.
 principals:

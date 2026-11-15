@@ -56,10 +56,13 @@ LARGE_HOST_GB = 64  # T-703's test: below it PostgreSQL's defaults are said, not
 MAINTENANCE_MAX_MB = 2048  # PGTune: maintenance_work_mem gains nothing above 2 GB
 
 
-def _longest_lake_query_s(env: Mapping[str, str]) -> int:
-    from tb_common.config import DECLARED
+# D-832: install.sh runs this module with the host's python3, which has no tb_common.config (pydantic, jsonschema);
+# the declared default is copied here and a test keeps the two equal
+LAKE_QUERY_LIMITS_DEFAULT = "FEAS=1800,COHORT=1800"
 
-    text = env.get("TB_LAKE_QUERY_LIMITS") or DECLARED["TB_LAKE_QUERY_LIMITS"].default
+
+def _longest_lake_query_s(env: Mapping[str, str]) -> int:
+    text = env.get("TB_LAKE_QUERY_LIMITS") or LAKE_QUERY_LIMITS_DEFAULT
     secs = [int(p.split("=", 1)[1]) for p in text.split(",") if "=" in p and p.split("=", 1)[1].strip().isdigit()]
     if not secs:
         raise ValueError(f"TB_LAKE_QUERY_LIMITS={text!r}: no limit to size the idle-transaction limit from")
