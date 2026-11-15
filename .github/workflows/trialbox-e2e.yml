@@ -168,7 +168,7 @@ jobs:
   # 40 s from call 300, one restart (30 s down) after call 900 (the cascade made 1,362 calls at 50,000 in
   # eval/hospital_sim/results/scale.json). The report is the job summary and an artifact.
   scale-50k:
-    # Not switched by TB_RUNNER. Stays on the GitHub-hosted image: passwordless sudo and systemd-run cgroups, the
+    # Not switched by TB_RUNNER. Stays on ubuntu-24.04: passwordless sudo and systemd-run cgroups, the
     # deletion of hosted tool caches below, and a 50,000-patient tree on a disk with about 37 GB free and no swap.
     # On the one ARM runner this job would also block the other nightly jobs for most of the night.
     runs-on: ubuntu-24.04  # 4 cores, 16 GB, systemd and cgroup v2, password-less sudo; PostgreSQL 16 for pglocal

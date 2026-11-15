@@ -706,7 +706,7 @@ jobs:
         run: |
           docker rm -f tb-demo >/dev/null 2>&1 || true
           # loopback only, and not port 4000: the self-hosted host already listens there (an unrelated LiteLLM)
-          docker run -d --name tb-demo -p 127.0.0.1:8080:8080 trialbox-demo:ci .
+          docker run -d --name tb-demo -p 127.0.0.1:8080:8080 trialbox-demo:ci
           start=$(date +%s)
           until curl -fsS -o /dev/null http://127.0.0.1:8080/login; do
             if [ "$(docker inspect -f '{{.State.Running}}' tb-demo)" != true ]; then

@@ -160,6 +160,10 @@ def test_demo_boot_removes_only_its_own_container_and_binds_loopback() -> None:
     assert "docker rm -f tb-demo" in runs and "docker image rm trialbox-demo:ci" in runs
     assert "-p 127.0.0.1:8080:8080" in runs
     assert "-p 8080:8080" not in runs
+    # a trailing "." is the build context on `docker build`, and a command on `docker run`
+    for line in runs.splitlines():
+        if line.strip().startswith("docker run "):
+            assert line.rstrip().endswith("trialbox-demo:ci"), line
     code = _code(runs)
     assert "docker system prune" not in code and "docker builder prune" not in code
 
