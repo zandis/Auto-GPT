@@ -704,6 +704,9 @@ DECLARED: dict[str, Declared] = {
         "jobs: seconds a job waits in model outages in all; a server reloads in minutes (0: no wait; D-456)",
     ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
+    "TB_JOBS_PER_SENDER_PER_DAY": Declared(
+        "int", "", "heavy jobs a sender may start a day, overriding settings.yaml; 0: no limit (D-146, D-775)"
+    ),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
     "TB_LOG_MAX_SIZE": Declared("str", "100m", "size of one container log file (provisional, D-389)"),

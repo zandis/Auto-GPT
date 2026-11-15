@@ -117,6 +117,9 @@ _WESTERN = re.compile(
             r"(?<=m)[\u00b2\u00b3](?![A-Za-z0-9])",  # m², cm³
             r"(?<=[0-9])\u00b1(?=[0-9])|(?<=[0-9] )\u00b1(?= [0-9])",  # 5±2, 5 ± 2
             r"(?<=[A-Za-z]{2}-)[\u03b1-\u03c9](?![A-Za-z])|(?<![A-Za-z])[\u03b1-\u03c9](?=-[A-Za-z]{2})",  # TNF-α
+            # D-805: a curly apostrophe or quote at a Latin letter (Crohn’s, “better”). Its bytes are the garble 窶冱 /
+            # 鈥檚 in Shift_JIS and GB18030 and no character at all in Big5, EUC-JP or EUC-KR
+            r"(?<=[A-Za-z])[\u2018\u2019](?=[A-Za-z])|\u201c(?=[A-Za-z])|(?<=[A-Za-z.!?])\u201d",
         )
     )
 )
