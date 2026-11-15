@@ -135,6 +135,8 @@ def western_sure(raw: str) -> str | None:
         return None
     clock = _clock(h, mi, sec)
     return None if clock is None else day.isoformat() + clock
+
+
 # F6 (D-808): ICD-10-CM: a letter, a digit, then a digit or letter (the category), and up to four more after the dot
 _ICD10CM_BARE = re.compile(r"[A-Z][0-9][0-9A-Z](?:[0-9A-Z]{1,4})?")
 _ICD10CM_DOTTED = re.compile(r"[A-Z][0-9][0-9A-Z]\.[0-9A-Z]{1,4}")
@@ -390,6 +392,7 @@ class Mapping:
         """The tables read whole on a delta night (F7, D-806): a visit table a link by day looks up. An unchanged visit
         missing from the night's rows would make a day of two visits look like a day of one: a wrong link."""
         return {str(spec["table"]) for _, _, spec in self.by_day}
+
     # F8 (D-807): the western values read in a ``roc_or_western`` column, by (table, column): counts only
     western_read: Counter[tuple[str, str]] = field(default_factory=Counter)
 
