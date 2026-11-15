@@ -1,0 +1,9 @@
+# D-757 The demo seed plays the last working day and shows one CASE sheet
+
+- **Task:** DEMO-SEED (lane G's browser walk of the demo image, #639 2026-11-15; placed with lane B2 by the integrator), lane B2 · **PR:** `agent/DEMO-SEED-relative-dates-case-tasks` · **Date:** 2026-11-15 · **Status:** accepted · **Changes:** D-496 (the seed day)
+
+1. The seed plays the last working day before the demo day (`list_demo.seed_day`), and the screening cadence after it plays the next night (`cadence_night`): the data date, that night's run and every mark stay on or before the demo day, and on a Tuesday to a Saturday the data is as of yesterday, so no study page says "more than two days old" (D-496 played the Tuesday before the last Wednesday: up to a week old).
+2. `tools/demo.py` seeds one "Check one patient" (CASE) job on a synthetic chart in the seed's language, through the investigator's own route, before demo mode is switched on (demo mode refuses an upload by design, D-328); a seed without its done CASE job is not whole.
+3. The seeded "need info" note is in the seed's language (a Japanese note showed in an English session); seed the demo in the language it is shown in (`TB_DEMO_LANG`).
+4. GZQO's other-trial exclusion (GZQO-EXC-14) is reworded rather than added again beside itself (a second row, its label cut off and untranslated); the approval page still shows one changed criterion, with the trial's own labels in every language. Scenario J1 (AD-MAB) keeps its added exclusion.
+5. Tests: `tests/unit/test_demo_clock.py` (the seed day; no date after the demo day; no stale banner on a Tuesday to a Saturday), `tests/unit/test_demo_labels.py` (the note's language; the reworded exclusion), `tests/integration/test_list_demo.py` (the reworded exclusion amber, no second row; the seeded CASE job done and its page shown).
