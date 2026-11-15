@@ -71,6 +71,7 @@ from matching.cascade.s2b_semantic import (
     SourceFallback,
     SourceRanking,
     ThresholdTable,
+    boilerplate,
     screen,
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
@@ -833,8 +834,10 @@ class _Run:
             elif self.embedder is None:
                 res_above, best, top = True, 1.0, list(range(min(5, len(sents))))  # no S2b: never absence
             else:
-                res = screen(self.embedder, query, [s for _, s in sents], thr)
-                res_above, best, top = res.above, res.best, [i for i, _ in res.top]
+                skip = boilerplate([n.sents for n in win])  # D-905: recurring template lines are not embedded
+                idx = [i for i, (_, x) in enumerate(sents) if x.strip() not in skip] or list(range(len(sents)))
+                res = screen(self.embedder, query, [sents[i][1] for i in idx], thr)
+                res_above, best, top = res.above, res.best, [idx[i] for i, _ in res.top]
             held = (
                 index_sweep
                 and res_above

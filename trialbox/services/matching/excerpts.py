@@ -125,6 +125,8 @@ class ExcerptSet:
     shown: list[dict[str, Any]] = field(default_factory=list)
     left_out: int = 0
     cut: list[str] = field(default_factory=list)
+    # copy-forward notes not shown because a newer note of the window has the same text (D-905): not left out
+    duplicates: list[str] = field(default_factory=list)
 
 
 # a line that is a heading by its brackets (【既往歴】, 〔家族歴〕, [Family history]): it must hold a letter, so "[1]",
@@ -290,6 +292,20 @@ def build(
     ``ranked``: ``evidence`` is in the order of the caller's ranking (best first), and its notes are read in that
     order; else the evidence notes are read newest first."""
     newest_first = sorted(window, key=_order)
+    # D-905 (lane G's review): a copied-forward note, the same text as a newer one, is shown once, as the newest copy
+    seen: dict[str, Note] = {}
+    dups: list[str] = []
+    kept: list[Note] = []
+    for n in newest_first:
+        same = " ".join(n.text.split())
+        if same and same in seen:
+            dups.append(n.did)
+            if n.did in evidence and seen[same].did not in evidence:  # its evidence is the kept copy's too
+                evidence = {**evidence, seen[same].did: evidence[n.did]}
+            continue
+        seen[same] = n
+        kept.append(n)
+    newest_first = kept
     first = [n for n in newest_first if n.did in evidence]
     if ranked:
         rank = {did: i for i, did in enumerate(evidence)}
@@ -323,4 +339,4 @@ def build(
             left -= part_cost
     shown.sort(key=lambda x: _order(x[0]))
     out = [{"date": n.iso, "note_type": n.type, "text": text, "did": n.did} for n, text in shown]
-    return ExcerptSet(out, len(cut), cut)
+    return ExcerptSet(out, len(cut), cut, dups)
