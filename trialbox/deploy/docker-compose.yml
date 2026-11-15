@@ -118,6 +118,9 @@ services:
     networks: [trialbox-net]
     restart: unless-stopped
     mem_limit: ${TB_MEM_DB:-4g}
+    # T-695 (D-752, F-10): PostgreSQL's shutdown checkpoint writes its dirty buffers; docker's 10 s left crash
+    # recovery to the next start. 120 s: the review's floor; a box with large buffers raises it in an override file
+    stop_grace_period: 120s
     pids_limit: 512   # a backend per connection: well above max_connections (100)
     labels: {tb.watchdog: report}   # a restart does not cure a database; the watchdog audits it and a person looks
     healthcheck:

@@ -636,7 +636,7 @@ DECLARED: dict[str, Declared] = {
         "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
     ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
-    "TB_INSTALL_UP_TIMEOUT": Declared("int", "900", "install: seconds to wait for health"),
+    "TB_INSTALL_UP_TIMEOUT": Declared("int", "", "install: seconds to wait for health; empty: from the health checks"),
     "TB_IRB_TEXT_GATE": Declared(
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
