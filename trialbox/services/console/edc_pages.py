@@ -699,6 +699,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         words = {d["id"]: item_words(d, fields.get(d["item"]), maps.get(d["item"]), lang) for d in drafts}
         resp = h.page(request, "edc_review.html", sess, rs=rid, record=rec, visit=visit, visits=visits, drafts=drafts,
                       fields=fields, words=words, st=st, unsigned=unsigned, printed_name=name, err=err,
+                      mapped=set(maps),  # NEW-EDC-6: a value whose item left the map or the dictionary is retired
                       may=may(sess, rid), sso=h.users.is_sso(sess.user.username),
                       oidc_sign=oidc_signer(sess))  # fmt: skip
         resp.status_code = status

@@ -282,6 +282,8 @@ class EdcService:
             d = self.store.draft(rs, draft_id)
             if d is None:
                 raise EdcError("edc.no_draft", "no such draft", 404)
+            if d["fate"] == "retired":  # NEW-EDC-6: final until the item is in the study again
+                raise EdcError("edc.retired", "this value is retired: its item left the study")
         except EdcError as exc:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
             raise
@@ -305,6 +307,11 @@ class EdcService:
                 if forms.XML_ILLEGAL.search(text):
                     raise EdcError("edc.chars", f"the {what} holds a character that cannot be stored (a control "
                                    "character from pasted text)", 400)  # fmt: skip
+            # NEW-EDC-6 (EDC-006): only a value whose item an amendment removed is retired; the study's map says (an
+            # amendment is saved as a map), a dictionary gap alone may be a bad re-read
+            if action == "retire" and str(d["item"]) in {str(m["item"]) for m in self.store.map(rs)}:
+                raise EdcError("edc.not_removed", "the item is still in the study's map: change or withdraw the "
+                                   "value instead")  # fmt: skip
             if action in ("confirm", "edit"):
                 now = self._built(rs, str(d["item"]))
             if action == "confirm":  # a draft is confirmed only under the map row and dictionary entry of now (E-16)
@@ -912,8 +919,11 @@ class EdcService:
             raise err
         sigs = {int(s["id"]): s for s in self.store.signatures(rs)}
         text = odm.build(rs, self.dc.fields(rs), self.store.map(rs), values, sigs, meaning_text, self.stamp())
+        retired = sorted(f"{d['record']} {d['visit']} {d['item']}" for d in self.store.drafts(rs)
+                         if d["fate"] == "retired" and str(d["pid"]) not in gone)  # fmt: skip
         self._audit("edc.export", rs, by, {"format": "odm", "values": len(values),
-                                           "sha": hashlib.sha256(text.encode()).hexdigest()[:16]})  # fmt: skip
+                                           "sha": hashlib.sha256(text.encode()).hexdigest()[:16],
+                                           **({"retired": retired} if retired else {})})  # fmt: skip
         return text
 
     def _pid_of(self, rs: str, record: str) -> str | None:
