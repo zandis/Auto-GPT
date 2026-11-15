@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from datacore.forms import XML_ILLEGAL
-from datacore.store import TRIALBOX, DataCore, DataError
+from datacore.store import NO_REASON, TRIALBOX, DataCore, DataError
 
 
 @dataclass
@@ -217,8 +217,10 @@ def consent_after_today(name: str, value: str, at: str) -> dict[str, str] | None
     return {"field": name, "code": "max", "max": day} if value[:10] > day else None
 
 
-def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, str], by: str, at: str) -> int:
-    """A person enters values in TrialBox. A field owned by a source is changed in that source, never here."""
+def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, str], by: str, at: str,
+          reason: str = "") -> int:  # fmt: skip
+    """A person enters values in TrialBox. A field owned by a source is changed in that source, never here. D-778: a
+    ``reason`` given is kept with each change (the form save, the person's path, requires one; see ``save_form``)."""
     from datacore.forms import check_value
 
     fields = dc.fields(study)
@@ -236,7 +238,13 @@ def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, s
     if problems:
         code = "DATA-OWNED" if any("owned by" in p for p in problems) else "DATA-VALUE"
         raise DataError(code, "; ".join(problems))
-    return sum(dc.write(study, record, event, f, str(v), by, at, TRIALBOX) for f, v in values.items())
+    # D-778: a change of a saved value with no reason is kept with the reason marked missing, never dropped
+    current = dc.record(study, record, event)
+    reasons = {f: reason or (NO_REASON if current.get(f, "") not in ("", str(v)) else "") for f, v in values.items()}
+    out = 0
+    for f, v in values.items():
+        out += dc.write(study, record, event, f, str(v), by, at, TRIALBOX, reason=reasons[f])
+    return out
 
 
 def form_fields(dc: DataCore, study: str, form: str) -> list[Any]:
@@ -248,7 +256,7 @@ def form_fields(dc: DataCore, study: str, form: str) -> list[Any]:
 
 
 def save_form(dc: DataCore, study: str, record: str, event: str, form: str, values: dict[str, str], by: str,
-              at: str) -> dict[str, Any]:  # fmt: skip
+              at: str, reason_text: str = "") -> dict[str, Any]:  # fmt: skip
     """A person saves a whole form (TB-PLAN-04 step 4). Checked together, refused together with every reason:
 
     * branching (``datacore.branching``) on the record's values with this save laid over them; a hidden field is
@@ -256,9 +264,12 @@ def save_form(dc: DataCore, study: str, record: str, event: str, form: str, valu
     * required: only for shown fields, and not for a field whose rule is outside the subset (it is shown, but
       TrialBox cannot know whether REDCap would hide it);
     * type and range per field (``forms.problem``);
-    * ownership as in ``enter``: a field owned by a source is changed in that source, never here.
+    * ownership as in ``enter``: a field owned by a source is changed in that source, never here;
+    * D-778 (LIFE-011): a value already saved is changed only with a ``reason_text`` (problem ``reason`` on each such
+      field); a first entry needs none. The reason is kept with each change.
 
-    Returns ``{changed, written, hidden}``; raises ``DataError("DATA-FORM", ..., problems)``."""
+    Returns ``{changed, written, hidden, old}`` (``old``: each written field's value before, "" for a first entry);
+    raises ``DataError("DATA-FORM", ..., problems)``."""
     from datacore import branching
     from datacore.forms import problem, reason
 
@@ -299,8 +310,12 @@ def save_form(dc: DataCore, study: str, record: str, event: str, form: str, valu
             problems.append(p)
         elif sent and v != current.get(f.name, ""):
             write[f.name] = v
+    why = " ".join(reason_text.split())
+    if not why:  # D-778: a saved value changes only with a reason
+        problems += [{"field": f, "code": "reason"} for f in sorted(write) if current.get(f, "") != ""]
     if problems:
         msg = "; ".join(reason(p, str(values.get(p["field"], ""))) for p in problems)
         raise DataError("DATA-FORM", msg, problems)
-    changed = sum(dc.write(study, record, event, f, v, by, at, TRIALBOX) for f, v in write.items())
-    return {"changed": changed, "written": sorted(write), "hidden": hidden}
+    changed = sum(dc.write(study, record, event, f, v, by, at, TRIALBOX, reason=why) for f, v in write.items())
+    return {"changed": changed, "written": sorted(write), "hidden": hidden,
+            "old": {f: current.get(f, "") for f in write}}  # fmt: skip

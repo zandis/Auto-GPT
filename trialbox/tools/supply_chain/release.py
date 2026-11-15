@@ -373,10 +373,18 @@ def render(record: dict[str, Any]) -> str:
 
 
 def bundle_problems(
-    record: Any, images: Mapping[str, str | tuple[str, ...]], *, now: dt.datetime | None = None
+    record: Any,
+    images: Mapping[str, str | tuple[str, ...]],
+    *,
+    now: dt.datetime | None = None,
+    platforms: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Images (ref -> local image id, or every digest that names the image) a bundle may not carry under this
-    record (passing, and at most ``vulns.MAX_DB_AGE_DAYS`` old: a newer advisory may have arrived since)."""
+    record (passing, and at most ``vulns.MAX_DB_AGE_DAYS`` old: a newer advisory may have arrived since).
+
+    D-830: with ``platforms`` (ref -> the local image's platform), a digest also matches a passing entry's repo
+    digest (the index a registry image was pinned by before its scan) on that entry's platform only: on the
+    containerd store a pulled image's Id is its index digest, while the gates record its config digest."""
     if not isinstance(record, dict) or not record.get("ok"):
         return ["the gate record did not pass (or is not a gate record)"]
     created = vulns.parse_time(record.get("created"))
@@ -390,10 +398,19 @@ def bundle_problems(
         for e in record.get("images", [])
         if e.get("ok") and e.get("image_id") and not e.get("report_mode_findings")
     }
+    by_index: dict[str, list[str]] = {}  # repo digest -> the platforms it passed on (D-830)
+    for e in record.get("images", []):
+        if e.get("ok") and e.get("image_id") and not e.get("report_mode_findings"):
+            for rd in e.get("repo_digests") or []:
+                by_index.setdefault(str(rd).rsplit("@", 1)[-1], []).append(str(e.get("platform") or ""))
     problems = []
     for ref, image_id in images.items():
         ids = (image_id,) if isinstance(image_id, str) else tuple(image_id)
-        if not any(i and i in passed for i in ids):  # D-570: the image id differs by image store, the content not
+        plat = (platforms or {}).get(ref, "")
+        on_index = bool(plat) and any(
+            i.startswith("sha256:") and same_platform(plat, p) for i in ids if i for p in by_index.get(i, [])
+        )
+        if not on_index and not any(i and i in passed for i in ids):  # D-570: the id differs by image store
             problems.append(
                 f"{ref} ({ids[0] if ids else ''}) is not a passing image of this record; run make release-gates"
             )

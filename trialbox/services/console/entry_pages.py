@@ -54,6 +54,7 @@ ENTERED = ("text", "notes", "date", "dateTime", "integer", "decimal", "choice", 
 class ApiSave(BaseModel):
     event: str = Field(default="", max_length=100)
     values: dict[str, str]
+    reason: str = Field(default="", max_length=300)  # D-778: why a saved value changes
 
 
 def can_enter(user: User) -> bool:
@@ -156,7 +157,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return out
 
     def apply_save(sess: Session, path: str, rs: str, record: str, event: str, form: str,
-                   values: dict[str, str]) -> dict[str, Any]:  # fmt: skip
+                   values: dict[str, str], reason: str = "") -> dict[str, Any]:  # fmt: skip
         """Save one whole form for one record and event; refused whole, with every reason (DATA-FORM)."""
         rid = study_or_404(sess, rs)
         need_enter(sess, path, rid)
@@ -167,7 +168,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         # T-715 (D-483): signed as the person who enters (`task.enter_data`: the coordinator, or an investigator
         # the PI ticked), so that a step the orchestrator derives from the form names that person
         out = dict(actor.call(h, sess, "task.enter_data", rid, "POST", f"/studies/{rid}/entry/{quote(rec)}",
-                              {"form": form, "event": ev, "values": values}))  # fmt: skip
+                              {"form": form, "event": ev, "values": values,
+                               "reason": " ".join(reason.split())[:300]}))  # fmt: skip
         au.append("console.data_entry", ruleset=rid, actor=h.actor(sess),
                   detail={"form": form, "event": ev, "changed": out.get("changed", 0)})  # fmt: skip
         if form == "tb_consent":  # D-399 (FIT-009, URS-CRC-07): the version against the study's approved ICF list
@@ -317,7 +319,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             got = [str(v).strip() for v in data.getlist(f"f_{f['name']}") if str(v).strip()]
             values[f["name"]] = ",".join(got) if f["kind"] == "multi" else (got[0] if got else "")
         try:
-            out = apply_save(sess, request.url.path, rid, record, event, form, values)
+            why = str(data.get("reason") or "")  # D-778
+            out = apply_save(sess, request.url.path, rid, record, event, form, values, why)
         except Problem as exc:
             return entry_page(request, sess, rid, record, event.lower(), form, posted=values,
                               problems=exc.problems, err=None if exc.problems else err_of(exc), back=back)  # fmt: skip
@@ -460,7 +463,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_save(request: Request, rs: str, record: str, form: str, body: ApiSave) -> Any:
         sess = api_session(request)
         try:
-            out = apply_save(sess, request.url.path, rs, record, body.event, form, body.values)
+            out = apply_save(sess, request.url.path, rs, record, body.event, form, body.values, body.reason)
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
         return {"study": rs.upper(), **out}

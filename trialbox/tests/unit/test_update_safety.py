@@ -927,9 +927,13 @@ def test_ctrl_c_during_apply_rolls_back(tmp_path: Path) -> None:
 
 def test_install_sh_stops_when_the_bundle_load_fails() -> None:
     text = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
-    load = text.index('TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh"')
-    assert "set -euo pipefail" in text[:load]  # the pipe into sed keeps apply_update.sh's exit status
-    assert "|| die" in text[load : text.index("\n", load)]
+    load = text.index('sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1')  # the real load (D-831: under `alive`)
+    assert text[text.rindex("\n", 0, load) + 1 : load].lstrip().startswith("TB_SKIP_AUDIT=1 ")
+    assert "set -euo pipefail" in text[:load]  # the pipe into indent keeps apply_update.sh's exit status
+    end = load
+    while text[text.index("\n", end) - 1] == "\\":  # the statement, over its continued lines
+        end = text.index("\n", end) + 1
+    assert "|| die" in text[load : text.index("\n", end)]
 
 
 # ------------------------------------------------------------------------------------------------ T-111b

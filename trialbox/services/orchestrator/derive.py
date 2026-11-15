@@ -125,6 +125,19 @@ def reader_for(ctx: Any) -> Any:
     return made
 
 
+def kept_out_now() -> frozenset[str]:
+    """D-798 (T-206b): who the opt-out worker keeps out now (merged charts too), read through the decision context
+    (the batch runs outside a job), which the batch does not recompute, so the worker's clear of their derived rows
+    holds. A register that does not answer skips none: the batch goes on and the next tick clears."""
+    from orchestrator.decision_context import register_now
+
+    try:
+        return register_now()
+    except Exception as exc:
+        log.warning("derive: the opt-out register could not be read (%s); no patient skipped", type(exc).__name__)
+        return frozenset()
+
+
 def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
     """Recompute the stored derived rows of ``snapshot``; returns the batch's counts, or None when there is no trial
     database or the batch failed (logged and audited). Never raises."""
@@ -143,7 +156,13 @@ def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
         rep = guarded(
             "derived",
             generation_of(lake, snapshot),
-            lambda: run_batch(st, lake, mapping_version=mapping_version_of(lake, snapshot), snapshot=snapshot),
+            lambda: run_batch(
+                st,
+                lake,
+                mapping_version=mapping_version_of(lake, snapshot),
+                snapshot=snapshot,
+                skip=kept_out_now(),
+            ),
             url_of(orch),
             # what this build made: its batch's run id (builds of "derived" are serial, so the newest finished
             # batch of the night is this one). A reader pinned to the generation reads that batch

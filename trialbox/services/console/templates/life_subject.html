@@ -47,6 +47,8 @@
 {% if editable and one.steps|length > 1 %}
 <form method="post" action="/studies/{{ rs }}/subjects/{{ record|urlencode }}/undo" class="inline">
   <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="undo-note">{{ t('life.undo.reason') }}</label>
+  <input id="undo-note" name="note" required maxlength="300" data-testid="life-undo-note">
   <button type="submit" class="secondary" data-testid="life-undo">{{ t('life.undo') }}</button>
 </form>
 <p class="hint">{{ t('life.undo.help') }}</p>{% endif %}

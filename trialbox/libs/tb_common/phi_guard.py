@@ -8,6 +8,7 @@ clearance for exactly the text being sent. The guard errs on the side of hits (f
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -158,10 +159,14 @@ DOB_LABELLED = re.compile(rf"{_DOB_LABEL}(?P<v>{_DOB_VALUE}|(?:19|20)\d{{6}}|0?\
 # a date followed by the word for born: 生 only at the end of the phrase (1956年3月14日生，), 生まれ, 出生;
 # never the 生 of 生検, 生体, 生病, 生長, 生效 and the like
 DOB_BORN = re.compile(rf"(?<![0-9])(?P<v>{_DOB_VALUE})\s?(?=生まれ|に生まれ|出生|生(?:$|[\s，,。、;；)）\]】]))")
-_ZH_NO = rf"{_NUM_A}(?:[-－之]{_NUM_A})?號(?:之{_NUM_A})?(?:{_NUM_A}樓(?:之{_NUM_A})?)?(?:{_NUM_A}室)?"
+_AS = r"[^\S\n]?"  # D-756: a space (half or full width) records put between an address's parts
+_ZH_NO = (
+    rf"{_NUM_A}{_AS}(?:[-－之]{_NUM_A})?{_AS}號(?:之{_NUM_A})?(?:{_AS}{_NUM_A}{_AS}(?:樓|[Ff](?![A-Za-z]))(?:之{_NUM_A})?)?"
+    rf"(?:{_AS}{_NUM_A}室)?"
+)
 ADDRESS_ZH = re.compile(
     rf"(?:[{_CJK_A}]{{1,3}}(?:縣|市))?(?:[{_CJK_A}]{{1,3}}(?:區|鄉|鎮|市))?(?:[{_CJK_A}]{{1,4}}(?:村|里){_NUM_A}鄰)?"
-    rf"[{_CJK_A}]{{1,5}}(?:路|街|大道)(?:{_NUM_A}段)?(?:{_NUM_A}巷)?(?:{_NUM_A}弄)?{_ZH_NO}"
+    rf"[{_CJK_A}]{{1,5}}(?:路|街|大道){_AS}(?:{_NUM_A}{_AS}段{_AS})?(?:{_NUM_A}{_AS}巷{_AS})?(?:{_NUM_A}{_AS}弄{_AS})?{_ZH_NO}"
     # a village's address with no road: county, township, village and 鄰, number
     rf"|(?:[{_CJK_A}]{{1,3}}(?:縣|市))?[{_CJK_A}]{{1,3}}(?:鄉|鎮|區|市)[{_CJK_A}]{{1,4}}(?:村|里){_NUM_A}鄰{_ZH_NO}"
 )
@@ -405,8 +410,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
 MASK_CHAR = "○"
 # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744;
 # 3: dates of birth, addresses and chart labels, D-745; 4: ARC, 12-digit, bed and room numbers, staff and honorific
-# names without a listed surname, wider labelled values, D-756)
-NOTE_MASK_VERSION = "4"
+# names without a listed surname, wider labelled values, D-756; 5: full addresses with spaces, D-756)
+NOTE_MASK_VERSION = "5"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -414,14 +419,63 @@ _ROC = "|".join(sorted(ROC_COMPOUND, key=len, reverse=True)) + "|[" + "".join(so
 _JP = "|".join(sorted(JP_SURNAMES, key=len, reverse=True))
 _GIVEN_JP = rf"(?:(?!さん|様|くん|ちゃん|より|から)[{_CJK_N}{_KANA_N}])"  # a given name, not the honorific after it
 _ROLE_ZH = r"(?:醫師|醫生|護理師|藥師|個管師)"
+# D-756: a pattern that ends at a fixed word is run only in a window around each such word (its anchor): pattern
+# id -> (the anchor, characters before it, characters after it). A match always holds its anchor and lies inside
+# those bounds, so the windows give the spans the whole note gives (the tests compare the two).
+_ROLE_ANCHOR = re.compile(
+    r"主治醫師|住院醫師|護理長|醫師|醫生|護理師|護士|藥師|個管師|社工師|營養師|治療師|心理師|大夫|教授|主任"
+)
+_HONORIFIC_ANCHOR = re.compile(
+    r"老先生|老太太|先生|小姐|女士|太太|阿嬤|阿公|伯伯|伯母|奶奶|爺爺|媽媽|叔叔|阿姨|婆婆|阿伯|君|さん|様|氏|くん|ちゃん"
+)
+_NOTE_WINDOWS: dict[int, tuple[re.Pattern[str], int, int]] = {}
+
+
+def _windowed(rx: re.Pattern[str], anchor: re.Pattern[str], before: int, after: int) -> re.Pattern[str]:
+    _NOTE_WINDOWS[id(rx)] = (anchor, before, after)
+    return rx
+
+
+def _finditer(rx: re.Pattern[str], text: str) -> Iterator[re.Match[str]]:
+    """``rx.finditer(text)``, or for a windowed pattern its matches in the window around each anchor (overlapping
+    windows joined; a window runs on to its line's end, so a look ahead reads what it would in the whole note)."""
+    win = _NOTE_WINDOWS.get(id(rx))
+    if win is None:
+        yield from rx.finditer(text)
+        return
+    anchor, before, after = win
+    spans: list[list[int]] = []
+    for a in anchor.finditer(text):
+        lo, hi = max(0, a.start() - before), min(len(text), a.end() + after)
+        end = text.find("\n", hi)
+        hi = len(text) if end < 0 else end
+        if spans and lo <= spans[-1][1]:
+            spans[-1][1] = max(spans[-1][1], hi)
+        else:
+            spans.append([lo, hi])
+    for lo, hi in spans:
+        yield from rx.finditer(text, lo, hi)
+
+
 _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # chart numbers after their label (the site pattern, unlabelled, is added per call)
-    ("mrn", MRN_LABELLED),
+    (
+        "mrn",
+        _windowed(
+            MRN_LABELLED,
+            re.compile(
+                r"病歷|病历|病例|病歴|住院號|門診號|病人|病患|歸檔號|カルテ|患者|診察券"
+                r"|(?i:mrn|chart|medical record|hospital|admission|visit|patient|insurance|id)"
+            ),
+            2,
+            30,
+        ),
+    ),
     # dates of birth after their label or before the word for born, and postal addresses (D-745)
     ("dob", DOB_LABELLED),
-    ("dob", DOB_BORN),
+    ("dob", _windowed(DOB_BORN, re.compile(r"生まれ|出生|生(?:$|[\s，,。、;；)）\]】])|(?i:born)"), 40, 6)),
     ("address", ADDRESS_LABELLED),
-    ("address", ADDRESS_ZH),
+    ("address", _windowed(ADDRESS_ZH, re.compile("號"), 90, 40)),
     ("address", ADDRESS_JA),
     ("address", ADDRESS_EN),
     ("email", EMAIL),
@@ -432,13 +486,13 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("id", TW_ARC),
     ("id", TWELVE_DIGITS),
     ("bed", BED_LABELLED),
-    ("bed", BED_NUMBER),
+    ("bed", _windowed(BED_NUMBER, re.compile("床"), 16, 1)),
     ("room", ROOM),
     ("room", ROOM_NUMBER),
     ("phone", PHONE_LABELLED),
     ("name", STAFF_NAME_AFTER),
-    ("name", STAFF_NAME_BEFORE),
-    ("name", NAME_HONORIFIC),
+    ("name", _windowed(STAFF_NAME_BEFORE, _ROLE_ANCHOR, 6, 4)),
+    ("name", _windowed(NAME_HONORIFIC, _HONORIFIC_ANCHOR, 6, 3)),
     ("phone", PHONE),
     ("phone", EN_PHONE),
     (
@@ -455,8 +509,8 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(rf"(?:記載医|記載者|担当医|主治医|家族の|氏名)[\s:：]*(?P<v>(?:{_JP})[\s　]?{_GIVEN_JP}{{1,3}})"),
     ),
     ("name", re.compile(rf"(?:記錄者|紀錄者|家屬|家属|姓名)[\s:：]*(?P<v>(?:{_ROC})[{_CJK_N}]{{1,2}})")),
-    ("name", re.compile(rf"(?P<v>(?:{_ROC})(?:(?!科)[{_CJK_N}]){{0,2}}){_ROLE_ZH}")),
-    ("name", re.compile(rf"(?P<v>(?:{_ROC})[{_CJK_N}]{{0,2}}?)\s?{HONORIFIC}")),
+    ("name", _windowed(re.compile(rf"(?P<v>(?:{_ROC})(?:(?!科)[{_CJK_N}]){{0,2}}){_ROLE_ZH}"), _ROLE_ANCHOR, 6, 4)),
+    ("name", _windowed(re.compile(rf"(?P<v>(?:{_ROC})[{_CJK_N}]{{0,2}}?)\s?{HONORIFIC}"), _HONORIFIC_ANCHOR, 6, 3)),
     ("name", re.compile(rf"{PATIENT_WORD}[：:\s]?(?P<v>(?:{_ROC})[{_CJK_N}]{{1,2}})(?=[，,、\s(（]|$)")),
     (
         "name",
@@ -478,6 +532,134 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
+class _Facts:
+    """What a note holds that a pattern needs, found once per note (D-756): a pattern whose words or characters are
+    not in the note cannot match it and is not run. Each gate below is a necessary condition of its pattern, never
+    a guess (``tests/unit/test_phi_note_cgrd_shapes.py`` checks the spans are the same with and without them)."""
+
+    text: str
+    digit: bool
+    alpha: bool
+    upper: bool
+    low: str
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.digit = _DIGIT.search(text) is not None
+        self.alpha = _ALPHA.search(text) is not None
+        self.upper = _UPPER.search(text) is not None
+        self.low = text.lower() if self.alpha else ""
+
+    def has(self, *words: str) -> bool:
+        return any(w in self.text for w in words)
+
+    def says(self, *words: str) -> bool:
+        """An English word (lower case) in the note."""
+        return self.alpha and any(w in self.low for w in words)
+
+
+_DIGIT = re.compile(r"\d")  # what the patterns' \\d matches: every Unicode digit
+_ALPHA = re.compile(r"[A-Za-z]")
+_UPPER = re.compile(r"[A-Z]")
+_EN_FULL_ONLY = re.compile(_EN_PHONE_FULL)
+# the word each costly pattern cannot match without (a literal first, so the look is fast)
+_BORN_WORD = re.compile(r"生まれ|出生|生(?:$|[\s，,。、;；)）\]】])|(?i:born)")
+_ROAD_TO_NO = re.compile(r"(?:路|街|大道|鄰)[^\n]{0,40}?號")
+_EN_PHONE_WORD = re.compile(
+    r"(?i:\b(?:tel|phone|ph|mobile|mob|cell|fax|pager|landline|helpline|contact|call|dial|home|number))|\b[TM](?=\s*:)"
+)
+_NUMBER_BED = re.compile(r"\d[^\s床]{0,11}\s?號?床")
+_ROLE_WORDS = (
+    "醫師",
+    "醫生",
+    "護理",
+    "護士",
+    "藥師",
+    "個管師",
+    "社工師",
+    "營養師",
+    "治療師",
+    "心理師",
+    "專師",
+    "記錄",
+    "紀錄",
+)
+_HONORIFIC_WORDS = (
+    *(
+        "先生",
+        "小姐",
+        "女士",
+        "太太",
+        "阿嬤",
+        "阿公",
+        "伯伯",
+        "伯母",
+        "奶奶",
+        "爺爺",
+        "媽媽",
+        "叔叔",
+        "阿姨",
+        "婆婆",
+        "阿伯",
+    ),
+    *("君", "さん", "様", "氏", "くん", "ちゃん"),
+)
+# one gate per entry of _NOTE_PATTERNS, in its order
+_NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
+    lambda f: (
+        f.digit
+        and (
+            f.has(
+                "病歷", "病历", "病例", "病歴", "住院號", "門診號", "病人", "病患", "歸檔號", "カルテ", "患者", "診察券"
+            )
+            or f.says("mrn", "chart", "medical record", "hospital", "admission", "visit", "patient", "insurance", "id")
+        )
+    ),
+    lambda f: (
+        f.has("出生", "生日", "生年月日", "誕生日") or f.says("dob", "d.o.b", "birth", "born")
+    ),  # 民國四十五年: no digit
+    lambda f: _BORN_WORD.search(f.text) is not None,
+    lambda f: f.has("地址", "住", "戶籍地", "居所") or f.says("addr"),
+    lambda f: _ROAD_TO_NO.search(f.text) is not None,
+    lambda f: f.digit and f.has("東京都", "北海道", "大阪府", "京都府", "県"),
+    lambda f: f.digit and f.alpha,
+    lambda f: "@" in f.text,
+    lambda f: (
+        f.digit
+        and (
+            f.has("健保", "身分證", "身份證", "居留證", "統一證號", "保険者番号", "個人番号", "マイナンバー")
+            or f.says("insurance", "id", "arc")
+        )
+    ),
+    lambda f: f.digit and f.upper,
+    lambda f: f.digit and f.upper,
+    lambda f: f.digit,
+    lambda f: f.digit and (f.has("床") or f.says("bed")),
+    lambda f: _NUMBER_BED.search(f.text) is not None,
+    lambda f: f.digit and f.has("病房", "房號", "房号", "病室", "室號", "房間"),
+    lambda f: f.digit and f.has("房", "室"),
+    lambda f: f.digit and (f.has("電話", "手機", "市話", "携帯") or f.says("tel", "phone", "mobile")),
+    lambda f: f.has(*_ROLE_WORDS) or f.says("dr", "np", "rn", "md"),
+    lambda f: f.has(*_ROLE_WORDS, "大夫", "教授", "主任"),
+    lambda f: f.has(*_HONORIFIC_WORDS),
+    lambda f: f.digit,
+    lambda f: (
+        f.digit
+        and ((f.alpha and _EN_PHONE_WORD.search(f.text) is not None) or _EN_FULL_ONLY.search(f.text) is not None)
+    ),
+    lambda f: f.digit,
+    lambda f: f.has("記載医", "記載者", "担当医", "主治医", "家族の", "氏名"),
+    lambda f: f.has("記錄者", "紀錄者", "家屬", "家属", "姓名"),
+    lambda f: f.has("醫師", "醫生", "護理師", "藥師", "個管師"),
+    lambda f: f.has(*_HONORIFIC_WORDS, "老先生", "老太太"),
+    lambda f: f.has("病人", "患者", "個案", "病患", "案主", "受試者"),
+    lambda f: f.digit and f.has("歲"),
+    lambda f: f.has(*_HONORIFIC_WORDS),
+    lambda f: f.alpha,
+    lambda f: f.alpha,
+)
+
+
 def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, int]]:
     """``(kind, start, end)`` of every name, phone number, chart number, ID number, date of birth, postal address
     and email address found in note text, overlaps merged (kinds: ``name``, ``phone``, ``mrn``, ``id``, ``dob``,
@@ -485,8 +667,11 @@ def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, 
     ``mrn_regex`` is the site's chart number pattern
     (``settings.mrn_regex``); it also masks a chart number written without its label."""
     found: list[tuple[str, int, int]] = []
-    for kind, rx in _NOTE_PATTERNS:
-        for m in rx.finditer(text):
+    facts = _Facts(text)
+    for (kind, rx), gate in zip(_NOTE_PATTERNS, _NOTE_GATES, strict=True):
+        if not gate(facts):  # D-756: a pattern whose words the note does not hold cannot match it
+            continue
+        for m in _finditer(rx, text):
             if "v" in rx.groupindex and m.group("v") is not None:
                 found.append((kind, m.start("v"), m.end("v")))
             else:
