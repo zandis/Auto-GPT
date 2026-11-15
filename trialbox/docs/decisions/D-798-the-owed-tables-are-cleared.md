@@ -1,0 +1,7 @@
+# D-798 An opt-out clears the owed tables keyed by the pseudonym (T-206b, part 1)
+
+- **Task:** T-206b, the code-complete sprint, item 4 (PLAN-006, DATA-022: 60 erasure obligations owed) · **Date:** 2026-11-15
+- **The clear:** a new worker clear, `owed_tables` (`clear_tables` / `verify_tables`), deletes an opted-out patient's rows from 13 tables. Site: contact outcomes, excluded-patient reviews, the week first seen. Team: approach overrides, cross-department views, referrals and their events. Also the not-matched sample, PI feedback and NAV submissions. Derived: score rows with their input links and conflicts; a derive batch's failed list loses the pseudonym. It is idempotent, counts only, and skips a store the box does not have. It works as `tb_orchestrator` under the install's roles.
+- **Not in this part:** the screening log's tables (marks, screening numbers, candidate events, REDCap records), because LIFE-005 is frozen and OD-8 keeps a consented subject's. Also not here: the uploaded set-up files, the recall hashes, the OMOP side tables, the lake and object files, and the backups. The owed list goes from 60 to 46.
+- **Reuse:** the registry's clear contract (T-727) and `store_has` (D-683); one connection per schema; the derived deletes run in one transaction.
+- **Held by:** `tests/unit/test_optout_clears_the_owed_tables.py`, which includes a run as the orchestrator's role. The registry's pinned lists (`KNOWN_OWED`, the clear names) move as the registry asks a clear-adding card to do.

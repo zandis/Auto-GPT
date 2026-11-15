@@ -34,6 +34,7 @@ The orchestrator runs a tick every ``TB_OPTOUT_WORKER_MINUTES`` (default 5; 0: o
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -323,6 +324,90 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     with Database.connect(url, "profile") as db:
         n = db.fetchval("SELECT count(*) FROM tb_patient_profile WHERE pid = ANY(?)", (sorted(pids),))
     return {"profile.tb_patient_profile": int(n)}
+
+
+# T-206b part 1 (D-798): the owed tables keyed by the pseudonym, each a plain delete of the patient's rows, in an
+# order that deletes a referencing row before the row it references. The screening log's tables (marks, screening
+# numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.
+OWED_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("site", ("contact_outcomes", "excluded_review", "weekly_seen")),
+    ("team", ("approach_overrides", "candidate_views", "referral_events", "referrals")),
+    ("tuned", ("tuned_patients",)),
+    ("orch", ("feedback", "submissions")),
+)
+#: the derived store: the input links and conflicts of a score row go before the row (their foreign keys)
+DERIVED = "derived"
+
+
+def _derived(db: Any, pids: list[str], delete: bool) -> dict[str, int]:
+    """The derived store's rows of ``pids``: counted, or deleted (counts). ``batch_run.failed_pids`` (a JSON list)
+    loses the pseudonyms; the batch itself stays (it holds no other patient data)."""
+    rows = "SELECT id FROM score_row WHERE pid = ANY(?)"
+    out: dict[str, int] = {}
+    if delete:
+        # a conflict carried from one of the patient's (always the patient's own): unlink before the delete
+        db.execute("UPDATE conflict SET carried_from = NULL WHERE carried_from IN (SELECT id FROM conflict WHERE"
+                   " pid = ANY(?)) AND NOT (pid = ANY(?))", (pids, pids))  # fmt: skip
+        out["derived.input_link"] = db.execute(f"DELETE FROM input_link WHERE row_id IN ({rows})", (pids,))
+        out["derived.conflict"] = db.execute("DELETE FROM conflict WHERE pid = ANY(?)", (pids,))
+        out["derived.score_row"] = db.execute("DELETE FROM score_row WHERE pid = ANY(?)", (pids,))
+    else:
+        out["derived.input_link"] = int(db.fetchval(f"SELECT count(*) FROM input_link WHERE row_id IN ({rows})",
+                                                    (pids,)))  # fmt: skip
+        out["derived.conflict"] = int(db.fetchval("SELECT count(*) FROM conflict WHERE pid = ANY(?)", (pids,)))
+        out["derived.score_row"] = int(db.fetchval("SELECT count(*) FROM score_row WHERE pid = ANY(?)", (pids,)))
+    gone = set(pids)
+    n = 0
+    for bid, raw in db.fetchall("SELECT id, failed_pids FROM batch_run WHERE failed_pids IS NOT NULL"):
+        try:
+            listed = [str(x) for x in json.loads(raw)]
+        except (TypeError, ValueError):
+            continue
+        if gone & set(listed):
+            n += 1
+            if delete:
+                db.execute("UPDATE batch_run SET failed_pids = ? WHERE id = ?",
+                           (json.dumps([x for x in listed if x not in gone]), bid))  # fmt: skip
+    out["derived.batch_run"] = n
+    return out
+
+
+def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    from tb_common.db import Database
+
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    out: dict[str, int] = {}
+    for schema, tables in OWED_TABLES:
+        here = [t for t in tables if store_has(url, schema, t)]
+        if not here or not want:
+            out.update({f"{schema}.{t}": 0 for t in here})
+            continue
+        with Database.connect(url, schema) as db:
+            for t in here:
+                if delete:
+                    out[f"{schema}.{t}"] = int(db.execute(f"DELETE FROM {t} WHERE pid = ANY(?)", (want,)) or 0)
+                else:
+                    out[f"{schema}.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE pid = ANY(?)", (want,)))
+    if store_has(url, DERIVED, "score_row") and want:
+        with Database.connect(url, DERIVED) as db:
+            if delete:
+                with db.transaction() as tx:
+                    out.update({k: int(v or 0) for k, v in _derived(tx, want, True).items()})
+            else:
+                out.update(_derived(db, want, False))
+    return out
+
+
+def clear_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """T-206b part 1 (D-798): the opted-out patients' rows of the owed tables keyed by the pseudonym go (counts by
+    table, never who). A store this box does not have is left out; the worker never creates one."""
+    return _owed_tables(pids, env, delete=True)
+
+
+def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """The rows of ``pids`` still in each owed table (and batches still naming one)."""
+    return _owed_tables(pids, env, delete=False)
 
 
 def run_once(env: WorkerEnv) -> dict[str, Any]:
