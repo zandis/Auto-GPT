@@ -666,6 +666,9 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
+    "TB_KEK_BACKEND": Declared(
+        "str", "", "seal_keys.sh: the KEK back end (tpm, shamir or passphrase) without a hardening.conf (D-836)"
+    ),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
     "TB_KMS_TOKEN": Declared("str", "", "kms KEK back end: the hospital KMS token (secret; T-319)"),
     "TB_KMS_URL": Declared("str", "", "kms KEK back end: the KMS transit address when it moved from kek.json's"),

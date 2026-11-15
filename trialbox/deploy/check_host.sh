@@ -142,7 +142,15 @@ done
 fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
-elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then pass "TPM 2.0 device present"; else strict "no TPM device: the disk unlock and the KEK cannot be bound to this board"; fi
+elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
+  # D-836: a device node is not enough; systemd-creds needs the TPM and its TSS2 libraries. Asked of the running host
+  # only (a test's TB_HOST_ROOT has no kernel to ask)
+  if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
+    strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)"
+  else
+    pass "TPM 2.0 device present"
+  fi
+else strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)"; fi
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then

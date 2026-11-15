@@ -619,7 +619,8 @@ say "site keys (made once, never replaced)"
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
   || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
 # T-634 (D-408; OPS-043): sealed at once, before any service opens them. VALIDATION and PRODUCTION always; a DEV or TEST
-# box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (KEK_BACKEND, default tpm); the
+# box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (TB_KEK_BACKEND in the installer's
+# environment, else hardening.conf's KEK_BACKEND, default tpm; D-836); the
 # host check FAILs a plain site key in VALIDATION and PRODUCTION
 HB_CONF="$ROOT/deploy/site/hardening.conf"
 if [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
@@ -629,7 +630,7 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
-    || die "the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md"
+    || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
