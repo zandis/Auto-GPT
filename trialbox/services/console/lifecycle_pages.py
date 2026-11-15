@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import logging
 import re
 from datetime import date
 from typing import Any
@@ -89,6 +90,93 @@ def why_text(lang: str, exc: Problem) -> str:
     allowed = ", ".join(st(x.strip()) for x in str(d.get("allowed") or "").split(",") if x.strip()) or "–"
     text = translate(lang, key, state=st(str(d.get("state") or "")), to=st(str(d.get("to") or "")), allowed=allowed)
     return translate(lang, "life.why.other") if text == key else text
+
+
+log = logging.getLogger("console.lifecycle")
+
+
+def printable_report(data: bytes, lang: str) -> bytes:
+    """NEW-UX-3b (D-699, UX-003): the enrolment workbook with a sheet for people, which it opens on: the study and
+    when the file was made, then the states, the months, the screen-failure reasons and the withdrawals in the page's
+    words, dates as dates, laid out to print (portrait, one page wide). The machine sheets stay as they are, ``states``
+    first, for the systems that read them; the file stays byte-reproducible. A file that is not the report, or not
+    of its shape, is handed over as it came."""
+    try:
+        return _printable_report(data, lang)
+    except Exception as exc:  # another file or another shape: the machine file, never a half-made one
+        log.warning("enrolment workbook handed over without its sheet for people (%s)", type(exc).__name__)
+        return data
+
+
+def _printable_report(data: bytes, lang: str) -> bytes:
+    import io
+    from datetime import date as day_
+
+    from openpyxl import load_workbook
+    from openpyxl.styles import Font
+    from tb_common import sheets
+    from tb_common.deterministic import normalize_ooxml
+
+    wb = load_workbook(io.BytesIO(data))
+    tables = {n: [list(r) for r in wb[n].iter_rows(values_only=True)]
+              for n in ("states", "months", "screen_fail", "withdrawals")}  # fmt: skip
+    about = {str(r[0]): r[1] for r in wb["about"].iter_rows(values_only=True) if r and len(r) > 1} if (
+        "about" in wb.sheetnames) else {}  # fmt: skip
+
+    def t(key: str) -> str:
+        return translate(lang, key)
+
+    def word(prefix: str, code: Any) -> Any:
+        text = t(prefix + str(code))
+        return text if text != prefix + str(code) else code
+
+    def as_day(v: Any) -> Any:
+        try:
+            return day_.fromisoformat(str(v)[:10]) if isinstance(v, str) and len(v) >= 10 else v
+        except ValueError:
+            return v
+
+    ws = wb.create_sheet(t("enrol.xlsx.sheet")[:31], 1)
+    ws.append([t("enrol.xlsx.sheet"), str(about.get("study") or ""), str(about.get("made") or "")])
+    ws.cell(1, 1).font = Font(bold=True, size=13)
+    heads: list[int] = []
+
+    def section(title: str, head: list[str], rows: list[list[Any]]) -> None:
+        ws.append([])
+        ws.append([title])
+        ws.cell(ws.max_row, 1).font = Font(bold=True, size=12)
+        ws.append(head)
+        heads.append(ws.max_row)
+        for r in rows:
+            ws.append(r)
+
+    section(t("enrol.xlsx.states"), [t("registry.status"), t("enrol.xlsx.now"), t("enrol.xlsx.ever")],
+            [[word("life.state.", r[0]), r[1], r[2]] for r in tables["states"][1:]])  # fmt: skip
+    mo = tables["months"]
+    section(t("enrol.xlsx.months"), [t("enrol.xlsx.month"), *[word("life.state.", c) for c in mo[0][1:]]],
+            [list(r) for r in mo[1:]])  # fmt: skip
+    section(t("enrol.xlsx.screen_fail"), [t("enrol.xlsx.reason"), t("enrol.xlsx.count")],
+            [[word("life.reason.sf.", r[0]), r[1]] for r in tables["screen_fail"][1:]])  # fmt: skip
+    section(t("enrol.xlsx.withdrawals"), [t("enrol.xlsx.record"), t("enrol.xlsx.day"), t("enrol.xlsx.reason")],
+            [[r[0], as_day(r[1]), word("life.reason.wd.", r[2])] for r in tables["withdrawals"][1:]])  # fmt: skip
+    for n in heads:
+        for c in ws[n]:
+            c.font = Font(bold=True)
+    for row in ws.iter_rows():
+        for c in row:
+            if isinstance(c.value, day_):
+                c.number_format = "yyyy-mm-dd"
+    for letter in ("A", "B", "C", "D", "E", "F", "G", "H"):
+        ws.column_dimensions[letter].width = 30 if letter == "A" else 18
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    wb.active = wb.index(ws)
+    sheets.no_formulas(wb)  # NEW-CSV-1 (D-549): a typed reason stays text
+    out = io.BytesIO()
+    wb.save(out)
+    return normalize_ooxml(out.getvalue())  # byte-reproducible, as the orchestrator's file (SPEC 11.2)
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -558,6 +646,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(503, "unavailable", detail=service_and_status(exc)) from exc
         if media.startswith("text/csv"):
             data = for_spreadsheet(data)  # a file a person opens: Excel reads it as UTF-8 only with the mark
+        elif fmt == "xlsx":
+            data = printable_report(data, sess.lang)  # NEW-UX-3b (D-699): it opens on the report for people
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     # ------------------------------------------------------------------ /api/v1 (D-125, D-127)
