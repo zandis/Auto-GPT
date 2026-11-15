@@ -26,7 +26,7 @@
 {# SAE reports past their due day (P-03): the investigator's and the coordinator's home pages #}
 {% macro report_banner(reports, compact=false) %}{% if reports %}<section class="card attention{{ ' compact' if compact else '' }}" role="alert" data-testid="sae-reports">
 {% if compact %}<details data-testid="sae-reports-fold"><summary><h2>{{ t('life.reports.title') }} · {{ reports|length }}</h2> <span class="hint">{{ t('fold.show') }}</span></summary>{% else %}<h2>{{ t('life.reports.title') }}</h2>{% endif %}
-<ul class="plain">{% for a in reports %}<li data-testid="sae-report-{{ a.record }}-{{ a.event }}-{{ a.party }}">{{ t('life.reports.row', r=a.record, rs=a.rs, party=t('life.clock.party.' + a.party), day=a.due) }}
+<ul class="plain">{% for a in reports %}<li data-testid="sae-report-{{ a.record }}-{{ a.event }}-{{ a.party }}">{% if a.due %}{{ t('life.reports.row', r=a.record, rs=a.rs, party=t('life.clock.party.' + a.party), day=a.due) }}{% else %}{{ t('life.reports.row_noclock', r=a.record, rs=a.rs, why=t('life.clock.party.' + a.party)) }}{% endif %}
  <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a></li>{% endfor %}</ul>
 {% if compact %}</details>{% endif %}</section>{% endif %}{% endmacro %}
 
