@@ -393,3 +393,27 @@ def test_acc_tools_is_the_committed_tools_at_head(tmp_path: Path) -> None:
                  "tools/public_site.py", "tools/fetch_pinned.py", "eval/criterion_ml/annotations.jsonl"):  # fmt: skip
         assert want in names, want
     assert not any(n.startswith(("services/", "libs/")) for n in names), "only lane G's tools, never the product"
+
+
+def test_box_call_sends_a_long_argument_in_the_program_text(tmp_path: Path) -> None:
+    """F30: one command-line argument is capped at 128 KiB (a long TREC protocol attached failed with "Argument list
+    too long"); above ARGV_MAX the argument goes in the program text, which onbox.py reads the same way."""
+    import shutil
+    import stat
+    import sys as _sys
+
+    onbox = Path(__file__).resolve().parents[2] / "tools" / "public_accuracy" / "onbox.py"
+    prog = tmp_path / "onbox.py"
+    text = onbox.read_text(encoding="utf-8")
+    main = 'if __name__ == "__main__":'
+    prog.write_text(text.replace(main, 'COMMANDS["echo"] = lambda a: print(json.dumps({"n": len(a["x"])}))\n\n' + main),
+                    encoding="utf-8")  # fmt: skip
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "python").symlink_to(shutil.which("python3") or _sys.executable)
+    dc = tmp_path / "dc"
+    dc.write_text(f'#!/bin/sh\nshift 3\nPATH="{bindir}:$PATH" exec "$@"\n')  # drop "exec -T svc"
+    dc.chmod(dc.stat().st_mode | stat.S_IEXEC)
+    box = box_vm.Box([str(dc)], prog, tmp_path / "calls.log", None)
+    assert box.call("svc", "echo", {"x": "a" * 10}) == {"n": 10}
+    assert box.call("svc", "echo", {"x": "a" * 300_000}) == {"n": 300_000}

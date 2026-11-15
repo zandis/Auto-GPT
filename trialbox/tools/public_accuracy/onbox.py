@@ -298,4 +298,7 @@ if __name__ == "__main__":
     if name not in COMMANDS:
         print(f"onbox: one of {', '.join(COMMANDS)}", file=sys.stderr)
         raise SystemExit(2)
-    COMMANDS[name](json.loads(base64.b64decode(sys.argv[2]).decode("utf-8")) if len(sys.argv) > 2 else {})
+    # a large argument (a long protocol attached) comes in the program text itself, not on the command line, whose
+    # one argument is capped at 128 KiB by the kernel (F30: "Argument list too long" on a TREC protocol)
+    raw = sys.argv[2] if len(sys.argv) > 2 else globals().get("_ONBOX_ARG_B64", "")
+    COMMANDS[name](json.loads(base64.b64decode(raw).decode("utf-8")) if raw else {})

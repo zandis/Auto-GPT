@@ -799,6 +799,9 @@ def list_rows(doc: Any, tier: str = "") -> list[dict[str, Any]]:
     return out
 
 
+ARGV_MAX = 100_000  # bytes of one onbox argument on the command line (the kernel's cap on one argument: 128 KiB)
+
+
 class Box:
     """The installed box as the accuracy set reaches it: onbox.py piped into a service's container."""
 
@@ -809,13 +812,21 @@ class Box:
         import subprocess
 
         b64 = base64.b64encode(json.dumps(arg or {}, ensure_ascii=False).encode()).decode()
-        argv = [*self.dc, "exec", "-T", svc, "python", "-", cmd, b64]
+        program = self.onbox.read_text(encoding="utf-8")
+        argv = [*self.dc, "exec", "-T", svc, "python", "-", cmd]
+        if len(b64) <= ARGV_MAX:
+            argv.append(b64)
+        else:  # F30: one command-line argument is capped at 128 KiB; a long one goes in the program text
+            main = 'if __name__ == "__main__":'
+            if main not in program:
+                raise RuntimeError(f"{svc} onbox {cmd}: the argument is too long for the command line")
+            program = program.replace(main, f"_ONBOX_ARG_B64 = {b64!r}\n\n{main}", 1)
         with self.log.open("a", encoding="utf-8") as lf:
             lf.write(f"+ {svc} onbox {cmd} {time.strftime('%H:%M:%S')}\n")
             lf.flush()
             p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf, text=True)
             assert p.stdin is not None and p.stdout is not None
-            p.stdin.write(self.onbox.read_text(encoding="utf-8"))
+            p.stdin.write(program)
             p.stdin.close()
             # line by line, as onbox prints them: `wait` says each change of the job's state, and that line in the
             # step's log (and the beat) is the VM's heartbeat while a job runs; a long answer line is cut in the log

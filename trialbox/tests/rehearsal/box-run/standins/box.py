@@ -459,7 +459,15 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
         print(f"box stand-in: not onbox.py for {svc}", file=sys.stderr)
         return 2
     cmd = args[0]
-    a = json.loads(base64.b64decode(args[1]).decode()) if len(args) > 1 else {}
+    raw = args[1] if len(args) > 1 else ""
+    if not raw:  # F30: a long argument comes in the program text (_ONBOX_ARG_B64 = '...'), as onbox.py reads it
+        import re
+
+        m = re.search(r"^_ONBOX_ARG_B64 = '([A-Za-z0-9+/=]*)'$", text, re.M)
+        raw = m.group(1) if m else ""
+        if m:
+            called(f"onbox-long-arg {svc} {cmd}")
+    a = json.loads(base64.b64decode(raw).decode()) if raw else {}
     called(f"onbox {svc} {cmd}")
     if cmd == "env":
         lim = jload(BOX / "limits.json", {})
