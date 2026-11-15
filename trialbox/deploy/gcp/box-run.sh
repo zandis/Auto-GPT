@@ -241,7 +241,9 @@ if [ "$MODE" = validation ]; then  # the throwaway key's public half, written be
 else
   V[tb-vendor-pub]="${V[tb-vendor-pub]:-$BUCKET/r2/keys/vendor_ed25519.pub}"
 fi
-if [ "$STEPS" = build ]; then
+if [ "$STEPS" = dev ]; then   # the commit's images and tree on the VM: no bundle, no signature (the lead's order)
+  V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-direct]=1
+elif [ "$STEPS" = build ]; then
   V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-out]="${V[tb-out]:-$BUCKET/r2/$RID}"
   [ "$MODE" = validation ] || V[tb-vendor-key-secret]="$KEY_SECRET"
 else

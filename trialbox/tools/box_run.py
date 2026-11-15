@@ -63,9 +63,10 @@ GROUP_CAP_HOURS = {
     "g6": 7,  # plan 32 G-20's 5.0 h "est." x 1.3 rounded up (the complete run's cap rule)
     "g9": 2,  # two 50k screens (measured 725 s each, thin profile) + four interruptions of at most 20 min each
     "g10": 2,  # an update and a canary and a qualification: none measured
+    "dev": 3,  # the commit's images built (b01-b03 measured: 0.11 h) + the stack, G-1, canary, qualify (unmeasured)
     "probe": 1,  # the VM's facts only (00-facts): a boot and a few reads; the hour is the cloud's smallest sure cap
 }
-GROUPS = ("build", "start", "g6", "g9", "g10", "acc", "probe")
+GROUPS = ("build", "start", "g6", "g9", "g10", "acc", "probe", "dev")
 MODES = ("production", "validation")
 # The acc group's cap: the plan's high bound of the sets chosen x 1.3 (the complete run's cap rule), whole hours
 ACC_CAP_FACTOR = 1.3
@@ -194,6 +195,26 @@ def rows_for(
         ]
     if group == "acc":
         return acc_rows(sets if sets is not None else acc_sets())
+    if group == "dev":
+        return [
+            boot,
+            row(
+                group,
+                "b01-b03 clone, venv, images (this VM, 2026-11-15)",
+                17.0 + 21.0 + 160.0,
+                "measured",
+                "box-20261115T091037Z-ac36aa21f parts b01-b03",
+            ),
+            row(
+                group,
+                "02 the stack up by the direct route (this VM, 2026-11-15)",
+                281.0,
+                "measured",
+                "box-20261115T094747Z-4c7c47017 part 02-install (direct)",
+            ),
+            row(group, "03-07 env, pins, serving record, G-1, canary", 260.0, "measured", "the same run, parts 03-07"),
+            row(group, "08 trialbox eval qualify --box (full)", None, "unknown", "never finished on real weights"),
+        ]
     if group == "probe":
         return [boot, row(group, "00-facts: disk, image store, python3, TPM, GPU, model folders, a read rate", None,
                           "unknown", "-")]  # fmt: skip
@@ -395,6 +416,7 @@ def metadata(
         "g10": ("tb-g10-vllm-image",),
         "acc": ("tb-acc-tools",),
         "probe": (),
+        "dev": ("tb-src", "tb-commit"),
     }
     if mode == "validation":  # no vendor key; the synthetic site's answers ride as tb-site-answers (box-run.sh)
         must["build"] = ("tb-src", "tb-commit", "tb-release-id", "tb-release-seq", "tb-out")

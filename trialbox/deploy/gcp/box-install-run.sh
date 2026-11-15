@@ -484,15 +484,16 @@ fi
 
 has() { case "$STEPS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 pf=""
-for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc|probe) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
+for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc|probe|dev) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
 [ -s "$HELPER" ] || pf="$pf; no tb-helper (deploy/gcp/box_vm.py)"
 for c in "$PY" curl tar sha256sum; do command -v "$c" >/dev/null || pf="$pf; no $c"; done
-if has build; then
+if has build || has dev; then
   for c in git make docker; do command -v "$c" >/dev/null || pf="$pf; no $c (build)"; done
-  if [ "$MODE" = validation ]; then bv="SRC COMMIT RID SEQ OUTP"; else bv="SRC COMMIT RID SEQ KSEC KVER VPUB_SRC OUTP"; fi
+  if ! has build; then bv="SRC COMMIT"   # dev: images and the tree only
+  elif [ "$MODE" = validation ]; then bv="SRC COMMIT RID SEQ OUTP"; else bv="SRC COMMIT RID SEQ KSEC KVER VPUB_SRC OUTP"; fi
   for v in $bv; do [ -n "${!v}" ] || pf="$pf; no ${v} (build metadata)"; done
 fi
-if has start || has g6 || has g9 || has g10 || has acc; then
+if has start || has dev || has g6 || has g9 || has g10 || has acc; then
   for c in docker nvidia-smi; do command -v "$c" >/dev/null || pf="$pf; no $c"; done
   [ -d "$MODELS" ] || pf="$pf; no model folders at $MODELS"
 fi
@@ -1041,6 +1042,29 @@ step_bundle() {
   return 0
 }
 
+
+# ------------------------------------------------------------------ dev: the commit's own tree as the box's release
+# The images were built from the commit's checkout (b03, same tags as a bundle's). Its host tree (what a bundle's
+# trialbox-host.tar carries: tools/host_tree.py's TOP_DIRS and TOP_FILES) is copied to releases/dev-<commit12> and
+# `current` points at it; deploy/'s links into ../current follow. The site's own files (deploy/.env, settings.yaml,
+# secrets, site) stay as the settings wizard and the first start left them. No bundle, no signature: said in the notes.
+step_dev_tree() {
+  local rel="$BOXROOT/releases/dev-${COMMIT:0:12}" x f
+  [ -d "$BOXROOT/deploy" ] && [ -s "$BOXROOT/deploy/.env" ] \
+    || { STOP="no box at $BOXROOT with the wizard's deploy/.env (the first start's): dev reuses its site files"; return 1; }
+  rm -rf "$rel"; mkdir -p "$rel"
+  for x in deploy tools libs schemas pyproject.toml .env.example NOTICE CHANGELOG.md; do
+    [ -e "$CK/$x" ] && cp -a "$CK/$x" "$rel/"
+  done
+  rm -f "$rel/deploy/.env"
+  ln -sfn "releases/dev-${COMMIT:0:12}" "$BOXROOT/current.new" && mv -Tf "$BOXROOT/current.new" "$BOXROOT/current"
+  for f in "$rel"/deploy/*; do   # a shipped file new in this commit gets its link too; the site's own files stay
+    x="$BOXROOT/deploy/$(basename "$f")"
+    [ -e "$x" ] || [ -L "$x" ] || ln -s "../current/deploy/$(basename "$f")" "$x"
+  done
+  note release "\"dev-${COMMIT:0:12} (the commit's checkout; images built on this VM, b03; no bundle, no signature)\""
+  note commit "\"$COMMIT\""
+}
 # ------------------------------------------------------------------ the direct route (the lead's order, 2026-11-15)
 # The owner's goal for PoC-1 is the main system on the GPU VM, not the delivery path. When install.sh cannot run again
 # (it refuses a repeat of the release it already applied), 02 brings up the tree the signed bundle put at $BOXROOT
@@ -1228,6 +1252,7 @@ step_qualify() {
   if [ -n "$DIRECT" ]; then WATCH_IO=1 need "the stack healthy before qualify (compose up --wait)" d_direct_up || return 1; fi
   watched d_medtxt; note medtxt_fetch_exit $?
   # the box's own commit, for the files qualify reads that the image lacks (F13): the source bundle beside the bundle
+  if has dev && [ -d "$CK" ] && [ ! -d "$TB/qsrc/trialbox" ]; then ln -sfn "${CK%/trialbox}" "$TB/qsrc"; fi
   if [ -n "$COMMIT" ] && [ ! -d "$TB/qsrc/trialbox" ]; then
     rm -rf "$TB/qsrc"
     { fetch "${BUNDLE_SRC%/*}/src.bundle" "$TB/qsrc.bundle" && git clone -q "$TB/qsrc.bundle" "$TB/qsrc" \
@@ -1725,8 +1750,15 @@ if has build; then
   run_step b06-verify step_b_verify
   run_step b07-upload step_b_upload
 fi
-if has start; then
-  run_step 01-bundle step_bundle
+if has dev; then   # the lead's order (2026-11-15): the latest commit's images built here, its tree, the direct route
+  run_step b01-source step_b_source
+  run_step b02-venv step_b_venv
+  run_step b03-images step_b_images
+  run_step d04-tree step_dev_tree
+  DIRECT=1
+fi
+if has start || has dev; then
+  has dev || run_step 01-bundle step_bundle
   if [ -n "$DIRECT" ]; then run_step 02-install step_direct_up; else run_step 02-install step_install; fi
   if [ "$MODE" = validation ]; then run_step 03-wizard step_venv_env; else run_step 03-wizard step_wizard; fi
   if [ -n "$PROBE" ]; then

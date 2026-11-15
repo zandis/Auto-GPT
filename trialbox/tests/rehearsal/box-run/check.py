@@ -380,6 +380,20 @@ if case == "direct":
         "direct: no install.sh; the product's own secrets init, pin, keys-init and db-up, once each",
     )  # fmt: skip
 
+if case == "dev":
+    ok(
+        state["order"] == [*BUILD[:3], "d04-tree", *START[1:]],
+        "dev: b01-b03, the tree, then the start from 02 (no bundle), in that order",
+    )
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE") and parts["02-install"]["detail"]["route"].startswith("direct"),
+       "dev: the direct route brought the stack up")  # fmt: skip
+    ok("no bundle" in parts["d04-tree"]["detail"]["release"] and (S / "box-root" / "current").is_symlink(),
+       "dev: current points at the commit's tree, said as no bundle and no signature")  # fmt: skip
+    ok(
+        calls["images"] == 1 and calls["release-gates"] == 0 and calls["install"] == 0,
+        "dev: images built; no gates, no install",
+    )
+
 if case == "probe":
     ok(list(parts) == ["00-facts"] and ended.startswith("TB-PROBE-DONE"), "probe: the facts, then the run ends")
     facts = (R / "records" / "facts-vm.txt").read_text()
