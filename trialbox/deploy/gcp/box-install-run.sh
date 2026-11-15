@@ -1766,6 +1766,13 @@ step_acc_set() {
   acc_compile_only "$name" && co=(--compile-only)
   t0=$(st kv _ "acc_t0_$name"); [ -n "$t0" ] || { t0=$(date -u +%FT%T); st set "$STEP" "acc_t0_$name" "$t0"; }
   dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
+  # the sender and the reviewer as the box's settings name them NOW (a 51 kept from an earlier boot may have read
+  # other settings: F16 left the example's in place then, F18)
+  if acc_call mail-gateway env > "$RUN/logs/acc-env-$name.json" 2>> "$STEP_LOG"; then
+    st set "$STEP" acc_sender "$(first_of "$RUN/logs/acc-env-$name.json" senders)"
+    st set "$STEP" acc_reviewer "$(first_of "$RUN/logs/acc-env-$name.json" reviewers)"
+  fi
+  note sender "\"$(st kv _ acc_sender)\""; note reviewer "\"$(st kv _ acc_reviewer)\""
   ACC_CUR=$name
   WATCH_GPU=1 PROG_FN=prog_acc need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
     vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
