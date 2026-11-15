@@ -193,6 +193,13 @@ ADDRESS_LABELLED = re.compile(
     rf"(?P<v>(?=[^\s，,。；;\n　]{{0,30}}?(?:[0-9０-９]|[市縣區鄉鎮村里路街號町都道府県丁番]))"
     rf"[^\s，,。；;、\n（(：:][^，,。；;\n\t　]{{1,60}}?){_FIELD_END}"
 )
+# NEW-B-50 (D-756): a labelled value as records write it: letters (either case) and digits, full-width too, groups
+# joined by - _ / . or by a space (a group after a space holds a digit); four digits or more, found by a bounded
+# look ahead (a look that ran to the line's end made a long line slow)
+_LABELLED_VALUE = (
+    r"(?=(?:[^0-9０-９\n，,。；;、]{0,8}[0-9０-９]){4})"
+    r"[A-Za-z0-9０-９]+(?:[-_/.－][A-Za-z0-9０-９]+|[^\S\n][A-Za-z0-9０-９]*[0-9０-９][A-Za-z0-9０-９]*)*"
+)
 # a chart number after its label, the labels of Taiwanese, Japanese and English records, the label against the number
 # too, written against it; full-width digits; the number holds four figures or more (never D-143, a decision's)
 MRN_LABELLED = re.compile(
@@ -200,9 +207,106 @@ MRN_LABELLED = re.compile(
     r"|病人編號|歸檔號|カルテ(?:番号|No\.?)|患者(?:ID|番号|No\.?)|診察券番号|病[人患]ID"
     r"|(?i:(?<![A-Za-z])MRN|(?<![A-Za-z])chart\s*(?:no\.?|number|\#)|\bmedical record (?:no\b\.?|number\b)"
     r"|\bhospital\s*(?:no\b\.?|number\b)|\badmission\s*no\b\.?|\bvisit\s*no\b\.?|\bpatient\s*ID\b|\binsurance\s*ID\b)|(?<![A-Za-z])ID\s*[:：](?:\s*No\.?)?)"
-    r"[\s:：#（(]*(?P<v>(?=(?:[A-Za-z-]*[0-9０-９]){4})[A-Za-z0-9０-９][A-Za-z0-9０-９-]{3,14})(?![A-Za-z0-9０-９])"
+    r"[\s:：#（(\[［【]*(?P<v>" + _LABELLED_VALUE + r")(?![A-Za-z0-9０-９])"
 )
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+# NEW-B-50 (D-756): shapes the note masker missed and the guard had, or neither had. One definition each, read by the
+# masker (:func:`note_spans`) and the guard service's recognisers (the guard also reads every span the masker finds).
+# Group ``v``: the value (the word stays). Every look ahead is bounded: a note can be one long line.
+# A resident certificate (ARC) number, the new format (a letter, 8 or 9, eight digits) and the old (two letters,
+# eight digits), a space after the letter allowed; masked whatever its check digit (the guard validates it to name it)
+TW_ARC = re.compile(r"(?<![A-Za-z0-9])[A-Z] ?(?:[89]\d{8}|[A-D]\d{8})(?![0-9])")
+# twelve digits, together or in fours (joined by a space, a dash, a dot or a slash): the shape of a health-insurance
+# card number and of a My Number. The guard takes every one (:data:`TWELVE_DIGITS_ANY`); the masker leaves three clock
+# times in a row (a medication schedule written in four-digit times), and masks them too after a card's word
+_TWELVE = r"\d{4}[ \-./]?\d{4}[ \-./]?\d{4}"
+TWELVE_DIGITS_ANY = re.compile(rf"(?<![\d\-./]){_TWELVE}(?![\d\-./]?\d)")
+_HHMM = r"(?:[01]\d|2[0-3])[0-5]\d"
+TWELVE_DIGITS = re.compile(
+    rf"(?<![\d\-./])(?!{_HHMM}[^\S\n]{_HHMM}[^\S\n]{_HHMM}(?![\d\-./]?\d)){_TWELVE}(?![\d\-./]?\d)"
+)
+_ALNUM_W = "A-Za-z0-9０-９Ａ-Ｚａ-ｚ"
+_HAS_DIGIT = r"(?=[^\s，,。；;、]{0,10}[0-9０-９])"  # the value (at most 11 characters) holds a digit
+_ID_VALUE = rf"{_HAS_DIGIT}[{_ALNUM_W}][{_ALNUM_W}\-－]{{0,9}}"
+_COUNT_AFTER = r"(?!\s?[次間個天日週月年張位床被])"  # 病房 2 次, 病室2間: a count, not a room
+# a bed number after its word (床號, 病床, 床位, 床:, bed no.)
+BED_LABELLED = re.compile(
+    rf"(?:床號(?:碼)?|床号|病床(?:號碼|號)?|床位(?:號碼|號)?|床次|床(?=[\s:：#])|(?i:\bbed\b\.?\s*(?:no\b\.?|number\b|#)?))"
+    rf"[\s:：#]*(?:No\.?\s*)?(?P<v>{_ID_VALUE}){_COUNT_AFTER}"
+)
+# a bed number written against 床 (12床, 5B-12床, A3床, ３床, 12號床); never a count of beds (共有20床, 2床被, 50床病房)
+BED_NUMBER = re.compile(
+    rf"(?<![{_ALNUM_W}\-－共有約計總])(?P<v>(?=[^床\s]{{0,10}}[0-9０-９])[{_ALNUM_W}]{{1,5}}(?:[-－][{_ALNUM_W}]{{1,5}})?)"
+    r"\s?號?床(?!被|位|單|墊|褥|病房|加護|數)"
+)
+# a room number after its word (病房, 房號, 病室, 室號, 房間) or before it (712病房, 712房, 712室)
+ROOM = re.compile(
+    rf"(?:病房號?|房號|房号|病室|室號|房間|病室番号)[\s:：#]*(?:No\.?\s*)?(?P<v>{_ID_VALUE}){_COUNT_AFTER}"
+)
+ROOM_NUMBER = re.compile(
+    rf"(?<![{_ALNUM_W}\-－共有約計總第])(?P<v>(?=[{_ALNUM_W}\-－]{{0,7}}[0-9０-９]{{3}})[{_ALNUM_W}][{_ALNUM_W}\-－]{{2,7}})"
+    r"(?:病房|房|室)(?![間號])"
+)
+# a staff member's name beside a role word, the surname in no list: after the role (主治醫師：王大明, 記錄者 林小華,
+# 護理師陳美, 醫師(王大明), a list 護理師：王大明、林小華; 2 to 4 characters each, then the end of the name or a verb
+# of a note) or before it (王大明醫師, 李護理師, 王大明/護理師; 1 to 3 characters after a boundary). Never the role
+# word's own qualifier, a department, a pronoun, a label word or a common verb or noun of a note: those are left.
+_NOTE_CJK = "[一-鿿]"
+_ROLES = (
+    r"主治醫師|住院醫師|總醫師|值班醫師|專科護理師|呼吸治療師|護理長|醫師|醫生|護理師|護士|藥師|個管師|社工師|營養師"
+    r"|治療師|心理師|專師|記錄者|紀錄者|記錄人員|(?i:Dr\b\.?|NP\b|RN\b|MD\b)"
+)
+_ROLE_WORD = rf"(?:{_ROLES})"
+_ROLE_AFTER = (
+    r"(?:主治醫師|住院醫師|護理長|醫師|醫生|護理師|護士|藥師|個管師|社工師|營養師|治療師|心理師|大夫|教授|主任)"
+)
+_NOTE_VERBS = (
+    r"說明|建議|評估|診視|告知|解釋|同意|指示|處理|交班|開立|表示|診察|看診|回覆|確認|追蹤|協助|陪同|衛教|執行|查房"
+    r"|安排|聯絡|通知|給予|予以|囑咐|討論|會同|簽名|簽署|核對|交代|看過|認為|決定|開藥|巡房|解說|發藥|換藥|待查|同上"
+    r"|休假|詢問|回報|報告|請示|檢查|抽血|翻身|會診|處置|發現|判斷|觀察|叮嚀|提醒|說|問|請|已|會|將|再|於|在"
+)
+_NOT_A_NAME = (
+    r"(?!主治|住院|值班|總|專科|實習|會診|主責|負責|照會|原|本|該|此|其|主任|個管|營養|臨床|藥劑|呼吸|治療|門診"
+    r"|急診|病房|夜班|白班|小夜|大夜|資深|麻醉|家醫|研究|社區|牙|中醫|西醫|群|團隊|護理站|護理|看護|櫃台|空服|鄰居"
+    r"|這位|那位|一名|一位|一個|兩位|二位|該名|某位|每位|老|醫師|醫生|護理師|藥師|護士"
+    rf"|{_NOTE_VERBS}"
+    r"|並|及|與|和|或|等|們|以|之|的|為|又|有|無|未|不|經|由|向|對|跟|給|後|前|時|可|要|需|能|均|皆|亦|也"
+    r"|即|則|就|才|還|仍|另|僅|只|共|各|每|某|您|你|我|他|她|家屬|家属|案|病人|病患|患者|個案|受試者|聯絡人)"
+)
+_NAME_CHAR = rf"(?:(?![及和與或並等的之於在為由向對給請經、，,。]){_NOTE_CJK})"
+_STAFF = rf"{_NOT_A_NAME}{_NAME_CHAR}{{2,4}}?"
+_NAME_END = rf"(?=[\s，,。、;；:：)）\]】/0-9０-９]|$|{_ROLE_AFTER}|{_NOTE_VERBS})"
+STAFF_NAME_AFTER = re.compile(
+    rf"{_ROLE_WORD}[\s:：(（/]*(?P<v>{_STAFF}{_NAME_END}(?:[、/,，及和與][\s　]*{_STAFF}{_NAME_END})*)"
+)
+_BOUNDARY = r"(?:^|(?<=[\s，,。、;；:：(（「『\[【/])|(?<=[由經請與和及跟向對給為屬同知]))"
+STAFF_NAME_BEFORE = re.compile(
+    rf"{_BOUNDARY}{_NOT_A_NAME}(?P<v>{_NAME_CHAR}{{1,3}}?)(?<![科部室組院所處])(?<!中心)[\s/]?{_ROLE_AFTER}"
+)
+# a name before an honorific or a kinship word said of an elder (王先生, 陳美華小姐, 林阿嬤, 陳伯伯), the surname in no
+# list: after a boundary, 1 to 3 characters, never a pronoun, a count or a word of a note before it (其先生, 一位女士)
+NAME_HONORIFIC = re.compile(
+    rf"{_BOUNDARY}{_NOT_A_NAME}(?P<v>{_NAME_CHAR}{{1,3}}?)\s?"
+    r"(?:先生|小姐|女士|太太|老先生|老太太|阿嬤|阿公|伯伯|伯母|奶奶|爺爺|媽媽|叔叔|阿姨|婆婆|阿伯)"
+)
+# an insurance, identity or resident certificate number after its label (the wider labelled value)
+ID_LABELLED = re.compile(
+    r"(?:健保卡號(?:碼)?|健保卡|健保號碼|身分證(?:字號|號碼)?|身份證(?:字號|號碼)?|居留證(?:號碼|統一證號)?|統一證號"
+    r"|保険者番号|被保険者番号|個人番号|マイナンバー|(?i:insurance\s*no\.?|ID\s*no\.?|ARC\s*(?:no\.?|number)?))"
+    r"[\s:：#\[［【(（]*(?P<v>" + _LABELLED_VALUE + r")(?![A-Za-z0-9０-９])"
+)
+# a phone number after its word, written as records write it (spaces, dots, dashes, brackets, an extension); never a
+# date written after the word (電話：2026-11-15 已聯絡)
+PHONE_LABELLED = re.compile(
+    r"(?:聯絡電話|連絡電話|聯絡人電話|電話號碼|電話|手機號碼|手機|行動電話|市話|家用電話|公司電話|電話番号|携帯(?:電話)?"
+    r"|(?i:\btel(?:ephone)?\b\.?|\bphone\b|\bmobile\b))[\s:：#]*"
+    rf"(?!{_DATE_AFTER})"
+    r"(?P<v>(?=(?:[^0-9０-９\n]{0,3}[0-9０-９]){7})[+＋(（\[［]?[0-9０-９]"
+    r"[0-9０-９ \-－–—.()（）\[\]［］]{5,22}[0-9０-９]"
+    r"(?:\s?(?:#|轉|分機|內線|(?i:ext)\.?)\s?[0-9０-９]{1,6})?)"
+)
+
 DATE = dates.PHI_SPAN  # Gregorian and 民國 written out (D-215: the pattern lives in tb_common.dates, unchanged)
 EN_NAME = re.compile(
     r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\bPatient(?: name)?:\s*[A-Z][a-z]+\s+[A-Z][a-z]+"
@@ -300,8 +404,9 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
 # span gives no token to the full-text index or the hash embedder.
 MASK_CHAR = "○"
 # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744;
-# 3: dates of birth, addresses and chart labels, D-745)
-NOTE_MASK_VERSION = "3"
+# 3: dates of birth, addresses and chart labels, D-745; 4: ARC, 12-digit, bed and room numbers, staff and honorific
+# names without a listed surname, wider labelled values, D-756)
+NOTE_MASK_VERSION = "4"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -321,14 +426,19 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("address", ADDRESS_EN),
     ("email", EMAIL),
     # insurance and ID numbers after their label
-    (
-        "id",
-        re.compile(
-            r"(?:健保卡號|身分證(?:字號)?|身份證|保険者番号|被保険者番号|(?i:insurance\s*no\.?|ID\s*no\.?))"
-            r"[\s:：#]*(?P<v>[A-Z0-9][A-Z0-9-]{3,14})(?![A-Za-z0-9])"
-        ),
-    ),
+    ("id", ID_LABELLED),
     ("id", TW_ID),
+    # NEW-B-50 (D-756): the shapes the deep review found in notes, one definition each with the guard
+    ("id", TW_ARC),
+    ("id", TWELVE_DIGITS),
+    ("bed", BED_LABELLED),
+    ("bed", BED_NUMBER),
+    ("room", ROOM),
+    ("room", ROOM_NUMBER),
+    ("phone", PHONE_LABELLED),
+    ("name", STAFF_NAME_AFTER),
+    ("name", STAFF_NAME_BEFORE),
+    ("name", NAME_HONORIFIC),
     ("phone", PHONE),
     ("phone", EN_PHONE),
     (
@@ -371,7 +481,7 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, int]]:
     """``(kind, start, end)`` of every name, phone number, chart number, ID number, date of birth, postal address
     and email address found in note text, overlaps merged (kinds: ``name``, ``phone``, ``mrn``, ``id``, ``dob``,
-    ``address``, ``email``).
+    ``address``, ``email``, ``bed``, ``room``).
     ``mrn_regex`` is the site's chart number pattern
     (``settings.mrn_regex``); it also masks a chart number written without its label."""
     found: list[tuple[str, int, int]] = []
