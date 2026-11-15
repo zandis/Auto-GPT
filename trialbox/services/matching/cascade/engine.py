@@ -129,6 +129,9 @@ class CascadeConfig:
     step_id: str = ""
     # CAS-4: the budget of S3 pairs. None: no budget (T-689, D-456: SCREEN's default is the population's own pairs)
     max_llm_items: int | None = 2000
+    # T-694 part 3: S2 and S2b run on this many patients at a time, reading only their notes; None: all at once. The
+    # statuses, metrics and stage logs are the same for any size
+    note_batch: int | None = None
     # model calls in flight at once (S3, S4): the serving profile's sequences (vLLM --max-num-seqs); 1 = one by one.
     # Each patient's criteria stay in order (CAS-3 stops at a hard fail); patients run side by side (D-142, A-07)
     llm_concurrency: int = 1
@@ -365,6 +368,7 @@ class _Run:
         self.items = 0
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
+        self._s2_excluded = 0  # patients S2 excluded on a certified zero hit, summed over the batches (T-694 part 3)
         self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
 
@@ -693,8 +697,12 @@ class _Run:
         return EXCERPT_TOKENS
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
-    def s2(self, note_crit: list[CriterionIR]) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
-        alive = self.alive()
+    def s2(
+        self, note_crit: list[CriterionIR], pids: Collection[str] | None = None, record: bool = True
+    ) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
+        """S2 over the alive patients, or those of ``pids`` (a batch, T-694 part 3); ``record``: write the stage log
+        (a batched run writes it once, from the totals)."""
+        alive = [t for t in self.alive() if pids is None or t.pid in pids]
         rescue = [t for t in alive if any(o.reason == "index_absent" for o in t.outcomes.values())]
         notes = self.notes([t.pid for t in alive])
         terms_of: dict[str, list[str]] = {}
@@ -767,20 +775,25 @@ class _Run:
                 self._rescue(t, cid, "S2", hit)
             else:
                 zero.append((t.pid, f"index:{cid}", pnotes))
+        self._s2_excluded += excluded_here
+        if record:
+            self._log_s2(len(alive), len(note_crit), len(routes) + len(zero))
+        return routes, zero
+
+    def _log_s2(self, p_in: int, n_crit: int, q_out: int) -> None:
         alive_after = self.alive()
         self.log(
             "S2",
-            len(alive),
+            p_in,
             len(alive_after),
-            len(alive) * len(note_crit),
-            len(routes) + len(zero),
+            p_in * n_crit,
+            q_out,
             hits=self.metrics.pairs_s2_hit,
             zero_hit=self.metrics.pairs_s2_zero_hit,
             no_notes=self.metrics.pairs_s2_no_notes,
-            excluded_zero_hit=excluded_here,
+            excluded_zero_hit=self._s2_excluded,
         )
         self.metrics.n_after["S2"] = len(alive_after)
-        return routes, zero
 
     def _rescue(self, t: PatientTrace, cid: str, stage: Stage, sentence: str) -> None:
         o = t.outcomes[cid]
@@ -788,7 +801,7 @@ class _Run:
         o.rescue = {"stage": stage, "sentence_hash": sentence_hash(sentence)}
         self.metrics.rescued += 1
 
-    def s2b(self, zero: list[tuple[str, str, list[_Note]]], routes: list[_Route]) -> None:
+    def s2b(self, zero: list[tuple[str, str, list[_Note]]], routes: list[_Route], record: bool = True) -> None:
         alive_before = len(self.alive())
         n_in = len(zero)
         for pid, key, win in zero:
@@ -863,6 +876,10 @@ class _Run:
             else:
                 t.outcomes[cid] = Outcome(cid, "pass", "S2b", evidence=[detail], reason="S2b below: absence")
         self.metrics.s2b_embed_batches = self.embedder.batches if self.embedder else 0
+        if record:
+            self._log_s2b(alive_before, n_in)
+
+    def _log_s2b(self, alive_before: int, n_in: int) -> None:
         alive = self.alive()
         self.log(
             "S2b",
@@ -926,6 +943,47 @@ class _Run:
             "vec_fallback_patients": sum(1 for r in recs if r["fallback_pairs"]),
             "vec_model": ",".join(models) or None,
         }
+
+    def note_stage(self, note_crit: list[CriterionIR]) -> list[_Route]:
+        """S2 then S2b (T-694 part 3). With ``cfg.note_batch`` both run on that many alive patients at a time, each
+        batch reading only its patients' notes, which are let go after it; the stage logs are written once from the
+        totals and the routes are put in the order of an unbatched run, so the statuses, the metrics and a pair budget
+        are the same for any batch size."""
+        size = self.cfg.note_batch
+        if size is None:
+            routes, zero = self.s2(note_crit)
+            self.s2b(zero, routes)
+            return routes
+        if size < 1:
+            raise CascadeError("note_batch must be at least 1 patient")
+        order = [t.pid for t in self.alive()]
+        rank = {p: i for i, p in enumerate(order)}
+        crit_rank = {c.id: i for i, c in enumerate(note_crit)}
+        s2_routes: list[_Route] = []
+        s2b_routes: list[_Route] = []
+        n_zero = n_s2_out = 0
+        after_s2: set[str] = set(order)
+        for start in range(0, len(order), size):
+            batch = set(order[start : start + size])
+            routes, zero = self.s2(note_crit, batch, record=False)
+            n_s2_out += len(routes) + len(zero)
+            n_zero += len(zero)
+            after_s2 -= {p for p in batch if self.traces[p].exit_stage is not None}
+            s2_routes += routes
+            before = len(routes)
+            self.s2b(zero, routes, record=False)
+            s2b_routes += routes[before:]
+        # the stage logs of an unbatched run: S2 counted before any S2b exclusion, S2b from S2's survivors
+        exited_s2b = {p for p in order if self.traces[p].exit_stage == "S2b"}
+        s2b_back = {p: self.traces[p].exit_stage for p in exited_s2b}
+        for p in exited_s2b:  # S2's count is taken as if S2b had not run yet
+            self.traces[p].exit_stage = None
+        self._log_s2(len(order), len(note_crit), n_s2_out)
+        for p, stage in s2b_back.items():
+            self.traces[p].exit_stage = stage
+        self._log_s2b(len(after_s2), n_zero)
+        key = lambda r: (rank.get(r.pid, len(rank)), crit_rank.get(r.cid, len(crit_rank)))  # noqa: E731
+        return sorted(s2_routes, key=key) + sorted(s2b_routes, key=key)
 
     # -------------------------------------------------------------------------------------------- CAS-8 sample
     def sample(self, routes: list[_Route]) -> None:
@@ -1283,8 +1341,7 @@ def run_cascade(
     note_crit = [c for c in rs.active() if c.class_ in JUDGED and c.kind in ("inclusion", "exclusion")]
     human = [c for c in rs.active() if c.class_ == "human"]
     run.metrics.note_criteria = len(note_crit)
-    routes, zero = run.s2(note_crit)
-    run.s2b(zero, routes)
+    routes = run.note_stage(note_crit)
     alive = {t.pid for t in run.alive()}
     routes = [r for r in routes if r.pid in alive]
     run.sample(routes)
