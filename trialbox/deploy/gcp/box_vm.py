@@ -28,6 +28,20 @@ folder and calls one subcommand at a time:
   identity --box F --lock F --template-sha S --images F --weights-exit N
       what the box serves against what the release pins: chat template, image digests, weights, prompt versions
 
+  redact                 stdin to stdout with the lines that carry a password or an enrolment code masked (the
+      installer prints the first administrator's once: a VALIDATION install's log goes to the bucket)
+  acc-merge-feed --into DIR SITE_HOSPITAL_DIR ...   the hospital CSV feeds of several built public sets as one feed
+      (the box's feed folder): the rows of each table, one header, a row once
+  acc-set --set NAME --built DIR --work DIR --onbox F --dc "docker compose ..." --sender A --reviewer A --run-id ID
+      [--compile-only] [--job-minutes N] [--notes F] [--beat F]
+      one public accuracy set through the INSTALLED box's product path, protocol by protocol: FEAS by mail with the
+      protocol attached, the review workbook from the job's files, APPROVE by mail from the box's named reviewer,
+      SCREEN by mail scoped to the trial's investigator (pract=), the candidate and excluded lists, the box's
+      pseudonym of each chart number; resumable (work/progress.json: a protocol finished is never sent again, a
+      job started is waited for, never started twice: the message id is the run's). A protocol the gateway's PHI
+      tripwire refused is counted as "refused_by_tripwire" (a product defect count), never dropped. Writes
+      work/answers.json in the shape tools.public_accuracy.score reads, and work/pidmap.json
+
 Every subcommand prints one JSON object on stdout (and ``--notes`` lines ``key<TAB>json`` where it takes them).
 Nothing here prints a secret: the answers file's values are sent, never echoed.
 """
@@ -481,6 +495,314 @@ def identity(
 
 
 # ------------------------------------------------------------------------------------------------ the command
+# ------------------------------------------------------------------------------------------------ the accuracy run
+REDACT = re.compile(r"(password|passwort|enrol|enroll|secret|token)", re.I)
+
+
+def redact(lines: Iterable[str]) -> Iterable[str]:
+    for line in lines:
+        yield (line.split(":", 1)[0] + ": [redacted]\n") if REDACT.search(line) else line
+
+
+def merge_feed(into: Path, sites: list[Path]) -> dict[str, Any]:
+    """The hospital CSVs of several built sites as one feed: per table one header, each row once, UTF-8 with a BOM
+    (as the builder writes them). A table whose headers differ between sites is refused."""
+    import csv
+
+    into.mkdir(parents=True, exist_ok=True)
+    tables: dict[str, tuple[list[str], list[list[str]]]] = {}
+    for site in sites:
+        for f in sorted(site.glob("*.csv")):
+            with f.open(newline="", encoding="utf-8-sig") as fh:
+                rows = list(csv.reader(fh))
+            if not rows:
+                continue
+            head, body = rows[0], rows[1:]
+            have = tables.setdefault(f.name, (head, []))
+            if have[0] != head:
+                raise ValueError(f"{f}: header {head} differs from {have[0]}")
+            have[1].extend(body)
+    counts = {}
+    for name, (head, body) in sorted(tables.items()):
+        seen: set[tuple[str, ...]] = set()
+        uniq = [r for r in body if not (tuple(r) in seen or seen.add(tuple(r)))]  # type: ignore[func-returns-value]
+        with (into / name).open("w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.writer(fh)
+            w.writerow(head)
+            w.writerows(uniq)
+        counts[name] = len(uniq)
+    return {"tables": counts, "sites": [str(s) for s in sites]}
+
+
+TRIPWIRE = "phi_tripwire"
+FEAS_ENDS = ("awaiting_approval", "done", "failed", "rejected", "cancelled")
+JOB_ENDS = ("done", "failed", "rejected", "cancelled")
+
+
+def classify(error: Any) -> str:
+    """What stopped a protocol, from the job's error text: the gateway's PHI tripwire (a product defect count, the
+    owner's ruling of 2026-11-15), a refusal of the gateway or the registry for another reason, or another failure."""
+    t = json.dumps(error, default=str) if not isinstance(error, str) else error
+    if TRIPWIRE in t or "PHI tripwire" in t:
+        return "refused_by_tripwire"
+    if any(c in t for c in ("no_route", "no_eligible_build", "class_route_mismatch", "ceiling", "champion")):
+        return "refused_by_gateway"
+    return "failed"
+
+
+def draft_criteria(zip_bytes: bytes) -> list[dict[str, Any]]:
+    """The compiled criteria in the draft zip (``<RULESET>/ir/<id>.json``), as tools.public_accuracy.box reads them."""
+    import io
+    import zipfile
+
+    out: list[dict[str, Any]] = []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        for name in sorted(n for n in z.namelist() if "/ir/" in n and n.endswith(".json")):
+            c = json.loads(z.read(name).decode("utf-8"))
+            text = c.get("text")
+            out.append(
+                {
+                    "id": c.get("id"),
+                    "kind": c.get("kind"),
+                    "class": c.get("class"),
+                    "text": text.get("source") if isinstance(text, dict) else text,
+                    "domain": (c.get("logic") or {}).get("domain"),
+                    "logic": c.get("logic"),
+                    "flags": c.get("flags") or [],
+                }
+            )
+    return out
+
+
+def list_rows(doc: Any, tier: str = "") -> list[dict[str, Any]]:
+    """The rows of a candidate list or an excluded list (``{"rows": [...]}`` or a list), each as the scorer reads a
+    patient: pid, tier, actions, verdicts (id, verdict, basis, quote)."""
+    rows = doc.get("rows") if isinstance(doc, dict) else doc
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict) or not r.get("pid"):
+            continue
+        verdicts = []
+        for c in r.get("criteria") or []:
+            ev = c.get("evidence") or {}
+            verdicts.append(
+                {
+                    "id": c.get("id"),
+                    "verdict": c.get("verdict"),
+                    "basis": c.get("basis"),
+                    "quote": ev.get("quote") or ev.get("text") if isinstance(ev, dict) else None,
+                }
+            )
+        out.append(
+            {"pid": r["pid"], "tier": r.get("tier") or tier, "actions": list(r.get("actions") or []),
+             "verdicts": verdicts}
+        )  # fmt: skip
+    return out
+
+
+class Box:
+    """The installed box as the accuracy set reaches it: onbox.py piped into a service's container."""
+
+    def __init__(self, dc: list[str], onbox: Path, log: Path, beat: Path | None) -> None:
+        self.dc, self.onbox, self.log, self.beat = dc, onbox, log, beat
+
+    def call(self, svc: str, cmd: str, arg: dict[str, Any] | None = None, timeout: float | None = None) -> Any:
+        import subprocess
+
+        b64 = base64.b64encode(json.dumps(arg or {}, ensure_ascii=False).encode()).decode()
+        argv = [*self.dc, "exec", "-T", svc, "python", "-", cmd, b64]
+        with self.log.open("a", encoding="utf-8") as lf:
+            lf.write(f"+ {svc} onbox {cmd} {time.strftime('%H:%M:%S')}\n")
+            lf.flush()
+            p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf, text=True)
+            stdout, _ = p.communicate(self.onbox.read_text(encoding="utf-8"), timeout=timeout)
+            lf.write(stdout[-4000:])
+        if self.beat is not None:
+            self.beat.touch()
+        if p.returncode != 0:
+            raise RuntimeError(f"{svc} onbox {cmd}: exit {p.returncode}")
+        last = [x for x in stdout.splitlines() if x.startswith(("{", "["))]
+        if not last:
+            raise RuntimeError(f"{svc} onbox {cmd}: no answer")
+        return json.loads(last[-1])
+
+
+def _save(path: Path, obj: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def acc_set(
+    name: str,
+    built: Path,
+    work: Path,
+    box: Box,
+    *,
+    sender: str,
+    reviewer: str,
+    run_id: str,
+    compile_only: bool,
+    job_s: float,
+    poll_s: float = 5.0,
+) -> dict[str, Any]:
+    """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``."""
+    ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
+    protos = sorted((built / "site" / "protocols").glob("*.txt"))
+    prog_p = work / "progress.json"
+    prog: dict[str, Any] = json.loads(prog_p.read_text(encoding="utf-8")) if prog_p.exists() else {}
+
+    def mid(rs: str, kind: str) -> str:
+        return f"<acc-{run_id}-{name}-{rs}-{kind}@trialbox.invalid>".replace(" ", "")
+
+    def send(rs: str, kind: str, subject: str, sender_: str, attach: dict[str, bytes]) -> dict[str, Any]:
+        files = {k: base64.b64encode(v).decode() for k, v in attach.items()}
+        r = box.call(
+            "mail-gateway", "send", {"from": sender_, "subject": subject, "mid": mid(rs, kind), "attach": files}
+        )
+        return dict(r)
+
+    def wait(job: str, until: tuple[str, ...]) -> dict[str, Any]:
+        return dict(box.call("mail-gateway", "wait", {"job": job, "until": list(until), "timeout_s": job_s,
+                                                      "poll_s": poll_s}))  # fmt: skip
+
+    for proto in protos:
+        rs = proto.stem
+        a = prog.setdefault(rs, {"ruleset": rs})
+        if a.get("finished"):
+            continue
+        # --- FEAS with the protocol attached, from the coordinator
+        if "feas_job" not in a:
+            r = send(rs, "feas", f"FEAS {rs}", sender, {proto.name: proto.read_bytes()})
+            a["feas_intake"] = {k: r.get(k) for k in ("action", "reason")}
+            if r.get("action") != "job" or not r.get("job"):
+                a.update(outcome="refused_at_intake", finished=True)
+                _save(prog_p, prog)
+                continue
+            a["feas_job"] = r["job"]
+            _save(prog_p, prog)
+        j = wait(a["feas_job"], FEAS_ENDS)
+        a["feas"], a["feas_error"], a["version"] = j.get("state"), j.get("error"), j.get("ruleset_version")
+        if j.get("waited") == "timeout":
+            a.update(outcome="timeout_feas", finished=True)
+            _save(prog_p, prog)
+            continue
+        files = box.call("mail-gateway", "fetch", {"job": a["feas_job"], "suffixes": [".xlsx", "-draft.zip"],
+                                                   "prefixes": ["review_", "ruleset_"]})["files"]  # fmt: skip
+        z = next((v for k, v in files.items() if k.endswith("-draft.zip")), None)
+        a["draft"] = draft_criteria(base64.b64decode(z)) if z else []
+        xlsx = next(((k, v) for k, v in files.items() if k.endswith(".xlsx")), None)
+        if a["feas"] != "awaiting_approval" and not xlsx:
+            a.update(outcome=classify(a.get("feas_error")) if a["feas"] == "failed" else f"feas_{a['feas']}",
+                     finished=True)  # fmt: skip
+            _save(prog_p, prog)
+            continue
+        if compile_only:
+            a.update(outcome="compiled", finished=True)
+            _save(prog_p, prog)
+            continue
+        # --- APPROVE by the box's named reviewer, the review workbook as it came
+        if "approve_job" not in a:
+            assert xlsx is not None
+            subject = f"APPROVE {rs}" + (f" version={a['version']}" if a.get("version") else "")
+            r = send(rs, "approve", subject, reviewer, {"review.xlsx": base64.b64decode(xlsx[1])})
+            if r.get("action") != "job" or not r.get("job"):
+                a.update(approve_intake=r.get("reason"), outcome="approve_refused_at_intake", finished=True)
+                _save(prog_p, prog)
+                continue
+            a["approve_job"] = r["job"]
+            _save(prog_p, prog)
+        j = wait(a["approve_job"], JOB_ENDS)
+        a["approve"], a["approve_error"] = j.get("state"), j.get("error")
+        if a["approve"] != "done":
+            a.update(outcome="approve_" + str(a["approve"]), finished=True)
+            _save(prog_p, prog)
+            continue
+        # --- SCREEN scoped to the trial's investigator (the mail grammar's pract=)
+        if "screen_job" not in a:
+            pi = (ids.get("investigators") or {}).get(rs, "")
+            r = send(rs, "screen", f"SCREEN {rs}" + (f" pract={pi}" if pi else ""), sender, {})
+            if r.get("action") != "job" or not r.get("job"):
+                a.update(screen_intake=r.get("reason"), outcome="screen_refused_at_intake", finished=True)
+                _save(prog_p, prog)
+                continue
+            a["screen_job"] = r["job"]
+            _save(prog_p, prog)
+        j = wait(a["screen_job"], JOB_ENDS)
+        a["screen"], a["screen_error"] = j.get("state"), j.get("error")
+        a["screen_metrics"] = j.get("metrics")
+        files = box.call("mail-gateway", "fetch", {"job": a["screen_job"], "suffixes": [".json"],
+                                                   "prefixes": ["candidate_list_", "excluded_"]})["files"]  # fmt: skip
+        pats: dict[str, Any] = {}
+        for fname, b64 in sorted(files.items()):
+            doc = json.loads(base64.b64decode(b64).decode("utf-8"))
+            for row in list_rows(doc, "excluded" if fname.startswith("excluded_") else ""):
+                pats[row.pop("pid")] = row
+        a["patients"] = pats
+        a["outcome"] = "screened" if a["screen"] == "done" else classify(a.get("screen_error"))
+        a["finished"] = True
+        _save(prog_p, prog)
+    # --- the box's pseudonyms of the placed chart numbers, for the scorer's join outside the box
+    pm_p = work / "pidmap.json"
+    if not pm_p.exists():
+        mrns = sorted((ids.get("patients") or {}).values())
+        pm: dict[str, str] = {}
+        for i in range(0, len(mrns), 500):
+            pm.update(box.call("adapter", "pidmap", {"mrns": mrns[i : i + 500]}))
+        _save(pm_p, pm)
+    answers = {
+        rs: {
+            "ruleset": rs,
+            "feas": a.get("feas"),
+            "feas_error": a.get("feas_error"),
+            "draft": a.get("draft") or [],
+            "approve": a.get("approve"),
+            "screen": a.get("screen"),
+            "screen_error": a.get("screen_error"),
+            "patients": a.get("patients") or {},
+            "outcome": a.get("outcome"),
+        }
+        for rs, a in prog.items()
+    }
+    _save(work / "answers.json", answers)
+    counts: dict[str, int] = {"protocols": len(protos)}
+    for a in prog.values():
+        o = str(a.get("outcome") or "unfinished")
+        counts[o] = counts.get(o, 0) + 1
+    counts.setdefault("refused_by_tripwire", 0)
+    counts["patients_answered"] = sum(len(a.get("patients") or {}) for a in prog.values())
+    want = "compiled" if compile_only else "screened"
+    return {"set": name, "counts": counts, "pass": counts.get(want, 0) == len(protos)}
+
+
+def routes_verdict(gw: dict[str, Any], emb: dict[str, Any]) -> dict[str, Any]:
+    """Would the box run the accuracy set at all: the screen's judge call routes to BOTH builds of the pair (the
+    judge and the verifier), and the compile's calls (ir_extract's role, concept_map's) route. The reasons when not,
+    as the gateway and the registry gave them."""
+    rows = {(r.get("role"), r.get("class")): r for r in gw.get("routes") or []}
+    why = []
+    judge = next((r for (role, _), r in rows.items() if role == "judge"), None)
+    if judge is None or not judge.get("routes"):
+        why.append(f"the screen's judge call does not route: {(judge or {}).get('why') or (judge or {}).get('builds')}")
+    else:
+        ok = [b["alias"] for b in judge.get("builds") or [] if b.get("routes")]
+        if len(ok) < 2:
+            why.append(f"only {ok} of the pair route for the judge's role (the verifier's second opinion needs both)")
+    for role in ("extract_criteria", "concept_select"):
+        r = next((x for (rl, _), x in rows.items() if rl == role), None)
+        if r is None or not r.get("routes"):
+            why.append(f"the compile's {role} call does not route: {(r or {}).get('why') or (r or {}).get('builds')}")
+    return {
+        "environment": gw.get("environment"),
+        "routes": gw.get("routes"),
+        "served_prompts": gw.get("served_prompts"),
+        "embedder": emb.get("embedder"),
+        "routes_ok": not why,
+        "blocked": why,
+    }
+
+
 def _notes(path: str | None, facts: dict[str, Any]) -> None:
     if path:
         with open(path, "a", encoding="utf-8") as fh:
@@ -534,7 +856,80 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--notes")
     t = sub.add_parser("top-costs")
     t.add_argument("parts", type=Path)
+    sub.add_parser("redact")
+    mf = sub.add_parser("acc-merge-feed")
+    mf.add_argument("--into", type=Path, required=True)
+    mf.add_argument("sites", type=Path, nargs="+")
+    ac = sub.add_parser("acc-set")
+    ac.add_argument("--set", required=True)
+    ac.add_argument("--built", type=Path, required=True)
+    ac.add_argument("--work", type=Path, required=True)
+    ac.add_argument("--onbox", type=Path, required=True)
+    ac.add_argument("--dc", required=True, help="the compose command, e.g. 'docker compose --project-directory D'")
+    ac.add_argument("--sender", required=True)
+    ac.add_argument("--reviewer", required=True)
+    ac.add_argument("--run-id", required=True)
+    ac.add_argument("--compile-only", action="store_true")
+    ac.add_argument("--job-minutes", type=float, default=60.0)
+    ac.add_argument("--poll", type=float, default=5.0)
+    ac.add_argument("--notes")
+    ac.add_argument("--beat", type=Path)
+    cl = sub.add_parser("acc-call")
+    cl.add_argument("--dc", required=True)
+    cl.add_argument("--onbox", type=Path, required=True)
+    cl.add_argument("--svc", required=True)
+    cl.add_argument("--cmd", dest="onbox_cmd", required=True, help="the onbox.py command")
+    cl.add_argument("--arg", default="{}", help="the command's JSON argument")
+    cl.add_argument("--log", type=Path, required=True)
+    cl.add_argument("--beat", type=Path)
+    rv = sub.add_parser("acc-routes")
+    rv.add_argument("gateway_json", type=Path)
+    rv.add_argument("embedder_json", type=Path)
+    rv.add_argument("--notes")
     a = ap.parse_args(argv)
+    if a.cmd == "acc-call":
+        try:
+            print(json.dumps(Box(a.dc.split(), a.onbox, a.log, a.beat).call(a.svc, a.onbox_cmd, json.loads(a.arg))))
+        except (RuntimeError, OSError, ValueError) as exc:
+            print(f"acc-call {a.svc} {a.onbox_cmd}: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if a.cmd == "acc-routes":
+
+        def jl(p: Path) -> dict[str, Any]:
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return {}
+            return d if isinstance(d, dict) else {}
+
+        res = routes_verdict(jl(a.gateway_json), jl(a.embedder_json))
+        _notes(a.notes, {"routes_ok": res["routes_ok"], "blocked": res["blocked"], "environment": res["environment"],
+                         "embedder": res["embedder"]})  # fmt: skip
+        print(json.dumps(res))
+        return 0 if res["routes_ok"] else 1
+    if a.cmd == "redact":
+        sys.stdout.writelines(redact(sys.stdin))
+        return 0
+    if a.cmd == "acc-merge-feed":
+        try:
+            print(json.dumps(merge_feed(a.into, a.sites)))
+        except ValueError as exc:
+            print(f"acc-merge-feed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if a.cmd == "acc-set":
+        a.work.mkdir(parents=True, exist_ok=True)
+        box = Box(a.dc.split(), a.onbox, a.work / "box-calls.log", a.beat)
+        try:
+            res = acc_set(a.set, a.built, a.work, box, sender=a.sender, reviewer=a.reviewer, run_id=a.run_id,
+                          compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll)  # fmt: skip
+        except (RuntimeError, OSError, ValueError) as exc:
+            print(f"acc-set {a.set}: {exc}", file=sys.stderr)
+            return 1
+        _notes(a.notes, res)
+        print(json.dumps(res))
+        return 0
     if a.cmd == "bundle-check":
         res = bundle_check(
             a.bundle,

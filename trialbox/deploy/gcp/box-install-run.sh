@@ -5,7 +5,7 @@
 # pre-emption resumes here by itself. Fail-safe in the same three ways as the complete run: a cost cap, a watchdog,
 # and results that leave the VM after every step (the bucket, and the door when there is no bucket).
 #
-# Groups of steps, chosen by the metadata tb-steps (one or more of: build start g6 g9 g10, in this order). Each step
+# Groups of steps, chosen by the metadata tb-steps (one or more of: build start g6 g9 g10 acc, in this order). Each step
 # is timed and written as a part result (parts/<step>.json) and kept in state.json: a step that finished is never run
 # again, in this boot or after a restart. A step cut by a restart (a pre-emption, a power cut) runs again.
 #   build  R2's bundle, on the runner VM, as the service account that may read the vendor key (r2-bundle-plan.md):
@@ -49,6 +49,36 @@
 #   g10    G-10, the model-server image named by tb-g10-vllm-image: g10-update (an update bundle that carries it,
 #          tb-g10-bundle, through tools/apply_update.sh; skipped when none is named), g10-image (both model servers
 #          run that image, else a stop), g10-canary (trialbox selftest), g10-qualify
+#   acc    the public accuracy run on the installed box (public-accuracy-run-plan.md, Run A by default; the sets of
+#          tb-acc-sets, "name:size" each), lane G's tools from tb-acc-tools (a git archive at the driver's commit):
+#     50-acc-tools     the tools unpacked on the VM (never into the box)
+#     51-acc-settings  the site settings the run needs, each recorded before and after: settings.yaml
+#                      rate_limits_per_day {FEAS: 0, SCREEN: 0} (a site's own per-type limit, 0 = none:
+#                      deploy/settings.example.yaml), TB_MAIL_PER_RECIPIENT_PER_DAY=0 (declared), TB_MAIL_AUTHSERV_ID
+#                      when the box has none (the hospital MTA's id: a box made by the wizard has no mail); the
+#                      tripwire: tb-acc-tripwire-setting NAME=VALUE only when NAME is a declared setting of this
+#                      tree, else it stays on and the record says so. Then the stack recreated on them
+#     52-acc-routes    would the box route the compile's and the screen's calls in its environment (the gateway's own
+#                      policy and registry), which prompt versions it serves there, which embedder SCREEN ranks with,
+#                      the serving record again: a box that routes neither stops HERE (no hours spent on refusals)
+#     53-acc-data      tools.public_accuracy fetch (the pins) and build --for-box --ref <the box's day> per set, with
+#                      the VM's python3 (standard library; JMED's parquet in the box's image, offline), outside the
+#                      box; the gold stays out
+#     54-acc-ingest    the sets' hospital CSVs merged into the box's feed folder (acc/), the box's ingest, the publish
+#     60.. acc-<set>   per set, box_vm.py acc-set: FEAS by mail with the protocol, the review workbook, APPROVE by the
+#                      box's named reviewer, SCREEN pract=<the trial's investigator>, the lists, the pseudonym map;
+#                      then the set (gold, answers, per-protocol record, the gateway's audit summary) uploaded to
+#                      tb-bucket boxruns/<run>/acc/<set>.tgz at once: a pre-emption loses at most the set in hand,
+#                      and that set resumes protocol by protocol. Scored outside the box (box-run.sh --collect)
+#     79-acc-result    the sets' counts; protocols refused by the PHI tripwire are a product defect count
+# Modes (tb-mode): production (the default: the vendor key, box-install.sh and the first-run wizard, PRODUCTION) or
+# validation (the owner's ruling of 2026-11-15, a proof of concept): b05 signs with a THROWAWAY Ed25519 key made in
+# tmpfs on this VM by tools/sign_bundle.py keygen (never the vendor key; its public half goes beside the bundle; the
+# bundle is NOT a release and records/bundle.json says so); the start installs with deploy/install.sh --answers (a
+# synthetic site whose env_extra makes the box TB_ENV=VALIDATION; the installer's own path for an operator's TB_ENV,
+# D-127), 03 checks the box says VALIDATION, and qualify/promote/resolve are for VALIDATION. install.sh seals the
+# site keys on a VALIDATION box under its default KEK back end (tpm: the VM needs a vTPM; no hardening.conf is
+# written, so the input firewall and SSH are left as the VM has them and doctor FAILs the host baseline).
 # G-2's pass rule is "no step needed a shell beyond the installer". So nothing here repairs or works around a step: a
 # box command that fails, or is not there, is a STOP (what was run, its exit code, the last lines of its log) and the
 # run ends with that record. A test rule not met (a list that differs, an OOM kill) is not a stop: the part says
@@ -76,13 +106,20 @@
 #          tb-g9-services ("orchestrator gateway"), tb-outage-seconds (setting, default 120: longer than the gateway's
 #          own retry, so the outage reaches the job), tb-screen-requester (the mailbox the screen is requested as)
 #   g10: tb-g10-vllm-image (required), tb-g10-bundle, tb-g10-bundle-sha256 (optional)
+#   acc: tb-acc-tools (gs:// of the tools tarball), tb-acc-sets ("name:size ..."), tb-acc-job-minutes (setting, 60: the
+#        longest single job the plan's high bound gives is a TCGA screen of about 4 minutes; ten times more means a
+#        stuck job, not a slow one), tb-acc-authserv (default mx.acc.invalid), tb-acc-tripwire-setting (NAME=VALUE)
+#   tb-mode (production | validation); validation: tb-site-answers (the settings wizard's answers of the synthetic
+#          site, deploy/gcp/validation-site-answers.yaml; no secret in it) in place of tb-answers-secret
 #   tb-max-minutes (setting, 240: the driver sets it from its estimate), tb-idle-minutes (setting, 20: the longest
 #   silence known is a model load), tb-done-grace (setting, 30), tb-healthy-minutes (setting, 20: a model load),
 #   tb-power-wait-minutes (setting, 15: the driver polls every minute and a GCE stop takes a few)
 # Nothing prints a key: no `set -x`. Knobs for the rehearsal only (tests/rehearsal/box-run; never set on the VM):
 # TB_BOXRUN_ROOT, TB_BOXRUN_LOGDIR, TB_BOXRUN_SBIN, TB_BOXRUN_TLS, TB_BOXRUN_SERIAL, TB_BOXRUN_BOOT_ID, TB_BOXRUN_PY,
 # TB_BOXRUN_MINUTE_S, TB_BOXRUN_POLL_S, TB_BOXRUN_DOOR_HOST, TB_BOXRUN_SHM (the tmpfs of the key), TB_BOXRUN_CGROUP
-# (the cgroup root), TB_ISSUE_DIR (deploy/box-install.sh's own knob: where the box's screen text goes).
+# (the cgroup root), TB_ISSUE_DIR (deploy/box-install.sh's own knob: where the box's screen text goes),
+# TB_BOXRUN_INSTALL (the validation install command), TB_BOXRUN_MOUNT (the bind mount of the weights), TB_BOXRUN_TODAY,
+# TB_BOXRUN_ACC_PY (the python that runs lane G's accuracy tools on the VM).
 TB=${TB_BOXRUN_ROOT:-/var/lib/tb}
 LOGDIR=${TB_BOXRUN_LOGDIR:-/var/log}
 SBIN=${TB_BOXRUN_SBIN:-/usr/local/sbin}
@@ -326,6 +363,7 @@ BUNDLE_SRC=$(md tb-bundle || true); BUNDLE_SHA=$(md tb-bundle-sha256 || true)
 BOXROOT=$(md tb-box-root || echo /opt/trialbox)
 INSTALLER="$BOXROOT/deploy/box-install.sh"
 ASEC=$(md tb-answers-secret || true); AVER=$(md tb-answers-version || true)
+SITE_ANSWERS=$(md tb-site-answers | head -c 1 || true)   # validation: the synthetic site's answers in the metadata
 CONNECT=$(md tb-console-connect || echo 127.0.0.1:443)
 CACERT=$(md tb-console-cacert || echo "$BOXROOT/deploy/secrets/tls/caddy-root.crt")
 PROFILE=$(md tb-profile || echo rtxpro6000)
@@ -344,6 +382,14 @@ OUTAGE_S=$(md tb-outage-seconds || echo 120)
 REQUESTER=$(md tb-screen-requester || true)
 G10_IMAGE=$(md tb-g10-vllm-image || true)
 G10_BUNDLE=$(md tb-g10-bundle || true); G10_SHA=$(md tb-g10-bundle-sha256 || true)
+MODE=$(md tb-mode || echo production)
+case "$MODE" in validation) ENVNAME=VALIDATION ;; *) MODE=production; ENVNAME=PRODUCTION ;; esac
+# acc
+ACC_TOOLS=$(md tb-acc-tools || true)
+ACC_SETS=$(md tb-acc-sets || true)
+ACC_JOB_MIN=$(md tb-acc-job-minutes || echo 60)
+ACC_AUTHSERV=$(md tb-acc-authserv || echo mx.acc.invalid)
+ACC_TRIPWIRE=$(md tb-acc-tripwire-setting || true)
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
 BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
@@ -358,14 +404,15 @@ fi
 
 has() { case "$STEPS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 pf=""
-for s in $STEPS; do case "$s" in build|start|g6|g9|g10) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
+for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
 [ -s "$HELPER" ] || pf="$pf; no tb-helper (deploy/gcp/box_vm.py)"
 for c in "$PY" curl tar sha256sum; do command -v "$c" >/dev/null || pf="$pf; no $c"; done
 if has build; then
   for c in git make docker; do command -v "$c" >/dev/null || pf="$pf; no $c (build)"; done
-  for v in SRC COMMIT RID SEQ KSEC KVER VPUB_SRC OUTP; do [ -n "${!v}" ] || pf="$pf; no ${v} (build metadata)"; done
+  if [ "$MODE" = validation ]; then bv="SRC COMMIT RID SEQ OUTP"; else bv="SRC COMMIT RID SEQ KSEC KVER VPUB_SRC OUTP"; fi
+  for v in $bv; do [ -n "${!v}" ] || pf="$pf; no ${v} (build metadata)"; done
 fi
-if has start || has g6 || has g9 || has g10; then
+if has start || has g6 || has g9 || has g10 || has acc; then
   for c in docker nvidia-smi; do command -v "$c" >/dev/null || pf="$pf; no $c"; done
   [ -d "$MODELS" ] || pf="$pf; no model folders at $MODELS"
 fi
@@ -373,11 +420,14 @@ if has start; then
   [ -n "$BUNDLE_SRC" ] || pf="$pf; no tb-bundle"
   [ -n "$BUNDLE_SHA" ] || pf="$pf; no tb-bundle-sha256 (a bundle is never installed unchecked)"
   [ -n "$VPUB_SRC" ] || pf="$pf; no tb-vendor-pub (the installer refuses a bundle without the vendor's public key)"
-  { [ -n "$ASEC" ] && [ -n "$AVER" ]; } || pf="$pf; no tb-answers-secret / tb-answers-version (the wizard's answers)"
+  { [ -n "$ASEC" ] && [ -n "$AVER" ]; } || { [ "$MODE" = validation ] && [ -n "$SITE_ANSWERS" ]; } \
+    || pf="$pf; no tb-answers-secret / tb-answers-version (the wizard's answers; validation: or tb-site-answers)"
 fi
 [ "$(echo $G9_SERVICES | wc -w)" -le 5 ] || pf="$pf; at most five tb-g9-services (steps 32 to 36)"
 { has g6 || has g9; } && [ -z "$STUDY" ] && pf="$pf; no tb-study (the approved study G-6 and G-9 screen)"
 has g10 && [ -z "$G10_IMAGE" ] && pf="$pf; no tb-g10-vllm-image (G-10 names its image)"
+has acc && [ -z "$ACC_TOOLS" ] && pf="$pf; no tb-acc-tools (lane G's accuracy tools, a tarball in the bucket)"
+has acc && [ -z "$ACC_SETS" ] && pf="$pf; no tb-acc-sets"
 [ -z "$pf" ] || finish "TB-PREFLIGHT-FAILED${pf}" preflight-failed
 echo "TB-PREFLIGHT ok: groups$STEPS"
 
@@ -444,7 +494,7 @@ d_weights()  { box_tool pin_model --verify-all "$MODELS"; }
 d_cmd()      { docker inspect --format '{{json .Config.Cmd}}' "$1"; }
 d_sha_in()   { dc exec -T "$1" sha256sum "$2"; }                              # a file inside a service's container
 d_digests()  { docker image inspect --format '{{json .RepoDigests}}' "$1"; }
-d_identity() { in_svc orchestrator <<'EOF'
+d_identity() { in_svc orchestrator <<EOF
 # tb-boxrun: identity
 import json, yaml
 from tb_llm.prompt_registry import default_registry
@@ -455,12 +505,34 @@ builds = [{"build_id": b.get("build_id"), "alias": b.get("alias"), "status": b.g
            "chat_template_sha256": (b.get("chat_template") or {}).get("sha256")}
           for b in reg.get("builds") or [] if str(b.get("build_id", "")).endswith("-rtxpro6000")]
 served = [{"id": e.id, "version": e.version, "sha256": getattr(e, "sha256", None)}
-          for e in default_registry().served_set("PRODUCTION")]
+          for e in default_registry().served_set("$ENVNAME")]
 print(json.dumps({"builds": builds, "served_prompts": served}))
 EOF
 }
-d_promote()  { box_tool pin_model --promote "$1" --record "$2" --environment PRODUCTION; }
-d_resolve()  { box_tool pin_model --resolve --environment PRODUCTION; }       # {"judge": {"build", "promoted"}, ...}
+d_promote()  { box_tool pin_model --promote "$1" --record "$2" --environment "$ENVNAME"; }
+d_resolve()  { box_tool pin_model --resolve --environment "$ENVNAME"; }       # {"judge": {"build", "promoted"}, ...}
+# validation mode: deploy/install.sh with a synthetic site's answers (env_extra TB_ENV: VALIDATION); its log redacted
+# (it prints the first administrator's password and enrolment code once, and this log goes to the bucket)
+d_install_v() {  # as box-install.sh judges it: a FAIL list at the end (no backup target yet) leaves the stack running
+  local rc
+  # shellcheck disable=SC2086 # TB_BOXRUN_INSTALL is a command line on purpose (the rehearsal)
+  ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
+    | "$PY" "$HELPER" redact | tee "$TB/install-v.log"
+  rc=${PIPESTATUS[0]}
+  [ "$rc" = 0 ] || grep -q "TrialBox is running" "$TB/install-v.log" || return "$rc"
+  echo "install.sh exit $rc (a FAIL list at the end; the stack runs)"
+}
+d_models_place() {  # the site's weights in deploy/models, where install.sh pins them from (the VM's /models, bound)
+  mkdir -p "$BOXROOT/deploy/models"
+  if [ -n "${TB_BOXRUN_MOUNT:-}" ]; then $TB_BOXRUN_MOUNT "$MODELS" "$BOXROOT/deploy/models"
+  else mountpoint -q "$BOXROOT/deploy/models" || mount --bind "$MODELS" "$BOXROOT/deploy/models"; fi
+}
+# lane G's accuracy tools OUTSIDE the box: the VM's own python3 (they need the standard library only, and the
+# network for the pinned files and the live records); JMED-Personas' parquet needs pyarrow: the box's python image,
+# offline (its files are fetched before)
+d_acc_py() { (cd "$ACCT" && PYTHONPATH="$ACCT" ${TB_BOXRUN_ACC_PY:-python3} -m tools.public_accuracy "$@"); }
+d_acc_img() { docker run --rm --network none --user 0 -v "$ACCT:/acc" -w /acc -e PYTHONPATH=/acc "$@"; }
+d_recreate() { dc up -d --force-recreate --wait "$@"; }
 d_capture()  { box_tool serving_config capture --container "judge=$1" --container "verifier=$2" \
                  --models-dir "$MODELS" --notes "$PROFILE profile: box run $RUN_ID" --out "$3"; }
 d_doctor()   { box_tool trialbox doctor --live --json --env-file "$BOXROOT/deploy/.env"; }
@@ -560,16 +632,40 @@ d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, sh
   (cd "$CK" && tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
      --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
 }
+d_sign_throwaway() {  # validation: a key made here, never the vendor key; only its public half leaves the VM
+  local k
+  k=$(mktemp -d "$SHM/tbk.XXXXXX") || return 1
+  chmod 700 "$k"
+  trap 'shred -u "$k/vendor_ed25519.key" 2>/dev/null; rm -rf "$k"' EXIT INT TERM
+  "$CK/.venv/bin/python" "$CK/tools/sign_bundle.py" keygen --out "$k" >/dev/null || return 3
+  chmod 600 "$k/vendor_ed25519.key"
+  cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
+  echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
+  (cd "$CK" && tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
+     --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
+}
 step_b_sign() {
   mkdir -p "$BUILD/out"
-  need "signing the bundle (tools/make_bundle.sh with the vendor key)" d_sign; local rc=$?
+  if [ "$MODE" = validation ]; then
+    need "signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release)" d_sign_throwaway
+  else
+    need "signing the bundle (tools/make_bundle.sh with the vendor key)" d_sign
+  fi
+  local rc=$?
+  note mode "\"$MODE\""; [ "$MODE" = validation ] && note not_a_release true
   rm -rf "$SHM"/tbk.* 2>/dev/null
   note key_left_on_tmpfs "$(ls -d "$SHM"/tbk.* >/dev/null 2>&1 && echo true || echo false)"
   return $rc
 }
 step_b_verify() {
   local b="$BUILD/out/trialbox-$RID.tar"
-  need "fetching the vendor public key" fetch "$VPUB_SRC" "$BUILD/vendor.pub" || return 1
+  note mode "\"$MODE\""
+  if [ "$MODE" = validation ]; then
+    cp "$BUILD/throwaway-signing-key.pub" "$BUILD/vendor.pub" || { STOP="no throwaway public key from b05"; return 1; }
+    note not_a_release true
+  else
+    need "fetching the vendor public key" fetch "$VPUB_SRC" "$BUILD/vendor.pub" || return 1
+  fi
   rm -rf "$BUILD/verify-stage"
   need "tools/verify_update.py (the Ed25519 signature with the vendor public key)" \
     "$CK/.venv/bin/python" "$CK/tools/verify_update.py" "$b" --pubkey "$BUILD/vendor.pub" --stage "$BUILD/verify-stage" || return 1
@@ -582,8 +678,13 @@ step_b_upload() {
   sha=$(sha256sum "$b" | cut -d' ' -f1); printf '%s  %s\n' "$sha" "trialbox-$RID.tar" > "$b.sha256"
   need "uploading the bundle" gcloud storage cp "$b" "$OUTP/trialbox-$RID.tar" || return 1
   need "uploading its sha256" gcloud storage cp "$b.sha256" "$OUTP/trialbox-$RID.tar.sha256" || return 1
-  printf '{"release_id": "%s", "release_seq": %s, "commit": "%s", "sha256": "%s", "bytes": %s, "object": "%s"}\n' \
-    "$RID" "$SEQ" "$COMMIT" "$sha" "$(stat -c %s "$b")" "$OUTP/trialbox-$RID.tar" > "$REC/bundle.json"
+  if [ "$MODE" = validation ]; then
+    need "uploading the throwaway key's public half" gcloud storage cp "$BUILD/throwaway-signing-key.pub" "$OUTP/throwaway-signing-key.pub" || return 1
+  fi
+  printf '{"release_id": "%s", "release_seq": %s, "commit": "%s", "sha256": "%s", "bytes": %s, "object": "%s", "mode": "%s", "not_a_release": %s, "signed_with": "%s"}\n' \
+    "$RID" "$SEQ" "$COMMIT" "$sha" "$(stat -c %s "$b")" "$OUTP/trialbox-$RID.tar" "$MODE" \
+    "$([ "$MODE" = validation ] && echo true || echo false)" \
+    "$([ "$MODE" = validation ] && echo "a throwaway key made on the runner VM (not the vendor key)" || echo "the vendor key (Secret Manager)")" > "$REC/bundle.json"
   note sha256 "\"$sha\""; note object "\"$OUTP/trialbox-$RID.tar\""
 }
 
@@ -611,10 +712,31 @@ step_bundle() {
   mkdir -p "$BOXROOT/deploy/keys"
   need "fetching the vendor public key" fetch "$VPUB_SRC" "$BOXROOT/deploy/keys/vendor_ed25519.pub" || return 1
   note vendor_pub_sha256 "\"$(sha256sum "$BOXROOT/deploy/keys/vendor_ed25519.pub" | cut -d' ' -f1)\""
+  note mode "\"$MODE\""; [ "$MODE" = validation ] && note not_a_release true
+  return 0
 }
 step_install() {
+  if [ "$MODE" = validation ]; then
+    [ -f "$BOXROOT/deploy/install.sh" ] || { STOP="no deploy/install.sh in the bundle's host tree"; return 1; }
+    if [ -n "$SITE_ANSWERS" ]; then   # the committed synthetic site (deploy/gcp/validation-site-answers.yaml)
+      (umask 077; md tb-site-answers > "$ANSWERS.yaml") && [ -s "$ANSWERS.yaml" ] || { STOP="tb-site-answers is empty"; return 1; }
+      note answers "\"tb-site-answers (deploy/gcp/validation-site-answers.yaml)\""
+    else
+      (umask 077; gcloud secrets versions access "$AVER" --secret="$ASEC" > "$ANSWERS.yaml" 2>/dev/null) && [ -s "$ANSWERS.yaml" ] \
+        || { STOP="no site answers in Secret Manager (tb-answers-secret, tb-answers-version)"; return 1; }
+    fi
+    need "placing the site's weights in deploy/models" d_models_place || return 1
+    need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
+    rm -f "$ANSWERS.yaml"
+    return $rc
+  fi
   [ -x "$INSTALLER" ] || { STOP="no installer at $INSTALLER in the bundle's host tree: a person would need a shell"; return 1; }
   need "the installer" d_install "$BUNDLE"
+}
+step_venv_env() {  # validation: the box's environment as deploy/.env names it (install.sh: PRODUCTION when unset)
+  local e; e=$(envget TB_ENV | tr -d "\"' \r" | tr '[:lower:]' '[:upper:]')
+  note environment "\"${e:-PRODUCTION (unset)}\""
+  [ "$e" = VALIDATION ] || { STOP="the box is ${e:-PRODUCTION (TB_ENV unset)}, not VALIDATION: the answers' env_extra did not reach deploy/.env"; return 1; }
 }
 step_wizard() {
   local pid rc
@@ -924,6 +1046,153 @@ step_g10_qualify() {
   [ "$rc" = 0 ] && [ "$(jget "$REC/qualification-g10.json" passed)" = True ] && note pass true || note pass false
 }
 
+# ================================================================== acc (the public accuracy run on the installed box)
+ACC="$TB/acc"; ACCT="$TB/acc-tools"
+ONBOX="$ACCT/tools/public_accuracy/onbox.py"
+DCCMD="docker compose --project-directory $BOXROOT/deploy"
+acc_call() {  # acc_call <service> <onbox command> [JSON argument]
+  local arg=${3:-}; [ -n "$arg" ] || arg='{}'
+  vm acc-call --dc "$DCCMD" --onbox "$ONBOX" --log "$STEP_LOG" --beat "$HB" --svc "$1" --cmd "$2" --arg "$arg"
+}
+envset_box() { sed -i "/^$1=/d" "$BOXROOT/deploy/.env" && printf '%s=%s\n' "$1" "$2" >> "$BOXROOT/deploy/.env"; }
+acc_compile_only() { case "$1" in tfda|jrct|chia) return 0 ;; *) return 1 ;; esac; }   # as plan.RUN_A's screen=False
+acc_fetch_set() { case "$1" in trec2023) echo trec ;; *) echo "$1" ;; esac; }          # as plan.RUN_A's fetch
+# the site's own daily limits for the run: rate_limits_per_day FEAS 0 and SCREEN 0 (0 = no limit,
+# deploy/settings.example.yaml), checked by the settings wizard as the services check it at start
+ACC_LIMITS='
+import yaml
+p = "/d/settings.yaml"
+text = open(p, encoding="utf-8").read()
+head = "".join(x for x in text.splitlines(True) if x.startswith("#"))
+doc = yaml.safe_load(text) or {}
+before = dict(doc.get("rate_limits_per_day") or {})
+doc["rate_limits_per_day"] = {**before, "FEAS": 0, "SCREEN": 0}
+open(p, "w", encoding="utf-8").write(head + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False))
+print({"before": before, "after": doc["rate_limits_per_day"]})
+'
+d_limits() { docker run --rm --network none --user 0 -v "$BOXROOT/deploy:/d" "$(img_py)" sh -c \
+  "python -c '$ACC_LIMITS' && python -m tools.settings_wizard --check /d/settings.yaml"; }
+step_acc_tools() {
+  rm -rf "${ACCT:?}"; mkdir -p "$ACCT" "$ACC"
+  need "fetching lane G's accuracy tools (tb-acc-tools)" fetch "$ACC_TOOLS" "$TB/acc-tools.tgz" || return 1
+  need "unpacking them (on the VM, never into the box)" tar -xzf "$TB/acc-tools.tgz" -C "$ACCT" || return 1
+  [ -f "$ONBOX" ] || { STOP="the tools tarball has no tools/public_accuracy/onbox.py"; return 1; }
+  note sha256 "\"$(sha256sum "$TB/acc-tools.tgz" | cut -d' ' -f1)\""; note sets "\"$ACC_SETS\""
+}
+first_of() { "$PY" -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]) or []; print(v[0] if v else "")' "$1" "$2"; }
+step_acc_settings() {
+  local name
+  acc_call mail-gateway env > "$REC/acc-settings-before.json" || { STOP="the box's settings cannot be read (onbox env)"; return 1; }
+  need "the site's daily limits for the run (settings.yaml rate_limits_per_day FEAS 0, SCREEN 0)" d_limits || return 1
+  envset_box TB_MAIL_PER_RECIPIENT_PER_DAY 0
+  [ -n "$(envget TB_MAIL_AUTHSERV_ID)" ] || envset_box TB_MAIL_AUTHSERV_ID "$ACC_AUTHSERV"
+  if [ -n "$ACC_TRIPWIRE" ]; then   # only a setting this tree declares (tb_common.config.DECLARED), never a code change
+    name=${ACC_TRIPWIRE%%=*}
+    if "$PY" -c 'import json,sys; sys.exit(0 if sys.argv[2] in (json.load(open(sys.argv[1])).get("tripwire_settings") or {}) else 1)' \
+         "$REC/acc-settings-before.json" "$name"; then
+      envset_box "$name" "${ACC_TRIPWIRE#*=}"; note tripwire "\"set by the declared setting $ACC_TRIPWIRE\""
+    else
+      note tripwire "\"on: $name is not a declared setting of this tree (asked: $ACC_TRIPWIRE)\""
+    fi
+  else
+    note tripwire "\"on: no setting used (gateway step 4 runs on every call of class D0 to D2)\""
+  fi
+  need "the stack recreated on the new settings" d_recreate || return 1
+  acc_call mail-gateway env > "$REC/acc-settings-after.json" || { STOP="the box's settings cannot be read after the change"; return 1; }
+  st set "$STEP" acc_sender "$(first_of "$REC/acc-settings-after.json" senders)"
+  st set "$STEP" acc_reviewer "$(first_of "$REC/acc-settings-after.json" reviewers)"
+  { [ -n "$(st kv _ acc_sender)" ] && [ -n "$(st kv _ acc_reviewer)" ]; } || { STOP="the box's settings name no sender or no reviewer"; return 1; }
+  note limits "$("$PY" -c 'import json,sys
+b, a = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
+k = ("rate_limit_per_sender_per_day", "rate_limits_per_day", "mail_per_recipient_per_day", "authserv")
+print(json.dumps({"before": {x: b.get(x) for x in k}, "after": {x: a.get(x) for x in k}, "environment": a.get("environment")}))' \
+    "$REC/acc-settings-before.json" "$REC/acc-settings-after.json")"
+}
+step_acc_routes() {
+  local dcls jcls ccls
+  dcls=$(envget TB_DATA_CLASS); jcls=${dcls:-D3}; ccls=${dcls:-D1}   # a phi prompt is D3, the others D1 (tb_llm v1_labels)
+  acc_call gateway routes "{\"calls\": [[\"judge\", \"$jcls\"], [\"extract_criteria\", \"$ccls\"], [\"concept_select\", \"$ccls\"]]}" \
+    > "$RUN/logs/acc-routes-gw.json" || { STOP="the gateway's routes cannot be read (onbox routes)"; return 1; }
+  acc_call orchestrator embedder > "$RUN/logs/acc-embedder.json" || echo '{}' > "$RUN/logs/acc-embedder.json"
+  [ -s "$REC/serving_config.json" ] || d_capture "$(cid "$JUDGE_S")" "$(cid "$VERIFIER_S")" "$REC/serving_config.json" >> "$STEP_LOG" 2>&1
+  vm acc-routes "$RUN/logs/acc-routes-gw.json" "$RUN/logs/acc-embedder.json" --notes "$NOTES" > "$REC/acc-routes.json" \
+    || { STOP="TB-ACC-BLOCKED: the box would refuse the run's calls in $(jget "$REC/acc-routes.json" environment): $(jget "$REC/acc-routes.json" blocked) (a product defect, not worked around)"; return 1; }
+}
+acc_today() {  # the box's day for the built sites (kept in the state: a resumed run builds on the same day)
+  local d; d=$(st kv _ acc_ref)
+  [ -n "$d" ] || { d=${TB_BOXRUN_TODAY:-$(TZ="$(envget TB_TZ | grep . || echo UTC)" date +%F)}; st set "$STEP" acc_ref "$d"; }
+  echo "$d"
+}
+step_acc_data() {
+  local ref item name size img
+  ref=$(acc_today); img=$(img_py); note ref "\"$ref\""
+  for item in $ACC_SETS; do
+    name=${item%%:*}; size=${item#*:}
+    [ -f "$ACC/$name/built/gold/ids.json" ] && { echo "set $name: built before (kept)" >> "$STEP_LOG"; continue; }
+    rm -rf "${ACC:?}/${name:?}/built"; mkdir -p "$ACC/$name"
+    need "fetching the pinned files of $name (tools.public_accuracy fetch, on the VM, outside the box)" \
+      d_acc_py fetch --only "$(acc_fetch_set "$name")" || return 1
+    if [ "$name" = jmed ]; then   # pyarrow: the box's python image, no network (the file is fetched above)
+      need "building $name ($size) for the box's day $ref (the box's image, offline)" \
+        d_acc_img -v "$ACC/$name:/work" "$img" python -m tools.public_accuracy build --set "$name" --size "$size" \
+          --out /work --ref "$ref" --for-box || return 1
+    else
+      need "building $name ($size) for the box's day $ref (on the VM)" \
+        d_acc_py build --set "$name" --size "$size" --out "$ACC/$name" --ref "$ref" --for-box || return 1
+    fi
+    [ -f "$ACC/$name/built/gold/ids.json" ] || { STOP="the build of $name wrote no gold/ids.json"; return 1; }
+  done
+}
+step_acc_ingest() {
+  local feed mount sites=() item ref snap before t0
+  feed=$(envget TB_SOURCE_DIR); mount=$(envget TB_SOURCE_MOUNT)
+  { [ -n "$feed" ] && [ -n "$mount" ]; } || { STOP="no feed folder (TB_SOURCE_DIR, TB_SOURCE_MOUNT in deploy/.env)"; return 1; }
+  case "$feed" in /*) ;; *) feed="$BOXROOT/deploy/$feed" ;; esac
+  for item in $ACC_SETS; do sites+=("$ACC/${item%%:*}/built/site/hospital"); done
+  need "the sets' hospital feeds as one feed in the box's feed folder (acc/)" vm acc-merge-feed --into "$feed/acc" "${sites[@]}" || return 1
+  ref=$(acc_today); snap=$(date -d "$ref -1 day" +%F); note snapshot "\"$snap\""
+  before=$(d_current 2>/dev/null)
+  need "the box's ingest of the feed" d_ingest "$mount/acc" "$snap" || return 1
+  t0=$(date +%s)
+  while [ "$(d_current 2>/dev/null)" = "$before" ]; do
+    touch "$HB"
+    [ $(($(date +%s) - t0)) -lt $((ACC_JOB_MIN * MIN_S)) ] || { STOP="the lake did not publish the ingest in $ACC_JOB_MIN minutes"; return 1; }
+    sleep "$POLL"
+  done
+  note current "\"$(d_current 2>/dev/null)\""
+}
+step_acc_set() {
+  local name=$1 co=() up=false t0
+  acc_compile_only "$name" && co=(--compile-only)
+  t0=$(st kv _ "acc_t0_$name"); [ -n "$t0" ] || { t0=$(date -u +%FT%T); st set "$STEP" "acc_t0_$name" "$t0"; }
+  need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
+    vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
+      --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID" ${co[@]+"${co[@]}"} \
+      --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" || return 1
+  acc_call gateway audit "{\"since\": \"$t0\"}" > "$ACC/$name/work/gateway-audit.json" 2>> "$STEP_LOG" || rm -f "$ACC/$name/work/gateway-audit.json"
+  mkdir -p "$ACC/$name/built/site-provenance"; cp "$ACC/$name/built/site/PROVENANCE.md" "$ACC/$name/built/site-provenance/" 2>/dev/null
+  tar -czf "$ACC/$name.tgz" -C "$ACC/$name" built/gold built/site-provenance work 2>> "$STEP_LOG" || { STOP="the set $name could not be packed"; return 1; }
+  if [ -n "$BUCKET" ] && gcloud storage cp "$ACC/$name.tgz" "$BUCKET/boxruns/$RUN_ID/acc/$name.tgz" >/dev/null 2>&1; then up=true; fi
+  mkdir -p "$RUN/acc/$name"; cp "$ACC/$name/work/answers.json" "$RUN/acc/$name/" 2>/dev/null
+  note uploaded "$up"
+}
+step_acc_result() {
+  local sets ok
+  sets=$("$PY" - "$RUN/parts" <<'PY'
+import json, sys
+from pathlib import Path
+rows = {}
+for p in sorted(Path(sys.argv[1]).glob("6*-acc-*.json")):
+    d = json.loads(p.read_text())
+    rows[p.stem[7:]] = {"status": d.get("status"), "pass": d.get("pass"), "counts": (d.get("detail") or {}).get("counts")}
+print(json.dumps(rows))
+PY
+)
+  note sets "$sets"
+  ok=$("$PY" -c 'import json,sys; r=json.loads(sys.argv[1]); print("true" if r and all(v["pass"] for v in r.values()) else "false")' "$sets")
+  note pass "$ok"
+}
+
 # ------------------------------------------------------------------ the run
 if has build; then
   run_step b01-source step_b_source
@@ -937,7 +1206,7 @@ fi
 if has start; then
   run_step 01-bundle step_bundle
   run_step 02-install step_install
-  run_step 03-wizard step_wizard
+  if [ "$MODE" = validation ]; then run_step 03-wizard step_venv_env; else run_step 03-wizard step_wizard; fi
   run_step 04-pin step_pin
   run_step 05-serving step_serving
   run_step 06-g1 step_g1
@@ -971,5 +1240,14 @@ if has g10; then
   run_step 41-g10-image step_g10_image
   run_step 42-g10-canary step_g10_canary
   run_step 43-g10-qualify step_g10_qualify
+fi
+if has acc; then
+  run_step 50-acc-tools step_acc_tools
+  run_step 51-acc-settings step_acc_settings
+  run_step 52-acc-routes step_acc_routes
+  run_step 53-acc-data step_acc_data
+  run_step 54-acc-ingest step_acc_ingest
+  n=59; for item in $ACC_SETS; do n=$((n + 1)); run_step "$n-acc-${item%%:*}" step_acc_set "${item%%:*}"; done
+  run_step 79-acc-result step_acc_result
 fi
 finish "TB-BOX-RUN-COMPLETE: every step ran; the parts say which test rules passed" complete 0

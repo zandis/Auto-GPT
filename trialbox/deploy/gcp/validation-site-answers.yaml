@@ -1,0 +1,42 @@
+# The settings wizard's answers for lane G's VALIDATION box (deploy/gcp/box-run.sh --mode validation): a SYNTHETIC
+# site that screens public data only (the owner's rulings of 2026-11-15; no patient, no real name, no real mailbox).
+# deploy/install.sh --answers reads it through tools/settings_wizard.py; env_extra (declared TB_* settings only)
+# makes the box TB_ENV=VALIDATION, the installer's own way for an operator's TB_ENV (D-127). No mail server: the
+# requests reach the mail gateway's own intake from the VM (tools/public_accuracy/onbox.py send), the box's replies
+# wait in its outbox. No password here: the installer makes every service password itself.
+site_id: ACC-VAL
+site_name: Public accuracy site (synthetic, VALIDATION)
+tz: Asia/Taipei
+locale: zh-TW
+contact: it-ops@hospa.test
+internal_domains: [hospa.test]
+intake_address: trialbox@hospa.test
+senders: [crc1@hospa.test]
+physicians: [pi@hospa.test]
+reviewers: [pi@hospa.test]
+alliance_sites: []
+data_source_type: csv
+data_source_path: /data/source/site
+data_source_host_dir: ./site/feed
+mapping: mapping/tw_core/demo_his.yaml
+mrn_regex: '^\d{8}$'
+chartno_rule: digits:8
+registry_type: none
+departments: {MED: Medicine (public-data site)}
+practitioners:
+  P00001: {name: Chart clinician (synthetic), department: MED, email: pi@hospa.test, capacity_per_month: 3}
+llm_mode: gpu
+cloud_enabled: no
+attachment_encryption: link
+console_url: https://trialbox.hospa.test
+twpas_enabled: no
+alliance_root: no
+alliance_root_address: ""
+cohort_rulesets: []
+smtp_host: ""
+imap_host: ""
+mta_authserv_id: mx.hospa.test
+ctgov_mode: offline
+env_extra:
+  TB_ENV: VALIDATION
+  TB_MAIL_PER_RECIPIENT_PER_DAY: "0"
