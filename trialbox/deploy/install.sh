@@ -257,7 +257,9 @@ MAPPING_MOUNT=(-v "$ROOT/deploy/site/mapping:/etc/trialbox/mapping:ro")
 if [ -n "$ANSWERS" ] && [ -d "$(dirname "$ANSWERS")/mapping" ] && [ "$(cd "$(dirname "$ANSWERS")/mapping" && pwd)" != "$ROOT/deploy/site/mapping" ]; then
   cp -rn "$(dirname "$ANSWERS")/mapping/." deploy/site/mapping/ && echo "    site mapping folder: deploy/site/mapping (from $(dirname "$ANSWERS")/mapping)"
 fi
+SETTINGS_NEW=0
 if [ ! -f deploy/settings.yaml ]; then
+  SETTINGS_NEW=1  # D-736: a fresh install (a re-run keeps the site's settings and never stops a running site)
   if [ -n "$ANSWERS" ]; then
     [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
     tree_args
@@ -363,16 +365,19 @@ else
 fi
 # SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
+[ -n "$SAE_TO" ] || SAE_TO="${TB_SAE_OFFICE_MAILBOX:-}"   # exported for this run
 if [ -z "$SAE_TO" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf '  The trial office'"'"'s mailbox, told at once when a serious adverse event is entered (e.g. trial-office@hospital.tw): '; read -r SAE_TO
+  printf '  The trial office'"'"'s mailbox, told at once when a serious adverse event is entered (e.g. trial-office@hospital.tw): '; read -r SAE_TO || SAE_TO=""
 fi
+SAE_TO="$(printf '%s' "$SAE_TO" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+case "$SAE_TO" in \"*\") SAE_TO="${SAE_TO#\"}"; SAE_TO="${SAE_TO%\"}" ;; \'*\') SAE_TO="${SAE_TO#\'}"; SAE_TO="${SAE_TO%\'}" ;; esac
 if [ -n "$SAE_TO" ]; then
-  printf '%s\n' "$SAE_TO" | grep -Eqx '[^@[:space:]",;#]+@[^@[:space:]",;#]+\.[^@[:space:]",;#]+' \
+  printf '%s\n' "$SAE_TO" | grep -Eqx "[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+" \
     || die "TB_SAE_OFFICE_MAILBOX $SAE_TO is not one mail address (for example trial-office@hospital.tw)"
   envset TB_SAE_OFFICE_MAILBOX "$SAE_TO"
   echo "    SAE office mailbox: $SAE_TO"
-elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ]; then
-  die "no SAE office mailbox: when a serious adverse event is entered the trial office must be told at once (a sponsor report can be due within 24 h). Put TB_SAE_OFFICE_MAILBOX in deploy/.env, then re-run (RUNBOOK §1)"
+elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ] && [ "${SETTINGS_NEW:-0}" = 1 ]; then
+  die "no SAE office mailbox: when a serious adverse event is entered the trial office must be told at once (a sponsor report can be due within 24 h). Put TB_SAE_OFFICE_MAILBOX in deploy/.env or sae_office_mailbox in the answers file, then re-run (RUNBOOK §1)"
 else
   echo "install: warning: no SAE office mailbox ($TB_ENV_SITE): nobody is mailed when a serious adverse event is entered until TB_SAE_OFFICE_MAILBOX is set in deploy/.env (RUNBOOK §1)" >&2
 fi
