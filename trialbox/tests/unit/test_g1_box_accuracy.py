@@ -348,3 +348,16 @@ def test_the_validation_sites_answers_make_a_validation_box_through_the_real_wiz
     assert "password" not in json.dumps(answers).lower(), "no secret in the committed answers"
     box_run.metadata(["start"], {"tb-bundle": "gs://b/x", "tb-bundle-sha256": "0" * 64, "tb-vendor-pub": "gs://b/p"},
                      tmp_path / "m", "validation")  # fmt: skip
+
+
+def test_acc_tools_is_the_committed_tools_at_head(tmp_path: Path) -> None:
+    import tarfile
+
+    res = box_run.acc_tools(tmp_path / "acc-tools.tgz")
+    assert re.fullmatch(r"[0-9a-f]{40}", res["commit"])
+    with tarfile.open(tmp_path / "acc-tools.tgz") as t:
+        names = set(t.getnames())
+    for want in ("tools/__init__.py", "tools/public_accuracy/onbox.py", "tools/public_accuracy/site.py",
+                 "tools/public_site.py", "tools/fetch_pinned.py", "eval/criterion_ml/annotations.jsonl"):  # fmt: skip
+        assert want in names, want
+    assert not any(n.startswith(("services/", "libs/")) for n in names), "only lane G's tools, never the product"

@@ -644,7 +644,7 @@ def acc_tools(out: Path, root: Path = ROOT) -> dict[str, Any]:
     out.parent.mkdir(parents=True, exist_ok=True)
     tree = f"{commit}:{sub}" if sub not in ("", ".") else commit
     subprocess.run(
-        ["git", "-C", str(root), "archive", "--format=tar.gz", "-o", str(out.resolve()), tree, *ACC_TOOL_PATHS],
+        ["git", "-C", str(top), "archive", "--format=tar.gz", "-o", str(out.resolve()), tree, *ACC_TOOL_PATHS],
         check=True,
     )
     return {"commit": commit, "paths": list(ACC_TOOL_PATHS), "working_tree_differs": bool(dirty), "file": str(out)}
