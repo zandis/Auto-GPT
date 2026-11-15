@@ -74,8 +74,22 @@ def test_the_allowed_calls_pass_with_the_key_only(guard: int) -> None:
     assert all(a == f"Bearer {KEY}" for _, _, a in _Upstream.seen)  # vLLM checks it on /v1 too
 
 
+def test_tokenize_passes_with_the_key_only(guard: int) -> None:
+    """GUARD-TOKENIZE (D-739): lane G's G-1 counts tokens on the shipped server (``tools/g_probes.py``,
+    ``tools/chat_template_check.py``). The key already opens chat completions, which do more than count."""
+    assert _call(guard, "POST", "/tokenize", key=None) == 401
+    assert _call(guard, "POST", "/tokenize", key="wrong") == 401
+    assert _call(guard, "GET", "/tokenize") == 404
+    assert _Upstream.seen == []
+    assert _call(guard, "POST", "/tokenize") == 200
+    assert [(m, p) for m, p, _ in _Upstream.seen] == [("POST", "/tokenize")]
+    assert _Upstream.seen[0][2] == f"Bearer {KEY}"
+    for path in ("/tokenize/", "/tokenize?x=1", "/v1/tokenize", "/tokenize/../invocations"):
+        assert _call(guard, "POST", path) == 404, path
+
+
 def test_vllm_routes_that_skip_the_key_never_reach_it(guard: int) -> None:
-    for path in ("/invocations", "/tokenize", "/detokenize", "/score", "/pooling", "/classify", "/collective_rpc",
+    for path in ("/invocations", "/detokenize", "/score", "/pooling", "/classify", "/collective_rpc",
                  "/reset_prefix_cache", "/v2/x", "/v1/chat/completions/", "//v1/models", "/v1/../invocations"):  # fmt: skip
         for key in (None, KEY):
             assert _call(guard, "POST", path, key=key) == 404, path

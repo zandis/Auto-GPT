@@ -432,8 +432,9 @@ services:
   model-guard:
     # D-177: the only way to the model servers. vLLM checks its key on /v1 only (/invocations, /tokenize, /metrics
     # and, in dev mode, /collective_rpc answer without it), so vLLM sits on model-backend-net and this guard answers
-    # to its names on model-net: the key on every call, and only /v1/models, /v1/chat/completions, /v1/completions
-    # (/sleep, /wake_up, /is_sleeping with TB_GUARD_ADMIN=1) and /health. Everything else is 404 (services/model_guard).
+    # to its names on model-net: the key on every call, and only /v1/models, /v1/chat/completions, /v1/completions,
+    # /tokenize (D-739) (/sleep, /wake_up, /is_sleeping with TB_GUARD_ADMIN=1) and /health. Everything else is 404
+    # (services/model_guard).
     profiles: [gpu]
     logging: *logging
     image: ${TB_IMAGE:-trialbox-py:1.0.0}

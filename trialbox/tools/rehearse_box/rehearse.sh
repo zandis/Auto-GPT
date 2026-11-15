@@ -17,8 +17,9 @@
 #                   the media is loaded, ClinicalTrials.gov offline, no route out of the box
 #   egress-override no route out, with the REHEARSAL's internal egress-net (standins.yml); the shipped egress-net and
 #                   deploy/network.sh are not rehearsed (no NET_ADMIN): the site's IQ checks them
-#   guard           on model-net only model-guard answers to the model servers' names: /invocations, /tokenize,
-#                   /collective_rpc, /metrics ... 404 with or without the key, /v1 needs the key (D-177)
+#   guard           on model-net only model-guard answers to the model servers' names: /invocations,
+#                   /collective_rpc, /metrics ... 404 with or without the key, /v1 and /tokenize need the key (D-177,
+#                   D-739)
 #   console         the console answers /healthz and its sign-in page; it resolves no outside name and reaches nothing
 #                   outside (console-net, D-176)
 #   screen          SCREEN GZQO on synthetic hospital A ends done, through the gateway to both pinned builds
