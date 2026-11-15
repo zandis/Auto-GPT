@@ -749,6 +749,8 @@ def _run_ingest(
         # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (codes and counts only)
         for table, by_lookup in mapper.unmapped_summary().items():
             tables[table]["unmapped"] = by_lookup
+        for table, by_element in mapper.implausible_dates().items():  # F9 (D-811, lane E's hunk): counts only
+            tables[table]["implausible_dates"] = by_element
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
