@@ -198,7 +198,7 @@ def _scan() -> Any:
         sys.path.append(str(ROOT))
     from tools import data_scan
 
-    patterns = data_scan.load_patterns()
+    patterns = data_scan.load_patterns(exits=True)  # D-747: the share report is the one report that leaves the site
     allow = data_scan.Allow({}, [])
     return lambda text: bool(data_scan.scan_text(text, "share", patterns, allow))
 

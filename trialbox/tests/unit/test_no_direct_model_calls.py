@@ -39,7 +39,6 @@ ALLOWED: dict[str, str] = {
     "services/model_guard/__init__.py": "D-177: the key and path allowlist in front of vLLM: forwards the gateway's calls",
     "tests/unit/test_model_guard.py": "drives model-guard against a local recording upstream (no model, no network)",
     "tests/unit/test_doctor_serving.py": "the doctor's serving check against local vLLM stand-ins (no network)",
-    "deploy/gcp/gpu-fit-test.sh": "runs on the GPU VM: a one-line smoke prompt (no patient data) to its own servers",
     "tests/unit/test_model_swap.py": "fake vLLM servers behind an httpx.MockTransport (no network)",
     "libs/tb_testkit/scale.py": "T-687: counts the slow stub stand-in's calls in its own request log (no model)",
     "tests/unit/test_scale_gate_logic.py": "T-687: drives the stub stand-in on a local port (no model, no network)",

@@ -366,10 +366,20 @@ class RoutingPolicy:
     ) -> tuple[Route, list[Candidate]]:
         """Ordered candidates permitted for this call. Raises :class:`Refusal` with ``no_route`` when no row
         matches and ``class_route_mismatch`` when a row matches but none of its builds may receive the class."""
-        try:
-            check_env(label, env)
-        except PolicyError as e:
-            raise Refusal("class_not_allowed_in_env", str(e)) from e
+        # D-823 (the owner's blocker 2): in VALIDATION a D3 call of the screen (a patient role, or its vectors) on
+        # topology A may go to the box's own model servers and nowhere else; VALIDATION's ceiling stays D2 for all
+        # else (front-desk conversation included), and the box's model addresses are checked as in PRODUCTION
+        box_only = (
+            env == Environment.VALIDATION
+            and label.data_class == DataClass.D3
+            and topology == Topology.A
+            and role in {*self.groups.get("patient", []), *self.groups.get("vectors", [])}
+        )
+        if not box_only:
+            try:
+                check_env(label, env)
+            except PolicyError as e:
+                raise Refusal("class_not_allowed_in_env", str(e)) from e
         r = self.route(role, label, topology, env, profile)
         if r is None:
             raise Refusal("no_route", f"no route for role={role} class={label.tag} topology={topology} env={env}")
@@ -386,6 +396,8 @@ class RoutingPolicy:
             if requires and not set(requires) <= flags:
                 continue
             if not may_reach(label, ep.destination, topology, cloud_opt_in=cloud_opt_in):
+                continue
+            if box_only and ep.zone != "perimeter":
                 continue
             out.append(Candidate(alias, ep, r.id, requires))
         if not out:
@@ -464,9 +476,9 @@ def perimeter_addresses(
 
 
 def perimeter_checked(topology: Topology, env: Environment) -> bool:
-    """Where the perimeter must be the box itself: PRODUCTION on topology A (on topology B the perimeter is the
-    tenant's serving router, which is not on the box)."""
-    return topology == Topology.A and env == Environment.PRODUCTION
+    """Where the perimeter must be the box itself: PRODUCTION, and VALIDATION (D-823: it screens on the box), on
+    topology A (on topology B the perimeter is the tenant's serving router, which is not on the box)."""
+    return topology == Topology.A and env in (Environment.PRODUCTION, Environment.VALIDATION)  # D-823
 
 
 def perimeter_problems(

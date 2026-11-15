@@ -207,6 +207,12 @@ def percent(text: str) -> float:
     return min(x / 100 if x > 1 else x, 1.0)
 
 
+#: NEW-JRN-5 (D-768): the map page's inputs per item (the hidden ``item`` and 12 named inputs; a test counts them in the
+#: template) and the form's own fields (csrf, the target's three, a margin)
+MAP_ROW_FIELDS = 13
+MAP_FORM_FIELDS = 16
+
+
 def parse_rows(form: Mapping[str, Any], items: list[str]) -> list[dict[str, Any]]:
     """The map page's rows (``<field>-<item>`` inputs) as map items."""
     out = []
@@ -265,6 +271,7 @@ SEND_RESULTS = (
     "instance_taken",
     "refused",  # NEW-EDC-7 (D-692): REDCap refused the import of the record
     "source_changed",  # NEW-EDC-4 (D-694): the source changed since the value was decided
+    "changed_in_redcap",  # NEW-EDC-5 (D-695): a value TrialBox sent that REDCap now holds differently
 )  # T-115: held back, with the reason
 
 
@@ -639,9 +646,26 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.post("/studies/{rs}/edc/map")
     async def edc_map_save(request: Request, rs: str) -> Response:
+        """NEW-JRN-5 (D-768, JRN-005): the form is read with a field limit from the study's dictionary (the items the
+        page can show, ``MAP_ROW_FIELDS`` inputs each, and the form's own): a real eCRF's map passed the framework's
+        default of 1,000 fields and got its raw JSON refusal. A form past the limit gets the console's page (413)."""
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
         sess = h.need(request)
-        form = await form_of(request, sess)
         rid = study_or_404(sess, rs, "map", request.url.path)
+        try:
+            rows_known = len(call("GET", f"/studies/{rid}/edc/map/suggest")) + len(call("GET", f"/studies/{rid}/edc")
+                                                                                     .get("map") or [])  # fmt: skip
+        except (Problem, Unavailable) as exc:
+            return map_page(request, sess, rid, err_of(exc), 409)
+        try:
+            form = await request.form(max_fields=(rows_known + 1) * MAP_ROW_FIELDS + MAP_FORM_FIELDS)
+        except StarletteHTTPException as exc:  # the review of D-768: only "too many fields" is the size sentence
+            too_many = "too many fields" in str(exc.detail).lower()
+            return map_page(request, sess, rid, {"code": "form_too_large" if too_many else "other", "fields": ""},
+                            413 if too_many else 400)  # fmt: skip
+        if not h.csrf_ok(sess, str(form.get("csrf") or "")):
+            raise h.problem(400, "csrf")
         items = [str(i) for i in form.getlist("item") if _ITEM.match(str(i))]
         rows = parse_rows(form, items)
         target = ApiTarget(token_ref=str(form.get("token_ref") or "x")[:32] or "x",
@@ -675,6 +699,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         words = {d["id"]: item_words(d, fields.get(d["item"]), maps.get(d["item"]), lang) for d in drafts}
         resp = h.page(request, "edc_review.html", sess, rs=rid, record=rec, visit=visit, visits=visits, drafts=drafts,
                       fields=fields, words=words, st=st, unsigned=unsigned, printed_name=name, err=err,
+                      mapped=set(maps),  # NEW-EDC-6: a value whose item left the map or the dictionary is retired
                       may=may(sess, rid), sso=h.users.is_sso(sess.user.username),
                       oidc_sign=oidc_signer(sess))  # fmt: skip
         resp.status_code = status

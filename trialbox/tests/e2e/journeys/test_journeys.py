@@ -25,6 +25,10 @@ PLAN = ROOT / "docs" / "plan" / "28-master-plan-v6.md"
 STEP_ID = re.compile(r"^(J-[A-Z]{2,3})-(\d{2})$")
 CARD = re.compile(r"^T-\d{3}[a-z]?$")
 LANGS = {"en", "ja", "zh-TW"}
+#: NEW-JRN-20 (D-773): what a site does once in a study's life; a step that covers one is never in the re-run list
+ONCE = {"new_account", "sae", "deviation", "edc_sign_send", "monitor_visit", "study_close", "visits"}
+#: and NEW-JRN-1's (D-540) new study, its PI named and its first approval and list: done once
+ONCE_STEPS = {"J-ADM-05", "J-STW-05", "J-PI-08", "J-CRC-08"}
 
 
 def journeys() -> dict[str, Any]:
@@ -109,7 +113,12 @@ def test_the_rerun_list_after_a_long_break_names_only_existing_journeys() -> Non
         assert (name in ids) if "journey" in row else (name in steps), name
         names.append(name)
     assert len(names) == len(set(names)), names
-    assert "J-ADM" in names, "the held nights of the break are read before any list (J-ADM)"
+    assert "J-ADM-02" in names, "the held nights of the break are read before any list (J-ADM-02)"
+    # NEW-JRN-20 (D-773): a step done once in a study's life is never re-run, as a step or inside a journey
+    once = {sid for sid, st in steps.items() if set(st.get("covers") or []) & ONCE}
+    once |= ONCE_STEPS
+    rerun_steps = {x for n in names for x in ([n] if n in steps else [s for s in steps if s.startswith(n + "-")])}
+    assert not rerun_steps & once, sorted(rerun_steps & once)
 
 
 # ---------------------------------------------------------------------------------------------------- the walk

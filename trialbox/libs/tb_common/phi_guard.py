@@ -99,9 +99,12 @@ PHONE = re.compile(
 _SP = r"[^\S\n]"  # a space or tab, never a line break
 _DASH = r"[-.\u2010-\u2015\u2212]"  # hyphen, dot and the Unicode dashes
 _SEP = rf"(?:{_DASH}|{_SP})"
+_DATE_AFTER = r"(?:19|20)\d{2}[-./\s]\d{1,2}[-./\s]\d{1,2}"  # D-747: a date is never the rest of a phone number
 _EN_PHONE_FULL = (
-    # with its country code (+ or 00), at least nine digits
-    rf"(?=(?:[^\d\n]{{0,3}}\d){{9}})(?:\+|(?<![\d.,])(?<!\d{_SP})00(?=[1-9]))\d{{1,3}}{_SEP}?\(?\d{{1,4}}\)?(?:{_SEP}?\d{{2,4}}){{2,3}}"
+    # with its country code, at least nine digits, never a date after it (+0800 2026-11-15, job 001 2026-11-15):
+    # "+" and the code (tel:+15550100133 too), or "00", the code and a separator (never 0012345678, an id)
+    rf"(?=(?:[^\d\n]{{0,3}}\d){{9}})(?!(?:\+|00)\d{{1,4}}[-./\s(]{{0,2}}{_DATE_AFTER})"
+    rf"(?:\+\d{{1,3}}{_SEP}?|(?<![\d.,])(?<!\d{_SP})00[1-9]\d{{0,2}}{_SEP})\(?\d{{1,4}}\)?(?:{_SEP}?\d{{2,4}}){{2,3}}"
     # North American: (area) or area and a dash, exchange, line; a leading 1 too
     rf"|(?:1{_DASH})?(?:\([2-9]\d{{2}}\){_SP}?|[2-9]\d{{2}}{_DASH})\d{{3}}{_DASH}\d{{4}}"
     # British national: the area code with a separator or in brackets, then the subscriber number
@@ -109,14 +112,20 @@ _EN_PHONE_FULL = (
     rf"|(?<!\d{_SP})(?:\(0\d{{3}}\){_SP}?|0\d{{3}}{_SEP})\d{{3}}{_SEP}?\d{{4}}"
     rf"|(?<!\d{_SP})(?:\(0\d{{2}}\){_SP}?|0\d{{2}}{_SEP})\d{{4}}{_SEP}?\d{{4}}"
 )
-_EN_PHONE_LABEL = (
-    r"(?i:\b(?:tel(?:ephone)?|phone|ph|mobile|mob|cell(?:phone)?|fax|pager|landline|helpline|contact|call|dial"
-    r"|home|number\s+is|[TM](?=\s*:))\b\.?"
-    rf"(?:{_SP}*(?:no\b\.?|number\b|#|details\b))?)(?:{_SP}|[:#.])*"
-)
+_LABEL_TAIL = rf"\b\.?(?:{_SP}*(?:no\b\.?|number\b|#|details\b))?(?:{_SP}|[:#.])*"
+# D-747: a word that only names a phone takes a number written any way; a word that is often something else (call,
+# contact, home, T:) takes one written as a phone: a separator in seven digits, an area code in ten
+_STRONG_WORDS = r"tel(?:ephone)?|phone|ph|mobile|mob|cell(?:phone)?|fax|pager|landline|helpline"
+_STRONG_LABEL = rf"(?i:\b(?:{_STRONG_WORDS})){_LABEL_TAIL}"
+_WEAK_LABEL = rf"(?:(?i:\b(?:contact|call|dial|home|number\s+is))|\b[TM](?=\s*:)){_LABEL_TAIL}"
+_EN_PHONE_END = rf"(?![\dA-Za-z])(?!{_DASH}\d)"
+_STRONG_VALUE = rf"(?:{_EN_PHONE_FULL}|0\d{{9,10}}|\d{{10}}|\d{{3}}{_SEP}?\d{{4}})"
+_WEAK_VALUE = rf"(?:{_EN_PHONE_FULL}|[2-9]\d{{9}}|\d{{3}}{_SEP}\d{{4}})"
 EN_PHONE = re.compile(
-    rf"{_EN_PHONE_LABEL}(?P<v>{_EN_PHONE_FULL}|0\d{{9,10}}|\d{{10}}|\d{{3}}{_SEP}?\d{{4}})(?![\dA-Za-z])(?!{_DASH}\d)"
-    rf"|(?<![A-Za-z0-9+.,])(?:{_EN_PHONE_FULL})(?![\dA-Za-z])(?!{_DASH}\d)"  # not inside a code (3D046 0000 019)
+    # the word, then a number of the kind that word takes (each checked ahead); group ``v`` is the number alone
+    rf"(?:{_STRONG_LABEL}(?={_STRONG_VALUE}{_EN_PHONE_END})|{_WEAK_LABEL}(?={_WEAK_VALUE}{_EN_PHONE_END}))"
+    rf"(?P<v>{_STRONG_VALUE}|{_WEAK_VALUE}){_EN_PHONE_END}"
+    rf"|(?<![A-Za-z0-9+.,])(?:{_EN_PHONE_FULL}){_EN_PHONE_END}"  # not inside a code (3D046 0000 019)
 )
 # NEW-B-44 (D-745): a date of birth, a postal address, a chart number after any of its labels and an email address.
 # The owner's run of ``mask_note`` on a month of real notes (counts only) found the first three surviving; the masker

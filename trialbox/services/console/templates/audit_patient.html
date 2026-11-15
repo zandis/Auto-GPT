@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {# T-211c (D-451): one patient's audit report: every event that names the pseudonym, as the events hold it. #}
-{% block title %}{{ t('audit.report.title', pid=f.pid[:8]) }}{% endblock %}
+{% block title %}{% if by_chart %}{{ t('audit.report.title_chart') }}{% else %}{{ t('audit.report.title', pid=f.pid[:8]) }}{% endif %}{% endblock %}
 {% block content %}
+{% if by_chart %}{# NEW-JRN-6 (D-771): for a chart number; the pseudonym is never on this page #}
+<div class="headrow"><h1 data-testid="audit-report-by-chart">{{ t('audit.report.title_chart') }}</h1><a href="/audit">{{ t('audit.report.back') }}</a></div>
+<p class="hint">{{ t('audit.report.help_chart') }}</p>
+{% if unknown %}<p class="warn" role="alert" data-testid="audit-report-unknown">{{ t('audit.report.unknown_chart') }}</p>{% endif %}
+<section class="card">
+{% else %}
 <div class="headrow"><h1 data-testid="audit-report-title">{{ t('audit.report.title', pid=f.pid) }}</h1><a href="/audit">{{ t('audit.report.back') }}</a></div>
 <p class="hint">{{ t('audit.report.help') }}</p>
 <section class="card">
@@ -12,9 +18,11 @@
 <button type="submit">{{ t('audit.filter.go') }}</button>
 </form>
 <p><a class="button" href="/audit/patients/{{ f.pid }}/report.csv{{ '?' + rq if rq else '' }}" data-testid="audit-report-csv" download>{{ t('audit.report.csv') }}</a></p>
+{% endif %}
 <p data-testid="audit-report-counts">{{ t('audit.report.counts') }}: {% for k, n in counts.items() %}<span class="kv" data-kind="{{ k }}" data-n="{{ n }}">{{ t('audit.kind.' + k) }} {{ n }}</span>{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
 {% if not records %}<p class="empty" data-testid="audit-report-none">{{ t('audit.report.none') }}</p>{% else %}
 {% set rows = records %}{% include "_audit_table.html" %}{% endif %}
+{% if by_chart and more %}<p class="hint" data-testid="audit-report-more">{{ t('audit.report.more_chart') }}</p>{% endif %}
 {% if next_before %}<p><a href="/audit/patients/{{ f.pid }}?{{ rq + '&' if rq else '' }}before={{ next_before|urlencode }}" data-testid="audit-older">{{ t('audit.older') }} →</a></p>{% endif %}
 </section>
 {% endblock %}

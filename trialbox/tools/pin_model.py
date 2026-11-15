@@ -3,6 +3,7 @@
     python -m tools.pin_model --build qwen3.5-35b-a3b-candidate --model-dir deploy/models/qwen3.5-35b-a3b-q4 \\
         --served-name qwen3.5-35b-a3b-q4
     python -m tools.pin_model --build qwen3.5-35b-a3b-candidate --model-dir deploy/models/qwen3.5-35b-a3b-q4 --verify
+    python -m tools.pin_model --resolve --env-file deploy/.env [--require judge]   # what PRODUCTION routes (D-738)
 
 The **weight manifest** of a model directory lists every regular file below it as ``<sha256>  <relative path>``
 (``sha256sum`` format, paths with ``/``, sorted by path, LF line ends). The build's registry ``sha256`` is the SHA-256
@@ -878,6 +879,104 @@ def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE, *, record_id: str | None
     return lines
 
 
+# ------------------------------------------------------------------------------------------------ resolve (D-738)
+@dataclass(frozen=True)
+class RouteRow:
+    """One role and data class on PRODUCTION: the build the gateway would call, or why none."""
+
+    role: str
+    data_class: str
+    route: str | None
+    alias: str | None
+    endpoint: str | None
+    build: str | None
+    served: str | None
+    refusals: list[str]
+
+
+def resolve_roles(
+    registry: Any, policy: Any, env: dict[str, str], classes: tuple[str, ...] = ("D1", "D3")
+) -> list[RouteRow]:
+    """PIN-RESOLVE (D-738), lane G's blocker 6: the gateway's own path for each role of the routing table and each
+    data class, on PRODUCTION with the box's topology and profile: the route and its candidates
+    (``RoutingPolicy.candidates``, the no-fallback rule of a patient role included, D-276), then the registry's
+    resolution of each candidate in order (``Registry.resolve``). A candidate the registry refuses is passed, as the
+    gateway passes it; nothing is sent to a model."""
+    from gateway.core import GatewayConfig
+    from gateway.policy import Refusal
+    from registry.registry import RegistryError
+    from tb_common.policy.classes import Environment
+    from tb_contracts.dataclass import ClassLabel, DataClass
+
+    cfg = GatewayConfig.from_env({**env, "TB_ENV": "PRODUCTION"})
+    rows: list[RouteRow] = []
+    for role in sorted(r for r in policy.roles if not r.startswith("shadow:") and "*" not in r):
+        for cls in classes:
+            label = ClassLabel(data_class=DataClass(cls))
+            try:
+                route, cands = policy.candidates(role, label, cfg.topology, Environment.PRODUCTION, cfg.profile,
+                                                 cloud_opt_in=cfg.cloud_opt_in)  # fmt: skip
+            except Refusal as exc:
+                rows.append(RouteRow(role, cls, None, None, None, None, None, [f"{exc.reason}: {exc}"]))
+                continue
+            if policy.no_fallback(route, role):
+                cands = [c for c in cands if c.alias == route.builds[0][0]]
+            refusals: list[str] = []
+            row = RouteRow(role, cls, route.id, None, None, None, None, refusals)
+            for c in cands:
+                try:
+                    res = registry.resolve(c.alias, c.endpoint.name, role=role, env=Environment.PRODUCTION)
+                except RegistryError as exc:
+                    refusals.append(f"{c.alias}@{c.endpoint.name}: {exc.reason}: {exc}")
+                    continue
+                row = RouteRow(role, cls, route.id, c.alias, c.endpoint.name, res.build.build_id, res.served_name,
+                               refusals)  # fmt: skip
+                break
+            else:
+                if not cands:
+                    refusals.append(f"no_eligible_build: route {route.id}'s first build may not take {cls}")
+            rows.append(row)
+    return rows
+
+
+def _env_file(path: Path | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path is None or not path.is_file():
+        return out
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.split("=", 1)
+            out[k.strip()] = v.strip().strip("\"'")
+    return out
+
+
+def resolve_main(env_file: Path | None, out: Path, require: list[str]) -> int:
+    """``--resolve``: one line a role and class; exit 1 when a ``--require`` role does not route on D3."""
+    import os
+
+    from gateway.policy import RoutingPolicy
+    from registry.registry import Registry
+
+    env = {k: v for k, v in os.environ.items() if k.startswith("TB_")}
+    env.update(_env_file(env_file))
+    env["TB_REGISTRY_OVERRIDE"] = str(out)
+    policy = RoutingPolicy.load(Path(env["TB_ROUTING_PATH"])) if env.get("TB_ROUTING_PATH") else RoutingPolicy.load()
+    rows = resolve_roles(Registry.from_env(env), policy, env)
+    print(f"PRODUCTION, topology {env.get('TB_TOPOLOGY', 'A')}, profile {env.get('TB_PROFILE', 'P-GB10')}, "
+          f"site pins {out}{'' if out.is_file() else ' (none)'}")  # fmt: skip
+    for r in rows:
+        if r.build:
+            print(f"{r.role} {r.data_class} -> {r.build} ({r.alias}@{r.endpoint}, served {r.served}; route {r.route})")
+        else:
+            print(
+                f"{r.role} {r.data_class} -> none (route {r.route or '-'}): {'; '.join(r.refusals) or 'no candidate'}"
+            )
+    bad = [n for n in require if not any(r.role == n and r.data_class == "D3" and r.build for r in rows)]
+    for n in bad:
+        print(f"pin_model: {n} does not route on D3 in PRODUCTION", file=sys.stderr)
+    return 1 if bad else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", help="build_id in models/registry.yaml")
@@ -936,7 +1035,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--name-judge", metavar="GPU", help="print the judge GPU profile serves (install.sh); write nothing"
     )
+    ap.add_argument("--resolve", action="store_true", help="print the build PRODUCTION routes each role to (D-738)")
+    ap.add_argument("--env-file", type=Path, default=None, help="--resolve: the box's deploy/.env (topology, profile)")
+    ap.add_argument("--require", action="append", default=[], help="--resolve: exit 1 unless this role routes on D3")
     args = ap.parse_args(argv)
+    if args.resolve:
+        return resolve_main(args.env_file, args.out, args.require)
     if args.name_judge:
         try:
             print(judge_line(args.name_judge, args.out))

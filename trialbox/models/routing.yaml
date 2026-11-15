@@ -173,7 +173,7 @@ serving_control: [orchestrator, operator]
 # any topology but A and any class but D3.
 phi_on_box:
   topologies: [A]
-  environments: [PRODUCTION]
+  environments: [VALIDATION, PRODUCTION]  # D-823: a VALIDATION box screens public or synthetic data on the box
   classes: [D3]
   callers: [orchestrator, matching]
 
@@ -221,7 +221,8 @@ routes:
     fallback: none # a failed judge is an error, never the verifier's answer (D-276, LLM-002)
     classes: [D3]
     topologies: [A, B, C]
-    environments: [PRODUCTION]
+    # D-823: VALIDATION too (public or synthetic data); the gateway sends a VALIDATION D3 call to the box only
+    environments: [VALIDATION, PRODUCTION]
     builds: [j-workhorse@serving, v-verifier@verifier] # never external
   - id: patient-validation
     roles: ["@patient"]
@@ -292,3 +293,13 @@ routes:
     # stub-verifier: the stub under its second served name, a stub box's verifier (D-276); only when named
     builds: [trialbox-stub@stub, f-frontdesk@stub, g-guard@stub, j-workhorse@serving, v-verifier@verifier,
              stub-verifier@stub]
+  # ------------------------------------------------------------------ qualification on a VALIDATION box (D-823)
+  - id: qualify
+    # qualify's own calls (class D0, synthetic items; every prompt's role in its schema step) on a VALIDATION box,
+    # to the box's model servers; last, so every row above keeps its role. Its record promotes the pair
+    roles: ["*"]
+    fallback: none
+    classes: [D0]
+    topologies: [A]
+    environments: [VALIDATION]
+    builds: [j-workhorse@serving, v-verifier@verifier, f-frontdesk@serving]

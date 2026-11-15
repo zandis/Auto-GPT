@@ -26,9 +26,10 @@ T-209a (D-379, review OPS-027 and OPS-032): N2 begins with one line on the box's
 a red line sends N2 even on a morning with nothing else in it, so the coordinator sees that note reading was off
 last night. ``HEALTH``, the administrators' daily health mail, gives one line per check every day (weekends too).
 
-D-386 (T-622, LIFE-008): the mails follow the study's state. A study in start-up or closed is left out; a paused
-study gives no list rows, marks, calls or new pre-screens, so a paused study with no participant visit or serious AE
-due gives no mail. Its participants' visits and unacknowledged serious AEs are still mailed (:data:`CARE_STATES`).
+D-386 (T-622, LIFE-008): the mails follow the study's state. A study in start-up is left out; a paused or closed
+study gives no list rows, marks, calls or new pre-screens, so it gives no mail unless a participant visit or serious
+AE is due: its participants' visits and unacknowledged serious AEs are still mailed (:data:`CARE_STATES`; closed
+since NEW-LIFE-6, D-763, which closes only an empty study).
 
 Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 07:30`` (N2), or from the admin home
 ("Send notices now"). A notice is sent at most once per person and day.
@@ -57,7 +58,10 @@ MAX_ROWS = 10  # per digest section; the rest is one line and the link
 # D-386 (LIFE-008): the states whose enrolled participants' visits and serious AEs are still mailed. Screening rows
 # (the list, marks, calls, new pre-screens) go out only for an open study (``StudyState.runs``); a paused study keeps
 # its participants' visit and SAE lines, because a pause stops recruitment, not the care of those already enrolled.
-CARE_STATES = ("open", "paused")
+# NEW-LIFE-6 (D-763): closed too: a study closes only empty, but a participant back on study after the close (an undo,
+# a REDCap read-back) is still mailed their visits and serious AEs; a closed study gives no list
+CARE_STATES = ("open", "paused", "closed")
+WEEKEND_N2 = "N2-SAE"  # D-764: the log kind of a weekend coordinator digest (it does not move the digest's cursor)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
@@ -70,6 +74,9 @@ class Notice:
     body: str
     day: str
     counts: dict[str, int] = field(default_factory=dict)
+    #: the kind the send is logged under, when not ``kind``: a weekend coordinator digest (only SAE reports) is logged
+    #: as ``N2-SAE``, so the next working day's digest still counts from the last full one (the review of D-764)
+    log_kind: str = ""
 
 
 def base_url() -> str:
@@ -123,7 +130,7 @@ def build_n1(
     all_rows = [(rs, r) for rs, rows in studies for r in rows]
     known = bool(person.practitioner_id)
     sae = sum(int(lf.get("sae") or 0) for lf in (life or {}).values())
-    alert = sae > 0 and today.weekday() < 5  # P-02: an unacknowledged SAE is mailed every working day
+    alert = sae > 0  # P-02, NEW-LIFE-7 (D-764): an unacknowledged SAE is mailed every day, weekends too
     if known:
         mine = [(rs, r) for rs, r in all_rows if r.get("practitioner_id") == person.practitioner_id]
         if today not in clinic_days((r for _rs, r in mine), person.practitioner_id):
@@ -202,8 +209,7 @@ def build_n2(
     """The coordinator's digest. ``studies``: (study, weekly rows, extra) with extra = {marks: [Mark], retry: {pid:
     date}, registry: {pid: status}}; ``since``: the time of the last digest (None = the last 24 hours); ``health``:
     the box's health now (``tb_common.metrics.Health``, T-209a), one line at the top."""
-    if today.weekday() >= 5:
-        return None
+    weekend = today.weekday() >= 5  # NEW-LIFE-7 (D-764): a weekend digest carries the overdue SAE reports only
     lang = person.lang
     url = base_url()
     cut = since or (datetime.combine(today, datetime.min.time()) - timedelta(days=1)).isoformat()
@@ -241,6 +247,8 @@ def build_n2(
                          party=translate(lang, "life.clock.party." + r["party"]))
                for rs, lf in by_study for r in lf.get("reports", [])]  # fmt: skip
     red = health is not None and health.level == "red"
+    if weekend:
+        visits, steps, new, marks, due, late, red, health = [], [], [], [], [], [], False, None
     if not (visits or steps or new or marks or due or late or reports or red):
         return None
     parts = [translate(lang, "n2.hello"), ""]
@@ -274,7 +282,16 @@ def build_n2(
         counts["sae_reports"] = len(reports)
     if health is not None:
         counts["health_red"] = int(red)
-    return Notice("N2", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(), counts)
+    return Notice(
+        "N2",
+        user.username,
+        user.mailbox or "",
+        subject,
+        "\n".join(parts),
+        today.isoformat(),
+        counts,
+        log_kind=WEEKEND_N2 if weekend else "",
+    )
 
 
 def build_health(
@@ -353,6 +370,8 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
         kind = "N1" if u.can_mark else "N2" if u.can_request else None
         if kind is None or kind not in kinds or store.notice_sent(kind, u.username, today.isoformat()):
             continue
+        if kind == "N2" and store.notice_sent(WEEKEND_N2, u.username, today.isoformat()):
+            continue  # D-764: today's weekend digest went
         studies: list[Any] = []
         life: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess):
@@ -402,7 +421,7 @@ def send_all(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2"), by: str =
     sent = []
     for n in collect(h, today, kinds):
         h.bk.send_notice(n.kind, [n.to], n.subject, n.body, by)
-        h.store.log_notice(n.kind, n.username, n.day, h.clock().isoformat(), n.subject)
+        h.store.log_notice(n.log_kind or n.kind, n.username, n.day, h.clock().isoformat(), n.subject)
         h.au.append("console.notice", actor=by, detail={"action": n.kind, "to": n.to, "subject": n.subject})
         sent.append(n)
     return sent

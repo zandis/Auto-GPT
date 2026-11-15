@@ -76,6 +76,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/enrol` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/feedback/export.csv` | Y | - | - | - | - | - | - | - | - |
 | GET | `/help` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/help/guide` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/home` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/jobs` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/metrics` | Y | - | - | - | - | - | - | - | - |
@@ -172,6 +173,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/admin/ops/{action}` | n | n | n | n | n | n | n | n | n |
 | POST | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/redcap/{ref}/test` | Y | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/data/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
 | POST | `/api/v1/site/charts` | - | Y | - | - | n | - | - | - | - |
@@ -203,7 +205,9 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/patients/{pid}/reveal` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/subjects/{record}/step` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/breakglass` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/end` | Y | - | Y | Y | - | - | - | - | - |
@@ -296,6 +300,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/sources/redcap/undo` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/studies/{rs}/state` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/aes/{event}/ack` | - | - | - | n | - | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/step` | - | U | - | - | U | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/undo` | - | U | - | - | U | - | - | - | - |

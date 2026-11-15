@@ -402,6 +402,7 @@ DECLARED: dict[str, Declared] = {
         "float", "0.5", "part of a target's capacity this box's backups may fill; the rest is for others (D-455)"
     ),
     "TB_BACKUP_MAILTO": Declared("str", "", "address told when the backup is too old"),
+    "TB_BACKUP_ALERT_ROUTE": Declared("str", "", "health-page: the /admin health tab is the backup alert route"),
     "TB_BACKUP_MAX_AGE_HOURS": Declared("float", "", "age after which backup-status alerts"),
     "TB_BACKUP_MIN_MBPS": Declared(
         "float", "5", "slowest MB/s a backup step may run before it counts as hung: a tenth of a box disk (D-455)"
@@ -438,6 +439,10 @@ DECLARED: dict[str, Declared] = {
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
+    # D-748: the lake's memory grows with the rows one S1 query carries (patients times index dates). Measured on the
+    # 10k lake at 1 GB (the smallest limit lake.store.memory_limit derives): 12,000 rows fit for GZQO and RA-BIO at 36,
+    # 12 and 1 index dates, 24,000 failed (GZQO, 12 dates). A 500 MB lake sets it lower (RA-BIO fitted 2,000)
+    "TB_CASCADE_S1_ROWS": Declared("int", "12000", "cascade: rows (patients x index dates) one S1 query may carry"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
@@ -570,7 +575,7 @@ DECLARED: dict[str, Declared] = {
         "str", "hash", "embedder: model or hash (stub, refused in PRODUCTION); unset: model in PRODUCTION (D-429)"
     ),
     "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
-    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST or PRODUCTION (unset is PRODUCTION)"),
+    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST, VALIDATION or PRODUCTION (unset is PRODUCTION)"),
     "TB_EP_SERVING_URL": Declared("str", "", "scenario tool: judge endpoint"),
     "TB_EP_VERIFIER_URL": Declared("str", "", "scenario tool: verifier endpoint"),
     "TB_EVAL_LIMIT": Declared("int", "", "eval: cases per suite"),
@@ -599,6 +604,9 @@ DECLARED: dict[str, Declared] = {
     "TB_GATEWAY_INTERACTIVE_TIMEOUT_S": Declared("float", "", "gateway: timeout of an interactive call"),
     "TB_GATEWAY_MAX_INFLIGHT": Declared("int", "64", "gateway: chat calls on threads at once (T-608)"),
     "TB_GATEWAY_MODEL": Declared("str", "", "the alias a judge call asks the gateway for"),
+    "TB_GATEWAY_PHI_TRIPWIRE": Declared(
+        "str", "on", "gateway: the PHI tripwire on calls whose route leaves the box (D-506); off turns it off"
+    ),
     "TB_GATEWAY_RETRY_DELAY_S": Declared("float", "", "gateway: delay before a retry"),
     "TB_GATEWAY_SLOTS": Declared("int", "16", "gateway: calls at once per endpoint without a serving record"),
     "TB_GATEWAY_STALL_S": Declared("float", "40", "gateway: seconds without an answer before a stall probe"),
@@ -968,6 +976,10 @@ DECLARED: dict[str, Declared] = {
     "TB_UPDATE_CHECK_CMD": Declared("str", "", "update: health check command"),
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),
     "TB_UPDATE_INCOMING": Declared("str", "", "update: incoming bundle folder"),
+    "TB_UPDATE_QUIET_AT": Declared(
+        "str", "05:00", "ops: the quiet hour's start, site clock, for an update asked for then (D-731)"
+    ),
+    "TB_UPDATE_QUIET_HOURS": Declared("float", "2", "ops: how long the quiet hour lasts, hours (D-731)"),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
     "TB_VALIDATION_SAMPLE_CAP": Declared(
         "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"

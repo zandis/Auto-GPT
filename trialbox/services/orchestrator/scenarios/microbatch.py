@@ -69,6 +69,7 @@ from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_contracts import CandidateList, CandidateRow, CriterionVerdict, Judging, ScreenRunScope, TierSummary, dump
 
+from orchestrator import excluded as excluded_lines
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.decision_context import decision_of
@@ -226,11 +227,13 @@ def study_sources(db: Any, ruleset: str, but_job: str = "") -> list[str]:
     screens = db.find(type_="SCREEN", ruleset=ruleset, state="done", limit=1)
     if screens:
         last = screens[0]
-        keys += [
-            o.minio_key
-            for o in last.outputs or []
-            if o.filename.startswith(("excluded_", "candidate_list_")) and o.filename.endswith(".json")
-        ]
+        outs = last.outputs or []
+        for o in outs:  # D-749: both forms of the excluded list (the console reads the old one); read_sources
+            # reads the lines when both are here
+            if (
+                o.filename.startswith("candidate_list_") and o.filename.endswith(".json")
+            ) or excluded_lines.is_excluded(o.filename):
+                keys.append(o.minio_key)
         for j in db.find(type_="MICROBATCH", ruleset=ruleset, state="done", limit=100):
             if j.job_id == but_job or j.received_at <= last.received_at:
                 continue
@@ -268,9 +271,18 @@ class Seen:
         return self.listed | self.excluded | self.earlier
 
 
-def read_sources(ctx: Ctx, keys: list[str]) -> Seen:
+def read_sources(ctx: Ctx, keys: list[str], names: dict[str, str] | None = None) -> Seen:
+    """D-749: an excluded list of lines (its key, the stored file's name, ends ``.jsonl``; ``names`` may name it) is
+    read line by line, its ids only; the old document beside it (the same key without the final ``l``) is then not
+    read again."""
     out = Seen()
     for key in keys:
+        if key.endswith(".json") and key + "l" in keys:
+            continue
+        name = (names or {}).get(key) or key
+        if name.endswith(".jsonl"):
+            out.excluded |= excluded_lines.pids(ctx.store.get(key), name)
+            continue
         doc = json.loads(ctx.store.get(key))
         if "pids" in doc:  # a micro-batch record
             out.earlier |= {str(p) for p in doc["pids"]}
