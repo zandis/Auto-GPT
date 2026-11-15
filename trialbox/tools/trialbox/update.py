@@ -1301,7 +1301,11 @@ class ComposeBox(_DockerImages):
         files = [f for f in (self.env.get("COMPOSE_FILE") or "").split(":") if f]
         if not files:
             return
-        changes, _, missing = image_pins.resolve(self.deploy, [Path(f) for f in files])
+        # D-834: only the images the stack runs (with the box's overrides), as install.sh asks: a pinned image no
+        # service runs (Authelia without the overlay, vLLM under a model-server override) is not needed here
+        listed = self.run(self._c("config", "--images")) or ""
+        used = {line.strip() for line in listed.splitlines() if line.strip()} or None
+        changes, _, missing = image_pins.resolve(self.deploy, [Path(f) for f in files], used=used)
         if missing:
             raise UpdateFailed("pinned images neither on the box nor in the bundle: " + "; ".join(missing))
         image_pins.write_env(self.deploy / ".env", changes)
