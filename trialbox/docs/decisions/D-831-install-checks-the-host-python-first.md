@@ -19,3 +19,9 @@
 
 `tests/unit/test_install_host_python.py`: before, 5 failed; after, 5 passed. It also pins that every top-level
 third-party import of the host modules is in `HOST_PY_MODULES`.
+
+## Correction (2026-11-15, I-8)
+
+Point 1 says more than was seen. On lane G's VM PyYAML was present: the fault was predicted from the code (install.sh's
+host steps import `yaml` after the load), not observed on that box. The check stands as a guard for a host without
+python3-yaml; the 20-minute figure is the expected cost of that case, not a measurement.
