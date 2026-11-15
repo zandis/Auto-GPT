@@ -32,6 +32,9 @@
 #
 # Writes $TB_REHEARSE_DIR/report.md and report.json; exit 0 only when every step passes.
 #
+# TB_REHEARSE_VARIANT=validation (D-887): VALIDATION's settings on the rehearsal box (it stays TEST: the model
+# stand-ins are honoured there only, D-726): no TPM and the passphrase KEK (TB_KEK_BACKEND=passphrase, a throwaway
+# synthetic passphrase), TB_HOST_PROFILE=poc, a root-owned deploy/site, and a second install of the same bundle.
 # Knobs: TB_REHEARSE_DIR (default a fresh mktemp dir; the same path is mounted in the box container, docker-outside-of-
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
@@ -44,6 +47,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT" || exit 2
 PY="${PY:-$ROOT/.venv/bin/python}"
+VARIANT="${TB_REHEARSE_VARIANT:-test}"
+case "$VARIANT" in test|validation) ;; *) echo "rehearse: TB_REHEARSE_VARIANT must be test or validation" >&2; exit 2 ;; esac
 # The work dir holds box.sh, which runs with the Docker socket: a fresh private dir by default; a given one must be
 # absolute, at least three levels deep, not a system folder, and new or the caller's own earlier rehearsal dir.
 if [ -z "${TB_REHEARSE_DIR:-}" ]; then
@@ -90,7 +95,7 @@ step() {  # step <name> <fatal 0|1> <command...>
   [ "$fatal" = 1 ] && BLOCKED="$name"
   return 1
 }
-in_box() { docker exec -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
+in_box() { docker exec -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
   "$HOST_CT" bash "$W/run/box.sh" "$@"; }
 box_containers() { docker ps -q --filter label=com.docker.compose.project=trialbox; }
 
@@ -214,8 +219,15 @@ host_up() {
   docker rm -f "$HOST_CT" >/dev/null 2>&1
   # --network host: the console's published 127.0.0.1 port is the host's; no NET_ADMIN, so the installer's nftables
   # step (deploy/network.sh apply) cannot touch the Docker host's firewall and reports that it was not applied
+  local site=()
+  if [ "$VARIANT" = validation ]; then
+    # D-887: the seal step reads the secrets volume and writes the KEK where the services mount it, by host path,
+    # as on a site's host: Docker's volumes folder and /run/trialbox are the Docker host's own
+    local droot; droot="$(docker info --format '{{.DockerRootDir}}')" || return 1
+    site=(-v "/run/trialbox:/run/trialbox" -v "$droot/volumes:$droot/volumes")
+  fi
   docker run -d --name "$HOST_CT" --hostname trialbox-rehearsal --network host --restart no \
-    -v "$SOCK:/var/run/docker.sock" -v "$W:$W" "$HOST_IMG" sleep infinity || return 1
+    -v "$SOCK:/var/run/docker.sock" -v "$W:$W" ${site[@]+"${site[@]}"} "$HOST_IMG" sleep infinity || return 1
   docker exec "$HOST_CT" sh -c '. /etc/os-release; echo "ok: box host $PRETTY_NAME, $(docker compose version)"'
 }
 
@@ -256,6 +268,10 @@ teardown() {
     >>"$LOGS/teardown.log" 2>&1 || true
   docker rm -f "$HOST_CT" >/dev/null 2>&1 || true
   docker image rm "$HOST_IMG" >/dev/null 2>&1 || true
+  if [ "$VARIANT" = validation ]; then  # D-887: the rehearsal's KEK and its throwaway passphrase do not outlive it
+    docker run --rm -v /run/trialbox:/k ubuntu:24.04 rm -f /k/kek >/dev/null 2>&1 || true
+    rm -f "$W/vendor/kek-pass"
+  fi
   restore_images
   # keep the report and logs; drop the media and the box (gigabytes)
   docker run --rm -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
@@ -264,7 +280,7 @@ teardown() {
 
 # ------------------------------------------------------------------------------------------------ run
 find "$W" -mindepth 1 -delete 2>/dev/null; rm -rf "$W"; (umask 077 && mkdir -p "$W") && touch "$W/.tb-rehearse-box" && mkdir -p "$LOGS" || exit 2
-echo "TrialBox box-install rehearsal $ID, work dir $W"
+echo "TrialBox box-install rehearsal $ID ($VARIANT), work dir $W"
 BLOCKED=""
 step preconditions 1 preconditions
 step images 1 images
@@ -275,6 +291,7 @@ step host-up 1 host_up
 step wsl2 0 in_box wsl2
 step media-negative 0 in_box media-negative
 step install 1 in_box install
+[ "$VARIANT" = validation ] && step reinstall 1 in_box reinstall
 step doctor 0 in_box doctor
 step served 0 in_box served
 step offline 0 in_box offline
@@ -296,7 +313,7 @@ teardown
 VERDICT=PASS
 for s in "${STATES[@]}"; do [ "$s" = PASS ] || VERDICT=FAIL; done
 {
-  echo "# TrialBox box-install rehearsal: $VERDICT"
+  echo "# TrialBox box-install rehearsal ($VARIANT): $VERDICT"
   echo
   echo "Media $ID from $(git rev-parse --short HEAD), $(date -u +%FT%TZ), docker $(docker version --format '{{.Server.Version}}' 2>/dev/null) ($(docker info --format '{{.Driver}}' 2>/dev/null) image store)," \
     "real deploy/install.sh --tier large in Ubuntu 24.04 with the strict vLLM stand-ins (D-176, D-177)."
@@ -307,11 +324,11 @@ for s in "${STATES[@]}"; do [ "$s" = PASS ] || VERDICT=FAIL; done
   echo
   echo "Logs: $LOGS (compose.log: every box service)."
 } | tee "$W/report.md"
-"$PY" - "$W/report.json" "$VERDICT" "$ID" "${NAMES[@]}" -- "${STATES[@]}" <<'EOF' || true
+"$PY" - "$W/report.json" "$VERDICT" "$ID" "$VARIANT" "${NAMES[@]}" -- "${STATES[@]}" <<'EOF' || true
 import json, sys
-out, verdict, media, *rest = sys.argv[1:]
+out, verdict, media, variant, *rest = sys.argv[1:]
 cut = rest.index("--")
-json.dump({"verdict": verdict, "media": media, "steps": dict(zip(rest[:cut], rest[cut + 1 :], strict=True))},
+json.dump({"verdict": verdict, "media": media, "variant": variant, "steps": dict(zip(rest[:cut], rest[cut + 1 :], strict=True))},
           open(out, "w"), indent=1)
 EOF
 [ "$VERDICT" = PASS ]

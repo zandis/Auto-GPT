@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|doctor|served|offline|console|screen|after-restart|wrong-name|missing-key
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|wrong-name|missing-key
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -18,6 +18,22 @@ dc() { (cd "$BOX" && docker compose --project-directory deploy "$@"); }   # COMP
 envget() { sed -n "s/^$1=//p" "$BOX/deploy/.env" | tail -1; }
 envset() { sed -i "/^$1=/d" "$BOX/deploy/.env"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2" >> "$BOX/deploy/.env"; }
 IMAGE_PY="trialbox-py:1.0.0"
+
+# install_box: the real installer as a site runs it, with VALIDATION's settings in the validation variant (D-887). The
+# box stays a rehearsal (TEST) box: --rehearsal, as the model stand-ins are honoured on a TEST box only (D-726)
+install_box() (
+  cd "$BOX" || exit 1
+  if [ "${TB_RH_VARIANT:-test}" = validation ]; then
+    # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
+    install -d -m 0755 deploy/site && chown -R root:root deploy/site
+    # no TPM on this host: the passphrase back end, a throwaway synthetic passphrase (never printed, kept 0600)
+    [ -s "$W/vendor/kek-pass" ] || (umask 077 && head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$W/vendor/kek-pass")
+    TB_KEK_PASSPHRASE="$(cat "$W/vendor/kek-pass")"
+    export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase TB_KEK_PASSPHRASE
+  fi
+  TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
+    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes
+)
 
 unpack_release() {  # the release tree from the media into a fresh folder: what the site copies to /opt/trialbox
   local to="$1"
@@ -151,9 +167,7 @@ install)
   # T-632: the site's feed folder on the host (a copy of the synthetic export), never the fixture in the release
   install -d deploy/site && rm -rf deploy/site/feed-a && cp -r tests/fixtures/synthetic_patients/site-a deploy/site/feed-a \
     || fail "cannot stage the feed folder"
-  TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
-    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes \
-    || fail "deploy/install.sh failed"
+  install_box || fail "deploy/install.sh failed"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -161,6 +175,21 @@ install)
   grep -q '^TB_TLS_HOSTNAME=trialbox.hospa.test' deploy/.env || fail "TLS is not on"
   ok "site inputs: mapping in deploy/site/mapping (not the image), feed folder mounted, TLS on"
   wait_healthy 300
+  ;;
+
+# ------------------------------------------------------------------------------------------------ reinstall
+reinstall)
+  # D-887 (I-2, D-833): the same bundle installed again on the box it made: the installer continues, the keys stay
+  sec="$(docker volume inspect -f '{{.Mountpoint}}' trialbox_tb-secrets)" || fail "no secrets volume"
+  [ -f "$sec/kek.json" ] || fail "the first install sealed no keys (no kek.json in $sec)"
+  before="$(sha256sum "$sec/kek.json" | cut -d' ' -f1)"
+  ok "first install: keys sealed under the passphrase KEK (kek.json)"
+  install_box || fail "the second install of the same bundle failed"
+  [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
+  [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
+  grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"
+  ok "second install of the same bundle: continued, the KEK kept, deploy/site root's, host profile poc"
+  wait_healthy 600
   ;;
 
 # ------------------------------------------------------------------------------------------------ doctor

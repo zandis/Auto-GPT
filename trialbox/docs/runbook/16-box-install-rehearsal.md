@@ -38,7 +38,11 @@ without the key (401). It never starts without a key (D-177).
 **Knobs.** `TB_REHEARSE_DIR` (default a fresh private `mktemp` folder; a given one must be absolute, three levels
 deep, not a system folder, and new or this user's earlier rehearsal folder; the report and logs stay there),
 `TB_REHEARSE_SKIP_BUILD=1` (use the images already built), `TB_REHEARSE_KEEP=1` (leave the box running for a look),
-`TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy). It needs a Docker host with no other TrialBox stack and port
+`TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy), `TB_REHEARSE_VARIANT=validation` (D-887: VALIDATION's
+settings on the rehearsal box, which stays TEST for the model stand-ins: the passphrase KEK with no TPM, the poc host
+profile, a root-owned `deploy/site`, and the same bundle installed twice; it mounts the Docker host's `/run/trialbox`
+and volumes folder in the box container, as on a site's host). CI runs both variants by hand and on every pull
+request that touches the installer (`.github/workflows/trialbox-rehearse-box.yml`). It needs a Docker host with no other TrialBox stack and port
 8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
 `DOCKER_HOST=unix:///path/docker.sock` rehearses on another daemon. Run it on both Docker image stores before a
 release: the containerd store (the default of new Docker installs) and the classic `overlay2` store (older hosts,
