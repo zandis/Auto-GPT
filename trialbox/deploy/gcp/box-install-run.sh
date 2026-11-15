@@ -1062,6 +1062,21 @@ step_direct_up() {
   d_old_servers
   need "service tokens (tools.trialbox secrets init)" d_direct_secrets || return 1
   need "the pair and the embedder pinned (pin_model --install, as root)" d_direct_pin || return 1
+  # the pins must be there (install.sh only warned when its own call could not write them, F11): the judge's, the
+  # verifier's and the embedder's builds, each with its weights' sha256; readable by the services' user
+  chmod -R a+rX "$BOXROOT/deploy/site"
+  local b
+  for b in gemma-4-26b-a4b-it-rtxpro6000 qwen3.5-9b-rtxpro6000 e-embed-1; do
+    "$PY" - "$BOXROOT/deploy/site/registry.site.yaml" "$b" <<'PYP' >> "$STEP_LOG" 2>&1 \
+      || { STOP="the site pins name no $b with its weights' sha256 (pin_model --install)"; return 1; }
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+i = text.find(sys.argv[2] + ":")
+assert i >= 0 and re.search(r"sha256: *['\"]?[0-9a-f]{64}", text[i:i + 4000]), sys.argv[2]
+print("pinned", sys.argv[2])
+PYP
+  done
+  note pins '"judge, verifier and embedder pinned with their sha256 (deploy/site/registry.site.yaml)"'
   need "the site keys (adapter keys-init; not sealed: a public-data PoC box)" d_direct_keys || return 1
   note site_keys '"not sealed (a public-data PoC box, the owner'"'"'s ruling)"'
   need "the database" d_direct_db || return 1
@@ -1649,16 +1664,16 @@ step_facts_box() {
     probe_cmd readlink -f "$BOXROOT/current"
     probe_cmd sh -c "sed 's/=.*//' '$BOXROOT/deploy/.env' | sort"   # names only
     probe_cmd sh -c "grep -E '^(TB_ENV|TB_TOPOLOGY|TB_PROFILE|COMPOSE_FILE|COMPOSE_PROFILES|TB_SOURCE_DIR|TB_SOURCE_MOUNT|TB_TZ|TB_JOBS_PER_SENDER_PER_DAY|TB_MAIL_PER_RECIPIENT_PER_DAY|TB_MAIL_AUTHSERV_ID|TB_GATEWAY_PHI_TRIPWIRE|TB_BACKUP_ALERT_ROUTE|JUDGE_MODEL_DIR|VERIFIER_MODEL_DIR|TB_IMAGE|TB_DATA_CLASS)=' '$BOXROOT/deploy/.env'"
-    probe_cmd dc ps --format '{{.Service}} {{.State}} {{.Health}} {{.Image}}'
+    probe_cmd docker compose --project-directory "$BOXROOT/deploy" ps --format '{{.Service}} {{.State}} {{.Health}} {{.Image}}'
     probe_cmd sh -c "ls -la '$BOXROOT/deploy/site/registry.site.yaml' && grep -E 'build|sha256|status|served' '$BOXROOT/deploy/site/registry.site.yaml' | head -40"
     for g in gateway orchestrator mail-gateway llm-service llm-verifier model-guard embed-service; do
       probe_cmd docker inspect -f '{{.Name}} {{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}} {{json .Config.Cmd}} {{json .Mounts}}' "$(cid "$g")"
     done
     probe_cmd docker network ls
     probe_cmd docker run --rm --network none "$(img_py)" python -c 'import os; print(os.getcwd(), sorted(os.listdir("/app")))'
-    probe_cmd sh -c "dc exec -T orchestrator python -c 'import urllib.request as u; print(u.urlopen(\"http://gateway:8020/healthz\", timeout=10).status)'"
-    probe_cmd sh -c "dc exec -T gateway python -c 'import os; print(sorted(k for k in os.environ if k.startswith((\"TB_EP_\",\"TB_LLM_\",\"TB_GATEWAY_\",\"TB_ENV\",\"TB_TRACESTORE\"))))'"
-    probe_cmd sh -c "dc exec -T orchestrator python -c 'from tb_llm.prompt_registry import default_registry as d; print([(e.id, e.version) for e in d().served_set(\"VALIDATION\")])'"
+    probe_cmd sh -c "docker compose --project-directory '$BOXROOT/deploy' exec -T orchestrator python -c 'import urllib.request as u; print(u.urlopen(\"http://gateway:8020/healthz\", timeout=10).status)'"
+    probe_cmd sh -c "docker compose --project-directory '$BOXROOT/deploy' exec -T gateway python -c 'import os; print(sorted(k for k in os.environ if k.startswith((\"TB_EP_\",\"TB_LLM_\",\"TB_GATEWAY_\",\"TB_ENV\",\"TB_TRACESTORE\"))))'"
+    probe_cmd sh -c "docker compose --project-directory '$BOXROOT/deploy' exec -T orchestrator python -c 'from tb_llm.prompt_registry import default_registry as d; print([(e.id, e.version) for e in d().served_set(\"VALIDATION\")])'"
     probe_cmd sh -c "tail -n 60 '$TB/install-v.log'"
   } > "$f"
   note facts_box "\"records/facts-box.txt\""

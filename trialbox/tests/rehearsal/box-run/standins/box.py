@@ -549,7 +549,9 @@ def tool(name: str, argv: list[str]) -> int:
             called("pin")
             if "--out" in argv:  # the direct route: pin_model --install in the image, the site pins written
                 Path(arg(argv, "--out")).parent.mkdir(parents=True, exist_ok=True)
-                Path(arg(argv, "--out")).write_text("builds: {}  # stand-in pins\n")
+                pins = "".join(f"  {b}: {{sha256: '{'a' * 64}', status: candidate}}\n"
+                               for b in ("gemma-4-26b-a4b-it-rtxpro6000", "qwen3.5-9b-rtxpro6000", "e-embed-1"))  # fmt: skip
+                Path(arg(argv, "--out")).write_text("builds:\n" + pins)
                 return 0
             roles = sorted(p.name for p in Path(arg(argv, "--models-root")).iterdir() if p.is_dir())
             return 0 if roles == ["judge", "verifier"] else 1
