@@ -659,7 +659,17 @@ def _run_ingest(
             got = src.rows(table, src_name, delta, since_t)
             if contracts is not None:
                 got = _kept(got, raw)
-            rows = _TableRows.write(spool.root / f".rows-{table}", (mapping.normalize(table, r) for r in got))
+            others = [0]  # CGRD-A2 (D-813, lane E's hunk): rows of a shared source that are another table's
+
+            def own(rows_in: Any, t: str = table, n: list[int] = others) -> Iterator[Row]:
+                for r in rows_in:
+                    canon = mapping.normalize(t, r)
+                    if mapping.keeps(t, canon):
+                        yield canon
+                    else:
+                        n[0] += 1
+
+            rows = _TableRows.write(spool.root / f".rows-{table}", own(got))
             if isinstance(where_dir := getattr(src, "directory", None), Path):
                 inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
@@ -672,6 +682,8 @@ def _run_ingest(
                 "rows": len(rows),
                 "duplicate_keys": _duplicates((str(r.get(kcol)) for r in rows), spool.root / ".keys") if kcol else 0,
             }
+            if others[0]:
+                tables[table]["rows_of_other_tables"] = others[0]
             undated = getattr(src, "change_time_not_a_date", None)  # F14 (D-810, lane E's hunk): counts only
             if since_t and callable(undated) and (n_undated := int(undated(src_name))):
                 tables[table]["change_time_not_a_date"] = n_undated
@@ -757,6 +769,8 @@ def _run_ingest(
         # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (codes and counts only)
         for table, by_lookup in mapper.unmapped_summary().items():
             tables[table]["unmapped"] = by_lookup
+        for table, n in mapper.atc_disputed().items():  # CGRD-A2 (D-813, lane E's hunk): counts only
+            tables[table]["atc_disputed"] = n
         for table, links in mapper.encounter_links().items():  # F7 (D-806, lane E's hunk): links by day, counts only
             tables[table]["encounter_by_day"] = links
         for table, cols in mapping.read_as_western().items():  # F8 (D-807, lane E's hunk): counts only
