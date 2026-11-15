@@ -569,11 +569,15 @@ DECLARED: dict[str, Declared] = {
     "TB_EGRESS_STATE": Declared(
         "str", "/var/lib/trialbox/egress-state.json", "egress: state file of the applied table"
     ),
+    "TB_EMBED_BATCH_TOKENS": Declared("int", "8192", "embed service: tokens one encode call holds (D-890)"),
+    "TB_EMBED_CACHE_VECTORS": Declared("int", "20000", "SCREEN: embedding vectors kept by text hash, 0 off (D-890)"),
+    "TB_EMBED_CONCURRENCY": Declared("int", "1", "embed service: requests encoded at a time (D-890)"),
     "TB_EMBED_DEVICE": Declared("str", "cpu", "embedder device (cpu or cuda)"),
     "TB_EMBED_IMAGE": Declared("str", "", "platform: embedder image"),
     "TB_EMBED_MODE": Declared(
         "str", "hash", "embedder: model or hash (stub, refused in PRODUCTION); unset: model in PRODUCTION (D-429)"
     ),
+    "TB_EMBED_MAX_TOKENS": Declared("int", "512", "embed service: an input is cut at this many tokens (D-890)"),
     "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
     "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST, VALIDATION or PRODUCTION (unset is PRODUCTION)"),
     "TB_EP_SERVING_URL": Declared("str", "", "scenario tool: judge endpoint"),
