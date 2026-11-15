@@ -4,6 +4,15 @@
 
 Qualifying a model pair on a card (G1b runs through it): [the qualify section](11-qualify.md) (D-313).
 
+**Validation reset (2026-11-14).** No paid run so far is evidence of the shipped product: every one served the models
+with lane G's own script (no pinned chat template, the vLLM image by tag, weights unchecked) and ran the box in one
+Python process with the hash embedder, on commits older than trains 15 to 17. Each results folder under
+`docs/plan/measurements/` says so in its `SUPERSEDED.md`. The plan of what to run instead, in order, is
+`docs/plan/measurements/validation-reset-2026-11-14.md`. `complete-run.sh` now refuses (exit 8) a launch whose
+serving differs from `deploy/docker-compose.rtxpro6000.yml` or whose plan holds a part that is not the product path
+(`scenario-public-trec`, `scenario-public-mimic`); `--not-product-evidence` launches anyway, for plumbing only, and
+the plan, the report and the results reader then mark every result "not product evidence".
+
 GCP project `trialbox-demo`. Always use a private `CLOUDSDK_CONFIG` (and unset `CLOUDSDK_AUTH_ACCESS_TOKEN`), stop
 every VM after use and check that it shows `TERMINATED`.
 
@@ -25,12 +34,12 @@ never in the metadata); reach them with `gcloud compute ssh tb-gpu-sim --zone as
 
 | Run | Script | About |
 | --- | --- | --- |
-| PRO 6000 profile, serving record, `public_e2e`, canary (done 2026-11-08) | `deploy/gcp/gpu-pro6000-run.sh` as startup script | 0.6 h, US$1.50 |
+| PRO 6000 profile, serving record, `public_e2e`, canary (done 2026-11-08; superseded, not for validation) | `deploy/gcp/gpu-pro6000-run.sh` as startup script | 0.6 h, US$1.50 |
 | 32 GB-capped pair (the 5090 stand-in) | `deploy/gcp/gpu-sim-startup.sh` (the usual startup script) | per run |
 | serving record with hashes | `deploy/gcp/capture-serving-config.sh prepare`, start, `fetch`, stop | 0.5 h |
-| N-12 on the deployed files (done 2026-11-08) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
+| N-12 on the deployed files (done 2026-11-08; the bench prompt of `tools/mlbench.py` straight to the servers, not the product path: not for validation) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
 | the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate` (each hospital part from the measured parts of 2026-11-13, scaled with `--patients`; the output names the runs); D-141 |
-| the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | about 5.5 h (a hospital part is 5.0 h, measured in G1), US$46; D-148 |
+| the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | `--estimate` (the 2026-11-11 figure of 5.0 h per hospital part is superseded); D-148 |
 
 **The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour;
 D-150, after the independent review of the four failed runs of that day). The workload runs on the VM; the VM stops
@@ -208,7 +217,9 @@ time" is the parts' times summed; every failed check's whole detail is in `repor
 not record it); not offered: a model-server restart between settings or repeats (not in scope).
 Limits to know before reading a curve:
 
-* A hospital part's estimate comes from the measured parts (`HOSPITAL_MEASURED` in `tools/complete_run.py`, OD-10):
+* A hospital part's estimate comes from the measured parts (`HOSPITAL_MEASURED` in `tools/complete_run.py`, OD-10;
+  superseded runs of lane G's own serving and in-process box: they size the hours and the cap only, never a capacity
+  figure or product evidence):
   run 20261113T085509Z-c25cea6b (50,000 patients, 16 in flight: 2,986 s ja, 2,991 s zh-TW; main SCREEN 3,226 calls
   at 4.447/s and 3,217 at 4.558/s) and run 20261113T044219Z-2b9eec74 (5,000 patients at 1, 4, 16 in flight, both
   languages). Three times, each scaled with the patients (linear between the sizes, proportional beyond): non-LLM

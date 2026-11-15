@@ -88,7 +88,7 @@ class OwnerAnswers:
     # NEW-DIN-3 (D-544, D-579): how the hospital writes chart numbers (``tb_common.chartno``: ``asis``,
     # ``digits[:width]``, ``hex[:width][:lower]``); empty: not answered, the installer keeps the rule the box runs on
     chartno_rule: str = ""
-    # D-793 (the owner's blocker 8): PRODUCTION, or VALIDATION for public or synthetic data (D-127); a box is never
+    # D-822 (the owner's blocker 8): PRODUCTION, or VALIDATION for public or synthetic data (D-127); a box is never
     # DEV or TEST (a rehearsal box is TEST by its own installer argument, D-726)
     environment: str = "PRODUCTION"
 
@@ -103,7 +103,7 @@ class OwnerAnswers:
         return d
 
 
-BOX_ENVIRONMENTS = ("PRODUCTION", "VALIDATION")  # D-793
+BOX_ENVIRONMENTS = ("PRODUCTION", "VALIDATION")  # D-822
 
 
 def _s(raw: Any, limit: int = 200) -> str:

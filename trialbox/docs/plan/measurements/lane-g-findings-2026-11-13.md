@@ -1,3 +1,9 @@
+> **SUPERSEDED as evidence on 2026-11-14** ([validation-reset-2026-11-14.md](validation-reset-2026-11-14.md)). The runs below used lane G's own serving (no pinned
+> chat template, image by tag, weights unchecked) and an in-process box with the hash embedder, on commits that lack
+> trains 15 to 17. Their figures must not be quoted as evidence of the shipped product. The defect reports stay
+> as reports to the owning lanes: P1, P2 and B14 are fixed on master; P3 (1 of 64 answers off-schema), P4 (the
+> list differs between runs) and P5 (stage 12, 22 of 23) are open and must be re-checked on the installed box.
+
 # Lane G findings of 2026-11-13, for the integrator
 
 Synthetic data only. Three paid runs on one RTX PRO 6000 VM (spot), about US$7 in all:

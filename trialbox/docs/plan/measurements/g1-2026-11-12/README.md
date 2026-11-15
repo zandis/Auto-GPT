@@ -1,3 +1,5 @@
+> **SUPERSEDED on 2026-11-14: not evidence of the shipped product.** See `SUPERSEDED.md` and [the validation reset plan](../validation-reset-2026-11-14.md).
+
 # G1, 2026-11-12: the calls-in-flight curve, the chat-template check and the first full report
 
 One RTX PRO 6000 spot VM (`tb-gpu-sim`, asia-east1-a, g4-standard-48, US$2.74 an hour), synthetic data only.

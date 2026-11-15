@@ -5,8 +5,9 @@ the orchestrator draws, for each study with a finished SCREEN that stored its no
 for the study's PI and stores them in schema ``tuned`` (:mod:`tb_common.notmatched`). The console shows them on
 ``/studies/{rs}/not-matched/sample``, where the PI answers each one.
 
-* **The run's own snapshot.** The draw reads the run's stored list (``excluded_*.json``), which the run made from the
-  snapshot it pinned (T-305a, D-383), and records that snapshot. It never asks the lake: a night published since the
+* **The run's own snapshot.** The draw reads the run's stored list (``excluded_*.jsonl``, or ``excluded_*.json``
+  for a run from before D-749), which the run made from the snapshot it pinned (T-305a, D-383), and records that
+  snapshot. It never asks the lake: a night published since the
   run does not change what was sampled.
 * **Opted-out patients** (``orchestrator.decision_context.register_now``) are never drawn. A register that cannot
   be read stops the whole draw (logged), never a sample with someone who said no.
@@ -19,7 +20,6 @@ Each sample drawn is the audit event ``notmatched.sample`` (study, run, snapshot
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import UTC, date, datetime
@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from tb_common.notmatched import NotMatchedStore, gate_on, iso_week, sample_week
 
+from orchestrator import excluded as excluded_lines
 from orchestrator.decision_context import register_now
 
 if TYPE_CHECKING:
@@ -48,10 +49,9 @@ def latest_screens(orch: Any) -> list[Job]:
 
 
 def _excluded_key(job: Job) -> str | None:
-    for o in job.outputs or []:
-        if o.filename.startswith("excluded_") and o.filename.endswith(".json"):
-            return str(o.minio_key)
-    return None
+    """The run's excluded list: its lines when it has them, else the old document (D-749)."""
+    name = excluded_lines.newest(o.filename for o in job.outputs or [])
+    return next((str(o.minio_key) for o in job.outputs or [] if o.filename == name), None)
 
 
 def weekly(orch: Any, today: date | None = None, store: NotMatchedStore | None = None,
@@ -86,7 +86,7 @@ def weekly(orch: Any, today: date | None = None, store: NotMatchedStore | None =
                     orch.audit.append("notmatched.held", ruleset=rid, detail={"week": week})
                     continue
                 key = _excluded_key(job)
-                doc = json.loads(orch.store.get(key)) if key else None
+                doc = excluded_lines.read(orch.store.get(key), key) if key else None
                 if not isinstance(doc, dict):
                     continue
                 snapshot = job.snapshot_date.isoformat() if job.snapshot_date else str(doc.get("snapshot") or "")
