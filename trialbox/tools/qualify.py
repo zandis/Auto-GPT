@@ -424,9 +424,20 @@ def _run(cmd: list[str], timeout: float = 30.0) -> tuple[int, str]:
 
 
 def git_head() -> tuple[str, bool]:
-    rc, head = _run(["git", "rev-parse", "HEAD"])
-    rc2, dirty = _run(["git", "status", "--porcelain", "--untracked-files=no"])
-    return (head if rc == 0 else "unknown"), (rc2 != 0 or bool(dirty))
+    """The code this record names, and whether it differs from it: a git commit, or on a box installed from a signed
+    bundle the release tree's ``release:<sha256>`` (QUALIFY-BOX, D-734; ``tools.code_identity``)."""
+    from tools import code_identity
+
+    return code_identity.head(ROOT)
+
+
+def dirty_problem(head: str, dirty: bool) -> str:
+    """What a dirty tree is called: a checkout with uncommitted changes, or a release that differs from its sums."""
+    if not dirty:
+        return ""
+    if head.startswith("release:"):
+        return "the installed release differs from its signed HOST-SHA256SUMS: a record must name one release"
+    return "the working tree has uncommitted changes: a record must name one commit"
 
 
 def gpu_versions() -> dict[str, str]:
@@ -483,9 +494,9 @@ def step_serving_record(ctx: Ctx) -> StepResult:
     ctx.state["serving"] = detail
     problems = []
     if head == "unknown":
-        problems.append("no git HEAD")
+        problems.append("no git HEAD and no signed release tree (HOST-SHA256SUMS): the record cannot name its code")
     if dirty and ctx.opts.profile != "ci":
-        problems.append("the working tree has uncommitted changes: a record must name one commit")
+        problems.append(dirty_problem(head, dirty))
     if ctx.opts.profile != "ci" and detail["driver"] == "none":
         problems.append("no NVIDIA driver on this host")
     return bad("; ".join(problems), detail) if problems else ok(detail)
