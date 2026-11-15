@@ -114,13 +114,16 @@ def check(lines: Sequence[dict[str, Any]], doc_kind: str = "trial") -> Report:
     line's section is not used (neither as a second section nor to decide which came first)."""
     rep = Report()
     seen = Counter(str(ln.get("text") or "").strip() for ln in lines)
+    # NEW-LIFE-2: the parser gave each line its lead-in and its own section (positional): a group is exactly the
+    # lines that name its lead-in, and a repeated text keeps its own section
+    given = any("parent" in ln for ln in lines)
     lead: int | None = None
     lead_at = ("", "")
     first_section: dict[str, str] = {}
     for i, ln in enumerate(lines):
         text, kind = str(ln.get("text") or "").strip(), str(ln.get("kind") or "")
         raw = _section(str(ln.get("source_ref") or ""))
-        section = raw if seen[text] == 1 else ""
+        section = raw if (given or seen[text] == 1) else ""
         if (kind, raw) != lead_at:
             lead = None  # a group ends with its section
         found: list[tuple[str, str]] = []
@@ -134,6 +137,10 @@ def check(lines: Sequence[dict[str, Any]], doc_kind: str = "trial") -> Report:
         if _LEAD.search(text):
             found.append(("group_heading", MESSAGES["group_heading"]))
             lead, lead_at = (i if _opens_group(text) else None), (kind, raw)
+        elif given:
+            p = ln.get("parent")
+            if isinstance(p, int) and 0 <= p < len(lines) and _opens_group(str(lines[p].get("text") or "")):
+                found.append(("group_member", MESSAGES["group_member"].format(lead=f"line {p + 1}")))
         elif lead is not None:
             found.append(("group_member", MESSAGES["group_member"].format(lead=f"line {lead + 1}")))
         if _ANY.search(text):

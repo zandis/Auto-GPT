@@ -32,7 +32,7 @@ from typing import Any, Literal
 from guard.guard import Guard
 from tb_common import encoding
 from tb_common.crypto import sha256_bytes
-from tb_contracts import DocSection, DocTable, IEBlock, ParsedDoc
+from tb_contracts import DocSection, DocTable, IEBlock, ItemRef, ParsedDoc
 
 from doc_parser.hidden_text import hidden_text
 
@@ -271,34 +271,64 @@ def sections(lines: list[str]) -> list[DocSection]:
     return [s for s in out if s.text or s.title != "(preamble)"]
 
 
-def items(text: str) -> list[str]:
-    """Split a section into criteria: enumerated / bulleted lines start items; other lines continue them."""
+_LEAD = re.compile(r"[:：]\s*$")
+
+
+def items_with_parents(text: str) -> list[tuple[str, int | None]]:
+    """Split a section into criteria, each with its parent (NEW-LIFE-2): enumerated / bulleted lines start items;
+    a line with no bullet that ends with a colon starts an item of its own, a lead-in (before, it was glued to the
+    item above it), and the bullets after it name it as their parent, up to the next lead-in; other lines continue
+    the item above them."""
     result: list[str] = []
+    parents: list[int | None] = []
+    lead: int | None = None
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
             continue
         m = _ENUM.match(line)
         if m:
-            rest = line[m.end() :].strip()
-            result.append(rest)
+            result.append(line[m.end() :].strip())
+            parents.append(lead)
+        elif _LEAD.search(line):
+            result.append(line)
+            parents.append(None)
+            lead = len(result) - 1
         elif result:
             joiner = "" if _CJK.search(result[-1][-1:] or "") else " "
             result[-1] = (result[-1] + joiner + line).strip()
         else:
             result.append(line)
-    return [re.sub(r"\s+", " ", r).strip() for r in result if r.strip()]
+            parents.append(None)
+    out: list[tuple[str, int | None]] = []
+    index: dict[int, int] = {}  # position in ``result`` -> position in the output (empty items dropped)
+    for i, (r, p) in enumerate(zip(result, parents, strict=True)):
+        t = re.sub(r"\s+", " ", r).strip()
+        if t:
+            index[i] = len(out)
+            out.append((t, index.get(p) if p is not None else None))
+    return out
+
+
+def items(text: str) -> list[str]:
+    """Split a section into criteria (:func:`items_with_parents`, without the parents)."""
+    return [t for t, _ in items_with_parents(text)]
 
 
 def ie_block(secs: list[DocSection]) -> IEBlock:
     found: dict[str, list[str]] = {k: [] for k in HEADINGS}
     refs: dict[str, str] = {}
+    item_refs: dict[str, list[ItemRef]] = {k: [] for k in HEADINGS}
     for s in secs:
         for key, pat in HEADINGS.items():
             if pat.search(s.title):
-                for i, it in enumerate(items(s.text), start=1):
+                base = len(found[key])
+                for i, (it, parent) in enumerate(items_with_parents(s.text), start=1):
                     found[key].append(it)
                     refs[it] = f"{s.title} #{i}"
+                    item_refs[key].append(
+                        ItemRef(section=s.title, n=i, parent=None if parent is None else base + parent)
+                    )
                 break
     return IEBlock(
         inclusion=found["inclusion"],
@@ -306,6 +336,7 @@ def ie_block(secs: list[DocSection]) -> IEBlock:
         renewal=found["renewal"] or None,
         documentation=found["documentation"] or None,
         refs=refs or None,
+        item_refs={k: v for k, v in item_refs.items() if v} or None,
     )
 
 

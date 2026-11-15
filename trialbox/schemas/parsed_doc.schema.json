@@ -152,6 +152,16 @@
             "type": "string"
           },
           "description": "criterion text -> source reference (section/page)"
+        },
+        "item_refs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/item_ref"
+            }
+          },
+          "description": "per kind, in the items' order: each item's section, number and parent (positional; NEW-LIFE-2)"
         }
       }
     },
@@ -177,6 +187,33 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "item_ref": {
+      "title": "ItemRef",
+      "type": "object",
+      "required": [
+        "section",
+        "n"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "section": {
+          "type": "string",
+          "description": "the title of the section the item comes from"
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "the item's number in its section, from 1"
+        },
+        "parent": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "index, in the same kind's list, of the lead-in line the item stands under (NEW-LIFE-2), or null"
         }
       }
     }
