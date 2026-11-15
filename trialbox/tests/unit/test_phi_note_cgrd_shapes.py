@@ -161,7 +161,7 @@ def test_the_guard_reads_the_masker_s_definitions() -> None:
 
 
 def test_the_mask_version_says_the_masking_changed() -> None:
-    assert NOTE_MASK_VERSION == "4"
+    assert NOTE_MASK_VERSION == "5"
 
 
 # ---------------------------------------------------------------------------------------------- packet 2 (D-756)

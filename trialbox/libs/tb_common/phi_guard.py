@@ -410,8 +410,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
 MASK_CHAR = "○"
 # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744;
 # 3: dates of birth, addresses and chart labels, D-745; 4: ARC, 12-digit, bed and room numbers, staff and honorific
-# names without a listed surname, wider labelled values, D-756)
-NOTE_MASK_VERSION = "4"
+# names without a listed surname, wider labelled values, D-756; 5: full addresses with spaces, D-756)
+NOTE_MASK_VERSION = "5"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
