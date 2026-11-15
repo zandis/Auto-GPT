@@ -858,8 +858,11 @@ def acc_set(
     job_s: float,
     poll_s: float = 5.0,
     deadline_s: float = 0.0,
+    protocols: list[str] | None = None,
 ) -> dict[str, Any]:
     """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
+
+    ``protocols``: only these rulesets of the set (a sized subset, recorded by the caller); the rest are not sent.
 
     ``deadline_s`` (0: none): the set's own time budget from its first start (kept in ``work/set-clock.json``, so a
     resumed set counts its earlier boots). Past it no new protocol is started (each left one is ``not_run_time_budget``)
@@ -867,6 +870,8 @@ def acc_set(
     ``answers.json`` is rewritten after every protocol: a stop keeps every finished protocol."""
     ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
     protos = sorted((built / "site" / "protocols").glob("*.txt"))
+    if protocols:
+        protos = [p for p in protos if p.stem in set(protocols)]
     prog_p = work / "progress.json"
     prog: dict[str, Any] = json.loads(prog_p.read_text(encoding="utf-8")) if prog_p.exists() else {}
     clock_p = work / "set-clock.json"
@@ -1170,6 +1175,7 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument("--job-minutes", type=float, default=60.0)
     ac.add_argument("--poll", type=float, default=5.0)
     ac.add_argument("--deadline-s", type=float, default=0.0, help="the set's own time budget (0: none)")
+    ac.add_argument("--protocols", default="", help="comma-separated rulesets: only these protocols of the set")
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
     cl = sub.add_parser("acc-call")
@@ -1250,7 +1256,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             res = acc_set(a.set, a.built, a.work, box, sender=a.sender, reviewer=a.reviewer, run_id=a.run_id,
                           compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll,
-                          deadline_s=a.deadline_s)  # fmt: skip
+                          deadline_s=a.deadline_s,
+                          protocols=[x for x in a.protocols.split(",") if x] or None)  # fmt: skip
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"acc-set {a.set}: {exc}", file=sys.stderr)
             return 1

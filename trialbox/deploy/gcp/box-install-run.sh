@@ -494,6 +494,8 @@ ACC_PLAN=$(md tb-acc-plan || true)
 ACC_MIN_DL=$(md tb-acc-min-deadline || echo 600)   # (setting) the shortest time budget of a set, seconds
 PROG_S=$(md tb-progress-seconds || echo 60)        # (setting) seconds between checkpoints of a long step (the owner's 60)
 QTIMEBOX=$(md tb-qualify-timebox || true)          # the owner's probe: qualify ended after so many seconds
+ACC_PROTOCOLS=$(md tb-acc-protocols || true)     # "set:RS1,RS2 ...": only these protocols of a set (a sized subset)
+SITE_ENV=$(md tb-site-env || true)               # "TB_MEM_EMBED=16g ...": the site's own limits in deploy/.env (D-360)
 ACC_DEADLINE=$(md tb-acc-deadline || true)         # the owner's probe: each set's time budget, seconds (else the plan's)   # "set:size:high_seconds ..." from the plan (tools/box_run.py metadata)
 PROBE=$(md tb-probe || true)
 DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
@@ -1148,7 +1150,20 @@ d_models_bind() {
   mountpoint -q "$BOXROOT/deploy/models" && return 0
   mount --bind "$MODELS" "$BOXROOT/deploy/models" && dc restart llm-service llm-verifier embed-service
 }
-d_direct_up()   { d_models_bind && dc up -d --pull never --wait --wait-timeout 900; }
+d_direct_up()   { d_site_env && d_models_bind && dc up -d --pull never --wait --wait-timeout 900; }
+# F27 (2026-11-15): the site's own container limits (D-360: TB_MEM_<NAME> in deploy/.env), only those keys, set before
+# the stack comes up; each one said in the log. A hospital sets them the same way.
+d_site_env() {
+  local kv k v f="$BOXROOT/deploy/.env"
+  for kv in $SITE_ENV; do
+    k=${kv%%=*}; v=${kv#*=}
+    case "$k" in TB_MEM_[A-Z]*) ;; *) echo "site env: $k is not a TB_MEM_ limit: not set" >> "$LOG"; continue ;; esac
+    [[ "$v" =~ ^[0-9]+[kmg]?$ ]] || { echo "site env: $k=$v is not a size: not set" >> "$LOG"; continue; }
+    if grep -q "^$k=" "$f" 2>/dev/null; then sed -i "s|^$k=.*|$k=$v|" "$f"; else echo "$k=$v" >> "$f"; fi
+    echo "TB-SITE-ENV $k=$v (deploy/.env)" | tee -a "$LOG"
+  done
+  return 0
+}
 d_direct_serving() {  # as install.sh:616-617: on model-net, the box's .env, deploy/ at /app/deploy, the model key file
   IMG_NET=trialbox-model-net img_tool --env-file "$BOXROOT/deploy/.env" -v "$BOXROOT/deploy:/app/deploy:ro" \
     -v "$(readlink -f "$BOXROOT/current"):/app/current:ro" -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
@@ -1827,7 +1842,13 @@ acc_pack() {  # acc_pack <set> [partial]: the set's gold, provenance and work so
 # before r is known, 4 x (a first set must be able to measure it). At least ten minutes.
 acc_deadline() {
   local name=$1 high r
-  [ -z "$ACC_DEADLINE" ] || { echo "$ACC_DEADLINE"; return 0; }
+  # tb-acc-deadline: one number for every set, or "set:seconds ..." (a2: each set its own, sized from a measured job)
+  if [ -n "$ACC_DEADLINE" ]; then
+    case "$ACC_DEADLINE" in
+      *:*) high=$(printf '%s\n' $ACC_DEADLINE | sed -n "s/^$name://p" | head -n 1); [ -z "$high" ] || { echo "$high"; return 0; } ;;
+      *) echo "$ACC_DEADLINE"; return 0 ;;
+    esac
+  fi
   high=$(printf '%s\n' $ACC_PLAN | sed -n "s/^$name:[0-9]*://p" | head -n 1)
   r=$(st kv _ acc_rate); [ -n "$r" ] || r=4
   "$PY" -c 'import sys; h, r, m = float(sys.argv[1] or 0), float(sys.argv[2]), float(sys.argv[3]); print(int(max(m, 1.5 * h * r)) if h else 0)' "${high:-0}" "$r" "$ACC_MIN_DL"
@@ -1839,6 +1860,9 @@ step_acc_set() {
   fi
   acc_compile_only "$name" && co=(--compile-only)
   t0=$(st kv _ "acc_t0_$name"); [ -n "$t0" ] || { t0=$(date -u +%FT%T); st set "$STEP" "acc_t0_$name" "$t0"; }
+  local only=() pl
+  pl=$(printf '%s\n' $ACC_PROTOCOLS | sed -n "s/^$name://p" | head -n 1)
+  if [ -n "$pl" ]; then only=(--protocols "$pl"); note protocols_only "\"$pl\""; fi
   dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
   # the sender and the reviewer as the box's settings name them NOW (a 51 kept from an earlier boot may have read
   # other settings: F16 left the example's in place then, F18)
@@ -1851,7 +1875,8 @@ step_acc_set() {
   WATCH_GPU=1 PROG_FN=prog_acc need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
     vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
       --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID" ${co[@]+"${co[@]}"} \
-      --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" || return 1
+      --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" \
+      ${only[@]+"${only[@]}"} || return 1
   # F22 (2026-11-15): a set that answered nothing has no figure (a SCREEN set needs patients answered, a compile-only
   # set compiled criteria). The first set of the run is the gate: it stops the run, its work packed first. A later set
   # says "not scored, because" and the group goes on (a product fault is skipped, said, never shown as a figure).

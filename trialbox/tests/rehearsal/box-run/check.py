@@ -416,6 +416,16 @@ if case == "acc-cut":
     ok(any(c.startswith("compose-logs ") and c.endswith(" orchestrator embed-service") for c in calls),
        "acc-cut: the set's services' own lines read into its work")  # fmt: skip
 
+if case == "acc-cut":
+    ok("acc-send FEAS SNCT90000001 new" not in calls and parts["61-acc-sigir"]["detail"].get("protocols_only")
+       == "SNCT90000002", "acc-cut: tb-acc-protocols: only the named protocol of sigir was sent, and said")  # fmt: skip
+
+if case == "direct":
+    env = (S / "box-root" / "deploy" / ".env").read_text()
+    ok("TB_MEM_EMBED=16g" in env and "TB_ENV=VALIDATION" in env and "TB_MEM_DB" not in env
+       and "TB-SITE-ENV TB_MEM_EMBED=16g" in vm_log,
+       "direct: tb-site-env sets only a TB_MEM_ size in deploy/.env, said; anything else is refused")  # fmt: skip
+
 if case == "acc-gate":
     j = parts["60-acc-jmed"]
     ok(j["status"] == "stop" and "the gate set jmed is not scored" in j["stop"]["reason"],

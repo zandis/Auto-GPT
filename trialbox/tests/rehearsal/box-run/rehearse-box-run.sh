@@ -329,6 +329,7 @@ for CASE in "${CASES[@]}"; do
     acc-cut)
       setup "$CASE" "start acc"; echo 1.2 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup
       m tb-acc-plan "jmed:3:0.5 sigir:3:1 tfda:2:1"; m tb-acc-min-deadline 2; m tb-progress-seconds 1
+      m tb-acc-protocols "sigir:SNCT90000002"
       boot; to_the_end; acc_collect ;;
     dev)   # the site files the first start left (the wizard's .env), then the dev launch
       setup "$CASE" dev; start_setup; build_setup; m tb-mode validation; val_models; m tb-direct 1
@@ -339,6 +340,7 @@ for CASE in "${CASES[@]}"; do
       cp "$ROOT/deploy/gcp/validation-site-answers.yaml" "$S/metadata/tb-site-answers"
       rm -f "$S/metadata/tb-answers-secret" "$S/metadata/tb-answers-version"
       mkdir -p "$S/box-root/current" "$S/box-root/deploy"; printf 'TB_ENV=VALIDATION\nTB_TZ=Asia/Taipei\n' > "$S/box-root/deploy/.env"
+      m tb-site-env "TB_MEM_EMBED=16g TB_ENV=PRODUCTION TB_MEM_DB=lots"
       BR_S="$S" python3 "$HERE/standins/box.py" wizard-done; boot; to_the_end ;;
     acc-qualify-fails)
       setup "$CASE" start fail-qualify; start_setup; m tb-mode validation; val_models

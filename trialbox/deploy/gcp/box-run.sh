@@ -79,6 +79,8 @@ while [ $# -gt 0 ]; do
     --qualify-timebox) V[tb-qualify-timebox]="$2"; shift 2 ;;   # the owner's probe: qualify ended after N seconds
     --acc-deadline) V[tb-acc-deadline]="$2"; shift 2 ;;         # each set's time budget, seconds (a probe)
     --progress-seconds) V[tb-progress-seconds]="$2"; shift 2 ;;
+    --acc-protocols) V[tb-acc-protocols]="$2"; shift 2 ;;   # "set:RS1,RS2 ...": only these protocols of the set
+    --site-env) V[tb-site-env]="$2"; shift 2 ;;             # "TB_MEM_EMBED=16g ...": the site's deploy/.env limits
     --redo) V[tb-redo]="${2//,/ }"; shift 2 ;;   # with --resume: these steps run again (an acc set from no work)   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
@@ -229,7 +231,7 @@ if [ -n "$RESUME" ]; then
   fi
   # one launch's own asks (F24): a step to run again and a set budget hold for the launch that names them, never
   # for the next resume (a redo sent twice would throw away the set it just ran)
-  for k in tb-redo tb-acc-deadline; do
+  for k in tb-redo tb-acc-deadline tb-acc-protocols tb-site-env; do
     if [ -n "${V[$k]:-}" ]; then
       printf '%s' "${V[$k]}" > "$OUT/md/$k"
       case ",$RFILES," in *",$k="*) ;; *) RFILES="$RFILES,$k=$OUT/md/$k" ;; esac
