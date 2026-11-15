@@ -96,13 +96,44 @@ class S2bResult:
     top: list[tuple[int, float]]  # (sentence index, similarity), best first
 
 
+# D-905 (lane G's review): an input longer than this many characters is embedded as overlapping windows and scored
+# by its best window; the embed service cuts an input at its token cap, which would leave the end unscored
+WINDOW_CHARS = 500
+WINDOW_OVERLAP = 100
+BOILERPLATE_NOTES = 3  # a sentence in this many notes of the window is boilerplate: not embedded
+
+
+def windows(text: str, size: int = WINDOW_CHARS, overlap: int = WINDOW_OVERLAP) -> list[str]:
+    """``text`` as overlapping windows of at most ``size`` characters (itself when it fits)."""
+    if len(text) <= size:
+        return [text]
+    step = size - overlap
+    return [text[i : i + size] for i in range(0, max(len(text) - overlap, 1), step)]
+
+
+def boilerplate(note_sentences: Sequence[Sequence[str]], min_notes: int = BOILERPLATE_NOTES) -> set[str]:
+    """Sentences that recur in at least ``min_notes`` notes of the window (a template line, a disclaimer): they would
+    rank every note alike, so S2b does not embed them. The judge still reads them."""
+    count: dict[str, int] = {}
+    for sents in note_sentences:
+        for x in {s.strip() for s in sents if s.strip()}:
+            count[x] = count.get(x, 0) + 1
+    return {x for x, n in count.items() if n >= min_notes}
+
+
 def screen(embedder: Embedder, query: str, sentences: list[str], threshold: Threshold, k: int = 5) -> S2bResult:
-    """One batch: the query and every window sentence are embedded together."""
+    """One batch: the query and every window sentence are embedded together; a long sentence as windows, scored by
+    its best window."""
     if not sentences:
         return S2bResult(False, 0.0, threshold, [])
-    vecs = embedder.embed([query, *sentences])
-    q, rest = vecs[0], vecs[1:]
-    sims = sorted(((i, cosine(q, v)) for i, v in enumerate(rest)), key=lambda t: (-t[1], t[0]))
+    pieces: list[tuple[int, str]] = [(i, w) for i, s in enumerate(sentences) for w in windows(s)]
+    vecs = embedder.embed([query, *(w for _, w in pieces)])
+    q = vecs[0]
+    score: dict[int, float] = {}
+    for (i, _), v in zip(pieces, vecs[1:], strict=True):
+        c = cosine(q, v)
+        score[i] = max(score.get(i, c), c)
+    sims = sorted(score.items(), key=lambda t: (-t[1], t[0]))
     best = sims[0][1] if sims else 0.0
     return S2bResult(best >= threshold.value, best, threshold, sims[:k])
 
