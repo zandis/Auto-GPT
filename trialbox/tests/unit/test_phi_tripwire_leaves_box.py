@@ -26,7 +26,7 @@ from registry.registry import Registry
 from tb_common.audit import AuditLog
 from tb_common.policy.classes import Environment, Topology
 
-from tests.unit.test_gateway import JUDGE_VARS, H, _judge_body, _mock, _records
+from tests.unit.test_gateway import JUDGE_VARS, H, _judge_body, _records
 
 PHI = {**JUDGE_VARS, "excerpts": [{"date": "2026-10-01", "note_type": "x", "text": "身分證 A123456789"}]}
 
@@ -76,17 +76,81 @@ def test_a_hit_on_a_route_that_only_leaves_the_box_is_refused(tmp_path: Path) ->
 
 
 def test_the_setting_turns_it_off(tmp_path: Path) -> None:
-    gw = _gw(tmp_path, Environment.DEV, phi_tripwire=False, http=_mock("echo"))
-    res = gw.chat(H(), {**_judge_body(PHI), "model": "j-workhorse"})
-    assert res.body.get("error", {}).get("code") != "phi_tripwire"
+    """Review: the first version of this test passed on a refusal of another kind. The audit line now says ``off``
+    and the call is answered."""
+    gw = _gw(tmp_path, Environment.TEST, phi_tripwire=False)
+    res = gw.chat(H(), _judge_body(PHI))
+    assert res.status == 200, res.body
+    assert _last(tmp_path)["guard"] == "off"
+
+
+def test_a_tripwire_turned_off_is_logged_when_the_gateway_starts(tmp_path: Path, caplog: Any) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        _gw(tmp_path, Environment.TEST, phi_tripwire=False)
+    assert any("PHI tripwire is off" in r.getMessage() for r in caplog.records)
+
+
+def _protocol_call(policy: Any, topology: Topology, tmp_path: Path) -> tuple[Any, list[str]]:
+    """A D1 protocol call holding an identifier; the registry is stubbed to say which endpoints were tried."""
+    from registry.registry import RegistryError
+    from tb_common.llm import load_prompt, render
+    from tb_contracts import inline_schema
+    from tb_llm import json_schema_format
+
+    gw = Gateway(
+        policy, Registry.load(), AuditLog(tmp_path / "audit"),
+        GatewayConfig(topology=topology, environment=Environment.PRODUCTION, cloud_opt_in=True),
+        guard=Guard("^\\d{8}$"), env={},
+    )  # fmt: skip
+    tried: list[str] = []
+
+    def resolve(alias: str, ep: str, **kw: Any) -> Any:
+        tried.append(f"{alias}@{ep}")
+        raise RegistryError("stop", "test")
+
+    gw.registry.resolve = resolve  # type: ignore[method-assign,assignment]
+    pp = load_prompt("ir_extract_v2")
+    h = {"X-TB-Caller": "criteria-compiler", "X-TB-Role": "extract_criteria", "X-TB-Data-Class": "D1",
+         "X-TB-Purpose": "protocol_ingest", "X-TB-Prompt": "ir_extract@2", "X-TB-Flags": "sponsor_consent",
+         "X-TB-Study": "S-1", "X-TB-Context-Of-Use": "protocol_ir"}  # fmt: skip
+    h["X-TB-Prompt-Sha"] = gw.prompts.get("ir_extract", 2, environment="PRODUCTION", patient=False).sha256
+    body = {
+        "messages": render(pp, {"ruleset": "GZQO", "language": "en",
+                                "criteria": [{"text": "Age >= 18, contact 身分證 A123456789", "kind": "inclusion"}]}),
+        "response_format": json_schema_format("ir", inline_schema(pp.meta.output_schema)),
+    }  # fmt: skip
+    return gw.chat(h, body), tried
+
+
+def test_on_topology_b_the_tenant_is_not_the_box(tmp_path: Path) -> None:
+    """Review: on topology B the perimeter is the tenant's serving router, off the box (D-142): a hit is refused."""
+    res, tried = _protocol_call(RoutingPolicy.load(), Topology.B, tmp_path)
+    assert res.body["error"]["code"] == "phi_tripwire" and tried == []
+
+
+def test_on_topology_c_a_hit_is_refused(tmp_path: Path) -> None:
+    """Only topology A's perimeter is the box (D-142)."""
+    res, tried = _protocol_call(RoutingPolicy.load(), Topology.C, tmp_path)
+    assert res.body["error"]["code"] == "phi_tripwire" and tried == []
 
 
 @pytest.mark.parametrize(
-    "value,on", [(None, True), ("on", True), ("off", False), ("OFF", False), ("0", False), ("false", False)]
+    "value,on",
+    [(None, True), ("on", True), ("off", False), ("OFF", False), ("0", False), ("false", False), ("disabled", True)],
 )
 def test_the_setting_is_read_and_on_by_default(value: str | None, on: bool) -> None:
     env = {} if value is None else {"TB_GATEWAY_PHI_TRIPWIRE": value}
     assert GatewayConfig.from_env(env).phi_tripwire is on
+
+
+def test_a_value_it_does_not_know_keeps_it_on_and_says_so(caplog: Any) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        assert GatewayConfig.from_env({"TB_GATEWAY_PHI_TRIPWIRE": "disabled"}).phi_tripwire is True
+    assert any("TB_GATEWAY_PHI_TRIPWIRE" in r.getMessage() for r in caplog.records)
 
 
 def test_the_setting_is_declared() -> None:

@@ -262,7 +262,7 @@ def test_three_protocols_per_language_pass_location_without_a_tripwire_refusal(g
     assert Guard(None).tripwire("\n".join(s.text for s in d.sections)).hit  # the document's sections keep them
 
 
-def test_without_masking_the_tripwire_hits_the_same_sections(gateway: Any) -> None:
+def test_without_masking_the_tripwire_hits_the_same_sections(gateway: Any, tmp_path: Path) -> None:
     """The control of the test above: the unmasked sections hit the tripwire and the masked ones do not, so the
     masking is what lets them through on a route that leaves the box (D-506: on the box a hit is answered by an
     on-box model, so the gateway no longer refuses this call there)."""
@@ -274,8 +274,21 @@ def test_without_masking_the_tripwire_hits_the_same_sections(gateway: Any) -> No
     raw = "\n".join(f"{s.title}\n{s.text}" for s in secs)
     masked, _ = locator_sections(secs, Guard(None))
     assert Guard(None).tripwire(raw).hit
-    assert not Guard(None).tripwire("\n".join(f"{s['title']}\n{s['text']}" for s in masked)).hit
+    masked_text = "\n".join(f"{s['title']}\n{s['text']}" for s in masked)
+    assert not Guard(None).tripwire(masked_text).hit
     _locator(gateway)([{"title": s.title, "text": s.text} for s in secs])  # on the box: answered, not refused
+    # at the gateway, on a route that leaves the box (review of D-790): the unmasked text is refused, the masked not
+    from tb_common.policy.classes import Environment
+
+    from tests.unit.test_gateway import JUDGE_VARS, H, _gw, _judge_body
+
+    def ask(text: str) -> Any:
+        gw = _gw(tmp_path, env=Environment.DEV)
+        v = {**JUDGE_VARS, "excerpts": [{"date": "2026-10-01", "note_type": "x", "text": text[:4000]}]}
+        return gw.chat(H(), {**_judge_body(v), "model": "j-workhorse"})
+
+    assert ask(raw).body["error"]["code"] == "phi_tripwire"
+    assert ask(masked_text).body.get("error", {}).get("code") != "phi_tripwire"
 
 
 # ------------------------------------------------------------------------------------------------ the stub
