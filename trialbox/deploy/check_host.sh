@@ -75,6 +75,18 @@ fi
 TBENV="$(envget TB_ENV | tr '[:lower:]' '[:upper:]')"; TBENV="${TBENV:-PRODUCTION}"
 STRICT=0; case "$TBENV" in VALIDATION|PRODUCTION) STRICT=1 ;; esac
 strict() { if [ "$STRICT" = 1 ]; then fail "$1"; else warn "$1 (FAIL in VALIDATION and PRODUCTION)"; fi; }
+# D-837: TB_HOST_PROFILE=poc (a proof of concept or validation run on a plain VM): the host-facility checks (TPM seal,
+# LUKS, egress table, firewall, SSH, cron) WARN and are listed at the end; never on PRODUCTION
+HOST_PROFILE="$(envget TB_HOST_PROFILE)"; FACILITIES=""
+facility() {  # facility strict|fail MESSAGE LABEL: as strict/fail, or a listed WARN under the poc profile
+  if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" != PRODUCTION ]; then
+    warn "$2 [host profile poc]"; FACILITIES="$FACILITIES, $3"
+  elif [ "$1" = strict ]; then strict "$2"; else fail "$2"; fi
+}
+facilities() { [ -z "$FACILITIES" ] || warn "host profile poc: ${FACILITIES#, } (each one fails on a site host)"; }
+if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" = PRODUCTION ]; then
+  fail "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
+fi
 KREL="$(cat "$HR/proc/sys/kernel/osrelease" 2>/dev/null || true)"
 case "$KREL" in *[Mm]icrosoft*WSL2*) WSL2=1 ;; esac  # a WSL2 kernel: the Windows checks are on by themselves
 
@@ -130,19 +142,32 @@ for d in "$DOCKER_ROOT" "$ROOT_DIR/deploy/backups"; do
     dev="$(cryptsetup status "$c" 2>/dev/null | sed -n 's/^ *device: *//p')"
     case " $LUKS_DEVS " in *" $dev "*) ;; *) [ -n "$dev" ] && LUKS_DEVS="$LUKS_DEVS $dev" ;; esac
   else
-    fail "LUKS: $d is not on a dm-crypt device (full-disk encryption required)"
+    facility fail "LUKS: $d is not on a dm-crypt device (full-disk encryption required)" LUKS
   fi
 done
 # the unlock: no way into the volume that needs neither the hospital network nor a person (OPS-043)
 for dev in $LUKS_DEVS; do
   out="$(python3 "$ROOT_DIR/deploy/hardening/luks_policy.py" "$dev" 2>&1)"
-  echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || fail "LUKS unlock of $dev not judged: $out"
-  FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL ')))
+  if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" != PRODUCTION ]; then
+    echo "$out" | grep -E '^(PASS|WARN|FAIL) ' | sed 's/^FAIL /WARN /; s/$/ [host profile poc]/' || warn "LUKS unlock of $dev not judged: $out"
+    FACILITIES="$FACILITIES, LUKS unlock"
+  else
+    echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || fail "LUKS unlock of $dev not judged: $out"
+    FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL ')))
+  fi
 done
 fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
-elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then pass "TPM 2.0 device present"; else strict "no TPM device: the disk unlock and the KEK cannot be bound to this board"; fi
+elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
+  # D-836: a device node is not enough; systemd-creds needs the TPM and its TSS2 libraries. Asked of the running host
+  # only (a test's TB_HOST_ROOT has no kernel to ask)
+  if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
+    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM
+  else
+    pass "TPM 2.0 device present"
+  fi
+else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM; fi
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then
@@ -154,7 +179,7 @@ if [ -d "$SECRETS" ]; then
   for f in site_hmac.key pid_map.key; do  # the pid map rows are in the trial database (schema pidmap)
     if [ -f "$SECRETS/$f" ]; then
       m=$(mode "$SECRETS/$f")
-      strict "$f is a plain file (mode $m): seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)"
+      facility strict "$f is a plain file (mode $m): seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
     elif [ -f "$SECRETS/$f.wrapped" ]; then
       pass "$f sealed under the KEK ($f.wrapped)"
     else
@@ -176,7 +201,7 @@ fi
 if command -v nft >/dev/null 2>&1 && nft list table inet trialbox_input >/dev/null 2>&1; then
   pass "input firewall loaded (table inet trialbox_input)"
 else
-  strict "input firewall not loaded: deploy/hardening/apply.sh firewall (443 from the clinic ranges only)"
+  facility strict "input firewall not loaded: deploy/hardening/apply.sh firewall (443 from the clinic ranges only)" firewall
 fi
 if command -v sshd >/dev/null 2>&1 && { systemctl is-active --quiet ssh.service 2>/dev/null || systemctl is-active --quiet ssh.socket 2>/dev/null; }; then
   cfg="$(sshd -T 2>/dev/null | tr '[:upper:]' '[:lower:]')"
@@ -184,7 +209,7 @@ if command -v sshd >/dev/null 2>&1 && { systemctl is-active --quiet ssh.service 
   echo "$cfg" | grep -qx 'permitrootlogin no' || bad="$bad root login;"
   echo "$cfg" | grep -qx 'passwordauthentication no' || bad="$bad passwords;"
   echo "$cfg" | grep -qx 'kbdinteractiveauthentication no' || bad="$bad keyboard-interactive;"
-  if [ -z "$bad" ]; then pass "SSH on: keys only, no root login"; else strict "SSH allows:$bad (deploy/hardening/apply.sh ssh)"; fi
+  if [ -z "$bad" ]; then pass "SSH on: keys only, no root login"; else facility strict "SSH allows:$bad (deploy/hardening/apply.sh ssh)" SSH; fi
 else
   pass "SSH off"
 fi
@@ -198,7 +223,7 @@ else pass "free space on $DOCKER_ROOT: $free%"; fi
 
 # the two cron files of the install (T-632: log retention, backups)
 for c in trialbox-retention trialbox-backup; do
-  if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"; else strict "cron file /etc/cron.d/$c missing (re-run install.sh)"; fi
+  if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"; else facility strict "cron file /etc/cron.d/$c missing (re-run install.sh)" "cron $c"; fi
 done
 # the host's time zone (doctor compares it with the site's, D-315)
 HOST_TZ_NAME="$(timedatectl show -p Timezone --value 2>/dev/null || cat "$HR/etc/timezone" 2>/dev/null || true)"
@@ -219,6 +244,7 @@ fi
 
 if [ "$BASELINE" = 1 ]; then
   echo "---"
+  facilities
   [ "$FAILS" -eq 0 ] && { echo "host baseline checks passed"; exit 0; } || { echo "$FAILS baseline check(s) failed"; exit 1; }
 fi
 
@@ -226,7 +252,7 @@ fi
 if command -v nft >/dev/null 2>&1 && nft list table inet trialbox_egress >/dev/null 2>&1; then
   pass "egress allowlist table loaded (deploy/network.sh apply)"
 else
-  fail "egress allowlist not loaded: run deploy/network.sh apply after docker compose up"
+  facility fail "egress allowlist not loaded: run deploy/network.sh apply after docker compose up" "egress table"
 fi
 
 # container runtime
@@ -340,5 +366,6 @@ else
   fail "python3 not found: trialbox doctor cannot run"
 fi
 
+facilities
 echo "---"
 [ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }

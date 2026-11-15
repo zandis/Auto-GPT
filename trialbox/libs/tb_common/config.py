@@ -666,6 +666,21 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
+    "TB_HOST_PROFILE": Declared(
+        "str",
+        "site",
+        "site or poc (D-837): poc, a proof of concept or validation run on a plain VM, makes the host-facility checks "
+        "(TPM seal, LUKS, egress table, systemd units) WARN and listed; never on PRODUCTION",
+    ),
+    "TB_BOX_DEFER_SEAL": Declared(
+        "bool", "0", "install.sh: the site keys are sealed later, at box-install.sh's apply step (T-729, D-837)"
+    ),
+    "TB_SYSTEMD": Declared(
+        "bool", "1", "install.sh and seal_keys.sh: 0 skips the systemd units (the poc host profile's default, D-837)"
+    ),
+    "TB_KEK_BACKEND": Declared(
+        "str", "", "seal_keys.sh: the KEK back end (tpm, shamir or passphrase) without a hardening.conf (D-836)"
+    ),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
     "TB_KMS_TOKEN": Declared("str", "", "kms KEK back end: the hospital KMS token (secret; T-319)"),
     "TB_KMS_URL": Declared("str", "", "kms KEK back end: the KMS transit address when it moved from kek.json's"),
