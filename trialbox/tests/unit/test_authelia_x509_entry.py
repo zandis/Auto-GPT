@@ -1,7 +1,8 @@
-"""The owner's ruling of 2026-11-13 on CVE-2026-111943 (crypto/x509) in the Authelia image: one dated entry, for
-the image at the digest the lock pins, review 2026-12-10, saying what it takes to reach the flaw as the box runs
-the image; and the real fix as a card (the identity overlay mounts only the hospital's directory CA), after which
-the entry goes. The entry names the digest: a new pin fails this test, and the entry is looked at again."""
+"""CVE-2026-111943 (crypto/x509) in the Authelia image. The owner's ruling of 2026-11-13 accepted it for the image at
+the digest the lock pins, until the real fix (D-722: the identity overlay gives Authelia only the hospital's
+directory CA). With D-722 on master, the owner's yes of 2026-11-15 (D-820) replaces the acceptance by one "Not
+reachable" entry, as the image's other entries are: same digest, review 2026-12-10, its reason the fact D-722 makes
+true. The entry names the digest: a new pin fails this test, and the entry is looked at again."""
 
 from __future__ import annotations
 
@@ -35,12 +36,26 @@ def test_there_is_one_dated_entry_for_the_pinned_image() -> None:
     assert digest.startswith("sha256:") and digest in str(e["reason"])  # this image, not whatever is pinned next
 
 
-def test_the_reason_says_what_it_takes_and_what_removes_the_entry() -> None:
+def test_the_reason_is_the_fact_d722_makes_true_and_its_limit() -> None:
+    """D-820: no longer the owner's acceptance; why the flaw cannot be reached, and when that holds."""
     reason = str(_entries()[0]["reason"])
+    assert reason.startswith("Not reachable:") and "Accepted by the owner" not in reason
     assert "LDAPS" in reason and "directory" in reason  # the one connection the flaw could matter on
-    assert "inside the hospital's network" in reason  # where an attacker would have to be
-    assert "owner" in reason and "2026-11-13" in reason  # whose decision, and when
-    assert "only the hospital's" in reason and "remove" in reason  # the real fix, and that this entry then goes
+    assert "hospital's directory CA only" in reason and "TB_LDAP_CA" in reason and "D-722" in reason  # the fix
+    assert "does not start without a usable file" in reason  # where the guarantee comes from (D-722 point 3)
+    assert e_owner() == "security owner (to assign)"
+
+
+def e_owner() -> str:
+    return str(_entries()[0]["owner"])
+
+
+def test_the_postgres_base_entry_of_the_same_id_is_not_touched() -> None:
+    doc = yaml.safe_load((ROOT / "deploy" / "supply-chain-allowlist.yaml").read_text(encoding="utf-8"))
+    pg = [
+        e for e in doc["vulnerabilities"] if e.get("id") == "CVE-2026-111943" and e.get("image") == "trialbox-postgres"
+    ]
+    assert len(pg) == 1 and "gosu" in str(pg[0]["reason"])
 
 
 def test_no_entry_covers_every_finding_of_the_login_front() -> None:
