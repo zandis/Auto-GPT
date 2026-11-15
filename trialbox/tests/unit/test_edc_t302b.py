@@ -30,7 +30,7 @@ from tests import odm_xsd
 SHEET = {"text": "AE log, ward copy", "day": "2026-11-05"}
 SCREEN1, WEEK4_1, SCREEN2, WEEK4_2 = "screening_arm_1", "week4_arm_1", "screening_arm_2", "week4_arm_2"
 AE1, AE2 = f"{WEEK4_1}__ae__1", f"{WEEK4_1}__ae__2"
-BMI = "round([weight]/(([height]/100)^2),1)"
+BMI = "round([weight]/(([height]/100)*([height]/100)),1)"  # D-844: a real REDCap refuses ^ in a calculation
 
 CRF: list[dict[str, str]] = [
     *k.CRF,
@@ -158,7 +158,7 @@ def test_a_value_is_never_written_to_another_arm(tmp_path: Path) -> None:
     _enter(svc, "S-002", SCREEN2, {}, confirm=frozenset({"weight"}))
     out = svc.send_redcap(k.STUDY, "crc")
     assert _held(out, "sent") == {(SCREEN2, "weight")}
-    assert _rows(sim, token)[("2", SCREEN2, "", "")]["bmi"] == "28.3"  # 72.5 / 1.6^2, computed by REDCap
+    assert _rows(sim, token)[("2", SCREEN2, "", "")]["bmi"] == "28.3"  # 72.5 / (1.6 * 1.6), computed by REDCap
 
 
 def test_the_base_row_takes_only_non_repeating_fields_and_each_event_only_its_instruments(tmp_path: Path) -> None:

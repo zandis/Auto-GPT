@@ -30,6 +30,7 @@ import re
 import secrets
 import threading
 import time
+from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -499,8 +500,25 @@ def _repeat(r: dict[str, Any]) -> dict[str, str]:
             "custom_form_label": ""}  # fmt: skip
 
 
-def create_app(fixtures_dir: Path | None = None, version: str | None = None, rate_limit: int | None = None) -> FastAPI:
-    """Build a simulator app (each app holds its own copy of the fixtures, so tests stay independent)."""
+def _dictionary_refused(meta: list[dict[str, Any]], not_offered: frozenset[str]) -> str | None:
+    """CGRD-B5b (D-844): what a real REDCap refuses in a data dictionary: ``^`` in a calculation, and a validation
+    the instance does not offer (its administrator's choice). None when it takes the dictionary."""
+    for m in meta:
+        name = str(m.get("field_name") or "")
+        if str(m.get("field_type") or "") == "calc" and "^" in str(m.get("select_choices_or_calculations") or ""):
+            return f"The calculation of {name} is not valid: ^ is not an operator REDCap takes"
+        vt = str(m.get("text_validation_type_or_show_slider_number") or "")
+        if vt and vt in not_offered:
+            return f"The validation type of {name} ({vt}) is not offered on this instance"
+    return None
+
+
+def create_app(fixtures_dir: Path | None = None, version: str | None = None, rate_limit: int | None = None,
+               not_offered: Iterable[str] = ()) -> FastAPI:  # fmt: skip
+    """Build a simulator app (each app holds its own copy of the fixtures, so tests stay independent).
+    ``not_offered`` (CGRD-B5b, D-844): the validation types the instance does not offer; a dictionary using one is
+    refused, as on a REDCap whose administrator turned it off."""
+    refused_validations = frozenset(not_offered)
     state = SimState(
         copy.deepcopy(load_projects(fixtures_dir or FIXTURES)),
         version or os.environ.get("TB_RC_SIM_VERSION", "16.0.10"),
@@ -596,6 +614,9 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
         meta = list(body.get("metadata") or [])
         if not meta or any("field_name" not in m or "form_name" not in m for m in meta):
             return _err(400, "A data dictionary with field_name and form_name is needed")
+        why = _dictionary_refused(meta, refused_validations)
+        if why:  # CGRD-B5b (D-844): as a real REDCap refuses the dictionary
+            return _err(400, why)
         events = [e if isinstance(e, dict) else {"unique_event_name": str(e)} for e in body.get("events") or []]
         pid = max((int(p["project"]["project_id"]) for p in state.projects.values()), default=100) + 1
         token = secrets.token_hex(16).upper()
