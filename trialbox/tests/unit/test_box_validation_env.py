@@ -1,4 +1,4 @@
-"""BOX-VALIDATION (D-793), the owner's blockers 8 and 10 of 2026-11-15: the box form installs a VALIDATION box.
+"""BOX-VALIDATION (D-822), the owner's blockers 8 and 10 of 2026-11-15: the box form installs a VALIDATION box.
 
 A box made by ``box-install.sh`` was always PRODUCTION: the owner's answers had no environment and the box plan
 (``tools/box/plan.py``) never wrote ``TB_ENV``. The answers now take ``environment``, PRODUCTION (the default) or

@@ -2,6 +2,12 @@
 # TrialBox complete-platform run on the RTX PRO 6000 (TB-PLAN-04 step 9, D-139, D-141, D-148, D-150). Owner's OK first:
 # it starts paid VMs (tb-gpu-sim and its clones, g4-standard-48 spot, about US$2.74 an hour each).
 # Gate before any paid launch: `make rehearse` passes on the commit to launch (tests/rehearsal, RUNBOOK §11).
+# Validation reset (2026-11-14, docs/plan/measurements/validation-reset-2026-11-14.md): after the read-only checks and
+# before any upload or VM start, a launch refuses (exit 8) when its results would not be evidence of the shipped
+# product: the VM script's serving differs from deploy/docker-compose.rtxpro6000.yml (chat template, image digest,
+# weight revisions), or the plan holds a part that is not the product path (tools/product_evidence.py).
+# --not-product-evidence (or TB_NOT_PRODUCT_EVIDENCE=1) launches anyway; plan.json and the report then name every
+# reason. A dry run says what a launch would do.
 #
 #   export CLOUDSDK_CONFIG=<a private folder>              # never the default one
 #   export TB_SA_KEY_FILE=<the service account key file>   # every command activates from it (its path, to gcloud)
@@ -115,7 +121,7 @@ set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
 SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0; DISCARD_PREV=0; KEEP_ORDER=0; ORDER_SEED=""
-REPEATS=1
+REPEATS=1; NOT_PRODUCT="${TB_NOT_PRODUCT_EVIDENCE:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -140,7 +146,8 @@ while [ $# -gt 0 ]; do
     --teardown) TEARDOWN=1; shift ;;
     --preflight) PREFLIGHT=1; shift ;;
     --discard-previous) DISCARD_PREV=1; shift ;;
-    -h|--help) sed -n 2,109p "$0"; exit 0 ;;
+    --not-product-evidence) NOT_PRODUCT=1; shift ;;
+    -h|--help) sed -n 2,115p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -817,6 +824,11 @@ json.dump({"head": g("rev-parse","HEAD"), "subject": g("log","-1","--format=%s")
     fi
     prev_run_check "$VM_I" "$Z_I" || exit 3   # its disk holds a run whose results are not here: nothing starts
   done
+  # the validation reset (2026-11-14): refuse a run that would not be product evidence, after the read-only checks and
+  # before any upload or start; with --not-product-evidence the plan records why (tools/product_evidence.py), and the report says so
+  NPE=(); [ "$NOT_PRODUCT" = 1 ] && NPE=(--not-product-evidence)
+  if [ "$DRY" = 1 ]; then cr --launch-gate "$PLAN" --dry-run "${NPE[@]}" || true
+  else cr --launch-gate "$PLAN" "${NPE[@]}" || exit 8; fi
   if [ -n "$BUCKET" ]; then for i in $(seq 1 "$VMS"); do gc storage cp "$OUT/src.tgz" "$BUCKET/runs/$RUN_ID-s$i/src.tgz"; done; fi
 fi
 

@@ -1,3 +1,5 @@
+> **SUPERSEDED on 2026-11-14: not evidence of the shipped product.** See `SUPERSEDED.md` and [the validation reset plan](../validation-reset-2026-11-14.md).
+
 <!-- written by deploy/gcp/results_report.py: do not edit by hand, run the reader again -->
 
 # Cloud run results: 20261114T014216Z-cb850470

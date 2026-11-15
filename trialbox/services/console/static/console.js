@@ -30,4 +30,31 @@
     e.preventDefault();
     e.returnValue = "";
   });
+  // 4. D-776 (D-509): the first sign-in from a one-time link, <box>/enrol#u=<name>&c=<code>. The part after "#" never
+  // reaches the server; on the first sign-in it fills the two fields. On every page (a signed-in person is sent on to
+  // the home page with it) a code after "#" is then removed from the address bar and the Back history.
+  var frag = window.location.hash.length > 1 ? new URLSearchParams(window.location.hash.slice(1)) : null;
+  if (frag && frag.get("c")) {
+    var link = document.querySelector("form[data-enrol-link]");
+    var u = link && link.querySelector("#username"), c = link && link.querySelector("#enrol_code");
+    if (u && frag.get("u") && !u.value) u.value = frag.get("u");
+    if (c) c.value = frag.get("c");
+    if (window.history.replaceState) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  // 5. D-777 (UX-007): a mark's note is kept in this tab's session storage while it is typed, so a session that ends
+  // before the mark is sent does not lose it: after sign-in, back on that patient's page, it is put back (never over
+  // a note typed since). A saved mark (its done toast) drops it.
+  try {
+    document.querySelectorAll("[data-mark-saved]").forEach(function (t) {
+      sessionStorage.removeItem("tb-note:" + t.getAttribute("data-mark-saved"));
+    });
+    document.querySelectorAll("input[data-keep-note]").forEach(function (n) {
+      var key = "tb-note:" + n.getAttribute("data-keep-note");
+      var kept = sessionStorage.getItem(key);
+      if (kept && !n.value) n.value = kept;
+      n.addEventListener("input", function () {
+        if (n.value) sessionStorage.setItem(key, n.value); else sessionStorage.removeItem(key);
+      });
+    });
+  } catch (e) { /* no session storage (a private mode that refuses it): the page works as before */ }
 })();

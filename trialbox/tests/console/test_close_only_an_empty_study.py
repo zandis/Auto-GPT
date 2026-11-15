@@ -139,7 +139,8 @@ def test_a_closed_study_takes_no_subject_back_on_study(sb: dict[str, Any], clock
     crc, _ = login(sb["app"], "crc", PW)
     assert _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out").status_code == 303
     page = crc.get(f"/studies/GZQO/subjects/{NO}").text
-    r = crc.post(f"/studies/GZQO/subjects/{NO}/undo", data={"csrf": _csrf(page)}, follow_redirects=False)
+    r = crc.post(f"/studies/GZQO/subjects/{NO}/undo", data={"csrf": _csrf(page), "note": "by mistake"},
+                 follow_redirects=False)  # fmt: skip
     assert r.status_code == 409 and "closed" in r.text
     assert sb["oc"].get(f"/studies/GZQO/subjects/{NO}").json()["subject"]["state"] == "completed"
     cand = sb["nos"][PIDS["cand"]]

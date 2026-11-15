@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a5419544a4537ffec720d40fecc4bb13badb495e",
+  "head": "8aaa4015b3945824b5fda7dcd0e7b288446f05ef",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "SCR-01 (D-655): malignancy includes C44 and C4A; RA-JAK-EXC-08 and RA-BIO-EXC-04 exclude skin and Merkel cell carcinoma",
+  "reason": "D-795: a list in a code system the site's rows do not carry is unknown, not not-met",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -15,7 +15,7 @@
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "94587da40653fa999d9d31e676fe3283a69a3903a4ed74f2da4bdbf388c47634",
+   "outcomes_sha": "cf4b461b48fd0390701b81d0c8c1aaf6f8cc795abcc3f14f57a48655785923c9",
    "patients": 53,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -35,23 +35,23 @@
    "verdicts": {
     "RA-BIO-DOC-01": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "RA-BIO-DOC-02": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "RA-BIO-DOC-03": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "RA-BIO-DOC-04": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "RA-BIO-EXC-01": {
      "met": 1,
@@ -100,13 +100,13 @@
     },
     "RA-BIO-INC-03": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "RA-BIO-INC-04": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "RA-BIO-INC-05": {
      "met": 0,

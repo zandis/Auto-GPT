@@ -631,6 +631,9 @@ def _run_ingest(
             recover_all(cfg)  # as below, before the lake's folders are read: a killed re-run is put back first
             whole, said_by = reread_whole(cfg.lake_dir, merge_base(cfg.lake_dir, snap))
             whole &= set(mapping.tables)
+            # F7 (D-806, lane E's hunk): a visit table a link by day looks up is read whole, every night
+            for table in sorted(mapping.read_whole() - whole):
+                log.info("%s: read whole on this delta night: rows link to its visits by day (D-806)", table)
             for table in sorted(whole):
                 log.info(
                     "%s: read whole on this delta night: the reference data did not answer for it on %s (D-538)",
@@ -639,7 +642,7 @@ def _run_ingest(
         for table, tspec in mapping.tables.items():
             at["table"] = table
             src, src_name = source, tspec["source"]
-            since_t = None if table in whole else since
+            since_t = None if table in whole or table in mapping.read_whole() else since
             if table == "registry" and cfg.registry is not None:
                 kind, where = cfg.registry
                 if kind == "none" or not where:
@@ -656,7 +659,17 @@ def _run_ingest(
             got = src.rows(table, src_name, delta, since_t)
             if contracts is not None:
                 got = _kept(got, raw)
-            rows = _TableRows.write(spool.root / f".rows-{table}", (mapping.normalize(table, r) for r in got))
+            others = [0]  # CGRD-A2 (D-813, lane E's hunk): rows of a shared source that are another table's
+
+            def own(rows_in: Any, t: str = table, n: list[int] = others) -> Iterator[Row]:
+                for r in rows_in:
+                    canon = mapping.normalize(t, r)
+                    if mapping.keeps(t, canon):
+                        yield canon
+                    else:
+                        n[0] += 1
+
+            rows = _TableRows.write(spool.root / f".rows-{table}", own(got))
             if isinstance(where_dir := getattr(src, "directory", None), Path):
                 inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
@@ -669,6 +682,13 @@ def _run_ingest(
                 "rows": len(rows),
                 "duplicate_keys": _duplicates((str(r.get(kcol)) for r in rows), spool.root / ".keys") if kcol else 0,
             }
+            if others[0]:
+                tables[table]["rows_of_other_tables"] = others[0]
+            undated = getattr(src, "change_time_not_a_date", None)  # F14 (D-810, lane E's hunk): counts only
+            if since_t and callable(undated) and (n_undated := int(undated(src_name))):
+                tables[table]["change_time_not_a_date"] = n_undated
+                log.warning("%s: %d rows have a change time that is not a date: read on every night, never windowed "
+                            "by it (D-810)", table, n_undated)  # fmt: skip
             if contracts is not None:  # T-659b: the contract's row checks; a failing row is set aside, never mapped
                 chk = governance.check_table(
                     contracts.get(src_name) or contracts.get(table),
@@ -749,6 +769,14 @@ def _run_ingest(
         # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (codes and counts only)
         for table, by_lookup in mapper.unmapped_summary().items():
             tables[table]["unmapped"] = by_lookup
+        for table, n in mapper.atc_disputed().items():  # CGRD-A2 (D-813, lane E's hunk): counts only
+            tables[table]["atc_disputed"] = n
+        for table, links in mapper.encounter_links().items():  # F7 (D-806, lane E's hunk): links by day, counts only
+            tables[table]["encounter_by_day"] = links
+        for table, cols in mapping.read_as_western().items():  # F8 (D-807, lane E's hunk): counts only
+            tables[table]["read_as_western"] = cols
+        for table, by_element in mapper.implausible_dates().items():  # F9 (D-811, lane E's hunk): counts only
+            tables[table]["implausible_dates"] = by_element
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name

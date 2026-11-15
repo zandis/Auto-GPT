@@ -27,6 +27,7 @@ from tb_common.timeutil import add_months
 from tb_common.verdict_word import shown_of
 from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
+from orchestrator import excluded as excluded_lines
 from orchestrator import identifiers
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_stamp
@@ -83,7 +84,7 @@ ORDER BY p.pid
 # FIT-U04 (T-629, D-415): who of a list the current snapshot records as dead, with a date or without one (T-616)
 DECEASED_SQL = """
 SELECT pid FROM patient
-WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND (deceased_date IS NOT NULL OR deceased IS TRUE)
+WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND (deceased_date IS NOT NULL OR deceased IS TRUE)
 ORDER BY pid
 """
 
@@ -787,6 +788,17 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
             "coded_values": "read" if getattr(run, "coded_values_read", True) else "not read"}  # fmt: skip
 
 
+def publish_excluded(ctx: Ctx, rs: Ruleset, srun: ScreenRun) -> None:
+    """NEW-B-48 (D-749): the run's excluded patients, one line each (T-694 part 5), and the old document beside it
+    until the console reads the lines (lane C2's card); then the old one goes. Both: the console only, never mailed
+    (P-04)."""
+    doc = excluded_doc(ctx, srun)
+    rows = doc.pop("rows")
+    ctx.publish(f"excluded_{rs.id}_v{rs.version}.jsonl", excluded_lines.write_jsonl(doc, rows), "phi", [])
+    old = json.dumps({**doc, "rows": rows}, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", old, "phi", [])
+
+
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
     gone = opted_out_now(ctx, [r.pid for r in rows], "pool")
     rows = [r for r in rows if r.pid not in gone]
@@ -922,8 +934,7 @@ def run(ctx: Ctx) -> Outcome:
         ctx, rs, srun.rows, meta, stem, extra=(f"candidate_list_{rs.id}_v{rs.version}.json", body)
     )
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
-    excluded = json.dumps(excluded_doc(ctx, srun), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
-    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", excluded, "phi", [])  # P-04: the console only, never mailed
+    publish_excluded(ctx, rs, srun)
     publish_s2b_source(ctx, srun)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
 

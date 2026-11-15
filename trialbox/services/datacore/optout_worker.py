@@ -34,6 +34,7 @@ The orchestrator runs a tick every ``TB_OPTOUT_WORKER_MINUTES`` (default 5; 0: o
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -323,6 +324,124 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     with Database.connect(url, "profile") as db:
         n = db.fetchval("SELECT count(*) FROM tb_patient_profile WHERE pid = ANY(?)", (sorted(pids),))
     return {"profile.tb_patient_profile": int(n)}
+
+
+# T-206b part 1 (D-798): the owed tables keyed by the pseudonym, each a plain delete of the patient's rows, in an
+# order that deletes a referencing row before the row it references. The screening log's tables (marks, screening
+# numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.
+# The adversarial review of D-798 kept four out: site.weekly_seen (the kept screening-log row's first-listed day),
+# orch.submissions (NHI's send-once guard), team.candidate_views (the reveal cap's ledger) and tuned.tuned_patients (a
+# reviewed week's sample would be drawn again); they stay on the owed list with why.
+#: per store, per table: the count and the delete of the patients' rows (written out: no SQL is put together)
+OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+    ("site", (
+        ("contact_outcomes", "SELECT count(*) FROM contact_outcomes WHERE pid = ANY(?)",
+         "DELETE FROM contact_outcomes WHERE pid = ANY(?)"),
+        ("excluded_review", "SELECT count(*) FROM excluded_review WHERE pid = ANY(?)",
+         "DELETE FROM excluded_review WHERE pid = ANY(?)"),
+    )),
+    ("team", (
+        ("approach_overrides", "SELECT count(*) FROM approach_overrides WHERE pid = ANY(?)",
+         "DELETE FROM approach_overrides WHERE pid = ANY(?)"),
+        ("referral_events", "SELECT count(*) FROM referral_events WHERE pid = ANY(?)",
+         "DELETE FROM referral_events WHERE pid = ANY(?)"),
+        ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),
+    )),
+    ("orch", (
+        ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
+    )),
+)  # fmt: skip
+
+
+def _open(url: str, schema: str) -> Any:
+    """The store's connection, each named here (the schemas the code opens are enumerated, D-378)."""
+    from tb_common.db import Database
+
+    if schema == "site":
+        return Database.connect(url, "site")
+    if schema == "team":
+        return Database.connect(url, "team")
+    if schema == "orch":
+        return Database.connect(url, "orch")
+    if schema == "derived":
+        return Database.connect(url, "derived")
+    raise ValueError(f"no owed table in store {schema!r}")
+
+
+#: the derived store: the input links and conflicts of a score row go before the row (their foreign keys)
+DERIVED = "derived"
+
+
+def _derived(db: Any, pids: list[str], delete: bool) -> dict[str, int]:
+    """The derived store's rows of ``pids``: counted, or deleted (counts). ``batch_run.failed_pids`` (a JSON list)
+    loses the pseudonyms; the batch itself stays (it holds no other patient data)."""
+    out: dict[str, int] = {}
+    if delete:
+        # a conflict carried from one of the patient's (always the patient's own): unlink before the delete
+        db.execute("UPDATE conflict SET carried_from = NULL WHERE carried_from IN (SELECT id FROM conflict WHERE"
+                   " pid = ANY(?)) AND NOT (pid = ANY(?))", (pids, pids))  # fmt: skip
+        out["derived.input_link"] = db.execute(
+            "DELETE FROM input_link WHERE row_id IN (SELECT id FROM score_row WHERE pid = ANY(?))", (pids,)
+        )
+        out["derived.conflict"] = db.execute("DELETE FROM conflict WHERE pid = ANY(?)", (pids,))
+        out["derived.score_row"] = db.execute("DELETE FROM score_row WHERE pid = ANY(?)", (pids,))
+    else:
+        out["derived.input_link"] = int(db.fetchval(
+            "SELECT count(*) FROM input_link WHERE row_id IN (SELECT id FROM score_row WHERE pid = ANY(?))", (pids,)
+        ))  # fmt: skip
+        out["derived.conflict"] = int(db.fetchval("SELECT count(*) FROM conflict WHERE pid = ANY(?)", (pids,)))
+        out["derived.score_row"] = int(db.fetchval("SELECT count(*) FROM score_row WHERE pid = ANY(?)", (pids,)))
+    gone = set(pids)
+    n = 0
+    for bid, raw in db.fetchall("SELECT id, failed_pids FROM batch_run WHERE failed_pids IS NOT NULL"):
+        try:
+            listed = [str(x) for x in json.loads(raw)]
+        except (TypeError, ValueError):
+            continue
+        if gone & set(listed):
+            n += 1
+            if delete:
+                left = [x for x in listed if x not in gone]
+                db.execute("UPDATE batch_run SET failed_pids = ?, failed = GREATEST(COALESCE(failed, 0) - ?, 0)"
+                           " WHERE id = ?", (json.dumps(left), len(listed) - len(left), bid))  # fmt: skip
+    out["derived.batch_run"] = n
+    return out
+
+
+def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    out: dict[str, int] = {}
+    for schema, tables in OWED_TABLES:
+        here = [x for x in tables if store_has(url, schema, x[0])]
+        if not here or not want:
+            out.update({f"{schema}.{t}": 0 for t, _c, _d in here})
+            continue
+        with _open(url, schema) as db, db.transaction() as tx:  # one schema's deletes: all or none
+            for t, count, drop in here:
+                if delete:
+                    out[f"{schema}.{t}"] = int(tx.execute(drop, (want,)) or 0)
+                else:
+                    out[f"{schema}.{t}"] = int(tx.fetchval(count, (want,)))
+    if store_has(url, DERIVED, "score_row") and want:
+        with _open(url, DERIVED) as db:
+            if delete:
+                with db.transaction() as tx:
+                    out.update({k: int(v or 0) for k, v in _derived(tx, want, True).items()})
+            else:
+                out.update(_derived(db, want, False))
+    return out
+
+
+def clear_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """T-206b part 1 (D-798): the opted-out patients' rows of the owed tables keyed by the pseudonym go (counts by
+    table, never who). A store this box does not have is left out; the worker never creates one."""
+    return _owed_tables(pids, env, delete=True)
+
+
+def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """The rows of ``pids`` still in each owed table (and batches still naming one)."""
+    return _owed_tables(pids, env, delete=False)
 
 
 def run_once(env: WorkerEnv) -> dict[str, Any]:

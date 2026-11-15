@@ -27,7 +27,7 @@ without the key (401). It never starts without a key (D-177).
 | `served` | the pinned served names in `deploy/site/registry.site.yaml` are exactly what the two servers serve |
 | `offline` | every running container runs an image the bundle loaded, the third-party ones (`postgres`, `hapi`) too, and the Docker daemon pulled nothing; the CQL translator jars in `criteria-compiler` are byte for byte the vendor's and translate; the media's reference data pack is loaded; ClinicalTrials.gov is offline; the box has no route out |
 | `egress-override` | no route out of the box **with the rehearsal's own internal `egress-net`** (`tools/rehearse_box/standins.yml`). The shipped `egress-net` with `deploy/network.sh` is not rehearsed (no `NET_ADMIN`): check it at the site's IQ |
-| `guard` | on `model-net` only `model-guard` answers to the model servers' names: `/invocations`, `/tokenize`, `/collective_rpc`, `/metrics` and the rest are 404 with or without the key, `/v1` needs the key, nothing reached the stand-ins' open routes, and the servers are only on `trialbox-model-backend` |
+| `guard` | on `model-net` only `model-guard` answers to the model servers' names: `/invocations`, `/collective_rpc`, `/metrics` and the rest are 404 with or without the key, `/v1` and `/tokenize` need the key, nothing reached the stand-ins' open routes, and the servers are only on `trialbox-model-backend` |
 | `console` | the console answers `/healthz` and its sign-in page; inside it no outside name resolves and no outside address answers, while the box's own names do (`console-net`, below) |
 | `screen` | SCREEN GZQO on synthetic hospital A ends `done`, its model calls go through the gateway to both pinned builds, with no 401 and no 404, and it mails its results to the site's relay (a plain SMTP sink, `tools/rehearse_box/smtp_sink.py`, stands in for it) |
 | `power-cycle`, `after-restart` | every box process killed (as in a power loss), the host restarted: the box comes back healthy with its data, the doctor passes, the console answers, a second SCREEN runs |
@@ -73,7 +73,8 @@ a container address directly, possible on Docker before 28).
 `POST /invocations` (chat), `/tokenize`, `/score`, `/pooling`, `/metrics` and, in dev mode, `/collective_rpc` answer
 without it. So the vLLM servers are only on `trialbox-model-backend`, and `model-guard` (`services/model_guard`) is
 what `llm-service` and `llm-verifier` mean on `trialbox-model-net`. It passes, with the key only, `GET /v1/models`,
-`POST /v1/chat/completions` and `POST /v1/completions`; on the RTX 5090 profile also the gateway's `/sleep`,
+`POST /v1/chat/completions`, `POST /v1/completions` and `POST /tokenize` (D-739: G-1 counts tokens on the shipped
+server; the key already opens chat completions, which do more); on the RTX 5090 profile also the gateway's `/sleep`,
 `/wake_up` and `/is_sleeping`; and `/health` without the key. Everything else is 404. `trialbox doctor --serving`
 also checks that `/invocations` and `/tokenize` refuse a call without the key.
 

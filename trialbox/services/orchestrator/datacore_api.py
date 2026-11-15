@@ -35,7 +35,7 @@ from typing import Any
 
 from datacore import fhir, forms, sync
 from datacore.sources import RedcapSource
-from datacore.store import DataCore, DataError
+from datacore.store import NO_REASON, DataCore, DataError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
@@ -107,6 +107,7 @@ class EntryBody(BaseModel):
     event: str = ""
     values: dict[str, str]
     by: str
+    reason: str = Field(default="", max_length=300)  # D-778: kept with each change
 
 
 class RedcapSourceBody(BaseModel):
@@ -137,6 +138,7 @@ class FormBody(BaseModel):
     event: str = Field(default="", pattern=r"^([a-z][a-z0-9_]{0,99})?$")
     values: dict[str, str]
     by: str
+    reason: str = Field(default="", max_length=300)  # D-778: a saved value changes only with a reason
 
 
 class ResolveBody(BaseModel):
@@ -166,6 +168,20 @@ def _fail(exc: Exception) -> HTTPException:
     if getattr(exc, "problems", None):
         detail["problems"] = exc.problems  # type: ignore[attr-defined]
     return HTTPException(status_code=status, detail=detail)
+
+
+def _changes(old: dict[str, str], values: dict[str, str], reason: str) -> dict[str, Any]:
+    """D-778 (LIFE-011): what the chain's ``data.entry`` holds of a change: per changed field the sha256 of its value
+    before and after (never the values), and the reason given."""
+    import hashlib
+
+    def sha(v: str) -> str:
+        return hashlib.sha256(v.encode("utf-8")).hexdigest()
+
+    out: dict[str, Any] = {"changes": {f: {"old": sha(o), "new": sha(str(values.get(f, "")))} for f, o in old.items()}}
+    if reason.strip():
+        out["reason"] = " ".join(reason.split())[:300]
+    return out
 
 
 def record_key(record: str) -> str:
@@ -234,11 +250,15 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         if not _REC.match(record):
             raise HTTPException(status_code=400, detail={"code": "DATA-RECORD", "message": "not a record key"})
         try:
-            n = sync.enter(svc.dc, rid, record.upper(), body.event, body.values, body.by, svc.stamp())
+            before = svc.dc.record(rid, record.upper(), body.event)
+            n = sync.enter(svc.dc, rid, record.upper(), body.event, body.values, body.by, svc.stamp(),
+                           reason=body.reason)  # fmt: skip
         except DataError as exc:
             raise _fail(exc) from exc
+        old = {f: before.get(f, "") for f, v in body.values.items() if before.get(f, "") != str(v)}
+        why = body.reason or (NO_REASON if any(old.values()) else "")  # D-778: a change's reason, or marked missing
         svc.audit.append("data.entry", ruleset=rid, actor=body.by, detail={"record": record.upper(),
-                                                                            "fields": sorted(body.values)})  # fmt: skip
+                         "fields": sorted(body.values), **_changes(old, body.values, why)})  # fmt: skip
         return {"changed": n, "record": svc.dc.record(rid, record.upper(), body.event)}
 
     @r.get("/studies/{rs}/sources")
@@ -402,12 +422,13 @@ def router(get: Callable[[], DataService]) -> APIRouter:
     def save_form(rs: str, record: str, body: FormBody, request: Request) -> dict[str, Any]:
         svc, rid, rec = get(), _rs(rs), record_key(record)
         try:
-            out = sync.save_form(svc.dc, rid, rec, body.event, body.form, body.values, body.by, svc.stamp())
+            out = sync.save_form(svc.dc, rid, rec, body.event, body.form, body.values, body.by, svc.stamp(),
+                                 reason_text=body.reason)  # fmt: skip
         except DataError as exc:
             raise _fail(exc) from exc
         svc.audit.append("data.entry", ruleset=rid, actor=body.by,
-                         detail={"record": rec, "event": body.event, "form": body.form,
-                                 "fields": out["written"]})  # fmt: skip
+                         detail={"record": rec, "event": body.event, "form": body.form, "fields": out["written"],
+                                 **_changes(out["old"], body.values, body.reason)})  # fmt: skip
         life: dict[str, Any] = {}
         if body.form in LIFE_FORMS and out["changed"]:  # the subject follows its answers (D-134)
             # T-715 (D-483): the step this save derives names the verified person of the call, never the body's `by`

@@ -136,6 +136,9 @@ fresh_disk() {
 export TB_REH_STATE="$S" TB_REH_CONTAINER="$C" CLOUDSDK_CONFIG="$REH/gcloud-config" TB_SA_KEY_FILE=/dev/null
 # the "VM" is this host (127.0.0.1): the driver reaches its door directly though the sandbox sets HTTPS_PROXY (A6)
 export TB_DOOR_DIRECT=1
+# the stand-ins answer, not the models: a rehearsal is never product evidence, so it launches past the validation
+# reset's gate (complete-run.sh --not-product-evidence), as the operator would for a plumbing run
+export TB_NOT_PRODUCT_EVIDENCE=1
 # shellcheck source=deploy/gcp/door-tls.sh
 . "$TBROOT/deploy/gcp/door-tls.sh"   # door_make for the no-upload case, which has no driver
 mkdir -p "$CLOUDSDK_CONFIG"

@@ -1385,6 +1385,14 @@ def report(
     rep["langs_run"] = sorted(
         {str(r["lang"]) for r in ran if r.get("part") in ("hospital", "public") and r.get("lang")}
     )
+    # the validation reset (2026-11-14): why these results are not evidence of the shipped product, from what the
+    # launch recorded in plan.json (a run on the model pair; a stub run is no model evidence by design)
+    if a.model == "pair":
+        from tools import product_evidence
+
+        pf = Path(a.dir) / "plan.json" if getattr(a, "dir", None) else None
+        pdoc = json.loads(pf.read_text(encoding="utf-8")) if pf is not None and pf.is_file() else {}
+        rep["not_product_evidence"] = product_evidence.report_reasons(pdoc, [str(r["tag"]) for r in rows])
     return rep
 
 
@@ -1581,6 +1589,16 @@ def markdown(rep: dict[str, Any]) -> str:
         "wall time, summed: parts on several VMs ran at the same time); "
         f"{len(rep.get('findings') or [])} known findings reported.{never}",
         "",
+        *(
+            [
+                "**Not evidence of the shipped product** (validation reset 2026-11-14, "
+                "`docs/plan/measurements/validation-reset-2026-11-14.md`); do not quote these results as such:",
+                *[f"- {x}" for x in rep["not_product_evidence"]],
+                "",
+            ]
+            if rep.get("not_product_evidence")
+            else []
+        ),
         "Screenshots are in the run's `report/shots/` folder (not committed).",
         "",
         *([f"Door secret after the collect (T-119): {rep['door_secret']}", ""] if rep.get("door_secret") else []),
@@ -1659,11 +1677,14 @@ def _priced(e: dict[str, Any], rows: list[dict[str, Any]], hours: float) -> dict
             "cap_usd": round(cap * price, 2), "provisioning": model, "price_per_hour": price}  # fmt: skip
 
 
+# Validation reset (2026-11-14): the measured constants below come from runs of lane G's own serving and in-process
+# box (docs/plan/measurements/*/SUPERSEDED.md). They size a run's hours and US$ cap only: never a capacity figure,
+# never product evidence (docs/plan/measurements/validation-reset-2026-11-14.md).
 SETUP_HOURS = 0.25  # apt (PostgreSQL, tesseract jpn/chi_tra/eng, node), the venv, Playwright's Chromium, fonts
 BOOT_HOURS = 0.25  # VM start, both models resident (PRO6000-RUN-READY in about 15 minutes, D-139)
 CANARY_SECONDS = 300.0  # the pair canary (D-117, 54 cases) at the start of every box that has the pair
 S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient hospital, D-139; GOUT-COH: none)
-PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
+PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (superseded run; estimate only)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
 # A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (OD-10: the estimator's source data;
@@ -2598,6 +2619,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--door-reach-check", action="store_true",
                     help="exit 2 with the reason when the door cannot be reached from here (A6)")  # fmt: skip
     ap.add_argument("--preflight-check", type=Path, help="a folder of read-only gcloud answers: every problem (A7)")
+    ap.add_argument("--launch-gate", type=Path, metavar="PLAN",
+                    help="a run's plan.json: refuse (exit 8) a launch that would not be evidence of the shipped "
+                         "product, and record why in the plan (tools/product_evidence.py)")  # fmt: skip
+    ap.add_argument(
+        "--not-product-evidence",
+        action="store_true",
+        help="--launch-gate: launch anyway; the plan and the report mark the run not product evidence",
+    )
+    ap.add_argument("--dry-run", action="store_true", help="--launch-gate: say what a launch would do; change nothing")
     ap.add_argument("--parts-missing", type=Path, help="a run's plan.json: print its tags with no result in "
                     "--parts-dir (A8)")  # fmt: skip
     ap.add_argument("--merge-parts", type=Path, help="one VM's parts/ folder: its results into --parts-dir "
@@ -2625,6 +2655,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2 if why else 0
     if a.preflight_check:
         return preflight_check(a.preflight_check)
+    if a.launch_gate:
+        from tools import product_evidence
+
+        return product_evidence.launch_gate(a.launch_gate, a.not_product_evidence, a.dry_run)
     if a.parts_missing:
         doc = json.loads(a.parts_missing.read_text(encoding="utf-8"))
         print(" ".join(parts_missing(doc, (a.parts_dir or [a.dir / "parts"])[0])))

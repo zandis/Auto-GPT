@@ -213,7 +213,13 @@ def _wanted(m: Any, table: str, tspec: dict[str, Any], specs: list[Any]) -> tupl
         if isinstance(spec.profile, dict):
             optional |= referenced_columns(spec.profile)
     need.add(str(tspec.get("key", "")))
+    need.add(str((tspec.get("rows") or {}).get("column") or ""))  # CGRD-A2 (D-813): the column the rows are told by
     need.discard("")
+    for col, parts in (tspec.get("join") or {}).items():  # F10 (D-809): a joined key is made of columns the source has
+        for group in (need, optional):
+            if col in group:
+                group.discard(col)
+                group.update(parts)
     canon = need | optional | set((tspec.get("identity") or {}).values()) | set(tspec.get("values") or {})
     if tspec.get("delta"):
         canon.add(str(tspec["delta"]))
@@ -343,6 +349,11 @@ def check(
         need, optional, wanted = _wanted(m, table, tspec, specs)
         got = []
         cut = False
+        if source_kind == "cgrd_sql" and not src.has_table(tspec["source"]):  # CGRD-SQL (D-814): absent, said
+            why = src.absent_why.get(tspec["source"], "absent")  # the kind of error, as when the read raised it
+            report["tables"][table] = {"source": tspec["source"], "rows_read": 0, "cannot_be_read": why}
+            report["missing_columns"] += len(need)
+            continue
         delta = tspec.get("delta") if (since or until) else None
         local_delta = {c: loc for loc, c in (tspec.get("rename") or {}).items()}.get(delta, delta) if delta else None
         forms: list[str] | None = None
@@ -370,7 +381,10 @@ def check(
                 if rows and i >= rows:
                     cut = True
                     break
-                got.append(m.normalize(table, row) if hasattr(m, "normalize") else row)
+                canon = m.normalize(table, row) if hasattr(m, "normalize") else row
+                if hasattr(m, "keeps") and not m.keeps(table, canon):  # CGRD-A2 (D-813): another table's line
+                    continue
+                got.append(canon)
         except Exception as exc:
             if source_kind != "cgrd_sql":
                 raise

@@ -1,3 +1,7 @@
+> **SUPERSEDED on 2026-11-14.** This order of work is overtaken by `docs/plan/37-remaining-work-split.md` and by lane
+> G's validation reset ([validation-reset-2026-11-14.md](validation-reset-2026-11-14.md)): its paid runs were of lane G's own serving and in-process box, not the shipped
+> product. Kept as history; do not follow it.
+
 # Lane G (cloud runs): the order of work to the end of wave 1, and what runs in parallel
 
 Written 2026-11-12, about 14:00 UTC, against plan v7.2 (`docs/plan/33-plan-v7.md`, sections 5 and 7.1) and the GCP

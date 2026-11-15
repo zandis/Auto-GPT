@@ -228,7 +228,12 @@ CREATE TABLE study_irb_text (
 );
 CREATE INDEX study_irb_text_rs ON study_irb_text (ruleset, at)
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
+# D-779 (T-305c): a close names how many years the study's files are kept after it (RETENTION reads it); other rows
+# and closes recorded before have none (the default period)
+SCHEMA_V7 = """
+ALTER TABLE study_state ADD COLUMN keep_years INTEGER
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
 
 # ---------------------------------------------------------------------------------------------- D-386 study state
 STUDY_STATES = ("startup", "open", "paused", "closed")
@@ -331,6 +336,7 @@ class StudyState:
     by: str = ""
     at: str = ""
     prev: str | None = None
+    keep_years: int | None = None  # D-779: on a close, the years the study's files are kept after it
 
     @property
     def runs(self) -> bool:
@@ -768,32 +774,42 @@ class SiteStore:
     # ------------------------------------------------------------------ study state and identifiers (D-386)
     def study_state(self, ruleset: str) -> StudyState:
         row = self.db.fetchone(
-            "SELECT state, reason, by, at, prev FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1",
+            "SELECT state, reason, by, at, prev, keep_years FROM study_state WHERE ruleset = ?"
+            " ORDER BY at DESC, id DESC LIMIT 1",
             (ruleset.upper(),),
         )
         if row is None:
             return StudyState()
-        return StudyState(str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4])
+        return StudyState(str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4], row[5])
 
     def state_history(self, ruleset: str) -> list[StudyState]:
         """Every state change of the study, oldest first (the log prints the dates)."""
         rows = self.db.fetchall(
-            "SELECT state, reason, by, at, prev FROM study_state WHERE ruleset = ? ORDER BY at, id", (ruleset.upper(),)
+            "SELECT state, reason, by, at, prev, keep_years FROM study_state WHERE ruleset = ? ORDER BY at, id",
+            (ruleset.upper(),),
         )
-        return [StudyState(str(r[0]), str(r[1]), str(r[2]), str(r[3]), r[4]) for r in rows]
+        return [StudyState(str(r[0]), str(r[1]), str(r[2]), str(r[3]), r[4], r[5]) for r in rows]
 
     def set_study_state(
         self, ruleset: str, state: str, reason: str, by: str, at: str,
         before_commit: Callable[[StudyState], None] | None = None, take_back: bool = False,
+        keep_years: int | None = None,
     ) -> StudyState:  # fmt: skip
         """Move the study to ``state``. Refuses a state not in :data:`STUDY_STATES` or a move not in
         :data:`STATE_MOVES` (ValueError). ``before_commit`` (the audit append) runs inside the transaction, so a
         failed append keeps the old state (as D-273 does for marks).
 
         ``take_back`` (NEW-LIFE-6, D-763): the one way out of ``closed``: back to the state the close left, read
-        under the same lock (the caller checks who and that the close was made the same site day)."""
+        under the same lock (the caller checks who and that the close was made the same site day).
+
+        ``keep_years`` (D-779, T-305c): on a close only, the years the study's files are kept after it (1 to
+        :data:`tb_common.retention.STUDY_YEARS_MAX`); None on a close keeps the default period."""
+        from tb_common.retention import STUDY_YEARS_MAX
+
         if state not in STUDY_STATES:
             raise ValueError(f"state must be one of {', '.join(STUDY_STATES)}")
+        if keep_years is not None and (state != "closed" or not 1 <= keep_years <= STUDY_YEARS_MAX):
+            raise ValueError(f"only a close keeps the files, for 1 to {STUDY_YEARS_MAX} years")
         rid = ruleset.upper()
         with self.db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"study_state:{rid}",))
@@ -807,10 +823,10 @@ class SiteStore:
             elif not state_move_ok(prev, state):
                 raise ValueError(f"a study cannot move from {prev} to {state}")
             tx.execute(
-                "INSERT INTO study_state (ruleset, state, prev, reason, by, at) VALUES (?,?,?,?,?,?)",
-                (rid, state, prev, reason, by, at),
+                "INSERT INTO study_state (ruleset, state, prev, reason, by, at, keep_years) VALUES (?,?,?,?,?,?,?)",
+                (rid, state, prev, reason, by, at, keep_years),
             )
-            new = StudyState(state, reason, by, at, prev)
+            new = StudyState(state, reason, by, at, prev, keep_years)
             if before_commit is not None:
                 before_commit(new)
         return new

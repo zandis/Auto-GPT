@@ -339,7 +339,7 @@ def test_session_expires_when_idle_and_at_the_absolute_limit(tmp_path: Path) -> 
     assert _signed_in(c)
     clock.tick(minutes=21)
     r = c.get("/jobs", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/login"  # idle
+    assert r.status_code == 303 and r.headers["location"] == "/login?why=idle"  # idle (D-777: the page says why)
     c2 = TestClient(app)
     _password(c2, "viewer", VIEWER_PW)
     for _ in range(12):  # busy for two hours, ten minutes apart

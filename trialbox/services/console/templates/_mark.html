@@ -7,7 +7,7 @@
   {% if current %}<p class="hint" data-testid="current-mark">{{ t('mark.current') }} <span class="pill mk-{{ current.mark }}">{{ t('mark.' + current.mark) }}</span>{% if current.mark == 'not_now' and current.reason %} · {{ t('mark.recheck_on', d=current.reason) }}{% elif current.reason %} · {{ t('reason.' + current.reason) }}{% endif %} · {{ t('mark.replace') }}</p>{% endif %}
   <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" id="mk-{{ s }}" class="markmain">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
-    <label for="note-{{ s }}">{{ t('mark.note') }}</label><input id="note-{{ s }}" name="note" maxlength="300">
+    <label for="note-{{ s }}">{{ t('mark.note') }}</label><input id="note-{{ s }}" name="note" maxlength="300" data-keep-note="{{ pid }}">
   </form>
   <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" id="ns-{{ s }}" class="markns">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="mark" value="not_suitable">
@@ -48,7 +48,7 @@
 {% endmacro %}
 
 {% macro toast(rs, pid, back, done) %}
-{% if done %}<div class="toastp" role="status" data-testid="done"><span>{{ t('wb.done.' + done) }}</span>
+{% if done %}<div class="toastp" role="status" data-testid="done" data-mark-saved="{{ pid }}"><span>{{ t('wb.done.' + done) }}</span>
 {% if user.can_mark and done in ('approach', 'need_info', 'not_suitable', 'not_now', 'withdrawn') %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" name="mark" value="undo" class="secondary" data-testid="undo">{{ t('mark.undo') }}</button></form>{% endif %}
 {% if user.can_request and done in ('reached_booked', 'reached_declined', 'not_reached', 'not_approached', 'lost_contact') %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/outcome" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" name="outcome" value="undo" class="secondary" data-testid="outcome-undo">{{ t('mark.undo') }}</button></form>{% endif %}
 </div>{% endif %}

@@ -125,7 +125,8 @@ def test_whole_form_save_checks_and_history(dc: DataCore) -> None:
     assert out["changed"] == 4 and out["hidden"] == ["ic_reconsent_date"]
     assert "ic_reconsent_date" not in dc.record("GZQO", "GZQO-0001")
     with pytest.raises(DataError) as e:
-        save_form(dc, "GZQO", "GZQO-0001", "", "tb_consent", {"ic_reconsent": "1"}, "crc", AT)
+        save_form(dc, "GZQO", "GZQO-0001", "", "tb_consent", {"ic_reconsent": "1"}, "crc", AT,
+                  reason_text="re-consented")  # D-778: a saved value changes with a reason  # fmt: skip
     assert [(p["field"], p["code"]) for p in e.value.problems] == [("ic_reconsent_date", "required")]
     # range: weight 1..400, age 0..120; a missed visit needs its reason, not a date
     with pytest.raises(DataError) as e:
@@ -141,8 +142,9 @@ def test_whole_form_save_checks_and_history(dc: DataCore) -> None:
         save_form(dc, "GZQO", "GZQO-0001", "", "tb_enrolment", {"en_date": "2026-11-06", "en_eligible": "1",
                                                                 "en_age": "-1", "nope": "x"}, "crc", AT)  # fmt: skip
     assert {(p["field"], p["code"]) for p in e.value.problems} == {("en_age", "min"), ("nope", "unknown")}
-    # an edit shows in the history: who, when, old, new, source
-    save_form(dc, "GZQO", "GZQO-0001", "", "tb_consent", {"ic_version": "v2.2"}, "pi-desk", "2026-11-09T09:00:00")
+    # an edit shows in the history: who, when, old, new, source (D-778: with its reason)
+    save_form(dc, "GZQO", "GZQO-0001", "", "tb_consent", {"ic_version": "v2.2"}, "pi-desk", "2026-11-09T09:00:00",
+              reason_text="version misread")  # fmt: skip
     hist = [(h["field"], h["old"], h["new"], h["by"], h["source"]) for h in dc.history("GZQO", "GZQO-0001")]
     assert ("ic_version", "v2.1", "v2.2", "pi-desk", "trialbox") in hist and ("ic_version", None, "v2.1", "crc",
                                                                               "trialbox") in hist  # fmt: skip

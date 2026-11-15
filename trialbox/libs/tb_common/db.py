@@ -266,11 +266,17 @@ def sql(text: str) -> str:
     return text.replace("%", "%%").replace("?", "%s")
 
 
+#: rows a server-side cursor brings per round trip (:meth:`Tx.iterdicts`): psycopg's 100 makes a round trip per
+#: hundred rows; 5,000 rows of a few kB stay tens of MB
+ITER_BATCH = 5000
+
+
 class Tx:
     """One open transaction."""
 
     def __init__(self, cur: Any) -> None:
         self._cur = cur
+        self._named = 0  # server-side cursors opened by :meth:`iterdicts`
 
     def execute(self, text: str, params: Sequence[Any] = ()) -> int:
         """Run a statement; return the affected row count."""
@@ -280,6 +286,17 @@ class Tx:
     def executemany(self, text: str, rows: Sequence[Sequence[Any]]) -> None:
         if rows:
             self._cur.executemany(sql(text), [tuple(r) for r in rows])
+
+    def iterdicts(self, text: str, params: Sequence[Any] = (), size: int = ITER_BATCH) -> Iterator[dict[str, Any]]:
+        """:meth:`fetchdicts` through a server-side cursor, ``size`` rows at a time (T-702, D-754): a query of
+        millions of rows is never held whole. The transaction must stay open while the rows are read."""
+        self._named += 1
+        with self._cur.connection.cursor(name=f"tb_iter_{id(self):x}_{self._named}") as cur:
+            cur.itersize = size
+            cur.execute(sql(text), tuple(params))
+            names = [d.name for d in cur.description or []]
+            for r in cur:
+                yield dict(zip(names, r, strict=True))
 
     def copy_rows(self, table: str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> int:
         """``COPY table (columns) FROM STDIN`` (bulk loads, e.g. the reference data pack); return the row count."""
