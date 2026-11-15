@@ -1,5 +1,7 @@
 # Your TrialBox workstation: the owner's pages
 
+**Reader:** the box owner.
+
 For the person who owns the box: the research lead, not hospital IT. Three parts: the day you set it up, a normal
 day, and what to do when something is wrong (NEW-WIN-9, D-611). This PC runs Windows; TrialBox runs inside it and
 works at night with nobody there.
