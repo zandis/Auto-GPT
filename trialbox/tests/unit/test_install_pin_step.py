@@ -59,17 +59,17 @@ def test_a_failed_pin_stops_the_install(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("env", ["", "TB_ENV=TEST\n", "TB_REHEARSAL=1\n", "TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n"])
-def test_a_failed_pin_stops_every_box_but_a_rehearsal_box(tmp_path: Path, env: str) -> None:
+def test_a_failed_pin_stops_every_box(tmp_path: Path, env: str) -> None:
+    """D-887: a rehearsal box too: its pin takes the media's placeholders (tools/pin_model.py), so a refused pin there
+    is a real fault, never passed over."""
     res, _ = _run(tmp_path, docker_rc=1, env=env)
     assert res.returncode == 1 and "not pinned" in res.stderr
 
 
-def test_a_rehearsal_box_goes_on_with_its_placeholder_weights_unpinned(tmp_path: Path) -> None:
-    """D-887: the rehearsal media's placeholder weights are never the release's (models/registry.yaml names the real
-    ones), so the pin is refused there; the model stand-ins answer instead. Found by the box rehearsal in CI."""
-    res, _ = _run(tmp_path, docker_rc=1, env="TB_ENV=TEST\nTB_REHEARSAL=1\n")
-    assert res.returncode == 0 and "reached-the-end" in res.stdout
-    assert "rehearsal box" in res.stdout and "no build is pinned" in res.stdout
+def test_the_pin_is_told_the_box(tmp_path: Path) -> None:
+    """D-887: TB_ENV and TB_REHEARSAL reach the pin container (it pins placeholders on a rehearsal box only)."""
+    _, log = _run(tmp_path, docker_rc=0, env="TB_ENV=TEST\nTB_REHEARSAL=1\n")
+    assert "-e TB_ENV=TEST" in log and "-e TB_REHEARSAL=1" in log
 
 
 def test_the_pin_container_runs_as_the_installer_user(tmp_path: Path) -> None:

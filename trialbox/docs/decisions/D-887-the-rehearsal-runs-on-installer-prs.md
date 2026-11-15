@@ -29,12 +29,25 @@
    and the runtime KEK (and its folder) root's: the services run as uid 10001 and could open none of them, so keys-init
    failed on the re-run and every service reading a key would fail on a sealed box. seal_keys.sh and the boot unseal
    unit now hand them to the secrets folder's owner; modes stay 0600 (the folder 0700). The host check gives the
-   doctor a missing secrets folder when it cannot see the volume (WARN, not a false FAIL).
+   doctor a missing secrets folder when it cannot see the volume (WARN, not a false FAIL). On a sealed box the KEK
+   (/run/trialbox/kek, mode 0600, its folder 0700), kek.json and the wrapped keys belong to uid and gid 10001, the
+   user `tb` every TrialBox service runs as (deploy/docker/python.Dockerfile) and the owner of the secrets volume:
+   the services open them and nobody else can (`ls -ln /run/trialbox` and the volume's folder show 10001 10001).
 7. Its fourth run passed install and the second install and showed where the rehearsal had fallen behind the box:
    a rehearsal box's host has no encrypted disk (LUKS: WARN there only, as the egress table); the rehearsal's own
    doctor call now mounts the release tree, the secrets volume and the KEK as the host check does; with no pins on a
    rehearsal box the served step checks the stand-ins serve exactly the names the gateway calls; the synthetic
    ingest takes today's snapshot date, not 2026-10-04 (older than the box's 3-day limit, D-383).
+8. The rehearsal pins the media's placeholder weights (the integrator's (a), the owner's standing yes for advised
+   choices, D-504). **This exists so that the rehearsal proves the path a box judges by: installer, pins, gateway,
+   model servers, SCREEN. It proves nothing about a model.** `pin_model --install` pins them only when all three hold:
+   a rehearsal box (TB_ENV TEST, TB_REHEARSAL=1), a rehearsal bundle (`installed.json` says `rehearsal: true`, from
+   release.json; the rehearsal builds its bundle with `make_bundle.sh --rehearsal`), and every weight folder of the
+   pair is the media's placeholder (`config.json` architectures `TrialBoxRehearsalPlaceholder`); a real folder beside
+   a placeholder refuses the whole pin. The pin is a candidate with `weights.trust: rehearsal_placeholder`; the
+   registry routes it on a TEST box only (services/registry, one condition); `--promote` and qualify refuse it by
+   name; the doctor's serving and registry_pins lines and the served step say "rehearsal placeholder". The install's
+   earlier "a rehearsal box goes on unpinned" is gone: a refused pin stops every box.
 
 ## Test
 
