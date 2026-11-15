@@ -299,7 +299,10 @@ def test_a_redone_set_screens_under_the_approval_of_the_attempt_before(tmp_path:
         "approve": "done", "approve_job": "jA", "version": "1.0.0", "draft": [{"id": "exc-1", "text": "Pregnancy"}]}}))  # fmt: skip
     box.jobs["jA"] = {"kind": "APPROVE", "rs": "NCT90000001", "fail": False, "subject": "APPROVE", "from": "pi"}
     kw = {"sender": "c@x", "reviewer": "pi@x", "run_id": "r1-r2", "compile_only": False, "job_s": 5}
-    box_vm.acc_set("sigir", built, tmp_path / "work", box, earlier=old, **kw)
+    nothing = tmp_path / "nothing"  # a newer attempt that approved nothing (its own FEAS failed)
+    nothing.mkdir()
+    (nothing / "progress.json").write_text(json.dumps({"NCT90000001": {"feas": "failed", "version": "1.0.0"}}))
+    box_vm.acc_set("sigir", built, tmp_path / "work", box, earlier=[nothing, old], **kw)
     a = json.loads((tmp_path / "work" / "answers.json").read_text(encoding="utf-8"))["NCT90000001"]
     assert box.sent == ["FEAS NCT90000001", "SCREEN NCT90000001"] and a["approved_in"]
     assert a["outcome"] == "screened" and a["draft"][0]["text"] == "Pregnancy" and a["patients"]

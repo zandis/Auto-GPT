@@ -859,14 +859,14 @@ def acc_set(
     poll_s: float = 5.0,
     deadline_s: float = 0.0,
     protocols: list[str] | None = None,
-    earlier: Path | None = None,
+    earlier: list[Path] | None = None,
 ) -> dict[str, Any]:
     """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
 
     ``protocols``: only these rulesets of the set (a sized subset, recorded by the caller); the rest are not sent.
 
-    ``earlier``: the work folder of this set's attempt before a redo (F29). The box keeps a ruleset version once
-    approved: its FEAS of the same version then fails ("no structured criteria to count" for a ruleset of mixed
+    ``earlier``: the work folders of this set's attempts before a redo, newest first (F29). The box keeps a ruleset
+    version once approved: its FEAS of the same version then fails ("no structured criteria to count" for a ruleset of mixed
     criteria) with no review workbook, and a new APPROVE has nothing to approve. When the earlier attempt approved
     that same version, the set goes on to SCREEN with the earlier draft and approval, and says so (``approved_in``).
 
@@ -880,10 +880,12 @@ def acc_set(
         protos = [p for p in protos if p.stem in set(protocols)]
     prog_p = work / "progress.json"
     prog: dict[str, Any] = json.loads(prog_p.read_text(encoding="utf-8")) if prog_p.exists() else {}
-    before: dict[str, Any] = {}
-    if earlier is not None and (earlier / "progress.json").exists():
+    before: dict[str, Any] = {}  # per ruleset: the newest earlier attempt that approved it
+    for e in reversed(earlier or []):
         with suppress(OSError, ValueError):
-            before = json.loads((earlier / "progress.json").read_text(encoding="utf-8"))
+            for rs_, a_ in json.loads((e / "progress.json").read_text(encoding="utf-8")).items():
+                if isinstance(a_, dict) and a_.get("approve") == "done":
+                    before[rs_] = a_
     clock_p = work / "set-clock.json"
     clock = json.loads(clock_p.read_text(encoding="utf-8")) if clock_p.exists() else {}
     used0 = float(clock.get("used_s") or 0.0)
@@ -1204,7 +1206,7 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument("--poll", type=float, default=5.0)
     ac.add_argument("--deadline-s", type=float, default=0.0, help="the set's own time budget (0: none)")
     ac.add_argument("--protocols", default="", help="comma-separated rulesets: only these protocols of the set")
-    ac.add_argument("--earlier", type=Path, help="the set's work folder of the attempt before a redo (F29)")
+    ac.add_argument("--earlier", type=Path, action="append", help="a work folder of an earlier attempt (F29)")
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
     cl = sub.add_parser("acc-call")

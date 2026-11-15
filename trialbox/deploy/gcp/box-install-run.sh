@@ -165,7 +165,7 @@ if [ -n "$RETRY" ] && [ "$RETRY" != "$(cat "$RUN/retry-seen" 2>/dev/null)" ]; th
   for x in $TB_REDO; do   # an accuracy set asked again starts from no work (its earlier answers kept in logs/)
     case "$x" in [0-9][0-9]-acc-*)
       for w in "$TB/acc/$RUN_ID/${x#*-acc-}/work" "$TB/acc/${x#*-acc-}/work"; do
-        [ -d "$w" ] && { mv "$w" "$RUN/logs/${x}.work-$RETRY"; echo "$RUN/logs/${x}.work-$RETRY" > "$RUN/logs/acc-earlier-${x#*-acc-}"; break; }
+        [ -d "$w" ] && { mv "$w" "$RUN/logs/${x}.work-$RETRY"; break; }
       done ;;
     esac
   done
@@ -1867,7 +1867,8 @@ step_acc_set() {
   local only=() pl
   pl=$(printf '%s\n' $ACC_PROTOCOLS | sed -n "s/^$name://p" | head -n 1)
   if [ -n "$pl" ]; then only=(--protocols "$pl"); note protocols_only "\"$pl\""; fi
-  [ -s "$RUN/logs/acc-earlier-$name" ] && only+=(--earlier "$(cat "$RUN/logs/acc-earlier-$name")")   # F29
+  local e   # F29: every earlier attempt's work of this set, newest first
+  while IFS= read -r e; do only+=(--earlier "$e"); done < <(ls -1dt "$RUN"/logs/*-acc-"$name".work-* 2>/dev/null)
   dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
   # the sender and the reviewer as the box's settings name them NOW (a 51 kept from an earlier boot may have read
   # other settings: F16 left the example's in place then, F18)
