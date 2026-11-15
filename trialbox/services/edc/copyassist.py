@@ -76,7 +76,7 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
     for f in fields.values():
         form_pos.setdefault(f.form, len(form_pos))
     values = _values(svc, rs, record)
-    changed = svc.store.redcap_changes(rs, record)  # NEW-EDC-5c (D-615): what REDCap holds since, while open
+    changed = svc.store.redcap_changes(rs, record)  # NEW-EDC-5c (D-801): what REDCap holds since, while open
     ok = {int(d["id"]) for d in values}
     ticks = svc.store.ticks(rs, record)
     gone = set(svc.optouts())

@@ -1,4 +1,4 @@
-"""NEW-EDC-8c (D-614, D-691's known limit): an erase REDCap applied but whose answer was lost is TrialBox's.
+"""NEW-EDC-8c (D-800, D-691's known limit): an erase REDCap applied but whose answer was lost is TrialBox's.
 
 "Erase hidden values" wrote its ledger line only after REDCap's answer. An erase that applied with its answer lost
 left the item as TrialBox last wrote it in the ledger, while REDCap held blank: on a repeat instance that made the
