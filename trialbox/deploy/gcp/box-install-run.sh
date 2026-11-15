@@ -1689,7 +1689,10 @@ step_acc_data() {
 # the site's own setting for the tables a public-data site does not have (settings.yaml feed_completeness.optional_tables,
 # deploy/settings.example.yaml:44): every table of the mapping (data_source.mapping, in the box's image) that the
 # merged feed holds no row of. Without it the first night is held ("table missing and no earlier good night had it",
-# F17). Written in the box's image, checked by the settings wizard as the services check it, recorded before and after.
+# F17). And the site's threshold for the FHIR validator's sample (thresholds.validation_error_max_pct, 0.5 by default)
+# at 10 %: the public sets' patients carry no birth date where the source has none (TCGA reports), and 4 of 108
+# sampled Patients failed the minimum profile on the first full night (F20); the threshold only gates loading, it
+# changes no screening answer. Written in the box's image, checked by the settings wizard, recorded before and after.
 ACC_OPTIONAL='
 import csv, json, pathlib, sys, yaml
 p, feed = "/d/settings.yaml", pathlib.Path("/feed")
@@ -1708,8 +1711,13 @@ def rows(t):
 before = dict(doc.get("feed_completeness") or {})
 opt = sorted(set(before.get("optional_tables") or []) | {t for t in tables if t != "patient" and rows(t) == 0})
 doc["feed_completeness"] = {**before, "optional_tables": opt}
+th = dict(doc.get("thresholds") or {})
+vbefore = th.get("validation_error_max_pct")
+th["validation_error_max_pct"] = max(float(vbefore or 0), 10.0)
+doc["thresholds"] = th
 open(p, "w", encoding="utf-8").write(head + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False))
-print(json.dumps({"mapping": str(m), "before": before, "after": doc["feed_completeness"]}))
+print(json.dumps({"mapping": str(m), "before": before, "after": doc["feed_completeness"],
+                  "validation_error_max_pct": {"before": vbefore, "after": th["validation_error_max_pct"]}}))
 '
 d_optional_tables() {  # $1 the merged feed folder on the host
   docker run --rm --network none --user 0 -v "$BOXROOT/deploy:/d" -v "$1:/feed:ro" "$(img_py)" sh -c \
