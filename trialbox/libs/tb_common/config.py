@@ -669,8 +669,7 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_PROFILE": Declared(
         "str",
         "site",
-        "site or poc (D-837): poc, a proof of concept or validation run on a plain VM, makes the host-facility checks "
-        "(TPM seal, LUKS, egress table, systemd units) WARN and listed; never on PRODUCTION",
+        "site or poc: poc (a plain VM) makes host-facility checks WARN and listed; never PRODUCTION (D-837)",
     ),
     "TB_BOX_DEFER_SEAL": Declared(
         "bool", "0", "install.sh: the site keys are sealed later, at box-install.sh's apply step (T-729, D-837)"
