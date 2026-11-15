@@ -957,6 +957,10 @@ DECLARED: dict[str, Declared] = {
     "TB_UPDATE_CHECK_CMD": Declared("str", "", "update: health check command"),
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),
     "TB_UPDATE_INCOMING": Declared("str", "", "update: incoming bundle folder"),
+    "TB_UPDATE_QUIET_AT": Declared(
+        "str", "05:00", "ops: the quiet hour's start, site clock, for an update asked for then (D-731)"
+    ),
+    "TB_UPDATE_QUIET_HOURS": Declared("float", "2", "ops: how long the quiet hour lasts, hours (D-731)"),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
     "TB_VALIDATION_SAMPLE_CAP": Declared(
         "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"
