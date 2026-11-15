@@ -402,6 +402,7 @@ DECLARED: dict[str, Declared] = {
         "float", "0.5", "part of a target's capacity this box's backups may fill; the rest is for others (D-455)"
     ),
     "TB_BACKUP_MAILTO": Declared("str", "", "address told when the backup is too old"),
+    "TB_BACKUP_ALERT_ROUTE": Declared("str", "", "health-page: the /admin health tab is the backup alert route"),
     "TB_BACKUP_MAX_AGE_HOURS": Declared("float", "", "age after which backup-status alerts"),
     "TB_BACKUP_MIN_MBPS": Declared(
         "float", "5", "slowest MB/s a backup step may run before it counts as hung: a tenth of a box disk (D-455)"
@@ -438,6 +439,10 @@ DECLARED: dict[str, Declared] = {
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
+    # D-748: the lake's memory grows with the rows one S1 query carries (patients times index dates). Measured on the
+    # 10k lake at 1 GB (the smallest limit lake.store.memory_limit derives): 12,000 rows fit for GZQO and RA-BIO at 36,
+    # 12 and 1 index dates, 24,000 failed (GZQO, 12 dates). A 500 MB lake sets it lower (RA-BIO fitted 2,000)
+    "TB_CASCADE_S1_ROWS": Declared("int", "12000", "cascade: rows (patients x index dates) one S1 query may carry"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
@@ -559,7 +564,7 @@ DECLARED: dict[str, Declared] = {
         "str", "hash", "embedder: model or hash (stub, refused in PRODUCTION); unset: model in PRODUCTION (D-429)"
     ),
     "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
-    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST or PRODUCTION (unset is PRODUCTION)"),
+    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST, VALIDATION or PRODUCTION (unset is PRODUCTION)"),
     "TB_EP_SERVING_URL": Declared("str", "", "scenario tool: judge endpoint"),
     "TB_EP_VERIFIER_URL": Declared("str", "", "scenario tool: verifier endpoint"),
     "TB_EVAL_LIMIT": Declared("int", "", "eval: cases per suite"),

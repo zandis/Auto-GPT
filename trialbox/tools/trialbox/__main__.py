@@ -35,6 +35,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import platform_day2
 
         return platform_day2.main(args[1:])
+    if args[:3] == ["eval", "qualify", "--box"]:  # BOX-QUALIFY (D-737): the box's own paths filled in
+        from tools import box_qualify
+
+        return box_qualify.main(args[3:])
     if args[:2] == ["eval", "qualify"]:  # its own options (tools/qualify.py), not a suite of eval/suites/
         from tools import qualify
 

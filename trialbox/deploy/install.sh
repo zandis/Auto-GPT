@@ -737,7 +737,8 @@ fi
 [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
 # T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
-# TB_BACKUP_MAILTO with a mail relay); `trialbox doctor` then checks the backup's age and its off-box target
+# TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox
+# doctor` then checks the backup's age and its off-box target
 if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
@@ -745,7 +746,7 @@ if [ "$CAN_CRON" = 1 ]; then
   rc="${PIPESTATUS[0]}"
   set -e
   if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
-    die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
+    die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page in deploy/.env (RUNBOOK §5), then re-run"
   elif [ "$rc" != 0 ]; then
     # OPS-003 (D-566): a box has no alert route yet (no mail relay on a fresh host). A stop here is a stop before
     # the wizard; a FAIL line leaves the stack running, and box-install.sh goes on to the first-run code and

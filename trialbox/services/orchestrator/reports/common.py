@@ -149,9 +149,12 @@ def _paragraph_class() -> Any:
     class Paragraph(_Paragraph):
         """reportlab's Paragraph with the glyph fallback: the reports build every paragraph through it."""
 
-        def __init__(self, text: str, style: Any = None, *args: Any, **kw: Any) -> None:
-            font = getattr(style, "fontName", "") or ""
-            super().__init__(with_fallback(text, font), style, *args, **kw)
+        def __init__(self, text: Any, style: Any = None, *args: Any, **kw: Any) -> None:
+            # blocker 11: reportlab builds the pieces of a split paragraph through this class with no text (its
+            # fragments are already laid out, the fallback already in them): only a text is wrapped
+            if isinstance(text, str):
+                text = with_fallback(text, getattr(style, "fontName", "") or "")
+            super().__init__(text, style, *args, **kw)
 
     return Paragraph
 

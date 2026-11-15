@@ -270,6 +270,21 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
 
+    def monitor_grants(user: User) -> list[tuple[str, str, str]]:
+        """NEW-JRN-8 (D-772): the studies a CRO account reads today under a monitor grant, with the visit id and the
+        grant's last day, so the reports page and the menu link the monitoring page (it was a typed address)."""
+        if not monitor_account(user):
+            return []
+        out = []
+        for r in bk.rulesets():
+            if user.sees_study(r.id) and h.permit(user, "monitor.read", r.id).allowed:  # any kind: the grant decides
+                g = stand(user, r.id).monitor
+                if g is not None:
+                    out.append((r.id, g.training_ref or "", g.end or ""))
+        return out
+
+    h.monitor_grants = monitor_grants
+
     def pi_missing(user: User) -> list[str]:
         """NEW-JRN-1 (D-540): the studies this account sees whose criteria wait for approval while the delegation
         log names no PI: nobody can approve them until the steward names one (D-380)."""
