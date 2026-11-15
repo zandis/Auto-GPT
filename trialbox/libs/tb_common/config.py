@@ -593,6 +593,9 @@ DECLARED: dict[str, Declared] = {
     "TB_GATEWAY_INTERACTIVE_TIMEOUT_S": Declared("float", "", "gateway: timeout of an interactive call"),
     "TB_GATEWAY_MAX_INFLIGHT": Declared("int", "64", "gateway: chat calls on threads at once (T-608)"),
     "TB_GATEWAY_MODEL": Declared("str", "", "the alias a judge call asks the gateway for"),
+    "TB_GATEWAY_PHI_TRIPWIRE": Declared(
+        "str", "on", "gateway: the PHI tripwire on calls whose route leaves the box (D-506); off turns it off"
+    ),
     "TB_GATEWAY_RETRY_DELAY_S": Declared("float", "", "gateway: delay before a retry"),
     "TB_GATEWAY_SLOTS": Declared("int", "16", "gateway: calls at once per endpoint without a serving record"),
     "TB_GATEWAY_STALL_S": Declared("float", "40", "gateway: seconds without an answer before a stall probe"),
