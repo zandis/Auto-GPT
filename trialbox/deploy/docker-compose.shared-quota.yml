@@ -56,6 +56,7 @@ services:
       - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
       # the developer's chat template at a pinned revision, not the quantised folder's (DEP-007, D-392)
       - --chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/gemma-4-26b-a4b-it/chat_template.jinja}
+      - --chat-template-content-format=string  # D-880: strings, as the template's string path renders them
       - --max-model-len=${JUDGE_MAX_LEN:?measured on the partition (shared-quota serving record)}
       - --max-num-seqs=${JUDGE_MAX_SEQS:?measured on the partition (shared-quota serving record)}
       - --enforce-eager

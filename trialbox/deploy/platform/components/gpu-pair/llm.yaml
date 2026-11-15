@@ -78,6 +78,7 @@ spec:
             - --served-model-name=$(JUDGE_MODEL)
             # the developer's chat template at a pinned revision, not the quantised folder's (DEP-007, D-392)
             - --chat-template=/models/$(JUDGE_CHAT_TEMPLATE)
+            - --chat-template-content-format=string  # D-880: strings, as the template's string path renders them
             - --max-model-len=$(JUDGE_MAX_LEN)
             - --max-num-seqs=$(JUDGE_MAX_SEQS)
             - --enforce-eager
