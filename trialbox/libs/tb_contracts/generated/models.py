@@ -2642,7 +2642,7 @@ class NavRow(BaseModel):
 
 class ParsedDoc(BaseModel):
     """
-    doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.0.0.
+    doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.1.0 (1.1.0: ie_block.item_refs, NEW-LIFE-2).
     """
 
     model_config = ConfigDict(

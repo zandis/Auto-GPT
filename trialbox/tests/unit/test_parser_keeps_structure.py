@@ -100,3 +100,48 @@ def test_the_compiler_takes_groups_from_the_parser() -> None:
     ]
     flags = {(f.index, f.flag) for f in check(lines).findings}
     assert (1, "group_member") in flags and not any(i == 2 for i, _ in flags)
+
+
+# ------------------------------------------------------------------------------------------------- review fixes
+def _check_parsed(text: str) -> dict[str, set[str]]:
+    from criteria_compiler.structure import check
+
+    block = ie_block(sections(["# Inclusion Criteria", *text.splitlines()]))
+    pos = (block.item_refs or {})["inclusion"]
+    lines = [
+        {"text": t, "kind": "inclusion", "source_ref": f"{r.section} #{r.n}", "parent": r.parent}
+        for t, r in zip(block.inclusion, pos, strict=True)
+    ]
+    out: dict[str, set[str]] = {}
+    for f in check(lines).findings:
+        out.setdefault(block.inclusion[f.index], set()).add(f.flag)
+    return out
+
+
+def test_bullets_under_a_bulleted_lead_in_are_still_members() -> None:
+    """Review: with the parser's parents only an unbulleted lead-in had members; a bulleted one ("1. … 且符合下列條件：")
+    lost the flag D-785 gave its bullets."""
+    got = _check_parsed("* Diagnosis confirmed by:\n* biopsy\n* PET imaging\n")
+    assert "group_member" in got["biopsy"] and "group_member" in got["PET imaging"]
+    zh = _check_parsed("1. 類風濕性關節炎且符合下列條件：\n2. 經DMARDs治療六個月以上\n3. DAS28大於5.1\n")
+    assert "group_member" in zh["經DMARDs治療六個月以上"] and "group_member" in zh["DAS28大於5.1"]
+
+
+def test_a_wrapped_bullet_ending_with_a_colon_is_not_cut_in_two() -> None:
+    """Review: "1. … with at least" / "two of the following:" was split, and the first half went on unflagged."""
+    got = items_with_parents(
+        "1. Documented history of treatment failure with at least\ntwo of the following:\n2. methotrexate\n"
+    )
+    assert got[0][0] == "Documented history of treatment failure with at least two of the following:"
+    zh = items_with_parents("1. 類風濕性關節炎病患\n且符合下列條件：\n2. DAS28大於5.1\n")
+    assert zh[0][0] == "類風濕性關節炎病患且符合下列條件："
+
+
+def test_a_lead_in_ending_with_a_colon_and_a_stop_is_a_lead_in_for_both() -> None:
+    got = items_with_parents("Patients with either condition:.\n* asthma\n* COPD\n")
+    assert [p for _, p in got] == [None, 0, 0]
+
+
+def test_the_parsed_doc_schema_says_its_version_moved() -> None:
+    text = (ROOT / "schemas" / "parsed_doc.schema.json").read_text("utf-8")
+    assert "1.1.0" in text and "item_refs" in text

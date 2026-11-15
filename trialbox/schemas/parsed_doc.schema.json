@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/parsed_doc.schema.json",
   "title": "ParsedDoc",
-  "description": "doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.0.0.",
+  "description": "doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.1.0 (1.1.0: ie_block.item_refs, NEW-LIFE-2).",
   "type": "object",
   "required": [
     "source_sha256",

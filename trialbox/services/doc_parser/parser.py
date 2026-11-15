@@ -271,7 +271,12 @@ def sections(lines: list[str]) -> list[DocSection]:
     return [s for s in out if s.text or s.title != "(preamble)"]
 
 
-_LEAD = re.compile(r"[:：]\s*$")
+# a lead-in: ends with a colon (a stop after it allowed), the same form ``criteria_compiler.structure`` reads
+_LEAD = re.compile(r"[:：]\s*[.。]?\s*$")
+# an item that is complete: a line ending with a colon after it is a lead-in of its own, not its wrapped end
+_DONE = re.compile(r"[.。;；!?！？:：)）]\s*$")
+# a line that continues the item above it however it ends: a lower-case start or a joining word (且, 並, かつ …)
+_CONTINUES = re.compile(r"^(?:[a-z(（]|且|並|或|及|以及|和|但|ただし|かつ|及び|又は|または)")
 
 
 def items_with_parents(text: str) -> list[tuple[str, int | None]]:
@@ -282,15 +287,23 @@ def items_with_parents(text: str) -> list[tuple[str, int | None]]:
     result: list[str] = []
     parents: list[int | None] = []
     lead: int | None = None
+    blank = True  # a blank line (or the section's start) before this line
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
+            blank = True
             continue
         m = _ENUM.match(line)
+        after_blank, blank = blank, False
         if m:
             result.append(line[m.end() :].strip())
             parents.append(lead)
-        elif _LEAD.search(line):
+        elif _LEAD.search(line) and (
+            after_blank or not result or _DONE.search(result[-1]) or not _CONTINUES.match(line)
+        ):
+            # a lead-in after a blank line, a complete item, or when it starts as a line of its own does; a wrapped
+            # bullet's last line ("… with at least" / "two of the following:", "…病患" / "且符合下列條件：") stays the
+            # end of its item (review of D-789)
             result.append(line)
             parents.append(None)
             lead = len(result) - 1
