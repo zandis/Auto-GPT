@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # TrialBox small demo VM (the owner's demo of 2026-11-17): one CPU VM, the demo image (stub model, synthetic hospital),
-# Caddy with TLS in front, reachable on tcp:443 from the owner's and the guest's addresses only, a hard stop.
+# Caddy with TLS in front, reachable on tcp:443 only (from the given addresses, or from any address with
+# TB_DEMO_ALLOW=any), a hard stop.
 # docs/runbook/11-cloud-runs.md ("The small demo VM"). It costs money while it runs: the owner's yes first.
 #
 #   deploy/gcp/demo-vm.sh --estimate       machine, US$ per hour, day and week, disk; the prices' source and date
@@ -12,7 +13,9 @@
 #   deploy/gcp/demo-vm.sh delete [--yes]   delete the VM (and its disk), the rule, the subnet and the network
 #
 # Settings (environment; deploy/gcp/demo_vm.py has each one's reason, tb_common.config.DECLARED their rows):
-#   TB_DEMO_ALLOW         required for up: the source ranges of tcp:443, e.g. 1.2.3.4/32,5.6.7.8/32 (never 0.0.0.0/0)
+#   TB_DEMO_ALLOW         required for up: the source ranges of tcp:443, e.g. 1.2.3.4/32,5.6.7.8/32; or the word
+#                         any: tcp:443 from 0.0.0.0/0, open to any address, the sign-in password the only gate (the
+#                         owner's ruling of 2026-11-15: a PoC with synthetic data only). Empty or missing is refused.
 #   TB_DEMO_VM_IMAGE      required for up: REGISTRY/PATH@sha256:<digest>, or gs://BUCKET/trialbox-demo.tar.gz with
 #                         TB_DEMO_VM_IMAGE_SHA256
 #   TB_DEMO_VM_NAME tb-demo-vm  TB_DEMO_VM_ZONE asia-east1-a  TB_DEMO_VM_MACHINE e2-standard-4  TB_DEMO_VM_DISK_GB 30
@@ -35,16 +38,16 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --yes) YES=1 ;;
     --estimate) ESTIMATE=1 ;;
-    -h | --help) sed -n 2,26p "$0"; exit 0 ;;
+    -h | --help) sed -n 2,28p "$0"; exit 0 ;;
     up | status | down | delete) [ -z "$CMD" ] || { echo "one command only" >&2; exit 2; }; CMD=$1 ;;
-    *) echo "unknown argument: $1" >&2; sed -n 2,26p "$0" >&2; exit 2 ;;
+    *) echo "unknown argument: $1" >&2; sed -n 2,28p "$0" >&2; exit 2 ;;
   esac
   shift
 done
 
 if [ "$ESTIMATE" = 1 ]; then exec "$PY" "$HERE/demo_vm.py" estimate; fi
 if [ -z "$CMD" ]; then
-  [ "$DRY" = 1 ] || { sed -n 2,26p "$0" >&2; exit 2; }
+  [ "$DRY" = 1 ] || { sed -n 2,28p "$0" >&2; exit 2; }
   CMD=up
 fi
 case "$CMD" in
@@ -59,10 +62,18 @@ esac
 FOR=$CMD; [ "$CMD" = up ] && [ "$DRY" = 1 ] && FOR=dry
 SETTINGS="$("$PY" "$HERE/demo_vm.py" shell "$FOR")" || exit 2
 N=""; ZONE=""; REGION=""; MACHINE=""; DISK_GB=""; HOURS=""; ALLOW=""; IMAGE=""; IMAGE_SHA256=""; SECRET=""
-DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""
+DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""; OPEN_ANY=0; GATE=""
 eval "$SETTINGS"   # shlex-quoted assignments of the names above, from demo_vm.py only
 [ -n "$IMAGE" ] || IMAGE="<TB_DEMO_VM_IMAGE>"
 [ -n "$ALLOW" ] || ALLOW="<TB_DEMO_ALLOW>"
+OPEN_TEXT="open to any address; the sign-in password is the only gate"
+if [ "$OPEN_ANY" = 1 ]; then
+  REACH="tcp:443 from $ALLOW: $GATE (TB_DEMO_ALLOW=any; the owner's ruling of 2026-11-15, PoC, synthetic data)"
+  RULE_WHY="TrialBox demo VM: https from any address (owner's ruling 2026-11-15; PoC, synthetic data; password only)"
+else
+  REACH="tcp:443 from $ALLOW only"
+  RULE_WHY="TrialBox demo VM: https from the allowed ranges only"
+fi
 NET="$N-net"; SUBNET="$N-subnet"; RULE="$N-https"; TAG="$N"
 SUBNET_RANGE=10.42.0.0/24   # private addresses of the demo's own network (one VM); not a limit
 
@@ -138,7 +149,7 @@ rules_check() {  # the demo network holds no rule but its own tcp:443 one (no SS
 }
 
 up() {
-  say "demo VM $N ($MACHINE, $ZONE, project $PROJECT): tcp:443 from $ALLOW only; hard stop $HOURS h"
+  say "demo VM $N ($MACHINE, $ZONE, project $PROJECT): $REACH; hard stop $HOURS h"
   password_check
   local st
   st="$(vm_status)"
@@ -151,12 +162,13 @@ up() {
     || gc compute networks create "$NET" --subnet-mode=custom --description="TrialBox demo VM: its own network (no default rules)"
   exists compute networks subnets describe "$SUBNET" --region "$REGION" \
     || gc compute networks subnets create "$SUBNET" --network "$NET" --region "$REGION" --range "$SUBNET_RANGE"
-  # the only ingress rule: tcp:443 from the given ranges; the network has no other rule (no port 80, no SSH)
+  # the only ingress rule: tcp:443 from the given ranges (0.0.0.0/0 with TB_DEMO_ALLOW=any); the network has no other
+  # rule (no port 80, no SSH)
   if exists compute firewall-rules describe "$RULE"; then
     gc compute firewall-rules update "$RULE" --rules=tcp:443 --source-ranges="$ALLOW"
   else
     gc compute firewall-rules create "$RULE" --network "$NET" --direction INGRESS --action ALLOW --rules=tcp:443 \
-      --source-ranges="$ALLOW" --target-tags "$TAG" --description="TrialBox demo VM: https from the allowed ranges only"
+      --source-ranges="$ALLOW" --target-tags "$TAG" --description="$RULE_WHY"
   fi
   rules_check
   if [ "$st" = NONE ]; then
@@ -173,6 +185,7 @@ up() {
   fi
   say "https://$(vm_ip)/ answers after the seed (3 to 6 minutes; \`demo-vm.sh status\` shows DEMO-VM-READY)"
   say "the browser warns once (Caddy's own certificate); the password: runbook 11, never here"
+  if [ "$OPEN_ANY" = 1 ]; then say "$OPEN_TEXT"; fi
   say "it powers itself off $HOURS h after its start; stop it earlier with: deploy/gcp/demo-vm.sh down"
 }
 
@@ -182,13 +195,18 @@ status() {
   echo "VM $N ($ZONE): $st"
   [ "$st" = NONE ] && return 0
   if [ "$DRY" = 1 ]; then
-    echo "+ gcloud compute firewall-rules describe $RULE --format=yaml(sourceRanges,allowed,disabled)"
+    echo "+ gcloud compute firewall-rules describe $RULE --format=yaml(sourceRanges,allowed,disabled)   # 0.0.0.0/0: $OPEN_TEXT"
     echo "+ gcloud compute instances get-serial-port-output $N --zone $ZONE   # the TB-DEMO-VM lines only"
     return 0
   fi
+  local rule
   echo "rule $RULE:"
-  gc compute firewall-rules describe "$RULE" --format='yaml(sourceRanges,allowed,disabled)' 2>/dev/null \
-    | sed 's/^/  /' || echo "  none"
+  if rule="$(gc compute firewall-rules describe "$RULE" --format='yaml(sourceRanges,allowed,disabled)' 2>/dev/null)"; then
+    printf '%s\n' "$rule" | sed 's/^/  /'
+    if printf '%s\n' "$rule" | grep -q '0\.0\.0\.0/0'; then echo "reach: $OPEN_TEXT"; else echo "reach: the ranges above only"; fi
+  else
+    echo "  none"
+  fi
   echo "hard stop: $(gc compute instances describe "$N" --zone "$ZONE" \
     --format='value(scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)' 2>/dev/null) (seconds, action)"
   if [ "$st" = RUNNING ]; then

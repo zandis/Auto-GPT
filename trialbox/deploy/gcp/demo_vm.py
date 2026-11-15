@@ -20,7 +20,12 @@ Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.
                                           bill for a week. One working day with margin.
     TB_DEMO_VM_MIN_PREFIX 16              an allowed IPv4 range broader than /16 is refused: a home or office range
                                           is /24 or narrower, and 0.0.0.0/1 + 128.0.0.0/1 is the world in two rows
-    TB_DEMO_ALLOW         (required)      the only source ranges of tcp:443, comma separated (1.2.3.4/32,5.6.7.8/32)
+    TB_DEMO_ALLOW         (required)      the only source ranges of tcp:443, comma separated (1.2.3.4/32,5.6.7.8/32);
+                                          or the word `any`: tcp:443 from 0.0.0.0/0, OPEN TO ANY ADDRESS, the sign-in
+                                          password the only gate. The owner's ruling of 2026-11-15: the demo of
+                                          2026-11-17 is a PoC with synthetic data only, reachable from anywhere, kept
+                                          by the password and TLS alone. Only the explicit word opens it: an empty or
+                                          missing value, 0.0.0.0/0 written out, or `any` mixed with ranges is refused
     TB_DEMO_VM_IMAGE      (up)            REGISTRY/PATH@sha256:<64 hex>, or gs://BUCKET/trialbox-demo.tar.gz
                                           (`make demo-bundle`) with TB_DEMO_VM_IMAGE_SHA256, checked on the VM
     TB_DEMO_VM_SM_NAME    tb-demo-password  the Secret Manager secret that holds the demo password (setup-gcp.sh)
@@ -33,8 +38,9 @@ Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.
                                           constants; a machine other than e2-standard-4 needs its own hourly price
 
 TLS: Caddy in front with `tls internal` (its own CA): the browser warns once per device. A publicly trusted
-certificate for a DNS name would need ACME, and with tcp:80 and tcp:443 closed to the world HTTP-01 and TLS-ALPN-01
-cannot pass; DNS-01 needs the DNS provider's credential and a Caddy built with that provider. Not built.
+certificate for a DNS name would need ACME: with the address lock HTTP-01 and TLS-ALPN-01 cannot pass; with `any`
+TLS-ALPN-01 could, but it needs a DNS name for the VM's address; DNS-01 needs the DNS provider's credential and a
+Caddy built with that provider. Not built.
 """
 
 from __future__ import annotations
@@ -61,6 +67,9 @@ GS_RE = re.compile(r"gs://[a-z0-9._-]{3,63}/[A-Za-z0-9._/-]+\.tar\.gz")
 SHA_RE = re.compile(r"[0-9a-f]{64}")
 LANGS = ("ja", "zh-TW", "en")
 MIN_DISK_GB = 10  # the Debian 12 image's own disk size: Compute Engine refuses a smaller boot disk
+OPEN_WORD = "any"  # TB_DEMO_ALLOW=any: the owner's ruling of 2026-11-15 (PoC, synthetic data only)
+WORLD = "0.0.0.0/0"
+OPEN_TEXT = "open to any address; the sign-in password is the only gate"
 
 
 class Refused(Exception):
@@ -77,6 +86,7 @@ class Settings:
     hours: int
     min_prefix: int
     allow: tuple[str, ...]
+    open_any: bool
     image: str
     image_sha256: str
     secret: str
@@ -109,10 +119,18 @@ def _price(env: Mapping[str, str], key: str, default: str) -> float:
 
 
 def parse_allow(raw: str, min_prefix: int) -> tuple[str, ...]:
-    """The source ranges of the tcp:443 rule: IPv4 networks, each at least /min_prefix; never the world, never none."""
+    """The source ranges of the tcp:443 rule: IPv4 networks, each at least /min_prefix; never none. The world only
+    through the explicit word ``any`` alone (the owner's ruling of 2026-11-15), never by accident."""
     items = [x.strip() for x in raw.split(",") if x.strip()]
     if not items:
-        raise Refused("TB_DEMO_ALLOW is empty: name the owner's and the guest's addresses (1.2.3.4/32,5.6.7.8/32)")
+        raise Refused(
+            "TB_DEMO_ALLOW is empty: name the owner's and the guest's addresses (1.2.3.4/32,5.6.7.8/32), or write "
+            f"the word {OPEN_WORD} to open tcp:443 to every address (the sign-in password is then the only gate)"
+        )
+    if any(x.lower() == OPEN_WORD for x in items):
+        if len(items) != 1:
+            raise Refused(f"TB_DEMO_ALLOW: '{OPEN_WORD}' stands alone (it opens tcp:443 to every address); no ranges")
+        return (WORLD,)
     out: list[str] = []
     for item in items:
         try:
@@ -122,7 +140,10 @@ def parse_allow(raw: str, min_prefix: int) -> tuple[str, ...]:
         if net.version != 4:
             raise Refused(f"TB_DEMO_ALLOW: '{item}' is IPv6; the demo VM's network is IPv4 only")
         if net.prefixlen == 0:
-            raise Refused("TB_DEMO_ALLOW: 0.0.0.0/0 is the whole internet; the demo is for two people only")
+            raise Refused(
+                f"TB_DEMO_ALLOW: 0.0.0.0/0 is the whole internet; to open the demo to every address write the word "
+                f"{OPEN_WORD} alone (the sign-in password is then the only gate)"
+            )
         if net.prefixlen < min_prefix:
             raise Refused(
                 f"TB_DEMO_ALLOW: '{item}' is broader than /{min_prefix} (TB_DEMO_VM_MIN_PREFIX); "
@@ -149,9 +170,10 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
     refuse_real_model(env)
     if (env.get("TB_DEMO_VM_HOST") or "").strip():
         raise Refused(
-            "TB_DEMO_VM_HOST: a publicly trusted certificate is not built. With tcp:80 and tcp:443 closed to the "
-            "world, ACME's HTTP-01 and TLS-ALPN-01 cannot pass; DNS-01 needs the DNS provider's credential and a "
-            "Caddy built with that provider. Unset it: the default is Caddy's own certificate (the browser warns once)"
+            "TB_DEMO_VM_HOST: a publicly trusted certificate is not built. With the address lock ACME's HTTP-01 and "
+            "TLS-ALPN-01 cannot pass, and with TB_DEMO_ALLOW=any TLS-ALPN-01 would still need a DNS name for the "
+            "VM's address; DNS-01 needs the DNS provider's credential and a Caddy built with that provider. Unset "
+            "it: the default is Caddy's own certificate (the browser warns once)"
         )
     name = (env.get("TB_DEMO_VM_NAME") or "tb-demo-vm").strip()
     if not NAME_RE.fullmatch(name):
@@ -206,6 +228,7 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
         hours=_int(env, "TB_DEMO_VM_HOURS", "12", 1),
         min_prefix=min_prefix,
         allow=allow,
+        open_any=allow == (WORLD,),
         image=image,
         image_sha256=sha,
         secret=secret,
@@ -282,6 +305,8 @@ def shell_lines(s: Settings) -> str:
         "DISK_GB": str(s.disk_gb),
         "HOURS": str(s.hours),
         "ALLOW": ",".join(s.allow),
+        "OPEN_ANY": "1" if s.open_any else "0",
+        "GATE": OPEN_TEXT if s.open_any else "",
         "IMAGE": s.image,
         "IMAGE_SHA256": s.image_sha256,
         "SECRET": s.secret,

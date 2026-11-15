@@ -242,6 +242,68 @@ def test_a_dry_run_prints_every_command_and_runs_none(tmp_path: Path) -> None:
     assert "--accelerator" not in out and "tcp:80" not in out and "tcp:22" not in out
 
 
+# --------------------------------------------------------------------------------------------- TB_DEMO_ALLOW=any
+
+OPEN_TEXT = "open to any address; the sign-in password is the only gate"
+
+
+@pytest.mark.parametrize("word", ["any", " any ", "ANY"])
+def test_any_opens_one_rule_tcp_443_from_the_world_and_nothing_else(tmp_path: Path, word: str) -> None:
+    """The owner's ruling of 2026-11-15: the demo is a PoC with synthetic data only, reachable from any address and
+    kept by the sign-in password and TLS alone. Only the explicit word does it; the one rule is still tcp:443."""
+    rc, out = _run(tmp_path, "up", "--yes", TB_DEMO_ALLOW=word)
+    assert rc == 0, out
+    assert OPEN_TEXT in out and "owner's ruling of 2026-11-15" in out
+    calls = _argv(tmp_path)
+    rules = [c for c in calls if c.startswith(("compute firewall-rules create", "compute firewall-rules update"))]
+    assert len(rules) == 1, calls
+    assert "--rules=tcp:443 " in rules[0] and "--source-ranges=0.0.0.0/0 " in rules[0]
+    assert "--direction INGRESS" in rules[0] and "--action ALLOW" in rules[0] and "--target-tags tb-demo-vm" in rules[0]
+    assert not any(re.search(r"tcp:(80|22|3389)\b|--accelerator|--rules=(all|tcp)(?!:443)", c) for c in calls)
+    assert (tmp_path / "state" / "fw-tb-demo-vm-https").read_text().strip() == "0.0.0.0/0"
+
+
+@pytest.mark.parametrize(
+    ("allow", "why"),
+    [
+        ("any,1.2.3.4/32", "stands alone"),
+        ("1.2.3.4/32, any", "stands alone"),
+        ("anything", "not an IPv4 address"),
+        ("0.0.0.0/0", "write the word any"),
+    ],
+)
+def test_any_is_only_the_word_alone(tmp_path: Path, allow: str, why: str) -> None:
+    rc, out = _run(tmp_path, "up", "--yes", TB_DEMO_ALLOW=allow)
+    assert rc == 2 and why in out, out
+    assert _argv(tmp_path) == []
+
+
+def test_a_missing_allow_is_still_refused(tmp_path: Path) -> None:
+    e = _env(tmp_path)
+    e.pop("TB_DEMO_ALLOW")
+    for args in (("up", "--yes"), ("--dry-run",)):
+        rc, out = _run(tmp_path, *args, env=e)
+        assert rc == 2 and "TB_DEMO_ALLOW is empty" in out, out
+    assert _argv(tmp_path) == []
+
+
+def test_the_plan_and_status_say_the_open_mode_plainly(tmp_path: Path) -> None:
+    rc, out = _run(tmp_path, "--dry-run", "up", TB_DEMO_ALLOW="any")
+    assert rc == 0 and OPEN_TEXT in out and "--source-ranges=0.0.0.0/0" in out, out
+    assert "https from any address" in out  # the rule's own description says it too
+    rc, out = _run(tmp_path, "--dry-run", "status")
+    assert rc == 0 and OPEN_TEXT in out, out
+    assert _run(tmp_path, "up", "--yes", TB_DEMO_ALLOW="any")[0] == 0
+    rc, out = _run(tmp_path, "status")
+    assert rc == 0 and f"reach: {OPEN_TEXT}" in out, out
+    # the address lock reads differently, and its plan never says open
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    rc, out = _run(tmp_path, "status")
+    assert rc == 0 and OPEN_TEXT not in out and "reach: the ranges above only" in out, out
+    rc, out = _run(tmp_path, "--dry-run", "up")
+    assert rc == 0 and OPEN_TEXT not in out and f"tcp:443 from {ALLOW} only" in out, out
+
+
 # --------------------------------------------------------------------------------------------- up, status, down
 
 

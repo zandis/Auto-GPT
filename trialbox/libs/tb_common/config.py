@@ -487,9 +487,11 @@ DECLARED: dict[str, Declared] = {
     "TB_DB_ROLES_CMD": Declared("str", "", "restore: the command that puts the service roles back (D-573)"),
     "TB_DB_URL": Declared("str", "", "the trial database URL"),
     "TB_DEMO_ACCOUNTS": Declared("str", "", "demo: accounts to create"),
-    # deploy/gcp/demo-vm.sh (the small demo VM, deploy/gcp/demo_vm.py has each reason): never 0.0.0.0/0, never empty
+    # deploy/gcp/demo-vm.sh (the small demo VM, deploy/gcp/demo_vm.py has each reason): never empty; the world only
+    # through the explicit word "any" (the owner's ruling of 2026-11-15: a PoC with synthetic data only, reachable from
+    # anywhere, kept by the sign-in password and TLS alone)
     "TB_DEMO_ALLOW": Declared(
-        "str", "", "demo VM: the only source ranges of tcp:443, comma separated (required for up)"
+        "str", "", "demo VM: tcp:443 source ranges, comma separated, or any (open; owner 2026-11-15, PoC, synthetic)"
     ),
     "TB_DEMO_CONTAINER": Declared("str", "trialbox-demo", "demo: container name"),
     "TB_DEMO_DAY": Declared("str", "today", "demo: the day the demo shows"),

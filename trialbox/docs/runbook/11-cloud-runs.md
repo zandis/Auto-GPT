@@ -292,11 +292,13 @@ max-run-duration to `TB_DEMO_VM_HOURS` (12) with the action STOP, and the boot s
 time at every boot, before anything else. A forgotten demo stops after 12 hours; only its disk costs after that.
 
 **Who can reach it.** The VM sits on its own network (`tb-demo-vm-net`; the project's `default` network has rules
-that open SSH to the world, so it is not used) with one ingress rule: tcp:443 from the ranges in `TB_DEMO_ALLOW`,
-exactly. `0.0.0.0/0`, an empty list, a range broader than /16 (`TB_DEMO_VM_MIN_PREFIX`), a private range and IPv6
-are refused. Anyone else gets no answer at all. A second `up` with new ranges replaces them (a guest's address
-changed). The owner and the guest look up their public IPv4 address (for example on a "what is my IP" page) the day
-before; a mobile or hotel network may change it.
+that open SSH to the world, so it is not used) with one ingress rule on tcp:443. **For the demo of 2026-11-17 it is
+open to any address** (`TB_DEMO_ALLOW=any`): the owner's ruling of 2026-11-15, because the demo is a PoC with
+synthetic data only; the sign-in password and TLS are its only protection, and `up`, `--dry-run` and `status` say
+"open to any address; the sign-in password is the only gate". Only the word `any` alone does that: an empty or
+missing `TB_DEMO_ALLOW`, `0.0.0.0/0` written out, or `any` mixed with ranges is refused. Otherwise the rule takes the
+ranges in `TB_DEMO_ALLOW`, exactly, and a range broader than /16 (`TB_DEMO_VM_MIN_PREFIX`), a private range and IPv6
+are refused; anyone else gets no answer at all, and a second `up` with new ranges replaces them.
 
 **TLS.** Caddy (pinned by digest, the same pin as the PoC host) in front of the console, `tls internal`: its own
 certificate for the VM's address. **The browser warns once** ("not private", `NET::ERR_CERT_AUTHORITY_INVALID`):
@@ -336,7 +338,7 @@ one to Artifact Registry), `TB_DEMO_VM_IMAGE=<registry>/<path>@sha256:<digest>`;
 key file's path only; the project is the gcloud config's):
 
     export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file path>
-    export TB_DEMO_ALLOW=<owner IPv4>/32,<guest IPv4>/32 TB_DEMO_VM_IMAGE=<image, as above>
+    export TB_DEMO_ALLOW=any TB_DEMO_VM_IMAGE=<image, as above>   # or <owner IPv4>/32,<guest IPv4>/32
     deploy/gcp/demo-vm.sh --estimate          # the cost, no cloud call
     deploy/gcp/demo-vm.sh --dry-run           # every gcloud command `up` would run; runs none
     deploy/gcp/demo-vm.sh up --yes            # network, subnet, the tcp:443 rule, the VM (or starts the stopped VM)
@@ -353,7 +355,8 @@ stop and start resets the demo.
 
 **What the guest sees.** `https://<address>/` (the address `up` and `status` print): the browser's warning once,
 then the TrialBox sign-in page in Japanese (`TB_DEMO_LANG`; `/lang` switches to zh-TW or en); after sign-in the role's
-home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). From any other address: nothing.
+home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). With an address list instead of
+`any`, other addresses get nothing.
 
 **Stop it.** `deploy/gcp/demo-vm.sh down` stops the VM and waits until it shows `TERMINATED` (at most
 `TB_DEMO_VM_STOP_WAIT_S`, 300 s; else it fails and says to stop it in the console). The disk stays (about US$0.11 a
