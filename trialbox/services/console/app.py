@@ -258,16 +258,14 @@ _TEXT_SUFFIXES = (".json", ".jsonl", ".html", ".htm", ".csv", ".txt", ".yaml", "
 _OWNER = re.compile(r"_([0-9a-f]{12,32})$")
 
 
-def _names_opted_out(job: Any, filename: str, data: bytes, get: Any) -> bool:
+def _names_opted_out(job: Any, filename: str, data: bytes, get: Any, gone: Any) -> bool:
     """Whether a patient-level output names a patient on the opt-out register now (merged charts too).
 
     The review of D-860: a per-patient file (its name carries the pseudonym's prefix; a TWPAS bundle holds no
     pseudonym at all) is judged by its own patient; a list file in text is searched (any case); a list file that is
     compressed (PDF, zip) is judged by the job's text list files, which list the same patients. ``get``: the
-    console's object store read (``Backend.get_object``)."""
-    from tb_common.optout import register_now
-
-    gone = register_now()
+    console's object store read (``Backend.get_object``); ``gone``: the opt-out register now, as the console reads it
+    (``Helpers.gone``)."""
     if not gone:
         return False
     owner = _OWNER.search(Path(filename).stem.lower())
@@ -1522,7 +1520,9 @@ def create_app(
         if out.tag != "aggregate" and grant is None:  # D-273 (PV-3): an investigator reads it only as delegated
             helpers.delegated(sess, job.ruleset or "", request.url.path)
         data = bk.get_object(out.minio_key)
-        if out.tag != "aggregate" and _names_opted_out(job, filename, data, bk.get_object):  # D-513 (D-860)
+        if out.tag != "aggregate" and _names_opted_out(
+            job, filename, data, bk.get_object, helpers.gone()
+        ):  # D-513 (D-860)
             raise _Problem(409, "request.refused", reason=OPTED_OUT_SINCE)
         au.append(
             "console.view",
@@ -1847,7 +1847,9 @@ def create_app(
             data = helpers.reveal.workbook(sess, job, out, request.url.path)  # T-103 (D-438): the one path
         else:
             data = bk.get_object(out.minio_key)
-            if out.tag == "phi" and _names_opted_out(job, filename, data, bk.get_object):  # D-513 (D-860)
+            if out.tag == "phi" and _names_opted_out(
+                job, filename, data, bk.get_object, helpers.gone()
+            ):  # D-513 (D-860)
                 raise _Problem(409, "request.refused", reason=OPTED_OUT_SINCE)
         au.append(
             "console.download",

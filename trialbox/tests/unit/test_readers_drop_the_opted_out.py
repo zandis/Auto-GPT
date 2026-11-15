@@ -27,26 +27,24 @@ A, C = "a1b2c3d4e5f6b001" * 2, "c3d4e5f6a1b2b003" * 2  # A has opted out; C has 
 # ---------------------------------------------------------------------------------------------- the console
 def test_a_patient_level_file_naming_an_opted_out_patient_is_withheld(monkeypatch: pytest.MonkeyPatch) -> None:
     from console import app as capp
-    from tb_common import optout
 
-    monkeypatch.setattr(optout, "register_now", lambda: frozenset({A}))
+    g = frozenset({A})
     lst = SimpleNamespace(tag="phi", filename="candidate_list.json", minio_key="outputs/J1/candidate_list.json")
     job = SimpleNamespace(outputs=[lst, SimpleNamespace(tag="phi", filename="list.pdf", minio_key="outputs/J1/l.pdf")])
     store = {"outputs/J1/candidate_list.json": f'[{{"pid": "{A}"}}]'.encode()}
-    assert capp._names_opted_out(job, "candidate_list.json", store["outputs/J1/candidate_list.json"], store.get)
-    assert capp._names_opted_out(job, "candidate_list.csv", f"pid\n{A.upper()}\n".encode(), store.get)  # any case
-    assert not capp._names_opted_out(job, "candidate_list.json", f'[{{"pid": "{C}"}}]'.encode(), store.get)
-    assert capp._names_opted_out(job, "list.pdf", b"%PDF compressed", store.__getitem__)  # judged by the JSON list
+    assert capp._names_opted_out(job, "candidate_list.json", store["outputs/J1/candidate_list.json"], store.get, g)
+    assert capp._names_opted_out(job, "candidate_list.csv", f"pid\n{A.upper()}\n".encode(), store.get, g)  # any case
+    assert not capp._names_opted_out(job, "candidate_list.json", f'[{{"pid": "{C}"}}]'.encode(), store.get, g)
+    assert capp._names_opted_out(job, "list.pdf", b"%PDF compressed", store.__getitem__, g)  # judged by the JSON list
     # the review of D-860: a per-patient file by its own patient; a TWPAS bundle holds no pseudonym at all
-    assert capp._names_opted_out(job, f"twpas_GZQO_{A[:12]}.json", b'{"name": "synthetic"}', store.get)
-    assert not capp._names_opted_out(job, f"draft_GZQO_{C[:12]}.docx", b"PK compressed", store.__getitem__)
+    assert capp._names_opted_out(job, f"twpas_GZQO_{A[:12]}.json", b'{"name": "synthetic"}', store.get, g)
+    assert not capp._names_opted_out(job, f"draft_GZQO_{C[:12]}.docx", b"PK compressed", store.__getitem__, g)
     # the re-check of D-860: a CASE sheet named by its job id (a ULID can hold 12 hex characters) is judged by content
     sheet = f"<p>{A}</p>".encode()
-    assert capp._names_opted_out(job, "case_GZQO_01M7FEVY0Y2Y5SEE55AAA65600.html", sheet, store.get)
+    assert capp._names_opted_out(job, "case_GZQO_01M7FEVY0Y2Y5SEE55AAA65600.html", sheet, store.get, g)
     alone = SimpleNamespace(outputs=[SimpleNamespace(tag="phi", filename="list.pdf", minio_key="k")])
-    assert capp._names_opted_out(alone, "list.pdf", b"%PDF", store.get)  # nothing to judge it by: withheld
-    monkeypatch.setattr(optout, "register_now", frozenset)
-    assert not capp._names_opted_out(job, "list.pdf", b"%PDF", store.__getitem__)
+    assert capp._names_opted_out(alone, "list.pdf", b"%PDF", store.get, g)  # nothing to judge it by: withheld
+    assert not capp._names_opted_out(job, "list.pdf", b"%PDF", store.__getitem__, frozenset())
 
 
 # ---------------------------------------------------------------------------------------------- FEEDBACK
