@@ -31,7 +31,55 @@ Describe "get-p0-media.ps1" {
       Set-Content -LiteralPath $Path -Value $text -NoNewline
     }
     Mock Get-TbUsbVolumes { return @(@{ Root = $script:Usb; FreeBytes = 64GB; FileSystem = "exFAT"; Label = "USB" }) }
-    Mock Invoke-TbUntar { [void]$script:Untarred.Add(($Parts | ForEach-Object { Split-Path -Leaf $_ }) -join ","); New-Item -ItemType Directory -Force -Path (Join-Path $Dest "TRIALBOX-p0a") | Out-Null; Set-Content -LiteralPath (Join-Path (Join-Path $Dest "TRIALBOX-p0a") "SHA256SUMS") -Value "x"; return 0 }
+    $script:UntarExit = 0
+    Mock Invoke-TbUntar {
+      [void]$script:Untarred.Add(($Parts | ForEach-Object { Split-Path -Leaf $_ }) -join ",")
+      # as tar.exe with Get-TbTarArgs: the media's own folder only, unpacked under its .partial name
+      $d = Join-Path $Dest ($Media + ".partial")
+      New-Item -ItemType Directory -Force -Path $d | Out-Null
+      Set-Content -LiteralPath (Join-Path $d "SHA256SUMS") -Value "x"
+      return $script:UntarExit
+    }
+    Mock Get-TbFreeBytes { return 500GB }
+    $script:ManifestSha = ""
+  }
+
+  It "gives tar.exe the media's folder only, unpacked under a .partial name, and no path to change to (review 1, 8)" {
+    $a = Get-TbTarArgs "TRIALBOX-p0a"
+    $a | Should -Be @("-x", "-f", "-", "-s", ",^TRIALBOX-p0a/,TRIALBOX-p0a.partial/,", "TRIALBOX-p0a")
+    ($a -join " ") | Should -Not -Match "-C"
+    (Get-Content -LiteralPath (Join-Path $script:Root "deploy/windows/get-p0-media.ps1") -Raw) | Should -Match 'WorkingDirectory = \$Dest'
+  }
+
+  It "removes what a failed unpack left, so the next start can try again (review 4)" {
+    $script:UntarExit = 1
+    $r = Get-TbP0Media -Base "https://example.invalid/r" -Manifest "TRIALBOX-p0a.manifest.json" -Work $script:Work
+    $r.Status | Should -Be "unpack_failed"
+    Test-Path -LiteralPath (Join-Path $script:Usb "TRIALBOX-p0a.partial") | Should -BeFalse
+    Test-Path -LiteralPath (Join-Path $script:Usb "TRIALBOX-p0a") | Should -BeFalse
+    $script:UntarExit = 0
+    (Get-TbP0Media -Base "https://example.invalid/r" -Manifest "TRIALBOX-p0a.manifest.json" -Work $script:Work).Status | Should -Be "ready"
+  }
+
+  It "checks the manifest against the sha256 the launcher carries (review 8)" {
+    $r = Get-TbP0Media -Base "https://example.invalid/r" -Manifest "TRIALBOX-p0a.manifest.json" -Work $script:Work -ManifestSha "0000"
+    $r.Status | Should -Be "bad_manifest"
+    $script:Untarred.Count | Should -Be 0
+    $good = Get-TbTextSha $script:Manifest
+    (Get-TbP0Media -Base "https://example.invalid/r" -Manifest "TRIALBOX-p0a.manifest.json" -Work $script:Work -ManifestSha $good).Status | Should -Be "ready"
+  }
+
+  It "stops before fetching when this PC has no room for the parts (review 5)" {
+    Mock Get-TbFreeBytes { return 5 }
+    $r = Get-TbP0Media -Base "https://example.invalid/r" -Manifest "TRIALBOX-p0a.manifest.json" -Work $script:Work
+    $r.Status | Should -Be "no_room"
+    @($script:Fetched | Where-Object { $_ -like "*.part-*" }).Count | Should -Be 0
+  }
+
+  It "speaks TLS 1.2 to GitHub on Windows PowerShell 5.1, in the launcher and the script (review 3)" {
+    foreach ($f in @("Get-TrialBox-P0.cmd", "get-p0-media.ps1")) {
+      (Get-Content -LiteralPath (Join-Path $script:Root ("deploy/windows/" + $f)) -Raw) | Should -Match "SecurityProtocol.*3072" -Because $f
+    }
   }
 
   It "fetches every part, checks it, unpacks the media onto the USB disk and removes the parts" {
@@ -94,7 +142,7 @@ Describe "get-p0-media.ps1" {
 
   It "the launcher fetches this script, checks its sha256 before running it, and names the release it was made for" {
     $cmd = Get-Content -LiteralPath (Join-Path $script:Root "deploy/windows/Get-TrialBox-P0.cmd") -Raw
-    foreach ($k in @("@RELEASE_BASE@", "@MANIFEST@", "@SCRIPT_SHA256@")) { $cmd | Should -Match ([regex]::Escape($k)) }
+    foreach ($k in @("@RELEASE_BASE@", "@MANIFEST@", "@SCRIPT_SHA256@", "@MANIFEST_SHA256@")) { $cmd | Should -Match ([regex]::Escape($k)) }
     $cmd | Should -Match "Get-FileHash"
     $cmd.IndexOf("Get-FileHash") | Should -BeLessThan $cmd.IndexOf("-File ")
   }

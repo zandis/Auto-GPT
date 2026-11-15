@@ -83,15 +83,31 @@ def test_stage_a_makes_the_release_files_and_the_launcher_names_this_release(tmp
 
     assert f'set "TB_SHA={hashlib.sha256((rel / "get-p0-media.ps1").read_bytes()).hexdigest()}"' in cmd
     assert not re.search(r"@[A-Z_0-9]+@", cmd)  # no mark left unfilled
+    msha = hashlib.sha256((rel / "TRIALBOX-p0a.manifest.json").read_bytes()).hexdigest()
+    assert f'set "TB_MANIFEST_SHA={msha}"' in cmd  # the manifest is checked against the release's build (review 8)
+    assert not (tmp_path / "p0/media").exists()  # in the parts now (review 6)
     notes = (rel / "NOTES.md").read_text()
-    assert "MIT licence" in notes and "ubuntu.com/legal" in notes and "docker-ce_27.3.1_amd64.deb" in notes
-    assert json.loads((tmp_path / "p0/media/TRIALBOX-p0a/windows/p0.json").read_text()) == {
-        "rehearsal": False,
-        "skip_bitlocker": True,
-    }
+    assert "MIT licence" in notes and "ubuntu.com/legal" in notes
+    assert "docker-ce_27.3.1_amd64.deb: from download.docker.com" in notes  # the real origin (review 7)
+    assert "nvidia-container-toolkit_1.17.0_amd64.deb: from nvidia.github.io" in notes
+    assert "Source code for the GPL and LGPL programs" in notes
+    import io
+    import tarfile
+
+    joined = b"".join(p.read_bytes() for p in sorted(rel.glob("TRIALBOX-p0a.tar.part-*")))
+    with tarfile.open(fileobj=io.BytesIO(joined)) as t:
+        member = t.extractfile("TRIALBOX-p0a/windows/p0.json")
+        assert member is not None
+        assert json.loads(member.read()) == {"rehearsal": False, "skip_bitlocker": True}
 
 
 def test_stage_b_signs_with_a_key_of_its_own_and_removes_its_private_half() -> None:
     sh = (ROOT / "tools/p0_media.sh").read_text()
     assert 'rm -f "$KEYS"/*.key' in sh and "trap cleanup EXIT" in sh
     assert "--rehearsal --key" in sh and "CHOICES+=(--rehearsal)" in sh
+    assert "trialbox-embed:1.0.0" in sh  # the embed service always runs (review 2)
+
+
+def test_a_tag_that_exists_stops_the_run_before_anything_is_built() -> None:
+    first = _wf()["jobs"]["media"]["steps"][0]["run"]
+    assert "git/ref/tags/$TAG" in first and "exit 1" in first

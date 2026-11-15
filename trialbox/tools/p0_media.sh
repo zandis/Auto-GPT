@@ -73,24 +73,37 @@ else
   done
   printf 'TB_TZ=Asia/Taipei\n' > "$K/.env"
   mapfile -t third < <(docker compose --project-directory "$K" -f deploy/docker-compose.yml config --images | sort -u | grep -v '^trialbox-')
-  IMGS=(trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 "${third[@]}")
+  # every image a rehearsal box runs: ours (the embed service has no profile and always runs, review 2), the
+  # third-party ones of the default services; the model servers are the stand-ins (trialbox-py, D-726)
+  IMGS=(trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 trialbox-embed:1.0.0 "${third[@]}")
   for i in "${IMGS[@]}"; do docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i"; done
   args=(--rehearsal --key "$KEYS/vendor_ed25519.key" --id p0b --release-seq 1 --out "$OUT/trialbox-p0b.tar" --models "$K/models")
   args+=(--refdata "$(ls "$K"/refdata/trialbox-refdata-*.tar)")
   for i in "${IMGS[@]}"; do args+=(--image "$i"); done
   make release-bundle SC_LOCAL_IMAGES=1 SC_IMAGES="${IMGS[*]}" BUNDLE_ARGS="${args[*]}"
   BUNDLE="$OUT/trialbox-p0b.tar"; PUB="$KEYS/vendor_ed25519.pub"
+  # the images are in the bundle now: their room is given back before the media is laid out (review 6)
+  docker system prune -af >/dev/null
   CHOICES+=(--rehearsal)
 fi
 
 rm -rf "${OUT:?}/media" "${OUT:?}/release"
 "$PY" -m tools.windows_media build --out "$OUT/media" --version "$VERSION" --bundle "$BUNDLE" --wsl-msi "$IN/$MSI" \
   --rootfs "$IN/$ROOTFS" --debs "$IN/debs" --vendor-pub "$PUB" "${CHOICES[@]}"
+[ "$STAGE" = a ] || rm -f "$BUNDLE"   # on the media now
 "$PY" -m tools.windows_media parts "$OUT/media/TRIALBOX-$VERSION" --out "$OUT/release"
+rm -rf "${OUT:?}/media"   # in the parts now
 cp deploy/windows/get-p0-media.ps1 "$OUT/release/"
 sha="$(sha256sum "$OUT/release/get-p0-media.ps1" | cut -d' ' -f1)"
-sed -e "s|@RELEASE_BASE@|${TB_RELEASE_BASE:-@RELEASE_BASE@}|" -e "s|@MANIFEST@|TRIALBOX-$VERSION.manifest.json|" \
-  -e "s|@SCRIPT_SHA256@|$sha|" deploy/windows/Get-TrialBox-P0.cmd > "$OUT/release/Get-TrialBox-P0.cmd"
+msha="$(sha256sum "$OUT/release/TRIALBOX-$VERSION.manifest.json" | cut -d' ' -f1)"
+sed -e "s|@RELEASE_BASE@|${TB_RELEASE_BASE:-@RELEASE_BASE@}|" -e "s|@MANIFEST_SHA256@|$msha|" \
+  -e "s|@MANIFEST@|TRIALBOX-$VERSION.manifest.json|" -e "s|@SCRIPT_SHA256@|$sha|" \
+  deploy/windows/Get-TrialBox-P0.cmd > "$OUT/release/Get-TrialBox-P0.cmd"
+if [ "$STAGE" = b ]; then
+  # the images' licence records and SBOMs (the release gates' own), beside the notes on the release page
+  [ ! -f build/supply-chain/gates.json ] || cp build/supply-chain/gates.json "$OUT/release/IMAGES-gates.json"
+  [ ! -f dist/sbom/index.json ] || cp dist/sbom/index.json "$OUT/release/IMAGES-sbom-index.json"
+fi
 
 # what the release redistributes, and under which licence (cited in the release's notes)
 {
@@ -103,16 +116,29 @@ sed -e "s|@RELEASE_BASE@|${TB_RELEASE_BASE:-@RELEASE_BASE@}|" -e "s|@MANIFEST@|T
   echo "## What the media redistributes"
   echo
   echo "- Microsoft's Windows Subsystem for Linux package ($MSI), MIT licence: https://github.com/microsoft/WSL/blob/master/LICENSE"
-  echo "- Canonical's Ubuntu 24.04 WSL image ($ROOTFS), from $ROOTFS_URL. Ubuntu is free software under the"
-  echo "  licences of its packages; Canonical's terms for the image and the Ubuntu name: https://ubuntu.com/legal/intellectual-property-policy"
-  echo "- These Ubuntu packages, each under the licence in its own copyright file (/usr/share/doc/<package>/copyright),"
-  echo "  among them Docker Engine (Apache-2.0) and the NVIDIA Container Toolkit (Apache-2.0):"
-  for d in "$IN"/debs/*.deb; do echo "  - $(basename "$d")"; done
+  echo "- Canonical's Ubuntu 24.04 WSL image ($ROOTFS), from $ROOTFS_URL: Ubuntu's packages, each under its own"
+  echo "  licence (many GPL or LGPL); Canonical's terms for the image and the Ubuntu name:"
+  echo "  https://ubuntu.com/legal/intellectual-property-policy. Sources: https://launchpad.net/ubuntu/noble (each package's"
+  echo "  source at the version in the image)."
+  echo "- These packages, each under the licence in its own copyright file (/usr/share/doc/<package>/copyright):"
+  for d in "$IN"/debs/*.deb; do
+    n="$(basename "$d")"
+    case "$n" in
+      docker-*|containerd.io_*) echo "  - $n: from download.docker.com (Docker Engine, Apache-2.0; source: https://github.com/moby/moby, https://github.com/docker/cli, https://github.com/containerd/containerd)" ;;
+      nvidia-*|libnvidia-*) echo "  - $n: from nvidia.github.io (NVIDIA Container Toolkit, Apache-2.0; source: https://github.com/NVIDIA/nvidia-container-toolkit)" ;;
+      *) echo "  - $n: from Ubuntu's archive (source: https://launchpad.net/ubuntu/noble)" ;;
+    esac
+  done
   if [ "$STAGE" = b ]; then
-    echo "- The container images of the bundle, each with its SBOM and licence record in the bundle (tools/supply_chain)."
-    echo "  The two model folders are placeholders, not models."
+    echo "- The container images of the bundle:"
+    for i in "${IMGS[@]}"; do echo "  - $i"; done
+    echo "  Each image's licences and SBOM: IMAGES-gates.json and IMAGES-sbom-index.json beside these notes (the release"
+    echo "  gates' records). The two model folders are placeholders, not models."
   fi
-  echo "- TrialBox's own installer and host tree, from this repository."
+  echo "- TrialBox's own installer and host tree, from this repository at the commit named above."
+  echo
+  echo "Source code for the GPL and LGPL programs in the image and the packages is at the source locations above, at the"
+  echo "versions named in each file's name."
 } > "$OUT/release/NOTES.md"
 
 # the release's own check: the parts join back to a tar of the media
