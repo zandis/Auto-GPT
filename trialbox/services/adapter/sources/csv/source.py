@@ -14,6 +14,7 @@ row read twice is merged by its key, a row skipped is a correction lost.
 
 from __future__ import annotations
 
+import codecs
 import csv
 import logging
 import shutil
@@ -29,6 +30,28 @@ log = logging.getLogger("adapter")
 QUARANTINE_DIR = "quarantine"
 # settings.data_source.encoding -> the detector's candidate name (Big5 tries CP950 itself; Shift_JIS is read as CP932)
 _DECLARED = {"big5": "big5", "cp950": "big5", "shift_jis": "cp932", "sjis": "cp932", "cp932": "cp932"}
+
+
+def _utf8_throughout(path: Path) -> str | None:
+    """``utf-8-sig`` or ``utf-8`` when the file is valid UTF-8 from end to end and holds no replacement character
+    (U+FFFD, a file damaged before it came: :func:`tb_common.encoding.file_codec` refuses it with its line); None
+    otherwise. Read in chunks, never held whole (T-692)."""
+    dec = codecs.getincrementaldecoder("utf-8")()
+    with path.open("rb") as fh:
+        head = fh.read(len(codecs.BOM_UTF8))
+        bom = head == codecs.BOM_UTF8
+        chunk = b"" if bom else head
+        try:
+            while True:
+                if "\ufffd" in dec.decode(chunk):
+                    return None
+                chunk = fh.read(1 << 16)
+                if not chunk:
+                    dec.decode(b"", final=True)
+                    break
+        except UnicodeDecodeError:
+            return None
+    return "utf-8-sig" if bom else "utf-8"
 
 
 def candidates(declared: str | None) -> tuple[str, ...]:
@@ -47,6 +70,9 @@ class CsvSource:
             raise FileNotFoundError(f"csv source directory not found: {directory}")
         self.directory = directory
         self.candidates: Sequence[str] = candidates(declared_encoding)
+        # D-805: the site says its export is UTF-8. Valid UTF-8 is then read as UTF-8, never weighed against Shift_JIS
+        # or Big5 (an English note with one "β" or "®" was too short to tell); other bytes are weighed as before
+        self.declared_utf8 = (declared_encoding or "").strip().lower().replace("_", "-") in ("utf-8", "utf8")
         self.encodings: dict[str, str] = {}  # source_name -> codec read
         self._quarantined: dict[str, str] = {}  # source_name -> why (no cell text, only the code and the line)
 
@@ -73,7 +99,9 @@ class CsvSource:
         """T-692 (D-473): the file's character set, and a first pass that parses it whole without keeping a row, so a
         file that is not a readable CSV is quarantined before any of its rows is given (as when it was read whole)."""
         try:
-            codec = encoding.file_codec(path, self.candidates)
+            codec = (_utf8_throughout(path) if self.declared_utf8 else None) or encoding.file_codec(
+                path, self.candidates
+            )
         except encoding.EncodingRefused as exc:
             self._quarantine(path, source_name, str(exc))
             return None

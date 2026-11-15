@@ -116,7 +116,7 @@ STEPS = (
     "planted_defect",
 )
 EVIDENCE_STEPS = {
-    "n12": ["-m", "tools.trec_ct_eval", "--help"],
+    "n12": ["-m", "tools.n12_screen", "--help"],  # D-826: N-12 from SCREEN (lane A2's tool), not the benchmark path
     "public_e2e": ["-m", "tools.public_e2e", "--help"],
     "goldens": ["-m", "tools.goldens", "--help"],
 }
@@ -1020,6 +1020,10 @@ def step_evidence(name: str) -> Callable[[Ctx], StepResult]:
             detail["basis"] = doc.get("basis")
             if doc.get("basis") != "unadjusted":
                 return bad(f"evidence {path.name} does not say basis unadjusted: N-12 gates on the raw figure", detail)
+            detail["source"] = doc.get("source")  # D-826: from the product path (tools.n12_screen), not a benchmark
+            if doc.get("source") != "screen":
+                return bad(f"evidence {path.name} does not say source screen: N-12 is read from SCREEN's own run "
+                           "(python -m tools.n12_screen)", detail)  # fmt: skip
         if ev_head and ev_head != head:
             return bad(f"evidence {path.name} is from {ev_head[:12]}, not this HEAD", detail)
         if not ev_head and not ctx.opts.stub:

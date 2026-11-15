@@ -462,6 +462,8 @@ def create_app(
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
     # D-380 (ROLE-018): the menu asks the matrix, as the routes do (``permit(user.role, action, BEST)``)
     templates.env.globals["permit"] = permit
+    # D-776: the box's own public address for a one-time sign-in link (never the request's Host); "" when not set
+    templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
     bk: Backend = backend
     au: AuditLog = audit

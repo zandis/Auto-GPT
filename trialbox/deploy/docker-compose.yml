@@ -322,7 +322,8 @@ services:
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
                   TB_AUDIT_WRITER: db, TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
-                  TB_GATEWAY_INTERACTIVE_TIMEOUT_S: "${TB_GATEWAY_INTERACTIVE_TIMEOUT_S:-30}"}
+                  TB_GATEWAY_INTERACTIVE_TIMEOUT_S: "${TB_GATEWAY_INTERACTIVE_TIMEOUT_S:-30}",
+                  TB_GATEWAY_PHI_TRIPWIRE: "${TB_GATEWAY_PHI_TRIPWIRE:-on}"}  # D-824: on unless the site says
     # model-net: the only network with llm-service / llm-stub; egress-net: external model endpoints, filtered per
     # container by network.sh (deploy/egress.py gives model hosts to this service only)
     networks: [trialbox-net, model-net, egress-net]

@@ -30,4 +30,15 @@
     e.preventDefault();
     e.returnValue = "";
   });
+  // 4. D-776 (D-509): the first sign-in from a one-time link, <box>/enrol#u=<name>&c=<code>. The part after "#" never
+  // reaches the server; on the first sign-in it fills the two fields. On every page (a signed-in person is sent on to
+  // the home page with it) a code after "#" is then removed from the address bar and the Back history.
+  var frag = window.location.hash.length > 1 ? new URLSearchParams(window.location.hash.slice(1)) : null;
+  if (frag && frag.get("c")) {
+    var link = document.querySelector("form[data-enrol-link]");
+    var u = link && link.querySelector("#username"), c = link && link.querySelector("#enrol_code");
+    if (u && frag.get("u") && !u.value) u.value = frag.get("u");
+    if (c) c.value = frag.get("c");
+    if (window.history.replaceState) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
 })();
