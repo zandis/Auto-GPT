@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
 from tb_common.flowledger import record_export
+from tb_common.patient_reads import MONITOR as _MONITOR
 from tb_common.patient_reads import PHI as _PHI
 
 from orchestrator.actor import person_of
@@ -53,6 +54,8 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 #: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
 #: patient-level data on the route's study (tb_common.patient_reads)
 PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
+#: NEW-JRN-8 (D-772): one record's values and history, which the monitor's sheet reads too (tb_common.patient_reads)
+MONITOR_READ = _require_actor(_MONITOR)
 
 
 @dataclass
@@ -385,7 +388,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             r["changed_at"] = max(r["changed_at"], str(v["changed_at"]))
         return [out[k] for k in sorted(out)]
 
-    @r.get("/studies/{rs}/records/{record}", dependencies=[PATIENT_READ])
+    @r.get("/studies/{rs}/records/{record}", dependencies=[MONITOR_READ])
     def get_record(rs: str, record: str) -> dict[str, Any]:
         """One record: its values per event (value, who, when) and its whole change history."""
         dc, rid, rec = get().dc, _rs(rs), record_key(record)

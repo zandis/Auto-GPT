@@ -171,6 +171,7 @@ _D1 = {
     "DocSection",
     "DocTable",
     "IEBlock",
+    "ItemRef",  # NEW-LIFE-2 (D-789): an item's section title, number and parent, from a protocol, no patient data
     "PromptMeta",
     "PromptPin",
     "DerivedPin",  # D-442: a score definition's version and sha, no patient data

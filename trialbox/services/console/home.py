@@ -127,6 +127,8 @@ class Helpers:
     optout: Any = None
     may_approve: Callable[..., bool] | None = None
     stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
+    #: NEW-JRN-8 (D-772): an account's monitor grants today, as (study, visit id, last day), for the menu
+    monitor_grants: Callable[..., list[tuple[str, str, str]]] | None = None
     team_due: Callable[[str], bool] | None = None
     # set by console.team (NEW-JRN-1, D-540): the studies waiting for approval whose log names no PI yet
     pi_missing: Callable[..., list[str]] | None = None

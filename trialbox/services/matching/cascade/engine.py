@@ -104,6 +104,20 @@ class LakeLike:
         raise NotImplementedError
 
 
+def s1_rows(environ: Mapping[str, str] | None = None) -> int:
+    """``TB_CASCADE_S1_ROWS``: the rows (patients times index dates) one S1 query may carry (D-748). A whole number
+    above 0, else the setting is refused."""
+    import os
+
+    from tb_common.config import DECLARED
+
+    env = os.environ if environ is None else environ
+    raw = env.get("TB_CASCADE_S1_ROWS") or DECLARED["TB_CASCADE_S1_ROWS"].default
+    if not raw.isascii() or not raw.isdigit() or int(raw) <= 0:
+        raise CascadeError(f"TB_CASCADE_S1_ROWS={raw!r}: give a whole number of rows above 0")
+    return int(raw)
+
+
 @dataclass
 class CascadeConfig:
     study_id: str
@@ -132,6 +146,8 @@ class CascadeConfig:
     require_retrieval: bool = False
     language: str = "zh-TW"  # language stratum of the site notes (S2b thresholds)
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
+    # NEW-B-47 (D-748): the rows (patients times index dates) one S1 query may carry; None: TB_CASCADE_S1_ROWS
+    s1_rows: int | None = None
     seed: int = 20261025
     snapshot: str | None = None
     # D-442: the stored derived rows (``tb_common.derived_store.stored_read``, None while the flag is off)
@@ -349,6 +365,7 @@ class _Run:
         self.items = 0
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
+        self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
@@ -434,13 +451,39 @@ class _Run:
             return v is True
         return v is not True
 
+    def _s1_rows(self, idx: list[date], scope: list[str]) -> list[dict[str, Any]]:
+        """NEW-B-47 (D-748): the ruleset's SQL over the scope in batches of patients: its rows are per patient and
+        index date, so the batches change no row; the lake holds one batch, not the whole scope, at a time. The
+        lake's memory grows with the rows the query carries (patients times index dates), so a batch is as many
+        patients as fit the rows a query may carry."""
+        rows_ = s1_rows() if self.cfg.s1_rows is None else self.cfg.s1_rows
+        if rows_ <= 0:
+            raise CascadeError(f"s1_rows={rows_}: give a whole number of rows above 0")
+        size = max(1, rows_ // max(1, len(idx)))
+        dates_ = [d.isoformat() for d in idx]
+        sql = safe_sql(self.rs)
+        rows: list[dict[str, Any]] = []
+        for start in range(0, max(len(scope), 1), size):
+            rows += self.lake.query(sql, [dates_, scope[start : start + size]], self.cfg.snapshot).to_pylist()
+        return rows
+
     def s1(self, idx: list[date]) -> list[CriterionIR]:
         applied = self.applied()
         scope = [t.pid for t in self.traces.values() if t.in_scope]
+        # A-NOTES-ONLY (D-788): a ruleset with no coded criterion is screened (lane G's public sets): the SQL still
+        # lists each in-scope patient alive at each index date, every patient passes S1 at its latest one, and the
+        # notes decide. Review of D-788: a ruleset where nothing decides is refused (every patient read "high"), and
+        # such a run needs a pair budget, since every patient goes to the models
+        self.coded = bool(applied)
         if not applied:
-            raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
+            if not any(c.class_ in JUDGED and c.kind in ("inclusion", "exclusion") for c in self.rs.active()):
+                raise CascadeError(f"ruleset {self.rs.id} has nothing that decides: no coded and no note criterion")
+            if self.cfg.max_llm_items is None:
+                raise CascadeError(
+                    f"ruleset {self.rs.id} has no coded criterion, so every patient goes to the models: set max_pairs"
+                )
         # D-275: SQL approved before the unit / sex / order-date rules runs guarded by them (unknown on a difference)
-        table = self.lake.query(safe_sql(self.rs), [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
+        table = self._s1_rows(idx, scope)
         # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
         apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
@@ -1142,6 +1185,8 @@ class _Run:
                 kinds.add("uncertain")  # T-603: a note the models did not read in full: a person looks
             if any(self._weak_met(o) for o in t.outcomes.values()):
                 kinds.add("uncertain")  # T-709 (D-478, review M1a): a "met" below the floor is a person's check
+            if not self.coded and not any(o.status == "pass" and o.stage in ("S3", "S4") for o in t.outcomes.values()):
+                kinds.add("uncertain")  # D-788 review: with nothing coded, "strong" needs a judged "met", not absence
             if "uncertain" in kinds:
                 t.tier = "potential:uncertain"
             elif "data_gap" in kinds:

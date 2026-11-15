@@ -185,7 +185,7 @@ CALLERS: dict[tuple[str, str], str] = {
     ("orchestrator/scenarios/twpas.py", "_latest"): GOES_ON,
     ("edc/prefill.py", "LakeFacts._q"): GOES_ON,
     ("matching/cascade/engine.py", "_Run.s0"): GOES_ON,
-    ("matching/cascade/engine.py", "_Run.s1"): GOES_ON,
+    ("matching/cascade/engine.py", "_Run._s1_rows"): GOES_ON,
     ("matching/coverage.py", "Coverage.load"): GOES_ON,
     ("patient_profile/twin.py", "read_lake"): GOES_ON,
     ("vec/index.py", "snapshot_notes"): GOES_ON,

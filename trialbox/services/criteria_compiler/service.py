@@ -502,16 +502,24 @@ class Compiler:
             raise CompileFailed("parse", f"parsed document {req.parsed_doc_key} not found") from exc
         block = parsed.ie_block
         refs = block.refs or {}
-        lines = [
-            {"text": t, "kind": kind, "source_ref": refs.get(t, "")}
-            for kind, items in (
-                ("inclusion", block.inclusion),
-                ("exclusion", block.exclusion),
-                ("renewal", block.renewal or []),
-                ("documentation", block.documentation or []),
-            )
-            for t in items
-        ]
+        lines: list[dict[str, Any]] = []
+        for kind, items in (
+            ("inclusion", block.inclusion),
+            ("exclusion", block.exclusion),
+            ("renewal", block.renewal or []),
+            ("documentation", block.documentation or []),
+        ):
+            # NEW-LIFE-2: the parser's positional refs (each item's own section and its lead-in) when it gave them;
+            # else the text-keyed refs of a parsed document from before them
+            pos = (block.item_refs or {}).get(kind)
+            base = len(lines)
+            for i, t in enumerate(items):
+                if pos is not None and len(pos) == len(items):
+                    r = pos[i]
+                    parent = None if r.parent is None else base + r.parent
+                    lines.append({"text": t, "kind": kind, "source_ref": f"{r.section} #{r.n}", "parent": parent})
+                else:
+                    lines.append({"text": t, "kind": kind, "source_ref": refs.get(t, "")})
         if not lines:
             raise CompileFailed("parse", "no eligibility criteria were found in the document")
         ruleset = req.ruleset
