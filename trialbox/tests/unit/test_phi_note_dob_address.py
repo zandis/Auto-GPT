@@ -199,4 +199,4 @@ def test_the_guard_service_redacts_the_same(text: str, value: str) -> None:
 
 
 def test_the_masks_version_says_the_masking_changed() -> None:
-    assert NOTE_MASK_VERSION == "3"
+    assert int(NOTE_MASK_VERSION) >= 3  # D-745 made it 3; later cards raise it (D-756: 4)

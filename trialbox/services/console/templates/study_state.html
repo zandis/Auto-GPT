@@ -52,6 +52,7 @@
 {% if cur.by %}<p class="hint" data-testid="state-since">{{ t('sstate.since', at=cur.at|local, by=cur.by|replace('console:', '')) }}{% if cur.reason %} · {{ cur.reason }}{% endif %}</p>
 {% else %}<p class="hint" data-testid="state-default">{{ t('sstate.default') }}</p>{% endif %}
 <p data-testid="state-effect">{{ t('sstate.effect.' + cur.state) }}</p>
+{% if cur.state == 'closed' and kept_until %}<p class="hint" data-testid="state-kept-until">{{ t('sstate.kept_until', day=kept_until, years=cur.keep_years or keep_default) }}</p>{% endif %}
 {% if editable %}
 {% if moves %}
 <form method="post" action="/studies/{{ rs }}/state" data-testid="state-form">
@@ -62,6 +63,9 @@
 <div><label for="state-reason">{{ t('sstate.reason') }}</label>
 <input id="state-reason" name="reason" maxlength="200" aria-describedby="state-reason-help">
 <p class="hint" id="state-reason-help">{{ t('sstate.reason_help') }}</p></div>
+{% if 'closed' in moves %}{# D-779 (T-305c): read on a close only #}<div><label for="state-keep-years">{{ t('sstate.keep_years') }}</label>
+<input id="state-keep-years" name="keep_years" type="number" min="1" max="{{ keep_max }}" value="{{ keep_default }}" aria-describedby="state-keep-years-help" data-testid="state-keep-years">
+<p class="hint" id="state-keep-years-help">{{ t('sstate.keep_years_help') }}</p></div>{% endif %}
 <button type="submit">{{ t('sstate.save') }}</button>
 </fieldset></form>
 {% else %}<p class="hint" data-testid="state-final">{{ t('sstate.none_left') }}</p>{% endif %}

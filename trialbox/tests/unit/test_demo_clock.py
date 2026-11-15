@@ -18,13 +18,13 @@ from tools import list_demo as ld
 @pytest.mark.parametrize(
     ("today", "seed"),
     [
-        (date(2026, 11, 9), date(2026, 11, 3)),  # Monday: the Tuesday before the last Wednesday (4 November)
-        (date(2026, 11, 10), date(2026, 11, 3)),  # Tuesday: this Wednesday is tomorrow, so last week's
+        (date(2026, 11, 9), date(2026, 11, 6)),  # Monday: the Friday before
+        (date(2026, 11, 10), date(2026, 11, 9)),  # Tuesday: yesterday
         (date(2026, 11, 11), date(2026, 11, 10)),  # Wednesday: yesterday
-        (date(2026, 11, 13), date(2026, 11, 10)),  # Friday (the rehearsal's day: it showed data as of 17 November)
-        (date(2026, 11, 14), date(2026, 11, 10)),  # Saturday
-        (date(2026, 11, 15), date(2026, 11, 10)),  # Sunday
-        (date(2026, 11, 17), date(2026, 11, 10)),  # Tuesday 17 November, the showing
+        (date(2026, 11, 13), date(2026, 11, 12)),  # Friday
+        (date(2026, 11, 14), date(2026, 11, 13)),  # Saturday: Friday
+        (date(2026, 11, 15), date(2026, 11, 13)),  # Sunday: Friday
+        (date(2026, 11, 17), date(2026, 11, 16)),  # Tuesday 17 November, the showing: data as of the Monday
     ],
 )
 def test_seed_day(today: date, seed: date) -> None:
@@ -33,15 +33,20 @@ def test_seed_day(today: date, seed: date) -> None:
 
 @pytest.mark.parametrize("offset", range(14))
 def test_no_seeded_date_is_after_the_demo_day(offset: int) -> None:
-    """DEMO-JA (D-496): the seed and the cadence stage after it (the next Tuesday's data, screened on the Wednesday)
-    play on or before the demo day, on a working day, so the data date and the run date a viewer sees are not later
-    than "today"."""
+    """DEMO-JA (D-496), DEMO-SEED (D-757): the seed and the cadence stage after it (the seed day's data, screened in
+    the night after it) play on or before the demo day, the seed on a working day, so the data date and the run date
+    a viewer sees are not later than "today"; and the data is not stale (more than two days old) on a Tuesday to a
+    Saturday, never older than three days."""
     today = date(2026, 11, 9) + timedelta(days=offset)
     seed = ld.seed_day(today)
     night = ld.cadence_night(seed)
     assert seed.weekday() < 5 and seed < today
-    assert night - timedelta(days=1) <= night <= today  # Tuesday's data, Wednesday's run
-    assert (today - seed).days <= 7
+    assert seed < night <= today
+    assert (today - seed).days <= 3
+    if 1 <= today.weekday() <= 5:
+        from console.home import STALE_DAYS
+
+        assert (today - seed).days <= STALE_DAYS  # the study pages show no stale-data banner
 
 
 def test_demo_day_reads_the_setting() -> None:
@@ -49,14 +54,14 @@ def test_demo_day_reads_the_setting() -> None:
     late = datetime(2026, 11, 10, 23, 30, tzinfo=UTC)
     assert ld.demo_day("Asia/Taipei", {}) is None
     assert ld.demo_day("Asia/Taipei", {ld.DAY_ENV: "data"}) is None
-    # D-496: the seed plays on the Tuesday before the last Wednesday on or before that day
+    # D-757: the seed plays on the last working day before that day
     assert (
         ld.demo_day("Asia/Taipei", {ld.DAY_ENV: "today"}, late) == ld.seed_day(date(2026, 11, 11)) == date(2026, 11, 10)
     )
     assert (
         ld.demo_day("Europe/London", {ld.DAY_ENV: "today"}, late)
         == ld.seed_day(date(2026, 11, 10))
-        == date(2026, 11, 3)
+        == date(2026, 11, 9)
     )
     assert ld.demo_day("Asia/Tokyo", {ld.DAY_ENV: "2026-12-01"}) == date(2026, 12, 1)
     with pytest.raises(SystemExit, match="TB_DEMO_DAY"):

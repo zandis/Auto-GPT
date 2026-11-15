@@ -36,6 +36,7 @@ from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.flatten import BASIS, DEMOGRAPHIC
 from lake.store import Lake
+from matching import carried as carried_mod
 from matching import coverage as coverage_mod
 from matching import proposed as proposed_mod
 from matching.cascade import engine as cascade_engine
@@ -314,6 +315,11 @@ class _FakeLake:
         if sql == coverage_mod.SQL:
             self.queries.append("coverage")
             return _Rows([r for r in self.gaps if params[0] is None or r["pid"] in params[0]])
+        if sql == carried_mod.SQL:  # D-795: a site whose rows carry every system the ruleset's lists use
+            self.queries.append("carried")
+            systems = {i["system"] for v in (self.rs.valuesets or {}).values()
+                       for i in (v.get("compose") or {}).get("include") or [] if i.get("system")}  # fmt: skip
+            return _Rows([{"domain": d, "system": sy} for d in carried_mod.DOMAINS for sy in sorted(systems)])
         if sql == proposed_mod.SQL:
             self.queries.append("proposed")
             return _Rows([r for r in self.facts if params[0] is None or r["pid"] in params[0]])

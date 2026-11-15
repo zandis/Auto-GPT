@@ -33,6 +33,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from tb_common.authz import permit
 from tb_common.config import environment_name
+from tb_common.retention import STUDY_YEARS_AFTER_CLOSE, STUDY_YEARS_MAX, kept_until
 
 from console import actor, s28
 from console import studies as st
@@ -517,6 +518,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             registries=REGISTRIES,
             editable=may_change_state(h, sess.user, rid),
             take_back=take_back_open(cur) and may_take_back(h, sess.user, rid),  # D-763: the PI, the same day
+            keep_default=STUDY_YEARS_AFTER_CLOSE,  # D-779 (T-305c): the period after the close
+            keep_max=STUDY_YEARS_MAX,
+            kept_until=kept_until(cur.at, cur.keep_years).isoformat() if cur.state == "closed" and cur.at else "",
             irbt=irbt or store.irb_text(rid),
             irbt_history=list(reversed(store.irb_text_history(rid))),
             irbt_edit=may_record_irb_text(h, sess.user, rid),
@@ -594,10 +598,12 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.post("/studies/{rs}/state")
     def change_state(
-        request: Request, rs: str, csrf: str = Form(""), state: str = Form(""), reason: str = Form("")
-    ) -> Response:
+        request: Request, rs: str, csrf: str = Form(""), state: str = Form(""), reason: str = Form(""),
+        keep_years: str = Form(""),
+    ) -> Response:  # fmt: skip
         """Move the study to ``state`` (D-386). Pausing or closing takes a reason. The audit event is written in the
-        store's transaction, so a change is never kept without it."""
+        store's transaction, so a change is never kept without it. A close names the years the study's files are
+        kept after it (D-779, T-305c; blank: the default), 1 to 30."""
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         need_state_edit(request, sess, rid, csrf)
@@ -609,17 +615,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             return state_page(request, sess, rid, status=400, err="sstate.need_reason")
         if state == "open" and (refused := sae_type_missing(rid)):
             return state_page(request, sess, rid, status=409, err=refused)
+        years: int | None = None
         if state == "closed":
+            raw = keep_years.strip()
+            years = int(raw) if raw.isdigit() and len(raw) <= 2 else (STUDY_YEARS_AFTER_CLOSE if not raw else 0)
+            if not 1 <= years <= STUDY_YEARS_MAX:
+                return state_page(request, sess, rid, status=400, err="sstate.bad_keep_years")
             refused, counts = close_refused(rid)
             if refused:
                 return state_page(request, sess, rid, status=409, err=refused, close=counts)
 
         def audit(new: StudyState) -> None:
             au.append("console.study_state", ruleset=rid, actor=h.actor(sess),
-                      detail={"state": new.state, "prev": new.prev, "reason": why})  # fmt: skip
+                      detail={"state": new.state, "prev": new.prev, "reason": why,
+                              **({"keep_years": years} if years is not None else {})})  # fmt: skip
 
         try:
-            store.set_study_state(rid, state, why, h.actor(sess), h.clock().isoformat(), before_commit=audit)
+            store.set_study_state(rid, state, why, h.actor(sess), h.clock().isoformat(), before_commit=audit,
+                                  keep_years=years)  # fmt: skip
         except ValueError:  # another person changed it first
             return state_page(request, sess, rid, status=409, err="sstate.bad_move")
         return RedirectResponse(f"/studies/{rid}/state?saved=state", status_code=303)

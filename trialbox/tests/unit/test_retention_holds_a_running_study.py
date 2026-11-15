@@ -4,7 +4,7 @@ RETENTION deleted attachments after 90 days and outputs after 365 by object age 
 the candidate list a mark was made on, the evidence shown, the review workbook and the protocol file the criteria were
 compiled from were gone three to twelve months later while the study ran (GCP keeps the study file). Now an object of
 a job whose ruleset is a study with a recorded state that is not ``closed`` is held; a study whose state cannot be
-read is held (keep rather than delete); after the close, the configured ages apply. A ruleset the console never set
+read is held (keep rather than delete); after the close and the study's period (D-779), the configured ages apply. A ruleset the console never set
 up as a study (no recorded state: a feasibility of a declined trial, a cohort, a case), a job of no ruleset and the
 public ClinicalTrials.gov cache keep their ages. On the test's own trial database (the console's real state table).
 Synthetic data only."""
@@ -45,7 +45,7 @@ def _job(box: Any, jid: str, type_: Any, ruleset: str) -> None:
                         received_at=datetime(2026, 1, 5, tzinfo=UTC), state="done"), queued=False)  # fmt: skip
 
 
-def _state(rid: str, state: str) -> None:
+def _state(rid: str, state: str, day: str = "2026-01-0") -> None:
     """The console's own study state (``site.study_state``), as its state page writes it (a study with no row is
     open by default, so "open" is recorded by a pause and an open again)."""
     from console.sitestore import SiteStore
@@ -53,7 +53,7 @@ def _state(rid: str, state: str) -> None:
     moves = {"open": ["paused", "open"], "paused": ["paused"], "closed": ["closed"]}[state]
     store = SiteStore()
     for i, s in enumerate(moves):
-        store.set_study_state(rid, s, "reason", "crc", f"2026-01-0{i + 2}T00:00:00+00:00")
+        store.set_study_state(rid, s, "reason", "crc", f"{day}{i + 2}T00:00:00+00:00")
 
 
 def _retention(box: Any) -> dict[str, Any]:
@@ -83,9 +83,11 @@ def test_a_study_that_is_not_closed_keeps_its_old_files(tmp_path: Path, state: s
 
 
 def test_a_closed_study_goes_by_the_ages_again(tmp_path: Path) -> None:
+    """D-779 moved this pin: the ages apply once the study's period after the close has ended (here a close of 2015,
+    past the default period); within it, ``test_per_study_retention_after_close`` holds the files."""
     box = _box(tmp_path)
     _job(box, JID, "SCREEN", "GZQO")
-    _state("GZQO", "closed")
+    _state("GZQO", "closed", day="2015-01-0")
     _put(box, f"attachments/{JID}/protocol.pdf", 120)
     report = _retention(box)
     assert not box.store.exists(f"attachments/{JID}/protocol.pdf") and report["held_for_running_studies"] == 0

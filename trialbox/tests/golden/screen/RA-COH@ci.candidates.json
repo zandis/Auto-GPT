@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "8aaa4015b3945824b5fda7dcd0e7b288446f05ef",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "D-795: a list in a code system the site's rows do not carry is unknown, not not-met",
   "ref_date": "2026-11-01",
   "ruleset": "RA-COH",
   "ruleset_version": "1.0.0",
@@ -15,7 +15,7 @@
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "24091df8c5a669286dcb96b322fc1296c1bdc09062ec41e44878f6dfaa18c4b3",
+   "outcomes_sha": "f63816371086a530ce4c8f8f32c0680ad134dfb0414422b1b0531a2bde602fe9",
    "patients": 53,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -33,8 +33,8 @@
     },
     "RA-COH-INC-02": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "RA-COH-INC-03": {
      "met": 0,
@@ -53,8 +53,8 @@
     },
     "RA-COH-INC-06": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     }
    }
   },

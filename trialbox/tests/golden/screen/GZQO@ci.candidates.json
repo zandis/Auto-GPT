@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
+  "head": "8aaa4015b3945824b5fda7dcd0e7b288446f05ef",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
+  "reason": "D-795: a list in a code system the site's rows do not carry is unknown, not not-met",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -15,7 +15,7 @@
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "a0bf968cbde464d55056bbf54404c09032d4fa436db6c5e89f350b80199dfb64",
+   "outcomes_sha": "49f0bec64e6c152aaefa06fd35f35152c24344bff39fca9b6d470e9e57bd498c",
    "patients": 53,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -55,13 +55,13 @@
     },
     "GZQO-EXC-04": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "GZQO-EXC-05": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "GZQO-EXC-06": {
      "met": 0,
@@ -115,8 +115,8 @@
     },
     "GZQO-INC-06": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "GZQO-INC-08": {
      "met": 0,

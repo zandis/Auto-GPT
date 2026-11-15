@@ -47,6 +47,7 @@ from tb_common.timeutil import add_months, month_ends
 from tb_contracts import CriterionIR
 
 from matching import excerpts as excerpt_builder
+from matching.carried import NOT_CARRIED, Carried
 from matching.cascade.judge import JudgeClient, JudgeReply, expected_tokens, norm, sentence_hash, verify_span
 from matching.cascade.model import (
     STAGES,
@@ -369,6 +370,8 @@ class _Run:
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
         self._s2_excluded = 0  # patients S2 excluded on a certified zero hit, summed over the batches (T-694 part 3)
+        self.carried = Carried()  # the code systems the site's rows carry (F11, D-795); loaded at S1
+        self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
         self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
 
@@ -491,6 +494,7 @@ class _Run:
         # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
         apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
+        self.carried = Carried.for_criteria(self.lake, applied, self.cfg.snapshot)
         self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}
         for row in table:
@@ -556,10 +560,19 @@ class _Run:
         """The S1 outcome of one structured criterion, with D-135's rule on top: a proposed fact (read from a
         chart, not confirmed) that could change the coded answer makes it unknown. The patient needs information; the
         fact never excludes and never counts as met."""
+        # F11 (D-795): a list in a system no row of the domain carries cannot answer: a person looks, never excluded.
+        # The study's own condition keeps its note sweep (the notes may still find it); its absence never excludes
+        doubt = bool(self.carried.doubt(c, self.rs.valuesets, row.get(f"C_{c.id}")))
+        if doubt and is_index_criterion(c):
+            self._uncarried_index.add(c.id)
+            doubt = False
         out = self._s1_coded(c, row)
         if out.reason == UNKNOWN_CODE_SYSTEM:
             return out
         fids = self.proposed.refs(c, str(row["pid"]), row["index_date"], row.get(f"C_{c.id}"))
+        if not fids and doubt:  # a proposed fact, when there is one, says more to the person who looks
+            return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
+                           reason=NOT_CARRIED)  # fmt: skip
         if not fids:
             return out
         ev = [{"source": "lake", "record": x.split("|")[0], "date": x.split("|")[1] if "|" in x else None,
@@ -839,6 +852,12 @@ class _Run:
             if index_sweep:
                 if res_above and sents:
                     self._rescue(t, cid, "S2b", sents[top[0]][1])
+                elif cid in self._uncarried_index:  # F11 (D-795): no code could be there, so absence says nothing
+                    t.outcomes[
+                        cid
+                    ].reason = (
+                        f"index condition not found in the notes, its list's codes not carried ({NOT_CARRIED}); review"
+                    )
                 elif held or not self.cfg.absence_semantics:
                     t.outcomes[cid].reason = "index condition not coded and not found in the notes; review"
                 else:

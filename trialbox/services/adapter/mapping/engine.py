@@ -88,7 +88,7 @@ _COMPACT_FORMS = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
 _DIGIT_RUN_RE = re.compile(r"\d+")
 _FRACTION_RE = re.compile(r"\.\d+")
 # NEW-DIN-1 (D-589): the calendars a site may declare for a date column (``tables.<t>.dates: {col: roc}``)
-CALENDARS = ("western", "roc", "era")
+CALENDARS = ("western", "roc", "era", "roc_or_western")  # F8 (D-807): roc_or_western, an export that writes both
 DATE_TYPES = ("date", "datetime", "instant")
 _NOT_CALENDAR = "\x00not-a-date-of:"  # what ``normalize`` leaves for the date readers to refuse, with the value
 _CLOCK = r"(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
@@ -111,6 +111,35 @@ def _clock(h: str | None, mi: str | None, sec: str | None) -> str | None:
         return ""
     hh, mm, ss = int(h), int(mi), int(sec or 0)
     return f" {hh:02d}:{mm:02d}:{ss:02d}" if hh < 24 and mm < 60 and ss < 60 else None
+
+
+# F8 (D-807): a western date no ROC form can be: a four-digit year with separators, or 8, 12 or 14 digits
+_WESTERN_SURE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?)?")
+_WESTERN_COMPACT_LENGTHS = (8, 12, 14)
+
+
+def western_sure(raw: str) -> str | None:
+    """``YYYY-MM-DD[ hh:mm:ss]`` of a western date that cannot be a ROC one (F8, D-807); None for anything else."""
+    text = raw.strip()
+    if text.isascii() and text.isdigit() and len(text) in _WESTERN_COMPACT_LENGTHS:
+        parts: tuple[str | None, ...] = (text[:4], text[4:6], text[6:8], text[8:10] or None, text[10:12] or None,
+                                         text[12:14] or None)  # fmt: skip
+    elif m := _WESTERN_SURE.fullmatch(text):
+        parts = m.groups()
+    else:
+        return None
+    y, mo, d, h, mi, sec = parts
+    try:
+        day = date(int(str(y)), int(str(mo)), int(str(d)))
+    except ValueError:
+        return None
+    clock = _clock(h, mi, sec)
+    return None if clock is None else day.isoformat() + clock
+
+
+# F6 (D-808): ICD-10-CM: a letter, a digit, then a digit or letter (the category), and up to four more after the dot
+_ICD10CM_BARE = re.compile(r"[A-Z][0-9][0-9A-Z](?:[0-9A-Z]{1,4})?")
+_ICD10CM_DOTTED = re.compile(r"[A-Z][0-9][0-9A-Z]\.[0-9A-Z]{1,4}")
 
 
 def to_western(raw: str, calendar: str) -> str | None:
@@ -228,6 +257,15 @@ def fold_key(key: object) -> str:
     return ("" if key is None else str(key)).translate(_HALF_WIDTH).strip().lower()
 
 
+KEY_JOIN = "|"  # F10 (D-809): the parts of a key of several columns, joined (``CBC|072``)
+
+
+def join_key(row: Row, parts: list[str]) -> str:
+    """The key of several columns of ``row``, or "" when a part is empty (never a key of one part)."""
+    values = [str(row.get(k) or "").strip() for k in parts]
+    return KEY_JOIN.join(values) if all(values) else ""
+
+
 @dataclass
 class Lookup:
     name: str
@@ -236,10 +274,29 @@ class Lookup:
     _folded: dict[str, Row | None] | None = field(default=None, repr=False, compare=False)
 
     @classmethod
-    def load(cls, name: str, path: Path, key: str) -> Lookup:
+    def load(cls, name: str, path: Path, key: str | list[str]) -> Lookup:
+        """``key``: a column, or (F10, D-809) a list of columns that together are the key (panel and item). A row of
+        a list key is keyed by its parts joined with :data:`KEY_JOIN`, kept under the joined names as a column; a
+        row that lacks a part has no key."""
+        parts = [key] if isinstance(key, str) else list(key)
+        if not isinstance(key, str) and (len(parts) < 2 or not all(isinstance(k, str) and k for k in parts)):
+            raise MappingError(f"look-up {name}: a key of several columns names two or more columns")
+        joined = KEY_JOIN.join(parts)
+        rows: dict[str, Row] = {}
         with path.open(encoding="utf-8-sig", newline="") as fh:  # a look-up saved with a byte order mark reads too
-            rows = {r[key]: r for r in csv.DictReader(fh)}
-        return cls(name, key, rows)
+            reader = csv.DictReader(fh)
+            missing = [k for k in parts if k not in (reader.fieldnames or [])]
+            if missing:
+                raise MappingError(f"look-up {name}: {path.name} has no column {', '.join(missing)}")
+            for r in reader:
+                if isinstance(key, str):
+                    rows[r[key]] = r
+                    continue
+                values = [str(r[k] or "").strip() for k in parts]
+                if all(values):
+                    r[joined] = KEY_JOIN.join(values)
+                    rows[r[joined]] = r
+        return cls(name, joined, rows)
 
     def find(self, key: object) -> Row | None:
         """The row of ``key`` (NEW-DIN-6, D-580): as written first; else by its folded form (:func:`fold_key`) when
@@ -335,6 +392,16 @@ class Mapping:
         """The tables read whole on a delta night (F7, D-806): a visit table a link by day looks up. An unchanged visit
         missing from the night's rows would make a day of two visits look like a day of one: a wrong link."""
         return {str(spec["table"]) for _, _, spec in self.by_day}
+
+    # F8 (D-807): the western values read in a ``roc_or_western`` column, by (table, column): counts only
+    western_read: Counter[tuple[str, str]] = field(default_factory=Counter)
+
+    def read_as_western(self) -> dict[str, dict[str, int]]:
+        """Per table and column, how many values a ``roc_or_western`` column read as western (F8, D-807)."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, col), n in sorted(self.western_read.items()):
+            out.setdefault(table, {})[col] = n
+        return out
 
     @staticmethod
     def _plausible_of(lk: dict[str, Any]) -> tuple[float, float] | None:
@@ -451,6 +518,10 @@ class Mapping:
             )
             for r in doc.get("resources") or []
         ]
+        for t, tspec in (doc.get("tables") or {}).items():  # F10 (D-809): a key column made of several
+            for col, parts in ((tspec or {}).get("join") or {}).items():
+                if not (isinstance(parts, list) and len(parts) >= 2 and all(isinstance(p, str) and p for p in parts)):
+                    raise MappingError(f"{path}: {t}.join.{col}: a list of two or more columns")
         for r in resources:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
@@ -619,6 +690,8 @@ class Mapping:
                 out[col] = table_codes[str(v)]
             elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
                 out[col] = table_codes[str(v).strip()]
+        for col, parts in (spec.get("join") or {}).items():  # F10 (D-809): one key column made of several
+            out[col] = join_key(out, parts)
         calendars = self.calendars.get(table) or {}
         if calendars or self.empty_dates:  # D-589: a declared placeholder is empty; a declared calendar made western
             for col in self.date_columns.get(table, ()):
@@ -627,6 +700,12 @@ class Mapping:
                     continue
                 if text in self.empty_dates or _MIDNIGHT.sub("", text) in self.empty_dates:
                     out[col] = ""  # the placeholder, also when a date-time column adds its midnight
+                elif calendars.get(col) == "roc_or_western":
+                    # F8 (D-807): ROC read as ROC; a western date that no ROC form can be read as written, counted
+                    western = to_western(text, "roc")
+                    if western is None and (western := western_sure(text)) is not None:
+                        self.western_read[(table, col)] += 1
+                    out[col] = western if western is not None else f"{_NOT_CALENDAR}{calendars[col]}\x00{text}"
                 elif calendars.get(col, "western") != "western":
                     western = to_western(text, calendars[col])
                     # not raised here: the row is refused where refused rows are counted (the date readers)
@@ -720,6 +799,9 @@ class Mapper:
             self._visits.setdefault((str(spec["table"]), rtype, tuple(spec["keys"]), str(spec["their_day"])), {})
         self.links: Counter[tuple[str, str]] = Counter()
         self._made: set[tuple[str, str]] = set()  # (type, id) of each visit that became a record
+        # F9 (D-811): dates left out because no life is that long, by (table, element): counts only
+        self.implausible: Counter[tuple[str, str]] = Counter()
+        self._element = ""
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -903,6 +985,31 @@ class Mapper:
             out.setdefault(table, {})[outcome] = n
         return out
 
+    def _older_than_a_life(self, raw: Any, spec: dict[str, Any], row: Row) -> bool:
+        """F9 (D-811): whether a birth date is more than ``years`` before ``until`` (the death date's column), or
+        before today when the row has none: nobody lives that long."""
+        born = self._parse_dt(str(raw)).date()
+        end_raw = row.get(str(spec.get("until") or ""))
+        end = date.today()
+        if end_raw not in (None, "") and str(end_raw).strip():
+            try:
+                end = self._parse_dt(str(end_raw)).date()
+            except (MappingError, ValueError):
+                end = date.today()
+        years = int(spec["years"])
+        try:
+            oldest = end.replace(year=end.year - years)
+        except ValueError:  # 29 February
+            oldest = end.replace(year=end.year - years, day=28)
+        return born < oldest
+
+    def implausible_dates(self) -> dict[str, dict[str, int]]:
+        """Per table and element, the dates left out because no life is that long (F9, D-811). Counts only."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, element), n in sorted(self.implausible.items()):
+            out.setdefault(table, {})[element] = n
+        return out
+
     def ref(self, spec: dict[str, Any], row: Row, rs: ResourceSpec) -> str | None:
         rtype = spec["type"]
         if "by_day" in spec:
@@ -947,6 +1054,9 @@ class Mapper:
                 dt = self._parse_dt(str(raw)) + timedelta(minutes=int(minutes or 0))
                 raw = dt.isoformat(sep=" ", timespec="seconds")  # an offset the source stated stays (STD-015)
             val = self.convert(raw, expr.get("type"))
+            if val is not None and "lived_at_most" in expr and self._older_than_a_life(raw, expr["lived_at_most"], row):
+                self.implausible[(rs.table, self._element)] += 1  # F9 (D-811): left out, the row kept; counted
+                return None
             if val is not None and "factor" in expr:
                 val = float(Decimal(str(val)) * Decimal(str(expr["factor"])))
             return val
@@ -1132,10 +1242,22 @@ class Mapper:
         return {"valueQuantity": q}
 
     def _b_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
+        """``dotted: icd10cm`` (F6, D-808): a code of the ICD-10-CM shape is written with its dot after the third
+        character (``M109`` is ``M10.9``); a category of three has none. A code of another shape is copied as fed and
+        counted (``shape:icd10cm``)."""
         code = row.get(args["column"])
         if code is None or str(code).strip() == "":
             return None
-        coding: dict[str, Any] = {"system": self.m.systems[args["system"]], "code": str(code).strip()}
+        text = str(code).strip()
+        if args.get("dotted") == "icd10cm":
+            bare = text.upper()
+            if _ICD10CM_DOTTED.fullmatch(bare):
+                text = bare
+            elif _ICD10CM_BARE.fullmatch(bare):
+                text = bare if len(bare) == 3 else f"{bare[:3]}.{bare[3:]}"
+            else:
+                self._note_unmapped(rs.table, "shape:icd10cm", text)
+        coding: dict[str, Any] = {"system": self.m.systems[args["system"]], "code": text}
         if "display_column" in args and row.get(args["display_column"]):
             coding["display"] = str(row[args["display_column"]])
         return coding
@@ -1289,6 +1411,7 @@ class Mapper:
             if prof:
                 res["meta"] = {"profile": [prof]}
         for path, expr in rs.elements.items():
+            self._element = path  # F9 (D-811): what a count names
             self.set_path(res, path, self.value(expr, row, rs))
         if self.ingest_time:
             meta = res.setdefault("meta", {})

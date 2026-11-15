@@ -207,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         "--vuln-mode",
         choices=release.VULN_MODES,
         default="block",
-        help="report: fixable CRITICAL/HIGH in the images of release.VULN_REPORT_ONLY are shown, not failing",
+        help="fixable CRITICAL/HIGH in release.VULN_REPORT_ONLY images are shown, not failing, in both modes (D-827)",
     )
     severity_args(p)
     p.set_defaults(fn=cmd_release_gates)
