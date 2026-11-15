@@ -983,6 +983,8 @@ class Mapper:
         out: dict[str, dict[str, int]] = {}
         for (table, outcome), n in sorted(self.links.items()):
             out.setdefault(table, {})[outcome] = n
+        return out
+
     def _older_than_a_life(self, raw: Any, spec: dict[str, Any], row: Row) -> bool:
         """F9 (D-811): whether a birth date is more than ``years`` before ``until`` (the death date's column), or
         before today when the row has none: nobody lives that long."""
