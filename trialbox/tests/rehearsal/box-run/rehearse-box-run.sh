@@ -43,6 +43,19 @@
 #   oom                T-692: the ingest is killed at the adapter's cap: recorded (pass false, oom_kills 1), run goes on
 #   list-differs       the disturbed screen lists other patients: G-9's result is pass false
 #   identity-differs   the judge's served template and image are not the pinned ones: 06-g1 says so (pass false)
+#   build-validation   validation mode's build: a THROWAWAY key made on the VM (the real sign_bundle.py keygen), the
+#                      vendor key never read, verified with the throwaway public key, uploaded beside the bundle,
+#                      records/bundle.json says "not a release"
+#   acc                validation mode: install.sh --answers makes the box VALIDATION (its printed admin password
+#                      redacted), then the accuracy group on three tiny synthetic sets built by the REAL item builder
+#                      (two screened, one compile-only): the limits set and recorded, the routes probed, the feeds
+#                      merged and ingested, FEAS/APPROVE/SCREEN by mail per protocol, the first protocol of each set
+#                      refused by the PHI tripwire and counted as such, each set uploaded as it finished; then scored
+#                      outside the box (tools/box_run.py acc-score) through the pseudonym map
+#   acc-preempt        as acc, cut by a pre-emption in the middle of the first set: the next boot keeps the finished
+#                      steps and protocols, waits for the jobs already started, never mails a protocol twice
+#   acc-blocked        the box's gateway would refuse the screen's judge call (today's VALIDATION ceiling): the run
+#                      stops at 52-acc-routes with the reason, before any data is fetched
 # Needs: bash, python3 (with PyYAML), the repo's venv (.venv: cryptography, the console), curl, openssl, git, make,
 # tar, setsid. Evidence stays in $TB_BOXRUN_REHEARSAL_DIR/<case>/ (default /tmp/tb-boxrun-rehearsal).
 # Ports: one free local port per case for the door and one for the console (asked of the kernel), never a fixed
@@ -53,7 +66,7 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
-     refused-rehearsal wizard-refused oom list-differs identity-differs)
+     refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -163,7 +176,8 @@ PY
 build_setup() {  # build: a small git repository as the release commit, its git bundle in the bucket
   local r="$S/srcrepo"
   mkdir -p "$r/trialbox/tools"
-  cp "$ROOT/tools/verify_update.py" "$ROOT/tools/update_status.py" "$ROOT/tools/host_tree.py" "$r/trialbox/tools/"
+  cp "$ROOT/tools/verify_update.py" "$ROOT/tools/update_status.py" "$ROOT/tools/host_tree.py" "$ROOT/tools/sign_bundle.py" \
+    "$r/trialbox/tools/"
   : > "$r/trialbox/tools/__init__.py"
   cp "$V/trialbox-host.tar" "$S/host-for-build.tar"
   # the stand-in targets (a recipe line starts with a tab)
@@ -194,6 +208,27 @@ EOS
   m tb-src gs://tb-runs/r2/src.bundle; m tb-commit "$(git -C "$r" rev-parse HEAD)"
   m tb-release-id 2026.11-r; m tb-release-seq 3; m tb-vendor-key-secret vendor-key; m tb-vendor-key-version 1
   m tb-out gs://tb-runs/r2/out; m tb-build-root "$S/vm/build"
+}
+acc_setup() {  # validation mode and the acc group: the synthetic site's answers (YAML), lane G's tools in the bucket
+  m tb-mode validation; m tb-acc-sets "jmed:3 sigir:3 tfda:2"; m tb-acc-job-minutes 2
+  # the committed synthetic site's answers, as the driver hands them over (no Secret Manager in validation mode)
+  cp "$ROOT/deploy/gcp/validation-site-answers.yaml" "$S/metadata/tb-site-answers"
+  rm -f "$S/metadata/tb-answers-secret" "$S/metadata/tb-answers-version"
+  mkdir -p "$BKT/boxruns/rehearsal-$CASE"
+  (cd "$ROOT" && tar -czf "$BKT/boxruns/rehearsal-$CASE/acc-tools.tgz" tools/__init__.py tools/public_accuracy \
+     tools/public_site.py tools/fetch_pinned.py eval/criterion_ml)
+  m tb-acc-tools "gs://tb-runs/boxruns/rehearsal-$CASE/acc-tools.tgz"
+}
+acc_collect() {  # as the driver's --collect: each set's upload fetched, unpacked and scored outside the box
+  local f
+  mkdir -p "$S/evidence/collected/acc"
+  for f in "$BKT/boxruns/rehearsal-$CASE/acc/"*.tgz; do
+    [ -f "$f" ] || continue
+    mkdir -p "$S/evidence/collected/acc/$(basename "$f" .tgz)"
+    tar -xzf "$f" -C "$S/evidence/collected/acc/$(basename "$f" .tgz)"
+  done
+  (cd "$ROOT" && env PYTHONPATH=libs:services:. TB_ENV=DEV "$VPY" -m tools.box_run acc-score "$S/evidence/collected") \
+    > "$S/evidence/acc-score.json"
 }
 boot() { "$HERE/standins/boot.sh" "$S"; }
 RES() { echo "$BKT/boxruns/rehearsal-$CASE/results.tgz"; }
@@ -250,6 +285,16 @@ for CASE in "${CASES[@]}"; do
     oom) setup "$CASE" "start g6" oom-ingest; start_setup; boot; to_the_end ;;
     list-differs) setup "$CASE" "start g9" list-differs; start_setup; boot; power_cycle; to_the_end ;;
     identity-differs) setup "$CASE" start template-differs image-differs; start_setup; boot; to_the_end ;;
+    build-validation)
+      setup "$CASE" build; build_setup; m tb-mode validation; rm -f "$S/metadata/tb-vendor-key-secret" "$S/metadata/tb-vendor-key-version"
+      boot; to_the_end ;;
+    acc) setup "$CASE" "start acc" acc-tripwire; start_setup; acc_setup; boot; to_the_end; acc_collect ;;
+    acc-preempt)
+      setup "$CASE" "start acc"; echo 1.5 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup; boot
+      wait_for "the first set's second protocol to be mailed" grep -q '^acc-send FEAS MNCT90000002 new$' "$S/calls.log"
+      "$HERE/standins/reboot.sh" "$S"            # a pre-emption in the middle of the set
+      to_the_end; acc_collect ;;
+    acc-blocked) setup "$CASE" "start acc" acc-blocked; start_setup; acc_setup; boot; to_the_end ;;
     *) die "no such case: $CASE" ;;
   esac
   python3 "$HERE/check.py" "$CASE" "$S" || die "case $CASE: the checks above"

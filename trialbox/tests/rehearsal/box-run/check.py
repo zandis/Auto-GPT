@@ -71,8 +71,11 @@ for f in secrets:
             needles.append(text.split()[-1])
         elif "PRIVATE KEY" in text:
             needles.append("".join(text.strip().splitlines()[1:-1]))  # the key's base64 body
-        else:
+        elif text.lstrip().startswith("{"):
             needles.append(json.loads(text)["password"])
+# validation mode: the first administrator's password and enrolment code the installer prints once (stand-in values)
+if (S / "metadata" / "tb-mode").exists() and (S / "metadata" / "tb-mode").read_text() == "validation":
+    needles += ["standin-admin-pw-0001", "ENROL-424242-STANDIN"]
 leaked = [
     str(p)
     for p in [*R.rglob("*"), *S.glob("boot-*.out"), S / "vm" / "serial.log", *(S / "vm" / "log").glob("*")]
@@ -302,6 +305,96 @@ if case == "identity-differs":
         "06-g1: a template and an image that are not pinned: pass false",
     )
     ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "a test rule, not a stop: the run went on")
+
+# ---------------------------------------------------------------- validation mode and the accuracy group
+if case == "build-validation":
+    ok(list(parts) == BUILD and all(p["status"] == "done" for p in parts.values()), "the seven build steps, done")
+    rec = json.loads((R / "records" / "bundle.json").read_text())
+    ok(
+        rec["mode"] == "validation" and rec["not_a_release"] is True and "throwaway" in rec["signed_with"],
+        "records/bundle.json: validation mode, NOT a release, signed with a throwaway key",
+    )
+    ok(not any(x.startswith("secrets versions access") for x in gcloud), "the vendor key was never read")
+    ok((BKT / "r2" / "out" / "throwaway-signing-key.pub").exists(), "the throwaway public key beside the bundle")
+    v = parts["b06-verify"]["detail"]
+    ok(v["refused"] == [] and bool(v.get("key_id")), "b06: the signature verifies with the throwaway public key")
+    ok(parts["b05-sign"]["detail"]["key_left_on_tmpfs"] is False, "the throwaway key was gone after signing")
+    ok("TB-THROWAWAY-KEY" in (R / "logs" / "b05-sign.log").read_text(), "the signing log says the key is throwaway")
+
+ACC_SETS = ["jmed", "sigir", "tfda"]
+ACC = ["50-acc-tools", "51-acc-settings", "52-acc-routes", "53-acc-data", "54-acc-ingest",
+       "60-acc-jmed", "61-acc-sigir", "62-acc-tfda", "79-acc-result"]  # fmt: skip
+if case in ("acc", "acc-preempt", "acc-blocked"):
+    ok(keys(START) and all(parts[n]["status"] == "done" for n in START), "the start steps, done, in validation mode")
+    ok(parts["03-wizard"]["detail"].get("environment") == "VALIDATION", "03: the box says VALIDATION (deploy/.env)")
+    ok(calls["install"] == 1 and calls["hostcheck"] == 0, "install.sh ran once, box-install.sh never")
+    ok("[redacted]" in (R / "logs" / "02-install.log").read_text(), "the installer's printed password was redacted")
+    ok(
+        "deploy/gcp/validation-site-answers.yaml" in json.dumps(parts["02-install"]["detail"])
+        and not any(x.startswith("secrets versions access") for x in gcloud),
+        "the synthetic site's committed answers, no secret read",
+    )
+    ok(
+        parts["11-resolve"]["detail"].get("production_resolves_promoted") is True,
+        "VALIDATION resolves the promoted pair",
+    )
+    st_ = parts["51-acc-settings"]["detail"]
+    ok(
+        st_["limits"]["after"]["rate_limits_per_day"] == {"FEAS": 0, "SCREEN": 0}
+        and st_["limits"]["after"]["mail_per_recipient_per_day"] == "0"
+        and st_["limits"]["before"]["rate_limits_per_day"] == {},
+        "51: the site's daily limits off for the run, recorded before and after",
+    )
+    ok(st_["tripwire"].startswith("on: no setting used"), "51: the tripwire stays on, and the record says so")
+if case in ("acc", "acc-preempt"):
+    ok(list(parts) == START + ACC, f"every step of start and acc in order ({len(parts)} parts)")
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the run ended complete")
+    rt = json.loads((R / "records" / "acc-routes.json").read_text())
+    ok(
+        rt["routes_ok"] is True and rt["environment"] == "VALIDATION" and "judge@5" in rt["served_prompts"],
+        "52: the box routes the run's calls; the record names the environment and the served prompts",
+    )
+    ok("hash stand-in" in rt["embedder"], "52: the embedder SCREEN ranks with is recorded (#589 not in)")
+    for n in ACC_SETS:
+        ok((BKT / "boxruns" / f"rehearsal-{case}" / "acc" / f"{n}.tgz").exists(), f"{n}: uploaded as it finished")
+    sent = [c for c in calls if c.startswith("acc-send ")]
+    news = Counter(" ".join(c.split()[1:3]) for c in sent if c.endswith(" new"))
+    ok(all(v == 1 for v in news.values()), "no request mailed twice as a new job (a re-sent mail is the same job)")
+    ok(
+        sum(1 for k in news if k.startswith("FEAS ")) == 5,
+        "every protocol's FEAS once: 2 (jmed) + 2 (sigir) + 1 (tfda)",
+    )
+    ok(sum(1 for k in news if k.startswith("SCREEN ")) >= 2, "the screened sets' protocols were screened")
+    ok(not any(k.startswith(("APPROVE TF", "SCREEN TF", "APPROVE F", "SCREEN F")) for k in news),
+       "the compile-only set was compiled, never approved or screened")  # fmt: skip
+    score = json.loads((S / "evidence" / "acc-score.json").read_text())
+    ok(set(score) == set(ACC_SETS) and all(v["scored"] for v in score.values()), "every set scored outside the box")
+    pairs = json.loads((S / "evidence" / "collected" / "acc" / "jmed" / "score.json").read_text())["pairs"]["rows"]
+    ok(
+        sum(r["excluded"] + r["listed"] + r["open"] for r in pairs) > 0,
+        "the answers joined the gold through the box's pseudonyms (not all unanswered)",
+    )
+if case == "acc":
+    for n in ("jmed", "sigir"):
+        c = parts[f"6{ACC_SETS.index(n)}-acc-{n}"]["detail"]["counts"]
+        ok(
+            c["refused_by_tripwire"] == 1
+            and c.get("screened") == 1
+            and parts[f"6{ACC_SETS.index(n)}-acc-{n}"]["pass"] is False,
+            f"{n}: one protocol refused by the PHI tripwire, counted (a product defect), the other screened",
+        )
+    ok(parts["79-acc-result"].get("pass") is False, "79: the accuracy group says not every protocol went through")
+if case == "acc-preempt":
+    p = parts["60-acc-jmed"]
+    ok(p["attempts"] == 2 and len(p["boots"]) == 2, "the cut set ran again in the next boot")
+    ok(all(parts[n]["attempts"] == 1 for n in ACC[:5]), "the steps before it were kept")
+    ok(calls["install"] == 1, "the installer was kept")
+    ok(parts["79-acc-result"].get("pass") is True, "every protocol went through")
+if case == "acc-blocked":
+    ok(list(parts) == START + ACC[:3] and parts["52-acc-routes"]["status"] == "stop", "stopped at 52-acc-routes")
+    ok("TB-ACC-BLOCKED" in parts["52-acc-routes"]["stop"]["reason"] and "ceiling D2" in parts["52-acc-routes"]["stop"]["reason"],
+       "the stop names the gateway's reason (a product defect, not worked around)")  # fmt: skip
+    ok(not any(c.startswith("acc-data") for c in calls), "no data fetched or built")
 
 print(f"check {case}: {'FAILED ' + str(len(fails)) if fails else 'passed'}")
 sys.exit(1 if fails else 0)

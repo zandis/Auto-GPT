@@ -17,6 +17,7 @@ env PATH="$BR_HERE/shims:$PATH" TB_BOXRUN_ROOT="$BR_S/vm/tb" TB_BOXRUN_LOGDIR="$
   TB_BOX_NO_ROOT=1 TB_BOX_HARDWARE="$BR_S/hardware.json" TB_BOX_INSTALL="$BR_HERE/standins/install-inner.sh" \
   TB_BOX_PY="$TBROOT/.venv/bin/python" TB_BOX_COMPOSE="$BR_HERE/standins/compose-up.sh" \
   TB_BOX_HOST_CHECK="$BR_HERE/standins/host-check.sh" TB_FIRSTRUN_HOST_DIR="$BR_S/vm/firstrun" TB_BOX_POLL_S=0.2 \
-  TB_SYSTEMD=0 \
+  TB_SYSTEMD=0 TB_BOXRUN_INSTALL="$BR_HERE/standins/install-validation.sh" TB_BOXRUN_MOUNT="$BR_HERE/standins/bind-models.sh" \
+  TB_BOXRUN_TODAY=2026-11-20 TB_BOXRUN_ACC_PY="$BR_HERE/standins/accpy" \
   setsid bash -c 'echo $$ > "$BR_S/vm.pgid"; exec bash "$1"' _ "$TBROOT/deploy/gcp/box-install-run.sh" \
   > "$BR_S/boot-$n.out" 2>&1 < /dev/null &

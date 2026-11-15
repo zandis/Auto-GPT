@@ -9,7 +9,11 @@ Two ways in:
                                      trialbox (eval qualify, doctor, selftest, backup-nightly)
   box.py <action> ARGS               what the docker shim forwards: compose ps / exec / restart / stop / start, the
                                      feed's docker run, an interruption
-Knobs ($BR_S/knobs): fail-qualify, qualify-seconds, oom-ingest, list-differs, doctor-unexpected, job-seconds.
+Knobs ($BR_S/knobs): fail-qualify, qualify-seconds, oom-ingest, list-differs, doctor-unexpected, job-seconds; the
+accuracy group's: acc-job-seconds (how long a FEAS, APPROVE or SCREEN job runs), acc-tripwire (the first protocol of
+each screened set is refused by the PHI tripwire, as the gateway refused public protocols in the dry run),
+acc-blocked (the gateway's routes refuse the screen's judge call: the VALIDATION ceiling of today's tree),
+tripwire-setting (the tree declares a tripwire setting).
 """
 
 import json
@@ -185,8 +189,11 @@ def snippet(svc: str, text: str) -> int:
 
 
 def compose(argv: list[str]) -> int:
-    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start"))
+    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up"))
     cmd, rest = argv[i], argv[i + 1 :]
+    if cmd == "up":  # the stack recreated on new settings (the acc group's settings step)
+        called("compose-up " + " ".join(a for a in rest if not a.startswith("-")))
+        return 0
     if cmd == "ps":
         return ps(rest)
     if cmd in ("restart", "stop", "start"):
@@ -206,6 +213,8 @@ def compose(argv: list[str]) -> int:
     svc, prog = rest[0], rest[1:]
     if prog == ["python", "-"]:
         return snippet(svc, sys.stdin.read())
+    if prog[:2] == ["python", "-"]:  # the accuracy run's onbox.py: its first line names it, its command follows
+        return onbox(svc, sys.stdin.read(), prog[2:])
     if prog[:3] == ["python", "-m", "adapter.cli"]:
         called("ingest")
         use("adapter", 3 << 30, 0.6)
@@ -244,6 +253,198 @@ def feed(argv: list[str]) -> int:
     called(f"feed {n}")
     print(json.dumps({"patients": n, "records_per_patient": 500, "notes_per_patient": 40}))
     return 0
+
+
+# ---------------------------------------------------------------- the accuracy group (onbox.py, the data, the limits)
+def acc_limits() -> int:
+    """settings.yaml's rate_limits_per_day for the run, as the image's python would write it (then --check)."""
+    lim = BOX / "limits.json"
+    before = jload(lim, {})
+    jsave(lim, {**before, "FEAS": 0, "SCREEN": 0})
+    called("acc-limits")
+    print({"before": before, "after": jload(lim, {})})
+    return 0
+
+
+def acc_data(argv: list[str]) -> int:
+    """`docker run ... -v <host>:/work ... python -m tools.public_accuracy fetch|build ...`: acc_fixture.py, with the
+    host folder in place of /work."""
+    import subprocess
+
+    work = next(
+        (x.split(":", 1)[0] for k, x in enumerate(argv) if k and argv[k - 1] == "-v" and x.endswith(":/work")), ""
+    )
+    i = argv.index("tools.public_accuracy")
+    rest = [work if x == "/work" else x for x in argv[i + 1 :]]
+    called("acc-data " + " ".join(rest[:3]))
+    fixture = Path(__file__).with_name("acc_fixture.py")
+    return subprocess.run([os.environ["TB_BOX_PY"], str(fixture), *rest], check=False).returncode
+
+
+def _env_of_box() -> str:
+    env = S / "box-root" / "deploy" / ".env"
+    vals = [x.split("=", 1)[1] for x in env.read_text().splitlines() if x.startswith("TB_ENV=")] if env.exists() else []
+    return vals[-1] if vals else "PRODUCTION"
+
+
+def _acc_job(kind: str, rs: str, mid: str) -> dict[str, Any]:
+    """A job of the stand-in box for a mailed request: one per message id (a mail delivered twice is one job)."""
+    by_mid = jload(BOX / "acc-mids.json", {})
+    if mid in by_mid:
+        called(f"acc-send {kind} {rs} dup")
+        return jload(BOX / "acc-jobs" / f"{by_mid[mid]}.json", {})
+    n = len(by_mid) + 1
+    first = sorted(jload(BOX / "acc-first.json", {}).values())
+    job = {"id": f"acc-job-{n}", "kind": kind, "ruleset": rs, "start": time.time(), "version": "1.0.0"}
+    if kind == "FEAS" and flag("acc-tripwire") and rs in first:
+        job["fail"] = (
+            "ir_extract: the model did not return usable criteria (tb_refusal phi_tripwire: PHI tripwire hit on a "
+            "D1 call (PASSPORT)); send the protocol again"
+        )
+    by_mid[mid] = job["id"]
+    jsave(BOX / "acc-mids.json", by_mid)
+    jsave(BOX / "acc-jobs" / f"{job['id']}.json", job)
+    called(f"acc-send {kind} {rs} new")
+    return job
+
+
+def _acc_state(job: dict[str, Any]) -> tuple[str, Any]:
+    if time.time() - job["start"] < float(knob("acc-job-seconds", "0.3")):
+        return "running", None
+    if job.get("fail"):
+        return "failed", job["fail"]
+    return ("awaiting_approval" if job["kind"] == "FEAS" else "done"), None
+
+
+def _acc_outputs(job: dict[str, Any]) -> dict[str, bytes]:
+    import io
+    import zipfile
+
+    rs, v = job["ruleset"], job["version"]
+    if job["kind"] == "FEAS":
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for i, (kind, text) in enumerate((("inclusion", "Type 2 diabetes"), ("exclusion", "Pregnancy")), 1):
+                z.writestr(f"{rs}/ir/{kind[:3]}-{i}.json", json.dumps(
+                    {"id": f"{kind[:3]}-{i}", "kind": kind, "class": "note", "text": {"source": text},
+                     "logic": {"domain": "condition"}}))  # fmt: skip
+        return {
+            f"review_{rs}_v{v}_r1.xlsx": b"PK standin review workbook",
+            f"ruleset_{rs}_v{v}-draft.zip": buf.getvalue(),
+        }
+    if job["kind"] == "SCREEN":
+        import csv
+
+        pract = job.get("pract", "")
+        appts = S / "feed" / "acc" / "appointment.csv"
+        mrns = sorted({r["mrn"] for r in csv.DictReader(appts.open(encoding="utf-8-sig")) if r["staff_id"] == pract})
+        rows, excl = [], []
+        for i, m in enumerate(mrns):
+            pid = _pid(m)
+            crit = [{"id": "exc-2", "verdict": "fail" if i % 2 else "pass", "basis": "pair",
+                     "evidence": {"quote": "pregnant"} if i % 2 else None}]  # fmt: skip
+            (excl if i % 2 else rows).append({"pid": pid, "tier": "excluded" if i % 2 else "high", "criteria": crit,
+                                              "actions": []})  # fmt: skip
+        return {f"candidate_list_{rs}_v{v}.json": json.dumps({"rows": rows}).encode(),
+                f"excluded_{rs}_v{v}.json": json.dumps({"rows": excl}).encode()}  # fmt: skip
+    return {}
+
+
+def _pid(mrn: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(f"standin-site-key:{mrn}".encode()).hexdigest()[:32]
+
+
+def onbox(svc: str, text: str, args: list[str]) -> int:
+    """tools/public_accuracy/onbox.py piped into a container: the stand-in answers each command as the box would."""
+    import base64
+
+    head = text.lstrip().splitlines()[0] if text.strip() else ""
+    if head != "# tb-boxrun: acc" or not args:
+        print(f"box stand-in: not onbox.py for {svc}", file=sys.stderr)
+        return 2
+    cmd = args[0]
+    a = json.loads(base64.b64decode(args[1]).decode()) if len(args) > 1 else {}
+    called(f"onbox {svc} {cmd}")
+    if cmd == "env":
+        lim = jload(BOX / "limits.json", {})
+        print(json.dumps({"environment": _env_of_box(), "senders": ["crc1@hospa.test"], "reviewers": ["pi@hospa.test"],
+                          "intake": "trialbox@hospa.test", "authserv": "mx.acc.invalid", "require_spf_dkim": True,
+                          "rate_limit_per_sender_per_day": 20, "rate_limits_per_day": lim,
+                          "mail_per_recipient_per_day": "0" if lim else "",
+                          "tripwire_settings": {"TB_GATEWAY_TRIPWIRE": ""} if flag("tripwire-setting") else {},
+                          "data_class": ""}))  # fmt: skip
+        return 0
+    if cmd == "routes":
+        env = _env_of_box()
+        rows = []
+        for role, dc in a["calls"]:
+            if role == "judge" and flag("acc-blocked"):
+                rows.append({"role": role, "class": dc, "routes": False,
+                             "why": f"{dc} data is not allowed in the {env} environment (ceiling D2)"})  # fmt: skip
+            else:
+                b = [{"alias": "j-workhorse", "build": "standin-judge-1", "routes": True}]
+                if role == "judge":
+                    b.append({"alias": "v-verifier", "build": "standin-verifier-1", "routes": True})
+                rows.append({"role": role, "class": dc, "route": "standin", "builds": b, "routes": True})
+        print(json.dumps({"environment": env, "profile": "P-PRO6000", "routes": rows,
+                          "served_prompts": ["ir_extract@3", "judge@5"] if env != "PRODUCTION" else ["ir_extract@2", "judge@4"]}))  # fmt: skip
+        return 0
+    if cmd == "embedder":
+        print(json.dumps({"embedder": "hash stand-in (HashEmbedder): S2b cannot rank; #589 is not in this build",
+                          "hash_in_screen": True}))  # fmt: skip
+        return 0
+    if cmd == "send":
+        subj = str(a["subject"]).split()
+        kind, rs = subj[0], subj[1]
+        firsts = jload(BOX / "acc-first.json", {})
+        if kind == "FEAS":
+            st = rs.rstrip("0123456789")  # the set's prefix + NCT: the first protocol of each set
+            firsts.setdefault(st[:1], rs)
+            jsave(BOX / "acc-first.json", firsts)
+        job = _acc_job(kind, rs, str(a["mid"]))
+        for opt in subj[2:]:
+            if opt.startswith("pract="):
+                job["pract"] = opt.split("=", 1)[1]
+                jsave(BOX / "acc-jobs" / f"{job['id']}.json", job)
+        print(json.dumps({"folder": "Processed", "action": "job", "job": job["id"], "reason": ""}))
+        return 0
+    if cmd == "wait":
+        job = jload(BOX / "acc-jobs" / f"{a['job']}.json", None)
+        if job is None:
+            return 1
+        end = time.time() + float(a["timeout_s"])
+        while True:
+            state, err = _acc_state(job)
+            print(f"job {job['id']} {state}", flush=True)
+            if state in a["until"] or time.time() > end:
+                break
+            time.sleep(0.1)
+        outs = [{"filename": k, "key": f"standin/{k}"} for k in _acc_outputs(job)] if state != "running" else []
+        print(json.dumps({"job": job["id"], "type": job["kind"], "ruleset": job["ruleset"],
+                          "ruleset_version": job["version"], "state": state, "error": err, "outputs": outs,
+                          "metrics": {}, "waited": "ended" if state in a["until"] else "timeout"}))  # fmt: skip
+        return 0
+    if cmd == "fetch":
+        job = jload(BOX / "acc-jobs" / f"{a['job']}.json", {})
+        if job.get("fail"):
+            print(json.dumps({"job": a["job"], "files": {}}))
+            return 0
+        files = {k: base64.b64encode(v).decode() for k, v in _acc_outputs(job).items()
+                 if k.endswith(tuple(a["suffixes"])) and k.startswith(tuple(a.get("prefixes") or ("",)))}  # fmt: skip
+        print(json.dumps({"job": a["job"], "files": files}))
+        return 0
+    if cmd == "pidmap":
+        print(json.dumps({m: _pid(m) for m in a["mrns"]}))
+        return 0
+    if cmd == "audit":
+        n = len(jload(BOX / "acc-mids.json", {}))
+        print(json.dumps({"since": a.get("since"), "calls_by_prompt": {"ir_extract@3": n, "judge@5": 2 * n},
+                          "refusals": {"phi_tripwire": 1} if flag("acc-tripwire") else {}, "refusals_by_job": {}}))  # fmt: skip
+        return 0
+    print(f"box stand-in: onbox {cmd} is not rehearsed", file=sys.stderr)
+    return 2
 
 
 # ---------------------------------------------------------------- the box's tools
@@ -317,6 +518,10 @@ def main() -> int:
     if a[:1] == ["compose"]:
         return compose(a[1:])
     if a[:1] == ["run"]:
+        if "tools.public_accuracy" in a:
+            return acc_data(a[1:])
+        if any("settings_wizard" in x for x in a):
+            return acc_limits()
         return feed(a[1:])
     if a[:1] == ["interrupt"]:
         interrupt(a[1])
