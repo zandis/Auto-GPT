@@ -440,6 +440,9 @@ if [ -z "$TLS_HOST" ]; then
   echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
 else
   grep -q '^TB_TLS_MODE=.' deploy/.env || envset TB_TLS_MODE internal
+  # D-887: reached at https only, so the session cookie is Secure in every environment (doctor secure_cookie FAILs it
+  # off on VALIDATION); a value the site wrote is kept
+  grep -q '^TB_CONSOLE_SECURE_COOKIE=' deploy/.env || envset TB_CONSOLE_SECURE_COOKIE 1
 fi
 # SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"

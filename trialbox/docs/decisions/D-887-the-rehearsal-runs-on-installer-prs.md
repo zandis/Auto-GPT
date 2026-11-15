@@ -72,6 +72,12 @@
      a GPU, the shipped egress rules (no NET_ADMIN in its container), a TPM, the host's time sync, the systemd timers
      and an off-box audit anchor share. The doctor step names these last three (`clock`, `ops_runner`,
      `audit_heads`) as not reached by a rehearsal and fails on any other FAIL.
+   - Its sixth run (the first on VALIDATION) found two things every poc VALIDATION box would meet, the PoC VM
+     included: the install's host check FAILed `ops_runner` (a poc box installs no systemd units) and `audit_heads`
+     (no hospital share for the anchor folder), and `secure_cookie` (a box behind https left the cookie off outside
+     PRODUCTION). The first two are host facilities under the poc profile now, as the anchor mount was (a stale or
+     broken head where a folder is set stays a FAIL); install.sh sets `TB_CONSOLE_SECURE_COOKIE=1` on a box with
+     `TB_TLS_HOSTNAME`, keeping a value the site wrote.
 
 ## Test
 

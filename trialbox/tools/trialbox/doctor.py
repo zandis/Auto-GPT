@@ -1993,8 +1993,11 @@ TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
 # D-837: the checks of a host facility a plain VM has not got (the TPM-sealed keys, the off-box anchor folder): under
-# TB_HOST_PROFILE=poc on a box that is not PRODUCTION their FAIL is a WARN, and one line lists them
-HOST_FACILITY_CHECKS = ("key_custody", "anchor_mount")
+# TB_HOST_PROFILE=poc on a box that is not PRODUCTION their FAIL is a WARN, and one line lists them. D-887 (the box
+# rehearsal on VALIDATION): the ops runner's systemd timer (a poc box installs no units, TB_SYSTEMD=0) and a missing
+# anchor folder for the signed heads; a stale or broken head where a folder is set stays a FAIL
+HOST_FACILITY_CHECKS = ("key_custody", "anchor_mount", "ops_runner", "audit_heads")
+HOST_FACILITY_ONLY: dict[str, str] = {"audit_heads": "no anchor folder"}  # eased only when the FAIL says this
 
 
 def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
@@ -2004,7 +2007,13 @@ def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
 
     if environment_name(inp.env) == "PRODUCTION":
         return [*out, Check("host_profile", "FAIL", "TB_HOST_PROFILE=poc on a PRODUCTION box: never relaxed there")]
-    eased = [c.name for c in out if c.name in HOST_FACILITY_CHECKS and c.status == "FAIL"]
+    eased = [
+        c.name
+        for c in out
+        if c.name in HOST_FACILITY_CHECKS
+        and c.status == "FAIL"
+        and c.detail.startswith(HOST_FACILITY_ONLY.get(c.name, ""))
+    ]
     out = [replace(c, status="WARN", detail=f"{c.detail} [host profile poc]") if c.name in eased else c for c in out]
     said = ", ".join(eased) if eased else "none failed"
     return [*out, Check("host_profile", "WARN", f"host profile poc: host-facility checks as WARN: {said}")]
