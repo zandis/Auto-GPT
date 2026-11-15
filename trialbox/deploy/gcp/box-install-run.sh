@@ -533,8 +533,8 @@ d_models_place() {  # the site's weights in deploy/models, where install.sh pins
 d_acc_py() { (cd "$ACCT" && PYTHONPATH="$ACCT" ${TB_BOXRUN_ACC_PY:-python3} -m tools.public_accuracy "$@"); }
 d_acc_img() { docker run --rm --network none --user 0 -v "$ACCT:/acc" -w /acc -e PYTHONPATH=/acc "$@"; }
 d_recreate() { dc up -d --force-recreate --wait "$@"; }
-d_capture()  { box_tool serving_config capture --container "judge=$1" --container "verifier=$2" \
-                 --models-dir "$MODELS" --notes "$PROFILE profile: box run $RUN_ID" --out "$3"; }
+d_capture()  { box_tool serving_config capture --container "judge=$(cid "$JUDGE_S")" --container "verifier=$(cid "$VERIFIER_S")" \
+                 --models-dir "$MODELS" --notes "$PROFILE profile: box run $RUN_ID" --out "$1"; }   # $1 the record
 d_doctor()   { box_tool trialbox doctor --live --json --env-file "$BOXROOT/deploy/.env"; }
 d_healthy()  { dc ps --format '{{.Service}} {{.State}} {{.Health}}' | awk '$2 != "running" || ($3 != "" && $3 != "healthy") {bad=1} END {exit bad}'; }
 d_canary()   { box_tool trialbox selftest --deploy "$BOXROOT/deploy"; }
@@ -821,7 +821,10 @@ step_resolve() {
   note production_resolves_promoted true
 }
 cid() { dc ps -q "$1" 2>/dev/null | head -n 1; }
-wsl_kernel_into() {  # $1 a serving record; [$2 /proc/version, $3 the release]: wsl_kernel, the kernel when WSL2, else null
+wsl_kernel_into() {  # $1 a serving record (tb-serving-config/1) this script wrote; [$2 /proc/version, $3 the release]
+  # The record's wsl_kernel (the owner's ask of 2026-11-13, for another lane's version check): the kernel release
+  # (uname -r) when /proc/version or the release says WSL2 ("microsoft" or "WSL2"), else null. The schema's validate
+  # allows a field it does not name; nothing else of the record changes. A record that is not there is left alone.
   "${PY:-python3}" - "$1" "${2:-/proc/version}" "${3:-$(uname -r)}" <<'WSLPY'
 import json, os, re, sys
 rec_path, version_file, release = sys.argv[1], sys.argv[2], sys.argv[3].strip()
@@ -839,7 +842,7 @@ WSLPY
 }
 step_serving() {
   local s c pid
-  need "the serving capture" d_capture "$(cid "$JUDGE_S")" "$(cid "$VERIFIER_S")" "$REC/serving_config.json" || return 1
+  need "the serving capture" d_capture "$REC/serving_config.json" || return 1
   wsl_kernel_into "$REC/serving_config.json" >> "$STEP_LOG" 2>&1 || true
   for s in "$JUDGE_S" "$VERIFIER_S"; do
     c=$(cid "$s")
@@ -1114,7 +1117,7 @@ step_acc_routes() {
   acc_call gateway routes "{\"calls\": [[\"judge\", \"$jcls\"], [\"extract_criteria\", \"$ccls\"], [\"concept_select\", \"$ccls\"]]}" \
     > "$RUN/logs/acc-routes-gw.json" || { STOP="the gateway's routes cannot be read (onbox routes)"; return 1; }
   acc_call orchestrator embedder > "$RUN/logs/acc-embedder.json" || echo '{}' > "$RUN/logs/acc-embedder.json"
-  [ -s "$REC/serving_config.json" ] || d_capture "$(cid "$JUDGE_S")" "$(cid "$VERIFIER_S")" "$REC/serving_config.json" >> "$STEP_LOG" 2>&1
+  [ -s "$REC/serving_config.json" ] || d_capture "$REC/serving_config.json" >> "$STEP_LOG" 2>&1
   vm acc-routes "$RUN/logs/acc-routes-gw.json" "$RUN/logs/acc-embedder.json" --notes "$NOTES" > "$REC/acc-routes.json" \
     || { STOP="TB-ACC-BLOCKED: the box would refuse the run's calls in $(jget "$REC/acc-routes.json" environment): $(jget "$REC/acc-routes.json" blocked) (a product defect, not worked around)"; return 1; }
 }

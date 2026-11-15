@@ -42,9 +42,10 @@ def out(obj: Any) -> None:
 
 def _orch_get(path: str) -> Any:
     import httpx
+    from tb_common.config import get_config
     from tb_common.service_auth import auth_headers
 
-    url = os.environ.get("TB_ORCHESTRATOR_URL") or "http://orchestrator:8010"
+    url = get_config().env.orchestrator_url  # as the mail gateway's own job sink reaches the orchestrator
     r = httpx.get(f"{url.rstrip('/')}{path}", headers=auth_headers(), timeout=60)
     r.raise_for_status()
     return r.json()
