@@ -611,7 +611,11 @@ else
     orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
     || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 fi
-"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
+# T-695 (D-752, F-24): the wait for every service healthy, from the compose files' health checks (start period, then
+# the retries); the stop, from the longest stop grace. Without PyYAML on the host, the waits of before (900 s, 300 s).
+BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" || BOOT_WAIT=900
+STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
+"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
@@ -648,7 +652,9 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
   if [ "$EGRESS_OK" = 1 ]; then
     say "systemd units (egress at boot, the stack after a restart, watchdog)"
     for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
-      sed "s#@TB_ROOT@#$ROOT#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
+      sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_BOOT_WAIT@#${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}#g" \
+          -e "s#@TB_BOOT_LIMIT@#$(( ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} + 300 ))#g" \
+          -e "s#@TB_STOP_LIMIT@#$(( STOP_WAIT + 10 ))#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
     done
     systemctl daemon-reload

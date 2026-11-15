@@ -157,6 +157,8 @@ class FakeRun:
             return "db\norchestrator\nconsole\n"
         if argv[:3] == ["docker", "inspect", "-f"]:
             return "true\n"
+        if "FROM orch.jobs" in line:  # T-695: no job running, so the update may stop the services
+            return "0\n"
         return ""
 
 
