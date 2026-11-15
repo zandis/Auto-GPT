@@ -99,16 +99,22 @@ if [ ${#IMAGES[@]} -eq 0 ]; then
   # every image the box's compose file runs, ours included, from the rendered config (profiles stub and gpu; not the
   # test file: no test mail server in a hospital bundle, OPS-017). An empty .env of its own: on a vendor machine
   # without deploy/.env compose renders nothing, and the bundle silently had no third-party image (D-176)
-  # The identity overlay too (Caddy, Authelia): install.sh adds it on every PRODUCTION box (T-632, D-382); its host
-  # name is a placeholder here, only the images are read
-  mkdir -p "$STAGE/cfg" && echo "TB_TLS_HOSTNAME=bundle.invalid" > "$STAGE/cfg/.env"
+  # The identity overlay too (Caddy, Authelia): install.sh adds it on every PRODUCTION box (T-632, D-382).
+  # D-828: every variable the files require (${VAR:?...}: TB_TLS_HOSTNAME, TB_TZ, ...) gets a placeholder, only the
+  # images are read; a failed render shows compose's own error
+  mkdir -p "$STAGE/cfg"
+  grep -ohE '\$\{[A-Za-z0-9_]+:?\?' "$ROOT/deploy/docker-compose.yml" "$ROOT/deploy/docker-compose.identity.yml" \
+    | sed -E 's/^\$\{//; s/:?\?$//' | sort -u | while IFS= read -r var; do
+        case "$var" in TB_TZ) echo "TB_TZ=UTC" ;; *) echo "$var=bundle.invalid" ;; esac
+      done > "$STAGE/cfg/.env"
   while IFS= read -r img; do
     case "$img" in trialbox-*) IMAGES+=("$img") ;; *) [ "$THIRD" = 1 ] && IMAGES+=("$img") ;; esac
   done < <(docker compose --project-directory "$STAGE/cfg" -f "$ROOT/deploy/docker-compose.yml" \
              -f "$ROOT/deploy/docker-compose.identity.yml" \
-             --profile stub --profile gpu --profile oidc config --images 2>/dev/null | sort -u)
+             --profile stub --profile gpu --profile oidc config --images 2>"$STAGE/compose.err" | sort -u)
   case " ${IMAGES[*]-} " in *" trialbox-py:"*) ;; *)
-    echo "make_bundle: compose listed no trialbox-py image (docker compose config)" >&2; exit 2 ;; esac
+    echo "make_bundle: compose listed no trialbox-py image (docker compose config):" >&2
+    cat "$STAGE/compose.err" >&2; exit 2 ;; esac
   if [ "$THIRD" = 1 ]; then
     n3=0; for img in "${IMAGES[@]}"; do case "$img" in trialbox-*) ;; *) n3=$((n3 + 1)) ;; esac; done
     [ "$n3" -gt 0 ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
