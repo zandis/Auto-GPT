@@ -20,8 +20,8 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from tests.console.test_console_app import ADMIN_PW
 from tests.console.test_no_one_holds_both_factors import (
-    ADMIN_PW,
     CRC_PW,
     STEWARD_PW,
     _add,
