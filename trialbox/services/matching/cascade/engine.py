@@ -437,8 +437,8 @@ class _Run:
     def s1(self, idx: list[date]) -> list[CriterionIR]:
         applied = self.applied()
         scope = [t.pid for t in self.traces.values() if t.in_scope]
-        if not applied:
-            raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
+        # A-NOTES-ONLY: a ruleset with no coded criterion is screened (lane G's public sets): the SQL still lists each
+        # in-scope patient alive at each index date, every patient passes S1 at its latest one, and the notes decide
         # D-275: SQL approved before the unit / sex / order-date rules runs guarded by them (unknown on a difference)
         table = self.lake.query(safe_sql(self.rs), [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
         # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
