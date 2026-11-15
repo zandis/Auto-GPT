@@ -474,7 +474,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "cohort_rulesets": [],
         "smtp_host": "",
         "imap_host": "",
-        "mta_authserv_id": a.mta_authserv_id,  # D-796: the owner's answer; empty: mail stays closed (D-369)
+        "mta_authserv_id": a.mta_authserv_id,  # D-825: the owner's answer; empty: mail stays closed (D-369)
         "tls_hostname": a.hostname,
         # NEW-DIN-3 (D-579): the first-run page's answer, once it has the field; empty: the wizard decides and warns.
         # The pattern that goes with it: the page asks the format once, not a regular expression too

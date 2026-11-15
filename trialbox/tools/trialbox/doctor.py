@@ -348,7 +348,7 @@ def check_sae_mailbox(inp: DoctorInputs) -> Check:
     )
     return Check("sae_mailbox", "WARN", why)
 def check_mail_auth(inp: DoctorInputs) -> Check:
-    """D-796 (D-369): the mail gateway trusts sender results only from the MTA ``TB_MAIL_AUTHSERV_ID`` names; empty, it
+    """D-825 (D-369): the mail gateway trusts sender results only from the MTA ``TB_MAIL_AUTHSERV_ID`` names; empty, it
     refuses every request mail (fails closed). WARN on a site box (VALIDATION, PRODUCTION), never a FAIL: a box
     without mail is a box, and the refusal is the safe side."""
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
@@ -360,7 +360,7 @@ def check_mail_auth(inp: DoctorInputs) -> Check:
         "mail_auth",
         "WARN",
         "no TB_MAIL_AUTHSERV_ID: every mailed FEAS or SCREEN request is refused until the "
-        "hospital MTA's authserv-id is set (the box answers' mta_authserv_id, or deploy/.env; D-369, D-796)",
+        "hospital MTA's authserv-id is set (the box answers' mta_authserv_id, or deploy/.env; D-369, D-825)",
     )
 
 

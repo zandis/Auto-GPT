@@ -1,4 +1,4 @@
-"""BOX-MAIL-ID (D-796), the owner's blocker 9 of 2026-11-15: a box made by the wizard can have a mail identity.
+"""BOX-MAIL-ID (D-825), the owner's blocker 9 of 2026-11-15: a box made by the wizard can have a mail identity.
 
 The mail gateway trusts an Authentication-Results header only from the hospital MTA it names
 (``TB_MAIL_AUTHSERV_ID``, D-369, SEC-11): empty, every mailed FEAS or SCREEN is refused (fails closed). A box's plan

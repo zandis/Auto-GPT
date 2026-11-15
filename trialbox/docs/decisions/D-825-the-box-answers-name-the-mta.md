@@ -1,8 +1,8 @@
-# D-796 A box's answers can name the hospital MTA; left empty, mail stays closed and doctor says so
+# D-825 A box's answers can name the hospital MTA; left empty, mail stays closed and doctor says so
 
 - **Task:** BOX-MAIL-ID, the owner's blocker 9 of 2026-11-15 (a box made by the wizard has no mail identity, so
   every mailed FEAS or SCREEN is refused); the integrator accepted lane D's proposal on #639
-- **PR:** this branch (`agent/BOX-MAIL-ID-the-box-answers-name-the-mta`), stacked on BOX-VALIDATION (D-793)
+- **PR:** this branch (`agent/BOX-MAIL-ID-the-box-answers-name-the-mta`), stacked on BOX-VALIDATION (D-822)
 - **Date:** 2026-11-15
 - **Status:** accepted
 - **Builds on:** D-369 (SEC-11: the mail gateway trusts sender results only from the MTA it names; empty: fails closed)
