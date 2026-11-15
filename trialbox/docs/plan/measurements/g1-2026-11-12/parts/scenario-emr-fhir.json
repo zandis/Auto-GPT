@@ -1,0 +1,234 @@
+{
+ "stages": [
+  {
+   "name": "FHIR: bulk export in, chart numbers out, the funnel",
+   "ok": true,
+   "seconds": 9.1,
+   "checks": [
+    [
+     "the export carries chart numbers, names and phones, as an EMR's does",
+     true,
+     "15419"
+    ],
+    [
+     "every resource of the export is read",
+     true,
+     "{'Patient': (500, 500), 'Encounter': (3397, 3397), 'Condition': (1398, 1398), 'Observation': (3397, 3397), 'MedicationRequest': (4483, 4483), 'DocumentReference': (875, 875)}"
+    ],
+    [
+     "no chart number, name or phone in the lake",
+     true,
+     "[]"
+    ],
+    [
+     "the same pseudonyms as the hospital feed (joins by pseudonym)",
+     true,
+     "0"
+    ],
+    [
+     "FEAS start, age and gout steps = the generator's recount",
+     true,
+     "{'want': {'start': 500, 'GZQO-INC-01': 484, 'GZQO-INC-02': 144}, 'got': {'start': 500, 'GZQO-INC-01': 484, 'GZQO-INC-02': 144}}"
+    ],
+    [
+     "the whole funnel equals the CSV path's",
+     true,
+     "{'start': 500, 'GZQO-INC-01': 484, 'GZQO-INC-02': 144, 'GZQO-INC-03': 70, 'GZQO-INC-04': 51, 'GZQO-INC-06': 20, 'GZQO-INC-08': 14, 'GZQO-INC-09': 14, 'GZQO-EXC-01': 14, 'GZQO-EXC-02': 12, 'GZQO-EXC-03': 11, 'GZQO-EXC-04': 9, 'GZQO-EXC-05': 7, 'GZQO-EXC-06': 5, 'GZQO-EXC-07': 4, 'GZQO-EXC-08': 4, 'GZ"
+    ]
+   ],
+   "shot": "scenario-emr-fhir-00.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": "ja"
+  },
+  {
+   "name": "FHIR: screening with the run's model",
+   "ok": true,
+   "seconds": 252.9,
+   "checks": [
+    [
+     "SCREEN GZQO ran on this path's data",
+     true,
+     "('done', None)"
+    ],
+    [
+     "SCREEN funnel never grows",
+     true,
+     "{'S0': 311, 'S1': 8, 'S3': 8, 'S4': 7}"
+    ],
+    [
+     "no false model exclusion against the generator's note truth",
+     true,
+     "[{'pid': '0d445f7540', 'criteria': ['GZQO-INC-05'], 'truth': {'GZQO-INC-05': 'no'}, 'correct': True}]"
+    ],
+    [
+     "the pair judged: judge and verifier both named, notes may exclude",
+     true,
+     "{'configured_note_block': 'both_agree', 'disagreements': 0, 'failures': 0, 'judge_model': 'local/gemma-4-26b-a4b-nvfp4', 'may_block': True, 'mode': 'agreement', 'note_block': 'both_agree', 'note_block_code': 'ok', 'note_block_reason': 'judge and verifier must both say fail', 'verifier_model': 'local"
+    ],
+    [
+     "FHIR-01: SCREEN has patients in scope on the FHIR path (S0 > 0, as on the SS-MIX2 path): every appointment's practitioner is in the practitioner table",
+     true,
+     "S0 = 311; appointment practitioners found in the practitioner table: 8 of 8"
+    ]
+   ],
+   "shot": "scenario-emr-fhir-01.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": "ja"
+  }
+ ],
+ "scenario": {
+  "input": "FHIR bulk export of 500 patients (15,419 resources, NDJSON)",
+  "counts": {
+   "Appointment": 317,
+   "Claim": 80,
+   "ClaimResponse": 80,
+   "Condition": 1398,
+   "Consent": 318,
+   "Coverage": 500,
+   "DiagnosticReport": 59,
+   "DocumentReference": 875,
+   "Encounter": 3397,
+   "MedicationRequest": 4483,
+   "Observation": 3397,
+   "Organization": 2,
+   "Patient": 500,
+   "Practitioner": 8,
+   "Procedure": 5
+  },
+  "expected": {
+   "start": 500,
+   "GZQO-INC-01": 484,
+   "GZQO-INC-02": 144
+  },
+  "got": {
+   "start": 500,
+   "GZQO-INC-01": 484,
+   "GZQO-INC-02": 144
+  },
+  "model_calls": 16,
+  "screen": {
+   "funnel": {
+    "S0": 311,
+    "S1": 8,
+    "S3": 8,
+    "S4": 7
+   },
+   "tiers": {
+    "excluded": 304,
+    "high": 0,
+    "review": 7
+   },
+   "listed": 7,
+   "judging": {
+    "configured_note_block": "both_agree",
+    "disagreements": 0,
+    "failures": 0,
+    "judge_model": "local/gemma-4-26b-a4b-nvfp4",
+    "may_block": true,
+    "mode": "agreement",
+    "note_block": "both_agree",
+    "note_block_code": "ok",
+    "note_block_reason": "judge and verifier must both say fail",
+    "verifier_model": "local/qwen3.5-9b-awq"
+   },
+   "seconds": 42.3
+  },
+  "model_exclusions": {
+   "excluded_by_models": 1,
+   "true": 1,
+   "false": 0,
+   "missed_true": 0,
+   "patients": [
+    {
+     "pid": "0d445f7540",
+     "criteria": [
+      "GZQO-INC-05"
+     ],
+     "truth": {
+      "GZQO-INC-05": "no"
+     },
+     "correct": true
+    }
+   ]
+  },
+  "seconds": 262.1,
+  "title": "EMR: FHIR bulk export"
+ },
+ "findings": [],
+ "run": {
+  "id": "20261112T165042Z-931a0f79-s1",
+  "head": "931a0f79540ca8e80de546f6a56021b5f00b9184",
+  "subject": "Merge master into fix/g1-canary-rehearsal",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 1,
+ "metrics": {
+  "sampled": true,
+  "seconds": 263.3,
+  "folder": "parts/scenario-emr-fhir",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 29992.0,
+    "generation_tokens": 5819.0,
+    "requests": 65.0,
+    "ttft_seconds_sum": 3.32,
+    "ttft_count": 65.0,
+    "queue_seconds_sum": 0.084,
+    "queue_count": 65.0,
+    "e2e_seconds_sum": 136.545,
+    "e2e_count": 65.0,
+    "ttft_mean_s": 0.0511,
+    "queue_mean_s": 0.0013,
+    "e2e_mean_s": 2.1007
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 22678.0,
+    "generation_tokens": 5855.0,
+    "requests": 59.0,
+    "ttft_seconds_sum": 3.068,
+    "ttft_count": 59.0,
+    "queue_seconds_sum": 0.07,
+    "queue_count": 59.0,
+    "e2e_seconds_sum": 108.681,
+    "e2e_count": 59.0,
+    "ttft_mean_s": 0.052,
+    "queue_mean_s": 0.0012,
+    "e2e_mean_s": 1.8421
+   }
+  },
+  "gpu": {
+   "samples": 28,
+   "every_s": 10.0,
+   "util_mean_pct": 31.1,
+   "util_max_pct": 41.0,
+   "memory_peak_mib": 62592.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 44.0,
+   "power_max_w": 197.0
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 1.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.005890468292229278
+   },
+   "verifier": {
+    "running_max": 1.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.007788161993769416
+   }
+  }
+ },
+ "wall_seconds": 263.3
+}

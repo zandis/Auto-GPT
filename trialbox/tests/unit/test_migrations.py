@@ -433,6 +433,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
         "c5d2472d93df214f26cf8e3bd80d6fc5230e058da95ff5551ea03dbf22d7016c",
         "7e110573b03265c6d4e76d209c98dd467f37b489a30a00f4501be39ee916634f",
+        # NEW-EDC-4 (D-694): edc version 6, the source changed since a decision and the source it was kept under
+        "01f49e5f642301298ffc286954e0aa41cf47ed5b849ecd78faffb61db125db36",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),

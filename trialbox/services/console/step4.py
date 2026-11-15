@@ -19,6 +19,7 @@ from console import about, command
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
+from console.local_path import local_path
 from console.models_view import build_rows
 
 # the orchestrator's in-process principals (orchestrator.core.SYSTEM_SENDERS; D-464): a retry names a person instead
@@ -95,7 +96,7 @@ def own_study(back: str, studies: list[str], logged: list[str]) -> str:
 
 
 def _safe_back(path: str) -> str:
-    return path if path.startswith("/") and not path.startswith("//") else "/home"
+    return local_path(path, "/home")
 
 
 def register(app: FastAPI, h: Helpers) -> None:

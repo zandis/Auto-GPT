@@ -1,5 +1,7 @@
 # 2. Daily operation
 
+**Reader:** the box owner.
+
 | When | What | Where to look |
 | --- | --- | --- |
 | 00:20 | `trialbox logs daily` (cron on the host): collect yesterday's service logs, prune, archive the audit | `/var/log/trialbox-retention.log` |

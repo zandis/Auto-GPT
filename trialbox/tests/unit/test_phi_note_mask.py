@@ -21,7 +21,7 @@ from tools.synth.generator import Generator
 
 REF = date(2026, 10, 5)
 SITE_MRN = r"^\d{8}$"
-PLANTED = ("name", "chart", "phone", "insurer")
+PLANTED = ("name", "chart", "phone", "insurer", "address")  # address: D-745
 
 
 # ---------------------------------------------------------------------------------------------- the masker

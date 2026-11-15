@@ -23,7 +23,8 @@
 #   GC_TIMEOUT_S 30         a read, a metadata or secret call or a token answers in seconds (gcloud's start-up and
 #                           one API round trip); 30 s is about ten times that, and a token that does not come in 30 s
 #                           is not coming
-#   GC_OP_TIMEOUT_S 900     start, stop, create, delete, set-scheduling or a storage copy waits on the operation
+#   GC_OP_TIMEOUT_S 900     start, stop, create, delete, set-scheduling, a network, subnet or firewall rule change
+#                           or a storage copy waits on the operation
 #                           itself; a GPU VM's stop or start takes minutes, a 15-minute wait means the call is stuck
 #   GC_IMAGE_TIMEOUT_S 3600 a machine image copies the whole disk (--provision, once)
 GC_TIMEOUT_S="${GC_TIMEOUT_S:-30}"
@@ -40,7 +41,9 @@ gc_timeout() {  # the timeout of one call, from its gcloud arguments
   case "$1 $2 ${3:-}" in
     "compute machine-images "*) echo "$GC_IMAGE_TIMEOUT_S" ;;
     "compute instances describe"|"compute instances list") echo "$GC_TIMEOUT_S" ;;
-    "compute instances "*|"storage "*) echo "$GC_OP_TIMEOUT_S" ;;
+    "compute firewall-rules describe"|"compute firewall-rules list"|"compute networks describe") echo "$GC_TIMEOUT_S" ;;
+    # a network, subnet or firewall create, update or delete waits on its Compute Engine operation, as a VM's does
+    "compute instances "*|"compute networks "*|"compute firewall-rules "*|"storage "*) echo "$GC_OP_TIMEOUT_S" ;;
     *) echo "$GC_TIMEOUT_S" ;;
   esac
 }

@@ -80,7 +80,8 @@ def sha256_text(text: str) -> str:
 def compare(server: Sequence[list[int] | None], folder: list[list[int]],
             passed: list[list[int]] | None) -> dict[str, Any]:  # fmt: skip
     """Per prompt: the server's ids against the folder tokenizer's, and the folder's template against the passed
-    one. ``different`` lists the first prompts that differ, with the first position that does."""
+    one. ``different`` lists every prompt that differs, with the first position that does (not only the first few:
+    the 2026-11-12 run's report showed five of them)."""
 
     def diff(a: Sequence[list[int] | None], b: list[list[int]]) -> list[dict[str, Any]]:
         out = []
@@ -95,11 +96,11 @@ def compare(server: Sequence[list[int] | None], folder: list[list[int]],
     if len(server) != len(folder):
         d_server = [{"prompt": -1, "lengths": [len(server), len(folder)]}]
     out: dict[str, Any] = {"prompts": len(folder), "tokens": sum(len(x) for x in folder),
-                           "server_equals_folder": not d_server, "server_different": d_server[:5]}  # fmt: skip
+                           "server_equals_folder": not d_server, "server_different": d_server}  # fmt: skip
     if passed is not None:
         d_passed = diff(passed, folder)
         out.update({"passed_equals_folder": not d_passed and len(passed) == len(folder),
-                    "passed_different": d_passed[:5]})  # fmt: skip
+                    "passed_different": d_passed})  # fmt: skip
     return out
 
 
@@ -124,6 +125,9 @@ def hf_side(model: str, prompts_file: Path, out: Path, template: Path | None) ->
         text = template.read_text(encoding="utf-8")
         res.update({"passed_template_sha256": sha256_text(text), "ids_passed": [ids(m, text) for m in msgs]})
     out.write_text(json.dumps(res), encoding="utf-8")
+    # the folder's own template text beside it (the passed one is already in the work folder): both come back with
+    # the results, so a difference can be read, not only hashed
+    (out.parent / "chat_template.folder.jinja").write_text(own or "", encoding="utf-8")
     return 0
 
 
@@ -226,7 +230,18 @@ def run(a: Any) -> dict[str, Any]:
         (f"{len(msgs)} prompts: the passed template gives the same token ids as the folder's", bool(cmp)
          and bool(cmp.get("passed_equals_folder")), cmp.get("passed_different", "no passed template")),
     ]  # fmt: skip
-    block = {"judge_model": judge.get("model"), "judge_started_with": judge.get("chat_template"),
+    started_with = judge.get("chat_template")
+    # three separate verdicts (the 2026-11-12 report folded them into one "identical"): the two template texts, the
+    # two templates' token ids through the folder's tokenizer, and the server's ids against the folder tokenizer's
+    verdicts = {
+        "passed_vs_folder_text_sha256": None if not (folder_sha and passed_sha) else folder_sha == passed_sha,
+        "passed_vs_folder_token_ids": None
+        if not cmp or cmp.get("passed_equals_folder") is None
+        else bool(cmp["passed_equals_folder"]),
+        "server_vs_folder_token_ids": None if not cmp else bool(cmp["server_equals_folder"]),
+        "server_started_with_chat_template": bool(started_with),
+    }
+    block = {"judge_model": judge.get("model"), "judge_started_with": started_with, "verdicts": verdicts,
              "passed": passed, "passed_text_sha256": passed_sha, "folder_template_sha256": folder_sha,
              "folder_template_chars": hf.get("folder_template_chars"), "transformers": hf.get("transformers"),
              "tokens": cmp, "identical": all(c[1] for c in checks)}  # fmt: skip

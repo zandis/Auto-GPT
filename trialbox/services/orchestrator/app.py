@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -50,6 +51,7 @@ from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import NotRetryable, Orchestrator, Rejected, Services
 from orchestrator.datacore_api import router as datacore_router
+from orchestrator.dataops_api import router as dataops_router
 from orchestrator.db import JobDB
 from orchestrator.edc_api import router as edc_router
 from orchestrator.lifecycle_api import router as lifecycle_router
@@ -786,6 +788,23 @@ def edc_of(o: Orchestrator) -> Any:
 
 
 app.include_router(edc_router(lambda: edc_of(orch()), _claim))  # the person from the signed assertion (D-162)
+
+_DATAOPS: dict[str, Any] = {}
+_DATAOPS_LOCK = threading.Lock()
+
+
+def _dataops_store() -> Any:
+    """The ``dataops`` schema of the trial database, opened once (NEW-ARCH-3, D-761: the console no longer opens it)."""
+    from datacore.dataops import DataOps
+
+    with _DATAOPS_LOCK:
+        if "ops" not in _DATAOPS:
+            _DATAOPS["ops"] = DataOps()
+        return _DATAOPS["ops"]
+
+
+# NEW-ARCH-3 (D-761): the night's data operations, and the steward's accept that publishes a held night (D-760)
+app.include_router(dataops_router(_dataops_store, lambda: orch().services.adapter, lambda: orch().audit))
 
 
 class DeceasedRequest(BaseModel):

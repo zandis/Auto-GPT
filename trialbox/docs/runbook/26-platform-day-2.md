@@ -1,5 +1,7 @@
 # 26. Platform day 2
 
+**Reader:** hospital IT (an other install form: the hospital's own platform).
+
 For the platform form (§17: CGMH's shared B200, or an interim private cloud): what the appliance does with host cron
 and `docker compose exec` (backup, restore, logs, the audit archive, updates; §2, §5), done as Kubernetes objects in
 TrialBox's own namespace (T-633, D-416). Everything here is in `deploy/platform/base/day2.yaml` and

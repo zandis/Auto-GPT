@@ -53,7 +53,9 @@ def orch_client(app: Any) -> Any:
 
     D-437: the process token is the console's, and the console may not call the model gateway as the orchestrator. So
     the box's orchestrator gets its own token too, in the registry and in a 0600 file beside it
-    (:func:`service_token_of`); the box's model calls carry that one (``tools.scenarios.gateway_client``)."""
+    (:func:`service_token_of`); the box's model calls carry that one (``tools.scenarios.gateway_client``). So does
+    the criteria compiler: G-8 compiles as it, as the box does (of the box's services only the compiler and the
+    document parser may extract criteria; defect B13)."""
     from fastapi.testclient import TestClient
 
     tok = os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
@@ -78,7 +80,7 @@ def orch_client(app: Any) -> Any:
 
 
 # the services of the one-process box, besides the console, that call another service under their own name
-OWN_TOKENS = ("orchestrator",)
+OWN_TOKENS = ("orchestrator", "criteria-compiler")
 
 
 def _token_file(registry: Path, service: str) -> Path:
@@ -98,6 +100,28 @@ def service_token_of(service: str) -> str:
         return ""
 
 
+class _OrchOver:
+    """NEW-ARCH-3 (D-761): the real backend's ``orch`` client (``tb_common.http.ServiceClient``: ``get_json``,
+    ``post_raw``) over the in-process orchestrator's test client. An answer of 400 and above raises ``ServiceError``
+    with its status, as the real client does, so a page reads a refusal the same way."""
+
+    def __init__(self, client: Any) -> None:
+        self.c = client
+
+    def _answer(self, r: Any) -> Any:
+        from tb_common.http import ServiceError
+
+        if r.status_code >= 400:
+            raise ServiceError("orchestrator", r.status_code, str(r.text)[:2000])
+        return r
+
+    def get_json(self, path: str) -> Any:
+        return self._answer(self.c.get(path)).json()
+
+    def post_raw(self, path: str, body: Any, headers: dict[str, str] | None = None) -> Any:
+        return self._answer(self.c.post(path, json=body, headers=headers or {}))
+
+
 class InprocBackend:
     """``console.backend.Backend`` over an in-process box: jobs and registry through the orchestrator's own HTTP
     routes (FastAPI test client), objects from its store."""
@@ -105,6 +129,9 @@ class InprocBackend:
     def __init__(self, box: Any, client: Any, rulesets_dir: Path) -> None:
         self.box, self.c, self.rulesets_dir = box, client, rulesets_dir
         self.cfg = box.orch.cfg  # the site time zone for user-facing times (console.timefmt)
+        # NEW-ARCH-3 (D-761): the data-operations page asks the orchestrator's routes, as through the real backend
+        # (the test client posts once: no retry to set off)
+        self.orch = self.orch_once = _OrchOver(client)
 
     # jobs
     def waiting_studies(self) -> list[str]:

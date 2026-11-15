@@ -1,0 +1,23 @@
+[
+ {
+  "part": "g8-protocols",
+  "stage": "G-8 public protocols compiled with the production judge",
+  "check": "2 protocol(s) compiled with the production judge",
+  "detail": [
+   "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again",
+   "CompileFailed: ir_extract: the model did not return usable criteria (gateway refused ir_extract: role_not_allowed); send the protocol again"
+  ]
+ },
+ {
+  "part": "g8-protocols",
+  "stage": "G-8 public protocols compiled with the production judge",
+  "check": "no extension-phase line active without a warning",
+  "detail": {}
+ },
+ {
+  "part": "g8-protocols",
+  "stage": "G-8 public protocols compiled with the production judge",
+  "check": "alternative diagnosis groups not flattened to AND",
+  "detail": {}
+ }
+]

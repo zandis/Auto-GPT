@@ -103,7 +103,7 @@ def test_every_error_class_of_the_engine_is_placed_by_the_engines_own_grouping()
         status = store.query_failure_status(cls("x"))
         if issubclass(cls, question):
             assert status == 422, name
-        elif cls is duckdb.InterruptException:
+        elif cls in (duckdb.InterruptException, duckdb.OutOfMemoryException):  # D-742: the box's limit too
             assert status == 503, name
         else:
             assert status == 500, name
@@ -201,8 +201,10 @@ CALLERS: dict[tuple[str, str], str] = {
     # ``twin.after_ingest``, never fails the ingest: it logs the error's type and keeps no twin (the same for
     # ``read_lake`` below)
     ("patient_profile/twin.py", "lake_schema"): GOES_ON,
-    ("sitesetup/readiness.py", "unknown_share"): OPEN + "(0, 0), a lake with no diagnosis",
-    ("sitesetup/readiness.py", "feed_loaded"): OPEN + "no feed loaded",
+    # closed by NEW-SITE-2/3/5 (D-709, D-712, D-715): a 5xx is "the lake could not be read" (the readiness answer
+    # says so), a 4xx goes on as the fault of the question it is
+    ("sitesetup/readiness.py", "unknown_share"): "handler: a 5xx is raised as LakeUnread, never (0, 0); a 4xx goes on",
+    ("sitesetup/readiness.py", "feed_loaded"): "handler: a 5xx is raised as LakeUnread, never no feed; a 4xx goes on",
 }
 
 

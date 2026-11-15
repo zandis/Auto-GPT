@@ -19,8 +19,9 @@ monitoring visit; ``console.team``):
 The data core answers ``GET /studies/{rs}/subjects/{record}`` with the subject nested under ``subject`` beside its
 steps, visits and AEs; only that dict is the subject (D-436: reading the whole reply refused every enrolled subject).
 Every read is audited with the monitoring-visit id (``console.monitor_view``); every refusal too (``console.denied``).
-An opted-out patient is on no list and their sheet is 404 (D-273). Rights are matrix rows (``h.permit``); the CRO
-scope check in ``console.app`` lets a CRO account reach these paths and nothing else patient-level.
+An enrolled subject who opted out is listed and opens with the day of the opt-out (D-762: still a trial subject,
+D-441); a record keyed by the pseudonym is never listed or opened (D-772). Rights are matrix rows (``h.permit``);
+the CRO scope check in ``console.app`` lets a CRO account reach these paths and nothing else patient-level.
 """
 
 from __future__ import annotations
@@ -201,8 +202,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Unavailable as exc:
             raise h.problem(503, "request.refused", reason="the EDC did not answer") from exc
 
+    def opted(gone: Mapping[str, str], pid: str) -> str:
+        """The day of the subject's opt-out ("yes" for a merged chart), "" when not opted out (D-762)."""
+        return (gone[pid] or "yes") if pid and pid in gone else ""
+
     def pid_of(rid: str, one: Mapping[str, Any]) -> str:
-        """The subject's pseudonym, for the opt-out check; "" when the box cannot tell (the callers then refuse)."""
+        """The subject's pseudonym, for the day of an opt-out (D-762); "" when the box cannot tell."""
         pid = str(one.get("pid") or "")
         if pid:
             return pid
@@ -212,14 +217,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         return next((p for p, n in h.store.screening_nos(rid).items() if str(n).upper() == rec), "")
 
     def enrolled(rid: str) -> list[dict[str, Any]]:
-        """The study's subjects a monitor may open: enrolled, never opted out; the lifecycle facts only."""
+        """The study's subjects a monitor may open: enrolled; the lifecycle facts only. NEW-LIFE-5 (D-762): an
+        enrolled subject who opted out is a trial subject still (D-441): listed, with the day of the opt-out."""
         reply = core(f"/studies/{rid}/subjects?today={h.today().isoformat()}") or {}
-        gone = h.gone()
+        gone = h.opted_out_on()
         out = []
         for s in reply.get("subjects") or []:
-            pid = pid_of(rid, s)  # the review of D-772: no pseudonym key, no patient the box cannot place (fail closed)
-            if monitor_may_see(s) and pid and pid not in gone and not _PID.match(str(s.get("record") or "")):
-                out.append({k: s.get(k) for k in SUBJECT_KEYS})
+            # D-762: an enrolled subject who opted out is listed with the day; D-772: a pseudonym-keyed record never
+            if monitor_may_see(s) and not _PID.match(str(s.get("record") or "")):
+                out.append({**{k: s.get(k) for k in SUBJECT_KEYS}, "opted_out": opted(gone, pid_of(rid, s))})
         return out
 
     def visits_of(sess: Session, rid: str, path: str, g: Entry | None) -> list[dict[str, Any]]:
@@ -242,7 +248,8 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def sheet(sess: Session, path: str, rs: str, record: str) -> tuple[str, Entry, dict[str, Any]]:
         """One enrolled subject's source references. A candidate, a screen failure or a consented person who never
-        enrolled is 403; an opted-out patient 404; each refusal and each view audited with the visit."""
+        enrolled is 403; each refusal and each view audited with the visit. An enrolled subject who opted out is
+        shown with the day of the opt-out, never the pseudonym (NEW-LIFE-5, D-762)."""
         rid = study_or_404(sess, rs)
         g = need_grant(sess, path, rid)
         visit = g.training_ref or ""
@@ -258,13 +265,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         day = {str(s.get("new")): str(s.get("on_day") or "") for s in live_steps(list(reply.get("steps") or []))}
         one.setdefault("consented", day.get("consented", ""))
         one.setdefault("enrolled", day.get("enrolled", ""))
-        pid = pid_of(rid, one)
-        why = ("pseudonym_key" if _PID.match(str(one.get("record") or ""))
-               else "unknown_patient" if not pid else "opted_out" if pid in h.gone() else "")  # fmt: skip
-        if why:  # the review of D-772: fail closed; a pseudonym-keyed record is never opened, nor read by its key
+        if _PID.match(str(one.get("record") or "")):  # D-772: a pseudonym-keyed record is never opened
             au.append("console.denied", ruleset=rid, actor=h.actor(sess),
-                      detail={"action": path[:80], "why": why, "visit": visit})  # fmt: skip
+                      detail={"action": path[:80], "why": "pseudonym_key", "visit": visit})  # fmt: skip
             raise h.problem(404, "notfound")
+        gone = opted(h.opted_out_on(), pid_of(rid, one))  # NEW-LIFE-5 (D-762): shown, never the pseudonym
         if not monitor_may_see(one):
             raise deny(sess, path, rid, why="not_enrolled", visit=visit)
         key = str(one.get("record") or rec).upper()
@@ -277,7 +282,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.monitor_view", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "visit": visit, "state": str(one.get("state") or ""),
                           "items": len(items), "forms": len(typed["forms"])})  # fmt: skip
-        out = {"subject": {k: one.get(k) for k in SUBJECT_KEYS}, "items": items, **item_trail(trail, ids), **typed}
+        out = {"subject": {**{k: one.get(k) for k in SUBJECT_KEYS}, "opted_out": gone}, "items": items,
+               **item_trail(trail, ids), **typed}  # fmt: skip
         return rid, g, out
 
     def record_visit(sess: Session, path: str, rs: str, body: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:

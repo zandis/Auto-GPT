@@ -1,0 +1,77 @@
+# D-761 The console leaves the orchestrator's stores: slice 1, the night's data operations
+
+- **Task:** NEW-ARCH-3 (plan v7, wave 2, lane C: "the console leaves the orchestrator's stores"; the deep review's
+  ARCH-005), slice 1 of 3
+- **PR:** this branch (`agent/NEW-ARCH-3-the-console-leaves-the-orchestrators-stores`), stacked on NEW-SEC-4 (D-760)
+- **Date:** 2026-11-14
+- **Status:** proposed (merges on green CI and one adversarial review)
+- **Builds on:** D-760 (the publish of a held night checks the steward), T-723 (D-489), T-112b (D-443, the data
+  operations page), D-543 (every store's schema on its service's role list), T-715 (D-483)
+
+## The problem
+
+The deep review (ARCH-005): process boundaries are not data boundaries. The console opened the orchestrator's stores
+itself, so a compromised or broken console owned their tables, and T-718 (owner is not writer) and T-715 (the person
+verified at the callee) could not be finished. The data operations page opened `datacore.dataops.DataOps` (schema
+`dataops`) and ran the steward's accept, and the publish of the night, inside the console.
+
+## The decision (slice 1)
+
+- **The orchestrator serves the night's data operations** (`orchestrator.dataops_api`): `GET /dataops/sources`,
+  `/held`, `/counts`, `/history`, `/batches/{bid}`, `/batches/{bid}/steps`, `/can-publish` (rows of counts and step
+  names, never a patient's row), and `POST /dataops/batches/{bid}/decide`, signed (`require_actor("dataops.decide")`):
+  the steward's accept or reject under the verified person, with the publish of an accepted night run there, next to
+  the store, through the adapter's `POST /publish` (the orchestrator's alone, D-760). A refusal of the store answers
+  409 with its `why`; a publish that did not end "done" 502 with its marks (nothing served, not started), so the
+  console's page says what it said before.
+- **The console's page reads and decides through those routes** (`console.dataops_page.OrchOps`, the method names
+  of `DataOps`), posting the decision with the client that never retries (D-760's review). It imports no module of the
+  store (its own row type and refusal), holds no promoter, and offers Accept when the orchestrator says it can publish.
+- D-760's single-step `POST /dataops/publish` gives way to the decision route: the steward's accept is one request.
+- **The console's database role leaves the schema `dataops`** (both role scripts), and its audit role the family
+  `dataops` (the orchestrator writes `dataops.decide` now).
+- **An import lint** (`tests/unit/test_the_console_opens_no_domain_store.py`) reads every console module for the
+  names that open another service's store; what is left is listed with the slice that takes it out, and the list only
+  shrinks: the OMOP conflicts page (slice 2) and the instruments page's set-up store (slice 3).
+
+## What it does not do
+
+- Slices 2 and 3 (the OMOP conflicts, the set-up store's switches), and the other schemas the review lists for the
+  console's role (`datacore, omop, sitesetup, orch, recall, study, mpi, pidmap`), are later slices of this card.
+- The decision's answer does not wait for a publish that runs: once the accept is recorded and the adapter's publish
+  runs, the route answers 202 (`publishing`) and follows the publish to its end on a thread of its own (never timed,
+  D-472); the page says the night is being published and shows PUBLISHED, or held again, when it ends. A refusal, a
+  reject and a publish that ended at once are answered as before.
+
+## Review
+
+### What the adversarial review changed
+
+One review by running. The data boundary held: no console path still needs `dataops`; the role scripts revoke it
+on the next run; only the console reaches the group; the decision is checked with the signed person, request and
+body; the store-side behaviour (the steward-only rule, the 404s, the reason, a reject refused while publishing, a
+second accept that recovers an unknown end, a thread that dies mid-publish) is kept. It found:
+
+1. **No answer from the orchestrator became a 500** (blocking): a transport failure (status 0) was re-raised; the page
+   and the API now say the store cannot be reached (503), and a lost answer to an accept is "the accept is recorded,
+   its end not known" (`err=publishing`), as before.
+2. **A malformed decision read as "the accept is recorded"** (blocking): the console refuses anything but accept or
+   reject before it posts (`err=decision`), a 422 is a decision not understood, and the orchestrator's refusal of a
+   reject is a 403, never "publishing".
+3. **A publish that failed after the 202 was silent on the page**: the held row now says when its accept's publish
+   runs or did not publish (`detail.step`).
+4. The import lint also reads `import ...` statements, `from datacore import dataops`, `datacore.generations`
+   (it opens the store) and `importlib`. Notes: the batch page asks the orchestrator whether Accept can publish; the
+   stale label of `dataops.publish_started` is removed. Two accepts at once still both start (as before this
+   card; the adapter refuses the second publish with 409); the history's paging at its largest page is as before.
+
+## Reuse check
+
+`datacore.dataops.DataOps` (unchanged), `orchestrator.actor.require_actor`, `console.actor.assert_for`, the
+publish promoter of T-723 (moved from the console to `orchestrator.dataops_api.promoter`), `AdapterHttp.publish` and
+`publish_state` (D-760), the D-543 schema test. Added: the router, the console's client and row type, the import lint,
+the console tests' shim of the routes (`tests/console/dataops_orch.py`).
+
+## Dropped (D-311)
+
+No sign-off step.

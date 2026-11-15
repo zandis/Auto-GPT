@@ -149,6 +149,15 @@ groups:
     - GET /studies/{rs}/edc/trail/{record}
     - GET /studies/{rs}/edc/copy        # copy-assist (D-434): services/console/copy_assist_page.py
     - POST /studies/{rs}/edc/copy/tick
+  dataops:   # NEW-ARCH-3 (D-761): the night's data operations; the steward's accept publishes a held night (D-760)
+    - GET /dataops/can-publish
+    - GET /dataops/sources
+    - GET /dataops/held
+    - GET /dataops/counts
+    - GET /dataops/history
+    - GET /dataops/batches/{bid}
+    - GET /dataops/batches/{bid}/steps
+    - POST /dataops/batches/{bid}/decide
   api_docs:   # FastAPI's own schema pages
     - GET /openapi.json
     - GET /docs
@@ -159,7 +168,7 @@ groups:
 services:
   console:   # the front desk: services/console/backend.py, s28.call (data, entry, EDC, set-up, lifecycle pages)
     groups: [jobs_start, job_read, jobs_list, job_cancel, job_retry_scheduled, job_reveal, notices, models_read, models_canary, rulesets,
-             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, edc]
+             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, edc, dataops]
   mail-gateway:   # parses hostile mail: starts the mail commands and reads the jobs that came in by mail, nothing else
     groups: [jobs_start, job_read]
     job_types: [FEAS, SCREEN, COHORT, NAV, APPROVE, STATUS, CANCEL, SUBMIT, FEEDBACK, CONSENT, RELEASE, CASE]

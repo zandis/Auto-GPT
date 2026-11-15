@@ -26,7 +26,7 @@
 <div class="scroll" tabindex="0"><table>
 <thead><tr><th scope="col">{{ t('dataops.col.source') }}</th><th scope="col">{{ t('dataops.col.snapshot') }}</th><th scope="col">{{ t('dataops.col.attempt') }}</th><th scope="col">{{ t('dataops.col.gate') }}</th>{% if may_decide %}<th scope="col">{{ t('dataops.col.decide') }}</th>{% endif %}</tr></thead>
 <tbody>{% for b in waiting %}<tr data-testid="held" data-batch="{{ b.id }}">
-<td class="mono">{{ b.source }}</td><td><a href="/data-ops/batches/{{ b.id }}">{{ b.snapshot }}</a></td><td class="num">{{ b.attempt }}</td><td>{{ tables(b) }}</td>
+<td class="mono">{{ b.source }}</td><td><a href="/data-ops/batches/{{ b.id }}">{{ b.snapshot }}</a>{% if b.detail.step == 'accept:publishing' %}<p class="warn" data-testid="held-publishing">{{ t('dataops.held.publishing') }}</p>{% elif b.detail.step == 'accept:not published' %}<p class="hint" data-testid="held-not-published">{{ t('dataops.held.not_published') }}</p>{% endif %}</td><td class="num">{{ b.attempt }}</td><td>{{ tables(b) }}</td>
 {% if may_decide %}<td>{% include "_dataops_decide.html" %}</td>{% endif %}
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>

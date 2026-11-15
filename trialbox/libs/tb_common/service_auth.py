@@ -92,7 +92,9 @@ CALLERS: dict[str, frozenset[str]] = {
     "lake": frozenset({"orchestrator", "criteria-compiler", "adapter"}),
     "doc-parser": frozenset({"orchestrator"}),
     "criteria-compiler": frozenset({"orchestrator"}),
-    "embed-service": frozenset({"lake"}),
+    # the lake (its vectors) and, since NEW-LLM-2 (#589), the orchestrator (SCREEN ranks note sentences by meaning):
+    # it takes no person and answers vectors, never a patient's row, and masks every text it is sent (T-600, D-337)
+    "embed-service": frozenset({"lake", "orchestrator"}),
     "gateway": frozenset({"orchestrator", "criteria-compiler", "doc-parser", "console"}),
 }
 EVERYWHERE = frozenset({OPERATOR, LEGACY})

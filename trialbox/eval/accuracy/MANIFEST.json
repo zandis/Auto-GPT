@@ -1,0 +1,25 @@
+{
+ "seed": 20261114,
+ "per_class": 200,
+ "sha256": "sha256:ab454b8cd95fa6c66b34736dc50b9dad34c4dc4f6e0ca4bc0646c94c4e5ab3a0",
+ "counts": {
+  "ja": {
+   "cases": 3041,
+   "gold_exclusions": 1419,
+   "gold_non_exclusions": 1622,
+   "unknown": 203
+  },
+  "zh-TW": {
+   "cases": 3041,
+   "gold_exclusions": 1419,
+   "gold_non_exclusions": 1622,
+   "unknown": 203
+  },
+  "en": {
+   "cases": 2641,
+   "gold_exclusions": 1219,
+   "gold_non_exclusions": 1422,
+   "unknown": 203
+  }
+ }
+}

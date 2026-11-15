@@ -1,5 +1,7 @@
 # 20. Close-out and decommissioning
 
+**Reader:** the box owner, with the trial team.
+
 *T-628, D-413. Closes LIFE-028 and OPS-075. What to do when a site's last study using the box closes, or the box is
 retired: freeze the logs, archive the records with checksums, hand the archive to the trial office, then destroy the
 keys and purge every store by NIST SP 800-88 Rev. 1, with one certificate per medium. A study that closes while

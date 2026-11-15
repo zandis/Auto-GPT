@@ -38,12 +38,17 @@ failing output: `jrn8-fail.txt`).
 - **The data core's record read takes the monitor's row.** `GET /studies/{rs}/records/{record}` now takes
   `phi.view` or `monitor.read` (`tb_common.patient_reads`, `orchestrator.datacore_api`), as the monitor's four
   other reads do (D-389). The console signs it only inside the sheet, after the checks the sheet already makes: the
-  grant, an enrolled subject, not opted out. Every view is audited with the visit (`console.monitor_view`, now with
+  grant, an enrolled subject, not a pseudonym-keyed record. Every view is audited with the visit (`console.monitor_view`, now with
   the count of form values).
-- **A subject keyed by the pseudonym is never listed or opened (fail closed).** The data core takes a pseudonym as a
-  record key too (a form typed for a pid). Such a subject is on no monitor list; its sheet is 404, audited
-  (`console.denied`, `why: pseudonym_key`), and refused before any read by that key. A subject whose pseudonym the box
-  cannot tell (so the opt-out check cannot run) is on no list and its sheet is 404 (`why: unknown_patient`).
+- **A subject keyed by the pseudonym is never listed or opened.** The data core takes a pseudonym as a record key too
+  (a form typed for a pid). Such a subject is on no monitor list; its sheet is 404, audited (`console.denied`,
+  `why: pseudonym_key`), and refused before any read by that key.
+- **An enrolled subject who opted out stays on the sheet (D-762).** An opt-out of research reuse does not end a trial
+  subject's trial (D-441), so the monitor still verifies their trial data. They are listed and their sheet opens with
+  the day of the opt-out, as D-762 (#601) set; their built-in form values are shown like anyone's. This record first
+  refused them (404, `opted_out`), and refused a subject whose pseudonym the box cannot tell (`unknown_patient`); both
+  refusals were the rule D-762 replaced, and they are dropped (the integrator's train 18 found the two rules opposite).
+  The pseudonym now serves only to show the opt-out day.
 - The empty message for the cited items now says what it is about ("No value taken from the hospital's records has
   been confirmed in EDC prefill for this subject yet").
 

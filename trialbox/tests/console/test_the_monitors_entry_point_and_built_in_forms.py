@@ -188,3 +188,18 @@ def test_the_built_in_forms_on_the_sheet_in_the_other_languages(sb: dict[str, An
         mon.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
         page = mon.get(f"/studies/GZQO/monitor/{NO}").text
         assert word in page and "sdv.forms" not in page and "sdv.col" not in page, lang
+
+
+def test_an_enrolled_subject_who_opted_out_keeps_their_sheet_and_forms(sb: dict[str, Any]) -> None:  # noqa: F811
+    """D-762 over D-772's first rule: an opt-out of research reuse does not end a trial subject's trial (D-441); the
+    monitor's sheet opens with the day of the opt-out and the built-in form values, never the pseudonym."""
+    _builtin(sb)
+    gone = sb["nos"][PIDS["gone"]]  # enrolled, then opted out (the fixture)
+    r = sb["oc"].put(f"/studies/GZQO/data/{gone}", json={"event": "", "values": {"ic_date": "2026-11-02"}, "by": "crc"})
+    assert r.status_code == 200, r.text
+    _grant(sb)
+    mon, _ = login(sb["app"], "mon1", PW)
+    assert f'data-testid="sdv-list-opted-out-{gone}"' in mon.get("/studies/GZQO/monitor").text
+    page = mon.get(f"/studies/GZQO/monitor/{gone}")
+    assert page.status_code == 200 and 'data-testid="sdv-opted-out"' in page.text
+    assert 'data-testid="sdv-form-ic_date"' in page.text and PIDS["gone"] not in page.text

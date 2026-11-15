@@ -53,7 +53,7 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     # NEW-SEC-1 (D-717): a patient read refuses whatever its group's stage; the groups are those of the changing routes
     groups = {CALLER_GATE.table.group_of(f"{m} {p}") for m, p, *_ in refuse if m not in sa.SAFE_METHODS}
     # T-716: the chart number; T-715b (D-550): the registry; T-715d (D-554): the study router
-    assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal", "registry", "study"}
+    assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal", "registry", "study", "dataops"}
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
     assert all(r[2] or CALLER_GATE.table.group_of(f"{r[0]} {r[1]}") in (*ra.TABLE["v2"], *ra.TABLE["no_person"])
                for r in changing)  # fmt: skip

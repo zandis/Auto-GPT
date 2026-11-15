@@ -1,5 +1,7 @@
 # 22. Disaster recovery with measured RPO and RTO
 
+**Reader:** the box owner, with Aimedics.
+
 *T-635, D-390. The backup, the restore commands and point-in-time recovery are §5; this page is the plan around them:
 what is lost, how long it takes, who brings what, and how the numbers are measured. Parts of this section: a planned
 power cut, moving the box, replacing hardware.*

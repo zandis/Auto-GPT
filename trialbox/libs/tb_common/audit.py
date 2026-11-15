@@ -492,7 +492,13 @@ def verify(
                     res.errors.append(f"{path.name}:{lineno}: hash mismatch")
                 if rec.get("event") in ("audit.anchored", "audit.reanchored"):
                     res.notes.append(f"{path.name}:{lineno}: {rec.get('event')} {canonical(rec.get('detail') or {})}")
-                if rec.get("event") == ROTATED_EVENT:
+                if rec.get("event") == ROTATED_EVENT and rec.get("journal") is not None:
+                    # NEW-SEC-2 (D-718): the chain's writer records a rotation itself; one that came through the
+                    # journal was sent by a service (a chain written before the drain refused the name)
+                    sender = (rec.get("journal") or {}).get("role")
+                    res.notes.append(f"{path.name}:{lineno}: {ROTATED_EVENT} from the journal ({sender}): "
+                                     "not taken as a key rotation")  # fmt: skip
+                elif rec.get("event") == ROTATED_EVENT:
                     rotations.append((res.lines, dict(rec.get("detail") or {})))
                 last_prev = str(rec.get("prev_hash"))
                 prev = str(claimed)

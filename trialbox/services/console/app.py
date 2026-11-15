@@ -1314,8 +1314,7 @@ def create_app(
 
     # T-112b (D-443): /data-ops and /api/v1/data/*, the nights of every source. T-723 (D-489): accept publishes the
     # held night through the adapter
-    promoter = dataops_page.adapter_promoter(helpers.bk) if getattr(helpers.bk, "adapter", None) is not None else None
-    dataops_page.register(app, helpers, promote=promoter)
+    dataops_page.register(app, helpers)  # NEW-ARCH-3 (D-761): over the orchestrator's routes
     from console import instruments_page
 
     instruments_page.register(app, helpers)  # T-307 (D-375): /data/instruments, the instrument copyright register

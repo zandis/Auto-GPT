@@ -60,7 +60,7 @@ def test_the_checklist_names_only_options_the_installer_has() -> None:
     for name, shown in re.findall(r"`(-[A-Z][A-Za-z]+) (\d+)", CHECKLIST):
         default = re.search(rf"\[int\]\${name[1:]} = (\d+)", PS1)
         assert default and default.group(1) == shown, name
-    assert "build\n      22621" in CHECKLIST and "$MinWindowsBuild = 22621" in PS1
+    assert "build 19045" in CHECKLIST and "$MinWindowsBuild = 19045" in PS1
 
 
 def test_the_checklist_names_only_checks_and_files_that_exist() -> None:
@@ -91,3 +91,54 @@ def test_nothing_in_the_hand_over_pages_tells_anyone_to_remove_the_box() -> None
         assert "--unregister" not in text and "wsl --export" not in text, lang
     # the checklist names the command once, under "Never"
     assert CHECKLIST.count("wsl --unregister") == 1 and CHECKLIST.index("Never:") < CHECKLIST.index("wsl --unregister")
+
+
+def test_the_p0_pages_commands_are_ones_the_media_tools_take() -> None:
+    """The owner copies these lines: every option they give must be one the tool accepts (D-611)."""
+    import subprocess
+    import sys
+
+    page = (DOCS / "P-0-BUILD-THE-MEDIA.md").read_text(encoding="utf-8").replace("\\\n", " ")
+    env = {"PYTHONPATH": f"{ROOT / 'libs'}:{ROOT}", "PATH": "/usr/bin:/bin"}
+    seen = set()
+    for tool, sub in (("windows_media", "build"), ("windows_media", "check"), ("windows_media_debs", "")):
+        lines = [ln for ln in page.splitlines() if f"-m tools.{tool} {sub}".rstrip() in ln and "python3" in ln]
+        assert lines, (tool, sub)
+        args = [tool] + ([sub] if sub else []) + ["--help"]
+        helptext = subprocess.run([sys.executable, "-m", f"tools.{args[0]}", *args[1:]], capture_output=True, text=True,
+                                  cwd=ROOT, env=env, check=True, timeout=60).stdout  # fmt: skip
+        for ln in lines:
+            for flag in re.findall(r"(--[a-z][a-z-]+)", ln):
+                assert flag in helptext, (tool, sub, flag)
+                seen.add(flag)
+    assert {"--rootfs", "--out", "--version", "--bundle", "--wsl-msi", "--debs", "--vendor-pub"} <= seen
+
+
+def test_the_p0_sheet_does_not_wait_for_a_finished_install_where_stage_a_is_enough() -> None:
+    sheet = (DOCS / "P-0-windows-rehearsal.md").read_text(encoding="utf-8")
+    line_36a = next(ln for ln in sheet.splitlines() if ln.startswith("| 36a |"))
+    assert "After the install is finished" not in line_36a and "Stage A" in line_36a
+    assert "After step 12 `boot-task` has run" in sheet
+    # the key probe needs only the folder the installer makes at its start, not a finished install
+    probe = (ROOT / "deploy/windows/key-probe.ps1").read_text(encoding="utf-8")
+    assert "run the installer first (it makes that folder" in probe and "windows-install-done" not in probe
+
+
+def test_the_p0_pages_and_the_checklist_take_windows_10_22h2_at_the_installers_own_build() -> None:
+    """Owner ruling D-503 (NEW-WIN-10, D-613): the sites' workstations run Windows 10 Pro 22H2."""
+    page = (DOCS / "P-0-BUILD-THE-MEDIA.md").read_text(encoding="utf-8")
+    sheet = (DOCS / "P-0-windows-rehearsal.md").read_text(encoding="utf-8")
+    build = re.search(r"\[int\]\$MinWindowsBuild = (\d+)", PS1)
+    assert build and build.group(1) == "19045"
+    for text in (page, sheet, CHECKLIST):
+        assert "Windows 10 22H2" in text and "19045" in text
+    assert "cannot take P-0" not in page
+    assert "## Part 9: NEW-WIN-10" in sheet and "TrialBox-Console-Proxy" in sheet
+    # the undo the page gives names the rule, the task and the firewall rule the installer makes
+    assert (
+        "Unregister-ScheduledTask TrialBox-Console-Proxy" in page
+        and "Remove-NetFirewallRule -Name TrialBox-Console" in page
+    )
+    assert (
+        '$script:TbProxyTask = "TrialBox-Console-Proxy"' in PS1 and '$script:TbFirewallRule = "TrialBox-Console"' in PS1
+    )
