@@ -73,7 +73,9 @@ for every image a bundle carries; the dated exceptions and open findings are in 
 1. **Host.** Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+, nftables; the NVIDIA driver
    and container toolkit when there is a GPU (GB10: driver 580.142, held). See [Security §1](../SECURITY.md#1-the-host).
 2. **Images.** `tools/apply_update.sh trialbox-<version>.tar` loads images, models and approved rulesets. A
-   development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10).
+   development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10). The build host
+   needs Docker, Maven and the JDK `.java-version` names, network to Docker Hub, Maven Central and GitHub, and disk
+   for two copies of the bundle (D-830, D-885); the JVM fetch step names what is missing before it starts.
    A new box holds **no study**: the shipped example rulesets are seeded only where `TB_ENV` is DEV or TEST
    (D-640). The site's first study is compiled and approved in the console. For a synthetic run on a PRODUCTION
    box (never beside real patients), an operator installs an example after the stack is up:
