@@ -25,9 +25,11 @@ from tb_common.optout import OptOutRegister
 
 A, C = "a1b2c3d4e5f6a001", "a1b2c3d4e5f6a003"  # A opts out; C never does
 NOW = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
-PLAIN = ("site.contact_outcomes", "site.excluded_review", "site.weekly_seen", "team.approach_overrides",
-         "team.candidate_views", "team.referral_events", "team.referrals", "tuned.tuned_patients", "orch.feedback",
-         "orch.submissions", "derived.input_link", "derived.conflict", "derived.score_row")  # fmt: skip
+PLAIN = ("site.contact_outcomes", "site.excluded_review", "team.approach_overrides", "team.referral_events",
+         "team.referrals", "orch.feedback", "derived.input_link", "derived.conflict", "derived.score_row")  # fmt: skip
+#: the adversarial review of D-798: these stay owed (the screening log, NHI's send-once guard, the reveal cap, the
+#: not-matched sample) and the clear never touches them
+KEPT_OWED = ("site.weekly_seen", "orch.submissions", "team.candidate_views", "tuned.tuned_patients")
 
 
 def _stores(url: str) -> None:
@@ -70,7 +72,7 @@ def _row(db: Any, table: str, pid: str, **given: Any) -> int | None:
 
 def _fill(url: str) -> None:
     for pid in (A, C):
-        for key in PLAIN:
+        for key in (*PLAIN, *KEPT_OWED):
             schema, table = key.split(".")
             if schema == "derived":
                 continue
@@ -86,8 +88,8 @@ def _fill(url: str) -> None:
             first = _row(db, "conflict", pid, row_id=rid, documented_id=f"d1-{pid}")
             _row(db, "conflict", pid, row_id=rid, documented_id=f"d2-{pid}", carried_from=first)
     with Database.connect(url, "derived") as db:
-        db.execute("INSERT INTO batch_run (snapshot, mapping_version, defs, started_at, failed_pids)"
-                   " VALUES ('2026-11-01', 'm', 'd', 'now', ?)", (json.dumps(sorted([A, C])),))  # fmt: skip
+        db.execute("INSERT INTO batch_run (snapshot, mapping_version, defs, started_at, failed, failed_pids)"
+                   " VALUES ('2026-11-01', 'm', 'd', 'now', 2, ?)", (json.dumps(sorted([A, C])),))  # fmt: skip
 
 
 def _has_pid(db: Any, table: str) -> bool:
@@ -124,8 +126,11 @@ def test_the_owed_tables_lose_the_opted_out_patient_and_keep_the_others(db_url: 
     assert verify_tables(frozenset({A}), env) == dict.fromkeys(before, 0)
     for key in PLAIN:
         assert _count(db_url, key, C) >= 1, key  # another patient's rows stay
+    for key in KEPT_OWED:
+        assert _count(db_url, key, A) == 1, key  # not this part's: never touched
     with Database.connect(db_url, "derived") as db:
         assert json.loads(db.fetchval("SELECT failed_pids FROM batch_run")) == [C]
+        assert db.fetchval("SELECT failed FROM batch_run") == 1  # the count follows the list
     assert sum(clear_tables(frozenset({A}), env).values()) == 0  # idempotent
     env.register.close()
 
@@ -145,8 +150,24 @@ def test_the_registry_no_longer_owes_the_cleared_tables() -> None:
     assert not cleared & owed
     assert all(erasure.entries()[k].clear == "owed_tables" for k in cleared)
     assert set(erasure.tables_of("owed_tables")) == cleared
-    for key in ("site.pi_marks", "site.screening_no", "orch.candidate_events", "study.rc_record"):
-        assert key in owed  # LIFE-005 is frozen: the screening log's tables wait
+    for key in ("site.pi_marks", "site.screening_no", "orch.candidate_events", "study.rc_record", *KEPT_OWED):
+        assert key in owed  # LIFE-005 is frozen: the screening log's tables wait; the review's four wait too
+
+
+def test_the_nightly_derive_skips_an_opted_out_patient(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The review of D-798: the derive batch put an opted-out patient's rows back every night until the next tick."""
+    from tb_common import derived_store
+
+    seen: list[str] = []
+
+    class Store:
+        def recompute(self, pid: str, *_a: Any, **_k: Any) -> Any:
+            seen.append(pid)
+            return derived_store.Report()
+
+    monkeypatch.setattr(derived_store, "rows_from_lake", lambda *_a: {A: ([], None, False), C: ([], None, False)})
+    derived_store.run_batch(Store(), None, mapping_version="m", pids=[A, C], skip={A})  # type: ignore[arg-type]
+    assert seen == [C]
 
 
 @pytest.mark.parametrize("key", ["site.pi_marks", "orch.candidate_events"])

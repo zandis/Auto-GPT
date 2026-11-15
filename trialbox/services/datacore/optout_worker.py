@@ -329,11 +329,13 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 # T-206b part 1 (D-798): the owed tables keyed by the pseudonym, each a plain delete of the patient's rows, in an
 # order that deletes a referencing row before the row it references. The screening log's tables (marks, screening
 # numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.
+# The adversarial review of D-798 kept four out: site.weekly_seen (the kept screening-log row's first-listed day),
+# orch.submissions (NHI's send-once guard), team.candidate_views (the reveal cap's ledger) and tuned.tuned_patients (a
+# reviewed week's sample would be drawn again); they stay on the owed list with why.
 OWED_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("site", ("contact_outcomes", "excluded_review", "weekly_seen")),
-    ("team", ("approach_overrides", "candidate_views", "referral_events", "referrals")),
-    ("tuned", ("tuned_patients",)),
-    ("orch", ("feedback", "submissions")),
+    ("site", ("contact_outcomes", "excluded_review")),
+    ("team", ("approach_overrides", "referral_events", "referrals")),
+    ("orch", ("feedback",)),
 )
 #: the derived store: the input links and conflicts of a score row go before the row (their foreign keys)
 DERIVED = "derived"
@@ -366,8 +368,9 @@ def _derived(db: Any, pids: list[str], delete: bool) -> dict[str, int]:
         if gone & set(listed):
             n += 1
             if delete:
-                db.execute("UPDATE batch_run SET failed_pids = ? WHERE id = ?",
-                           (json.dumps([x for x in listed if x not in gone]), bid))  # fmt: skip
+                left = [x for x in listed if x not in gone]
+                db.execute("UPDATE batch_run SET failed_pids = ?, failed = GREATEST(COALESCE(failed, 0) - ?, 0)"
+                           " WHERE id = ?", (json.dumps(left), len(listed) - len(left), bid))  # fmt: skip
     out["derived.batch_run"] = n
     return out
 
@@ -383,12 +386,12 @@ def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str
         if not here or not want:
             out.update({f"{schema}.{t}": 0 for t in here})
             continue
-        with Database.connect(url, schema) as db:
+        with Database.connect(url, schema) as db, db.transaction() as tx:  # one schema's deletes: all or none
             for t in here:
                 if delete:
-                    out[f"{schema}.{t}"] = int(db.execute(f"DELETE FROM {t} WHERE pid = ANY(?)", (want,)) or 0)
+                    out[f"{schema}.{t}"] = int(tx.execute(f"DELETE FROM {t} WHERE pid = ANY(?)", (want,)) or 0)
                 else:
-                    out[f"{schema}.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE pid = ANY(?)", (want,)))
+                    out[f"{schema}.{t}"] = int(tx.fetchval(f"SELECT count(*) FROM {t} WHERE pid = ANY(?)", (want,)))
     if store_has(url, DERIVED, "score_row") and want:
         with Database.connect(url, DERIVED) as db:
             if delete:

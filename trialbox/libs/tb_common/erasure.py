@@ -101,9 +101,8 @@ CLEARS: dict[str, Clear] = {
             "owed_tables",
             f"{_W}:clear_tables",
             f"{_W}:verify_tables",
-            "T-206b part 1 (D-798): the rows keyed by the pseudonym in the site, team, not-matched, PI feedback, NAV "
-            "and "
-            "derived tables go; a batch's failed list loses the pseudonym",
+            "T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the "
+            "nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym",
         ),
         Clear(
             "profile",
@@ -182,7 +181,10 @@ TABLES: dict[str, Entry] = {
         "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
     ),
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
-    "orch.submissions": _erase("owed_tables", "NAV submissions, by pseudonym"),
+    "orch.submissions": _owed(
+        "NAV submissions, by pseudonym",
+        "a decision: the row is NHI's send-once guard and the record of a disclosure (keep, or erase dry runs only)",
+    ),
     "orch.cohort_tables": _none("aggregate counts per quarter and criterion"),
     "orch.cohort_stored": _none(
         "D-648: each alliance table as it was stored (aggregate counts per quarter and criterion, the site, the "
@@ -261,7 +263,10 @@ TABLES: dict[str, Entry] = {
         "the screening number given to a pseudonym",
         "the number of a patient never consented (the screening log's, OD-8)",
     ),
-    "site.weekly_seen": _erase("owed_tables", "the week a pseudonym first appeared on a list"),
+    "site.weekly_seen": _owed(
+        "the week a pseudonym first appeared on a list",
+        "with the screening log (LIFE-005): a numbered row keeps its first-listed day (D-762)",
+    ),
     **_each("site", ("approval_opened", "code_ticks"), _none("a review trace: job, criterion, who")),
     **_each(
         "site",
@@ -281,7 +286,10 @@ TABLES: dict[str, Entry] = {
         "OD-8", "a monitoring visit's record: the subjects reviewed are trial subjects (an essential record)"
     ),
     "team.approach_overrides": _erase("owed_tables", "an override of an approach warning, by pseudonym"),
-    "team.candidate_views": _erase("owed_tables", "a cross-department view of a candidate, by pseudonym"),
+    "team.candidate_views": _owed(
+        "a cross-department view of a candidate, by pseudonym",
+        "the reveal cap counts these rows and they say who saw an identity: a clear that keeps both",
+    ),
     "team.referrals": _erase("owed_tables", "a referral of a patient, by pseudonym"),
     "team.referral_events": _erase("owed_tables", "a referral's events, by pseudonym"),
     **_each(
@@ -309,7 +317,10 @@ TABLES: dict[str, Entry] = {
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
     "dataops.built": _none("which generation each derived artefact is built from: names, states and times (D-491)"),
     "dataops.built_kept": _none("the finished generations of the derived rows and their batch ids: no patient (D-525)"),
-    "tuned.tuned_patients": _erase("owed_tables", "the weekly PI sample of patients not matched, by pseudonym"),
+    "tuned.tuned_patients": _owed(
+        "the weekly PI sample of patients not matched, by pseudonym",
+        "a clear that does not redraw a reviewed week's sample",
+    ),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),
     "vec.embedding": _erase("vec", "one vector per chunk text: those no other chunk uses go with the chunks"),
