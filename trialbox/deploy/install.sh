@@ -466,17 +466,23 @@ if [ "$MODE" = gpu ]; then
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
   done
   say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
+  # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
+  # was only a warning: lane G's box went on with no model pinned); a pin that fails stops the install
+  alive_start "hashing the model weights"
   tree_args
-  docker run --rm -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
-    || echo "install: warning: a model of the $GPU pair is not pinned (see above): it routes nothing until its weights are in deploy/models and install runs again (RUNBOOK §8)" >&2
+    || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
+  alive_stop
   if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
     # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
     say "checking the pinned model weights (tools/pin_model.py --verify-all)"
+    alive_start "checking the model weights"
     tree_args
     docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
       python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
       || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+    alive_stop
   else
     echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
   fi
@@ -653,8 +659,10 @@ fi
 # the retries); the stop, from the longest stop grace. Without PyYAML on the host, the waits of before (900 s, 300 s).
 BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" || BOOT_WAIT=900
 STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
+alive_start "waiting for every service to be healthy (up to ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} s)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
-  || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+  || { alive_stop; "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+alive_stop
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
   # gateway would get 404 or 401 on every call and the box would screen nothing (doctor check "serving")
@@ -743,7 +751,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   QUAL_DIR="$(readlink -f deploy/qualification 2>/dev/null || true)"; [ -d "$QUAL_DIR" ] || QUAL_DIR="$ROOT/deploy/site"
   LOCK_FILE="$(readlink -f deploy/images.lock 2>/dev/null || true)"
   pin_tool() {
-    docker run --rm -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
+    docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
       python -m tools.pin_model "$@" --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /'
     return "${PIPESTATUS[0]}"
   }
