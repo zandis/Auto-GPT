@@ -672,6 +672,11 @@ def _run_ingest(
                 "rows": len(rows),
                 "duplicate_keys": _duplicates((str(r.get(kcol)) for r in rows), spool.root / ".keys") if kcol else 0,
             }
+            undated = getattr(src, "change_time_not_a_date", None)  # F14 (D-810, lane E's hunk): counts only
+            if since_t and callable(undated) and (n_undated := int(undated(src_name))):
+                tables[table]["change_time_not_a_date"] = n_undated
+                log.warning("%s: %d rows have a change time that is not a date: read on every night, never windowed "
+                            "by it (D-810)", table, n_undated)  # fmt: skip
             if contracts is not None:  # T-659b: the contract's row checks; a failing row is set aside, never mapped
                 chk = governance.check_table(
                     contracts.get(src_name) or contracts.get(table),
