@@ -116,10 +116,10 @@ def test_n12_evidence_must_be_unadjusted(tmp_path: Path) -> None:
                     cast(q.QClient, None), tmp_path, io.StringIO())  # fmt: skip
         return q.step_evidence("n12")(ctx)
 
-    good = run(passed=True, head=head, basis="unadjusted")
+    good = run(passed=True, head=head, basis="unadjusted", source="screen")  # D-826: from SCREEN (tools.n12_screen)
     assert good.status == "passed" and good.detail["basis"] == "unadjusted"
     for basis in ("audit_adjusted", None):
-        r = run(passed=True, head=head, basis=basis)
+        r = run(passed=True, head=head, basis=basis, source="screen")
         assert r.status == "failed" and "basis unadjusted" in r.reason
 
 
