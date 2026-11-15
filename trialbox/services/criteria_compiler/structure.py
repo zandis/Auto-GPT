@@ -187,6 +187,10 @@ def send_to_a_person(criteria: list[Any], rep: Report, keep: Collection[int] = (
 
 # ------------------------------------------------------------------------------------------------- any of (D-793)
 _DIAGNOSIS = re.compile(r"diagnos|診斷|診断|诊断", re.I)
+# a negated lead-in ("No history of any of the following:"): its bullets are not alternatives (review of D-793)
+_NEGATED = re.compile(r"\b(?:no|not|none|without|never)\b|無|なし|ない|未|非|不", re.I)
+# the findings a combined set answers; any other finding on its lines keeps the set with a person
+_GROUP_FLAGS = frozenset({"group_heading", "group_member", "alternatives_in_line"})
 
 
 @dataclass(frozen=True)
@@ -240,12 +244,17 @@ def alternatives(lines: Sequence[dict[str, Any]]) -> list[AnyOf]:
         )
 
     def close() -> None:
-        if len(run) >= 2:
+        # adjacent groups are alternatives only when the first lead-in names a diagnosis (review of D-793: ordinary
+        # sub-headings, "Laboratory values:" / "Prior therapy:", are required together)
+        if len(run) >= 2 and _DIAGNOSIS.search(str(lines[run[0].lead].get("text") or "")):
             out.append(AnyOf(list(run)))
         run.clear()
 
     for g in groups:
         text = str(lines[g.lead].get("text") or "")
+        if lines[g.lead].get("kind") != "inclusion" or _NEGATED.search(_LEAD.sub("", text)):
+            close()  # never an exclusion, never a negated lead-in (review of D-793): a person decides
+            continue
         if _ANY.search(text) and len(g.members) >= 2:
             close()
             out.append(AnyOf([Group(g.lead, [m]) for m in g.members]))
@@ -262,7 +271,7 @@ def alternatives(lines: Sequence[dict[str, Any]]) -> list[AnyOf]:
 
 
 def combine(
-    criteria: list[Any], lines: Sequence[dict[str, Any]], keep: Collection[int] = ()
+    criteria: list[Any], lines: Sequence[dict[str, Any]], keep: Collection[int] = (), report: Report | None = None
 ) -> tuple[list[Any], set[int], list[str]]:
     """``criteria`` (one per line) with each set of :func:`alternatives` whose members are all ``structured`` made one
     criterion (the first lead-in's id, flag ``any_of``, logic ``or(and(group …))`` from the members' own logic), its
@@ -274,24 +283,43 @@ def combine(
     folded: set[int] = set()
     warnings: list[str] = []
     replace: dict[int, Any] = {}
+    other = {f.index for f in (report.findings if report else []) if f.flag not in _GROUP_FLAGS}
     for s in alternatives(lines):
         idx = s.lines()
         members = [m for g in s.groups for m in g.members]
-        if any(i in keep for i in idx) or any(criteria[m].class_ != "structured" for m in members):
-            continue
+        leads = sorted({g.lead for g in s.groups})
+        if any(i in keep or i in other for i in idx) or any(criteria[m].class_ != "structured" for m in members):
+            continue  # reused, another finding (another phase, a second section …), or a member not structured
+        if any(criteria[x].class_ in ("note", "mixed") for x in leads):
+            continue  # a lead-in the notes would decide: a person reads the set
         args = []
         for g in s.groups:
-            logics = [criteria[m].logic for m in g.members]
+            # a structured lead-in carries a requirement of its own ("Aged 65 years or older with:"): it is ANDed
+            # into its group (review of D-793); a lead-in classed human is a label
+            own = [criteria[g.lead].logic] if criteria[g.lead].class_ == "structured" and len(g.members) > 0 else []
+            logics = own + [criteria[m].logic for m in g.members]
             args.append(logics[0] if len(logics) == 1 else BoolExpr(op="and", args=logics))
+        if len(leads) == 1 and criteria[leads[0]].class_ == "structured":
+            # a "one of" lead-in over its bullets: its own requirement once, beside the OR of the bullets
+            only = [criteria[m].logic for m in members]
+            logic: Any = BoolExpr(op="and", args=[criteria[leads[0]].logic, BoolExpr(op="or", args=only)])
+        else:
+            logic = BoolExpr(op="or", args=args)
         first = criteria[s.groups[0].lead]
-        text = " ".join(
-            " ".join([str(lines[g.lead].get("text") or "")] + [str(lines[m].get("text") or "") for m in g.members])
-            for g in s.groups
-        )
-        flags = sorted((set(first.flags or []) - {"needs_review", "structure"}) | {"any_of"})
+        parts: list[str] = []
+        for g in s.groups:
+            lead_text = str(lines[g.lead].get("text") or "")
+            if not parts or parts[-1] != lead_text:
+                parts.append(lead_text)
+            parts += [str(lines[m].get("text") or "") for m in g.members]
+        timed = any(bool(getattr(criteria[i], "time_sensitive", False)) for i in idx)
+        flags = sorted((set(first.flags or []) - {"structure"}) | {"any_of", "needs_review"})
         replace[s.groups[0].lead] = first.model_copy(
-            update={"class_": "structured", "logic": BoolExpr(op="or", args=args), "text": text, "flags": flags}
-        )
+            update={
+                "class_": "structured", "logic": logic, "text": " ".join(parts), "flags": flags,
+                "human_question": None, "note_question": None, "time_sensitive": timed,
+            }
+        )  # fmt: skip
         folded.update(idx)
         warnings.append(
             f"{first.id}: lines {', '.join(str(i + 1) for i in idx)} are alternatives (any of): one criterion, "

@@ -585,7 +585,7 @@ class Compiler:
         shape = structure.check(lines, req.kind or "trial")
         # D-793: a set of alternative groups whose members are all structured is one criterion, or(and(group …));
         # its lines carry no structure finding any more. The rest goes to a person (D-785)
-        grouped, folded, combined = structure.combine(criteria, lines, keep=reused)
+        grouped, folded, combined = structure.combine(criteria, lines, keep=reused, report=shape)
         shape.findings = [f for f in shape.findings if f.index not in folded]
         if not any(f.flag in ("group_member", "alternatives_in_line") for f in shape.findings):
             shape.warnings = [w for w in shape.warnings if not w.startswith("some lines may be alternatives")]

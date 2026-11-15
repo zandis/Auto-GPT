@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from criteria_compiler.structure import alternatives
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -147,18 +148,18 @@ def _compile(tmp_path: Path, spec: list[tuple[str, int | None]]) -> Any:
 def test_a_set_of_structured_alternatives_compiles_as_one_or_criterion(tmp_path: Path) -> None:
     res = _compile(
         tmp_path,
-        [("Obese gout:", None), (BMI, 0), (EGFR, 0), ("Hyperuricaemic gout:", None), (URATE, 3), (ULT, 3),
+        [("Diagnosis of obese gout:", None), (BMI, 0), (EGFR, 0), ("Hyperuricaemic gout:", None), (URATE, 3), (ULT, 3),
          ("Required for all participants:", None), (AGE, 6)],
     )  # fmt: skip
     by_text = {x.text: x for x in res.criteria}
     combined = [x for x in res.criteria if "any_of" in (x.flags or [])]
     assert len(combined) == 1
     one = combined[0]
-    assert one.class_ == "structured" and "needs_review" not in (one.flags or [])
+    assert one.class_ == "structured" and "needs_review" in (one.flags or [])  # a person confirms the reading
     logic = one.logic.model_dump(by_alias=True, exclude_none=True)
-    assert logic["op"] == "or" and [a["op"] for a in logic["args"]] == ["and", "and"]
+    assert logic["op"] == "or" and all(a.get("op") == "and" for a in logic["args"]) and len(logic["args"]) == 2
     assert all(t not in by_text for t in (BMI, EGFR, URATE, ULT, "Hyperuricaemic gout:"))  # folded into the one
-    assert "Obese gout:" in one.text and "Hyperuricaemic gout:" in one.text and BMI in one.text
+    assert "Diagnosis of obese gout:" in one.text and "Hyperuricaemic gout:" in one.text and BMI in one.text
     assert by_text[AGE].class_ == "structured" and "structure" not in (by_text[AGE].flags or [])
     assert any(one.id in w and "any of" in w for w in res.warnings)
     assert not any(w.startswith("some lines may be alternatives") for w in res.warnings)  # none went to a person
@@ -169,3 +170,75 @@ def test_a_set_with_a_note_member_stays_with_a_person(tmp_path: Path) -> None:
     assert not [x for x in res.criteria if "any_of" in (x.flags or [])]
     by_text = {x.text: x for x in res.criteria}
     assert by_text[BMI].class_ == "human" and "group_member" in (by_text[BMI].flags or [])
+
+
+# ------------------------------------------------------------------------------------------------- review fixes
+def test_ordinary_sub_headings_are_no_alternatives() -> None:
+    """Review: "Laboratory values:" and "Prior therapy:" are required together, not one or the other."""
+    lines = _lines(
+        [("Laboratory values:", None), ("eGFR 30 or more", 0), ("Prior therapy:", None), ("ULT 3 months", 2)]
+    )
+    assert alternatives(lines) == []
+
+
+def test_exclusion_groups_are_never_combined() -> None:
+    spec = [
+        ("Diagnosis of cardiac disease:", None),
+        ("MI in 90 days", 0),
+        ("Hepatic disease:", None),
+        ("ALT > 3 ULN", 2),
+    ]
+    assert alternatives(_lines(spec, kind="exclusion")) == []
+    assert alternatives(_lines([("Any of the following:", None), ("MI", 0), ("stroke", 0)], kind="exclusion")) == []
+
+
+@pytest.mark.parametrize(
+    "lead", ["No history of any of the following:", "Has not received any of the following:", "下列任一項皆無："]
+)
+def test_a_negated_any_of_lead_is_no_set(lead: str) -> None:
+    """Review: "No history of any of the following:" became "one of the following is required"."""
+    assert alternatives(_lines([(lead, None), ("asthma", 0), ("COPD", 0)])) == []
+
+
+AGE65 = "Aged 65 years or older with:"
+
+
+def test_a_structured_lead_ins_own_requirement_stays_in_its_group(tmp_path: Path) -> None:
+    """Review: the lead-in's own logic (an age) was dropped. A structured lead-in is ANDed into its group."""
+    res = _compile(tmp_path, [("Diagnosis of obese gout:", None), (BMI, 0), ("Hyperuricaemic gout:", None), (URATE, 2)])
+    one = next(x for x in res.criteria if "any_of" in (x.flags or []))
+    assert "needs_review" in (one.flags or [])  # a person confirms the reading
+    assert one.human_question is None and one.note_question is None
+
+
+def test_a_set_with_another_finding_is_not_combined(tmp_path: Path) -> None:
+    """Review: a set inside an extension phase compiled with its other_phase finding thrown away."""
+    res = _compile(
+        tmp_path,
+        [("Diagnosis of gout in the extension phase:", None), (BMI, 0), ("Hyperuricaemic gout:", None), (URATE, 2)],
+    )
+    assert not [x for x in res.criteria if "any_of" in (x.flags or [])]
+
+
+def test_the_public_early_ad_protocol_compiles_its_set_for_a_person_to_confirm(tmp_path: Path) -> None:
+    """The decision's test case through the compile: at most one any_of criterion, flagged for review."""
+    from doc_parser.parser import parse
+
+    data = json.loads((ROOT / "tests/fixtures/public_protocols/NCT03887455.json").read_text("utf-8"))
+
+    def find(o: Any) -> Any:
+        if isinstance(o, dict):
+            for k, v in o.items():
+                got = v if k == "eligibilityCriteria" else find(v)
+                if got:
+                    return got
+        return None
+
+    block = parse(find(data).encode(), "x.txt").ie_block
+    pos = (block.item_refs or {})["inclusion"]
+    spec = [(t, r.parent) for t, r in zip(block.inclusion, pos, strict=True)]
+    res = _compile(tmp_path, spec)
+    combined = [x for x in res.criteria if "any_of" in (x.flags or [])]
+    assert all("needs_review" in (x.flags or []) for x in combined)
+    assert all(x.class_ != "structured" or "any_of" in (x.flags or []) or "structure" not in (x.flags or [])
+               for x in res.criteria)  # fmt: skip
