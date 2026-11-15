@@ -720,13 +720,14 @@ d_build_prereq() {
   DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
     "openjdk-$jv-jdk-headless" maven
 }
-step_b_venv() {
+b_prereq() {  # before b02 and b03 (a boot that kept b02 still needs them for the images)
   if ! command -v mvn >/dev/null || ! command -v java >/dev/null; then
     need "installing the build's host tools (Maven, the JDK of .java-version)" d_build_prereq || return 1
   fi
   note java "\"$(java -version 2>&1 | head -n 1)\""
-  step_b_make venv scanners
 }
+step_b_venv() { b_prereq && step_b_make venv scanners; }
+step_b_images() { b_prereq && step_b_make images; }
 step_b_gates() {
   need "make trivy-db" make -C "$CK" trivy-db || return 1
   # enforcing (no --vuln-mode report): a FAIL here stops the build, and the vendor key is never read
@@ -1370,7 +1371,7 @@ PY
 if has build; then
   run_step b01-source step_b_source
   run_step b02-venv step_b_venv
-  run_step b03-images step_b_make images
+  run_step b03-images step_b_images
   run_step b04-gates step_b_gates
   run_step b05-sign step_b_sign
   run_step b06-verify step_b_verify
