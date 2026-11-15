@@ -292,7 +292,8 @@ def _acc_job(kind: str, rs: str, mid: str) -> dict[str, Any]:
     by_mid = jload(BOX / "acc-mids.json", {})
     if mid in by_mid:
         called(f"acc-send {kind} {rs} dup")
-        return jload(BOX / "acc-jobs" / f"{by_mid[mid]}.json", {})
+        old: dict[str, Any] = jload(BOX / "acc-jobs" / f"{by_mid[mid]}.json", {})
+        return old
     n = len(by_mid) + 1
     first = sorted(jload(BOX / "acc-first.json", {}).values())
     job = {"id": f"acc-job-{n}", "kind": kind, "ruleset": rs, "start": time.time(), "version": "1.0.0"}
@@ -338,7 +339,8 @@ def _acc_outputs(job: dict[str, Any]) -> dict[str, bytes]:
         pract = job.get("pract", "")
         appts = S / "feed" / "acc" / "appointment.csv"
         mrns = sorted({r["mrn"] for r in csv.DictReader(appts.open(encoding="utf-8-sig")) if r["staff_id"] == pract})
-        rows, excl = [], []
+        rows: list[dict[str, Any]] = []
+        excl: list[dict[str, Any]] = []
         for i, m in enumerate(mrns):
             pid = _pid(m)
             crit = [{"id": "exc-2", "verdict": "fail" if i % 2 else "pass", "basis": "pair",

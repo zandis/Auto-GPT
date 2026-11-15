@@ -14,6 +14,7 @@ import json
 import sys
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path[:0] = [str(ROOT), str(ROOT / "libs")]
@@ -63,7 +64,7 @@ def main() -> int:
     if a.cmd == "fetch":
         print(json.dumps({"standin": True, "only": a.only}))
         return 0
-    kw: dict = {"ref": date.fromisoformat(a.ref)} if a.ref else {}
+    kw: dict[str, Any] = {"ref": date.fromisoformat(a.ref)} if a.ref else {}
     if a.for_box:
         kw["mrn0"], kw["pi0"], kw["rs_prefix"] = site.SET_OFFSETS[a.set]
     print(json.dumps(site.build(bundle(a.set), a.out / "built", **kw), ensure_ascii=False, default=str))

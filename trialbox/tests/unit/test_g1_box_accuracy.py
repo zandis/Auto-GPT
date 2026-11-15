@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import importlib.util
 import itertools
 import json
 import math
@@ -22,8 +23,11 @@ from tools.public_accuracy import plan, sets, site
 pytestmark = pytest.mark.nodb
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "deploy" / "gcp"))
-import box_vm  # noqa: E402
+_spec = importlib.util.spec_from_file_location("box_vm", ROOT / "deploy" / "gcp" / "box_vm.py")
+assert _spec and _spec.loader
+box_vm = importlib.util.module_from_spec(_spec)
+sys.modules["box_vm"] = box_vm
+_spec.loader.exec_module(box_vm)
 
 VM_SCRIPT = (ROOT / "deploy" / "gcp" / "box-install-run.sh").read_text(encoding="utf-8")
 
@@ -245,7 +249,7 @@ def test_acc_set_counts_the_tripwire_and_never_mails_a_protocol_twice(tmp_path: 
     built = _built(tmp_path)
     box = FakeBox(tripwire="NCT90000002")
     kw = {"sender": "crc1@hospa.test", "reviewer": "pi@hospa.test", "run_id": "r1", "compile_only": False, "job_s": 5}
-    res = box_vm.acc_set("sigir", built, tmp_path / "work", box, **kw)  # type: ignore[arg-type]
+    res = box_vm.acc_set("sigir", built, tmp_path / "work", box, **kw)
     assert res["counts"]["refused_by_tripwire"] == 1 and res["counts"]["screened"] == 1 and res["pass"] is False
     assert box.sent == ["FEAS NCT90000001", "APPROVE NCT90000001", "SCREEN NCT90000001", "FEAS NCT90000002"]
     screen = next(j for j in box.jobs.values() if j["kind"] == "SCREEN")
@@ -257,7 +261,7 @@ def test_acc_set_counts_the_tripwire_and_never_mails_a_protocol_twice(tmp_path: 
     assert answers["NCT90000001"]["draft"][0]["text"] == "Pregnancy"
     assert answers["NCT90000002"]["outcome"] == "refused_by_tripwire"
     # resumed (a pre-emption after the set finished): nothing is mailed again
-    box_vm.acc_set("sigir", built, tmp_path / "work", box, **kw)  # type: ignore[arg-type]
+    box_vm.acc_set("sigir", built, tmp_path / "work", box, **kw)
     assert len(box.sent) == 4
 
 
@@ -272,7 +276,7 @@ def test_acc_set_compile_only_and_a_resume_mid_protocol(tmp_path: Path) -> None:
         json.dumps({"NCT90000001": {"ruleset": "NCT90000001", "feas_job": first["job"]}})
     )
     res = box_vm.acc_set("tfda", built, work, box, sender="c@x", reviewer="r@x", run_id="r2", compile_only=True,
-                         job_s=5)  # type: ignore[arg-type]  # fmt: skip
+                         job_s=5)  # fmt: skip
     assert res["counts"] == {"protocols": 2, "compiled": 2, "refused_by_tripwire": 0, "patients_answered": 0}
     assert res["pass"] is True and box.sent == ["FEAS NCT90000001", "FEAS NCT90000002"]
 

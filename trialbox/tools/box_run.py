@@ -777,8 +777,8 @@ def main(argv: list[str] | None = None) -> int:
     for x in (e, m):
         x.add_argument("--mode", default="production", choices=MODES)
         x.add_argument("--only", default="", help="accuracy sets: name or name:size, comma-separated (default Run A)")
-    t = sub.add_parser("acc-tools")
-    t.add_argument("--out", type=Path, required=True)
+    at = sub.add_parser("acc-tools")
+    at.add_argument("--out", type=Path, required=True)
     c = sub.add_parser("acc-score")
     c.add_argument("dir", type=Path)
     sub.add_parser("validation-check", help="can a VALIDATION box with the real pair run the accuracy set here?")
