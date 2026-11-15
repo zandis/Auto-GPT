@@ -592,8 +592,19 @@ class EdcService:
                     for d, rec, _slot in planned:
                         self.store.record_sent(rs, d, "redcap", rec, "attempt", ATTEMPT, by, at)
                         attempted += 1
-                    c.import_records(list(imports.values()))
-                    touched = sorted({k[0] for k in imports})
+                    # NEW-EDC-7 (EDC-007): one record REDCap refuses does not stop the others
+                    refused, first, unanswered = self._import(c, imports)
+                    for d, rec, slot in planned:
+                        if lay.key(rec, slot) in refused:
+                            out["refused"].append(_brief(d))
+                            self.store.record_sent(rs, d, "redcap", rec, "refused", "REDCap refused the import of "
+                                                   f"this row: {refused[lay.key(rec, slot)]}", by, at)  # fmt: skip
+                    if unanswered is not None:
+                        raise unanswered
+                    planned = [p for p in planned if lay.key(p[1], p[2]) not in refused]
+                    if first is not None and not planned:
+                        raise first
+                    touched = sorted({k[0] for k in imports if k not in refused})
                     back = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))],
                                                           records=touched), self.today())  # fmt: skip
                     for d, rec, slot in planned:
@@ -619,7 +630,9 @@ class EdcService:
             self._audit("edc.sent", rs, by, {"record": record or "*", "refused": exc.code, "attempted": attempted})
             raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
         self._audit("edc.sent", rs, by, {"record": record or "*", "target": target["token_ref"],
-                                         **{k: len(v) for k, v in out.items()},
+                                         # NEW-EDC-7: an audit line's "refused" is a refused send's code
+                                         **{("records_refused" if k == "refused" else k): len(v)
+                                            for k, v in out.items()},
                                          "calc_differs": sum(1 for x in calc_out if x["equal"] is False),
                                          "hidden_in_redcap": len(hidden_out)})  # fmt: skip
         return {**out, "count": len(out["sent"]), "calc": calc_out, "hidden_in_redcap": hidden_out}
@@ -883,6 +896,34 @@ class EdcService:
             out |= self._slot_fields(lay, meta, lay.slot(str(d["visit"])))
         return out
 
+    @staticmethod
+    def _import(
+        c: RedcapClient, imports: dict[Any, dict[str, str]]
+    ) -> tuple[dict[Any, str], RcError | None, RcError | None]:
+        """Import the rows; when REDCap refuses an import of several rows (it refuses an import whole), send again
+        one row at a time (NEW-EDC-7). Returns the rows REDCap refused (by row key), each with the kind of error
+        (never REDCap's text, D-555); the first refusal; and an error that was not a refusal met on the way (REDCap
+        did not answer: the caller ledgers the refusals before raising it; what was not answered may have applied,
+        D-691 reads it back next send)."""
+        try:
+            c.import_records(list(imports.values()))
+            return {}, None, None
+        except RcError as exc:
+            if not exc.refused:
+                raise
+            first = exc
+        if len(imports) == 1:
+            return dict.fromkeys(imports, first.message), first, None
+        refused: dict[Any, str] = {}
+        for key, row in imports.items():
+            try:
+                c.import_records([row])
+            except RcError as exc:
+                if not exc.refused:
+                    return refused, first, exc
+                refused[key] = exc.message
+        return refused, first, None
+
     def _landed(self, rs: str, d: dict[str, Any], rec: str, att: dict[str, Any], by: str, at: str) -> None:
         """An attempt read back equal (NEW-EDC-8): ``sent`` under the person and time of the attempt, which is when
         REDCap took the value; the line names who read it back, and when."""
@@ -920,10 +961,10 @@ class EdcService:
         return self.store.trail(rs, record)
 
 
-#: what the send answers per value: written, or held back with the reason (the last four: T-115, D-368)
+#: what the send answers per value: written, or held back with the reason (T-115, D-368, D-690; NEW-EDC-7: refused)
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
-                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken")  # fmt: skip
+                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused")  # fmt: skip
 #: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
 ATTEMPT = "about to be written; REDCap's answer not read yet"  # NEW-EDC-8: closed by the next read-back
 ATTEMPT_HELD = ("REDCap holds the value of a TrialBox send whose answer was lost, or a person's equal entry; TrialBox "
