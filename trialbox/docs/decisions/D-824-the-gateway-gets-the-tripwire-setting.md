@@ -1,4 +1,4 @@
-# D-795 The gateway's container gets the PHI tripwire setting, on by default
+# D-824 The gateway's container gets the PHI tripwire setting, on by default
 
 - **Task:** COMPOSE-TRIPWIRE, the owner's blocker 4 of 2026-11-15, with lane A2's #654 (the tripwire guards the
   routes that leave the box; its setting `TB_GATEWAY_PHI_TRIPWIRE`)

@@ -1,4 +1,4 @@
-"""COMPOSE-TRIPWIRE (D-795), the owner's blocker 4 with lane A2's #654: the gateway's container gets the PHI tripwire
+"""COMPOSE-TRIPWIRE (D-824), the owner's blocker 4 with lane A2's #654: the gateway's container gets the PHI tripwire
 setting from deploy/.env, on unless the site writes otherwise (fails safe)."""
 
 from __future__ import annotations
