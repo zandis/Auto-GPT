@@ -821,6 +821,8 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
     else
       FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
     fi
+  elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
+    echo "    rehearsal box: the pair is the media's placeholder pins (candidate, TEST only); nothing to qualify"
   elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
     FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
   fi

@@ -130,3 +130,17 @@ def test_the_installer_hands_the_box_to_the_pin_and_the_record_keeps_the_bundle_
     assert '-e TB_ENV="$TB_ENV_SITE"' in pin and '-e TB_REHEARSAL="$(envget TB_REHEARSAL)"' in pin
     update = (ROOT / "tools" / "trialbox" / "update.py").read_text(encoding="utf-8")
     assert 'record["rehearsal"] = True' in update
+
+
+def test_the_shipped_promotion_leaves_a_placeholder_pair_alone_and_says_why(tmp_path: Path, capsys: Any) -> None:
+    """The install's HW-003 step (--promote-shipped) on a rehearsal box: a placeholder is never promoted, so it is said
+    (exit 5, a note for the installer), not reported as a pair that failed to qualify."""
+    models, out = _box(tmp_path)
+    assert pin_model.install_pins("rtxpro6000", models, out, dict(REHEARSAL_BOX))[0]
+    rc = pin_model.main(["--promote-shipped", "rtxpro6000", "--records", str(tmp_path / "q"), "--out", str(out)])
+    assert rc == 5 and "rehearsal placeholder" in capsys.readouterr().out
+    doc = yaml.safe_load(out.read_text(encoding="utf-8"))["builds"]
+    assert {e["status"] for e in doc.values()} == {"candidate"}
+    install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    step = install[install.index('pin_tool --promote-shipped "$GPU"') :][:3000]
+    assert 'elif [ "$rc" = 5 ]; then' in step
