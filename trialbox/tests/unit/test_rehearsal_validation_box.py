@@ -272,3 +272,14 @@ def test_the_rehearsal_installs_the_example_study_as_an_operator_does_on_a_valid
     assert 'python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by "synthetic-run:<who>"' in runbook
     helper = box[box.index("doctor() {") : box.index("\n}\n", box.index("doctor() {"))]
     assert "--env-file /app/deploy/.env" in helper
+
+
+def test_the_probe_names_the_prompt_and_the_doctor_sees_the_stand_ins_file() -> None:
+    """The eighth run (SCREEN passed on VALIDATION): outside DEV and TEST the gateway requires X-TB-Prompt-Sha, so the
+    wrong-name and missing-key probes were refused prompt_changed, not for the fault they test; and the doctor's
+    db_passwords and chartno_rule could not read the stand-ins compose file outside deploy/."""
+    box = (ROOT / "tools" / "rehearse_box" / "box.sh").read_text(encoding="utf-8")
+    probe = box[box.index("gateway_probe() {") : box.index("\nEOF\n", box.index("gateway_probe() {"))]
+    assert "prompt_sha=p.sha256" in probe
+    helper = box[box.index("doctor() {") : box.index("\n}\n", box.index("doctor() {"))]
+    assert 'more+=(-v "$cf:$cf:ro")' in helper and "COMPOSE_FILE" in helper
