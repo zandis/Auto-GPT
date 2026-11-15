@@ -699,13 +699,20 @@ d_host_prereq() {
   # "Failed to create TPM2 context: Operation not supported" in seal_keys.sh. tpm2-tools brings them
   [ -n "${TB_BOXRUN_ROOT:-}" ] || systemd-creds has-tpm2 2>/dev/null | head -n 1 | grep -qx yes || miss+=(tpm2-tools)
   note host_packages_added "\"${miss[*]-}\""
-  [ ${#miss[@]} = 0 ] && return 0
   [ -z "${TB_BOXRUN_ROOT:-}" ] || return 0   # the rehearsal installs nothing on its host
-  DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${miss[@]}" \
-    || return 1
-  # the seal needs the TPM through systemd-creds: said here, in the first minutes, not 20 minutes into the install
+  if [ ${#miss[@]} -gt 0 ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${miss[@]}" \
+      || return 1
+  fi
+  # the seal needs the TPM through systemd-creds: proved here, in the first minutes, not 20 minutes into the install:
+  # every part of has-tpm2, and a round trip of a throwaway value through the TPM (nothing of the box's)
+  note has_tpm2 "\"$(systemd-creds has-tpm2 2>&1 | tr '\n' ' ')\""
   systemd-creds has-tpm2 2>&1 | tee -a "$STEP_LOG" | head -n 1 | grep -qx yes \
-    || { echo "TB-TPM: systemd-creds has-tpm2 is not 'yes' after the packages: the seal would fail" >&2; return 1; }
+    || { echo "TB-TPM: systemd-creds has-tpm2 is not 'yes': the seal would fail" >&2; return 1; }
+  [ "$(printf tb-tpm-roundtrip | systemd-creds encrypt --with-key=tpm2 --name=tb-roundtrip - - 2>>"$STEP_LOG" \
+        | systemd-creds decrypt --name=tb-roundtrip - - 2>>"$STEP_LOG")" = tb-tpm-roundtrip ] \
+    || { echo "TB-TPM: a throwaway value does not go through systemd-creds encrypt/decrypt with the TPM" >&2; return 1; }
+  note tpm_roundtrip true
 }
 # A VALIDATION install that stopped half way leaves the site keys wrapped under a KEK that sat only in /run (tmpfs:
 # gone at the next boot) and its record in the secrets volume; install.sh run again would wrap under a KEK nobody has.
