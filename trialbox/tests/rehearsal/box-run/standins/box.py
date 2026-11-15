@@ -205,8 +205,11 @@ def snippet(svc: str, text: str) -> int:
 
 
 def compose(argv: list[str]) -> int:
-    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up"))
+    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run"))
     cmd, rest = argv[i], argv[i + 1 :]
+    if cmd == "run":  # a one-off service command (the direct route's adapter keys-init)
+        called("compose-run " + " ".join(a for a in rest if not a.startswith("-")))
+        return 0
     if cmd == "up":  # the stack recreated on new settings (the acc group's settings step)
         called("compose-up " + " ".join(a for a in rest if not a.startswith("-")))
         return 0
@@ -544,6 +547,10 @@ def tool(name: str, argv: list[str]) -> int:
     if name == "pin_model":
         if "--install" in argv:
             called("pin")
+            if "--out" in argv:  # the direct route: pin_model --install in the image, the site pins written
+                Path(arg(argv, "--out")).parent.mkdir(parents=True, exist_ok=True)
+                Path(arg(argv, "--out")).write_text("builds: {}  # stand-in pins\n")
+                return 0
             roles = sorted(p.name for p in Path(arg(argv, "--models-root")).iterdir() if p.is_dir())
             return 0 if roles == ["judge", "verifier"] else 1
         if "--promote" in argv:
@@ -598,6 +605,9 @@ def tool(name: str, argv: list[str]) -> int:
             qrec["steps"]["schema"] = {"status": "failed", "reason": "stand-in gate: schema failures 3 of 54"}
         Path(arg(argv, "--out")).write_text(json.dumps(qrec))
         return 1 if flag("fail-qualify") else 0
+    if name == "trialbox" and argv[:1] in (["secrets"], ["db-up"]):  # the direct route's host tools
+        called(f"trialbox-{argv[0]}")
+        return 0
     if name == "trialbox" and argv[:1] == ["doctor"]:
         called("doctor")
         checks = [

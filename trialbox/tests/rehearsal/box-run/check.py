@@ -364,6 +364,22 @@ if case == "happy":
         "the root partition and file system grown once to the larger disk; later boots find nothing to grow",
     )
 
+if case == "direct":
+    ok(
+        list(parts) == START and parts["02-install"]["status"] == "done",
+        "direct: every start step, 02 by the direct route",
+    )
+    d = parts["02-install"]["detail"]
+    ok(
+        d["route"].startswith("direct") and "not sealed" in d["site_keys"],
+        "direct: the route and the unsealed keys said",
+    )
+    ok(
+        calls["install"] == 0 and calls["trialbox-secrets"] == 1 and calls["pin"] == 1 and calls["trialbox-db-up"] == 1
+        and calls["compose-run adapter python adapter.cli keys-init"] == 1,
+        "direct: no install.sh; the product's own secrets init, pin, keys-init and db-up, once each",
+    )  # fmt: skip
+
 if case == "probe":
     ok(list(parts) == ["00-facts"] and ended.startswith("TB-PROBE-DONE"), "probe: the facts, then the run ends")
     facts = (R / "records" / "facts-vm.txt").read_text()

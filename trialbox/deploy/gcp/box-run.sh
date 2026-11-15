@@ -73,7 +73,8 @@ while [ $# -gt 0 ]; do
     --qualify-evidence) V[tb-qualify-evidence]="$2"; shift 2 ;;
     --acc-tripwire) V[tb-acc-tripwire-setting]="$2"; shift 2 ;;
     --embed-list) V[tb-embed-list]="$2"; shift 2 ;;
-    --probe) V[tb-probe]=1; shift ;;   # read the VM's (and after the install the box's) facts, then stop
+    --probe) V[tb-probe]=1; shift ;;
+    --direct) V[tb-direct]=1; shift ;;   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
@@ -211,6 +212,11 @@ if [ -n "$RESUME" ]; then
     br metadata --steps acc --mode "$MODE" --only "$ONLY" --out "$OUT/md-only" --set tb-acc-tools=x > /dev/null || exit 2
     cp "$OUT/md-only/tb-acc-sets" "$OUT/md/tb-acc-sets"; RFILES="$RFILES,tb-acc-sets=$OUT/md/tb-acc-sets"
   fi
+  if [ -n "${V[tb-direct]:-}" ]; then
+    echo 1 > "$OUT/md/tb-direct"
+    case ",$RFILES," in *,tb-direct=*) ;; *) RFILES="$RFILES,tb-direct=$OUT/md/tb-direct" ;; esac
+  fi
+  grep -qw tb-direct "$OUT/metadata-keys" 2>/dev/null || [ ! -f "$OUT/md/tb-direct" ] || echo "$(cat "$OUT/metadata-keys") tb-direct" > "$OUT/metadata-keys"
   grep -qw tb-retry "$OUT/metadata-keys" 2>/dev/null || echo "$(cat "$OUT/metadata-keys" 2>/dev/null) tb-retry" > "$OUT/metadata-keys"
   echo "resume $RUN_ID: retry $(cat "$OUT/md/tb-retry") with this tree ($(git rev-parse --short HEAD)), cloud cap ${cap} h"
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file "$RFILES"

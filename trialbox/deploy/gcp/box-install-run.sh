@@ -468,7 +468,8 @@ ACC_SETS=$(md tb-acc-sets || true)
 ACC_JOB_MIN=$(md tb-acc-job-minutes || echo 60)
 ACC_AUTHSERV=$(md tb-acc-authserv || echo mx.acc.invalid)
 ACC_TRIPWIRE=$(md tb-acc-tripwire-setting || true)
-PROBE=$(md tb-probe || true)   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
+PROBE=$(md tb-probe || true)
+DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
 BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
@@ -581,7 +582,7 @@ d_firstrun() { "$INSTALLER" --firstrun; }                                     # 
 # img_tool [-v SRC:DST[:ro] | -e NAME[=VALUE] ...] <tool> [args]; IMG_NET names the network (default none).
 img_tool() {
   local o=()
-  while [ $# -gt 1 ]; do case "$1" in -v|-e) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
+  while [ $# -gt 1 ]; do case "$1" in -v|-e|--env-file) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
   # OPS-004 (D-570): after a bundle install the shipped files under deploy/ are links into ../current; the release
   # tree goes beside /d at /current, as install.sh's tree_args does
   [ -d "$BOXROOT/current" ] && o+=(-v "$(readlink -f "$BOXROOT/current"):/current:ro")
@@ -1026,6 +1027,50 @@ step_bundle() {
   note mode "\"$MODE\""; [ "$MODE" = validation ] && note not_a_release true
   return 0
 }
+
+# ------------------------------------------------------------------ the direct route (the lead's order, 2026-11-15)
+# The owner's goal for PoC-1 is the main system on the GPU VM, not the delivery path. When install.sh cannot run again
+# (it refuses a repeat of the release it already applied), 02 brings up the tree the signed bundle put at $BOXROOT
+# (current -> releases/<id>, deploy/.env and settings.yaml from the settings wizard, deploy/secrets) with the product's
+# own commands, in install.sh's order: service tokens (secrets init), the pair and embedder pinned (pin_model
+# --install, as root: install.sh's own call runs as the image user and cannot write deploy/site, F10), the site keys
+# (adapter keys-init; not sealed: the owner's ruling), the database and its release steps (db-up), the whole stack
+# (compose up --wait), and the model servers checked as install.sh checks them (doctor --serving on model-net).
+envexp() { local v; for v in "$@"; do printf -- '-e\n%s=%s\n' "$v" "$(envget "$v")"; done; }
+d_direct_secrets() { box_tool trialbox secrets init --deploy "$BOXROOT/deploy"; }
+d_direct_pin() {
+  local e=(); mapfile -t e < <(envexp JUDGE_MODEL_DIR JUDGE_MODEL JUDGE_CHAT_TEMPLATE VERIFIER_MODEL_DIR VERIFIER_MODEL)
+  mkdir -p "$BOXROOT/deploy/site"
+  img_tool "${e[@]}" pin_model --install "$PROFILE" --models-root /d/models --out "$SITE_PINS"
+}
+d_direct_keys() { dc run --rm --no-deps -T adapter python -m adapter.cli keys-init; }
+d_direct_db()   { dc up -d --pull never --wait db; }
+d_direct_dbup() { box_tool trialbox db-up --deploy "$BOXROOT/deploy"; }
+d_direct_up()   { dc up -d --pull never --wait --wait-timeout 900; }
+d_direct_serving() {  # as install.sh:616-617: on model-net, the box's .env, deploy/ at /app/deploy, the model key file
+  IMG_NET=trialbox-model-net img_tool --env-file "$BOXROOT/deploy/.env" -v "$BOXROOT/deploy:/app/deploy:ro" \
+    -v "$(readlink -f "$BOXROOT/current"):/app/current:ro" -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
+    trialbox doctor --serving
+}
+step_direct_up() {
+  [ -d "$BOXROOT/current" ] && [ -s "$BOXROOT/deploy/.env" ] \
+    || { STOP="no installed tree at $BOXROOT (the signed bundle's host tree and the wizard's .env): the direct route needs the first install's tree"; return 1; }
+  note route '"direct: the signed bundle'"'"'s installed tree, brought up with the product'"'"'s own commands (no install.sh)"'
+  note release "\"$(basename "$(readlink -f "$BOXROOT/current")")\""
+  need "the installer's host packages" d_host_prereq || return 1
+  need "placing the site's weights in deploy/models" d_models_place || return 1
+  d_old_servers
+  need "service tokens (tools.trialbox secrets init)" d_direct_secrets || return 1
+  need "the pair and the embedder pinned (pin_model --install, as root)" d_direct_pin || return 1
+  need "the site keys (adapter keys-init; not sealed: a public-data PoC box)" d_direct_keys || return 1
+  note site_keys '"not sealed (a public-data PoC box, the owner'"'"'s ruling)"'
+  need "the database" d_direct_db || return 1
+  need "the release's database steps (tools.trialbox db-up)" d_direct_dbup || return 1
+  WATCH_IO=1 need "the whole stack up (compose up --wait)" d_direct_up || return 1
+  watched d_direct_serving; note serving_check_exit $?
+  dc ps --format '{{.Service}} {{.State}} {{.Health}}' > "$REC/stack.txt" 2>> "$STEP_LOG"
+  note services_up "$(grep -c ' running' "$REC/stack.txt")"
+}
 step_install() {
   if [ "$MODE" = validation ]; then
     [ -f "$BOXROOT/deploy/install.sh" ] || { STOP="no deploy/install.sh in the bundle's host tree"; return 1; }
@@ -1427,6 +1472,9 @@ envset_box() { sed -i "/^$1=/d" "$BOXROOT/deploy/.env" && printf '%s=%s\n' "$1" 
 acc_compile_only() { case "$1" in tfda|jrct|chia) return 0 ;; *) return 1 ;; esac; }   # as plan.RUN_A's screen=False
 acc_fetch_set() { case "$1" in trec2023) echo trec ;; *) echo "$1" ;; esac; }          # as plan.RUN_A's fetch
 step_acc_tools() {
+  # a launch after the start's: the direct route installs no systemd unit, so the stack is brought up here (a no-op
+  # when it runs)
+  [ -z "$DIRECT" ] || { WATCH_IO=1 watched d_direct_up; note stack_up_exit $?; }
   rm -rf "${ACCT:?}"; mkdir -p "$ACCT" "$ACC"
   need "fetching lane G's accuracy tools (tb-acc-tools)" fetch "$ACC_TOOLS" "$TB/acc-tools.tgz" || return 1
   need "unpacking them (on the VM, never into the box)" tar -xzf "$TB/acc-tools.tgz" -C "$ACCT" || return 1
@@ -1632,7 +1680,7 @@ if has build; then
 fi
 if has start; then
   run_step 01-bundle step_bundle
-  run_step 02-install step_install
+  if [ -n "$DIRECT" ]; then run_step 02-install step_direct_up; else run_step 02-install step_install; fi
   if [ "$MODE" = validation ]; then run_step 03-wizard step_venv_env; else run_step 03-wizard step_wizard; fi
   if [ -n "$PROBE" ]; then
     run_step 04p-facts step_facts_box
