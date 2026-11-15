@@ -113,6 +113,11 @@ def _clock(h: str | None, mi: str | None, sec: str | None) -> str | None:
     return f" {hh:02d}:{mm:02d}:{ss:02d}" if hh < 24 and mm < 60 and ss < 60 else None
 
 
+# F6 (D-808): ICD-10-CM: a letter, a digit, then a digit or letter (the category), and up to four more after the dot
+_ICD10CM_BARE = re.compile(r"[A-Z][0-9][0-9A-Z](?:[0-9A-Z]{1,4})?")
+_ICD10CM_DOTTED = re.compile(r"[A-Z][0-9][0-9A-Z]\.[0-9A-Z]{1,4}")
+
+
 def to_western(raw: str, calendar: str) -> str | None:
     """A date (or date and time) written in ``calendar`` as ``YYYY-MM-DD[ hh:mm:ss]``; None when ``raw`` is not a
     date of that calendar (D-589). Nothing is guessed: a western date in a ``roc`` column is None."""
@@ -1043,10 +1048,22 @@ class Mapper:
         return {"valueQuantity": q}
 
     def _b_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
+        """``dotted: icd10cm`` (F6, D-808): a code of the ICD-10-CM shape is written with its dot after the third
+        character (``M109`` is ``M10.9``); a category of three has none. A code of another shape is copied as fed and
+        counted (``shape:icd10cm``)."""
         code = row.get(args["column"])
         if code is None or str(code).strip() == "":
             return None
-        coding: dict[str, Any] = {"system": self.m.systems[args["system"]], "code": str(code).strip()}
+        text = str(code).strip()
+        if args.get("dotted") == "icd10cm":
+            bare = text.upper()
+            if _ICD10CM_DOTTED.fullmatch(bare):
+                text = bare
+            elif _ICD10CM_BARE.fullmatch(bare):
+                text = bare if len(bare) == 3 else f"{bare[:3]}.{bare[3:]}"
+            else:
+                self._note_unmapped(rs.table, "shape:icd10cm", text)
+        coding: dict[str, Any] = {"system": self.m.systems[args["system"]], "code": text}
         if "display_column" in args and row.get(args["display_column"]):
             coding["display"] = str(row[args["display_column"]])
         return coding
