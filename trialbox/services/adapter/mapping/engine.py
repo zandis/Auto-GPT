@@ -255,6 +255,15 @@ def fold_key(key: object) -> str:
     return ("" if key is None else str(key)).translate(_HALF_WIDTH).strip().lower()
 
 
+KEY_JOIN = "|"  # F10 (D-809): the parts of a key of several columns, joined (``CBC|072``)
+
+
+def join_key(row: Row, parts: list[str]) -> str:
+    """The key of several columns of ``row``, or "" when a part is empty (never a key of one part)."""
+    values = [str(row.get(k) or "").strip() for k in parts]
+    return KEY_JOIN.join(values) if all(values) else ""
+
+
 @dataclass
 class Lookup:
     name: str
@@ -263,10 +272,29 @@ class Lookup:
     _folded: dict[str, Row | None] | None = field(default=None, repr=False, compare=False)
 
     @classmethod
-    def load(cls, name: str, path: Path, key: str) -> Lookup:
+    def load(cls, name: str, path: Path, key: str | list[str]) -> Lookup:
+        """``key``: a column, or (F10, D-809) a list of columns that together are the key (panel and item). A row of
+        a list key is keyed by its parts joined with :data:`KEY_JOIN`, kept under the joined names as a column; a
+        row that lacks a part has no key."""
+        parts = [key] if isinstance(key, str) else list(key)
+        if not isinstance(key, str) and (len(parts) < 2 or not all(isinstance(k, str) and k for k in parts)):
+            raise MappingError(f"look-up {name}: a key of several columns names two or more columns")
+        joined = KEY_JOIN.join(parts)
+        rows: dict[str, Row] = {}
         with path.open(encoding="utf-8-sig", newline="") as fh:  # a look-up saved with a byte order mark reads too
-            rows = {r[key]: r for r in csv.DictReader(fh)}
-        return cls(name, key, rows)
+            reader = csv.DictReader(fh)
+            missing = [k for k in parts if k not in (reader.fieldnames or [])]
+            if missing:
+                raise MappingError(f"look-up {name}: {path.name} has no column {', '.join(missing)}")
+            for r in reader:
+                if isinstance(key, str):
+                    rows[r[key]] = r
+                    continue
+                values = [str(r[k] or "").strip() for k in parts]
+                if all(values):
+                    r[joined] = KEY_JOIN.join(values)
+                    rows[r[joined]] = r
+        return cls(name, joined, rows)
 
     def find(self, key: object) -> Row | None:
         """The row of ``key`` (NEW-DIN-6, D-580): as written first; else by its folded form (:func:`fold_key`) when
@@ -487,6 +515,10 @@ class Mapping:
             )
             for r in doc.get("resources") or []
         ]
+        for t, tspec in (doc.get("tables") or {}).items():  # F10 (D-809): a key column made of several
+            for col, parts in ((tspec or {}).get("join") or {}).items():
+                if not (isinstance(parts, list) and len(parts) >= 2 and all(isinstance(p, str) and p for p in parts)):
+                    raise MappingError(f"{path}: {t}.join.{col}: a list of two or more columns")
         for r in resources:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
@@ -655,6 +687,8 @@ class Mapping:
                 out[col] = table_codes[str(v)]
             elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
                 out[col] = table_codes[str(v).strip()]
+        for col, parts in (spec.get("join") or {}).items():  # F10 (D-809): one key column made of several
+            out[col] = join_key(out, parts)
         calendars = self.calendars.get(table) or {}
         if calendars or self.empty_dates:  # D-589: a declared placeholder is empty; a declared calendar made western
             for col in self.date_columns.get(table, ()):

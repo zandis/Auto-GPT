@@ -214,6 +214,11 @@ def _wanted(m: Any, table: str, tspec: dict[str, Any], specs: list[Any]) -> tupl
             optional |= referenced_columns(spec.profile)
     need.add(str(tspec.get("key", "")))
     need.discard("")
+    for col, parts in (tspec.get("join") or {}).items():  # F10 (D-809): a joined key is made of columns the source has
+        for group in (need, optional):
+            if col in group:
+                group.discard(col)
+                group.update(parts)
     canon = need | optional | set((tspec.get("identity") or {}).values()) | set(tspec.get("values") or {})
     if tspec.get("delta"):
         canon.add(str(tspec["delta"]))
