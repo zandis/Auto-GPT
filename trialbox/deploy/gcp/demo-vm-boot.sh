@@ -5,11 +5,21 @@
 #
 #   the image   metadata tb-demo-image: REGISTRY/PATH@sha256:<64 hex> (pulled), or gs://BUCKET/...tar.gz (`make
 #               demo-bundle`) whose sha256 must equal metadata tb-demo-image-sha256 (copied, checked, loaded)
-#   the login   the demo's own sign-in (tools/demo.py: admin, crc, pi, subpi, cra, viewer; one password). The password
-#               is read here from Secret Manager (metadata tb-demo-password-secret names the secret, default
-#               tb-demo-password; the VM's own service account reads it) into a root-only env file. It is never in
-#               the metadata (a secret-looking metadata key stops this script), never on a command line, never in
-#               this log: TB_DEMO_PASSWORD is set, so the demo does not print it either.
+#   the login   one account per person (metadata tb-demo-people, e.g. owner:investigator;guest:coordinator), each
+#               opened with the product's own one-time enrolment code (console.auth.UserStore.open_by_code, D-719):
+#               the person opens https://<address>/enrol, types the user name and the code, and chooses the password
+#               there (the product's rule: at least 12 characters); the code is then spent, and an unused one expires
+#               after metadata tb-demo-enrol-hours. Only the codes' hashes are kept in the demo's database. The codes
+#               go to ONE private object in the bucket (metadata tb-demo-handoff, gs://BUCKET/PATH; the VM's service
+#               account has objectAdmin there): never the metadata, the serial console, a log or a file left on the
+#               VM. The lead reads it once (`demo-vm.sh links`, which deletes it) and hands each line to its person.
+#               The seed's own accounts (admin, crc, pi, subpi, cra, viewer, stw) share a password this boot makes
+#               (48 random bytes, base64) into a root-only env file: nobody knows it; the boot uses it once, inside
+#               the container, to switch demo mode on. No Secret Manager, no password from anyone.
+#   sign-ins    failures count per account and per browser address (D-279: 5 in 15 minutes lock that account from
+#               that address; many from one address slow it). The console trusts Caddy's X-Forwarded-For
+#               (FORWARDED_ALLOW_IPS=*: only Caddy reaches 127.0.0.1:8080, and Caddy replaces the header a client
+#               sends), so a stranger's failures do not lock the owner out from his own address.
 #   demo mode   the audited flag demo.mode (D-328: banner, uploads and pasted text refused) is switched on AFTER the
 #               seed and BEFORE Caddy opens tcp:443: the boot signs in as admin inside the container and sets it on
 #               /ops/flags with a reason (the owner's audited path), then proves a multipart post is refused. Never
@@ -31,16 +41,18 @@
 #   demo-vm-boot.sh --dry-run          print what it would do; metadata from TB_MD_<KEY> (e.g. TB_MD_TB_DEMO_IMAGE)
 #   demo-vm-boot.sh --print-caddyfile  the Caddyfile only (TB_MD_EXTERNAL_IP for the address)
 #   demo-vm-boot.sh --print-demo-switch  the Python that switches demo mode on (run inside the container)
+#   demo-vm-boot.sh --print-people     the Python that opens the people's accounts (run inside the container)
 # No `set -x` (review A-12): nothing secret reaches the serial log.
 set -euo pipefail
 
-DRY=0; PRINT_CADDY=0; PRINT_SWITCH=0
+DRY=0; PRINT_CADDY=0; PRINT_SWITCH=0; PRINT_PEOPLE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --print-caddyfile) PRINT_CADDY=1; DRY=1 ;;
     --print-demo-switch) PRINT_SWITCH=1; DRY=1 ;;
-    -h | --help) sed -n 2,34p "$0"; exit 0 ;;
+    --print-people) PRINT_PEOPLE=1; DRY=1 ;;
+    -h | --help) sed -n 2,45p "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -147,6 +159,50 @@ PY
 }
 if [ "$PRINT_SWITCH" = 1 ]; then demo_switch; exit 0; fi
 
+# the people's accounts, inside the container (`docker exec -i tb-demo python - PEOPLE HOURS [STUDIES]`), after the
+# seed: each opened with the product's own enrolment code (UserStore.open_by_code: a random password nobody sees,
+# holder_set off, the code's hash and its expiry), on every demo study's delegation log (investigator: sub-PI,
+# coordinator: CRC; all four study tasks; the seed's `pi` stays the PI), so the person sees what that role sees.
+# Prints one line per person: name, role, code, expiry (UTC). The boot writes them to the private bucket object only.
+people() {
+  cat <<'PY'
+import os, sys
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+for p in (Path.cwd(), Path.cwd() / "libs", Path.cwd() / "services"):
+    sys.path.insert(0, str(p))
+from console.auth import UserStore  # noqa: E402
+from console.teamstore import TASKS, TeamStore  # noqa: E402
+from tools import pglocal  # noqa: E402
+
+people = [x.split(":", 1) for x in sys.argv[1].split(",")]
+hours = int(sys.argv[2])
+url = pglocal.for_work(Path(os.environ.get("TB_DEMO_DIR") or pglocal.scratch_root() / "tb-demo"))
+users, team = UserStore(url), TeamStore(url)
+users.enrol_ttl = timedelta(hours=hours)
+now = datetime.now(UTC)
+today = now.date()
+if len(sys.argv) > 3 and sys.argv[3]:
+    studies = sys.argv[3].split(",")
+else:  # every demo study whose delegation log names a PI (the seed writes one on each)
+    root = Path.cwd() / "rulesets"
+    studies = sorted(d.name for d in root.iterdir() if (d / "ir").is_dir() and team.pi_of(d.name, today))
+LOG_ROLE = {"investigator": "sub_pi", "coordinator": "crc"}
+for name, role in people:
+    if users.role_of(name):
+        sys.exit(f"people: an account {name} exists already")
+    code = users.open_by_code(name, role, f"{name}@hospa.test", "demo-vm-boot")
+    for study in studies if role in LOG_ROLE else ():
+        team.add_entry(study, username=name, name=name, role=LOG_ROLE[role], tasks=list(TASKS), start=today.isoformat(),
+                       end=None, training_day=today.isoformat(), training_ref="demo VM boot (synthetic)",
+                       by="demo-vm-boot", at=now.isoformat())
+    expires = (now + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M UTC")
+    print(f"{name}\t{role}\t{code}\t{expires}")
+PY
+}
+if [ "$PRINT_PEOPLE" = 1 ]; then people; exit 0; fi
+
 # the serial console (demo-vm.sh status reads it); tests/rehearsal/demo-vm-local.sh points it at a file
 [ "$DRY" = 1 ] || exec > >(tee -a /var/log/tb-demo-vm.log "${DEMO_VM_SERIAL:-/dev/ttyS0}") 2>&1
 
@@ -190,14 +246,25 @@ done
 
 IMAGE=$(md instance/attributes/tb-demo-image "")
 IMAGE_SHA=$(md instance/attributes/tb-demo-image-sha256 "")
-SECRET=$(md instance/attributes/tb-demo-password-secret tb-demo-password)
+PEOPLE=$(md instance/attributes/tb-demo-people "")
+ENROL_HOURS=$(md instance/attributes/tb-demo-enrol-hours 24)
+HANDOFF=$(md instance/attributes/tb-demo-handoff "")
 HOURS=$(md instance/attributes/tb-demo-hours "")
 LANG_UI=$(md instance/attributes/tb-demo-lang ja)
 SITE_LANG=$(md instance/attributes/tb-demo-site-lang "")
-if [ "$DRY" = 1 ]; then PROJECT=${TB_MD_PROJECT_ID:-"<project>"}; else PROJECT=$(md project/project-id ""); fi
 
 [[ "$HOURS" =~ ^[1-9][0-9]*$ ]] || die "metadata tb-demo-hours must be a whole number of hours (got '$HOURS')"
-[[ "$SECRET" =~ ^[A-Za-z0-9_-]{1,255}$ ]] || die "metadata tb-demo-password-secret is not a secret name"
+# name:role pairs, ';' between them (gcloud splits --metadata on commas); the seed's own names are taken; admin has no
+# patient-level page (D-280), so it is not offered
+[[ "$PEOPLE" =~ ^[a-z][a-z0-9._-]{1,31}:(investigator|coordinator|viewer)(\;[a-z][a-z0-9._-]{1,31}:(investigator|coordinator|viewer))*$ ]] \
+  || die "metadata tb-demo-people must be name:role pairs (investigator, coordinator or viewer), separated by ;"
+PEOPLE=${PEOPLE//;/,}
+for _p in ${PEOPLE//,/ }; do
+  case "${_p%%:*}" in admin | crc | pi | subpi | cra | viewer | stw) die "metadata tb-demo-people: ${_p%%:*} is a seeded account" ;; esac
+done
+[[ "$ENROL_HOURS" =~ ^[1-9][0-9]?$ ]] && [ "$ENROL_HOURS" -le 72 ] \
+  || die "metadata tb-demo-enrol-hours must be 1 to 72 (the product's range, TB_CONSOLE_ENROL_CODE_HOURS)"
+[[ "$HANDOFF" =~ ^gs://[a-z0-9._-]{3,63}(/[A-Za-z0-9._-]+)*$ ]] || die "metadata tb-demo-handoff must be gs://BUCKET[/PATH]"
 case "$LANG_UI" in ja | zh-TW | en) ;; *) die "metadata tb-demo-lang must be ja, zh-TW or en" ;; esac
 case "$SITE_LANG" in "" | ja | zh-TW) ;; *) die "metadata tb-demo-site-lang must be ja or zh-TW" ;; esac
 if [[ "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then KIND=digest
@@ -221,19 +288,18 @@ fi
 run install -d -m 0700 "$ETC"
 run install -d -m 0700 "$DATA"
 
-say "the password from Secret Manager ($SECRET; never printed)"
+say "the seed's accounts: a password made here that nobody is told (root-only file; never printed)"
 if [ "$DRY" = 1 ]; then
-  echo "+ gcloud secrets versions access latest --secret=$SECRET --project=$PROJECT > $ETC/secret.env (as TB_DEMO_PASSWORD=..., mode 0400; the value is never printed)"
+  echo "+ write $ETC/secret.env (mode 0400): TB_DEMO_PASSWORD=<48 random bytes, base64; never printed>"
 else
   tmp="$ETC/secret.env.tmp.$$"
-  ( umask 077
-    { printf 'TB_DEMO_PASSWORD='; gcloud secrets versions access latest --secret="$SECRET" --project="$PROJECT"; echo; } >"$tmp"
-  ) 2>/dev/null || { rm -f "$tmp"; die "secret $SECRET has no readable version (deploy/gcp/setup-gcp.sh; the VM's service account must read it)"; }
-  [ "$(wc -c <"$tmp")" -gt 18 ] || { rm -f "$tmp"; die "secret $SECRET is empty"; }  # more than 'TB_DEMO_PASSWORD=\n'
+  ( umask 077; printf 'TB_DEMO_PASSWORD=%s\n' "$(head -c 48 /dev/urandom | base64 -w0 | tr -d '/+=')" >"$tmp" )
+  [ "$(wc -c <"$tmp")" -gt 50 ] || { rm -f "$tmp"; die "the made password is too short"; }
   chmod 0400 "$tmp"; mv -f "$tmp" "$ETC/secret.env"
 fi
 DEMO_ENV="TB_DEMO_TOOL=demo
 TB_LLM_MODE=stub
+FORWARDED_ALLOW_IPS=*
 TB_DEMO_LANG=$LANG_UI
 TB_CONSOLE_SECURE_COOKIE=1
 TB_CONSOLE_PUBLIC_URL=https://$IP${SITE_LANG:+
@@ -286,6 +352,42 @@ elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080; then
   echo DEMO-VM-NOT-READY; exit 3
 fi
 
+say "the people's accounts ($PEOPLE): one-time enrolment codes, $ENROL_HOURS h, to the private object only"
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+OBJECT="$HANDOFF/enrol-$STAMP.txt"
+if [ "$DRY" = 1 ]; then
+  echo "+ docker exec -i tb-demo python - $PEOPLE $ENROL_HOURS < (demo-vm-boot.sh --print-people) > $ETC/people.tsv (mode 0600)"
+  echo "+ write $ETC/handoff.txt (mode 0600) from it; gcloud storage cp $ETC/handoff.txt $OBJECT; rm both"
+else
+  rm -f "$ETC/people.tsv" "$ETC/handoff.txt"
+  if ! (umask 077; people | docker exec -i tb-demo python - "$PEOPLE" "$ENROL_HOURS" >"$ETC/people.tsv"); then
+    rm -f "$ETC/people.tsv"; docker rm -f tb-demo >/dev/null 2>&1 || true
+    say "the people's accounts could not be opened: the demo was removed and tcp:443 stays closed"
+    echo DEMO-VM-NOT-READY; exit 3
+  fi
+  (
+    umask 077
+    {
+      echo "TrialBox demo VM https://$IP/ (boot $STAMP). Synthetic data only. Give each person their own line, privately."
+      echo "Each person: open https://$IP/enrol (the browser warns once: Caddy's own certificate), type the user name"
+      echo "and the code, choose a password of at least 12 characters, and sign in. The code then works no more."
+      echo
+      while IFS=$'\t' read -r name role code expires; do
+        printf '%s (%s): https://%s/enrol  user name: %s  code: %s  (unused, it expires %s)\n' \
+          "$name" "$role" "$IP" "$name" "$code" "$expires"
+      done <"$ETC/people.tsv"
+    } >"$ETC/handoff.txt"
+  )
+  rm -f "$ETC/people.tsv"
+  if ! gcloud storage cp "$ETC/handoff.txt" "$OBJECT" >/dev/null 2>&1; then
+    rm -f "$ETC/handoff.txt"; docker rm -f tb-demo >/dev/null 2>&1 || true
+    say "the codes could not be written to $OBJECT (the VM's service account needs objectAdmin there): the demo was removed"
+    echo DEMO-VM-NOT-READY; exit 3
+  fi
+  rm -f "$ETC/handoff.txt"
+fi
+say "codes for $(printf '%s' "$PEOPLE" | sed 's/:[a-z]*//g') written to $OBJECT (only there; demo-vm.sh links reads and deletes it)"
+
 say "caddy on :443 (tls internal for $IP)"
 if [ "$DRY" = 1 ]; then echo "+ write $ETC/Caddyfile:"; caddyfile | sed 's/^/    | /'
 else (umask 022; caddyfile >"$ETC/Caddyfile"); fi
@@ -306,7 +408,7 @@ done
 ROOT_FP=$(openssl x509 -noout -fingerprint -sha256 -in "$DATA/caddy/pki/authorities/local/root.crt" 2>/dev/null \
   | sed 's/^.*=//' || true)
 if [ "$ok" = 1 ]; then
-  say "ready https://$IP/ (sign in: admin, crc, pi, subpi, cra or viewer; the password is in Secret Manager $SECRET)"
+  say "ready https://$IP/ (each person: /enrol with their code from $OBJECT, then sign in)"
   say "certificate: Caddy's local CA, root SHA-256 ${ROOT_FP:-unknown} (the browser warns once; compare this)"
   echo DEMO-VM-READY
 else

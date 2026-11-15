@@ -3,7 +3,7 @@
 Standard library only: the operator's host runs it with any Python 3.10+, before any gcloud call.
 
     python3 deploy/gcp/demo_vm.py estimate          the machine, US$ per hour, day and week, the disk, the sources
-    python3 deploy/gcp/demo_vm.py shell up|status|down|delete|dry
+    python3 deploy/gcp/demo_vm.py shell up|status|down|delete|dry|links
                                                     the checked settings as shell assignments (shlex-quoted) for
                                                     demo-vm.sh; a refused setting exits 2 with the reason
     python3 deploy/gcp/demo_vm.py rules-check NETWORK MODE RULE DENY TAG < rules.json
@@ -41,7 +41,20 @@ Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.
                                           roles/compute.networkAdmin), with the one tcp:443 rule and no other
     TB_DEMO_VM_IMAGE      (up)            REGISTRY/PATH@sha256:<64 hex>, or gs://BUCKET/trialbox-demo.tar.gz
                                           (`make demo-bundle`) with TB_DEMO_VM_IMAGE_SHA256, checked on the VM
-    TB_DEMO_VM_SM_NAME    tb-demo-password  the Secret Manager secret that holds the demo password (setup-gcp.sh)
+    TB_DEMO_VM_PEOPLE     owner:investigator,guest:coordinator
+                                          one account per person, name:role. Each is opened at boot with the
+                                          product's one-time enrolment code (D-719): the person chooses the password
+                                          on /enrol (the product's rule, at least 12 characters, console/auth.py
+                                          MIN_PASSWORD). investigator and coordinator see patient-level synthetic
+                                          rows on every demo study (sub-PI or CRC on its delegation log, all four
+                                          tasks); viewer sees aggregates only. admin is not offered: it has no
+                                          patient-level page (D-280). No role sees everything (D-280, D-380)
+    TB_DEMO_VM_ENROL_HOURS 24             how long an unused code is good for: one working day, as the product's
+                                          own default (TB_CONSOLE_ENROL_CODE_HOURS, D-719), within its 1 to 72
+    TB_DEMO_VM_HANDOFF    $TB_BUCKET/demo-vm  the private gs:// place where the VM writes the one object with the
+                                          codes (the VM's service account has objectAdmin on TB_BUCKET; setup-gcp.sh);
+                                          `demo-vm.sh links` reads it once and deletes it. Never the metadata, the
+                                          serial console or a log. No Secret Manager and no password from anyone
     TB_DEMO_VM_HOST       (not built)     a DNS name for a publicly trusted certificate: refused (see below)
     TB_DEMO_VM_STOP_WAIT_S 300            `down`: how long to wait for TERMINATED after the stop returned; an e2 VM
                                           stops in under a minute, five times that means it is stuck
@@ -84,6 +97,11 @@ OPEN_WORD = "any"  # TB_DEMO_ALLOW=any: the owner's ruling of 2026-11-15 (PoC, s
 WORLD = "0.0.0.0/0"
 OPEN_TEXT = "open to any address; the sign-in password is the only gate"
 NETWORKS = ("default", "own")
+DEFAULT_PEOPLE = "owner:investigator,guest:coordinator"
+PERSON_ROLES = ("investigator", "coordinator", "viewer")  # admin: no patient-level page (D-280)
+PERSON_RE = re.compile(r"[a-z][a-z0-9._-]{1,31}")
+SEEDED = ("admin", "crc", "pi", "subpi", "cra", "viewer", "stw")  # tools/demo.py SEEDED: the seed's own accounts
+HANDOFF_RE = re.compile(r"gs://[a-z0-9._-]{3,63}(/[A-Za-z0-9._-]+)*")
 # firewall priorities on the `default` network (a smaller number wins; at equal priority a deny wins): the VM's
 # allow first, its deny-all next; any other allow rule that reaches the VM must come after the deny
 ALLOW_PRIORITY = 500
@@ -108,7 +126,9 @@ class Settings:
     open_any: bool
     image: str
     image_sha256: str
-    secret: str
+    people: str
+    enrol_hours: int
+    handoff: str
     lang: str
     site_lang: str
     stop_wait_s: int
@@ -135,6 +155,28 @@ def _price(env: Mapping[str, str], key: str, default: str) -> float:
     if not v > 0:
         raise Refused(f"{key} must be above 0 (got '{raw}')")
     return v
+
+
+def parse_people(raw: str) -> str:
+    """name:role pairs, comma separated: names as the console takes them, not a seeded account, each once."""
+    out: list[str] = []
+    for item in [x.strip() for x in raw.split(",") if x.strip()]:
+        name, _, role = item.partition(":")
+        name, role = name.strip().lower(), role.strip()
+        if not PERSON_RE.fullmatch(name):
+            raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is not a user name (a-z 0-9 . _ -, 2 to 32, a letter first)")
+        if name in SEEDED:
+            raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is one of the seed's own accounts; choose another name")
+        if role not in PERSON_ROLES:
+            raise Refused(f"TB_DEMO_VM_PEOPLE: {name}'s role must be one of {', '.join(PERSON_ROLES)}")
+        if any(x.split(":")[0] == name for x in out):
+            raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is listed twice")
+        out.append(f"{name}:{role}")
+    if not out:
+        raise Refused(
+            "TB_DEMO_VM_PEOPLE is empty: name:role for each person (e.g. owner:investigator,guest:coordinator)"
+        )
+    return ",".join(out)
 
 
 def parse_allow(raw: str, min_prefix: int) -> tuple[str, ...]:
@@ -232,9 +274,20 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
             raise Refused(f"TB_DEMO_VM_IMAGE must be an image by digest or a gs:// .tar.gz (got '{image}')")
         if image.startswith("gs://") and not SHA_RE.fullmatch(sha):
             raise Refused("TB_DEMO_VM_IMAGE is a gs:// tarball: set TB_DEMO_VM_IMAGE_SHA256 (sha256sum of the file)")
-    secret = (env.get("TB_DEMO_VM_SM_NAME") or "tb-demo-password").strip()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,255}", secret):
-        raise Refused("TB_DEMO_VM_SM_NAME must be a Secret Manager secret name")
+    people = parse_people(env.get("TB_DEMO_VM_PEOPLE") or DEFAULT_PEOPLE)
+    enrol_hours = _int(env, "TB_DEMO_VM_ENROL_HOURS", "24", 1)
+    if enrol_hours > 72:
+        raise Refused("TB_DEMO_VM_ENROL_HOURS must be from 1 to 72 (the product's range, TB_CONSOLE_ENROL_CODE_HOURS)")
+    bucket = (env.get("TB_BUCKET") or "").strip().rstrip("/")
+    handoff = (env.get("TB_DEMO_VM_HANDOFF") or (f"{bucket}/demo-vm" if bucket else "")).strip().rstrip("/")
+    if cmd in ("up", "dry", "links") and not HANDOFF_RE.fullmatch(handoff):
+        if cmd == "dry" and not handoff:
+            handoff = "gs://<TB_BUCKET>/demo-vm"
+        else:
+            raise Refused(
+                "TB_DEMO_VM_HANDOFF (or TB_BUCKET) must name a private gs://BUCKET[/PATH] where the VM's service "
+                f"account may write (got '{handoff}'): the people's one-time codes go there, and only there"
+            )
     lang = (env.get("TB_DEMO_LANG") or "ja").strip()
     site_lang = (env.get("TB_DEMO_SITE_LANG") or "").strip()
     if lang not in LANGS:
@@ -254,7 +307,9 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
         open_any=allow == (WORLD,),
         image=image,
         image_sha256=sha,
-        secret=secret,
+        people=people,
+        enrol_hours=enrol_hours,
+        handoff=handoff,
         lang=lang,
         site_lang=site_lang,
         stop_wait_s=_int(env, "TB_DEMO_VM_STOP_WAIT_S", "300", 10),
@@ -309,7 +364,7 @@ def estimate_text(s: Settings) -> str:
         "  cost while TERMINATED (after `down` or the hard stop; the disk only):",
         f"    per day           US$ {e.stopped(HOURS_PER_DAY):8.2f}",
         f"    per week          US$ {e.stopped(HOURS_PER_WEEK):8.2f}   (`delete` ends it)",
-        "  not counted: egress (a demo is a few hundred MB, cents), Secret Manager (one secret version, cents), "
+        "  not counted: egress (a demo is a few hundred MB, cents), the codes' object in the bucket (bytes), "
         "Artifact Registry or the bucket that holds the image (cents a month)",
         "  TLS: Caddy's own certificate (tls internal): the browser WARNS ONCE per device; a publicly trusted",
         "       certificate is not built (it needs DNS-01 and the DNS provider's credential)",
@@ -335,7 +390,9 @@ def shell_lines(s: Settings) -> str:
         "GATE": OPEN_TEXT if s.open_any else "",
         "IMAGE": s.image,
         "IMAGE_SHA256": s.image_sha256,
-        "SECRET": s.secret,
+        "PEOPLE": s.people,
+        "ENROL_HOURS": str(s.enrol_hours),
+        "HANDOFF": s.handoff,
         "DEMO_LANG": s.lang,
         "SITE_LANG": s.site_lang,
         "STOP_WAIT_S": str(s.stop_wait_s),
@@ -387,8 +444,8 @@ def main(argv: list[str], env: Mapping[str, str]) -> int:
             print(estimate_text(load(env, "estimate")))
             return 0
         cmd = argv[1] if len(argv) > 1 else ""
-        if cmd not in ("up", "status", "down", "delete", "dry"):
-            print("shell: up, status, down, delete or dry", file=sys.stderr)
+        if cmd not in ("up", "status", "down", "delete", "dry", "links"):
+            print("shell: up, status, down, delete, dry or links", file=sys.stderr)
             return 2
         print(shell_lines(load(env, cmd)))
         return 0

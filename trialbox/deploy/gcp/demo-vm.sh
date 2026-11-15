@@ -9,6 +9,8 @@
 #   deploy/gcp/demo-vm.sh up [--yes]       network, subnet, the tcp:443 rule, the VM (or start the stopped one);
 #                                          without --yes it only prints, as --dry-run
 #   deploy/gcp/demo-vm.sh status           the VM, its address, the rule's ranges, the hard stop, the boot log's end
+#   deploy/gcp/demo-vm.sh links            the people's one-time codes (written by the VM after the seed): prints
+#                                          them once and deletes the object; give each person their own line
 #   deploy/gcp/demo-vm.sh down             stop the VM and check that it shows TERMINATED (the disk stays)
 #   deploy/gcp/demo-vm.sh delete [--yes]   delete the VM (and its disk), the rule, the subnet and the network
 #
@@ -19,15 +21,19 @@
 #   TB_DEMO_VM_NETWORK    default: the project's `default` network (no networkAdmin needed); the VM gets an allow
 #                         tcp:443 rule and a deny-all rule on its tag, which beats the network's SSH/RDP rules.
 #                         own: a network of its own (needs roles/compute.networkAdmin)
+#   TB_DEMO_VM_PEOPLE     owner:investigator,guest:coordinator: one account per person, opened with a one-time code;
+#                         each chooses the password on /enrol (no password from anyone, no Secret Manager)
+#   TB_DEMO_VM_HANDOFF    the private gs:// place for the codes' object (default $TB_BUCKET/demo-vm)
+#   TB_DEMO_VM_ENROL_HOURS 24  an unused code expires after this
 #   TB_DEMO_VM_IMAGE      required for up: REGISTRY/PATH@sha256:<digest>, or gs://BUCKET/trialbox-demo.tar.gz with
 #                         TB_DEMO_VM_IMAGE_SHA256
 #   TB_DEMO_VM_NAME tb-demo-vm  TB_DEMO_VM_ZONE asia-east1-a  TB_DEMO_VM_MACHINE e2-standard-4  TB_DEMO_VM_DISK_GB 30
-#   TB_DEMO_VM_HOURS 12 (the hard stop of each up)  TB_DEMO_VM_SM_NAME tb-demo-password  TB_DEMO_LANG ja
+#   TB_DEMO_VM_HOURS 12 (the hard stop of each up)  TB_DEMO_LANG ja
 #   TB_DEMO_SITE_LANG (unset: both campuses)  TB_DEMO_VM_PRICE_* (the estimate)  TB_DEMO_VM_STOP_WAIT_S 300
 #   gcloud: a private CLOUDSDK_CONFIG (the default ~/.config/gcloud is refused) and TB_SA_KEY_FILE, the key file's
 #   PATH (gcloud reads it; nothing here does), as deploy/gcp/complete-run.sh; the project is the gcloud config's.
 # Never: a GPU, a real model (TB_LLM_MODE other than stub is refused), port 80, SSH, a password in the metadata.
-# The password: the demo's own sign-in, from Secret Manager (TB_DEMO_VM_SM_NAME); the VM reads it, nothing here does.
+# The passwords: each person chooses their own on the demo's /enrol page; nothing here reads or makes one.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -41,16 +47,16 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --yes) YES=1 ;;
     --estimate) ESTIMATE=1 ;;
-    -h | --help) sed -n 2,30p "$0"; exit 0 ;;
-    up | status | down | delete) [ -z "$CMD" ] || { echo "one command only" >&2; exit 2; }; CMD=$1 ;;
-    *) echo "unknown argument: $1" >&2; sed -n 2,30p "$0" >&2; exit 2 ;;
+    -h | --help) sed -n 2,36p "$0"; exit 0 ;;
+    up | status | down | delete | links) [ -z "$CMD" ] || { echo "one command only" >&2; exit 2; }; CMD=$1 ;;
+    *) echo "unknown argument: $1" >&2; sed -n 2,36p "$0" >&2; exit 2 ;;
   esac
   shift
 done
 
 if [ "$ESTIMATE" = 1 ]; then exec "$PY" "$HERE/demo_vm.py" estimate; fi
 if [ -z "$CMD" ]; then
-  [ "$DRY" = 1 ] || { sed -n 2,30p "$0" >&2; exit 2; }
+  [ "$DRY" = 1 ] || { sed -n 2,36p "$0" >&2; exit 2; }
   CMD=up
 fi
 case "$CMD" in
@@ -64,7 +70,7 @@ esac
 # the checked settings (a refused one stops here, before any gcloud call)
 FOR=$CMD; [ "$CMD" = up ] && [ "$DRY" = 1 ] && FOR=dry
 SETTINGS="$("$PY" "$HERE/demo_vm.py" shell "$FOR")" || exit 2
-N=""; NETWORK=""; ALLOW_PRIORITY=""; DENY_PRIORITY=""; ZONE=""; REGION=""; MACHINE=""; DISK_GB=""; HOURS=""; ALLOW=""; IMAGE=""; IMAGE_SHA256=""; SECRET=""
+N=""; NETWORK=""; ALLOW_PRIORITY=""; DENY_PRIORITY=""; ZONE=""; REGION=""; MACHINE=""; DISK_GB=""; HOURS=""; ALLOW=""; IMAGE=""; IMAGE_SHA256=""; PEOPLE=""; ENROL_HOURS=""; HANDOFF=""
 DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""; OPEN_ANY=0; GATE=""
 eval "$SETTINGS"   # shlex-quoted assignments of the names above, from demo_vm.py only
 [ -n "$IMAGE" ] || IMAGE="<TB_DEMO_VM_IMAGE>"
@@ -124,23 +130,11 @@ else
   PROJECT="$(gc config get-value project 2>/dev/null || true)"
   [ -n "$PROJECT" ] && [ "$PROJECT" != "(unset)" ] || die "no project in the gcloud config (gcloud config set project <id>)"
 fi
-METADATA="block-project-ssh-keys=TRUE,tb-demo-image=$IMAGE,tb-demo-hours=$HOURS,tb-demo-password-secret=$SECRET,tb-demo-lang=$DEMO_LANG"
+METADATA="block-project-ssh-keys=TRUE,tb-demo-image=$IMAGE,tb-demo-hours=$HOURS,tb-demo-lang=$DEMO_LANG"
+# gcloud splits --metadata on commas: the people go as name:role;name:role
+METADATA="$METADATA,tb-demo-people=${PEOPLE//,/;},tb-demo-enrol-hours=$ENROL_HOURS,tb-demo-handoff=$HANDOFF"
 [ -z "$IMAGE_SHA256" ] || METADATA="$METADATA,tb-demo-image-sha256=$IMAGE_SHA256"
 [ -z "$SITE_LANG" ] || METADATA="$METADATA,tb-demo-site-lang=$SITE_LANG"
-
-password_check() {  # the secret has an enabled version; its value is never read here (only version names)
-  local out
-  if [ "$DRY" = 1 ]; then
-    echo "+ gcloud secrets versions list $SECRET --project $PROJECT --filter=state:enabled --format=value(name)   # a version exists (names only)"
-    return 0
-  fi
-  if ! out="$(gc secrets versions list "$SECRET" --project "$PROJECT" --filter=state:enabled --format='value(name)' 2>/dev/null)"; then
-    echo "demo-vm: cannot list the versions of $SECRET here (the deployer needs roles/secretmanager.viewer on it);" \
-         "the VM refuses to start the demo if it has none" >&2
-    return 0
-  fi
-  [ -n "$out" ] || die "secret $SECRET has no version: the owner sets the password in his own shell (runbook 11, 'The small demo VM')"
-}
 
 rules_check() {  # nothing but the VM's own rules reaches it (no SSH or port 80 added by hand, no default rule first)
   local bad
@@ -155,7 +149,6 @@ rules_check() {  # nothing but the VM's own rules reaches it (no SSH or port 80 
 
 up() {
   say "demo VM $N ($MACHINE, $ZONE, project $PROJECT): $REACH; hard stop $HOURS h"
-  password_check
   local st
   st="$(vm_status)"
   case "$st" in
@@ -205,7 +198,9 @@ up() {
     gc compute instances start "$N" --zone "$ZONE"
   fi
   say "https://$(vm_ip)/ answers after the seed (3 to 6 minutes; \`demo-vm.sh status\` shows DEMO-VM-READY)"
-  say "the browser warns once (Caddy's own certificate); the password: runbook 11, never here"
+  say "the browser warns once (Caddy's own certificate)"
+  say "after DEMO-VM-READY: deploy/gcp/demo-vm.sh links prints each person's one-time code once (then deletes it);"
+  say "  each person opens https://<address>/enrol, types the user name and the code, and chooses a password"
   if [ "$OPEN_ANY" = 1 ]; then say "$OPEN_TEXT"; fi
   say "it powers itself off $HOURS h after its start; stop it earlier with: deploy/gcp/demo-vm.sh down"
 }
@@ -272,10 +267,28 @@ delete() {
   st="$(vm_status)"
   [ "$st" = NONE ] || die "VM $N still exists ($st)"
   if [ "$NETWORK" = own ]; then
-    echo "deleted: VM $N and its disk, rule $RULE, subnet $SUBNET, network $NET (the secret $SECRET stays)"
+    echo "deleted: VM $N and its disk, rule $RULE, subnet $SUBNET, network $NET"
   else
-    echo "deleted: VM $N and its disk, rules $RULE and $DENY (the network $NET is the project's and stays; the secret $SECRET stays)"
+    echo "deleted: VM $N and its disk, rules $RULE and $DENY (the network $NET is the project's and stays)"
   fi
+}
+
+links() {  # the codes' object(s) the VM wrote: the newest printed once, then every one deleted
+  local objs newest o
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud storage ls $HANDOFF/enrol-*.txt"
+    echo "+ gcloud storage cat <the newest>   # the one-time codes, printed once"
+    echo "+ gcloud storage rm <each enrol-*.txt there>"
+    return 0
+  fi
+  objs="$(gc storage ls "$HANDOFF/enrol-*.txt" 2>/dev/null | sort || true)"
+  [ -n "$objs" ] || die "no codes under $HANDOFF: the VM writes them after the seed (status shows DEMO-VM-READY), or they were read already (a new set needs down and up: a new seed)"
+  newest="$(printf '%s\n' "$objs" | tail -1)"
+  gc storage cat "$newest"
+  for o in $objs; do
+    gc storage rm "$o" >/dev/null 2>&1 || echo "demo-vm: could not delete $o: delete it by hand" >&2
+  done
+  echo "== deleted from the bucket. Give each person their own line, privately; nobody else needs it."
 }
 
 "$CMD"

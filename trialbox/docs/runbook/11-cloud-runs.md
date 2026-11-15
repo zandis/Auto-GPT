@@ -15,7 +15,8 @@ password comes from Secret Manager (`tb-demo-password`, asked once by `deploy/gc
 put in the metadata is refused and the VM does not start the demo. A restart resets the demo. The update path on it: `deploy/gcp/demo-vm-update.sh build <bucket>`,
 then `run <bucket>` (a good bundle applied and checked with `e2e_simple`, a broken one rolled back; about one hour,
 US$0.15).
-For a demo to a guest use the small demo VM below instead: https only, from named addresses only, with a hard stop.
+For a demo to a guest use the small demo VM below instead: https only (from named addresses, or from any address with
+`TB_DEMO_ALLOW=any`), each person choosing their own password, with a hard stop.
 
 **The GPU VM** (`tb-gpu-sim`, g4-standard-48 spot, one RTX PRO 6000, asia-east1-a, about US$2.74 an hour; the disk
 with the weights is kept, so boot to serving is about 10–15 minutes). No script opens port 80 on it to the internet
@@ -310,17 +311,34 @@ are refused; anyone else gets no answer at all, and a second `up` with new range
 certificate for the VM's address. **The browser warns once** ("not private", `NET::ERR_CERT_AUTHORITY_INVALID`):
 Advanced, then Proceed. The boot log shows the SHA-256 of Caddy's root (`demo-vm.sh status`) to compare with the
 certificate the browser shows. A publicly trusted certificate for a DNS name (`TB_DEMO_VM_HOST`) is **not built**:
-with tcp:80 and tcp:443 closed to the world, ACME's HTTP-01 and TLS-ALPN-01 cannot pass, and DNS-01 needs the DNS
-provider's API credential and a Caddy built with that provider; the script refuses the setting and says so.
+with the address lock ACME's HTTP-01 and TLS-ALPN-01 cannot pass, with `any` TLS-ALPN-01 would still need a DNS name
+for the VM's address, and DNS-01 needs the DNS provider's API credential and a Caddy built with that provider; the
+script refuses the setting and says so.
 
-**The password.** The demo's own sign-in (accounts `admin`, `crc`, `pi`, `subpi`, `cra`, `viewer`; one password).
-It is the Secret Manager secret `tb-demo-password` (`TB_DEMO_VM_SM_NAME`), as for the older demo VM: the VM reads it
-with its own service account into a root-only file and gives it to the container; it is never in the metadata,
-never on a command line, never in a log, and `demo-vm.sh` never reads it (it only checks that a version exists). The
-owner sets it once in **his own** Cloud Shell (`deploy/gcp/setup-gcp.sh` asks for it without echo, or
-`read -rs PW && printf %s "$PW" | gcloud secrets versions add tb-demo-password --data-file=- ; unset PW`) and reads
-it back there if needed (`gcloud secrets versions access latest --secret=tb-demo-password`). He gives it to the guest
-by his own channel. A Claude session never runs that command: the value would enter its transcript.
+**The passwords: each person chooses their own.** Nobody runs anything in Cloud Shell and there is no Secret
+Manager secret. After the seed the boot opens one account per person (`TB_DEMO_VM_PEOPLE`, default
+`owner:investigator,guest:coordinator`) with the product's own one-time enrolment code (D-719,
+`UserStore.open_by_code`; only the code's hash is stored), writes the codes to **one private object** in the bucket
+(`TB_DEMO_VM_HANDOFF`, default `$TB_BUCKET/demo-vm/enrol-<time>.txt`; the VM's service account has objectAdmin there),
+and only then opens tcp:443. The codes are never in the metadata, the serial console, a log or a file left on the
+VM. After `status` shows `DEMO-VM-READY` the lead runs `deploy/gcp/demo-vm.sh links`: it prints the newest object
+once and deletes every one; the lead gives each person their own line in a private channel. Each person opens
+`https://<address>/enrol`, types the user name and the code, chooses a password (the product's rule: at least 12
+characters, no white space at either end; `console/auth.py`), and is signed in. The code then works no more; an unused
+one expires after `TB_DEMO_VM_ENROL_HOURS` (24, the product's own default). Every `up` of a stopped VM reseeds, so it
+makes new accounts and new codes (`links` again). The seed's own accounts (`admin`, `crc`, `pi`, ...) get a password
+the boot makes from 48 random bytes and tells nobody; the boot uses it once, inside the container, for demo mode.
+Failed sign-ins: five within 15 minutes lock that account from that browser address for 15 minutes, many from one
+address slow it (at most a minute a try), 50 from all addresses lock it everywhere (D-279); the console counts the
+browser's own address behind Caddy (`FORWARDED_ALLOW_IPS=*` in the container: only Caddy reaches it, and Caddy
+replaces the header a client sends).
+
+**Which accounts.** No console role sees everything (D-280: the administrator has no patient-level page; D-380). The
+owner's `investigator` account is sub-investigator on every demo study's delegation log with all four study tasks
+(screen, approach, refer, enter data): the work list, patient-level synthetic rows, the CASE sheet, approach and
+referral. The seed's `pi` stays the PI, so the PI-only steps (approving criteria) are not his. The guest's
+`coordinator` account is CRC on the same studies with the same tasks: the coordinator's view of the same synthetic
+hospital. `viewer` (aggregates only) is the other choice for a guest.
 
 **Demo mode (D-328).** The banner, the refusal of every upload and pasted text, and the acknowledgement at each
 account's first sign-in. The boot script switches the audited flag `demo.mode` on **after** the seed and **before**
@@ -331,12 +349,11 @@ protocol paste (`POST /pilot/protocol`, 403), so the container never became read
 2026-11-14). The demo container does not restart by itself, since every start reseeds with demo mode off; if it
 stops, Caddy answers 502 and `gcloud compute instances reset tb-demo-vm --zone asia-east1-a` reruns the boot script.
 
-**Once before the first `up`.** With `TB_DEMO_VM_NETWORK=own` only, the deployer service account needs
-`roles/compute.networkAdmin` (the network and the subnet; `deploy/gcp/setup-gcp.sh` grants instance and firewall
-rights only). It needs, for the pre-flight's version check,
-`roles/secretmanager.viewer` on `tb-demo-password` (without it the check is skipped with a warning). The VM's service
-account (the Compute Engine default one, scope cloud-platform) must read `tb-demo-password` (setup-gcp.sh grants it)
-and the image. The image: either an image by digest that already exists (`deploy/gcp/poc-host.sh image --yes` pushes
+**Once before the first `up`.** Nothing from the owner. The deployer service account needs what
+`deploy/gcp/setup-gcp.sh` gave it (instance and firewall rights, objectAdmin on the bucket); with
+`TB_DEMO_VM_NETWORK=own` only, also `roles/compute.networkAdmin`. The VM's service account (the Compute Engine default
+one, scope cloud-platform) must write to `TB_DEMO_VM_HANDOFF` (objectAdmin on `TB_BUCKET`, setup-gcp.sh) and read
+the image. The image: either an image by digest that already exists (`deploy/gcp/poc-host.sh image --yes` pushes
 one to Artifact Registry), `TB_DEMO_VM_IMAGE=<registry>/<path>@sha256:<digest>`; or `make demo-bundle`, copy
 `dist/trialbox-demo.tar.gz` to a bucket, `TB_DEMO_VM_IMAGE=gs://<bucket>/trialbox-demo.tar.gz` and
 `TB_DEMO_VM_IMAGE_SHA256=$(sha256sum dist/trialbox-demo.tar.gz | cut -d" " -f1)` (the VM checks it before loading).
@@ -350,19 +367,21 @@ key file's path only; the project is the gcloud config's):
     deploy/gcp/demo-vm.sh --dry-run           # every gcloud command `up` would run; runs none
     deploy/gcp/demo-vm.sh up --yes            # network, subnet, the tcp:443 rule, the VM (or starts the stopped VM)
     deploy/gcp/demo-vm.sh status              # RUNNING, the address, the rule's ranges, the hard stop, DEMO-VM-READY
+    deploy/gcp/demo-vm.sh links               # each person's one-time code, printed once, then deleted
 
 `up` creates, in order: on the `default` network the rule `tb-demo-vm-deny` (INGRESS, all, deny, priority 510, tag
 `tb-demo-vm`); with `own` instead the network `tb-demo-vm-net` (custom subnets, no rules) and the subnet
 `tb-demo-vm-subnet` (10.42.0.0/24 in the zone's region); then the rule `tb-demo-vm-https` (INGRESS, tcp:443,
 `TB_DEMO_ALLOW`, priority 500, tag `tb-demo-vm`), and the VM `tb-demo-vm` (e2-standard-4, asia-east1-a, Debian 12, 30 GB pd-balanced, Shielded VM,
 standard provisioning, max-run-duration 12 h with STOP, an ephemeral external IPv4 address, the boot script and the
-non-secret metadata: the image, the hours, the secret's name, the language). On a stopped VM it updates the metadata
+non-secret metadata: the image, the hours, the language, the people's names and roles, the codes' gs:// place;
+`block-project-ssh-keys=TRUE`). On a stopped VM it updates the metadata
 and the hard stop and starts it. The first answer comes 5 to 10 minutes after the start (Docker, the image, the
 3-to-6-minute seed); start it at least 30 minutes before the demo. Without `TB_DEMO_KEEP` every start reseeds, so a
 stop and start resets the demo.
 
-**What the guest sees.** `https://<address>/` (the address `up` and `status` print): the browser's warning once,
-then the TrialBox sign-in page in Japanese (`TB_DEMO_LANG`; `/lang` switches to zh-TW or en); after sign-in the role's
+**What the guest sees.** `https://<address>/enrol` once with the code, then `https://<address>/` (the address `up` and
+`status` print): the browser's warning once, then the TrialBox sign-in page in Japanese (`TB_DEMO_LANG`; `/lang` switches to zh-TW or en); after sign-in the role's
 home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). With an address list instead of
 `any`, other addresses get nothing.
 
