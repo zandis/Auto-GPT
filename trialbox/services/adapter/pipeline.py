@@ -776,6 +776,8 @@ def _run_ingest(
             tables[table]["encounter_by_day"] = links
         for table, cols in mapping.read_as_western().items():  # F8 (D-807, lane E's hunk): counts only
             tables[table]["read_as_western"] = cols
+        for table, by_element in mapper.implausible_dates().items():  # F9 (D-811, lane E's hunk): counts only
+            tables[table]["implausible_dates"] = by_element
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name

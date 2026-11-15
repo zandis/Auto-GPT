@@ -60,6 +60,10 @@
   {% for m in problems.get(f.name, []) %}<p class="error" data-testid="why-{{ f.name }}">{{ m }}</p>{% endfor %}
   </div>
   {% endfor %}
+  {% if editable and values %}{# D-778 (LIFE-011): a saved value changes only with a reason, kept with the change #}
+  <label for="entry-reason">{{ t('dc.entry.reason') }}</label>
+  <input id="entry-reason" name="reason" maxlength="300" data-testid="entry-reason" aria-describedby="entry-reason-help">
+  <p class="hint" id="entry-reason-help">{{ t('dc.entry.reason.help') }}</p>{% endif %}
   {% if editable %}<button type="submit" data-testid="entry-save">{{ t('dc.entry.save') }}</button>{% endif %}
 </form>
 <p class="hint">{{ t('dc.entry.branching') }}</p>

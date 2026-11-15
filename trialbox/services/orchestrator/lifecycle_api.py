@@ -527,7 +527,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), who.name, svc.now())
         svc.audit.append("life.step", ruleset=rid, actor=who.name,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],
-                                 "source": "undo"})  # fmt: skip
+                                 "source": "undo", "reason": " ".join(body.note.split())})  # fmt: skip
         return {"subject": sub, "screening_log": why or "ok"}
 
     @r.get("/studies/{rs}/schedule")
