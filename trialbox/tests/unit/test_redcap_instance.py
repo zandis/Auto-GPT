@@ -149,18 +149,19 @@ def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_tha
     """EDC-001: the simulator takes values REDCap refuses, has no locking, no rights per token and no log. NEW-EDC-1
     makes it as strict; this list then shrinks, on purpose. NEW-EDC-3b (D-842) made its checkbox REDCap's: a bare
     column is refused, the ``___`` columns go in and come back, so R2 passes and R6 compares (the simulator computes
-    with TrialBox's own logic, so R6 says nothing of REDCap's until our instance runs it)."""
+    with TrialBox's own logic, so R6 says nothing of REDCap's until our instance runs it). CGRD-B5a (D-843) made its
+    values REDCap's: a value REDCap refuses is refused, the whole file with it, so R1 passes."""
     rec = dry["record"]
-    assert rec["failed"] == ["R1 validation", "R3 lock", "R4 rights", "R7 auto-number", "R9 log"]
+    assert rec["failed"] == ["R3 lock", "R4 rights", "R7 auto-number", "R9 log"]
     r1 = {(c["field"], c["value"]): c for c in rec["results"]["R1 validation"]["cases"]}
     lax = [f for (f, _v), c in r1.items() if c["redcap_must_refuse"] and not c["redcap_refused"]]
-    assert lax == ["sex", "mh_gout", "weight", "brthdat", "visit_dmy"]  # the simulator took what REDCap refuses
+    assert lax == []  # D-843: the simulator refuses what REDCap refuses
     assert all(r1[k2]["trialbox_refused"] for k2 in r1 if k2[0] in ("sex", "mh_gout", "weight", "brthdat"))
     t37 = r1[("temp", "37")]  # D-840: REDCap's number takes 37; TrialBox sends 37.0 for it (one place, its own)
     assert not t37["redcap_refused"] and not t37["trialbox_refused"] and t37["trialbox_sends"] == "37.0"
     assert r1[("temp", "37.55")]["trialbox_refused"] and r1[("temp", "37.55")]["trialbox_code"] == "decimals"
     assert not r1[("temp", "37.0")]["redcap_refused"] and not r1[("visit_dmy", "2026-11-05")]["redcap_refused"]
-    assert rec["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is True  # the lax batch
+    assert rec["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is False  # D-843: refused whole
     r2 = rec["results"]["R2 checkbox"]  # NEW-EDC-3b: refused as REDCap refuses it; the three columns come back
     assert r2["bare_column"]["status"] == 400 and r2["exported"] == {"joints___1": "1", "joints___2": "0",
                                                                      "joints___3": "1", "joints____99": "0"}  # fmt: skip
