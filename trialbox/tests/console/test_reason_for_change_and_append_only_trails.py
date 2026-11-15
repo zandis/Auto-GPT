@@ -115,3 +115,37 @@ def test_the_trails_are_append_only_for_the_service(lb: dict[str, Any], table: s
         db.execute(f"UPDATE {table} SET study = study WHERE study = 'ZZ'")
     with pytest.raises(Exception, match="append-only"):
         db.execute(f"DELETE FROM {table} WHERE study = 'ZZ'")
+
+
+# ---------------------------------------------------------------------------------------------- never dropped
+def test_a_change_without_a_reason_is_never_dropped(lb: dict[str, Any]) -> None:  # noqa: F811
+    """The integrator's rule for D-778 (train 23): a change without a reason is refused with a plain message (the
+    console's form) or saved with the reason marked missing (the API's direct write), never dropped; a change made by
+    the system (a read-back, a resolved conflict) carries a system reason."""
+    from datacore.store import NO_REASON
+
+    no, _other = lb["nos"]
+    lb["oc"].post("/studies/GZQO/forms/builtin", json={"by": "crc"})
+    r = lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "", "values": {"ic_date": "2026-11-03"}, "by": "crc"})
+    assert r.status_code == 200, r.text
+    r = lb["oc"].put(f"/studies/GZQO/data/{no}", json={"event": "", "values": {"ic_date": "2026-11-02"}, "by": "crc"})
+    assert r.status_code == 200, r.text
+    hist = [x for x in lb["dc"].history("GZQO", no) if x["field"] == "ic_date"]
+    assert [(x["new"], x["reason"]) for x in hist] == [("2026-11-03", ""), ("2026-11-02", NO_REASON)]
+    last = [e for e in _events(lb, "data.entry") if e["detail"].get("record") == no][-1]["detail"]
+    assert last["reason"] == NO_REASON and set(last["changes"]) == {"ic_date"}
+    # a value read back from a source: the system's reason, never blank
+    lb["dc"].write("GZQO", no, "", "ic_copy", "1", "rc:read", "2026-11-08T01:00:00+00:00", "redcap")
+    lb["dc"].write("GZQO", no, "", "ic_copy", "0", "rc:read", "2026-11-09T01:00:00+00:00", "redcap")
+    rows = [x["reason"] for x in lb["dc"].history("GZQO", no) if x["field"] == "ic_copy"]
+    assert rows == ["read back from redcap", "read back from redcap"]
+
+
+def test_the_history_page_shows_the_reason(lb: dict[str, Any]) -> None:  # noqa: F811
+    no, _other = lb["nos"]
+    c, csrf = login(lb["app"], "crc", PW)
+    c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
+    _consent(lb, c, csrf, no, "2026-11-03")
+    _consent(lb, c, csrf, no, "2026-11-02", reason="the signed form is dated the 2nd")
+    page = c.get(f"/studies/GZQO/history?record={no}").text
+    assert "Reason for the change" in page and "the signed form is dated the 2nd" in page

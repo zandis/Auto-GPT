@@ -149,8 +149,9 @@ def _stage10(res: dict[str, Any], api: Any, crc: Any, lang: str, mrns: set[str],
             'data-testid="entry-form"' in page.text and label in page.text, page.status_code)  # fmt: skip
     csrf = fd._csrf(page.text)
 
-    def save(form: str, values: dict[str, str], event: str = "") -> Any:
-        data = {"csrf": csrf, "record": no, "event": event, "form": form, **{f"f_{k}": v for k, v in values.items()}}
+    def save(form: str, values: dict[str, str], event: str = "", reason: str = "") -> Any:
+        data = {"csrf": csrf, "record": no, "event": event, "form": form, "reason": reason,
+                **{f"f_{k}": v for k, v in values.items()}}  # fmt: skip
         return crc.post(f"/studies/{rs}/entry", data=data)
 
     h = res["app"].state.helpers
@@ -175,12 +176,16 @@ def _stage10(res: dict[str, Any], api: Any, crc: Any, lang: str, mrns: set[str],
             and "400" in r.text and 'data-testid="entry-saved"' not in r.text, r.status_code)  # fmt: skip
     r = save("tb_visit", {**visit, "vs_weight": "61.5"}, "v1")
     s.check("the visit is saved on event v1", 'data-testid="entry-saved"' in r.text, r.status_code)
-    r = save("tb_consent", {**consent, "ic_version": "v2.2"})
+    r = save("tb_consent", {**consent, "ic_version": "v2.2"})  # D-778: a saved value changes only with a reason
+    s.check("an edit without a reason is refused, per field", 'data-testid="why-ic_version"' in r.text
+            and 'data-testid="entry-saved"' not in r.text, r.status_code)  # fmt: skip
+    r = save("tb_consent", {**consent, "ic_version": "v2.2"}, reason="version misread")
     rec = api("GET", f"/studies/{rs}/records/{no}")
     edit = [h for h in rec["history"] if h["field"] == "ic_version" and h["old"] == "v2.1" and h["new"] == "v2.2"]
     row = re.search(rf'data-testid="hist-{edit[0]["id"]}">(.*?)</tr>', r.text, re.S) if edit else None
-    s.check("the edit shows in the history: who, old, new", row is not None and "crc" in row.group(1)
-            and "v2.1" in row.group(1) and "v2.2" in row.group(1), edit)  # fmt: skip
+    cells = row.group(1) if row is not None else ""
+    s.check("the edit shows in the history: who, old, new, the reason",
+            all(x in cells for x in ("crc", "v2.1", "v2.2", "version misread")), edit)  # fmt: skip
     # the ODM export, from the console, into a fresh REDCap project with the same dictionary
     odm = crc.get(f"/studies/{rs}/export.odm.xml")
     s.check("ODM 1.3.2 export downloads", odm.status_code == 200 and 'ODMVersion="1.3.2"' in odm.text, odm.status_code)

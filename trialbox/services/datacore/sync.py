@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from datacore.forms import XML_ILLEGAL
-from datacore.store import TRIALBOX, DataCore, DataError
+from datacore.store import NO_REASON, TRIALBOX, DataCore, DataError
 
 
 @dataclass
@@ -238,7 +238,10 @@ def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, s
     if problems:
         code = "DATA-OWNED" if any("owned by" in p for p in problems) else "DATA-VALUE"
         raise DataError(code, "; ".join(problems))
-    return sum(dc.write(study, record, event, f, str(v), by, at, TRIALBOX, reason=reason) for f, v in values.items())
+    # D-778: a change of a saved value with no reason is kept with the reason marked missing, never dropped
+    current = dc.record(study, record, event)
+    why = {f: reason or (NO_REASON if current.get(f, "") not in ("", str(v)) else "") for f, v in values.items()}
+    return sum(dc.write(study, record, event, f, str(v), by, at, TRIALBOX, reason=why[f]) for f, v in values.items())
 
 
 def form_fields(dc: DataCore, study: str, form: str) -> list[Any]:

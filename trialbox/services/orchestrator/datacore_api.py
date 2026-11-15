@@ -35,7 +35,7 @@ from typing import Any
 
 from datacore import fhir, forms, sync
 from datacore.sources import RedcapSource
-from datacore.store import DataCore, DataError
+from datacore.store import NO_REASON, DataCore, DataError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
@@ -256,8 +256,9 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         except DataError as exc:
             raise _fail(exc) from exc
         old = {f: before.get(f, "") for f, v in body.values.items() if before.get(f, "") != str(v)}
+        why = body.reason or (NO_REASON if any(old.values()) else "")  # D-778: a change's reason, or marked missing
         svc.audit.append("data.entry", ruleset=rid, actor=body.by, detail={"record": record.upper(),
-                         "fields": sorted(body.values), **_changes(old, body.values, body.reason)})  # fmt: skip
+                         "fields": sorted(body.values), **_changes(old, body.values, why)})  # fmt: skip
         return {"changed": n, "record": svc.dc.record(rid, record.upper(), body.event)}
 
     @r.get("/studies/{rs}/sources")
