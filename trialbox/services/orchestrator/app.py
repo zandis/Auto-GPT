@@ -762,8 +762,7 @@ app.include_router(
             request, None, orch().db, orch().audit, _now(orch()), actions=actions, service=service
         ),
     ),
-    dependencies=REPORT,
-)
+)  # T-715g (D-803): refuse, route by route
 
 # ---------------------------------------------------------------------------- EDC prefill (D-160)
 _edcs: dict[str, Any] = {}

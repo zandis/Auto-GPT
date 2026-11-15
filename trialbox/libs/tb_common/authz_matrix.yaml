@@ -216,6 +216,15 @@ actions:
     cro: false
     steward: false
     privacy: false
+  remote.help:
+    what: switch the vendor's remote help on or off, with the hospital's approval on a box with real data (D-132; T-715g, D-803)
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
   restore.release:
     what: see and change the hold after a restore, the flag screening.after_restore (D-522; D-455 names the steward; D-706)
     admin: true
