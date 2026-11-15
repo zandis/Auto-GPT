@@ -240,8 +240,11 @@ def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, s
         raise DataError(code, "; ".join(problems))
     # D-778: a change of a saved value with no reason is kept with the reason marked missing, never dropped
     current = dc.record(study, record, event)
-    why = {f: reason or (NO_REASON if current.get(f, "") not in ("", str(v)) else "") for f, v in values.items()}
-    return sum(dc.write(study, record, event, f, str(v), by, at, TRIALBOX, reason=why[f]) for f, v in values.items())
+    reasons = {f: reason or (NO_REASON if current.get(f, "") not in ("", str(v)) else "") for f, v in values.items()}
+    out = 0
+    for f, v in values.items():
+        out += dc.write(study, record, event, f, str(v), by, at, TRIALBOX, reason=reasons[f])
+    return out
 
 
 def form_fields(dc: DataCore, study: str, form: str) -> list[Any]:
