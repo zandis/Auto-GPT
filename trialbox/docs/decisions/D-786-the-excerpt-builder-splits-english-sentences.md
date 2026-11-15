@@ -25,6 +25,13 @@ Before, an English note written as a paragraph was one "sentence": the cascade's
 at the whole paragraph, and a paragraph longer than half the excerpt budget was cut to nothing, so the models read
 nothing and the answer was unknown ("notes over budget"). It failed safe, but lost the evidence of English notes.
 
+## The accuracy set moved with it
+
+`tools/accuracy_set.py` builds the long stratum's excerpts through `matching.excerpts`, so the D-784 set's English
+long cases are cut along the new sentences: `eval/accuracy/MANIFEST.json`'s sha256 changed (train 18's red on #650),
+and every count stayed the same (each language and stratum still holds at least 200 gold exclusions and 200 decided
+gold non-exclusions). No model had measured the earlier set.
+
 ## Not changed
 
 The goldens are identical, and they do not exercise this path: the synthetic hospital writes zh-TW notes by
