@@ -57,7 +57,8 @@ doctor() {  # the model key as the gateway reads it: the key file only (D-437, D
   [ -d /run/trialbox ] && more+=(-v /run/trialbox:/run/trialbox:ro)
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
     ${more[@]+"${more[@]}"} -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
-    --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml "$@"
+    --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml \
+    --env-file /app/deploy/.env "$@"   # D-887: as the host check gives it (db_passwords, chartno_rule read the box)
 }
 
 # in_svc <service> <python source on stdin>: run Python inside a box service as that service (its token, its networks)
@@ -417,6 +418,11 @@ screen)
       | tail -5 || fail "ingest of synthetic hospital A failed"
     touch "$W/ingested"
   fi
+  # D-887: a VALIDATION box seeds no example study (D-640); the operator's synthetic-run install of the example, as
+  # RUNBOOK §1 step 2 gives it (idempotent: the same approved content again is the same tag)
+  dc exec -T criteria-compiler sh -c 'cd /app/rulesets && python -m zipfile -c /tmp/GZQO.zip GZQO &&
+    python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by "synthetic-run:box-rehearsal"' \
+    || fail "the example study GZQO could not be installed (criteria_compiler.import_ruleset)"
   before="$(standin_stats)" || fail "cannot ask the stand-ins"
   mails_before="$(dc logs --no-log-prefix mail-sink 2>/dev/null | grep -c '"smtp_sink"' || true)"
   in_svc mail-gateway <<EOF || fail "SCREEN did not finish"
