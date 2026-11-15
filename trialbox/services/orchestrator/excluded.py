@@ -59,8 +59,8 @@ def _lines(data: bytes) -> Iterator[dict[str, Any]]:
         if end > start:
             try:
                 obj = json.loads(data[start:end])
-            except ValueError as e:  # JSONDecodeError and bad UTF-8: a line cut in two
-                raise Incomplete(f"the excluded list has a broken line ({e}): it was cut off") from None
+            except ValueError:  # JSONDecodeError and bad UTF-8: a line cut in two
+                raise Incomplete("the excluded list has a broken line: it was cut off") from None
             if not isinstance(obj, dict):
                 raise Incomplete("the excluded list has a line that is not an object")
             yield obj
