@@ -612,9 +612,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("paths", nargs="*", type=Path, help="files, folders or archives (default: git ls-files here)")
     ap.add_argument("--log", type=Path, action="append", default=[], help="a log file to scan (repeatable)")
     ap.add_argument("--staged", action="store_true", help="the files staged for the next commit (pre-commit hook)")
+    ap.add_argument("--exits", action="store_true", help="a file that leaves the box: the exits' patterns too")
     a = ap.parse_args(argv)
     try:
-        patterns, allow = load_patterns(), load_allow()
+        patterns, allow = load_patterns(exits=a.exits), load_allow()
     except (ConfigError, OSError, yaml.YAMLError, KeyError, TypeError) as e:
         print(f"data_scan: {e}", file=sys.stderr)
         return 1

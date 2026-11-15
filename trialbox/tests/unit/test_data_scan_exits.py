@@ -62,3 +62,56 @@ def test_the_bundles_last_look_uses_the_exit_patterns() -> None:
         n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call) and ast.unparse(n.func) == "ds.load_patterns"
     ]
     assert loads and all(any(k.arg == "exits" for k in c.keywords) for c in loads)
+
+
+# ---------------------------------------------------------------------------------------------- review (D-747)
+LOG_LINES = [  # ordinary log and data text: no phone in it (the exits removed or withheld each)
+    "job 001 2026-11-15 started; worker-001 2026-11-15 ok; batch 002 (2026-11-15)",
+    "request_id=0012345678 seq 0012345678 file /data/001082795.xlsx",
+    "call 1234567 ns; contact 2500000 rows; home: 1234567; HOME 4567890; Number is 7654321",
+    "T: 2400000 ms; t: 1234567; m: 7654321",
+    "tz +0800 2026-11-15 and +1 2026 11 15",
+]
+
+
+def test_ordinary_log_lines_are_no_phone() -> None:
+    exits = ds.load_patterns(exits=True)
+    for line in LOG_LINES:
+        assert [h for h in ds.scan_text(line, "x", exits, ds.Allow({}, [])) if h.pattern == "en_phone"] == [], line
+
+
+def test_the_phones_of_d744_are_still_found() -> None:
+    from tests.unit.test_phi_english_phones import PHONES
+
+    exits = ds.load_patterns(exits=True)
+    for text, _phone in PHONES:
+        assert "en_phone" in {h.pattern for h in ds.scan_text(text, "x", exits, ds.Allow({}, []))}, text
+
+
+def test_the_command_line_scans_as_an_exit_when_asked(tmp_path: Path, capsys: object) -> None:
+    f = tmp_path / "ticket.txt"
+    f.write_text(LINE + "\n", encoding="utf-8")
+    assert ds.main([str(f)]) == 0  # the repository's rules: as before
+    assert ds.main(["--exits", str(f)]) == 2  # a file that leaves the box: the exits' rules
+
+
+def test_the_bundles_last_look_finds_an_english_phone(tmp_path: Path) -> None:
+    import io
+    import tarfile
+
+    from tools.support_bundle import last_look
+
+    tgz = tmp_path / "support.tgz"
+    data = (LINE + "\n").encode()
+    with tarfile.open(tgz, "w:gz") as tar:
+        info = tarfile.TarInfo("support/logs/app.log")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    assert "en_phone" in {h.pattern for h in last_look(tgz)}
+
+
+def test_the_share_report_scans_as_an_exit() -> None:
+    from tools import mapping_check
+
+    scan = mapping_check._scan()
+    assert scan is not None and scan(LINE)
