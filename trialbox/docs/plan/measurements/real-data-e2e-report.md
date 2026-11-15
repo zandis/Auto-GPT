@@ -1,3 +1,6 @@
+> **SUPERSEDED on 2026-11-14** ([validation-reset-2026-11-14.md](validation-reset-2026-11-14.md)): a 2026-11-08 run from a local branch (`realdata-local`, never pushed),
+> on a serving setup that is not the shipped one. History only; not evidence of the shipped product.
+
 # Real public data, end to end: report (8 Nov 2026)
 
 Branch `realdata-local` (local only, not pushed; backup bundle at `trialbox-build/git-backup/realdata-local.bundle`), 11 commits on top of `step5-local`.

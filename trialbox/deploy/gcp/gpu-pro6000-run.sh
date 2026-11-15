@@ -1,4 +1,9 @@
 #!/bin/bash
+# NOT FOR VALIDATION (lane G's validation reset, 2026-11-14: docs/plan/measurements/validation-reset-2026-11-14.md).
+# A one-boot script outside the rehearsed driver: no --chat-template, the vLLM image by tag, no model-guard. Kept only
+# because it took the 2026-11-08 vendor record (deploy/measured/serving_config.rtxpro6000.json) that install.sh and
+# models/registry.yaml cite; retire it once that record is captured again from the installed compose. Results it
+# serves are not evidence of the shipped product.
 # TrialBox RTX PRO 6000 profile run on tb-gpu-sim (TB-PLAN-04 step 1, D-124): the card uncapped, judge and verifier
 # both resident with the flags of deploy/docker-compose.rtxpro6000.yml (32k context, 16 sequences, 0.40 and 0.20 of
 # the card, no sleep mode). Used as the VM's startup script for one boot (the usual one is gpu-sim-startup.sh):
