@@ -559,7 +559,7 @@ DECLARED: dict[str, Declared] = {
         "str", "hash", "embedder: model or hash (stub, refused in PRODUCTION); unset: model in PRODUCTION (D-429)"
     ),
     "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
-    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST or PRODUCTION (unset is PRODUCTION)"),
+    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST, VALIDATION or PRODUCTION (unset is PRODUCTION)"),
     "TB_EP_SERVING_URL": Declared("str", "", "scenario tool: judge endpoint"),
     "TB_EP_VERIFIER_URL": Declared("str", "", "scenario tool: verifier endpoint"),
     "TB_EVAL_LIMIT": Declared("int", "", "eval: cases per suite"),
