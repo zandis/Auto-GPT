@@ -9,6 +9,7 @@ added (``tools.host_tree.check_dir``). Neither: ``unknown`` and dirty. Standard 
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from pathlib import Path
 
@@ -29,9 +30,15 @@ def head(root: Path) -> tuple[str, bool]:
     if rc == 0 and sha:
         rc2, changes = _git(root, "status", "--porcelain", "--untracked-files=no")
         return sha, rc2 != 0 or bool(changes)
-    sums = root / SUMS
-    if sums.is_file():
-        from tools import host_tree
+    # D-881: in the trialbox-py image /app is neither: the box wrapper mounts the release tree (TB_RELEASE_TREE) and
+    # passes the image's id (TB_CODE_IMAGE), which names the code when there is no tree (lane G's direct route)
+    for tree in (root, Path(os.environ.get("TB_RELEASE_TREE") or root)):
+        sums = tree / SUMS
+        if sums.is_file():
+            from tools import host_tree
 
-        return f"release:{hashlib.sha256(sums.read_bytes()).hexdigest()}", bool(host_tree.check_dir(root))
+            return f"release:{hashlib.sha256(sums.read_bytes()).hexdigest()}", bool(host_tree.check_dir(tree))
+    image = (os.environ.get("TB_CODE_IMAGE") or "").strip()
+    if image:
+        return f"image:{image}", False
     return "unknown", True

@@ -643,6 +643,7 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_ROOT": Declared("path", "", "host scripts: fake host root for the tests only, empty on the box (D-408)"),
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
+    "TB_CODE_IMAGE": Declared("str", "", "qualify: the image id naming the code with no release tree (D-881)"),
     "TB_INGEST_SORT_MB": Declared(
         "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
     ),
@@ -860,6 +861,7 @@ DECLARED: dict[str, Declared] = {
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
+    "TB_RELEASE_TREE": Declared("path", "", "qualify in the image: the signed release tree mounted read-only (D-881)"),
     "TB_RESTORE_ACTOR": Declared("str", "trialbox restore", "restore: actor in the audit"),
     "TB_RESTORE_FILE": Declared("str", "newest", "platform restore job: the backup on the share to restore (T-633)"),
     "TB_RESTORE_KEEP_DIR": Declared("path", "deploy/pre-restore", "restore: where the old files go"),
