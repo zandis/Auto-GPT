@@ -540,7 +540,7 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
   # checked on 2026-11-12. No fixed upstream image exists (4.39.28 is the newest). CVE-2026-111943 (crypto/x509) was
   # reachable through the LDAPS client's public roots; since D-722 (AUTHELIA-CA) the container's root list is the
   # hospital's directory CA only, and by the owner's yes of 2026-11-15 its entry is "not reachable" like the others
-  # (D-791).
+  # (D-820).
   - id: CVE-2026-111943
     package: stdlib
     image: authelia/authelia

@@ -1,4 +1,4 @@
-# D-791 The owner's acceptance of CVE-2026-111943 in Authelia becomes a "Not reachable" entry
+# D-820 The owner's acceptance of CVE-2026-111943 in Authelia becomes a "Not reachable" entry
 
 - **Task:** AUTHELIA-NOT-REACHABLE, the step D-722 left for the owner
 - **PR:** this branch (`agent/AUTHELIA-NOT-REACHABLE-the-owners-entry-replaced`)

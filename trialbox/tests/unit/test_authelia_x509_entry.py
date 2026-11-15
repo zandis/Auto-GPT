@@ -1,6 +1,6 @@
 """CVE-2026-111943 (crypto/x509) in the Authelia image. The owner's ruling of 2026-11-13 accepted it for the image at
 the digest the lock pins, until the real fix (D-722: the identity overlay gives Authelia only the hospital's
-directory CA). With D-722 on master, the owner's yes of 2026-11-15 (D-791) replaces the acceptance by one "Not
+directory CA). With D-722 on master, the owner's yes of 2026-11-15 (D-820) replaces the acceptance by one "Not
 reachable" entry, as the image's other entries are: same digest, review 2026-12-10, its reason the fact D-722 makes
 true. The entry names the digest: a new pin fails this test, and the entry is looked at again."""
 
@@ -37,7 +37,7 @@ def test_there_is_one_dated_entry_for_the_pinned_image() -> None:
 
 
 def test_the_reason_is_the_fact_d722_makes_true_and_its_limit() -> None:
-    """D-791: no longer the owner's acceptance; why the flaw cannot be reached, and when that holds."""
+    """D-820: no longer the owner's acceptance; why the flaw cannot be reached, and when that holds."""
     reason = str(_entries()[0]["reason"])
     assert reason.startswith("Not reachable:") and "Accepted by the owner" not in reason
     assert "LDAPS" in reason and "directory" in reason  # the one connection the flaw could matter on
