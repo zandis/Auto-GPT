@@ -349,6 +349,23 @@ def check_sae_mailbox(inp: DoctorInputs) -> Check:
     return Check("sae_mailbox", "WARN", why)
 
 
+def check_mail_auth(inp: DoctorInputs) -> Check:
+    """D-825 (D-369): the mail gateway trusts sender results only from the MTA ``TB_MAIL_AUTHSERV_ID`` names; empty, it
+    refuses every request mail (fails closed). WARN on a site box (VALIDATION, PRODUCTION), never a FAIL: a box
+    without mail is a box, and the refusal is the safe side."""
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if (inp.env.get("TB_MAIL_AUTHSERV_ID") or "").strip():
+        return Check("mail_auth", "PASS", f"sender results trusted from {inp.env['TB_MAIL_AUTHSERV_ID'].strip()}")
+    if env not in ("VALIDATION", "PRODUCTION"):
+        return Check("mail_auth", "PASS", f"{env}: no MTA named; mail intake stays closed")
+    return Check(
+        "mail_auth",
+        "WARN",
+        "no TB_MAIL_AUTHSERV_ID: every mailed FEAS or SCREEN request is refused until the "
+        "hospital MTA's authserv-id is set (the box answers' mta_authserv_id, or deploy/.env; D-369, D-825)",
+    )
+
+
 def check_secure_cookie(inp: DoctorInputs) -> Check:
     """The console's own rule (``console.identity.secure_cookie_default``, D-192): an explicit value wins; unset or
     empty means Secure in PRODUCTION (the base compose file passes it empty) and off elsewhere."""
@@ -1847,6 +1864,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_channel_engine,
     check_secure_cookie,
     check_sae_mailbox,
+    check_mail_auth,
     check_console_mfa,
     check_ldap_ca,
     check_publish_gate,
