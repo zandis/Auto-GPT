@@ -706,17 +706,22 @@ def run_batch(
     pids: Sequence[str] | None = None,
     snapshot: str | None = None,
     documented: Iterable[Documented] = (),
+    skip: Iterable[str] = (),
 ) -> Report:
     """The ``derive`` batch: recompute every patient of a lake snapshot (or ``pids``); writes only what changed. A
     patient whose recompute fails is counted in ``failed`` (and ``failed_pids``, pseudonyms) and the batch goes on
-    with the next one: that patient's transaction is rolled back and their stored rows stay as they were."""
+    with the next one: that patient's transaction is rolled back and their stored rows stay as they were.
+
+    ``skip`` (D-798, T-206b): the opted-out pseudonyms; never recomputed, so the opt-out worker's clear of their rows
+    holds."""
     docs: dict[str, list[Documented]] = {}
     for x in documented:
         docs.setdefault(x.pid, []).append(x)
     total = Report()
     # D-442: a batch over a named snapshot of every patient is recorded; screening of that snapshot reads its rows
     run_id = store.begin_batch(snapshot, mapping_version) if snapshot is not None and pids is None else None
-    patients = rows_from_lake(lake, pids, snapshot)
+    gone = set(skip)
+    patients = {p: v for p, v in rows_from_lake(lake, pids, snapshot).items() if p not in gone}
     for pid, (rows, birth, female) in sorted(patients.items()):
         try:
             rep = store.recompute(

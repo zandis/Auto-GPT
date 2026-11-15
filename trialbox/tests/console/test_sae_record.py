@@ -324,7 +324,8 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     assert r.status_code == 409 and "Already recorded" in r.text
     # a date changed on the AE form moves the deadlines: a change row with old and new
     _save(c, csrf, no, "tb_adverse_event", {**fatal, "ae_aware": "2026-11-08", "ae_rep_sponsor": "2026-11-10",
-                                            "ae_rep_reg": "2026-11-11"}, "ae1")  # fmt: skip
+                                            "ae_rep_reg": "2026-11-11"}, "ae1",
+          reason="the site learned of it on the 8th")  # D-778: a saved value changes with a reason  # fmt: skip
     # review H3: the PI happens to look first; the change is still the coordinator's, written by the register
     p, _pcsrf = login(lb["app"], "pi", PW)
     assert p.get("/sae").status_code == 200
@@ -364,7 +365,8 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     # review H4: downgraded on the AE form with three overdue reports: it stays in the alert with its last clock
     c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/sae"})
     _save(c, csrf, no, "tb_adverse_event", {**fatal, "ae_term": "Sepsis", "ae_outcome": "1", "ae_onset": "2026-11-01",
-                                            "ae_aware": "2026-11-01", "ae_serious": "0", "ae_serious_why": ""}, "ae2")  # fmt: skip
+                                            "ae_aware": "2026-11-01", "ae_serious": "0", "ae_serious_why": ""}, "ae2",
+          reason="the investigator judged it not serious")  # D-778: a saved value changes with a reason  # fmt: skip
     page = c.get("/sae").text
     assert f'data-testid="sae-row-GZQO-{no}-ae2"' in page and f'data-testid="sae-downgraded-{no}-ae2"' in page
     assert 'data-testid="sae-alert-downgraded"' in page and "No longer serious, with open reports: 1" in page

@@ -39,6 +39,7 @@ You need Python 3.12 and `uv`.
 ```sh
 cd trialbox
 make venv                 # .venv with the pinned dependencies
+make fonts                # the PDF reports' fonts, once (a host run's SCREEN reports need them; D-829)
 make e2e-simple           # the build gate: about 2 minutes, prints PASSED
 make demo                 # the whole flow seeded, console on http://127.0.0.1:8080
 python -m tools.public_e2e --dir /tmp/tb-public --lang ja      # the same path on public notes

@@ -55,3 +55,32 @@ def test_a_code_not_of_the_icd10cm_shape_is_copied_and_counted(tmp_path: Path, f
 
 def test_without_the_declaration_a_code_is_copied_as_before(tmp_path: Path) -> None:
     assert _icd10(_mapper(tmp_path, dotted=False), "M109") == "M109"
+
+
+# CGRD-A3 (D-815): a site's own codes that look like ICD-10-CM are kept as written, never dotted into a code they are not
+def _local(tmp_path: Path, keep: Any) -> Mapper:
+    doc: dict[str, Any] = yaml.safe_load(BASE.read_text(encoding="utf-8"))
+    for spec in (doc.get("lookups") or {}).values():
+        spec["file"] = str(BASE.parent / spec["file"])
+    diag = next(r for r in doc["resources"] if r["type"] == "Condition" and r["table"] == "diagnosis")
+    diag["elements"]["code.coding[0]"].update({"dotted": "icd10cm", "keep_as_written": keep})
+    path = tmp_path / "site.yaml"
+    path.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return Mapper(Mapping.load(path), b"k" * 32, "s")
+
+
+@pytest.mark.parametrize(("fed", "want"), [("Q990001", "Q990001"), ("q990001", "Q990001"), ("Z000LOC", "Z000LOC"),
+                                           ("M109", "M10.9")])  # fmt: skip
+def test_a_sites_own_code_is_kept_as_written_and_counted(tmp_path: Path, fed: str, want: str) -> None:
+    m = _local(tmp_path, ["Q990001", "Z000LOC"])
+    assert _icd10(m, fed) == want
+    local = sum(n for (t, name, _), n in m.unmapped.items() if t == "diagnosis" and name == "local:icd10cm")
+    assert local == (0 if want == "M10.9" else 1)
+
+
+@pytest.mark.parametrize("keep", ["Q990001", [""], [1]])
+def test_keep_as_written_stated_badly_is_refused_at_load(tmp_path: Path, keep: Any) -> None:
+    from adapter.mapping.engine import MappingError
+
+    with pytest.raises(MappingError):
+        _local(tmp_path, keep)
