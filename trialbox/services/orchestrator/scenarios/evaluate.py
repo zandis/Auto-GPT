@@ -30,6 +30,7 @@ from lake.client import LakeAPI
 from matching import coded_values, decision
 from matching import excerpts as excerpt_builder
 from matching import verdict as verdict_table
+from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.proposed import Proposed
 from matching.stored_scores import apply_rows
@@ -133,6 +134,7 @@ class SqlEngine:
         crit = [c for c in rs.active() if c.id in set(ids)]
         apply_rows(t, crit, self.stored, self.snapshot, getattr(rs.manifest, "derived_pins", None))
         cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
+        carried = Carried.for_criteria(self.lake, crit, self.snapshot)  # F11 (D-795): systems the site's rows carry
         prop = Proposed.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         out: dict[str, PatientEvaluation] = {}
         for row in t:
@@ -148,6 +150,10 @@ class SqlEngine:
                     if res.get(cid) is None:
                         reasons[cid] = why
             for c in crit:  # F-10 (D-130): FALSE beside an unreadable code is unknown, not an exclusion
+                # F11 (D-795): a list in a system no row of the domain carries cannot answer, either kind
+                if carried.doubt(c, rs.valuesets, res.get(c.id)):
+                    res[c.id], ev[c.id], reasons[c.id] = None, [], Reason.CODE_SYSTEM_NOT_CARRIED.value
+                    continue
                 gap = cov.refs(c, str(row["pid"]), index_date) if res.get(c.id) is False else []
                 if gap:
                     res[c.id], ev[c.id], reasons[c.id] = None, gap, Reason.UNKNOWN_CODE_SYSTEM.value
