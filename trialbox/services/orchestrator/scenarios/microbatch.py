@@ -228,9 +228,11 @@ def study_sources(db: Any, ruleset: str, but_job: str = "") -> list[str]:
     if screens:
         last = screens[0]
         outs = last.outputs or []
-        ex = excluded_lines.newest(o.filename for o in outs)  # D-749: the lines when the run has them
-        for o in outs:
-            if (o.filename.startswith("candidate_list_") and o.filename.endswith(".json")) or o.filename == ex:
+        for o in outs:  # D-749: both forms of the excluded list (the console reads the old one); read_sources
+            # reads the lines when both are here
+            if (
+                o.filename.startswith("candidate_list_") and o.filename.endswith(".json")
+            ) or excluded_lines.is_excluded(o.filename):
                 keys.append(o.minio_key)
         for j in db.find(type_="MICROBATCH", ruleset=ruleset, state="done", limit=100):
             if j.job_id == but_job or j.received_at <= last.received_at:
@@ -271,9 +273,12 @@ class Seen:
 
 def read_sources(ctx: Ctx, keys: list[str], names: dict[str, str] | None = None) -> Seen:
     """D-749: an excluded list of lines (its key, the stored file's name, ends ``.jsonl``; ``names`` may name it) is
-    read line by line, its ids only."""
+    read line by line, its ids only; the old document beside it (the same key without the final ``l``) is then not
+    read again."""
     out = Seen()
     for key in keys:
+        if key.endswith(".json") and key + "l" in keys:
+            continue
         name = (names or {}).get(key) or key
         if name.endswith(".jsonl"):
             out.excluded |= excluded_lines.pids(ctx.store.get(key), name)

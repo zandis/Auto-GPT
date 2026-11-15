@@ -5,8 +5,9 @@ the orchestrator draws, for each study with a finished SCREEN that stored its no
 for the study's PI and stores them in schema ``tuned`` (:mod:`tb_common.notmatched`). The console shows them on
 ``/studies/{rs}/not-matched/sample``, where the PI answers each one.
 
-* **The run's own snapshot.** The draw reads the run's stored list (``excluded_*.json``), which the run made from the
-  snapshot it pinned (T-305a, D-383), and records that snapshot. It never asks the lake: a night published since the
+* **The run's own snapshot.** The draw reads the run's stored list (``excluded_*.jsonl``, or ``excluded_*.json``
+  for a run from before D-749), which the run made from the snapshot it pinned (T-305a, D-383), and records that
+  snapshot. It never asks the lake: a night published since the
   run does not change what was sampled.
 * **Opted-out patients** (``orchestrator.decision_context.register_now``) are never drawn. A register that cannot
   be read stops the whole draw (logged), never a sample with someone who said no.

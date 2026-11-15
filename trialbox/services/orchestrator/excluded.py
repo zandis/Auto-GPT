@@ -17,7 +17,7 @@ FORMAT = 1
 
 
 class Incomplete(ValueError):
-    """The file has no end line: it was cut off (an interrupted write)."""
+    """The file is not whole: cut off (an interrupted write) or not in this format; never read as a short list."""
 
 
 def is_excluded(filename: str) -> bool:
@@ -34,11 +34,18 @@ def _line(obj: dict[str, Any]) -> bytes:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
 
 
+HEADER_KEYS = ("kind", "format", "rows")  # the format's own keys: a header field of these names would be overwritten
+
+
 def write_jsonl(header: dict[str, Any], rows: Iterable[dict[str, Any]]) -> bytes:
+    if clash := [k for k in HEADER_KEYS if k in header]:
+        raise ValueError(f"the excluded list's header may not carry {', '.join(clash)}: the format's own keys")
     out = [_line({"kind": "header", "format": FORMAT, **header})]
     n = 0
     for r in rows:
-        out.append(_line({"kind": "row", **r}))
+        if "kind" in r:
+            raise ValueError("an excluded row may not carry kind: the format's own key")
+        out.append(_line({**r, "kind": "row"}))
         n += 1
     out.append(_line({"kind": "end", "rows": n}))
     return b"".join(out)
@@ -50,22 +57,43 @@ def _lines(data: bytes) -> Iterator[dict[str, Any]]:
         end = data.find(b"\n", start)
         end = len(data) if end < 0 else end
         if end > start:
-            yield json.loads(data[start:end])
+            try:
+                obj = json.loads(data[start:end])
+            except ValueError as e:  # JSONDecodeError and bad UTF-8: a line cut in two
+                raise Incomplete(f"the excluded list has a broken line ({e}): it was cut off") from None
+            if not isinstance(obj, dict):
+                raise Incomplete("the excluded list has a line that is not an object")
+            yield obj
         start = end + 1
 
 
 def _walk(data: bytes) -> Iterator[dict[str, Any]]:
-    """The lines in order; :class:`Incomplete` when the end line is missing or its count is not the rows'."""
-    n = 0
+    """The header, then the rows, in order. :class:`Incomplete` unless the file is whole: the header first and once,
+    rows only, then the end line with the rows' count, and nothing after it."""
+    n, ended, headed = 0, False, False
     for obj in _lines(data):
-        if obj.get("kind") == "end":
-            if int(obj.get("rows", -1)) != n:
-                raise Incomplete(f"the excluded list says {obj.get('rows')} rows and holds {n}: it was cut off")
-            return
-        if obj.get("kind") == "row":
+        kind = obj.get("kind")
+        if ended:
+            raise Incomplete("the excluded list goes on after its end line")
+        if kind == "header":
+            if headed or n:
+                raise Incomplete("the excluded list has a second header")
+            headed = True
+        elif not headed:
+            raise Incomplete("the excluded list does not start with its header")
+        elif kind == "row":
             n += 1
+        elif kind == "end":
+            count = obj.get("rows")
+            if type(count) is not int or count != n:
+                raise Incomplete(f"the excluded list says {count!r} rows and holds {n}: it was cut off")
+            ended = True
+            continue
+        else:
+            raise Incomplete(f"the excluded list has a line of kind {kind!r}")
         yield obj
-    raise Incomplete("the excluded list has no end line: it was cut off")
+    if not ended:
+        raise Incomplete("the excluded list has no end line: it was cut off")
 
 
 def read(data: bytes, filename: str) -> dict[str, Any]:

@@ -80,3 +80,67 @@ def test_microbatch_reads_the_ids_of_the_lines(monkeypatch: pytest.MonkeyPatch) 
     ctx = SimpleNamespace(store=SimpleNamespace(get=store.__getitem__))
     got = microbatch.read_sources(ctx, ["k"], names={"k": "excluded_GZQO_v1.0.0.jsonl"})  # type: ignore[arg-type]
     assert got.excluded == {r["pid"] for r in ROWS} and not got.listed
+
+
+# ---------------------------------------------------------------------------------------------- review (D-749)
+def _bad(lines: list[dict]) -> bytes:  # type: ignore[type-arg]
+    return b"".join(json.dumps(x).encode() + b"\n" for x in lines)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        _bad([{"kind": "header", "format": 1}, {"kind": "row", "pid": "a"}, {"kind": "end", "rows": 2}]),  # count
+        _bad([{"kind": "header", "format": 1}, {"kind": "end", "rows": 0}, {"kind": "row", "pid": "b"}]),  # after end
+        _bad([{"kind": "row", "pid": "a"}, {"kind": "end", "rows": 1}]),  # no header
+        _bad([{"kind": "header"}, {"kind": "header"}, {"kind": "end", "rows": 0}]),  # two headers
+        _bad([{"kind": "header"}, {"kind": "end", "rows": "x"}]),  # a count that is none
+        b'{"kind": "header", "format": 1}\n{"kind": "row", "pid": "a"',  # cut inside a line
+    ],
+    ids=["count", "after-end", "no-header", "two-headers", "bad-count", "cut-in-line"],
+)
+def test_every_broken_file_is_said_never_a_short_list(data: bytes) -> None:
+    with pytest.raises(excluded.Incomplete):
+        excluded.pids(data, "x.jsonl")
+    with pytest.raises(excluded.Incomplete):
+        excluded.read(data, "x.jsonl")
+
+
+def test_the_reserved_keys_cannot_be_overwritten() -> None:
+    with pytest.raises(ValueError, match="kind"):
+        excluded.write_jsonl(HEADER, iter([{"pid": "a", "kind": "end"}]))
+    for key in ("kind", "format", "rows"):
+        with pytest.raises(ValueError, match=key):
+            excluded.write_jsonl({**HEADER, key: 1}, iter(ROWS))
+
+
+def test_retention_keeps_both_files_and_the_micro_batch_reads_the_lines() -> None:
+    """Retention's keep-list is the micro-batch's sources: both files of the study's last SCREEN stay (the console
+    reads the old one until lane C2's card); the micro-batch reads the lines, not both."""
+    from types import SimpleNamespace
+
+    from orchestrator.scenarios import microbatch
+
+    outs = [SimpleNamespace(filename=f, minio_key=f"outputs/J/{f}") for f in
+            ("candidate_list_GZQO_v1.json", "excluded_GZQO_v1.json", "excluded_GZQO_v1.jsonl")]  # fmt: skip
+    screen = SimpleNamespace(outputs=outs, received_at=0, job_id="J")
+    db = SimpleNamespace(find=lambda type_, **k: [screen] if type_ == "SCREEN" else [])
+    keys = microbatch.study_sources(db, "GZQO")
+    assert {"outputs/J/excluded_GZQO_v1.json", "outputs/J/excluded_GZQO_v1.jsonl"} <= set(keys)
+    store = {
+        "outputs/J/candidate_list_GZQO_v1.json": json.dumps({"rows": [{"pid": "L", "tier": "high"}]}).encode(),
+        "outputs/J/excluded_GZQO_v1.json": json.dumps({"rows": [{"pid": "OLD-ONLY"}]}).encode(),
+        "outputs/J/excluded_GZQO_v1.jsonl": excluded.write_jsonl(HEADER, iter(ROWS)),
+    }
+    got = microbatch.read_sources(SimpleNamespace(store=SimpleNamespace(get=store.__getitem__)), keys)  # type: ignore[arg-type]
+    assert got.excluded == {r["pid"] for r in ROWS} and got.listed == {"L"}  # the lines, not the old document
+
+
+def test_the_not_matched_sample_reads_the_lines() -> None:
+    from types import SimpleNamespace
+
+    from orchestrator.notmatched_sample import _excluded_key
+
+    job = SimpleNamespace(outputs=[SimpleNamespace(filename=f, minio_key=f"k/{f}") for f in
+                                   ("excluded_GZQO_v1.json", "excluded_GZQO_v1.jsonl")])  # fmt: skip
+    assert _excluded_key(job) == "k/excluded_GZQO_v1.jsonl"  # type: ignore[arg-type]
