@@ -498,7 +498,7 @@ def clean_lines(b: Bundle, say: Callable[[str], None]) -> None:
     """Remove every line the data-handling scan flags, in every member, and say so (counts and pattern ids only)."""
     from tools import data_scan as ds
 
-    patterns, allow = ds.load_patterns(), ds.load_allow()
+    patterns, allow = ds.load_patterns(exits=True), ds.load_allow()  # D-747: the bundle leaves the box
     for name in sorted(b.members):
         lines = ds._lines(b.members[name])
         removed: Counter[str] = Counter()
@@ -616,7 +616,7 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         with tempfile.TemporaryDirectory(prefix="tb-support-scan-") as tmp:  # the scan names a member by path
             scan_copy = Path(tmp) / target.name
             scan_copy.write_bytes(part.read_bytes())
-            hits = ds.run([scan_copy], in_repo=False)
+            hits = ds.run([scan_copy], patterns=ds.load_patterns(exits=True), in_repo=False)
         if hits:
             raise BundleRefused("the finished bundle still holds what the scan flags: " + "; ".join(
                 f"{Path(h.where).name}:{h.line}: {h.pattern}" for h in hits[:5]))  # fmt: skip

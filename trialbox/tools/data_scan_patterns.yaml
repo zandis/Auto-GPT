@@ -16,6 +16,8 @@
 #   near, window: the pattern counts only within `window` characters of a match of `near` (a name beside a date);
 #               a name and a date on up to three neighbouring lines count as well
 #   not:        words that look like the pattern and are not identifiers (compared after normalisation)
+#   exit:       true: only in the scans of what leaves the box (a support bundle, the comment export, the demo guard;
+#               D-747), not in the repository scan, whose tests and evaluation sets hold synthetic values of the shape
 #
 # The sites' own code systems (local lab codes, local diagnosis codes) are added here once the survey names them
 # (TB-SITE-01 questions 24 to 26); a CGMH chart number is anchored on its label until the site states its format.
@@ -88,3 +90,8 @@ patterns:
     window: 24
     needs: '{date}'
     not: [デジタル・ガバナンス, データ ベース, クリニカル・トライアル]
+
+  - id: en_phone
+    what: an English phone number (North American, British or with a country code; a seven-digit number after the word that says it is a phone), the note masker's form (D-744); in what leaves the box only (D-747)
+    phi_guard: EN_PHONE
+    exit: true
