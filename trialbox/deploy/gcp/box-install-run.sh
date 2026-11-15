@@ -305,6 +305,10 @@ PY
 st() { local c=$1 s=$2; shift 2; "$PY" "$SBIN/tb-boxrun-state.py" "$RUN" "$c" "$s" "$@"; }
 finish() {  # $1 marker line, $2 phase: say why, keep it in the state, pack, DONE; the watchdog does the rest
   echo "$1" | tee -a "$LOG"; phase "$2"
+  # a probe launch reads the box's facts on any way out once an install was tried (a stop is when they matter most)
+  if [ -n "${PROBE:-}" ] && [ -d "${BOXROOT:-/nonexistent}/deploy" ] && [ ! -s "$REC/facts-box.txt" ]; then
+    NOTES=/dev/null; step_facts_box >/dev/null 2>&1 || true
+  fi
   st ended _ "$1"
   pack
   touch "$DONE"; echo BOX-RUN-DONE; exit "${3:-1}"
@@ -426,6 +430,7 @@ ACC_SETS=$(md tb-acc-sets || true)
 ACC_JOB_MIN=$(md tb-acc-job-minutes || echo 60)
 ACC_AUTHSERV=$(md tb-acc-authserv || echo mx.acc.invalid)
 ACC_TRIPWIRE=$(md tb-acc-tripwire-setting || true)
+PROBE=$(md tb-probe || true)   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
 BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
@@ -530,6 +535,9 @@ d_firstrun() { "$INSTALLER" --firstrun; }                                     # 
 img_tool() {
   local o=()
   while [ $# -gt 1 ]; do case "$1" in -v|-e) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
+  # OPS-004 (D-570): after a bundle install the shipped files under deploy/ are links into ../current; the release
+  # tree goes beside /d at /current, as install.sh's tree_args does
+  [ -d "$BOXROOT/current" ] && o+=(-v "$(readlink -f "$BOXROOT/current"):/current:ro")
   docker run --rm --user 0 --network "${IMG_NET:-none}" -v "$BOXROOT/deploy:/d" ${o[@]+"${o[@]}"} "$(img_py)" \
     python -m "tools.$1" "${@:2}"
 }
@@ -785,7 +793,7 @@ d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, sh
   ( umask 077; gcloud secrets versions access "$KVER" --secret="$KSEC" --out-file="$k/vendor.key" >/dev/null 2>&1 ) \
     || { echo "TB-NO-VENDOR-KEY: secret $KSEC version $KVER is not readable by this VM's service account"; return 3; }
   chmod 600 "$k/vendor.key"
-  (cd "$CK" && TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
+  (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
      --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
 }
 # TB_TZ for make_bundle.sh: its compose call that lists the images renders the compose file with a staged .env that
@@ -799,10 +807,17 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   chmod 600 "$k/vendor_ed25519.key"
   cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
-  (cd "$CK" && TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
+  (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
      --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
 }
+# the room make_bundle.sh needs: it stages every image (docker save, ~25 GB with vLLM) and then writes the bundle; its
+# staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
+b_room() {
+  docker builder prune -af >/dev/null 2>&1 || true
+  note free_before_sign "\"$(df -h --output=avail,target "$BUILD" / 2>/dev/null | tail -n +2 | tr -s ' ' | tr '\n' ';')\""
+}
 step_b_sign() {
+  b_room
   mkdir -p "$BUILD/out"
   if [ "$MODE" = validation ]; then
     need "signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release)" d_sign_throwaway
@@ -1408,7 +1423,58 @@ PY
   note pass "$ok"
 }
 
+
+# ================================================================== the probe (facts a review cannot know without the VM)
+# Read-only: what is on the VM and, after the install, on the box. Names, sizes, versions and exit codes only: no
+# key, token or password is read or printed (secret FILES are listed by name and mode, never opened).
+probe_cmd() { printf '\n$ %s\n' "$*"; timeout 120 "$@" 2>&1 | head -n 200; printf '[exit %s]\n' "${PIPESTATUS[0]}"; }
+step_facts() {
+  local f="$REC/facts-vm.txt"
+  {
+    probe_cmd df -h
+    probe_cmd findmnt -no TARGET,FSTYPE,SIZE,AVAIL /tmp
+    probe_cmd du -sh /var/lib/docker /var/lib/containerd /models /models/hub /srv/tb-build "$TB" "$BOXROOT"
+    probe_cmd ls -la /models /models/hub
+    probe_cmd docker info -f '{{.ServerVersion}} {{.Driver}} {{json .DriverStatus}}'
+    probe_cmd docker compose version
+    probe_cmd docker image ls --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}'
+    probe_cmd docker system df
+    probe_cmd cat /etc/docker/daemon.json
+    probe_cmd python3 --version
+    probe_cmd python3 -c 'import yaml, sys; print("yaml", yaml.__version__)'
+    probe_cmd python3 -c 'import cryptography; print("cryptography", cryptography.__version__)'
+    probe_cmd systemctl --version
+    probe_cmd sh -c 'command -v systemd-creds; ls -l /dev/tpm0 /dev/tpmrm0'
+    probe_cmd nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
+    probe_cmd sh -c 'ss -ltnp | head -40'
+    probe_cmd sh -c 'command -v uv mvn java gcloud curl git make'
+    probe_cmd cat /etc/os-release
+  } > "$f"
+  note facts_vm "\"records/facts-vm.txt\""
+}
+step_facts_box() {
+  local f="$REC/facts-box.txt" g
+  {
+    probe_cmd ls -la "$BOXROOT" "$BOXROOT/deploy" "$BOXROOT/deploy/site" "$BOXROOT/deploy/secrets" "$BOXROOT/deploy/secrets/services" "$BOXROOT/deploy/models"
+    probe_cmd readlink -f "$BOXROOT/current"
+    probe_cmd sh -c "sed 's/=.*//' '$BOXROOT/deploy/.env' | sort"   # names only
+    probe_cmd sh -c "grep -E '^(TB_ENV|TB_TOPOLOGY|TB_PROFILE|COMPOSE_FILE|COMPOSE_PROFILES|TB_SOURCE_DIR|TB_SOURCE_MOUNT|TB_TZ|TB_JOBS_PER_SENDER_PER_DAY|TB_MAIL_PER_RECIPIENT_PER_DAY|TB_MAIL_AUTHSERV_ID|TB_GATEWAY_PHI_TRIPWIRE|TB_BACKUP_ALERT_ROUTE|JUDGE_MODEL_DIR|VERIFIER_MODEL_DIR|TB_IMAGE|TB_DATA_CLASS)=' '$BOXROOT/deploy/.env'"
+    probe_cmd dc ps --format '{{.Service}} {{.State}} {{.Health}} {{.Image}}'
+    probe_cmd sh -c "ls -la '$BOXROOT/deploy/site/registry.site.yaml' && grep -E 'build|sha256|status|served' '$BOXROOT/deploy/site/registry.site.yaml' | head -40"
+    for g in gateway orchestrator mail-gateway llm-service llm-verifier model-guard embed-service; do
+      probe_cmd docker inspect -f '{{.Name}} {{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}} {{json .Config.Cmd}} {{json .Mounts}}' "$(cid "$g")"
+    done
+    probe_cmd docker network ls
+    probe_cmd sh -c "IMG=\$(sed -n 's/^TB_IMAGE=//p' '$BOXROOT/deploy/.env' | tail -1); docker run --rm --network none \${IMG:-trialbox-py:1.0.0} python -c 'import tools, os; print(os.getcwd()); print(sorted(os.listdir(\"/app\")))'"
+    probe_cmd sh -c "docker run --rm --network trialbox-net \$(sed -n 's/^TB_IMAGE=//p' '$BOXROOT/deploy/.env' | tail -1 | grep . || echo trialbox-py:1.0.0) python -c 'import urllib.request as u; print(u.urlopen(\"http://gateway:8020/healthz\", timeout=10).status)'"
+    probe_cmd sh -c "dc exec -T gateway python -c 'import os; print(sorted(k for k in os.environ if k.startswith((\"TB_EP_\",\"TB_LLM_\",\"TB_GATEWAY_\",\"TB_ENV\",\"TB_TRACESTORE\"))))'"
+    probe_cmd sh -c "dc exec -T orchestrator python -c 'from tb_llm.prompt_registry import default_registry as d; print([(e.id, e.version) for e in d().served_set(\"VALIDATION\")])'"
+    probe_cmd sh -c "tail -n 60 '$TB/install-v.log'"
+  } > "$f"
+  note facts_box "\"records/facts-box.txt\""
+}
 # ------------------------------------------------------------------ the run
+[ -z "$PROBE" ] || run_step 00-facts step_facts
 if has build; then
   run_step b01-source step_b_source
   run_step b02-venv step_b_venv
@@ -1422,6 +1488,10 @@ if has start; then
   run_step 01-bundle step_bundle
   run_step 02-install step_install
   if [ "$MODE" = validation ]; then run_step 03-wizard step_venv_env; else run_step 03-wizard step_wizard; fi
+  if [ -n "$PROBE" ]; then
+    run_step 04p-facts step_facts_box
+    finish "TB-PROBE-DONE: the VM's and the box's facts are in records/facts-*.txt; the run stops here" probe-done 0
+  fi
   run_step 04-pin step_pin
   run_step 05-serving step_serving
   run_step 06-g1 step_g1

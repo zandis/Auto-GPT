@@ -42,3 +42,5 @@ env_extra:
   TB_MAIL_PER_RECIPIENT_PER_DAY: "0"
   # D-775: the daily limit of every heavy job type (FEAS, SCREEN, ...) for each sender; 0 lifts it for this run
   TB_JOBS_PER_SENDER_PER_DAY: "0"
+  # a box with no mail relay: the /admin health tab is the backup alert route (install.sh dies without one, D-735)
+  TB_BACKUP_ALERT_ROUTE: health-page

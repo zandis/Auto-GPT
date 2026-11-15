@@ -73,6 +73,7 @@ while [ $# -gt 0 ]; do
     --qualify-evidence) V[tb-qualify-evidence]="$2"; shift 2 ;;
     --acc-tripwire) V[tb-acc-tripwire-setting]="$2"; shift 2 ;;
     --embed-list) V[tb-embed-list]="$2"; shift 2 ;;
+    --probe) V[tb-probe]=1; shift ;;   # read the VM's (and after the install the box's) facts, then stop
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
