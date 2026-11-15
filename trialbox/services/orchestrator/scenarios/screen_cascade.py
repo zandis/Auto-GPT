@@ -433,6 +433,26 @@ class CascadeScreen:
 # else TB_SCREEN_MAX_PAIRS, else none: the population's own pairs (scoped patients x note criteria), so by default
 # nothing is left unprocessed. The fixed 20,000 is gone. The run says when a budget ran out and which. Calls run
 # TB_SCREEN_LLM_CONCURRENCY at a time (compose sets it to the serving profile's vLLM --max-num-seqs)
+# T-694 part 3 (D-794): the cascade's note stage reads this many patients' notes at a time; the answers are the same for
+# any size, only the memory the notes take changes
+NOTE_BATCH = 1000
+
+
+def note_batch_of(env: Mapping[str, str] | None = None) -> int:
+    """The note stage's batch of patients: TB_SCREEN_NOTE_BATCH, else ``NOTE_BATCH``."""
+    e = os.environ if env is None else env
+    raw = str(e.get("TB_SCREEN_NOTE_BATCH") or "").strip()
+    if not raw:
+        return NOTE_BATCH
+    try:
+        v = int(raw)
+    except ValueError as exc:
+        raise StepFailed("running", "TB_SCREEN_NOTE_BATCH must be a whole number of patients") from exc
+    if v < 1:
+        raise StepFailed("running", "TB_SCREEN_NOTE_BATCH must be at least 1 patient")
+    return v
+
+
 def max_pairs_of(opts: dict[str, Any] | None = None, env: Mapping[str, str] | None = None) -> int | None:
     """The pair budget an operator set (the job's option, else the setting), or None: the population's own pairs."""
     e = os.environ if env is None else env
@@ -500,6 +520,7 @@ def screen_with_cascade(
         absence_semantics=False,
         require_retrieval=True,  # NEW-LLM-2: nothing to retrieve with is said, never the first sentences read
         max_llm_items=max_pairs,
+        note_batch=note_batch_of(),  # T-694 part 3: the notes of a batch of patients at a time, same answers
         llm_concurrency=in_flight,
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
         registry=lambda: dctx.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
@@ -557,6 +578,7 @@ __all__ = [
     "judged",
     "llm_concurrency",
     "max_pairs_of",
+    "note_batch_of",
     "pipeline",
     "s2b_source",
     "screen_with_cascade",

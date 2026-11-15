@@ -914,6 +914,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCREEN_MAX_PAIRS": Declared(
         "int", "", "SCREEN: model call budget per job (unset: the population's own pairs; D-456)"
     ),
+    "TB_SCREEN_NOTE_BATCH": Declared(
+        "int", "1000", "SCREEN: patients whose notes the note stage reads at a time (same answers; T-694, D-794)"
+    ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
     "TB_SECRETS_DIR": Declared("path", "/run/secrets/trialbox", "folder of the services' secrets"),
