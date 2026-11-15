@@ -196,6 +196,27 @@ def resolve(dc: DataCore, cid: int, keep: str, by: str, at: str) -> dict[str, An
     return {**c, "resolved": keep, "resolved_by": by, "resolved_at": at}
 
 
+def consent_after_today(name: str, value: str, at: str) -> dict[str, str] | None:
+    """NEW-JRN-7 (D-770, JRN-007): a consent date (the built-in consent form's ``ic_date``, ``ic_reconsent_date``)
+    later than the site's day of ``at`` (the service's clock, a pinned test day included) is refused with the
+    ``max`` reason naming that day. By the field's name, so a study that added the built-in forms before this rule
+    is held by it too; only for a value a person enters or changes, never for one already stored."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from tb_common.config import site_tz
+
+    from datacore.lifecycle import CONSENT_DATES
+
+    if name not in CONSENT_DATES or len(value) < 10:
+        return None
+    try:
+        day = datetime.fromisoformat(at).astimezone(ZoneInfo(site_tz())).date().isoformat()
+    except ValueError:
+        return None
+    return {"field": name, "code": "max", "max": day} if value[:10] > day else None
+
+
 def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, str], by: str, at: str) -> int:
     """A person enters values in TrialBox. A field owned by a source is changed in that source, never here."""
     from datacore.forms import check_value
@@ -210,6 +231,8 @@ def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, s
             problems.append(f"{f}: owned by {owners[f]}")
         elif (why := check_value(fields[f], v)) is not None:
             problems.append(why)
+        elif (late := consent_after_today(f, str(v), at)) is not None:  # D-770
+            problems.append(f"{f}: a consent date after the site's day ({late['max']})")
     if problems:
         code = "DATA-OWNED" if any("owned by" in p for p in problems) else "DATA-VALUE"
         raise DataError(code, "; ".join(problems))
@@ -270,6 +293,8 @@ def save_form(dc: DataCore, study: str, record: str, event: str, form: str, valu
             problems.append({"field": f.name, "code": "required"})
             continue
         p = problem(f, v)
+        if p is None and sent and v != current.get(f.name, ""):
+            p = consent_after_today(f.name, v, at)  # D-770: a consent date after the site's day, when entered
         if p is not None:
             problems.append(p)
         elif sent and v != current.get(f.name, ""):
