@@ -659,6 +659,11 @@ DECLARED: dict[str, Declared] = {
     "TB_LAKE_MAX_TEMP": Declared("str", "", "lake: temporary space cap"),
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": Declared("int", "0", "oldest lake snapshot a job accepts, days (0: off; D-383)"),
     "TB_LAKE_MEMORY_LIMIT": Declared("str", "", "lake: memory cap"),
+    # D-746: FEAS and COHORT are one query over the whole lake; 300 s is crossed at about 140,000 patients (F-29,
+    # measured) and the time grows with the rows, so 500,000 needs about 1,070 s: 1,800 s leaves 1.7 times that
+    "TB_LAKE_QUERY_LIMITS": Declared(
+        "str", "FEAS=1800,COHORT=1800", "lake: one query's time limit per job type, TYPE=seconds (others 300 s)"
+    ),
     "TB_LAKE_SOURCE": Declared("str", "legacy", "lake source (legacy or omop)"),
     "TB_LAKE_TEMP_DIR": Declared("path", "", "lake: temporary folder"),
     "TB_LINK_ADDR": Declared("str", "", "two-device link: this device's address on the hospital network"),

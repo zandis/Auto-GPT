@@ -796,6 +796,10 @@ def _title(job: Job) -> str:
     return f"{job.type} {target}".strip()
 
 
+#: D-746: the lake's own words for a query it stopped at its limit, passed on whole in a job's failure
+_LAKE_LIMITS = ("LakeTimeLimitError: LAKE-TIME:", "LakeLimitError: LAKE-LIMIT:")
+
+
 def _error(exc: Exception, state: str) -> JobError:
     if isinstance(exc, StepFailed):
         return JobError(step=exc.step, message=exc.message, detail=exc.detail or None)
@@ -804,7 +808,11 @@ def _error(exc: Exception, state: str) -> JobError:
     if isinstance(exc, RoutingViolation):
         return JobError(step="routing", message=f"Output routing refused: {exc}.")
     if isinstance(exc, ServiceError):
-        return JobError(step=state, message=f"The {exc.service} service failed.", detail=f"HTTP {exc.status}")
+        detail = f"HTTP {exc.status}"
+        # D-746: the lake's own sentence for its time or memory limit (written there, no value of a row) is said
+        if exc.service == "lake" and str(exc.detail).startswith(_LAKE_LIMITS):
+            detail = f"{detail}: {str(exc.detail)[:300]}"
+        return JobError(step=state, message=f"The {exc.service} service failed.", detail=detail)
     # D-557: the record keeps the error's type; its own text (a database error quotes its values, a validation
     # error prints its input) is in the log line of the failure, where the log's rules apply, not on the job page
     return JobError(step=state, message="Internal error while processing the job.", detail=type(exc).__name__)
