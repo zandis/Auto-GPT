@@ -720,7 +720,23 @@ d_build_prereq() {
   DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
     "openjdk-$jv-jdk-headless" maven
 }
+# The classic image store for the build: with Docker's containerd image store a pulled image's local Id is its index
+# digest, while the release gates record a registry image by its config digest, and the bundle check matches by the
+# local Id alone (tools/supply_chain/__main__.py:113): every third-party image is then "not a passing image". CI's
+# runners use the classic store. Set once, before any image is built or pulled (b02), never on the box.
+d_docker_classic() {
+  docker info -f '{{json .DriverStatus}}' 2>/dev/null | grep -q 'containerd.snapshotter' || return 0
+  "$PY" - <<'PYC' || return 1
+import json, os
+p = "/etc/docker/daemon.json"
+d = json.load(open(p)) if os.path.exists(p) else {}
+d.setdefault("features", {})["containerd-snapshotter"] = False
+json.dump(d, open(p, "w"), indent=1)
+PYC
+  systemctl restart docker && sleep 5 && ! docker info -f '{{json .DriverStatus}}' | grep -q 'containerd.snapshotter'
+}
 b_prereq() {  # before b02 and b03 (a boot that kept b02 still needs them for the images)
+  need "the classic image store for the build (the gates and the bundle check name an image alike)" d_docker_classic || return 1
   if ! command -v mvn >/dev/null || ! command -v java >/dev/null; then
     need "installing the build's host tools (Maven, the JDK of .java-version)" d_build_prereq || return 1
   fi
