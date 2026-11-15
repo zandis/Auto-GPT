@@ -25,6 +25,11 @@
    secrets volume at /run/secrets/trialbox and each such file, read-only); a rehearsal box cannot load the egress
    table without NET_ADMIN (WARN there only); and the runner's swap and UTC zone, which a site's host has not (the
    workflow turns swap off, the rehearsal host takes the site's zone).
+6. Its third run reached the second install of a sealed box and found that the seal left kek.json, the wrapped keys
+   and the runtime KEK (and its folder) root's: the services run as uid 10001 and could open none of them, so keys-init
+   failed on the re-run and every service reading a key would fail on a sealed box. seal_keys.sh and the boot unseal
+   unit now hand them to the secrets folder's owner; modes stay 0600 (the folder 0700). The host check gives the
+   doctor a missing secrets folder when it cannot see the volume (WARN, not a false FAIL).
 
 ## Test
 

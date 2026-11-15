@@ -219,13 +219,11 @@ host_up() {
   docker rm -f "$HOST_CT" >/dev/null 2>&1
   # --network host: the console's published 127.0.0.1 port is the host's; no NET_ADMIN, so the installer's nftables
   # step (deploy/network.sh apply) cannot touch the Docker host's firewall and reports that it was not applied
-  local site=()
-  if [ "$VARIANT" = validation ]; then
-    # D-887: the seal step reads the secrets volume and writes the KEK where the services mount it, by host path,
-    # as on a site's host: Docker's volumes folder and /run/trialbox are the Docker host's own
-    local droot; droot="$(docker info --format '{{.DockerRootDir}}')" || return 1
-    site=(-v "/run/trialbox:/run/trialbox" -v "$droot/volumes:$droot/volumes")
-  fi
+  # D-887: the box host sees the secrets volume by its host path, as a site's host does (the host check hands it to the
+  # doctor); the validation variant's seal also writes the KEK where the services mount it, /run/trialbox
+  local droot; droot="$(docker info --format '{{.DockerRootDir}}')" || return 1
+  local site=(-v "$droot/volumes:$droot/volumes")
+  [ "$VARIANT" = validation ] && site+=(-v "/run/trialbox:/run/trialbox")
   docker run -d --name "$HOST_CT" --hostname trialbox-rehearsal --network host --restart no \
     -v "$SOCK:/var/run/docker.sock" -v "$W:$W" ${site[@]+"${site[@]}"} "$HOST_IMG" sleep infinity || return 1
   docker exec "$HOST_CT" sh -c '. /etc/os-release; echo "ok: box host $PRETTY_NAME, $(docker compose version)"'

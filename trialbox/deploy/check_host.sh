@@ -310,7 +310,8 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)"
   [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="-v $SEC_HOST:$SEC_HOST:ro -e TB_SECRETS_HOST_DIR=$SEC_HOST"
   # D-887 (found by the box rehearsal in CI): doctor's site_key check reads the site key where the services do
-  [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $SEC_HOST:/run/secrets/trialbox:ro"
+  if [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ]; then AUDIT_MOUNTS="$AUDIT_MOUNTS -v $SEC_HOST:/run/secrets/trialbox:ro"
+  else AUDIT_MOUNTS="$AUDIT_MOUNTS -e TB_SECRETS_DIR=/nonexistent/secrets-volume-not-seen"; fi  # a WARN, not a FAIL
   # ...and every compose file of COMPOSE_FILE outside deploy/ (an override such as the rehearsal's stand-ins) where it is
   OLD_IFS="$IFS"; IFS=:
   for cf in $(sed -n 's/^COMPOSE_FILE=//p' "$ENV_FILE" | tail -1); do

@@ -123,3 +123,10 @@ case "$KEK_BACKEND" in
 esac
 keys check --secrets "$SECRETS"
 audit_key
+# D-887 (found by the box rehearsal): the keys commands run as root and leave kek.json, the wrapped keys and the
+# runtime KEK root's; the services (the secrets folder's owner, uid 10001) must open them. Owner only: modes stay 0600
+OWNER="$(stat -c %u:%g "$SECRETS")"
+if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
+  find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
+  [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
+fi
