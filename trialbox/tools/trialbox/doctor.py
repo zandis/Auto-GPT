@@ -326,6 +326,28 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
     return Check("channel_engine", "PASS", f"engine {cfg.engine}")
 
 
+def check_sae_mailbox(inp: DoctorInputs) -> Check:
+    """D-736 (LIFE-007): on a PRODUCTION box the trial office is mailed at once when a serious adverse event is
+    entered (``TB_SAE_OFFICE_MAILBOX``, one mail address); without it nobody is told until the next working day. A box
+    installed by ``box-install.sh`` starts without it, so this is a WARN, never a FAIL."""
+    import re
+
+    from tools.settings_wizard import MAILBOX_RE
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    to = (inp.env.get("TB_SAE_OFFICE_MAILBOX") or "").strip()
+    if to and re.fullmatch(MAILBOX_RE, to):
+        return Check(
+            "sae_mailbox", "PASS", f"the trial office is mailed at {to} when a serious adverse event is entered"
+        )
+    if env != "PRODUCTION":
+        return Check("sae_mailbox", "PASS", f"{env}: no SAE office mailbox needed")
+    why = (f"TB_SAE_OFFICE_MAILBOX {to!r} is not one mail address" if to else "no TB_SAE_OFFICE_MAILBOX") + (
+        ": nobody is mailed when a serious adverse event is entered; set it in deploy/.env (D-736, RUNBOOK §1)"
+    )
+    return Check("sae_mailbox", "WARN", why)
+
+
 def check_secure_cookie(inp: DoctorInputs) -> Check:
     """The console's own rule (``console.identity.secure_cookie_default``, D-192): an explicit value wins; unset or
     empty means Secure in PRODUCTION (the base compose file passes it empty) and off elsewhere."""
@@ -1820,6 +1842,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_sae_mailbox,
     check_console_mfa,
     check_ldap_ca,
     check_publish_gate,
