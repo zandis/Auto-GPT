@@ -125,21 +125,17 @@ def reader_for(ctx: Any) -> Any:
     return made
 
 
-def opted_out(url: str | None) -> frozenset[str]:
-    """D-798 (T-206b): who the opt-out worker keeps out now (merged charts too), which the batch does not recompute,
-    so the worker's clear of their derived rows holds. A register that cannot be read skips none: the batch goes on
-    and the next tick clears."""
-    from tb_common.optout import OptOutRegister
+def kept_out_now() -> frozenset[str]:
+    """D-798 (T-206b): who the opt-out worker keeps out now (merged charts too), read through the decision context
+    (the batch runs outside a job), which the batch does not recompute, so the worker's clear of their derived rows
+    holds. A register that does not answer skips none: the batch goes on and the next tick clears."""
+    from orchestrator.decision_context import register_now
 
     try:
-        reg = OptOutRegister(url)
+        return register_now()
     except Exception as exc:
         log.warning("derive: the opt-out register could not be read (%s); no patient skipped", type(exc).__name__)
         return frozenset()
-    try:
-        return frozenset(reg.effective())
-    finally:
-        reg.close()
 
 
 def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
@@ -165,7 +161,7 @@ def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
                 lake,
                 mapping_version=mapping_version_of(lake, snapshot),
                 snapshot=snapshot,
-                skip=opted_out(url_of(orch)),
+                skip=kept_out_now(),
             ),
             url_of(orch),
             # what this build made: its batch's run id (builds of "derived" are serial, so the newest finished
