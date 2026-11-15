@@ -160,7 +160,7 @@ def read_lake(lake: LakeReader, pids: Sequence[str], snapshot: str) -> dict[str,
     for table, (idc, cols) in tables.items():
         quoted = ", ".join(f'"{c}"' for c in (idc, *cols) if c != "pid")
         sql = (f'SELECT pid, {quoted}, {pcols} FROM "{table}" '  # constants only, never user input
-               "WHERE list_contains($1::VARCHAR[], pid)")  # fmt: skip
+               "WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))")  # fmt: skip
         for r in lake.query(sql, plist, snapshot).to_pylist():
             if r["pid"] in out:
                 out[r["pid"]].setdefault(table, []).append(r)
