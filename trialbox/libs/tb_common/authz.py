@@ -266,18 +266,25 @@ HEAVY_JOBS: tuple[str, ...] = ("FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", 
 
 
 def daily_limit(settings: Settings, command: str, env: Mapping[str, str] | None = None) -> int | None:
-    """Jobs of type ``command`` one sender may start in 24 hours: for a heavy job type, ``TB_JOBS_PER_SENDER_PER_DAY``
-    when set, else ``rate_limits_per_day[command]``, else ``rate_limit_per_sender_per_day``; None (no limit) for the
-    other types and for a limit of 0. D-507: a VALIDATION, TEST or DEV box may lift it; PRODUCTION (``TB_ENV`` unset
-    too) may only lower it (``tb_common.daily_limits``). ``env`` is the process environment when not given."""
+    """Jobs of type ``command`` one sender may start in 24 hours: for a heavy job type ``TB_JOBS_PER_SENDER_PER_DAY``
+    when set (D-775), else ``rate_limits_per_day[command]`` when set, else ``rate_limit_per_sender_per_day`` for a
+    heavy job type; None (no limit) for the others and for a limit of 0. ``env`` is the process environment when not
+    given."""
     import os
 
-    from tb_common import daily_limits
+    from tb_common.daily_limits import jobs_override
 
     cmd = command.upper()
-    if cmd not in HEAVY_JOBS and cmd not in dict(settings.rate_limits_per_day or {}):
+    per_type = dict(settings.rate_limits_per_day or {})
+    override = jobs_override(os.environ if env is None else env) if cmd in HEAVY_JOBS else None
+    if override is not None:
+        n = override
+    elif cmd in per_type:
+        n = int(per_type[cmd])
+    elif cmd in HEAVY_JOBS:
+        n = int(settings.rate_limit_per_sender_per_day or 20)
+    else:
         return None
-    n = daily_limits.jobs_per_sender(settings, os.environ if env is None else env, cmd)
     return n if n > 0 else None
 
 

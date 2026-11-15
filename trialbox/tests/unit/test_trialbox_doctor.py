@@ -57,7 +57,6 @@ def test_default_install_passes() -> None:
         "restore_hold",
         "site_key",
         "chartno_rule",  # D-621
-        "daily_limits",  # D-507
         "key_custody",
         "db_passwords",
         "clock",

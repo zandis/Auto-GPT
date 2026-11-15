@@ -686,7 +686,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
     "TB_JOBS_PER_SENDER_PER_DAY": Declared(
-        "int", "", "heavy jobs a sender may start a day; empty: settings.yaml; 0: none; PRODUCTION only lowers (D-507)"
+        "int", "", "heavy jobs a sender may start a day, overriding settings.yaml; 0: no limit (D-146, D-775)"
     ),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
@@ -694,7 +694,7 @@ DECLARED: dict[str, Declared] = {
     "TB_MAIL_AUTHSERV_ID": Declared("str", "", "authserv-id trusted in mail auth results (unset: none, D-369)"),
     "TB_MAIL_DIR": Declared("path", "", "testbench: mail folder"),
     "TB_MAIL_PER_RECIPIENT_PER_DAY": Declared(
-        "int", "", "mail gateway: sends per recipient a day; empty: 200; 0: none; PRODUCTION only lowers (D-507)"
+        "int", "", "mail gateway: sends per recipient per day; empty = the built-in limit (T-108c)"
     ),
     "TB_MAIL_POLL_SECONDS": Declared("float", "60", "mail gateway poll interval"),
     "TB_MAPPING_DIR": Declared("str", "", "adapter: site mapping folders, colon-separated (T-632)"),

@@ -23,8 +23,7 @@ permissions:
 reviewers: ["crc1@hospa.test", "pi@hospa.test"]
 require_spf_dkim: true
 rate_limit_per_sender_per_day: 20   # per heavy job type (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION), D-146
-# rate_limits_per_day: {SCREEN: 10, FEAS: 5}   # per type override. CASE, CONSENT, STATUS: never counted. D-507: PRODUCTION
-#   may only lower a limit (0 = no limit, or above 20, is not applied there); TB_JOBS_PER_SENDER_PER_DAY overrides these
+# rate_limits_per_day: {SCREEN: 40, FEAS: 10}   # per type override; 0 = no limit. CASE, CONSENT, STATUS: never counted
 data_source: {type: csv, path: /data/source/site-a, mapping: mapping/tw_core/demo_his.yaml, nightly_at: "02:00"}
 mrn_regex: "^\\d{8}$"
 profiles: {tw_core: "1.0.0", twpas_version: "1.2.5"}  # TWPAS IG version; the cache holds this one (D-372)

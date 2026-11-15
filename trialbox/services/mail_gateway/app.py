@@ -13,14 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
-from tb_common import daily_limits
 from tb_common.audit_writer import open_audit
 from tb_common.config import environment_name, get_config
 from tb_common.http import make_app
 from tb_common.objstore import from_config
 from tb_contracts import SendRequest, SendResult
 
-from mail_gateway.gateway import Gateway, http_job_sink, log
+from mail_gateway.gateway import PER_RECIPIENT_PER_DAY, Gateway, http_job_sink, log
 from mail_gateway.outbound import EncryptionError, RoutingRefused, smtp_transport
 from mail_gateway.store import MailDB, SendUncertain
 
@@ -49,10 +48,8 @@ def gateway() -> Gateway:
             authserv_id=authserv,
             # D-369 (OD-1): a password zip for patient files only on a synthetic box
             allow_phi_zip=environment_name(os.environ) in ("DEV", "TEST"),
-            per_recipient_per_day=daily_limits.mail_per_recipient(os.environ),  # D-507: PRODUCTION may only lower it
+            per_recipient_per_day=int(os.environ.get("TB_MAIL_PER_RECIPIENT_PER_DAY", "") or PER_RECIPIENT_PER_DAY),
         )
-        for line in daily_limits.refused_lifts(os.environ, {}):  # D-507: said once, at start (the mail half)
-            log.warning("daily limit not lifted on this box: %s", line)
     return _gw
 
 
