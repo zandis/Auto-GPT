@@ -374,6 +374,12 @@ def status(updates: Path) -> dict[str, Any]:
 def _print_status(s: Mapping[str, Any]) -> None:
     inst = s["installed"]
     print(f"installed: release_seq {inst.get('release_seq')}, bundle {inst.get('bundle_id') or '(none recorded)'}")
+    if inst.get("vuln_mode"):  # D-884
+        mode = inst["vuln_mode"]
+        print(
+            f"release gates: {mode}"
+            + ("" if mode == "block" else " (findings shown, not blocking: not a green release)")
+        )
     if s["in_progress"]:
         u = s["update"]
         print(f"UPDATE IN PROGRESS ({u['state']}): bundle {u['bundle_id']}, release_seq {u['release_seq']}, "

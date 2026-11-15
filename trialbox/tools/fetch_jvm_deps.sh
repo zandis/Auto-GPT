@@ -61,6 +61,11 @@ fi
 check_sha256 "$OUT/validator_cli.jar" "$VALIDATOR_SHA256" || exit 1
 sha256sum "$OUT/validator_cli.jar" > "$OUT/validator_cli.jar.sha256"
 if [ -z "$(ls -A "$OUT/cql-translator/lib")" ]; then
+  # D-885: the build host's needs, said before Maven is called (lane G's VM had neither)
+  JDK_MAJOR="$(cat "$ROOT/.java-version" 2>/dev/null || echo 21)"
+  NEEDS="install Maven and a JDK $JDK_MAJOR (Ubuntu: apt-get install -y maven openjdk-$JDK_MAJOR-jdk-headless), or let deploy/poc.sh fetch in its builder container"
+  command -v mvn >/dev/null 2>&1 || { echo "fetch_jvm_deps: no Maven (mvn) on PATH to fetch the CQL translator jars: $NEEDS" >&2; exit 1; }
+  mvn -v >/dev/null 2>&1 || { echo "fetch_jvm_deps: mvn -v failed (no JDK, or JAVA_HOME wrong): $NEEDS" >&2; exit 1; }
   mvn -q -B -C -f "$ROOT/services/criteria_compiler/compile_cql/translator/pom.xml" \
     dependency:copy-dependencies -DoutputDirectory="$OUT/cql-translator/lib"
   if [ "${UPDATE_LIB_SUMS:-0}" = 1 ]; then
