@@ -116,7 +116,8 @@ def test_the_conformance_project_is_the_kit_plus_the_repeating_set_and_the_three
     assert {f["field_name"] for f in k.CRF} <= set(by_name)
     assert by_name["joints"]["field_type"] == "checkbox"
     assert by_name["visit_dmy"]["text_validation_type_or_show_slider_number"] == "date_dmy"
-    assert by_name["temp"]["text_validation_type_or_show_slider_number"] == "number_1dp"
+    assert by_name["temp"]["text_validation_type_or_show_slider_number"] == "number"  # D-840: no number_1dp there
+    assert by_name["temp"]["field_annotation"] == "@TB-DECIMALS=1"
     assert by_name["bmi"]["field_type"] == "calc" and by_name["ae_sae_reason"]["branching_logic"]
     assert {e["arm_num"] for e in k.CONF_EVENTS} == {1, 2} and len(k.CONF_EVENTS) == 4
     assert {r["form_name"] for r in k.CONF_REPEATING} == {"ae"}
@@ -155,8 +156,9 @@ def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_tha
     lax = [f for (f, _v), c in r1.items() if c["redcap_must_refuse"] and not c["redcap_refused"]]
     assert lax == ["sex", "mh_gout", "weight", "brthdat", "visit_dmy"]  # the simulator took what REDCap refuses
     assert all(r1[k2]["trialbox_refused"] for k2 in r1 if k2[0] in ("sex", "mh_gout", "weight", "brthdat"))
-    t37 = r1[("temp", "37")]  # number_1dp: refused as 37, and TrialBox sends 37.0 for it (STD-061)
-    assert t37["redcap_refused"] and not t37["trialbox_refused"] and t37["trialbox_sends"] == "37.0"
+    t37 = r1[("temp", "37")]  # D-840: REDCap's number takes 37; TrialBox sends 37.0 for it (one place, its own)
+    assert not t37["redcap_refused"] and not t37["trialbox_refused"] and t37["trialbox_sends"] == "37.0"
+    assert r1[("temp", "37.55")]["trialbox_refused"] and r1[("temp", "37.55")]["trialbox_code"] == "decimals"
     assert not r1[("temp", "37.0")]["redcap_refused"] and not r1[("visit_dmy", "2026-11-05")]["redcap_refused"]
     assert rec["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is True  # the lax batch
     assert rec["results"]["R2 checkbox"]["bare_column"]["status"] == 200
