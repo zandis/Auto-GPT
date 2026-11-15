@@ -291,8 +291,14 @@ Egress, the one secret version and the image's storage are cents. **The hard sto
 max-run-duration to `TB_DEMO_VM_HOURS` (12) with the action STOP, and the boot script arms `shutdown -P` for the same
 time at every boot, before anything else. A forgotten demo stops after 12 hours; only its disk costs after that.
 
-**Who can reach it.** The VM sits on its own network (`tb-demo-vm-net`; the project's `default` network has rules
-that open SSH to the world, so it is not used) with one ingress rule on tcp:443. **For the demo of 2026-11-17 it is
+**Who can reach it.** By default (`TB_DEMO_VM_NETWORK=default`) the VM sits on the project's `default` network, so
+`up` needs only what the deployer already has (`roles/compute.instanceAdmin.v1` and `roles/compute.securityAdmin`
+from `deploy/gcp/setup-gcp.sh`), not `roles/compute.networkAdmin`. That network's own rules (`default-allow-ssh`,
+`-rdp`, `-icmp`, `-internal`, priority 65534) apply to every instance, so `up` gives the VM two rules on its tag:
+allow tcp:443 (priority 500) and deny everything (priority 510, which wins over them), and refuses when any other
+allow rule could reach the VM before the deny. The VM also stops and disables sshd at boot, and the metadata
+`block-project-ssh-keys=TRUE` keeps the project's SSH keys off it. `TB_DEMO_VM_NETWORK=own` instead makes a network
+of its own (`tb-demo-vm-net`, needs networkAdmin) with the one tcp:443 rule and no other. **For the demo of 2026-11-17 it is
 open to any address** (`TB_DEMO_ALLOW=any`): the owner's ruling of 2026-11-15, because the demo is a PoC with
 synthetic data only; the sign-in password and TLS are its only protection, and `up`, `--dry-run` and `status` say
 "open to any address; the sign-in password is the only gate". Only the word `any` alone does that: an empty or
@@ -325,8 +331,9 @@ protocol paste (`POST /pilot/protocol`, 403), so the container never became read
 2026-11-14). The demo container does not restart by itself, since every start reseeds with demo mode off; if it
 stops, Caddy answers 502 and `gcloud compute instances reset tb-demo-vm --zone asia-east1-a` reruns the boot script.
 
-**Once before the first `up`.** The deployer service account needs `roles/compute.networkAdmin` (the network and the
-subnet; `deploy/gcp/setup-gcp.sh` grants instance and firewall rights only) and, for the pre-flight's version check,
+**Once before the first `up`.** With `TB_DEMO_VM_NETWORK=own` only, the deployer service account needs
+`roles/compute.networkAdmin` (the network and the subnet; `deploy/gcp/setup-gcp.sh` grants instance and firewall
+rights only). It needs, for the pre-flight's version check,
 `roles/secretmanager.viewer` on `tb-demo-password` (without it the check is skipped with a warning). The VM's service
 account (the Compute Engine default one, scope cloud-platform) must read `tb-demo-password` (setup-gcp.sh grants it)
 and the image. The image: either an image by digest that already exists (`deploy/gcp/poc-host.sh image --yes` pushes
@@ -344,9 +351,10 @@ key file's path only; the project is the gcloud config's):
     deploy/gcp/demo-vm.sh up --yes            # network, subnet, the tcp:443 rule, the VM (or starts the stopped VM)
     deploy/gcp/demo-vm.sh status              # RUNNING, the address, the rule's ranges, the hard stop, DEMO-VM-READY
 
-`up` creates, in order: the network `tb-demo-vm-net` (custom subnets, no rules), the subnet `tb-demo-vm-subnet`
-(10.42.0.0/24 in the zone's region), the rule `tb-demo-vm-https` (INGRESS, tcp:443, `TB_DEMO_ALLOW`, tag
-`tb-demo-vm`), and the VM `tb-demo-vm` (e2-standard-4, asia-east1-a, Debian 12, 30 GB pd-balanced, Shielded VM,
+`up` creates, in order: on the `default` network the rule `tb-demo-vm-deny` (INGRESS, all, deny, priority 510, tag
+`tb-demo-vm`); with `own` instead the network `tb-demo-vm-net` (custom subnets, no rules) and the subnet
+`tb-demo-vm-subnet` (10.42.0.0/24 in the zone's region); then the rule `tb-demo-vm-https` (INGRESS, tcp:443,
+`TB_DEMO_ALLOW`, priority 500, tag `tb-demo-vm`), and the VM `tb-demo-vm` (e2-standard-4, asia-east1-a, Debian 12, 30 GB pd-balanced, Shielded VM,
 standard provisioning, max-run-duration 12 h with STOP, an ephemeral external IPv4 address, the boot script and the
 non-secret metadata: the image, the hours, the secret's name, the language). On a stopped VM it updates the metadata
 and the hard stop and starts it. The first answer comes 5 to 10 minutes after the start (Docker, the image, the
@@ -360,5 +368,5 @@ home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). Wi
 
 **Stop it.** `deploy/gcp/demo-vm.sh down` stops the VM and waits until it shows `TERMINATED` (at most
 `TB_DEMO_VM_STOP_WAIT_S`, 300 s; else it fails and says to stop it in the console). The disk stays (about US$0.11 a
-day). `deploy/gcp/demo-vm.sh delete --yes` deletes the VM and its disk, the rule, the subnet and the network (the
-secret stays). Check afterwards: `gcloud compute instances list` shows no `tb-demo-vm`, or shows it `TERMINATED`.
+day). `deploy/gcp/demo-vm.sh delete --yes` deletes the VM and its disk and its rules (with `own`, the subnet and the
+network too; the project's `default` network stays). Check afterwards: `gcloud compute instances list` shows no `tb-demo-vm`, or shows it `TERMINATED`.

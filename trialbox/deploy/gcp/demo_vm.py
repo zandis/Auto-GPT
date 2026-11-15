@@ -6,6 +6,9 @@ Standard library only: the operator's host runs it with any Python 3.10+, before
     python3 deploy/gcp/demo_vm.py shell up|status|down|delete|dry
                                                     the checked settings as shell assignments (shlex-quoted) for
                                                     demo-vm.sh; a refused setting exits 2 with the reason
+    python3 deploy/gcp/demo_vm.py rules-check NETWORK MODE RULE DENY TAG < rules.json
+                                                    the firewall rules (gcloud ... list --format=json) that could
+                                                    reach the VM besides its own two; exit 3 and their names if any
 
 Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.DECLARED has the rows):
 
@@ -26,6 +29,16 @@ Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.
                                           2026-11-17 is a PoC with synthetic data only, reachable from anywhere, kept
                                           by the password and TLS alone. Only the explicit word opens it: an empty or
                                           missing value, 0.0.0.0/0 written out, or `any` mixed with ranges is refused
+    TB_DEMO_VM_NETWORK    default         `default`: the project's existing `default` network, so `up` needs only
+                                          what the deployer already has (compute.instanceAdmin.v1 and
+                                          compute.securityAdmin, deploy/gcp/setup-gcp.sh), not networkAdmin. Its own
+                                          rules (default-allow-ssh, -rdp, -icmp, -internal) target every instance, so
+                                          the VM gets two rules of its own on its tag: allow tcp:443 (priority 500)
+                                          and deny everything else (priority 510), which beats every rule of lower
+                                          precedence (a larger number; the default rules are 65534); `up` refuses
+                                          when another allow rule could reach the VM before the deny. The VM also
+                                          stops sshd at boot. `own`: a network of the VM's own (needs
+                                          roles/compute.networkAdmin), with the one tcp:443 rule and no other
     TB_DEMO_VM_IMAGE      (up)            REGISTRY/PATH@sha256:<64 hex>, or gs://BUCKET/trialbox-demo.tar.gz
                                           (`make demo-bundle`) with TB_DEMO_VM_IMAGE_SHA256, checked on the VM
     TB_DEMO_VM_SM_NAME    tb-demo-password  the Secret Manager secret that holds the demo password (setup-gcp.sh)
@@ -70,6 +83,11 @@ MIN_DISK_GB = 10  # the Debian 12 image's own disk size: Compute Engine refuses 
 OPEN_WORD = "any"  # TB_DEMO_ALLOW=any: the owner's ruling of 2026-11-15 (PoC, synthetic data only)
 WORLD = "0.0.0.0/0"
 OPEN_TEXT = "open to any address; the sign-in password is the only gate"
+NETWORKS = ("default", "own")
+# firewall priorities on the `default` network (a smaller number wins; at equal priority a deny wins): the VM's
+# allow first, its deny-all next; any other allow rule that reaches the VM must come after the deny
+ALLOW_PRIORITY = 500
+DENY_PRIORITY = 510
 
 
 class Refused(Exception):
@@ -79,6 +97,7 @@ class Refused(Exception):
 @dataclass(frozen=True)
 class Settings:
     name: str
+    network: str
     zone: str
     region: str
     machine: str
@@ -178,6 +197,9 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
     name = (env.get("TB_DEMO_VM_NAME") or "tb-demo-vm").strip()
     if not NAME_RE.fullmatch(name):
         raise Refused(f"TB_DEMO_VM_NAME must be a short lower-case name (got '{name}')")
+    network = (env.get("TB_DEMO_VM_NETWORK") or "default").strip()
+    if network not in NETWORKS:
+        raise Refused("TB_DEMO_VM_NETWORK must be default (the project's network) or own (needs networkAdmin)")
     zone = (env.get("TB_DEMO_VM_ZONE") or "asia-east1-a").strip()
     if not ZONE_RE.fullmatch(zone):
         raise Refused(f"TB_DEMO_VM_ZONE is not a zone name (got '{zone}')")
@@ -221,6 +243,7 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
         raise Refused("TB_DEMO_SITE_LANG must be ja or zh-TW (or unset: both campuses)")
     return Settings(
         name=name,
+        network=network,
         zone=zone,
         region=zone.rsplit("-", 1)[0],
         machine=machine,
@@ -299,6 +322,9 @@ def shell_lines(s: Settings) -> str:
     """The checked settings as shell assignments (every value shlex-quoted) for demo-vm.sh."""
     pairs = {
         "N": s.name,
+        "NETWORK": s.network,
+        "ALLOW_PRIORITY": str(ALLOW_PRIORITY),
+        "DENY_PRIORITY": str(DENY_PRIORITY),
         "ZONE": s.zone,
         "REGION": s.region,
         "MACHINE": s.machine,
@@ -317,7 +343,42 @@ def shell_lines(s: Settings) -> str:
     return "\n".join(f"{k}={shlex.quote(v)}" for k, v in pairs.items())
 
 
+def reaching_rules(
+    rules: list[dict[str, object]], network: str, mode: str, ours: tuple[str, ...], tag: str
+) -> list[str]:
+    """The names of the ingress rules on ``network`` that could let traffic reach the VM besides ``ours``. On its own
+    network (``own``) that is every other rule. On ``default`` an enabled allow rule that applies to the VM (no target,
+    the VM's tag, or a service account target, which may be the VM's) and is not beaten by the VM's deny (priority below
+    DENY_PRIORITY; at equal priority the deny wins)."""
+    out: list[str] = []
+    for r in rules:
+        name = str(r.get("name") or "")
+        if name in ours or not str(r.get("network") or "").rstrip("/").endswith(f"/{network}"):
+            continue
+        if str(r.get("direction") or "INGRESS") != "INGRESS" or r.get("disabled") is True:
+            continue
+        if mode == "own":
+            out.append(name)
+            continue
+        tags = r.get("targetTags") or []
+        accounts = r.get("targetServiceAccounts") or []
+        applies = (not tags and not accounts) or (isinstance(tags, list) and tag in tags) or bool(accounts)
+        priority = r.get("priority", 1000)
+        if r.get("allowed") and applies and isinstance(priority, int | str) and int(priority) < DENY_PRIORITY:
+            out.append(name)
+    return out
+
+
 def main(argv: list[str], env: Mapping[str, str]) -> int:
+    if argv and argv[0] == "rules-check" and len(argv) == 6:
+        import json
+
+        _, network, mode, rule, deny, tag = argv
+        bad = reaching_rules(json.load(sys.stdin) or [], network, mode, (rule, deny), tag)
+        if bad:
+            print(" ".join(bad))
+            return 3
+        return 0
     if not argv or argv[0] not in ("estimate", "shell"):
         print(__doc__, file=sys.stderr)
         return 2

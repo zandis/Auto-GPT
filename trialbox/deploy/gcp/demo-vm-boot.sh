@@ -21,6 +21,9 @@
 #   TLS         Caddy (pinned by digest, as deploy/gcp/hosted-demo-startup.sh) with `tls internal` for the VM's own
 #               external address: the browser warns once. Only :443 is bound (no :80 listener, no redirect). The
 #               firewall (demo-vm.sh) lets tcp:443 in from the allowed ranges only, and nothing else.
+#   no SSH      sshd is stopped and disabled at every boot (the project's `default` network has a rule that opens
+#               tcp:22 to the world; demo-vm.sh puts a deny-all on the VM's tag before it, and this is the second
+#               lock). The metadata block-project-ssh-keys=TRUE keeps the project's SSH keys off the VM.
 #   hard stop   metadata tb-demo-hours (whole hours): `shutdown -P` is armed at every boot, so the VM powers itself
 #               off that long after it started (Compute Engine's max-run-duration stops it at the same time).
 #
@@ -37,7 +40,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --print-caddyfile) PRINT_CADDY=1; DRY=1 ;;
     --print-demo-switch) PRINT_SWITCH=1; DRY=1 ;;
-    -h | --help) sed -n 2,31p "$0"; exit 0 ;;
+    -h | --help) sed -n 2,34p "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -206,6 +209,9 @@ else die "metadata tb-demo-image must be an image by digest or a gs:// .tar.gz (
 # the hard stop first, before anything that could hang: a forgotten demo cannot bill for a week
 say "hard stop: this VM powers off $HOURS h after this boot"
 run shutdown -P "+$((HOURS * 60))" "TrialBox demo VM: the hard stop (tb-demo-hours=$HOURS)"
+
+say "no SSH: sshd stopped and disabled (the firewall's deny-all on the VM's tag is the first lock)"
+run systemctl disable --now ssh.service || say "no ssh service to stop on this image"
 
 if [ "$DRY" = 1 ] || ! command -v docker >/dev/null; then
   run apt-get update -qq

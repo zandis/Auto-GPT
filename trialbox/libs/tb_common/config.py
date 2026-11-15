@@ -526,6 +526,9 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_VM_MIN_PREFIX": Declared(
         "int", "16", "demo VM: an allowed IPv4 range broader than this prefix is refused (a home range is /24)"
     ),
+    "TB_DEMO_VM_NETWORK": Declared(
+        "str", "default", "demo VM: default (the project's network; no networkAdmin, a deny-all on its tag) or own"
+    ),
     "TB_DEMO_VM_NAME": Declared("str", "tb-demo-vm", "demo VM: prefix of its VM, network, subnet, rule and tag"),
     "TB_DEMO_VM_PRICE_DATE": Declared("str", "", "demo VM estimate: the date its prices were read (unset: unchecked)"),
     "TB_DEMO_VM_PRICE_HOUR": Declared(

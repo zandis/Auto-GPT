@@ -16,6 +16,9 @@
 #   TB_DEMO_ALLOW         required for up: the source ranges of tcp:443, e.g. 1.2.3.4/32,5.6.7.8/32; or the word
 #                         any: tcp:443 from 0.0.0.0/0, open to any address, the sign-in password the only gate (the
 #                         owner's ruling of 2026-11-15: a PoC with synthetic data only). Empty or missing is refused.
+#   TB_DEMO_VM_NETWORK    default: the project's `default` network (no networkAdmin needed); the VM gets an allow
+#                         tcp:443 rule and a deny-all rule on its tag, which beats the network's SSH/RDP rules.
+#                         own: a network of its own (needs roles/compute.networkAdmin)
 #   TB_DEMO_VM_IMAGE      required for up: REGISTRY/PATH@sha256:<digest>, or gs://BUCKET/trialbox-demo.tar.gz with
 #                         TB_DEMO_VM_IMAGE_SHA256
 #   TB_DEMO_VM_NAME tb-demo-vm  TB_DEMO_VM_ZONE asia-east1-a  TB_DEMO_VM_MACHINE e2-standard-4  TB_DEMO_VM_DISK_GB 30
@@ -38,16 +41,16 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --yes) YES=1 ;;
     --estimate) ESTIMATE=1 ;;
-    -h | --help) sed -n 2,28p "$0"; exit 0 ;;
+    -h | --help) sed -n 2,30p "$0"; exit 0 ;;
     up | status | down | delete) [ -z "$CMD" ] || { echo "one command only" >&2; exit 2; }; CMD=$1 ;;
-    *) echo "unknown argument: $1" >&2; sed -n 2,28p "$0" >&2; exit 2 ;;
+    *) echo "unknown argument: $1" >&2; sed -n 2,30p "$0" >&2; exit 2 ;;
   esac
   shift
 done
 
 if [ "$ESTIMATE" = 1 ]; then exec "$PY" "$HERE/demo_vm.py" estimate; fi
 if [ -z "$CMD" ]; then
-  [ "$DRY" = 1 ] || { sed -n 2,28p "$0" >&2; exit 2; }
+  [ "$DRY" = 1 ] || { sed -n 2,30p "$0" >&2; exit 2; }
   CMD=up
 fi
 case "$CMD" in
@@ -61,7 +64,7 @@ esac
 # the checked settings (a refused one stops here, before any gcloud call)
 FOR=$CMD; [ "$CMD" = up ] && [ "$DRY" = 1 ] && FOR=dry
 SETTINGS="$("$PY" "$HERE/demo_vm.py" shell "$FOR")" || exit 2
-N=""; ZONE=""; REGION=""; MACHINE=""; DISK_GB=""; HOURS=""; ALLOW=""; IMAGE=""; IMAGE_SHA256=""; SECRET=""
+N=""; NETWORK=""; ALLOW_PRIORITY=""; DENY_PRIORITY=""; ZONE=""; REGION=""; MACHINE=""; DISK_GB=""; HOURS=""; ALLOW=""; IMAGE=""; IMAGE_SHA256=""; SECRET=""
 DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""; OPEN_ANY=0; GATE=""
 eval "$SETTINGS"   # shlex-quoted assignments of the names above, from demo_vm.py only
 [ -n "$IMAGE" ] || IMAGE="<TB_DEMO_VM_IMAGE>"
@@ -74,7 +77,8 @@ else
   REACH="tcp:443 from $ALLOW only"
   RULE_WHY="TrialBox demo VM: https from the allowed ranges only"
 fi
-NET="$N-net"; SUBNET="$N-subnet"; RULE="$N-https"; TAG="$N"
+if [ "$NETWORK" = own ]; then NET="$N-net"; else NET=default; fi
+SUBNET="$N-subnet"; RULE="$N-https"; DENY="$N-deny"; TAG="$N"
 SUBNET_RANGE=10.42.0.0/24   # private addresses of the demo's own network (one VM); not a limit
 
 if [ "$DRY" = 0 ]; then
@@ -120,7 +124,7 @@ else
   PROJECT="$(gc config get-value project 2>/dev/null || true)"
   [ -n "$PROJECT" ] && [ "$PROJECT" != "(unset)" ] || die "no project in the gcloud config (gcloud config set project <id>)"
 fi
-METADATA="tb-demo-image=$IMAGE,tb-demo-hours=$HOURS,tb-demo-password-secret=$SECRET,tb-demo-lang=$DEMO_LANG"
+METADATA="block-project-ssh-keys=TRUE,tb-demo-image=$IMAGE,tb-demo-hours=$HOURS,tb-demo-password-secret=$SECRET,tb-demo-lang=$DEMO_LANG"
 [ -z "$IMAGE_SHA256" ] || METADATA="$METADATA,tb-demo-image-sha256=$IMAGE_SHA256"
 [ -z "$SITE_LANG" ] || METADATA="$METADATA,tb-demo-site-lang=$SITE_LANG"
 
@@ -138,14 +142,15 @@ password_check() {  # the secret has an enabled version; its value is never read
   [ -n "$out" ] || die "secret $SECRET has no version: the owner sets the password in his own shell (runbook 11, 'The small demo VM')"
 }
 
-rules_check() {  # the demo network holds no rule but its own tcp:443 one (no SSH or port 80 added by hand later)
-  local other
+rules_check() {  # nothing but the VM's own rules reaches it (no SSH or port 80 added by hand, no default rule first)
+  local bad
   if [ "$DRY" = 1 ]; then
-    echo "+ gcloud compute firewall-rules list --filter=network~/$NET\$ --format=value(name)   # only $RULE may be there"
+    echo "+ gcloud compute firewall-rules list --filter=network~/$NET\$ --format=json   # nothing but $RULE may reach the VM"
     return 0
   fi
-  other="$(gc compute firewall-rules list --filter="network~/$NET\$" --format='value(name)' | grep -vx "$RULE" || true)"
-  [ -z "$other" ] || die "network $NET has other firewall rules ($(echo "$other" | tr '\n' ' ')): delete them; the demo VM opens tcp:443 only"
+  bad="$(gc compute firewall-rules list --filter="network~/$NET\$" --format=json \
+    | "$PY" "$HERE/demo_vm.py" rules-check "$NET" "$NETWORK" "$RULE" "$DENY" "$TAG")" \
+    || die "network $NET has other firewall rules that reach the VM ($bad): delete them or give them a priority above $DENY_PRIORITY; the demo VM opens tcp:443 only"
 }
 
 up() {
@@ -158,22 +163,38 @@ up() {
     TERMINATED | NONE) ;;
     *) die "$N is $st; wait until it is RUNNING or TERMINATED" ;;
   esac
-  exists compute networks describe "$NET" \
-    || gc compute networks create "$NET" --subnet-mode=custom --description="TrialBox demo VM: its own network (no default rules)"
-  exists compute networks subnets describe "$SUBNET" --region "$REGION" \
-    || gc compute networks subnets create "$SUBNET" --network "$NET" --region "$REGION" --range "$SUBNET_RANGE"
-  # the only ingress rule: tcp:443 from the given ranges (0.0.0.0/0 with TB_DEMO_ALLOW=any); the network has no other
-  # rule (no port 80, no SSH)
+  local net_args
+  if [ "$NETWORK" = own ]; then
+    exists compute networks describe "$NET" \
+      || gc compute networks create "$NET" --subnet-mode=custom --description="TrialBox demo VM: its own network (no default rules)"
+    exists compute networks subnets describe "$SUBNET" --region "$REGION" \
+      || gc compute networks subnets create "$SUBNET" --network "$NET" --region "$REGION" --range "$SUBNET_RANGE"
+    net_args=(--subnet "$SUBNET")
+  else
+    # the project's own network (no networkAdmin needed); its rules (default-allow-ssh, -rdp, -icmp, -internal) target
+    # every instance, so a deny-all on the VM's tag comes first: only the tcp:443 rule, of higher precedence, gets in
+    if [ "$DRY" = 1 ]; then echo "+ gcloud compute networks describe $NET --format=value(name)   # the project's network must exist"
+    else
+      gc compute networks describe "$NET" --format='value(name)' >/dev/null 2>&1 \
+        || die "the project has no network named $NET: set TB_DEMO_VM_NETWORK=own (needs roles/compute.networkAdmin)"
+    fi
+    exists compute firewall-rules describe "$DENY" \
+      || gc compute firewall-rules create "$DENY" --network "$NET" --direction INGRESS --action DENY --rules=all \
+        --source-ranges=0.0.0.0/0 --target-tags "$TAG" --priority "$DENY_PRIORITY" \
+        --description="TrialBox demo VM: nothing but its tcp:443 rule reaches it (not the network's SSH or RDP rules)"
+    net_args=(--network "$NET")
+  fi
+  # the only allow rule: tcp:443 from the given ranges (0.0.0.0/0 with TB_DEMO_ALLOW=any); no port 80, no SSH
   if exists compute firewall-rules describe "$RULE"; then
-    gc compute firewall-rules update "$RULE" --rules=tcp:443 --source-ranges="$ALLOW"
+    gc compute firewall-rules update "$RULE" --rules=tcp:443 --source-ranges="$ALLOW" --priority "$ALLOW_PRIORITY"
   else
     gc compute firewall-rules create "$RULE" --network "$NET" --direction INGRESS --action ALLOW --rules=tcp:443 \
-      --source-ranges="$ALLOW" --target-tags "$TAG" --description="$RULE_WHY"
+      --source-ranges="$ALLOW" --target-tags "$TAG" --priority "$ALLOW_PRIORITY" --description="$RULE_WHY"
   fi
   rules_check
   if [ "$st" = NONE ]; then
     gc compute instances create "$N" --zone "$ZONE" --machine-type "$MACHINE" \
-      --subnet "$SUBNET" --tags "$TAG" --image-family debian-12 --image-project debian-cloud \
+      "${net_args[@]}" --tags "$TAG" --image-family debian-12 --image-project debian-cloud \
       --boot-disk-size "${DISK_GB}GB" --boot-disk-type pd-balanced --shielded-secure-boot \
       --provisioning-model STANDARD --max-run-duration "${HOURS}h" --instance-termination-action STOP \
       --scopes cloud-platform --labels trialbox=demo-vm \
@@ -239,14 +260,22 @@ delete() {
   st="$(vm_status)"
   [ "$st" = NONE ] || gc compute instances delete "$N" --zone "$ZONE" --quiet
   if [ "$DRY" = 1 ] || exists compute firewall-rules describe "$RULE"; then gc compute firewall-rules delete "$RULE" --quiet; fi
-  if [ "$DRY" = 1 ] || exists compute networks subnets describe "$SUBNET" --region "$REGION"; then
-    gc compute networks subnets delete "$SUBNET" --region "$REGION" --quiet
+  if [ "$NETWORK" = own ]; then
+    if [ "$DRY" = 1 ] || exists compute networks subnets describe "$SUBNET" --region "$REGION"; then
+      gc compute networks subnets delete "$SUBNET" --region "$REGION" --quiet
+    fi
+    if [ "$DRY" = 1 ] || exists compute networks describe "$NET"; then gc compute networks delete "$NET" --quiet; fi
+  elif [ "$DRY" = 1 ] || exists compute firewall-rules describe "$DENY"; then
+    gc compute firewall-rules delete "$DENY" --quiet  # the project's network itself stays
   fi
-  if [ "$DRY" = 1 ] || exists compute networks describe "$NET"; then gc compute networks delete "$NET" --quiet; fi
   [ "$DRY" = 1 ] && return 0
   st="$(vm_status)"
   [ "$st" = NONE ] || die "VM $N still exists ($st)"
-  echo "deleted: VM $N and its disk, rule $RULE, subnet $SUBNET, network $NET (the secret $SECRET stays)"
+  if [ "$NETWORK" = own ]; then
+    echo "deleted: VM $N and its disk, rule $RULE, subnet $SUBNET, network $NET (the secret $SECRET stays)"
+  else
+    echo "deleted: VM $N and its disk, rules $RULE and $DENY (the network $NET is the project's and stays; the secret $SECRET stays)"
+  fi
 }
 
 "$CMD"

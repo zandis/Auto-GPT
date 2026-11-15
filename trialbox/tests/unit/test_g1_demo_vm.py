@@ -73,9 +73,24 @@ case "$1 $2 $3" in
   "compute firewall-rules describe") [ -f "$S/fw-$4" ] || nf compute.firewalls.describe "$4"
     printf 'sourceRanges:\n- %s\n' "$(cat "$S/fw-$4")" ;;
   "compute firewall-rules create" | "compute firewall-rules update")
-    for a in "$@"; do case "$a" in --source-ranges=*) echo "${a#--source-ranges=}" > "$S/fw-$4" ;; esac; done ;;
-  "compute firewall-rules delete") rm -f "$S/fw-$4" ;;
-  "compute firewall-rules list") for f in "$S"/fw-*; do [ -f "$f" ] && basename "$f" | sed 's/^fw-//'; done; true ;;
+    net=""; act=ALLOW; prio=1000; tags=""; prev=""
+    for a in "$@"; do
+      case "$a" in --source-ranges=*) echo "${a#--source-ranges=}" > "$S/fw-$4" ;; esac
+      case "$prev" in --network) net=$a ;; --action) act=$a ;; --priority) prio=$a ;; --target-tags) tags=$a ;; esac
+      prev=$a
+    done
+    if [ "$3" = create ]; then
+      kind=allowed; [ "$act" = DENY ] && kind=denied
+      printf '{"name": "%s", "network": "https://x/global/networks/%s", "direction": "INGRESS", "priority": %s, "targetTags": ["%s"], "%s": [{"IPProtocol": "x"}]}\n' \
+        "$4" "$net" "$prio" "$tags" "$kind" > "$S/fwj-$4"
+    fi ;;
+  "compute firewall-rules delete") rm -f "$S/fw-$4" "$S/fwj-$4" ;;
+  "compute firewall-rules list")
+    if [ "$fmt" = json ]; then
+      echo "["; first=1
+      for f in "$S"/fwj-*; do [ -f "$f" ] || continue; [ $first = 1 ] || echo ","; cat "$f"; first=0; done
+      echo "]"
+    else for f in "$S"/fw-*; do [ -f "$f" ] && basename "$f" | sed 's/^fw-//'; done; true; fi ;;
   *) echo "fake gcloud: not faked: $*" >&2; exit 1 ;;
 esac
 """
@@ -90,6 +105,7 @@ def _env(tmp: Path, **extra: str) -> dict[str, str]:
         (bin_ / "gcloud").write_text(FAKE, encoding="utf-8")
         (bin_ / "gcloud").chmod(stat.S_IRWXU)
         (state / "secret-value").write_text(PASSWORD, encoding="utf-8")
+        (state / "net-default").touch()  # the project's own network exists
         (tmp / "gc").mkdir()
         (tmp / "key.json").write_text(f'{{"private_key": "{KEY_CONTENT}"}}', encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "CLOUDSDK_", "GC_"))}
@@ -232,14 +248,25 @@ def test_a_dry_run_prints_every_command_and_runs_none(tmp_path: Path) -> None:
         "auth activate-service-account",
         "config get-value project",
         "secrets versions list tb-demo-password",
-        "compute networks create tb-demo-vm-net --subnet-mode=custom",
-        "compute firewall-rules create tb-demo-vm-https",
+        "compute networks describe default",
+        "compute firewall-rules create tb-demo-vm-deny --network default --direction INGRESS --action DENY --rules=all",
+        "compute firewall-rules create tb-demo-vm-https --network default",
+        "--network default --tags tb-demo-vm",
+        "block-project-ssh-keys=TRUE",
         f"--source-ranges={ALLOW}",
         "compute instances create tb-demo-vm --zone asia-east1-a --machine-type e2-standard-4",
         "--max-run-duration 12h --instance-termination-action STOP",
     ):
         assert want in out, want
     assert "--accelerator" not in out and "tcp:80" not in out and "tcp:22" not in out
+    assert "networks create" not in out  # the project's network: no networkAdmin needed
+    rc, out = _run(tmp_path, "--dry-run", TB_DEMO_VM_NETWORK="own")
+    assert (
+        rc == 0
+        and "compute networks create tb-demo-vm-net --subnet-mode=custom" in out
+        and "--subnet tb-demo-vm-subnet" in out
+    )
+    assert "tb-demo-vm-deny" not in out
 
 
 # --------------------------------------------------------------------------------------------- TB_DEMO_ALLOW=any
@@ -255,11 +282,16 @@ def test_any_opens_one_rule_tcp_443_from_the_world_and_nothing_else(tmp_path: Pa
     assert rc == 0, out
     assert OPEN_TEXT in out and "owner's ruling of 2026-11-15" in out
     calls = _argv(tmp_path)
-    rules = [c for c in calls if c.startswith(("compute firewall-rules create", "compute firewall-rules update"))]
-    assert len(rules) == 1, calls
-    assert "--rules=tcp:443 " in rules[0] and "--source-ranges=0.0.0.0/0 " in rules[0]
-    assert "--direction INGRESS" in rules[0] and "--action ALLOW" in rules[0] and "--target-tags tb-demo-vm" in rules[0]
-    assert not any(re.search(r"tcp:(80|22|3389)\b|--accelerator|--rules=(all|tcp)(?!:443)", c) for c in calls)
+    made = [c for c in calls if c.startswith(("compute firewall-rules create", "compute firewall-rules update"))]
+    allows = [c for c in made if "--action DENY" not in c]
+    assert len(allows) == 1, calls
+    rule = allows[0]
+    assert "--rules=tcp:443 " in rule and "--source-ranges=0.0.0.0/0 " in rule and "--priority 500 " in rule
+    assert "--direction INGRESS" in rule and "--action ALLOW" in rule and "--target-tags tb-demo-vm" in rule
+    # the other rule made is the deny-all on the VM's tag, after the allow in precedence: nothing else opens a port
+    (deny,) = [c for c in made if "--action DENY" in c]
+    assert "--rules=all " in deny and "--target-tags tb-demo-vm " in deny and "--priority 510 " in deny
+    assert not any(re.search(r"tcp:(80|22|3389)\b|--accelerator", c) for c in calls)
     assert (tmp_path / "state" / "fw-tb-demo-vm-https").read_text().strip() == "0.0.0.0/0"
 
 
@@ -312,17 +344,23 @@ def test_up_makes_one_rule_tcp_443_from_exactly_the_given_ranges(tmp_path: Path)
     assert rc == 0, out
     calls = _argv(tmp_path)
     fw = [c for c in calls if c.startswith("compute firewall-rules create")]
-    assert len(fw) == 1, calls
-    rule = fw[0]
+    assert len(fw) == 2, calls
+    (rule,) = [c for c in fw if "--action ALLOW" in c]
+    (deny,) = [c for c in fw if "--action DENY" in c]
     assert "--rules=tcp:443 " in rule and f"--source-ranges={ALLOW} " in rule
-    assert "--direction INGRESS" in rule and "--target-tags tb-demo-vm" in rule and "--network tb-demo-vm-net" in rule
-    # nothing else opens a port: no other rule, no default network, no port 80 or 22 anywhere
-    assert not any("firewall-rules" in c and "create" in c and c != rule for c in calls)
-    assert not any(re.search(r"tcp:(80|22)\b|0\.0\.0\.0/0|--network default|--accelerator", c) for c in calls)
+    assert "--direction INGRESS" in rule and "--target-tags tb-demo-vm" in rule and "--network default" in rule
+    # the project's network: its SSH/RDP rules target every instance, so a deny-all on the tag comes before them
+    assert "--rules=all " in deny and "--source-ranges=0.0.0.0/0 " in deny and "--target-tags tb-demo-vm " in deny
+    assert (
+        int(re.search(r"--priority (\d+)", rule).group(1)) < int(re.search(r"--priority (\d+)", deny).group(1)) < 65534
+    )
+    # nothing else opens a port: no other allow rule, no port 80 or 22 anywhere, no network made
+    assert not any(re.search(r"tcp:(80|22)\b|--accelerator|networks create", c) for c in calls)
+    assert "0.0.0.0/0" not in rule
     create = [c for c in calls if c.startswith("compute instances create")]
     assert len(create) == 1
     vm = create[0]
-    for want in ("--machine-type e2-standard-4", "--zone asia-east1-a", "--subnet tb-demo-vm-subnet",
+    for want in ("--machine-type e2-standard-4", "--zone asia-east1-a", "--network default", "block-project-ssh-keys=TRUE",
                  "--max-run-duration 12h", "--instance-termination-action STOP", "--provisioning-model STANDARD",
                  "startup-script=" + str(BOOT), f"tb-demo-image={DIGEST}", "tb-demo-hours=12",
                  "tb-demo-password-secret=tb-demo-password"):  # fmt: skip
@@ -330,11 +368,36 @@ def test_up_makes_one_rule_tcp_443_from_exactly_the_given_ranges(tmp_path: Path)
     assert "password=" not in vm.replace("password-secret=", "")  # the metadata names the secret, never a value
     # the order: auth first, the network before its rule, the rule before the VM
     order = [next(i for i, c in enumerate(calls) if c.startswith(p)) for p in
-             ("auth activate-service-account", "compute networks create", "compute networks subnets create",
-              "compute firewall-rules create", "compute instances create")]  # fmt: skip
+             ("auth activate-service-account", "compute networks describe default",
+              "compute firewall-rules create tb-demo-vm-deny", "compute firewall-rules create tb-demo-vm-https",
+              "compute firewall-rules list", "compute instances create")]  # fmt: skip
     assert order == sorted(order), calls
     assert "--key-file " + str(tmp_path / "key.json") in calls[0]
     assert "https://34.80.0.10/" in out and "warns once" in out
+
+
+def test_up_on_its_own_network_makes_one_rule_and_no_deny(tmp_path: Path) -> None:
+    rc, out = _run(tmp_path, "up", "--yes", TB_DEMO_VM_NETWORK="own")
+    assert rc == 0, out
+    calls = _argv(tmp_path)
+    fw = [c for c in calls if c.startswith("compute firewall-rules create")]
+    assert len(fw) == 1 and "--network tb-demo-vm-net" in fw[0] and "--rules=tcp:443 " in fw[0], calls
+    order = [next(i for i, c in enumerate(calls) if c.startswith(p)) for p in
+             ("compute networks create", "compute networks subnets create", "compute firewall-rules create",
+              "compute instances create")]  # fmt: skip
+    assert order == sorted(order), calls
+    assert any("--subnet tb-demo-vm-subnet" in c for c in calls if c.startswith("compute instances create"))
+    rc, out = _run(tmp_path, "delete", "--yes", TB_DEMO_VM_NETWORK="own")
+    assert rc == 0 and "network tb-demo-vm-net" in out, out
+    assert not (tmp_path / "state" / "net-tb-demo-vm-net").exists()
+
+
+def test_up_refuses_when_the_project_has_no_default_network(tmp_path: Path) -> None:
+    _env(tmp_path)
+    (tmp_path / "state" / "net-default").unlink()
+    rc, out = _run(tmp_path, "up", "--yes")
+    assert rc == 3 and "no network named default" in out and "TB_DEMO_VM_NETWORK=own" in out, out
+    assert not any(c.startswith(("compute instances create", "compute firewall-rules create")) for c in _argv(tmp_path))
 
 
 def test_up_again_narrows_the_rule_to_the_new_ranges_and_starts_a_stopped_vm(tmp_path: Path) -> None:
@@ -361,12 +424,37 @@ def test_up_refuses_when_the_password_secret_has_no_version(tmp_path: Path) -> N
     assert not any(c.startswith("compute ") and "describe" not in c for c in _argv(tmp_path))
 
 
-def test_up_refuses_a_network_with_another_rule(tmp_path: Path) -> None:
+def _hand_rule(tmp: Path, name: str, network: str, priority: int, tags: list[str], kind: str = "allowed") -> None:
+    rule = {"name": name, "network": f"https://x/global/networks/{network}", "direction": "INGRESS",
+            "priority": priority, "targetTags": tags, kind: [{"IPProtocol": "tcp", "ports": ["22"]}]}  # fmt: skip
+    (tmp / "state" / f"fwj-{name}").write_text(json.dumps(rule))
+    (tmp / "state" / f"fw-{name}").write_text("0.0.0.0/0")
+
+
+@pytest.mark.parametrize(
+    ("network", "rule", "refused"),
+    [
+        ("own", ("tb-demo-vm-allow-ssh", "tb-demo-vm-net", 1000, []), True),  # someone added SSH by hand
+        ("default", ("ssh-first", "default", 400, []), True),  # an allow for every instance before the deny
+        ("default", ("ssh-tag", "default", 509, ["tb-demo-vm"]), True),  # one on the VM's own tag
+        ("default", ("default-allow-ssh", "default", 65534, []), False),  # the project's default rule: the deny wins
+        ("default", ("tie", "default", 510, []), False),  # at equal priority a deny wins
+        ("default", ("other-vm", "default", 100, ["web"]), False),  # another machine's tag
+        ("default", ("other-net", "elsewhere", 100, []), False),  # another network
+    ],
+)
+def test_up_refuses_a_rule_that_could_reach_the_vm(
+    tmp_path: Path, network: str, rule: tuple[str, str, int, list[str]], refused: bool
+) -> None:
     _env(tmp_path)
-    (tmp_path / "state" / "fw-tb-demo-vm-allow-ssh").write_text("0.0.0.0/0")  # someone added SSH by hand
-    rc, out = _run(tmp_path, "up", "--yes")
-    assert rc == 3 and "other firewall rules (tb-demo-vm-allow-ssh" in out, out
-    assert not any(c.startswith("compute instances create") for c in _argv(tmp_path))
+    _hand_rule(tmp_path, *rule)
+    rc, out = _run(tmp_path, "up", "--yes", TB_DEMO_VM_NETWORK=network)
+    created = any(c.startswith("compute instances create") for c in _argv(tmp_path))
+    if refused:
+        assert rc == 3 and f"firewall rules that reach the VM ({rule[0]}" in out, out
+        assert not created
+    else:
+        assert rc == 0 and created, out
 
 
 def test_down_stops_and_waits_for_terminated(tmp_path: Path) -> None:
@@ -405,7 +493,9 @@ def test_status_and_delete(tmp_path: Path) -> None:
     assert "1.2.3.4/32,5.6.7.0/24" in out
     rc, out = _run(tmp_path, "delete", "--yes")
     assert rc == 0, out
-    assert not [p.name for p in (tmp_path / "state").iterdir() if p.name.startswith(("net-", "subnet-", "fw-"))]
+    left = [p.name for p in (tmp_path / "state").iterdir() if p.name.startswith(("net-", "subnet-", "fw"))]
+    assert left == ["net-default"], left  # the project's network stays; both rules are gone
+    assert "rules tb-demo-vm-https and tb-demo-vm-deny" in out
     assert not (tmp_path / "state" / "status").exists()
     rc, out = _run(tmp_path, "status")
     assert rc == 0 and "NONE" in out
@@ -433,6 +523,7 @@ def test_boot_dry_run_fixes_the_stub_model_and_arms_the_hard_stop(tmp_path: Path
     assert rc == 0, out
     assert "TB_LLM_MODE=stub" in out and "TB_DEMO_TOOL=demo" in out and "TB_CONSOLE_SECURE_COOKIE=1" in out
     assert "+ shutdown -P +720" in out
+    assert "+ systemctl disable --now ssh.service" in out  # no sshd: the second lock after the firewall's deny-all
     assert out.index("shutdown -P") < out.index("apt-get")  # armed before anything that could hang
     assert "-p 127.0.0.1:8080:8080" in out  # the console only behind Caddy
     assert "secrets versions access latest --secret=tb-demo-password" in out and "never printed" in out
