@@ -1844,6 +1844,10 @@ EVENT_COLS = [
 ]
 
 
+class LoadRunning(RuntimeError):
+    """The store's load holds its lock: :func:`withhold` does not wait for it (T-702, D-753)."""
+
+
 @dataclass
 class WithholdReport:
     withheld: int = 0  # rows added to tb_withheld
@@ -1859,11 +1863,15 @@ def withhold(db: Database, pids: Iterable[str], actor: str = "optout-worker") ->
     record of a newly withheld patient with the reason ``opted out`` (before-images kept, as for any tombstone;
     erasing them is the retention run's, T-206b). A released patient (lifted) is only taken off the table: nothing
     is restored until the next load carries the records again. Under the loader's lock, so it never interleaves with
-    a load. Returns counts only."""
+    a load; while a load holds it, :class:`LoadRunning` at once (T-702, D-753), never a wait. Returns counts only."""
     want = sorted(set(pids))
     rep = WithholdReport()
     with db.transaction() as tx:
-        tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
+        # T-702 (D-753, F-17): the worker never waits for a load of hours (its tick and health line stopped with
+        # it): the load's lock taken or a refusal now, and the next tick tries again
+        got = tx.fetchall("SELECT pg_try_advisory_xact_lock(hashtext('trialbox-omop-load'))")
+        if not (got and got[0][0] is True):
+            raise LoadRunning("an OMOP load is running: the patients are withheld on a tick after it")
         have = {str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")}
         gone = sorted(have - set(want))
         if gone:
