@@ -265,6 +265,16 @@ def register(app: FastAPI, h: Helpers) -> None:
             mine=own_study(target, studies, logged),
         )
 
+    @app.get("/help/guide")
+    def role_guide(request: Request) -> Response:
+        """T-317 (D-774): the signed-in account's own role guide in its language, printable; the same text as
+        ``docs/guides/<role>.<lang>.md`` (``console.guides``), built from this help catalogue."""
+        from console import guides
+
+        sess = h.need(request)
+        role = sess.user.role if sess.user.role in guides.ROLES else "viewer"
+        return h.page(request, "role_guide.html", sess, role=role, sections=guides.sections)  # in the page's language
+
     about.register(app, h)  # T-617a: /about, the third-party notices (NOTICE), beside the help panel
 
     # ------------------------------------------------------------------ S37 Notices received

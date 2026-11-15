@@ -624,7 +624,19 @@ def create_app(
         u = sess.user
         if u.sponsor_form and not (
             path
-            in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help", "/ask")
+            in (
+                "/",
+                "/home",
+                "/reports",
+                "/lang",
+                "/logout",
+                "/cmd",
+                "/account",
+                "/account/password",
+                "/help",
+                "/ask",
+                "/help/guide",
+            )  # T-317 (D-774): the account's own role guide
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
             or _MONITOR_ROUTE.fullmatch(path)  # D-380: refused there unless a monitor grant holds
             or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)

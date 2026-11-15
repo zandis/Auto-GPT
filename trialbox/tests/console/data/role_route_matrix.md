@@ -76,6 +76,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/enrol` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/feedback/export.csv` | Y | - | - | - | - | - | - | - | - |
 | GET | `/help` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/help/guide` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/home` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/jobs` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/metrics` | Y | - | - | - | - | - | - | - | - |
