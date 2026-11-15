@@ -388,6 +388,17 @@ class Mapping:
     # F7 (D-806): each ``{ref: {by_day: ...}}``, as (the table that links, the resource type, its by_day spec)
     by_day: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
 
+    def keeps(self, table: str, row: Row) -> bool:
+        """CGRD-A2 (D-813): whether a canonical row is the table's (``tables.<t>.rows: {column, in | not_in}``): one
+        source of order lines feeds two tables, each its own kind. No filter: every row."""
+        rule = (self.tables.get(table) or {}).get("rows")
+        if not rule:
+            return True
+        value = str(row.get(rule["column"]) or "").strip()
+        if "in" in rule:
+            return value in {str(v) for v in rule["in"]}
+        return value != "" and value not in {str(v) for v in rule["not_in"]}
+
     def read_whole(self) -> set[str]:
         """The tables read whole on a delta night (F7, D-806): a visit table a link by day looks up. An unchanged visit
         missing from the night's rows would make a day of two visits look like a day of one: a wrong link."""
@@ -518,6 +529,14 @@ class Mapping:
             )
             for r in doc.get("resources") or []
         ]
+        for t, tspec in (doc.get("tables") or {}).items():  # CGRD-A2 (D-813): a table's own rows of a shared source
+            rule = (tspec or {}).get("rows")
+            if rule is None:
+                continue
+            kinds = [k for k in ("in", "not_in") if k in (rule if isinstance(rule, dict) else {})]
+            good = isinstance(rule, dict) and isinstance(rule.get("column"), str) and bool(rule["column"])
+            if not (good and len(kinds) == 1 and isinstance(rule[kinds[0]], list) and rule[kinds[0]]):
+                raise MappingError(f"{path}: {t}.rows is {{column: <c>, in: [..]}} or {{column: <c>, not_in: [..]}}")
         for t, tspec in (doc.get("tables") or {}).items():  # F10 (D-809): a key column made of several
             for col, parts in ((tspec or {}).get("join") or {}).items():
                 if not (isinstance(parts, list) and len(parts) >= 2 and all(isinstance(p, str) and p for p in parts)):
@@ -617,7 +636,16 @@ class Mapping:
                 when = spec.get("when")
                 guarded = (isinstance(when, dict) and when.get("not_empty") is False and len(atc_cols) <= 1
                            and (not atc_cols or when.get("column") == atc_cols[0]))  # fmt: skip
-                if spec.get("target") != "atc5" or not guarded:
+                # CGRD-A2 (D-813): or beside the hospital's ATC, a disagreement then being unknown
+                beside = "beside" in spec and len(atc_cols) == 1 and spec["beside"] == atc_cols[0]
+                if "beside" in spec and not beside:
+                    raise MappingError(
+                        f"{path}: {r.type}.{element}: beside names the column the hospital's own ATC is written from "
+                        f"({', '.join(atc_cols) or 'none'})"
+                    )
+                if "class_target" in spec and spec["class_target"] != "atc4":
+                    raise MappingError(f"{path}: {r.type}.{element}: class_target is atc4")
+                if spec.get("target") != "atc5" or not (guarded or beside):
                     raise MappingError(
                         f"{path}: {r.type}.{element} maps a code to ATC: it needs `target: atc5` and `when: {{column: "
                         f"{atc_cols[0] if atc_cols else '<the ATC column>'}, not_empty: false}}`, the column the "
@@ -758,6 +786,14 @@ MAPPED_RELATIONS = frozenset({"equivalent", "equal", "wider"})
 #: level of a drug value set). A coarser class from a map is not written: any ATC, however coarse, makes the row
 #: "readable" to the coverage rule, and a level-5 inclusion would then answer "no" where it was unknown
 MAPPED_TARGETS = {"atc5": re.compile(r"[A-Z]\d{2}[A-Z]{2}\d{2}")}
+#: CGRD-A2 (D-813): a level-4 ATC class, written only where an element asks (``class_target: atc4``) and then under
+#: :data:`ATC_CLASS`, never the ATC system: a level-5 criterion still reads the row as having no ATC (unknown)
+_ATC4 = re.compile(r"[A-Z]\d{2}[A-Z]{2}")
+ATC_CLASS = "urn:trialbox:atc-class"
+#: CGRD-A2 (D-813): the hospital's ATC and the mapped one, disagreeing at level 5: both moved here, which no ATC
+#: reader reads, so the row's drug is unknown and never the code that happens to match
+ATC_DISPUTED = "urn:trialbox:atc-disputed"
+_CLASS_MARK = "\x00class:"
 
 _ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
 
@@ -792,6 +828,7 @@ class Mapper:
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
         self.unmapped: Counter[tuple[str, str, str]] = Counter()
         self._row_seen: set[tuple[str, str]] | None = None  # the row :meth:`map_table` is mapping, else None
+        self.disputed: Counter[str] = Counter()  # CGRD-A2 (D-813): rows whose two ATC codes disagree, per table
         # F7 (D-806): the visits of each linked-to table by (its keys, its day) -> their ids, filled as it is mapped,
         # and what each link by day found, by (table, outcome): counts only
         self._visits: dict[tuple[str, str, tuple[str, ...], str], dict[tuple[str, ...], set[str]]] = {}
@@ -1303,7 +1340,7 @@ class Mapper:
             self._note_unmapped(rs.table, name, fed)
             return None
         accept = tuple(args.get("accept") or ("equivalent", "equal"))  # D-689: ``wider`` only where an element says
-        key = (str(args["from"]), str(args["to"]), code, *accept)
+        key = (str(args["from"]), str(args["to"]), code, str(args.get("class_target") or ""), *accept)
         if key not in self._mapped:
             target = self.m.systems[args["to"]]
             asked = self.concept_map(self.m.systems[args["from"]], code)
@@ -1315,12 +1352,23 @@ class Mapper:
             shape = MAPPED_TARGETS.get(str(args.get("target") or ""))
             hit_code, rel = next(iter(answers)) if len(answers) == 1 else ("", None)
             same = bool(hit_code) and rel in accept and (shape is None or shape.fullmatch(hit_code) is not None)
-            self._mapped[key] = hit_code if same else None
+            if (
+                not same
+                and bool(hit_code)
+                and rel in accept
+                and args.get("class_target") == "atc4"
+                and (_ATC4.fullmatch(hit_code))
+            ):
+                self._mapped[key] = _CLASS_MARK + hit_code  # CGRD-A2: a class only, never the drug's ATC
+            else:
+                self._mapped[key] = hit_code if same else None
         hit = self._mapped[key]
         if hit is None:
             self._note_unmapped(rs.table, name, fed)  # as fed, so the count's own filter sees what it was
             return None
         self._note_mapped(rs.table, name)
+        if hit.startswith(_CLASS_MARK):
+            return {"system": ATC_CLASS, "code": hit[len(_CLASS_MARK) :], "userSelected": False}
         # userSelected false: not the code the hospital recorded, the one the map says it is
         return {"system": self.m.systems[args["to"]], "code": hit, "userSelected": False}
 
@@ -1404,6 +1452,27 @@ class Mapper:
                 except (KeyError, TypeError, ValueError):
                     continue
 
+    def _settle_atc(self, rs: ResourceSpec, res: Resource) -> None:
+        """CGRD-A2 (D-813): where a mapped ATC is written ``beside`` the hospital's, two ATC codes of one concept that
+        disagree (neither begins the other) leave the drug unknown: both move to :data:`ATC_DISPUTED`, counted."""
+        for path, spec in rs.elements.items():
+            if not (isinstance(spec, dict) and spec.get("builder") == "mapped_coding" and "beside" in spec):
+                continue
+            concept = res.get(path.split(".", 1)[0])
+            codings = concept.get("coding") if isinstance(concept, dict) else None
+            from lake.flatten import ATC_SYSTEM
+
+            atc = [c for c in codings or [] if isinstance(c, dict) and c.get("system") == ATC_SYSTEM]
+            codes = sorted({str(c.get("code") or "") for c in atc}, key=len)
+            if any(not long.startswith(short) for i, short in enumerate(codes) for long in codes[i + 1 :]):
+                for c in atc:
+                    c["system"] = ATC_DISPUTED
+                self.disputed[rs.table] += 1
+
+    def atc_disputed(self) -> dict[str, int]:
+        """Rows whose hospital ATC and mapped ATC disagree, per table (CGRD-A2, D-813). Counts only."""
+        return dict(sorted(self.disputed.items()))
+
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
         for v in row.values():  # D-589: an unread date of a declared calendar refuses the row, whoever reads it
             _refuse_declared(v)
@@ -1419,6 +1488,7 @@ class Mapper:
         for path, expr in rs.elements.items():
             self._element = path  # F9 (D-811): what a count names
             self.set_path(res, path, self.value(expr, row, rs))
+        self._settle_atc(rs, res)
         if self.ingest_time:
             meta = res.setdefault("meta", {})
             meta["source"] = f"{self.site_id}/{rs.table}#{self.row_hash(row)}"

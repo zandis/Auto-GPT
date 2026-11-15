@@ -213,6 +213,7 @@ def _wanted(m: Any, table: str, tspec: dict[str, Any], specs: list[Any]) -> tupl
         if isinstance(spec.profile, dict):
             optional |= referenced_columns(spec.profile)
     need.add(str(tspec.get("key", "")))
+    need.add(str((tspec.get("rows") or {}).get("column") or ""))  # CGRD-A2 (D-813): the column the rows are told by
     need.discard("")
     for col, parts in (tspec.get("join") or {}).items():  # F10 (D-809): a joined key is made of columns the source has
         for group in (need, optional):
@@ -375,7 +376,10 @@ def check(
                 if rows and i >= rows:
                     cut = True
                     break
-                got.append(m.normalize(table, row) if hasattr(m, "normalize") else row)
+                canon = m.normalize(table, row) if hasattr(m, "normalize") else row
+                if hasattr(m, "keeps") and not m.keeps(table, canon):  # CGRD-A2 (D-813): another table's line
+                    continue
+                got.append(canon)
         except Exception as exc:
             if source_kind != "cgrd_sql":
                 raise
