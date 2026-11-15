@@ -157,6 +157,9 @@ class GatewayConfig:
     environment: Environment = Environment.DEV
     profile: str = "P-GB10"
     cloud_opt_in: bool = False
+    # D-506 (the owner's ruling, blocker 4): the PHI tripwire guards the routes that leave the box; on by default,
+    # TB_GATEWAY_PHI_TRIPWIRE=off turns it off
+    phi_tripwire: bool = True
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> GatewayConfig:
@@ -166,6 +169,7 @@ class GatewayConfig:
             environment=Environment(environment_name(e)),
             profile=e.get("TB_PROFILE", "P-GB10"),
             cloud_opt_in=e.get("TB_CLOUD_OPT_IN", "").lower() in ("1", "true", "yes"),
+            phi_tripwire=e.get("TB_GATEWAY_PHI_TRIPWIRE", "on").strip().lower() not in ("off", "0", "false", "no"),
         )
 
 
@@ -510,12 +514,22 @@ class Gateway:
         else:
             call.expected_alias = candidates[0].alias
 
-        # 4 tripwire
-        if label.data_class.rank <= 2:
+        # 4 tripwire (D-506, blocker 4): it guards the routes that leave the box. A hit drops the candidates outside
+        # the box and the call goes on to an on-box model; it is refused only when none is left. A declared setting
+        # turns it off (on by default)
+        if label.data_class.rank <= 2 and not cfg.phi_tripwire:
+            call.guard = "off"
+        elif label.data_class.rank <= 2:
             verdict = self.guard.tripwire(_content_text(messages))
             call.guard = "hit:" + ",".join(verdict.kinds) if verdict.hit else "clear"
             if verdict.hit:
-                raise Refusal("phi_tripwire", f"PHI tripwire hit on a {label.tag} call ({', '.join(verdict.kinds)})")
+                on_box = [c for c in candidates if c.endpoint.zone == "perimeter"]
+                if not on_box:
+                    raise Refusal(
+                        "phi_tripwire", f"PHI tripwire hit on a {label.tag} call ({', '.join(verdict.kinds)})"
+                    )
+                candidates = on_box
+                call.guard += ":on_box"
 
         # 5-8 resolve, cache, dispatch, echo
         registry_refusals: list[RegistryError] = []

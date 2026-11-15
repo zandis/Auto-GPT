@@ -262,16 +262,20 @@ def test_three_protocols_per_language_pass_location_without_a_tripwire_refusal(g
     assert Guard(None).tripwire("\n".join(s.text for s in d.sections)).hit  # the document's sections keep them
 
 
-def test_without_masking_the_gateway_refuses_the_same_call(gateway: Any) -> None:
-    """The control of the test above: the unmasked sections are refused (``phi_tripwire``), so the masking is what
-    lets them through."""
-    from doc_parser.parser import _text
+def test_without_masking_the_tripwire_hits_the_same_sections(gateway: Any) -> None:
+    """The control of the test above: the unmasked sections hit the tripwire and the masked ones do not, so the
+    masking is what lets them through on a route that leaves the box (D-506: on the box a hit is answered by an
+    on-box model, so the gateway no longer refuses this call there)."""
+    from doc_parser.parser import _text, locator_sections
     from doc_parser.parser import sections as split
 
     p = _protocols()[0]
-    secs = [{"title": s.title, "text": s.text} for s in split(_text(p["text"].encode("utf-8")).lines)]
-    with pytest.raises(LlmError, match="phi_tripwire"):
-        _locator(gateway)(secs)
+    secs = split(_text(p["text"].encode("utf-8")).lines)
+    raw = "\n".join(f"{s.title}\n{s.text}" for s in secs)
+    masked, _ = locator_sections(secs, Guard(None))
+    assert Guard(None).tripwire(raw).hit
+    assert not Guard(None).tripwire("\n".join(f"{s['title']}\n{s['text']}" for s in masked)).hit
+    _locator(gateway)([{"title": s.title, "text": s.text} for s in secs])  # on the box: answered, not refused
 
 
 # ------------------------------------------------------------------------------------------------ the stub
@@ -340,7 +344,7 @@ def test_the_client_never_falls_back_to_an_unqualified_version(tmp_path: Path, m
     """No qualified version (or no audit log to record the fallback): the refusal is raised, nothing else is sent."""
     import tb_common.llm as llm
     from tb_common.audit import AuditLog
-    from tb_common.llm import LlmClient, LlmError
+    from tb_common.llm import LlmClient
 
     monkeypatch.setenv("TB_ENV", "DEV")
     real = llm.load_prompt
