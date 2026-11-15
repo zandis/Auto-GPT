@@ -19,7 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -120,6 +120,26 @@ def inspect_local(ref: str) -> dict[str, Any]:
         f"/{data['Variant']}" if data.get("Variant") else ""
     )
     return {"image_id": str(data["Id"]), "repo_digests": list(data.get("RepoDigests") or []), "platform": plat}
+
+
+# D-886: the make target that builds each of our images (every other one: `make images`)
+BUILT_BY = {"trialbox-demo": "make demo-bundle"}
+
+
+def missing_local(targets: list[Target], *, inspect: Callable[[str], dict[str, Any]] | None = None) -> list[str]:
+    """Every local image the gates are given and Docker does not have, with the target that builds it: said before
+    any scan (lane G's build failed in the scan step on the demo image, which `make images` does not build)."""
+    look = inspect or inspect_local
+    out = []
+    for t in targets:
+        if t.remote:
+            continue
+        try:
+            look(t.ref)
+        except vulns.ReportError:
+            how = BUILT_BY.get(repository(t.ref), "make images")
+            out.append(f"{t.ref} is not a local image: build it with `{how}` (or leave it out: SC_OWN_IMAGES)")
+    return out
 
 
 def same_platform(asked: str, got: str) -> bool:
