@@ -225,9 +225,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         return list(aes(rid).get("unacked") or [])
 
     def reports_due(rid: str) -> list[dict[str, Any]]:
-        """One row per overdue report of a serious AE (P-03): participant, party, due date."""
-        return [{**a, "party": c["party"], "due": c["due"]} for a in aes(rid).get("overdue") or []
+        """One row per overdue report of a serious AE (P-03): participant, party, due date. The review of D-766: a
+        serious AE with no clock at all (no rule set chosen) is listed too, as "no deadline", never left out."""
+        got = aes(rid)
+        rows = [{**a, "party": c["party"], "due": c["due"]} for a in got.get("overdue") or []
                 for c in a["clock"] if c["overdue"]]  # fmt: skip
+        return rows + [{**a, "party": "no_clock", "due": ""} for a in got.get("aes") or []
+                       if a.get("serious") and a.get("noclock")]  # fmt: skip
 
     def life_home(sess: Session) -> dict[str, Any]:
         """The home page's visit block and serious-AE alert, across the studies this account sees."""

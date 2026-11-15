@@ -158,6 +158,11 @@ REPORT_FIELDS = {"sponsor": "ae_rep_sponsor", "irb": "ae_rep_irb", "regulator": 
 HOUR_RULE = 1  # a rule of one day is the 24-hour report, counted in hours
 
 
+#: NEW-LIFE-8 (D-766): the regulator's days for an EXPECTED reaction (fatal or life-threatening, other), where a set has
+#: them; an expected reaction otherwise needs no regulator report (LIFE-024). Not a party: no report row of its own
+EXPECTED_REGULATOR = "regulator_expected"
+
+
 @dataclass(frozen=True)
 class RuleSet:
     name: str
@@ -168,18 +173,29 @@ class RuleSet:
 
 RULE_SETS: dict[str, RuleSet] = {
     "jp_gcp": RuleSet("jp_gcp", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (0, 0)}),
-    "jp_gcp_ii": RuleSet("jp_gcp_ii", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15)}),
+    # NEW-LIFE-8 (D-766): an expected fatal or life-threatening reaction still has a 15-day PMDA report here
+    "jp_gcp_ii": RuleSet(
+        "jp_gcp_ii", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15), EXPECTED_REGULATOR: (15, 0)}
+    ),
     "jp_crb": RuleSet("jp_crb", "JP", "MHLW", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (7, 15)}),
     "jp_guideline": RuleSet("jp_guideline", "JP", "MHLW", {"sponsor": (0, 0), "irb": (1, 1), "regulator": (0, 0)}),
     "tw_trial": RuleSet("tw_trial", "TW", "TFDA", {"sponsor": (1, 1), "irb": (7, 15), "regulator": (7, 15)}),
     "tw_research": RuleSet("tw_research", "TW", "TFDA", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (0, 0)}),
+    # NEW-LIFE-8 (D-766): a sponsor's trial at a Taiwan site: the TFDA report is the sponsor's, the site tells the
+    # sponsor (24 hours) and the IRB
+    "tw_trial_sponsor": RuleSet(
+        "tw_trial_sponsor", "TW", "TFDA", {"sponsor": (1, 1), "irb": (7, 15), "regulator": (0, 0)}
+    ),
 }
 RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)
-COUNTRY_DEFAULT = {"JP": "jp_gcp_ii", "TW": "tw_trial"}  # the country's strictest set, until the study names one
+# the country's strictest set: only its regulator's name is shown before a set is chosen (D-766)
+COUNTRY_DEFAULT = {"JP": "jp_gcp_ii", "TW": "tw_trial"}
 REPORT_RULES: dict[str, dict[str, tuple[int, int]]] = {k: dict(RULE_SETS[v].parties) for k, v in RULE_ALIASES.items()}
-# what the resolved rules can say is wrong; all but ``default_rules`` are an alert, never a quiet fallback (CR-009)
-RULE_PROBLEMS = ("unknown_rules", "no_country", "other_country", "bad_override", "noclock", "default_rules")
-RULE_ALERTS = ("unknown_rules", "no_country", "other_country", "bad_override", "noclock")
+# what the resolved rules can say is wrong; every one is an alert, never a quiet fallback (CR-009)
+# NEW-LIFE-8 (D-766): ``unconfirmed``: the study has not chosen its set, so no deadline is shown (an alert; it was the
+# country's default with a note, ``default_rules``)
+RULE_PROBLEMS = ("unknown_rules", "no_country", "other_country", "bad_override", "noclock", "unconfirmed")
+RULE_ALERTS = ("unknown_rules", "no_country", "other_country", "bad_override", "noclock", "unconfirmed")
 SERIOUS_WHY = ("1", "2", "3", "4", "5", "6")
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
@@ -210,39 +226,48 @@ def apply_override(parties: dict[str, tuple[int, int]], override: str) -> list[s
 
 
 def clock_rules(study_set: str = "", tz: str = "", override: str = "", box_set: str = "") -> dict[str, Any]:
-    """The clock in force for one study: the study's named set, else the box's (``TB_SAE_RULES``), else the default
-    of the site's country (from ``site.tz``), then ``override``. Returns ``name``, ``country``, ``regulator``,
+    """The clock in force for one study: the study's named set, then ``override``; with none named, no clock and the
+    ``unconfirmed`` alert (D-766), the regulator's name from the box's ``TB_SAE_RULES`` or the site's country. Returns
+    ``name``, ``country``, ``regulator``,
     ``parties`` (party -> (fatal or life-threatening, other) days), ``source`` (study, box, country) and
     ``problems`` (:data:`RULE_PROBLEMS`). An unknown name, a zone of no known country or an unreadable override is
     a problem the pages show as an alert, never the Taiwan clock (CR-009)."""
     country = _site_country(tz)
-    asked = (study_set or box_set or "").strip().lower()
+    # the review of D-766: only the study's own set runs a clock ("confirmed by each trial office"); a box-wide
+    # ``TB_SAE_RULES`` is named on the page but gives no deadline (it put a TFDA clock on every sponsor trial)
+    asked = (study_set or "").strip().lower()
     name = RULE_ALIASES.get(asked, asked)
     source = "study" if study_set else ("box" if box_set else "country")
     problems: list[str] = []
+    if apply_override({}, override):  # said whatever the set, also before one is chosen
+        problems.append("bad_override")
     if name:
         rs = RULE_SETS.get(name)
         if rs is None:
             problems.append("unknown_rules")
-    else:
-        rs = RULE_SETS.get(COUNTRY_DEFAULT.get(country, ""))
-        problems.append("default_rules" if rs is not None else "no_country")
+    else:  # NEW-LIFE-8 (D-766): no deadline until the study names its set
+        rs = None
+        problems.append("unconfirmed" if COUNTRY_DEFAULT.get(country) else "no_country")
     if rs is not None and country and rs.country != country:
         problems.append("other_country")
     parties = dict(rs.parties) if rs is not None else {}
-    if apply_override(parties, override):
-        problems.append("bad_override")
-    if not any(max(v) > 0 for v in parties.values()):
+    if rs is not None:
+        apply_override(parties, override)
+        if parties.get("regulator") == (0, 0):  # an override that turns the regulator off turns the expected row off
+            parties.pop(EXPECTED_REGULATOR, None)
+    if "unconfirmed" not in problems and not any(max(v) > 0 for k, v in parties.items() if k in REPORT_PARTIES):
         problems.append("noclock")
+    boxed = RULE_SETS.get(RULE_ALIASES.get(box_set.strip().lower(), box_set.strip().lower())) if box_set else None
+    shown = rs if rs is not None else boxed or RULE_SETS.get(COUNTRY_DEFAULT.get(country, "")) if not name else None
     return {"name": rs.name if rs is not None else name[:40], "country": rs.country if rs is not None else country,
-            "regulator": rs.regulator if rs is not None else "", "parties": parties, "source": source,
+            "regulator": shown.regulator if shown is not None else "", "parties": parties, "source": source,
             "problems": problems}  # fmt: skip
 
 
 def report_rules(tz: str = "", override: str = "", rules: str = "") -> dict[str, tuple[int, int]]:
-    """The parties of :func:`clock_rules` for a box-wide name (``rules``) or the site's zone; what the pages show as
-    a problem is in :func:`clock_rules`."""
-    return dict(clock_rules("", tz, override, rules)["parties"])
+    """The parties of :func:`clock_rules` for a named set (``rules``, as a study names it) in the site's zone; what the
+    pages show as a problem is in :func:`clock_rules`. No set named: no parties (D-766)."""
+    return dict(clock_rules(rules, tz, override)["parties"])
 
 
 def is_serious(e: dict[str, Any]) -> bool:
@@ -294,10 +319,17 @@ def report_clock(e: dict[str, Any], today: date, rules: dict[str, tuple[int, int
     tz = now.tzinfo if now is not None else None
     began = start_at(e, tz)
     expected = e.get("ae_expected") == "1"
+    # D-766: a suspected reaction unless the investigator says "not related" and the sponsor does not say related
+    # (ICH E2A: either one's judgment of a reasonable possibility); "unknown" (9) or no answer counts as suspected
+    unrelated = e.get("ae_related") == "0" and e.get("ae_sponsor_related") != "1"
     out = []
     for party in REPORT_PARTIES:
         days = rules.get(party, (0, 0))[0 if grave(e) else 1]
-        if days <= 0 or (party == "regulator" and expected):
+        if party == "regulator" and unrelated:
+            continue  # a regulator report is for a suspected reaction (D-766, LIFE-008 c)
+        if party == "regulator" and expected:  # LIFE-024; D-766: unless the set has days for an expected reaction
+            days = rules.get(EXPECTED_REGULATOR, (0, 0))[0 if grave(e) else 1]
+        if days <= 0:
             continue
         row: dict[str, Any] = {"party": party, "days": days}
         if days == HOUR_RULE:
