@@ -367,13 +367,16 @@ def bad(reason: str, detail: dict[str, Any] | None = None) -> StepResult:
 
 
 def placeholder_problems(override: Path) -> list[str]:
-    """D-887: the box rehearsal's placeholder pins, refused by name: they are not a model and qualify nothing."""
+    """D-887: the box rehearsal's placeholder pins, refused by name: they are not a model and qualify nothing; and
+    a rehearsal box (deploy/site/rehearsal.json beside the pins, the integrator's (i)), whatever it serves."""
+    mark = override.parent / "rehearsal.json"
+    box = [f"a rehearsal box ({mark}, deploy/install.sh --rehearsal): nothing is qualified on it (D-887)"]
     try:
         doc = yaml.safe_load(override.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
-        return []
+        return box if mark.is_file() else []
     builds = doc.get("builds") if isinstance(doc, dict) else None
-    return [
+    return (box if mark.is_file() else []) + [
         f"{b} is a rehearsal placeholder pin (D-887): not a model, it is never qualified"
         for b, e in sorted((builds or {}).items())
         if isinstance(e, dict) and (e.get("weights") or {}).get("trust") == "rehearsal_placeholder"

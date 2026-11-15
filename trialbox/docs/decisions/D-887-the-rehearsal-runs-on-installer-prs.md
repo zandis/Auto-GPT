@@ -48,6 +48,30 @@
    registry routes it on a TEST box only (services/registry, one condition); `--promote` and qualify refuse it by
    name; the doctor's serving and registry_pins lines and the served step say "rehearsal placeholder". The install's
    earlier "a rehearsal box goes on unpinned" is gone: a refused pin stops every box.
+9. **The rehearsal box is VALIDATION** (the integrator's (i), 2026-11-15; it amends D-726's "a rehearsal box is
+   TEST", every refusal of D-726 for a box without the mark standing). Its fifth run showed why: SCREEN's note checks
+   are D3, a TEST box has no step confirmer and its class ceiling is D0, so the gateway refused all twelve
+   (`step_unconfirmed`, then `class_not_allowed_in_env`) and no SCREEN could reach the pinned builds there.
+   - The mark: `deploy/install.sh --rehearsal` writes `deploy/site/rehearsal.json` before the bundle loads (the
+     load records it in installed.json as `rehearsal_box: true`) and then `TB_ENV=VALIDATION`, `TB_REHEARSAL=1` in
+     deploy/.env. A variable alone makes no rehearsal box: a VALIDATION box counts as one only with both marks.
+   - The pin's three conditions stand: a rehearsal box (TEST or VALIDATION, `TB_REHEARSAL=1`, installed.json's
+     recorded mark), a rehearsal bundle, every folder a placeholder; PRODUCTION never. The registry routes a
+     placeholder candidate on TEST or VALIDATION, never PRODUCTION.
+   - Never taken for a validation box: the doctor's standing line "REHEARSAL BOX: placeholder models, synthetic data
+     only" (no setting turns it off), the console's banner and footer say `VALIDATION REHEARSAL`, and qualify,
+     `pin_model --promote` and `--promote-shipped` refuse on a rehearsal box by name (the mark beside the pins).
+   - A VALIDATION box without the mark refuses a rehearsal bundle, a placeholder pin and `--rehearsal` exactly as
+     before; a PRODUCTION box refuses the bundle whatever marks it carries.
+   - Every rehearsal now runs as a validation run on a plain VM does (VALIDATION seals the site keys and FAILs what
+     only a site's host has): the passphrase KEK with no TPM and `TB_HOST_PROFILE=poc`; the validation variant adds
+     the root-owned `deploy/site` and the second install. The doctor's registry_pins line no longer says a VALIDATION
+     box with candidates "routes nothing" (D-823: it runs its candidate pair).
+   - **What the rehearsal reaches now:** VALIDATION's gates, D3 on the box, both pinned builds through the gateway
+     (SCREEN on synthetic hospital A), the seal and the second install. **What it still cannot reach:** a real model,
+     a GPU, the shipped egress rules (no NET_ADMIN in its container), a TPM, the host's time sync, the systemd timers
+     and an off-box audit anchor share. The doctor step names these last three (`clock`, `ops_runner`,
+     `audit_heads`) as not reached by a rehearsal and fails on any other FAIL.
 
 ## Test
 

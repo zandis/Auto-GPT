@@ -84,9 +84,10 @@ facility() {  # facility strict|fail MESSAGE LABEL: as strict/fail, or a listed 
   elif [ "$1" = strict ]; then strict "$2"; else fail "$2"; fi
 }
 facilities() { [ -z "$FACILITIES" ] || warn "host profile poc: ${FACILITIES#, } (each one fails on a site host)"; }
-# D-887: a rehearsal box (TB_ENV TEST, TB_REHEARSAL=1, deploy/install.sh --rehearsal) runs in a container on a
-# developer's or CI's host: no encrypted disk, no NET_ADMIN. What only the site's host can have is a WARN there
-rehearsal_box() { [ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]; }
+# D-887: a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with the mark deploy/site/rehearsal.json:
+# deploy/install.sh --rehearsal) runs in a container on a developer's or CI's host: no encrypted disk, no NET_ADMIN.
+# What only the site's host can have is a WARN there
+rehearsal_box() { [ "$(envget TB_REHEARSAL)" = 1 ] && { [ "$TBENV" = TEST ] || { [ "$TBENV" = VALIDATION ] && [ -f "$(dirname "$ENV_FILE")/site/rehearsal.json" ]; }; }; }
 if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" = PRODUCTION ]; then
   fail "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
 fi

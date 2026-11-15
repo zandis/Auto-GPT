@@ -38,10 +38,12 @@ without the key (401). It never starts without a key (D-177).
 **Knobs.** `TB_REHEARSE_DIR` (default a fresh private `mktemp` folder; a given one must be absolute, three levels
 deep, not a system folder, and new or this user's earlier rehearsal folder; the report and logs stay there),
 `TB_REHEARSE_SKIP_BUILD=1` (use the images already built), `TB_REHEARSE_KEEP=1` (leave the box running for a look),
-`TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy), `TB_REHEARSE_VARIANT=validation` (D-887: VALIDATION's
-settings on the rehearsal box, which stays TEST for the model stand-ins: the passphrase KEK with no TPM, the poc host
-profile, a root-owned `deploy/site`, and the same bundle installed twice; it mounts the Docker host's `/run/trialbox`
-and volumes folder in the box container, as on a site's host). CI runs both variants by hand and on every pull
+`TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy), `TB_REHEARSE_VARIANT=validation` (D-887: a root-owned
+`deploy/site` and the same bundle installed twice). Every rehearsal box is VALIDATION (D-887, so that SCREEN's D3
+note checks reach both pinned builds on the box) and runs as a validation run on a plain VM: the passphrase KEK with
+no TPM and the poc host profile; it mounts the Docker host's `/run/trialbox` and volumes folder in the box
+container, as on a site's host. Its doctor step names what only a site's host has (`clock`, `ops_runner`,
+`audit_heads`) as not reached by a rehearsal and fails on any other FAIL. CI runs both variants by hand and on every pull
 request that touches the installer (`.github/workflows/trialbox-rehearse-box.yml`). It needs a Docker host with no other TrialBox stack and port
 8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
 `DOCKER_HOST=unix:///path/docker.sock` rehearses on another daemon. Run it on both Docker image stores before a
@@ -118,15 +120,18 @@ Under WSL2 (the Windows form; the script reads the kernel's release) the address
 printed and not written to the box's screen file, and the host's time zone is left to Windows (D-571).
 When the answers are applied the script writes `deploy/site/box/applied`; a start that finds it (the window
 closed before the last line) shows no new code and finishes the set-up (D-576).
-**A rehearsal box** (D-726). `deploy/install.sh <bundle> --rehearsal` (or `deploy/box-install.sh <bundle>
+**A rehearsal box** (D-726, D-887). `deploy/install.sh <bundle> --rehearsal` (or `deploy/box-install.sh <bundle>
 --rehearsal`, which hands it on) makes a box that says it is a rehearsal: it is TEST from before the bundle loads (the
-mark `deploy/site/rehearsal.json`), and deploy/.env gets `TB_ENV=TEST` and `TB_REHEARSAL=1`. The installer refuses
-it on a PRODUCTION or VALIDATION box and on a box whose Docker volumes hold data from no rehearsal. The model
-stand-ins (`tools/rehearse_box/standins.yml`, the default override of a rehearsal; `TB_COMPOSE_OVERRIDE=` set empty
-keeps the real model servers, for an unmeasured card's trial boot) and `TB_ACCEPT_UNMEASURED_GPU=1` work on a TEST box
-only. `trialbox doctor` says "rehearsal box" (WARN) and fails a rehearsal mark on any other environment. A bundle
-built with `tools/make_bundle.sh --rehearsal` says `"rehearsal": true` in its release.json; a PRODUCTION or
-VALIDATION box refuses it at install and at update. A rehearsal box never becomes a site box: before a site's
+mark `deploy/site/rehearsal.json`, recorded in `deploy/updates/installed.json`), and deploy/.env then gets
+`TB_ENV=VALIDATION` and `TB_REHEARSAL=1` (VALIDATION keeps D3 on the box, so SCREEN reaches the pinned builds). The
+installer refuses it on a PRODUCTION box, on a VALIDATION box without the mark, and on a box whose Docker volumes
+hold data from no rehearsal. The model stand-ins (`tools/rehearse_box/standins.yml`, the default override of a
+rehearsal; `TB_COMPOSE_OVERRIDE=` set empty keeps the real model servers, for an unmeasured card's trial boot) and
+`TB_ACCEPT_UNMEASURED_GPU=1` work on a rehearsal box only. `trialbox doctor` carries the standing line "REHEARSAL BOX:
+placeholder models, synthetic data only" (WARN), the console's banner says `VALIDATION REHEARSAL`, qualify and
+`pin_model --promote` refuse on it, and the doctor fails a rehearsal mark on any other box. A bundle built with
+`tools/make_bundle.sh --rehearsal` says `"rehearsal": true` in its release.json; a PRODUCTION box, and a VALIDATION
+box without the mark, refuse it at install and at update. A rehearsal box never becomes a site box: before a site's
 install on the same machine, empty it: `docker compose --project-directory deploy down -v`, then remove what the
 rehearsal's install wrote: `deploy/.env`, `deploy/settings.yaml`, `deploy/updates/`, `deploy/secrets/`,
 `deploy/site/registry.site.yaml` and `deploy/site/rehearsal.json` (keep `deploy/site/serving_config.<profile>.json`

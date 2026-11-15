@@ -19,8 +19,10 @@ envget() { sed -n "s/^$1=//p" "$BOX/deploy/.env" | tail -1; }
 envset() { sed -i "/^$1=/d" "$BOX/deploy/.env"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2" >> "$BOX/deploy/.env"; }
 IMAGE_PY="trialbox-py:1.0.0"
 
-# install_box: the real installer as a site runs it, with VALIDATION's settings in the validation variant (D-887). The
-# box stays a rehearsal (TEST) box: --rehearsal, as the model stand-ins are honoured on a TEST box only (D-726)
+# install_box: the real installer as a site runs it (--rehearsal). The rehearsal box is VALIDATION (D-887, the
+# integrator's (i)): D3 stays on the box, so SCREEN reaches the pinned builds; VALIDATION seals the site keys and
+# FAILs what only a site's host has, so every rehearsal runs as a validation run on a plain VM does: no TPM, the
+# passphrase KEK, TB_HOST_PROFILE=poc. The validation variant adds a root-owned deploy/site and the second install
 install_box() (
   cd "$BOX" || exit 1
   # the host's zone is the site's, as a site's IT sets it (doctor's site_tz, D-315); this host has no timedatectl
@@ -29,11 +31,11 @@ install_box() (
   if [ "${TB_RH_VARIANT:-test}" = validation ]; then
     # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
     install -d -m 0755 deploy/site && chown -R root:root deploy/site
-    # no TPM on this host: the passphrase back end, a throwaway synthetic passphrase (never printed, kept 0600)
-    [ -s "$W/vendor/kek-pass" ] || (umask 077 && head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$W/vendor/kek-pass")
-    TB_KEK_PASSPHRASE="$(cat "$W/vendor/kek-pass")"
-    export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase TB_KEK_PASSPHRASE
   fi
+  # no TPM on this host: the passphrase back end, a throwaway synthetic passphrase (never printed, kept 0600)
+  [ -s "$W/vendor/kek-pass" ] || (umask 077 && head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$W/vendor/kek-pass")
+  TB_KEK_PASSPHRASE="$(cat "$W/vendor/kek-pass")"
+  export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase TB_KEK_PASSPHRASE
   TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
     deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes
 )
@@ -217,7 +219,16 @@ doctor)
   grep -q '^TB_CONSOLE_SECURE_COOKIE=1' "$BOX/deploy/.env" || { envset TB_CONSOLE_SECURE_COOKIE 1; dc up -d --wait console; }
   out="$(doctor --live 2>&1)"; rc=$?
   echo "$out"
-  [ "$rc" = 0 ] && echo "$out" | grep -q "^doctor passed" || fail "trialbox doctor --live did not pass"
+  # D-887: the rehearsal box is VALIDATION, which FAILs what only a site's host has; these, and nothing else, are
+  # said as not reached by a rehearsal (no NTP in a container, no systemd timer, no hospital share for the anchor)
+  host_only='^FAIL  (clock|ops_runner|audit_heads) '
+  echo "$out" | grep -E "$host_only" | sed 's/^FAIL /not reached by a rehearsal (a site host has it): /'
+  other="$(echo "$out" | grep -E '^FAIL ' | grep -Ev "$host_only")"
+  [ -z "$other" ] || fail "trialbox doctor --live failed: $other"
+  { [ "$rc" = 0 ] && echo "$out" | grep -q "^doctor passed"; } || echo "$out" | grep -qE "$host_only" \
+    || fail "trialbox doctor --live did not pass"
+  echo "$out" | grep -q "^WARN  rehearsal .*REHEARSAL BOX: placeholder models, synthetic data only" \
+    || fail "the doctor does not carry the standing REHEARSAL BOX line"
   echo "$out" | grep -q "^PASS  serving" || fail "the live serving check did not PASS"
   echo "$out" | grep -q "^PASS  registry_pins" || fail "registry_pins did not PASS"
   # D-887: the pins are the media's placeholders, and the doctor says so where it shows them

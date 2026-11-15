@@ -188,6 +188,8 @@ def expected_of(row: dict[str, Any]) -> tuple[str | None, str | None]:
 # nothing about a model. Never promoted, never qualified.
 PLACEHOLDER_ARCH = "TrialBoxRehearsalPlaceholder"
 PLACEHOLDER_TRUST = "rehearsal_placeholder"
+# the integrator's (i): a rehearsal box is VALIDATION (D3 on the box, D-823), or TEST as it was; never PRODUCTION
+REHEARSAL_ENVS = ("TEST", "VALIDATION")
 
 
 def is_placeholder(model_dir: Path) -> bool:
@@ -211,15 +213,31 @@ def placeholder_refusal(env: dict[str, str], installed: Path, dirs: list[Path]) 
         return ""
     if not all(marks):
         return "a real weight folder beside a rehearsal placeholder: nothing is pinned (no mixing)"
-    if env.get("TB_ENV") != "TEST" or env.get("TB_REHEARSAL") != "1":
-        return (f"rehearsal placeholder weights are pinned on a rehearsal box only (TB_ENV TEST, TB_REHEARSAL=1); "
-                f"this box is TB_ENV={env.get('TB_ENV') or '?'}: nothing is pinned")  # fmt: skip
+    if env.get("TB_ENV") not in REHEARSAL_ENVS or env.get("TB_REHEARSAL") != "1":
+        return (f"rehearsal placeholder weights are pinned on a rehearsal box only (TB_ENV TEST or VALIDATION, "
+                f"TB_REHEARSAL=1); this box is TB_ENV={env.get('TB_ENV') or '?'}: nothing is pinned")  # fmt: skip
     try:
         rec = json.loads(installed.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         rec = {}
-    if not isinstance(rec, dict) or rec.get("rehearsal") is not True:
+    if not isinstance(rec, dict) or rec.get("rehearsal_box") is not True:
+        # the integrator's (i): the mark install.sh --rehearsal writes, recorded at the load; never a variable alone
+        return (f"rehearsal placeholder weights, but {installed} records no rehearsal box (deploy/install.sh "
+                "--rehearsal): nothing is pinned")  # fmt: skip
+    if rec.get("rehearsal") is not True:
         return f"rehearsal placeholder weights, but the installed bundle is not a rehearsal bundle ({installed})"
+    return None
+
+
+def rehearsal_box_refusal(out: Path) -> str | None:
+    """Why nothing is promoted or qualified on this box: the rehearsal mark beside the site pins
+    (deploy/site/rehearsal.json, written by deploy/install.sh --rehearsal only); None on any other box."""
+    mark = out.parent / "rehearsal.json"
+    if mark.is_file():
+        return (
+            f"a rehearsal box ({mark}, deploy/install.sh --rehearsal): placeholder models, synthetic data only; "
+            "nothing is promoted or qualified on it (D-887)"
+        )
     return None
 
 
@@ -707,6 +725,8 @@ def promote(
 
     from tools.qualify import check_record
 
+    if (why := rehearsal_box_refusal(out)) is not None:
+        raise PinError(f"{build_id}: {why}")
     if ((load_override(out)["builds"].get(build_id) or {}).get("weights") or {}).get("trust") == PLACEHOLDER_TRUST:
         raise PinError(f"{build_id}: a rehearsal placeholder pin is never promoted (D-887): it is not a model")
     pinned_tpl = ((load_override(out)["builds"].get(build_id) or {}).get("weights") or {}).get("chat_template") or {}
@@ -1125,6 +1145,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return 0
     if args.promote_shipped:
+        if (why := rehearsal_box_refusal(args.out)) is not None:  # a note for the installer, as a placeholder is
+            print(f"{why}; no shipped record is looked for")
+            return 5
         pinned = (load_override(args.out).get("builds") or {}) if args.out.exists() else {}
         trusts = {b: ((e or {}).get("weights") or {}).get("trust") for b, e in pinned.items()}
         held = sorted(b for b, t in trusts.items() if t == PLACEHOLDER_TRUST)
