@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "78c6fc5fc78253cc0ab412e8e37b32dd13bac62c",
+  "head": "29dceba03e7c34a94c37b90d18deaded1f9b8319",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "Train 28: #716 (D-816) on top of train 27: the base mapping moves every mapping_version and table hash",
+  "reason": "D-816 on train 27's tree: the base mapping's report conclusion falls back to the body and is masked; mapping_version moves, no data row changes",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
