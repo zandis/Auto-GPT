@@ -125,6 +125,7 @@ class DecideBody(BaseModel):
     citation: dict[str, str] | None = None
     by: str | None = Field(default=None, pattern=_USER)
     unlock: bool = False  # counts only on a DEV or TEST box without a token, as ``by`` (D-281)
+    mark: str = Field(default="", max_length=64)  # NEW-EDC-4: the "source changed" mark a keep answers
 
 
 class SignBody(BaseModel):
@@ -297,7 +298,8 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         # (with a token); on a DEV or TEST box without one, the console says so in the body, as it names the person
         unlock = reauthenticated(a) if a.verified else body.unlock
         return run(lambda: get().decide(_rs(rs), draft_id, body.action, value=body.value, reason=body.reason,
-                                        citation=body.citation, by=a.name, unlock=unlock))  # fmt: skip
+                                        citation=body.citation, by=a.name, unlock=unlock,
+                                        mark=body.mark))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/sign")
     def sign(rs: str, body: SignBody, request: Request) -> dict[str, Any]:

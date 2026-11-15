@@ -66,7 +66,7 @@ DECODING_ROUNDS = 4
 # G-4: per setting (guided on, guided off), the answers outside the judge schema kept as examples, and how much of each
 # answer's text: enough to tell a cut at max_tokens (finish_reason "length", the JSON unclosed) from a whole answer
 # in a markdown fence or with prose around it, without copying every answer into the report (the prompts are
-# synthetic, so the text is safe to keep)
+# synthetic, so the text is safe to keep); as many calls not answered are kept with their status and why
 SCHEMA_FAILURE_EXAMPLES = 5
 EXAMPLE_CHARS = 200
 # G-5's pass rule (deep review 06-llm.md, test G-05): the largest measured ratio, with 5 % for what the sample did not
@@ -265,8 +265,14 @@ def failure_example(r: dict[str, Any]) -> dict[str, Any]:
 
 def decoding_summary(results: Sequence[dict[str, Any]], seconds: float) -> dict[str, Any]:
     """One setting's calls: answered, errors, schema failures, calls per second over the wall time, p50 / p95; the
-    schema failures by finish_reason and the first :data:`SCHEMA_FAILURE_EXAMPLES` of them (:func:`failure_example`)."""
+    schema failures by finish_reason and the first :data:`SCHEMA_FAILURE_EXAMPLES` of them (:func:`failure_example`).
+
+    Every call is either answered or an error: the schema failures are of the answered calls (an answer that never
+    came cannot be judged), so ``answered + errors == calls`` and each error keeps its status and why (the first
+    :data:`SCHEMA_FAILURE_EXAMPLES` under ``unanswered``): train 16's CI lost one call to a reset connection and the
+    count alone (63 schema failures of 64) did not say so."""
     ok = [r for r in results if r.get("status") == 200]
+    lost = [r for r in results if r.get("status") != 200]
     lat = [float(r["seconds"]) for r in ok]
     bad = [r for r in ok if not r.get("in_schema")]
     why: dict[str, int] = {}
@@ -279,7 +285,9 @@ def decoding_summary(results: Sequence[dict[str, Any]], seconds: float) -> dict[
             "p50_s": _round(percentile(lat, 50)), "p95_s": _round(percentile(lat, 95)),
             "completion_tokens": sum(int(r.get("completion_tokens") or 0) for r in ok),
             "schema_failures_by_finish_reason": why,
-            "schema_failure_examples": [failure_example(r) for r in bad[:SCHEMA_FAILURE_EXAMPLES]]}  # fmt: skip
+            "schema_failure_examples": [failure_example(r) for r in bad[:SCHEMA_FAILURE_EXAMPLES]],
+            "unanswered": [{"status": r.get("status"), "error": r.get("error")}
+                           for r in lost[:SCHEMA_FAILURE_EXAMPLES]]}  # fmt: skip
 
 
 def faster_setting(on: dict[str, Any], off: dict[str, Any]) -> str:
@@ -314,6 +322,9 @@ def run_g4(a: Any) -> dict[str, Any]:
     headers = {"X-TB-Prompt-Id": p.meta.id, "X-TB-Prompt-Version": str(p.meta.version)}  # the stand-ins' answer key
 
     def one(m: list[dict[str, str]], guided: bool) -> dict[str, Any]:
+        """One call, once. A call the server does not answer (a transport error, or not 200) is recorded with its
+        status and why, not retried: G-4 measures the server at its full batch, so a lost call is a finding about the
+        server or its network, and the setting's "calls answered" check fails and says so."""
         body: dict[str, Any] = {"model": JUDGE, "messages": m, "max_tokens": p.meta.max_tokens, "temperature": 0}
         if guided:
             body["response_format"] = fmt
@@ -810,13 +821,19 @@ def _section(tag: str, b: dict[str, Any]) -> list[str]:
         be, eg = b["backend"], b["eager"]
         out += [f"Structured-output backend: **{be.get('backend')}** ({be.get('from')}). Eager start: {eg['result']} "
                 f"(record: enforce_eager {eg['enforce_eager']}).", "",
-                "| setting | calls | answered | calls/s | p50 s | p95 s | schema failures |",
+                "| setting | calls | answered | calls/s | p50 s | p95 s | schema failures (of answered) |",
                 "| --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
         for k in ("guided_on", "guided_off"):
             s = b[k]
             out.append(f"| {k.replace('_', ' ')} | {s['calls']} | {s['answered']} | {s['calls_per_second']} | "
                        f"{s['p50_s']} | {s['p95_s']} | {s['schema_failures']} |")  # fmt: skip
         out += ["", f"Profile: {b['profile']} ({b['in_flight']} in flight, {b['prompts']} prompts each way)."]
+        for k in ("guided_on", "guided_off"):
+            lost = b[k].get("unanswered") or []
+            if lost:
+                out += ["", f"{k.replace('_', ' ')}: {b[k]['errors']} call(s) not answered; the first {len(lost)} "
+                        "(status, why):", ""]  # fmt: skip
+                out += [f"- {e.get('status')}: `{_shown(e.get('error'))}`" for e in lost]
         for k in ("guided_on", "guided_off"):
             ex = b[k].get("schema_failure_examples") or []
             if not ex:

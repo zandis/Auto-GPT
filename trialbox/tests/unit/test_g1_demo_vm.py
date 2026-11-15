@@ -1,3 +1,4 @@
+# ruff: noqa: F811 - the console fixture box is imported from test_console_app and taken by name
 """The small demo VM of 2026-11-17 (deploy/gcp/demo-vm.sh, demo_vm.py, demo-vm-boot.sh; runbook 11).
 
 The owner approved "a small VM with TLS in front, reachable by me and my guest, no real-model mode". These tests drive
@@ -10,14 +11,18 @@ secret in the metadata, binds :443 only with ``tls internal`` and arms the hard 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
 import stat
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
+
+from tests.console.test_console_app import box  # noqa: F401 - the console fixture, by name
 
 GCP = Path(__file__).resolve().parents[2] / "deploy" / "gcp"
 ROOT = GCP.parents[1]
@@ -374,15 +379,89 @@ def test_boot_dry_run_fixes_the_stub_model_and_arms_the_hard_stop(tmp_path: Path
     assert "DEMO-VM-DRY-RUN-DONE" in out
 
 
-def test_boot_turns_demo_mode_on_with_a_value_the_flag_accepts(tmp_path: Path) -> None:
-    """The hosted demo shows the synthetic-data banner and refuses uploads (deep review CON-DEMO-2)."""
+def test_boot_seeds_with_demo_mode_off_and_turns_it_on_before_caddy_opens_443(tmp_path: Path) -> None:
+    """Deep review CON-DEMO-2 wants the hosted demo in demo mode (banner, uploads refused). Lane G's rehearsal of
+    2026-11-14: with TB_DEMO_MODE=on in the container the demo's own seed was refused (its protocol paste, POST
+    /pilot/protocol, is a guarded route: 403) and the container restarted 14 times in 19 minutes. So the container
+    seeds with the flag off, the boot switches it on once the seed answers on the loopback, and only then starts Caddy:
+    nobody outside reaches the console before demo mode is on. The container never restarts by itself (a restart
+    would reseed with demo mode off)."""
+    from console import demo_guard as dg
     from tb_common.flags import DECLARED
 
+    # why: the seed's first paste is a route demo mode refuses, whatever its encoding
+    assert dg.guarded("POST", "/pilot/protocol", "application/x-www-form-urlencoded")
     rc, out = _boot(tmp_path, "--dry-run")
     assert rc == 0, out
     flag = DECLARED["demo.mode"]
-    assert flag.seed_env == "TB_DEMO_MODE"
-    assert f"{flag.seed_env}=on" in out and "on" in flag.values
+    assert flag.seed_env == "TB_DEMO_MODE" and "on" in flag.values
+    assert f"{flag.seed_env}=" not in out  # never seeded on in the seeding process
+    run_demo = out.index("docker run -d --name tb-demo ")
+    seeded = out.index("http://127.0.0.1:8080/login (the seed")
+    switch = out.index("docker exec -i tb-demo python - http://127.0.0.1:8080 < (demo-vm-boot.sh --print-demo-switch)")
+    caddy = out.index("docker run -d --name tb-demo-caddy")
+    assert run_demo < seeded < switch < caddy, out
+    assert out.index("docker rm -f tb-demo-caddy") < run_demo  # an old Caddy does not keep :443 open meanwhile
+    demo_line = out[run_demo : out.index("\n", run_demo)]
+    assert "--restart no" in demo_line and "unless-stopped" not in demo_line
+
+
+def test_the_boots_demo_switch_sets_the_flag_on_the_flag_page_and_sees_the_refusal(
+    box: dict[str, Any], tmp_path: Path
+) -> None:
+    """The Python the boot pipes into the container, run as it is printed against a served console: it signs in as
+    admin, sets demo.mode on /ops/flags with a reason (one audited flag.set), and exits 0 only after a multipart post
+    was refused with the demo banner. Run a second time (demo mode already on) it fails: never a silent success."""
+    import socket
+    import sys
+    import threading
+    import time
+
+    import uvicorn
+    from console import demo_guard as dg
+    from tb_common import flags as fl
+
+    from tests.console.test_console_app import ADMIN_PW
+
+    fl.clear_cache()
+    assert fl.Flags().row(dg.FLAG) == "off"
+    with socket.socket() as so:
+        so.bind(("127.0.0.1", 0))
+        port = so.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(box["app"], host="127.0.0.1", port=port, log_level="warning"))
+    th = threading.Thread(target=server.run, daemon=True)
+    th.start()
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            time.sleep(0.05)
+        rc, script = _boot(tmp_path, "--print-demo-switch")
+        assert rc == 0 and "TB_DEMO_PASSWORD" in script, script
+        env = {**os.environ, "TB_DEMO_PASSWORD": ADMIN_PW}
+
+        def switch() -> subprocess.CompletedProcess[str]:
+            return subprocess.run([sys.executable, "-", f"http://127.0.0.1:{port}"], input=script, env=env,
+                                  capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
+
+        p = switch()
+        assert p.returncode == 0, p.stdout + p.stderr
+        assert ADMIN_PW not in p.stdout + p.stderr
+        fl.clear_cache()
+        assert dg.flag_on()
+        events = []
+        for f in sorted((box["dir"] / "audit").glob("*.jsonl")):
+            events += [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x]
+        (ev,) = [e for e in events if e["event"] == "flag.set"]
+        assert ev["actor"] == "console:admin" and ev["detail"]["flag"] == dg.FLAG and ev["detail"]["new"] == "on"
+        assert "demo-vm-boot.sh" in ev["detail"]["reason"]
+        assert [e["detail"]["path"] for e in events if e["event"] == dg.REFUSED_EVENT] == ["/pilot/case"]
+        again = switch()
+        assert again.returncode != 0 and "demo switch:" in again.stderr, again.stdout + again.stderr
+    finally:
+        server.should_exit = True
+        th.join(timeout=10)
+        fl.clear_cache()
 
 
 def test_boot_caddyfile_is_tls_internal_on_443_only(tmp_path: Path) -> None:
@@ -419,7 +498,8 @@ def test_boot_and_the_poc_host_pin_the_same_caddy() -> None:
 
 
 def test_no_setting_of_the_demo_vm_reads_as_a_secret_that_reaches_a_container() -> None:
-    # TB_DEMO_VM_SECRET (the name of the Secret Manager entry, never a value) was taken for a secret by the scan of
+    # the setting's earlier name, ending in "secret" (the name of the Secret Manager entry, never a value; now
+    # TB_DEMO_VM_SM_NAME), was taken for a secret by the scan of
     # what reaches each container, and failed it on every compose stack wherever docker compose is installed
     from tests.unit.test_compose_secret_reach import secret_names
 

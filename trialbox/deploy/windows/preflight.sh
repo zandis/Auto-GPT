@@ -5,12 +5,13 @@
 #   bash deploy/windows/preflight.sh [DATA_DIR]       # default DATA_DIR: /opt/trialbox (or / when it does not exist)
 #
 # Prints one PASS or FAIL line per check, exits 1 when any check fails. Reads only; changes nothing; no network.
-# Thresholds: TB_MIN_FREE_GB (500), TB_MIN_RAM_GB (32: what WSL2 itself is given), TB_MIN_WIN_BUILD (22000).
+# Thresholds: TB_MIN_FREE_GB (500), TB_MIN_RAM_GB (32: what WSL2 itself is given), TB_MIN_WIN_BUILD (19045:
+# Windows 10 22H2, owner ruling D-503; NEW-WIN-10, D-613).
 # TB_PREFLIGHT_PROC replaces /proc in the tests.
 set -u
 DATA="${1:-/opt/trialbox}"; [ -d "$DATA" ] || DATA=/
 PROC="${TB_PREFLIGHT_PROC:-/proc}"
-MIN_FREE="${TB_MIN_FREE_GB:-500}"; MIN_RAM="${TB_MIN_RAM_GB:-32}"; MIN_BUILD="${TB_MIN_WIN_BUILD:-22000}"
+MIN_FREE="${TB_MIN_FREE_GB:-500}"; MIN_RAM="${TB_MIN_RAM_GB:-32}"; MIN_BUILD="${TB_MIN_WIN_BUILD:-19045}"
 FAILED=0
 line() { if [ "$1" = 0 ]; then echo "PASS  $2: $3"; else echo "FAIL  $2: $3"; FAILED=$((FAILED + 1)); fi; }
 

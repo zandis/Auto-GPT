@@ -10,6 +10,8 @@
     python tools/acceptance.py twpas      twpas_validation_ONC-OSI.json [...]
     python tools/acceptance.py reproduce  --results rerun.jsonl     # from `python -m orchestrator.rerun <job ids>`
     python tools/acceptance.py audit      --dir <audit dir>
+    python tools/acceptance.py capacity   --jobs <one night's jobs, JSON list> [--night <name>] [--tz <zone>]
+    python tools/acceptance.py power-cycle --doctor <doctor --json, after the power came back> --audit-dir <dir>
     python tools/acceptance.py report     [--out acceptance/]
 
 ``screen-sample`` draws the blinded adjudication set (≥100 patients in four strata: high, review, excluded, scoped but
@@ -43,7 +45,12 @@ TARGETS = {
     "twpas": "0 validator errors; NHI pre-check passes on the test set",
     "reproduce": "same inputs + versions → identical output hashes (100 %)",
     "audit": "audit chain verifies",
+    # T-317a (D-730)
+    "capacity": "one night's chain ends done before the first morning notice, with at least 1 h to spare",
+    "power_cycle": "after a power cut: trialbox doctor has no FAIL and the audit chain verifies",
 }
+SPARE_H = 1.0  # T-317a (D-730): the capacity criterion's margin before the first morning notice
+TERMINAL = ("done", "failed")
 STRATA = ("high", "review", "excluded", "not_listed")
 
 
@@ -253,6 +260,76 @@ def check_reproduce(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _night_jobs(jobs: list[dict[str, Any]], night: str | None) -> tuple[str | None, list[dict[str, Any]]]:
+    """The jobs of one night of the night runner (orchestrator.night): the chain's jobs carry ``options.night``; the
+    night's ingest is the one whose published generation or snapshot date names it. ``night`` None: the newest."""
+    named = [j for j in jobs if (j.get("options") or {}).get("night")]
+    if night is None:
+        if not named:
+            return None, []
+        night = str(max(named, key=lambda j: str(j.get("received_at")))["options"]["night"])
+    chain = [j for j in named if str(j["options"]["night"]) == night]
+    for j in jobs:
+        opts = j.get("options") or {}
+        if j.get("type") == "INGEST" and night in (str(opts.get("lake_generation") or ""), str(j.get("snapshot_date"))):
+            chain.append(j)
+    return night, chain
+
+
+def check_capacity(
+    jobs: list[dict[str, Any]], *, tz: str, ready_by: str, night: str | None = None, spare_h: float = SPARE_H
+) -> dict[str, Any]:
+    """T-317a (D-730): one night's chain ended ``done`` before the first morning notice (``ready_by``, the site's
+    clock) that follows the night's start, with ``spare_h`` hours to spare."""
+    from datetime import datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+
+    name, chain = _night_jobs(jobs, night)
+    if not chain:
+        return {"passed": False, "summary": f"no job of the night {night or '(none named)'} in the export"}
+    zone = ZoneInfo(tz)
+    not_done = sorted({str(j.get("state")) for j in chain if j.get("state") != "done"})
+    if not_done:
+        return {"passed": False, "night": name, "jobs": len(chain),
+                "summary": f"the night {name}: jobs ended {', '.join(not_done)}, not done"}  # fmt: skip
+    start = min(datetime.fromisoformat(str(j["received_at"])) for j in chain).astimezone(zone)
+    end = max(datetime.fromisoformat(str(j["updated_at"])) for j in chain).astimezone(zone)
+    hh, mm = (int(x) for x in ready_by.split(":"))
+    deadline = datetime.combine(start.date(), time(hh, mm), zone)
+    if deadline <= start:
+        deadline += timedelta(days=1)  # a night that starts after the notice time is ready by the next morning
+    spare = round((deadline - end).total_seconds() / 3600, 2)
+    ok = spare >= spare_h
+    return {
+        "passed": ok,
+        "night": name,
+        "jobs": len(chain),
+        "started_at": start.isoformat(),
+        "ended_at": end.isoformat(),
+        "ready_by": deadline.isoformat(),
+        "spare_hours": spare,
+        "summary": f"the night {name}: {len(chain)} jobs done by {end:%H:%M}, {spare} h to spare before "
+        f"{deadline:%H:%M} (at least {spare_h} h)",
+    }
+
+
+def check_power_cycle(doctor: list[dict[str, Any]], *, chain_ok: bool) -> dict[str, Any]:
+    """T-317a (D-730): after the power came back (RUNBOOK §22, a planned power cut), ``trialbox doctor --json`` has
+    no FAIL and the audit chain verifies. An empty doctor answer is no answer."""
+    if not doctor:
+        return {"passed": False, "summary": "the doctor gave no checks"}
+    fails = [str(c.get("name")) for c in doctor if c.get("status") == "FAIL"]
+    warns = sum(1 for c in doctor if c.get("status") == "WARN")
+    ok = not fails and chain_ok
+    said = f"FAIL: {', '.join(fails)}" if fails else "no FAIL"
+    return {
+        "passed": ok,
+        "fails": fails,
+        "summary": f"{len(doctor)} doctor checks, {said}, {warns} WARN; audit chain "
+        f"{'verifies' if chain_ok else 'does not verify'}",
+    }
+
+
 def report(out: Path) -> str:
     lines = [
         "# TrialBox site acceptance (SPEC §11.2)",
@@ -308,6 +385,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--results", type=Path, required=True, help="JSON lines from `python -m orchestrator.rerun`")
     s = sub.add_parser("audit")
     s.add_argument("--dir", type=Path, required=True)
+    s = sub.add_parser("capacity")
+    s.add_argument("--jobs", type=Path, required=True, help="the night's jobs as the job API lists them (JSON list)")
+    s.add_argument("--night", help="the night's name (its generation or snapshot date); default the newest")
+    s.add_argument("--tz", help="the site's zone; default TB_TZ")
+    s.add_argument("--ready-by", help="the first morning notice; default TB_NOTICE_N1_AT")
+    s = sub.add_parser("power-cycle")
+    s.add_argument("--doctor", type=Path, required=True, help="trialbox doctor --json, after the power came back")
+    s.add_argument("--audit-dir", type=Path, required=True)
     sub.add_parser("report")
     a = ap.parse_args(argv)
     out: Path = a.out
@@ -373,6 +458,19 @@ def main(argv: list[str] | None = None) -> int:
 
         chain = verify(a.dir)
         return _save(out, "audit", {"passed": chain.ok, "summary": f"{chain.lines} events, {chain.files} files"})
+    if a.cmd == "capacity":
+        import os
+
+        from tb_common.config import site_tz
+
+        jobs = json.loads(a.jobs.read_text(encoding="utf-8"))
+        ready = a.ready_by or (os.environ.get("TB_NOTICE_N1_AT") or "07:00").strip()
+        return _save(out, "capacity", check_capacity(jobs, tz=a.tz or site_tz(None), ready_by=ready, night=a.night))
+    if a.cmd == "power-cycle":
+        from tb_common.audit import verify
+
+        doctor = json.loads(a.doctor.read_text(encoding="utf-8"))
+        return _save(out, "power_cycle", check_power_cycle(doctor, chain_ok=verify(a.audit_dir).ok))
     print(report(out))
     return 0
 

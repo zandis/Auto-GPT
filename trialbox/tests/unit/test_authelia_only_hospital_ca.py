@@ -158,9 +158,17 @@ def test_doctor_fails_a_file_that_is_missing_or_holds_no_certificate(tmp_path: P
 
 
 def test_doctor_fails_a_file_with_a_private_key_and_never_shows_it(tmp_path: Path) -> None:
-    secret = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgSYNTHETICKEY"
+    # the key is made here, never kept in the file: the secrets scan reads the test tree (train 17's red, D-722)
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    key = (
+        ec.generate_private_key(ec.SECP256R1())
+        .private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+        .decode()
+    )
+    secret = key.splitlines()[1]  # a line of the key's own body
     both = tmp_path / "ca-and-key.pem"
-    key = f"-----BEGIN PRIVATE KEY-----\n{secret}\n-----END PRIVATE KEY-----\n"
     both.write_text(_ca("Synthetic CA") + key, encoding="utf-8")
     c = _check(TB_OIDC_ENABLED="1", TB_LDAP_CA=str(both))
     assert c.status == "FAIL" and "private key" in c.detail and secret not in c.detail

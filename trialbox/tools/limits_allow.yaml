@@ -8,7 +8,7 @@
 allow:
   # ---------------------------------------------------------------- time limits that grow with the hospital
   - {path: services/lake/client.py, kind: timeout, value: 330, count: 1,
-     reason: "F-01: the site publish waits 330 s on a whole-lake rebuild (805 s at 50k), and every lake query (F-29); T-690 makes the rebuild a polled job, T-694 gives queries a limit per job type"}
+     reason: "F-01: the site publish waits 330 s on a whole-lake rebuild (805 s at 50k), and every lake query (F-29); T-690 makes the rebuild a polled job; a job's query sends its own limit and the client then waits that plus 30 s (D-746)"}
   - {path: services/adapter/validate/validator.py, kind: timeout, value: 1800, count: 1,
      reason: "F-06 (rest): 1,800 s per validator run of 5,000 files; the sample's absolute cap per type is T-693"}
   - {path: services/orchestrator/twophase.py, kind: timeout, value: 600, count: 1,
@@ -94,7 +94,7 @@ allow:
   - {path: services/console/sitestore.py, kind: limit, value: 1, count: 4, reason: "the newest row of one study; not a cut"}
   - {path: services/datacore/dataops.py, kind: limit, value: 1, count: 1, reason: "the newest batch; not a cut"}
   - {path: services/datacore/sponsor.py, kind: limit, value: 1, count: 1, reason: "the newest layout of one study; not a cut"}
-  - {path: services/edc/store.py, kind: limit, value: 1, count: 6, reason: "one row by key, or an existence check (D-690: the last value TrialBox wrote for one item); not a cut"}
+  - {path: services/edc/store.py, kind: limit, value: 1, count: 6, reason: "one row by key, or an existence check (D-690: the last value TrialBox wrote for one item; D-691: the last read-back line of one item); not a cut"}
   - {path: services/omop/export.py, kind: limit, value: 1, count: 2, reason: "the newest load batch / one person row; not a cut"}
   - {path: services/omop/load.py, kind: limit, value: 1, count: 2, reason: "one provider row / the active vocabulary release; not a cut"}
   - {path: services/omop/vocab.py, kind: limit, value: 1, count: 1, reason: "the active vocabulary release; not a cut"}

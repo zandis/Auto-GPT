@@ -1,5 +1,7 @@
 # 21. Support model and the supervised remote session
 
+**Reader:** the box owner, and Aimedics.
+
 *T-635, D-390. Closes OPS-038 and OPS-039; the support part of CR-096. The incident plan (severity scale for
 incidents, notification clocks, the six cases) is T-318, not this page. The sheet the hospital keeps is
 `docs/plan/sites/support-sheet.md` (en, ja, zh-TW).*

@@ -11,7 +11,6 @@ import json
 import os
 import subprocess
 import threading
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +150,13 @@ def test_decoding_summary_and_the_profile() -> None:
                                  {"status": 0, "seconds": 0.1, "error": "refused"}]  # fmt: skip
     s = gp.decoding_summary(res, 2.0)
     assert (s["calls"], s["answered"], s["errors"], s["schema_failures"]) == (3, 2, 1, 1)
+    assert s["unanswered"] == [{"status": 0, "error": "refused"}]  # every call accounted for, the lost one with why
+    block = {"backend": {"backend": "auto", "from": "x"}, "prompts": 3, "in_flight": 3, "profile": "p",
+             "eager": {"result": "r", "enforce_eager": None}, "guided_on": s, "guided_off": gp.decoding_summary(res[:2], 2.0)}  # fmt: skip
+    text = "\n".join(gp.report_lines({"parts": [{"tag": "g4-decoding", "decoding": block}]}))
+    assert "schema failures (of answered)" in text
+    assert 'guided on: 1 call(s) not answered; the first 1 (status, why):\n\n- 0: `"refused"`' in text
+    assert text.count("not answered") == 1  # guided off lost none, so it has no such line
     assert s["calls_per_second"] == 1.0 and s["p50_s"] == 1.0 and s["p95_s"] == 3.0 and s["completion_tokens"] == 120
     on = {"calls_per_second": 2.0, "schema_failures": 0, "errors": 0}
     assert gp.faster_setting(on, {"calls_per_second": 3.0, "schema_failures": 0, "errors": 0}) == "guided decoding off"
@@ -174,7 +180,7 @@ def test_an_answer_is_checked_against_the_judge_schema() -> None:
 @pytest.fixture()
 def standin() -> Any:
     s, _, _ = vs.build(["--model=/models/judge", "--served-model-name=local/judge", "--api-key", KEY], {})
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), vs.make_handler(s))
+    srv = vs.serve(s)  # vLLM's backlog: G-4 sends the judge's 16 slots at once (vs.BACKLOG)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield s, f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
@@ -224,10 +230,14 @@ def test_g4_records_the_failures_of_each_setting(standin: Any, tmp_path: Path, m
     monkeypatch.setattr(cr, "JUDGE", "local/judge")
     monkeypatch.setenv("TB_GPU_KEY", KEY)
     real = gp.post_json
+    unanswered: list[tuple[bool, int, str]] = []  # (guided, status, why) of each call the stand-in did not answer
 
     def post(url: str, body: dict[str, Any], *a: Any, **kw: Any) -> tuple[int, Any]:
         status, got = real(url, body, *a, **kw)
-        if url.endswith("/chat/completions") and "response_format" not in body and isinstance(got, dict):
+        if url.endswith("/chat/completions") and (status != 200 or not isinstance(got, dict)):
+            unanswered.append(("response_format" in body, status, str(got)[:200]))
+        elif url.endswith("/chat/completions") and "response_format" not in body:
+            # the answer's opening, then cut: the fence is never closed, so no cut of any length parses as JSON
             choice = got["choices"][0]
             choice["message"]["content"] = "Sure, here it is:\n```json\n" + choice["message"]["content"][:20]
             choice["finish_reason"] = "length"
@@ -236,6 +246,9 @@ def test_g4_records_the_failures_of_each_setting(standin: Any, tmp_path: Path, m
     monkeypatch.setattr(gp, "post_json", post)
     b = gp.run_g4(argparse.Namespace(dir=tmp_path, live_record=None, judge_url=f"{base}/v1"))["decoding"]
     on, off = b["guided_on"], b["guided_off"]
+    # every call answered, so each count below is over all 64: an unanswered call is not a schema failure, and a
+    # count one short would otherwise not say why (train 16: 63, cause not kept)
+    assert unanswered == [] and on["answered"] == off["answered"] == 64, unanswered
     assert on["schema_failures"] == 0 and on["schema_failure_examples"] == []
     assert off["schema_failures"] == 64 and off["schema_failures_by_finish_reason"] == {"length": 64}
     ex = off["schema_failure_examples"]

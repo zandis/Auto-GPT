@@ -272,7 +272,8 @@ class EdcService:
         return self.store.drafts(rs, record, visit or BASE_EVENT)
 
     def decide(self, rs: str, draft_id: int, action: str, *, value: str = "", reason: str = "",
-               citation: dict[str, Any] | None = None, by: str, unlock: bool = False) -> dict[str, Any]:  # fmt: skip
+               citation: dict[str, Any] | None = None, by: str, unlock: bool = False,
+               mark: str = "") -> dict[str, Any]:  # fmt: skip
         """Confirm, edit or reject one draft. ``unlock``: the person re-authenticated just before, so a signed value
         may change (with a reason; D-281, CR-035). Every refusal is audited (SEC-7); the decision's audit line is
         written inside its transaction (SEC-6)."""
@@ -292,7 +293,9 @@ class EdcService:
                                                "reason": bool(reason.strip()),
                                                "citation": (out["final_citation"] or {}).get("kind", ""),
                                                **({"signature_void": out["voided"], "unlocked": True}
-                                                  if out.get("voided") is not None else {})})  # fmt: skip
+                                                  if out.get("voided") is not None else {}),
+                                               **({"unlocked": True} if out.get("kept_signed") is not None
+                                                  else {})})  # fmt: skip
 
         now: dict[str, str] | None = None
         try:
@@ -327,7 +330,7 @@ class EdcService:
                     raise err
             return self.store.decide(rs, draft_id, action, value=value, reason=reason, citation=citation, by=by,
                                      at=self.stamp(), unlock=unlock, before_commit=audited,
-                                     built=now if action == "edit" else None)  # fmt: skip
+                                     built=now if action == "edit" else None, mark=mark)  # fmt: skip
         except EdcError as exc:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
             raise
@@ -391,10 +394,19 @@ class EdcService:
         if target is None:
             raise EdcError("edc.target", "no REDCap target is set for this study")
         out: dict[str, list[dict[str, Any]]] = {k: [] for k in SEND_RESULTS}
+        attempted = 0  # NEW-EDC-8: values whose write was ledgered before the import
         calc_out: list[dict[str, Any]] = []
         hidden_out: list[dict[str, Any]] = []
         at = self.stamp()
         gone = set(self.optouts())
+        for d in self.store.held_source_changed(rs, record):  # NEW-EDC-4: a person keeps or changes it first
+            if str(d["pid"]) in gone:
+                out["opted_out"].append(_brief(d))
+                self.store.record_sent(rs, d, "redcap", "", "opted_out", "the patient opted out; not sent", by, at)
+                continue
+            out["source_changed"].append(_brief(d))
+            self.store.record_sent(rs, d, "redcap", "", "source_changed", "the source changed since the value was "
+                                   "decided; not sent until a person keeps or changes it", by, at)  # fmt: skip
         todo = []
         for d in self.store.sendable(rs, record):
             if str(d["pid"]) in gone:
@@ -411,6 +423,7 @@ class EdcService:
                     "record": record or "*",
                     "sent": 0,
                     **({"opted_out": len(out["opted_out"])} if out["opted_out"] else {}),
+                    **({"source_changed": len(out["source_changed"])} if out["source_changed"] else {}),
                 },
             )
             return {**out, "count": 0, "calc": [], "hidden_in_redcap": []}
@@ -498,26 +511,45 @@ class EdcService:
                         continue
                     there = cur.value(rec, slot, str(d["item"]))
                     value = fmt[int(d["id"])]
+                    # NEW-EDC-8 (EDC-008): TrialBox's own write whose answer never came back; REDCap holding its value
+                    # means it landed, under the person who sent it then
+                    att = self.store.open_attempt(rs, d["record"], d["visit"], d["item"])
+                    landed = att is not None and there == (forms.redcap_value(lf, att["value"]) if att["value"] else "")
                     if slot.repeat:  # NEW-EDC-2: the instance is judged whole, at its first value, on REDCap's rows
                         k = lay.key(rec, slot)
                         if k not in judged:
                             judged[k] = self._not_ours(rs, cur, live, rec, slot, str(d["record"]))
                         if judged[k]:
                             taken.add(k)
+                            if landed and att is not None:  # TrialBox's write landed then; the instance changed since
+                                self._landed(rs, {**d, "id": att["draft_id"], "final": att["value"]}, rec, att, by, at)
                             wrote = self.store.last_written(rs, d["record"], d["visit"], d["item"])
                             ours = forms.redcap_value(lf, wrote) if wrote else ""
-                            if there and there not in (value, ours):
+                            if there and there not in (value, ours) and not landed:
                                 out["conflict"].append({**_brief(d), "redcap": there})
                                 self.store.record_sent(rs, d, "redcap", rec, "conflict", CONFLICT, by, at)
                             else:
                                 out["instance_taken"].append(_brief(d))
                                 self.store.record_sent(rs, d, "redcap", rec, "instance_taken", INSTANCE_TAKEN, by, at)
                             continue
+                    if there == value and landed and att is not None:
+                        out["sent"].append(_brief(d))
+                        self._landed(rs, {**d, "id": att["draft_id"], "final": att["value"]}, rec, att, by, at)
+                        if int(att["draft_id"]) != int(d["id"]):  # signed again since, the same value: already there
+                            self.store.record_sent(rs, d, "redcap", rec, "already_there", "", by, at)
+                        continue
                     if there == value:
                         out["already_there"].append(_brief(d))
                         self.store.record_sent(rs, d, "redcap", rec, "already_there", "", by, at)
                         continue
-                    last = self.store.last_sent(rs, d["record"], d["visit"], d["item"])
+                    # NEW-EDC-8b (EDC-012): ownership from TrialBox's own writes; `already_there` is the person's
+                    last = self.store.last_written(rs, d["record"], d["visit"], d["item"])
+                    if landed and there:  # review finding: TrialBox's lost write, or a person's equal entry
+                        if slot.repeat:
+                            taken.add(lay.key(rec, slot))
+                        out["conflict"].append({**_brief(d), "redcap": there})
+                        self.store.record_sent(rs, d, "redcap", rec, "conflict", ATTEMPT_HELD, by, at)
+                        continue
                     if there and there != (forms.redcap_value(lf, last) if last else ""):
                         if slot.repeat:  # NEW-EDC-2: the instance is someone else's; nothing of TrialBox's goes in
                             taken.add(lay.key(rec, slot))
@@ -568,8 +600,24 @@ class EdcService:
                     planned = [p for p in planned if int(p[0]["id"]) in still]
                     imports = {k: v for k, v in imports.items() if set(v) - KEY_COLS - {rid}}
                 if imports:
-                    c.import_records(list(imports.values()))
-                    touched = sorted({k[0] for k in imports})
+                    # NEW-EDC-8 (EDC-008): the ledger says what is about to be written, and by whom, before REDCap is
+                    # asked: an import REDCap applies whose answer is lost still has its line, read back next send
+                    for d, rec, _slot in planned:
+                        self.store.record_sent(rs, d, "redcap", rec, "attempt", ATTEMPT, by, at)
+                        attempted += 1
+                    # NEW-EDC-7 (EDC-007): one record REDCap refuses does not stop the others
+                    refused, first, unanswered = self._import(c, imports)
+                    for d, rec, slot in planned:
+                        if lay.key(rec, slot) in refused:
+                            out["refused"].append(_brief(d))
+                            self.store.record_sent(rs, d, "redcap", rec, "refused", "REDCap refused the import of "
+                                                   f"this row: {refused[lay.key(rec, slot)]}", by, at)  # fmt: skip
+                    if unanswered is not None:
+                        raise unanswered
+                    planned = [p for p in planned if lay.key(p[1], p[2]) not in refused]
+                    if first is not None and not planned:
+                        raise first
+                    touched = sorted({k[0] for k in imports if k not in refused})
                     back = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))],
                                                           records=touched), self.today())  # fmt: skip
                     for d, rec, slot in planned:
@@ -587,15 +635,17 @@ class EdcService:
                         for cv in back.calcs(rec, slot):
                             calc_out.append({"record": name, "visit": slot.visit, **cv})
                         for f in back.hidden_values(rec, slot):
-                            last = self.store.last_sent(rs, name, slot.visit, f)
-                            mine = last is not None and f in live and forms.redcap_value(live[f], last) == back.value(
-                                rec, slot, f)  # fmt: skip
+                            last = self.store.last_written(rs, name, slot.visit, f)  # NEW-EDC-8b
+                            mine = last is not None and last != "" and f in live and forms.redcap_value(
+                                live[f], last) == back.value(rec, slot, f)  # fmt: skip
                             hidden_out.append({"record": name, "visit": slot.visit, "item": f, "trialbox": mine})
         except RcError as exc:
-            self._audit("edc.sent", rs, by, {"record": record or "*", "refused": exc.code})
+            self._audit("edc.sent", rs, by, {"record": record or "*", "refused": exc.code, "attempted": attempted})
             raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
         self._audit("edc.sent", rs, by, {"record": record or "*", "target": target["token_ref"],
-                                         **{k: len(v) for k, v in out.items()},
+                                         # NEW-EDC-7: an audit line's "refused" is a refused send's code
+                                         **{("records_refused" if k == "refused" else k): len(v)
+                                            for k, v in out.items()},
                                          "calc_differs": sum(1 for x in calc_out if x["equal"] is False),
                                          "hidden_in_redcap": len(hidden_out)})  # fmt: skip
         return {**out, "count": len(out["sent"]), "calc": calc_out, "hidden_in_redcap": hidden_out}
@@ -705,8 +755,8 @@ class EdcService:
                 look = sorted(watched(meta, on_row, []))
                 cur = Rows(lay, meta, rid, c.records(fields=[rid, *look], records=[rec]), self.today())
                 for f in cur.hidden_values(rec, slot):
-                    last = self.store.last_sent(rs, record, vis, f)
-                    if last is not None and f in live and forms.redcap_value(live[f], last) == cur.value(rec, slot, f):
+                    last = self.store.last_written(rs, record, vis, f)  # NEW-EDC-8b: never a person's value
+                    if last and f in live and forms.redcap_value(live[f], last) == cur.value(rec, slot, f):
                         erased.append(f)
                     else:
                         kept.append({"item": f, "why": "not_written_by_trialbox"})
@@ -715,7 +765,7 @@ class EdcService:
                     back = Rows(lay, meta, rid, c.records(fields=[rid, *look], records=[rec]), self.today())
                     for f in erased:
                         d = next((x for x in reversed(mine) if str(x["item"]) == f and x.get("sent_at")), None)
-                        if d is None:  # pragma: no cover - last_sent found a send, so its draft exists
+                        if d is None:  # pragma: no cover - last_written found a send, so its draft exists
                             continue
                         ok = back.value(rec, slot, f) == ""
                         self.store.record_sent(rs, {**d, "final": ""}, "redcap", rec, "erased" if ok else "readback",
@@ -735,6 +785,11 @@ class EdcService:
         self.store.require_on(rs)
         gone = set(self.optouts())
         values = [d for d in self.store.signed(rs) if str(d["pid"]) not in gone]  # never an opted-out patient
+        changed = sorted({f"{d['record']} {d['item']}" for d in values if d.get("source_changed")})
+        if changed:  # NEW-EDC-4: a copy a person can import into REDCap waits, never a silent gap (E-22)
+            self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.source_changed", "items": changed})
+            raise EdcError("edc.source_changed", "the source changed since these signed values were decided; keep or "
+                           "change each first: " + ", ".join(changed))  # fmt: skip
         mapped, fields = {str(m["item"]) for m in self.store.map(rs)}, self.dc.fields(rs)
         lost = sorted({str(d["item"]) for d in values if str(d["item"]) not in mapped or str(d["item"]) not in fields})
         if lost:  # never a silent gap in the copy of signed records (review E-22)
@@ -859,6 +914,41 @@ class EdcService:
             out |= self._slot_fields(lay, meta, lay.slot(str(d["visit"])))
         return out
 
+    @staticmethod
+    def _import(
+        c: RedcapClient, imports: dict[Any, dict[str, str]]
+    ) -> tuple[dict[Any, str], RcError | None, RcError | None]:
+        """Import the rows; when REDCap refuses an import of several rows (it refuses an import whole), send again
+        one row at a time (NEW-EDC-7). Returns the rows REDCap refused (by row key), each with the kind of error
+        (never REDCap's text, D-555); the first refusal; and an error that was not a refusal met on the way (REDCap
+        did not answer: the caller ledgers the refusals before raising it; what was not answered may have applied,
+        D-691 reads it back next send)."""
+        try:
+            c.import_records(list(imports.values()))
+            return {}, None, None
+        except RcError as exc:
+            if not exc.refused:
+                raise
+            first = exc
+        if len(imports) == 1:
+            return dict.fromkeys(imports, first.message), first, None
+        refused: dict[Any, str] = {}
+        for key, row in imports.items():
+            try:
+                c.import_records([row])
+            except RcError as exc:
+                if not exc.refused:
+                    return refused, first, exc
+                refused[key] = exc.message
+        return refused, first, None
+
+    def _landed(self, rs: str, d: dict[str, Any], rec: str, att: dict[str, Any], by: str, at: str) -> None:
+        """An attempt read back equal (NEW-EDC-8): ``sent`` under the person and time of the attempt, which is when
+        REDCap took the value; the line names who read it back, and when."""
+        self.store.record_sent(rs, d, "redcap", rec, "sent", f"written by the send of {att['by_user']} at "
+                               f"{att['at']}, whose answer from REDCap was lost; read back equal by {by} at {at}",
+                               str(att["by_user"]), str(att["at"]))  # fmt: skip
+
     def _not_ours(self, rs: str, cur: Any, live: dict[str, Any], rec: str, slot: Any, record: str) -> bool:
         """Whether a repeat instance holds, on any field a person can enter, something other than what TrialBox
         itself last wrote there (NEW-EDC-2): a value TrialBox never wrote (an ``already_there`` is not TrialBox's),
@@ -873,6 +963,9 @@ class EdcService:
             if any(str(c).startswith(f"{f}___") and str(v) == "1" for c, v in row.items()):
                 return True
             there = str(row.get(f) or "")
+            att = self.store.open_attempt(rs, record, slot.visit, f)  # NEW-EDC-8: TrialBox's write, answer lost
+            if att is not None and f in live and there and there == forms.redcap_value(live[f], att["value"]):
+                continue
             wrote = self.store.last_written(rs, record, slot.visit, f)
             if wrote is None:
                 if there:
@@ -886,11 +979,15 @@ class EdcService:
         return self.store.trail(rs, record)
 
 
-#: what the send answers per value: written, or held back with the reason (the last four: T-115, D-368)
+#: what the send answers per value: written, or held back with the reason (T-115, D-368, D-690; NEW-EDC-7: refused)
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
-                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken")  # fmt: skip
+                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused",
+                "source_changed")  # fmt: skip
 #: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
+ATTEMPT = "about to be written; REDCap's answer not read yet"  # NEW-EDC-8: closed by the next read-back
+ATTEMPT_HELD = ("REDCap holds the value of a TrialBox send whose answer was lost, or a person's equal entry; TrialBox "
+                "cannot tell which: not overwritten")  # fmt: skip
 CONFLICT = "REDCap holds another value that TrialBox did not write; not overwritten"
 INSTANCE_TAKEN = (
     "the repeat instance holds a value TrialBox did not write (a person's entry or another event); "

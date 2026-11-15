@@ -32,6 +32,8 @@ OWN_TEXT: dict[str, frozenset[str]] = {
     "RegistryError": frozenset({"prev['status']", "upd.status"}),
     "Rejected": frozenset({"role", "jtype", "limit", "role or 'unnamed'"}),
     "NotRetryable": frozenset({"failed.type", "busy[0]"}),
+    # D-746: the setting TB_LAKE_QUERY_LIMITS cannot be read: its own part as written (a setting, not a record's value)
+    "QueryLimitsUnread": frozenset({"part", "MAX_QUERY_LIMIT_S"}),
     # NEW-TRUST-5 (D-557): a failed job's error record. What a text may be built from: the study and its version,
     # the job's own type, state and ids, a limit, the name of an option (never its value), the name of a file the
     # sender attached, a count, another error's type. Not a chart number, not a typed option value, not an address.

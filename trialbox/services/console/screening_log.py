@@ -201,17 +201,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         for o in store.outcomes(rs):
             outs.setdefault(o.pid, []).append(o)
         seen = store.first_seen(rs)
-        # D-147: the referral route and outcome per row, Approach marked despite an IRB warning; opted-out patients
-        # leave the log and its exports
+        # D-147: the referral route and outcome per row, Approach marked despite an IRB warning. NEW-LIFE-5 (D-762):
+        # an opted-out patient with a screening number keeps the row (number, dates, status, the day of the
+        # opt-out) without the pseudonym or the contact work; one never numbered is on no list (D-147, D-273)
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
         overrides: dict[str, tuple[str, list[str], str, str]] = {}
         for o in h.team.overrides(rs) if h.team is not None else []:
             overrides[o[0]] = o
-        gone = h.gone()
+        gone = h.opted_out_on()
         rows = []
         for pid, no, at in store.screening_rows(rs):
-            if pid in gone:
-                continue
             e = reg.get(pid)
             mk = [m for m in marks.get(pid, []) if m.mark != "withdrawn"]
             oc = outs.get(pid, [])
@@ -240,8 +239,13 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "icf_version": str(lf.get("icf_version") or ""),
                     "enrolled": str(lf.get("enrolled") or ""),
                     "randomised": str(lf.get("randomised") or ""),  # D-407 (LIFE-020): in the sponsor's IRT
+                    "gone": pid in gone,
+                    "opted_out": gone.get(pid, ""),
                 }
             )
+            if pid in gone:  # what stays of the trial record: never who, nor the contact work
+                rows[-1].update(pid="", short="", mark=None, outcome=None, attempts=0, referral=None, override=None,
+                                version="")  # fmt: skip
         return rows
 
     @app.get("/studies/{rs}/screening-log")
@@ -326,6 +330,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["icf_version"],
                     r["enrolled"],
                     r["randomised"],
+                    r["opted_out"] or ("yes" if r["gone"] else ""),
                 ]
             )
         if layout == "sponsor":  # D-435: the same rows in the sponsor's columns, words and date format
