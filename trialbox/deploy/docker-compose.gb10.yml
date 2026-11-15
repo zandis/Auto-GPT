@@ -130,7 +130,7 @@ services:
   lake: {<<: *arm, mem_limit: 6g}
   embed-service:
     <<: *arm
-    mem_limit: 4g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: 6g   # deploy/gb10-profile.yaml (unmeasured, D-373; 6g since D-890)
     environment:
       # ENG-003 (D-563): trialbox-embed carries torch's CPU build, which stops at start when asked for cuda. A
       # profile that gives the embedder the card needs its own image and lock first
