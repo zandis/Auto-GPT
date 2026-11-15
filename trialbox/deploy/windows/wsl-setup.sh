@@ -10,7 +10,9 @@
 #                                        media's packages (no network); Docker gets the nvidia runtime and starts
 #   wsl-setup.sh gpu                     a container started with --gpus all sees the card; prints the card's line
 #   wsl-setup.sh host-tree TAR PUBKEY    the release's host tree to /opt/trialbox, never over an existing folder
-#   wsl-setup.sh install BUNDLE [--yes]  deploy/box-install.sh in this terminal (the first-run code, the owner's wait)
+#   wsl-setup.sh install BUNDLE [--yes] [--rehearsal]
+#                                        deploy/box-install.sh in this terminal (the first-run code, the owner's wait);
+#                                        --rehearsal: a rehearsal box (D-726), from box-install.ps1 -Rehearsal (D-614)
 #   wsl-setup.sh state                   prints installed=1 once box-install.sh has said the box is ready
 #   wsl-setup.sh boot-check              Docker and the stack are enabled to start with the distribution (NEW-WIN-2)
 #   wsl-setup.sh network-mode            prints WSL2's networking mode: mirrored, nat, ... (NEW-WIN-4)
@@ -151,12 +153,22 @@ EOP
     echo "vendor key sha256 $(sha256sum "$key" | cut -d' ' -f1)"
     ;;
   install)
-    bundle="${1:-}"; yes="${2:-}"
+    bundle="${1:-}"; yes=""; rehearsal=""
+    shift || true
+    for a in "$@"; do
+      case "$a" in
+        --yes) yes=--yes ;;
+        --rehearsal) rehearsal=--rehearsal ;;
+        *) die "install: unknown option $a" ;;
+      esac
+    done
     [ -f "$ROOT/deploy/box-install.sh" ] || die "no host tree at $ROOT (step host-tree)"
     if [ -f "$DONE_MARK" ]; then echo "TrialBox is already installed here ($DONE_MARK): nothing was changed"; exit 0; fi
     args=()
     if [ -f "$ROOT/deploy/site/box/answers.json" ] && grep -q "TrialBox is running" "$ROOT/deploy/site/box/install.log" 2>/dev/null; then
-      args=(--firstrun)   # an earlier run installed the stack and stopped before the owner finished the set-up
+      # an earlier run installed the stack and stopped before the owner finished the set-up. Never --rehearsal here:
+      # box-install.sh refuses it with --firstrun (the first run finishes the box as it was installed, D-726)
+      args=(--firstrun)
     else
       if [ ! -r "$bundle" ]; then
         # the media is a drive WSL2 did not mount by itself (a USB disk): mount it read-only
@@ -165,7 +177,7 @@ EOP
         mount -t drvfs "${l^^}:" "/mnt/$l" -o ro || die "the media's drive ${l^^}: could not be mounted in WSL2"
         [ -r "$bundle" ] || die "no such bundle: $bundle"
       fi
-      args=("$bundle"); [ "$yes" != "--yes" ] || args+=(--yes)
+      args=("$bundle"); [ -z "$yes" ] || args+=(--yes); [ -z "$rehearsal" ] || args+=(--rehearsal)
     fi
     work="$(mktemp -d)"
     mkfifo "$work/pipe"

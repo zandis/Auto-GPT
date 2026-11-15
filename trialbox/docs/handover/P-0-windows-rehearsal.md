@@ -221,6 +221,15 @@ Microsoft's documentation (netsh `interface portproxy`; Task Scheduler with S4U)
 | 82 | **The task's limits.** `$t = Get-ScheduledTask TrialBox-Console-Proxy`; `$t.Triggers \| ForEach-Object { $_.Repetition \| Format-List Interval,Duration }`; `$t.Settings.ExecutionTimeLimit` | One trigger with Interval `PT5M` and a Duration of about ten years (`P3650D`); ExecutionTimeLimit `PT2M` | The values. A Duration of one day or less means the five-minute runs stop |
 | 83 | **Which address is forwarded to.** `wsl -d TrialBox -u root --exec ip -4 -o addr show dev eth0`; `Get-NetIPAddress -AddressFamily IPv4 \| Where-Object InterfaceAlias -like 'vEthernet (WSL*' \| Format-List InterfaceAlias,IPAddress,PrefixLength` | eth0's address is the one in line 73's row, and inside the subnet of the `vEthernet (WSL...)` adapter | Both outputs, with the adapter's exact name: a later card may refuse an address outside that subnet (D-613) |
 
+## Part 10: NEW-WIN-11, Stage B as a rehearsal box (D-614; lane D's D-726)
+
+Stage B only, started with `-Rehearsal` (P-0-BUILD-THE-MEDIA.md, "On the Windows PC", step 4). By reading; not run.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 84 | Read the window at its start; then, after step 14, `wsl -d TrialBox -u root -- grep -E '^TB_(ENV|REHEARSAL)=' /opt/trialbox/deploy/.env` and `wsl -d TrialBox -u root -- ls /opt/trialbox/deploy/site/rehearsal.json` | "This is a rehearsal install" before step 1 changes anything; `TB_ENV=TEST` and `TB_REHEARSAL=1`; the mark is there | The window's first lines and both outputs |
+| 85 | `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"`, the `rehearsal` line | WARN "rehearsal box"; no FAIL for it | The line whole |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -282,5 +291,8 @@ Microsoft's documentation (netsh `interface portproxy`; Task Scheduler with S4U)
 - Line 79 "no": as line 26a "no".
 - Line 81 "no listener" with a row in line 73: the IP Helper service does not serve the port proxy on this PC; the
   installer checks only that the service runs, so this is a card of its own.
+- Line 84 "no `--rehearsal` reached the Linux installer" (no mark, `TB_ENV` not TEST): the hand-over in
+  `wsl-setup.sh install`; fix in lane W. A refusal "holds a site's install ... from no rehearsal" after Stage A: the
+  box is emptied (`docs/runbook/16-box-install-rehearsal.md`, "A rehearsal box") and the install started again with `-Rehearsal`.
 - Line 82 "a short Duration": the task is registered with the repetition written out another way
   (`console-proxy.ps1`), a fix within lane W.

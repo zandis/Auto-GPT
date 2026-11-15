@@ -453,5 +453,10 @@
     "en": "Warning: {0} already exists and was not written by TrialBox: it was not changed, but it does not set both swap=0 and localhostForwarding=false under [wsl2]. On this Windows TrialBox needs both: without swap=0 the host check reports it; without localhostForwarding=false WSL2 may take port 443 on this PC before the console's forwarding does. WSL2's memory, processors and disk limit are that file's or WSL's own. networkingMode is not used on this Windows.",
     "ja": "注意: {0} はすでに存在し、TrialBox が書いたものではないため変更していませんが、[wsl2] の下に swap=0 と localhostForwarding=false の両方が設定されていません。この Windows では TrialBox は両方を必要とします。swap=0 がないとホスト検査がこれを報告し、localhostForwarding=false がないと、コンソールの転送より先に WSL2 がこの PC のポート 443 を使うことがあります。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になります。この Windows では networkingMode は使われません。",
     "zh-TW": "警告：{0} 已存在，且不是 TrialBox 寫入的，因此未做變更，但其中 [wsl2] 下沒有同時設定 swap=0 與 localhostForwarding=false。在這個 Windows 上 TrialBox 兩者都需要：沒有 swap=0，主機檢查會回報此項；沒有 localhostForwarding=false，WSL2 可能比主控台的轉送更早占用這台電腦的連接埠 443。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值。這個 Windows 不使用 networkingMode。"
+  },
+  "rehearsal_on": {
+    "en": "This is a rehearsal install: the box will be a test box and say \"rehearsal box\", with stand-in model servers and a rehearsal bundle. It is never a site's box: a site's box is a new install.",
+    "ja": "これはリハーサルのインストールです。ボックスはテスト用となり「rehearsal box」と表示され、代替のモデルサーバーとリハーサル用バンドルを使います。サイトのボックスにはなりません。サイトのボックスは新しいインストールで作ります。",
+    "zh-TW": "這是演練安裝：此 box 將是測試用 box，並顯示「rehearsal box」，使用替代的模型伺服器與演練用套件。它絕不會成為院方的 box：院方的 box 需重新安裝。"
   }
 }

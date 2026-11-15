@@ -72,6 +72,10 @@ param(
   [ValidateSet("tpm", "tpm_pin")][string]$BitLockerUnlock = "tpm",
   # a rehearsal on a PC that must stay unencrypted: BitLocker is left as it is, and the host check then fails
   [switch]$SkipBitLocker,
+  # a rehearsal box (NEW-WIN-11, D-614): handed to the Linux installer as --rehearsal (lane D's D-726: the box is
+  # TEST and says "rehearsal box", runs stand-in model servers, takes a bundle built with make_bundle.sh
+  # --rehearsal; a site box refuses such a bundle). Kept in state.json: the install stays one to its end
+  [switch]$Rehearsal,
   # the update window (NEW-WIN-5, D-606): the hour of the day, this PC's clock, at which Windows Update may install
   # and restart, and how many hours the window lasts. The declared settings TB_WIN_UPDATE_WINDOW_START and
   # TB_WIN_UPDATE_WINDOW_HOURS (libs/tb_common/config.py gives the reasons; the same defaults, held by a test).
@@ -533,7 +537,7 @@ function Save-TbState {
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
     desktop_share_pct = -1; update_window = ""; update_window_told = ""; drives_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
-    restart_pending = $false; finished = $false }
+    restart_pending = $false; finished = $false; rehearsal = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($k in @($s.Keys)) { if ($null -ne $j.$k) { $s[$k] = $j.$k } }
@@ -1102,6 +1106,7 @@ function Step-LinuxInstall {
   $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
     (ConvertTo-TbWslPath $script:TbFiles.Bundle))
   if ($Yes) { $a += "--yes" }
+  if ($script:TbState.rehearsal) { $a += "--rehearsal" }
   $code = Invoke-TbNativeConsole "wsl.exe" $a
   Write-TbLog ("    the Linux installer ended with exit " + $code)
   $r = Invoke-TbSetup "state" @()
@@ -1117,7 +1122,7 @@ function Step-LinuxInstall {
 # ------------------------------------------------------------------------------------------------ the run
 function Invoke-TbInstall {
   param([string]$MediaRoot, [string]$DataDrive, [string]$Distro = "TrialBox", [string]$Lang, [string]$StateDir,
-    [switch]$Resume, [switch]$Yes)
+    [switch]$Resume, [switch]$Yes, [switch]$Rehearsal)
   # a cmdlet that reports an error stops its step: nothing goes on after a failed copy, permission change or task
   # registration (Invoke-TbNative sets its own preference for a program's error text)
   $ErrorActionPreference = "Stop"
@@ -1157,6 +1162,15 @@ function Invoke-TbInstall {
     if (-not $script:TbUpdateGiven[1]) { $script:TbUpdate[1] = [int]$Matches[2] }
   }
   $script:TbState.update_window = "{0}+{1}" -f $script:TbUpdate[0], $script:TbUpdate[1]
+  # a rehearsal is decided at the start and kept: never turned off by a run without the switch (a site's box is a
+  # new install, RUNBOOK section 16); the Linux installer refuses to make a box holding a site's install a rehearsal
+  if ($Rehearsal -and $script:TbState.finished -and -not $script:TbState.rehearsal) {
+    Write-TbLog "    -Rehearsal ignored: this install is finished and is not a rehearsal"
+  } elseif ($Rehearsal) { $script:TbState.rehearsal = $true }
+  if ($script:TbState.rehearsal -and -not $script:TbState.finished) {
+    Write-TbLog "    rehearsal: yes (the box will be TEST and say so; D-726)"
+    Say "rehearsal_on" @()
+  }
   if ($script:TbState.finished) {
     # A finished install is left alone, but for .wslconfig: it follows the hardware (memory was added, the share
     # was changed), so "start the installer again after a hardware change" is true on a finished box too.
@@ -1242,6 +1256,6 @@ function Invoke-TbInstall {
 
 if (-not $LoadOnly) {
   $code = Invoke-TbInstall -MediaRoot $MediaRoot -DataDrive $DataDrive -Distro $Distro -Lang $Lang -StateDir $StateDir `
-    -Resume:$Resume -Yes:$Yes
+    -Resume:$Resume -Yes:$Yes -Rehearsal:$Rehearsal
   exit $code
 }
