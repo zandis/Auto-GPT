@@ -402,6 +402,7 @@ DECLARED: dict[str, Declared] = {
         "float", "0.5", "part of a target's capacity this box's backups may fill; the rest is for others (D-455)"
     ),
     "TB_BACKUP_MAILTO": Declared("str", "", "address told when the backup is too old"),
+    "TB_BACKUP_ALERT_ROUTE": Declared("str", "", "health-page: the /admin health tab is the backup alert route"),
     "TB_BACKUP_MAX_AGE_HOURS": Declared("float", "", "age after which backup-status alerts"),
     "TB_BACKUP_MIN_MBPS": Declared(
         "float", "5", "slowest MB/s a backup step may run before it counts as hung: a tenth of a box disk (D-455)"

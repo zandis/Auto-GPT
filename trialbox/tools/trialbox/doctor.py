@@ -41,8 +41,9 @@ closed). Checks:
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
-  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
-  ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
+  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD``,
+  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no ``/etc/cron.d/trialbox-backup`` on a
+  host with ``/etc/cron.d``, no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
   on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
@@ -903,6 +904,9 @@ def check_backup(inp: DoctorInputs) -> Check:
     if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
         fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
     warns = []
+    if cfg.page_only(bs.has_mta()):
+        warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
+                     "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5)")  # fmt: skip
     if not cfg.archive_on:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
@@ -910,7 +914,7 @@ def check_backup(inp: DoctorInputs) -> Check:
     facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
-        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails) + f" ({facts})")
+        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
     if warns and prod:
         return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
     return Check("backup", "PASS", facts)
