@@ -64,6 +64,7 @@ import tarfile
 import time
 import urllib.parse
 from collections.abc import Iterable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -602,6 +603,75 @@ def models_place(
     return done
 
 
+def audit_stats(root: Path, since: float, window_s: float = 60.0, now: float | None = None) -> dict[str, Any]:
+    """The gateway's audited model calls since ``since`` (epoch seconds), from the audit files (hashes, counts and
+    times only; no text is in them): calls, calls a minute, the server's latency (median, p95, max), the queue in
+    front of it, the longest prompts in tokens, calls per prompt version, refusals by code, calls over 60 s, and the
+    calls of the last ``window_s``. A call still in flight is not in the audit yet: the newest record's age says how
+    long the gateway has finished nothing."""
+    from datetime import datetime
+
+    now = time.time() if now is None else now
+    lat: list[float] = []
+    wait: list[float] = []
+    tok: list[int] = []
+    by_prompt: dict[str, int] = {}
+    refusals: dict[str, int] = {}
+    recent = over60 = 0
+    newest = 0.0
+    for f in sorted(root.glob("**/*.jsonl")) if root.is_dir() else []:
+        try:
+            if f.stat().st_mtime < since:
+                continue
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if '"llm.gateway.' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+                t = datetime.fromisoformat(str(rec.get("ts"))).timestamp()
+            except (ValueError, TypeError):
+                continue
+            if t < since:
+                continue
+            ev, det = str(rec.get("event") or ""), rec.get("detail") or {}
+            if ev.endswith(".call"):
+                newest = max(newest, t)
+                ms = float(det.get("latency_ms") or 0.0)
+                lat.append(ms / 1000)
+                wait.append(float(det.get("slot_wait_ms") or 0.0) / 1000)
+                tok.append(int(det.get("tokens_in") or 0))
+                pv = str(rec.get("prompt_version") or det.get("prompt") or "?")
+                by_prompt[pv] = by_prompt.get(pv, 0) + 1
+                recent += t >= now - window_s
+                over60 += ms > 60000
+            code = str(det.get("reason") or det.get("code") or rec.get("refusal") or "")
+            if code and not ev.endswith(".call"):
+                refusals[code] = refusals.get(code, 0) + 1
+
+    def q(xs: list[float], f: float) -> float | None:
+        if not xs:
+            return None
+        ys = sorted(xs)
+        return round(ys[min(len(ys) - 1, int(f * (len(ys) - 1) + 0.5))], 2)
+
+    mins = max(1e-9, (now - since) / 60)
+    return {
+        "calls": len(lat),
+        "calls_per_min": round(len(lat) / mins, 1),
+        "calls_last_window": recent,
+        "latency_s": {"median": q(lat, 0.5), "p95": q(lat, 0.95), "max": q(lat, 1.0)},
+        "queue_s": {"median": q(wait, 0.5), "max": q(wait, 1.0)},
+        "tokens_in": {"median": q([float(x) for x in tok], 0.5), "max": max(tok) if tok else None},
+        "calls_over_60s": over60,
+        "by_prompt": by_prompt,
+        "refusals": refusals,
+        "seconds_since_last_call": round(now - newest, 1) if newest else None,
+    }
+
+
 def qualify_verdict(rec: dict[str, Any]) -> dict[str, Any]:
     """The qualification record's verdict per step (status and reason; hashes, counts and codes only, D-313)."""
     steps = rec.get("steps") or {}
@@ -784,12 +854,31 @@ def acc_set(
     compile_only: bool,
     job_s: float,
     poll_s: float = 5.0,
+    deadline_s: float = 0.0,
 ) -> dict[str, Any]:
-    """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``."""
+    """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
+
+    ``deadline_s`` (0: none): the set's own time budget from its first start (kept in ``work/set-clock.json``, so a
+    resumed set counts its earlier boots). Past it no new protocol is started (each left one is ``not_run_time_budget``)
+    and no job is waited for longer than what is left (at least a minute), so one stuck call cannot hold the run.
+    ``answers.json`` is rewritten after every protocol: a stop keeps every finished protocol."""
     ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
     protos = sorted((built / "site" / "protocols").glob("*.txt"))
     prog_p = work / "progress.json"
     prog: dict[str, Any] = json.loads(prog_p.read_text(encoding="utf-8")) if prog_p.exists() else {}
+    clock_p = work / "set-clock.json"
+    clock = json.loads(clock_p.read_text(encoding="utf-8")) if clock_p.exists() else {}
+    used0 = float(clock.get("used_s") or 0.0)
+    t_start = time.monotonic()
+
+    def used() -> float:
+        return used0 + time.monotonic() - t_start
+
+    def tick() -> None:
+        _save(clock_p, {"used_s": round(used(), 1), "deadline_s": deadline_s})
+
+    def left() -> float:
+        return deadline_s - used() if deadline_s > 0 else float("inf")
 
     def mid(rs: str, kind: str) -> str:
         return f"<acc-{run_id}-{name}-{rs}-{kind}@trialbox.invalid>".replace(" ", "")
@@ -802,14 +891,22 @@ def acc_set(
         return dict(r)
 
     def wait(job: str, until: tuple[str, ...]) -> dict[str, Any]:
-        return dict(box.call("mail-gateway", "wait", {"job": job, "until": list(until), "timeout_s": job_s,
+        t = max(60.0, min(job_s, left()))
+        return dict(box.call("mail-gateway", "wait", {"job": job, "until": list(until), "timeout_s": t,
                                                       "poll_s": poll_s}))  # fmt: skip
 
     for proto in protos:
         rs = proto.stem
         a = prog.setdefault(rs, {"ruleset": rs})
-        if a.get("finished"):
+        tick()
+        if prog.get(rs, {}).get("finished"):
+            _answers(work, prog)
             continue
+        if left() <= 0 and "feas_job" not in a:  # the set's time budget is spent: nothing new is started
+            a.update(outcome="not_run_time_budget", finished=True)
+            _save(prog_p, prog)
+            continue
+        _answers(work, prog)
         # --- FEAS with the protocol attached, from the coordinator
         if "feas_job" not in a:
             r = send(rs, "feas", f"FEAS {rs}", sender, {proto.name: proto.read_bytes()})
@@ -889,6 +986,21 @@ def acc_set(
         for i in range(0, len(mrns), 500):
             pm.update(box.call("adapter", "pidmap", {"mrns": mrns[i : i + 500]}))
         _save(pm_p, pm)
+    _answers(work, prog)
+    tick()
+    counts: dict[str, int] = {"protocols": len(protos)}
+    for a in prog.values():
+        o = str(a.get("outcome") or "unfinished")
+        counts[o] = counts.get(o, 0) + 1
+    counts.setdefault("refused_by_tripwire", 0)
+    counts["patients_answered"] = sum(len(a.get("patients") or {}) for a in prog.values())
+    want = "compiled" if compile_only else "screened"
+    return {"set": name, "counts": counts, "pass": counts.get(want, 0) == len(protos),
+            "seconds": round(used(), 1), "deadline_s": deadline_s or None}  # fmt: skip
+
+
+def _answers(work: Path, prog: dict[str, Any]) -> None:
+    """The set's answers so far (every finished protocol; the scorer reads only these), rewritten as it goes."""
     answers = {
         rs: {
             "ruleset": rs,
@@ -902,16 +1014,28 @@ def acc_set(
             "outcome": a.get("outcome"),
         }
         for rs, a in prog.items()
+        if a.get("finished")
     }
     _save(work / "answers.json", answers)
-    counts: dict[str, int] = {"protocols": len(protos)}
-    for a in prog.values():
-        o = str(a.get("outcome") or "unfinished")
-        counts[o] = counts.get(o, 0) + 1
-    counts.setdefault("refused_by_tripwire", 0)
-    counts["patients_answered"] = sum(len(a.get("patients") or {}) for a in prog.values())
-    want = "compiled" if compile_only else "screened"
-    return {"set": name, "counts": counts, "pass": counts.get(want, 0) == len(protos)}
+
+
+def acc_progress(work: Path, built: Path) -> dict[str, Any]:
+    """A set's progress for the progress line: protocols finished of all, patients answered, its clock."""
+    prog = {}
+    p = work / "progress.json"
+    if p.exists():
+        with suppress(OSError, ValueError):
+            prog = json.loads(p.read_text(encoding="utf-8"))
+    clock = {}
+    c = work / "set-clock.json"
+    if c.exists():
+        with suppress(OSError, ValueError):
+            clock = json.loads(c.read_text(encoding="utf-8"))
+    total = len(list((built / "site" / "protocols").glob("*.txt")))
+    done = sum(1 for a in prog.values() if isinstance(a, dict) and a.get("finished"))
+    pats = sum(len(a.get("patients") or {}) for a in prog.values() if isinstance(a, dict))
+    return {"protocols_done": done, "protocols": total, "patients_answered": pats, "used_s": clock.get("used_s"),
+            "deadline_s": clock.get("deadline_s")}  # fmt: skip
 
 
 def routes_verdict(gw: dict[str, Any], emb: dict[str, Any]) -> dict[str, Any]:
@@ -1004,6 +1128,12 @@ def main(argv: list[str] | None = None) -> int:
     mp.add_argument("--embed-list", type=Path)
     mp.add_argument("--embed-url", default="")
     mp.add_argument("--notes")
+    au = sub.add_parser("audit-stats")
+    au.add_argument("--dir", type=Path, required=True)
+    au.add_argument("--since", type=float, required=True)
+    ap_ = sub.add_parser("acc-progress")
+    ap_.add_argument("--work", type=Path, required=True)
+    ap_.add_argument("--built", type=Path, required=True)
     qv = sub.add_parser("qualify-verdict")
     qv.add_argument("record", type=Path)
     t = sub.add_parser("top-costs")
@@ -1024,6 +1154,7 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument("--compile-only", action="store_true")
     ac.add_argument("--job-minutes", type=float, default=60.0)
     ac.add_argument("--poll", type=float, default=5.0)
+    ac.add_argument("--deadline-s", type=float, default=0.0, help="the set's own time budget (0: none)")
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
     cl = sub.add_parser("acc-call")
@@ -1060,6 +1191,12 @@ def main(argv: list[str] | None = None) -> int:
                          "embedder": res["embedder"]})  # fmt: skip
         print(json.dumps(res))
         return 0 if res["routes_ok"] else 1
+    if a.cmd == "audit-stats":
+        print(json.dumps(audit_stats(a.dir, a.since)))
+        return 0
+    if a.cmd == "acc-progress":
+        print(json.dumps(acc_progress(a.work, a.built)))
+        return 0
     if a.cmd == "models-place":
         res = models_place(a.root, a.link, a.template, a.embed_list, a.embed_url)
         _notes(a.notes, {"models": res})
@@ -1097,7 +1234,8 @@ def main(argv: list[str] | None = None) -> int:
         box = Box(a.dc.split(), a.onbox, a.work / "box-calls.log", a.beat)
         try:
             res = acc_set(a.set, a.built, a.work, box, sender=a.sender, reviewer=a.reviewer, run_id=a.run_id,
-                          compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll)  # fmt: skip
+                          compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll,
+                          deadline_s=a.deadline_s)  # fmt: skip
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"acc-set {a.set}: {exc}", file=sys.stderr)
             return 1

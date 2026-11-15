@@ -444,6 +444,7 @@ JUDGE_S=$(md tb-judge-service || echo llm-service)
 VERIFIER_S=$(md tb-verifier-service || echo llm-verifier)
 DOCTOR_EXPECTED=$(md tb-doctor-expected || true)
 QEVIDENCE=$(md tb-qualify-evidence || true)
+QARGS=$(md tb-qualify-args || true)   # qualify's own size options (--items N --repeat-items M), recorded in its notes
 BOXPY=$(md tb-box-python || echo python3)
 # validation: where the box's model folders come from (models/registry.yaml's rtxpro6000 rows: the VM's model cache
 # holds the publisher's snapshots; the template and the embedder's subset come from their public repositories)
@@ -468,6 +469,11 @@ ACC_SETS=$(md tb-acc-sets || true)
 ACC_JOB_MIN=$(md tb-acc-job-minutes || echo 60)
 ACC_AUTHSERV=$(md tb-acc-authserv || echo mx.acc.invalid)
 ACC_TRIPWIRE=$(md tb-acc-tripwire-setting || true)
+ACC_PLAN=$(md tb-acc-plan || true)
+ACC_MIN_DL=$(md tb-acc-min-deadline || echo 600)   # (setting) the shortest time budget of a set, seconds
+PROG_S=$(md tb-progress-seconds || echo 60)        # (setting) seconds between checkpoints of a long step (the owner's 60)
+QTIMEBOX=$(md tb-qualify-timebox || true)          # the owner's probe: qualify ended after so many seconds
+ACC_DEADLINE=$(md tb-acc-deadline || true)         # the owner's probe: each set's time budget, seconds (else the plan's)   # "set:size:high_seconds ..." from the plan (tools/box_run.py metadata)
 PROBE=$(md tb-probe || true)
 DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
@@ -523,7 +529,9 @@ note() { printf '%s\t%s\n' "$1" "$2" >> "$NOTES"; }          # a value of the st
 watched() {  # run a command of the step, its output to the step's log; the log growing is the heartbeat
   echo "+ $(basename "$1") (${#} words) $(date -u +%T)" >> "$STEP_LOG"
   "$@" >> "$STEP_LOG" 2>&1 < /dev/null &
-  local pid=$! size=-1 now io=-1 ion
+  local pid=$! size=-1 now io=-1 ion gpu last_prog=$SECONDS line t0=$SECONDS e0 st adir
+  e0=$(date +%s)
+  adir=$(docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data 2>/dev/null)
   while kill -0 "$pid" 2>/dev/null; do
     now=$(stat -c %s "$STEP_LOG" 2>/dev/null || echo 0)
     [ "$now" = "$size" ] || { touch "$HB"; size=$now; }
@@ -532,8 +540,34 @@ watched() {  # run a command of the step, its output to the step's log; the log 
       [ "$ion" = "$io" ] || { touch "$HB"; io=$ion; }                                # is progress; a hang does neither
     fi
     if [ -n "${WATCH_GPU:-}" ]; then  # a step whose model calls run long between lines (qualify's pair gate): the card
-      [ "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1 | tr -dc 0-9)" \
-        -gt 0 ] 2>/dev/null && touch "$HB"                                           # working is progress
+      gpu=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1 | tr -dc 0-9)
+      [ "${gpu:-0}" -gt 0 ] 2>/dev/null && touch "$HB"                              # working is progress
+    fi
+    # a checkpoint every PROG_S seconds (60, the owner's order) on the console, in the step's log and in the bucket:
+    # what the step is doing now (PROG_FN), its time, the gateway's audited calls since it began (rate, latency, the
+    # queue, calls over a minute, refusals, how long since the last finished call) and the card's use. A stop, a
+    # pre-emption or the watchdog leaves the last checkpoint and every finished item in the bucket.
+    if [ -n "${PROG_FN:-}" ] && [ $((SECONDS - last_prog)) -ge "${PROG_S:-60}" ]; then
+      last_prog=$SECONDS
+      gpu=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1 | tr -dc 0-9)
+      st=$(vm audit-stats --dir "${adir:-/nonexistent}" --since "$e0" 2>/dev/null || echo '{}')
+      printf '{"t": "%s", "elapsed_s": %s, "gpu": "%s", "now": "%s", "audit": %s}\n' "$(date -u +%FT%TZ)" \
+        $((SECONDS - t0)) "${gpu:-?}" "$("$PROG_FN" 2>/dev/null | tr -d '"\\')" "$st" >> "$RUN/logs/$STEP.checkpoints.jsonl"
+      line=$("$PY" -c 'import json,sys
+d = json.loads(sys.argv[1] or "{}"); l = d.get("latency_s") or {}; q = d.get("queue_s") or {}
+print("calls %s (%s/min, %s in the last minute); latency med %s p95 %s max %s s; queue max %s s; over 60 s %s; refusals %s; last finished call %s s ago" % (
+  d.get("calls"), d.get("calls_per_min"), d.get("calls_last_window"), l.get("median"), l.get("p95"), l.get("max"),
+  q.get("max"), d.get("calls_over_60s"), d.get("refusals") or {}, d.get("seconds_since_last_call")))' "$st" 2>/dev/null)
+      echo "TB-PROGRESS $(date -u +%T) $STEP +$((SECONDS - t0))s: $("$PROG_FN" 2>/dev/null) $line; GPU ${gpu:-?} %" \
+        | tee -a "$STEP_LOG" "$LOG" > "$SERIAL" 2>/dev/null
+      pack
+    fi
+    # a time box (the owner's probes): the step's command is ended at TIMEBOX_S, cleanly, by TIMEBOX_KILL
+    if [ -n "${TIMEBOX_S:-}" ] && [ $((SECONDS - t0)) -ge "$TIMEBOX_S" ]; then
+      echo "TB-TIMEBOX $STEP: ended after ${TIMEBOX_S} s (the probe's time box)" | tee -a "$STEP_LOG" "$LOG" > "$SERIAL" 2>/dev/null
+      [ -z "${TIMEBOX_KILL:-}" ] || $TIMEBOX_KILL >> "$STEP_LOG" 2>&1
+      kill "$pid" 2>/dev/null; TIMEBOXED=1
+      break
     fi
     sleep "$POLL"
   done
@@ -587,7 +621,7 @@ d_firstrun() { "$INSTALLER" --firstrun; }                                     # 
 # img_tool [-v SRC:DST[:ro] | -e NAME[=VALUE] ...] <tool> [args]; IMG_NET names the network (default none).
 img_tool() {
   local o=()
-  while [ $# -gt 1 ]; do case "$1" in -v|-e|--env-file) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
+  while [ $# -gt 1 ]; do case "$1" in -v|-e|--env-file|--name) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
   # OPS-004 (D-570): after a bundle install the shipped files under deploy/ are links into ../current; the release
   # tree goes beside /d at /current, as install.sh's tree_args does
   [ -d "$BOXROOT/current" ] && o+=(-v "$(readlink -f "$BOXROOT/current"):/current:ro")
@@ -621,7 +655,8 @@ d_qualify() {
     m+=(-v "$TB/qsrc/trialbox/deploy/images.lock:/app/deploy/images.lock:ro")
   fi
   rm -rf "$TB/qualify-out"; mkdir -p "$TB/qualify-cache" "$TB/qualify-out"
-  IMG_NET=trialbox-net img_tool ${m[@]+"${m[@]}"} ${tok[@]+"${tok[@]}"} -v "$TB/qualify-cache:/app/.cache" -v "$TB/qualify-out:/q" \
+  docker rm -f tb-qualify >/dev/null 2>&1
+  IMG_NET=trialbox-net img_tool --name tb-qualify ${m[@]+"${m[@]}"} ${tok[@]+"${tok[@]}"} -v "$TB/qualify-cache:/app/.cache" -v "$TB/qualify-out:/q" \
     -e "TB_COMPOSE=docker compose --project-directory $BOXROOT/deploy" -e TB_DOCKER=docker \
     -e "TB_ENV=$(envget TB_ENV)" \
     trialbox eval qualify --box --profile "$PROFILE" --gateway-url http://gateway:8020/v1 --operator lane-g-box-run \
@@ -1125,7 +1160,7 @@ PYP
   note site_keys '"not sealed (a public-data PoC box, the owner'"'"'s ruling)"'
   need "the database" d_direct_db || return 1
   need "the release's database steps (tools.trialbox db-up)" d_direct_dbup || return 1
-  WATCH_IO=1 need "the whole stack up (compose up --wait)" d_direct_up || return 1
+  WATCH_IO=1 PROG_FN=prog_line need "the whole stack up (compose up --wait)" d_direct_up || return 1
   watched d_direct_serving; note serving_check_exit $?
   dc ps --format '{{.Service}} {{.State}} {{.Health}}' > "$REC/stack.txt" 2>> "$STEP_LOG"
   note services_up "$(grep -c ' running' "$REC/stack.txt")"
@@ -1239,6 +1274,15 @@ step_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" =
 # validation (the owner's ruling D-511: a failed gate is a RESULT): the record and each step's verdict are kept, the
 # pair is promoted only from a passing record, and the run goes on: a VALIDATION box routes a candidate pair (D-823);
 # whether it really routes the run's calls is asked of the box's own gateway at 52-acc-routes.
+QSTEPS="pin serving_record licence schema longest_prompt log_marker canary pair_gate determinism throughput injection n12 public_e2e goldens planted_defect"
+prog_qualify() {  # the gate qualify is in now: the one after the last it reported (tools/qualify.py STEPS order)
+  local last next n
+  last=$(grep -oE '^qualify: [a-z_0-9]+:' "$STEP_LOG" 2>/dev/null | tail -n 1 | cut -d' ' -f2 | tr -d :)
+  n=$(grep -cE '^qualify: [a-z_0-9]+: ' "$STEP_LOG" 2>/dev/null)
+  next=$(printf '%s\n' $QSTEPS | grep -A1 -x "${last:-none}" | sed -n 2p); [ -n "$last" ] || next=pin
+  echo "qualify gate ${next:-?} ($n of 15 reported);"
+}
+prog_line() { echo "now: $(grep -v '^TB-PROGRESS' "$STEP_LOG" 2>/dev/null | tail -n 1 | cut -c1-80);"; }
 step_qualify() {
   local args=() e rc
   for e in $QEVIDENCE; do   # step=gs://...: the evidence results qualify reads (fetched, named in the part)
@@ -1262,8 +1306,16 @@ step_qualify() {
     rm -f "$TB/qsrc.bundle"
   fi
   if [ "$MODE" = validation ]; then
-    WATCH_GPU=1 watched d_qualify "$QREC" ${args[@]+"${args[@]}"}; rc=$?
+    note qualify_args "\"${QARGS:-none (every item)}\""
+    # shellcheck disable=SC2086  # QARGS is qualify's options, one per word
+    TIMEBOXED=""
+    TIMEBOX_S=$QTIMEBOX TIMEBOX_KILL="docker kill tb-qualify" WATCH_GPU=1 PROG_FN=prog_qualify \
+      watched d_qualify "$QREC" ${args[@]+"${args[@]}"} $QARGS; rc=$?
     note qualify_exit "$rc"
+    if [ -n "$TIMEBOXED" ]; then   # a probe: what it reached is the result, there is no record
+      note timeboxed_s "$QTIMEBOX"; note gates_reported "\"$(grep -oE '^qualify: [a-z_0-9]+: [a-z]+' "$STEP_LOG" | cut -d' ' -f2,3 | tr '\n' ' ')\""
+      note pass false; return 0
+    fi
     [ -s "$QREC" ] || { STOP="the qualification wrote no record (exit $rc)"; return 1; }
     note verdict "$(vm qualify-verdict "$QREC")"
     [ "$rc" = 0 ] && note pass true || note pass false
@@ -1273,7 +1325,12 @@ step_qualify() {
   [ -s "$QREC" ] || { STOP="the qualification wrote no record"; return 1; }
 }
 step_promote() {
-  local build; build=$(jget "$QREC" "builds.$1.build_id")
+  local build
+  if [ "$MODE" = validation ] && [ ! -s "$QREC" ]; then   # qualify left no record (its time box): nothing to promote
+    note promoted false; note why '"no qualification record (qualify was time-boxed): not promoted; VALIDATION routes the candidate"'
+    return 0
+  fi
+  build=$(jget "$QREC" "builds.$1.build_id")
   [ -n "$build" ] || build=$(jget "$QREC" "builds.$1")   # an older record form: the build id itself
   [ -n "$build" ] || { STOP="the qualification record names no $1 build (builds.$1)"; return 1; }
   note build "\"$build\""
@@ -1643,22 +1700,58 @@ step_acc_ingest() {
   done
   note current "\"$(d_current 2>/dev/null)\""
 }
+# the set in flight, for its progress line and its partial upload (PROG_FN of watched)
+ACC_CUR=""
+prog_acc() {
+  local p
+  p=$(vm acc-progress --work "$ACC/$ACC_CUR/work" --built "$ACC/$ACC_CUR/built")
+  acc_pack "$ACC_CUR" partial
+  "$PY" -c 'import json,sys; d=json.loads(sys.argv[1]); print("set %s: protocols %s/%s, patients answered %s, set clock %s of %s s;" % (sys.argv[2], d["protocols_done"], d["protocols"], d["patients_answered"], d["used_s"], d["deadline_s"]))' "$p" "$ACC_CUR"
+}
+ACC_UP=false
+acc_pack() {  # acc_pack <set> [partial]: the set's gold, provenance and work so far to the bucket (ACC_UP: uploaded)
+  local name=$1 where=acc
+  [ "${2:-}" = partial ] && where=acc-partial
+  mkdir -p "$ACC/$name/built/site-provenance"; cp "$ACC/$name/built/site/PROVENANCE.md" "$ACC/$name/built/site-provenance/" 2>/dev/null
+  tar -czf "$ACC/$name.$where.tgz" -C "$ACC/$name" built/gold built/site-provenance work 2>> "$STEP_LOG" || return 1
+  ACC_UP=false
+  if [ -n "$BUCKET" ] && gcloud storage cp "$ACC/$name.$where.tgz" "$BUCKET/boxruns/$RUN_ID/$where/$name.tgz" >/dev/null 2>&1; then ACC_UP=true; fi
+  return 0
+}
+# each set's own time budget (the lead's order of 2026-11-15): 1.5 x its plan high bound (tb-acc-plan, from
+# tools/public_accuracy/plan.py) x the box's measured slowdown r (the first set finished: its seconds / its plan high);
+# before r is known, 4 x (a first set must be able to measure it). At least ten minutes.
+acc_deadline() {
+  local name=$1 high r
+  [ -z "$ACC_DEADLINE" ] || { echo "$ACC_DEADLINE"; return 0; }
+  high=$(printf '%s\n' $ACC_PLAN | sed -n "s/^$name:[0-9]*://p" | head -n 1)
+  r=$(st kv _ acc_rate); [ -n "$r" ] || r=4
+  "$PY" -c 'import sys; h, r, m = float(sys.argv[1] or 0), float(sys.argv[2]), float(sys.argv[3]); print(int(max(m, 1.5 * h * r)) if h else 0)' "${high:-0}" "$r" "$ACC_MIN_DL"
+}
 step_acc_set() {
-  local name=$1 co=() up=false t0
+  local name=$1 co=() up=false t0 dl high sec r
   acc_compile_only "$name" && co=(--compile-only)
   t0=$(st kv _ "acc_t0_$name"); [ -n "$t0" ] || { t0=$(date -u +%FT%T); st set "$STEP" "acc_t0_$name" "$t0"; }
-  need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
+  dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
+  ACC_CUR=$name
+  WATCH_GPU=1 PROG_FN=prog_acc need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
     vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
       --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID" ${co[@]+"${co[@]}"} \
-      --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" || return 1
+      --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" || return 1
+  # the box's measured slowdown, from the first set that finished: its seconds over its plan high bound
+  if [ -z "$(st kv _ acc_rate)" ]; then
+    high=$(printf '%s\n' $ACC_PLAN | sed -n "s/^$name:[0-9]*://p" | head -n 1)
+    sec=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("used_s") or 0)' "$ACC/$name/work/set-clock.json" 2>/dev/null)
+    r=$("$PY" -c 'import sys; s, h = float(sys.argv[1] or 0), float(sys.argv[2] or 0); print(round(max(0.05, s / h), 3) if h > 0 and s > 0 else "")' "${sec:-0}" "${high:-0}")
+    if [ -n "$r" ]; then st set "$STEP" acc_rate "$r"; note rate_measured "$r"; fi
+  fi
   acc_call gateway audit "{\"since\": \"$t0\"}" > "$ACC/$name/work/gateway-audit.json" 2>> "$STEP_LOG" || rm -f "$ACC/$name/work/gateway-audit.json"
   # the raw answers (both models' outputs per call, as the box's trace store keeps them): with the set's results in
   # the bucket and the operator's run folder, never committed
   acc_call gateway traces "{\"since\": \"$t0\"}" > "$ACC/$name/work/raw-traces.json" 2>> "$STEP_LOG" \
     && note raw_traces "$(jget "$ACC/$name/work/raw-traces.json" calls)" || { rm -f "$ACC/$name/work/raw-traces.json"; note raw_traces '"not read"'; }
-  mkdir -p "$ACC/$name/built/site-provenance"; cp "$ACC/$name/built/site/PROVENANCE.md" "$ACC/$name/built/site-provenance/" 2>/dev/null
-  tar -czf "$ACC/$name.tgz" -C "$ACC/$name" built/gold built/site-provenance work 2>> "$STEP_LOG" || { STOP="the set $name could not be packed"; return 1; }
-  if [ -n "$BUCKET" ] && gcloud storage cp "$ACC/$name.tgz" "$BUCKET/boxruns/$RUN_ID/acc/$name.tgz" >/dev/null 2>&1; then up=true; fi
+  acc_pack "$name" || { STOP="the set $name could not be packed"; return 1; }
+  up=$ACC_UP
   mkdir -p "$RUN/acc/$name"; cp "$ACC/$name/work/answers.json" "$RUN/acc/$name/" 2>/dev/null
   note uploaded "$up"
 }

@@ -74,7 +74,11 @@ while [ $# -gt 0 ]; do
     --acc-tripwire) V[tb-acc-tripwire-setting]="$2"; shift 2 ;;
     --embed-list) V[tb-embed-list]="$2"; shift 2 ;;
     --probe) V[tb-probe]=1; shift ;;
-    --direct) V[tb-direct]=1; shift ;;   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
+    --direct) V[tb-direct]=1; shift ;;
+    --qualify-args) V[tb-qualify-args]="$2"; shift 2 ;;
+    --qualify-timebox) V[tb-qualify-timebox]="$2"; shift 2 ;;   # the owner's probe: qualify ended after N seconds
+    --acc-deadline) V[tb-acc-deadline]="$2"; shift 2 ;;         # each set's time budget, seconds (a probe)
+    --progress-seconds) V[tb-progress-seconds]="$2"; shift 2 ;;   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
@@ -157,6 +161,13 @@ acc_fetch() {  # each accuracy set the VM uploaded as it finished: fetched, unpa
     gc storage cp "$o" "$OUT/acc/$name.tgz" >/dev/null && tar -xzf "$OUT/acc/$name.tgz" -C "$OUT/acc/$name" \
       && echo "$o" > "$OUT/acc/$name/.fetched" && echo "accuracy set $name fetched"
   done
+  for o in $(gc storage ls "$OBJ/acc-partial/" 2>/dev/null | grep '\.tgz$'); do   # a set in flight, or cut: its partial
+    name="$(basename "$o" .tgz)"
+    [ -s "$OUT/acc/$name/.fetched" ] && continue
+    mkdir -p "$OUT/acc/$name"
+    gc storage cp "$o" "$OUT/acc/$name.partial.tgz" >/dev/null && tar -xzf "$OUT/acc/$name.partial.tgz" -C "$OUT/acc/$name" \
+      && echo "accuracy set $name: partial fetched (not finished yet)"
+  done
   [ -d "$OUT/acc" ] && br acc-score "$OUT" > "$OUT/acc-score.json" && echo "accuracy scores: $OUT/acc-score.json (and acc/<set>/score.json)"
   return 0
 }
@@ -212,6 +223,11 @@ if [ -n "$RESUME" ]; then
     br metadata --steps acc --mode "$MODE" --only "$ONLY" --out "$OUT/md-only" --set tb-acc-tools=x > /dev/null || exit 2
     cp "$OUT/md-only/tb-acc-sets" "$OUT/md/tb-acc-sets"; RFILES="$RFILES,tb-acc-sets=$OUT/md/tb-acc-sets"
   fi
+  if [ -n "${V[tb-qualify-args]:-}" ]; then
+    printf '%s' "${V[tb-qualify-args]}" > "$OUT/md/tb-qualify-args"
+    case ",$RFILES," in *,tb-qualify-args=*) ;; *) RFILES="$RFILES,tb-qualify-args=$OUT/md/tb-qualify-args" ;; esac
+    grep -qw tb-qualify-args "$OUT/metadata-keys" || echo "$(cat "$OUT/metadata-keys") tb-qualify-args" > "$OUT/metadata-keys"
+  fi
   if [ -n "${V[tb-direct]:-}" ]; then
     echo 1 > "$OUT/md/tb-direct"
     case ",$RFILES," in *,tb-direct=*) ;; *) RFILES="$RFILES,tb-direct=$OUT/md/tb-direct" ;; esac
@@ -241,7 +257,7 @@ if [ "$MODE" = validation ]; then  # the throwaway key's public half, written be
 else
   V[tb-vendor-pub]="${V[tb-vendor-pub]:-$BUCKET/r2/keys/vendor_ed25519.pub}"
 fi
-if [ "$STEPS" = dev ]; then   # the commit's images and tree on the VM: no bundle, no signature (the lead's order)
+if [ "$STEPS" = dev ] || [ "$STEPS" = "dev acc" ]; then   # the commit's images and tree on the VM: no bundle, no signature
   V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-direct]=1
 elif [ "$STEPS" = build ]; then
   V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-out]="${V[tb-out]:-$BUCKET/r2/$RID}"

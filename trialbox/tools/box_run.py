@@ -437,6 +437,11 @@ def metadata(
     }
     if "acc" in groups:
         vals["tb-acc-sets"] = " ".join(f"{n}:{z}" for n, z in sets)
+        # each set's plan high bound in seconds at its size: the VM's time budget per set (box-install-run.sh)
+        highs = [r for r in acc_rows(sets) if r["seconds"] is not None]
+        vals["tb-acc-plan"] = " ".join(
+            f"{n}:{z}:{round(r['seconds_high'])}" for (n, z), r in zip(sets, highs, strict=False)
+        )
     if "build" in groups and mode == "production":
         vals.setdefault("tb-vendor-key-secret", settings()["KEY_SECRET"])
     names = []

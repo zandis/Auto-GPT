@@ -394,6 +394,30 @@ if case == "dev":
         "dev: images built; no gates, no install",
     )
 
+if case == "acc-cut":
+    c = parts["60-acc-jmed"]["detail"]["counts"]
+    ok(c.get("not_run_time_budget", 0) >= 1 and parts["60-acc-jmed"]["detail"]["deadline_s"] == 3,
+       "acc-cut: the set's time budget (1.5 x plan x 4, here 3 s) left protocols not started, said")  # fmt: skip
+    ok(c.get("screened", 0) + c.get("refused_by_tripwire", 0) >= 1, "acc-cut: what finished before it is kept")
+    ok((BKT / "boxruns" / f"rehearsal-{case}" / "acc" / "jmed.tgz").exists()
+       and (BKT / "boxruns" / f"rehearsal-{case}" / "acc-partial" / "jmed.tgz").exists(),
+       "acc-cut: the set's partial went to the bucket while it ran, and its final after")  # fmt: skip
+    ok("TB-PROGRESS" in vm_log and "set jmed: protocols" in vm_log, "acc-cut: progress lines with protocols done/all")
+    ok(
+        parts["61-acc-sigir"]["detail"].get("rate_used") not in (None, "not measured yet: 4"),
+        "acc-cut: the next set's budget used the slowdown the first set measured",
+    )
+
+if case == "qualify-timebox":
+    q = parts["08-qualify"]
+    ok(q["status"] == "done" and q.get("pass") is False and q["detail"].get("timeboxed_s") == 2,
+       "qualify-timebox: ended at its time box, said, the run went on")  # fmt: skip
+    cps = (R / "logs" / "08-qualify.checkpoints.jsonl").read_text().splitlines()
+    ok(len(cps) >= 1 and all("qualify gate" in json.loads(c)["now"] for c in cps),
+       f"qualify-timebox: {len(cps)} checkpoint(s) with the gate it was in, in the bucket's results")  # fmt: skip
+    ok("TB-TIMEBOX 08-qualify" in vm_log and "TB-PROGRESS" in vm_log, "qualify-timebox: the console said both")
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "qualify-timebox: the run ended complete")
+
 if case == "probe":
     ok(list(parts) == ["00-facts"] and ended.startswith("TB-PROBE-DONE"), "probe: the facts, then the run ends")
     facts = (R / "records" / "facts-vm.txt").read_text()

@@ -274,3 +274,30 @@ def test_models_place_links_relative_fetches_checked_and_refuses_a_wrong_file(tm
     assert (root / "chat-templates" / "t.jinja").read_bytes() == tpl and (root / "embedder" / "config.json").exists()
     assert res["ok"] is False and res["missing"] == ["gone: no hub/none under " + str(root)]
     assert res["refused"] and not (root / "embedder" / "bad.bin").exists()
+
+
+def test_audit_stats_counts_latency_refusals_and_age(tmp_path: Path) -> None:
+    d = tmp_path / "audit" / "2026"
+    d.mkdir(parents=True)
+    t0 = 1_800_000_000.0
+    from datetime import UTC, datetime
+
+    def ts(x: float) -> str:
+        return datetime.fromtimestamp(x, UTC).isoformat(timespec="milliseconds")
+
+    lines = [
+        {"ts": ts(t0 + 10), "event": "llm.gateway.call", "prompt_version": "judge@5",
+         "detail": {"latency_ms": 2000, "slot_wait_ms": 100, "tokens_in": 800}},
+        {"ts": ts(t0 + 50), "event": "llm.gateway.call", "prompt_version": "judge@5",
+         "detail": {"latency_ms": 70000, "slot_wait_ms": 0, "tokens_in": 9000}},
+        {"ts": ts(t0 + 55), "event": "llm.gateway.refuse", "detail": {"reason": "model_unavailable"}},
+        {"ts": ts(t0 - 100), "event": "llm.gateway.call", "detail": {"latency_ms": 1}},
+    ]  # fmt: skip
+    (d / "a.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
+    import os
+
+    os.utime(d / "a.jsonl", (t0 + 60, t0 + 60))  # written during the step
+    r = vm.audit_stats(tmp_path / "audit", t0, window_s=30, now=t0 + 60)
+    assert r["calls"] == 2 and r["calls_last_window"] == 1 and r["calls_over_60s"] == 1
+    assert r["latency_s"]["max"] == 70.0 and r["tokens_in"]["max"] == 9000 and r["by_prompt"] == {"judge@5": 2}
+    assert r["refusals"] == {"model_unavailable": 1} and r["seconds_since_last_call"] == 10.0
