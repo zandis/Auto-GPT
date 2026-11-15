@@ -77,8 +77,11 @@ def test_the_estimate_of_a_validation_start_with_run_a_has_low_and_high_with_sou
     assert "known part" in txt and " to " in txt and "Mode: validation" in txt
 
 
-def test_only_takes_some_sets_in_run_a_order_and_scales_them() -> None:
-    assert box_run.acc_sets("tcga:100,jmed") == [("jmed", 300), ("tcga", 100)]
+def test_only_takes_some_sets_in_the_given_order_and_scales_them() -> None:
+    # the given order (cheapest first, the lead's ruling of 2026-11-15); Run A's order without --only
+    assert box_run.acc_sets("tcga:100,jmed") == [("tcga", 100), ("jmed", 300)]
+    assert [n for n, _ in box_run.acc_sets()] == [a.name for a in plan.RUN_A]
+    assert box_run.acc_cap_hours(box_run.acc_sets("trec:3000,trec2023,tfda,sigir")) == box_run.ACC_CAP_MAX_HOURS == 24
     small = box_run.acc_cap_hours([("tcga", 50)])
     assert small == max(1, math.ceil(plan.acc_hours(plan.acc_set("tcga"))["hours_high"] * 0.1 * 1.3))
     for bad in ("nope", "tcga:x", "tcga:0"):

@@ -445,7 +445,7 @@ fi
 
 has() { case "$STEPS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 pf=""
-for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
+for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc|probe) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
 [ -s "$HELPER" ] || pf="$pf; no tb-helper (deploy/gcp/box_vm.py)"
 for c in "$PY" curl tar sha256sum; do command -v "$c" >/dev/null || pf="$pf; no $c"; done
 if has build; then
@@ -458,6 +458,11 @@ if has start || has g6 || has g9 || has g10 || has acc; then
   [ -d "$MODELS" ] || pf="$pf; no model folders at $MODELS"
 fi
 if has start; then
+  if [ "$MODE" = validation ]; then   # install.sh seals a VALIDATION box's site keys (KEK_BACKEND tpm, seal_keys.sh)
+    [ -n "${TB_BOXRUN_ROOT:-}" ] || [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ] \
+      || pf="$pf; no TPM 2.0 device: install.sh seals a VALIDATION box's site keys with KEK_BACKEND=tpm (turn the VM's vTPM on)"
+    command -v systemd-creds >/dev/null || [ -n "${TB_BOXRUN_ROOT:-}" ] || pf="$pf; no systemd-creds (seal_keys.sh, KEK_BACKEND=tpm)"
+  fi
   [ -n "$BUNDLE_SRC" ] || pf="$pf; no tb-bundle"
   [ -n "$BUNDLE_SHA" ] || pf="$pf; no tb-bundle-sha256 (a bundle is never installed unchecked)"
   [ -n "$VPUB_SRC" ] || pf="$pf; no tb-vendor-pub (the installer refuses a bundle without the vendor's public key)"
@@ -478,10 +483,14 @@ note() { printf '%s\t%s\n' "$1" "$2" >> "$NOTES"; }          # a value of the st
 watched() {  # run a command of the step, its output to the step's log; the log growing is the heartbeat
   echo "+ $(basename "$1") (${#} words) $(date -u +%T)" >> "$STEP_LOG"
   "$@" >> "$STEP_LOG" 2>&1 < /dev/null &
-  local pid=$! size=-1 now
+  local pid=$! size=-1 now io=-1 ion
   while kill -0 "$pid" 2>/dev/null; do
     now=$(stat -c %s "$STEP_LOG" 2>/dev/null || echo 0)
     [ "$now" = "$size" ] || { touch "$HB"; size=$now; }
+    if [ -n "${WATCH_IO:-}" ]; then   # a step whose product command is silent for long (install.sh's bundle checks):
+      ion=$(awk '{s += $6 + $10} END {print s + 0}' /proc/diskstats 2>/dev/null)   # the disks reading or writing
+      [ "$ion" = "$io" ] || { touch "$HB"; io=$ion; }                                # is progress; a hang does neither
+    fi
     sleep "$POLL"
   done
   wait "$pid"
@@ -631,11 +640,34 @@ d_g1_hf() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model pa
 d_install_v() {  # as box-install.sh judges it: a FAIL list at the end (no backup target yet) leaves the stack running
   local rc
   # shellcheck disable=SC2086 # TB_BOXRUN_INSTALL is a command line on purpose (the rehearsal)
-  ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
+  # line-buffered: install.sh pipes its long steps through sed, which holds a pipe's output until it ends (stdbuf's
+  # setting reaches every child), so the step's log grows while the bundle is verified and loaded
+  PYTHONUNBUFFERED=1 stdbuf -oL -eL ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
     | "$PY" "$HELPER" redact | tee "$TB/install-v.log"
   rc=${PIPESTATUS[0]}
   [ "$rc" = 0 ] || grep -q "TrialBox is running" "$TB/install-v.log" || return "$rc"
   echo "install.sh exit $rc (a FAIL list at the end; the stack runs)"
+}
+# What install.sh runs with the host's python3 needs PyYAML (tools/trialbox/anchors.py, and pre-start through
+# doctor.py) and, for its own verifier, cryptography; egress wants nft, the retention and backup schedules cron. The
+# product's own rehearsal host has exactly these (tools/rehearse_box/host.Dockerfile); a GCE image may not.
+d_host_prereq() {
+  local miss=()
+  python3 -c 'import yaml' 2>/dev/null || miss+=(python3-yaml)
+  python3 -c 'import cryptography' 2>/dev/null || miss+=(python3-cryptography)
+  command -v nft >/dev/null || miss+=(nftables)
+  [ -d /etc/cron.d ] || miss+=(cron)
+  note host_packages_added "\"${miss[*]-}\""
+  [ ${#miss[@]} = 0 ] && return 0
+  [ -z "${TB_BOXRUN_ROOT:-}" ] || return 0   # the rehearsal installs nothing on its host
+  DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${miss[@]}"
+}
+d_old_servers() {  # judge, verifier, front of deploy/gcp/gpu-sim-startup.sh (--restart unless-stopped): removed, said
+  local c
+  for c in judge verifier front; do
+    docker inspect "$c" >/dev/null 2>&1 && docker rm -f "$c" >/dev/null 2>&1 && note "removed_old_$c" true
+  done
+  return 0
 }
 d_models_place() {  # the site's weights in deploy/models, where install.sh pins them from (the VM's /models, bound)
   local l=() x
@@ -868,12 +900,21 @@ d["release_gates"] = ("green: every image blocks" if d["release_gates_vuln_mode"
 json.dump(d, open(p, "w"))
 PY
   note sha256 "\"$sha\""; note object "\"$OUTP/trialbox-$RID.tar\""
+  # the bundle is in the bucket now (its sha256 beside it): the local copy goes, or the start on this same disk
+  # holds it four times (this copy, 01's fetch, install.sh's dry-run stage and its real stage)
+  rm -f "$b"; note local_copy_removed true
+  note disk_after "\"$(df -B1 --output=used,avail / | tail -n 1 | tr -s ' ')\""
 }
 
 # ================================================================== start (G-2)
 step_bundle() {
   local size free got
   mkdir -p "$TB/bundle"
+  # a start on the VM that built the bundle: the build's tree and Docker's build cache are not needed any more
+  if [ -d "$BUILD" ] && ! has build; then
+    rm -rf "${BUILD:?}/out" "${BUILD:?}/verify-stage" "${BUILD:?}/tb"; note build_tree_removed "\"$BUILD\""
+    docker builder prune -af >> "$STEP_LOG" 2>&1 || true
+  fi
   need "fetching the bundle" fetch "$BUNDLE_SRC" "$BUNDLE" || return 1
   size=$(stat -c %s "$BUNDLE"); note bundle_bytes "$size"
   got=$(sha256sum "$BUNDLE" | cut -d' ' -f1)
@@ -881,10 +922,13 @@ step_bundle() {
   touch "$HB"
   [ ! -e "$BOXROOT/deploy/updates/installed.json" ] \
     || { STOP="an installed box is already at $BOXROOT: a production start needs a fresh root (tb-box-root)"; return 1; }
-  # the installer's room: the bundle again (its image tars are loaded from it) and the host tree, from the data
-  free=$(df -B1 --output=avail "$TB" | tail -n 1 | tr -dc 0-9)
+  note disk "\"$(df -B1 --output=used,avail / | tail -n 1 | tr -s ' ')\""
+  note models_bytes "$(du -sxb "$MODELS" 2>/dev/null | cut -f1 | grep . || echo null)"
+  # the installer's room: tools/apply_update.sh stages a full copy of the bundle under ${TMPDIR:-/tmp} (once for
+  # install.sh's --dry-run, once for the load; verify_update.py wants 1.05 x the payloads), beside this copy
+  free=$(df -B1 --output=avail "${TMPDIR:-/tmp}" | tail -n 1 | tr -dc 0-9)
   note free_bytes "${free:-0}"
-  [ "${free:-0}" -gt "$size" ] || { STOP="${free:-0} bytes free under $TB, the install needs at least the bundle's $size"; return 1; }
+  [ "${free:-0}" -gt $((size * 11 / 10)) ] || { STOP="${free:-0} bytes free under ${TMPDIR:-/tmp}, the install stages the bundle's $size there (x1.05)"; return 1; }
   need "TB-BUNDLE-REFUSED: the bundle against its manifest and as a PRODUCTION box reads it" \
     vm bundle-check "$BUNDLE" --production ${COMMIT:+--commit "$COMMIT"} --release-out "$REC/release.json" \
       --host-out "$TB/bundle/host.tar" --notes "$NOTES" --beat "$HB" || return 1
@@ -907,8 +951,10 @@ step_install() {
       (umask 077; gcloud secrets versions access "$AVER" --secret="$ASEC" > "$ANSWERS.yaml" 2>/dev/null) && [ -s "$ANSWERS.yaml" ] \
         || { STOP="no site answers in Secret Manager (tb-answers-secret, tb-answers-version)"; return 1; }
     fi
+    need "the installer's host packages (python3-yaml: install.sh's anchors-compose and pre-start import yaml)" d_host_prereq || return 1
     need "placing the site's weights in deploy/models" d_models_place || return 1
-    need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
+    d_old_servers   # lane G's earlier private model servers on this VM (gpu-sim-startup.sh) would hold the card
+    WATCH_IO=1 need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
     rm -f "$ANSWERS.yaml"
     return $rc
   fi
@@ -1323,7 +1369,10 @@ step_acc_settings() {
   else
     note tripwire "\"on: no setting used (gateway step 4 runs on every call of class D0 to D2)\""
   fi
-  need "the stack recreated on the new settings" d_recreate || return 1
+  # every service that reads deploy/.env, not the two model servers (their settings did not change; a reload of both
+  # is minutes of the card for nothing)
+  local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-')
+  need "the stack recreated on the new settings (not the model servers)" d_recreate "${svcs[@]}" || return 1
   acc_call mail-gateway env > "$REC/acc-settings-after.json" || { STOP="the box's settings cannot be read after the change"; return 1; }
   st set "$STEP" acc_sender "$(first_of "$REC/acc-settings-after.json" senders)"
   st set "$STEP" acc_reviewer "$(first_of "$REC/acc-settings-after.json" reviewers)"
@@ -1447,8 +1496,14 @@ step_facts() {
     probe_cmd sh -c 'command -v systemd-creds; ls -l /dev/tpm0 /dev/tpmrm0'
     probe_cmd nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
     probe_cmd sh -c 'ss -ltnp | head -40'
-    probe_cmd sh -c 'command -v uv mvn java gcloud curl git make'
+    probe_cmd sh -c 'command -v uv mvn java curl git make nft gcloud'
     probe_cmd cat /etc/os-release
+    probe_cmd docker ps -a --format '{{.Names}} {{.Status}} {{.Image}}'
+    probe_cmd sh -c 'ls -ld /etc/cron.d; command -v nft cron crontab'
+    probe_cmd sh -c 'ls -d /models/hub/models--*/snapshots/* 2>/dev/null'
+    probe_cmd sh -c 'du -sh /models/hub/models--* 2>/dev/null'
+    probe_cmd sh -c 'ls -la /models/embedder /models/chat-templates 2>&1 | head -40'
+    probe_cmd sh -c 'f=$(find /models/hub -name "*.safetensors" -size +1G 2>/dev/null | head -n 1); [ -n "$f" ] && sync && echo 3 > /proc/sys/vm/drop_caches && dd if="$f" of=/dev/null bs=16M count=128 2>&1 | tail -n 1'
   } > "$f"
   note facts_vm "\"records/facts-vm.txt\""
 }
@@ -1465,8 +1520,8 @@ step_facts_box() {
       probe_cmd docker inspect -f '{{.Name}} {{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}} {{json .Config.Cmd}} {{json .Mounts}}' "$(cid "$g")"
     done
     probe_cmd docker network ls
-    probe_cmd sh -c "IMG=\$(sed -n 's/^TB_IMAGE=//p' '$BOXROOT/deploy/.env' | tail -1); docker run --rm --network none \${IMG:-trialbox-py:1.0.0} python -c 'import tools, os; print(os.getcwd()); print(sorted(os.listdir(\"/app\")))'"
-    probe_cmd sh -c "docker run --rm --network trialbox-net \$(sed -n 's/^TB_IMAGE=//p' '$BOXROOT/deploy/.env' | tail -1 | grep . || echo trialbox-py:1.0.0) python -c 'import urllib.request as u; print(u.urlopen(\"http://gateway:8020/healthz\", timeout=10).status)'"
+    probe_cmd docker run --rm --network none "$(img_py)" python -c 'import os; print(os.getcwd(), sorted(os.listdir("/app")))'
+    probe_cmd sh -c "dc exec -T orchestrator python -c 'import urllib.request as u; print(u.urlopen(\"http://gateway:8020/healthz\", timeout=10).status)'"
     probe_cmd sh -c "dc exec -T gateway python -c 'import os; print(sorted(k for k in os.environ if k.startswith((\"TB_EP_\",\"TB_LLM_\",\"TB_GATEWAY_\",\"TB_ENV\",\"TB_TRACESTORE\"))))'"
     probe_cmd sh -c "dc exec -T orchestrator python -c 'from tb_llm.prompt_registry import default_registry as d; print([(e.id, e.version) for e in d().served_set(\"VALIDATION\")])'"
     probe_cmd sh -c "tail -n 60 '$TB/install-v.log'"
@@ -1475,6 +1530,10 @@ step_facts_box() {
 }
 # ------------------------------------------------------------------ the run
 [ -z "$PROBE" ] || run_step 00-facts step_facts
+if has probe; then   # a facts-only launch: the VM's facts, then the run ends (no build, no install)
+  run_step 00-facts step_facts
+  finish "TB-PROBE-DONE: the VM's facts are in records/facts-vm.txt; nothing was built or installed" probe-done 0
+fi
 if has build; then
   run_step b01-source step_b_source
   run_step b02-venv step_b_venv

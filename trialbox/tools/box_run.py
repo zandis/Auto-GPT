@@ -63,11 +63,14 @@ GROUP_CAP_HOURS = {
     "g6": 7,  # plan 32 G-20's 5.0 h "est." x 1.3 rounded up (the complete run's cap rule)
     "g9": 2,  # two 50k screens (measured 725 s each, thin profile) + four interruptions of at most 20 min each
     "g10": 2,  # an update and a canary and a qualification: none measured
+    "probe": 1,  # the VM's facts only (00-facts): a boot and a few reads; the hour is the cloud's smallest sure cap
 }
-GROUPS = ("build", "start", "g6", "g9", "g10", "acc")
+GROUPS = ("build", "start", "g6", "g9", "g10", "acc", "probe")
 MODES = ("production", "validation")
 # The acc group's cap: the plan's high bound of the sets chosen x 1.3 (the complete run's cap rule), whole hours
 ACC_CAP_FACTOR = 1.3
+# and never above what PoC-1's budget leaves for it (the lead's ruling of 2026-11-15: 24 h, US$65.76 spot)
+ACC_CAP_MAX_HOURS = 24
 # The paths of lane G's accuracy tools the VM needs (acc-tools): the package, the two tools it imports, and the
 # committed TrialGPT criterion labels SIGIR's reader joins (eval/criterion_ml, public domain notice)
 ACC_TOOL_PATHS = (
@@ -81,7 +84,7 @@ ACC_TOOL_PATHS = (
 
 def acc_sets(only: str = "") -> list[tuple[str, int]]:
     """The accuracy sets of a run: Run A in its order, or ``only`` (``name`` or ``name:size``, comma-separated) in
-    Run A's order. Sizes default to Run A's."""
+    the order given. Sizes default to Run A's."""
     from tools.public_accuracy import plan
 
     if not only.strip():
@@ -98,7 +101,7 @@ def acc_sets(only: str = "") -> list[tuple[str, int]]:
             raise ValueError(f"--only {item}: the size is a number of pairs, trials or items") from exc
         if want[name] < 1:
             raise ValueError(f"--only {item}: a size of at least 1")
-    return [(a.name, want[a.name]) for a in plan.RUN_A if a.name in want]
+    return list(want.items())  # in the order given: a run goes cheapest first (a stop then loses the least)
 
 
 def acc_cap_hours(sets: list[tuple[str, int]]) -> int:
@@ -111,7 +114,7 @@ def acc_cap_hours(sets: list[tuple[str, int]]) -> int:
     for name, size in sets:
         a = plan.acc_set(name)
         high += plan.acc_hours(a)["hours_high"] * size / a.size
-    return max(1, math.ceil(high * ACC_CAP_FACTOR))
+    return max(1, min(ACC_CAP_MAX_HOURS, math.ceil(high * ACC_CAP_FACTOR)))
 
 
 def group_cap(group: str, sets: list[tuple[str, int]] | None = None) -> int:
@@ -191,6 +194,9 @@ def rows_for(
         ]
     if group == "acc":
         return acc_rows(sets if sets is not None else acc_sets())
+    if group == "probe":
+        return [boot, row(group, "00-facts: disk, image store, python3, TPM, GPU, model folders, a read rate", None,
+                          "unknown", "-")]  # fmt: skip
     if group == "start":
         install = (
             "02 installer (install.sh --answers: a VALIDATION box, images loaded, stack up)"
@@ -388,6 +394,7 @@ def metadata(
         "g9": ("tb-study",),
         "g10": ("tb-g10-vllm-image",),
         "acc": ("tb-acc-tools",),
+        "probe": (),
     }
     if mode == "validation":  # no vendor key; the synthetic site's answers ride as tb-site-answers (box-run.sh)
         must["build"] = ("tb-src", "tb-commit", "tb-release-id", "tb-release-seq", "tb-out")

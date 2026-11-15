@@ -357,6 +357,15 @@ if case == "acc-qualify-fails":
     ok("none" in parts["11-resolve"]["detail"]["judge_d3"], "11: PRODUCTION routes no judge (a candidate pair)")
     ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the run went on to its end")
 
+if case == "probe":
+    ok(list(parts) == ["00-facts"] and ended.startswith("TB-PROBE-DONE"), "probe: the facts, then the run ends")
+    facts = (R / "records" / "facts-vm.txt").read_text()
+    ok(
+        "$ df -h" in facts and "$ docker ps -a" in facts and "[exit" in facts,
+        "probe: each fact with its command and exit",
+    )
+    ok(not any(c.startswith(("install", "acc-", "qualify")) for c in calls), "probe: nothing built or installed")
+
 # ---------------------------------------------------------------- validation mode and the accuracy group
 if case == "build-validation":
     ok(list(parts) == BUILD and all(p["status"] == "done" for p in parts.values()), "the seven build steps, done")

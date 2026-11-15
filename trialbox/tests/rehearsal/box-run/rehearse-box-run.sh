@@ -60,6 +60,7 @@
 #   resume-after-stop  the qualification fails (a stop), then the driver's --resume after a fix: a new tb-retry clears
 #                      the run's end and the stopped step (its part kept in logs/), the next boot runs it again and
 #                      keeps every finished step
+#   probe              a facts-only launch (tb-steps probe): the VM's facts written (names and sizes), the run ends
 #   acc-qualify-fails  validation mode: the qualification fails a gate; that is a result (the record's failed step and
 #                      its figure), the pair is not promoted, resolve says what PRODUCTION routes, the run goes on
 # Needs: bash, python3 (with PyYAML), the repo's venv (.venv: cryptography, the console), curl, openssl, git, make,
@@ -73,7 +74,7 @@ VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
-     resume-after-stop acc-qualify-fails)
+     resume-after-stop acc-qualify-fails probe)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -309,6 +310,7 @@ for CASE in "${CASES[@]}"; do
       wait_for "the done marker" is_done; wait_for "the power-off" is_off
       rm -f "$S/knobs/fail-qualify"; m tb-retry "retry-1"   # the fix, and the driver's --resume (a new tb-retry)
       boot; to_the_end ;;
+    probe) setup "$CASE" probe; boot; to_the_end ;;
     acc-qualify-fails)
       setup "$CASE" start fail-qualify; start_setup; m tb-mode validation; val_models
       cp "$ROOT/deploy/gcp/validation-site-answers.yaml" "$S/metadata/tb-site-answers"
