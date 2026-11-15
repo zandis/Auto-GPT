@@ -86,6 +86,11 @@ UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS
 CODE_OUTSIDE_LIST = "code_outside_list"  # D-113: coded inside a grouper's family, not in its list: kept, unknown
 EXCERPT_TOKENS = 2500  # fits beside the judge prompt and its answer on every profile (8k and up, T-603)
 EXCLUSION_POWER_PRIOR = 0.5  # CAS-3 prior until the criterion library has site history
+#: the S2b stage log's reason for the pairs it routed without embedding (D-910)
+NOT_EMBEDDED_WHY = (
+    "routed to S3 without a ranking: absence semantics are off and the whole window fits the excerpt budget, so "
+    "every note is shown whole, newest first, whatever the ranking"
+)
 
 Reviewer = Callable[[ReviewItem, PatientTrace], dict[str, Any]]
 
@@ -164,6 +169,10 @@ class CascadeConfig:
     population: Sequence[str] | None = None
     note_block: bool = True
     absence_semantics: bool = True
+    # D-910: with absence semantics off, a zero-hit pair whose whole window fits the excerpt budget is routed to S3
+    # without S2b's embedding: every note is then shown whole, newest first, so the ranking cannot change the prompt.
+    # False ranks every pair as before (the test that both give the same prompts and answers)
+    s2b_skip_when_fits: bool = True
     # T-708 (D-477): the consent state of S0, given by the caller's decision context (the orchestrator). None: a
     # caller with no job (a tool) and S0 reads the lake by the same rule (``tb_common.optout.registry_state``).
     registry: Callable[[], RegistryState | None] | None = None
@@ -825,6 +834,14 @@ class _Run:
             sents = [(n, s) for n in win for s in n.sents]
             query = " ".join([c.note_question or c.text, *lexicon_terms(c, self.cfg.lexicon)])
             thr = self.cfg.thresholds.get(c.kind, self.cfg.language)
+            if not index_sweep and sents and self._ranking_moot(c, t, win):
+                # D-910: every window note is shown whole, newest first, whatever the ranking: the pair goes to S3
+                # with the prompt the ranked path builds, and no sentence is embedded for it
+                self.metrics.pairs_s2b_above += 1
+                self.metrics.pairs_s2b_not_embedded += 1
+                shown, left = self.excerpt_set(win, {}, self.budget_of(c, t.index_date), ranked=True)
+                routes.append(_Route(pid, cid, shown, _window_set(c, win), "S2b", left_out=left))
+                continue
             stored = self._from_store(t, query, win, len(sents)) if sents else None
             if stored is not None:
                 # the threshold is fitted to on-the-fly vectors (D-429): a stored score never decides a rescue
@@ -898,8 +915,22 @@ class _Run:
         if record:
             self._log_s2b(alive_before, n_in)
 
+    def _ranking_moot(self, c: CriterionIR, t: PatientTrace, win: list[_Note]) -> bool:
+        """D-910: S2b's ranking of this (not index-sweep) pair cannot change anything. With absence semantics off the
+        pair goes to S3 whatever its score (its margin is never read), and when the whole window fits the excerpt
+        budget the builder shows every note whole, newest first (:func:`matching.excerpts.fits_whole`): the prompt
+        is the same for any ranking. Only on the on-the-fly path: a stored-vector source (``vec.s2b``) keeps its own
+        per-patient account, and with no embedder there is nothing to save."""
+        if not self.cfg.s2b_skip_when_fits or self.cfg.absence_semantics:
+            return False
+        if self.s2b_source is not None or self.embedder is None:
+            return False
+        window = [excerpt_builder.Note(n.did, n.d, n.type, n.text, n.sents) for n in win]
+        return excerpt_builder.fits_whole(window, self.budget_of(c, t.index_date), tokens=_tokens)
+
     def _log_s2b(self, alive_before: int, n_in: int) -> None:
         alive = self.alive()
+        moot = self.metrics.pairs_s2b_not_embedded
         self.log(
             "S2b",
             alive_before,
@@ -910,6 +941,7 @@ class _Run:
             below=self.metrics.pairs_s2b_below,
             embed_batches=self.metrics.s2b_embed_batches,
             embed_model=self.embedder.model if self.embedder else None,
+            **({"not_embedded": moot, "not_embedded_why": NOT_EMBEDDED_WHY} if moot else {}),
             **self._source_detail(),
         )
         self.metrics.n_after["S2b"] = len(alive)
@@ -1340,6 +1372,18 @@ def _tokens(text: str) -> int:
 
 def _set_hash(hashes: Sequence[str]) -> str:
     return "sha256:" + hashlib.sha256("\n".join(hashes).encode("utf-8")).hexdigest()
+
+
+def _text_sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _window_set(c: CriterionIR, win: Sequence[_Note]) -> str:
+    """The in-run judge cache key's sentence set of a pair routed without a ranking (D-910): what its prompt holds,
+    the criterion's text and note question and every sentence of the window (the window is shown whole). Two pairs
+    of one patient share a cached answer only when their prompts are the same."""
+    sents = sorted({sentence_hash(s) for n in win for s in n.sents})
+    return _set_hash(["window", _text_sha(c.text), _text_sha(c.note_question or c.text), *sents])
 
 
 def run_cascade(

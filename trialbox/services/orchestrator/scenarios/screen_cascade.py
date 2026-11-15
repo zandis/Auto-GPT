@@ -495,6 +495,7 @@ def summary(res: CascadeResult) -> dict[str, Any]:
             "pairs_s2_no_notes": m.pairs_s2_no_notes,
             "pairs_s2b_above": m.pairs_s2b_above,
             "pairs_s2b_below": m.pairs_s2b_below,
+            "pairs_s2b_not_embedded": m.pairs_s2b_not_embedded,  # D-910: routed without a ranking, the window fits
             "pairs_judged": dict(m.pairs_judged),
             "tokens_in": m.tokens_in,
             "tokens_out": m.tokens_out,

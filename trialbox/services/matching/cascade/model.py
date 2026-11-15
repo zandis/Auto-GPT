@@ -121,6 +121,8 @@ class CascadeMetrics:
     pairs_s2_no_notes: int = 0
     pairs_s2b_above: int = 0
     pairs_s2b_below: int = 0
+    # D-910: zero-hit pairs routed to S3 without S2b's embedding, their whole window fitting the excerpt budget
+    pairs_s2b_not_embedded: int = 0
     pairs_judged: dict[str, int] = field(default_factory=lambda: {"S3": 0, "S4": 0})
     tokens_in: int = 0
     tokens_out: int = 0

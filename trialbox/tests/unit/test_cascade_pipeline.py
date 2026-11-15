@@ -362,3 +362,58 @@ def test_screen_budget_and_concurrency_settings() -> None:
     for lang in ("en", "ja", "zh-TW"):
         line = t(lang, "screen.budget_hit", max=2000, n=17)
         assert "2000" in line and "17" in line and "max_pairs" in line
+
+
+class PromptJudge:
+    """Records every prompt and answers from it alone: ``fail`` quoting the newest excerpt when the prompt shows an
+    even number of notes, else ``pass``; ``budget``: the excerpt budget it tells (D-910 needs windows that fit and
+    windows that do not)."""
+
+    def __init__(self, budget: int) -> None:
+        self.budget = budget
+        self.prompts: list[str] = []
+
+    def excerpt_budget(self, c: Any, index_date: Any) -> int:
+        return self.budget
+
+    def judge(self, **kw: Any) -> Any:
+        from matching.cascade.judge import JudgeReply
+
+        self.prompts.append(json.dumps(kw, sort_keys=True, default=str))
+        ex = kw["excerpts"]
+        if ex and len(ex) % 2 == 0:
+            return JudgeReply("fail", 0.95, str(ex[0]["text"])[:40], str(ex[0]["date"]), "stated")
+        return JudgeReply("pass", 0.9, None, None, "stated")
+
+
+@pytest.mark.req("CAS-12")
+@pytest.mark.parametrize("budget", [2500, 700])  # every window fits; one fits and one does not
+def test_s2b_is_not_run_where_the_window_fits_and_nothing_changes(env: dict[str, Any], budget: int) -> None:
+    """D-910: SCREEN (absence semantics off) routes a zero-hit pair whose whole window fits the excerpt budget
+    without embedding it. The prompts the judge reads and every answer are the same as with S2b's ranking."""
+    screen = {"sample_per_stratum": None, "absence_semantics": False, "index_mode": "single"}
+    ranked_judge, skipped_judge = PromptJudge(budget), PromptJudge(budget)
+    ranked = _run(env, ranked_judge, s2b_skip_when_fits=False, **screen)
+    skipped = _run(env, skipped_judge, **screen)
+    assert sorted(skipped_judge.prompts) == sorted(ranked_judge.prompts) and skipped_judge.prompts
+    assert _answers(skipped) == _answers(ranked)
+    full = {pid: [vars(o) for o in t.outcomes.values()] for pid, t in ranked.traces.items()}
+    assert {pid: [vars(o) for o in t.outcomes.values()] for pid, t in skipped.traces.items()} == full
+    assert skipped.final_list == ranked.final_list and skipped.tier_counts() == ranked.tier_counts()
+    for key in ("pairs_s2b_above", "pairs_s2b_below", "pairs_judged", "pairs_s2_zero_hit"):
+        assert getattr(skipped.metrics, key) == getattr(ranked.metrics, key), key
+    # the stage log says how many pairs were not embedded and why; the embed batches drop by as many
+    moot = skipped.metrics.pairs_s2b_not_embedded
+    log = skipped.stage("S2b").detail
+    assert moot > 0 and log["not_embedded"] == moot and "fits the excerpt budget" in log["not_embedded_why"]
+    assert ranked.metrics.pairs_s2b_not_embedded == 0 and "not_embedded" not in ranked.stage("S2b").detail
+    assert skipped.metrics.s2b_embed_batches == ranked.metrics.s2b_embed_batches - moot
+    assert [(s.patients_out, s.pairs_out) for s in skipped.stages] == [
+        (s.patients_out, s.pairs_out) for s in ranked.stages
+    ]
+
+
+def test_feasibility_still_ranks_every_zero_hit_pair(env: dict[str, Any]) -> None:
+    """D-910: with absence semantics on, S2b's score decides absence: every zero-hit pair is embedded."""
+    res = _run(env, PromptJudge(2500), sample_per_stratum=None)
+    assert res.metrics.pairs_s2b_not_embedded == 0 and "not_embedded" not in res.stage("S2b").detail

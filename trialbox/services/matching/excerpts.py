@@ -324,3 +324,10 @@ def build(
     shown.sort(key=lambda x: _order(x[0]))
     out = [{"date": n.iso, "note_type": n.type, "text": text, "did": n.did} for n, text in shown]
     return ExcerptSet(out, len(cut), cut)
+
+
+def fits_whole(window: Iterable[Note], budget: int, tokens: Callable[[str], int] = note_tokens) -> bool:
+    """Every window note with text fits the budget whole, together. Then :func:`build` shows each of them in full
+    and sorts them newest first, whatever ``evidence`` it is given and in whatever order, and leaves out only the
+    notes with no text: a ranking of the window cannot change what the models read."""
+    return sum(tokens(n.text) for n in window if n.text.strip()) <= budget
