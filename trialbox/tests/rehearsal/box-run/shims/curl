@@ -1,0 +1,14 @@
+#!/bin/bash
+# Box-run rehearsal shim for curl on the "VM": the GCE metadata server answers from $BR_S/metadata/<key>; a missing key
+# is 404 (curl -f: exit 22), as on GCE. Every other URL goes to the real curl (here: only the VM's own door, 127.0.0.1).
+for a in "$@"; do
+  case "$a" in
+    http://metadata.google.internal/computeMetadata/v1/instance/attributes/*)
+      f=$BR_S/metadata/${a##*/attributes/}
+      [ -f "$f" ] || exit 22
+      cat "$f"; exit 0 ;;
+    http://*|https://*)
+      case "$a" in https://tb-door:*) ;; *) echo "box-run rehearsal: curl to $a is not rehearsed (no network)" >&2; exit 7 ;; esac ;;
+  esac
+done
+exec /usr/bin/curl "$@"

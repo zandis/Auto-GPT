@@ -103,7 +103,7 @@ def test_every_error_class_of_the_engine_is_placed_by_the_engines_own_grouping()
         status = store.query_failure_status(cls("x"))
         if issubclass(cls, question):
             assert status == 422, name
-        elif cls is duckdb.InterruptException:
+        elif cls in (duckdb.InterruptException, duckdb.OutOfMemoryException):  # D-742: the box's limit too
             assert status == 503, name
         else:
             assert status == 500, name

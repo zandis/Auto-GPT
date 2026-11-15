@@ -1,0 +1,371 @@
+{
+ "schema": "tb-capacity-inputs/1",
+ "run_id": "20261113T044219Z-2b9eec74",
+ "run_ids": [
+  "20261113T044219Z-2b9eec74"
+ ],
+ "commit": "2b9eec74ab556b44464b2e83536c720a8a7357a6",
+ "commits": [
+  "2b9eec74ab556b44464b2e83536c720a8a7357a6"
+ ],
+ "card": null,
+ "synthetic_data_only": true,
+ "complete": false,
+ "verdict": "FAILED",
+ "parts": {
+  "prepare": "PASSED",
+  "hospital-ja@c1": "FAILED",
+  "hospital-zh-TW@c1": "FAILED",
+  "hospital-ja@c4": "FAILED",
+  "hospital-zh-TW@c4": "FAILED",
+  "g5-tokens": "FAILED",
+  "hospital-ja@c16": "FAILED",
+  "hospital-zh-TW@c16": "FAILED",
+  "g4-decoding": "FAILED",
+  "g7-clipped": "FAILED"
+ },
+ "g1": {
+  "status": "NOT PLANNED",
+  "note": "the plan has no chat-template part"
+ },
+ "g3": {
+  "ja": {
+   "chosen_in_flight": 16,
+   "chosen_how": "the highest calls/s among the settings with the reference list and no breaker opening",
+   "candidate_lists": {
+    "status": "DIFFERENT",
+    "reference_settings": [
+     1,
+     16
+    ],
+    "differing": [
+     {
+      "in_flight": 4,
+      "candidates": 55
+     }
+    ],
+    "waiting": []
+   },
+   "window": {
+    "patients": 5000,
+    "studies": 5,
+    "night_hours": 8.0,
+    "usable_share": 0.7,
+    "calls_per_patient_and_study": 0.0492,
+    "calls_per_patient_source": "measured: 246 calls for 5,000 patients in `hospital-ja@c16`, taken as one study",
+    "required_calls_per_second": 0.061,
+    "measured_calls_per_second": 4.391,
+    "status": "MEETS"
+   },
+   "settings": [
+    {
+     "tag": "hospital-ja@c1",
+     "lang": "ja",
+     "status": "FAILED",
+     "in_flight": 1,
+     "file": "parts/hospital-ja@c1.json",
+     "measured_over": "main SCREEN",
+     "calls": 244,
+     "cached_calls": 0,
+     "calls_per_second": 0.385,
+     "tokens_per_second": 402.705,
+     "tokens_in_per_second": 356.122,
+     "tokens_out_per_second": 46.583,
+     "p50_s": 2.353,
+     "p95_s": 4.086,
+     "gpu_util_mean_pct": 32.6,
+     "gpu_util_max_pct": 59.0,
+     "gpu_memory_peak_mib": 62590.0,
+     "gpu_memory_total_mib": 97887.0,
+     "breaker_opens": 0,
+     "by_role": {
+      "judge": {
+       "calls": 138,
+       "calls_per_second": 0.359,
+       "tokens_per_second": 378.834,
+       "p50_s": 2.578,
+       "p95_s": 4.351
+      },
+      "verifier": {
+       "calls": 106,
+       "calls_per_second": 0.425,
+       "tokens_per_second": 439.548,
+       "p50_s": 1.944,
+       "p95_s": 3.373
+      }
+     },
+     "patients": 5000,
+     "wall_seconds": 1685.5,
+     "model_busy_seconds": 633.8,
+     "seconds_per_patient": 0.3371,
+     "model_seconds_per_patient": 0.1268,
+     "candidates": 55,
+     "candidates_sha256": "6e78c71cd0bfb856975bd8499260cf6b81e29acfd298a895a30d4b9715083b90"
+    },
+    {
+     "tag": "hospital-ja@c4",
+     "lang": "ja",
+     "status": "FAILED",
+     "in_flight": 4,
+     "file": "parts/hospital-ja@c4.json",
+     "measured_over": "main SCREEN",
+     "calls": 244,
+     "cached_calls": 0,
+     "calls_per_second": 1.435,
+     "tokens_per_second": 1492.028,
+     "tokens_in_per_second": 1318.663,
+     "tokens_out_per_second": 173.365,
+     "p50_s": 2.424,
+     "p95_s": 4.193,
+     "gpu_util_mean_pct": 47.8,
+     "gpu_util_max_pct": 92.0,
+     "gpu_memory_peak_mib": 62592.0,
+     "gpu_memory_total_mib": 97887.0,
+     "breaker_opens": 0,
+     "by_role": {
+      "judge": {
+       "calls": 138,
+       "calls_per_second": 0.881,
+       "tokens_per_second": 925.357,
+       "p50_s": 2.591,
+       "p95_s": 4.56
+      },
+      "verifier": {
+       "calls": 106,
+       "calls_per_second": 0.75,
+       "tokens_per_second": 768.956,
+       "p50_s": 2.033,
+       "p95_s": 3.461
+      }
+     },
+     "patients": 5000,
+     "wall_seconds": 734.1,
+     "model_busy_seconds": 170.0,
+     "seconds_per_patient": 0.1468,
+     "model_seconds_per_patient": 0.034,
+     "candidates": 55,
+     "candidates_sha256": "72d3513176a1db9710164f018199175558a8a537091f4284c6465b6c1aa1ea8e"
+    },
+    {
+     "tag": "hospital-ja@c16",
+     "lang": "ja",
+     "status": "FAILED",
+     "in_flight": 16,
+     "file": "parts/hospital-ja@c16.json",
+     "measured_over": "main SCREEN",
+     "calls": 246,
+     "cached_calls": 0,
+     "calls_per_second": 4.391,
+     "tokens_per_second": 4580.144,
+     "tokens_in_per_second": 4052.24,
+     "tokens_out_per_second": 527.904,
+     "p50_s": 2.845,
+     "p95_s": 5.413,
+     "gpu_util_mean_pct": 32.7,
+     "gpu_util_max_pct": 93.0,
+     "gpu_memory_peak_mib": 62592.0,
+     "gpu_memory_total_mib": 97887.0,
+     "breaker_opens": 0,
+     "by_role": {
+      "judge": {
+       "calls": 140,
+       "calls_per_second": 2.855,
+       "tokens_per_second": 3005.478,
+       "p50_s": 2.884,
+       "p95_s": 4.912
+      },
+      "verifier": {
+       "calls": 106,
+       "calls_per_second": 2.064,
+       "tokens_per_second": 2126.611,
+       "p50_s": 2.63,
+       "p95_s": 5.787
+      }
+     },
+     "patients": 5000,
+     "wall_seconds": 501.5,
+     "model_busy_seconds": 56.0,
+     "seconds_per_patient": 0.1003,
+     "model_seconds_per_patient": 0.0112,
+     "candidates": 55,
+     "candidates_sha256": "6e78c71cd0bfb856975bd8499260cf6b81e29acfd298a895a30d4b9715083b90"
+    }
+   ]
+  },
+  "zh-TW": {
+   "chosen_in_flight": 16,
+   "chosen_how": "the highest calls/s among the settings with the reference list and no breaker opening",
+   "candidate_lists": {
+    "status": "DIFFERENT",
+    "reference_settings": [
+     1,
+     16
+    ],
+    "differing": [
+     {
+      "in_flight": 4,
+      "candidates": 55
+     }
+    ],
+    "waiting": []
+   },
+   "window": {
+    "patients": 5000,
+    "studies": 5,
+    "night_hours": 8.0,
+    "usable_share": 0.7,
+    "calls_per_patient_and_study": 0.0488,
+    "calls_per_patient_source": "measured: 244 calls for 5,000 patients in `hospital-zh-TW@c16`, taken as one study",
+    "required_calls_per_second": 0.061,
+    "measured_calls_per_second": 4.613,
+    "status": "MEETS"
+   },
+   "settings": [
+    {
+     "tag": "hospital-zh-TW@c1",
+     "lang": "zh-TW",
+     "status": "FAILED",
+     "in_flight": 1,
+     "file": "parts/hospital-zh-TW@c1.json",
+     "measured_over": "main SCREEN",
+     "calls": 243,
+     "cached_calls": 0,
+     "calls_per_second": 0.388,
+     "tokens_per_second": 402.122,
+     "tokens_in_per_second": 355.304,
+     "tokens_out_per_second": 46.818,
+     "p50_s": 2.36,
+     "p95_s": 4.109,
+     "gpu_util_mean_pct": 31.0,
+     "gpu_util_max_pct": 41.0,
+     "gpu_memory_peak_mib": 62592.0,
+     "gpu_memory_total_mib": 97887.0,
+     "breaker_opens": 0,
+     "by_role": {
+      "judge": {
+       "calls": 138,
+       "calls_per_second": 0.358,
+       "tokens_per_second": 377.355,
+       "p50_s": 2.548,
+       "p95_s": 4.4
+      },
+      "verifier": {
+       "calls": 105,
+       "calls_per_second": 0.436,
+       "tokens_per_second": 441.726,
+       "p50_s": 1.918,
+       "p95_s": 3.312
+      }
+     },
+     "patients": 5000,
+     "wall_seconds": 1655.8,
+     "model_busy_seconds": 626.3,
+     "seconds_per_patient": 0.3312,
+     "model_seconds_per_patient": 0.1253,
+     "candidates": 55,
+     "candidates_sha256": "72d3513176a1db9710164f018199175558a8a537091f4284c6465b6c1aa1ea8e"
+    },
+    {
+     "tag": "hospital-zh-TW@c4",
+     "lang": "zh-TW",
+     "status": "FAILED",
+     "in_flight": 4,
+     "file": "parts/hospital-zh-TW@c4.json",
+     "measured_over": "main SCREEN",
+     "calls": 246,
+     "cached_calls": 0,
+     "calls_per_second": 1.432,
+     "tokens_per_second": 1499.917,
+     "tokens_in_per_second": 1324.926,
+     "tokens_out_per_second": 174.991,
+     "p50_s": 2.511,
+     "p95_s": 4.281,
+     "gpu_util_mean_pct": 46.7,
+     "gpu_util_max_pct": 92.0,
+     "gpu_memory_peak_mib": 62592.0,
+     "gpu_memory_total_mib": 97887.0,
+     "breaker_opens": 0,
+     "by_role": {
+      "judge": {
+       "calls": 137,
+       "calls_per_second": 0.854,
+       "tokens_per_second": 901.687,
+       "p50_s": 2.705,
+       "p95_s": 4.527
+      },
+      "verifier": {
+       "calls": 109,
+       "calls_per_second": 0.775,
+       "tokens_per_second": 804.091,
+       "p50_s": 2.059,
+       "p95_s": 3.558
+      }
+     },
+     "patients": 5000,
+     "wall_seconds": 791.5,
+     "model_busy_seconds": 171.8,
+     "seconds_per_patient": 0.1583,
+     "model_seconds_per_patient": 0.0344,
+     "candidates": 55,
+     "candidates_sha256": "6e78c71cd0bfb856975bd8499260cf6b81e29acfd298a895a30d4b9715083b90"
+    },
+    {
+     "tag": "hospital-zh-TW@c16",
+     "lang": "zh-TW",
+     "status": "FAILED",
+     "in_flight": 16,
+     "file": "parts/hospital-zh-TW@c16.json",
+     "measured_over": "main SCREEN",
+     "calls": 244,
+     "cached_calls": 0,
+     "calls_per_second": 4.613,
+     "tokens_per_second": 4785.824,
+     "tokens_in_per_second": 4226.014,
+     "tokens_out_per_second": 559.81,
+     "p50_s": 2.741,
+     "p95_s": 4.652,
+     "gpu_util_mean_pct": 34.1,
+     "gpu_util_max_pct": 94.0,
+     "gpu_memory_peak_mib": 62592.0,
+     "gpu_memory_total_mib": 97887.0,
+     "breaker_opens": 0,
+     "by_role": {
+      "judge": {
+       "calls": 138,
+       "calls_per_second": 2.783,
+       "tokens_per_second": 2935.369,
+       "p50_s": 2.954,
+       "p95_s": 4.772
+      },
+      "verifier": {
+       "calls": 106,
+       "calls_per_second": 2.153,
+       "tokens_per_second": 2185.13,
+       "p50_s": 2.297,
+       "p95_s": 3.893
+      }
+     },
+     "patients": 5000,
+     "wall_seconds": 507.9,
+     "model_busy_seconds": 52.9,
+     "seconds_per_patient": 0.1016,
+     "model_seconds_per_patient": 0.0106,
+     "candidates": 55,
+     "candidates_sha256": "72d3513176a1db9710164f018199175558a8a537091f4284c6465b6c1aa1ea8e"
+    }
+   ]
+  }
+ },
+ "cost": {
+  "hours": 1.99,
+  "hours_source": "VM hours given with --vm-hours",
+  "part_hours": 1.66,
+  "price_per_hour": 2.74,
+  "usd": 5.45,
+  "estimate_hours": 3.27,
+  "estimate_usd": 8.95,
+  "cap_hours": 5,
+  "cap_usd": 13.7,
+  "over_cap": false
+ }
+}

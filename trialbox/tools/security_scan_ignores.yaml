@@ -20,10 +20,6 @@ secrets:
     rule: Basic Auth Credentials
     count: 1
     reason: the same throwaway db-image container password as test_db_image.py (T-203a starts its own container)
-  - path: tests/unit/test_backup_schedule.py
-    rule: Basic Auth Credentials
-    count: 1
-    reason: a made-up database URL written to a temporary .env to test parsing
   - path: tests/unit/test_update_path.py
     rule: Basic Auth Credentials
     count: 1
@@ -90,7 +86,6 @@ sast:
   # B324: md5 or sha1, not for security
   - {path: tools/jpcore_rules.py, rule: B324, count: 1, reason: "sha1 compared with the upstream's published sha1; sha256 is checked too"}
   - {path: tools/pglocal.py, rule: B324, count: 1, reason: "sha1 of a folder path to make a short database name"}
-  - {path: tools/trialbox/backup.py, rule: B324, count: 1, reason: "md5 of no rows, to match the database's own md5() content hash"}
   # the rest, one each
   - {path: libs/tb_llm/prompt_registry.py, rule: B506, count: 1, reason: "the loader is a yaml.SafeLoader subclass"}
   - {path: tools/supply_chain/allowlist.py, rule: B506, count: 1, reason: "the loader is a yaml.SafeLoader subclass"}
@@ -104,7 +99,6 @@ sast:
   - {path: services/model_guard/__init__.py, rule: B104, count: 1, reason: "binds all interfaces inside its container; it checks the key on every request"}
   - {path: tools/rehearse_box/smtp_sink.py, rule: B104, count: 1, reason: "test mail sink inside its own container"}
   - {path: tools/vllm_standin.py, rule: B104, count: 1, reason: "test stand-in for the model server inside its container"}
-  - {path: tools/trialbox/logs.py, rule: B103, count: 1, reason: "0o750 on the log folder: owner and group only"}
   - {path: tools/trialbox/svc_secrets.py, rule: B103, count: 1, reason: "0o755 on the folder of public files; the secret files are elsewhere, 0600"}
   - {path: tools/acceptance_env.py, rule: B103, count: 1, reason: "0o755 on the acceptance folder so the containers' users enter it; every secret file inside is 0600 (T-213a)"}
   - path: tools/bench_embed.py

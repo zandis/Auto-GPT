@@ -1,0 +1,50 @@
+{
+ "stages": [
+  {
+   "name": "emr-fhir",
+   "ok": true,
+   "seconds": 402.5,
+   "checks": [
+    [
+     "emr-fhir: check 1",
+     true,
+     ""
+    ],
+    [
+     "emr-fhir: check 2",
+     true,
+     ""
+    ],
+    [
+     "emr-fhir: check 3",
+     true,
+     ""
+    ],
+    [
+     "emr-fhir: check 4",
+     true,
+     ""
+    ],
+    [
+     "emr-fhir: check 5",
+     true,
+     ""
+    ]
+   ]
+  }
+ ],
+ "run": {
+  "id": "20261112T090000Z-0f1e2d3c-s1",
+  "head": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+  "subject": "fixture",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "fixture-vm"
+  },
+  "weight_pins": "synthetic"
+ },
+ "wall_seconds": 402.5
+}

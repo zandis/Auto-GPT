@@ -84,6 +84,7 @@ KINDS: dict[str, frozenset[str]] = {
     "audit": frozenset({
         "console.audit_search", "console.audit_report", "console.audit_verify", "audit.anchored", "audit.reanchored",
         "audit.repaired", "audit.head_signed", "audit.signing_key_rotated", "audit.journal_resync",
+        "journal.reserved_name",  # D-718
     }),
 }  # fmt: skip
 #: one patient's counts, in this order
@@ -95,7 +96,7 @@ SHOWN = (
     "pid", "study", "purpose", "reason", "basis", "via", "cap", "count", "refused", "grant", "kind", "what", "where",
     "role", "affiliation", "action", "filename", "tag", "type", "format", "from", "to", "event", "who", "job",
     "lines", "ok", "head", "key_id", "anchors", "source", "run", "subject", "line", "bytes", "records", "patients",
-    "breakglass", "page",
+    "breakglass", "page", "sent_event",  # D-718: the name a service sent, which the drain did not write as sent
 )  # fmt: skip
 
 

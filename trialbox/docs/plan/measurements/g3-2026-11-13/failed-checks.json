@@ -1,0 +1,61 @@
+[
+ {
+  "part": "g4-decoding",
+  "stage": "G-4 structured output: backend, guided decoding on and off, eager start",
+  "check": "guided on: no answer outside the judge schema",
+  "detail": 1
+ },
+ {
+  "part": "g5-tokens",
+  "stage": "G-5 token counts: /tokenize against the product's estimates",
+  "check": "the largest real / estimated ratio x 1.05 fits the budget's share (1 / SAFETY = 1.176)",
+  "detail": {
+   "max_ratio": 1.2121,
+   "safety_from_measurement": 0.7857
+  }
+ },
+ {
+  "part": "g7-clipped",
+  "stage": "G-7 clipped against whole note (LLM-001)",
+  "check": "0 exclusions on a clipped note (no final not met from a clipped note)",
+  "detail": [
+   "LLM-001-zh-TW-denied-list"
+  ]
+ },
+ {
+  "part": "hospital-ja@c1",
+  "stage": "12 site set-up and data harmonization",
+  "check": "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+  "detail": "(7, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+ },
+ {
+  "part": "hospital-ja@c4",
+  "stage": "12 site set-up and data harmonization",
+  "check": "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+  "detail": "(7, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+ },
+ {
+  "part": "hospital-ja@c16",
+  "stage": "12 site set-up and data harmonization",
+  "check": "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+  "detail": "(7, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+ },
+ {
+  "part": "hospital-zh-TW@c1",
+  "stage": "12 site set-up and data harmonization",
+  "check": "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+  "detail": "(7, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+ },
+ {
+  "part": "hospital-zh-TW@c4",
+  "stage": "12 site set-up and data harmonization",
+  "check": "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+  "detail": "(7, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+ },
+ {
+  "part": "hospital-zh-TW@c16",
+  "stage": "12 site set-up and data harmonization",
+  "check": "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+  "detail": "(7, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+ }
+]

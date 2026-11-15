@@ -1,0 +1,100 @@
+{
+ "patients": 50000,
+ "seconds_per_note_patient": 6.3,
+ "parts": [
+  "g1"
+ ],
+ "llm_concurrency": [
+  16
+ ],
+ "repeats": 1,
+ "llm_speedup": [
+  11.647
+ ],
+ "llm_speedup_override": null,
+ "max_num_seqs": 16,
+ "hospital_source": [
+  "20261113T085509Z-c25cea6b"
+ ],
+ "rows": [
+  {
+   "scenario": "VM start, both models resident",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "VM setup: packages, venv, browser, fonts",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "G-5 token counts, 3 x 200 excerpts",
+   "patients": 0,
+   "model_items": 1200,
+   "seconds": 3097.7,
+   "tags": [
+    "g5-tokens"
+   ],
+   "hours": 0.86,
+   "usd": 2.36
+  },
+  {
+   "scenario": "G-8 2 public protocol(s)",
+   "patients": 0,
+   "model_items": 68,
+   "seconds": 648.7,
+   "tags": [
+    "g8-protocols"
+   ],
+   "hours": 0.18,
+   "usd": 0.49
+  }
+ ],
+ "hours": 1.54,
+ "usd": 4.22,
+ "cap_hours": 3,
+ "cap_usd": 8.22,
+ "provisioning": "SPOT",
+ "price_per_hour": 2.74,
+ "llm_concurrency_default": true,
+ "only": [
+  "g5-tokens",
+  "g8-protocols"
+ ],
+ "plan": {
+  "vms": 1,
+  "shards": [
+   {
+    "shard": 1,
+    "tags": [
+     "g5-tokens",
+     "g8-protocols"
+    ],
+    "rows": [
+     "G-5 token counts, 3 x 200 excerpts",
+     "G-8 2 public protocol(s)"
+    ],
+    "hours": 1.54,
+    "usd": 4.22,
+    "cap_hours": 3,
+    "cap_usd": 8.22,
+    "provisioning": "SPOT",
+    "price_per_hour": 2.74,
+    "vm": "tb-gpu-sim",
+    "zone": "asia-east1-a"
+   }
+  ],
+  "wall_hours": 1.54,
+  "hours": 1.54,
+  "usd": 4.22,
+  "cap_usd": 8.22
+ }
+}

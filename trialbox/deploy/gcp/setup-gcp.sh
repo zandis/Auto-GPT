@@ -13,11 +13,17 @@
 #                          account may read it
 #        tb-demo-password  the demo VM's password (demo-vm-startup.sh reads it; never metadata): asked here once,
 #                          without echo, when it has no version yet (Enter skips)
+#      the deployer may also read tb-gpu-door's metadata and policy (roles/secretmanager.viewer on the secret): the
+#      driver's `secrets describe` and its pre-flight need it (the 2026-11-12 run failed without it, A7)
+#   4b. only with TB_BUCKET=gs://<bucket> (the GPU run's code and results through a bucket, not the door; a machine
+#      behind an HTTPS proxy needs it, A6): the bucket (in REGION, uniform access) and roles/storage.objectAdmin on it
+#      for the deployer and the VMs' service account. An empty bucket costs nothing; the run's objects cost cents.
 #   5. creates ONE JSON key and prints a one-line base64 copy of it
 #      for the GCP_SA_KEY environment variable
 #
 # Usage:  bash setup-gcp.sh [PROJECT_ID]
 #         VM_SA=<email> bash setup-gcp.sh ...   the VMs' service account (default: the Compute Engine default one)
+#         TB_BUCKET=gs://<bucket> bash setup-gcp.sh ...   also the GPU run's bucket (step 4b)
 set -euo pipefail
 
 PROJECT_ID="${1:-trialbox-demo-$(date +%y%m%d)}"
@@ -70,6 +76,9 @@ done
 gcloud secrets add-iam-policy-binding tb-gpu-door --member="serviceAccount:$SA" \
   --role=roles/secretmanager.secretVersionManager --condition=None >/dev/null
 echo "   tb-gpu-door: $SA adds and destroys its versions"
+gcloud secrets add-iam-policy-binding tb-gpu-door --member="serviceAccount:$SA" \
+  --role=roles/secretmanager.viewer --condition=None >/dev/null
+echo "   tb-gpu-door: $SA reads its metadata, versions and policy (the driver's describe and pre-flight)"
 if [ -z "$(gcloud secrets versions list tb-demo-password --filter=state:enabled --format='value(name)' 2>/dev/null)" ]; then
   read -r -s -p "Demo VM password (not shown; Enter to skip): " DEMO_PW; echo
   if [ -n "$DEMO_PW" ]; then
@@ -77,6 +86,21 @@ if [ -z "$(gcloud secrets versions list tb-demo-password --filter=state:enabled 
     echo "   tb-demo-password: stored"
   fi
   unset DEMO_PW
+fi
+
+if [ -n "${TB_BUCKET:-}" ]; then
+  echo "== Bucket $TB_BUCKET (the GPU run's code and results)"
+  case "$TB_BUCKET" in gs://?*) ;; *) echo "TB_BUCKET must be gs://<bucket>"; exit 1 ;; esac
+  gcloud storage buckets describe "$TB_BUCKET" >/dev/null 2>&1 || \
+    gcloud storage buckets create "$TB_BUCKET" --location="$REGION" --uniform-bucket-level-access >/dev/null
+  for M in "serviceAccount:$SA" "serviceAccount:$VM_SA"; do
+    gcloud storage buckets add-iam-policy-binding "$TB_BUCKET" --member="$M" --role=roles/storage.objectAdmin >/dev/null
+    echo "   $TB_BUCKET: objectAdmin for ${M#serviceAccount:}"
+  done
+  # the driver's pre-flight reads the bucket's policy (both accounts must be on it): only this bucket's
+  gcloud storage buckets add-iam-policy-binding "$TB_BUCKET" --member="serviceAccount:$SA" \
+    --role=roles/storage.legacyBucketOwner >/dev/null
+  echo "   $TB_BUCKET: $SA reads its policy (the driver's pre-flight)"
 fi
 
 echo "== Key"
