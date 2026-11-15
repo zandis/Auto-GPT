@@ -191,6 +191,16 @@ if [ -n "$RESUME" ]; then
   # this tree's startup script and helper, and a new tb-retry: a step that stopped runs again with the fix
   mkdir -p "$OUT/md"; date -u +%Y%m%dT%H%M%SZ > "$OUT/md/tb-retry"
   RFILES="startup-script=$ROOT/deploy/gcp/box-install-run.sh,tb-helper=$ROOT/deploy/gcp/box_vm.py,tb-retry=$OUT/md/tb-retry"
+  # the launch's own keys again: the collect at the run's end put the VM back and removed them (reset_vm)
+  for k in $(cat "$OUT/metadata-keys" 2>/dev/null); do
+    case "$k" in
+      startup-script|tb-helper|tb-retry|tb-acc-sets) ;;
+      tb-site-answers) grep -qw start "$OUT/md/tb-steps" 2>/dev/null && [ ! -f "$OUT/md/tb-answers-version" ] \
+        && RFILES="$RFILES,tb-site-answers=$ROOT/deploy/gcp/validation-site-answers.yaml" ;;
+      *) [ -f "$OUT/md/$k" ] && RFILES="$RFILES,$k=$OUT/md/$k" ;;
+    esac
+  done
+  [ -f "$OUT/md/tb-acc-sets" ] && [ -z "$ONLY" ] && RFILES="$RFILES,tb-acc-sets=$OUT/md/tb-acc-sets"
   if [ -s "$OUT/acc-tools.json" ]; then   # an accuracy run: lane G's tools at this commit, fetched again on the VM
     br acc-tools --out "$OUT/acc-tools.tgz" > "$OUT/acc-tools.json" || exit 2
     gc storage cp "$OUT/acc-tools.tgz" "$OBJ/acc-tools.tgz" >/dev/null
