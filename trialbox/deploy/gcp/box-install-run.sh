@@ -733,6 +733,8 @@ d_demo_image() { (cd "$CK" && docker build -f demo/Dockerfile -t trialbox-demo:s
 step_b_gates() {
   local args=""
   need "make trivy-db" make -C "$CK" trivy-db || return 1
+  # the demo image the gates scan, when a resumed build kept a b03 that did not build it
+  docker image inspect trialbox-demo:step5 >/dev/null 2>&1 || need "the demo image (demo/Dockerfile)" d_demo_image || return 1
   # production: enforcing (no --vuln-mode report): a FAIL here stops the build, and the vendor key is never read.
   # validation (a proof of concept, never a release): the gates' own report mode, as CI's images job runs them. It
   # defers only the fixable findings of the two test-only mail servers no bundle carries (tools/supply_chain/
