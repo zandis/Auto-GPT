@@ -263,7 +263,7 @@ guard)
   # D-177: vLLM checks its key on /v1 only. On model-net only model-guard answers to the servers' names: it passes
   # /v1/models, /v1/chat/completions, /v1/completions and /tokenize (D-739) with the key and /health, and nothing
   # else. The stand-ins answer /invocations and /tokenize without a key, as vLLM does, so a box without the guard
-  # would show here (a keyed /tokenize is the unit test's: the stand-in counts any /tokenize as an open call).
+  # would show here (the stand-in counts a keyed /tokenize apart from the open calls).
   in_svc gateway <<'EOF' || fail "model-guard let a call through that it must not"
 import json, os, urllib.error, urllib.request
 key = open(os.environ["TB_LLM_API_KEY_FILE"]).read().strip()  # the compose secret (D-437); the variable is cleared
@@ -278,6 +278,8 @@ for host in ("llm-service", "llm-verifier"):
     base = f"http://{host}:8000"
     st = call("POST", base + "/tokenize", "")
     assert st == 401, f"{host} POST /tokenize (no key): HTTP {st}"  # D-739: with the key only
+    st = call("POST", base + "/tokenize", key)
+    assert st == 200, f"{host} POST /tokenize (key): HTTP {st}"
     for path in ("/invocations", "/detokenize", "/pooling", "/collective_rpc", "/sleep"):
         for k in ("", key):
             st = call("POST", base + path, k)

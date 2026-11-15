@@ -167,3 +167,13 @@ def test_bad_or_huge_content_length_is_refused_before_reading(base: str) -> None
         c.endheaders()
         assert c.getresponse().status == want
         c.close()
+
+
+def test_a_keyed_tokenize_is_counted_apart_from_the_open_calls(base: str) -> None:
+    """D-739: model-guard forwards /tokenize with the key; the rehearsal's "nothing reached an open route" must not
+    count that call. Without the key it is still an open call, as vLLM answers it."""
+    assert _call(f"{base}/tokenize", {"prompt": "abc"})[0] == 200
+    assert _call(f"{base}/tokenize", {"prompt": "abc"}, key=None)[0] == 200
+    assert _call(f"{base}/tokenize", {"prompt": "abc"}, key="wrong")[0] == 200  # a wrong key is no key, as vLLM
+    status, doc = _call(f"{base}/standin/stats")
+    assert status == 200 and doc["tokenize"] == {"200": 1} and doc["open"] == {"200": 2}

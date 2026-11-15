@@ -10,7 +10,8 @@ unchanged, and it is stricter than vLLM where a box goes wrong:
 * **Open routes, as vLLM.** ``POST /invocations`` (SageMaker: chat) and ``POST /tokenize`` answer without the key,
   as vLLM v0.32 does (it checks the key on ``/v1``, ``/v2``, ``/inference`` and ``/cohere`` only), so a rehearsal
   without ``model-guard`` in front would show the hole (``trialbox doctor --serving`` probes them). ``/tokenize``
-  takes a ``prompt`` or ``messages`` and returns token ids (one per character: a stand-in's tokenizer).
+  takes a ``prompt`` or ``messages`` and returns token ids (one per character: a stand-in's tokenizer). A
+  ``/tokenize`` with the key (model-guard forwards it, D-739) is counted under ``tokenize``, not ``open``.
 * **Metrics.** ``GET /metrics`` answers without the key, as vLLM's does, in Prometheus text with vLLM's names
   (prompt and generation tokens, requests, time to first token, queue time, running, waiting, KV cache), counted
   from the answered calls: the complete run scrapes it around every part (review test G-3).
@@ -99,12 +100,14 @@ class Standin:
         self.counts: Counter[int] = Counter()  # model calls (POST /v1/chat/completions, /v1/completions) by status
         self.listings: Counter[int] = Counter()  # GET /v1/models by status
         self.open_calls: Counter[int] = Counter()  # /invocations, /tokenize (no key, as vLLM) by status
+        self.tokenize_calls: Counter[int] = Counter()  # D-739: /tokenize with the key (model-guard forwards it)
         self.tokens: Counter[str] = Counter()  # prompt and generation tokens of the answered calls (/metrics)
         self.lock = threading.Lock()
 
     def count(self, status: int, kind: str = "call") -> None:
         with self.lock:
-            {"call": self.counts, "listing": self.listings, "open": self.open_calls}[kind][status] += 1
+            {"call": self.counts, "listing": self.listings, "open": self.open_calls,
+             "tokenize": self.tokenize_calls}[kind][status] += 1  # fmt: skip
 
     def stats(self) -> dict[str, Any]:
         with self.lock:
@@ -113,6 +116,7 @@ class Standin:
                 "counts": {str(k): v for k, v in sorted(self.counts.items())},
                 "listings": {str(k): v for k, v in sorted(self.listings.items())},
                 "open": {str(k): v for k, v in sorted(self.open_calls.items())},
+                "tokenize": {str(k): v for k, v in sorted(self.tokenize_calls.items())},
             }
 
     def authorised(self, header: str | None) -> bool:
@@ -205,8 +209,10 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
             except ValueError:
                 body = {}
             body = body if isinstance(body, dict) else {}
-            if path == "/tokenize":
-                self._send(200, tokenize(body), "open")
+            if path == "/tokenize":  # D-739: with the key it is model-guard's forward, not an open call
+                self._send(
+                    200, tokenize(body), "tokenize" if s.authorised(self.headers.get("Authorization")) else "open"
+                )
             elif "messages" in body:  # /invocations: SageMaker's chat route
                 status, payload = s.complete({**body, "model": body.get("model") or s.served[0]},
                                              self.headers.get("X-TB-Prompt-Id", ""))  # fmt: skip

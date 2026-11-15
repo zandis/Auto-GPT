@@ -75,7 +75,7 @@ def test_the_allowed_calls_pass_with_the_key_only(guard: int) -> None:
 
 
 def test_tokenize_passes_with_the_key_only(guard: int) -> None:
-    """GUARD-TOKENIZE (D-739): lane G's G-1 counts tokens on the shipped server (``tools/g_probes.py``,
+    """GUARD-TOKENIZE (D-739): lane G's G-1 counts tokens on the shipped server (its probes and
     ``tools/chat_template_check.py``). The key already opens chat completions, which do more than count."""
     assert _call(guard, "POST", "/tokenize", key=None) == 401
     assert _call(guard, "POST", "/tokenize", key="wrong") == 401
