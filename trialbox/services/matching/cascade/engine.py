@@ -104,6 +104,20 @@ class LakeLike:
         raise NotImplementedError
 
 
+def s1_rows(environ: Mapping[str, str] | None = None) -> int:
+    """``TB_CASCADE_S1_ROWS``: the rows (patients times index dates) one S1 query may carry (D-748). A whole number
+    above 0, else the setting is refused."""
+    import os
+
+    from tb_common.config import DECLARED
+
+    env = os.environ if environ is None else environ
+    raw = env.get("TB_CASCADE_S1_ROWS") or DECLARED["TB_CASCADE_S1_ROWS"].default
+    if not raw.isascii() or not raw.isdigit() or int(raw) <= 0:
+        raise CascadeError(f"TB_CASCADE_S1_ROWS={raw!r}: give a whole number of rows above 0")
+    return int(raw)
+
+
 @dataclass
 class CascadeConfig:
     study_id: str
@@ -132,6 +146,8 @@ class CascadeConfig:
     require_retrieval: bool = False
     language: str = "zh-TW"  # language stratum of the site notes (S2b thresholds)
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
+    # NEW-B-47 (D-748): the rows (patients times index dates) one S1 query may carry; None: TB_CASCADE_S1_ROWS
+    s1_rows: int | None = None
     seed: int = 20261025
     snapshot: str | None = None
     # D-442: the stored derived rows (``tb_common.derived_store.stored_read``, None while the flag is off)
@@ -434,13 +450,26 @@ class _Run:
             return v is True
         return v is not True
 
+    def _s1_rows(self, idx: list[date], scope: list[str]) -> list[dict[str, Any]]:
+        """NEW-B-47 (D-748): the ruleset's SQL over the scope in batches of patients: its rows are per patient and
+        index date, so the batches change no row; the lake holds one batch, not the whole scope, at a time. The
+        lake's memory grows with the rows the query carries (patients times index dates), so a batch is as many
+        patients as fit the rows a query may carry."""
+        size = max(1, (self.cfg.s1_rows or s1_rows()) // max(1, len(idx)))
+        dates_ = [d.isoformat() for d in idx]
+        sql = safe_sql(self.rs)
+        rows: list[dict[str, Any]] = []
+        for start in range(0, max(len(scope), 1), size):
+            rows += self.lake.query(sql, [dates_, scope[start : start + size]], self.cfg.snapshot).to_pylist()
+        return rows
+
     def s1(self, idx: list[date]) -> list[CriterionIR]:
         applied = self.applied()
         scope = [t.pid for t in self.traces.values() if t.in_scope]
         if not applied:
             raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
         # D-275: SQL approved before the unit / sex / order-date rules runs guarded by them (unknown on a difference)
-        table = self.lake.query(safe_sql(self.rs), [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
+        table = self._s1_rows(idx, scope)
         # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
         apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)

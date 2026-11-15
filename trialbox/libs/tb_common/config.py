@@ -438,6 +438,10 @@ DECLARED: dict[str, Declared] = {
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
+    # D-748: the lake's memory grows with the rows one S1 query carries (patients times index dates): about 2,000 rows
+    # fitted 500 MB and 6,000 fitted 1 GB (GZQO, measured); the box's lake limit (3 GB) fits about 12,000: 4,000 is a
+    # third of that
+    "TB_CASCADE_S1_ROWS": Declared("int", "4000", "cascade: rows (patients x index dates) one S1 query may carry"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
