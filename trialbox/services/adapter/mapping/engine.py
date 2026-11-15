@@ -88,7 +88,7 @@ _COMPACT_FORMS = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
 _DIGIT_RUN_RE = re.compile(r"\d+")
 _FRACTION_RE = re.compile(r"\.\d+")
 # NEW-DIN-1 (D-589): the calendars a site may declare for a date column (``tables.<t>.dates: {col: roc}``)
-CALENDARS = ("western", "roc", "era")
+CALENDARS = ("western", "roc", "era", "roc_or_western")  # F8 (D-807): roc_or_western, an export that writes both
 DATE_TYPES = ("date", "datetime", "instant")
 _NOT_CALENDAR = "\x00not-a-date-of:"  # what ``normalize`` leaves for the date readers to refuse, with the value
 _CLOCK = r"(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
@@ -111,6 +111,35 @@ def _clock(h: str | None, mi: str | None, sec: str | None) -> str | None:
         return ""
     hh, mm, ss = int(h), int(mi), int(sec or 0)
     return f" {hh:02d}:{mm:02d}:{ss:02d}" if hh < 24 and mm < 60 and ss < 60 else None
+
+
+# F8 (D-807): a western date no ROC form can be: a four-digit year with separators, or 8, 12 or 14 digits
+_WESTERN_SURE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?)?")
+_WESTERN_COMPACT_LENGTHS = (8, 12, 14)
+
+
+def western_sure(raw: str) -> str | None:
+    """``YYYY-MM-DD[ hh:mm:ss]`` of a western date that cannot be a ROC one (F8, D-807); None for anything else."""
+    text = raw.strip()
+    if text.isascii() and text.isdigit() and len(text) in _WESTERN_COMPACT_LENGTHS:
+        parts: tuple[str | None, ...] = (text[:4], text[4:6], text[6:8], text[8:10] or None, text[10:12] or None,
+                                         text[12:14] or None)  # fmt: skip
+    elif m := _WESTERN_SURE.fullmatch(text):
+        parts = m.groups()
+    else:
+        return None
+    y, mo, d, h, mi, sec = parts
+    try:
+        day = date(int(str(y)), int(str(mo)), int(str(d)))
+    except ValueError:
+        return None
+    clock = _clock(h, mi, sec)
+    return None if clock is None else day.isoformat() + clock
+
+
+# F6 (D-808): ICD-10-CM: a letter, a digit, then a digit or letter (the category), and up to four more after the dot
+_ICD10CM_BARE = re.compile(r"[A-Z][0-9][0-9A-Z](?:[0-9A-Z]{1,4})?")
+_ICD10CM_DOTTED = re.compile(r"[A-Z][0-9][0-9A-Z]\.[0-9A-Z]{1,4}")
 
 
 def to_western(raw: str, calendar: str) -> str | None:
@@ -228,6 +257,15 @@ def fold_key(key: object) -> str:
     return ("" if key is None else str(key)).translate(_HALF_WIDTH).strip().lower()
 
 
+KEY_JOIN = "|"  # F10 (D-809): the parts of a key of several columns, joined (``CBC|072``)
+
+
+def join_key(row: Row, parts: list[str]) -> str:
+    """The key of several columns of ``row``, or "" when a part is empty (never a key of one part)."""
+    values = [str(row.get(k) or "").strip() for k in parts]
+    return KEY_JOIN.join(values) if all(values) else ""
+
+
 @dataclass
 class Lookup:
     name: str
@@ -236,10 +274,29 @@ class Lookup:
     _folded: dict[str, Row | None] | None = field(default=None, repr=False, compare=False)
 
     @classmethod
-    def load(cls, name: str, path: Path, key: str) -> Lookup:
+    def load(cls, name: str, path: Path, key: str | list[str]) -> Lookup:
+        """``key``: a column, or (F10, D-809) a list of columns that together are the key (panel and item). A row of
+        a list key is keyed by its parts joined with :data:`KEY_JOIN`, kept under the joined names as a column; a
+        row that lacks a part has no key."""
+        parts = [key] if isinstance(key, str) else list(key)
+        if not isinstance(key, str) and (len(parts) < 2 or not all(isinstance(k, str) and k for k in parts)):
+            raise MappingError(f"look-up {name}: a key of several columns names two or more columns")
+        joined = KEY_JOIN.join(parts)
+        rows: dict[str, Row] = {}
         with path.open(encoding="utf-8-sig", newline="") as fh:  # a look-up saved with a byte order mark reads too
-            rows = {r[key]: r for r in csv.DictReader(fh)}
-        return cls(name, key, rows)
+            reader = csv.DictReader(fh)
+            missing = [k for k in parts if k not in (reader.fieldnames or [])]
+            if missing:
+                raise MappingError(f"look-up {name}: {path.name} has no column {', '.join(missing)}")
+            for r in reader:
+                if isinstance(key, str):
+                    rows[r[key]] = r
+                    continue
+                values = [str(r[k] or "").strip() for k in parts]
+                if all(values):
+                    r[joined] = KEY_JOIN.join(values)
+                    rows[r[joined]] = r
+        return cls(name, joined, rows)
 
     def find(self, key: object) -> Row | None:
         """The row of ``key`` (NEW-DIN-6, D-580): as written first; else by its folded form (:func:`fold_key`) when
@@ -268,6 +325,42 @@ class ResourceSpec:
     where: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _by_day_links(path: Path, order: list[str], resources: list[ResourceSpec]) -> list[tuple[str, str, dict[str, Any]]]:
+    """Each ``{ref: {type: T, by_day: {table, keys, day, their_day}}}`` of the mapping (F7, D-806), checked: the table
+    exists, makes a ``T`` and is mapped before the table that links to it (its visits are known by then); ``keys``
+    (the columns both tables hold: branch, patient) and both days are named."""
+    found: list[tuple[str, str, dict[str, Any]]] = []
+
+    def walk(x: Any, r: ResourceSpec) -> None:
+        if isinstance(x, dict):
+            ref = x.get("ref")
+            if isinstance(ref, dict) and "by_day" in ref:
+                spec, rtype = ref["by_day"], str(ref.get("type") or "")
+                where = f"{path}: {r.type} from {r.table}: a link by day"
+                if not isinstance(spec, dict) or spec.get("table") not in order:
+                    raise MappingError(f"{where} names no table of the mapping")
+                there = str(spec["table"])
+                if not any(o.table == there and o.type == rtype for o in resources):
+                    raise MappingError(f"{where}: the table {there} makes no {rtype}")
+                keys = spec.get("keys")
+                if not isinstance(keys, list) or not keys or not all(isinstance(k, str) and k for k in keys):
+                    raise MappingError(f"{where} needs keys: the columns both tables hold (branch, patient)")
+                if not str(spec.get("day") or "") or not str(spec.get("their_day") or ""):
+                    raise MappingError(f"{where} needs day and their_day: the day column of each table")
+                if order.index(there) >= order.index(r.table):
+                    raise MappingError(f"{where}: the table {there} must be mapped before {r.table}")
+                found.append((r.table, rtype, spec))
+            for v in x.values():
+                walk(v, r)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v, r)
+
+    for r in resources:
+        walk(r.elements, r)
+    return found
+
+
 @dataclass
 class Mapping:
     name: str
@@ -292,6 +385,34 @@ class Mapping:
     empty_dates: frozenset[str] = frozenset()
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
+    # F7 (D-806): each ``{ref: {by_day: ...}}``, as (the table that links, the resource type, its by_day spec)
+    by_day: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+
+    def keeps(self, table: str, row: Row) -> bool:
+        """CGRD-A2 (D-813): whether a canonical row is the table's (``tables.<t>.rows: {column, in | not_in}``): one
+        source of order lines feeds two tables, each its own kind. No filter: every row."""
+        rule = (self.tables.get(table) or {}).get("rows")
+        if not rule:
+            return True
+        value = str(row.get(rule["column"]) or "").strip()
+        if "in" in rule:
+            return value in {str(v) for v in rule["in"]}
+        return value != "" and value not in {str(v) for v in rule["not_in"]}
+
+    def read_whole(self) -> set[str]:
+        """The tables read whole on a delta night (F7, D-806): a visit table a link by day looks up. An unchanged visit
+        missing from the night's rows would make a day of two visits look like a day of one: a wrong link."""
+        return {str(spec["table"]) for _, _, spec in self.by_day}
+
+    # F8 (D-807): the western values read in a ``roc_or_western`` column, by (table, column): counts only
+    western_read: Counter[tuple[str, str]] = field(default_factory=Counter)
+
+    def read_as_western(self) -> dict[str, dict[str, int]]:
+        """Per table and column, how many values a ``roc_or_western`` column read as western (F8, D-807)."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, col), n in sorted(self.western_read.items()):
+            out.setdefault(table, {})[col] = n
+        return out
 
     @staticmethod
     def _plausible_of(lk: dict[str, Any]) -> tuple[float, float] | None:
@@ -408,10 +529,23 @@ class Mapping:
             )
             for r in doc.get("resources") or []
         ]
+        for t, tspec in (doc.get("tables") or {}).items():  # CGRD-A2 (D-813): a table's own rows of a shared source
+            rule = (tspec or {}).get("rows")
+            if rule is None:
+                continue
+            kinds = [k for k in ("in", "not_in") if k in (rule if isinstance(rule, dict) else {})]
+            good = isinstance(rule, dict) and isinstance(rule.get("column"), str) and bool(rule["column"])
+            if not (good and len(kinds) == 1 and isinstance(rule[kinds[0]], list) and rule[kinds[0]]):
+                raise MappingError(f"{path}: {t}.rows is {{column: <c>, in: [..]}} or {{column: <c>, not_in: [..]}}")
+        for t, tspec in (doc.get("tables") or {}).items():  # F10 (D-809): a key column made of several
+            for col, parts in ((tspec or {}).get("join") or {}).items():
+                if not (isinstance(parts, list) and len(parts) >= 2 and all(isinstance(p, str) and p for p in parts)):
+                    raise MappingError(f"{path}: {t}.join.{col}: a list of two or more columns")
         for r in resources:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
+        by_day = _by_day_links(path, list(doc.get("tables") or {}), resources)
         for name, lk in lookups.items():  # D-590: a range stated badly is found now, not row by row at night
             for row in lk.rows.values():
                 try:
@@ -475,6 +609,25 @@ class Mapping:
                         f"{path}: {r.type}.{element} writes column atc under system {spec.get('system')!r}: {why}. "
                         "Write the atc column under `system: atc`"
                     )
+        for r in resources:  # CGRD-A4 (D-816): a fallback column, a masked text
+            for element, spec in r.elements.items():
+                if not isinstance(spec, dict):
+                    continue
+                if "else" in spec and not (isinstance(spec["else"], str) and spec["else"] and "column" in spec):
+                    raise MappingError(f"{path}: {r.type}.{element}: else names a column, beside column")
+                if "masked" in spec and spec["masked"] is not True:
+                    raise MappingError(f"{path}: {r.type}.{element}: masked is true or left out")
+        for r in resources:  # CGRD-A3 (D-815): a site's own codes, kept as written
+            for element, spec in r.elements.items():
+                if isinstance(spec, dict) and "keep_as_written" in spec:
+                    keep = spec["keep_as_written"]
+                    if spec.get("dotted") != "icd10cm" or not (
+                        isinstance(keep, list) and keep and all(isinstance(k, str) and k.strip() for k in keep)
+                    ):
+                        raise MappingError(
+                            f"{path}: {r.type}.{element}: keep_as_written is a list of the site's own codes, with "
+                            "dotted: icd10cm"
+                        )
         for r in resources:  # D-689: a mapped coding takes only relations that say the code is the target
             for element, spec in r.elements.items():
                 if not isinstance(spec, dict) or spec.get("builder") != "mapped_coding" or "accept" not in spec:
@@ -502,7 +655,16 @@ class Mapping:
                 when = spec.get("when")
                 guarded = (isinstance(when, dict) and when.get("not_empty") is False and len(atc_cols) <= 1
                            and (not atc_cols or when.get("column") == atc_cols[0]))  # fmt: skip
-                if spec.get("target") != "atc5" or not guarded:
+                # CGRD-A2 (D-813): or beside the hospital's ATC, a disagreement then being unknown
+                beside = "beside" in spec and len(atc_cols) == 1 and spec["beside"] == atc_cols[0]
+                if "beside" in spec and not beside:
+                    raise MappingError(
+                        f"{path}: {r.type}.{element}: beside names the column the hospital's own ATC is written from "
+                        f"({', '.join(atc_cols) or 'none'})"
+                    )
+                if "class_target" in spec and spec["class_target"] != "atc4":
+                    raise MappingError(f"{path}: {r.type}.{element}: class_target is atc4")
+                if spec.get("target") != "atc5" or not (guarded or beside):
                     raise MappingError(
                         f"{path}: {r.type}.{element} maps a code to ATC: it needs `target: atc5` and `when: {{column: "
                         f"{atc_cols[0] if atc_cols else '<the ATC column>'}, not_empty: false}}`, the column the "
@@ -527,6 +689,7 @@ class Mapping:
             unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
             params=cls._params(path, doc),
             version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
+            by_day=by_day,
         )
 
     @staticmethod
@@ -574,6 +737,8 @@ class Mapping:
                 out[col] = table_codes[str(v)]
             elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
                 out[col] = table_codes[str(v).strip()]
+        for col, parts in (spec.get("join") or {}).items():  # F10 (D-809): one key column made of several
+            out[col] = join_key(out, parts)
         calendars = self.calendars.get(table) or {}
         if calendars or self.empty_dates:  # D-589: a declared placeholder is empty; a declared calendar made western
             for col in self.date_columns.get(table, ()):
@@ -582,6 +747,12 @@ class Mapping:
                     continue
                 if text in self.empty_dates or _MIDNIGHT.sub("", text) in self.empty_dates:
                     out[col] = ""  # the placeholder, also when a date-time column adds its midnight
+                elif calendars.get(col) == "roc_or_western":
+                    # F8 (D-807): ROC read as ROC; a western date that no ROC form can be read as written, counted
+                    western = to_western(text, "roc")
+                    if western is None and (western := western_sure(text)) is not None:
+                        self.western_read[(table, col)] += 1
+                    out[col] = western if western is not None else f"{_NOT_CALENDAR}{calendars[col]}\x00{text}"
                 elif calendars.get(col, "western") != "western":
                     western = to_western(text, calendars[col])
                     # not raised here: the row is refused where refused rows are counted (the date readers)
@@ -634,6 +805,14 @@ MAPPED_RELATIONS = frozenset({"equivalent", "equal", "wider"})
 #: level of a drug value set). A coarser class from a map is not written: any ATC, however coarse, makes the row
 #: "readable" to the coverage rule, and a level-5 inclusion would then answer "no" where it was unknown
 MAPPED_TARGETS = {"atc5": re.compile(r"[A-Z]\d{2}[A-Z]{2}\d{2}")}
+#: CGRD-A2 (D-813): a level-4 ATC class, written only where an element asks (``class_target: atc4``) and then under
+#: :data:`ATC_CLASS`, never the ATC system: a level-5 criterion still reads the row as having no ATC (unknown)
+_ATC4 = re.compile(r"[A-Z]\d{2}[A-Z]{2}")
+ATC_CLASS = "urn:trialbox:atc-class"
+#: CGRD-A2 (D-813): the hospital's ATC and the mapped one, disagreeing at level 5: both moved here, which no ATC
+#: reader reads, so the row's drug is unknown and never the code that happens to match
+ATC_DISPUTED = "urn:trialbox:atc-disputed"
+_CLASS_MARK = "\x00class:"
 
 _ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
 
@@ -648,7 +827,9 @@ class Mapper:
         site_id: str,
         ingest_time: str | None = None,
         concept_map: Callable[[str, str], list[dict[str, Any]] | None] | None = None,
+        mrn_regex: str | None = None,
     ) -> None:
+        self.mrn_regex = mrn_regex  # CGRD-A4 (D-816): the site's chart number pattern, for ``masked: true``
         # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
         # back-fill pass the box's own; without it ``mapped_coding`` maps nothing
         self.concept_map = concept_map
@@ -668,6 +849,17 @@ class Mapper:
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
         self.unmapped: Counter[tuple[str, str, str]] = Counter()
         self._row_seen: set[tuple[str, str]] | None = None  # the row :meth:`map_table` is mapping, else None
+        self.disputed: Counter[str] = Counter()  # CGRD-A2 (D-813): rows whose two ATC codes disagree, per table
+        # F7 (D-806): the visits of each linked-to table by (its keys, its day) -> their ids, filled as it is mapped,
+        # and what each link by day found, by (table, outcome): counts only
+        self._visits: dict[tuple[str, str, tuple[str, ...], str], dict[tuple[str, ...], set[str]]] = {}
+        for _, rtype, spec in mapping.by_day:
+            self._visits.setdefault((str(spec["table"]), rtype, tuple(spec["keys"]), str(spec["their_day"])), {})
+        self.links: Counter[tuple[str, str]] = Counter()
+        self._made: set[tuple[str, str]] = set()  # (type, id) of each visit that became a record
+        # F9 (D-811): dates left out because no life is that long, by (table, element): counts only
+        self.implausible: Counter[tuple[str, str]] = Counter()
+        self._element = ""
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -816,8 +1008,70 @@ class Mapper:
 
         return _TOKEN_RE.sub(sub, text)
 
+    def _day_of(self, raw: Any) -> str | None:
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            return self._parse_dt(str(raw)).date().isoformat()
+        except (MappingError, ValueError):
+            return None
+
+    def _by_day(self, spec: dict[str, Any], rtype: str, row: Row, rs: ResourceSpec) -> str | None:
+        """F7 (D-806): the one ``rtype`` the linked-to table holds for this row's keys and day; none when that day has
+        several or none, each counted, never guessed."""
+        keys = tuple(spec["keys"])
+        want = (*(str(row.get(k) or "").strip() for k in keys), self._day_of(row.get(spec["day"])) or "")
+        ids = self._visits.get((str(spec["table"]), rtype, keys, str(spec["their_day"])), {}).get(want, set())
+        if any(not v for v in want) or not ids:
+            self.links[(rs.table, "no_visit_that_day")] += 1
+            return None
+        if len(ids) > 1:
+            self.links[(rs.table, "several_visits_that_day")] += 1
+            return None
+        rid = next(iter(ids))
+        if (rtype, rid) not in self._made:  # the day's one visit was refused or left out: no record to point at
+            self.links[(rs.table, "visit_not_mapped")] += 1
+            return None
+        self.links[(rs.table, "linked")] += 1
+        return f"{rtype}/{rid}"
+
+    def encounter_links(self) -> dict[str, dict[str, int]]:
+        """What the links by day found, per table (F7, D-806): ``linked``, ``several_visits_that_day``,
+        ``no_visit_that_day``, ``visit_not_mapped``. Counts only."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, outcome), n in sorted(self.links.items()):
+            out.setdefault(table, {})[outcome] = n
+        return out
+
+    def _older_than_a_life(self, raw: Any, spec: dict[str, Any], row: Row) -> bool:
+        """F9 (D-811): whether a birth date is more than ``years`` before ``until`` (the death date's column), or
+        before today when the row has none: nobody lives that long."""
+        born = self._parse_dt(str(raw)).date()
+        end_raw = row.get(str(spec.get("until") or ""))
+        end = date.today()
+        if end_raw not in (None, "") and str(end_raw).strip():
+            try:
+                end = self._parse_dt(str(end_raw)).date()
+            except (MappingError, ValueError):
+                end = date.today()
+        years = int(spec["years"])
+        try:
+            oldest = end.replace(year=end.year - years)
+        except ValueError:  # 29 February
+            oldest = end.replace(year=end.year - years, day=28)
+        return born < oldest
+
+    def implausible_dates(self) -> dict[str, dict[str, int]]:
+        """Per table and element, the dates left out because no life is that long (F9, D-811). Counts only."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, element), n in sorted(self.implausible.items()):
+            out.setdefault(table, {})[element] = n
+        return out
+
     def ref(self, spec: dict[str, Any], row: Row, rs: ResourceSpec) -> str | None:
         rtype = spec["type"]
+        if "by_day" in spec:
+            return self._by_day(spec["by_day"], rtype, row, rs)
         if "pid" in spec:
             return f"{rtype}/{self.pid(row, spec['pid'])}"
         col = spec.get("hid") or spec.get("column")
@@ -840,6 +1094,12 @@ class Mapper:
             return self.builders[expr["builder"]](rs, row, expr)
         if "column" in expr:
             raw = row.get(expr["column"])
+            if (raw is None or str(raw).strip() == "") and expr.get("else"):  # CGRD-A4 (D-816): the next column
+                raw = row.get(expr["else"])
+            if expr.get("masked") is True and raw is not None and str(raw).strip():
+                from tb_common.phi_guard import mask_note  # CGRD-A4 (D-816): as note text before it is chunked
+
+                raw = mask_note(str(raw), self.mrn_regex)
             if "map" in expr:
                 key = "" if raw is None else str(raw)
                 if key not in expr["map"]:
@@ -857,7 +1117,18 @@ class Mapper:
                 minutes = row.get(expr["add_minutes"]) if isinstance(expr["add_minutes"], str) else expr["add_minutes"]
                 dt = self._parse_dt(str(raw)) + timedelta(minutes=int(minutes or 0))
                 raw = dt.isoformat(sep=" ", timespec="seconds")  # an offset the source stated stays (STD-015)
-            val = self.convert(raw, expr.get("type"))
+            try:
+                val = self.convert(raw, expr.get("type"))
+            except DateRangeError:
+                if "lived_at_most" not in expr:
+                    raise
+                # CGRD-A6 (D-817): a birth date outside the feed's range (a placeholder) is not the patient's: left
+                # out and counted, the patient kept, never the whole row refused
+                self.implausible[(rs.table, self._element)] += 1
+                return None
+            if val is not None and "lived_at_most" in expr and self._older_than_a_life(raw, expr["lived_at_most"], row):
+                self.implausible[(rs.table, self._element)] += 1  # F9 (D-811): left out, the row kept; counted
+                return None
             if val is not None and "factor" in expr:
                 val = float(Decimal(str(val)) * Decimal(str(expr["factor"])))
             return val
@@ -1043,10 +1314,26 @@ class Mapper:
         return {"valueQuantity": q}
 
     def _b_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
+        """``dotted: icd10cm`` (F6, D-808): a code of the ICD-10-CM shape is written with its dot after the third
+        character (``M109`` is ``M10.9``); a category of three has none. A code of another shape is copied as fed and
+        counted (``shape:icd10cm``)."""
         code = row.get(args["column"])
         if code is None or str(code).strip() == "":
             return None
-        coding: dict[str, Any] = {"system": self.m.systems[args["system"]], "code": str(code).strip()}
+        text = str(code).strip()
+        if args.get("dotted") == "icd10cm":
+            bare = text.upper()
+            if bare in {str(k).strip().upper() for k in args.get("keep_as_written") or ()}:
+                # CGRD-A3 (D-815): the site's own code: kept as written (never dotted into a code it is not), counted
+                text = bare
+                self._note_unmapped(rs.table, "local:icd10cm", text)
+            elif _ICD10CM_DOTTED.fullmatch(bare):
+                text = bare
+            elif _ICD10CM_BARE.fullmatch(bare):
+                text = bare if len(bare) == 3 else f"{bare[:3]}.{bare[3:]}"
+            else:
+                self._note_unmapped(rs.table, "shape:icd10cm", text)
+        coding: dict[str, Any] = {"system": self.m.systems[args["system"]], "code": text}
         if "display_column" in args and row.get(args["display_column"]):
             coding["display"] = str(row[args["display_column"]])
         return coding
@@ -1092,7 +1379,7 @@ class Mapper:
             self._note_unmapped(rs.table, name, fed)
             return None
         accept = tuple(args.get("accept") or ("equivalent", "equal"))  # D-689: ``wider`` only where an element says
-        key = (str(args["from"]), str(args["to"]), code, *accept)
+        key = (str(args["from"]), str(args["to"]), code, str(args.get("class_target") or ""), *accept)
         if key not in self._mapped:
             target = self.m.systems[args["to"]]
             asked = self.concept_map(self.m.systems[args["from"]], code)
@@ -1104,12 +1391,23 @@ class Mapper:
             shape = MAPPED_TARGETS.get(str(args.get("target") or ""))
             hit_code, rel = next(iter(answers)) if len(answers) == 1 else ("", None)
             same = bool(hit_code) and rel in accept and (shape is None or shape.fullmatch(hit_code) is not None)
-            self._mapped[key] = hit_code if same else None
+            if (
+                not same
+                and bool(hit_code)
+                and rel in accept
+                and args.get("class_target") == "atc4"
+                and (_ATC4.fullmatch(hit_code))
+            ):
+                self._mapped[key] = _CLASS_MARK + hit_code  # CGRD-A2: a class only, never the drug's ATC
+            else:
+                self._mapped[key] = hit_code if same else None
         hit = self._mapped[key]
         if hit is None:
             self._note_unmapped(rs.table, name, fed)  # as fed, so the count's own filter sees what it was
             return None
         self._note_mapped(rs.table, name)
+        if hit.startswith(_CLASS_MARK):
+            return {"system": ATC_CLASS, "code": hit[len(_CLASS_MARK) :], "userSelected": False}
         # userSelected false: not the code the hospital recorded, the one the map says it is
         return {"system": self.m.systems[args["to"]], "code": hit, "userSelected": False}
 
@@ -1167,11 +1465,17 @@ class Mapper:
     def row_id(self, rs: ResourceSpec, row: Row) -> str:
         if "pid" in rs.id:
             return self.pid(row, rs.id["pid"])
+        col = rs.id.get("hid") or rs.id.get("column")
+        if col is None:
+            raise MappingError(f"{rs.type}: id needs pid/hid/column")
+        value = row[col]
+        if value is None or str(value).strip() == "":
+            # CGRD-A1 (D-812): an empty key gave every such row one record id, and all but one were lost. Refused:
+            # the row is rejected and counted where rejected rows are
+            raise MappingError(f"{rs.type} from {rs.table}: no key ({col} is empty)")
         if "hid" in rs.id:
-            return resource_id(self.key, rs.type, f"{row[rs.id['hid']]}{rs.id.get('suffix', '')}")
-        if "column" in rs.id:
-            return str(row[rs.id["column"]])
-        raise MappingError(f"{rs.type}: id needs pid/hid/column")
+            return resource_id(self.key, rs.type, f"{value}{rs.id.get('suffix', '')}")
+        return str(value)
 
     def tombstones(self, table: str, rows: Iterator[Row]) -> Iterator[tuple[str, str]]:
         """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).
@@ -1187,6 +1491,27 @@ class Mapper:
                 except (KeyError, TypeError, ValueError):
                     continue
 
+    def _settle_atc(self, rs: ResourceSpec, res: Resource) -> None:
+        """CGRD-A2 (D-813): where a mapped ATC is written ``beside`` the hospital's, two ATC codes of one concept that
+        disagree (neither begins the other) leave the drug unknown: both move to :data:`ATC_DISPUTED`, counted."""
+        for path, spec in rs.elements.items():
+            if not (isinstance(spec, dict) and spec.get("builder") == "mapped_coding" and "beside" in spec):
+                continue
+            concept = res.get(path.split(".", 1)[0])
+            codings = concept.get("coding") if isinstance(concept, dict) else None
+            from lake.flatten import ATC_SYSTEM
+
+            atc = [c for c in codings or [] if isinstance(c, dict) and c.get("system") == ATC_SYSTEM]
+            codes = sorted({str(c.get("code") or "") for c in atc}, key=len)
+            if any(not long.startswith(short) for i, short in enumerate(codes) for long in codes[i + 1 :]):
+                for c in atc:
+                    c["system"] = ATC_DISPUTED
+                self.disputed[rs.table] += 1
+
+    def atc_disputed(self) -> dict[str, int]:
+        """Rows whose hospital ATC and mapped ATC disagree, per table (CGRD-A2, D-813). Counts only."""
+        return dict(sorted(self.disputed.items()))
+
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
         for v in row.values():  # D-589: an unread date of a declared calendar refuses the row, whoever reads it
             _refuse_declared(v)
@@ -1200,7 +1525,9 @@ class Mapper:
             if prof:
                 res["meta"] = {"profile": [prof]}
         for path, expr in rs.elements.items():
+            self._element = path  # F9 (D-811): what a count names
             self.set_path(res, path, self.value(expr, row, rs))
+        self._settle_atc(rs, res)
         if self.ingest_time:
             meta = res.setdefault("meta", {})
             meta["source"] = f"{self.site_id}/{rs.table}#{self.row_hash(row)}"
@@ -1270,14 +1597,33 @@ class Mapper:
         body = json.dumps(row, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
         return hmac.new(self.key, body, hashlib.sha256).hexdigest()[:24]
 
+    def _index_visit(self, table: str, rs: ResourceSpec, row: Row) -> str:
+        """F7 (D-806): every visit row read, under its keys and its day, mapped or not: a day of two visits stays a
+        day of two when one is refused or left out. Its id ("" when not indexed); one without an id still counts."""
+        hit = [(k, i) for k, i in self._visits.items() if k[0] == table and k[1] == rs.type]
+        if not hit:
+            return ""
+        try:
+            rid = self.row_id(rs, row)
+        except (KeyError, MappingError):
+            rid = ""
+        for (_, _, keys, their_day), index in hit:
+            key = (*(str(row.get(k) or "").strip() for k in keys), self._day_of(row.get(their_day)) or "")
+            if all(key):
+                index.setdefault(key, set()).add(rid or f"\x00{len(index)}:{sum(map(len, index.values()))}")
+        return rid
+
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
         try:
             for row in rows:
                 self._row_seen = set()
                 for rs in specs:
+                    rid = self._index_visit(table, rs, row)  # before mapping: a visit refused or left out counts
                     res = self.map_row(rs, row)
                     if res is not None:
+                        if rid:
+                            self._made.add((rs.type, rid))
                         yield res
         finally:
             self._row_seen = None

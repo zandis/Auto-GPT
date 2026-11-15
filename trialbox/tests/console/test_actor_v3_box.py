@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from orchestrator import actor as ra
-
 from tests.actor3 import signed
 from tests.console.test_console_app import CRC_PW, login
 from tests.console.test_orch_box import site  # noqa: F401  (the console of the box)
@@ -58,28 +56,25 @@ def test_a_coordinators_step_is_recorded_under_the_verified_person(site: dict[st
 
 
 def test_a_step_derived_from_a_saved_form_names_a_verified_person_or_nobody(orch_box: OrchBox) -> None:
-    """Review H2: the data core is in stage `report`, so an unsigned save of a lifecycle form is let through; the
-    step the orchestrator derives from it must not be recorded under the name typed in the body."""
+    """Review H2, then T-715f (D-799): the data core is in stage `refuse`. An unsigned save of a lifecycle form, or one
+    signed by a role the matrix refuses, is refused and derives no step; a body naming a person is refused; the same
+    save signed by the person (as the console's entry page signs it) names that person."""
     c = orch_box.client("console")
-    assert c.post(f"/studies/{STUDY}/forms/builtin", json={"by": "console:crc", "ctcae": ""}).status_code == 200
-    for form, values in (("tb_consent", {"ic_date": "2026-10-05", "ic_version": "v1", "ic_copy": "1"}),
-                         ("tb_enrolment", {"en_date": "2026-10-06", "en_eligible": "1"})):  # fmt: skip
-        r = c.post(f"/studies/{STUDY}/entry/{STUDY}-0042",
-                   json={"form": form, "event": "", "values": values, "by": "console:dr_tanaka"})  # fmt: skip
-        assert r.status_code == 200, r.text[:300]
-    actors = {e["actor"] for kind in ("life.step", "life.log_sync") for e in orch_box.events(kind)}
-    assert actors and "console:dr_tanaka" not in actors and actors == {ra.UNVERIFIED}
-    # the same save signed by the person (as the console's entry page signs it) names that person
+    builtin = f"/studies/{STUDY}/forms/builtin"
+    assert c.post(builtin, json={"ctcae": ""}).status_code == 403  # unsigned: refused
+    b = {"ctcae": ""}
+    assert c.post(builtin, json=b, headers=signed("study.setup", STUDY, "POST", builtin, b)).status_code == 200
+    path = f"/studies/{STUDY}/entry/{STUDY}-0042"
+    body = {"form": "tb_consent", "event": "", "values": {"ic_date": "2026-10-05", "ic_version": "v1", "ic_copy": "1"}}
+    assert c.post(path, json=body).status_code == 403  # unsigned
+    typed = {**body, "by": "console:dr_tanaka"}
+    r = c.post(path, json=typed, headers=signed("task.enter_data", STUDY, "POST", path, typed))
+    assert r.status_code == 422  # a field naming a person is no field of the route
+    r = c.post(path, json=body, headers=signed("task.enter_data", STUDY, "POST", path, body, role="viewer"))
+    assert r.status_code == 403  # a role the matrix refuses
+    assert not [e for e in orch_box.events("life.step") if e["detail"].get("record") == f"{STUDY}-0042"]
     path = f"/studies/{STUDY}/entry/{STUDY}-0043"
-    body = {"form": "tb_consent", "event": "", "values": {"ic_date": "2026-10-05", "ic_version": "v1", "ic_copy": "1"},
-            "by": "console:crc"}  # fmt: skip
     r = c.post(path, json=body, headers=signed("task.enter_data", STUDY, "POST", path, body))
     assert r.status_code == 200, r.text[:300]
     mine = [e for e in orch_box.events("life.step") if e["detail"].get("record") == f"{STUDY}-0043"]
     assert mine and {e["actor"] for e in mine} == {"console:crc"}
-    # a claim for another action, or by a role the matrix refuses it, is not a verified person
-    path = f"/studies/{STUDY}/entry/{STUDY}-0044"
-    r = c.post(path, json=body, headers=signed("task.enter_data", STUDY, "POST", path, body, role="viewer"))
-    assert r.status_code == 200
-    other = [e for e in orch_box.events("life.step") if e["detail"].get("record") == f"{STUDY}-0044"]
-    assert other and {e["actor"] for e in other} == {ra.UNVERIFIED}

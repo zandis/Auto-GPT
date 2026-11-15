@@ -67,6 +67,7 @@ def test_default_install_passes() -> None:
         "sae_mailbox",  # D-736
         "mail_auth",  # D-825
         "memory_caps",
+        "postgres_memory",  # D-751
         "wsl2_memory",
         "update_window",
         "wsl2_versions",

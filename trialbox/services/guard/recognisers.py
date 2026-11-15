@@ -92,8 +92,8 @@ def my_number_valid(value: str) -> bool:
 _CJK = "一-鿿"
 _KANA = "぀-ヿ"
 TW_ID = re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?![0-9])")
-TW_ARC = re.compile(r"(?<![A-Za-z0-9])[A-Z](?:[89]\d{8}|[A-D]\d{8})(?![0-9])")
-MY_NUMBER = re.compile(r"(?<![\d-])\d{4}[ -]?\d{4}[ -]?\d{4}(?![\d-])")
+TW_ARC = phi_guard.TW_ARC  # D-756: the masker's form, both formats
+MY_NUMBER = phi_guard.TWELVE_DIGITS_ANY  # D-756: every twelve digits (the masker leaves a schedule of clock times)
 PHONE_TW = re.compile(
     r"(?<![\d+])(?:\+886[-\s]?|0)(?:9\d{2}[-\s]?\d{3}[-\s]?\d{3}|[2-8][-\s]?\d{3,4}[-\s]?\d{4})(?!\d)"
     r"|\(0[2-8]\)\s?\d{3,4}[-\s]?\d{4}(?!\d)"
@@ -183,6 +183,16 @@ def _mrn(text: str, mrn_regex: str | None) -> Iterator[Finding]:
             yield Finding("MRN", m.start(), m.end())
 
 
+#: the note masker's kinds (``tb_common.phi_guard.note_spans``) as the guard names them
+NOTE_KINDS = {"name": "NAME", "phone": "PHONE", "mrn": "MRN", "id": "ID_NUMBER", "dob": "DOB", "address": "ADDRESS",
+              "email": "EMAIL", "bed": "BED", "room": "ROOM"}  # fmt: skip
+
+
+def _note_spans(text: str, mrn_regex: str | None) -> Iterator[Finding]:
+    for kind, s, e in phi_guard.note_spans(text, mrn_regex):
+        yield Finding(NOTE_KINDS.get(kind, kind.upper()), s, e)
+
+
 Recogniser = Callable[[str], Iterator[Finding]]
 
 
@@ -208,4 +218,16 @@ def recognisers(mrn_regex: str | None = None) -> list[tuple[str, Recogniser]]:
         ("name_ja_hon", lambda t: _spans(NAME_JA_HON, t, "NAME", "v")),
         ("name_en", lambda t: _spans(NAME_EN_CTX, t, "NAME", "v")),
         ("v1_names", _v1_names),
+        # NEW-B-50 (D-756): the shapes the deep review found in notes, the masker's own definitions
+        ("bed", lambda t: _spans(phi_guard.BED_LABELLED, t, "BED", "v")),
+        ("bed_number", lambda t: _spans(phi_guard.BED_NUMBER, t, "BED", "v")),
+        ("room", lambda t: _spans(phi_guard.ROOM, t, "ROOM", "v")),
+        ("phone_label", lambda t: _spans(phi_guard.PHONE_LABELLED, t, "PHONE", "v")),
+        ("name_staff_after", lambda t: _spans(phi_guard.STAFF_NAME_AFTER, t, "NAME", "v")),
+        ("name_staff_before", lambda t: _spans(phi_guard.STAFF_NAME_BEFORE, t, "NAME", "v")),
+        ("name_honorific", lambda t: _spans(phi_guard.NAME_HONORIFIC, t, "NAME", "v")),
+        ("id_label", lambda t: _spans(phi_guard.ID_LABELLED, t, "ID_NUMBER", "v")),
+        ("room_number", lambda t: _spans(phi_guard.ROOM_NUMBER, t, "ROOM", "v")),
+        # D-756: every span the note masker finds, so the guard never lets through what the lake's notes hide
+        ("note_spans", lambda t: _note_spans(t, mrn_regex)),
     ]

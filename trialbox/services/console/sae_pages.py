@@ -38,7 +38,7 @@ from urllib.parse import quote
 from datacore import lifecycle as lc
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
-from tb_common.authz import sae_allowed
+from tb_common.authz import permit, sae_allowed
 
 from console import actor, i18n_sae, s28
 from console.auth import Session
@@ -305,12 +305,18 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             lost += gone
         rows.sort(key=sort_key)
         live = [v for v in rows if not v["downgraded"]]
+        # D-797 (lane G's walk, finding 7): the set-up warnings go to who can act on them: the reporting rules to the
+        # study's set-up (the coordinator), the trial office mailbox also to the site's set-up (the administrator)
+        study_setup = permit(sess.user.role, "study.setup").allowed
+        site_setup = study_setup or permit(sess.user.role, "site.setup").allowed
         return h.page(request, "sae_worklist.html", sess, rows=rows, lost=lost, failed=failed,
                       overdue=sum(v["overdue"] for v in rows), late=sum(v["late"] for v in rows),
                       dates=sum(1 for v in live if set(DATE_ALERTS) & set(v["flags"])),
                       downgraded=sum(1 for v in rows if v["downgraded"]),
-                      rule_alerts=sorted(k for k, x in rules_by.items() if set(x.get("problems") or []) & RULE_ALERTS),
-                      today=day.isoformat(), no_mailbox=not os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip(),
+                      rule_alerts=sorted(k for k, x in rules_by.items()
+                                         if study_setup and set(x.get("problems") or []) & RULE_ALERTS),
+                      today=day.isoformat(),
+                      no_mailbox=site_setup and not os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip(),
                       **context(rules_by))  # fmt: skip
 
     def find(views: list[dict[str, Any]], rec: str, ev: str) -> dict[str, Any] | None:
@@ -359,12 +365,13 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
     def start_of(one: dict[str, Any]) -> str:
         return str(one.get("aware") or one.get("onset") or "")
 
-    def write_sent(rid: str, rec: str, ev: str, party: str, on: str, by: str) -> None:
+    def write_sent(sess: Session, rid: str, rec: str, ev: str, party: str, on: str, by: str) -> None:
         """The day sent goes to the AE form: the one field the clock, the home pages and the mail read. Only that
         field is sent (the data core keeps every other value); a field the form hides is refused, not dropped."""
         field = lc.REPORT_FIELDS[party]
-        out = s28.call(bk, "POST", f"/studies/{rid}/entry/{quote(rec)}",
-                       {"form": AE_FORM, "event": ev, "values": {field: on}, "by": by})  # fmt: skip
+        # T-715f (D-799): an entry on the AE form, signed as one (the page asked sae.record, a narrower row)
+        out = actor.call(h, sess, "task.enter_data", rid, "POST", f"/studies/{rid}/entry/{quote(rec)}",
+                         {"form": AE_FORM, "event": ev, "values": {field: on}})  # fmt: skip
         if field in (out.get("hidden") or []) or field not in (out.get("written") or [field]):
             raise SaeError("form")
         au.append("console.data_entry", ruleset=rid, actor=by,
@@ -451,7 +458,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
                     audit(rid, by, rec, ev, [{"action": "report", "body": body}])
                 else:
                     try:
-                        write_sent(rid, rec, ev, f["party"], f["on"], by)
+                        write_sent(sess, rid, rec, ev, f["party"], f["on"], by)
                     except Problem as exc:
                         raise SaeError("form") from exc
                     if ref:

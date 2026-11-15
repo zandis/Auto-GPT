@@ -1,0 +1,45 @@
+== boot 2026-11-15T06:09:11Z run box-20261115T060826Z-f6bcc176 boot 57110725
+TB-STEP b01-source start 2026-11-15T06:09:14Z
+TB-STEP b01-source done
+TB-STEP b02-venv start 2026-11-15T06:09:30Z
+TB-STEP b02-venv done
+TB-STEP b03-images start 2026-11-15T06:09:41Z
+TB-STOP b03-images: make images: exit 2
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T06:25:59Z run boxrun boot 5eb8a9d6
+== boot 2026-11-15T06:31:24Z run box-20261115T060826Z-f6bcc176 boot 68826589
+TB-STEP b01-source kept (finished before; not run again)
+TB-STEP b02-venv kept (finished before; not run again)
+TB-STEP b03-images start 2026-11-15T06:31:27Z
+TB-STEP b03-images done
+TB-STEP b04-gates start 2026-11-15T06:36:33Z
+TB-STOP b04-gates: TB-GATES-FAILED: make release-gates did not pass (enforcing): 
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T06:54:30Z run box-20261115T060826Z-f6bcc176 boot 6b040925
+TB-STEP b01-source kept (finished before; not run again)
+TB-STEP b02-venv kept (finished before; not run again)
+TB-STEP b03-images kept (finished before; not run again)
+TB-STEP b04-gates start 2026-11-15T06:54:33Z
+TB-STOP b04-gates: TB-GATES-FAILED: make release-gates did not pass (enforcing): 
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T07:08:15Z run box-20261115T060826Z-f6bcc176 boot 45600162
+TB-STEP b01-source kept (finished before; not run again)
+TB-STEP b02-venv kept (finished before; not run again)
+TB-STEP b03-images kept (finished before; not run again)
+TB-STEP b04-gates start 2026-11-15T07:08:19Z
+TB-STEP b04-gates done
+TB-STEP b05-sign start 2026-11-15T07:13:10Z
+TB-STOP b05-sign: signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 2
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T07:39:57Z run box-20261115T073901Z-e7504de38 boot c582a252
+TB-STEP b01-source start 2026-11-15T07:40:00Z
+TB-STEP b01-source done
+TB-STEP b02-venv start 2026-11-15T07:40:18Z
+TB-STEP b02-venv done
+TB-STEP b03-images start 2026-11-15T07:40:29Z
+TB-STEP b03-images done
+TB-STEP b04-gates start 2026-11-15T07:43:55Z
+TB-STEP b04-gates done
+TB-STEP b05-sign start 2026-11-15T07:49:11Z
+TB-STOP b05-sign: signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 1
+TB-WATCHDOG done, results in the bucket: powering off

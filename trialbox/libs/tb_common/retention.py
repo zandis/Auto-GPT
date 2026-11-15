@@ -11,6 +11,9 @@ snapshot pruning, and the install defaults per country (D-138).
 * mail logs (``mail_log_days``): the mail gateway's intake and sent tables and the console's morning-mail log; the
   daily RETENTION job deletes older rows (an unfinished send is never deleted). The audit chain keeps every mail event.
 * job outputs (``outputs_days``) and inbound attachments (``attachments_days``): the daily RETENTION job (D-78).
+  A study's files are held while it runs (D-765) and, after the close, for the study's own period (D-779,
+  :func:`held_after_close`): the trial office gives the years on the close form, prefilled with
+  :data:`STUDY_YEARS_AFTER_CLOSE`.
 
 **Defaults** (``DEFAULTS``, chosen at install from the site's country; every value can be changed in the answers).
 Taiwan: 資通安全責任等級分級辦法 asks that logs be kept at least six months, and 醫療法 §70 keeps medical records
@@ -36,6 +39,24 @@ DEFAULTS: dict[str, dict[str, int]] = {
     "tw": {**_COMMON, "mail_log_days": 7 * 365},
 }
 OVERRIDABLE = ("attachments_days", "outputs_days", "logs_days", "mail_log_days")
+# D-779 (T-305c): how many years a closed study's files, pool and marks are kept after the close when the close names
+# no period (a close recorded before the period was asked). Japan's 臨床研究法施行規則 keeps a study's records five
+# years from its end; a sponsor's contract often asks longer, which the trial office gives per study (1 to 30). A
+# default to discuss with the trial office, not legal advice.
+STUDY_YEARS_AFTER_CLOSE = 5
+STUDY_YEARS_MAX = 30
+
+
+def kept_until(closed_at: str, years: int | None) -> date:
+    """D-779: the day a closed study's files stop being held: the close's own day plus ``years`` (the default when
+    None). A close on 29 February ends on the 28th in a year with none."""
+    day = datetime.fromisoformat(closed_at).date()
+    return add_months(day, 12 * (years or STUDY_YEARS_AFTER_CLOSE))
+
+
+def held_after_close(closed_at: str, years: int | None, now: datetime) -> bool:
+    """D-779: whether a study closed at ``closed_at`` still holds its files on ``now``'s day."""
+    return now.date() < kept_until(closed_at, years)
 
 
 def defaults_for(country: str, overrides: dict[str, object] | None = None) -> dict[str, int]:

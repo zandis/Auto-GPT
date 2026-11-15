@@ -135,7 +135,7 @@ def read_meta(stage: Path) -> dict[str, Any]:
         raise Refused("ospatch.json lists no package")
     if not (stage / "other" / "ospatch" / "repo" / "Packages").is_file():
         raise Refused("the bundle has no repo/Packages index")
-    return meta
+    return dict(meta)
 
 
 def last_snapshot(state: Path) -> str | None:
@@ -199,6 +199,19 @@ def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def jobs_running(deploy: Path) -> int | None:
+    """T-695 (D-752, F-10): how many jobs the orchestrator runs now (``trialbox update``'s count), None when the box
+    cannot be asked. An upgrade of the container runtime restarts every container, and the reboot after it stops
+    them: a job of hours would start again."""
+    sys.path.insert(0, str(deploy.resolve().parent))
+    try:
+        from tools.trialbox.update import ComposeBox
+
+        return ComposeBox(deploy).running_jobs()
+    except Exception:  # no tree to ask with: not known, so refused
+        return None
+
+
 def cmd_apply(a: argparse.Namespace) -> int:
     root = host_root()
     state = Path(a.deploy) / "updates" / "ospatch"
@@ -218,6 +231,10 @@ def cmd_apply(a: argparse.Namespace) -> int:
     if a.dry_run:
         print(f"dry run: nothing changed; a reboot would {'be' if p['kernel'] else 'maybe not be'} needed")
         return 0
+    jobs = jobs_running(Path(a.deploy))
+    if jobs != 0:  # a count that could not be taken refuses too (D-455)
+        what = "the jobs could not be counted" if jobs is None else f"{jobs} job(s) running or queued"
+        raise Refused(f"not applied: {what}; apply the OS patch in the quiet hour, when no job runs")
     rec = {"snapshot": p["snapshot"], "started": _now(), "upgraded": p["upgrade"], "held": p["held"]}
     _write(state / "IN_PROGRESS.json", rec)
     if p["upgrade"]:
@@ -228,7 +245,7 @@ def cmd_apply(a: argparse.Namespace) -> int:
     (state / "IN_PROGRESS.json").unlink()
     if reboot:
         _write(state / "REBOOT_PENDING.json", rec)
-        print("reboot needed. In the window: systemctl stop trialbox; reboot. After it: "
+        print("reboot needed. In the window, when no job runs: systemctl stop trialbox; reboot. After it: "
               "tools/apply_update.sh ospatch-check (doctor and the canary)")  # fmt: skip
         return 0
     return after(Path(a.deploy), conf, p["snapshot"])

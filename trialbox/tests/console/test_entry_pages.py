@@ -42,8 +42,9 @@ def _builtin(c: TestClient, csrf: str) -> Any:
     return c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
 
 
-def _save(c: TestClient, csrf: str, record: str, form: str, values: dict[str, Any], event: str = "") -> Any:
-    data: dict[str, Any] = {"csrf": csrf, "record": record, "event": event, "form": form}
+def _save(c: TestClient, csrf: str, record: str, form: str, values: dict[str, Any], event: str = "",
+          reason: str = "") -> Any:  # fmt: skip
+    data: dict[str, Any] = {"csrf": csrf, "record": record, "event": event, "form": form, "reason": reason}
     data.update({f"f_{k}": v for k, v in values.items()})
     return c.post("/studies/GZQO/entry", data=data)
 
@@ -93,7 +94,7 @@ def test_builtin_forms_entry_history_and_refusals(dcb: dict[str, Any]) -> None:
         "ic_reconsent": "0",
     }  # fmt: skip  (the hidden date is not written)
     posted = [x for x in _writes(dcb["calls"]) if x[1].startswith("/studies/GZQO/entry/")]
-    assert posted[-1][2]["values"]["ic_reconsent_date"] == "2026-11-03" and posted[-1][2]["by"] == "console:crc"
+    assert posted[-1][2]["values"]["ic_reconsent_date"] == "2026-11-03" and "by" not in posted[-1][2]  # D-799: signed
     # a visit on event v1: the range refusal, then saved
     r = _save(c, csrf, no, "tb_visit", {"vs_status": "1", "vs_date": "2026-11-05", "vs_weight": "999"}, "V1")
     assert re.search(r'data-testid="why-vs_weight">Body weight \(kg\): must be 400 or less\.<', r.text)
@@ -101,8 +102,9 @@ def test_builtin_forms_entry_history_and_refusals(dcb: dict[str, Any]) -> None:
                                         "vs_window": "1"}, "v1")  # fmt: skip
     assert 'data-testid="entry-saved"' in r.text
     assert dcb["dc"].record("GZQO", no, "v1")["vs_weight"] == "61.5"
-    # an edit of the consent shows in the history: who, when, old, new, source
-    r = _save(c, csrf, no, "tb_consent", {"ic_date": "2026-11-02", "ic_version": "v2.2", "ic_copy": "1"})
+    # an edit of the consent shows in the history: who, when, old, new, source (and, D-778, it needs a reason)
+    r = _save(c, csrf, no, "tb_consent", {"ic_date": "2026-11-02", "ic_version": "v2.2", "ic_copy": "1"},
+              reason="version misread")  # fmt: skip
     hist = dcb["dc"].history("GZQO", no)
     edit = next(x for x in hist if x["field"] == "ic_version" and x["old"] == "v2.1")
     row = re.search(rf'data-testid="hist-{edit["id"]}">(.*?)</tr>', r.text, re.S)
@@ -205,7 +207,8 @@ def test_api_does_what_the_pages_do(dcb: dict[str, Any]) -> None:
         json={"event": "v1", "values": {"vs_status": "1", "vs_date": "2026-11-05", "vs_weight": "0"}},
     )
     assert [p["code"] for p in r.json()["problems"]] == ["min"]
-    api.put(f"/api/v1/studies/GZQO/records/{no}/forms/tb_consent", json={"values": {**ok, "ic_version": "v2.2"}})
+    api.put(f"/api/v1/studies/GZQO/records/{no}/forms/tb_consent", json={"values": {**ok, "ic_version": "v2.2"},
+                                                                            "reason": "version misread"})  # fmt: skip
     rec = api.get(f"/api/v1/studies/GZQO/records/{no}").json()
     assert rec["values"][""]["ic_version"]["value"] == "v2.2"
     assert [(x["field"], x["old"], x["new"], x["by"]) for x in rec["history"]][-1] == (

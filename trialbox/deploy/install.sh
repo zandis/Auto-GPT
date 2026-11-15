@@ -81,7 +81,26 @@ while [ $# -gt 0 ]; do
   shift
 done
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
-die() { printf 'install: %s\n' "$*" >&2; exit 1; }
+# D-831: a long step says it is alive once a minute on stderr (a watchdog sees life): alive_start before it,
+# alive_stop after; die stops it too. The heartbeat ends its own sleep when stopped: a sleep left behind would hold a
+# pipe open for up to a minute. indent prefixes each line as it comes (sed block-buffers into a pipe or a log)
+ALIVE_PID=""
+alive_start() {
+  local what="$1" installer=$$
+  # it also ends within a minute of the installer's own end (set -e, a signal): it never outlives the install
+  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
+    while kill -0 "$installer" 2>/dev/null; do
+      sleep 60 & s=$!; wait "$s"; n=$((n + 1))
+      kill -0 "$installer" 2>/dev/null && echo "    ... still $what ($n min)" >&2
+    done
+  ) >&2 & ALIVE_PID=$!
+}
+alive_stop() {
+  [ -n "$ALIVE_PID" ] || return 0
+  kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""
+}
+die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
+indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
@@ -158,6 +177,18 @@ say "host"
 command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
 docker info >/dev/null 2>&1 || die "Docker is not running (sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"
+# HOST-PYTHON (D-831): the host steps run python3 -m tools.... (anchors, pre-start, doctor, the secrets); the modules
+# they import at the top are checked here, before anything loads, not 20 minutes in. module:Debian package, one per
+# word. Not cryptography: the host python3 may lack it (libs/tb_common/kek.py). Without python3 those steps say so.
+HOST_PY_MODULES="yaml:python3-yaml"
+if command -v python3 >/dev/null; then
+  HOST_PY_MISSING=""
+  for pair in $HOST_PY_MODULES; do
+    python3 -c "import ${pair%%:*}" 2>/dev/null || HOST_PY_MISSING="$HOST_PY_MISSING ${pair#*:}"
+  done
+  [ -z "$HOST_PY_MISSING" ] || die "the host's python3 lacks what the installer needs:$HOST_PY_MISSING (Debian/Ubuntu: sudo apt-get install -y$HOST_PY_MISSING); install it, then re-run; nothing was changed"
+fi
+# ---- end of HOST-PYTHON
 if [ "$MODE" = auto ]; then
   if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then MODE=gpu; else MODE=stub; fi
 fi
@@ -230,8 +261,15 @@ fi
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+  echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
+  alive_start "verifying the bundle"
   sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
-  TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | sed 's/^/    /' || die "loading the bundle failed"
+  alive_stop
+  echo "    loading the images, models and rulesets (10-20 minutes for a GPU bundle)"
+  export PYTHONUNBUFFERED=1
+  alive_start "loading the bundle"
+  TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | indent || die "loading the bundle failed"
+  alive_stop
 fi
 docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"
 # T-631, D-367: compose files, host tools and configuration come only from the signed release
@@ -407,6 +445,12 @@ if command -v python3 >/dev/null; then
   [ "${PIPESTATUS[0]}" = 0 ] || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER and TB_MEM_LAKE in deploy/.env, then re-run"
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER and TB_MEM_LAKE keep the compose defaults (doctor memory_caps checks them)" >&2
+fi
+# T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
+# a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | sed 's/^/    /'
+  [ "${PIPESTATUS[0]}" = 0 ] || die "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
 fi
 chmod 600 deploy/.env
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
@@ -605,7 +649,11 @@ else
     orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
     || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 fi
-"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
+# T-695 (D-752, F-24): the wait for every service healthy, from the compose files' health checks (start period, then
+# the retries); the stop, from the longest stop grace. Without PyYAML on the host, the waits of before (900 s, 300 s).
+BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" || BOOT_WAIT=900
+STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
+"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
@@ -642,7 +690,9 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
   if [ "$EGRESS_OK" = 1 ]; then
     say "systemd units (egress at boot, the stack after a restart, watchdog)"
     for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
-      sed "s#@TB_ROOT@#$ROOT#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
+      sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_BOOT_WAIT@#${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}#g" \
+          -e "s#@TB_BOOT_LIMIT@#$(( ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} + 300 ))#g" \
+          -e "s#@TB_STOP_LIMIT@#$(( STOP_WAIT + 10 ))#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
     done
     systemctl daemon-reload

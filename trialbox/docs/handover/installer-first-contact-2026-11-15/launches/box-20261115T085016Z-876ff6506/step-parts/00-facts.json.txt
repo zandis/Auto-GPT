@@ -1,0 +1,16 @@
+{
+ "attempts": 1,
+ "boots": [
+  "06cf7a1f-34a1-45a3-968d-2eeed33a6bde"
+ ],
+ "detail": {
+  "facts_vm": "records/facts-vm.txt"
+ },
+ "ended": "2026-11-15T08:51:54Z",
+ "minutes": 0.84,
+ "ok": true,
+ "seconds": 50.299,
+ "started": "2026-11-15T08:51:04Z",
+ "status": "done",
+ "step": "00-facts"
+}

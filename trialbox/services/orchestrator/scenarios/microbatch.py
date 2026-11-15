@@ -110,7 +110,7 @@ APPT_SQL = """
 SELECT pid, CAST(min(start) AS VARCHAR) AS next_appt, arg_min(practitioner_id, start) AS practitioner_id,
        arg_min(dept, start) AS dept
 FROM appointment
-WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND status = 'booked'
+WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND status = 'booked'
   AND CAST(start AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE)
 GROUP BY pid ORDER BY pid
 """

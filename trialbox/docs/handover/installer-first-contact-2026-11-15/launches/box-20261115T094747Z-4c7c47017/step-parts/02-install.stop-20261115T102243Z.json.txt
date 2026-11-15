@@ -1,0 +1,73 @@
+{
+ "attempts": 1,
+ "boots": [
+  "02abc559-50e1-4fe9-88d8-47578ce4a29a"
+ ],
+ "detail": {
+  "answers": "tb-site-answers (deploy/gcp/validation-site-answers.yaml)",
+  "host_packages_added": "",
+  "models": {
+   "fetched": [
+    "chat-templates/gemma-4-26b-a4b-it/chat_template.jinja",
+    "embedder/1_Pooling/config.json",
+    "embedder/README.md",
+    "embedder/config.json",
+    "embedder/config_sentence_transformers.json",
+    "embedder/imgs/bm25.jpg",
+    "embedder/imgs/long.jpg",
+    "embedder/imgs/miracl.jpg",
+    "embedder/imgs/mkqa.jpg",
+    "embedder/imgs/nqa.jpg",
+    "embedder/imgs/others.webp",
+    "embedder/long.jpg",
+    "embedder/model.safetensors",
+    "embedder/modules.json",
+    "embedder/sentence_bert_config.json",
+    "embedder/sentencepiece.bpe.model",
+[line removed: password, token, secret or code]
+[line removed: password, token, secret or code]
+[line removed: password, token, secret or code]
+   ],
+   "kept": [],
+   "linked": [
+    "gemma-4-26b-a4b-it-4bit -> hub/models--nvidia--Gemma-4-26B-A4B-NVFP4/snapshots/a19cfe00be84568a6867111c9a68c9c44fdcffe6",
+    "qwen3.5-9b-4bit -> hub/models--cyankiwi--Qwen3.5-9B-AWQ-4bit/snapshots/e4d2d39cede8c5d1716d824cd843e2889c648083"
+   ],
+   "missing": [],
+   "ok": true,
+   "refused": []
+  }
+ },
+ "ended": "2026-11-15T09:53:32Z",
+ "minutes": 3.67,
+ "ok": false,
+ "seconds": 220.484,
+ "started": "2026-11-15T09:49:51Z",
+ "status": "stop",
+ "step": "02-install",
+ "stop": {
+  "log_tail": [
+   " Volume trialbox_audit-data Created ",
+   " Volume trialbox_db-pg Created ",
+   " Volume trialbox_db-pg Created ",
+   " Network trialbox-net Created ",
+   " Network trialbox-net Created ",
+   " Container trialbox-adapter-run-4cf6c721d960 Creating ",
+   " Container trialbox-adapter-run-4cf6c721d960 Created ",
+[line removed: key fingerprint]
+[line removed: key fingerprint]
+   "\u001b[1m==> site keys sealed under the KEK (deploy/hardening/seal_keys.sh)\u001b[0m",
+   "    sealing the site keys under a new KEK (back end tpm)",
+[line removed: KEK id]
+[line removed: KEK id]
+[line removed: redacted marker]
+[line removed: key fingerprint]
+[line removed: key fingerprint]
+[line removed: password, token, secret or code]
+[line removed: redacted marker]
+[line removed: next to a redacted marker]
+   "install: the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md"
+  ],
+  "reason": "the installer (install.sh --answers: a VALIDATION box): exit 1"
+ }
+}

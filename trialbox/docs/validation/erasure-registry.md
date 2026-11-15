@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-228 entries: 86 erase, 27 keep, 115 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+228 entries: 86 erase, 27 keep, 115 no patient data. 50 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -13,6 +13,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `candidate_pool` | MICROBATCH's pool rows go (D-441) | `orch.pool` |
 | `candidate_registry` | open candidates become withdrawn; consented and enrolled are kept (OD-8, D-441) | `orch.candidates` |
 | `omop` | tb_withheld, and the live rows deleted and tombstoned at once (D-441) | `omop.condition_occurrence`, `omop.condition_occurrence_ydefault`, `omop.death`, `omop.drug_exposure`, `omop.drug_exposure_ydefault`, `omop.fact_relationship`, `omop.measurement`, `omop.measurement_ydefault`, `omop.note`, `omop.note_nlp`, `omop.note_ydefault`, `omop.observation`, `omop.observation_period`, `omop.observation_ydefault`, `omop.person`, `omop.procedure_occurrence`, `omop.procedure_occurrence_ydefault`, `omop.tb_appointment`, `omop.tb_claim`, `omop.tb_record`, `omop.visit_occurrence`, `omop.visit_occurrence_ydefault` |
+| `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `site.contact_outcomes`, `site.excluded_review`, `team.approach_overrides`, `team.referral_events`, `team.referrals` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
 | `vec` | VecStore.delete_patient: the chunks and every vector no other chunk uses (D-439) | `vec.embedding`, `vec.note_chunk` |
@@ -21,10 +22,6 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 
 | Store | Card | What is owed | Why it holds patient data |
 | --- | --- | --- | --- |
-| `derived.batch_run` | T-206b | the pseudonym in failed_pids | one row per nightly derive batch; failed_pids lists the pseudonyms whose recompute failed |
-| `derived.conflict` | T-206b | the clear | a documented-versus-derived conflict of a pseudonym |
-| `derived.input_link` | T-206b | the clear | the source rows each derived score was computed from |
-| `derived.score_row` | T-206b | the clear | a derived score of a pseudonym |
 | `edc.draft` | T-206b | the drafts of a patient who never enrolled (an enrolled subject's stay, OD-8) | an EDC draft, by pseudonym |
 | `lake:backfill` | T-206b | the clear | the back-fill's working copy of a year's extract |
 | `lake:db` | T-206b | kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read | the DuckDB snapshots (nightly and month-end) and their side files |
@@ -55,32 +52,26 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `omop.visit_detail` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
 | `orch.candidate_events` | T-206b | the events of a patient never consented (OD-8 keeps the rest) | each status change of a candidate, by pseudonym |
 | `orch.candidates` | T-206b | a withdrawn row keeps the pseudonym (consented and enrolled rows are kept, OD-8) | the candidate registry |
-| `orch.feedback` | T-206b | the clear | the PI's feedback on a candidate, by pseudonym |
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
-| `orch.submissions` | T-206b | the clear | NAV submissions, by pseudonym |
+| `orch.submissions` | T-206b | a decision: the row is NHI's send-once guard and the record of a disclosure (keep, or erase dry runs only) | NAV submissions, by pseudonym |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
 | `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of the space drops it whole (D-714) |
 | `pidmap.identity` | T-206b | the crypto-shred of the opted-out identity | the encrypted identity of the patient |
 | `recall.recall_known_positive` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
 | `recall.recall_observation` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
-| `site.contact_outcomes` | T-206b | the clear | a contact attempt's outcome, by pseudonym |
-| `site.excluded_review` | T-206b | the clear | the review of an excluded patient, by pseudonym |
 | `site.pi_marks` | T-206b | the marks of a patient never consented (the screening log's, OD-8) | the PI's mark on a patient, by pseudonym |
 | `site.screening_no` | T-206b | the number of a patient never consented (the screening log's, OD-8) | the screening number given to a pseudonym |
-| `site.weekly_seen` | T-206b | the clear | the week a pseudonym first appeared on a list |
+| `site.weekly_seen` | T-206b | with the screening log (LIFE-005): a numbered row keeps its first-listed day (D-762) | the week a pseudonym first appeared on a list |
 | `sitesetup.check_item` | T-206b | the clear | the raw value of an uploaded row |
 | `sitesetup.fact` | T-206b | the clear | a fact read from an uploaded file, by pseudonym |
 | `sitesetup.fix` | T-206b | the clear | example values of an uploaded column |
 | `sitesetup.input` | T-206b | the clear | an uploaded file and the patient it belongs to |
 | `study.rc_record` | T-206b | the rows of a patient never consented (a consented subject's stay, OD-8) | the REDCap project's records linked to pseudonyms |
 | `study.rc_write` | T-206b | the clear | what was written to REDCap, by link value and record |
-| `team.approach_overrides` | T-206b | the clear | an override of an approach warning, by pseudonym |
-| `team.candidate_views` | T-206b | the clear | a cross-department view of a candidate, by pseudonym |
-| `team.referral_events` | T-206b | the clear | a referral's events, by pseudonym |
-| `team.referrals` | T-206b | the clear | a referral of a patient, by pseudonym |
+| `team.candidate_views` | T-206b | the reveal cap counts these rows and they say who saw an identity: a clear that keeps both | a cross-department view of a candidate, by pseudonym |
 | `trace.traces` | T-206b | the traces of the patient (7 days kept) | a model call's redacted body: note excerpts |
-| `tuned.tuned_patients` | T-206b | the clear | the weekly PI sample of patients not matched, by pseudonym |
+| `tuned.tuned_patients` | T-206b | a clear that does not redraw a reviewed week's sample | the weekly PI sample of patients not matched, by pseudonym |
 
 ## 3. Kept, with the decision
 

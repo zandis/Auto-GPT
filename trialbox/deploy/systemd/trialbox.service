@@ -12,11 +12,13 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=@TB_ROOT@
-ExecStart=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy up -d --pull never --wait --wait-timeout 900
+# T-695 (D-752, F-10, F-24): install.sh writes the wait from the compose files' health checks
+# (tools/trialbox/bootwait.py), the start limit 300 s above it, the stop limit above the longest stop grace
+ExecStart=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy up -d --pull never --wait --wait-timeout @TB_BOOT_WAIT@
 ExecStartPost=@TB_ROOT@/deploy/network.sh apply
 ExecStop=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy stop
-TimeoutStartSec=1200
-TimeoutStopSec=300
+TimeoutStartSec=@TB_BOOT_LIMIT@
+TimeoutStopSec=@TB_STOP_LIMIT@
 
 [Install]
 WantedBy=multi-user.target

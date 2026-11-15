@@ -11,6 +11,7 @@
 {% elif failed and until %}<div class="error" role="alert" data-testid="login-locked"><p><strong>{{ t('login.locked', n=left, until=until|local) }}</strong></p><p>{{ t('login.locked.wait') }}</p></div>
 {% elif failed and oidc_failed %}<p class="error" role="alert" data-testid="login-oidc-error">{{ t('login.oidc.failed') }}</p>
 {% elif failed %}<p class="error" role="alert" data-testid="login-error">{{ t('login.failed') }}</p>{% endif %}
+{% if idle_minutes and not failed %}<p class="notice" role="status" data-testid="login-idle">{{ t('login.idle', n=idle_minutes) }}</p>{% endif %}{# D-777 (UX-007) #}
 {# D-192: the hospital account (OIDC through Authelia) when the site turned it on; local accounts stay below #}
 {% if oidc %}<p><a class="button" href="/auth/oidc/start" data-testid="login-oidc">{{ t('login.oidc') }}</a></p>
 <p class="hint">{{ t('login.local') }}</p>{% endif %}

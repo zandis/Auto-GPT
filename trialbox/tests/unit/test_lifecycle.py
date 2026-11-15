@@ -72,7 +72,7 @@ def test_legal_steps_illegal_refused_with_a_plain_reason_and_undo(life: Lifecycl
     with pytest.raises(LifeError) as e:
         life.step(RS, "GZQO-0001", "completed", by="crc", at=AT)
     assert e.value.why == "final"
-    assert life.undo(RS, "GZQO-0001", by="crc", at=AT)["state"] == "on_study"  # a mistake put right
+    assert life.undo(RS, "GZQO-0001", by="crc", at=AT, note="by mistake")["state"] == "on_study"  # a mistake put right
     life.step(RS, "GZQO-0001", "completed", by="crc", at=AT)
     trail = [(s["old"], s["new"], s["source"]) for s in life.steps(RS, "GZQO-0001")]
     assert trail[0] == (None, "candidate", "screening") and trail[-3:] == [

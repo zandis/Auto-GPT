@@ -1,0 +1,43 @@
+diff --git a/trialbox/deploy/gcp/box-install-run.sh b/trialbox/deploy/gcp/box-install-run.sh
+index 550799ab0..9ea3a8a00 100644
+--- a/trialbox/deploy/gcp/box-install-run.sh
++++ b/trialbox/deploy/gcp/box-install-run.sh
+@@ -853,12 +853,21 @@ d["release_gates"] = ("green: every image blocks" if d["release_gates_vuln_mode"
+ json.dump(d, open(p, "w"))
+ PY
+   note sha256 "\"$sha\""; note object "\"$OUTP/trialbox-$RID.tar\""
++  # the bundle is in the bucket now (its sha256 beside it): the local copy goes, or the start on this same disk
++  # holds it four times (this copy, 01's fetch, install.sh's dry-run stage and its real stage)
++  rm -f "$b"; note local_copy_removed true
++  note disk_after "\"$(df -B1 --output=used,avail / | tail -n 1 | tr -s ' ')\""
+ }
+ 
+ # ================================================================== start (G-2)
+ step_bundle() {
+   local size free got
+   mkdir -p "$TB/bundle"
++  # a start on the VM that built the bundle: the build's tree and Docker's build cache are not needed any more
++  if [ -d "$BUILD" ] && ! has build; then
++    rm -rf "${BUILD:?}/out" "${BUILD:?}/verify-stage" "${BUILD:?}/tb"; note build_tree_removed "\"$BUILD\""
++    docker builder prune -af >> "$STEP_LOG" 2>&1 || true
++  fi
+   need "fetching the bundle" fetch "$BUNDLE_SRC" "$BUNDLE" || return 1
+   size=$(stat -c %s "$BUNDLE"); note bundle_bytes "$size"
+   got=$(sha256sum "$BUNDLE" | cut -d' ' -f1)
+@@ -866,10 +875,13 @@ step_bundle() {
+   touch "$HB"
+   [ ! -e "$BOXROOT/deploy/updates/installed.json" ] \
+     || { STOP="an installed box is already at $BOXROOT: a production start needs a fresh root (tb-box-root)"; return 1; }
+-  # the installer's room: the bundle again (its image tars are loaded from it) and the host tree, from the data
+-  free=$(df -B1 --output=avail "$TB" | tail -n 1 | tr -dc 0-9)
++  note disk "\"$(df -B1 --output=used,avail / | tail -n 1 | tr -s ' ')\""
++  note models_bytes "$(du -sxb "$MODELS" 2>/dev/null | cut -f1 | grep . || echo null)"
++  # the installer's room: tools/apply_update.sh stages a full copy of the bundle under ${TMPDIR:-/tmp} (once for
++  # install.sh's --dry-run, once for the load; verify_update.py wants 1.05 x the payloads), beside this copy
++  free=$(df -B1 --output=avail "${TMPDIR:-/tmp}" | tail -n 1 | tr -dc 0-9)
+   note free_bytes "${free:-0}"
+-  [ "${free:-0}" -gt "$size" ] || { STOP="${free:-0} bytes free under $TB, the install needs at least the bundle's $size"; return 1; }
++  [ "${free:-0}" -gt $((size * 11 / 10)) ] || { STOP="${free:-0} bytes free under ${TMPDIR:-/tmp}, the install stages the bundle's $size there (x1.05)"; return 1; }
+   need "TB-BUNDLE-REFUSED: the bundle against its manifest and as a PRODUCTION box reads it" \
+     vm bundle-check "$BUNDLE" --production ${COMMIT:+--commit "$COMMIT"} --release-out "$REC/release.json" \
+       --host-out "$TB/bundle/host.tar" --notes "$NOTES" --beat "$HB" || return 1

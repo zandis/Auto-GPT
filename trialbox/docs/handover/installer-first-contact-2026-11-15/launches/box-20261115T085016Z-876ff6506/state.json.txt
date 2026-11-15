@@ -1,0 +1,17 @@
+{
+ "ended": "TB-PROBE-DONE: the VM's facts are in records/facts-vm.txt; nothing was built or installed",
+ "order": [
+  "00-facts"
+ ],
+ "steps": {
+  "00-facts": {
+   "attempts": 1,
+   "boots": [
+    "06cf7a1f-34a1-45a3-968d-2eeed33a6bde"
+   ],
+   "first_started": 1794732664.1244504,
+   "seconds": 50.299,
+   "status": "done"
+  }
+ }
+}

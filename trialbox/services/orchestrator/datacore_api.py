@@ -35,16 +35,16 @@ from typing import Any
 
 from datacore import fhir, forms, sync
 from datacore.sources import RedcapSource
-from datacore.store import DataCore, DataError
+from datacore.store import NO_REASON, DataCore, DataError
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from rc_bridge.client import RcError, RedcapClient
+from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.flowledger import record_export
 from tb_common.patient_reads import MONITOR as _MONITOR
 from tb_common.patient_reads import PHI as _PHI
 
-from orchestrator.actor import person_of
 from orchestrator.actor import require_actor as _require_actor
 from orchestrator.lifecycle_api import LIFE_FORMS, derive_record
 
@@ -56,6 +56,12 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 #: NEW-JRN-8 (D-772): one record's values and history, which the monitor's sheet reads too (tb_common.patient_reads)
 MONITOR_READ = _require_actor(_MONITOR)
+#: T-715f (D-799): the changing routes refuse a call without a verified person for the action: the study's set-up
+#: (forms, the built-in forms included, sources, syncs, imports, conflicts) or data entry. The SAE page's day sent is
+#: an entry on the AE form: the console asks ``sae.record`` itself and signs the entry; the orchestrator gates the
+#: entry at ``task.enter_data`` and does not enforce ``sae.record``
+AS_SETUP = _require_actor("study.setup")
+AS_ENTER = _require_actor("task.enter_data")
 
 
 @dataclass
@@ -98,18 +104,20 @@ class DataService:
 
 
 class DictionaryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
     csv: str
     record_field: str = ""
-    by: str
 
 
 class EntryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
     event: str = ""
     values: dict[str, str]
-    by: str
+    reason: str = Field(default="", max_length=300)  # D-778: kept with each change
 
 
 class RedcapSourceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
     token_ref: str
     field_map: dict[str, str]  # REDCap field -> TrialBox field
     owned: list[str] = Field(default_factory=list)  # TrialBox field names REDCap owns
@@ -117,11 +125,12 @@ class RedcapSourceBody(BaseModel):
     event: str = ""
     dag: str = ""
     create: bool = False
-    by: str
 
 
 class SheetBody(BaseModel):
     """A PI's spreadsheet, one import (TB-PLAN-04 step 3): CSV text, or XLSX as base64 in ``xlsx_b64``."""
+
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
 
     name: str = Field(default="sheet", pattern=r"^[a-z0-9][a-z0-9_-]{0,31}$")
     csv: str = ""
@@ -129,23 +138,23 @@ class SheetBody(BaseModel):
     columns: dict[str, str]  # sheet column -> TrialBox field
     key_column: str = ""  # the screening number
     mrn_column: str = ""  # a chart number: turned into the pseudonym with the site key, never stored
-    by: str
 
 
 class FormBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
     form: str = Field(pattern=r"^[a-z][a-z0-9_]{0,99}$")
     event: str = Field(default="", pattern=r"^([a-z][a-z0-9_]{0,99})?$")
     values: dict[str, str]
-    by: str
+    reason: str = Field(default="", max_length=300)  # D-778: a saved value changes only with a reason
 
 
 class ResolveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
     keep: str
-    by: str
 
 
 class SyncBody(BaseModel):
-    by: str
+    model_config = ConfigDict(extra="forbid")  # T-715f (D-799): the person is the verified one, never a field
 
 
 class BuiltinBody(SyncBody):
@@ -166,6 +175,20 @@ def _fail(exc: Exception) -> HTTPException:
     if getattr(exc, "problems", None):
         detail["problems"] = exc.problems  # type: ignore[attr-defined]
     return HTTPException(status_code=status, detail=detail)
+
+
+def _changes(old: dict[str, str], values: dict[str, str], reason: str) -> dict[str, Any]:
+    """D-778 (LIFE-011): what the chain's ``data.entry`` holds of a change: per changed field the sha256 of its value
+    before and after (never the values), and the reason given."""
+    import hashlib
+
+    def sha(v: str) -> str:
+        return hashlib.sha256(v.encode("utf-8")).hexdigest()
+
+    out: dict[str, Any] = {"changes": {f: {"old": sha(o), "new": sha(str(values.get(f, "")))} for f, o in old.items()}}
+    if reason.strip():
+        out["reason"] = " ".join(reason.split())[:300]
+    return out
 
 
 def record_key(record: str) -> str:
@@ -209,7 +232,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return get().dc.forms(_rs(rs))
 
     @r.post("/studies/{rs}/forms/dictionary")
-    def import_dictionary(rs: str, body: DictionaryBody) -> dict[str, Any]:
+    def import_dictionary(rs: str, body: DictionaryBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         try:
             fields = forms.read_dictionary(body.csv)
@@ -220,7 +243,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         for q in qs:
             svc.dc.put_form(rid, q, "redcap-dictionary", svc.stamp())
         dropped = [f.name for f in fields if f.identifier]
-        svc.audit.append("data.forms", ruleset=rid, actor=body.by, detail={"forms": [q["name"] for q in qs],
+        svc.audit.append("data.forms", ruleset=rid, actor=who.name, detail={"forms": [q["name"] for q in qs],
                                                                             "dropped": dropped})  # fmt: skip
         return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs), "dropped": dropped}
 
@@ -229,16 +252,20 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return snapshot(get().dc, _rs(rs))
 
     @r.put("/studies/{rs}/data/{record}")
-    def put_data(rs: str, record: str, body: EntryBody) -> dict[str, Any]:
+    def put_data(rs: str, record: str, body: EntryBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         if not _REC.match(record):
             raise HTTPException(status_code=400, detail={"code": "DATA-RECORD", "message": "not a record key"})
         try:
-            n = sync.enter(svc.dc, rid, record.upper(), body.event, body.values, body.by, svc.stamp())
+            before = svc.dc.record(rid, record.upper(), body.event)
+            n = sync.enter(svc.dc, rid, record.upper(), body.event, body.values, who.name, svc.stamp(),
+                           reason=body.reason)  # fmt: skip
         except DataError as exc:
             raise _fail(exc) from exc
-        svc.audit.append("data.entry", ruleset=rid, actor=body.by, detail={"record": record.upper(),
-                                                                            "fields": sorted(body.values)})  # fmt: skip
+        old = {f: before.get(f, "") for f, v in body.values.items() if before.get(f, "") != str(v)}
+        why = body.reason or (NO_REASON if any(old.values()) else "")  # D-778: a change's reason, or marked missing
+        svc.audit.append("data.entry", ruleset=rid, actor=who.name, detail={"record": record.upper(),
+                         "fields": sorted(body.values), **_changes(old, body.values, why)})  # fmt: skip
         return {"changed": n, "record": svc.dc.record(rid, record.upper(), body.event)}
 
     @r.get("/studies/{rs}/sources")
@@ -252,14 +279,14 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return {"sources": dc.sources(rid), "fields": fields}
 
     @r.put("/studies/{rs}/sources/redcap")
-    def put_redcap(rs: str, body: RedcapSourceBody) -> dict[str, Any]:
+    def put_redcap(rs: str, body: RedcapSourceBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         known = svc.dc.fields(rid)
         bad = [f for f in [*body.field_map.values(), *body.owned] if f not in known]
         if bad or any(f not in body.field_map.values() for f in body.owned):
             raise HTTPException(status_code=409, detail={"code": "DATA-FIELD", "message": "unknown or unmapped field",
                                                          "fields": bad})  # fmt: skip
-        cfg = body.model_dump(exclude={"by"})
+        cfg = body.model_dump()
         svc.dc.put_source(rid, "redcap", cfg)
         src = svc.redcap(rid)
         assert src is not None
@@ -267,28 +294,28 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             if o == "redcap":
                 svc.dc.set_owner(rid, f, "trialbox")
         sync.attach(svc.dc, rid, src, body.owned)
-        svc.audit.append("data.source", ruleset=rid, actor=body.by, detail={"source": "redcap", "owned": body.owned})
+        svc.audit.append("data.source", ruleset=rid, actor=who.name, detail={"source": "redcap", "owned": body.owned})
         return {"source": "redcap", "owned": body.owned, "fields": list(body.field_map.values())}
 
     @r.delete("/studies/{rs}/sources/redcap")
-    def drop_redcap(rs: str, by: str = "admin") -> dict[str, Any]:
+    def drop_redcap(rs: str, who: Claim = AS_SETUP) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         src = svc.redcap(rid)
         if src is not None:
             sync.detach(svc.dc, rid, src)
         svc.dc.drop_source(rid, "redcap")
-        svc.audit.append("data.source", ruleset=rid, actor=by, detail={"source": "redcap", "detached": True})
+        svc.audit.append("data.source", ruleset=rid, actor=who.name, detail={"source": "redcap", "detached": True})
         return {"detached": True}
 
     @r.post("/studies/{rs}/sync/{name}")
-    def run_sync(rs: str, name: str, body: SyncBody) -> dict[str, Any]:
+    def run_sync(rs: str, name: str, body: SyncBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         try:
-            return get().run_sync(_rs(rs), name, body.by)
+            return get().run_sync(_rs(rs), name, who.name)
         except (RcError, DataError) as exc:
             raise _fail(exc) from exc
 
     @r.post("/studies/{rs}/import/sheet")
-    def import_sheet(rs: str, body: SheetBody) -> dict[str, Any]:
+    def import_sheet(rs: str, body: SheetBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         """Import a PI's spreadsheet: identifier columns dropped (listed), chart numbers pseudonymised with the site
         key, rows with no screening number and no chart number refused and listed. The mapped fields become the
         sheet's (its values are taken; a later different TrialBox value is a conflict, never forced)."""
@@ -324,11 +351,11 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             try:
                 sync.attach(svc.dc, rid, src, list(body.columns.values()))
                 at = svc.stamp()
-                res = sync.sync(svc.dc, rid, src, body.by, at, push=False).as_dict()
+                res = sync.sync(svc.dc, rid, src, who.name, at, push=False).as_dict()
             except DataError as exc:
                 raise _fail(exc) from exc
         res["dropped"] = src.dropped
-        svc.audit.append("data.import", ruleset=rid, actor=body.by,
+        svc.audit.append("data.import", ruleset=rid, actor=who.name,
                          detail={"source": src.name, "pulled": res["pulled"], "taken": res["taken"],
                                  "dropped": src.dropped, "refused": len(res["refused"])})  # fmt: skip
         return {**res, "at": at}
@@ -338,22 +365,22 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return get().dc.conflicts(_rs(rs), open_only=not all)
 
     @r.post("/studies/{rs}/conflicts/{cid}")
-    def resolve_conflict(rs: str, cid: int, body: ResolveBody) -> dict[str, Any]:
+    def resolve_conflict(rs: str, cid: int, body: ResolveBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         c = svc.dc.conflict(cid)
         if c is None or c["study"] != rid:
             raise HTTPException(status_code=404, detail={"code": "DATA-CONFLICT", "message": "no such conflict"})
         try:
-            out = sync.resolve(svc.dc, cid, body.keep, body.by, svc.stamp())
+            out = sync.resolve(svc.dc, cid, body.keep, who.name, svc.stamp())
         except DataError as exc:
             raise _fail(exc) from exc
         detail = {"conflict": cid, "keep": body.keep, "field": c["field"], "record": c["record"]}
-        svc.audit.append("data.resolve", ruleset=rid, actor=body.by, detail=detail)
+        svc.audit.append("data.resolve", ruleset=rid, actor=who.name, detail=detail)
         return out
 
     # ------------------------------------------------------------------ built-in capture (TB-PLAN-04 step 4)
     @r.post("/studies/{rs}/forms/builtin")
-    def add_builtin(rs: str, body: BuiltinBody) -> dict[str, Any]:
+    def add_builtin(rs: str, body: BuiltinBody, who: Claim = AS_SETUP) -> dict[str, Any]:
         """TrialBox's seven forms in one call. A built-in field name another form of the study already uses is
         refused (FORM-DUP), so a REDCap dictionary's fields are never shadowed; adding them again replaces them.
         ``ctcae`` names the study's CTCAE version: the AE form then grades each AE 1 to 5 by it (D-396)."""
@@ -373,7 +400,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         at = svc.stamp()
         for q in qs:
             svc.dc.put_form(rid, q, ORIGIN, at)
-        svc.audit.append("data.forms", ruleset=rid, actor=body.by,
+        svc.audit.append("data.forms", ruleset=rid, actor=who.name,
                          detail={"forms": sorted(names), "origin": ORIGIN, "ctcae": ctcae})  # fmt: skip
         return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs), "ctcae": ctcae}
 
@@ -399,19 +426,20 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return {"record": rec, "values": values, "history": dc.history(rid, rec), "owners": dc.owners(rid)}
 
     @r.post("/studies/{rs}/entry/{record}")
-    def save_form(rs: str, record: str, body: FormBody, request: Request) -> dict[str, Any]:
+    def save_form(rs: str, record: str, body: FormBody, who: Claim = AS_ENTER) -> dict[str, Any]:
         svc, rid, rec = get(), _rs(rs), record_key(record)
         try:
-            out = sync.save_form(svc.dc, rid, rec, body.event, body.form, body.values, body.by, svc.stamp())
+            out = sync.save_form(svc.dc, rid, rec, body.event, body.form, body.values, who.name, svc.stamp(),
+                                 reason_text=body.reason)  # fmt: skip
         except DataError as exc:
             raise _fail(exc) from exc
-        svc.audit.append("data.entry", ruleset=rid, actor=body.by,
-                         detail={"record": rec, "event": body.event, "form": body.form,
-                                 "fields": out["written"]})  # fmt: skip
+        svc.audit.append("data.entry", ruleset=rid, actor=who.name,
+                         detail={"record": rec, "event": body.event, "form": body.form, "fields": out["written"],
+                                 **_changes(out["old"], body.values, body.reason)})  # fmt: skip
         life: dict[str, Any] = {}
         if body.form in LIFE_FORMS and out["changed"]:  # the subject follows its answers (D-134)
-            # T-715 (D-483): the step this save derives names the verified person of the call, never the body's `by`
-            life = derive_record(svc, rid, rec, person_of(request, "task.enter_data"))
+            # T-715 (D-483): the step this save derives names the verified person of the call
+            life = derive_record(svc, rid, rec, who.name)
         return {**out, "record": rec, "event": body.event, "values": svc.dc.record(rid, rec, body.event),
                 "life": life}  # fmt: skip
 

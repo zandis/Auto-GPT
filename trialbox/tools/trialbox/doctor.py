@@ -101,6 +101,8 @@ closed). Checks:
   does not answer. The WSL2 kernel against the record's ``wsl_kernel``: FAIL when they differ, WARN while the
   record names none. PASS on a plain Linux host.
 
+* ``postgres_memory`` (T-703, D-751, scale review F-19): FAIL when ``shared_buffers`` is PostgreSQL's default on a
+  host of 64 GB or more (``tools.trialbox.pgsize``; ``deploy/install.sh`` sizes it from ``TB_MEM_DB``).
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
@@ -1357,6 +1359,16 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
     )
 
 
+def check_postgres_memory(inp: DoctorInputs) -> Check:
+    """T-703 (D-751, scale review F-19): PostgreSQL's buffers against the host (``tools.trialbox.pgsize``)."""
+    from tools.trialbox import pgsize
+
+    if inp.deploy is None:
+        return Check("postgres_memory", "WARN", "PostgreSQL's sizes were not judged: give --env-file <deploy/.env>")
+    status, detail = pgsize.check(inp.env, inp.proc)
+    return Check("postgres_memory", status, detail)
+
+
 def check_memory_caps(inp: DoctorInputs) -> Check:
     """T-692 (D-473, scale review F-05): the adapter's and the lake's memory caps against the patient count
     (``tools.trialbox.memcaps``)."""
@@ -1884,6 +1896,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_anchor_mount,
     check_rehearsal,
     check_memory_caps,
+    check_postgres_memory,
     check_db_passwords,
     check_wsl2_memory,
     check_update_window,
