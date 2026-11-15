@@ -272,7 +272,8 @@ class EdcService:
         return self.store.drafts(rs, record, visit or BASE_EVENT)
 
     def decide(self, rs: str, draft_id: int, action: str, *, value: str = "", reason: str = "",
-               citation: dict[str, Any] | None = None, by: str, unlock: bool = False) -> dict[str, Any]:  # fmt: skip
+               citation: dict[str, Any] | None = None, by: str, unlock: bool = False,
+               mark: str = "") -> dict[str, Any]:  # fmt: skip
         """Confirm, edit or reject one draft. ``unlock``: the person re-authenticated just before, so a signed value
         may change (with a reason; D-281, CR-035). Every refusal is audited (SEC-7); the decision's audit line is
         written inside its transaction (SEC-6)."""
@@ -292,7 +293,9 @@ class EdcService:
                                                "reason": bool(reason.strip()),
                                                "citation": (out["final_citation"] or {}).get("kind", ""),
                                                **({"signature_void": out["voided"], "unlocked": True}
-                                                  if out.get("voided") is not None else {})})  # fmt: skip
+                                                  if out.get("voided") is not None else {}),
+                                               **({"unlocked": True} if out.get("kept_signed") is not None
+                                                  else {})})  # fmt: skip
 
         now: dict[str, str] | None = None
         try:
@@ -327,7 +330,7 @@ class EdcService:
                     raise err
             return self.store.decide(rs, draft_id, action, value=value, reason=reason, citation=citation, by=by,
                                      at=self.stamp(), unlock=unlock, before_commit=audited,
-                                     built=now if action == "edit" else None)  # fmt: skip
+                                     built=now if action == "edit" else None, mark=mark)  # fmt: skip
         except EdcError as exc:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
             raise
@@ -396,6 +399,14 @@ class EdcService:
         hidden_out: list[dict[str, Any]] = []
         at = self.stamp()
         gone = set(self.optouts())
+        for d in self.store.held_source_changed(rs, record):  # NEW-EDC-4: a person keeps or changes it first
+            if str(d["pid"]) in gone:
+                out["opted_out"].append(_brief(d))
+                self.store.record_sent(rs, d, "redcap", "", "opted_out", "the patient opted out; not sent", by, at)
+                continue
+            out["source_changed"].append(_brief(d))
+            self.store.record_sent(rs, d, "redcap", "", "source_changed", "the source changed since the value was "
+                                   "decided; not sent until a person keeps or changes it", by, at)  # fmt: skip
         todo = []
         for d in self.store.sendable(rs, record):
             if str(d["pid"]) in gone:
@@ -412,6 +423,7 @@ class EdcService:
                     "record": record or "*",
                     "sent": 0,
                     **({"opted_out": len(out["opted_out"])} if out["opted_out"] else {}),
+                    **({"source_changed": len(out["source_changed"])} if out["source_changed"] else {}),
                 },
             )
             return {**out, "count": 0, "calc": [], "hidden_in_redcap": []}
@@ -773,6 +785,11 @@ class EdcService:
         self.store.require_on(rs)
         gone = set(self.optouts())
         values = [d for d in self.store.signed(rs) if str(d["pid"]) not in gone]  # never an opted-out patient
+        changed = sorted({f"{d['record']} {d['item']}" for d in values if d.get("source_changed")})
+        if changed:  # NEW-EDC-4: a copy a person can import into REDCap waits, never a silent gap (E-22)
+            self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.source_changed", "items": changed})
+            raise EdcError("edc.source_changed", "the source changed since these signed values were decided; keep or "
+                           "change each first: " + ", ".join(changed))  # fmt: skip
         mapped, fields = {str(m["item"]) for m in self.store.map(rs)}, self.dc.fields(rs)
         lost = sorted({str(d["item"]) for d in values if str(d["item"]) not in mapped or str(d["item"]) not in fields})
         if lost:  # never a silent gap in the copy of signed records (review E-22)
@@ -965,7 +982,8 @@ class EdcService:
 #: what the send answers per value: written, or held back with the reason (T-115, D-368, D-690; NEW-EDC-7: refused)
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
-                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused")  # fmt: skip
+                "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused",
+                "source_changed")  # fmt: skip
 #: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
 ATTEMPT = "about to be written; REDCap's answer not read yet"  # NEW-EDC-8: closed by the next read-back
 ATTEMPT_HELD = ("REDCap holds the value of a TrialBox send whose answer was lost, or a person's equal entry; TrialBox "
