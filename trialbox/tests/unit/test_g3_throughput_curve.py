@@ -15,7 +15,6 @@ import subprocess
 import sys
 import threading
 from datetime import UTC, datetime, timedelta
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -366,7 +365,7 @@ def test_the_candidate_list_has_a_hash_that_does_not_depend_on_the_order() -> No
 @pytest.fixture()
 def standin() -> Any:
     s, _, _ = vs.build(["--model=/models/judge", "--served-model-name=local/judge", "--api-key", KEY], {})
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), vs.make_handler(s))
+    srv = vs.serve(s)  # vLLM's backlog: G-4 sends the judge's 16 slots at once (vs.BACKLOG)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield s, f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
