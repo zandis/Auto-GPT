@@ -193,6 +193,14 @@ reinstall)
   grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"
   ok "second install of the same bundle: continued, the KEK kept, deploy/site root's, host profile poc"
   wait_healthy 600
+  # D-888 (lane G's box): a start without install.sh (the systemd unit, an update) mounts the site's settings too
+  sh "$BOX/deploy/settings_guard.sh" "$BOX/deploy" || fail "the settings guard refused the installed box"
+  dc up -d --force-recreate --no-deps adapter >/dev/null || fail "the adapter did not start without the installer"
+  src="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/trialbox/settings.yaml"}}{{.Source}}{{end}}{{end}}' \
+    "$(dc ps -q adapter)")"
+  case "$src" in */deploy/settings.yaml) ok "restarted without the installer: the adapter mounts $src" ;;
+    *) fail "restarted without the installer, the adapter mounts ${src:-nothing} at /etc/trialbox/settings.yaml, not deploy/settings.yaml" ;; esac
+  wait_healthy 600
   ;;
 
 # ------------------------------------------------------------------------------------------------ doctor

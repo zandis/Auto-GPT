@@ -261,6 +261,8 @@ fi
 # ---- end of REHEARSAL (D-726): before anything loads
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
+# D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them
+[ -f deploy/settings.yaml ] && export TB_SETTINGS_FILE="./settings.yaml"
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
@@ -492,6 +494,8 @@ chmod 600 deploy/.env
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
 chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
+# D-888: in deploy/.env too, so every start mounts it (the systemd unit, an update, an operator's docker compose up)
+envset TB_SETTINGS_FILE "./settings.yaml"
 if [ "$MODE" = gpu ]; then
   # D-142 (review R-01): pin the profile's deployed pair from the site's own weights, which must be the release
   # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
