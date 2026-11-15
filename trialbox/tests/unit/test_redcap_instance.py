@@ -146,13 +146,13 @@ def test_one_command_runs_r1_to_r9_against_the_stand_in_and_writes_the_record(dr
 
 
 def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_than_redcap(dry: dict[str, Any]) -> None:
-    """EDC-001: the simulator takes values REDCap refuses, has no locking, no rights per token and no log. NEW-EDC-1
+    """EDC-001: the simulator took values REDCap refuses, had no locking, no rights per token and no log. NEW-EDC-1
     makes it as strict; this list then shrinks, on purpose. NEW-EDC-3b (D-842) made its checkbox REDCap's: a bare
     column is refused, the ``___`` columns go in and come back, so R2 passes and R6 compares (the simulator computes
     with TrialBox's own logic, so R6 says nothing of REDCap's until our instance runs it). CGRD-B5a (D-843) made its
     values REDCap's: a value REDCap refuses is refused, the whole file with it, so R1 passes."""
     rec = dry["record"]
-    assert rec["failed"] == ["R3 lock", "R4 rights", "R7 auto-number", "R9 log"]
+    assert rec["failed"] == ["R4 rights", "R7 auto-number"]  # D-845: R3 and R9 pass (the simulator locks and logs)
     r1 = {(c["field"], c["value"]): c for c in rec["results"]["R1 validation"]["cases"]}
     lax = [f for (f, _v), c in r1.items() if c["redcap_must_refuse"] and not c["redcap_refused"]]
     assert lax == []  # D-843: the simulator refuses what REDCap refuses
@@ -165,7 +165,10 @@ def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_tha
     r2 = rec["results"]["R2 checkbox"]  # NEW-EDC-3b: refused as REDCap refuses it; the three columns come back
     assert r2["bare_column"]["status"] == 400 and r2["exported"] == {"joints___1": "1", "joints___2": "0",
                                                                      "joints___3": "1", "joints____99": "0"}  # fmt: skip
-    assert rec["results"]["R3 lock"]["not_run"] and rec["notes"]
+    r3 = rec["results"]["R3 lock"]  # D-845: one locked form refuses the whole import; record 2 alone goes in
+    assert r3["pass"] and r3["one_locked_form_refuses_the_whole_import"] and not r3["the_locked_record_was_written"]
+    r9 = rec["results"]["R9 log"]  # D-845: the log holds the write, with the user
+    assert r9["pass"] and r9["the_entry_of_this_write"][0]["username"] == "tb_api" and rec["notes"]
     assert rec["results"]["R5 repeat and arms"]["rows_not_read_back_equal"] == []
     r6 = rec["results"]["R6 logic"]  # the ``___`` columns go in now (NEW-EDC-3b): each expression is compared
     assert r6["pass"] and len(r6["cases"]) == 23 and all(c["equal"] for c in r6["cases"])

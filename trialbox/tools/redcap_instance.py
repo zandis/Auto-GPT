@@ -263,15 +263,18 @@ class SimAdmin(Admin):
         return Instance(
             "stand-in", version, "inproc://rc-sim", int(main["project_id"]), int(logic["project_id"]),
             {"full": token, "export_only": token, "dag": token, "expired": token, "logic": str(logic["token"])},
-            ["the stand-in has one token per project: no rights, no expiry, no data access group (R4 cannot pass)",
-             "the stand-in has no locking (R3 cannot pass)", "the stand-in has no log (R9 cannot pass)"],
+            ["the stand-in has one token per project: no rights, no expiry, no data access group (R4 cannot pass)"],
         )  # fmt: skip
 
     def lock(self, inst: Instance, record: str, event: str, form: str) -> str:
-        return "the stand-in has no locking"
+        """CGRD-B5c (D-845): the simulator's lock, as the locker; "" when done."""
+        r = self.http.post("/sim/lock", json={"project_id": inst.project_id, "record": record, "event": event,
+                                              "form": form, "lock": True, "username": "tb_locker"})  # fmt: skip
+        return "" if r.status_code == 200 else f"the stand-in did not lock the form ({r.status_code})"
 
     def unlock(self, inst: Instance, record: str, event: str, form: str) -> None:
-        return None
+        self.http.post("/sim/lock", json={"project_id": inst.project_id, "record": record, "event": event,
+                                          "form": form, "lock": False, "username": "tb_locker"})  # fmt: skip
 
     def set_autonumber(self, inst: Instance, on: bool) -> str:
         return "the stand-in does not switch auto-numbering"
