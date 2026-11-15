@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tb_common.derived import CODES, COMPONENTS
-from tb_contracts import CriterionIR, LlmExtractOutput, dump
+from tb_contracts import Atom, BoolExpr, CriterionIR, LlmExtractOutput, dump
 
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.polarity import is_negated, positive
@@ -63,6 +63,15 @@ def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str], egfr: str =
             raise CompileError(f"{node.get('domain')} atom has no concept")
         atom["valueset"] = concept_vs.get(concept.strip().lower()) or vs_name_for(concept)
     return atom
+
+
+def _positive_logic(logic: Any) -> Any:
+    """The positive form of a wholly negated logic (an atom with quantifier ``none``, or ``not(x)``); None otherwise."""
+    if isinstance(logic, BoolExpr):
+        return logic.args[0] if logic.op == "not" and len(logic.args) == 1 else None
+    if isinstance(logic, Atom) and logic.quantifier == "none":
+        return logic.model_copy(update={"quantifier": "any"})
+    return None
 
 
 def derived_valueset(ruleset: str, derived: str, version: str, term: Terminology) -> dict[str, Any]:
@@ -131,6 +140,14 @@ def postprocess(
         ir_dict = {k: v for k, v in raw.items() if k not in ("concept_candidates", "logic") and v is not None}
         ir_dict.update({"id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}})
         ir = CriterionIR.model_validate(ir_dict)
+        # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
+        # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
+        # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
+        pos = _positive_logic(ir.logic) if ir.kind == "exclusion" and ir.class_ in FILTERED else None
+        if pos is not None:
+            ir = ir.model_copy(update={"logic": pos})
+            flags.append("negated_logic_rewritten")
+            warnings.append(f"{cid}: exclusion logic was negated; rewritten to the positive form (check it)")
         if ir.class_ in FILTERED:
             try:
                 check_bool(ir.logic)
