@@ -1117,7 +1117,15 @@ class Mapper:
                 minutes = row.get(expr["add_minutes"]) if isinstance(expr["add_minutes"], str) else expr["add_minutes"]
                 dt = self._parse_dt(str(raw)) + timedelta(minutes=int(minutes or 0))
                 raw = dt.isoformat(sep=" ", timespec="seconds")  # an offset the source stated stays (STD-015)
-            val = self.convert(raw, expr.get("type"))
+            try:
+                val = self.convert(raw, expr.get("type"))
+            except DateRangeError:
+                if "lived_at_most" not in expr:
+                    raise
+                # CGRD-A6 (D-817): a birth date outside the feed's range (a placeholder) is not the patient's: left
+                # out and counted, the patient kept, never the whole row refused
+                self.implausible[(rs.table, self._element)] += 1
+                return None
             if val is not None and "lived_at_most" in expr and self._older_than_a_life(raw, expr["lived_at_most"], row):
                 self.implausible[(rs.table, self._element)] += 1  # F9 (D-811): left out, the row kept; counted
                 return None
