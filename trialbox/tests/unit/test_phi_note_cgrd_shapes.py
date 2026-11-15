@@ -162,3 +162,82 @@ def test_the_guard_reads_the_masker_s_definitions() -> None:
 
 def test_the_mask_version_says_the_masking_changed() -> None:
     assert NOTE_MASK_VERSION == "4"
+
+
+# ---------------------------------------------------------------------------------------------- packet 2 (D-756)
+DISCHARGE = """出院病摘
+病歷號：{chart}　床號：{bed}
+入院日期：2026/11/02　出院日期：2026/11/09
+出院診斷：第二型糖尿病，痛風
+住院經過：主治醫師：{doctor}查房後評估，{nurse}護理師協助衛教。家屬{family}先生陪同。
+出院醫囑：門診追蹤。聯絡電話：{phone}。地址：{address}
+外籍看護居留證 {arc}，健保卡 {card}。
+"""
+ADMISSION = """入院紀錄
+主訴：多尿三個月。
+現病史：病人自述三個月前開始多尿，於門診由{doctor}醫師安排住院，住{room}病房，{bed}床。
+過去病史：高血壓。家族史：無。
+理學檢查：BP 132/84 mmHg，HR 88。
+記錄者：{nurse}
+聯絡人：{family}小姐，電話 {phone}。住址：{address}。
+"""
+FILL = {
+    "chart": " ".join(["1234", "5678"]),
+    "bed": "12A-05",
+    "doctor": "王大明",
+    "nurse": "林小華",
+    "family": "陳",
+    "phone": MOBILE_SPACED,
+    "address": "宜蘭縣羅東鎮公正路 " + "88 號",
+    "arc": ARC_OLD,
+    "card": CARD,
+    "room": "712",
+}
+
+
+@pytest.mark.parametrize("layout", [DISCHARGE, ADMISSION], ids=["discharge-summary", "admission-note"])
+def test_every_shape_is_masked_in_both_note_layouts(layout: str) -> None:
+    text = layout.format(**FILL)
+    for key, value in FILL.items():
+        if "{" + key + "}" in layout:
+            assert _masked(text, value), (key, value, mask_note(text))
+            assert value not in G.redact(text), (key, G.redact(text))
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "宜蘭縣羅東鎮公正路 88 號",
+        "台北市大安區復興南路一段 390 號 5F",
+        "新竹市東區光復路二段101號　3樓",
+        "臺中市西屯區台灣大道三段99號12樓之1",
+    ],
+)
+def test_a_full_address_with_spaces_between_its_parts_is_masked(address: str) -> None:
+    assert _masked(f"住址：{address}，", address.split("號", maxsplit=1)[0] + "號"), mask_note(address)
+    assert _masked(f"家住{address}", address.split("號", maxsplit=1)[0] + "號"), mask_note(address)
+
+
+def _corpus() -> list[str]:
+    """Synthetic texts for the equivalence check: this file's cases, both layouts, and generated notes."""
+    import random
+
+    rnd = random.Random(11)
+    words = ["主訴", "醫師", "護理師", "先生", "小姐", "床", "病房", "電話", "住址", "病歷號", "出生", "號", "路", "生命徵象",
+             "BP", "pH 7.4", "Tel", "home", "1234", "0800", "2026/11/02", "：", "，", "。", " ", "\n", "王", "林", "大明",
+             "12", "A3", "號床", "5B-12", ARC_NEW, CARD, MOBILE_SPACED, "Dr. Smith", "さん", "様",
+             "民國四十五年三月十四日", "出生日期", "生", "生日：", "1956年3月14日", "昭和三十一年", "生まれ"]  # fmt: skip
+    gen = ["".join(rnd.choice(words) for _ in range(rnd.randint(20, 400))) for _ in range(300)]
+    cases = [t for t, _ in SHAPES] + [t for t, _ in LEFT_ALONE] + [DISCHARGE.format(**FILL), ADMISSION.format(**FILL)]
+    return cases + gen
+
+
+def test_the_gates_and_windows_find_what_the_whole_note_gives(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-756 (speed): a pattern is skipped when the note lacks what it needs, and an anchored pattern runs only around
+    its anchor; neither may change a span."""
+    corpus = _corpus()
+    fast = [pg.note_spans(t, "^\\d{8}$") for t in corpus]
+    monkeypatch.setattr(pg, "_NOTE_GATES", tuple(lambda f: True for _ in pg._NOTE_GATES))
+    monkeypatch.setattr(pg, "_NOTE_WINDOWS", {})
+    whole = [pg.note_spans(t, "^\\d{8}$") for t in corpus]
+    assert [(t, a) for t, a, b in zip(corpus, fast, whole, strict=True) if a != b] == []
