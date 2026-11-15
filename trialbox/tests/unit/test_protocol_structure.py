@@ -133,6 +133,7 @@ def _env(tmp_path: Path) -> Any:
             "inclusion": [x["text"] for x in AD],
             "exclusion": ["Contraindication to MRI"],
             "refs": {x["text"]: x["source_ref"] for x in AD},
+            "item_refs": None,  # a block built by hand, as from a parser before NEW-LIFE-2's positional refs
         }
     )
     store.put("attachments/S/parsed.json", c.dump_json(parsed.model_copy(update={"ie_block": block})).encode())
@@ -192,9 +193,10 @@ def test_a_text_in_two_sections_does_not_decide_which_section_came_first() -> No
 
 
 def test_the_public_early_ad_protocol_groups_its_alternatives_and_not_its_required_lines() -> None:
-    """NCT03887455 (public, ClinicalTrials.gov) as the parser gives it: the MCI group (lines 1 and 2) and the mild AD
-    dementia group (lines 4 and 5) go to a person; "Key Inclusion Criteria that must be met by all participants:"
-    (glued to line 5) opens no group, so age, MMSE, BMI and consent compile as before."""
+    """NCT03887455 (public, ClinicalTrials.gov) as the parser gives it: the bullets under the MCI lead-in and under
+    the mild AD dementia lead-in go to a person; "Key Inclusion Criteria that must be met by all participants:"
+    opens no group, so age, MMSE, BMI and consent compile as before. Read both ways: from the lines alone (D-785's
+    guess from colons) and with the parser's lead-ins (NEW-LIFE-2)."""
     import json
 
     from doc_parser.parser import parse
@@ -210,12 +212,22 @@ def test_the_public_early_ad_protocol_groups_its_alternatives_and_not_its_requir
         return None
 
     block = parse(find(data).encode(), "x.txt").ie_block
-    refs = block.refs or {}
-    lines = [{"text": t, "kind": "inclusion", "source_ref": refs.get(t, "")} for t in block.inclusion]
-    got = _flags(lines)
-    assert {"group_member"} <= got[1] and {"group_member"} <= got[2] and {"group_member"} <= got[4]
-    assert all(i not in got for i in range(6, 14))  # the lines all participants must meet
-    assert any("other_phase" in got.get(i, set()) for i in range(14, len(lines)))
+    inc = block.inclusion
+    pos = (block.item_refs or {})["inclusion"]
+    mci = next(i for i, t in enumerate(inc) if t.startswith("Diagnosis: Mild Cognitive Impairment"))
+    mild = inc.index("Mild Alzheimer's disease dementia:")
+    key = inc.index("Key Inclusion Criteria that must be met by all participants:")
+    members = set(range(mci + 1, mild)) | set(range(mild + 1, key))
+    required = range(key + 1, key + 9)
+    plain = [
+        {"text": t, "kind": "inclusion", "source_ref": f"{r.section} #{r.n}"} for t, r in zip(inc, pos, strict=True)
+    ]
+    given = [d | {"parent": r.parent} for d, r in zip(plain, pos, strict=True)]
+    for lines in (plain, given):
+        got = _flags(lines)
+        assert all("group_member" in got.get(i, set()) for i in members), sorted(members - set(got))
+        assert all(i not in got for i in required)  # the lines all participants must meet
+        assert any("other_phase" in got.get(i, set()) for i in range(key + 9, len(lines)))
 
 
 @pytest.mark.parametrize(

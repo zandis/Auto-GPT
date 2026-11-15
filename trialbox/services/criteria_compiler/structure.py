@@ -114,13 +114,17 @@ def check(lines: Sequence[dict[str, Any]], doc_kind: str = "trial") -> Report:
     line's section is not used (neither as a second section nor to decide which came first)."""
     rep = Report()
     seen = Counter(str(ln.get("text") or "").strip() for ln in lines)
+    # NEW-LIFE-2: the parser gave each line its lead-in and its own section (positional): a group is exactly the
+    # lines that name its lead-in, and a repeated text keeps its own section
+    given = any("parent" in ln for ln in lines)
+    leads_given = {ln.get("parent") for ln in lines if isinstance(ln.get("parent"), int)}
     lead: int | None = None
     lead_at = ("", "")
     first_section: dict[str, str] = {}
     for i, ln in enumerate(lines):
         text, kind = str(ln.get("text") or "").strip(), str(ln.get("kind") or "")
         raw = _section(str(ln.get("source_ref") or ""))
-        section = raw if seen[text] == 1 else ""
+        section = raw if (given or seen[text] == 1) else ""
         if (kind, raw) != lead_at:
             lead = None  # a group ends with its section
         found: list[tuple[str, str]] = []
@@ -134,8 +138,17 @@ def check(lines: Sequence[dict[str, Any]], doc_kind: str = "trial") -> Report:
         if _LEAD.search(text):
             found.append(("group_heading", MESSAGES["group_heading"]))
             lead, lead_at = (i if _opens_group(text) else None), (kind, raw)
-        elif lead is not None:
-            found.append(("group_member", MESSAGES["group_member"].format(lead=f"line {lead + 1}")))
+        else:
+            # the parser's parent when it gave one (an unbulleted lead-in); else, or as well, the colon line above in
+            # this section (a bulleted lead-in, "1. …且符合下列條件："): a member by either reading is a member
+            p = ln.get("parent") if given else None
+            by_parent = isinstance(p, int) and 0 <= p < len(lines) and _opens_group(str(lines[p].get("text") or ""))
+            # the colon line above counts when the parser did not take it for a lead-in (a bulleted one): when it
+            # did, its members are exactly the lines that name it, and a line after the group is not one
+            by_lead = lead is not None and not (given and lead in leads_given)
+            if by_parent or by_lead:
+                at = p if by_parent and isinstance(p, int) else lead
+                found.append(("group_member", MESSAGES["group_member"].format(lead=f"line {(at or 0) + 1}")))
         if _ANY.search(text):
             found.append(("alternatives_in_line", MESSAGES["alternatives_in_line"]))
         if _HEADING.search(text):
