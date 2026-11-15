@@ -155,6 +155,19 @@ def job_vec_s2b(ctx: Ctx) -> bool:
     return on
 
 
+EMBED_OUTAGE_WAIT_S = 600  # TB_EMBED_OUTAGE_WAIT_S: seconds of one job spent waiting for the embed service
+
+
+def _transport_fault(exc: BaseException) -> bool:
+    """The embed service did not answer (a dropped or refused connection, a timeout, a 5xx): worth waiting for. A 4xx
+    or a malformed answer is not: it would fail again."""
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.TransportError)
+
+
 class _VectorCache:
     """Vectors the embed service gave, by model and text hash, least recently used out first (red of 2026-11-15:
     S2b embeds a patient's window sentences for every zero-hit criterion, and again for every protocol; the same
@@ -203,9 +216,42 @@ class _Served:
     """The embed service's model for one job. NEW-LLM-2 (review): a service that stops answering, or changes its model,
     after the probe stops the job with a sentence; never a generic error, never two embedders in one run."""
 
-    def __init__(self, inner: Any) -> None:
+    def __init__(self, inner: Any, clock: Any = None, sleep: Any = None) -> None:
+        import time
+
         self.inner = inner
         self.model = str(inner.model)
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
+        self.requests = 0  # answered, for the sentence a job that gives up says (red of 2026-11-15)
+        self.sentences = 0
+        self.waited = 0.0  # this job's seconds spent waiting for the service to come back
+
+    def _send(self, texts: list[str]) -> list[list[float]]:
+        """One request, sent again after a growing wait while it fails in transport (the service restarting) and the
+        job's ``TB_EMBED_OUTAGE_WAIT_S`` lasts, as a model outage is waited out (T-689)."""
+        from matching.cascade.engine import CascadeError
+
+        allowance = float(os.environ.get("TB_EMBED_OUTAGE_WAIT_S") or EMBED_OUTAGE_WAIT_S)
+        step = 2.0
+        while True:
+            try:
+                out = list(self.inner.embed(texts))
+            except Exception as exc:
+                if not _transport_fault(exc) or self.waited >= allowance:
+                    raise CascadeError(
+                        f"the embed service stopped answering during the run ({type(exc).__name__}) after "
+                        f"{self.requests} request{'s' if self.requests != 1 else ''} and {self.sentences} sentences "
+                        f"embedded; those are kept, so the request sent again starts where this one stopped"
+                    ) from exc
+                t0 = self._clock()
+                self._sleep(step)
+                self.waited += self._clock() - t0
+                step = min(step * 2, 30.0)
+                continue
+            self.requests += 1
+            self.sentences += len(texts)
+            return out
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         from matching.cascade.engine import CascadeError
@@ -214,12 +260,7 @@ class _Served:
         todo = list(dict.fromkeys(t for t, v in zip(texts, got, strict=True) if v is None))
         fresh: dict[str, list[float]] = {}
         if todo:
-            try:
-                out = self.inner.embed(todo)
-            except Exception as exc:
-                raise CascadeError(
-                    f"the embed service stopped answering during the run ({type(exc).__name__}); send the request again"
-                ) from exc
+            out = self._send(todo)
             if str(self.inner.model) != self.model:
                 raise CascadeError(
                     f"the embed service changed its model during the run ({self.model} to {self.inner.model}); send "
