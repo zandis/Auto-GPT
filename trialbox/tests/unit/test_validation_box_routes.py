@@ -89,3 +89,48 @@ def test_the_shipped_pair_routes_in_validation() -> None:
     pair = {b["build_id"]: b["status"] for b in reg["builds"]
             if str(b["build_id"]).endswith("-rtxpro6000") and b.get("alias") in ("j-workhorse", "v-verifier")}  # fmt: skip
     assert len(pair) == 2 and all(rg._status_ok(rg.Status(s), "judge", VAL) for s in pair.values()), pair
+
+
+# ------------------------------------------------------------------------------------------- review (D-794)
+def test_front_desk_conversation_at_d3_stays_refused_in_validation(pol: RoutingPolicy) -> None:
+    """Review: the exception is the screen's (patient roles and their vectors), never the front desk's text."""
+    for role in ("classify_intent", "frontdesk_converse", "ops_explain"):
+        with pytest.raises(Refusal) as exc:
+            _route(pol, role, "D3", VAL)
+        assert exc.value.reason == "class_not_allowed_in_env", role
+
+
+def test_d3_in_validation_is_topology_a_only(pol: RoutingPolicy) -> None:
+    """On topology B the perimeter is the tenant's router, not the box."""
+    for topo in (Topology.B, Topology.C):
+        with pytest.raises(Refusal):
+            _route(pol, "judge", "D3", VAL, topo)
+
+
+def test_every_role_qualify_probes_routes_at_d0_on_the_box(pol: RoutingPolicy) -> None:
+    """Review: qualify's schema step sends every active prompt at D0 with that prompt's role."""
+    from tb_llm.prompt_registry import default_registry
+
+    v1 = yaml.safe_load((ROOT / "libs" / "tb_llm" / "v1_roles.yaml").read_text(encoding="utf-8")) or {}
+    doc = yaml.safe_load((ROOT / "eval" / "qualification" / "schema_probes.yaml").read_text(encoding="utf-8")) or {}
+    probes = doc.get("probes") or {}
+    roles = set()
+    for e in default_registry().active_set():
+        lab = {**(v1.get(e.id) or {}), **((probes.get(e.id) or {}).get("labels") or {})}
+        roles.add(str(lab.get("role") or ""))
+    roles.discard("")
+    assert roles
+    for role in roles:
+        got = _route(pol, role, "D0", VAL)
+        assert got and all(c.endswith(":perimeter") for c in got), (role, got)
+
+
+def test_guard_roles_keep_their_own_build_at_d0(pol: RoutingPolicy) -> None:
+    assert _route(pol, "guard_policy", "D0", VAL) == ["g-guard@serving:perimeter"]
+
+
+def test_the_box_model_addresses_are_checked_in_validation_as_in_production() -> None:
+    from gateway.policy import perimeter_checked
+
+    assert perimeter_checked(Topology.A, VAL) and perimeter_checked(Topology.A, PROD)
+    assert not perimeter_checked(Topology.B, VAL)

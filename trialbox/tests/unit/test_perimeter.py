@@ -103,10 +103,13 @@ def test_gateway_exits_in_production_when_a_perimeter_url_is_off_the_box(tmp_pat
         create_app(_gateway(tmp_path, env), resolver=dns(DNS))
     rec = [r for r in _audit(tmp_path) if r["event"] == "llm.gateway.perimeter_refused"]
     assert rec and rec[0]["detail"]["phase"] == "start" and OUTSIDE in rec[0]["detail"]["problems"][0]
-    # on the box it starts; outside PRODUCTION, or on topology B (the tenant's router), the check does not apply
+    # on the box it starts; in TEST, or on topology B (the tenant's router), the check does not apply
     assert create_app(_gateway(tmp_path, {}), resolver=dns(DNS))
-    assert create_app(_gateway(tmp_path, env, environment="VALIDATION"), resolver=dns(DNS))
+    assert create_app(_gateway(tmp_path, env, environment="TEST"), resolver=dns(DNS))
     assert create_app(_gateway(tmp_path, env, topology="B"), resolver=dns(DNS))
+    # D-794: a VALIDATION box screens D3 on the box, so its model addresses are checked as in PRODUCTION
+    with pytest.raises(SystemExit, match="not on the box"):
+        create_app(_gateway(tmp_path, env, environment="VALIDATION"), resolver=dns(DNS))
 
 
 def test_gateway_re_resolves_and_refuses_when_a_name_moves_off_the_box(
