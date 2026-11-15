@@ -361,6 +361,22 @@ if [ -z "$TLS_HOST" ]; then
 else
   grep -q '^TB_TLS_MODE=.' deploy/.env || envset TB_TLS_MODE internal
 fi
+# SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
+SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
+if [ -z "$SAE_TO" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
+  printf '  The trial office'"'"'s mailbox, told at once when a serious adverse event is entered (e.g. trial-office@hospital.tw): '; read -r SAE_TO
+fi
+if [ -n "$SAE_TO" ]; then
+  printf '%s\n' "$SAE_TO" | grep -Eqx '[^@[:space:]",;#]+@[^@[:space:]",;#]+\.[^@[:space:]",;#]+' \
+    || die "TB_SAE_OFFICE_MAILBOX $SAE_TO is not one mail address (for example trial-office@hospital.tw)"
+  envset TB_SAE_OFFICE_MAILBOX "$SAE_TO"
+  echo "    SAE office mailbox: $SAE_TO"
+elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ]; then
+  die "no SAE office mailbox: when a serious adverse event is entered the trial office must be told at once (a sponsor report can be due within 24 h). Put TB_SAE_OFFICE_MAILBOX in deploy/.env, then re-run (RUNBOOK §1)"
+else
+  echo "install: warning: no SAE office mailbox ($TB_ENV_SITE): nobody is mailed when a serious adverse event is entered until TB_SAE_OFFICE_MAILBOX is set in deploy/.env (RUNBOOK §1)" >&2
+fi
+# ---- end of SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 # TB_LLM_MODE is the services' word (tb_common.config: vllm | stub ...), not the compose profile's (gpu | stub), D-142
 LLM_MODE=stub; [ "$MODE" = gpu ] && LLM_MODE=vllm
 grep -q '^TB_LLM_MODE=' deploy/.env && sed -i "s/^TB_LLM_MODE=.*/TB_LLM_MODE=$LLM_MODE/" deploy/.env || echo "TB_LLM_MODE=$LLM_MODE" >> deploy/.env
