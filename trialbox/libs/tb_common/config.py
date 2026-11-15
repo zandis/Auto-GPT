@@ -531,7 +531,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_DEMO_VM_PRICE_SOURCE": Declared("str", "", "demo VM estimate: where its prices come from (unset: from memory)"),
     # a name, never a value (the VM reads the value itself): named so that the scan of secrets that reach a container
-    # (tests/unit/test_compose_secret_reach.py) does not take it for one, as it took its old name (ending in "secret")
+    # (tests/unit/test_compose_secret_reach.py) does not take it for one, as it took the old name ending in _SECRET
     "TB_DEMO_VM_SM_NAME": Declared(
         "str", "tb-demo-password", "demo VM: name of the Secret Manager entry that holds the demo password"
     ),
