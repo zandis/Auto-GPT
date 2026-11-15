@@ -16,10 +16,6 @@ the hold after a restore: see it and release it; accounts: passwords, disable, e
 
 Your home: the work for your role, most urgent first.
 
-### This week's patients
-
-The patients who may fit, with their next visit. Open a patient to see why and mark Approach, Need info or Not suitable now.
-
 ### Feasibility report
 
 How many patients pass each criterion at this hospital, and how many are expected per month. Numbers under the small-cell limit are shown as a range.
@@ -27,6 +23,34 @@ How many patients pass each criterion at this hospital, and how many are expecte
 ### Reports
 
 Finalised feasibility reports of your studies.
+
+### Account requests
+
+Account changes that wait for a second person: confirm or refuse each one. Nobody confirms their own request.
+
+### Break-glass
+
+Emergency access to one patient's record: the grants opened, their reasons, and the review each one needs.
+
+### Audit trail
+
+Who did what, and when: every sign-in, every view of a patient and every change, by person, study or patient.
+
+### Clinical conflicts
+
+Values on which two sources disagree, such as two birth dates. Keep one, with your reason; the trail keeps both.
+
+### Data operations
+
+The hospital's nightly data: each night that was loaded or held, the tables a check named, and your decision on a held night.
+
+### Opt-out register
+
+Patients who said no to research use. Enter a paper or phone opt-out by chart number; the patient leaves every list at once.
+
+### Staff register
+
+The hospital staff who may be named on a study's delegation log, with their department and contact.
 
 ### Runs
 
@@ -48,21 +72,9 @@ When and in which language TrialBox mails you.
 
 The candidate registry: where the study team is with each pseudonymous patient.
 
-### Start a request
-
-Start a job. Nothing runs until you press the button on this page.
-
-### Send in a protocol
-
-Paste or upload criteria to get a feasibility report.
-
 ### The command field
 
 What the command field understood, or examples when it did not.
-
-### Site set-up
-
-Site set-up: the three questions, what is still to do, and the lists to check.
 
 ### Ask TrialBox
 

@@ -1,6 +1,6 @@
 """T-317 (D-774): write the role guides from the console's help catalogue.
 
-``python -m tools.role_guides --out docs/guides`` writes ``<role>.<lang>.md`` for every console role in en, ja and
+``PYTHONPATH=libs:services:. python -m tools.role_guides --out docs/guides`` (from ``trialbox/``) writes ``<role>.<lang>.md`` for every console role in en, ja and
 zh-TW (``console.guides``). The files are generated: never edit them by hand; change the help text and run this
 again (``tests/console/test_role_guides_from_the_help.py`` fails when they differ)."""
 

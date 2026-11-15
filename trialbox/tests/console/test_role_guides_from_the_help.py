@@ -50,38 +50,88 @@ def test_a_guide_in_japanese_or_chinese_has_no_english_fallback(lang: str) -> No
         assert not re.search(r"\b(help|guide|life|cmd|role)\.[a-z_]+\b", text), (role, lang)  # no catalogue key
         for heading in re.findall(r"^#+ (.+)$", text, re.M):
             assert not heading.isascii(), (role, lang, heading)
-        prose = [x for x in text.splitlines() if x and not x.startswith(("`", "-   `", "|"))]
-        assert sum(not x.isascii() for x in prose) >= 0.8 * len(prose), (role, lang)
+        prose = [x for x in text.splitlines() if x and not x.startswith(("`", "- `", "|"))]
+        assert all(not x.isascii() for x in prose), (role, lang, [x for x in prose if x.isascii()])
 
 
-def _table_pages() -> dict[str, set[str]]:
-    """persona column -> the help slugs of the pages (GET, not /api) the persona opens in the generated table."""
-    from console.step4 import help_slug
-
+def _table() -> dict[str, dict[str, str]]:
+    """ "METHOD route" -> persona column -> the table's answer (Y, n, -)."""
     lines = MATRIX.read_text(encoding="utf-8").splitlines()
     head = next(x for x in lines if x.startswith("| Method |"))
     cols = [c.strip() for c in head.strip("|").split("|")]
-    out: dict[str, set[str]] = {c: set() for c in cols[2:]}
+    out: dict[str, dict[str, str]] = {}
     for x in lines:
         cells = [c.strip() for c in x.strip("|").split("|")]
-        if len(cells) != len(cols) or cells[0] != "GET":
-            continue
-        route = cells[1].strip("`")
-        if route.startswith("/api/") or help_slug(route) == "other":
-            continue
-        for col, v in zip(cols[2:], cells[2:], strict=True):
-            if v == "Y":
-                out[col].add(help_slug(route))
+        if len(cells) == len(cols) and cells[0] in ("GET", "POST", "PUT", "DELETE"):
+            out[f"{cells[0]} {cells[1].strip('`')}"] = dict(zip(cols[2:], cells[2:], strict=True))
     return out
 
 
-def test_each_roles_pages_are_the_help_pages_it_opens() -> None:
+def expected_pages(role: str) -> tuple[tuple[str, bool], ...]:
+    """The help pages the role opens (and may act on) in the generated table, marked where only its widest persona
+    does."""
     from console import guides
 
-    table = _table_pages()
+    table = _table()
+    narrow, wide = guides.PERSONAS[role]
+
+    def opens(slug: str, col: str) -> bool:
+        return all(table[r][col] == "Y" for r in guides.PAGES[slug] if r is not None)
+
+    return tuple((s, not opens(s, narrow)) for s in guides.PAGES if opens(s, wide))
+
+
+def test_each_roles_pages_are_the_help_pages_it_opens_and_acts_on() -> None:
+    from console import guides
+
+    table = _table()
+    for slug, routes in guides.PAGES.items():  # each canonical route is a row of the table
+        assert all(r in table for r in routes if r is not None), slug
     for role in guides.ROLES:
-        assert set(guides.ROLE_PAGES[role]) == table[guides.PERSONA[role]], (
-            role, set(guides.ROLE_PAGES[role]) ^ table[guides.PERSONA[role]])  # fmt: skip
+        assert guides.ROLE_PAGES[role] == expected_pages(role), (role, expected_pages(role))
+
+
+def test_each_help_page_of_the_guides_is_a_help_page_of_the_panel() -> None:
+    from console import guides
+    from console.step4 import HELP_SLUGS, help_slug
+
+    for slug, (get, _act) in guides.PAGES.items():
+        route = get.split(" ", 1)[1].replace("{rs}", "GZQO").replace("{pid}", "a" * 32).replace("{ruleset}", "GZQO")
+        assert slug in HELP_SLUGS and help_slug(route) == slug, (slug, route, help_slug(route))
+
+
+def test_every_command_to_try_opens_a_page_the_role_opens() -> None:
+    """A command the guide offers works for the role: it is understood and its page is one the role opens."""
+    import re as _re
+
+    from console import guides
+    from console.command import interpret, url_of
+
+    table = _table()
+    gets = [(k, _re.compile("^" + _re.sub(r"\\\{[^}]+\\\}", "[^/]+", _re.escape(k.split(" ", 1)[1])) + "$"))
+            for k in table if k.startswith("GET ")]  # fmt: skip
+    for role in guides.ROLES:
+        for lang in LANGS:
+            for ex in guides.examples(role, lang):
+                act = interpret(ex.replace("STUDY", "GZQO"), ["GZQO"], role)
+                assert act.intent not in ("unknown", "forbidden"), (role, lang, ex, act.intent)
+                url = url_of(act, role)
+                if url is None:
+                    continue
+                path = url.split("?")[0]
+                rows = [k for k, rx in gets if rx.match(path)]
+                assert rows and any(table[k][guides.PERSONAS[role][1]] == "Y" for k in rows), (role, lang, ex, path)
+
+
+def test_every_word_of_a_guide_is_in_its_own_language_catalogue() -> None:
+    """No English fallback anywhere: every key a guide uses is in that language's catalogue itself."""
+    from console import guides
+    from console.i18n import CATALOGUES
+
+    for role in guides.ROLES:
+        for lang in ("ja", "zh-TW"):
+            missing = [k for k in guides.keys(role) if k not in CATALOGUES[lang]]
+            assert not missing, (role, lang, missing)
 
 
 def test_help_serves_the_accounts_own_guide_in_its_language(box: dict[str, Any]) -> None:  # noqa: F811

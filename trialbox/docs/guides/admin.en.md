@@ -16,10 +16,6 @@ start requests and keep the registry; the research office's yearly counts (small
 
 Your home: the work for your role, most urgent first.
 
-### This week's patients
-
-The patients who may fit, with their next visit. Open a patient to see why and mark Approach, Need info or Not suitable now.
-
 ### Feasibility report
 
 How many patients pass each criterion at this hospital, and how many are expected per month. Numbers under the small-cell limit are shown as a range.
@@ -31,6 +27,22 @@ Finalised feasibility reports of your studies.
 ### Administration
 
 The box's health, its jobs (with Cancel and Retry) and its data sources. A red state links here; the runbook says what to do.
+
+### Users
+
+The accounts of this box: add one, reset a password, change its studies or switch it off. An account that sees patients is opened only after a second person confirms.
+
+### Account requests
+
+Account changes that wait for a second person: confirm or refuse each one. Nobody confirms their own request.
+
+### Break-glass
+
+Emergency access to one patient's record: the grants opened, their reasons, and the review each one needs.
+
+### Data operations
+
+The hospital's nightly data: each night that was loaded or held, the tables a check named, and your decision on a held night.
 
 ### Runs
 
@@ -47,10 +59,6 @@ The notices TrialBox sent you, newest first.
 ### Notice settings
 
 When and in which language TrialBox mails you.
-
-### Registry
-
-The candidate registry: where the study team is with each pseudonymous patient.
 
 ### Start a request
 

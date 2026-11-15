@@ -4,7 +4,7 @@ Made from the help TrialBox shows on each page, so it says what the screens say.
 
 ## What you do
 
-You read reports and the audit trail. You do not see patients.
+You read the aggregate reports of your studies. You do not see patients.
 
 ## What TrialBox lets you do
 
@@ -36,14 +36,6 @@ The notices TrialBox sent you, newest first.
 
 When and in which language TrialBox mails you.
 
-### Start a request
-
-Start a job. Nothing runs until you press the button on this page.
-
-### Send in a protocol
-
-Paste or upload criteria to get a feasibility report.
-
 ### The command field
 
 What the command field understood, or examples when it did not.
@@ -58,7 +50,7 @@ Type one in the command field at the top of any page; STUDY stands for your stud
 
 - `reports`
 - `STUDY feasibility`
-- `audit`
+- `my account`
 - `help`
 
 ## When you need help

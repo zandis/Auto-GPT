@@ -56,7 +56,11 @@ Values TrialBox drafted for REDCap from the hospital record. Check each one agai
 
 Finalised feasibility reports of your studies.
 
-### Runs
+### Staff register
+
+The hospital staff who may be named on a study's delegation log, with their department and contact.
+
+### Runs (where your account and the study's delegation log allow)
 
 Every job the box ran or is running, newest first.
 

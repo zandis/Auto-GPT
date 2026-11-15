@@ -16,11 +16,11 @@ patient-level rows and patient checks; show chart numbers (recorded); mark patie
 
 Your home: the work for your role, most urgent first.
 
-### This week's patients
+### This week's patients (where your account and the study's delegation log allow)
 
 The patients who may fit, with their next visit. Open a patient to see why and mark Approach, Need info or Not suitable now.
 
-### The patient sheet
+### The patient sheet (where your account and the study's delegation log allow)
 
 One patient for one study: each criterion with its evidence. The chart number appears only after you ask for it, and that is recorded.
 
@@ -28,11 +28,11 @@ One patient for one study: each criterion with its evidence. The chart number ap
 
 How many patients pass each criterion at this hospital, and how many are expected per month. Numbers under the small-cell limit are shown as a range.
 
-### Screening log
+### Screening log (where your account and the study's delegation log allow)
 
 Everyone approached for this study, by screening number, with what happened next. Status from REDCap is read back each night.
 
-### Cohort
+### Cohort (where your account and the study's delegation log allow)
 
 Members of the registry or observational study. There is no contact step.
 
@@ -40,21 +40,29 @@ Members of the registry or observational study. There is no contact step.
 
 The study's settings: type, REDCap link and screening-log options. The coordinator fills it in.
 
-### Candidates
+### Candidates (where your account and the study's delegation log allow)
 
 The patients across the hospital who may fit this study. Open one to see each criterion and ask the treating doctor.
 
-### Referrals
+### Referrals (where your account and the study's delegation log allow)
 
 Every request to a treating doctor for this study, and the doctor's answer. Approach waits until the doctor agrees.
 
-### EDC prefill
+### EDC prefill (where your account and the study's delegation log allow)
 
 Values TrialBox drafted for REDCap from the hospital record. Check each one against its source, sign, then send.
 
 ### Reports
 
 Finalised feasibility reports of your studies.
+
+### Break-glass
+
+Emergency access to one patient's record: the grants opened, their reasons, and the review each one needs.
+
+### Staff register
+
+The hospital staff who may be named on a study's delegation log, with their department and contact.
 
 ### Runs
 
@@ -72,17 +80,9 @@ The notices TrialBox sent you, newest first.
 
 When and in which language TrialBox mails you.
 
-### Registry
+### Registry (where your account and the study's delegation log allow)
 
 The candidate registry: where the study team is with each pseudonymous patient.
-
-### Start a request
-
-Start a job. Nothing runs until you press the button on this page.
-
-### Send in a protocol
-
-Paste or upload criteria to get a feasibility report.
 
 ### The command field
 
