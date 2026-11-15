@@ -35,6 +35,8 @@
 # Knobs: TB_REHEARSE_DIR (default a fresh mktemp dir; the same path is mounted in the box container, docker-outside-of-
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
+# TB_REHEARSE_MIN_FREE_GB (default 30: free space wanted for the work dir and Docker's root), TRIVY_CACHE (default
+# .cache/trivy: the gates' database, `make trivy-db` at most 7 days before; D-883).
 # Needs: Docker with compose, no other TrialBox stack running on it, port 8090 free, python3 with the repo's venv.
 # Either Docker image store: the containerd store keeps digests, the classic overlay2 store does not (tools/
 # image_pins.py); DOCKER_HOST=unix:///path/docker.sock rehearses on another daemon (its socket goes into the box).
@@ -99,6 +101,10 @@ preconditions() {
   [ -z "$(docker ps -aq --filter label=com.docker.compose.project=trialbox)" ] \
     || { echo "a TrialBox compose project already exists on this Docker host (make down / poc-down first)"; return 1; }
   [ -x "$PY" ] || { echo "no venv at $PY (make venv)"; return 1; }
+  # D-883: the gates' Trivy database and the disk, before the build rather than half an hour into it
+  "$PY" -m tools.rehearse_box.preflight --work "$W" --trivy-cache "${TRIVY_CACHE:-.cache/trivy}" \
+    --docker-root "$(docker info --format '{{.DockerRootDir}}')" --min-free-gb "${TB_REHEARSE_MIN_FREE_GB:-30}" \
+    || return 1
   mkdir -p "$W/vendor" "$W/run" "$MEDIA/linux" "$MEDIA/measured" "$MEDIA/windows" || return 1
   cp tools/rehearse_box/box.sh "$W/run/box.sh" && cp -r tools/rehearse_box/shims "$W/run/shims"
   echo "ok: docker $(docker version --format '{{.Server.Version}}'), work dir $W"
