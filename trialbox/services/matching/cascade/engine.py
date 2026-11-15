@@ -349,6 +349,7 @@ class _Run:
         self.items = 0
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
+        self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
@@ -437,8 +438,18 @@ class _Run:
     def s1(self, idx: list[date]) -> list[CriterionIR]:
         applied = self.applied()
         scope = [t.pid for t in self.traces.values() if t.in_scope]
+        # A-NOTES-ONLY (D-788): a ruleset with no coded criterion is screened (lane G's public sets): the SQL still
+        # lists each in-scope patient alive at each index date, every patient passes S1 at its latest one, and the
+        # notes decide. Review of D-788: a ruleset where nothing decides is refused (every patient read "high"), and
+        # such a run needs a pair budget, since every patient goes to the models
+        self.coded = bool(applied)
         if not applied:
-            raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
+            if not any(c.class_ in JUDGED and c.kind in ("inclusion", "exclusion") for c in self.rs.active()):
+                raise CascadeError(f"ruleset {self.rs.id} has nothing that decides: no coded and no note criterion")
+            if self.cfg.max_llm_items is None:
+                raise CascadeError(
+                    f"ruleset {self.rs.id} has no coded criterion, so every patient goes to the models: set max_pairs"
+                )
         # D-275: SQL approved before the unit / sex / order-date rules runs guarded by them (unknown on a difference)
         table = self.lake.query(safe_sql(self.rs), [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
         # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
@@ -1142,6 +1153,8 @@ class _Run:
                 kinds.add("uncertain")  # T-603: a note the models did not read in full: a person looks
             if any(self._weak_met(o) for o in t.outcomes.values()):
                 kinds.add("uncertain")  # T-709 (D-478, review M1a): a "met" below the floor is a person's check
+            if not self.coded and not any(o.status == "pass" and o.stage in ("S3", "S4") for o in t.outcomes.values()):
+                kinds.add("uncertain")  # D-788 review: with nothing coded, "strong" needs a judged "met", not absence
             if "uncertain" in kinds:
                 t.tier = "potential:uncertain"
             elif "data_gap" in kinds:
