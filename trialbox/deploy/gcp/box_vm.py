@@ -866,9 +866,10 @@ def acc_set(
     ``protocols``: only these rulesets of the set (a sized subset, recorded by the caller); the rest are not sent.
 
     ``earlier``: the work folders of this set's attempts before a redo, newest first (F29). The box keeps a ruleset
-    version once approved: its FEAS of the same version then fails ("no structured criteria to count" for a ruleset of mixed
-    criteria) with no review workbook, and a new APPROVE has nothing to approve. When the earlier attempt approved
-    that same version, the set goes on to SCREEN with the earlier draft and approval, and says so (``approved_in``).
+    version once approved: its FEAS of the same version then fails ("no structured criteria to count" for a ruleset
+    of mixed criteria) with no review workbook, and a new APPROVE has nothing to approve. When an earlier attempt
+    approved that same version, the set goes on to SCREEN with that draft and approval, and says so
+    (``approved_in``).
 
     ``deadline_s`` (0: none): the set's own time budget from its first start (kept in ``work/set-clock.json``, so a
     resumed set counts its earlier boots). Past it no new protocol is started (each left one is ``not_run_time_budget``)
