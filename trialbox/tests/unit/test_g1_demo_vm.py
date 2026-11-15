@@ -498,7 +498,8 @@ def test_boot_and_the_poc_host_pin_the_same_caddy() -> None:
 
 
 def test_no_setting_of_the_demo_vm_reads_as_a_secret_that_reaches_a_container() -> None:
-    # TB_DEMO_VM_SECRET (the name of the Secret Manager entry, never a value) was taken for a secret by the scan of
+    # the setting's earlier name, ending in "secret" (the name of the Secret Manager entry, never a value; now
+    # TB_DEMO_VM_SM_NAME), was taken for a secret by the scan of
     # what reaches each container, and failed it on every compose stack wherever docker compose is installed
     from tests.unit.test_compose_secret_reach import secret_names
 
