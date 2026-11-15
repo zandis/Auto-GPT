@@ -157,8 +157,15 @@ def _export_records(proj: dict[str, Any], form: Any) -> list[dict[str, Any]]:
         if with_dag:
             row["redcap_data_access_group"] = rec.get("redcap_data_access_group", "")
         for col in cols:
-            if col != rid:
-                row[col] = str(rec.get(col, ""))
+            if col == rid:
+                continue
+            m: dict[str, Any] = next((x for x in proj["metadata"] if x["field_name"] == col), {})
+            if m.get("field_type") == "checkbox":  # NEW-EDC-3b: REDCap exports one column per choice
+                have = str(rec.get(col, "")).split(",")
+                for code in _codes(m):
+                    row[_column(col, code)] = "1" if code in have else "0"
+                continue
+            row[col] = str(rec.get(col, ""))
         rows.append(row)
     return rows
 
@@ -189,17 +196,11 @@ def odm_rows(proj: dict[str, Any], text: str) -> list[dict[str, str]] | None:
     rows: list[dict[str, str]] = []
 
     def items(parent: ET.Element, row: dict[str, str]) -> None:
-        ticks: dict[str, list[str]] = {}
         for item in (el for el in parent.iter() if _local(el.tag) == "ItemData"):
             oid, val = str(item.get("ItemOID") or ""), str(item.get("Value") or "")
-            base, sep, code = oid.partition("___")
-            if sep and base in checkbox:
-                ticks.setdefault(base, [])
-                if val == "1":
-                    ticks[base].append(code)
-            elif oid != rid:
+            base, sep, _code = oid.partition("___")
+            if (sep and base in checkbox) or oid != rid:  # a checkbox's choice stays its own column (NEW-EDC-3b)
                 row[oid] = val
-        row.update({k: ",".join(v) for k, v in ticks.items()})
 
     for sd in (el for el in root.iter() if _local(el.tag) == "SubjectData"):
         for se in (el for el in sd if _local(el.tag) == "StudyEventData"):
@@ -229,6 +230,44 @@ def odm_rows(proj: dict[str, Any], text: str) -> list[dict[str, str]] | None:
                 rows.append(base)
             rows.extend(reps)
     return rows
+
+
+TICKS = "\x00ticks:"  # NEW-EDC-3b: a checkbox's ``___`` columns of one import row, carried through the checks as one
+
+
+def _codes(meta: dict[str, Any]) -> list[str]:
+    """A checkbox's choice codes (``1, Toe | 2, Ankle``)."""
+    raw = str(meta.get("select_choices_or_calculations") or "")
+    return [p.split(",", 1)[0].strip() for p in raw.split("|") if p.strip()]
+
+
+def _column(field: str, code: str) -> str:
+    """REDCap's column of a checkbox choice: the code lowercased, ``-`` and ``.`` written ``_`` (``x____99``)."""
+    return f"{field}___{code.lower().replace('-', '_').replace('.', '_')}"
+
+
+def _checkbox_columns(rows: list[dict[str, Any]], meta: dict[str, Any]) -> str | None:
+    """REDCap's flat form of a checkbox (NEW-EDC-3b, EDC-001 on this point): one ``field___code`` column per choice,
+    ``1`` ticked, ``0`` not, blank left as it is. A bare checkbox column, or a code the field has no choice for, is
+    refused as REDCap refuses it. Each row's columns of a checkbox are carried as one value until the write."""
+    boxes = {f: _codes(m) for f, m in meta.items() if m.get("field_type") == "checkbox"}
+    for r in rows:
+        bare = sorted(f for f in r if f in boxes)
+        if bare:
+            return f"The following fields were not found in the project as real data fields: {', '.join(bare)}"
+        ticks: dict[str, dict[str, str]] = {}
+        for col in list(r):
+            base, sep, _ = str(col).partition("___")
+            if not sep or base not in boxes:
+                continue
+            v = str(r.pop(col))
+            code = next((c for c in boxes[base] if _column(base, c) == col), None)
+            if code is None or v not in ("0", "1", ""):
+                return f"The following fields were not found in the project: {col}"
+            ticks.setdefault(base, {})[code] = v
+        for base, t in ticks.items():
+            r[base] = TICKS + ",".join(f"{c}={v}" for c, v in t.items())
+    return None
 
 
 def _fits(meta: dict[str, Any], value: str) -> bool:
@@ -263,6 +302,9 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
         return _err(400, "The data being imported is not in a valid format")
     rid = _record_id_field(proj)
     meta = {m["field_name"]: m for m in proj["metadata"]}
+    refused = _checkbox_columns(rows, meta)
+    if refused:
+        return _err(400, refused)
     extra = EXTRA_COLS
     longitudinal = bool(int(proj["project"].get("is_longitudinal", 0)))
     repeat = _repeat_set(proj)
@@ -340,6 +382,17 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
             if k == rid:
                 continue
             if str(v) == "" and not erase:  # overwriteBehavior=normal: a blank never erases
+                continue
+            if str(v).startswith(TICKS):  # NEW-EDC-3b: each choice ticked (1) or not (0); a blank one left
+                have = [c for c in str(hit.get(k) or "").split(",") if c]
+                for pair in str(v)[len(TICKS) :].split(","):
+                    code, _, tick = pair.partition("=")
+                    if tick == "1" and code not in have:
+                        have.append(code)
+                    elif (tick == "0" or (tick == "" and erase)) and code in have:
+                        have.remove(code)
+                order = _codes(meta[k])
+                hit[k] = ",".join(sorted(have, key=lambda c: order.index(c) if c in order else len(order)))
                 continue
             hit[k] = str(v)
         _calculate(proj, hit)

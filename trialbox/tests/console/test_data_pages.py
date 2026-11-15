@@ -167,7 +167,7 @@ def test_forms_sources_sync_conflict_resolve_detach(dcb: dict[str, Any]) -> None
     r = c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "theirs", "confirm": "yes"})
     assert r.status_code == 200 and 'data-testid="dc-done"' in r.text and f"conflict-{cid}" not in r.text
     assert _writes(dcb["calls"]) == [
-        ("POST", f"/studies/GZQO/conflicts/{cid}", {"keep": "theirs", "by": "console:crc"})
+        ("POST", f"/studies/GZQO/conflicts/{cid}", {"keep": "theirs"})  # T-715f (D-799): the person is signed
     ]
     assert dcb["dc"].record("GZQO", "GZQO-0901")["consent_date"] == "2026-10-20"
     trail = c.get("/studies/GZQO/conflicts?all=1").text
@@ -180,7 +180,7 @@ def test_forms_sources_sync_conflict_resolve_detach(dcb: dict[str, Any]) -> None
     assert 'data-testid="confirm-text"' in r.text and "Detach REDCap from this study?" in r.text  # P-10
     r = c.post("/studies/GZQO/sources/redcap/detach", data={"csrf": csrf, "confirm": "yes"})
     assert 'data-testid="dc-no-source"' in r.text and dcb["dc"].owners("GZQO")["consent_date"] == "trialbox"
-    assert [c[:2] for c in _writes(dcb["calls"])][-1] == ("DELETE", "/studies/GZQO/sources/redcap?by=console%3Acrc")
+    assert [c[:2] for c in _writes(dcb["calls"])][-1] == ("DELETE", "/studies/GZQO/sources/redcap")
     events = [e.event for e in dcb["backend"].audit(None, 500)]
     assert {"console.data_forms", "console.data_source", "console.data_sync", "console.data_resolve"} <= set(events)
 
@@ -344,7 +344,7 @@ def test_api_needs_a_bearer_token_and_answers_as_the_pages(dcb: dict[str, Any]) 
     r = api.post(f"/api/v1/studies/GZQO/conflicts/{cid}", json={"keep": "trialbox"})
     assert r.status_code == 200 and r.json()["resolved"] == "trialbox" and r.json()["resolved_by"] == "console:crc"
     assert _writes(dcb["calls"]) == [("POST", f"/studies/GZQO/conflicts/{cid}",
-                                      {"keep": "trialbox", "by": "console:crc"})]  # fmt: skip
+                                      {"keep": "trialbox"})]  # T-715f (D-799): signed  # fmt: skip
     assert api.get("/api/v1/studies/GZQO/conflicts").json()["conflicts"] == []
     trail = api.get("/api/v1/studies/GZQO/conflicts", params={"all": "true"}).json()["conflicts"]
     assert [x["resolved"] for x in trail] == ["trialbox"]

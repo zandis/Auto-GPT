@@ -1,0 +1,39 @@
+{
+ "attempts": 1,
+ "boots": [
+  "02abc559-50e1-4fe9-88d8-47578ce4a29a"
+ ],
+ "detail": {
+  "build_tree_removed": "/srv/tb-build",
+  "bundle_bytes": 29611929600,
+  "bundle_id": "val-ac36aa21fdc1",
+  "disk": "176555511808 238349205504",
+  "free_after_old_store": "250G",
+  "free_before_old_store": "250G",
+  "free_bytes": 238349205504,
+  "host_payload": "trialbox-host.tar",
+[line removed: key fingerprint]
+  "manifest_files": 29,
+  "manifest_sha256": "3b18c345e7b778ecc10a12b0086819f16ddce64dcb099c360bb85be7a6e714f1",
+  "mode": "validation",
+  "models_bytes": 50882598904,
+  "not_a_release": true,
+  "refused": [],
+  "release": {
+   "commit": "ac36aa21fdc1a67795eb838018a433a586971db9",
+   "dirty": false,
+   "rehearsal": false,
+   "version": "1.0.0"
+  },
+  "release_seq": 1,
+  "signature_sha256": "eb0b66620eed72630102258bee430d2ceba80b9f4c11f51a7106a9cd1da21cf9",
+[line removed: key fingerprint]
+ },
+ "ended": "2026-11-15T09:49:50Z",
+ "minutes": 1.25,
+ "ok": true,
+ "seconds": 74.851,
+ "started": "2026-11-15T09:48:35Z",
+ "status": "done",
+ "step": "01-bundle"
+}

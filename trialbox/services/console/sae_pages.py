@@ -365,12 +365,13 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
     def start_of(one: dict[str, Any]) -> str:
         return str(one.get("aware") or one.get("onset") or "")
 
-    def write_sent(rid: str, rec: str, ev: str, party: str, on: str, by: str) -> None:
+    def write_sent(sess: Session, rid: str, rec: str, ev: str, party: str, on: str, by: str) -> None:
         """The day sent goes to the AE form: the one field the clock, the home pages and the mail read. Only that
         field is sent (the data core keeps every other value); a field the form hides is refused, not dropped."""
         field = lc.REPORT_FIELDS[party]
-        out = s28.call(bk, "POST", f"/studies/{rid}/entry/{quote(rec)}",
-                       {"form": AE_FORM, "event": ev, "values": {field: on}, "by": by})  # fmt: skip
+        # T-715f (D-799): an entry on the AE form, signed as one (the page asked sae.record, a narrower row)
+        out = actor.call(h, sess, "task.enter_data", rid, "POST", f"/studies/{rid}/entry/{quote(rec)}",
+                         {"form": AE_FORM, "event": ev, "values": {field: on}})  # fmt: skip
         if field in (out.get("hidden") or []) or field not in (out.get("written") or [field]):
             raise SaeError("form")
         au.append("console.data_entry", ruleset=rid, actor=by,
@@ -457,7 +458,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
                     audit(rid, by, rec, ev, [{"action": "report", "body": body}])
                 else:
                     try:
-                        write_sent(rid, rec, ev, f["party"], f["on"], by)
+                        write_sent(sess, rid, rec, ev, f["party"], f["on"], by)
                     except Problem as exc:
                         raise SaeError("form") from exc
                     if ref:

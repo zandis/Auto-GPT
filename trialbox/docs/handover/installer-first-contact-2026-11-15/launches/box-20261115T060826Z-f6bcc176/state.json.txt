@@ -1,0 +1,60 @@
+{
+ "ended": "TB-STOP b05-sign: signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 2",
+ "kv": {
+  "gates_mode": "--vuln-mode report"
+ },
+ "order": [
+  "b01-source",
+  "b02-venv",
+  "b03-images",
+  "b04-gates",
+  "b05-sign"
+ ],
+ "steps": {
+  "b01-source": {
+   "attempts": 1,
+   "boots": [
+    "57110725-bd04-4f57-a63b-a6304853b0d1"
+   ],
+   "first_started": 1794722954.710366,
+   "seconds": 15.037,
+   "status": "done"
+  },
+  "b02-venv": {
+   "attempts": 1,
+   "boots": [
+    "57110725-bd04-4f57-a63b-a6304853b0d1"
+   ],
+   "first_started": 1794722970.665369,
+   "seconds": 10.026,
+   "status": "done"
+  },
+  "b03-images": {
+   "attempts": 1,
+   "boots": [
+    "68826589-4d85-4816-99fb-c740dac89795"
+   ],
+   "first_started": 1794724287.200387,
+   "seconds": 305.208,
+   "status": "done"
+  },
+  "b04-gates": {
+   "attempts": 1,
+   "boots": [
+    "45600162-ee47-446f-9116-bbe5a1fc9ebb"
+   ],
+   "first_started": 1794726499.0993214,
+   "seconds": 290.484,
+   "status": "done"
+  },
+  "b05-sign": {
+   "attempts": 1,
+   "boots": [
+    "45600162-ee47-446f-9116-bbe5a1fc9ebb"
+   ],
+   "first_started": 1794726790.3510177,
+   "seconds": 5.03,
+   "status": "stop"
+  }
+ }
+}
