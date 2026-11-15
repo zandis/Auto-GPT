@@ -238,7 +238,8 @@ table.worklist .bad { color: var(--bad); font-weight: 600; }
 .meter i { display: block; height: 100%; background: var(--ok); }
 .meter i.w0 { width: 0 } .meter i.w1 { width: 10% } .meter i.w2 { width: 20% } .meter i.w3 { width: 30% } .meter i.w4 { width: 40% }
 .meter i.w5 { width: 50% } .meter i.w6 { width: 60% } .meter i.w7 { width: 70% } .meter i.w8 { width: 80% } .meter i.w9 { width: 90% } .meter i.w10 { width: 100% }
-.chartp { overflow: hidden; }
+.chartp { overflow: clip; }  /* D-777 (UX-001): clip, not hidden: a hidden overflow would stop the sticky mark bar */
+.chartp .markbar { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -4px 12px rgba(0,0,0,.08); }  /* in view on the desktop too */
 .chartp .pbanner { padding: 12px; background: var(--bg); border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
 .chartp .pname { font-size: 18px; }
 .chartp .pbanner dl { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; font-size: 15px; }
