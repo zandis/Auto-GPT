@@ -25,14 +25,15 @@ function Line([bool]$ok, [string]$what, [string]$detail) {
   else { Write-Output ("FAIL  {0}: {1}" -f $what, $detail); $script:Failed++ }
 }
 
-# 1. Windows build and edition: Windows 11 Pro / Enterprise (build 22000 or later) or Windows Server 2022+ (20348+)
+# 1. Windows build and edition: Windows 10 22H2 (build 19045) or Windows 11, Pro / Enterprise / Education (owner ruling
+#    D-503; NEW-WIN-10, D-613), or Windows Server 2022+ (20348+)
 $os = Get-CimInstance Win32_OperatingSystem
 $build = [int]$os.BuildNumber
 $caption = [string]$os.Caption
 $server = $os.ProductType -ne 1
 $edition_ok = $server -or $caption -match "Pro|Enterprise|Education"
-$build_ok = if ($server) { $build -ge 20348 } else { $build -ge 22000 }
-Line ($build_ok -and $edition_ok) "Windows build" ("{0}, build {1} (need Windows 11 Pro/Enterprise 22000+ or Server 2022 20348+)" -f $caption, $build)
+$build_ok = if ($server) { $build -ge 20348 } else { $build -ge 19045 }
+Line ($build_ok -and $edition_ok) "Windows build" ("{0}, build {1} (need Windows 10 22H2 19045+ or Windows 11, Pro/Enterprise/Education, or Server 2022 20348+)" -f $caption, $build)
 
 # 2. CPU virtualisation: on in the firmware, or a hypervisor already running (WSL2 needs it)
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
