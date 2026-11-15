@@ -8,6 +8,7 @@
 case "$1" in
   info) echo "Server Version: box-run rehearsal"; exit 0 ;;
   compose|run) exec python3 "$BR_HERE/standins/box.py" "$@" ;;
+  build) echo "docker-build $*" >> "$BR_S/calls.log" ;;   # the build's demo image (demo/Dockerfile)
   image)   # image inspect --format '{{json .RepoDigests}}' REF: the digest images.lock pins (knob image-differs: another)
     if [ -f "$BR_S/knobs/image-differs" ]; then echo '["vllm/vllm-openai@sha256:'"$(printf '%064d' 1)"'"]'
     else python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(["vllm/vllm-openai@" + d["third_party"]["vllm"]["digest"]]))' "$BR_S/box-root/deploy/images.lock"; fi ;;

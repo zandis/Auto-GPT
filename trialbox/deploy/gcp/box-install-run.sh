@@ -727,15 +727,24 @@ b_prereq() {  # before b02 and b03 (a boot that kept b02 still needs them for th
   note java "\"$(java -version 2>&1 | head -n 1)\""
 }
 step_b_venv() { b_prereq && step_b_make venv scanners; }
-step_b_images() { b_prereq && step_b_make images; }
+# make images, then the demo image the release gates also scan (SC_OWN_IMAGES), as CI's images job builds it
+step_b_images() { b_prereq && step_b_make images && need "the demo image (demo/Dockerfile)" d_demo_image; }
+d_demo_image() { (cd "$CK" && docker build -f demo/Dockerfile -t trialbox-demo:step5 .); }
 step_b_gates() {
+  local args=""
   need "make trivy-db" make -C "$CK" trivy-db || return 1
-  # enforcing (no --vuln-mode report): a FAIL here stops the build, and the vendor key is never read
-  if ! watched make -C "$CK" release-gates; then
+  # production: enforcing (no --vuln-mode report): a FAIL here stops the build, and the vendor key is never read.
+  # validation (a proof of concept, never a release): the gates' own report mode, as CI's images job runs them. It
+  # defers only the fixable findings of the two test-only mail servers no bundle carries (tools/supply_chain/
+  # release.py VULN_REPORT_ONLY); every image a bundle carries still blocks. Recorded in records/bundle.json.
+  if [ "$MODE" = validation ]; then args="--vuln-mode report"; note gates_vuln_mode '"report (test-only mail images deferred)"'; fi
+  if ! watched make -C "$CK" release-gates ${args:+RELEASE_GATES_ARGS="$args"}; then
     STOP="TB-GATES-FAILED: make release-gates did not pass (enforcing): $(grep -a '^FAIL' "$STEP_LOG" | head -3 | tr '\n' ' ')"
     return 1
   fi
   note gates "\"build/supply-chain/gates.json\""
+  cp "$CK/build/supply-chain/gates.json" "$REC/gates.json" 2>/dev/null
+  st set "$STEP" gates_mode "${args:-block}"
 }
 d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, shredded on every way out
   local k
@@ -801,6 +810,15 @@ step_b_upload() {
     "$RID" "$SEQ" "$COMMIT" "$sha" "$(stat -c %s "$b")" "$OUTP/trialbox-$RID.tar" "$MODE" \
     "$([ "$MODE" = validation ] && echo true || echo false)" \
     "$([ "$MODE" = validation ] && echo "a throwaway key made on the runner VM (not the vendor key)" || echo "the vendor key (Secret Manager)")" > "$REC/bundle.json"
+  "$PY" - "$REC/bundle.json" "$(st kv _ gates_mode)" <<'PY'
+import json, sys
+p, mode = sys.argv[1], sys.argv[2] or "block"
+d = json.load(open(p))
+d["release_gates_vuln_mode"] = mode.replace("--vuln-mode ", "")
+d["release_gates"] = ("green: every image blocks" if d["release_gates_vuln_mode"] == "block" else
+                      "NOT all green: report mode, the test-only mail images' findings deferred (records/gates.json)")
+json.dump(d, open(p, "w"))
+PY
   note sha256 "\"$sha\""; note object "\"$OUTP/trialbox-$RID.tar\""
 }
 

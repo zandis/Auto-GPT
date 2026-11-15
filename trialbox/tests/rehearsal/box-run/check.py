@@ -371,6 +371,16 @@ if case == "build-validation":
     ok(v["refused"] == [] and bool(v.get("key_id")), "b06: the signature verifies with the throwaway public key")
     ok(parts["b05-sign"]["detail"]["key_left_on_tmpfs"] is False, "the throwaway key was gone after signing")
     ok("TB-THROWAWAY-KEY" in (R / "logs" / "b05-sign.log").read_text(), "the signing log says the key is throwaway")
+    ok(
+        calls["gates-args --vuln-mode report"] == 1 and rec["release_gates_vuln_mode"] == "report"
+        and rec["release_gates"].startswith("NOT all green"),
+        "validation: the gates' report mode (the test-only mail images), and the bundle record says not all green",
+    )  # fmt: skip
+if case in ("build", "build-preempt", "build-validation"):
+    ok(any(c.startswith("docker-build trialbox-demo:step5") or "demo/Dockerfile" in c for c in calls),
+       "b03: the demo image the gates scan was built (demo/Dockerfile)")  # fmt: skip
+if case in ("build", "build-preempt"):
+    ok(calls["gates-args "] >= 1 and calls["gates-args --vuln-mode report"] == 0, "production: the gates enforcing")
 
 ACC_SETS = ["jmed", "sigir", "tfda"]
 ACC = ["50-acc-tools", "51-acc-settings", "52-acc-routes", "53-acc-data", "54-acc-ingest",

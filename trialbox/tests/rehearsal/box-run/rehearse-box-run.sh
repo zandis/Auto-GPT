@@ -193,7 +193,7 @@ build_setup() {  # build: a small git repository as the release commit, its git 
     'scanners:' $'\techo scanners >> "$(BR_S)/calls.log"' \
     'images:' $'\techo images >> "$(BR_S)/calls.log"; n=$$(cat "$(BR_S)/knobs/images-seconds" 2>/dev/null || echo 0); i=0; while [ $$i -lt $$n ]; do echo building; sleep 1; i=$$((i+1)); done' \
     'trivy-db:' $'\techo trivy-db >> "$(BR_S)/calls.log"' \
-    'release-gates:' $'\techo release-gates >> "$(BR_S)/calls.log"; if [ -f "$(BR_S)/knobs/gate-fails" ]; then echo "FAIL vllm/vllm-openai CVE-2026-128089 (stand-in)"; exit 1; fi; mkdir -p build/supply-chain dist/sbom && echo "{}" > build/supply-chain/gates.json' \
+    'release-gates:' $'\techo release-gates >> "$(BR_S)/calls.log"; echo "gates-args $(RELEASE_GATES_ARGS)" >> "$(BR_S)/calls.log"; if [ -f "$(BR_S)/knobs/gate-fails" ]; then echo "FAIL vllm/vllm-openai CVE-2026-128089 (stand-in)"; exit 1; fi; mkdir -p build/supply-chain dist/sbom && echo "{}" > build/supply-chain/gates.json' \
     > "$r/trialbox/Makefile"
   cat > "$r/trialbox/tools/make_bundle.sh" <<'EOS'
 #!/bin/bash
