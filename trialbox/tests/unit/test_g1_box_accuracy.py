@@ -163,6 +163,10 @@ def test_classify_redact_and_list_rows() -> None:
     assert rows == [{"pid": "p1", "tier": "high", "actions": [], "verdicts": [
         {"id": "c1", "verdict": "fail", "basis": "pair", "quote": "q"}]}]  # fmt: skip
     assert box_vm.list_rows([{"pid": "p2"}], "excluded")[0]["tier"] == "excluded"
+    # F25: the product's excluded list names the excluding criteria with no "verdict" key, evidence flattened
+    ex = box_vm.list_rows({"rows": [{"pid": "p3", "criteria": [{"id": "c2", "source": "coded", "quote": "E11"}]}]},
+                          "excluded")  # fmt: skip
+    assert ex[0]["verdicts"] == [{"id": "c2", "verdict": "fail", "basis": "coded", "quote": "E11"}]
 
 
 def test_merge_feed_keeps_one_header_and_each_row_once(tmp_path: Path) -> None:

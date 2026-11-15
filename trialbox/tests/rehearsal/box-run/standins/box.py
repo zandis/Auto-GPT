@@ -433,10 +433,12 @@ def _acc_outputs(job: dict[str, Any]) -> dict[str, bytes]:
             mrns = []
         for i, m in enumerate(mrns):
             pid = _pid(m)
-            crit = [{"id": "exc-2", "verdict": "fail" if i % 2 else "pass", "basis": "pair",
-                     "evidence": {"quote": "pregnant"} if i % 2 else None}]  # fmt: skip
-            (excl if i % 2 else rows).append({"pid": pid, "tier": "excluded" if i % 2 else "high", "criteria": crit,
-                                              "actions": []})  # fmt: skip
+            if i % 2:  # the product's excluded list (screen.excluded_doc): the excluding criteria, no "verdict" key
+                excl.append({"pid": pid, "criteria": [{"id": "exc-2", "source": "notes", "quote": "pregnant"}],
+                             "actions": []})  # fmt: skip
+            else:
+                rows.append({"pid": pid, "tier": "high", "actions": [],
+                             "criteria": [{"id": "exc-2", "verdict": "pass", "basis": "pair", "evidence": None}]})  # fmt: skip
         return {f"candidate_list_{rs}_v{v}.json": json.dumps({"rows": rows}).encode(),
                 f"excluded_{rs}_v{v}.json": json.dumps({"rows": excl}).encode()}  # fmt: skip
     return {}

@@ -781,12 +781,15 @@ def list_rows(doc: Any, tier: str = "") -> list[dict[str, Any]]:
         verdicts = []
         for c in r.get("criteria") or []:
             ev = c.get("evidence") or {}
+            # F25 (2026-11-15): the excluded list (screen.excluded_doc) names only the criteria that excluded the
+            # patient, with no "verdict" key (id, source, evidence): each of them is a "fail"; its source is the basis
             verdicts.append(
                 {
                     "id": c.get("id"),
-                    "verdict": c.get("verdict"),
-                    "basis": c.get("basis"),
-                    "quote": ev.get("quote") or ev.get("text") if isinstance(ev, dict) else None,
+                    "verdict": c.get("verdict") or ("fail" if tier == "excluded" else None),
+                    "basis": c.get("basis") or c.get("source"),
+                    # the excluded list carries the evidence's fields on the criterion itself (quote, reason, ...)
+                    "quote": (ev.get("quote") or ev.get("text") if isinstance(ev, dict) else None) or c.get("quote"),
                 }
             )
         out.append(
