@@ -47,6 +47,7 @@ from typing import Any
 
 from tools import feas_demo as fd
 from tools import list_demo as ld
+from tools import signed_api
 from tools import synth_charts as sc
 from tools.e2e_simple import Stage
 
@@ -1587,7 +1588,7 @@ def sc_redcap(a: Any, work: Path) -> Result:
     sim = create_app()
     register_inproc(sim)
     w = world(work, work / "lake", sec, a)
-    api = w.h.bk.study_api
+    api = signed_api.signed(w.h.bk.study_api)  # T-715f (D-799): the data core takes the signed person
     proj = next(p for p in load_projects().values() if p["project"]["project_id"] == 202)
     page = w.admin.get("/admin/redcap")
     w.admin.post(

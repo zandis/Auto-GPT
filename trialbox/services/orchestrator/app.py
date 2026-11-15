@@ -673,7 +673,7 @@ def data_service_of(o: Orchestrator) -> Any:
     return DataService(core, o.audit, lambda: _now(o), studies.client, site_key, registry_of(o))
 
 
-app.include_router(datacore_router(lambda: data_service_of(orch())), dependencies=REPORT)
+app.include_router(datacore_router(lambda: data_service_of(orch())))  # T-715f (D-799): refuse, route by route
 app.include_router(lifecycle_router(lambda: data_service_of(orch())))  # TB-PLAN-04 step 5 (D-134)
 app.include_router(sponsor_router(lambda: data_service_of(orch())))  # the sponsor layout and weekly sheet (D-435)
 

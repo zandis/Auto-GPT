@@ -53,7 +53,7 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
 
 from tools import feas_demo as fd  # noqa: E402
 from tools import list_demo as ld  # noqa: E402
-from tools import rc_demo  # noqa: E402
+from tools import rc_demo, signed_api  # noqa: E402
 
 TRIAL, COHORT = ld.TRIAL, ld.COHORT
 GOUT = ("M10", "M1A")  # GZQO-INC-02 / GOUT-COH-INC-01 value set (ICD-10-CM)
@@ -1894,7 +1894,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     t = time.perf_counter()
     from rc_sim.app import load_projects
 
-    api = h.bk.study_api
+    api = signed_api.signed(h.bk.study_api)  # T-715f (D-799): the data core takes the signed person
     proj_b = next(p for p in load_projects().values() if p["project"]["project_id"] == 202)
     admin = res["admin"]
     page = admin.get("/admin/redcap")

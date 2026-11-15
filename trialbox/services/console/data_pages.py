@@ -23,7 +23,6 @@ from __future__ import annotations
 import re
 import time
 from typing import Annotated, Any
-from urllib.parse import quote
 
 from datacore.forms import fields_of, titles_of
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -32,7 +31,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common import encoding
 
-from console import s28
+from console import actor, s28
 from console.api_first import before_body, page_twin
 from console.auth import Session
 from console.backend import Problem, Unavailable, service_and_status
@@ -40,6 +39,8 @@ from console.home import Helpers
 from console.i18n import translate
 from console.studies import known_study
 from console.study_setup import can_change_setup, parse_map
+
+SETUP = "study.setup"  # T-715f (D-799): the matrix row the orchestrator asks of each data-source change
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _NAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -180,7 +181,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         bad = [f for f in [*body.field_map, *body.field_map.values(), *body.owned] if not _FIELD.match(f)]
         if bad or not body.field_map or not _NAME.match(body.token_ref):
             raise Problem(400, "DATA-FIELD", "field names are lower-case letters, digits and _", bad)
-        out = s28.call(bk, "PUT", f"/studies/{rid}/sources/redcap", {**body.model_dump(), "by": h.actor(sess)})
+        out = actor.call(h, sess, SETUP, rid, "PUT", f"/studies/{rid}/sources/redcap", body.model_dump())
         au.append("console.data_source", ruleset=rid, actor=h.actor(sess),
                   detail={"source": "redcap", "action": "attach", "owned": len(body.owned)})  # fmt: skip
         return dict(out)
@@ -198,7 +199,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if with_body:
             cfg = {k: v for k, v in dict(with_body[0].get("body") or {}).items() if k in ApiRedcap.model_fields}
             detached[(sess.token_sha, rid)] = (cfg, time.monotonic())
-        out = s28.call(bk, "DELETE", f"/studies/{rid}/sources/redcap?by={quote(h.actor(sess))}")
+        out = actor.call(h, sess, SETUP, rid, "DELETE", f"/studies/{rid}/sources/redcap")
         au.append("console.data_source", ruleset=rid, actor=h.actor(sess),
                   detail={"source": "redcap", "action": "detach"})  # fmt: skip
         return dict(out)
@@ -209,7 +210,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         need_change(sess, path)
         if not _NAME.match(name):
             raise h.problem(404, "notfound")
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/sync/{name}", {"by": h.actor(sess)}))
+        out = dict(actor.call(h, sess, SETUP, rid, "POST", f"/studies/{rid}/sync/{name}", {}))
         au.append("console.data_sync", ruleset=rid, actor=h.actor(sess),
                   detail={"source": name, "conflicts": len(out.get("conflicts") or [])})  # fmt: skip
         return out
@@ -220,7 +221,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         need_change(sess, path)
         if keep not in KEEP:
             raise h.problem(400, "request.refused", reason="keep is trialbox or theirs")
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/conflicts/{cid}", {"keep": keep, "by": h.actor(sess)}))
+        out = dict(actor.call(h, sess, SETUP, rid, "POST", f"/studies/{rid}/conflicts/{cid}", {"keep": keep}))
         au.append("console.data_resolve", ruleset=rid, actor=h.actor(sess), detail={"conflict": cid, "keep": keep})
         return out
 
@@ -231,8 +232,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record_field.strip()
         if rec and not _FIELD.match(rec):
             raise Problem(400, "FORM-NAME", "field names are lower-case letters, digits and _", [rec[:40]])
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/forms/dictionary",
-                            {"csv": text, "record_field": rec, "by": h.actor(sess)}))  # fmt: skip
+        out = dict(actor.call(h, sess, SETUP, rid, "POST", f"/studies/{rid}/forms/dictionary",
+                              {"csv": text, "record_field": rec}))  # fmt: skip
         au.append("console.data_forms", ruleset=rid, actor=h.actor(sess),
                   detail={"forms": len(out.get("forms") or []), "dropped": len(out.get("dropped") or [])})  # fmt: skip
         return out

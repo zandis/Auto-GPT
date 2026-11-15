@@ -149,7 +149,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         CTCAE version (D-396)."""
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/forms/builtin", {"by": h.actor(sess), "ctcae": ctcae[:16]}))
+        out = dict(actor.call(h, sess, "study.setup", rid, "POST", f"/studies/{rid}/forms/builtin",
+                              {"ctcae": ctcae[:16]}))  # fmt: skip
         au.append("console.data_forms", ruleset=rid, actor=h.actor(sess),
                   detail={"forms": len(out.get("forms") or []), "origin": "builtin",
                           "ctcae": str(out.get("ctcae") or "")})  # fmt: skip
@@ -167,7 +168,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         # T-715 (D-483): signed as the person who enters (`task.enter_data`: the coordinator, or an investigator
         # the PI ticked), so that a step the orchestrator derives from the form names that person
         out = dict(actor.call(h, sess, "task.enter_data", rid, "POST", f"/studies/{rid}/entry/{quote(rec)}",
-                              {"form": form, "event": ev, "values": values, "by": h.actor(sess),
+                              {"form": form, "event": ev, "values": values,
                                "reason": " ".join(reason.split())[:300]}))  # fmt: skip
         au.append("console.data_entry", ruleset=rid, actor=h.actor(sess),
                   detail={"form": form, "event": ev, "changed": out.get("changed", 0)})  # fmt: skip
