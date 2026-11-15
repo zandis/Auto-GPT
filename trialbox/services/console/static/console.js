@@ -30,4 +30,20 @@
     e.preventDefault();
     e.returnValue = "";
   });
+  // 5. D-777 (UX-007): a mark's note is kept in this tab's session storage while it is typed, so a session that ends
+  // before the mark is sent does not lose it: after sign-in, back on that patient's page, it is put back (never over
+  // a note typed since). A saved mark (its done toast) drops it.
+  try {
+    document.querySelectorAll("[data-mark-saved]").forEach(function (t) {
+      sessionStorage.removeItem("tb-note:" + t.getAttribute("data-mark-saved"));
+    });
+    document.querySelectorAll("input[data-keep-note]").forEach(function (n) {
+      var key = "tb-note:" + n.getAttribute("data-keep-note");
+      var kept = sessionStorage.getItem(key);
+      if (kept && !n.value) n.value = kept;
+      n.addEventListener("input", function () {
+        if (n.value) sessionStorage.setItem(key, n.value); else sessionStorage.removeItem(key);
+      });
+    });
+  } catch (e) { /* no session storage (a private mode that refuses it): the page works as before */ }
 })();

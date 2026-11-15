@@ -24,6 +24,7 @@ EN: dict[str, str] = {
     "login.password": "Password",
     "login.submit": "Sign in",
     "login.failed": "Sign-in failed. Check the user name and password (accounts lock after 5 failures for 15 minutes).",
+    "login.idle": "Your session ended: after {n} minutes without activity, or at its daily limit. Sign in to continue where you were.",
     "login.uninitialised": "No administrator exists yet. Run: docker compose exec console python -m console.cli "
     "bootstrap-admin",
     "pilot.banner": "Test site · synthetic data only, no real patients · every action is recorded",
@@ -417,6 +418,7 @@ JA: dict[str, str] = {
     "login.password": "パスワード",
     "login.submit": "ログイン",
     "login.failed": "ログインに失敗しました。ユーザー名とパスワードを確認してください（5 回失敗すると 15 分ロックされます）。",
+    "login.idle": "セッションが終了しました（{n} 分間操作がなかったか、1 日の上限に達したため）。ログインすると、元の画面から続けられます。",
     "login.uninitialised": "管理者がまだいません。実行: docker compose exec console python -m console.cli bootstrap-admin",
     "pilot.banner": "テスト環境・合成データのみ、実在の患者なし · すべての操作は記録されます",
     "pilot.banner.public": "テスト環境・公開データのみ、実在の患者なし · すべての操作は記録されます",
@@ -791,6 +793,7 @@ ZH: dict[str, str] = {
     "login.password": "密碼",
     "login.submit": "登入",
     "login.failed": "登入失敗。請確認使用者名稱與密碼（連續失敗 5 次將鎖定 15 分鐘）。",
+    "login.idle": "您的登入已結束（{n} 分鐘未操作，或已達每日上限）。請重新登入，即可從原本的畫面繼續。",
     "login.uninitialised": "尚無管理者。請執行：docker compose exec console python -m console.cli bootstrap-admin",
     "pilot.banner": "測試環境・僅限合成資料，無真實病人 · 所有操作皆留紀錄",
     "pilot.banner.public": "測試環境・僅限公開資料，無真實病人 · 所有操作皆留紀錄",

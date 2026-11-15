@@ -54,7 +54,7 @@ from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import actor as console_actor
-from console import api_first, demo_guard, feedback, firstrun, i18n_roles
+from console import api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
 from console.account_rules import account_class, protected
@@ -792,7 +792,12 @@ def create_app(
 
     @app.exception_handler(_LoginRequired)
     async def _to_login(request: Request, _exc: _LoginRequired) -> Response:
-        return RedirectResponse("/login", status_code=303)
+        """D-777 (UX-007): a session cookie that names no live session is an ended session: the sign-in page says
+        why, and the page the person was on is kept to return to after sign-in."""
+        ended = bool(request.cookies.get(COOKIE))
+        resp = RedirectResponse("/login?why=idle" if ended else "/login", status_code=303)
+        next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
+        return resp
 
     @app.exception_handler(_MustChange)
     async def _to_account(request: Request, _exc: _MustChange) -> Response:
@@ -933,12 +938,13 @@ def create_app(
         return resp
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request, lang: str = "") -> Response:
+    def login_form(request: Request, lang: str = "", why: str = "") -> Response:
         if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
             return RedirectResponse("/", status_code=303)
         if lang in LANGS:
             request.state.lang = lang
-        return login_page(request, uninitialised=us.count("admin") == 0)
+        idle = int(us.idle.total_seconds() // 60) if why == "idle" else 0  # D-777: why the session ended
+        return login_page(request, uninitialised=us.count("admin") == 0, idle_minutes=idle)
 
     @app.post("/login")
     def login(
@@ -976,6 +982,8 @@ def create_app(
         if us.must_change(user.username):  # D-279: a password someone else set is replaced first
             landing = "/account?must_change=1"
         done = RedirectResponse(landing, status_code=303)
+        if not us.must_change(user.username):
+            next_page.take(request, done)  # D-777: back to the page the session ended on
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
         done.delete_cookie(LANG_COOKIE)
