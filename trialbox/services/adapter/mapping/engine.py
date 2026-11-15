@@ -268,6 +268,42 @@ class ResourceSpec:
     where: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _by_day_links(path: Path, order: list[str], resources: list[ResourceSpec]) -> list[tuple[str, str, dict[str, Any]]]:
+    """Each ``{ref: {type: T, by_day: {table, keys, day, their_day}}}`` of the mapping (F7, D-806), checked: the table
+    exists, makes a ``T`` and is mapped before the table that links to it (its visits are known by then); ``keys``
+    (the columns both tables hold: branch, patient) and both days are named."""
+    found: list[tuple[str, str, dict[str, Any]]] = []
+
+    def walk(x: Any, r: ResourceSpec) -> None:
+        if isinstance(x, dict):
+            ref = x.get("ref")
+            if isinstance(ref, dict) and "by_day" in ref:
+                spec, rtype = ref["by_day"], str(ref.get("type") or "")
+                where = f"{path}: {r.type} from {r.table}: a link by day"
+                if not isinstance(spec, dict) or spec.get("table") not in order:
+                    raise MappingError(f"{where} names no table of the mapping")
+                there = str(spec["table"])
+                if not any(o.table == there and o.type == rtype for o in resources):
+                    raise MappingError(f"{where}: the table {there} makes no {rtype}")
+                keys = spec.get("keys")
+                if not isinstance(keys, list) or not keys or not all(isinstance(k, str) and k for k in keys):
+                    raise MappingError(f"{where} needs keys: the columns both tables hold (branch, patient)")
+                if not str(spec.get("day") or "") or not str(spec.get("their_day") or ""):
+                    raise MappingError(f"{where} needs day and their_day: the day column of each table")
+                if order.index(there) >= order.index(r.table):
+                    raise MappingError(f"{where}: the table {there} must be mapped before {r.table}")
+                found.append((r.table, rtype, spec))
+            for v in x.values():
+                walk(v, r)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v, r)
+
+    for r in resources:
+        walk(r.elements, r)
+    return found
+
+
 @dataclass
 class Mapping:
     name: str
@@ -292,6 +328,13 @@ class Mapping:
     empty_dates: frozenset[str] = frozenset()
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
+    # F7 (D-806): each ``{ref: {by_day: ...}}``, as (the table that links, the resource type, its by_day spec)
+    by_day: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+
+    def read_whole(self) -> set[str]:
+        """The tables read whole on a delta night (F7, D-806): a visit table a link by day looks up. An unchanged visit
+        missing from the night's rows would make a day of two visits look like a day of one: a wrong link."""
+        return {str(spec["table"]) for _, _, spec in self.by_day}
 
     @staticmethod
     def _plausible_of(lk: dict[str, Any]) -> tuple[float, float] | None:
@@ -412,6 +455,7 @@ class Mapping:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
+        by_day = _by_day_links(path, list(doc.get("tables") or {}), resources)
         for name, lk in lookups.items():  # D-590: a range stated badly is found now, not row by row at night
             for row in lk.rows.values():
                 try:
@@ -527,6 +571,7 @@ class Mapping:
             unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
             params=cls._params(path, doc),
             version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
+            by_day=by_day,
         )
 
     @staticmethod
@@ -668,6 +713,13 @@ class Mapper:
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
         self.unmapped: Counter[tuple[str, str, str]] = Counter()
         self._row_seen: set[tuple[str, str]] | None = None  # the row :meth:`map_table` is mapping, else None
+        # F7 (D-806): the visits of each linked-to table by (its keys, its day) -> their ids, filled as it is mapped,
+        # and what each link by day found, by (table, outcome): counts only
+        self._visits: dict[tuple[str, str, tuple[str, ...], str], dict[tuple[str, ...], set[str]]] = {}
+        for _, rtype, spec in mapping.by_day:
+            self._visits.setdefault((str(spec["table"]), rtype, tuple(spec["keys"]), str(spec["their_day"])), {})
+        self.links: Counter[tuple[str, str]] = Counter()
+        self._made: set[tuple[str, str]] = set()  # (type, id) of each visit that became a record
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -816,8 +868,45 @@ class Mapper:
 
         return _TOKEN_RE.sub(sub, text)
 
+    def _day_of(self, raw: Any) -> str | None:
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            return self._parse_dt(str(raw)).date().isoformat()
+        except (MappingError, ValueError):
+            return None
+
+    def _by_day(self, spec: dict[str, Any], rtype: str, row: Row, rs: ResourceSpec) -> str | None:
+        """F7 (D-806): the one ``rtype`` the linked-to table holds for this row's keys and day; none when that day has
+        several or none, each counted, never guessed."""
+        keys = tuple(spec["keys"])
+        want = (*(str(row.get(k) or "").strip() for k in keys), self._day_of(row.get(spec["day"])) or "")
+        ids = self._visits.get((str(spec["table"]), rtype, keys, str(spec["their_day"])), {}).get(want, set())
+        if any(not v for v in want) or not ids:
+            self.links[(rs.table, "no_visit_that_day")] += 1
+            return None
+        if len(ids) > 1:
+            self.links[(rs.table, "several_visits_that_day")] += 1
+            return None
+        rid = next(iter(ids))
+        if (rtype, rid) not in self._made:  # the day's one visit was refused or left out: no record to point at
+            self.links[(rs.table, "visit_not_mapped")] += 1
+            return None
+        self.links[(rs.table, "linked")] += 1
+        return f"{rtype}/{rid}"
+
+    def encounter_links(self) -> dict[str, dict[str, int]]:
+        """What the links by day found, per table (F7, D-806): ``linked``, ``several_visits_that_day``,
+        ``no_visit_that_day``, ``visit_not_mapped``. Counts only."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, outcome), n in sorted(self.links.items()):
+            out.setdefault(table, {})[outcome] = n
+        return out
+
     def ref(self, spec: dict[str, Any], row: Row, rs: ResourceSpec) -> str | None:
         rtype = spec["type"]
+        if "by_day" in spec:
+            return self._by_day(spec["by_day"], rtype, row, rs)
         if "pid" in spec:
             return f"{rtype}/{self.pid(row, spec['pid'])}"
         col = spec.get("hid") or spec.get("column")
@@ -1270,14 +1359,33 @@ class Mapper:
         body = json.dumps(row, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
         return hmac.new(self.key, body, hashlib.sha256).hexdigest()[:24]
 
+    def _index_visit(self, table: str, rs: ResourceSpec, row: Row) -> str:
+        """F7 (D-806): every visit row read, under its keys and its day, mapped or not: a day of two visits stays a
+        day of two when one is refused or left out. Its id ("" when not indexed); one without an id still counts."""
+        hit = [(k, i) for k, i in self._visits.items() if k[0] == table and k[1] == rs.type]
+        if not hit:
+            return ""
+        try:
+            rid = self.row_id(rs, row)
+        except (KeyError, MappingError):
+            rid = ""
+        for (_, _, keys, their_day), index in hit:
+            key = (*(str(row.get(k) or "").strip() for k in keys), self._day_of(row.get(their_day)) or "")
+            if all(key):
+                index.setdefault(key, set()).add(rid or f"\x00{len(index)}:{sum(map(len, index.values()))}")
+        return rid
+
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
         try:
             for row in rows:
                 self._row_seen = set()
                 for rs in specs:
+                    rid = self._index_visit(table, rs, row)  # before mapping: a visit refused or left out counts
                     res = self.map_row(rs, row)
                     if res is not None:
+                        if rid:
+                            self._made.add((rs.type, rid))
                         yield res
         finally:
             self._row_seen = None
