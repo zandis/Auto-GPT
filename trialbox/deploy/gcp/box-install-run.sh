@@ -305,8 +305,8 @@ PY
 st() { local c=$1 s=$2; shift 2; "$PY" "$SBIN/tb-boxrun-state.py" "$RUN" "$c" "$s" "$@"; }
 finish() {  # $1 marker line, $2 phase: say why, keep it in the state, pack, DONE; the watchdog does the rest
   echo "$1" | tee -a "$LOG"; phase "$2"
-  # a probe launch reads the box's facts on any way out once an install was tried (a stop is when they matter most)
-  if [ -n "${PROBE:-}" ] && [ -d "${BOXROOT:-/nonexistent}/deploy" ] && [ ! -s "$REC/facts-box.txt" ]; then
+  # the box's facts on any way out of a start once an install was tried (a stop is when they matter most)
+  if has start && [ -d "${BOXROOT:-/nonexistent}/deploy" ] && [ ! -s "$REC/facts-box.txt" ]; then
     NOTES=/dev/null; step_facts_box >/dev/null 2>&1 || true
   fi
   st ended _ "$1"
