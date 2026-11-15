@@ -265,6 +265,10 @@ def _fake_core(monkeypatch: pytest.MonkeyPatch) -> None:
     def call(bk: Any, method: str, path: str, body: Any = None, headers: Any = None) -> Any:
         if method == "GET" and path.startswith("/studies/GZQO/edc/"):  # no EDC value yet (the SDV page reads them)
             return [] if "/edc/drafts" in path else {"drafts": [], "decisions": [], "signatures": []}
+        if method == "GET" and path == "/studies/GZQO/sources":  # NEW-JRN-8 (D-772): no built-in form here
+            return {"sources": [], "fields": []}
+        if method == "GET" and path.startswith("/studies/GZQO/records/"):
+            return {"record": path.rsplit("/", 1)[1], "values": {}, "history": [], "owners": {}}
         m = re.match(r"^/studies/GZQO/subjects/([^?/]+)\?", path)
         if method == "GET" and m:
             if m.group(1) not in SUBJECTS:

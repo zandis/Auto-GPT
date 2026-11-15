@@ -11,14 +11,17 @@ monitoring visit; ``console.team``):
   pseudonym), then per CRF value a person decided (confirmed or changed) the citation its EDC draft holds (the
   source item the value was taken from), and the value's decisions and signatures. Nothing else of the patient's
   record: no open draft, no patient twin, no narrative, no chart number. It prints as the per-subject sheet.
+  NEW-JRN-8 (D-772): below them, the subject's values in TrialBox's built-in forms, who entered each and when, and
+  every change to them (``form_values``; the data core's record read takes the monitor's row for this).
 * ``POST /studies/{rs}/monitor/visits``: the monitoring-visit record (date, the CRA = the signed-in account, the visit
   id of the grant, the subjects verified, findings), row ``monitor.visit``.
 
 The data core answers ``GET /studies/{rs}/subjects/{record}`` with the subject nested under ``subject`` beside its
 steps, visits and AEs; only that dict is the subject (D-436: reading the whole reply refused every enrolled subject).
 Every read is audited with the monitoring-visit id (``console.monitor_view``); every refusal too (``console.denied``).
-An opted-out patient is on no list and their sheet is 404 (D-273). Rights are matrix rows (``h.permit``); the CRO
-scope check in ``console.app`` lets a CRO account reach these paths and nothing else patient-level.
+An enrolled subject who opted out is listed and opens with the day of the opt-out (D-762: still a trial subject,
+D-441); a record keyed by the pseudonym is never listed or opened (D-772). Rights are matrix rows (``h.permit``);
+the CRO scope check in ``console.app`` lets a CRO account reach these paths and nothing else patient-level.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
+from datacore.builtin import RECORD_FIELD, TITLES
 from datacore.lifecycle import live_steps
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
@@ -45,12 +49,22 @@ from console.teamstore import FINDINGS_MAX, Entry, TeamError
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (record id), as on the lifecycle pages
+#: NEW-JRN-8 review (D-772): a record keyed by the pseudonym itself (the data core takes either key); never listed,
+#: never opened, never read by the monitor
+_PID = re.compile(r"^[0-9a-fA-F]{32}$")
 #: the lifecycle facts the sheet shows; the pseudonym and who changed the state are not among them
 SUBJECT_KEYS = ("record", "state", "since", "reason", "consented", "icf_version", "enrolled")
 #: what a decided CRF value shows besides its value and citation
 ITEM_KEYS = ("id", "visit", "visit_date", "item", "form", "cdash", "fate", "decided_by", "decided_at", "sent_at")
 CITE_KEYS = ("kind", "table", "row", "snapshot", "day", "text", "quote", "name", "sha256", "path")
 SIG_KEYS = ("printed_name", "role", "meaning", "at", "method")
+#: NEW-JRN-8 (D-772): TrialBox's own forms, whose values the sheet shows with their trail (the screening number is the
+#: record's key, not a value)
+BUILTIN_FORMS = tuple(TITLES)
+NOT_A_VALUE = (RECORD_FIELD,)
+#: the review of D-772: coded, date and number fields only; free text (a note, a reason, a name, the AE term) can
+#: carry a chart number or a narrative, which the sheet never shows (D-436)
+SHOWN_KINDS = ("choice", "multi", "date", "dateTime", "integer", "decimal")
 DECIDED = ("confirmed", "edited")
 
 
@@ -113,6 +127,31 @@ def item_trail(trail: Mapping[str, Any], ids: set[int]) -> dict[str, list[dict[s
     return {"decisions": decisions, "signatures": [s for s in signatures if s["items"]]}
 
 
+def form_values(record: Mapping[str, Any], fields: list[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """NEW-JRN-8 (D-772): one subject's values in TrialBox's built-in forms (who entered each and when) and every change
+    to them, in the forms' order. A field of any other form (a REDCap dictionary's, the EDC's) is not shown: the
+    monitor sees those as cited items only."""
+    known = {str(f.get("name")): (BUILTIN_FORMS.index(str(f.get("form"))), n, f) for n, f in enumerate(fields)
+             if f.get("form") in BUILTIN_FORMS and f.get("name") not in NOT_A_VALUE
+             and f.get("kind") in SHOWN_KINDS and (f.get("owner") or "trialbox") == "trialbox"}  # fmt: skip
+    rows = []
+    for event, vals in (record.get("values") or {}).items():
+        for name, v in (vals or {}).items():
+            if name in known:
+                f = known[name][2]
+                rows.append({"event": str(event), "field": name, "form": str(f.get("form")),
+                             "form_titles": TITLES[str(f.get("form"))],
+                             "label": str(f.get("label") or name), "labels": dict(f.get("labels") or {}),
+                             "options": dict(f.get("options") or {}),
+                             "option_labels": dict(f.get("option_labels") or {}), "value": v.get("value"),
+                             "by": str(v.get("by") or ""), "at": str(v.get("at") or "")})  # fmt: skip
+    rows.sort(key=lambda r: (known[r["field"]][0], r["event"], known[r["field"]][1]))
+    trail = [{"at": str(x.get("at") or ""), "by": str(x.get("by") or ""), "event": str(x.get("event") or ""),
+              "field": str(x.get("field")), "old": x.get("old"), "new": x.get("new")}
+             for x in record.get("history") or [] if x.get("field") in known]  # fmt: skip
+    return {"forms": rows, "form_trail": trail}
+
+
 def register(app: FastAPI, h: Helpers) -> None:
     bk, au = h.bk, h.au
 
@@ -169,9 +208,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         return (gone[pid] or "yes") if pid and pid in gone else ""
 
     def pid_of(rid: str, one: Mapping[str, Any]) -> str:
+        """The subject's pseudonym, for the day of an opt-out (D-762); "" when the box cannot tell."""
         pid = str(one.get("pid") or "")
         if pid:
             return pid
+        if _PID.match(str(one.get("record") or "")):
+            return str(one["record"]).lower()
         rec = str(one.get("record") or "").upper()
         return next((p for p, n in h.store.screening_nos(rid).items() if str(n).upper() == rec), "")
 
@@ -182,9 +224,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         gone = h.opted_out_on()
         out = []
         for s in reply.get("subjects") or []:
-            if monitor_may_see(s):
-                pid = pid_of(rid, s)
-                out.append({**{k: s.get(k) for k in SUBJECT_KEYS}, "opted_out": opted(gone, pid)})
+            # D-762: an enrolled subject who opted out is listed with the day; D-772: a pseudonym-keyed record never
+            if monitor_may_see(s) and not _PID.match(str(s.get("record") or "")):
+                out.append({**{k: s.get(k) for k in SUBJECT_KEYS}, "opted_out": opted(gone, pid_of(rid, s))})
         return out
 
     def visits_of(sess: Session, rid: str, path: str, g: Entry | None) -> list[dict[str, Any]]:
@@ -215,11 +257,19 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record.strip()[:64]
         if not _REC.match(rec):
             raise h.problem(404, "notfound")
+        if _PID.match(rec):  # the review of D-772: never read by a pseudonym, not even to refuse it
+            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": path[:80], "why": "pseudonym_key", "visit": visit})  # fmt: skip
+            raise h.problem(404, "notfound")
         reply = core(f"/studies/{rid}/subjects/{quote(rec)}?today={h.today().isoformat()}") or {}
         one = dict(reply.get("subject") or {})  # the data core nests the subject (D-436)
         day = {str(s.get("new")): str(s.get("on_day") or "") for s in live_steps(list(reply.get("steps") or []))}
         one.setdefault("consented", day.get("consented", ""))
         one.setdefault("enrolled", day.get("enrolled", ""))
+        if _PID.match(str(one.get("record") or "")):  # D-772: a pseudonym-keyed record is never opened
+            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": path[:80], "why": "pseudonym_key", "visit": visit})  # fmt: skip
+            raise h.problem(404, "notfound")
         gone = opted(h.opted_out_on(), pid_of(rid, one))  # NEW-LIFE-5 (D-762): shown, never the pseudonym
         if not monitor_may_see(one):
             raise deny(sess, path, rid, why="not_enrolled", visit=visit)
@@ -228,11 +278,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         items = cited_items(drafts)
         trail = edc(f"/studies/{rid}/edc/trail/{quote(key)}") or {}
         ids = {int(x["id"]) for x in items if x.get("id") is not None}
+        typed = form_values(core(f"/studies/{rid}/records/{quote(key)}") or {},
+                            list((core(f"/studies/{rid}/sources") or {}).get("fields") or []))  # fmt: skip
         au.append("console.monitor_view", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "visit": visit, "state": str(one.get("state") or ""),
-                          "items": len(items)})  # fmt: skip
+                          "items": len(items), "forms": len(typed["forms"])})  # fmt: skip
         out = {"subject": {**{k: one.get(k) for k in SUBJECT_KEYS}, "opted_out": gone}, "items": items,
-               **item_trail(trail, ids)}  # fmt: skip
+               **item_trail(trail, ids), **typed}  # fmt: skip
         return rid, g, out
 
     def record_visit(sess: Session, path: str, rs: str, body: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
