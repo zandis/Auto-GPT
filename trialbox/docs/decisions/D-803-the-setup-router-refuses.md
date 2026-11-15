@@ -2,9 +2,9 @@
 
 - **Task:** T-715, the remaining routers in stage `report`; the code-complete sprint, item 5, part 2 · **Date:** 2026-11-15
 - **The routes:** the setup router's 13 changing routes are in stage `refuse` (`route_actors.yaml`).
-  - The workspace's sheets, charts, facts, codes, checks and people, publishing and the practice space ask for `site.setup`. A fact, a chart or a person to resolve also needs the signed role to see patient data (`phi.view`), as the console's page asks; the administrator holds `site.setup` but not that.
+  - The workspace's sheets, charts, facts, codes, checks and people, publishing and the practice space ask for `site.setup`. A fact, a chart or a person to resolve also needs the signed role to see patient data (`phi.view`), as the console's page asks; the administrator holds `site.setup` but not that. That refusal is on the record (`actor.refused`) like every other.
   - A pseudonym by chart number asks for `optout.keep` (the opt-out desk, and the console's opt-out check timer).
-  - The remote help switch asks for the administrator's box network row, `ops.network`: it opens the box to the vendor's connection. A row of its own would change the generated admin guide, and the guides are frozen.
+  - The remote help switch asks for the administrator's box network row, `ops.network`: it opens the box to the vendor's connection. A row of its own would change the generated admin guide, and the guides are frozen; until they unfreeze, whoever holds `ops.network` also holds the remote help switch (a follow-up gives it its own row).
   - No request model takes a `by`. The remote switch's approval field is now `hospital_approval`: who at the hospital approved, never the caller.
   - `POST /assist` stores nothing; it does append the model call's `llm.call` audit event (hashes, no patient data). It is in its own group, callable by the console service only, in stage `no_person`.
 - **The console:** every set-up change goes through `signed_post` (`site.setup`), and the remote switch is signed as `ops.network` (its page still asks `is_admin`). The opt-out desk and the opt-out check already signed.

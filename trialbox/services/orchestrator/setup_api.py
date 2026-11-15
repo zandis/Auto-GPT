@@ -55,14 +55,16 @@ AS_OPTOUT = _require_actor("optout.keep", service=True)
 AS_REMOTE = _require_actor("ops.network")
 
 
-def _sees_patients(who: Claim) -> None:
+def _sees_patients(who: Claim, request: Request) -> None:
     """The review of D-803 (3): a set-up change that reads or writes one patient's facts (a fact, a chart, a person
     to resolve) also needs the signed role to see patient data, as the console's page asks (``need_view``); the
     administrator holds ``site.setup`` but not ``phi.view``."""
     from tb_common.authz import permit
 
-    if not permit(who.role, "phi.view").allowed:
-        raise HTTPException(status_code=403, detail={"code": "ACTOR", "reason": "right", "message": "patient data"})
+    from orchestrator import actor as route_actor
+
+    if not permit(who.role, "phi.view").allowed:  # on the record as every refusal (actor.refused)
+        raise route_actor.refusal(request, "site.setup", "right", who.sub, None)
 
 
 class SheetBody(BaseModel):
@@ -324,7 +326,7 @@ def router(
 
     @r.post("/setup/{ws}/charts")
     def post_chart(ws: str, body: ChartBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
-        _sees_patients(who)
+        _sees_patients(who, request)
         svc, w = get(), ws_of(ws)
         admitted = door(request, SETUP_DOOR)  # T-719 (D-487): the chart's number becomes a pseudonym here
         lang = body.lang if body.lang in LANGS else "en"
@@ -346,8 +348,8 @@ def router(
         return out
 
     @r.post("/setup/{ws}/facts/{fid}")
-    def post_fact(ws: str, fid: int, body: DecideBody, who: Claim = AS_SITE) -> dict[str, Any]:
-        _sees_patients(who)
+    def post_fact(ws: str, fid: int, body: DecideBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who, request)
         svc, w = get(), ws_of(ws)
         f = svc.store.fact(fid)
         if f is None or f["ws"] != w:
@@ -386,8 +388,8 @@ def router(
         return dict(call(lambda: svc.answer(cid, body.answer, who.name)))
 
     @r.post("/setup/{ws}/people/resolve")
-    def post_resolve(ws: str, body: ResolveBody, who: Claim = AS_SITE) -> dict[str, Any]:
-        _sees_patients(who)
+    def post_resolve(ws: str, body: ResolveBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who, request)
         svc, w = get(), ws_of(ws)
         return dict(call(lambda: svc.resolve(w, body.pid, body.what, body.keep, who.name)))
 
