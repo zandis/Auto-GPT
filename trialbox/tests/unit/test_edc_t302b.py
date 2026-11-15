@@ -382,7 +382,8 @@ TODAY = date(2026, 11, 9)
         ("rounddown(datediff([dob],'today','y'))", {"dob": "1960-05-01"}, "66"),
         ("[baseline_arm_1][w] - [w]", {"baseline_arm_1:w": "80", "w": "72.5"}, "7.5"),
         ("[cb(2)] + [cb(3)]", {"cb": "1,3"}, "1"),
-        ("2^10 - -1", {}, "1025"),
+        ("2^10 - -1", {}, ""),  # D-819: a real REDCap stores two minus signs in a row blank (it was 1025 here)
+        ("2^10 - 1", {}, "1023"),  # the power and one minus, as before
         ("sqrt(-1)", {}, ""),
     ],
 )
