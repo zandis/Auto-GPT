@@ -1125,6 +1125,12 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return 0
     if args.promote_shipped:
+        pinned = (load_override(args.out).get("builds") or {}) if args.out.exists() else {}
+        trusts = {b: ((e or {}).get("weights") or {}).get("trust") for b, e in pinned.items()}
+        held = sorted(b for b, t in trusts.items() if t == PLACEHOLDER_TRUST)
+        if held:  # D-887: never promoted, so nothing to look for: said, and the installer takes it as a note
+            print(f"{', '.join(held)}: rehearsal placeholder, never promoted; no shipped record is looked for (D-887)")
+            return 5
         try:
             good, lines = promote_shipped(args.promote_shipped, args.records, args.out, images_lock=args.images_lock)
         except (PinError, ValueError) as exc:
