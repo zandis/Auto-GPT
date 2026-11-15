@@ -1,4 +1,4 @@
-# D-615 A change in REDCap is marked on the copy-assist and SDV sheets
+# D-801 A change in REDCap is marked on the copy-assist and SDV sheets
 
 - **Task:** NEW-EDC-5c (the follow-up D-695 and D-686 recorded: the copy-assist and SDV sheets)
 - **PR:** this branch (`agent/NEW-EDC-5c-changed-on-copy-and-sdv`), cut from NEW-EDC-8c (#637), the EDC chain's head
@@ -6,7 +6,7 @@
 - **Status:** proposed (merges on green CI)
 - **Builds on:** D-695 (sent values are read again), D-686 (the review page shows REDCap's value), D-434 (copy-assist),
   D-436 (the monitor's SDV sheet)
-- **Number:** free on every branch
+- **Number:** lane E's block (renumbered from D-615, lane W's block)
 
 ## Context
 
