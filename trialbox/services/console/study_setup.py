@@ -22,6 +22,7 @@ The nightly read-back is ``python -m console.rc_read`` (cron on the box), the sa
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 from urllib.parse import quote
@@ -30,6 +31,7 @@ from datacore import lifecycle as lc
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.authz import permit
+from tb_common.config import environment_name
 
 from console import actor, s28
 from console import studies as st
@@ -528,6 +530,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         the reporting table (who is told, by when). Without the study store there is no SAE register to gate."""
         if not s28.has_api(bk) or s28.load(bk, store, rid, defaults(rid)).study_type not in SAE_STUDY_TYPES:
             return ""
+        # NEW-LIFE-7 (D-764): on a box (not DEV or TEST) the trial office's mailbox is a required answer: a new SAE
+        # is mailed to it at once, with the PI
+        if not os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip() and environment_name(os.environ) not in (
+            "DEV",
+            "TEST",
+        ):
+            return "sstate.sae_mailbox"
         try:
             row = s28.call(bk, "GET", f"/studies/{rid}/sae-rule")
         except (Problem, Unavailable):

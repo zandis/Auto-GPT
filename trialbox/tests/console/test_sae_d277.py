@@ -223,12 +223,14 @@ def test_write_path_office_copy_ack_and_named_rule(lb: dict[str, Any], monkeypat
     assert c.post("/studies/GZQO/sae/sync", data={"csrf": csrf}).status_code in (200, 303)
     case = SaeStore().case("GZQO", no, "ae1")
     assert case is not None and case["created_by"] == sr.SYNC
-    office = [n for n in lb["backend"].notices if n[1] == ["trial-office@hospa.test"]]
+    # D-764 (LIFE-007): the same mail goes to the study's PI at once
+    office = [n for n in lb["backend"].notices if "trial-office@hospa.test" in n[1]]
+    assert office and sorted(office[0][1]) == ["pi@hospa.test", "trial-office@hospa.test"]
     assert len(office) == 1 and no in office[0][2] and "Myocardial" not in office[0][3] and "tw_trial" in office[0][3]
     # a save through the console is the other write path: the second AE is in the register at once
     _save(c, csrf, no, "tb_adverse_event", {**FATAL, "ae_term": "Stroke"}, "ae2")
     assert SaeStore().case("GZQO", no, "ae2") is not None
-    assert len([n for n in lb["backend"].notices if n[1] == ["trial-office@hospa.test"]]) == 2
+    assert len([n for n in lb["backend"].notices if "trial-office@hospa.test" in n[1]]) == 2
     # the worklist names the rule set, the regulator (TFDA in every language) and who confirmed it
     page = c.get("/sae").text
     assert 'data-testid="sae-rules-GZQO"' in page and "tw_trial" not in page  # the set's name, in words

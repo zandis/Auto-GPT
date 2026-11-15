@@ -9,6 +9,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ t('sae.title') }}</h1></div>
 <p class="hint">{{ t('sae.help') }}</p>
+{% if no_mailbox %}<p class="warn" role="alert" data-testid="sae-no-mailbox">{{ t('sae.no_mailbox') }}</p>{% endif %}
 {% if overdue or late or dates or downgraded or rule_alerts %}<section class="card attention" role="alert" data-testid="sae-alert">
 {% if rule_alerts %}<p data-testid="sae-alert-rules"><strong>{{ t('sae.alert.rules', studies=rule_alerts|join(', ')) }}</strong></p>{% endif %}
 {% if overdue %}<p data-testid="sae-alert-overdue"><strong>{{ t('sae.alert.overdue', n=overdue) }}</strong></p>{% endif %}
