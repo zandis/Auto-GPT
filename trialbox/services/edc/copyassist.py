@@ -76,6 +76,7 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
     for f in fields.values():
         form_pos.setdefault(f.form, len(form_pos))
     values = _values(svc, rs, record)
+    changed = svc.store.redcap_changes(rs, record)  # NEW-EDC-5c (D-615): what REDCap holds since, while open
     ok = {int(d["id"]) for d in values}
     ticks = svc.store.ticks(rs, record)
     gone = set(svc.optouts())
@@ -97,7 +98,8 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
             "id": int(d["id"]), "item": d["item"], "form": form, "cdash": d.get("cdash") or "",
             "test": d.get("test") or "", "value": d["final"], "citation": d.get("final_citation") or d.get("citation"),
             "signed_by": s["printed_name"], "signed_at": s["at"], "signature_id": int(s["id"]),
-            "copied": held, "earlier": stale})  # fmt: skip
+            "copied": held, "earlier": stale,
+            "redcap_now": changed.get((str(d["record"]), str(d["visit"]), str(d["item"])))})  # fmt: skip
     out = []
     for rec in sorted(records):
         visits = []
