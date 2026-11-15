@@ -109,19 +109,8 @@ def recorded_study_state(ruleset: str, url: str | None = None) -> str | None:
     """The study's latest recorded state in the console's ``site.study_state``, or None when nothing is recorded
     (no row, no table, no trial database): a ruleset the console never set up as a study. A database error is
     raised. :func:`study_state` reads None as ``open``; RETENTION reads it as "not a study" (D-765)."""
-    from tb_common.db import Database
-
-    url = url or os.environ.get("TB_DB_URL")
-    if not url:
-        return None
-    with Database.connect(url, "site") as site:
-        if site.fetchval("SELECT to_regclass(?)", (f'"{site.schema}".study_state',)) is None:
-            return None
-        state = site.fetchval(
-            "SELECT state FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1",
-            ((ruleset or "").upper(),),
-        )
-    return str(state) if state else None
+    row = recorded_close(ruleset, url)
+    return row[0] if row is not None and row[0] else None
 
 
 def recorded_close(ruleset: str, url: str | None = None) -> tuple[str, str, int | None] | None:
