@@ -530,6 +530,10 @@ watched() {  # run a command of the step, its output to the step's log; the log 
       ion=$(awk '{s += $6 + $10} END {print s + 0}' /proc/diskstats 2>/dev/null)   # the disks reading or writing
       [ "$ion" = "$io" ] || { touch "$HB"; io=$ion; }                                # is progress; a hang does neither
     fi
+    if [ -n "${WATCH_GPU:-}" ]; then  # a step whose model calls run long between lines (qualify's pair gate): the card
+      [ "$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1 | tr -dc 0-9)" \
+        -gt 0 ] 2>/dev/null && touch "$HB"                                           # working is progress
+    fi
     sleep "$POLL"
   done
   wait "$pid"
@@ -608,6 +612,12 @@ d_qualify() {
   done
   if [ -s "$BOXROOT/deploy/secrets/services/operator.token" ]; then
     tok=(-v "$BOXROOT/deploy/secrets/services/operator.token:/run/tb-operator.token:ro" -e TB_SERVICE_TOKEN_FILE=/run/tb-operator.token)
+  fi
+  # qualify reads files of the repository the box image does not carry (tests/fixtures/llm, docs/licences,
+  # eval/qualification, deploy/images.lock: F13, a product gap): the same commit's files, read-only at /app/...
+  if [ -d "$TB/qsrc/trialbox" ]; then
+    for p in tests docs eval; do m+=(-v "$TB/qsrc/trialbox/$p:/app/$p:ro"); done
+    m+=(-v "$TB/qsrc/trialbox/deploy/images.lock:/app/deploy/images.lock:ro")
   fi
   mkdir -p "$TB/qualify-cache" "$TB/qualify-out"; rm -f "$TB/qualify-out/record.json"
   IMG_NET=trialbox-net img_tool ${m[@]+"${m[@]}"} ${tok[@]+"${tok[@]}"} -v "$TB/qualify-cache:/app/.cache" -v "$TB/qualify-out:/q" \
@@ -1204,8 +1214,17 @@ step_qualify() {
   done
   note evidence "\"${QEVIDENCE:-none}\""
   watched d_medtxt; note medtxt_fetch_exit $?
+  # the box's own commit, for the files qualify reads that the image lacks (F13): the source bundle beside the bundle
+  if [ -n "$COMMIT" ] && [ ! -d "$TB/qsrc/trialbox" ]; then
+    rm -rf "$TB/qsrc"
+    { fetch "${BUNDLE_SRC%/*}/src.bundle" "$TB/qsrc.bundle" && git clone -q "$TB/qsrc.bundle" "$TB/qsrc" \
+        && git -C "$TB/qsrc" checkout -q --detach "$COMMIT"; } >> "$STEP_LOG" 2>&1 \
+      && note qualify_files "\"tests docs eval deploy/images.lock of $COMMIT, read-only\"" \
+      || { rm -rf "$TB/qsrc"; note qualify_files '"not there: the commit'"'"'s source bundle could not be read"'; }
+    rm -f "$TB/qsrc.bundle"
+  fi
   if [ "$MODE" = validation ]; then
-    watched d_qualify "$QREC" ${args[@]+"${args[@]}"}; rc=$?
+    WATCH_GPU=1 watched d_qualify "$QREC" ${args[@]+"${args[@]}"}; rc=$?
     note qualify_exit "$rc"
     [ -s "$QREC" ] || { STOP="the qualification wrote no record (exit $rc)"; return 1; }
     note verdict "$(vm qualify-verdict "$QREC")"
