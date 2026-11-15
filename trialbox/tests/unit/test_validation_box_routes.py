@@ -1,4 +1,4 @@
-"""VALIDATION-ROUTES (D-794), the owner's blockers 1 and 2 of 2026-11-15 (lane G's first real-model accuracy run).
+"""VALIDATION-ROUTES (D-823), the owner's blockers 1 and 2 of 2026-11-15 (lane G's first real-model accuracy run).
 
 1. A VALIDATION box with local models runs SCREEN on public or synthetic data. The screen's judge call is labelled D3
    and VALIDATION's ceiling is D2, so every call was refused. Now, in VALIDATION only, a D3 model call may go to the
@@ -91,7 +91,7 @@ def test_the_shipped_pair_routes_in_validation() -> None:
     assert len(pair) == 2 and all(rg._status_ok(rg.Status(s), "judge", VAL) for s in pair.values()), pair
 
 
-# ------------------------------------------------------------------------------------------- review (D-794)
+# ------------------------------------------------------------------------------------------- review (D-823)
 def test_front_desk_conversation_at_d3_stays_refused_in_validation(pol: RoutingPolicy) -> None:
     """Review: the exception is the screen's (patient roles and their vectors), never the front desk's text."""
     for role in ("classify_intent", "frontdesk_converse", "ops_explain"):

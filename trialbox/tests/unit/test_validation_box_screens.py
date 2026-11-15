@@ -1,4 +1,4 @@
-"""VALIDATION-ROUTES (D-794), review FIX FIRST 1: the screen's D3 calls go through the gateway of a VALIDATION box.
+"""VALIDATION-ROUTES (D-823), review FIX FIRST 1: the screen's D3 calls go through the gateway of a VALIDATION box.
 
 The routing table alone was not enough: the gateway checks the study step before routing, and a D3 call without a
 confirmed step passes only under ``phi_on_box`` (PRODUCTION only before this card). The installed box of

@@ -107,7 +107,7 @@ def test_gateway_exits_in_production_when_a_perimeter_url_is_off_the_box(tmp_pat
     assert create_app(_gateway(tmp_path, {}), resolver=dns(DNS))
     assert create_app(_gateway(tmp_path, env, environment="TEST"), resolver=dns(DNS))
     assert create_app(_gateway(tmp_path, env, topology="B"), resolver=dns(DNS))
-    # D-794: a VALIDATION box screens D3 on the box, so its model addresses are checked as in PRODUCTION
+    # D-823: a VALIDATION box screens D3 on the box, so its model addresses are checked as in PRODUCTION
     with pytest.raises(SystemExit, match="not on the box"):
         create_app(_gateway(tmp_path, env, environment="VALIDATION"), resolver=dns(DNS))
 

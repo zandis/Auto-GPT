@@ -194,7 +194,7 @@ def _status_ok(status: Status, role: str, env: Environment) -> bool:
     if role.startswith("shadow:"):
         return status == Status.SHADOW
     if env == Environment.VALIDATION:
-        # D-794 (the owner's blocker 1): a VALIDATION box (public or synthetic data) runs the pair it is qualifying;
+        # D-823 (the owner's blocker 1): a VALIDATION box (public or synthetic data) runs the pair it is qualifying;
         # its record (pin_model --promote) makes the pair champion before the box runs PRODUCTION
         return status in (Status.CANDIDATE, Status.QUALIFIED, Status.SHADOW, Status.CHAMPION)
     if role in EVALUATION_ROLES:

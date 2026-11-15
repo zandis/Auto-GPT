@@ -1,4 +1,4 @@
-# D-794 A VALIDATION box screens on its own models and qualifies the pair it runs
+# D-823 A VALIDATION box screens on its own models and qualifies the pair it runs
 
 - **Task:** VALIDATION-ROUTES, the owner's blockers 1 and 2 of 2026-11-15 (lane G's first real-model accuracy run;
   "fixed" means lane G's `python -m tools.box_run validation-check` passes)
@@ -34,7 +34,7 @@
 3. **qualify's calls have a route in VALIDATION** (`qualify`, the last row: every role at D0 on topology A, to the
    box's model servers, after every row above has kept its own roles): its schema step sends every active prompt
    with that prompt's role. A record qualifies PRODUCTION when it passed with real weights (`qualifies_production`),
-   whatever environment it was made in. The path on a box: install it VALIDATION (D-793), `trialbox eval qualify
+   whatever environment it was made in. The path on a box: install it VALIDATION (D-822), `trialbox eval qualify
    --box` (D-734, D-737), `pin_model --promote` each build with the record, set `TB_ENV=PRODUCTION`.
 4. PRODUCTION still has no D0 route for the judge: qualify never runs against a PRODUCTION gateway.
 

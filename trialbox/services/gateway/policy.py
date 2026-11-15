@@ -366,7 +366,7 @@ class RoutingPolicy:
     ) -> tuple[Route, list[Candidate]]:
         """Ordered candidates permitted for this call. Raises :class:`Refusal` with ``no_route`` when no row
         matches and ``class_route_mismatch`` when a row matches but none of its builds may receive the class."""
-        # D-794 (the owner's blocker 2): in VALIDATION a D3 call of the screen (a patient role, or its vectors) on
+        # D-823 (the owner's blocker 2): in VALIDATION a D3 call of the screen (a patient role, or its vectors) on
         # topology A may go to the box's own model servers and nowhere else; VALIDATION's ceiling stays D2 for all
         # else (front-desk conversation included), and the box's model addresses are checked as in PRODUCTION
         box_only = (
@@ -476,9 +476,9 @@ def perimeter_addresses(
 
 
 def perimeter_checked(topology: Topology, env: Environment) -> bool:
-    """Where the perimeter must be the box itself: PRODUCTION, and VALIDATION (D-794: it screens on the box), on
+    """Where the perimeter must be the box itself: PRODUCTION, and VALIDATION (D-823: it screens on the box), on
     topology A (on topology B the perimeter is the tenant's serving router, which is not on the box)."""
-    return topology == Topology.A and env in (Environment.PRODUCTION, Environment.VALIDATION)  # D-794
+    return topology == Topology.A and env in (Environment.PRODUCTION, Environment.VALIDATION)  # D-823
 
 
 def perimeter_problems(
