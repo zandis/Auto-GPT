@@ -347,6 +347,21 @@ def check_sae_mailbox(inp: DoctorInputs) -> Check:
         ": nobody is mailed when a serious adverse event is entered; set it in deploy/.env (D-736, RUNBOOK §1)"
     )
     return Check("sae_mailbox", "WARN", why)
+def check_mail_auth(inp: DoctorInputs) -> Check:
+    """D-796 (D-369): the mail gateway trusts sender results only from the MTA ``TB_MAIL_AUTHSERV_ID`` names; empty, it
+    refuses every request mail (fails closed). WARN on a site box (VALIDATION, PRODUCTION), never a FAIL: a box
+    without mail is a box, and the refusal is the safe side."""
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if (inp.env.get("TB_MAIL_AUTHSERV_ID") or "").strip():
+        return Check("mail_auth", "PASS", f"sender results trusted from {inp.env['TB_MAIL_AUTHSERV_ID'].strip()}")
+    if env not in ("VALIDATION", "PRODUCTION"):
+        return Check("mail_auth", "PASS", f"{env}: no MTA named; mail intake stays closed")
+    return Check(
+        "mail_auth",
+        "WARN",
+        "no TB_MAIL_AUTHSERV_ID: every mailed FEAS or SCREEN request is refused until the "
+        "hospital MTA's authserv-id is set (the box answers' mta_authserv_id, or deploy/.env; D-369, D-796)",
+    )
 
 
 def check_secure_cookie(inp: DoctorInputs) -> Check:
@@ -1847,6 +1862,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_channel_engine,
     check_secure_cookie,
     check_sae_mailbox,
+    check_mail_auth,
     check_console_mfa,
     check_ldap_ca,
     check_publish_gate,
