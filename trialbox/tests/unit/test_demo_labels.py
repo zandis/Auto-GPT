@@ -79,3 +79,24 @@ def test_the_japanese_site_turns_the_stub_reading_on() -> None:
     assert fd.site_profile("ci", {}) == "ci" and fd.site_profile("jp-ad", {fd.SITE_LANG_ENV: "zh-TW"}) == "jp-ad"
     with pytest.raises(SystemExit, match="TB_DEMO_SITE_LANG"):
         fd.site_profile("ci", {fd.SITE_LANG_ENV: "fr"})
+
+
+@pytest.mark.parametrize("trial", sorted(ld.SCENARIOS))
+@pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])
+def test_the_seeded_note_is_in_the_seed_s_language(trial: str, lang: str) -> None:
+    """DEMO-SEED (D-757): a Japanese "need info" note showed in an English session."""
+    note = ld.SCENARIOS[trial]["need_info"][lang]
+    japanese = any("\u3040" <= ch <= "\u30ff" for ch in note)
+    assert note and (japanese if lang == "ja" else not japanese), note
+
+
+def test_the_trial_s_other_trial_exclusion_is_reworded_not_added_again() -> None:
+    """DEMO-SEED (D-757): the seed added "another interventional drug trial within 30 days" beside GZQO-EXC-14,
+    which says the same: a second row, its label cut off and untranslated. Now GZQO-EXC-14 is reworded."""
+    import re
+
+    text = ld.criteria_text("GZQO")
+    exclusions = re.findall(r"^\d+\. ", text.split("除外基準", 1)[1], re.M)
+    assert len(exclusions) == 14 and ld.EXTRA_EXCLUSION in text
+    assert "Participation in another interventional study within 30 days before screening." not in text
+    assert ld.criteria_text("AD-MAB", "AD-MAB").count("他の治験に参加") == 1  # scenario J1 still adds its own
