@@ -142,6 +142,16 @@ def _num(v: object) -> object:
     return int(v) if isinstance(v, float) and v.is_integer() else v
 
 
+def environment_banner(env: Mapping[str, str]) -> str:
+    """D-887 (the integrator's (i)): the environment the console shows; a rehearsal box (TB_REHEARSAL=1, written by
+    deploy/install.sh --rehearsal only, on TEST or VALIDATION) says REHEARSAL, so it is never taken for a validation
+    box."""
+    name = environment_name(env)
+    if (env.get("TB_REHEARSAL") or "").strip() == "1" and name in ("TEST", "VALIDATION"):
+        return f"{name} REHEARSAL"
+    return name
+
+
 @dataclass(frozen=True)
 class ConsoleSettings:
     environment: str
@@ -170,6 +180,8 @@ class ConsoleSettings:
     sso_default_role: str = "viewer"
     # D-120: where the box's records come from ("synthetic" or "public": a public-data site), for the banner
     data_source: str = "synthetic"
+    # D-887: the environment as the banner and the footer show it ("VALIDATION REHEARSAL" on a rehearsal box)
+    environment_label: str = ""
     # D-120: the studies this site runs (TB_CONSOLE_STUDIES); the request menu lists only these. Empty: every
     # approved study
     studies: tuple[str, ...] = ()
@@ -194,6 +206,7 @@ class ConsoleSettings:
         samples = env.get("TB_CONSOLE_SAMPLES_DIR", "").strip()
         obj = cls(
             environment=environment,
+            environment_label=environment_banner(env),
             pilot=want_pilot,
             data_class=data_class or "-",
             data_dir=Path(env.get("TB_CONSOLE_DIR") or "/data/console"),

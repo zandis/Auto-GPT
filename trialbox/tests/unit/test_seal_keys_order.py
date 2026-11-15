@@ -147,3 +147,30 @@ def test_the_kek_backend_setting_is_declared() -> None:
     from tb_common.config import DECLARED
 
     assert "TB_KEK_BACKEND" in DECLARED
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="changing a file's owner needs root")
+def test_the_sealed_files_belong_to_the_services_user(tmp_path: Path) -> None:
+    """D-887, found by the box rehearsal's second install: the seal ran as root and left kek.json, the wrapped keys
+    and the runtime KEK root's (mode 0600), so the services (uid 10001) could open none of them on a sealed box. They
+    now belong to the secrets folder's owner, the services' user; the modes stay 0600 (the KEK's folder 0700)."""
+    env = _host(tmp_path, None, tpm=False)
+    sec = tmp_path / "secrets"
+    for p in (sec, *sec.iterdir()):
+        os.chown(p, 10001, 10001)
+    kek_dir = tmp_path / "run"
+    kek_dir.mkdir(mode=0o700)
+    env["TB_KEK_FILE"] = str(kek_dir / "kek")
+    res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": "a long synthetic phrase"})
+    assert res.returncode == 0, res.stderr
+    for p in (sec / K.META_FILE, K.wrapped_path(sec / "site_hmac.key"), K.wrapped_path(sec / "pid_map.key"),
+              kek_dir / "kek", kek_dir):  # fmt: skip
+        st = p.stat()
+        assert (st.st_uid, st.st_gid) == (10001, 10001), p
+        assert st.st_mode & 0o077 == 0, p
+
+
+def test_the_boot_unseal_hands_the_kek_to_the_secrets_owner() -> None:
+    unit = (ROOT / "deploy" / "hardening" / "trialbox-unseal.service").read_text(encoding="utf-8")
+    post = next(ln for ln in unit.splitlines() if ln.startswith("ExecStartPost="))
+    assert "chown" in post and "@TB_SECRETS@" in post and "/run/trialbox/kek" in post and "/run/trialbox " in post

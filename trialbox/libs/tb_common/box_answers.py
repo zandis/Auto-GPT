@@ -89,7 +89,7 @@ class OwnerAnswers:
     # ``digits[:width]``, ``hex[:width][:lower]``); empty: not answered, the installer keeps the rule the box runs on
     chartno_rule: str = ""
     # D-822 (the owner's blocker 8): PRODUCTION, or VALIDATION for public or synthetic data (D-127); a box is never
-    # DEV or TEST (a rehearsal box is TEST by its own installer argument, D-726)
+    # DEV or TEST (a rehearsal box is made by its own installer argument, D-726, D-887)
     environment: str = "PRODUCTION"
     # D-825 (the owner's blocker 9): the authserv-id the hospital MTA writes first in Authentication-Results; empty:
     # no sender can be authenticated and the box refuses every request mail (D-369, fails closed)

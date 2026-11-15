@@ -366,12 +366,31 @@ def bad(reason: str, detail: dict[str, Any] | None = None) -> StepResult:
     return StepResult("failed", reason, detail or {})
 
 
+def placeholder_problems(override: Path) -> list[str]:
+    """D-887: the box rehearsal's placeholder pins, refused by name: they are not a model and qualify nothing; and
+    a rehearsal box (deploy/site/rehearsal.json beside the pins, the integrator's (i)), whatever it serves."""
+    mark = override.parent / "rehearsal.json"
+    box = [f"a rehearsal box ({mark}, deploy/install.sh --rehearsal): nothing is qualified on it (D-887)"]
+    try:
+        doc = yaml.safe_load(override.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return box if mark.is_file() else []
+    builds = doc.get("builds") if isinstance(doc, dict) else None
+    return (box if mark.is_file() else []) + [
+        f"{b} is a rehearsal placeholder pin (D-887): not a model, it is never qualified"
+        for b, e in sorted((builds or {}).items())
+        if isinstance(e, dict) and (e.get("weights") or {}).get("trust") == "rehearsal_placeholder"
+    ]
+
+
 def step_pin(ctx: Ctx) -> StepResult:
     j, v = ctx.builds["judge"], ctx.builds["verifier"]
     detail: dict[str, Any] = {
         r: {"build_id": b.build_id, "weights_sha256": b.weights_sha256} for r, b in ctx.builds.items()
     }
-    problems: list[str] = []
+    problems: list[str] = placeholder_problems(
+        Path(os.environ.get("TB_REGISTRY_OVERRIDE") or ROOT / "deploy" / "site" / "registry.site.yaml")
+    )
     listed = ctx.target.models()
     detail["gateway_models"] = sorted(listed)
     want = {j.alias, v.alias} if ctx.opts.profile != "ci" else {"trialbox-stub", STUB_VERIFIER_ALIAS}
