@@ -81,6 +81,10 @@
    - Its seventh run installed and reinstalled on VALIDATION; SCREEN found no approved study (a VALIDATION box seeds
      no example, D-640). The rehearsal installs GZQO by the operator's synthetic-run command of RUNBOOK §1 step 2
      before SCREEN, and its own doctor call reads the box's deploy/.env as the host check's does.
+   - Its eighth run passed SCREEN, the restart and the second SCREEN on VALIDATION, through the gateway to both
+     pinned builds. Left: the doctor call now mounts the stand-ins compose file at its own path (as the host check
+     does), and the gateway probe sends the registered prompt's sha256, which the gateway requires outside DEV and
+     TEST, so the wrong-name and missing-key steps are refused for the fault they test.
 
 ## Test
 

@@ -55,6 +55,12 @@ doctor() {  # the model key as the gateway reads it: the key file only (D-437, D
   sec="$(docker volume inspect -f '{{.Mountpoint}}' trialbox_tb-secrets 2>/dev/null)"
   [ -n "$sec" ] && [ -d "$sec" ] && more+=(-v "$sec:/run/secrets/trialbox:ro")
   [ -d /run/trialbox ] && more+=(-v /run/trialbox:/run/trialbox:ro)
+  # ...and every compose file of COMPOSE_FILE outside deploy/ (the stand-ins) at its own path, as the host check does
+  local cf; local IFS=:
+  for cf in $(sed -n 's/^COMPOSE_FILE=//p' "$BOX/deploy/.env" | tail -1); do
+    case "$cf" in "$BOX/deploy/"*) ;; /*) [ -f "$cf" ] && more+=(-v "$cf:$cf:ro") ;; esac
+  done
+  unset IFS
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
     ${more[@]+"${more[@]}"} -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
     --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml \
@@ -105,7 +111,9 @@ body_vars = {"criterion_text": "Age >= 18 years", "note_question": "Is the patie
 bad = 0
 for alias in ("j-workhorse", "v-verifier"):
     # D3 as a SCREEN's note question: on topology A in PRODUCTION the orchestrator may send it without a study step
-    labels = CallLabels("D3", "screening", "REHEARSAL", "s3_note_judgement", "judge", f"judge@{p.meta.version}")
+    # outside DEV and TEST the gateway needs the registered prompt's sha256 (D-300), as the orchestrator sends it
+    labels = CallLabels("D3", "screening", "REHEARSAL", "s3_note_judgement", "judge", f"judge@{p.meta.version}",
+                        prompt_sha=p.sha256)
     try:
         res = GatewayClient("http://gateway:8020/v1", "orchestrator", model=alias).chat(
             render(p, body_vars), labels,
