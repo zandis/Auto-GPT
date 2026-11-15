@@ -680,7 +680,9 @@ d_install_v() {  # as box-install.sh judges it: a FAIL list at the end (no backu
   # shellcheck disable=SC2086 # TB_BOXRUN_INSTALL is a command line on purpose (the rehearsal)
   # line-buffered: install.sh pipes its long steps through sed, which holds a pipe's output until it ends (stdbuf's
   # setting reaches every child), so the step's log grows while the bundle is verified and loaded
-  PYTHONUNBUFFERED=1 stdbuf -oL -eL ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
+  # the owner's ruling (2026-11-15): a short-lived public-data PoC box needs no sealed site keys; install.sh's own
+  # setting defers the seal (TB_BOX_DEFER_SEAL=1, install.sh:580), so nothing of the TPM is needed. Said in the notes.
+  TB_BOX_DEFER_SEAL=1 PYTHONUNBUFFERED=1 stdbuf -oL -eL ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
     | "$PY" "$HELPER" redact | tee "$TB/install-v.log"
   rc=${PIPESTATUS[0]}
   [ "$rc" = 0 ] || grep -q "TrialBox is running" "$TB/install-v.log" || return "$rc"
@@ -1034,7 +1036,8 @@ step_install() {
       (umask 077; gcloud secrets versions access "$AVER" --secret="$ASEC" > "$ANSWERS.yaml" 2>/dev/null) && [ -s "$ANSWERS.yaml" ] \
         || { STOP="no site answers in Secret Manager (tb-answers-secret, tb-answers-version)"; return 1; }
     fi
-    need "the installer's host packages (python3-yaml: install.sh's anchors-compose and pre-start import yaml)" d_host_prereq || return 1
+    watched d_host_prereq; note host_prereq_exit $?   # the TPM's proof is a fact here, not a stop: the seal is deferred
+    note site_keys '"not sealed: TB_BOX_DEFER_SEAL=1 (a public-data PoC box, the owner'"'"'s ruling)"'
     need "placing the site's weights in deploy/models" d_models_place || return 1
     d_old_servers   # lane G's earlier private model servers on this VM (gpu-sim-startup.sh) would hold the card
     d_half_install
