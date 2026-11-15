@@ -647,7 +647,7 @@ DECLARED: dict[str, Declared] = {
         "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
     ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
-    "TB_INSTALL_UP_TIMEOUT": Declared("int", "900", "install: seconds to wait for health"),
+    "TB_INSTALL_UP_TIMEOUT": Declared("int", "", "install: seconds to wait for health; empty: from the health checks"),
     "TB_IRB_TEXT_GATE": Declared(
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
@@ -783,6 +783,15 @@ DECLARED: dict[str, Declared] = {
     "TB_PGBACKREST_FULL_DAY": Declared("int", "", "pgBackRest: weekday of the full backup"),
     "TB_PGBACKREST_REPO": Declared("str", "", "pgBackRest: repository"),
     "TB_PG_ARCHIVE_MODE": Declared("str", "off", "PostgreSQL WAL archiving"),
+    # T-703 (D-751): written by deploy/install.sh from TB_MEM_DB (tools/trialbox/pgsize.py); compose's defaults are
+    # PostgreSQL's and docker's own
+    "TB_PG_EFFECTIVE_CACHE_SIZE": Declared("str", "4GB", "PostgreSQL effective_cache_size (D-751)"),
+    "TB_PG_IDLE_TX_TIMEOUT": Declared("str", "0", "PostgreSQL idle_in_transaction_session_timeout (D-751)"),
+    "TB_PG_MAINTENANCE_WORK_MEM": Declared("str", "64MB", "PostgreSQL maintenance_work_mem (D-751)"),
+    "TB_PG_MAX_WAL_SIZE": Declared("str", "1GB", "PostgreSQL max_wal_size (D-751)"),
+    "TB_PG_MIN_WAL_SIZE": Declared("str", "80MB", "PostgreSQL min_wal_size (D-751)"),
+    "TB_PG_SHARED_BUFFERS": Declared("str", "128MB", "PostgreSQL shared_buffers (D-751)"),
+    "TB_PG_SHM": Declared("str", "64m", "the database container's /dev/shm (D-751)"),
     "TB_PG_BIN": Declared("str", "", "local PostgreSQL bin folder (tools)"),
     "TB_PG_DIR": Declared("path", "", "local PostgreSQL data folder (demo)"),
     "TB_PG_DSN": Declared("str", "", "testbench: PostgreSQL DSN"),
@@ -904,6 +913,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCREEN_LLM_CONCURRENCY": Declared("int", "", "SCREEN: model calls side by side (1 to 64)"),
     "TB_SCREEN_MAX_PAIRS": Declared(
         "int", "", "SCREEN: model call budget per job (unset: the population's own pairs; D-456)"
+    ),
+    "TB_SCREEN_NOTE_BATCH": Declared(
+        "int", "1000", "SCREEN: patients whose notes the note stage reads at a time (same answers; T-694, D-794)"
     ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),

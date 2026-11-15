@@ -47,7 +47,7 @@ from fastapi import FastAPI, Form, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.audit import AuditLog
 
-from console import totp
+from console import next_page, totp
 from console.account_rules import protected
 from console.auth import MAX_FAILURES, AuthError, Session, User, UserStore, source_of
 from console.i18n import EN, JA, ZH
@@ -515,6 +515,8 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         session_token = _signed_in(user, h.lang_of(request, None), "password+totp")
         # D-279: a password someone else set is replaced first
         done = RedirectResponse("/account" if us.must_change(user.username) else h.home, status_code=303)
+        if not us.must_change(user.username):
+            next_page.take(request, done)  # D-777: back to the page the session ended on
         done.set_cookie(h.session_cookie, session_token, httponly=True, samesite="strict", secure=h.secure)
         _clear(done, MFA_COOKIE)
         return done

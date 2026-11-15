@@ -55,6 +55,12 @@ def _env(tmp: Path, bin_dir: Path, **extra: str) -> dict[str, str]:
     return env
 
 
+def _jobs(bin_dir: Path, n: int = 0) -> dict[str, str]:
+    """T-695 (D-752): a ``docker`` that answers the orchestrator's job count with ``n``, and the tree on the path."""
+    _stubs(bin_dir.parent, {"docker": f'case "$*" in *orch.jobs*) echo {n};; esac\n'})
+    return {"PYTHONPATH": str(ROOT)}
+
+
 def _sh(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["sh", *args], capture_output=True, text=True, env=env, timeout=120, check=False, cwd=ROOT)
 
@@ -380,7 +386,7 @@ def test_an_os_patch_applies_and_the_canary_passes(tmp_path: Path) -> None:
     canary_log = tmp_path / "canary.log"
     conf = tmp_path / "h.conf"
     conf.write_text(f'CANARY_CMD="echo ran >> {canary_log}"\n', encoding="utf-8")
-    env = _env(tmp_path, bin_dir)
+    env = _env(tmp_path, bin_dir, **_jobs(bin_dir))
     args = [sys.executable, str(HARD / "ospatch.py"), "apply", "--stage", str(_staged(tmp_path, b)),
             "--deploy", str(deploy), "--conf", str(conf)]  # fmt: skip
     r = subprocess.run(args, env=env, capture_output=True, text=True, check=False)
@@ -410,7 +416,7 @@ def test_a_kernel_patch_waits_for_the_reboot_then_the_canary(tmp_path: Path) -> 
     deploy.mkdir(parents=True)
     conf = tmp_path / "h.conf"
     conf.write_text('CANARY_CMD="false"\n', encoding="utf-8")
-    env = _env(tmp_path, bin_dir)
+    env = _env(tmp_path, bin_dir, **_jobs(bin_dir))
     r = subprocess.run([sys.executable, str(HARD / "ospatch.py"), "apply", "--stage", str(_staged(tmp_path, b)),
                         "--deploy", str(deploy), "--conf", str(conf)], env=env, capture_output=True, text=True,
                        check=False)  # fmt: skip
@@ -437,3 +443,22 @@ def test_an_os_patch_for_another_system_is_refused(tmp_path: Path) -> None:
                        text=True, check=False)  # fmt: skip
     assert r.returncode == 1 and "ubuntu 22.04; this host runs ubuntu 24.04" in r.stderr
     assert not log.exists()
+
+
+def test_an_os_patch_is_refused_under_a_running_job(tmp_path: Path) -> None:
+    """T-695 (D-752, F-10): an upgrade can restart the container runtime and the reboot stops every container."""
+    pytest.importorskip("cryptography")
+    bin_dir, log = _dpkg_stubs(tmp_path, installed=("openssl", "libssl3t64"))
+    b = _ospatch_bundle(tmp_path, bin_dir)
+    (tmp_path / "host/etc").mkdir(parents=True)
+    (tmp_path / "host/etc/os-release").write_text('ID=ubuntu\nVERSION_ID="24.04"\n', encoding="utf-8")
+    deploy = tmp_path / "box/deploy"
+    deploy.mkdir(parents=True)
+    for n, said in ((2, "2 job(s) running"), (None, "could not be counted")):
+        env = _env(tmp_path, bin_dir, **_jobs(bin_dir, 2))
+        if n is None:  # the database does not answer
+            _stubs(tmp_path, {"docker": "exit 1\n"})
+        r = subprocess.run([sys.executable, str(HARD / "ospatch.py"), "apply", "--stage", str(_staged(tmp_path, b)),
+                            "--deploy", str(deploy)], env=env, capture_output=True, text=True, check=False)  # fmt: skip
+        assert r.returncode == 1 and said in r.stderr, r.stdout + r.stderr
+        assert not log.exists() or "install" not in log.read_text(encoding="utf-8")  # nothing upgraded

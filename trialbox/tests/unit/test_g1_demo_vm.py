@@ -60,7 +60,7 @@ case "$1 $2 $3" in
     if [ -f "$S/never-stops" ]; then echo RUNNING > "$S/status"; else echo TERMINATED > "$S/status"; fi ;;
   "compute instances delete") rm -f "$S/status" ;;
   "compute instances add-metadata" | "compute instances set-scheduling") true ;;
-  "compute instances get-serial-port-output") printf 'TB-DEMO-VM 10:00:00 ready https://34.80.0.10/\nDEMO-VM-READY\n' ;;
+  "compute instances get-serial-port-output") cat "$S/serial" 2>/dev/null || true ;;
   "compute networks describe") [ -f "$S/net-$4" ] || nf compute.networks.describe "$4" ;;
   "compute networks create") touch "$S/net-$4" ;;
   "compute networks delete") rm -f "$S/net-$4" ;;
@@ -519,8 +519,54 @@ def test_down_never_says_stopped_when_the_status_cannot_be_read(tmp_path: Path) 
     assert rc == 3 and "cannot be read" in out, out
 
 
+# the serial console as the trial `up` of 2026-11-15 showed it: Compute Engine's script runner prefixes every line of
+# the startup script; the boot's tee to /dev/ttyS0 writes some lines bare as well (no address here)
+RUNNER = "2026-11-15T05:08:29.98+00:00 tb-demo-vm google_metadata_script_runner[949]: "
+RUNNER += 'Metadata key("startup-script"), command("/bin/bash"): '
+SERIAL_BOOT = [
+    "TB-DEMO-VM 04:59:29 hard stop: this VM powers off 12 h after this boot\r",
+    RUNNER + "TB-DEMO-VM 04:59:29 hard stop: this VM powers off 12 h after this boot",
+    "[  OK  ] Started docker.service - Docker Application Container Engine.",
+    RUNNER + "TB-DEMO-VM 05:00:54 the demo (stub model, synthetic hospital; seeds for 3 to 6 minutes)",
+]
+SERIAL_READY = [
+    RUNNER + "TB-DEMO-VM 05:08:24 caddy on :443 (tls internal for the address)",
+    RUNNER + "TB-DEMO-VM 05:08:29 ready https://the-address/ (each person: /enrol with their code)",
+    RUNNER + "DEMO-VM-READY",
+    "Nov 15 05:08:30 tb-demo-vm google_metadata_script_runner[949]: Finished running startup scripts.",
+]
+
+
+def _serial(tmp: Path, lines: list[str]) -> None:
+    (tmp / "state" / "serial").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_status_reads_the_ready_marker_behind_the_script_runners_prefix(tmp_path: Path) -> None:
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    _serial(tmp_path, SERIAL_BOOT)
+    rc, out = _run(tmp_path, "status")
+    assert rc == 0 and "boot: not ready yet" in out and "DEMO-VM-READY (" not in out, out
+    assert "  TB-DEMO-VM 05:00:54 the demo" in out and "google_metadata_script_runner" not in out, out
+    _serial(tmp_path, SERIAL_BOOT + SERIAL_READY)
+    rc, out = _run(tmp_path, "status")
+    assert rc == 0 and "boot: DEMO-VM-READY" in out, out
+    assert out.count("hard stop: this VM powers off") == 1, out  # the bare and the prefixed copy shown once
+    assert "Finished running" not in out and "docker.service" not in out, out
+    # a later boot (down, up) that failed: its own marker counts, not the earlier boot's READY
+    _serial(tmp_path, SERIAL_BOOT + SERIAL_READY + SERIAL_BOOT + [RUNNER + "DEMO-VM-NOT-READY"])
+    rc, out = _run(tmp_path, "status")
+    assert rc == 0 and "boot: DEMO-VM-NOT-READY" in out and "boot: DEMO-VM-READY" not in out, out
+    _serial(tmp_path, [RUNNER + "TB-DEMO-VM refused: metadata tb-demo-hours must be a whole number of hours"])
+    rc, out = _run(tmp_path, "status")
+    assert rc == 0 and "boot: refused" in out and "tb-demo-hours must be" in out, out
+    _serial(tmp_path, [])
+    rc, out = _run(tmp_path, "status")
+    assert rc == 0 and "boot: not ready yet" in out, out
+
+
 def test_status_and_delete(tmp_path: Path) -> None:
     assert _run(tmp_path, "up", "--yes")[0] == 0
+    _serial(tmp_path, SERIAL_BOOT + SERIAL_READY)
     rc, out = _run(tmp_path, "status")
     assert rc == 0 and "RUNNING" in out and "DEMO-VM-READY" in out and "https://34.80.0.10/" in out
     assert "1.2.3.4/32,5.6.7.0/24" in out

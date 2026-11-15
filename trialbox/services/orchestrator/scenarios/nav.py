@@ -57,7 +57,7 @@ CLAIM_SQL = """
 SELECT pid,
   max(approval_end) FILTER (WHERE outcome = 'approved' AND approval_end >= CAST($2 AS DATE)) AS active_end,
   max(created) AS last_application
-FROM claim WHERE list_contains(CAST($1 AS VARCHAR[]), pid) {product} GROUP BY pid
+FROM claim WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) {product} GROUP BY pid
 """
 
 

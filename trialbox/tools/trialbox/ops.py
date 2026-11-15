@@ -66,7 +66,7 @@ MAX_AGE_MIN = 60  # a request older than this when the runner reaches it is not 
 # comes within a day; two hours more for a night that ran long), then it expires as any old request does
 QUIET_WAIT_H = 26
 QUIET_DEFAULT_AT, QUIET_DEFAULT_HOURS = "05:00", "2"  # the box's quiet hour unless the site sets one (D-731)
-Runner = Callable[[Sequence[str], int], str]  # (argv, timeout seconds) -> combined output; raises OpsFailed
+Runner = Callable[[Sequence[str], int | None], str]  # (argv, timeout seconds) -> combined output; raises OpsFailed
 
 
 class OpsFailed(RuntimeError):
@@ -77,9 +77,12 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def run_cmd(argv: Sequence[str], timeout: int) -> str:
+def run_cmd(argv: Sequence[str], timeout: int | None) -> str:
     """Run a command from the install folder; its output (stdout and stderr) is the result's text."""
-    r = subprocess.run(list(argv), cwd=ROOT, capture_output=True, text=True, check=False, timeout=timeout)
+    from tools.trialbox import procgroup
+
+    # T-695 (D-752): the whole process group is killed on the limit, never the shell alone with the updater left
+    r = procgroup.run(list(argv), cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
     out = (r.stdout or "") + (r.stderr or "")
     if r.returncode != 0:
         raise OpsFailed(f"exit {r.returncode}: {out.strip()[-600:]}")
@@ -626,9 +629,16 @@ class OpsRunner:
         out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p), "--dry-run"], 1800)
         return f"{p.name}: signature and every file verified; nothing was changed", out.strip().splitlines()
 
+    def apply_limit(self) -> int | None:
+        """T-695 (D-752, F-09): the update's limit from the databases' size (``ComposeBox.apply_limit_s``); a local
+        box keeps the 3 h of before."""
+        from tools.trialbox.update import APPLY_FIXED_S, ComposeBox
+
+        return ComposeBox(self.box.deploy).apply_limit_s() if self.box.kind == "compose" else APPLY_FIXED_S
+
     def do_update_apply(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         p = self._bundle(args)
-        out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)], 3 * 3600)
+        out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)], self.apply_limit())
         return f"{p.name}: applied", out.strip().splitlines()
 
     def do_logs_collect(self, args: Mapping[str, str]) -> tuple[str, list[str]]:

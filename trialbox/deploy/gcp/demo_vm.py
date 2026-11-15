@@ -9,6 +9,10 @@ Standard library only: the operator's host runs it with any Python 3.10+, before
     python3 deploy/gcp/demo_vm.py rules-check NETWORK MODE RULE DENY TAG < rules.json
                                                     the firewall rules (gcloud ... list --format=json) that could
                                                     reach the VM besides its own two; exit 3 and their names if any
+    python3 deploy/gcp/demo_vm.py boot-state < serial.txt
+                                                    the last boot's TB-DEMO-VM lines from the serial console (gcloud
+                                                    ... get-serial-port-output) and one line `boot: ...` with its
+                                                    DEMO-VM-READY or DEMO-VM-NOT-READY marker, or that it is not done
 
 Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.DECLARED has the rows):
 
@@ -426,7 +430,54 @@ def reaching_rules(
     return out
 
 
+# The boot's own lines on the serial console. Compute Engine's script runner echoes each with its prefix
+# ("<time> <vm> google_metadata_script_runner[<pid>]: Metadata key(...), command(...): TB-DEMO-VM ..."); the boot's tee
+# to /dev/ttyS0 writes some bare. Both are read; the same line twice is shown once.
+BOOT_LINE_RE = re.compile(r"(TB-DEMO-VM [0-9]{2}:[0-9]{2}:[0-9]{2} .*|TB-DEMO-VM refused: .*|DEMO-VM-[A-Z-]+)\s*$")
+BOOT_START = "hard stop: this VM powers off"  # the first line of every boot (demo-vm-boot.sh)
+BOOT_MARKERS = ("DEMO-VM-READY", "DEMO-VM-NOT-READY")
+
+
+def boot_state(serial: str, keep: int = 8) -> tuple[str, list[str]]:
+    """The last boot's state from the serial console's text: ``ready``, ``not-ready``, ``refused`` or ``running``
+    (no marker yet; the seed takes minutes), with its last ``keep`` lines (the boot never writes a code or a
+    password)."""
+    lines: list[str] = []
+    for raw in serial.replace("\r", "").splitlines():
+        m = BOOT_LINE_RE.search(raw)
+        if not m:
+            continue
+        line = m.group(1).strip()
+        if BOOT_START in line:
+            lines = []  # a new boot: the earlier one's lines are not this one's
+        if not lines or lines[-1] != line:
+            lines.append(line)
+    state = "running"
+    for line in lines:
+        if line == "DEMO-VM-READY":
+            state = "ready"
+        elif line == "DEMO-VM-NOT-READY":
+            state = "not-ready"
+        elif line.startswith("TB-DEMO-VM refused:"):
+            state = "refused"
+    return state, lines[-keep:]
+
+
+BOOT_STATE_TEXT = {
+    "ready": "boot: DEMO-VM-READY (the demo answers; `links` hands out the one-time codes)",
+    "not-ready": "boot: DEMO-VM-NOT-READY (the lines above say why; `down` then `up --yes` boots it again)",
+    "refused": "boot: refused (the lines above say why; nothing listens on tcp:443)",
+    "running": "boot: not ready yet (no DEMO-VM-READY marker; the seed takes about 5 to 10 minutes; run status again)",
+}
+
+
 def main(argv: list[str], env: Mapping[str, str]) -> int:
+    if argv and argv[0] == "boot-state" and len(argv) == 1:
+        state, lines = boot_state(sys.stdin.read())
+        for line in lines:
+            print(f"  {line}")
+        print(BOOT_STATE_TEXT[state])
+        return 0
     if argv and argv[0] == "rules-check" and len(argv) == 6:
         import json
 

@@ -408,6 +408,12 @@ if command -v python3 >/dev/null; then
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER and TB_MEM_LAKE keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
+# T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
+# a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | sed 's/^/    /'
+  [ "${PIPESTATUS[0]}" = 0 ] || die "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
+fi
 chmod 600 deploy/.env
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
@@ -605,7 +611,11 @@ else
     orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
     || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 fi
-"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
+# T-695 (D-752, F-24): the wait for every service healthy, from the compose files' health checks (start period, then
+# the retries); the stop, from the longest stop grace. Without PyYAML on the host, the waits of before (900 s, 300 s).
+BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" || BOOT_WAIT=900
+STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
+"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
@@ -642,7 +652,9 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
   if [ "$EGRESS_OK" = 1 ]; then
     say "systemd units (egress at boot, the stack after a restart, watchdog)"
     for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
-      sed "s#@TB_ROOT@#$ROOT#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
+      sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_BOOT_WAIT@#${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}#g" \
+          -e "s#@TB_BOOT_LIMIT@#$(( ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} + 300 ))#g" \
+          -e "s#@TB_STOP_LIMIT@#$(( STOP_WAIT + 10 ))#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
     done
     systemctl daemon-reload
