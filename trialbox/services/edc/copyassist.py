@@ -38,6 +38,8 @@ def _values(svc: EdcService, rs: str, record: str | None) -> list[dict[str, Any]
             continue  # a version-1 row is never a source here (D-434)
         if str(d["pid"]) in gone:
             continue
+        if d.get("source_changed"):
+            continue  # NEW-EDC-4 (D-694): its source changed since; a person keeps or changes it first
         out.append({**d, "_sig": s})
     return out
 

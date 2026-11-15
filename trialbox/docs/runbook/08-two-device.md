@@ -1,5 +1,7 @@
 # RUNBOOK §8 section: the Spark and a workstation, two devices (D-373)
 
+**Reader:** Aimedics (an other install form: two devices).
+
 Form A of the Japan hardware (TB-PLAN-05 §1.5): the DGX Spark runs the gateway and the two models; a CPU workstation
 runs the database, the lake, HAPI, the services and the console. One encrypted link joins them. Not yet run on a real
 Spark: every limit in `deploy/gb10-profile.yaml` is unmeasured until the benchmark record replaces it.

@@ -170,6 +170,7 @@ class ApiDecide(BaseModel):
     source_day: str = Field(default="", max_length=10)
     password: str = Field(default="", max_length=200)  # D-281: to change a signed value, the password again
     otp: str = Field(default="", max_length=12)  # and, with TOTP on, a fresh code
+    mark: str = Field(default="", max_length=64)  # NEW-EDC-4: the "source changed" mark a keep answers
 
 
 class ApiSign(BaseModel):
@@ -262,6 +263,8 @@ SEND_RESULTS = (
     "hidden",
     "logic",
     "instance_taken",
+    "refused",  # NEW-EDC-7 (D-692): REDCap refused the import of the record
+    "source_changed",  # NEW-EDC-4 (D-694): the source changed since the value was decided
 )  # T-115: held back, with the reason
 
 
@@ -401,7 +404,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         signed value (the record lock, D-281, CR-035); without it a signed value is refused by the orchestrator."""
         rid = study_or_404(sess, rs, "review", path)
         cit = {"text": body.source, "day": body.source_day} if body.source.strip() else None
-        payload: dict[str, Any] = {"action": body.action, "value": body.value, "reason": body.reason, "citation": cit}
+        payload: dict[str, Any] = {"action": body.action, "value": body.value, "reason": body.reason, "citation": cit,
+                                   **({"mark": body.mark} if body.mark else {})}  # fmt: skip
         session = None
         if body.password:
             reauth(sess, rid, body.password, body.otp, source, f"draft-{draft_id}")
@@ -695,7 +699,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                          reason=str(form.get("reason") or "")[:300], source=str(form.get("source") or "")[:300],
                          source_day=str(form.get("source_day") or "")[:10],
                          password=str(form.get("password") or "")[:200],
-                         otp=str(form.get("otp") or "")[:12])  # fmt: skip
+                         otp=str(form.get("otp") or "")[:12], mark=str(form.get("mark") or "")[:64])  # fmt: skip
         try:
             do_decide(sess, request.url.path, rid, draft_id, body,
                       source_of(request.client.host if request.client else None))  # fmt: skip

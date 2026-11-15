@@ -76,6 +76,11 @@ datasets:
     data_class: D0
     kind: synthetic
     licence: written for TrialBox (fictional notes, no patient data)
+  accuracy:
+    path: eval/accuracy (the note accuracy set per language and stratum, NEW-LLM-6, D-784; generated from a seed by tools/accuracy_set.py and pinned by MANIFEST.json, never committed; reports hold counts and rates only)
+    data_class: D0
+    kind: synthetic
+    licence: written for TrialBox (fictional notes, no patient data)
   chat:
     path: eval/chat (front-desk chat check of the 2026-11-07 survey, 30 fictional staff requests in ja / zh-TW / en, model answers and scores)
     data_class: D0

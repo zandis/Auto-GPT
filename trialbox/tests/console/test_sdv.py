@@ -4,7 +4,8 @@ own database; synthetic data only (``tests.edc_kit``).
 * the bug J-MON-03 found: the data core nests the subject under ``subject``; the monitor page read the whole reply
   and refused every enrolled subject. Here the reply comes from ``orchestrator.lifecycle_api`` itself;
 * FIT-002's monitor tests: the monitor sees an enrolled subject's cited items and their trail; a candidate, a screen
-  failure and another study are refused; an opted-out patient is never shown;
+  failure and another study are refused; an enrolled subject who opted out is shown with the day, never the
+  pseudonym (D-762);
 * "limited to the cited record items": per decided CRF value the citation the EDC draft holds, nothing else (no
   open draft, no pseudonym, no chart number);
 * the visit record (date, CRA, subjects verified, findings) on the page and ``/api/v1``;
@@ -174,14 +175,18 @@ def test_refusals_candidate_screen_fail_opted_out_other_study_and_chart_numbers(
     nos = sb["nos"]
     assert mon.get(f"/studies/GZQO/monitor/{nos[PIDS['cand']]}").status_code == 403
     assert mon.get(f"/studies/GZQO/monitor/{nos[PIDS['fail']]}").status_code == 403
-    assert mon.get(f"/studies/GZQO/monitor/{nos[PIDS['gone']]}").status_code == 404  # opted out: as if not there
+    # NEW-LIFE-5 (D-762, LIFE-005): an enrolled subject who opted out is a trial subject still (D-441): the sheet
+    # opens and says the opt-out, never the pseudonym (it was 404, "as if not there")
+    gone = mon.get(f"/studies/GZQO/monitor/{nos[PIDS['gone']]}")
+    assert gone.status_code == 200 and 'data-testid="sdv-opted-out"' in gone.text and PIDS["gone"] not in gone.text
     assert mon.get(f"/studies/OTHER/monitor/{NO}").status_code == 404
     why = [e["detail"].get("why") for e in _events(sb, "console.denied")]
-    assert why.count("not_enrolled") == 2 and why.count("opted_out") == 1
-    # the list: the enrolled subject only (the opted-out enrolled one is not listed)
+    assert why.count("not_enrolled") == 2 and why.count("opted_out") == 0
+    # the list: the enrolled subjects, the opted-out enrolled one with the day of the opt-out
     page = mon.get("/studies/GZQO/monitor").text
     assert f'data-testid="sdv-subject-{NO}"' in page
-    for pid in PIDS.values():
+    assert f'data-testid="sdv-list-opted-out-{nos[PIDS["gone"]]}"' in page and PIDS["gone"] not in page
+    for pid in (PIDS["cand"], PIDS["fail"]):
         assert f'data-testid="sdv-subject-{nos[pid]}"' not in page
     # no chart number, no twin, no other patient page, no EDC page: refused and audited
     before = len(_events(sb, "console.denied"))
@@ -227,7 +232,9 @@ def test_the_visit_record_on_the_page_and_the_api(sb: dict[str, Any]) -> None:
     assert api.post("/api/v1/studies/GZQO/monitor/visits", json=[1]).status_code == 422  # after the guard (D-444)
     got = api.get("/api/v1/studies/GZQO/monitor").json()
     assert [v["visit_day"] for v in got["visits"]] == ["2026-11-10", "2026-11-09"]
-    assert [s["record"] for s in got["subjects"]] == [NO] and "pid" not in got["subjects"][0]
+    # NEW-LIFE-5 (D-762): the enrolled subject who opted out is listed too, with the day and no pseudonym
+    assert [s["record"] for s in got["subjects"]] == [NO, sb["nos"][PIDS["gone"]]]
+    assert all("pid" not in s for s in got["subjects"]) and got["subjects"][1]["opted_out"] == "2026-11-03"
     saved = _events(sb, "console.monitor_visit")
     assert len(saved) == 2 and saved[0]["detail"]["subjects"] == [NO]
     # the PI who gave the grant reads the visit records, not the subject list; a coordinator cannot write one
