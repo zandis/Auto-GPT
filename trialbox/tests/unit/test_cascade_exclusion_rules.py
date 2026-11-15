@@ -54,9 +54,20 @@ PATIENTS: dict[str, list[tuple[date, str]]] = {
 }
 
 
+# the site codes its diagnoses in ICD-10-CM (one coded row, another condition): a gout code could be there (D-795)
+CODED = [{"resourceType": "Condition", "id": "c-htn", "subject": {"reference": "Patient/P-HIT"},
+          "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"}]},
+          "onsetDateTime": "2025-01-10"}]  # fmt: skip
+
+
 @pytest.fixture(scope="module")
 def lake(tmp_path_factory: pytest.TempPathFactory) -> LakeLocal:
-    return note_lake(tmp_path_factory.mktemp("exclusion-rules"), PATIENTS, SNAP)
+    return note_lake(tmp_path_factory.mktemp("exclusion-rules"), PATIENTS, SNAP, CODED)
+
+
+@pytest.fixture(scope="module")
+def uncoded_lake(tmp_path_factory: pytest.TempPathFactory) -> LakeLocal:
+    return note_lake(tmp_path_factory.mktemp("exclusion-rules-uncoded"), PATIENTS, SNAP)
 
 
 def _run(lake: Any, rs: Ruleset, pids: list[str], judge: Any, embedder: Any = "hash", **kw: Any) -> CascadeResult:
@@ -179,7 +190,7 @@ def test_without_an_embedder_a_zero_hit_pair_goes_to_the_judge(lake: LakeLocal) 
 
 
 def _index_ruleset() -> tuple[Ruleset, CriterionIR]:
-    icd = "http://hl7.org/fhir/sid/icd-10"
+    icd = "http://hl7.org/fhir/sid/icd-10-cm"
     c = CriterionIR.model_validate(
         {
             "id": "T-INC-09",
@@ -207,6 +218,23 @@ def test_an_absent_index_condition_goes_to_review_in_a_screening_run(lake: LakeL
     o = t.outcomes[c.id]
     assert t.exit_stage is None and (o.status, o.hard) == ("unknown", False) and "review" in o.reason
     assert t.tier == "potential:data_gap" and verdicts_of(rs, t).tier == "review"
+
+
+def test_an_index_condition_no_row_can_carry_is_never_excluded_on_absence(
+    uncoded_lake: LakeLocal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F11 (D-795): a site with no coded diagnosis at all. The notes are still read for the study's own disease, but
+    finding nothing there is no absence: no code could have been there. Even a feasibility count keeps the patient."""
+    from matching.carried import NOT_CARRIED
+
+    rs, c = _index_ruleset()
+    monkeypatch.setattr(engine, "is_index_criterion", lambda crit: crit.id == c.id)
+    kw: dict[str, Any] = {"embedder": Orthogonal(), "semantics": "affirmative"}
+    feas = _run(uncoded_lake, rs, ["P-QUIET"], None, absence_semantics=True, **kw)
+    t = feas.traces["P-QUIET"]
+    o = t.outcomes[c.id]
+    assert t.exit_stage is None and (o.status, o.hard) == ("unknown", False) and NOT_CARRIED in o.reason
+    assert t.tier != "excluded"
 
 
 # ------------------------------------------------------------------------------------------------ S0

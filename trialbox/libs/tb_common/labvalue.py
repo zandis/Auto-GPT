@@ -88,11 +88,17 @@ _SPELL = str.maketrans({"×": "x", "✕": "x", "分": "min", "秒": "s", "時": 
 # itself only. ``G/L`` is on purpose not here: giga per litre in a blood count, grams per litre in an upper-case
 # export; the site declares it per analyte (``source_unit``).
 FEED_SPELLINGS: dict[str, tuple[str, ...]] = {
-    "10*3/uL": ("千/uL", "千/µL"),
+    "10*3/uL": ("千/uL", "千/µL", "1000/uL", "1000/µL"),  # F15 (D-809): a thousand written out
     "10*4/uL": ("x10^4/µL",),
     "10*6/uL": ("x10^6/µL",),
     "10*2/uL": ("10^2/uL", "10^2/µL", "x10^2/uL", "x10^2/µL"),
-    "/uL": ("個/uL", "個/µL"),
+    # F15 (D-809): ``{cells}`` is a UCUM annotation, what is counted: not a unit of its own
+    "/uL": ("個/uL", "個/µL", "{cells}/uL", "{cells}/µL"),
+    # F15 (D-809): D-dimer in fibrinogen-equivalent units, about twice the same result in D-dimer units: its own
+    # unit, agreeing only with itself, never with plain ``mg/L`` (a site whose look-up says FEU writes ``mg/L{FEU}``)
+    "mg/L{FEU}": ("mg/L FEU", "mg/L(FEU)", "mg/L {FEU}", "ug/mL FEU", "µg/mL FEU", "ug/mL(FEU)", "µg/mL(FEU)"),
+    # F15 (D-809): a titer's "times" (倍數): its own unit, agreeing only with itself
+    "{titer}": ("倍數", "倍数", "倍"),
 }
 # analytes measured as catalytic activity per volume in serum or plasma (LOINC): AST, ALT, ALP, LDH, CK, γ-GT and
 # lipase, each confirmed as "[Enzymatic activity/volume]" in ``catalogue/codes_checked.csv``. A code is added here

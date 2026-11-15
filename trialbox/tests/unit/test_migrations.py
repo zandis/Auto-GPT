@@ -422,6 +422,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
         "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
         "cc5a0e95c1dc50da9a3d8c9fa782fa1f5d6138e370dd9e7bad0c484ac3904996",
+        # D-779 (T-305c): site version 7 (the years a close keeps the study's files)
+        "52624415f200e587c75788fec3851f6880a403abe34f504786ac76ea56c2bf93",
     ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline

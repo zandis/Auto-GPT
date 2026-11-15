@@ -187,6 +187,7 @@ CALLERS: dict[tuple[str, str], str] = {
     ("matching/cascade/engine.py", "_Run.s0"): GOES_ON,
     ("matching/cascade/engine.py", "_Run._s1_rows"): GOES_ON,
     ("matching/coverage.py", "Coverage.load"): GOES_ON,
+    ("matching/carried.py", "Carried.load"): GOES_ON,  # D-795: the lake's error reaches the run, as Coverage's
     ("patient_profile/twin.py", "read_lake"): GOES_ON,
     ("vec/index.py", "snapshot_notes"): GOES_ON,
     ("criteria_compiler/equivalence/gate.py", "sql_evaluations"): GOES_ON,

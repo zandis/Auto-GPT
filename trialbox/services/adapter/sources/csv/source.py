@@ -23,7 +23,7 @@ from pathlib import Path
 
 from tb_common import encoding
 
-from adapter.sources.base import Row, after
+from adapter.sources.base import Row, after, change_time_is_date
 
 log = logging.getLogger("adapter")
 
@@ -75,10 +75,15 @@ class CsvSource:
         self.declared_utf8 = (declared_encoding or "").strip().lower().replace("_", "-") in ("utf-8", "utf8")
         self.encodings: dict[str, str] = {}  # source_name -> codec read
         self._quarantined: dict[str, str] = {}  # source_name -> why (no cell text, only the code and the line)
+        self._not_a_date: dict[str, int] = {}  # F14 (D-810): source_name -> rows whose change time is not a date
 
     def has_table(self, source_name: str) -> bool:
         """Whether the export holds the table's file at all (T-611: a missing file is not an empty table)."""
         return source_name in self._quarantined or (self.directory / f"{source_name}.csv").is_file()
+
+    def change_time_not_a_date(self, source_name: str) -> int:
+        """Rows of ``source_name`` read on this delta night because their change time is not a date (F14, D-810)."""
+        return self._not_a_date.get(source_name, 0)
 
     def quarantine_reason(self, source_name: str) -> str | None:
         """Why ``source_name`` was quarantined on this read, or None."""
@@ -129,6 +134,10 @@ class CsvSource:
             col = delta_column if since and delta_column and delta_column in fields else None
             for raw in reader:
                 row = dict(raw)
-                if col is not None and str(row.get(col) or "").strip() and not after(row.get(col), since):
-                    continue
+                if col is not None and str(row.get(col) or "").strip():
+                    if not change_time_is_date(row.get(col)):
+                        # F14 (D-810): a change time that is not a date never decides: read, as an empty one is
+                        self._not_a_date[source_name] = self._not_a_date.get(source_name, 0) + 1
+                    elif not after(row.get(col), since):
+                        continue
                 yield row

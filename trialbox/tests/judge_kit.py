@@ -250,8 +250,14 @@ def _doc(pid: str, n: int, on: date, text: str) -> dict[str, Any]:
     }
 
 
-def note_lake(tmp: Path, patients: dict[str, list[tuple[date, str]]], snapshot: str) -> LakeLocal:
-    """A lake of adults (born 1960) with the given dated notes; a patient with an empty list has no note."""
+def note_lake(
+    tmp: Path,
+    patients: dict[str, list[tuple[date, str]]],
+    snapshot: str,
+    conditions: list[dict[str, Any]] | None = None,
+) -> LakeLocal:
+    """A lake of adults (born 1960) with the given dated notes; a patient with an empty list has no note. ``conditions``:
+    FHIR Condition resources (none by default)."""
     nd = tmp / "ndjson"
     nd.mkdir(parents=True)
     pats = [{"resourceType": "Patient", "id": p, "birthDate": "1960-01-01", "gender": "female"} for p in patients]
@@ -260,7 +266,7 @@ def note_lake(tmp: Path, patients: dict[str, list[tuple[date, str]]], snapshot: 
     (nd / "DocumentReference.ndjson").write_text(
         "".join(json.dumps(d, ensure_ascii=False) + "\n" for d in docs), encoding="utf-8"
     )
-    (nd / "Condition.ndjson").write_text("", encoding="utf-8")
+    (nd / "Condition.ndjson").write_text("".join(json.dumps(c) + "\n" for c in conditions or []), encoding="utf-8")
     Lake(tmp / "lake", "Asia/Tokyo").rebuild(snapshot, HashEmbedder(), nd)
     return LakeLocal(tmp / "lake", HashEmbedder(), "Asia/Tokyo")
 

@@ -13,14 +13,15 @@ either image fails the gate (one exception, D-622: one dated entry accepts every
 is reviewed again. The postgres row moved to our own `trialbox-postgres` image (T-104, built on `postgres:16-trixie`),
 which the gates now scan and block on; its base's findings are dated entries the same way. The licence gate, `make lock-check`, `make allowlist-check` and `make pip-audit`
 block as before. The list of images in report mode is `VULN_REPORT_ONLY` in `tools/supply_chain/release.py`; a test
-checks that each one has a row here.
+checks that each one has a row here. Those images are report-only in every mode, the default (block) too (D-827): on
+2026-11-15 v1.33.1 and 2.1.15 are their newest releases, so there is no patched tag to move to yet.
 
 Owner of every row: security owner (to assign). Target date of every row: 2026-12-10.
 
 | Image | Platforms | Findings | Main packages | Gate | Planned fix |
 | --- | --- | --- | --- | --- | --- |
-| axllent/mailpit | amd64, arm64 | 1 | golang.org/x/crypto v0.58.0 (GO-2026-5932) in the Mailpit binary; seen by the image gates of PR #150 on 2026-11-11 | report (test only, never in a bundle) | move to the next Mailpit release built with the fixed x/crypto (digest-pinned in `deploy/images.lock`) |
-| greenmail/standalone | amd64, arm64 | 16 each | jackson-databind, jackson-core, openssl/libssl3, apt, gpgv | report (test only, never in a bundle) | move to a patched GreenMail tag (digest-pinned) |
+| axllent/mailpit | amd64, arm64 | 1 | golang.org/x/crypto v0.58.0 (GO-2026-5932) and Go stdlib 1.27.3 (CVE-2026-97054) in the Mailpit binary; seen by the image gates of PR #150 on 2026-11-11 and on lane G's box on 2026-11-15 | report (test only, never in a bundle) | move to the next Mailpit release built with the fixed x/crypto (digest-pinned in `deploy/images.lock`) |
+| greenmail/standalone | amd64, arm64 | 16 each | jackson-databind, jackson-core, openssl/libssl3, apt, gpgv; on 2026-11-15 (2.1.15) apt and libapt-pkg7-0 (CVE-2026-109518), libbrotli1 (CVE-2026-111497), zlib1g (CVE-2026-76844, CVE-2026-85091) | report (test only, never in a bundle) | move to a patched GreenMail tag (digest-pinned) |
 | vllm/vllm-openai | amd64, arm64 | 29 each | pyasn1, openssl/libssl3t64, certifi, msgpack, urllib3, setuptools, gnupg, apt, brotli, uv | block; 29 dated per-image entries, and since D-622 one dated entry for every finding of its kernel headers package `linux-libc-dev` (build-time files; the owner's ruling of 2026-11-12); and since D-790 one for CVE-2026-128089 in dnspython 2.9.0 (zone-file text parsing, which the model server never runs; the owner's yes of 2026-11-15; review 2026-12-10) | move to a patched vLLM release tag (digest-pinned); our own image without the headers after go-live |
 | trialbox-postgres (base postgres:16-trixie) | amd64, arm64 | 29 each | Go stdlib 1.24.6 and golang.org/x/sys in gosu, zlib1g | block; 29 dated per-image entries | move the base digest (deploy/images.lock and db.Dockerfile together) |
 | hapiproject/hapi | amd64, arm64 | 23 each | libexpat1, zlib1g, jackson-core, jackson-databind, guava, spring-webmvc, ca-certificates | block; 23 dated per-image entries | move to a patched HAPI FHIR tag (digest-pinned) |
