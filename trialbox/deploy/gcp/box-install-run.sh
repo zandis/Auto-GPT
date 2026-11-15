@@ -788,8 +788,24 @@ json.dump(d, open(p, "w"), indent=1)
 PYC
   systemctl restart docker && sleep 5 && ! docker info -f '{{json .DriverStatus}}' | grep -q 'containerd.snapshotter'
 }
+# The probe of 2026-11-15 (F7): 44 GB free of 193 GB; /var/lib/containerd held 47 GB, the images of Docker's containerd
+# store from before the switch to the classic store (d_docker_classic), which nothing uses any more. Removed through
+# containerd itself (its own garbage collection drops the unreferenced snapshots); free space noted before and after.
+d_old_store() {
+  local imgs
+  command -v ctr >/dev/null || return 0
+  note free_before_old_store "\"$(df -h --output=avail / | tail -n 1 | tr -d ' ')\""
+  imgs=$(ctr -n moby images ls -q 2>/dev/null)
+  # shellcheck disable=SC2086  # one image reference per word
+  [ -z "$imgs" ] || ctr -n moby images rm $imgs >/dev/null 2>&1
+  ctr -n moby content ls -q 2>/dev/null | xargs -r ctr -n moby content rm >/dev/null 2>&1
+  sleep 5
+  note free_after_old_store "\"$(df -h --output=avail / | tail -n 1 | tr -d ' ')\""
+  return 0
+}
 b_prereq() {  # before b02 and b03 (a boot that kept b02 still needs them for the images)
   need "the classic image store for the build (the gates and the bundle check name an image alike)" d_docker_classic || return 1
+  d_old_store
   if ! command -v mvn >/dev/null || ! command -v java >/dev/null; then
     need "installing the build's host tools (Maven, the JDK of .java-version)" d_build_prereq || return 1
   fi
@@ -846,6 +862,7 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
 # staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
 b_room() {
   docker builder prune -af >/dev/null 2>&1 || true
+  d_old_store
   note free_before_sign "\"$(df -h --output=avail,target "$BUILD" / 2>/dev/null | tail -n +2 | tr -s ' ' | tr '\n' ';')\""
 }
 step_b_sign() {
@@ -915,6 +932,7 @@ step_bundle() {
     rm -rf "${BUILD:?}/out" "${BUILD:?}/verify-stage" "${BUILD:?}/tb"; note build_tree_removed "\"$BUILD\""
     docker builder prune -af >> "$STEP_LOG" 2>&1 || true
   fi
+  [ "$(docker info -f '{{.Driver}}' 2>/dev/null)" = overlay2 ] && d_old_store
   need "fetching the bundle" fetch "$BUNDLE_SRC" "$BUNDLE" || return 1
   size=$(stat -c %s "$BUNDLE"); note bundle_bytes "$size"
   got=$(sha256sum "$BUNDLE" | cut -d' ' -f1)
