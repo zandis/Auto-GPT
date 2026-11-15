@@ -1296,3 +1296,12 @@ from console.i18n_demoja import ZH as _DJ_ZH  # noqa: E402
 EN.update(_DJ_EN)
 JA.update(_DJ_JA)
 ZH.update(_DJ_ZH)
+
+# T-317 (D-774): the role guides' words and the help panel's text for the steward and the privacy office
+from console.i18n_guides import EN as _GUIDE_EN  # noqa: E402
+from console.i18n_guides import JA as _GUIDE_JA  # noqa: E402
+from console.i18n_guides import ZH as _GUIDE_ZH  # noqa: E402
+
+EN.update(_GUIDE_EN)
+JA.update(_GUIDE_JA)
+ZH.update(_GUIDE_ZH)
