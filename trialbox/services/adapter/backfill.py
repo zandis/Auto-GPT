@@ -247,6 +247,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
                 # D-593: the box's reference data (refdata.map_targets_or_none); D-665: a map not loaded is "not asked"
                 concept_map=asks,
+                mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
             )  # fmt: skip
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():

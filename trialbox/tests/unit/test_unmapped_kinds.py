@@ -55,7 +55,11 @@ def _counter_places() -> list[str]:
 PLACES = {
     "'no_unit_implausible'": (1, "unit_not_read", "no_unit_implausible"),
     "'shape:icd10cm'": (1, "code_unknown", "shape:icd10cm"),
-    "'local:icd10cm'": (1, "code_unknown", "local:icd10cm"),  # CGRD-A3 (D-815): a site's own code, kept as written  # F6 (D-808): not of the ICD-10-CM shape, copied as fed
+    "'local:icd10cm'": (
+        1,
+        "code_unknown",
+        "local:icd10cm",
+    ),  # CGRD-A3 (D-815): a site's own code, kept as written  # F6 (D-808): not of the ICD-10-CM shape, copied as fed
     "'unit_mismatch'": (1, "unit_not_read", "unit_mismatch"),
     "f'column:{c['column']}'": (1, "code_unknown", "column:status"),
     "f'column:{expr['column']}'": (1, "code_unknown", "column:sex"),

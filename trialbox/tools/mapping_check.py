@@ -334,7 +334,7 @@ def check(
         since, until = f"{the_day.isoformat()} 00:00:00", f"{(the_day + timedelta(days=1)).isoformat()} 00:00:00"
     if until and not since:
         raise SystemExit("--until needs --since (or give --day)")
-    mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK")
+    mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK", mrn_regex=chart_pattern)
     net = sharereport.Net(_scan(), chart_pattern, min_patients or sharereport.MIN_PATIENTS)
     report: dict[str, Any] = {"mapping": str(mapping_path), "tables": {}, "missing_columns": 0, "invalid": 0}
     report["rejected"] = 0

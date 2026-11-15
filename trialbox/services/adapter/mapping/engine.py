@@ -609,6 +609,14 @@ class Mapping:
                         f"{path}: {r.type}.{element} writes column atc under system {spec.get('system')!r}: {why}. "
                         "Write the atc column under `system: atc`"
                     )
+        for r in resources:  # CGRD-A4 (D-816): a fallback column, a masked text
+            for element, spec in r.elements.items():
+                if not isinstance(spec, dict):
+                    continue
+                if "else" in spec and not (isinstance(spec["else"], str) and spec["else"] and "column" in spec):
+                    raise MappingError(f"{path}: {r.type}.{element}: else names a column, beside column")
+                if "masked" in spec and spec["masked"] is not True:
+                    raise MappingError(f"{path}: {r.type}.{element}: masked is true or left out")
         for r in resources:  # CGRD-A3 (D-815): a site's own codes, kept as written
             for element, spec in r.elements.items():
                 if isinstance(spec, dict) and "keep_as_written" in spec:
@@ -819,7 +827,9 @@ class Mapper:
         site_id: str,
         ingest_time: str | None = None,
         concept_map: Callable[[str, str], list[dict[str, Any]] | None] | None = None,
+        mrn_regex: str | None = None,
     ) -> None:
+        self.mrn_regex = mrn_regex  # CGRD-A4 (D-816): the site's chart number pattern, for ``masked: true``
         # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
         # back-fill pass the box's own; without it ``mapped_coding`` maps nothing
         self.concept_map = concept_map
@@ -1056,6 +1066,12 @@ class Mapper:
             return self.builders[expr["builder"]](rs, row, expr)
         if "column" in expr:
             raw = row.get(expr["column"])
+            if (raw is None or str(raw).strip() == "") and expr.get("else"):  # CGRD-A4 (D-816): the next column
+                raw = row.get(expr["else"])
+            if expr.get("masked") is True and raw is not None and str(raw).strip():
+                from tb_common.phi_guard import mask_note  # CGRD-A4 (D-816): as note text before it is chunked
+
+                raw = mask_note(str(raw), self.mrn_regex)
             if "map" in expr:
                 key = "" if raw is None else str(raw)
                 if key not in expr["map"]:
