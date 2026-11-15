@@ -439,6 +439,10 @@ DECLARED: dict[str, Declared] = {
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
+    # D-748: the lake's memory grows with the rows one S1 query carries (patients times index dates). Measured on the
+    # 10k lake at 1 GB (the smallest limit lake.store.memory_limit derives): 12,000 rows fit for GZQO and RA-BIO at 36,
+    # 12 and 1 index dates, 24,000 failed (GZQO, 12 dates). A 500 MB lake sets it lower (RA-BIO fitted 2,000)
+    "TB_CASCADE_S1_ROWS": Declared("int", "12000", "cascade: rows (patients x index dates) one S1 query may carry"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
