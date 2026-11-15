@@ -40,6 +40,11 @@ def test_a_patient_level_file_naming_an_opted_out_patient_is_withheld(monkeypatc
     # the review of D-804: a per-patient file by its own patient; a TWPAS bundle holds no pseudonym at all
     assert capp._names_opted_out(job, f"twpas_GZQO_{A[:12]}.json", b'{"name": "synthetic"}', store.get)
     assert not capp._names_opted_out(job, f"draft_GZQO_{C[:12]}.docx", b"PK compressed", store.__getitem__)
+    # the re-check of D-804: a CASE sheet named by its job id (a ULID can hold 12 hex characters) is judged by content
+    sheet = f"<p>{A}</p>".encode()
+    assert capp._names_opted_out(job, "case_GZQO_01M7FEVY0Y2Y5SEE55AAA65600.html", sheet, store.get)
+    alone = SimpleNamespace(outputs=[SimpleNamespace(tag="phi", filename="list.pdf", minio_key="k")])
+    assert capp._names_opted_out(alone, "list.pdf", b"%PDF", store.get)  # nothing to judge it by: withheld
     monkeypatch.setattr(optout, "register_now", frozenset)
     assert not capp._names_opted_out(job, "list.pdf", b"%PDF", store.__getitem__)
 

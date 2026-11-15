@@ -252,9 +252,10 @@ class _MustChange(Exception):
 #: kept until retention, withheld on read); the job's pages show its list without them
 OPTED_OUT_SINCE = "a patient on this file has opted out since it was made; run the list again"
 _TEXT_SUFFIXES = (".json", ".jsonl", ".html", ".htm", ".csv", ".txt", ".yaml", ".md")
-#: a per-patient file names its patient by the pseudonym's first 12 characters (``twpas_<rs>_<pid12>.json``,
-#: ``draft_<rs>_<pid12>.docx``): it is judged by that patient alone
-_OWNER = re.compile(r"(?<![0-9a-f])([0-9a-f]{12,32})(?![0-9a-f])")
+#: a per-patient file names its patient by the pseudonym's first 12 characters as the last ``_`` part of its name
+#: (``twpas_<rs>_<pid12>.json``, ``draft_<rs>_<pid12>.docx``): it is judged by that patient alone. The whole part, not
+#: any run of hex: a job id (a ULID, ``case_<rs>_<job>.html``) can hold one (the review of D-804)
+_OWNER = re.compile(r"_([0-9a-f]{12,32})$")
 
 
 def _names_opted_out(job: Any, filename: str, data: bytes, get: Any) -> bool:
@@ -284,6 +285,8 @@ def _names_opted_out(job: Any, filename: str, data: bytes, get: Any) -> bool:
                 texts.append(bytes(get(o.minio_key)).lower())
             except Exception:
                 return True  # a list that cannot be read: withheld (fail closed)
+        if not texts:  # nothing to judge it by: withheld (fail closed)
+            return True
     return any(pid.lower().encode("ascii") in t for t in texts for pid in gone)
 
 
