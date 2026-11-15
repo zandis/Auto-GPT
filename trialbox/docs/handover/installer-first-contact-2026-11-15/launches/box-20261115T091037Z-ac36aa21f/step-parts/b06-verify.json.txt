@@ -1,0 +1,31 @@
+{
+ "attempts": 1,
+ "boots": [
+  "5c90e503-23ff-4e86-af3c-976e077f0e43"
+ ],
+ "detail": {
+  "bundle_bytes": 29611929600,
+  "bundle_id": "val-ac36aa21fdc1",
+[line removed: key fingerprint]
+  "manifest_files": 29,
+  "manifest_sha256": "3b18c345e7b778ecc10a12b0086819f16ddce64dcb099c360bb85be7a6e714f1",
+  "mode": "validation",
+  "not_a_release": true,
+  "refused": [],
+  "release": {
+   "commit": "ac36aa21fdc1a67795eb838018a433a586971db9",
+   "dirty": false,
+   "rehearsal": false,
+   "version": "1.0.0"
+  },
+  "release_seq": 1,
+  "signature_sha256": "eb0b66620eed72630102258bee430d2ceba80b9f4c11f51a7106a9cd1da21cf9"
+ },
+ "ended": "2026-11-15T09:43:18Z",
+ "minutes": 0.85,
+ "ok": true,
+ "seconds": 51.179,
+ "started": "2026-11-15T09:42:27Z",
+ "status": "done",
+ "step": "b06-verify"
+}

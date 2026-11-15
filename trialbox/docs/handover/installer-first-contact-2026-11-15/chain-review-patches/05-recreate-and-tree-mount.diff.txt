@@ -1,0 +1,23 @@
+--- a/trialbox/deploy/gcp/box-install-run.sh
++++ b/trialbox/deploy/gcp/box-install-run.sh
+@@ -539,6 +539,8 @@
+ img_tool() {
+   local o=()
+   while [ $# -gt 1 ]; do case "$1" in -v|-e) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
++  # the release tree too, as install.sh's tree_args (OPS-004): the shipped files under deploy/ are links into it
++  [ -d "$BOXROOT/current" ] && o+=(-v "$(readlink -f "$BOXROOT/current"):/current:ro")
+   docker run --rm --user 0 --network "${IMG_NET:-none}" -v "$BOXROOT/deploy:/d" ${o[@]+"${o[@]}"} "$(img_py)" \
+     python -m "tools.$1" "${@:2}"
+ }
+@@ -1346,7 +1348,10 @@
+   else
+     note tripwire "\"on: no setting used (gateway step 4 runs on every call of class D0 to D2)\""
+   fi
+-  need "the stack recreated on the new settings" d_recreate || return 1
++  # every service that reads deploy/.env, not the two model servers (their settings did not change; a reload of both
++  # is minutes of the card for nothing)
++  local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-')
++  need "the stack recreated on the new settings (not the model servers)" d_recreate "${svcs[@]}" || return 1
+   acc_call mail-gateway env > "$REC/acc-settings-after.json" || { STOP="the box's settings cannot be read after the change"; return 1; }
+   st set "$STEP" acc_sender "$(first_of "$REC/acc-settings-after.json" senders)"
+   st set "$STEP" acc_reviewer "$(first_of "$REC/acc-settings-after.json" reviewers)"
