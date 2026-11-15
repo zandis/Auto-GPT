@@ -673,13 +673,14 @@ def rows_from_lake(
     pairs = ", ".join(f"('{sy}', '{co}')" for sy, co in sorted(by_code))  # constants, never user input
     obs = lake.query(
         "SELECT pid, system, code, value_num, unit, oid, CAST(effective AS DATE) AS d FROM observation "
-        f"WHERE (system, code) IN ({pairs}) AND ($1::VARCHAR[] IS NULL OR list_contains($1::VARCHAR[], pid)) "
+        f"WHERE (system, code) IN ({pairs}) AND ($1::VARCHAR[] IS NULL OR pid IN (SELECT unnest($1::VARCHAR[]))) "
         "ORDER BY pid, d, oid",
         [list(pids) if pids is not None else None],
         snapshot,
     ).to_pylist()
     pats = lake.query(
-        "SELECT pid, birth_date, sex FROM patient WHERE ($1::VARCHAR[] IS NULL OR list_contains($1::VARCHAR[], pid))",
+        "SELECT pid, birth_date, sex FROM patient "
+        "WHERE ($1::VARCHAR[] IS NULL OR pid IN (SELECT unnest($1::VARCHAR[])))",
         [list(pids) if pids is not None else None],
         snapshot,
     ).to_pylist()

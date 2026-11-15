@@ -339,7 +339,7 @@ def test_the_runner_wraps_the_cli_and_writes_no_secret(tmp_path: Path) -> None:
     (deploy / "updates" / "incoming" / "b-1.tar").write_bytes(b"x")
     calls: list[list[str]] = []
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         calls.append(list(argv))
         return "verified\n"
 
@@ -379,7 +379,7 @@ def test_on_a_site_box_the_check_and_the_sheet_run_in_a_container(tmp_path: Path
     (nas / "trialbox-CGMH-20261109T010203Z.tbbak").write_bytes(b"x")
     calls: list[list[str]] = []
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         calls.append(list(argv))
         return '{"ok": true, "chunks": 1, "bytes": 1, "created_at": "2026-11-09T01:02:03+00:00", "sha256": "ab"}'
 
@@ -447,7 +447,7 @@ def test_a_cut_off_or_old_request_is_never_run_again(tmp_path: Path) -> None:
     (deploy / "updates" / "incoming" / "b-1.tar").write_bytes(b"x")
     calls: list[list[str]] = []
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         calls.append(list(argv))
         return "ok\n"
 
@@ -483,7 +483,7 @@ def test_a_stale_target_fails_the_check_and_a_failed_update_says_so(tmp_path: Pa
         t.mkdir()
         (t / f"trialbox-CGMH-{stamp}.tbbak").write_bytes(b"x")
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         return '{"ok": true, "chunks": 1, "bytes": 1, "created_at": "2026-11-09T01:02:03+00:00", "sha256": "ab"}'
 
     box_ = tb_ops.Box("compose", deploy, {"TB_BACKUP_TARGETS": f"{nas} {usb}"}, fake)

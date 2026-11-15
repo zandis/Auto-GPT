@@ -197,7 +197,7 @@ up() {
     gc compute instances set-scheduling "$N" --zone "$ZONE" --max-run-duration "${HOURS}h" --instance-termination-action STOP
     gc compute instances start "$N" --zone "$ZONE"
   fi
-  say "https://$(vm_ip)/ answers after the seed (3 to 6 minutes; \`demo-vm.sh status\` shows DEMO-VM-READY)"
+  say "https://$(vm_ip)/ answers after the seed (about 10 minutes; \`demo-vm.sh status\` shows DEMO-VM-READY)"
   say "the browser warns once (Caddy's own certificate)"
   say "after DEMO-VM-READY: deploy/gcp/demo-vm.sh links prints each person's one-time code once (then deletes it);"
   say "  each person opens https://<address>/enrol, types the user name and the code, and chooses a password"
@@ -212,7 +212,7 @@ status() {
   [ "$st" = NONE ] && return 0
   if [ "$DRY" = 1 ]; then
     echo "+ gcloud compute firewall-rules describe $RULE --format=yaml(sourceRanges,allowed,disabled)   # 0.0.0.0/0: $OPEN_TEXT"
-    echo "+ gcloud compute instances get-serial-port-output $N --zone $ZONE   # the TB-DEMO-VM lines only"
+    echo "+ gcloud compute instances get-serial-port-output $N --zone $ZONE   # the boot's lines; DEMO-VM-READY or not"
     return 0
   fi
   local rule
@@ -227,8 +227,10 @@ status() {
     --format='value(scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)' 2>/dev/null) (seconds, action)"
   if [ "$st" = RUNNING ]; then
     echo "address: https://$(vm_ip)/"
-    gc compute instances get-serial-port-output "$N" --zone "$ZONE" 2>/dev/null \
-      | grep -E '^(TB-DEMO-VM|DEMO-VM-)' | tail -8 || true
+    # the boot's own lines and its marker, wherever the script runner's prefix puts them (demo_vm.py boot-state)
+    echo "boot log (serial console):"
+    { gc compute instances get-serial-port-output "$N" --zone "$ZONE" 2>/dev/null || true; } \
+      | "$PY" "$HERE/demo_vm.py" boot-state
   fi
 }
 

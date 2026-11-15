@@ -417,6 +417,8 @@ def test_compose_box_starts_the_services_again_when_the_rollback_point_fails(tmp
             stdout_file.write_text("dump")
         if "image inspect" in line or "criteria-compiler python -c" in line:
             raise up.UpdateFailed("docker broke")
+        if "FROM orch.jobs" in line:  # T-695: no job running
+            return "0\n"
         return ""
 
     stage = tmp_path / "stage"

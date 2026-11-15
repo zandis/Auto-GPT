@@ -406,6 +406,48 @@ ALTER TABLE tb_term_grouper ADD CONSTRAINT tb_term_grouper_match_check CHECK (ma
 """
 
 
+#: ids that come from their own int4 sequences (the person, provider and care-site maps) and stay ``integer``
+OWN_SEQUENCE_IDS = ("person_id", "provider_id", "care_site_id", "location_id")
+_INT_ID = re.compile(r"^\s*(\w+(?:_id|_id_[12]))\s+integer\b", re.IGNORECASE | re.MULTILINE)
+
+
+def row_id_columns(tables: tuple[str, ...] = CDM_TABLES + CDM_TABLES_ADDED) -> list[tuple[str, str]]:
+    """``(table, column)``: each ``integer`` id column of the pinned CDM DDL but the concept ids and the own-sequence
+    ids: every column that can hold a row id of ``tb_row_seq`` (a row's own key or a reference to another row), and
+    a few that never do (``metadata_id``, a cohort's ids), widened with them by one plain rule."""
+    text = (DDL_DIR / "OMOPCDM_postgresql_5.4_ddl.sql").read_text(encoding="utf-8")
+    keep, out = set(tables), []
+    for st in _statements(text):
+        m = _TARGET.search(st)
+        if not (m and st.lstrip().upper().startswith("CREATE TABLE") and m.group(1).lower() in keep):
+            continue
+        for col in _INT_ID.findall(st[st.index("(") + 1 :]):
+            c = col.lower()
+            if "concept" not in c and c not in OWN_SEQUENCE_IDS:
+                out.append((m.group(1).lower(), c))
+    return out
+
+
+def row_ids_ddl() -> str:
+    """Migration 9 (T-702, D-753; scale review F-17): the row ids are ``bigint``. ``tb_row_seq`` stopped at
+    2,147,483,647 (about 4,300 records a patient at 500,000 patients); every column that holds one of its ids, in the
+    CDM tables and TrialBox's own, is widened (a partitioned table's partitions follow it). The concept ids and the
+    person, provider and care-site ids keep their own ``integer`` sequences."""
+    stmts = [f"ALTER TABLE {t} ALTER COLUMN {c} TYPE BIGINT" for t, c in row_id_columns()]
+    stmts += [f"ALTER TABLE {t} ALTER COLUMN {c} TYPE BIGINT" for t, c in TB_ROW_ID_COLUMNS]
+    stmts.append("ALTER SEQUENCE tb_row_seq NO MAXVALUE")
+    return ";\n".join(stmts)
+
+
+#: TrialBox's own columns that hold a row id
+TB_ROW_ID_COLUMNS = (
+    ("tb_record", "record_id"),
+    ("tb_appointment", "appointment_id"),
+    ("tb_claim", "claim_id"),
+    ("tb_consent", "consent_id"),
+)
+
+
 def migrations() -> list[str]:
     from omop.partitions import migration as partitions_ddl
 
@@ -418,6 +460,7 @@ def migrations() -> list[str]:
         HISTORY_DDL,
         WITHHELD_DDL,
         GROUPER_FAMILY_DDL,
+        row_ids_ddl(),
     ]
 
 

@@ -631,6 +631,9 @@ def _run_ingest(
             recover_all(cfg)  # as below, before the lake's folders are read: a killed re-run is put back first
             whole, said_by = reread_whole(cfg.lake_dir, merge_base(cfg.lake_dir, snap))
             whole &= set(mapping.tables)
+            # F7 (D-806, lane E's hunk): a visit table a link by day looks up is read whole, every night
+            for table in sorted(mapping.read_whole() - whole):
+                log.info("%s: read whole on this delta night: rows link to its visits by day (D-806)", table)
             for table in sorted(whole):
                 log.info(
                     "%s: read whole on this delta night: the reference data did not answer for it on %s (D-538)",
@@ -639,7 +642,7 @@ def _run_ingest(
         for table, tspec in mapping.tables.items():
             at["table"] = table
             src, src_name = source, tspec["source"]
-            since_t = None if table in whole else since
+            since_t = None if table in whole or table in mapping.read_whole() else since
             if table == "registry" and cfg.registry is not None:
                 kind, where = cfg.registry
                 if kind == "none" or not where:
@@ -749,6 +752,8 @@ def _run_ingest(
         # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (codes and counts only)
         for table, by_lookup in mapper.unmapped_summary().items():
             tables[table]["unmapped"] = by_lookup
+        for table, links in mapper.encounter_links().items():  # F7 (D-806, lane E's hunk): links by day, counts only
+            tables[table]["encounter_by_day"] = links
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name

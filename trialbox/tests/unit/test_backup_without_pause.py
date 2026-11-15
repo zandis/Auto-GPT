@@ -212,6 +212,8 @@ def test_the_update_paths_dumps_and_container_get_limits_from_size(tmp_path: Pat
         line = " ".join(argv)
         if "pg_database_size" in line:
             return f"{10 * GB}\n"
+        if "FROM orch.jobs" in line:  # T-695: no job running
+            return "0\n"
         if "pg_dump" in line:
             seen[argv[-1]] = timeout
             Path(str(stdout_file)).write_bytes(b"d" * 1_000_000)

@@ -46,11 +46,11 @@ _AD = re.compile(r"alzheimer|\bAD\b|\bMCI\b|amyloid|アルツハイマー|認知
 
 DEMO_SQL = """
 SELECT pid, CAST(birth_date AS VARCHAR) AS birth_date, sex FROM patient
-WHERE list_contains(CAST($1 AS VARCHAR[]), pid)
+WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))
 """
 VISIT_SQL = """
 SELECT count(DISTINCT pid) AS n FROM appointment
-WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND status = 'booked'
+WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND status = 'booked'
   AND CAST(start AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE)
 """
 FACTS_SQL = "SELECT (SELECT count(*) FROM appointment) AS appts, (SELECT count(*) FROM document_chunk) AS chunks"
