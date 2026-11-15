@@ -754,6 +754,8 @@ def _run_ingest(
             tables[table]["unmapped"] = by_lookup
         for table, links in mapper.encounter_links().items():  # F7 (D-806, lane E's hunk): links by day, counts only
             tables[table]["encounter_by_day"] = links
+        for table, cols in mapping.read_as_western().items():  # F8 (D-807, lane E's hunk): counts only
+            tables[table]["read_as_western"] = cols
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
