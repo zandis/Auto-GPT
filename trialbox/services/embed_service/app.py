@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import cache
+from typing import Any
 
 from tb_common.config import environment_name
 from tb_common.http import make_app
@@ -35,7 +38,8 @@ def embedder() -> Embedder:
 
 
 def gate() -> threading.BoundedSemaphore:
-    """``TB_EMBED_CONCURRENCY`` requests encode at a time (1 by default: one CPU-bound encode uses every core)."""
+    """``TB_EMBED_CONCURRENCY`` requests encode at a time (1 by default: one CPU-bound encode uses every core, and
+    two at once would hold two batches of activations in memory)."""
     global _gate
     if _gate is None:
         with _gate_lock:
@@ -55,7 +59,16 @@ def mrn_regex() -> str | None:
     return site_mrn_regex()
 
 
-app = make_app("embed-service", checks=[health])
+@asynccontextmanager
+async def lifespan(_app: Any) -> AsyncIterator[None]:
+    """The model is loaded when the service starts, in every environment (D-911), under the one lock: a request that
+    arrives while it loads waits for this load instead of starting its own, and a refused configuration stops the
+    service at start, not at its first request."""
+    embedder()
+    yield
+
+
+app = make_app("embed-service", checks=[health], lifespan=lifespan)
 
 if environment_name(os.environ) == "PRODUCTION":  # refuse at start: a box never runs on the stub or unpinned weights
     embedder()
