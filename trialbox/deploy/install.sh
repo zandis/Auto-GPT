@@ -905,6 +905,9 @@ if [ -n "$TLS_HOST" ]; then
   done
   [ "$ANSWERED" = 1 ] && echo "    $URL/login answers (certificate checked)" || FAILS+=("$URL/login does not answer from this host (curl above; RUNBOOK §12)")
 fi
+# D-884: the release gates' mode from the installed record; "report" is not a green release
+GATES_MODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("vuln_mode") or "not recorded")' deploy/updates/installed.json 2>/dev/null || echo "not recorded")"
+[ "$GATES_MODE" = block ] || [ "$GATES_MODE" = "not recorded" ] || GATES_MODE="$GATES_MODE (findings shown, not blocking: not a green release)"
 cat <<EOT
 
   TrialBox is running.
@@ -914,6 +917,7 @@ cat <<EOT
   $JUDGE
   First ingest:       docker compose --project-directory deploy exec adapter python -m adapter.cli run   (or 02:00 nightly)
   Acceptance:         docs/RUNBOOK.md §6 before go-live;  updates: tools/apply_update.sh <bundle>
+  Release gates:      $GATES_MODE
 EOT
 if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2

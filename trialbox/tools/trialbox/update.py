@@ -819,6 +819,9 @@ class Updater:
         source = (plan.release or {}).get("source")
         if isinstance(source, dict) and isinstance(source.get("dirty"), bool):
             record["dirty"] = source["dirty"]  # D-633: built from a working tree (a DEV or TEST box took it)
+        mode = ((plan.release or {}).get("gates") or {}).get("vuln_mode")
+        if isinstance(mode, str) and mode:
+            record["vuln_mode"] = mode  # D-884: the release gates' mode, said by `apply_update.sh status` and install
         us.write_atomic(self.dir / us.INSTALLED, record)
         if plan.trust_after:
             us.write_atomic(self.dir / us.TRUST, plan.trust_after)
