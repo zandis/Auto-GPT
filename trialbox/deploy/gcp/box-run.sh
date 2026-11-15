@@ -153,14 +153,17 @@ fetch() {  # results.tgz from the bucket into $OUT, the report; returns 1 when t
   br results "$OUT/results.tgz" --out "$OUT" > /dev/null && echo "report: $OUT/report.md"
 }
 acc_fetch() {  # each accuracy set the VM uploaded as it finished: fetched, unpacked under $OUT/acc/<set>, scored here
-  local o name
+  local o name gen
   [ "$DRY" = 0 ] || return 0
   for o in $(gc storage ls "$OBJ/acc/" 2>/dev/null | grep '\.tgz$'); do
     name="$(basename "$o" .tgz)"
-    [ -s "$OUT/acc/$name/.fetched" ] && continue
-    mkdir -p "$OUT/acc/$name"
+    # F24 (2026-11-15): a set run again (--redo) uploads again: fetched again when the object's generation changed,
+    # into a clean folder (the earlier answers never scored as the new ones)
+    gen="$o#$(gc storage objects describe "$o" --format='value(generation)' 2>/dev/null)"
+    [ "$(cat "$OUT/acc/$name/.fetched" 2>/dev/null)" = "$gen" ] && continue
+    rm -rf "$OUT/acc/$name"; mkdir -p "$OUT/acc/$name"
     gc storage cp "$o" "$OUT/acc/$name.tgz" >/dev/null && tar -xzf "$OUT/acc/$name.tgz" -C "$OUT/acc/$name" \
-      && echo "$o" > "$OUT/acc/$name/.fetched" && echo "accuracy set $name fetched"
+      && echo "$gen" > "$OUT/acc/$name/.fetched" && echo "accuracy set $name fetched"
   done
   for o in $(gc storage ls "$OBJ/acc-partial/" 2>/dev/null | grep '\.tgz$'); do   # a set in flight, or cut: its partial
     name="$(basename "$o" .tgz)"
@@ -224,11 +227,17 @@ if [ -n "$RESUME" ]; then
     br metadata --steps acc --mode "$MODE" --only "$ONLY" --out "$OUT/md-only" --set tb-acc-tools=x > /dev/null || exit 2
     cp "$OUT/md-only/tb-acc-sets" "$OUT/md/tb-acc-sets"; RFILES="$RFILES,tb-acc-sets=$OUT/md/tb-acc-sets"
   fi
-  if [ -n "${V[tb-redo]:-}" ]; then
-    printf '%s' "${V[tb-redo]}" > "$OUT/md/tb-redo"
-    case ",$RFILES," in *,tb-redo=*) ;; *) RFILES="$RFILES,tb-redo=$OUT/md/tb-redo" ;; esac
-    grep -qw tb-redo "$OUT/metadata-keys" || echo "$(cat "$OUT/metadata-keys") tb-redo" > "$OUT/metadata-keys"
-  fi
+  # one launch's own asks (F24): a step to run again and a set budget hold for the launch that names them, never
+  # for the next resume (a redo sent twice would throw away the set it just ran)
+  for k in tb-redo tb-acc-deadline; do
+    if [ -n "${V[$k]:-}" ]; then
+      printf '%s' "${V[$k]}" > "$OUT/md/$k"
+      case ",$RFILES," in *",$k="*) ;; *) RFILES="$RFILES,$k=$OUT/md/$k" ;; esac
+      grep -qw "$k" "$OUT/metadata-keys" || echo "$(cat "$OUT/metadata-keys") $k" > "$OUT/metadata-keys"
+    elif [ -f "$OUT/md/$k" ]; then
+      rm -f "$OUT/md/$k"; RFILES=$(printf '%s' "$RFILES" | sed "s|,$k=[^,]*||")
+    fi
+  done
   if [ -n "${V[tb-qualify-args]:-}" ]; then
     printf '%s' "${V[tb-qualify-args]}" > "$OUT/md/tb-qualify-args"
     case ",$RFILES," in *,tb-qualify-args=*) ;; *) RFILES="$RFILES,tb-qualify-args=$OUT/md/tb-qualify-args" ;; esac

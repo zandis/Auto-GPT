@@ -190,6 +190,11 @@ if os.path.exists(p):
                 os.replace(part, os.path.join(run, "logs", f"{name}.redo-{retry}.json"))
             del st["steps"][name]
             print(f"TB-RETRY {retry}: step {name} cleared (asked again: tb-redo)")
+        if "-acc-" in name:  # F24: the set's clock start, and a slowdown it measured, go with its work
+            kv, setname = st.get("kv", {}), name.split("-acc-", 1)[1]
+            kv.pop(f"acc_t0_{setname}", None)
+            if kv.get("acc_rate_set") in (setname, None):
+                kv.pop("acc_rate", None); kv.pop("acc_rate_set", None)
     if "50-acc-tools" in st.get("steps", {}):  # lane G's tools are fetched again: a fix may be in them
         del st["steps"]["50-acc-tools"]
         print(f"TB-RETRY {retry}: 50-acc-tools cleared (the tools are fetched again)")
@@ -1857,7 +1862,7 @@ step_acc_set() {
     high=$(printf '%s\n' $ACC_PLAN | sed -n "s/^$name:[0-9]*://p" | head -n 1)
     sec=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("used_s") or 0)' "$ACC/$name/work/set-clock.json" 2>/dev/null)
     r=$("$PY" -c 'import sys; s, h = float(sys.argv[1] or 0), float(sys.argv[2] or 0); print(round(max(0.05, s / h), 3) if h > 0 and s > 0 else "")' "${sec:-0}" "${high:-0}")
-    if [ -n "$r" ]; then st set "$STEP" acc_rate "$r"; note rate_measured "$r"; fi
+    if [ -n "$r" ]; then st set "$STEP" acc_rate "$r"; st set "$STEP" acc_rate_set "$name"; note rate_measured "$r"; fi
   fi
   acc_call gateway audit "{\"since\": \"$t0\"}" > "$ACC/$name/work/gateway-audit.json" 2>> "$STEP_LOG" || rm -f "$ACC/$name/work/gateway-audit.json"
   # the raw answers (both models' outputs per call, as the box's trace store keeps them): with the set's results in
