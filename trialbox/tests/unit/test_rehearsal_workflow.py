@@ -108,7 +108,11 @@ def test_the_host_checks_doctor_sees_the_site_key_and_an_outside_compose_file() 
 def test_a_rehearsal_box_warns_for_the_egress_table_every_other_box_fails() -> None:
     start = CHECK_HOST.index("# network egress")
     block = CHECK_HOST[start : CHECK_HOST.index("\nfi\n", start)]
-    assert '[ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]' in block and "no NET_ADMIN" in block
+    assert "if rehearsal_box; then" in block and "no NET_ADMIN" in block
+    helper = next(ln for ln in CHECK_HOST.splitlines() if ln.startswith("rehearsal_box()"))
+    assert '[ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]' in helper
+    luks = CHECK_HOST[CHECK_HOST.index('LUKS_DEVS=""') : CHECK_HOST.index("done", CHECK_HOST.index('LUKS_DEVS=""'))]
+    assert "elif rehearsal_box; then" in luks and 'facility fail "LUKS:' in luks
     assert 'facility fail "egress allowlist not loaded' in block
 
 

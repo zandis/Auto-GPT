@@ -84,6 +84,9 @@ facility() {  # facility strict|fail MESSAGE LABEL: as strict/fail, or a listed 
   elif [ "$1" = strict ]; then strict "$2"; else fail "$2"; fi
 }
 facilities() { [ -z "$FACILITIES" ] || warn "host profile poc: ${FACILITIES#, } (each one fails on a site host)"; }
+# D-887: a rehearsal box (TB_ENV TEST, TB_REHEARSAL=1, deploy/install.sh --rehearsal) runs in a container on a
+# developer's or CI's host: no encrypted disk, no NET_ADMIN. What only the site's host can have is a WARN there
+rehearsal_box() { [ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]; }
 if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" = PRODUCTION ]; then
   fail "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
 fi
@@ -141,6 +144,8 @@ for d in "$DOCKER_ROOT" "$ROOT_DIR/deploy/backups"; do
     pass "LUKS: $d is on the encrypted device $c"
     dev="$(cryptsetup status "$c" 2>/dev/null | sed -n 's/^ *device: *//p')"
     case " $LUKS_DEVS " in *" $dev "*) ;; *) [ -n "$dev" ] && LUKS_DEVS="$LUKS_DEVS $dev" ;; esac
+  elif rehearsal_box; then
+    warn "LUKS: $d is not on a dm-crypt device: a rehearsal box's host is not the site's (the site's IQ checks it)"
   else
     facility fail "LUKS: $d is not on a dm-crypt device (full-disk encryption required)" LUKS
   fi
@@ -252,7 +257,7 @@ fi
 if command -v nft >/dev/null 2>&1 && nft list table inet trialbox_egress >/dev/null 2>&1; then
   pass "egress allowlist table loaded (deploy/network.sh apply)"
 else
-  if [ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]; then
+  if rehearsal_box; then
     # D-887: a rehearsal box runs without NET_ADMIN, so deploy/network.sh cannot load the table (the site's IQ checks it)
     warn "egress allowlist not loaded: a rehearsal box has no NET_ADMIN (the site's IQ checks deploy/network.sh)"
   else
