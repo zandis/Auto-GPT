@@ -1,0 +1,16 @@
+{
+ "attempts": 1,
+ "boots": [
+  "497e878f-c35b-4b56-8263-16e152e58be1"
+ ],
+ "detail": {
+  "commit": "5618bd8406fec66580d4fe9cfa2ed0ae57f5a0fd"
+ },
+ "ended": "2026-11-15T08:02:29Z",
+ "minutes": 0.29,
+ "ok": true,
+ "seconds": 17.431,
+ "started": "2026-11-15T08:02:12Z",
+ "status": "done",
+ "step": "b01-source"
+}

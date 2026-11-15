@@ -1,0 +1,14 @@
+{
+ "attempts": 1,
+ "boots": [
+  "57110725-bd04-4f57-a63b-a6304853b0d1"
+ ],
+ "detail": {},
+ "ended": "2026-11-15T06:09:40Z",
+ "minutes": 0.17,
+ "ok": true,
+ "seconds": 10.026,
+ "started": "2026-11-15T06:09:30Z",
+ "status": "done",
+ "step": "b02-venv"
+}

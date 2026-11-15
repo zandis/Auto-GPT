@@ -1,0 +1,77 @@
+{
+ "attempts": 1,
+ "boots": [
+  "86827264-3b44-4f6b-a759-54c193464dc4"
+ ],
+ "detail": {
+  "answers": "tb-site-answers (deploy/gcp/validation-site-answers.yaml)",
+  "half_install_removed": true,
+  "has_tpm2": "yes +firmware +driver +system +subsystem +libraries ",
+  "host_packages_added": "tpm2-tools",
+  "host_prereq_exit": 0,
+  "models": {
+   "fetched": [],
+   "kept": [
+    "gemma-4-26b-a4b-it-4bit",
+    "qwen3.5-9b-4bit",
+    "chat-templates/gemma-4-26b-a4b-it/chat_template.jinja",
+    "embedder/1_Pooling/config.json",
+    "embedder/README.md",
+    "embedder/config.json",
+    "embedder/config_sentence_transformers.json",
+    "embedder/imgs/bm25.jpg",
+    "embedder/imgs/long.jpg",
+    "embedder/imgs/miracl.jpg",
+    "embedder/imgs/mkqa.jpg",
+    "embedder/imgs/nqa.jpg",
+    "embedder/imgs/others.webp",
+    "embedder/long.jpg",
+    "embedder/model.safetensors",
+    "embedder/modules.json",
+    "embedder/sentence_bert_config.json",
+    "embedder/sentencepiece.bpe.model",
+[line removed: password, token, secret or code]
+[line removed: password, token, secret or code]
+[line removed: password, token, secret or code]
+   ],
+   "linked": [],
+   "missing": [],
+   "ok": true,
+   "refused": []
+  },
+  "site_keys": "not sealed: TB_BOX_DEFER_SEAL=1 (a public-data PoC box, the owner's ruling)",
+  "tpm_roundtrip": true
+ },
+ "ended": "2026-11-15T10:23:56Z",
+ "minutes": 0.51,
+ "ok": false,
+ "seconds": 30.807,
+ "started": "2026-11-15T10:23:25Z",
+ "status": "stop",
+ "step": "02-install",
+ "stop": {
+  "log_tail": [
+   "+subsystem",
+   "+libraries",
+   "+ d_models_place (1 words) 10:23:40",
+   "Copying gs://trialbox-demo-runs/r2/models/e-embed-1.sha256 to file:///var/lib/tb/embed.sha256",
+   "  ",
+   "",
+[line removed: password, token, secret or code]
+   "+ d_install_v (3 words) 10:23:51",
+   "\u001b[1m==> host\u001b[0m",
+   "    PASS  vLLM image vllm/vllm-openai:v0.32.0 has a linux/amd64 build (sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9)",
+   "    PASS  NVIDIA driver 580.178.04 runs CUDA 13.0.2 (needs 580.65.06 or newer)",
+   "    PASS  GPU compute capability 12.0 is covered by the image's build (7.5 8.0 8.6 8.9 9.0 10.0 12.0)",
+   "    PASS  structured output: vLLM backend auto (deploy/images.lock)",
+   "    ---",
+   "    GPU host checks passed",
+   "    docker 29.9.3, model profile: gpu, gpu: rtxpro6000, vendor key: /opt/trialbox/deploy/keys/vendor_ed25519.pub",
+   "\u001b[1m==> bundle: verify and load (host tree, images, models, rulesets)\u001b[0m",
+   "REJECTED: release_seq 1 is not above the installed 1 (a downgrade or a repeat); refused (--allow-downgrade REASON overrides it, audited)",
+   "update REJECTED: /var/lib/tb/bundle/box-20261115T094747Z-4c7c47017.tar",
+   "install: the bundle is not a valid signed TrialBox release; nothing was changed"
+  ],
+  "reason": "the installer (install.sh --answers: a VALIDATION box): exit 1"
+ }
+}

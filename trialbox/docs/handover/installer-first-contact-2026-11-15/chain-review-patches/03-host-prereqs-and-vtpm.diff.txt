@@ -1,0 +1,43 @@
+--- a/trialbox/deploy/gcp/box-install-run.sh
++++ b/trialbox/deploy/gcp/box-install-run.sh
+@@ -453,6 +453,11 @@
+   [ -d "$MODELS" ] || pf="$pf; no model folders at $MODELS"
+ fi
+ if has start; then
++  if [ "$MODE" = validation ]; then   # install.sh seals a VALIDATION box's site keys (KEK_BACKEND tpm, seal_keys.sh)
++    [ -n "${TB_BOXRUN_ROOT:-}" ] || [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ] \
++      || pf="$pf; no TPM 2.0 device: install.sh seals a VALIDATION box's site keys with KEK_BACKEND=tpm (turn the VM's vTPM on)"
++    command -v systemd-creds >/dev/null || [ -n "${TB_BOXRUN_ROOT:-}" ] || pf="$pf; no systemd-creds (seal_keys.sh, KEK_BACKEND=tpm)"
++  fi
+   [ -n "$BUNDLE_SRC" ] || pf="$pf; no tb-bundle"
+   [ -n "$BUNDLE_SHA" ] || pf="$pf; no tb-bundle-sha256 (a bundle is never installed unchecked)"
+   [ -n "$VPUB_SRC" ] || pf="$pf; no tb-vendor-pub (the installer refuses a bundle without the vendor's public key)"
+@@ -635,6 +640,20 @@
+   [ "$rc" = 0 ] || grep -q "TrialBox is running" "$TB/install-v.log" || return "$rc"
+   echo "install.sh exit $rc (a FAIL list at the end; the stack runs)"
+ }
++# What install.sh runs with the host's python3 needs PyYAML (tools/trialbox/anchors.py, and pre-start through
++# doctor.py) and, for its own verifier, cryptography; egress wants nft, the retention and backup schedules cron. The
++# product's own rehearsal host has exactly these (tools/rehearse_box/host.Dockerfile); a GCE image may not.
++d_host_prereq() {
++  local miss=()
++  python3 -c 'import yaml' 2>/dev/null || miss+=(python3-yaml)
++  python3 -c 'import cryptography' 2>/dev/null || miss+=(python3-cryptography)
++  command -v nft >/dev/null || miss+=(nftables)
++  [ -d /etc/cron.d ] || miss+=(cron)
++  note host_packages_added "\"${miss[*]-}\""
++  [ ${#miss[@]} = 0 ] && return 0
++  [ -z "${TB_BOXRUN_ROOT:-}" ] || return 0   # the rehearsal installs nothing on its host
++  DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${miss[@]}"
++}
+ d_models_place() {  # the site's weights in deploy/models, where install.sh pins them from (the VM's /models, bound)
+   local l=() x
+   # the box's flat folders (compose's JUDGE_MODEL_DIR, VERIFIER_MODEL_DIR defaults, the registry's template file,
+@@ -910,6 +929,7 @@
+       (umask 077; gcloud secrets versions access "$AVER" --secret="$ASEC" > "$ANSWERS.yaml" 2>/dev/null) && [ -s "$ANSWERS.yaml" ] \
+         || { STOP="no site answers in Secret Manager (tb-answers-secret, tb-answers-version)"; return 1; }
+     fi
++    need "the installer's host packages (python3-yaml: install.sh's anchors-compose and pre-start import yaml)" d_host_prereq || return 1
+     need "placing the site's weights in deploy/models" d_models_place || return 1
+     WATCH_IO=1 need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
+     rm -f "$ANSWERS.yaml"
