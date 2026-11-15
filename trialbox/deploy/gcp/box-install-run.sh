@@ -756,9 +756,11 @@ d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, sh
   ( umask 077; gcloud secrets versions access "$KVER" --secret="$KSEC" --out-file="$k/vendor.key" >/dev/null 2>&1 ) \
     || { echo "TB-NO-VENDOR-KEY: secret $KSEC version $KVER is not readable by this VM's service account"; return 3; }
   chmod 600 "$k/vendor.key"
-  (cd "$CK" && tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
+  (cd "$CK" && TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
      --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
 }
+# TB_TZ for make_bundle.sh: its compose call that lists the images renders the compose file with a staged .env that
+# names no TB_TZ, and the compose file requires one (T-656, ${TB_TZ:?}); it only lists images (tools/make_bundle.sh:104)
 d_sign_throwaway() {  # validation: a key made here, never the vendor key; only its public half leaves the VM
   local k
   k=$(mktemp -d "$SHM/tbk.XXXXXX") || return 1
@@ -768,7 +770,7 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   chmod 600 "$k/vendor_ed25519.key"
   cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
-  (cd "$CK" && tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
+  (cd "$CK" && TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
      --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom)
 }
 step_b_sign() {
