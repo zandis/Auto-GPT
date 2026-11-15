@@ -244,7 +244,7 @@ CONF_CRF: list[dict[str, str]] = [
     {"field_name": "tophus_site", "form_name": "baseline", "field_type": "text", "field_label": "Tophus site",
      "branching_logic": "[tophus] = '1'"},
     {"field_name": "joints", "form_name": "baseline", "field_type": "checkbox", "field_label": "Joints involved",
-     "select_choices_or_calculations": "1, Toe | 2, Ankle | 3, Knee"},
+     "select_choices_or_calculations": "1, Toe | 2, Ankle | 3, Knee | -99, Unknown"},  # -99: R2 reads REDCap's name
     {"field_name": "visit_dmy", "form_name": "baseline", "field_type": "text", "field_label": "Visit date (D-M-Y)",
      "text_validation_type_or_show_slider_number": "date_dmy"},
     {"field_name": "temp", "form_name": "baseline", "field_type": "text", "field_label": "Body temperature (°C)",

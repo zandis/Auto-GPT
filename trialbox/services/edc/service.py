@@ -35,6 +35,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import partial
 from typing import Any
 
 from datacore import forms
@@ -457,10 +458,6 @@ class EdcService:
                         why, text = "stale_map", "the item's map row changed since it was signed; not sent"
                     elif lf is None or forms.field_sha(lf) != want:
                         why, text = "dictionary_changed", "the REDCap dictionary entry changed since; not sent"
-                    elif lf.kind == "multi":
-                        # EDC-003: REDCap's flat format has one column per choice (`item___code`); a bare `item`
-                        # column makes it refuse the whole import. Held until the send writes those columns
-                        why, text = "format", "a checkbox item is not sent yet (REDCap takes one column per choice)"
                     elif forms.problem(lf, str(d["final"])) is not None:
                         p = forms.problem(lf, str(d["final"])) or {}
                         why, text = "format", "REDCap would refuse it: " + forms.reason(p, str(d["final"]))
@@ -616,6 +613,8 @@ class EdcService:
                         self.store.record_sent(rs, d, "redcap", rec, "attempt", ATTEMPT, by, at)
                         attempted += 1
                     # NEW-EDC-7 (EDC-007): one record REDCap refuses does not stop the others
+                    imports = {key: flat(row, live, partial(cur.held_at, key))  # NEW-EDC-3b: checkbox columns
+                               for key, row in imports.items()}  # fmt: skip
                     refused, first, unanswered = self._import(c, imports)
                     for d, rec, slot in planned:
                         if lay.key(rec, slot) in refused:
@@ -835,6 +834,7 @@ class EdcService:
         rid, at = str(target["id_field"]), self.stamp()
         erased: list[str] = []
         kept: list[dict[str, str]] = []
+        unread: list[str] = []  # erased, but the read-back was not blank
         try:
             with self.client(str(target["token_ref"])) as c:
                 lay = self._layout(c, rs, by, record)
@@ -860,7 +860,8 @@ class EdcService:
                         if d is not None:
                             self.store.record_sent(rs, {**d, "final": ""}, "redcap", rec, "attempt", ATTEMPT, by, at)
                     try:
-                        c.import_records([{**lay.import_row(rid, rec, slot), **dict.fromkeys(erased, "")}],
+                        c.import_records([flat({**lay.import_row(rid, rec, slot), **dict.fromkeys(erased, "")}, live,
+                                               lambda f: cur.held(rec, slot, f))],
                                          erase=True)  # fmt: skip
                     except RcError as exc:
                         if exc.refused:  # REDCap said no: nothing was erased, and the attempt is closed
@@ -883,6 +884,8 @@ class EdcService:
                         if d is None:  # pragma: no cover - last_written found a send, so its draft exists
                             continue
                         ok = back.value(rec, slot, f) == ""
+                        if not ok:  # NEW-EDC-3b review: what did not read back blank is not called erased
+                            unread.append(f)
                         self.store.record_sent(rs, {**d, "final": ""}, "redcap", rec, "erased" if ok else "readback",
                                                "hidden by REDCap's branching logic; erased" if ok else
                                                "the erase did not read back blank", by, at)  # fmt: skip
@@ -892,6 +895,8 @@ class EdcService:
         except EdcError as exc:
             self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "refused": exc.code})
             raise
+        kept += [{"item": f, "why": "erase_did_not_read_back"} for f in unread]
+        erased = [f for f in erased if f not in unread]
         self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "erased": erased,
                                                  "kept": [k["item"] for k in kept]})  # fmt: skip
         return {"erased": erased, "kept": kept}
@@ -1072,15 +1077,12 @@ class EdcService:
         itself last wrote there (NEW-EDC-2): a value TrialBox never wrote (an ``already_there`` is not TrialBox's),
         a value changed since, or a value of TrialBox's that a person cleared. What REDCap holds is read, never
         what the send is about to lay over it. A calculated or descriptive field is REDCap's own and is not judged;
-        a ticked checkbox column (``field___code``) is a person's (TrialBox never writes a checkbox, EDC-003)."""
-        row = cur.rows.get(cur.layout.key(rec, slot)) or {}
+        a checkbox is the codes ticked in its ``field___code`` columns (NEW-EDC-3b), judged as any value."""
         for f in cur.on_row(rec, slot):
             kind = str((cur.meta.get(f) or {}).get("field_type") or "")
             if kind in ("calc", "descriptive"):
                 continue
-            if any(str(c).startswith(f"{f}___") and str(v) == "1" for c, v in row.items()):
-                return True
-            there = str(row.get(f) or "")
+            there = cur.held(rec, slot, f)  # a checkbox is its ticked codes (NEW-EDC-3b): judged as any value
             att = self.store.open_attempt(rs, record, slot.visit, f)  # NEW-EDC-8: TrialBox's write, answer lost
             if att is not None and f in live and there and there == forms.redcap_value(live[f], att["value"]):
                 continue
@@ -1122,6 +1124,29 @@ PLACEMENT = {
 }
 #: the key columns of an import row
 KEY_COLS = {"redcap_event_name", "redcap_repeat_instrument", "redcap_repeat_instance"}
+
+
+def flat(row: dict[str, str], live: dict[str, Any], held: Callable[[str], str]) -> dict[str, str]:
+    """An import row in REDCap's flat form (NEW-EDC-3b, EDC-003): a checkbox item becomes its choices' columns, named
+    as REDCap names them (:func:`datacore.forms.checkbox_column`): ``1`` for each code chosen, and ``0`` only for a
+    code REDCap held ticked when the row was read (``held``, the field's codes then). A code neither chosen nor held
+    is not written: a box a person ticks after the read stays, and the read-back then differs (review F2). A blank (an
+    erase) is ``0`` for each code held, never a blank REDCap could read as "leave it". Every other column is as it
+    was."""
+    out: dict[str, str] = {}
+    for col, value in row.items():
+        f = live.get(col)
+        if f is None or f.kind != "multi":
+            out[col] = value
+            continue
+        chosen = {c.strip() for c in str(value).split(",") if c.strip()}
+        had = {c.strip() for c in held(col).split(",") if c.strip()}
+        for code in f.options:
+            if code in chosen:
+                out[forms.checkbox_column(col, code)] = "1"
+            elif code in had:
+                out[forms.checkbox_column(col, code)] = "0"
+    return out
 
 
 def _brief(d: dict[str, Any]) -> dict[str, Any]:

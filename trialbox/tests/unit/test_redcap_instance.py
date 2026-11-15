@@ -145,12 +145,12 @@ def test_one_command_runs_r1_to_r9_against_the_stand_in_and_writes_the_record(dr
 
 
 def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_than_redcap(dry: dict[str, Any]) -> None:
-    """EDC-001: the simulator takes values REDCap refuses, takes a bare checkbox column and refuses the ``___``
-    columns, has no locking, no rights per token and no log. NEW-EDC-1 makes it as strict; this list then shrinks,
-    on purpose."""
+    """EDC-001: the simulator takes values REDCap refuses, has no locking, no rights per token and no log. NEW-EDC-1
+    makes it as strict; this list then shrinks, on purpose. NEW-EDC-3b (D-803) made its checkbox REDCap's: a bare
+    column is refused, the ``___`` columns go in and come back, so R2 passes and R6 compares (the simulator computes
+    with TrialBox's own logic, so R6 says nothing of REDCap's until our instance runs it)."""
     rec = dry["record"]
-    assert rec["failed"] == ["R1 validation", "R2 checkbox", "R3 lock", "R4 rights", "R6 logic", "R7 auto-number",
-                             "R9 log"]  # fmt: skip
+    assert rec["failed"] == ["R1 validation", "R3 lock", "R4 rights", "R7 auto-number", "R9 log"]
     r1 = {(c["field"], c["value"]): c for c in rec["results"]["R1 validation"]["cases"]}
     lax = [f for (f, _v), c in r1.items() if c["redcap_must_refuse"] and not c["redcap_refused"]]
     assert lax == ["sex", "mh_gout", "weight", "brthdat", "visit_dmy"]  # the simulator took what REDCap refuses
@@ -159,11 +159,13 @@ def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_tha
     assert t37["redcap_refused"] and not t37["trialbox_refused"] and t37["trialbox_sends"] == "37.0"
     assert not r1[("temp", "37.0")]["redcap_refused"] and not r1[("visit_dmy", "2026-11-05")]["redcap_refused"]
     assert rec["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is True  # the lax batch
-    assert rec["results"]["R2 checkbox"]["bare_column"]["status"] == 200
+    r2 = rec["results"]["R2 checkbox"]  # NEW-EDC-3b: refused as REDCap refuses it; the three columns come back
+    assert r2["bare_column"]["status"] == 400 and r2["exported"] == {"joints___1": "1", "joints___2": "0",
+                                                                     "joints___3": "1", "joints____99": "0"}  # fmt: skip
     assert rec["results"]["R3 lock"]["not_run"] and rec["notes"]
     assert rec["results"]["R5 repeat and arms"]["rows_not_read_back_equal"] == []
-    r6 = rec["results"]["R6 logic"]  # the simulator refuses the ``___`` columns: nothing is compared, no "differ"
-    assert r6["not_compared"] and "differ" not in r6 and r6["expressions"] == 23
+    r6 = rec["results"]["R6 logic"]  # the ``___`` columns go in now (NEW-EDC-3b): each expression is compared
+    assert r6["pass"] and len(r6["cases"]) == 23 and all(c["equal"] for c in r6["cases"])
     r7 = rec["results"]["R7 auto-number"]  # the ids parse, but the stand-in cannot run the two halves
     assert r7["no_group"]["ids_parse"] and len(r7["not_run"]) == 2
     assert len(r7["no_group"]["records_with_that_number_after_a_blind_retry"]) == 2  # why the link looks up first

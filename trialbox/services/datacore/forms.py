@@ -405,11 +405,25 @@ def reason(p: dict[str, str], value: str = "") -> str:
                                                       places=p.get("places", ""), code=p["code"])  # fmt: skip
 
 
+def checkbox_column(field: str, code: str) -> str:
+    """REDCap's column of one choice of a checkbox (NEW-EDC-3b, review F1): ``field___`` and the code lowercased,
+    ``-`` and ``.`` written ``_`` (``Unknown, -99`` is ``field____99``; ``A`` is ``field___a``)."""
+    return f"{field}___{code.lower().replace('-', '_').replace('.', '_')}"
+
+
+def checkbox_code(f: Field, column: str) -> str | None:
+    """The choice of ``f`` whose REDCap column is ``column`` (None: no choice of the field)."""
+    return next((c for c in f.options if checkbox_column(f.name, c) == column), None)
+
+
 def redcap_value(f: Field, value: str) -> str:
     """A value that passes :func:`problem`, written the way REDCap's import takes it for the field's validation
     (STD-061): ``number_1dp`` gets exactly one decimal place (``72`` -> ``72.0``, never rounded), a decimal-comma type
     gets the comma. REDCap refuses a whole import batch on one value in another format."""
     v = f.validation
+    if f.kind == "multi" and value:  # NEW-EDC-3b: the codes chosen, once each, in the field's choice order
+        chosen = {c.strip() for c in value.split(",") if c.strip()}
+        return ",".join(c for c in f.options if c in chosen)
     if f.kind != "decimal" or not value:
         return value
     out = value.replace(",", ".", 1)
