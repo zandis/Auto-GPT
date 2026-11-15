@@ -343,6 +343,7 @@ def test_the_validation_sites_answers_make_a_validation_box_through_the_real_wiz
     settings_wizard.write(settings, env, tmp_path / "settings.yaml", tmp_path / ".env")
     lines = (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
     assert "TB_ENV=VALIDATION" in lines and "TB_MAIL_PER_RECIPIENT_PER_DAY=0" in lines
+    assert "TB_JOBS_PER_SENDER_PER_DAY=0" in lines, "the declared daily job limit lifted for the run (D-775)"
     assert any(x.startswith("TB_MAIL_AUTHSERV_ID=mx.") for x in lines), "the mail intake can authenticate a sender"
     assert settings["reviewers"] and settings["allowlist"]["senders"]
     assert "password" not in json.dumps(answers).lower(), "no secret in the committed answers"

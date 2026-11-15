@@ -12,6 +12,10 @@ envname=$(sed -n 's/^ *TB_ENV: *//p' "$ans" | tr -d "\"' ")
 mkdir -p "$BR_S/feed" "$BR_S/box-root/deploy"
 printf 'POSTGRES_PASSWORD=made-by-install\nTB_SOURCE_DIR=%s\nTB_SOURCE_MOUNT=/data/source/site-a\nTB_TZ=Asia/Taipei\n' "$BR_S/feed" > "$BR_S/box-root/deploy/.env"
 [ -z "$envname" ] || echo "TB_ENV=$envname" >> "$BR_S/box-root/deploy/.env"
+# the other declared settings of env_extra (the run's limits, D-775), and the MTA's id (mta_authserv_id, D-825)
+sed -n 's/^  \(TB_[A-Z_]*\): *"\{0,1\}\([^"]*\)"\{0,1\}$/\1=\2/p' "$ans" | grep -v '^TB_ENV=' >> "$BR_S/box-root/deploy/.env"
+auth=$(sed -n 's/^mta_authserv_id: *//p' "$ans" | tr -d "\"' ")
+[ -z "$auth" ] || echo "TB_MAIL_AUTHSERV_ID=$auth" >> "$BR_S/box-root/deploy/.env"
 grep -q '^TB_ENV=' "$BR_S/box-root/deploy/.env" || echo "TB_ENV=PRODUCTION" >> "$BR_S/box-root/deploy/.env"
 printf 'site: {id: ACC-VALIDATION}\nrate_limit_per_sender_per_day: 20\n' > "$BR_S/box-root/deploy/settings.yaml"
 python3 "$BR_HERE/standins/box.py" wizard-done

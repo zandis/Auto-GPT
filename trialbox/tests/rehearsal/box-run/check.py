@@ -402,11 +402,13 @@ if case in ("acc", "acc-preempt", "acc-blocked"):
     )
     st_ = parts["51-acc-settings"]["detail"]
     ok(
-        st_["limits"]["after"]["rate_limits_per_day"] == {"FEAS": 0, "SCREEN": 0}
+        st_["limits"]["after"]["jobs_per_sender_per_day"] == "0"
         and st_["limits"]["after"]["mail_per_recipient_per_day"] == "0"
-        and st_["limits"]["before"]["rate_limits_per_day"] == {},
-        "51: the site's daily limits off for the run, recorded before and after",
+        and st_["limits"]["before"]["jobs_per_sender_per_day"] == "0"
+        and "acc-limits" not in calls,
+        "51: the declared limit settings (D-775) off from the install's answers, recorded; settings.yaml untouched",
     )
+    ok("own" in st_["authserv"], "51: the box's own MTA id from the answers (D-825), not the run's")
     if case == "acc-preempt":  # the driver's default for a validation run: the declared setting turns it off
         ok(st_["tripwire"] == "set by the declared setting TB_GATEWAY_PHI_TRIPWIRE=off", "51: the tripwire off, said")
         ok(st_["limits"]["environment"] == "VALIDATION", "51: the box's environment after the change")

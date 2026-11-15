@@ -73,6 +73,7 @@ def cmd_env(_: dict[str, Any]) -> None:
             "rate_limit_per_sender_per_day": st.rate_limit_per_sender_per_day,
             "rate_limits_per_day": dict(st.rate_limits_per_day or {}),
             "mail_per_recipient_per_day": os.environ.get("TB_MAIL_PER_RECIPIENT_PER_DAY", ""),
+            "jobs_per_sender_per_day": os.environ.get("TB_JOBS_PER_SENDER_PER_DAY", ""),
             "tripwire_settings": {k: os.environ.get(k, "") for k in DECLARED if "TRIPWIRE" in k},
             "data_class": os.environ.get("TB_DATA_CLASS", ""),
         }

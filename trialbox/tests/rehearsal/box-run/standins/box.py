@@ -454,7 +454,8 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
         print(json.dumps({"environment": _env_of_box(), "senders": ["crc1@hospa.test"], "reviewers": ["pi@hospa.test"],
                           "intake": "trialbox@hospa.test", "authserv": "mx.acc.invalid", "require_spf_dkim": True,
                           "rate_limit_per_sender_per_day": 20, "rate_limits_per_day": lim,
-                          "mail_per_recipient_per_day": "0" if lim else "",
+                          "mail_per_recipient_per_day": _env_val("TB_MAIL_PER_RECIPIENT_PER_DAY"),
+                          "jobs_per_sender_per_day": _env_val("TB_JOBS_PER_SENDER_PER_DAY"),
                           "tripwire_settings": {"TB_GATEWAY_PHI_TRIPWIRE": _env_val("TB_GATEWAY_PHI_TRIPWIRE")},
                           "data_class": ""}))  # fmt: skip
         return 0

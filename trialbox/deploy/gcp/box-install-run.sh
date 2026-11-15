@@ -52,10 +52,10 @@
 #   acc    the public accuracy run on the installed box (public-accuracy-run-plan.md, Run A by default; the sets of
 #          tb-acc-sets, "name:size" each), lane G's tools from tb-acc-tools (a git archive at the driver's commit):
 #     50-acc-tools     the tools unpacked on the VM (never into the box)
-#     51-acc-settings  the site settings the run needs, each recorded before and after: settings.yaml
-#                      rate_limits_per_day {FEAS: 0, SCREEN: 0} (a site's own per-type limit, 0 = none:
-#                      deploy/settings.example.yaml), TB_MAIL_PER_RECIPIENT_PER_DAY=0 (declared), TB_MAIL_AUTHSERV_ID
-#                      when the box has none (the hospital MTA's id: a box made by the wizard has no mail); the
+#     51-acc-settings  the site settings the run needs, each recorded before and after: the declared
+#                      TB_JOBS_PER_SENDER_PER_DAY=0 (D-775) and TB_MAIL_PER_RECIPIENT_PER_DAY=0 (the answers' env_extra
+#                      sets both; a box without them gets them here), TB_MAIL_AUTHSERV_ID only when the box has none
+#                      (the answers' mta_authserv_id writes it, D-825); the
 #                      tripwire: tb-acc-tripwire-setting NAME=VALUE only when NAME is a declared setting of this
 #                      tree, else it stays on and the record says so. Then the stack recreated on them
 #     52-acc-routes    would the box route the compile's and the screen's calls in its environment (the gateway's own
@@ -1249,21 +1249,6 @@ acc_call() {  # acc_call <service> <onbox command> [JSON argument]
 envset_box() { sed -i "/^$1=/d" "$BOXROOT/deploy/.env" && printf '%s=%s\n' "$1" "$2" >> "$BOXROOT/deploy/.env"; }
 acc_compile_only() { case "$1" in tfda|jrct|chia) return 0 ;; *) return 1 ;; esac; }   # as plan.RUN_A's screen=False
 acc_fetch_set() { case "$1" in trec2023) echo trec ;; *) echo "$1" ;; esac; }          # as plan.RUN_A's fetch
-# the site's own daily limits for the run: rate_limits_per_day FEAS 0 and SCREEN 0 (0 = no limit,
-# deploy/settings.example.yaml), checked by the settings wizard as the services check it at start
-ACC_LIMITS='
-import yaml
-p = "/d/settings.yaml"
-text = open(p, encoding="utf-8").read()
-head = "".join(x for x in text.splitlines(True) if x.startswith("#"))
-doc = yaml.safe_load(text) or {}
-before = dict(doc.get("rate_limits_per_day") or {})
-doc["rate_limits_per_day"] = {**before, "FEAS": 0, "SCREEN": 0}
-open(p, "w", encoding="utf-8").write(head + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False))
-print({"before": before, "after": doc["rate_limits_per_day"]})
-'
-d_limits() { docker run --rm --network none --user 0 -v "$BOXROOT/deploy:/d" "$(img_py)" sh -c \
-  "python -c '$ACC_LIMITS' && python -m tools.settings_wizard --check /d/settings.yaml"; }
 step_acc_tools() {
   rm -rf "${ACCT:?}"; mkdir -p "$ACCT" "$ACC"
   need "fetching lane G's accuracy tools (tb-acc-tools)" fetch "$ACC_TOOLS" "$TB/acc-tools.tgz" || return 1
@@ -1275,14 +1260,19 @@ first_of() { "$PY" -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.a
 step_acc_settings() {
   local name
   acc_call mail-gateway env > "$REC/acc-settings-before.json" || { STOP="the box's settings cannot be read (onbox env)"; return 1; }
-  need "the site's daily limits for the run (settings.yaml rate_limits_per_day FEAS 0, SCREEN 0)" d_limits || return 1
-  envset_box TB_MAIL_PER_RECIPIENT_PER_DAY 0
-  [ -n "$(envget TB_MAIL_AUTHSERV_ID)" ] || envset_box TB_MAIL_AUTHSERV_ID "$ACC_AUTHSERV"
+  # the product's own declared settings for the run's limits (D-775, and the mail one): the answers' env_extra sets
+  # both at install; a box without them gets them here. Recorded before and after.
+  [ "$(envget TB_JOBS_PER_SENDER_PER_DAY)" = 0 ] || envset_box TB_JOBS_PER_SENDER_PER_DAY 0
+  [ "$(envget TB_MAIL_PER_RECIPIENT_PER_DAY)" = 0 ] || envset_box TB_MAIL_PER_RECIPIENT_PER_DAY 0
+  # the hospital MTA's id: the answers' mta_authserv_id (D-825) writes it; only a box with none gets the run's
+  if [ -n "$(envget TB_MAIL_AUTHSERV_ID)" ]; then note authserv '"the box'"'"'s own (answers: mta_authserv_id)"'
+  else envset_box TB_MAIL_AUTHSERV_ID "$ACC_AUTHSERV"; note authserv "\"set by the run: $ACC_AUTHSERV\""; fi
   if [ -n "$ACC_TRIPWIRE" ]; then   # only a setting this tree declares (tb_common.config.DECLARED), never a code change
     name=${ACC_TRIPWIRE%%=*}
     if "$PY" -c 'import json,sys; sys.exit(0 if sys.argv[2] in (json.load(open(sys.argv[1])).get("tripwire_settings") or {}) else 1)' \
          "$REC/acc-settings-before.json" "$name"; then
       envset_box "$name" "${ACC_TRIPWIRE#*=}"; note tripwire "\"set by the declared setting $ACC_TRIPWIRE\""
+      note tripwire_env "\"$name=$(envget "$name")\""
     else
       note tripwire "\"on: $name is not a declared setting of this tree (asked: $ACC_TRIPWIRE)\""
     fi
@@ -1296,7 +1286,7 @@ step_acc_settings() {
   { [ -n "$(st kv _ acc_sender)" ] && [ -n "$(st kv _ acc_reviewer)" ]; } || { STOP="the box's settings name no sender or no reviewer"; return 1; }
   note limits "$("$PY" -c 'import json,sys
 b, a = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
-k = ("rate_limit_per_sender_per_day", "rate_limits_per_day", "mail_per_recipient_per_day", "authserv")
+k = ("rate_limit_per_sender_per_day", "rate_limits_per_day", "jobs_per_sender_per_day", "mail_per_recipient_per_day", "authserv")
 print(json.dumps({"before": {x: b.get(x) for x in k}, "after": {x: a.get(x) for x in k}, "environment": a.get("environment")}))' \
     "$REC/acc-settings-before.json" "$REC/acc-settings-after.json")"
 }
