@@ -4,11 +4,25 @@ The box run is lane G's main paid line (R2 and plan v7 §7.1 G-2, G-6, G-9, G-10
 runner VM with the vendor key from Secret Manager, then the shipped box installed from it on the GPU VM by the real
 installer, and every test run on that installed box (deploy/gcp/box-install-run.sh does the work on the VM).
 
-    python -m tools.box_run estimate --steps build,start,g6,g9,g10 [--json]
+    python -m tools.box_run estimate --steps build,start,g6,g9,g10,acc [--mode M] [--only SETS] [--json]
     python -m tools.box_run settings                       # the declared settings, as shell lines
-    python -m tools.box_run metadata --steps ... --out DIR [--set key=value ...]   # one file per metadata key
+    python -m tools.box_run metadata --steps ... --out DIR [--mode M] [--only SETS] [--set key=value ...]
+    python -m tools.box_run acc-tools --out FILE.tgz       # lane G's accuracy tools at HEAD, for the VM
     python -m tools.box_run results RESULTS.tgz|DIR [--out DIR]   # summary.json and report.md: checks per test,
                                                                  # and what every result names (provenance)
+    python -m tools.box_run acc-score DIR                  # each accuracy set's answers against its gold, here
+
+Modes (``--mode``): ``production`` (the default) builds with the vendor key from Secret Manager and starts the box
+the box's way (box-install.sh and the first-run wizard: a PRODUCTION box). ``validation`` (the owner's ruling of
+2026-11-15, a proof of concept) builds the same bundle from the same commit but signs it with a THROWAWAY key made
+on the runner VM (never the vendor key: the bundle is not a release, and every result says so), places that key's
+public half on the box, and installs with deploy/install.sh and a synthetic site's answers that make the box
+``TB_ENV=VALIDATION`` (``env_extra``): newest prompts served, D2 ceiling, champions only (see
+``first-accuracy-run`` notes and the defects the runbook lists).
+
+The ``acc`` group (the public accuracy run on the installed box, Run A of public-accuracy-run-plan.md by default;
+``--only`` takes some of its sets, ``name`` or ``name:size``) is costed from the plan's own derivation
+(:mod:`tools.public_accuracy.plan`), low and high, with its sources.
 
 The estimate says where each figure comes from: ``measured`` (a run named), ``constant`` (a driver constant with its
 reason), ``plan`` (a plan's own estimate) or ``unknown`` (nothing measured: the cap bounds it). It never invents a
@@ -50,14 +64,107 @@ GROUP_CAP_HOURS = {
     "g9": 2,  # two 50k screens (measured 725 s each, thin profile) + four interruptions of at most 20 min each
     "g10": 2,  # an update and a canary and a qualification: none measured
 }
-GROUPS = ("build", "start", "g6", "g9", "g10")
+GROUPS = ("build", "start", "g6", "g9", "g10", "acc")
+MODES = ("production", "validation")
+# The acc group's cap: the plan's high bound of the sets chosen x 1.3 (the complete run's cap rule), whole hours
+ACC_CAP_FACTOR = 1.3
+# The paths of lane G's accuracy tools the VM needs (acc-tools): the package, the two tools it imports, and the
+# committed TrialGPT criterion labels SIGIR's reader joins (eval/criterion_ml, public domain notice)
+ACC_TOOL_PATHS = (
+    "tools/__init__.py",
+    "tools/public_accuracy",
+    "tools/public_site.py",
+    "tools/fetch_pinned.py",
+    "eval/criterion_ml",
+)
 
 
-def row(group: str, what: str, seconds: float | None, kind: str, source: str) -> dict[str, Any]:
-    return {"group": group, "step": what, "seconds": seconds, "kind": kind, "source": source}
+def acc_sets(only: str = "") -> list[tuple[str, int]]:
+    """The accuracy sets of a run: Run A in its order, or ``only`` (``name`` or ``name:size``, comma-separated) in
+    Run A's order. Sizes default to Run A's."""
+    from tools.public_accuracy import plan
+
+    if not only.strip():
+        return [(a.name, a.size) for a in plan.RUN_A]
+    want: dict[str, int] = {}
+    for item in only.replace(" ", ",").split(","):
+        if not item:
+            continue
+        name, _, size = item.partition(":")
+        a = plan.acc_set(name)
+        try:
+            want[name] = int(size) if size else a.size
+        except ValueError as exc:
+            raise ValueError(f"--only {item}: the size is a number of pairs, trials or items") from exc
+        if want[name] < 1:
+            raise ValueError(f"--only {item}: a size of at least 1")
+    return [(a.name, want[a.name]) for a in plan.RUN_A if a.name in want]
 
 
-def rows_for(group: str, with_g6: bool) -> list[dict[str, Any]]:
+def acc_cap_hours(sets: list[tuple[str, int]]) -> int:
+    """The acc group's cap: the high bound of its sets (scaled to the chosen sizes) x ACC_CAP_FACTOR, whole hours."""
+    import math
+
+    from tools.public_accuracy import plan
+
+    high = 0.0
+    for name, size in sets:
+        a = plan.acc_set(name)
+        high += plan.acc_hours(a)["hours_high"] * size / a.size
+    return max(1, math.ceil(high * ACC_CAP_FACTOR))
+
+
+def group_cap(group: str, sets: list[tuple[str, int]] | None = None) -> int:
+    return acc_cap_hours(sets if sets is not None else acc_sets()) if group == "acc" else GROUP_CAP_HOURS[group]
+
+
+def row(
+    group: str, what: str, seconds: float | None, kind: str, source: str, high: float | None = None
+) -> dict[str, Any]:
+    """One estimate row; ``seconds`` is the low bound and ``seconds_high`` the high one (the same when one figure)."""
+    return {
+        "group": group,
+        "step": what,
+        "seconds": seconds,
+        "seconds_high": seconds if high is None else high,
+        "kind": kind,
+        "source": source,
+    }
+
+
+def acc_rows(sets: list[tuple[str, int]]) -> list[dict[str, Any]]:
+    """The acc group's rows: one per set, low and high from the plan's derivation, scaled to the chosen size."""
+    from tools.complete_run import SINGLE_CALL_CPS
+    from tools.public_accuracy import plan
+
+    rates = (
+        f"rates: compile one call at a time {SINGLE_CALL_CPS}/s, screen {plan.SCREEN_CPS_16}/s at 16 in flight (lane "
+        "G's serving of 2026-11-13, superseded: an order of magnitude); box "
+        f"{plan.BOX_S_PER_PROTOCOL_DRYRUN} s a protocol (in-process dry run)"
+    )
+    out = [
+        row("acc", "tools, site settings, routes probe, fetch, build, one ingest", None, "unknown", "-"),
+    ]
+    for name, size in sets:
+        a = plan.acc_set(name)
+        h = plan.acc_hours(a)
+        k = size / a.size
+        out.append(
+            row(
+                "acc",
+                f"{name}: {a.title}" + ("" if size == a.size else f", at {size} of {a.size}"),
+                round(h["hours_low"] * 3600 * k, 1),
+                "plan",
+                f"{plan.RUN_A_SOURCE}; {rates}",
+                high=round(h["hours_high"] * 3600 * k, 1),
+            )
+        )
+    return out
+
+
+def rows_for(
+    group: str, with_g6: bool, mode: str = "production", sets: list[tuple[str, int]] | None = None
+) -> list[dict[str, Any]]:
     """The estimate's rows of one group of steps, each with its source."""
     boot = row(
         group,
@@ -82,11 +189,23 @@ def rows_for(group: str, with_g6: bool) -> list[dict[str, Any]]:
             row(group, "b06 verify_update.py, release record", None, "unknown", "-"),
             row(group, "b07 upload ~12 GB to the bucket", None, "unknown", "-"),
         ]
+    if group == "acc":
+        return acc_rows(sets if sets is not None else acc_sets())
     if group == "start":
+        install = (
+            "02 installer (install.sh --answers: a VALIDATION box, images loaded, stack up)"
+            if mode == "validation"
+            else "02 installer (prepare: images loaded, stack up)"
+        )
+        wizard = (
+            "03 the box says VALIDATION (deploy/.env)"
+            if mode == "validation"
+            else "03 first run (wizard, apply, restart)"
+        )
         return [
             boot,
             row(group, "01 fetch the bundle, sha256, manifest", None, "unknown", "-"),
-            row(group, "02 installer (prepare: images loaded, stack up)", None, "unknown", "-"),
+            row(group, install, None, "unknown", "-"),
             row(
                 group,
                 "  of which the model servers ready",
@@ -94,7 +213,7 @@ def rows_for(group: str, with_g6: bool) -> list[dict[str, Any]]:
                 "measured",
                 FIT + ": judge 117 s + verifier 82 s",
             ),
-            row(group, "03 first run (wizard, apply, restart)", None, "unknown", "-"),
+            row(group, wizard, None, "unknown", "-"),
             row(group, "04-06 pin, serving record, G-1 identity", None, "unknown", "-"),
             row(group, "07 pair canary", 123.8, "measured", CANARY + ": 54 cases, judge 123.8 s"),
             row(group, "08 trialbox eval qualify (full)", None, "unknown", "never run on real weights"),
@@ -145,31 +264,38 @@ def rows_for(group: str, with_g6: bool) -> list[dict[str, Any]]:
     ]
 
 
-def estimate(groups: list[str]) -> dict[str, Any]:
-    """Per launch: the known seconds (with sources), the cap, US$ spot and on demand at the known part and at the cap.
-    ``build`` is its own launch (another service account); start, g6, g9, g10 are one launch."""
+def estimate(groups: list[str], mode: str = "production", only: str = "") -> dict[str, Any]:
+    """Per launch: the known seconds (with sources; low and high where a row has both), the cap, US$ spot and on
+    demand at the known part and at the cap. ``build`` is its own launch (another service account, or the throwaway
+    key in validation mode); start, g6, g9, g10 and acc are one launch."""
     bad = [g for g in groups if g not in GROUPS]
     if bad:
         raise ValueError(f"unknown step groups {bad}: one or more of {', '.join(GROUPS)}")
+    if mode not in MODES:
+        raise ValueError(f"unknown mode {mode!r}: one of {', '.join(MODES)}")
+    sets = acc_sets(only)
     launches = [["build"]] if "build" in groups else []
     box = [g for g in GROUPS[1:] if g in groups]
     if box:
         launches.append(box)
     out: list[dict[str, Any]] = []
     for gs in launches:
-        rows = [r for g in gs for r in rows_for(g, "g6" in gs)]
+        rows = [r for g in gs for r in rows_for(g, "g6" in gs, mode, sets)]
         if gs != ["build"]:  # one VM start for the launch
             rows = [r for i, r in enumerate(rows) if r["step"] != "VM start" or i == 0]
         known = sum(r["seconds"] or 0 for r in rows) / 3600
-        cap = sum(GROUP_CAP_HOURS[g] for g in gs)
+        known_high = sum(r["seconds_high"] or 0 for r in rows) / 3600
+        cap = sum(group_cap(g, sets) for g in gs)
         out.append(
             {
                 "groups": gs,
                 "rows": rows,
                 "known_hours": round(known, 2),
+                "known_hours_high": round(known_high, 2),
                 "unknown_steps": [r["step"] for r in rows if r["seconds"] is None],
                 "cap_hours": cap,
                 "usd_known_spot": round(known * PRICE_PER_HOUR, 2),
+                "usd_known_high_spot": round(known_high * PRICE_PER_HOUR, 2),
                 "usd_cap_spot": round(cap * PRICE_PER_HOUR, 2),
                 "usd_cap_on_demand": round(cap * ON_DEMAND_PRICE_PER_HOUR, 2),
             }
@@ -180,6 +306,8 @@ def estimate(groups: list[str]) -> dict[str, Any]:
         "usd_cap_on_demand": round(sum(x["usd_cap_on_demand"] for x in out), 2),
     }
     return {
+        "mode": mode,
+        "acc_sets": [{"set": n, "size": z} for n, z in sets] if "acc" in groups else [],
         "price_per_hour_spot": PRICE_PER_HOUR,
         "price_per_hour_on_demand": ON_DEMAND_PRICE_PER_HOUR,
         "launches": out,
@@ -190,15 +318,30 @@ def estimate(groups: list[str]) -> dict[str, Any]:
 def render_estimate(e: dict[str, Any]) -> str:
     lines = [
         f"Prices: g4-standard-48 + RTX PRO 6000, spot US${e['price_per_hour_spot']}/h, on demand "
-        f"US${e['price_per_hour_on_demand']}/h (tools/complete_run.py)."
+        f"US${e['price_per_hour_on_demand']}/h (tools/complete_run.py). Mode: {e.get('mode', 'production')}."
     ]
     for x in e["launches"]:
-        lines += ["", f"Launch: {' + '.join(x['groups'])}", f"  {'step':58} {'seconds':>9}  source"]
+        lines += ["", f"Launch: {' + '.join(x['groups'])}", f"  {'step':58} {'seconds':>15}  source"]
         for r in x["rows"]:
-            s = "unknown" if r["seconds"] is None else f"{r['seconds']:.0f}"
-            lines.append(f"  {r['step'][:58]:58} {s:>9}  {r['kind']}: {r['source']}")
+            if r["seconds"] is None:
+                s = "unknown"
+            elif r["seconds_high"] != r["seconds"]:
+                s = f"{r['seconds']:.0f}-{r['seconds_high']:.0f}"
+            else:
+                s = f"{r['seconds']:.0f}"
+            lines.append(f"  {r['step'][:58]:58} {s:>15}  {r['kind']}: {r['source']}")
+        span = (
+            f"{x['known_hours']} h"
+            if x["known_hours_high"] == x["known_hours"]
+            else f"{x['known_hours']} to {x['known_hours_high']} h"
+        )
+        usd = (
+            f"US${x['usd_known_spot']}"
+            if x["known_hours_high"] == x["known_hours"]
+            else f"US${x['usd_known_spot']} to US${x['usd_known_high_spot']}"
+        )
         lines.append(
-            f"  known part {x['known_hours']} h (US${x['usd_known_spot']} spot); {len(x['unknown_steps'])} step(s) "
+            f"  known part {span} ({usd} spot); {len(x['unknown_steps'])} step(s) "
             f"unmeasured, bounded by the cap: {x['cap_hours']} h = US${x['usd_cap_spot']} spot / "
             f"US${x['usd_cap_on_demand']} on demand"
         )
@@ -222,9 +365,14 @@ def settings() -> dict[str, str]:
     }
 
 
-def metadata(groups: list[str], values: dict[str, str], out: Path) -> list[str]:
+def metadata(
+    groups: list[str], values: dict[str, str], out: Path, mode: str = "production", only: str = ""
+) -> list[str]:
     """One file per metadata key (gcloud --metadata-from-file: a value may hold commas and spaces). Refuses a value
-    that looks like a key: the metadata holds names and versions, never a secret."""
+    that looks like a key: the metadata holds names and versions, never a secret. In validation mode the build needs
+    no vendor key (a throwaway one is made on the VM) and the start takes that key's public half."""
+    if mode not in MODES:
+        raise ValueError(f"unknown mode {mode!r}: one of {', '.join(MODES)}")
     must = {
         "build": (
             "tb-src",
@@ -239,7 +387,11 @@ def metadata(groups: list[str], values: dict[str, str], out: Path) -> list[str]:
         "g6": ("tb-study",),
         "g9": ("tb-study",),
         "g10": ("tb-g10-vllm-image",),
+        "acc": ("tb-acc-tools",),
     }
+    if mode == "validation":  # no vendor key; the synthetic site's answers ride as tb-site-answers (box-run.sh)
+        must["build"] = ("tb-src", "tb-commit", "tb-release-id", "tb-release-seq", "tb-out")
+        must["start"] = ("tb-bundle", "tb-bundle-sha256", "tb-vendor-pub")
     missing = sorted({k for g in groups for k in must[g] if not values.get(k)})
     if missing:
         raise ValueError(f"missing for {','.join(groups)}: {', '.join(missing)}")
@@ -247,12 +399,16 @@ def metadata(groups: list[str], values: dict[str, str], out: Path) -> list[str]:
         if "PRIVATE KEY" in v or "BEGIN " in v:
             raise ValueError(f"{k}: a key in the metadata is refused (Secret Manager, by name)")
     out.mkdir(parents=True, exist_ok=True)
+    sets = acc_sets(only)
     vals = {
         **values,
+        "tb-mode": mode,
         "tb-steps": " ".join(g for g in GROUPS if g in groups),
-        "tb-max-minutes": str(sum(GROUP_CAP_HOURS[g] for g in groups) * 60 - 5),
+        "tb-max-minutes": str(sum(group_cap(g, sets) for g in groups) * 60 - 5),
     }
-    if "build" in groups:
+    if "acc" in groups:
+        vals["tb-acc-sets"] = " ".join(f"{n}:{z}" for n, z in sets)
+    if "build" in groups and mode == "production":
         vals.setdefault("tb-vendor-key-secret", settings()["KEY_SECRET"])
     names = []
     for k, v in sorted(vals.items()):
@@ -269,8 +425,9 @@ def _load(d: Path, rel: str) -> Any:
         return None
 
 
-def results(d: Path) -> dict[str, Any]:
-    """What a box run's results say: per test its checks (from the parts), and what every result names."""
+def results(d: Path, scored: Path | None = None) -> dict[str, Any]:
+    """What a box run's results say: per test its checks (from the parts), and what every result names. ``scored``:
+    the folder whose ``acc/<set>/score.json`` the accuracy sets were scored into (acc-score, outside the box)."""
     state = _load(d, "state.json") or {}
     parts = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in sorted((d / "parts").glob("*.json"))}
     rec = (
@@ -290,7 +447,13 @@ def results(d: Path) -> dict[str, Any]:
     b06 = (parts.get("b06-verify") or {}).get("detail") or {}
     bundle = b01 or b06
     identity = rec.get("identity.json") or {}
+    mode = str(b01.get("mode") or b06.get("mode") or (rec.get("bundle.json") or {}).get("mode") or "production")
+    routes = rec.get("acc-routes.json") or {}
+    acc_settings = (parts.get("51-acc-settings") or {}).get("detail") or {}
     provenance = {
+        "mode": mode,
+        # validation mode: the bundle is signed with a throwaway key made on the runner VM: it is NOT a release
+        "not_a_release": bool((rec.get("bundle.json") or {}).get("not_a_release") or b01.get("not_a_release")),
         "commit": (bundle.get("release") or {}).get("commit"),
         "bundle_id": bundle.get("bundle_id"),
         "release_seq": bundle.get("release_seq"),
@@ -301,6 +464,11 @@ def results(d: Path) -> dict[str, Any]:
         "weight_manifests": (identity.get("weights") or {}).get("expected"),
         "chat_template_sha256": (identity.get("chat_template") or {}).get("served_sha256"),
         "served_prompts": identity.get("served_prompts"),
+        "environment": routes.get("environment"),
+        "served_prompts_in_environment": routes.get("served_prompts"),
+        "embedder_in_screen": routes.get("embedder"),
+        "tripwire": acc_settings.get("tripwire"),
+        "limits": acc_settings.get("limits"),
     }
     tests: dict[str, list[dict[str, Any]]] = {}
     if any(k.startswith("b0") for k in parts):
@@ -332,7 +500,7 @@ def results(d: Path) -> dict[str, Any]:
         ]
     if "01-bundle" in parts:
         doc = (parts.get("12-doctor") or {}).get("detail") or {}
-        tests["G-2 production start"] = [
+        tests[f"G-2 {mode} start"] = [
             check(
                 "no stop in steps 01 to 12 (no shell beyond the installer)",
                 not [s for s in stops if s["step"][:2] < "13"],
@@ -340,8 +508,12 @@ def results(d: Path) -> dict[str, Any]:
             ),
             check("the bundle as PRODUCTION reads it", b01.get("refused") == [], b01.get("refused")),
             check(
-                "the wizard answered through the console's page",
-                ((parts.get("03-wizard") or {}).get("detail") or {}).get("wizard") == "done",
+                "the box says VALIDATION (deploy/.env, after install.sh --answers)"
+                if mode == "validation"
+                else "the wizard answered through the console's page",
+                ((parts.get("03-wizard") or {}).get("detail") or {}).get("environment") == "VALIDATION"
+                if mode == "validation"
+                else ((parts.get("03-wizard") or {}).get("detail") or {}).get("wizard") == "done",
             ),
             check(
                 "G-1 identity: template, image digests, weights, prompts as pinned",
@@ -351,7 +523,7 @@ def results(d: Path) -> dict[str, Any]:
             check("pair canary", (parts.get("07-canary") or {}).get("pass")),
             check("qualification record passed", ((rec.get("qualification.json") or {}).get("passed")) is True),
             check(
-                "PRODUCTION resolves to the promoted builds",
+                f"{'VALIDATION' if mode == 'validation' else 'PRODUCTION'} resolves to the promoted builds",
                 ((parts.get("11-resolve") or {}).get("detail") or {}).get("production_resolves_promoted") is True,
             ),
             check(
@@ -393,6 +565,10 @@ def results(d: Path) -> dict[str, Any]:
             check("canary", (parts.get("42-g10-canary") or {}).get("pass")),
             check("qualify", (parts.get("43-g10-qualify") or {}).get("pass")),
         ]
+    if part("acc-"):
+        tests["Public accuracy on the installed box (scores: acc-score, outside the box)"] = acc_checks(
+            scored, parts, routes
+        )
     return {
         "ended": state.get("ended"),
         "steps": len(parts),
@@ -401,6 +577,38 @@ def results(d: Path) -> dict[str, Any]:
         "tests": tests,
         "minutes": {k: v.get("minutes") for k, v in parts.items()},
     }
+
+
+def acc_checks(d: Path | None, parts: dict[str, Any], routes: dict[str, Any]) -> list[dict[str, Any]]:
+    """Per accuracy set: what the box did with its protocols. A protocol the gateway's PHI tripwire refused is counted
+    as such (a product defect count), never dropped; the score itself is acc-score's (outside the box)."""
+    out = [
+        {
+            "check": "the box routes the compile and the screen in its environment (judge, verifier, compiler)",
+            "pass": routes.get("routes_ok"),
+            "detail": routes.get("routes"),
+        }
+    ]
+    for k, v in sorted(parts.items()):
+        if not k[3:].startswith("acc-") or k[3:] in ("acc-tools", "acc-settings", "acc-routes", "acc-data",
+                                                         "acc-ingest", "acc-result"):  # fmt: skip
+            continue
+        det = v.get("detail") or {}
+        counts = det.get("counts") or {}
+        score = (_load(d, f"acc/{k[7:]}/score.json") if d is not None else None) or {}
+        out.append(
+            {
+                "check": f"{k[7:]}: every protocol compiled, approved and screened (compiled only: a compile-only set)",
+                "pass": v.get("pass"),
+                "detail": {
+                    "counts": counts,
+                    "refused_by_tripwire": counts.get("refused_by_tripwire"),
+                    "uploaded": det.get("uploaded"),
+                    "score": score.get("summary") if isinstance(score, dict) else None,
+                },
+            }
+        )
+    return out
 
 
 def render_results(r: dict[str, Any]) -> str:
@@ -416,6 +624,145 @@ def render_results(r: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ------------------------------------------------------------------------------------------------ accuracy tools, score
+def acc_tools(out: Path, root: Path = ROOT) -> dict[str, Any]:
+    """Lane G's accuracy tools as committed at HEAD (``git archive``, never the working tree), for the VM: the paths
+    of :data:`ACC_TOOL_PATHS`. Returns the commit and whether those paths differ from it in the working tree."""
+    import subprocess
+
+    top = Path(subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], capture_output=True,
+                              text=True, check=True).stdout.strip())  # fmt: skip
+    sub = root.resolve().relative_to(top.resolve()).as_posix()
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    commit = head.stdout.strip()
+    dirty = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--", *ACC_TOOL_PATHS],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tree = f"{commit}:{sub}" if sub not in ("", ".") else commit
+    subprocess.run(
+        ["git", "-C", str(root), "archive", "--format=tar.gz", "-o", str(out.resolve()), tree, *ACC_TOOL_PATHS],
+        check=True,
+    )
+    return {"commit": commit, "paths": list(ACC_TOOL_PATHS), "working_tree_differs": bool(dirty), "file": str(out)}
+
+
+def acc_score(d: Path) -> dict[str, Any]:
+    """Score every collected accuracy set under ``d/acc/<set>/`` (``built/gold`` and ``work/answers.json``, as the
+    VM uploaded them) with :func:`tools.public_accuracy.score.score`: outside the box, by ids only. Writes
+    ``acc/<set>/score.json`` and returns {set: summary}."""
+    from tools.public_accuracy import score as sc
+
+    out: dict[str, Any] = {}
+    for sd in sorted(p for p in (d / "acc").glob("*") if p.is_dir()):
+        built, work = sd / "built", sd / "work"
+        if not (built / "gold" / "ids.json").exists() or not (work / "answers.json").exists():
+            out[sd.name] = {"scored": False, "why": "no gold or no answers (the set did not finish)"}
+            continue
+        pm_p = work / "pidmap.json"
+        if pm_p.exists():  # the box's pseudonyms (its own site key) -> the scorer's (the demo key), by chart number
+            back = {v: k for k, v in json.loads(pm_p.read_text(encoding="utf-8")).items()}
+            answers = json.loads((work / "answers.json").read_text(encoding="utf-8"))
+            for a in answers.values():
+                a["patients"] = {
+                    sc.pid_of(back[pid]) if pid in back else f"unmapped:{pid}": v
+                    for pid, v in (a.get("patients") or {}).items()
+                }
+            work = sd / "work-scored"
+            work.mkdir(exist_ok=True)
+            (work / "answers.json").write_text(json.dumps(answers, ensure_ascii=False), encoding="utf-8")
+        res = sc.score(built, work)
+        res["summary"] = {
+            k: (v.get("summary") if isinstance(v, dict) and "summary" in v else v)
+            for k, v in res.items()
+            if k in ("pairs", "criteria", "compile_pairs", "chia", "compiled")
+        }
+        (sd / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+        out[sd.name] = {"scored": True, "summary": res.get("summary") if isinstance(res, dict) else None}
+    return out
+
+
+# ------------------------------------------------------------------------------------------------ the VALIDATION check
+def validation_check(root: Path = ROOT) -> dict[str, Any]:
+    """Can a VALIDATION box with the real pair run the accuracy set on THIS tree? Free and local: the routing policy,
+    the registry, the compose file and the declared settings the box would load, asked the questions the run's calls
+    ask. Each blocker names the file and the rule; ``can_run`` is True only when none is left. (The installed box's
+    step 52-acc-routes asks its own gateway the same, on the bundle's tree.)"""
+    import yaml
+
+    for sub in ("libs", "services"):
+        if str(root / sub) not in sys.path:
+            sys.path.insert(0, str(root / sub))
+    from gateway.policy import RoutingPolicy, parse_label
+    from registry import registry as rg
+    from tb_common.config import DECLARED
+    from tb_common.policy.classes import Environment, Topology
+
+    env = Environment.VALIDATION
+    pol = RoutingPolicy.load(root / "models" / "routing.yaml")
+
+    def route(role: str, dc: str) -> dict[str, Any]:
+        try:
+            r, c = pol.candidates(role, parse_label(dc), Topology.A, env, "P-PRO6000")
+            return {"role": role, "class": dc, "route": r.id, "aliases": [x.alias for x in c]}
+        except Exception as exc:  # the policy's refusal, as the gateway would give it
+            return {"role": role, "class": dc, "refused": str(exc)}
+
+    calls = {
+        "screen judge (a phi prompt: D3 unless TB_DATA_CLASS)": route("judge", "D3"),
+        "screen judge at D2-L": route("judge", "D2-L"),
+        "compile ir_extract (D1 unless TB_DATA_CLASS)": route("extract_criteria", "D1"),
+        "compile ir_extract at D2-L": route("extract_criteria", "D2-L"),
+        "compile concept_map (D1)": route("concept_select", "D1"),
+        "qualify's calls (class D0, tools/qualify.py)": route("judge", "D0"),
+    }
+    reg = yaml.safe_load((root / "models" / "registry.yaml").read_text(encoding="utf-8")) or {}
+    pair = {
+        str(b.get("build_id")): str(b.get("status"))
+        for b in reg.get("builds") or []
+        if str(b.get("build_id", "")).endswith("-rtxpro6000") and b.get("alias") in ("j-workhorse", "v-verifier")
+    }
+    status_ok = {b: rg._status_ok(rg.Status(st), "judge", env) for b, st in pair.items()}
+    compose = (root / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+    shared_class = compose.count('TB_DATA_CLASS: "${TB_DATA_CLASS:-}"')
+    tripwire = sorted(k for k in DECLARED if "TRIPWIRE" in k)
+    blockers = []
+    if "refused" in calls["screen judge (a phi prompt: D3 unless TB_DATA_CLASS)"]:
+        if "refused" in calls["compile ir_extract at D2-L"] and shared_class >= 2:
+            blockers.append(
+                "the screen's judge call is D3 and VALIDATION's ceiling is D2 (models/routing.yaml, the patient route "
+                "is PRODUCTION only); the only D2 route for it is D2-L, but TB_DATA_CLASS is one value for the "
+                "compiler and the orchestrator (deploy/docker-compose.yml), and at D2-L the compile has no route: no "
+                "setting lets one VALIDATION box both compile and screen"
+            )
+        else:
+            blockers.append("the screen's judge call does not route in VALIDATION")
+    if not all(status_ok.values()):
+        how = (
+            "and qualify's own calls (D0) have no route in VALIDATION, so the record cannot be made on the box"
+            if "refused" in calls["qualify's calls (class D0, tools/qualify.py)"]
+            else "qualify must pass first"
+        )
+        blockers.append(
+            f"VALIDATION routes a judge or verifier only as champion (services/registry/registry.py _status_ok); the "
+            f"pair is {sorted(set(pair.values()))} and becomes champion only by pin_model --promote from a passing "
+            f"qualification record, {how}"
+        )
+    return {
+        "environment": env.value,
+        "calls": calls,
+        "pair_status": pair,
+        "pair_routes_in_validation": status_ok,
+        "tb_data_class_shared_by_services": shared_class,
+        "tripwire_settings_declared": tripwire,
+        "can_run": not blockers,
+        "blockers": blockers,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -427,13 +774,21 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--steps", required=True)
     m.add_argument("--out", type=Path, required=True)
     m.add_argument("--set", action="append", default=[], help="key=value")
+    for x in (e, m):
+        x.add_argument("--mode", default="production", choices=MODES)
+        x.add_argument("--only", default="", help="accuracy sets: name or name:size, comma-separated (default Run A)")
+    t = sub.add_parser("acc-tools")
+    t.add_argument("--out", type=Path, required=True)
+    c = sub.add_parser("acc-score")
+    c.add_argument("dir", type=Path)
+    sub.add_parser("validation-check", help="can a VALIDATION box with the real pair run the accuracy set here?")
     r = sub.add_parser("results")
     r.add_argument("results", type=Path)
     r.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
     try:
         if a.cmd == "estimate":
-            est = estimate([g for g in a.steps.replace(",", " ").split() if g])
+            est = estimate([g for g in a.steps.replace(",", " ").split() if g], a.mode, a.only)
             sys.stdout.write(json.dumps(est, indent=1) + "\n" if a.json else render_estimate(est))
             return 0
         if a.cmd == "settings":
@@ -442,8 +797,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "metadata":
             vals = dict(x.split("=", 1) for x in a.set)
-            print(" ".join(metadata([g for g in a.steps.replace(",", " ").split() if g], vals, a.out)))
+            steps = [g for g in a.steps.replace(",", " ").split() if g]
+            print(" ".join(metadata(steps, vals, a.out, a.mode, a.only)))
             return 0
+        if a.cmd == "acc-tools":
+            print(json.dumps(acc_tools(a.out)))
+            return 0
+        if a.cmd == "acc-score":
+            print(json.dumps(acc_score(a.dir), ensure_ascii=False, indent=1))
+            return 0
+        if a.cmd == "validation-check":
+            vc = validation_check()
+            print(json.dumps(vc, ensure_ascii=False, indent=1))
+            return 0 if vc["can_run"] else 3
     except ValueError as exc:
         print(f"box_run: {exc}", file=sys.stderr)
         return 2
@@ -453,7 +819,7 @@ def main(argv: list[str] | None = None) -> int:
             with tarfile.open(src) as tar:
                 tar.extractall(t, filter="data")
             src = Path(t)
-        res = results(src)
+        res = results(src, a.out)
     if a.out:
         a.out.mkdir(parents=True, exist_ok=True)
         (a.out / "summary.json").write_text(json.dumps(res, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")

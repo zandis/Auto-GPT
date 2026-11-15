@@ -12,7 +12,17 @@
 #       --g10-image <vllm image ref> [--g10-bundle gs://... --g10-bundle-sha256 <hex>] [--answers-version <N>] \
 #       [--doctor-expected name,name] [--qualify-evidence "n12=gs://... public_e2e=gs://... goldens=gs://..."] \
 #       [--commit <sha>] [--dry-run] [--no-wait] [VM] [ZONE]          # G-2 then the tests, one VM launch
-#   deploy/gcp/box-run.sh --collect <run id> [--follow]   # results so far; a power cycle G-9 asked for; the report
+#   deploy/gcp/box-run.sh --mode validation --steps build --release-id val-<commit12> --release-seq 1 --commit <sha>
+#       [--dry-run] [--no-wait]       # the same build signed with a THROWAWAY key made on the VM: not a release
+#   deploy/gcp/box-run.sh --mode validation --steps start,acc --release-id val-<commit12> [--only jmed,tcga:100] \
+#       [--answers-version <N>] [--qualify-evidence "..."] [--dry-run] [--no-wait]   # a VALIDATION box, then Run A
+#   deploy/gcp/box-run.sh --steps acc --only trec [--mode validation]   # one more set on the box already installed
+#   deploy/gcp/box-run.sh --estimate --mode validation --steps start,acc [--only ...]   # free: low and high, sources
+#   A validation launch with acc first asks this tree (tools/box_run.py validation-check, free) whether a VALIDATION
+#   box can route the run's calls; it refuses while the check names a blocker (--even-if-blocked launches anyway:
+#   the box itself stops at 52-acc-routes with the reason, after the install, so the install is paid for nothing).
+#   deploy/gcp/box-run.sh --collect <run id> [--follow]   # results so far; a power cycle G-9 asked for; the report;
+#                                                         # each finished accuracy set fetched and scored HERE
 #   deploy/gcp/box-run.sh --resume <run id>               # start it again after a pre-emption (finished steps kept)
 #   deploy/gcp/box-run.sh --stop [<run id>]               # stop, check TERMINATED, put the VM back as it is kept
 #
@@ -32,7 +42,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PY:-$ROOT/.venv/bin/python}"
-DRY=0; WAIT=1; FOLLOW=0; ESTIMATE=0; STOP=0; COLLECT=""; RESUME=""; STEPS=""
+DRY=0; WAIT=1; FOLLOW=0; ESTIMATE=0; STOP=0; COLLECT=""; RESUME=""; STEPS=""; MODE=production; ONLY=""; ANYWAY=0
 declare -A V=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -44,6 +54,9 @@ while [ $# -gt 0 ]; do
     --collect) COLLECT="$2"; shift 2 ;;
     --resume) RESUME="$2"; shift 2 ;;
     --steps) STEPS="${2//,/ }"; shift 2 ;;
+    --mode) MODE="$2"; shift 2 ;;
+    --only) ONLY="$2"; shift 2 ;;
+    --even-if-blocked) ANYWAY=1; shift ;;
     --release-id) V[tb-release-id]="$2"; shift 2 ;;
     --release-seq) V[tb-release-seq]="$2"; shift 2 ;;
     --commit) V[tb-commit]="$2"; shift 2 ;;
@@ -57,7 +70,7 @@ while [ $# -gt 0 ]; do
     --qualify-evidence) V[tb-qualify-evidence]="$2"; shift 2 ;;
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
-    -h|--help) sed -n 2,33p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
     -*) echo "box-run: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
@@ -65,7 +78,19 @@ done
 VM="${1:-tb-gpu-sim}"; ZONE="${2:-asia-east1-a}"
 cd "$ROOT"
 br() { env PYTHONPATH=libs:services:. "$PY" -m tools.box_run "$@"; }
-if [ "$ESTIMATE" = 1 ]; then br estimate --steps "${STEPS:-build start g6 g9 g10}"; exit 0; fi
+case "$MODE" in production|validation) ;; *) echo "box-run: --mode production | validation" >&2; exit 2 ;; esac
+vcheck() {  # validation mode with acc: can a VALIDATION box route the run's calls on this tree? (free, local)
+  case " $STEPS " in *" acc "*) [ "$MODE" = validation ] || return 0 ;; *) return 0 ;; esac
+  if br validation-check > "${1:-/dev/stdout}"; then echo "validation-check: a VALIDATION box can route the run's calls"; return 0; fi
+  echo "validation-check: a VALIDATION box on this tree would refuse the run's calls (tools/box_run.py validation-check):" >&2
+  "$PY" -c 'import json,sys; [print("  -", b) for b in json.load(open(sys.argv[1]))["blockers"]]' "${1:-/dev/null}" >&2 2>/dev/null || true
+  return 1
+}
+if [ "$ESTIMATE" = 1 ]; then
+  br estimate --steps "${STEPS:-build start g6 g9 g10}" --mode "$MODE" --only "$ONLY"
+  vcheck "$(mktemp)" || true
+  exit 0
+fi
 
 export GC_DRY="$DRY"
 # shellcheck source=deploy/gcp/gcloud-auth.sh
@@ -112,7 +137,21 @@ fetch() {  # results.tgz from the bucket into $OUT, the report; returns 1 when t
   [ "$DRY" = 1 ] && return 0
   tar -tzf "$OUT/results.tgz.new" >/dev/null 2>&1 || { echo "results.tgz came incomplete"; return 1; }
   mv -f "$OUT/results.tgz.new" "$OUT/results.tgz"
+  acc_fetch
   br results "$OUT/results.tgz" --out "$OUT" > /dev/null && echo "report: $OUT/report.md"
+}
+acc_fetch() {  # each accuracy set the VM uploaded as it finished: fetched, unpacked under $OUT/acc/<set>, scored here
+  local o name
+  [ "$DRY" = 0 ] || return 0
+  for o in $(gc storage ls "$OBJ/acc/" 2>/dev/null | grep '\.tgz$'); do
+    name="$(basename "$o" .tgz)"
+    [ -s "$OUT/acc/$name/.fetched" ] && continue
+    mkdir -p "$OUT/acc/$name"
+    gc storage cp "$o" "$OUT/acc/$name.tgz" >/dev/null && tar -xzf "$OUT/acc/$name.tgz" -C "$OUT/acc/$name" \
+      && echo "$o" > "$OUT/acc/$name/.fetched" && echo "accuracy set $name fetched"
+  done
+  [ -d "$OUT/acc" ] && br acc-score "$OUT" > "$OUT/acc-score.json" && echo "accuracy scores: $OUT/acc-score.json (and acc/<set>/score.json)"
+  return 0
 }
 ended() { [ -s "$OUT/summary.json" ] && "$PY" -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("ended") else 1)' "$OUT/summary.json"; }
 power_cycle_asked() { [ "$DRY" = 0 ] && gc storage ls "$OBJ/POWER-CYCLE-REQUEST" >/dev/null 2>&1; }
@@ -155,29 +194,49 @@ fi
 [ -n "$STEPS" ] || { echo "box-run: --steps build | start,g6,g9,g10 (see --help)" >&2; exit 2; }
 case " $STEPS " in *" build "*) [ "$STEPS" = build ] || { echo "box-run: build is its own launch (another service account)" >&2; exit 2; } ;; esac
 [ "$(status)" = TERMINATED ] || { echo "VM $VM is $(status), not TERMINATED: one run at a time" >&2; exit 2; }
+if ! vcheck "$OUT/validation-check.json"; then
+  [ "$ANYWAY" = 1 ] || { echo "box-run: refused (no VM started): --even-if-blocked launches anyway" >&2; exit 9; }
+  echo "box-run: --even-if-blocked: launching all the same; the box will stop at 52-acc-routes" >&2
+fi
 RID="${V[tb-release-id]:-}"
-V[tb-run-id]="$RUN_ID"; V[tb-bucket]="$BUCKET"; V[tb-vendor-pub]="${V[tb-vendor-pub]:-$BUCKET/r2/keys/vendor_ed25519.pub}"
+V[tb-run-id]="$RUN_ID"; V[tb-bucket]="$BUCKET"
+if [ "$MODE" = validation ]; then  # the throwaway key's public half, written beside the bundle by the build
+  V[tb-vendor-pub]="${V[tb-vendor-pub]:-$BUCKET/r2/$RID/throwaway-signing-key.pub}"
+else
+  V[tb-vendor-pub]="${V[tb-vendor-pub]:-$BUCKET/r2/keys/vendor_ed25519.pub}"
+fi
 if [ "$STEPS" = build ]; then
   V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-out]="${V[tb-out]:-$BUCKET/r2/$RID}"
-  V[tb-vendor-key-secret]="$KEY_SECRET"
+  [ "$MODE" = validation ] || V[tb-vendor-key-secret]="$KEY_SECRET"
 else
   V[tb-bundle]="${V[tb-bundle]:-$BUCKET/r2/$RID/trialbox-$RID.tar}"
   if [ -z "${V[tb-bundle-sha256]:-}" ] && [ "$DRY" = 0 ]; then   # the build's own .sha256 beside the bundle
     V[tb-bundle-sha256]="$(gc storage cat "${V[tb-bundle]}.sha256" 2>/dev/null | cut -d' ' -f1 || true)"
   fi
   [ "$DRY" = 1 ] && V[tb-bundle-sha256]="${V[tb-bundle-sha256]:-<sha256 from ${V[tb-bundle]}.sha256>}"
-  V[tb-answers-secret]="${V[tb-answers-secret]:-tb-r2-answers}"; V[tb-answers-version]="${V[tb-answers-version]:-1}"
+  case " $STEPS " in *" start "*)   # validation: the committed synthetic site (no secret), unless an answers version
+    if [ "$MODE" = production ] || [ -n "${V[tb-answers-version]:-}" ]; then
+      V[tb-answers-secret]="${V[tb-answers-secret]:-tb-r2-answers}"; V[tb-answers-version]="${V[tb-answers-version]:-1}"
+    fi ;;
+  esac
 fi
+case " $STEPS " in *" acc "*)  # lane G's accuracy tools at this commit (git archive), for the VM to fetch and build with
+  br acc-tools --out "$OUT/acc-tools.tgz" > "$OUT/acc-tools.json" || exit 2
+  V[tb-acc-tools]="$OBJ/acc-tools.tgz"
+  gc storage cp "$OUT/acc-tools.tgz" "$OBJ/acc-tools.tgz" >/dev/null ;;
+esac
 sets=(); for k in "${!V[@]}"; do sets+=(--set "$k=${V[$k]}"); done
 rm -rf "$OUT/md"
-br metadata --steps "$STEPS" --out "$OUT/md" "${sets[@]}" > "$OUT/metadata-keys" || exit 2
-CAP=$(br estimate --steps "$STEPS" --json | "$PY" -c 'import json,sys; print(sum(l["cap_hours"] for l in json.load(sys.stdin)["launches"]))')
+br metadata --steps "$STEPS" --mode "$MODE" --only "$ONLY" --out "$OUT/md" "${sets[@]}" > "$OUT/metadata-keys" || exit 2
+CAP=$(br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY" --json | "$PY" -c 'import json,sys; print(sum(l["cap_hours"] for l in json.load(sys.stdin)["launches"]))')
 echo "$CAP" > "$OUT/cap-hours"
-br estimate --steps "$STEPS"
+br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY"
 FILES="startup-script=$ROOT/deploy/gcp/box-install-run.sh,tb-helper=$ROOT/deploy/gcp/box_vm.py"
+case " $STEPS " in *" start "*) [ "$MODE" = validation ] && [ -z "${V[tb-answers-version]:-}" ] \
+  && FILES="$FILES,tb-site-answers=$ROOT/deploy/gcp/validation-site-answers.yaml" ;; esac
 for k in $(cat "$OUT/metadata-keys"); do FILES="$FILES,$k=$OUT/md/$k"; done
-echo "startup-script tb-helper $(cat "$OUT/metadata-keys")" > "$OUT/metadata-keys"
-if [ "$STEPS" = build ]; then
+echo "startup-script tb-helper tb-site-answers $(cat "$OUT/metadata-keys")" > "$OUT/metadata-keys"
+if [ "$STEPS" = build ] && [ "$MODE" = production ]; then  # validation: the VM's own account (no vendor key read)
   if [ "$DRY" = 0 ]; then
     gc compute instances describe "$VM" --zone "$ZONE" --format='value(serviceAccounts[0].email)' > "$OUT/default-sa"
   else echo "<project-number>-compute@developer.gserviceaccount.com" > "$OUT/default-sa"; fi
