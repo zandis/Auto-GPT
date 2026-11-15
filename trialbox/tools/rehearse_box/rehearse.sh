@@ -274,7 +274,7 @@ teardown() {
   fi
   restore_images
   # keep the report and logs; drop the media and the box (gigabytes)
-  docker run --rm -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
+  docker run --rm --user 0:0 -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
     sh -c "rm -rf '$W/media' '$W/box' '$W/vendor/models'" >/dev/null 2>&1 || rm -rf "${W:?}/media" "${W:?}/box" "${W:?}/vendor/models"
 }
 
