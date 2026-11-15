@@ -554,6 +554,7 @@ class Config:
     site: str = ""
     tz: str = "UTC"
     mailto: str = ""  # D-274: cron's MAILTO, an alert route only where the host has a mail transfer agent
+    alert_page: bool = False  # D-735: TB_BACKUP_ALERT_ROUTE=health-page, the site chose the /admin health tab
     archive_set: str = ""  # TB_PG_ARCHIVE_MODE as written ("" when the site never chose)
     pgbackrest_repo: str = ""
     keep_share: float = KEEP_SHARE  # D-455: TB_BACKUP_KEEP_SHARE
@@ -576,7 +577,12 @@ class Config:
 
     @property
     def alert_route(self) -> bool:
-        return bool(self.alert_cmd or self.mailto)
+        return bool(self.alert_cmd or self.mailto or self.alert_page)
+
+    @property
+    def page_only(self) -> bool:
+        """D-735: the health tab is the only route: nobody is mailed; someone must open ``/admin``."""
+        return self.alert_page and not (self.alert_cmd or self.mailto)
 
     @property
     def last_file(self) -> Path:
@@ -602,6 +608,24 @@ def _split(v: str) -> list[str]:
 def _unquote(v: str) -> str:
     v = v.strip()
     return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
+
+
+PAGE_ROUTE = "health-page"
+ROUTE_HINT = (
+    "TB_BACKUP_ALERT_CMD (a command that reads the message on stdin), or TB_BACKUP_MAILTO and a mail relay, or, on a "
+    f"box with no mail, TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} (the /admin health tab), in deploy/.env (RUNBOOK §5)"
+)
+
+
+def _alert_page(e: Mapping[str, str], errors: list[str]) -> bool:
+    """``TB_BACKUP_ALERT_ROUTE`` (D-735): empty, or ``health-page``; any other value is a setting error, no route."""
+    raw = (e.get("TB_BACKUP_ALERT_ROUTE") or "").strip()
+    if not raw:
+        return False
+    if raw.lower() == PAGE_ROUTE:
+        return True
+    errors.append(f"TB_BACKUP_ALERT_ROUTE={raw!r} is not {PAGE_ROUTE!r} (deploy/.env, RUNBOOK §5)")
+    return False
 
 
 def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: float | None = None,
@@ -643,6 +667,7 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
         site=e.get("TB_SITE_ID", ""),
         tz=e.get("TB_TZ") or "Asia/Taipei",
         mailto=e.get("TB_BACKUP_MAILTO", ""),
+        alert_page=_alert_page(e, errors),
         archive_set=(e.get("TB_PG_ARCHIVE_MODE") or "").lower(),
         pgbackrest_repo=e.get("TB_PGBACKREST_REPO", ""),
         keep_share=_num(e, "TB_BACKUP_KEEP_SHARE", KEEP_SHARE, errors, hi=1.0),
@@ -805,8 +830,7 @@ def status(
         except ValueError:
             problems.append("deploy/site/backup-last.json has no time for the good backup")
     if cfg.production and not cfg.alert_route:
-        problems.append("no alert route: set TB_BACKUP_ALERT_CMD (or TB_BACKUP_MAILTO with a mail relay) in "
-                        "deploy/.env (RUNBOOK §5)")  # fmt: skip
+        problems.append("no alert route: set " + ROUTE_HINT)
     if last and not last.get("ok"):
         problems.append(f"the last nightly backup at {last.get('at', '?')} failed (deploy/site/backup-last.json)")
     if last.get("pgbackrest") and not last["pgbackrest"].get("ok"):
@@ -1179,10 +1203,10 @@ def install_cron(cfg: Config, cron_dir: Path, root: Path, has_mta: bool) -> list
             raise ValueError(msg + "; set TB_BACKUP_ALERT_CMD (RUNBOOK §5)")
         notes.append("note: " + msg)
     if cfg.production and not cfg.alert_route:
-        raise ValueError(
-            "PRODUCTION needs a backup alert route: TB_BACKUP_ALERT_CMD (a command that reads the "
-            "message on stdin), or TB_BACKUP_MAILTO and a mail relay, in deploy/.env (RUNBOOK §5)"
-        )
+        raise ValueError("PRODUCTION needs a backup alert route: " + ROUTE_HINT)
+    if cfg.page_only:
+        notes.append("note: backup alerts reach the /admin health tab and the audit only; nobody is mailed: someone "
+                     "must open the health tab every working day (TB_BACKUP_ALERT_ROUTE, RUNBOOK §5)")  # fmt: skip
     if not cfg.alert_route:
         notes.append("note: no backup alert route (TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO): alerts reach the audit "
                      "and the admin page only")  # fmt: skip

@@ -881,6 +881,9 @@ def check_backup(inp: DoctorInputs) -> Check:
     if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
         fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
     warns = []
+    if cfg.page_only:
+        warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
+                     "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5)")  # fmt: skip
     if not cfg.archive_on:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
@@ -888,7 +891,7 @@ def check_backup(inp: DoctorInputs) -> Check:
     facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
-        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails) + f" ({facts})")
+        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
     if warns and prod:
         return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
     return Check("backup", "PASS", facts)
