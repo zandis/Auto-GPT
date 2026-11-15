@@ -583,7 +583,18 @@ class Compiler:
         # NEW-LIFE-2: a heading, a group's alternatives, a glued heading, another phase or a second section is not one
         # required criterion: a person decides it, and the warnings say why (LIFE-002)
         shape = structure.check(lines, req.kind or "trial")
+        # D-793: a set of alternative groups whose members are all structured is one criterion, or(and(group …));
+        # its lines carry no structure finding any more. The rest goes to a person (D-785)
+        grouped, folded, combined = structure.combine(criteria, lines, keep=reused, report=shape)
+        shape.findings = [f for f in shape.findings if f.index not in folded]
+        if not any(f.flag in ("group_member", "alternatives_in_line") for f in shape.findings):
+            shape.warnings = [w for w in shape.warnings if not w.startswith("some lines may be alternatives")]
         criteria, moved = structure.send_to_a_person(criteria, shape, keep=reused)  # a reviewer decided those
+        if folded:
+            keep_ids = {c.id for c in grouped}
+            by_id = {c.id: c for c in grouped}
+            criteria = [by_id.get(c.id, c) for c in criteria if c.id in keep_ids]
+        warnings.extend(combined)
         warnings.extend(shape.warnings + moved)
         criteria, demoted = self.demote_uncompilable(ruleset, version, criteria, valuesets)
         warnings.extend(demoted)

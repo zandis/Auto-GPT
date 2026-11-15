@@ -92,6 +92,21 @@ services:
       - log_min_error_statement=panic
       - -c
       - log_parameter_max_length_on_error=0
+      # T-703 (D-751, F-19): sized from TB_MEM_DB by deploy/install.sh (tools/trialbox/pgsize.py); PostgreSQL's own
+      # defaults when unset (a dev or test stack)
+      - -c
+      - shared_buffers=${TB_PG_SHARED_BUFFERS:-128MB}
+      - -c
+      - effective_cache_size=${TB_PG_EFFECTIVE_CACHE_SIZE:-4GB}
+      - -c
+      - maintenance_work_mem=${TB_PG_MAINTENANCE_WORK_MEM:-64MB}
+      - -c
+      - max_wal_size=${TB_PG_MAX_WAL_SIZE:-1GB}
+      - -c
+      - min_wal_size=${TB_PG_MIN_WAL_SIZE:-80MB}
+      - -c
+      - idle_in_transaction_session_timeout=${TB_PG_IDLE_TX_TIMEOUT:-0}
+    shm_size: ${TB_PG_SHM:-64m}
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi
@@ -118,6 +133,9 @@ services:
     networks: [trialbox-net]
     restart: unless-stopped
     mem_limit: ${TB_MEM_DB:-4g}
+    # T-695 (D-752, F-10): PostgreSQL's shutdown checkpoint writes its dirty buffers; docker's 10 s left crash
+    # recovery to the next start. 120 s: the review's floor; a box with large buffers raises it in an override file
+    stop_grace_period: 120s
     pids_limit: 512   # a backend per connection: well above max_connections (100)
     labels: {tb.watchdog: report}   # a restart does not cure a database; the watchdog audits it and a person looks
     healthcheck:

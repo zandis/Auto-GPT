@@ -383,6 +383,7 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-202 (D-384): migration 6, the record's own before-image on tb_record_event
     # T-206a (D-441): migration 7, tb_withheld (the persons the opt-out worker keeps out)
     # SCR-01 (D-655): migration 8, a grouper row may be a code family (match 'family')
+    # T-702 (D-753): migration 9, the row ids bigint
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
@@ -390,6 +391,7 @@ ADDED: dict[str, tuple[str, ...]] = {
         "139401a1b2873fdd27e3b299507dd52005abea7bc62666af95c9af45ec85fcf8",
         "8e3745a426403fc8446601c4221225fa3cee581f63569387c59de741041c4523",
         "3c1516feffb316a4b8ac253e770fc5a7671553427ba6c400c57acc7426a44366",
+        "eaae339681eca35b2b01ccd356bc1e4dce55a664a2b06214f3c47274f53d0daf",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table

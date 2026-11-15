@@ -84,7 +84,7 @@ ORDER BY p.pid
 # FIT-U04 (T-629, D-415): who of a list the current snapshot records as dead, with a date or without one (T-616)
 DECEASED_SQL = """
 SELECT pid FROM patient
-WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND (deceased_date IS NOT NULL OR deceased IS TRUE)
+WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND (deceased_date IS NOT NULL OR deceased IS TRUE)
 ORDER BY pid
 """
 

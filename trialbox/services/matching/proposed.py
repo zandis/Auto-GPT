@@ -42,7 +42,7 @@ SQL = """
 SELECT fid, pid, domain, coalesce(code, '') AS code, coalesce(system, '') AS system, d, basis
 FROM site_fact
 WHERE basis IN ('proposed', 'suspected')
-  AND (CAST($1 AS VARCHAR[]) IS NULL OR list_contains(CAST($1 AS VARCHAR[]), pid))
+  AND (CAST($1 AS VARCHAR[]) IS NULL OR pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))))
 ORDER BY pid, fid
 """
 #: is there a ``site_fact`` table (or view) in the snapshot: one row, one number (D-649; :mod:`tb_common.lakeprobe`)
