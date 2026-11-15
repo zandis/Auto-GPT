@@ -1,4 +1,4 @@
-# D-793 The box form installs a VALIDATION box
+# D-822 The box form installs a VALIDATION box
 
 - **Task:** BOX-VALIDATION, the owner's blockers 8 and 10 of 2026-11-15 (lane G's first real-model accuracy run)
 - **PR:** this branch (`agent/BOX-VALIDATION-the-box-form-installs-validation`)
