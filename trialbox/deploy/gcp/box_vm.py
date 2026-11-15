@@ -859,10 +859,16 @@ def acc_set(
     poll_s: float = 5.0,
     deadline_s: float = 0.0,
     protocols: list[str] | None = None,
+    earlier: Path | None = None,
 ) -> dict[str, Any]:
     """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
 
     ``protocols``: only these rulesets of the set (a sized subset, recorded by the caller); the rest are not sent.
+
+    ``earlier``: the work folder of this set's attempt before a redo (F29). The box keeps a ruleset version once
+    approved: its FEAS of the same version then fails ("no structured criteria to count" for a ruleset of mixed
+    criteria) with no review workbook, and a new APPROVE has nothing to approve. When the earlier attempt approved
+    that same version, the set goes on to SCREEN with the earlier draft and approval, and says so (``approved_in``).
 
     ``deadline_s`` (0: none): the set's own time budget from its first start (kept in ``work/set-clock.json``, so a
     resumed set counts its earlier boots). Past it no new protocol is started (each left one is ``not_run_time_budget``)
@@ -874,6 +880,10 @@ def acc_set(
         protos = [p for p in protos if p.stem in set(protocols)]
     prog_p = work / "progress.json"
     prog: dict[str, Any] = json.loads(prog_p.read_text(encoding="utf-8")) if prog_p.exists() else {}
+    before: dict[str, Any] = {}
+    if earlier is not None and (earlier / "progress.json").exists():
+        with suppress(OSError, ValueError):
+            before = json.loads((earlier / "progress.json").read_text(encoding="utf-8"))
     clock_p = work / "set-clock.json"
     clock = json.loads(clock_p.read_text(encoding="utf-8")) if clock_p.exists() else {}
     used0 = float(clock.get("used_s") or 0.0)
@@ -934,9 +944,26 @@ def acc_set(
         files = box.call("mail-gateway", "fetch", {"job": a["feas_job"], "suffixes": [".xlsx", "-draft.zip"],
                                                    "prefixes": ["review_", "ruleset_"]})["files"]  # fmt: skip
         z = next((v for k, v in files.items() if k.endswith("-draft.zip")), None)
-        a["draft"] = draft_criteria(base64.b64decode(z)) if z else []
+        a["draft"] = (
+            draft_criteria(base64.b64decode(z)) if z else (a.get("draft") or [] if a.get("approved_in") else [])
+        )
         xlsx = next(((k, v) for k, v in files.items() if k.endswith(".xlsx")), None)
-        if a["feas"] != "awaiting_approval" and not xlsx:
+        b = before.get(rs) or {}
+        if (
+            not compile_only
+            and a["feas"] == "failed"
+            and not xlsx
+            and "approve_job" not in a
+            and b.get("approve") == "done"
+            and b.get("approve_job")
+            and b.get("version") == a.get("version")
+        ):
+            # F29: this version was approved on the box in the attempt before: SCREEN it under that approval
+            a.update(
+                draft=b.get("draft") or [], approve_job=b["approve_job"], approved_in="the attempt before the redo"
+            )
+            _save(prog_p, prog)
+        elif a["feas"] != "awaiting_approval" and not xlsx:
             a.update(outcome=classify(a.get("feas_error")) if a["feas"] == "failed" else f"feas_{a['feas']}",
                      finished=True)  # fmt: skip
             _save(prog_p, prog)
@@ -1016,6 +1043,7 @@ def _answers(work: Path, prog: dict[str, Any]) -> None:
             "feas_error": a.get("feas_error"),
             "draft": a.get("draft") or [],
             "approve": a.get("approve"),
+            "approved_in": a.get("approved_in"),
             "screen": a.get("screen"),
             "screen_error": a.get("screen_error"),
             "patients": a.get("patients") or {},
@@ -1176,6 +1204,7 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument("--poll", type=float, default=5.0)
     ac.add_argument("--deadline-s", type=float, default=0.0, help="the set's own time budget (0: none)")
     ac.add_argument("--protocols", default="", help="comma-separated rulesets: only these protocols of the set")
+    ac.add_argument("--earlier", type=Path, help="the set's work folder of the attempt before a redo (F29)")
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
     cl = sub.add_parser("acc-call")
@@ -1257,7 +1286,8 @@ def main(argv: list[str] | None = None) -> int:
             res = acc_set(a.set, a.built, a.work, box, sender=a.sender, reviewer=a.reviewer, run_id=a.run_id,
                           compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll,
                           deadline_s=a.deadline_s,
-                          protocols=[x for x in a.protocols.split(",") if x] or None)  # fmt: skip
+                          protocols=[x for x in a.protocols.split(",") if x] or None,
+                          earlier=a.earlier)  # fmt: skip
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"acc-set {a.set}: {exc}", file=sys.stderr)
             return 1

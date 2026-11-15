@@ -288,6 +288,27 @@ def test_acc_set_compile_only_and_a_resume_mid_protocol(tmp_path: Path) -> None:
     assert res["pass"] is True and box.sent == ["FEAS NCT90000001", "FEAS NCT90000002"]
 
 
+def test_a_redone_set_screens_under_the_approval_of_the_attempt_before(tmp_path: Path) -> None:
+    """F29: the box keeps an approved ruleset version; FEAS of it again fails with no workbook. The redo screens under
+    the earlier attempt's approval (same version), never mails a new APPROVE, and says so."""
+    built = _built(tmp_path, trials=1)
+    box = FakeBox(tripwire="NCT90000001")  # this FEAS fails with no files, as the box's did
+    old = tmp_path / "old"
+    old.mkdir()
+    (old / "progress.json").write_text(json.dumps({"NCT90000001": {
+        "approve": "done", "approve_job": "jA", "version": "1.0.0", "draft": [{"id": "exc-1", "text": "Pregnancy"}]}}))  # fmt: skip
+    box.jobs["jA"] = {"kind": "APPROVE", "rs": "NCT90000001", "fail": False, "subject": "APPROVE", "from": "pi"}
+    kw = {"sender": "c@x", "reviewer": "pi@x", "run_id": "r1-r2", "compile_only": False, "job_s": 5}
+    box_vm.acc_set("sigir", built, tmp_path / "work", box, earlier=old, **kw)
+    a = json.loads((tmp_path / "work" / "answers.json").read_text(encoding="utf-8"))["NCT90000001"]
+    assert box.sent == ["FEAS NCT90000001", "SCREEN NCT90000001"] and a["approved_in"]
+    assert a["outcome"] == "screened" and a["draft"][0]["text"] == "Pregnancy" and a["patients"]
+    # without the earlier attempt the failed FEAS ends the protocol, as before
+    box2 = FakeBox(tripwire="NCT90000001")
+    box_vm.acc_set("sigir", built, tmp_path / "work2", box2, **kw)
+    assert box2.sent == ["FEAS NCT90000001"]
+
+
 def test_acc_score_joins_through_the_boxs_pseudonyms(tmp_path: Path) -> None:
     d = tmp_path / "out"
     sd = d / "acc" / "sigir"
