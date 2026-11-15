@@ -48,11 +48,19 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     res = list_demo.run(tmp_path, "pw-" + "x" * 16, "ja")
     box, h = res["box"], res["app"].state.helpers
     assert res["day"] == fd.data_day() and not res["live"]  # TB_DEMO_DAY unset: the data's own day, nothing moved
-    # S20: both drafts were approved by the investigator on one page; the trial's new exclusion was amber
+    # S20: both drafts were approved by the investigator on one page; the trial's reworded exclusion was amber
     assert res["versions"] == {"GOUT-COH": "1.1.0", "GZQO": "1.1.0"}
-    assert "GZQO-EXC-15" in res["approvals"]["GZQO"]["amber"]
+    assert "GZQO-EXC-14" in res["approvals"]["GZQO"]["amber"]
+    # D-757: the other-trial exclusion is the trial's own, reworded, never a second one beside it
+    assert "GZQO-EXC-15" not in res["patient_html"] and "GZQO-EXC-15" not in res["approvals"]["GZQO"]["html"]
     # DEMO-JA: the investigator's label is the shipped rulesets' own words, never a "<id> label" placeholder
-    assert "GZQO-EXC-15 label" not in res["patient_html"] and "30日以内の他の介入研究参加" in res["patient_html"]
+    assert "GZQO-EXC-14 label" not in res["patient_html"] and "30日以内の他の介入研究参加" in res["patient_html"]
+    # D-757: one CASE job on a synthetic chart gives "Check one patient" its sheet
+    from tools import demo
+
+    job_id = demo.seed_case(res["pi"], box, "ja")
+    assert job_id is not None and box.orch.db.get(job_id).type == "CASE"
+    assert res["pi"].get(f"/pilot/jobs/{job_id}").status_code == 200
     assert res["approvals"]["GOUT-COH"]["amber"] == ["GOUT-COH-INC-01"]
     assert all(v["feas_state"] == "done" for v in res["approvals"].values())
     html = res["approvals"]["GOUT-COH"]["html"]
