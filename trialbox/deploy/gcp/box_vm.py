@@ -545,6 +545,63 @@ def g1_tokens(server: dict[str, Any], hf: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def models_place(
+    root: Path, links: list[str], template: str, embed_list: Path | None, embed_url: str, fetch: Any = None
+) -> dict[str, Any]:
+    """The box's flat model folders under the VM's weights folder ``root`` (compose's ``/models``), from what the VM
+    holds and the public sources the registry names: each ``name=relative/target`` a RELATIVE symlink (it resolves the
+    same inside the model servers' ``/models`` mount), the judge's chat template from ``template``
+    (``dest=url=sha256``, the registry row's file, revision and hash) and the embedder's files from ``embed_url``
+    (``{path}`` filled in) per the ``sha256  path`` list. Every downloaded file is checked against its sha256; a
+    folder already there is left as it is (the pin then judges it). Returns what was done and what is missing."""
+    import hashlib
+    import urllib.request
+
+    def get(url: str) -> bytes:
+        if fetch is not None:
+            return bytes(fetch(url))
+        with urllib.request.urlopen(url, timeout=300) as r:  # noqa: S310 (https, the registry's public source)
+            return bytes(r.read())
+
+    done: dict[str, Any] = {"linked": [], "kept": [], "missing": [], "fetched": [], "refused": []}
+    for item in links:
+        name, _, target = item.partition("=")
+        dst = root / name
+        if dst.exists():
+            done["kept"].append(name)
+        elif (root / target).is_dir():
+            dst.symlink_to(target)
+            done["linked"].append(f"{name} -> {target}")
+        else:
+            done["missing"].append(f"{name}: no {target} under {root}")
+
+    def put(rel: str, url: str, sha: str) -> None:
+        dst = root / rel
+        if dst.is_file() and hashlib.sha256(dst.read_bytes()).hexdigest() == sha:
+            done["kept"].append(rel)
+            return
+        data = get(url)
+        if hashlib.sha256(data).hexdigest() != sha:
+            done["refused"].append(f"{rel}: the fetched file is not sha256 {sha[:12]}")
+            return
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.name + ".part")
+        tmp.write_bytes(data)
+        os.replace(tmp, dst)
+        done["fetched"].append(rel)
+
+    if template:
+        rel, url, sha = template.split("=", 2)
+        put(rel, url, sha)
+    if embed_list is not None and embed_list.is_file():
+        for line in embed_list.read_text(encoding="utf-8").splitlines():
+            sha, _, rel = line.strip().partition("  ")
+            if sha and rel:
+                put(f"embedder/{rel}", embed_url.format(path=rel), sha)
+    done["ok"] = not done["missing"] and not done["refused"]
+    return done
+
+
 def qualify_verdict(rec: dict[str, Any]) -> dict[str, Any]:
     """The qualification record's verdict per step (status and reason; hashes, counts and codes only, D-313)."""
     steps = rec.get("steps") or {}
@@ -928,6 +985,13 @@ def main(argv: list[str] | None = None) -> int:
     gt.add_argument("--server", type=Path, required=True)
     gt.add_argument("--hf", type=Path, required=True)
     gt.add_argument("--notes")
+    mp = sub.add_parser("models-place")
+    mp.add_argument("--root", type=Path, required=True)
+    mp.add_argument("--link", action="append", default=[], help="name=relative/target under --root")
+    mp.add_argument("--template", default="", help="dest=url=sha256")
+    mp.add_argument("--embed-list", type=Path)
+    mp.add_argument("--embed-url", default="")
+    mp.add_argument("--notes")
     qv = sub.add_parser("qualify-verdict")
     qv.add_argument("record", type=Path)
     t = sub.add_parser("top-costs")
@@ -984,6 +1048,11 @@ def main(argv: list[str] | None = None) -> int:
                          "embedder": res["embedder"]})  # fmt: skip
         print(json.dumps(res))
         return 0 if res["routes_ok"] else 1
+    if a.cmd == "models-place":
+        res = models_place(a.root, a.link, a.template, a.embed_list, a.embed_url)
+        _notes(a.notes, {"models": res})
+        print(json.dumps(res))
+        return 0 if res["ok"] else 1
     if a.cmd in ("g1-tokens", "qualify-verdict"):
 
         def jl2(p: Path) -> dict[str, Any]:

@@ -216,8 +216,11 @@ EOS
   m tb-release-id 2026.11-r; m tb-release-seq 3; m tb-vendor-key-secret vendor-key; m tb-vendor-key-version 1
   m tb-out gs://tb-runs/r2/out; m tb-build-root "$S/vm/build"
 }
+val_models() {  # validation: the box's flat model folders from the "VM's" model folders (no network here)
+  m tb-model-links "gemma-4-26b-a4b-it-4bit=judge qwen3.5-9b-4bit=verifier"; m tb-model-template ""
+}
 acc_setup() {  # validation mode and the acc group: the synthetic site's answers (YAML), lane G's tools in the bucket
-  m tb-mode validation; m tb-acc-sets "jmed:3 sigir:3 tfda:2"; m tb-acc-job-minutes 2
+  m tb-mode validation; m tb-acc-sets "jmed:3 sigir:3 tfda:2"; m tb-acc-job-minutes 2; val_models
   # the committed synthetic site's answers, as the driver hands them over (no Secret Manager in validation mode)
   cp "$ROOT/deploy/gcp/validation-site-answers.yaml" "$S/metadata/tb-site-answers"
   rm -f "$S/metadata/tb-answers-secret" "$S/metadata/tb-answers-version"
@@ -307,7 +310,7 @@ for CASE in "${CASES[@]}"; do
       rm -f "$S/knobs/fail-qualify"; m tb-retry "retry-1"   # the fix, and the driver's --resume (a new tb-retry)
       boot; to_the_end ;;
     acc-qualify-fails)
-      setup "$CASE" start fail-qualify; start_setup; m tb-mode validation
+      setup "$CASE" start fail-qualify; start_setup; m tb-mode validation; val_models
       cp "$ROOT/deploy/gcp/validation-site-answers.yaml" "$S/metadata/tb-site-answers"
       rm -f "$S/metadata/tb-answers-secret" "$S/metadata/tb-answers-version"; boot; to_the_end ;;
     build-validation)

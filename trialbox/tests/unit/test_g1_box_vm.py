@@ -256,3 +256,21 @@ def test_qualifys_verdict_per_step() -> None:
     v = vm.qualify_verdict(rec)
     assert v["status"] == "failed" and v["failed_steps"] == ["n12"]
     assert v["steps"]["n12"] == {"status": "failed", "reason": "no evidence"}
+
+
+def test_models_place_links_relative_fetches_checked_and_refuses_a_wrong_file(tmp_path: Path) -> None:
+    import hashlib
+
+    root = tmp_path / "models"
+    (root / "hub" / "snap").mkdir(parents=True)
+    tpl, emb = b"{{ template }}", b"weights"
+    lst = tmp_path / "e.sha256"
+    lst.write_text(f"{hashlib.sha256(emb).hexdigest()}  config.json\n{'0' * 64}  bad.bin\n")
+    got = {"https://t": tpl, "https://e/config.json": emb, "https://e/bad.bin": b"other"}
+    res = vm.models_place(root, ["judge=hub/snap", "gone=hub/none"],
+                          f"chat-templates/t.jinja=https://t={hashlib.sha256(tpl).hexdigest()}", lst,
+                          "https://e/{path}", fetch=got.__getitem__)  # fmt: skip
+    assert (root / "judge").is_symlink() and str((root / "judge").readlink()) == "hub/snap"
+    assert (root / "chat-templates" / "t.jinja").read_bytes() == tpl and (root / "embedder" / "config.json").exists()
+    assert res["ok"] is False and res["missing"] == ["gone: no hub/none under " + str(root)]
+    assert res["refused"] and not (root / "embedder" / "bad.bin").exists()

@@ -403,6 +403,12 @@ VERIFIER_S=$(md tb-verifier-service || echo llm-verifier)
 DOCTOR_EXPECTED=$(md tb-doctor-expected || true)
 QEVIDENCE=$(md tb-qualify-evidence || true)
 BOXPY=$(md tb-box-python || echo python3)
+# validation: where the box's model folders come from (models/registry.yaml's rtxpro6000 rows: the VM's model cache
+# holds the publisher's snapshots; the template and the embedder's subset come from their public repositories)
+MODEL_LINKS=$(md tb-model-links || echo "gemma-4-26b-a4b-it-4bit=hub/models--nvidia--Gemma-4-26B-A4B-NVFP4/snapshots/a19cfe00be84568a6867111c9a68c9c44fdcffe6 qwen3.5-9b-4bit=hub/models--cyankiwi--Qwen3.5-9B-AWQ-4bit/snapshots/e4d2d39cede8c5d1716d824cd843e2889c648083")
+MODEL_TEMPLATE=$(md tb-model-template || echo "chat-templates/gemma-4-26b-a4b-it/chat_template.jinja=https://huggingface.co/google/gemma-4-26B-A4B-it/resolve/4d7ae4984b7db7de8f8457170b3f1a419ee76d52/chat_template.jinja=ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4")
+EMBED_LIST_SRC=$(md tb-embed-list || true)   # gs:// of the embedder's "sha256  path" list (e-embed-1)
+EMBED_URL=$(md tb-embed-url || echo "https://huggingface.co/BAAI/bge-m3/resolve/7b44caba5c06fd6f1ef1d2786261e636c38e4295/{path}")
 # g6, g9, g10
 STUDY=$(md tb-study || true)
 G6N=$(md tb-g6-patients || echo 50000)
@@ -624,6 +630,13 @@ d_install_v() {  # as box-install.sh judges it: a FAIL list at the end (no backu
   echo "install.sh exit $rc (a FAIL list at the end; the stack runs)"
 }
 d_models_place() {  # the site's weights in deploy/models, where install.sh pins them from (the VM's /models, bound)
+  local l=() x
+  # the box's flat folders (compose's JUDGE_MODEL_DIR, VERIFIER_MODEL_DIR defaults, the registry's template file,
+  # the embedder's folder) from the VM's model cache and the registry's public sources (box_vm.py models-place)
+  for x in $MODEL_LINKS; do l+=(--link "$x"); done
+  [ -z "$EMBED_LIST_SRC" ] || fetch "$EMBED_LIST_SRC" "$TB/embed.sha256" || return 1
+  vm models-place --root "$MODELS" ${l[@]+"${l[@]}"} --template "$MODEL_TEMPLATE" \
+    ${EMBED_LIST_SRC:+--embed-list "$TB/embed.sha256"} --embed-url "$EMBED_URL" --notes "$NOTES" || return 1
   mkdir -p "$BOXROOT/deploy/models"
   if [ -n "${TB_BOXRUN_MOUNT:-}" ]; then $TB_BOXRUN_MOUNT "$MODELS" "$BOXROOT/deploy/models"
   else mountpoint -q "$BOXROOT/deploy/models" || mount --bind "$MODELS" "$BOXROOT/deploy/models"; fi

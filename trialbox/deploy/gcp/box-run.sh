@@ -72,6 +72,7 @@ while [ $# -gt 0 ]; do
     --doctor-expected) V[tb-doctor-expected]="${2//,/ }"; shift 2 ;;
     --qualify-evidence) V[tb-qualify-evidence]="$2"; shift 2 ;;
     --acc-tripwire) V[tb-acc-tripwire-setting]="$2"; shift 2 ;;
+    --embed-list) V[tb-embed-list]="$2"; shift 2 ;;
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
@@ -242,6 +243,9 @@ else
     V[tb-bundle-sha256]="$(gc storage cat "${V[tb-bundle]}.sha256" 2>/dev/null | cut -d' ' -f1 || true)"
   fi
   [ "$DRY" = 1 ] && V[tb-bundle-sha256]="${V[tb-bundle-sha256]:-<sha256 from ${V[tb-bundle]}.sha256>}"
+  case " $STEPS " in *" start "*)   # validation: the embedder's file list (public names and sha256s) in the bucket
+    [ "$MODE" != validation ] || V[tb-embed-list]="${V[tb-embed-list]:-$BUCKET/r2/models/e-embed-1.sha256}" ;;
+  esac
   case " $STEPS " in *" start "*)   # validation: the committed synthetic site (no secret), unless an answers version
     if [ "$MODE" = production ] || [ -n "${V[tb-answers-version]:-}" ]; then
       V[tb-answers-secret]="${V[tb-answers-secret]:-tb-r2-answers}"; V[tb-answers-version]="${V[tb-answers-version]:-1}"
