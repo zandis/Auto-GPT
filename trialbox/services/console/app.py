@@ -1805,7 +1805,16 @@ def create_app(
             and (not settings.studies or r.id in settings.studies)
             and sess.user.sees_study(r.id)
         ]  # D-120: this site's own studies, and only those the account may see
-        return page(request, "request.html", sess, status, rulesets=approved, **ctx)
+        # NEW-JRN-3 (D-767, JRN-003): an account that prepares requests sees every study it sees, as before; another
+        # (the PI, T-512) sees the studies it may run each command on, and the forms show when there is one
+        u = sess.user
+
+        def runs(kinds: tuple[str, ...], command: str) -> list[Any]:
+            return [r for r in approved if r.kind in kinds and (u.can_request or helpers.may_run(u, r.id, command))]
+
+        feas, screen = runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+        return page(request, "request.html", sess, status, rulesets=approved, feas_rulesets=feas,
+                    screen_rulesets=screen, may_start=u.can_request or bool(feas or screen), **ctx)  # fmt: skip
 
     @app.get("/pilot/request", response_class=HTMLResponse)
     def request_form(request: Request, ruleset: str = "") -> Response:
@@ -1991,10 +2000,18 @@ def create_app(
         return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")
                 and (not settings.studies or r.id in settings.studies) and sess.user.sees_study(r.id)]  # fmt: skip
 
+    def _case_rulesets(sess: Session) -> list[Any]:
+        """NEW-JRN-3 (D-767): the trials this account may ask a CASE question of: every one for an account that
+        prepares requests (as before), else those it may run CASE on (the PI, T-512)."""
+        u = sess.user
+        return [r for r in _trial_rulesets(sess) if u.can_request or helpers.may_run(u, r.id, "CASE")]
+
     @app.get("/pilot/case", response_class=HTMLResponse)
     def case_form(request: Request, ruleset: str = "") -> Response:
         sess = need(request)
-        return page(request, "case.html", sess, rulesets=_trial_rulesets(sess), selected=ruleset, langs=LANGS)
+        rs = _case_rulesets(sess)
+        may = sess.user.can_request or bool(rs)  # the review of D-767: a coordinator with no trial yet, as before
+        return page(request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may)
 
     @app.post("/pilot/case")
     async def case_submit(
@@ -2024,7 +2041,15 @@ def create_app(
         if not files:
             msg = translate(lang_of(request, sess), "case.need_file")
             return page(
-                request, "case.html", sess, 422, rulesets=_trial_rulesets(sess), selected=rs, langs=LANGS, error=msg
+                request,
+                "case.html",
+                sess,
+                422,
+                rulesets=_case_rulesets(sess),
+                selected=rs,
+                langs=LANGS,
+                error=msg,
+                may_case=sess.user.can_request or bool(_case_rulesets(sess)),
             )
         parts = ["CASE", rs]
         chart_no = re.sub(r"\s+", "", mrn)
