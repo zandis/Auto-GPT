@@ -115,8 +115,8 @@ def pinned_sha256(environ: Mapping[str, str]) -> str | None:
     return str(sha) if sha else None
 
 
-MAX_TOKENS = 512  # TB_EMBED_MAX_TOKENS: an input is cut here (a note sentence is far shorter; a pasted report is not)
-BATCH_TOKENS = 8192  # TB_EMBED_BATCH_TOKENS: the tokens one encode call holds (its memory grows with them, not texts)
+MAX_TOKENS = 512  # TB_EMBED_INPUT_CAP: an input is cut here (a note sentence is far shorter; a pasted report is not)
+BATCH_TOKENS = 8192  # TB_EMBED_BATCH_BUDGET: the tokens one encode call holds (its memory grows with them, not texts)
 
 
 def _setting(name: str, default: int) -> int:
@@ -163,8 +163,8 @@ class LocalEmbedder:
         self.weights_sha256 = weights_sha256
         # red of 2026-11-15: no cap on input length and a fixed batch of 64 texts; a batch of long reports took 33 s
         # and the memory of a batch grows with its tokens. Inputs are cut at max_tokens, batches sized by tokens
-        self.max_tokens = _setting("TB_EMBED_MAX_TOKENS", MAX_TOKENS)
-        self.budget = max(self.max_tokens, _setting("TB_EMBED_BATCH_TOKENS", BATCH_TOKENS))
+        self.max_tokens = _setting("TB_EMBED_INPUT_CAP", MAX_TOKENS)
+        self.budget = max(self.max_tokens, _setting("TB_EMBED_BATCH_BUDGET", BATCH_TOKENS))
         self._st.max_seq_length = min(int(getattr(self._st, "max_seq_length", 0) or self.max_tokens), self.max_tokens)
 
     def embed(self, texts: list[str]) -> list[list[float]]:

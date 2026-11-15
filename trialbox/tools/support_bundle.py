@@ -128,8 +128,6 @@ SECRET_SETTINGS = (
 #: secret-LOOKING names whose value is not a secret, with why: their line is still redacted by the name rule, but
 #: their value is not replaced in every file (that wrecked JSON, memory limits and host names)
 NOT_SECRETS = {
-    "TB_EMBED_BATCH_TOKENS": "a count of text tokens one embedding batch holds (D-900), not a credential",
-    "TB_EMBED_MAX_TOKENS": "a count of text tokens an embedding input is cut at (D-900), not a credential",
     "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
     "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
 }

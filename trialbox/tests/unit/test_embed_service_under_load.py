@@ -5,7 +5,7 @@ loaded its model three times, once per request that arrived together, under a 4 
 
 * the model is loaded once, under a lock, however many requests arrive together;
 * the service encodes ``TB_EMBED_CONCURRENCY`` requests at a time (1 by default), each input cut at
-  ``TB_EMBED_MAX_TOKENS`` tokens, in batches of at most ``TB_EMBED_BATCH_TOKENS`` tokens rather than a fixed 64 texts;
+  ``TB_EMBED_INPUT_CAP`` tokens, in batches of at most ``TB_EMBED_BATCH_BUDGET`` tokens rather than a fixed 64 texts;
 * SCREEN embeds each sentence once: the client keeps the vectors it got, keyed by the model and the text's hash
   (``TB_EMBED_CACHE_VECTORS`` of them), so a patient's notes are not embedded again for every criterion and protocol.
 
@@ -100,8 +100,8 @@ def test_the_local_embedder_cuts_inputs_at_the_token_cap(monkeypatch: pytest.Mon
 
     monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(SentenceTransformer=FakeST))
     monkeypatch.setattr(emb, "check_folder", lambda p: [])
-    monkeypatch.setenv("TB_EMBED_MAX_TOKENS", "256")
-    monkeypatch.setenv("TB_EMBED_BATCH_TOKENS", "512")
+    monkeypatch.setenv("TB_EMBED_INPUT_CAP", "256")
+    monkeypatch.setenv("TB_EMBED_BATCH_BUDGET", "512")
     e = emb.LocalEmbedder(str(tmp_path))
     assert e._st.max_seq_length == 256
     out = e.embed(["x" * 1000, "y" * 1000, "z" * 1000, "short"])
@@ -151,5 +151,5 @@ def test_the_cache_is_bounded_and_keyed_by_model(monkeypatch: pytest.MonkeyPatch
 def test_the_settings_are_declared() -> None:
     from tb_common.config import DECLARED
 
-    for name in ("TB_EMBED_CONCURRENCY", "TB_EMBED_MAX_TOKENS", "TB_EMBED_BATCH_TOKENS", "TB_EMBED_CACHE_VECTORS"):
+    for name in ("TB_EMBED_CONCURRENCY", "TB_EMBED_INPUT_CAP", "TB_EMBED_BATCH_BUDGET", "TB_EMBED_CACHE_VECTORS"):
         assert name in DECLARED, name
