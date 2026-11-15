@@ -405,3 +405,30 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
   helper, the real signer and verifier over the real host tree, the real `deploy/box-install.sh` and the console's
   real first-run pages; its header names each stand-in and what the paid run puts in its place. It uses free local
   ports only, so it may run beside `make rehearse`.
+- **Validation mode and the accuracy group** (owner's rulings of 2026-11-15: a proof of concept on public data with
+  the real pair; no vendor key, release id or release seq for it). `--mode validation` builds the same bundle from
+  the same commit but signs it with a THROWAWAY key made in tmpfs on the runner VM (`tools/sign_bundle.py keygen`;
+  only its public half leaves the VM, beside the bundle): the bundle is NOT a release and `records/bundle.json` and
+  every report say so. The start installs it with `deploy/install.sh --answers` (a synthetic site whose `env_extra`
+  makes the box `TB_ENV=VALIDATION`, the secret `tb-validation-answers`), checks deploy/.env says VALIDATION, and
+  qualifies, promotes and resolves for VALIDATION. The group `acc` then runs the public accuracy sets on the
+  installed box (Run A of the plan by default; `--only name[:size],...` for some): the site's own daily limits off
+  for the run (`rate_limits_per_day` FEAS 0 and SCREEN 0 in settings.yaml, `TB_MAIL_PER_RECIPIENT_PER_DAY=0`), each
+  recorded before and after; the tripwire left on unless a declared setting turns it off (`tb-acc-tripwire-setting`),
+  and recorded either way; the box's own gateway asked whether it routes the run's calls (it stops there when not);
+  the sets fetched at their pins and built on the VM outside the box (the gold never enters it); one ingest; per
+  protocol FEAS by mail with the protocol, the review workbook from the job's files, APPROVE by the box's named
+  reviewer, SCREEN scoped to the trial's investigator; each set uploaded to `boxruns/<run>/acc/<set>.tgz` as it
+  finishes and scored on the operator's machine by `--collect` (`tools/box_run.py acc-score`). A protocol the PHI
+  tripwire refuses is counted as "refused by tripwire", never dropped.
+
+      deploy/gcp/box-run.sh --estimate --mode validation --steps start,acc        # free: low and high, sources
+      python -m tools.box_run validation-check     # free: can a VALIDATION box route the run's calls on this tree?
+      deploy/gcp/box-run.sh --mode validation --steps build --release-id val-<commit12> --release-seq 1 --commit <sha>
+      deploy/gcp/box-run.sh --mode validation --steps start,acc --release-id val-<commit12> --no-wait
+
+  **Not runnable on train 17** (validation-check exits 3, and a validation launch with `acc` refuses until it
+  passes): VALIDATION routes the pair only as champion, which needs a qualification record that `qualify` cannot
+  make on the box (its calls are D0, no D0 route there); and the screen's judge calls are D3 against VALIDATION's D2
+  ceiling, while one `TB_DATA_CLASS` serves the compiler and the orchestrator alike. Both are lane D's (product);
+  `first-accuracy-run` notes for the owner list them.
