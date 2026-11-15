@@ -395,7 +395,8 @@ _WHY = {"choice": "{v!r} is not a choice of {f}", "date": "{f} is a date (YYYY-M
         "unknown": "{f}: not a field of this form", "decimals": "{f} has at most {places} decimal places",
         "chars": "{f} holds a character that cannot be stored (a control character from pasted text)",
         "time": "{f} is a time (HH:MM)", "email": "{f} is an e-mail address",
-        "phone": "{f} is a phone number"}  # fmt: skip
+        "phone": "{f} is a phone number",
+        "reason": "{f} was saved before: give the reason for the change (D-778)"}  # fmt: skip
 
 
 def reason(p: dict[str, str], value: str = "") -> str:

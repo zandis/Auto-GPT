@@ -260,13 +260,14 @@ def register(app: FastAPI, h: Helpers) -> None:
                   detail={"record": rec, "to": to, **({"criterion": criterion} if criterion else {})})  # fmt: skip
         return out
 
-    def apply_undo(sess: Session, path: str, rs: str, record: str) -> dict[str, Any]:
+    def apply_undo(sess: Session, path: str, rs: str, record: str, note: str = "") -> dict[str, Any]:
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
         rec = record_key(record)
         if store.study_state(rid).state == "closed":  # NEW-LIFE-6 (D-763): an undo could put a subject back on study
             raise Problem(409, "LIFE-STEP", "the study is closed", [], detail={"why": "closed"})
-        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/subjects/{quote(rec)}/undo", {}))
+        body = {"note": " ".join(note.split())[:300]}  # D-778: the reason
+        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/subjects/{quote(rec)}/undo", body))
         au.append("console.life_step", ruleset=rid, actor=h.actor(sess), detail={"record": rec, "to": "undo"})
         return out
 
@@ -464,7 +465,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         rec = record_key(record[:64])
         try:
-            apply_undo(sess, request.url.path, rid, rec)
+            apply_undo(sess, request.url.path, rid, rec, str(data.get("note") or ""))
         except Problem as exc:
             return subject_page(request, sess, rid, rec, status=409, refused=why_text(lang_of(sess), exc))
         return RedirectResponse(f"/studies/{rid}/subjects/{quote(rec)}?done=undo", status_code=303)
