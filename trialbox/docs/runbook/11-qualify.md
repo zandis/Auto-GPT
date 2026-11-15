@@ -29,6 +29,13 @@ that card's profile. G1b runs through this command. It costs nothing by itself: 
         --model-dir judge=<judge weights> --model-dir verifier=<verifier weights> \
         --evidence n12=<file> --evidence public_e2e=<file> --evidence goldens=<file> --operator <name>
 
+On an installed box, `--box` (as root) fills in what the running box serves and you did not give: each model
+server's weight folder (its `/models` mount and `--model=` argument), its log file (Docker's json-file log) and the
+gateway's audit folder (its `/data/audit` mount); it prints each one, and names what the box could not say (D-737):
+
+    sudo python3 -m tools.trialbox eval qualify --box --profile rtxpro6000 --gateway-url <url> \
+        --evidence n12=<file> --evidence public_e2e=<file> --evidence goldens=<file> --operator <name>
+
 The command prints each step as it ends and writes the record to `eval/qualification/`. Exit 0 means `passed`.
 Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say why. Exit 2 is a usage error.
 
