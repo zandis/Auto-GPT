@@ -94,7 +94,7 @@ def test_builtin_forms_entry_history_and_refusals(dcb: dict[str, Any]) -> None:
         "ic_reconsent": "0",
     }  # fmt: skip  (the hidden date is not written)
     posted = [x for x in _writes(dcb["calls"]) if x[1].startswith("/studies/GZQO/entry/")]
-    assert posted[-1][2]["values"]["ic_reconsent_date"] == "2026-11-03" and posted[-1][2]["by"] == "console:crc"
+    assert posted[-1][2]["values"]["ic_reconsent_date"] == "2026-11-03" and "by" not in posted[-1][2]  # D-799: signed
     # a visit on event v1: the range refusal, then saved
     r = _save(c, csrf, no, "tb_visit", {"vs_status": "1", "vs_date": "2026-11-05", "vs_weight": "999"}, "V1")
     assert re.search(r'data-testid="why-vs_weight">Body weight \(kg\): must be 400 or less\.<', r.text)

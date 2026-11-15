@@ -1,0 +1,27 @@
+{
+ "ended": "TB-STOP 02-install: the installer (install.sh --answers: a VALIDATION box): exit 1",
+ "order": [
+  "01-bundle",
+  "02-install"
+ ],
+ "steps": {
+  "01-bundle": {
+   "attempts": 1,
+   "boots": [
+    "02abc559-50e1-4fe9-88d8-47578ce4a29a"
+   ],
+   "first_started": 1794736115.3929741,
+   "seconds": 74.851,
+   "status": "done"
+  },
+  "02-install": {
+   "attempts": 1,
+   "boots": [
+    "86827264-3b44-4f6b-a759-54c193464dc4"
+   ],
+   "first_started": 1794738205.2651565,
+   "seconds": 30.807,
+   "status": "stop"
+  }
+ }
+}

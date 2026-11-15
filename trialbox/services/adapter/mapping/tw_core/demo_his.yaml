@@ -305,7 +305,8 @@ resources:
       code.coding[1]: {builder: coding, column: exam_code, system: exam_local, display_column: exam_name}
       subject.reference: {ref: {type: Patient, pid: mrn}}
       effectiveDateTime: {column: exam_date, type: date}
-      conclusion: {column: conclusion}
+      # CGRD-A4 (D-816): the report body when the conclusion column is empty; masked as note text is
+      conclusion: {column: conclusion, else: report_text, masked: true}
   - type: DocumentReference
     table: note
     id: {hid: note_no}

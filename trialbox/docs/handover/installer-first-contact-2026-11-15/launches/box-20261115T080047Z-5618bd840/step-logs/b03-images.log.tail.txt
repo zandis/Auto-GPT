@@ -1,0 +1,81 @@
+[first 1724 lines not copied: the last 80 only]
+#12 9.251 Collecting referencing==0.37.0 (from -r /tmp/requirements.lock (line 598))
+#12 9.289   Downloading referencing-0.37.0-py3-none-any.whl (26 kB)
+#12 9.398 Collecting reportlab==5.1.0 (from -r /tmp/requirements.lock (line 604))
+#12 9.436   Downloading reportlab-5.1.0-py3-none-any.whl (2.0 MB)
+#12 9.456      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.0/2.0 MB 117.1 MB/s eta 0:00:00
+#12 9.612 Collecting rpds-py==2026.9.1 (from -r /tmp/requirements.lock (line 608))
+#12 9.648   Downloading rpds_py-2026.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (371 kB)
+#12 9.823 Collecting sqlalchemy==2.1.8 (from -r /tmp/requirements.lock (line 640))
+#12 9.862   Downloading sqlalchemy-2.1.8-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (4.7 MB)
+#12 9.895      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.7/4.7 MB 142.7 MB/s eta 0:00:00
+#12 10.02 Collecting sqlglot==30.31.0 (from -r /tmp/requirements.lock (line 654))
+#12 10.06   Downloading sqlglot-30.31.0-py3-none-any.whl (811 kB)
+#12 10.07      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 812.0/812.0 kB 69.6 MB/s eta 0:00:00
+#12 10.13 Collecting starlette==1.10.0 (from -r /tmp/requirements.lock (line 658))
+#12 10.16   Downloading starlette-1.10.0-py3-none-any.whl (80 kB)
+#12 10.21 Collecting texttable==1.7.2 (from -r /tmp/requirements.lock (line 662))
+#12 10.28   Downloading texttable-1.7.2-py2.py3-none-any.whl (10 kB)
+#12 10.32 Collecting typing-extensions==4.16.0 (from -r /tmp/requirements.lock (line 666))
+#12 10.36   Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+#12 10.40 Collecting typing-inspection==0.4.5 (from -r /tmp/requirements.lock (line 681))
+#12 10.44   Downloading typing_inspection-0.4.5-py3-none-any.whl (14 kB)
+#12 10.48 Collecting tzdata==2026.6 (from -r /tmp/requirements.lock (line 687))
+#12 10.51   Downloading tzdata-2026.6-py2.py3-none-any.whl (348 kB)
+#12 10.58 Collecting tzlocal==5.4.5 (from -r /tmp/requirements.lock (line 695))
+#12 10.61   Downloading tzlocal-5.4.5-py3-none-any.whl (18 kB)
+#12 10.66 Collecting urllib3==2.8.0 (from -r /tmp/requirements.lock (line 699))
+#12 10.70   Downloading urllib3-2.8.0-py3-none-any.whl (135 kB)
+#12 10.74 Collecting uvicorn==0.54.0 (from -r /tmp/requirements.lock (line 703))
+#12 10.78   Downloading uvicorn-0.54.0-py3-none-any.whl (87 kB)
+#12 10.85 Collecting zstandard==0.25.0 (from -r /tmp/requirements.lock (line 707))
+#12 10.88   Downloading zstandard-0.25.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (5.5 MB)
+#12 10.91      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.5/5.5 MB 223.3 MB/s eta 0:00:00
+#12 11.11 Installing collected packages: texttable, brotli, zstandard, urllib3, tzlocal, tzdata, typing-extensions, sqlglot, rpds-py, pyyaml, python-multipart, pyppmd, pypdf, pyparsing, pycryptodomex, pycparser, pybcj, pyarrow, psycopg-binary, psutil, pillow, packaging, numpy, multivolumefile, markupsafe, markdown, lxml, kiwisolver, inflate64, idna, h11, fonttools, et-xmlfile, duckdb, cycler, click, charset-normalizer, certifi, backports-zstd, attrs, annotated-types, annotated-doc, uvicorn, typing-inspection, sqlalchemy, reportlab, referencing, python-docx, python-dateutil, pydantic-core, py7z [cut at 600 characters]
+#12 19.79 Successfully installed annotated-doc-0.0.6 annotated-types-0.8.0 anyio-4.16.0 apscheduler-3.11.3 attrs-26.1.0 backports-zstd-1.8.0 brotli-1.2.1 certifi-2026.10.23 cffi-2.1.1 charset-normalizer-3.5.2 click-8.5.1 contourpy-1.4.0 cryptography-50.0.2 cycler-0.12.1 docxtpl-0.20.2 duckdb-1.5.5 duckdb-extension-fts-1.5.5 dulwich-1.2.21 et-xmlfile-2.0.0 fastapi-0.162.4 fhir-core-1.1.12 fhir-resources-8.3.0 fonttools-4.68.0 h11-0.16.0 httpcore-1.0.9 httpx-0.28.1 idna-3.20 inflate64-1.0.4 jinja2-3.1.6 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 kiwisolver-1.5.1 lxml-6.1.3 markdown-3.1 [cut at 600 characters]
+#12 19.79 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#12 19.93 + pip install --only-binary=:all: pytest==9.2.0
+#12 20.84 Collecting pytest==9.2.0
+#12 21.00   Downloading pytest-9.2.0-py3-none-any.whl.metadata (7.9 kB)
+#12 21.04 Collecting iniconfig>=2 (from pytest==9.2.0)
+#12 21.08   Downloading iniconfig-2.3.1-py3-none-any.whl.metadata (2.8 kB)
+#12 21.08 Requirement already satisfied: packaging>=24 in /usr/local/lib/python3.12/site-packages (from pytest==9.2.0) (26.3)
+#12 21.13 Collecting pluggy<2,>=1.6 (from pytest==9.2.0)
+#12 21.17   Downloading pluggy-1.7.0-py3-none-any.whl.metadata (5.0 kB)
+#12 21.22 Collecting pygments>=2.15 (from pytest==9.2.0)
+#12 21.26   Downloading pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)
+#12 21.31 Downloading pytest-9.2.0-py3-none-any.whl (411 kB)
+#12 21.47 Downloading iniconfig-2.3.1-py3-none-any.whl (7.6 kB)
+#12 21.50 Downloading pluggy-1.7.0-py3-none-any.whl (27 kB)
+#12 21.54 Downloading pygments-2.21.0-py3-none-any.whl (1.3 MB)
+#12 21.59    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 22.4 MB/s eta 0:00:00
+#12 21.65 Installing collected packages: pygments, pluggy, iniconfig, pytest
+#12 22.20 Successfully installed iniconfig-2.3.1 pluggy-1.7.0 pygments-2.21.0 pytest-9.2.0
+#12 22.20 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#12 DONE 23.7s
+
+#13 [stage-0 7/8] COPY --chown=tb:tb . /app
+#13 DONE 0.4s
+
+[line removed: password, token, secret or code]
+[line removed: password, token, secret or code]
+#14 0.107 + python tools/fetch_fonts.py
+#14 0.330 f5f7ee13bcce9b2594ed4823d54149c69357deb0ae28a123533ee1885b49fd03  NotoSansJP-Bold.ttf
+#14 0.334 a0e1618f2857c2ef7a7cc776ae955e85c8a42acdc29939149be74b1c5aaeef21  NotoSansJP-Regular.ttf
+#14 0.339 4602afd8878ad61dd215437e1698b3047b46b68d8adee65dc6fb479265bc6336  NotoSansTC-Bold.ttf
+#14 0.344 129621d497923f2513e544549fb27d8588a15f250af5f22ac5ae1994b5dc1cb2  NotoSansTC-Regular.ttf
+#14 0.358 + mkdir -p /app/.cache/jvm/cql-translator/lib
+#14 0.359 + ls /app/.cache/jvm/cql-translator/lib/quick-5.4.0.jar
+#14 0.360 + PYTHONPATH=services python -c import sys; from criteria_compiler.compile_cql.translator import fhirhelpers_source as f; open(sys.argv[1],'wb').write(f().encode()) /app/.cache/jvm/FHIRHelpers-4.0.1.cql
+#14 0.521 + echo 6748661c16fe66dd07a68f07f77f7fea44e8b933d265dcc3c575964ba8329591  /app/.cache/jvm/FHIRHelpers-4.0.1.cql
+#14 0.521 + sha256sum -c /app/.cache/jvm/FHIRHelpers-4.0.1.cql.sha256
+#14 0.522 /app/.cache/jvm/FHIRHelpers-4.0.1.cql: OK
+#14 0.523 + chown -R tb:tb /app/.cache
+#14 DONE 0.6s
+
+#15 exporting to image
+#15 exporting layers
+#15 exporting layers 1.2s done
+#15 writing image sha256:ea5993c8069ae56b6351be1092b895da523548909d3ec952241d86e9b79d24ae done
+#15 naming to docker.io/library/trialbox-demo:step5 done
+#15 DONE 1.2s

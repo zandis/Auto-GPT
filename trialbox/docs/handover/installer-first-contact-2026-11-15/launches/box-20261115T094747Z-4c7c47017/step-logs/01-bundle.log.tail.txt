@@ -1,0 +1,14 @@
+Total:	0B
++ fetch (3 words) 09:48:44
+Copying gs://trialbox-demo-runs/r2/val-ac36aa21fdc1/trialbox-val-ac36aa21fdc1.tar to file:///var/lib/tb/bundle/box-20261115T094747Z-4c7c47017.tar
+  
+.....................................................................
+
+Average throughput: 2.0GiB/s
++ vm (14 words) 09:49:15
+[line removed: key fingerprint]
++ tar (5 words) 09:49:40
++ fetch (3 words) 09:49:45
+Copying gs://trialbox-demo-runs/r2/val-ac36aa21fdc1/throwaway-signing-key.pub to file:///opt/trialbox/deploy/keys/vendor_ed25519.pub
+  
+

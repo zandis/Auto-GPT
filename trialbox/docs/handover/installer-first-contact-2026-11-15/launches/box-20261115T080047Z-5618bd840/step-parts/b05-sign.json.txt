@@ -1,0 +1,41 @@
+{
+ "attempts": 1,
+ "boots": [
+  "497e878f-c35b-4b56-8263-16e152e58be1"
+ ],
+ "detail": {
+  "key_left_on_tmpfs": false,
+  "mode": "validation",
+  "not_a_release": true
+ },
+ "ended": "2026-11-15T08:17:43Z",
+ "minutes": 5.0,
+ "ok": false,
+ "seconds": 300.178,
+ "started": "2026-11-15T08:12:43Z",
+ "status": "stop",
+ "step": "b05-sign",
+ "stop": {
+  "log_tail": [
+   "+ d_sign_throwaway (1 words) 08:12:43",
+   "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release",
+   "    pulling authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54",
+   "    pulling caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee",
+   "    pulling hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e",
+   "    pulling vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34",
+   "==> release gates (/srv/tb-build/tb/trialbox/build/supply-chain/gates.json)",
+   "bundle-check: PASS (8 images)",
+   "==> images",
+   "    authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54",
+   "    caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee",
+   "    hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e",
+   "    trialbox-embed:1.0.0",
+   "    trialbox-jvm:1.0.0",
+   "    trialbox-postgres:16-1",
+   "    trialbox-py:1.0.0",
+   "    vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34",
+   "write /tmp/tb-bundle.ebYwys/.tmp-vllm_vllm-openai_v0.32.0@sha256_befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34.tar139718053: no space left on device"
+  ],
+  "reason": "signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 1"
+ }
+}
