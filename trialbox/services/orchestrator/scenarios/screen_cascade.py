@@ -32,6 +32,7 @@ from matching.cascade import CascadeConfig, CascadeError, CascadeResult, run_cas
 from matching.cascade.engine import NOT_AT_INDEX
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import Outcome, PatientTrace
+from matching.cascade.s2b_semantic import SentenceVectors
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence, Opinion
@@ -620,11 +621,20 @@ def screen_with_cascade(
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
         registry=lambda: dctx.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
     )
+    # D-912: the run's sentence vectors, one memo for every round of the two-phase run (each round reruns the cascade)
+    vectors = SentenceVectors()
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
             judge,
             lambda j: run_cascade(
-                ctx.services.lake, rs, cfg, judge=j, embedder=embedder, reviewer=None, s2b_source=source
+                ctx.services.lake,
+                rs,
+                cfg,
+                judge=j,
+                embedder=embedder,
+                reviewer=None,
+                s2b_source=source,
+                vectors=vectors,
             ),
         )
     except CascadeError as exc:

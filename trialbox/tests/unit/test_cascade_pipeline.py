@@ -391,7 +391,8 @@ class PromptJudge:
 def test_s2b_is_not_run_where_the_window_fits_and_nothing_changes(env: dict[str, Any], budget: int) -> None:
     """D-910: SCREEN (absence semantics off) routes a zero-hit pair whose whole window fits the excerpt budget
     without embedding it. The prompts the judge reads and every answer are the same as with S2b's ranking."""
-    screen = {"sample_per_stratum": None, "absence_semantics": False, "index_mode": "single"}
+    # the run's sentence memo off in both (D-912): one embed batch per ranked pair, so the batches count the skip
+    screen = {"sample_per_stratum": None, "absence_semantics": False, "index_mode": "single", "s2b_memo": False}
     ranked_judge, skipped_judge = PromptJudge(budget), PromptJudge(budget)
     ranked = _run(env, ranked_judge, s2b_skip_when_fits=False, **screen)
     skipped = _run(env, skipped_judge, **screen)
@@ -411,9 +412,73 @@ def test_s2b_is_not_run_where_the_window_fits_and_nothing_changes(env: dict[str,
     assert [(s.patients_out, s.pairs_out) for s in skipped.stages] == [
         (s.patients_out, s.pairs_out) for s in ranked.stages
     ]
+    # as SCREEN runs (the skip and the memo both on): the same prompts and answers again
+    both_judge = PromptJudge(budget)
+    both = _run(env, both_judge, **{**screen, "s2b_memo": True})
+    assert sorted(both_judge.prompts) == sorted(ranked_judge.prompts) and _answers(both) == _answers(ranked)
 
 
 def test_feasibility_still_ranks_every_zero_hit_pair(env: dict[str, Any]) -> None:
     """D-910: with absence semantics on, S2b's score decides absence: every zero-hit pair is embedded."""
     res = _run(env, PromptJudge(2500), sample_per_stratum=None)
     assert res.metrics.pairs_s2b_not_embedded == 0 and "not_embedded" not in res.stage("S2b").detail
+
+
+class CountingEmbedder:
+    """The hash stub, counting the texts it is sent."""
+
+    def __init__(self) -> None:
+        from embed_service.embedder import HashEmbedder
+
+        self.inner = HashEmbedder()
+        self.model = self.inner.model
+        self.requests = 0
+        self.texts = 0
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.requests += 1
+        self.texts += len(texts)
+        return self.inner.embed(texts)
+
+
+def _run_with(env: dict[str, Any], judge: Any, embedder: Any, vectors: Any = None, **cfg: Any) -> Any:
+    from matching.cascade import run_cascade
+
+    from tools.cascade_e2e import _reviewer
+
+    return run_cascade(
+        env["lake"],
+        env["rs"],
+        replace(env["cfg"], **cfg),
+        judge=judge,
+        embedder=embedder,
+        reviewer=_reviewer(None, env["rs"]),
+        vectors=vectors,
+    )
+
+
+@pytest.mark.req("CAS-12", "CAS-15")
+@pytest.mark.parametrize("absence", [True, False])
+def test_s2b_embeds_each_sentence_once_with_the_same_answers(env: dict[str, Any], absence: bool) -> None:
+    """D-912: with the run's sentence memo the S2b scores, the prompts and the answers are those without it, in
+    feasibility (the score decides absence) and in SCREEN; fewer texts reach the embedder, and a second round of a
+    two-phase run sharing the memo sends none."""
+    from matching.cascade.s2b_semantic import SentenceVectors
+
+    opts = {"sample_per_stratum": None, "absence_semantics": absence, "s2b_skip_when_fits": False}
+    plain_e, memo_e = CountingEmbedder(), CountingEmbedder()
+    plain_j, memo_j = PromptJudge(700), PromptJudge(700)
+    plain = _run_with(env, plain_j, plain_e, s2b_memo=False, **opts)
+    shared = SentenceVectors()
+    kept = _run_with(env, memo_j, memo_e, vectors=shared, **opts)
+    assert sorted(memo_j.prompts) == sorted(plain_j.prompts)
+    full = {pid: [vars(o) for o in t.outcomes.values()] for pid, t in plain.traces.items()}
+    assert {pid: [vars(o) for o in t.outcomes.values()] for pid, t in kept.traces.items()} == full  # S2b scores too
+    assert _answers(kept) == _answers(plain) and kept.final_list == plain.final_list
+    assert plain.metrics.pairs_s2_zero_hit > 0 and plain_e.texts > 0
+    assert memo_e.texts < plain_e.texts and memo_e.requests <= plain_e.requests
+    assert kept.metrics.s2b_embed_batches == memo_e.requests and len(shared) == memo_e.texts
+    # the verifier's round reruns the cascade with the same memo: no sentence is embedded again
+    again_e = CountingEmbedder()
+    again = _run_with(env, PromptJudge(700), again_e, vectors=shared, **opts)
+    assert again_e.texts == 0 and again.metrics.s2b_embed_batches == 0 and _answers(again) == _answers(plain)

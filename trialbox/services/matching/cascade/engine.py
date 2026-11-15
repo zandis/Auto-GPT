@@ -68,6 +68,7 @@ from matching.cascade.s2b_semantic import (
     BatchEmbedder,
     Embedder,
     SentenceSource,
+    SentenceVectors,
     SourceFallback,
     SourceRanking,
     ThresholdTable,
@@ -173,6 +174,10 @@ class CascadeConfig:
     # without S2b's embedding: every note is then shown whole, newest first, so the ranking cannot change the prompt.
     # False ranks every pair as before (the test that both give the same prompts and answers)
     s2b_skip_when_fits: bool = True
+    # D-912: S2b embeds each distinct sentence once per run (a memo by model and text hash, shared with the run's
+    # other rounds when the caller passes one); False embeds every pair's sentences, as before (the test that both
+    # give the same vectors and scores)
+    s2b_memo: bool = True
     # T-708 (D-477): the consent state of S0, given by the caller's decision context (the orchestrator). None: a
     # caller with no job (a tool) and S0 reads the lake by the same rule (``tb_common.optout.registry_state``).
     registry: Callable[[], RegistryState | None] | None = None
@@ -358,8 +363,11 @@ class _Run:
         judge: JudgeClient | None,
         embedder: Embedder | None,
         s2b_source: SentenceSource | None = None,
+        vectors: SentenceVectors | None = None,
     ) -> None:
         self.lake = lake
+        # D-912: the run's sentence vectors (the caller's, shared across two-phase rounds, or this run's own)
+        self.vectors = (vectors if vectors is not None else SentenceVectors()) if cfg.s2b_memo else None
         self.s2b_source = s2b_source  # T-203b (D-449): stored vectors behind the flag vec.s2b; None = on the fly
         self.rs = rs
         self.cfg = cfg
@@ -850,7 +858,7 @@ class _Run:
             elif self.embedder is None:
                 res_above, best, top = True, 1.0, list(range(min(5, len(sents))))  # no S2b: never absence
             else:
-                res = screen(self.embedder, query, [s for _, s in sents], thr)
+                res = screen(self.embedder, query, [s for _, s in sents], thr, vectors=self.vectors)
                 res_above, best, top = res.above, res.best, [i for i, _ in res.top]
             held = (
                 index_sweep
@@ -1395,10 +1403,13 @@ def run_cascade(
     embedder: Embedder | None = None,
     reviewer: Reviewer | None = None,
     s2b_source: SentenceSource | None = None,
+    vectors: SentenceVectors | None = None,
 ) -> CascadeResult:
     """Run S0 → S5 for one study. ``lake`` is a ``lake.client.LakeAPI`` on the pinned L5 snapshot. ``s2b_source``
-    (T-203b, flag ``vec.s2b``): S2b ranks from stored vectors where they answer, else on the fly (D-449)."""
-    run = _Run(lake, rs, cfg, judge, embedder, s2b_source)
+    (T-203b, flag ``vec.s2b``): S2b ranks from stored vectors where they answer, else on the fly (D-449).
+    ``vectors`` (D-912): the sentence vectors a caller shares across runs of one job (the two-phase rounds); a run
+    without it keeps its own."""
+    run = _Run(lake, rs, cfg, judge, embedder, s2b_source, vectors)
     idx = run.s0()
     applied = run.s1(idx)
     note_crit = [c for c in rs.active() if c.class_ in JUDGED and c.kind in ("inclusion", "exclusion")]
