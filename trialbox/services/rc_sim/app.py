@@ -30,7 +30,7 @@ import re
 import secrets
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -270,10 +270,43 @@ def _checkbox_columns(rows: list[dict[str, Any]], meta: dict[str, Any]) -> str |
     return None
 
 
+def _real_day(y: str, m: str, d: str) -> bool:
+    try:
+        date(int(y), int(m), int(d))
+    except ValueError:
+        return False
+    return True
+
+
+def _day(value: str) -> bool:
+    """CGRD-B5a (D-843): a date as REDCap's import reads it, whatever the field shows: Y-M-D or M/D/Y, a real day."""
+    if m := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", value):
+        return _real_day(m.group(1), m.group(2), m.group(3))
+    if m := re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", value):
+        return _real_day(m.group(3), m.group(1), m.group(2))
+    return False
+
+
 def _fits(meta: dict[str, Any], value: str) -> bool:
-    """REDCap's check of a value against the field's decimal validation (STD-061, T-115): ``number_1dp`` takes
-    exactly one decimal place, a ``_comma_decimal`` type takes the comma. The other types are not checked here."""
+    """REDCap's check of a value against its field (STD-061, T-115; CGRD-B5a, D-843): a choice field takes one of
+    its codes (yes/no and true/false: 0 or 1); ``integer`` and ``number`` take a number; a date or date-time takes
+    Y-M-D or M/D/Y (a time after it for a date-time); ``number_1dp`` takes exactly one decimal place, a
+    ``_comma_decimal`` type takes the comma. A range is not checked: REDCap's import does not refuse it."""
+    ftype = str(meta.get("field_type") or "")
+    if ftype in ("yesno", "truefalse"):
+        return value in ("0", "1")
+    if ftype in ("radio", "dropdown"):
+        return value in _codes(meta)
     vt = str(meta.get("text_validation_type_or_show_slider_number") or "")
+    if vt == "integer":
+        return re.fullmatch(r"-?\d+", value) is not None
+    if vt == "number":
+        return re.fullmatch(r"-?\d+(\.\d+)?", value) is not None
+    if vt.startswith("date_"):
+        return _day(value)
+    if vt.startswith("datetime_"):
+        day, _, clock = value.partition(" ")
+        return _day(day) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?", clock) is not None
     m = re.fullmatch(r"number_(\d)dp(_comma_decimal)?", vt)
     if m:
         sep = "," if m.group(2) else r"\."
