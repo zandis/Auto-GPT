@@ -53,7 +53,7 @@ def test_a_ready_workstation_passes_every_line(tmp_path: Path) -> None:
 
 
 def test_each_missing_piece_is_a_fail_line(tmp_path: Path) -> None:
-    env = _fake(tmp_path, kernel="5.15.0-generic", build="19045", gpu=False,
+    env = _fake(tmp_path, kernel="5.15.0-generic", build="19044", gpu=False,
                 free_kb=50 * 1048576, mem_kb=8 * 1048576, pid1="init")  # fmt: skip
     out = _run(env)
     assert out.returncode == 1
@@ -61,6 +61,16 @@ def test_each_missing_piece_is_a_fail_line(tmp_path: Path) -> None:
     assert {ln.split(":")[0].removeprefix("FAIL  ") for ln in fails} == {
         "WSL2", "Windows build", "GPU driver", "Disk space", "Memory", "systemd"}  # fmt: skip
     assert "check(s) FAILED" in out.stdout.splitlines()[-1]
+
+
+def test_windows_10_22h2_passes_and_the_build_before_it_does_not(tmp_path: Path) -> None:
+    """Owner ruling D-503 (NEW-WIN-10, D-613): the sites' workstations run Windows 10 Pro 22H2, build 19045."""
+    for build, verdict in (("19045", "PASS"), ("19044", "FAIL"), ("22631", "PASS")):
+        env = _fake(tmp_path / build, kernel="5.15.167.4-microsoft-standard-WSL2", build=build, gpu=True,
+                    free_kb=900 * 1048576, mem_kb=96 * 1048576, pid1="systemd")  # fmt: skip
+        line = next(ln for ln in _run(env).stdout.splitlines() if "Windows build" in ln)
+        assert line.startswith(verdict), (build, line)
+    assert "$build -ge 19045" in PS1.read_text(encoding="utf-8")
 
 
 def test_the_powershell_check_covers_the_same_ground() -> None:

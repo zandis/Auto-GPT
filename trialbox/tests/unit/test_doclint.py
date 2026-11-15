@@ -146,8 +146,11 @@ def test_the_index_is_generated_and_checked(hub_root: Path) -> None:
     table += "| 1 | Install | on master | site |\n| 2 | Later | T-999 | site |\n"
     _hub(hub_root, table)
     rb = hub_root / "docs" / "runbook"
-    (rb / "01-install.md").write_text("# 1. Install a box\n\nText.\n\n## Before you start\n\nMore.\n")
-    (rb / "01-extra.md").write_text("# An extra page\n\nText.\n")
+    # every page names its reader (T-735a, D-729)
+    (rb / "01-install.md").write_text(
+        "# 1. Install a box\n\n**Reader:** hospital IT.\n\nText.\n\n## Before you start\n\nMore.\n"
+    )
+    (rb / "01-extra.md").write_text("# An extra page\n\n**Reader:** the box owner.\n\nText.\n")
     errs = doclint.check_sections("docs/RUNBOOK.md")
     assert any("index: out of date" in e for e in errs)
     assert doclint.write_index("docs/RUNBOOK.md") and not doclint.write_index("docs/RUNBOOK.md")
@@ -228,7 +231,8 @@ def test_two_branches_each_adding_a_runbook_section_and_a_data_row_merge_cleanly
     for (name, rel), number in zip(data.items(), reserved, strict=True):
         assert _git(root, "checkout", "-q", "-b", name, "main").returncode == 0
         (root / "docs" / "runbook" / f"{number:02d}-branch-{name}.md").write_text(
-            f"# {number}. Branch {name} page\n\nSteps.\n\n## Check {name}\n\nDone.\n", encoding="utf-8"
+            f"# {number}. Branch {name} page\n\n**Reader:** the box owner.\n\nSteps.\n\n## Check {name}\n\nDone.\n",
+            encoding="utf-8",
         )
         lines = (root / rel).read_text(encoding="utf-8").splitlines()
         last = max(i for i, line in enumerate(lines) if line.startswith("| "))

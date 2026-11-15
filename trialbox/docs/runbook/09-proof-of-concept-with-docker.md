@@ -1,5 +1,7 @@
 # 9. Proof of concept with Docker
 
+**Reader:** Aimedics (an other install form: a proof of concept on any Docker host).
+
 `deploy/poc.sh` (`make poc`; Windows: `powershell -ExecutionPolicy Bypass -File deploy\poc.ps1`) runs the whole box on
 synthetic data with test mail servers. It builds images when missing, writes random passwords, starts the stack,
 creates the administrator (password printed once), ingests a 600-patient synthetic site and prints the URLs:

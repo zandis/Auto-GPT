@@ -1,5 +1,7 @@
 # 23. Key inventory and the lost-box list
 
+**Reader:** the box owner.
+
 *T-635, D-390. Closes OPS-044. The keys on the box, their holders and rotation rules are in code: `python -m
 tools.keys inventory` (D-347) prints them, and SECURITY §4 says where each secret is kept. This page adds what that
 list does not cover: what to revoke **outside** the box when the box, a disk or a backup is lost, and who does it.*

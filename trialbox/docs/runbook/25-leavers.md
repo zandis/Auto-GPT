@@ -1,5 +1,7 @@
 # 25. Leavers
 
+**Reader:** the box owner.
+
 *T-635, D-390. What to close when a person leaves the trial team, hospital IT, the key stewards or Aimedics. Do it
 on the last working day, not after.*
 

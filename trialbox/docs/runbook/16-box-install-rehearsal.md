@@ -1,5 +1,7 @@
 # 16. Box-install rehearsal: the gate before a site's IQ
 
+**Reader:** the people who build TrialBox.
+
 Before any site's installation qualification (IQ), and before a release goes on a site's media, run
 `make rehearse-box` on any Docker host (no GPU; the network only to build the images; D-176). A
 FAIL stops the release: no site visit until it passes. Keep `report.md` with the release record.

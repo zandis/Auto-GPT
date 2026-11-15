@@ -3,8 +3,9 @@
 One page. What you need, the commands in order, and what you do on the Windows PC. The questions P-0 answers are
 on the sheet `docs/handover/P-0-windows-rehearsal.md`; this page gets you to its line 1.
 
-**What has been run, and what has not.** Step 1 below (the Ubuntu packages) and step 2 with a stand-in bundle were
-run for real on 2026-11-13 on a Linux build machine: 16 packages, 84 MB; a media that passes its check. Stage B's
+**What has been run, and what has not.** Stage A's commands below were run for real on a Linux build machine, last on
+2026-11-14 from a fresh checkout of `master` (d2d74f30): 16 packages, 84 MB; a media of 428 MB that passes its check
+after a copy. Microsoft's WSL package was a stand-in there (only Windows checks its signature). Stage B's
 bundle commands are lane D's, written by reading the rehearsal script; nobody has run them in this form (no
 Docker where they were written). Nothing has run on Windows: that is what P-0 is.
 
@@ -15,16 +16,20 @@ The two lines that decide the next card are **26a** (does WSL2 start from the bo
 
 - **Stage A: a media with a stand-in bundle. No Docker, about half an hour.** The Windows installer goes through
   its steps 1 to 13 for real (Windows checks, BitLocker, WSL2, the Ubuntu image, the 16 packages, the card in a
-  container, the boot task, the network rule) and stops at step 14, where the Linux installer refuses a bundle it
-  cannot verify. That stop is expected. It answers the sheet's lines 1 to 12, Part 2, Part 3 (24, 25, **26a**,
+  container, the boot task, the network rule) and stops in step 14. The window then says "The TrialBox installer
+  inside WSL2 stopped before the set-up was finished". By reading the Linux installer (not run), the last lines
+  above it are most likely its tier check (this PC's card has no measured serving record) or its bundle check
+  ("the bundle is not a valid signed TrialBox release; nothing was changed"). That stop is expected; record its
+  last lines. Lines 26a and 36a need only steps 1 to 12. It answers the sheet's lines 1 to 12, Part 2, Part 3 (24, 25, **26a**,
   27a, 27b, 27d), Part 4 (28 to **36a**, 36b, 36c), Part 6 (45 to 51, 53, 56) and Part 8 (63, 64, 64a, 66).
 - **Stage B: a media with a real signed bundle (placeholder models). Needs Docker; hours.** For the lines that
   need the stack up: 13 to 16, 26b, 27, 27c, Part 5 (the console from another PC), 52, 54, 55, 58, 61, 65, 67 to 70.
-  **Expect step 14 to stop here too, later**: by reading the Linux installer, a card with no serving record is
-  refused unless the install is started as a trial, and the model servers cannot load placeholder files. The
-  Linux-side rehearsal (`make rehearse-box`) gets past this with stand-in model servers that the Windows path does
-  not have. Record where it stops. Whether P-0 gets a way to finish on a rehearsal PC (a stand-in profile for the
-  box installer) is open; it is named to the integrator.
+  **Today step 14 stops here too**, by reading: a card with no serving record is refused unless the install is
+  started as a trial, and the model servers cannot load placeholder files. The Linux installer now has a
+  rehearsal profile (`--rehearsal`, D-726: the box is TEST, says "rehearsal box", runs stand-in model servers, and
+  takes a bundle built with `make_bundle.sh --rehearsal`). The Windows installer cannot pass that switch on yet:
+  a `-Rehearsal` switch for it is lane W's next card. Do Stage B once that card is on `master`; this page then gets
+  the exact command.
 
 Do Stage A first and send its answers back. Stage B can follow on the same PC: the installer goes on where it
 stopped. One thing first, because Stage A left its stand-in key in the box and the installer refuses a media
@@ -35,11 +40,11 @@ administrator PowerShell, `wsl -d TrialBox -u root -- rm /opt/trialbox/deploy/ke
 
 | | Stage A | Stage B, in addition |
 | --- | --- | --- |
-| Build machine | Linux, Debian or Ubuntu (Ubuntu 24.04 is what was used), `python3` 3.12, `apt-get`, `gpg`; online; an ordinary user, not root | Docker with compose; the repository's `make venv` |
+| Build machine | Linux, Debian or Ubuntu (Ubuntu 24.04 is what was used), `python3` 3.12 or later (3.13 on 2026-11-14), `apt-get`, `gpg`; online; an ordinary user, not root | Docker with compose; the repository's `make venv` |
 | Disk on it | 2 GB | about 40 GB (images built and saved; the bundle) |
 | Time | 10 minutes plus the downloads (about 650 MB) | hours: image builds, the release gates' first database download, large image pulls |
 | USB disk | 4 GB, exFAT or NTFS | 32 GB (images are about 12 GB with the model server's; placeholders are bytes) |
-| Windows PC | Windows 11 Pro, Pro for Workstations, Enterprise or Education; an NVIDIA card **with its Windows driver installed**; virtualisation on in the firmware; 500 GB free on a fixed NTFS drive (less: add `-MinFreeGB <what it has>`); nothing on it that you need; a second PC on the same network for Part 5 | the same PC |
+| Windows PC | Windows 10 22H2 (build 19045) or Windows 11, as Pro, Pro for Workstations, Enterprise or Education; an NVIDIA card **with its Windows driver installed**; virtualisation on in the firmware; 500 GB free on a fixed NTFS drive (less: add `-MinFreeGB <what it has>`); a second PC on the same network for Part 5. Your own computer: read "On your own computer" below first | the same PC |
 
 ## Stage A, commands
 
@@ -105,14 +110,41 @@ so whether the media is nearer 5 GB or 13 GB.
 3. Sign in as the administrator who will own the box, plug in the USB disk, start the installer, and follow the
    sheet line by line. Write the "Record" column down as you go. Never write a recovery key down for us: only
    "shown" and "confirmed".
-4. Stage A: when the window stops at step 14 with the Linux installer's message about the bundle, that is the
-   expected end (the sheet's line 13). Go on with Part 2, Part 3 (lines 24, 25, 26a, 27a, 27b, 27d), Part 4,
+4. Stage A: when the window stops in step 14 ("stopped before the set-up was finished"), that is the expected
+   end (the sheet's line 13): write down the last lines above it. Go on with Part 2, Part 3 (lines 24, 25, 26a, 27a, 27b, 27d), Part 4,
    Part 6 and Part 8 as listed above.
 5. Send back: the sheet with its Record column, and the log
    `C:\ProgramData\TrialBox\box-install\box-install.log` (it holds no secret; line 35 checks that).
 
-The PC keeps what the installer did (WSL2 on, a `TrialBox` distribution, BitLocker if you let it, the boot task,
-the Windows Update window, shutdown for administrators only). To put a rehearsal PC back: `wsl --unregister
-TrialBox`, delete `<drive>\TrialBox`, `Unregister-ScheduledTask TrialBox-WSL2`, and remove the values under
-`HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` that the log lists. The installer itself never removes
-anything.
+## On your own computer
+
+**Windows 10 22H2 can take P-0** (owner ruling D-503; NEW-WIN-10, D-613). The sheet's Part 9 has its own lines:
+Windows 10 has no mirrored networking for WSL2, so the console reaches other PCs through a forwarding rule that a
+task keeps pointed at WSL2. On a PC with several data drives, name the one with room: on yours, start the
+installer from an administrator PowerShell as `<usb>\TRIALBOX-<version>\windows\box-install.ps1 -DataDrive G:`
+(G:, H: and I: have about 2 TB free; C: has 222 GB, too little for a box). An RTX 3080 is enough for Stage A;
+it is not a tier's card, so Stage B's install runs as a rehearsal box only.
+
+P-0 can run on the computer you work on. It holds no patient data and needs none: the installer reads only the USB
+disk and the one folder it makes (`<data drive>\TrialBox`, which must be new or empty), and it removes nothing.
+But some of what it does is for the whole computer, not only for TrialBox. Decide on each before you start:
+
+| What the installer does | For | If you do not want it |
+| --- | --- | --- |
+| BitLocker on the system drive and the data drive, each recovery key shown once and confirmed | the whole drive | start with `-SkipBitLocker` (the sheet's Part 4, "Choose first"). A drive that is already encrypted is left as it is either way; only its key is asked for |
+| Hibernation off, sleep off on mains and battery (current power plan) | the computer | set them back in Settings, Power, after P-0 |
+| Windows Update: installs daily at 19:00, restarts only 19:00 to 01:00, no drivers from Windows Update. A policy your IT already set is kept instead | the computer | after P-0, the values under `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` that the log lists can be removed |
+| Only administrators may shut the computer down; the sign-in screen no longer offers it | every account | after P-0, `secpol.msc`, Local Policies, User Rights Assignment, "Shut down the system": put back the accounts the log's line "shutdown right was:" names; Security Options, "Shutdown: Allow system to be shut down without having to log on": Enabled |
+| Inbound connections to WSL set to "block", one rule lets the console's port in from your own network | every WSL distribution on the computer, not only TrialBox's | if you use other WSL distributions that others connect to, say so before P-0 |
+| `%USERPROFILE%\.wslconfig` with memory, processors, no swap and mirrored networking. A `.wslconfig` you already have is kept as it is (the network lines of Part 5 will then show it) | every WSL distribution of your account | a copy of any earlier file is kept beside it (`.wslconfig.before-trialbox-<time>`) |
+| A task `TrialBox-WSL2` that starts TrialBox's WSL system at every boot | the computer | `Unregister-ScheduledTask TrialBox-WSL2` |
+| Windows 10 only: a port-proxy rule `0.0.0.0:443` to WSL2, a task `TrialBox-Console-Proxy` that keeps it pointed, and a Windows Firewall rule `TrialBox-Console` (port 443, your own network, private and domain networks) | the computer: nothing else can listen on port 443 | `netsh interface portproxy delete v4tov4 listenport=443 listenaddress=0.0.0.0`; `Unregister-ScheduledTask TrialBox-Console-Proxy`; `Remove-NetFirewallRule -Name TrialBox-Console` |
+| Windows 10 only, if it was stopped or started on demand: the IP Helper service (`iphlpsvc`) set to start automatically and started (it is Windows' default) | the computer | `Set-Service iphlpsvc -StartupType Manual` to put it back as it was (the installer's log names what it was) |
+| Windows 10 only: `localhostForwarding=false` in `.wslconfig` | every WSL distribution of your account: `localhost` on Windows no longer reaches a program inside WSL | remove the line from `.wslconfig`, then `wsl --shutdown` |
+| WSL itself, and a WSL system named `TrialBox` on the data drive | your account | `wsl --unregister TrialBox` deletes it and its disk file, for good |
+
+The undo column is by Microsoft's documentation and has not been run. Do the CGRD first look before P-0, as
+agreed: P-0 restarts the computer several times, and Part 6 line 51 keeps it on over an evening's update window.
+
+The PC keeps what the installer did; the table above says how each part is put back. The installer itself never
+removes anything.

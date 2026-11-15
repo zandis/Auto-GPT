@@ -5,6 +5,7 @@
 - **Date:** 2026-11-13
 - **Status:** accepted for the form chosen and the installer's logic. Nothing in it has run on Windows: the proof
   is test P-14 on the reference workstation, rehearsed at P-0 (lines 37 to 44)
+- **Updated by:** D-613 (owner ruling D-503): on a build without mirrored networking (Windows 10 22H2) the console is forwarded by a port-proxy rule instead.
 - **Owner decisions:** D-494 (the workstation is also a desktop; the console is served to the site's own network),
   OD-15 (the default is "inside only")
 - **Builds on:** D-600 (the installer), D-601 (`.wslconfig`), D-377 (the egress table loaded before Docker), D-176

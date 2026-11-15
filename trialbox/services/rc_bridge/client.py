@@ -27,6 +27,7 @@ _FIELD_NAME = re.compile(r"[a-z][a-z0-9_]*")  # a REDCap variable name
 # (what REDCap's text holds, what the box says): the first that matches. A list of field names is given back as
 # names; nothing else of REDCap's text is
 _KINDS: tuple[tuple[str, str], ...] = (
+    ("is locked", "a form of the record is locked"),  # NEW-EDC-7: REDCap's exact sentence is read on our instance (R3)
     ("could not be validated", "a value does not fit its field's validation"),
     # the lifecycle's schedule reads the word "classic" in this message (orchestrator/lifecycle_api.py)
     ("classic project", "the project is classic: it has no arms or events"),
@@ -58,7 +59,9 @@ def error_kind(text: str) -> str:
 
 
 class RcError(RuntimeError):
-    """An ICD-04 error: ``code`` from the register, ``status`` the HTTP status TrialBox answers with."""
+    """An ICD-04 error: ``code`` from the register, ``status`` the HTTP status TrialBox answers with. ``refused``
+    (NEW-EDC-7): REDCap answered and said no (HTTP 400 with its error), so nothing of the call applied; a call
+    REDCap did not answer, or answered with a server error, may have applied and is not ``refused``."""
 
     STATUS: ClassVar[dict[str, int]] = {
         "RC-TOKEN": 409,
@@ -68,10 +71,11 @@ class RcError(RuntimeError):
         "RC-FORBIDDEN": 403,
     }
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, refused: bool = False) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+        self.refused = refused
         self.status = self.STATUS.get(code, 409)
 
 
@@ -159,7 +163,8 @@ class RedcapClient:
             msg = ""
         # REDCap's text is not passed on: an import error quotes the record, the field and the value it refused, and
         # this message reaches the set-up page and the stored read log (D-555). The kind of error is said instead
-        raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {error_kind(msg)}" if msg else ""))
+        raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {error_kind(msg)}" if msg else ""),
+                      refused=resp.status_code == 400 and bool(msg))  # fmt: skip
 
     def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
         resp = self._send(content, extra)

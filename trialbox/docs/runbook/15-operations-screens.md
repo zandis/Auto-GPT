@@ -1,5 +1,7 @@
 # 15. Operations screens (D-178)
 
+**Reader:** the box owner, as the box's administrator.
+
 The administrator's console has an **Operations** page (`/admin/ops`, also a tile on the health tab): the version and
 the bundle last applied, backups (every target's files, the newest backup's age, red after 36 hours, the last check),
 update and rollback (bundles waiting, each update's result, the rollback points kept), logs (days collected),

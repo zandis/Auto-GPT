@@ -13,6 +13,7 @@
 <dt>{{ t('sdv.col.state') }}</dt><dd data-state="{{ subject.state }}">{{ t('life.state.' ~ subject.state) }} ({{ subject.state }}{% if subject.since %}, {{ subject.since }}{% endif %})</dd>
 <dt>{{ t('sdv.col.consented') }}</dt><dd>{{ subject.consented or '–' }}{% if subject.icf_version %} · {{ subject.icf_version }}{% endif %}</dd>
 <dt>{{ t('sdv.col.enrolled') }}</dt><dd>{{ subject.enrolled or '–' }}</dd>
+{% if subject.opted_out %}<dt>{{ t('log.opt_out_col') }}</dt><dd data-testid="sdv-opted-out">{% if subject.opted_out != 'yes' %}{{ t('log.opted_out', d=subject.opted_out) }}{% else %}{{ t('log.opted_out_merged') }}{% endif %}</dd>{% endif %}
 </dl>
 </section>
 <section class="card"><h2>{{ t('sdv.sheet.title') }}</h2>

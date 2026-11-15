@@ -54,8 +54,12 @@ class PinnedLake:
         release = getattr(self.lake, "release", None)
         return bool(release(self._holder(holder))) if release is not None else False
 
-    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
-        return self.lake.query(sql, params, snapshot or self.pinned)
+    def query(
+        self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None
+    ) -> Any:
+        if timeout_s is None:  # D-746: a re-run's query has the job's limit, as the run's had
+            return self.lake.query(sql, params, snapshot or self.pinned)
+        return self.lake.query(sql, params, snapshot or self.pinned, timeout_s=timeout_s)
 
     def chunks_search(self, *args: Any, **kwargs: Any) -> Any:
         return self.lake.chunks_search(*args, **kwargs)
