@@ -48,10 +48,21 @@ LANGS = ("ja", "zh-TW", "en")
 #: patient-level data on the route's study (tb_common.patient_reads)
 PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
 #: T-715g (D-803): the changing routes refuse a call without a verified person for the action: the site's set-up,
-#: the opt-out desk (and the console's opt-out check timer) for a pseudonym, the administrator for remote help
+#: the opt-out desk (and the console's opt-out check timer) for a pseudonym, and the administrator's box network row
+#: for the remote help switch (it opens the box to the vendor's connection; a row of its own waits for the guides)
 AS_SITE = _require_actor("site.setup")
 AS_OPTOUT = _require_actor("optout.keep", service=True)
-AS_REMOTE = _require_actor("remote.help")
+AS_REMOTE = _require_actor("ops.network")
+
+
+def _sees_patients(who: Claim) -> None:
+    """The review of D-803 (3): a set-up change that reads or writes one patient's facts (a fact, a chart, a person
+    to resolve) also needs the signed role to see patient data, as the console's page asks (``need_view``); the
+    administrator holds ``site.setup`` but not ``phi.view``."""
+    from tb_common.authz import permit
+
+    if not permit(who.role, "phi.view").allowed:
+        raise HTTPException(status_code=403, detail={"code": "ACTOR", "reason": "right", "message": "patient data"})
 
 
 class SheetBody(BaseModel):
@@ -313,6 +324,7 @@ def router(
 
     @r.post("/setup/{ws}/charts")
     def post_chart(ws: str, body: ChartBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who)
         svc, w = get(), ws_of(ws)
         admitted = door(request, SETUP_DOOR)  # T-719 (D-487): the chart's number becomes a pseudonym here
         lang = body.lang if body.lang in LANGS else "en"
@@ -335,6 +347,7 @@ def router(
 
     @r.post("/setup/{ws}/facts/{fid}")
     def post_fact(ws: str, fid: int, body: DecideBody, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who)
         svc, w = get(), ws_of(ws)
         f = svc.store.fact(fid)
         if f is None or f["ws"] != w:
@@ -374,6 +387,7 @@ def router(
 
     @r.post("/setup/{ws}/people/resolve")
     def post_resolve(ws: str, body: ResolveBody, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who)
         svc, w = get(), ws_of(ws)
         return dict(call(lambda: svc.resolve(w, body.pid, body.what, body.keep, who.name)))
 

@@ -749,7 +749,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         on = str(form.get("on") or "") == "1"
         body = {"on": on, "hospital_approval": str(form.get("approved_by") or "")[:80]}  # T-715g (D-803): signed
         try:
-            actor.call(h, sess, "remote.help", None, "PUT", "/setup/remote", body)
+            actor.call(h, sess, "ops.network", None, "PUT", "/setup/remote", body)
         except Problem as exc:
             return RedirectResponse(f"/site/help?{urlencode({'err': exc.code})}#remote", status_code=303)
         au.append("console.site_remote", actor=h.actor(sess), detail={"on": on})
