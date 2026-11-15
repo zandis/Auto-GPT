@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "8aaa4015b3945824b5fda7dcd0e7b288446f05ef",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-795: a list in a code system the site's rows do not carry is unknown, not not-met",
   "ref_date": "2026-11-01",
   "ruleset": "ONC-OSI",
   "ruleset_version": "1.0.0",
@@ -15,7 +15,7 @@
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "89504122e427fc5d61aa02ae373fcb65e81d6d0259f135a327656a7db45d0e1d",
+   "outcomes_sha": "16b462b7cf98afee60bf4bc61ccb44343709c0fb2826f361b36c9b3cc2d1c4d3",
    "patients": 53,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -26,18 +26,18 @@
    "verdicts": {
     "ONC-OSI-DOC-01": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "ONC-OSI-DOC-02": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "ONC-OSI-EXC-01": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "ONC-OSI-INC-01": {
      "met": 43,
