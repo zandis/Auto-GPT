@@ -3,7 +3,7 @@
 Before (deep review of 2026-11-12, case 14): a typed and signed ``joints = 1,3`` was sent as the import row
 ``{"joints": "1,3"}``. REDCap's flat format is ``joints___1``, ``joints___2``, ``joints___3``: a real REDCap refuses
 the whole import, and every other value of the send with it. The first half held the item; the second half
-(NEW-EDC-3b, D-803) writes one column per choice: ``1`` for each code chosen, ``0`` for each other code of the field.
+(NEW-EDC-3b, D-842) writes one column per choice: ``1`` for each code chosen, ``0`` for each other code of the field.
 """
 
 from __future__ import annotations

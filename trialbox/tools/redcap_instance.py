@@ -519,7 +519,7 @@ def r2_checkbox(admin: Admin, inst: Instance) -> dict[str, Any]:
     post, tok = admin.post(), inst.tokens["full"]
     key = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1}
     bare = import_rows(post, tok, [{**key, "joints": "1,3"}])
-    # REDCap names a choice's column from the code lowercased, "-" and "." written "_" (D-803): -99 is joints____99
+    # REDCap names a choice's column from the code lowercased, "-" and "." written "_" (D-842): -99 is joints____99
     cols = import_rows(post, tok, [{**key, "joints___1": "1", "joints___2": "0", "joints___3": "1",
                                     "joints____99": "0"}])  # fmt: skip
     rows = export_rows(post, tok, **{"records[0]": "1", "fields[0]": "record_id", "fields[1]": "joints"})

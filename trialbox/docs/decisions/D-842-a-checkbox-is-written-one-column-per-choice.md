@@ -1,4 +1,4 @@
-# D-803 A checkbox is written to REDCap one column per choice
+# D-842 A checkbox is written to REDCap one column per choice
 
 - **Task:** NEW-EDC-3b (deep-review finding EDC-003, second half; the first half held the item at send)
 - **PR:** this branch (`agent/NEW-EDC-3b-checkbox-columns`), cut from NEW-EDC-5c (#647)

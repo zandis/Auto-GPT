@@ -146,7 +146,7 @@ def test_one_command_runs_r1_to_r9_against_the_stand_in_and_writes_the_record(dr
 
 def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_than_redcap(dry: dict[str, Any]) -> None:
     """EDC-001: the simulator takes values REDCap refuses, has no locking, no rights per token and no log. NEW-EDC-1
-    makes it as strict; this list then shrinks, on purpose. NEW-EDC-3b (D-803) made its checkbox REDCap's: a bare
+    makes it as strict; this list then shrinks, on purpose. NEW-EDC-3b (D-842) made its checkbox REDCap's: a bare
     column is refused, the ``___`` columns go in and come back, so R2 passes and R6 compares (the simulator computes
     with TrialBox's own logic, so R6 says nothing of REDCap's until our instance runs it)."""
     rec = dry["record"]
