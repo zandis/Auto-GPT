@@ -73,7 +73,7 @@ def test_qualify_finds_every_file_it_opens_in_the_image(tmp_path: Path) -> None:
 
 def test_the_image_copies_the_files_lane_g_found_missing() -> None:
     text = DOCKERFILE.read_text(encoding="utf-8")
-    for src in ("tests/fixtures/llm/judge_set.jsonl", "deploy/images.lock", "docs/licences/register.csv",
+    for src in ("eval/qualification/judge_set.jsonl", "deploy/images.lock", "docs/licences/register.csv",
                 "eval/qualification/schema_probes.yaml", "eval/injection", "docs/validation/model-change-protocol.md"):  # fmt: skip
         assert f"COPY --chown=tb:tb {src} /app/{src}" in text, src
     ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").split()

@@ -20,3 +20,10 @@
 
 `tests/unit/test_qualify_in_the_image.py`: before, the stub run in the image's layout failed pin, serving_record,
 licence, schema and injection with missing files and the pair gate printed nothing; after, all pass.
+
+## Fix (train 30)
+
+The judge set moved from `tests/fixtures/llm/` to `eval/qualification/judge_set.jsonl`, beside the schema probes:
+it is product data the `pin` step reads, and the guard
+`tests/testbench/test_testbench_no_prod.py::test_no_product_image_contains_the_test_bench` keeps every `tests/` path
+out of a product image. The bake-off, `judge_eval`, `make_judge_set` and the tests read it from there.

@@ -31,7 +31,7 @@ from tools.judge_eval import evaluate
 
 ROOT = Path(__file__).resolve().parents[2]
 GZQO = Ruleset.load(ROOT / "rulesets" / "GZQO")
-SET = ROOT / "tests" / "fixtures" / "llm" / "judge_set.jsonl"
+SET = ROOT / "eval" / "qualification" / "judge_set.jsonl"
 
 
 def test_postprocess_requires_verbatim_quote() -> None:
