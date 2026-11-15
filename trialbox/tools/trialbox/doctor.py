@@ -1822,11 +1822,9 @@ def check_daily_limits(inp: DoctorInputs) -> Check:
 
     refused = daily_limits.refused_lifts(inp.env, inp.settings)
     if refused:
-        return Check("daily_limits", "FAIL", "not applied on this box (a lift needs VALIDATION, TEST or DEV): "
-                     + "; ".join(refused))  # fmt: skip
-    jobs = daily_limits.jobs_per_sender(inp.settings, inp.env) or "no limit"
-    mail = daily_limits.mail_per_recipient(inp.env) or "no limit"
-    return Check("daily_limits", "PASS", f"jobs {jobs} a sender, mail {mail} a recipient, a day")
+        why = "not applied on this box (a lift needs VALIDATION, TEST or DEV; a limit is a whole number): "
+        return Check("daily_limits", "FAIL", why + "; ".join(refused))
+    return Check("daily_limits", "PASS", daily_limits.summary(inp.settings, inp.env))
 
 
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
