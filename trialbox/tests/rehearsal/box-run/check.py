@@ -434,6 +434,14 @@ if case == "acc-gate":
     ok((BKT / "boxruns" / f"rehearsal-{case}" / "acc" / "jmed.tgz").exists(), "acc-gate: its work is in the bucket")
     ok(j["detail"].get("not_scored", "").startswith("it answered no patient"), "acc-gate: the part says why")
 
+if case == "acc-redo":
+    j = parts["60-acc-jmed"]
+    ok(j["status"] == "done" and j["detail"]["counts"].get("patients_answered", 0) > 0,
+       "acc-redo: the set ran again and answered patients")  # fmt: skip
+    ok(calls["acc-send FEAS MNCT90000001 new"] == 2 and calls["acc-send FEAS MNCT90000001 dup"] == 0,
+       "acc-redo: the redone set mailed its protocol under a new id (a second new job), never the old id")  # fmt: skip
+    ok((R / "logs" / "60-acc-jmed.work-retry-1").is_dir(), "acc-redo: the earlier work kept beside the logs")
+
 if case == "qualify-timebox":
     q = parts["08-qualify"]
     ok(q["status"] == "done" and q.get("pass") is False and q["detail"].get("timeboxed_s") == 2,

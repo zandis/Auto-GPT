@@ -193,6 +193,9 @@ if os.path.exists(p):
         if "-acc-" in name:  # F24: the set's clock start, and a slowdown it measured, go with its work
             kv, setname = st.get("kv", {}), name.split("-acc-", 1)[1]
             kv.pop(f"acc_t0_{setname}", None)
+            # F28: the box's intake keeps one job per mail id: a set run again mails under new ids, or it gets back
+            # the jobs (and the failures) of the attempt before
+            kv[f"acc_attempt_{setname}"] = retry
             if kv.get("acc_rate_set") in (setname, None):
                 kv.pop("acc_rate", None); kv.pop("acc_rate_set", None)
     if "50-acc-tools" in st.get("steps", {}):  # lane G's tools are fetched again: a fix may be in them
@@ -1853,6 +1856,7 @@ acc_deadline() {
   r=$(st kv _ acc_rate); [ -n "$r" ] || r=4
   "$PY" -c 'import sys; h, r, m = float(sys.argv[1] or 0), float(sys.argv[2]), float(sys.argv[3]); print(int(max(m, 1.5 * h * r)) if h else 0)' "${high:-0}" "$r" "$ACC_MIN_DL"
 }
+acc_attempt() { local a; a=$(st kv _ "acc_attempt_$1"); [ -z "$a" ] || printf -- '-r%s' "$a"; }   # F28: a redo's mail ids
 step_acc_set() {
   local name=$1 co=() up=false t0 dl high sec r
   if [ ! -f "$ACC/$name/built/gold/ids.json" ]; then   # left out at 53 (its source could not be fetched or built)
@@ -1874,7 +1878,7 @@ step_acc_set() {
   ACC_CUR=$name
   WATCH_GPU=1 PROG_FN=prog_acc need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
     vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
-      --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID" ${co[@]+"${co[@]}"} \
+      --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID$(acc_attempt "$name")" ${co[@]+"${co[@]}"} \
       --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" \
       ${only[@]+"${only[@]}"} || return 1
   # F22 (2026-11-15): a set that answered nothing has no figure (a SCREEN set needs patients answered, a compile-only

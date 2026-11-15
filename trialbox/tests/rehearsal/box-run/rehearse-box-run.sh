@@ -68,6 +68,8 @@
 #                      finished ones are kept and uploaded; progress lines and the partial in the bucket while it runs
 #   acc-gate           every SCREEN finishes and answers nobody: the first set (the gate) is "not scored", its step
 #                      stops the run with the reason and its work in the bucket, never "done" (F22)
+#   acc-redo           acc-gate's stop, then --resume --redo of the gate set: its work moved aside, its jobs mailed
+#                      again under new ids (the box keeps one job per mail id, F28), and it scores
 #   qualify-timebox    validation: qualify runs longer than its time box (the owner's probe): it is ended, a checkpoint
 #                      a "second" while it ran (the gate it was in, the audit's calls), the run goes on
 #   probe              a facts-only launch (tb-steps probe): the VM's facts written (names and sizes), the run ends
@@ -84,7 +86,7 @@ VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
-     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate)
+     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -351,6 +353,10 @@ for CASE in "${CASES[@]}"; do
       boot; to_the_end ;;
     acc) setup "$CASE" "start acc" acc-tripwire; start_setup; acc_setup; boot; to_the_end; acc_collect ;;
     acc-gate) setup "$CASE" "start acc" acc-screen-empty; start_setup; acc_setup; boot; to_the_end ;;
+    acc-redo)   # acc-gate's stop, then the fix and --resume --redo 60-acc-jmed: the set again from no work, new mails
+      setup "$CASE" "start acc" acc-screen-empty; start_setup; acc_setup; boot
+      wait_for "the done marker" is_done; wait_for "the power-off" is_off
+      rm -f "$S/knobs/acc-screen-empty"; m tb-retry "retry-1"; m tb-redo "60-acc-jmed"; boot; to_the_end ;;
     acc-preempt)
       setup "$CASE" "start acc"; echo 1.5 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup
       m tb-acc-tripwire-setting TB_GATEWAY_PHI_TRIPWIRE=off; boot
