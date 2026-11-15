@@ -161,7 +161,15 @@ echo "== boot $(date -u +%FT%TZ) run $RUN_ID boot ${BOOT_ID:0:8}" >> "$LOG"
 # The cost cap starts again (the driver set the cloud's own cap for this launch).
 RETRY=$(md tb-retry || true)
 if [ -n "$RETRY" ] && [ "$RETRY" != "$(cat "$RUN/retry-seen" 2>/dev/null)" ]; then
-  "$PY" - "$RUN" "$RETRY" <<'PY'
+  TB_REDO=$(md tb-redo || true)
+  for x in $TB_REDO; do   # an accuracy set asked again starts from no work (its earlier answers kept in logs/)
+    case "$x" in [0-9][0-9]-acc-*)
+      for w in "$TB/acc/$RUN_ID/${x#*-acc-}/work" "$TB/acc/${x#*-acc-}/work"; do
+        [ -d "$w" ] && { mv "$w" "$RUN/logs/${x}.work-$RETRY"; break; }
+      done ;;
+    esac
+  done
+  TB_REDO="$TB_REDO" "$PY" - "$RUN" "$RETRY" <<'PY'
 import json, os, sys
 run, retry = sys.argv[1], sys.argv[2]
 p = os.path.join(run, "state.json")
@@ -175,6 +183,13 @@ if os.path.exists(p):
                 os.replace(part, os.path.join(run, "logs", f"{name}.stop-{retry}.json"))
             del st["steps"][name]
             print(f"TB-RETRY {retry}: step {name} cleared (it stopped before; it runs again)")
+    for name in os.environ.get("TB_REDO", "").split():  # steps asked again (tb-redo): their part kept beside the logs
+        if name in st.get("steps", {}):
+            part = os.path.join(run, "parts", name + ".json")
+            if os.path.exists(part):
+                os.replace(part, os.path.join(run, "logs", f"{name}.redo-{retry}.json"))
+            del st["steps"][name]
+            print(f"TB-RETRY {retry}: step {name} cleared (asked again: tb-redo)")
     if "50-acc-tools" in st.get("steps", {}):  # lane G's tools are fetched again: a fix may be in them
         del st["steps"]["50-acc-tools"]
         print(f"TB-RETRY {retry}: 50-acc-tools cleared (the tools are fetched again)")
@@ -1593,7 +1608,11 @@ step_g10_qualify() {
 }
 
 # ================================================================== acc (the public accuracy run on the installed box)
-ACC="$TB/acc"; ACCT="$TB/acc-tools"
+# per run (F21): a set's built site and its work (progress.json) belong to the run that built and screened them; a
+# later run on the same VM must not take an earlier run's finished protocols for its own
+ACC="$TB/acc/$RUN_ID"; ACCT="$TB/acc-tools"
+# a run whose data were built before this rule (its 53 done, no folder of its own) keeps the shared folder
+[ -d "$ACC" ] || [ "$(st get 53-acc-data)" != "done" ] || ACC="$TB/acc"
 ONBOX="$ACCT/tools/public_accuracy/onbox.py"
 DCCMD="docker compose --project-directory $BOXROOT/deploy"
 acc_call() {  # acc_call <service> <onbox command> [JSON argument]

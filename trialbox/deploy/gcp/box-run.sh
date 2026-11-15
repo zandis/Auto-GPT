@@ -78,7 +78,8 @@ while [ $# -gt 0 ]; do
     --qualify-args) V[tb-qualify-args]="$2"; shift 2 ;;
     --qualify-timebox) V[tb-qualify-timebox]="$2"; shift 2 ;;   # the owner's probe: qualify ended after N seconds
     --acc-deadline) V[tb-acc-deadline]="$2"; shift 2 ;;         # each set's time budget, seconds (a probe)
-    --progress-seconds) V[tb-progress-seconds]="$2"; shift 2 ;;   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
+    --progress-seconds) V[tb-progress-seconds]="$2"; shift 2 ;;
+    --redo) V[tb-redo]="${2//,/ }"; shift 2 ;;   # with --resume: these steps run again (an acc set from no work)   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
@@ -222,6 +223,11 @@ if [ -n "$RESUME" ]; then
   if [ -n "$ONLY" ]; then   # the sets still to run (a finished set is kept either way)
     br metadata --steps acc --mode "$MODE" --only "$ONLY" --out "$OUT/md-only" --set tb-acc-tools=x > /dev/null || exit 2
     cp "$OUT/md-only/tb-acc-sets" "$OUT/md/tb-acc-sets"; RFILES="$RFILES,tb-acc-sets=$OUT/md/tb-acc-sets"
+  fi
+  if [ -n "${V[tb-redo]:-}" ]; then
+    printf '%s' "${V[tb-redo]}" > "$OUT/md/tb-redo"
+    case ",$RFILES," in *,tb-redo=*) ;; *) RFILES="$RFILES,tb-redo=$OUT/md/tb-redo" ;; esac
+    grep -qw tb-redo "$OUT/metadata-keys" || echo "$(cat "$OUT/metadata-keys") tb-redo" > "$OUT/metadata-keys"
   fi
   if [ -n "${V[tb-qualify-args]:-}" ]; then
     printf '%s' "${V[tb-qualify-args]}" > "$OUT/md/tb-qualify-args"
