@@ -460,8 +460,16 @@ def dirty_problem(head: str, dirty: bool) -> str:
 
 
 def gpu_versions() -> dict[str, str]:
-    """Driver and CUDA version from ``nvidia-smi``; ``none`` when this host has no NVIDIA driver."""
+    """Driver and CUDA version from ``nvidia-smi``; ``none`` when this host has no NVIDIA driver. In the trialbox-py
+    image (no GPU there) the host's, as the box wrapper read them: TB_HOST_GPU, a JSON object (D-889)."""
     if shutil.which("nvidia-smi") is None:
+        try:
+            host = json.loads(os.environ.get("TB_HOST_GPU") or "null")
+        except ValueError:
+            host = None
+        if isinstance(host, dict) and str(host.get("driver") or "").strip():
+            return {"driver": str(host["driver"]), "cuda": str(host.get("cuda") or "unknown"),
+                    "gpu": str(host.get("gpu") or "unknown"), "driver_source": "host (TB_HOST_GPU)"}  # fmt: skip
         return {"driver": "none", "cuda": "none", "gpu": "none"}
     rc, out = _run(["nvidia-smi", "--query-gpu=driver_version,name", "--format=csv,noheader"])
     rc2, full = _run(["nvidia-smi"])

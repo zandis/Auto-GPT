@@ -70,6 +70,15 @@ def _systems(vs: Mapping[str, Any] | None) -> set[str]:
     return {str(i["system"]) for i in ((vs or {}).get("compose") or {}).get("include") or [] if i.get("system")}
 
 
+def _empty(vs: Mapping[str, Any] | None) -> bool:
+    """The list holds no code and no code family: nothing can match it (a concept the terminology could not map)."""
+    if vs is None:
+        return False
+    includes = (vs.get("compose") or {}).get("include") or []
+    families = [e for e in vs.get("extension") or [] if str(e.get("url", "")).endswith("code-family")]
+    return not families and not any(i.get("concept") for i in includes)
+
+
 @dataclass(frozen=True)
 class Carried:
     """Per domain, the code systems the snapshot's rows carry; empty (not read): no check."""
@@ -98,10 +107,14 @@ class Carried:
         truer: list[str] = []
         falser: list[str] = []
         for atom, up in _atoms(c.logic):
-            listed = _systems((valuesets or {}).get(str(atom.valueset)))
-            if not listed or listed & self.systems.get(atom.domain, frozenset()):
+            vs = (valuesets or {}).get(str(atom.valueset))
+            listed = _systems(vs)
+            if _empty(vs):  # red of 2026-11-15 (jmed): "none of" an empty list was TRUE for everyone
+                label = f"{atom.domain}: no code in {atom.valueset}"
+            elif not listed or listed & self.systems.get(atom.domain, frozenset()):
                 continue
-            label = f"{atom.domain}: {', '.join(sorted(listed))}"
+            else:
+                label = f"{atom.domain}: {', '.join(sorted(listed))}"
             side = truer if up else falser
             if label not in side:
                 side.append(label)
