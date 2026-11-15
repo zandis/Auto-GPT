@@ -28,7 +28,7 @@ from tb_contracts.landing import Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
-from adapter.mapping.engine import Mapper, Mapping, resource_id
+from adapter.mapping.engine import Mapper, Mapping, pivot_rows, resource_id
 from adapter.ndjson import (
     Spool,
     alias_patient,
@@ -670,7 +670,11 @@ def _run_ingest(
                     else:
                         n[0] += 1
 
-            rows = _TableRows.write(spool.root / f".rows-{table}", own(got))
+            stream: Iterator[Row] = own(got)
+            pivoted: dict[str, int] = {}  # CGRD-A8 (D-846, lane E's hunk): one item per row turned into columns
+            if (pv := tspec.get("pivot")) is not None:
+                stream = pivot_rows(stream, pv, str(tspec.get("key") or ""), spool.root / f".pivot-{table}", pivoted)
+            rows = _TableRows.write(spool.root / f".rows-{table}", stream)
             if isinstance(where_dir := getattr(src, "directory", None), Path):
                 inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
@@ -685,6 +689,8 @@ def _run_ingest(
             }
             if others[0]:
                 tables[table]["rows_of_other_tables"] = others[0]
+            if pivoted:
+                tables[table]["pivot"] = dict(sorted(pivoted.items()))
             undated = getattr(src, "change_time_not_a_date", None)  # F14 (D-810, lane E's hunk): counts only
             if since_t and callable(undated) and (n_undated := int(undated(src_name))):
                 tables[table]["change_time_not_a_date"] = n_undated
