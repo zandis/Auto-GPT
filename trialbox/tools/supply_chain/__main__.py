@@ -84,6 +84,11 @@ def cmd_release_gates(args: argparse.Namespace) -> int:
         print(f"release-gates: severities must be among {', '.join(vulns.SEVERITIES)}", file=sys.stderr)
         return 2
     targets = [release.parse_target(t) for t in args.image]
+    missing = release.missing_local(targets)
+    if missing:
+        for m in missing:
+            print(f"release-gates: {m}", file=sys.stderr)
+        return 1
     record = release.run_gates(
         targets,
         cache_dir=Path(args.cache_dir),
