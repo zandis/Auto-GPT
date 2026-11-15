@@ -45,6 +45,8 @@ UV_SYNC := uv sync --frozen --group test --extra dev --python 3.12
 # venv has no pip, so `pip install` into it is refused. `make test` refuses a venv that drifted from the lock.
 venv:
 	$(UV_SYNC)
+	@# D-829: say it before the first SCREEN job, not at its report (no download here: CI runs make venv in every job)
+	@[ -f $(FONTS) ] || echo "venv: the PDF reports need the fonts, not fetched yet: run 'make fonts' once (network) before the first SCREEN job" >&2
 
 venv-check:
 	@$(UV_SYNC) --check >/dev/null 2>&1 || { echo "venv-check: .venv differs from uv.lock (a dependency or pyproject.toml changed, or a package was installed by hand): run 'make venv'" >&2; exit 1; }
