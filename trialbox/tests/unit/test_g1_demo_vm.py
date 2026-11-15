@@ -355,9 +355,8 @@ def test_up_makes_one_rule_tcp_443_from_exactly_the_given_ranges(tmp_path: Path)
     assert "--direction INGRESS" in rule and "--target-tags tb-demo-vm" in rule and "--network default" in rule
     # the project's network: its SSH/RDP rules target every instance, so a deny-all on the tag comes before them
     assert "--rules=all " in deny and "--source-ranges=0.0.0.0/0 " in deny and "--target-tags tb-demo-vm " in deny
-    assert (
-        int(re.search(r"--priority (\d+)", rule).group(1)) < int(re.search(r"--priority (\d+)", deny).group(1)) < 65534
-    )
+    prio = [re.search(r"--priority (\d+)", c) for c in (rule, deny)]
+    assert prio[0] and prio[1] and int(prio[0].group(1)) < int(prio[1].group(1)) < 65534
     # nothing else opens a port: no other allow rule, no port 80 or 22 anywhere, no network made
     assert not any(re.search(r"tcp:(80|22)\b|--accelerator|networks create", c) for c in calls)
     assert "0.0.0.0/0" not in rule
