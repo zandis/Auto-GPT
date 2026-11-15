@@ -720,7 +720,11 @@ def read_jrct(cache: Path, n: int = 10, get: Any = None) -> Bundle:
         f = d / f"{jid}.html"
         if not f.exists():
             url = f"https://jrct.mhlw.go.jp/latest-detail/{jid}"
-            data = (get or src.polite_get)(url)
+            try:
+                data = (get or src.polite_get)(url)
+            except OSError as exc:  # a record the registry does not serve now (HTTP 500 on 2026-11-15): left out, said
+                b.provenance.append(f"jRCT {jid}: not fetched ({str(exc)[:80]}); left out")
+                continue
             f.write_bytes(data)
             rows.append(src.live_record(cache, "jrct", url, data))
         inc, exc, title, ncts = jrct_criteria(f.read_text(encoding="utf-8", errors="replace"))

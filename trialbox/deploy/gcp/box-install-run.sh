@@ -1672,17 +1672,18 @@ step_acc_data() {
     name=${item%%:*}; size=${item#*:}
     [ -f "$ACC/$name/built/gold/ids.json" ] && { echo "set $name: built before (kept)" >> "$STEP_LOG"; continue; }
     rm -rf "${ACC:?}/${name:?}/built"; mkdir -p "$ACC/$name"
-    need "fetching the pinned files of $name (tools.public_accuracy fetch, on the VM, outside the box)" \
-      d_acc_py fetch --only "$(acc_fetch_set "$name")" || return 1
+    watched d_acc_py fetch --only "$(acc_fetch_set "$name")" || note "fetch_failed_$name" true
+    # a set that cannot be fetched or built (a public source down) is left out of this run, said; the others go on
     if [ "$name" = jmed ]; then   # pyarrow: the box's python image, no network (the file is fetched above)
-      need "building $name ($size) for the box's day $ref (the box's image, offline)" \
-        d_acc_img -v "$ACC/$name:/work" "$img" python -m tools.public_accuracy build --set "$name" --size "$size" \
-          --out /work --ref "$ref" --for-box || return 1
+      watched d_acc_img -v "$ACC/$name:/work" "$img" python -m tools.public_accuracy build --set "$name" --size "$size" \
+          --out /work --ref "$ref" --for-box
     else
-      need "building $name ($size) for the box's day $ref (on the VM)" \
-        d_acc_py build --set "$name" --size "$size" --out "$ACC/$name" --ref "$ref" --for-box || return 1
+      watched d_acc_py build --set "$name" --size "$size" --out "$ACC/$name" --ref "$ref" --for-box
     fi
-    [ -f "$ACC/$name/built/gold/ids.json" ] || { STOP="the build of $name wrote no gold/ids.json"; return 1; }
+    if [ ! -f "$ACC/$name/built/gold/ids.json" ]; then
+      note "skipped_$name" "\"not built: $(grep -E 'Error|error' "$STEP_LOG" | tail -n 1 | cut -c1-160 | tr -d '"\\')\""
+      rm -rf "${ACC:?}/${name:?}/built"
+    fi
   done
 }
 # the site's own setting for the tables a public-data site does not have (settings.yaml feed_completeness.optional_tables,
@@ -1719,7 +1720,10 @@ step_acc_ingest() {
   feed=$(envget TB_SOURCE_DIR); mount=$(envget TB_SOURCE_MOUNT)
   { [ -n "$feed" ] && [ -n "$mount" ]; } || { STOP="no feed folder (TB_SOURCE_DIR, TB_SOURCE_MOUNT in deploy/.env)"; return 1; }
   case "$feed" in /*) ;; *) feed="$BOXROOT/deploy/$feed" ;; esac
-  for item in $ACC_SETS; do sites+=("$ACC/${item%%:*}/built/site/hospital"); done
+  for item in $ACC_SETS; do   # the sets 53 built (a set left out there has no site)
+    [ -d "$ACC/${item%%:*}/built/site/hospital" ] && sites+=("$ACC/${item%%:*}/built/site/hospital")
+  done
+  [ ${#sites[@]} -gt 0 ] || { STOP="no accuracy set was built (53)"; return 1; }
   need "the sets' hospital feeds as one feed in the box's feed folder (acc/)" vm acc-merge-feed --into "$feed/acc" "${sites[@]}" || return 1
   need "the site's optional tables for a public-data feed (settings.yaml feed_completeness)" d_optional_tables "$feed/acc" || return 1
   ref=$(acc_today); snap=$(date -d "$ref -1 day" +%F); note snapshot "\"$snap\""
@@ -1763,6 +1767,9 @@ acc_deadline() {
 }
 step_acc_set() {
   local name=$1 co=() up=false t0 dl high sec r
+  if [ ! -f "$ACC/$name/built/gold/ids.json" ]; then   # left out at 53 (its source could not be fetched or built)
+    note skipped "\"not built at 53-acc-data (see its notes)\""; note pass false; return 0
+  fi
   acc_compile_only "$name" && co=(--compile-only)
   t0=$(st kv _ "acc_t0_$name"); [ -n "$t0" ] || { t0=$(date -u +%FT%T); st set "$STEP" "acc_t0_$name" "$t0"; }
   dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
