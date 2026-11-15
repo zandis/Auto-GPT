@@ -9,11 +9,13 @@
 <h2 id="secret-h">{{ t('requests.secret.' + secret_kind, user=secret_user) }}</h2>
 <label for="request-secret">{{ t('requests.secret.label') }}</label>
 <input id="request-secret" class="mono" readonly data-testid="request-secret" value="{{ secret }}" autocomplete="off" spellcheck="false">
-{% if secret_kind == 'create' %}{# D-776 (D-509): the one-time link; the code sits after "#", which a browser never sends to the server #}
-{% set enrol_link = request.base_url ~ 'enrol#u=' ~ (secret_user|urlencode) ~ '&c=' ~ (secret|urlencode) %}
+{% if secret_kind == 'create' %}{# D-776 (D-509): the one-time link, on the box's public address (TB_CONSOLE_PUBLIC_URL, never the request's Host);
+   the code sits after "#", which a browser never sends to the server #}
+{% if public_url %}{% set enrol_link = public_url ~ '/enrol#u=' ~ (secret_user|urlencode) ~ '&c=' ~ (secret|urlencode) %}
 <label for="enrol-link">{{ t('enrol.link.label') }}</label>
-<div class="pair"><input id="enrol-link" class="mono" readonly data-testid="enrol-link" value="{{ enrol_link }}" autocomplete="off" spellcheck="false"><button type="button" class="secondary" data-copy="enrol-link" data-done="{{ t('copy.copied_to_clipboard') }}" hidden>{{ t('copy.copy_button') }}</button></div>
-<p class="hint">{{ t('enrol.link.help') }}</p>
+<div class="pair"><input id="enrol-link" class="mono" readonly data-testid="enrol-link" value="{{ enrol_link }}" autocomplete="off" spellcheck="false" aria-describedby="enrol-link-help"><button type="button" class="secondary" data-copy="enrol-link" data-done="{{ t('copy.copied_to_clipboard') }}" hidden>{{ t('copy.copy_button') }}</button></div>
+<p class="hint" id="enrol-link-help">{{ t('enrol.link.help') }}</p>
+{% else %}<p class="hint" data-testid="enrol-link-none">{{ t('enrol.link.none') }}</p>{% endif %}
 {% endif %}
 <p class="warn">{{ t('requests.secret.once') }}</p>
 </section>{% elif done == 'confirmed' %}<p class="ok" role="status" data-testid="requests-done">{{ t('requests.done.confirmed') }}</p>{% endif %}

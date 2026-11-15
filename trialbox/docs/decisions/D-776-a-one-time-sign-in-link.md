@@ -23,15 +23,32 @@ What was missing is the link: the holder typed the user name and the code. **Sho
 ## The decision
 
 - **Where a new account's code is shown once,** the link is shown beside it, with a Copy button:
-  `<box>/enrol#u=<name>&c=<code>`. These are the administrator's page (an account opened without a second person) and
+  `<box>/enrol#u=<name>&c=<code>`. `<box>` is the box's own public address (`TB_CONSOLE_PUBLIC_URL`, which the demo
+  VM sets), never the request's Host: an administrator who reaches the console through a tunnel, or a forged Host,
+  would otherwise hand out a link to the wrong place. Without that address no link is made, and the page says so. These are the administrator's page (an account opened without a second person) and
   the confirming person's page (a request confirmed). A reset password is not a link; it is typed at the sign-in
   page, as before.
-- **The code sits after `#`.** A browser never sends that part to the server, so the code is in no request line, no
-  server or proxy log, and no Referer. The console's script (allowed by its hash, as before) fills the two fields
-  from it and removes it from the address bar, and so from the history.
+- **The code sits after `#`.** A browser never sends that part to the server, so the code is in no request to the box,
+  no box or proxy log, and no Referer. The console's script (allowed by its hash, as before) fills the two fields from
+  it on the first sign-in. On every page it then removes it from the address bar and the Back history, including the
+  home page a signed-in person is sent to. The browser's own history still holds the visited link until the code is
+  spent or expires, and a mail link-rewriter or a chat tool may keep it. So the page tells the holder to finish at
+  once, best in a private window, and to take the link only over a channel they alone read.
 - **The link is the code.** It works once, expires with the code, and is slowed and locked out by the same rules.
   Nothing of D-719 changes. Without a script the page opens empty, and the holder types the two values the link
   shows.
+
+## Adversarial review
+
+NOT SOUND on the first pass:
+1. The link was built from the request's Host.
+2. A signed-in person who opened the link was sent on to the home page with the code still in the address bar.
+3. This record claimed the code left "the history" and was in "no log", which is not true of the browser's own
+   history or of mail link-rewriters.
+4. A test's name claimed a case it did not check.
+
+All are fixed and held by tests. The console's own script is now run in the tests (in Node, with a stand-in page) for
+the fill, the clear on any page, and a user name already typed.
 
 ## Held by
 
