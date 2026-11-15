@@ -455,7 +455,10 @@ class _Run:
         index date, so the batches change no row; the lake holds one batch, not the whole scope, at a time. The
         lake's memory grows with the rows the query carries (patients times index dates), so a batch is as many
         patients as fit the rows a query may carry."""
-        size = max(1, (self.cfg.s1_rows or s1_rows()) // max(1, len(idx)))
+        rows_ = s1_rows() if self.cfg.s1_rows is None else self.cfg.s1_rows
+        if rows_ <= 0:
+            raise CascadeError(f"s1_rows={rows_}: give a whole number of rows above 0")
+        size = max(1, rows_ // max(1, len(idx)))
         dates_ = [d.isoformat() for d in idx]
         sql = safe_sql(self.rs)
         rows: list[dict[str, Any]] = []
