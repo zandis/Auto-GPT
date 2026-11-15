@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -47,10 +48,33 @@ class PostResult:
         return ValueSets(ruleset, self.valuesets, term)
 
 
-def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr") -> dict[str, Any]:
+# red of 2026-11-15 (tcga): a diagnosis the model filed under ``procedure`` ("invasive breast carcinoma") is re-filed
+# under ``condition``; a name with an operation word stays a procedure
+_DIAGNOSIS = re.compile(
+    r"carcinoma|cancer|neoplas|tumou?r|lymphoma|leuka?emia|melanoma|sarcoma|myeloma|glioma|blastoma|disease|"
+    r"syndrome|disorder|infection|failure|diabetes|hypertension|\w+itis\b|がん|癌|腫瘍|肉腫|病|症候群|炎",
+    re.IGNORECASE,
+)
+_OPERATION = re.compile(
+    r"\w+ectomy|\w+otomy|\w+ostomy|\w+plasty|resection|surgery|surgical|operation|biopsy|transplant|x-ray|scan|"
+    r"imaging|therapy|radiation|手術|切除|摘出|術|移植|生検|照射",
+    re.IGNORECASE,
+)
+
+
+def is_diagnosis_name(name: str) -> bool:
+    """The concept's name names a diagnosis and no operation (the test of a mis-filed procedure)."""
+    return bool(_DIAGNOSIS.search(name)) and not _OPERATION.search(name)
+
+
+def _convert_logic(
+    node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr", refiled: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     if "op" in node and "args" in node:
-        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr) for a in node["args"]]}
+        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr, refiled) for a in node["args"]]}
     atom = {k: v for k, v in node.items() if k != "concept" and v is not None}
+    if atom.get("domain") == "procedure" and str(node.get("concept") or "").strip().lower() in refiled:
+        atom["domain"] = "condition"
     if atom.get("derived") == "egfr" and egfr != "egfr":  # D-149: the site's equation, named in the ruleset
         atom["derived"] = egfr
     if node.get("domain") == "demographic":
@@ -101,9 +125,13 @@ def postprocess(
     warnings: list[str] = []
     criteria: list[CriterionIR] = []
     # 1. concepts -> ValueSets
+    refiled: set[str] = set()
     for ec in extracted.criteria:
         for cand in ec.concept_candidates:
             key = cand.name.strip().lower()
+            if cand.domain == "procedure" and is_diagnosis_name(cand.name):
+                refiled.add(key)
+                cand = cand.model_copy(update={"domain": "condition"})
             if key in concept_vs or cand.domain == "demographic":
                 continue
             vs_name = vs_name_for(cand.name)
@@ -133,13 +161,17 @@ def postprocess(
         raw = dump(ec)
         logic_raw = raw.get("logic") or {"domain": "demographic"}
         try:
-            logic = _convert_logic(logic_raw, concept_vs, egfr)
+            logic = _convert_logic(logic_raw, concept_vs, egfr, frozenset(refiled))
         except CompileError as exc:
             warnings.append(f"{cid}: {exc}")
             logic, flags = {"domain": "demographic", "valueset": "NONE"}, ["needs_review", "logic_invalid"]
         ir_dict = {k: v for k, v in raw.items() if k not in ("concept_candidates", "logic") and v is not None}
         ir_dict.update({"id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}})
         ir = CriterionIR.model_validate(ir_dict)
+        moved = sorted({str(c.name) for c in ec.concept_candidates if c.name.strip().lower() in refiled})
+        if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
+            flags.append("domain_refiled")
+            warnings.append(f"{cid}: {', '.join(moved)} filed as a procedure; read as a condition (check it)")
         # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
         # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
         # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
