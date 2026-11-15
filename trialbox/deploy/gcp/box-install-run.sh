@@ -695,10 +695,30 @@ d_host_prereq() {
   python3 -c 'import cryptography' 2>/dev/null || miss+=(python3-cryptography)
   command -v nft >/dev/null || miss+=(nftables)
   [ -d /etc/cron.d ] || miss+=(cron)
+  # F9 (2026-11-15): systemd-creds reached the vTPM only through the TSS2 libraries it loads at run time; without them
+  # "Failed to create TPM2 context: Operation not supported" in seal_keys.sh. tpm2-tools brings them
+  [ -n "${TB_BOXRUN_ROOT:-}" ] || systemd-creds has-tpm2 2>/dev/null | head -n 1 | grep -qx yes || miss+=(tpm2-tools)
   note host_packages_added "\"${miss[*]-}\""
   [ ${#miss[@]} = 0 ] && return 0
   [ -z "${TB_BOXRUN_ROOT:-}" ] || return 0   # the rehearsal installs nothing on its host
-  DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${miss[@]}"
+  DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${miss[@]}" \
+    || return 1
+  # the seal needs the TPM through systemd-creds: said here, in the first minutes, not 20 minutes into the install
+  systemd-creds has-tpm2 2>&1 | tee -a "$STEP_LOG" | head -n 1 | grep -qx yes \
+    || { echo "TB-TPM: systemd-creds has-tpm2 is not 'yes' after the packages: the seal would fail" >&2; return 1; }
+}
+# A VALIDATION install that stopped half way leaves the site keys wrapped under a KEK that sat only in /run (tmpfs:
+# gone at the next boot) and its record in the secrets volume; install.sh run again would wrap under a KEK nobody has.
+# Before an install, a box whose earlier install never reached "TrialBox is running" (its log, $TB/install-v.log)
+# is taken down with its volumes and the KEK's leftovers removed: a fresh VALIDATION box on public data, nothing of
+# value in it. Said in the step's notes.
+d_half_install() {
+  grep -q "TrialBox is running" "$TB/install-v.log" 2>/dev/null && return 0
+  docker volume ls -q 2>/dev/null | grep -q '^trialbox_' || return 0
+  dc down -v --remove-orphans >/dev/null 2>&1
+  docker volume ls -q | grep '^trialbox_' | xargs -r docker volume rm >/dev/null 2>&1
+  rm -rf /run/trialbox /etc/credstore.encrypted/trialbox-kek
+  note half_install_removed true
 }
 d_old_servers() {  # judge, verifier, front of deploy/gcp/gpu-sim-startup.sh (--restart unless-stopped): removed, said
   local c
@@ -1010,6 +1030,7 @@ step_install() {
     need "the installer's host packages (python3-yaml: install.sh's anchors-compose and pre-start import yaml)" d_host_prereq || return 1
     need "placing the site's weights in deploy/models" d_models_place || return 1
     d_old_servers   # lane G's earlier private model servers on this VM (gpu-sim-startup.sh) would hold the card
+    d_half_install
     WATCH_IO=1 need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
     rm -f "$ANSWERS.yaml"
     return $rc
