@@ -799,6 +799,9 @@ class Mapper:
             self._visits.setdefault((str(spec["table"]), rtype, tuple(spec["keys"]), str(spec["their_day"])), {})
         self.links: Counter[tuple[str, str]] = Counter()
         self._made: set[tuple[str, str]] = set()  # (type, id) of each visit that became a record
+        # F9 (D-811): dates left out because no life is that long, by (table, element): counts only
+        self.implausible: Counter[tuple[str, str]] = Counter()
+        self._element = ""
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -980,6 +983,29 @@ class Mapper:
         out: dict[str, dict[str, int]] = {}
         for (table, outcome), n in sorted(self.links.items()):
             out.setdefault(table, {})[outcome] = n
+    def _older_than_a_life(self, raw: Any, spec: dict[str, Any], row: Row) -> bool:
+        """F9 (D-811): whether a birth date is more than ``years`` before ``until`` (the death date's column), or
+        before today when the row has none: nobody lives that long."""
+        born = self._parse_dt(str(raw)).date()
+        end_raw = row.get(str(spec.get("until") or ""))
+        end = date.today()
+        if end_raw not in (None, "") and str(end_raw).strip():
+            try:
+                end = self._parse_dt(str(end_raw)).date()
+            except (MappingError, ValueError):
+                end = date.today()
+        years = int(spec["years"])
+        try:
+            oldest = end.replace(year=end.year - years)
+        except ValueError:  # 29 February
+            oldest = end.replace(year=end.year - years, day=28)
+        return born < oldest
+
+    def implausible_dates(self) -> dict[str, dict[str, int]]:
+        """Per table and element, the dates left out because no life is that long (F9, D-811). Counts only."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, element), n in sorted(self.implausible.items()):
+            out.setdefault(table, {})[element] = n
         return out
 
     def ref(self, spec: dict[str, Any], row: Row, rs: ResourceSpec) -> str | None:
@@ -1026,6 +1052,9 @@ class Mapper:
                 dt = self._parse_dt(str(raw)) + timedelta(minutes=int(minutes or 0))
                 raw = dt.isoformat(sep=" ", timespec="seconds")  # an offset the source stated stays (STD-015)
             val = self.convert(raw, expr.get("type"))
+            if val is not None and "lived_at_most" in expr and self._older_than_a_life(raw, expr["lived_at_most"], row):
+                self.implausible[(rs.table, self._element)] += 1  # F9 (D-811): left out, the row kept; counted
+                return None
             if val is not None and "factor" in expr:
                 val = float(Decimal(str(val)) * Decimal(str(expr["factor"])))
             return val
@@ -1380,6 +1409,7 @@ class Mapper:
             if prof:
                 res["meta"] = {"profile": [prof]}
         for path, expr in rs.elements.items():
+            self._element = path  # F9 (D-811): what a count names
             self.set_path(res, path, self.value(expr, row, rs))
         if self.ingest_time:
             meta = res.setdefault("meta", {})
