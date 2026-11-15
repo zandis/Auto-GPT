@@ -441,16 +441,15 @@ grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPO
 # `trialbox doctor` (memory_caps) says when it is too small
 if command -v python3 >/dev/null; then
   LAKE_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_lake-data" 2>/dev/null || true)"
-  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | sed 's/^/    /'
-  [ "${PIPESTATUS[0]}" = 0 ] || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER and TB_MEM_LAKE in deploy/.env, then re-run"
+  # D-832: the die hangs on the pipe (under pipefail a failing pipe ended the script before a PIPESTATUS line)
+  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | indent || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER and TB_MEM_LAKE in deploy/.env, then re-run"
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER and TB_MEM_LAKE keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
 if command -v python3 >/dev/null; then
-  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | sed 's/^/    /'
-  [ "${PIPESTATUS[0]}" = 0 ] || die "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
+  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | indent || die "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
 fi
 chmod 600 deploy/.env
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
@@ -525,8 +524,8 @@ if [ -n "$TLS_HOST" ]; then
   for v in TB_TLS_CERT_FILE TB_TLS_KEY_FILE; do f="$(envget "$v")"; [ -z "$f" ] || TLS_MOUNT+=(-v "$f:$f:ro"); done
   docker run --rm -e TB_ENV="$TB_ENV_SITE" -e TB_TLS_MODE="$(envget TB_TLS_MODE)" -e TB_TLS_HOSTNAME="$TLS_HOST" \
     -e TB_TLS_CERT_FILE="$(envget TB_TLS_CERT_FILE)" -e TB_TLS_KEY_FILE="$(envget TB_TLS_KEY_FILE)" \
-    ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 "$IMAGE_PY" python -m console.cli check-tls 2>&1 | sed 's/^/    /'
-  [ "${PIPESTATUS[0]}" = 0 ] || die "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"
+    ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 "$IMAGE_PY" python -m console.cli check-tls 2>&1 \
+    | indent || die "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"
   COMPOSE+=(-f deploy/docker-compose.identity.yml); FILES="$FILES:$ROOT/deploy/docker-compose.identity.yml"
 fi
 if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the console's first-run folder (box-install.sh makes it, tmpfs)
