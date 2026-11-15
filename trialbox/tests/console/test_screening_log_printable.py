@@ -117,3 +117,23 @@ def test_a_column_of_japanese_text_is_wide_enough_to_read() -> None:
     ws = printable(Workbook(), "ja", [[row[c] for c in LOG_COLUMNS]])
     letter = ws.cell(row=1, column=LOG_COLUMNS.index("reason") + 1).column_letter
     assert (ws.column_dimensions[letter].width or 0) >= 22
+
+
+def test_an_opted_out_row_keeps_its_number_and_shows_the_day_as_a_date() -> None:
+    """D-762 (lane C2's #601): the opted-out column is the site's day of the opt-out, or "yes" with no day."""
+    from console.screening_log import printable
+    from datacore.sponsor import LOG_COLUMNS
+    from openpyxl import Workbook
+
+    rows = []
+    for no, gone in (("GZQO-001", "2026-11-12"), ("GZQO-002", "yes"), ("GZQO-003", "")):
+        row = dict.fromkeys(LOG_COLUMNS, "")
+        row.update({"screening_no": no, "opted_out": gone})
+        rows.append([row[c] for c in LOG_COLUMNS])
+    ws = printable(Workbook(), "ja", rows)
+    head = translate("ja", "log.xlsx.col.opted_out")
+    col = [c.value for c in ws[1]].index(head)
+    got = [(r[0].value, r[col].value) for r in ws.iter_rows(min_row=2)]
+    assert got[0][0] == "GZQO-001" and isinstance(got[0][1], (date, datetime)) and got[0][1].day == 12
+    assert got[1] == ("GZQO-002", translate("ja", "log.xlsx.opted_out.yes"))
+    assert got[2][1] in ("", None)

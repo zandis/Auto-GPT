@@ -175,7 +175,9 @@ def printable(wb: Any, lang: str, table: list[list[Any]]) -> Any:
             elif col in LISTS and isinstance(v, str) and v:
                 sep = ", " if lang == "en" else "、"
                 out.append(sep.join(_word(lang, LISTS[col], w.strip()) for w in v.split(",") if w.strip()))
-            elif col in sponsor.DATE_COLUMNS and isinstance(v, str) and len(v) >= 10:
+            elif col == "opted_out" and v == "yes":  # D-762: opted out, the day not known (a merge's surviving chart)
+                out.append(translate(lang, "log.xlsx.opted_out.yes"))
+            elif (col in sponsor.DATE_COLUMNS or col == "opted_out") and isinstance(v, str) and len(v) >= 10:
                 try:
                     out.append(date.fromisoformat(v[:10]))
                 except ValueError:
