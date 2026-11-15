@@ -783,6 +783,15 @@ DECLARED: dict[str, Declared] = {
     "TB_PGBACKREST_FULL_DAY": Declared("int", "", "pgBackRest: weekday of the full backup"),
     "TB_PGBACKREST_REPO": Declared("str", "", "pgBackRest: repository"),
     "TB_PG_ARCHIVE_MODE": Declared("str", "off", "PostgreSQL WAL archiving"),
+    # T-703 (D-751): written by deploy/install.sh from TB_MEM_DB (tools/trialbox/pgsize.py); compose's defaults are
+    # PostgreSQL's and docker's own
+    "TB_PG_EFFECTIVE_CACHE_SIZE": Declared("str", "4GB", "PostgreSQL effective_cache_size (D-751)"),
+    "TB_PG_IDLE_TX_TIMEOUT": Declared("str", "0", "PostgreSQL idle_in_transaction_session_timeout (D-751)"),
+    "TB_PG_MAINTENANCE_WORK_MEM": Declared("str", "64MB", "PostgreSQL maintenance_work_mem (D-751)"),
+    "TB_PG_MAX_WAL_SIZE": Declared("str", "1GB", "PostgreSQL max_wal_size (D-751)"),
+    "TB_PG_MIN_WAL_SIZE": Declared("str", "80MB", "PostgreSQL min_wal_size (D-751)"),
+    "TB_PG_SHARED_BUFFERS": Declared("str", "128MB", "PostgreSQL shared_buffers (D-751)"),
+    "TB_PG_SHM": Declared("str", "64m", "the database container's /dev/shm (D-751)"),
     "TB_PG_BIN": Declared("str", "", "local PostgreSQL bin folder (tools)"),
     "TB_PG_DIR": Declared("path", "", "local PostgreSQL data folder (demo)"),
     "TB_PG_DSN": Declared("str", "", "testbench: PostgreSQL DSN"),
