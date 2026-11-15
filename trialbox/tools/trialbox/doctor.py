@@ -1977,6 +1977,24 @@ def check_two_device(inp: DoctorInputs) -> Check:
 TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
+# D-837: the checks of a host facility a plain VM has not got (the TPM-sealed keys, the off-box anchor folder): under
+# TB_HOST_PROFILE=poc on a box that is not PRODUCTION their FAIL is a WARN, and one line lists them
+HOST_FACILITY_CHECKS = ("key_custody", "anchor_mount")
+
+
+def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
+        return out
+    from tb_common.config import environment_name
+
+    if environment_name(inp.env) == "PRODUCTION":
+        return [*out, Check("host_profile", "FAIL", "TB_HOST_PROFILE=poc on a PRODUCTION box: never relaxed there")]
+    eased = [c.name for c in out if c.name in HOST_FACILITY_CHECKS and c.status == "FAIL"]
+    out = [replace(c, status="WARN", detail=f"{c.detail} [host profile poc]") if c.name in eased else c for c in out]
+    said = ", ".join(eased) if eased else "none failed"
+    return [*out, Check("host_profile", "WARN", f"host profile poc: host-facility checks as WARN: {said}")]
+
+
 def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
     out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
     for fn in checks:
@@ -1985,7 +2003,7 @@ def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] =
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
-    return out
+    return host_profile(inp, out)
 
 
 def ok(checks: list[Check]) -> bool:
