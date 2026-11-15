@@ -1,5 +1,9 @@
 # Lane Q: qualify and model serving on an installed box (brief, 2026-11-15)
 
+**Withdrawn on 2026-11-15 02:15 UTC; do not start this lane.** Lane D had already built five of the seven items
+(blockers 1, 5, 6, 8, 9: #642, D-737 to D-739, the doctor FAILs). The two left (3: the v5 record, after lane G's
+qualify run; 7: unattended approval, an owner decision) stay with lane D. Status: `40-status-2026-11-15.md`.
+
 A new lane, carved out of lane D at the owner's request on 2026-11-15 so that lane D keeps CI, nightly, installer,
 backup and supply chain, and lane Q takes the model-qualification path that R2 and R4 wait on. Read this page, then
 `38-handover-2026-11-15.md` (the owner's 11 rules: they bind you exactly), `37-remaining-work-split.md`,
