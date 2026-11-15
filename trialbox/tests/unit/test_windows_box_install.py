@@ -282,6 +282,51 @@ def _host_tar(tmp: Path) -> tuple[Path, Path]:
     return tar, pub
 
 
+def _media_tar(tmp: Path, name: str, sums: str, key: str) -> tuple[Path, Path]:
+    # a host tree as tools.host_tree packs it: HOST-SHA256SUMS first; the sums stand for the release's content
+    src = tmp / name
+    (src / "deploy").mkdir(parents=True)
+    (src / "deploy/box-install.sh").write_text(f"#!/bin/bash\n# {name}\n")
+    (src / "HOST-SHA256SUMS").write_text(sums)
+    tar = tmp / f"{name}.tar"
+    with tarfile.open(tar, "w") as t:
+        t.add(src / "HOST-SHA256SUMS", arcname="HOST-SHA256SUMS")
+        t.add(src / "deploy", arcname="deploy")
+    pub = tmp / f"{name}.pub"
+    pub.write_text(key)
+    return tar, pub
+
+
+def test_a_tree_no_install_has_used_is_replaced_by_another_medias(box: Box) -> None:
+    # NEW-WIN-12 (D-615; owner ruling D-510): Stage B after Stage A on the same PC needs no command of the owner's
+    a_tar, a_pub = _media_tar(box.tmp, "stage-a", "aaaa  deploy/box-install.sh\n", "stand-in key\n")
+    b_tar, b_pub = _media_tar(box.tmp, "stage-b", "bbbb  deploy/box-install.sh\n", "real key\n")
+    assert box.run("host-tree", str(a_tar), str(a_pub)).returncode == 0
+    out = box.run("host-tree", str(b_tar), str(b_pub))
+    assert out.returncode == 0 and "replaced" in out.stdout, out.stderr
+    assert "stage-b" in (box.root / "deploy/box-install.sh").read_text()
+    assert (box.root / "deploy/keys/vendor_ed25519.pub").read_text() == "real key\n"
+    assert not list(box.tmp.glob("opt.*")) and not (box.root.parent / "trialbox.previous").exists()
+    again = box.run("host-tree", str(b_tar), str(b_pub))
+    assert again.returncode == 0 and "kept" in again.stdout
+
+
+@pytest.mark.parametrize(
+    "used",
+    ["deploy/.env", "deploy/settings.yaml", "deploy/site/box/windows-install-done", "deploy/site/rehearsal.json"],
+)
+def test_a_tree_an_install_has_used_is_never_replaced(box: Box, used: str) -> None:
+    a_tar, a_pub = _media_tar(box.tmp, "stage-a", "aaaa  deploy/box-install.sh\n", "key\n")
+    b_tar, b_pub = _media_tar(box.tmp, "stage-b", "bbbb  deploy/box-install.sh\n", "key\n")
+    assert box.run("host-tree", str(a_tar), str(a_pub)).returncode == 0
+    (box.root / used).parent.mkdir(parents=True, exist_ok=True)
+    (box.root / used).write_text("an install's own file\n")
+    out = box.run("host-tree", str(b_tar), str(b_pub))
+    assert out.returncode == 0 and "kept" in out.stdout, out.stderr
+    assert "stage-a" in (box.root / "deploy/box-install.sh").read_text()
+    assert (box.root / used).read_text() == "an install's own file\n"
+
+
 def test_the_host_tree_is_unpacked_once_and_never_over_another_folder(box: Box) -> None:
     tar, pub = _host_tar(box.tmp)
     out = box.run("host-tree", str(tar), str(pub))

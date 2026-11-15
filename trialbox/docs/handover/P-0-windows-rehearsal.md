@@ -19,9 +19,35 @@ bundle; then with a signed bundle whose models are placeholders): `docs/handover
 `python3 -m tools.windows_media build` and check the copy on the disk with `python3 -m tools.windows_media check`
 (`docs/handover/OFFLINE-MEDIA.md`, "Making the media").
 
-**What to send back.** The file `C:\ProgramData\TrialBox\box-install\box-install.log` (it holds no password, no
-first-run code and no key), this sheet with each line marked, and a photo or the text of the window wherever a
-line says "record". Never send the first-run code, a password, or the BitLocker recovery key.
+**What comes back.** The USB disk, with its `P0-RECORD` folder (no password, first-run code or key is written there:
+the recorder masks anything shaped like one). Nothing else is asked of the owner (D-510).
+
+## Who does what (owner ruling D-510; NEW-WIN-12, D-615)
+
+**This sheet is lane W's, not the owner's.** The owner starts P-0 (`Install-TrialBox-P0.cmd`, see
+`P-0-BUILD-THE-MEDIA.md`, "Your part") and hands the USB disk back. The installer started with `-P0` writes what
+these lines ask into the disk's `P0-RECORD` folder: one text file after every run (also a run that stopped) and one
+at each start of Windows, six minutes in, signed in or not. Lane W marks each line from the records. The "Do"
+column below says what a person would have run; the recorder runs the read-only ones itself.
+
+**How lane W reads the records.** Each record has these sections; the lines they answer:
+
+| Record section | Lines it answers |
+| --- | --- |
+| `windows`, `wsl` | 71, the build and WSL's version for every part |
+| `wslconfig` | 20 to 22, 72 |
+| `network` | 37, 38, 73, 74, 81, 83 (the row, the firewall rule, the network's profile, the IP Helper listener, the WSL adapter) |
+| `tasks` | 24 to 27, 75, 82 (each TrialBox task: state, sign-in, rights, last run and result, triggers, limits) |
+| `bitlocker` | 28 to 34 (states and protector kinds only; a key is never read) |
+| `times` | **26a** and 79: `wsl2_started_before_sign_in` from the start of Windows, WSL2's first process and the first sign-in |
+| `key probe` | **36a** (the installer arms `key-probe.ps1 -AtStartup` once the boot task exists; each record collects its lines) |
+| `inside WSL2` | 23, 54, 58, 59, 65, 84, 85 (doctor; `TB_ENV`/`TB_REHEARSAL`; the containers), only when WSL2 already ran |
+| `installer log` | 1 to 19, 35 (every step's line; the log holds no secret) |
+
+**What no record can answer**, and so stays open until the owner decides otherwise (asked on the integrator's
+inbox): whether Windows showed a prompt after the restart (line 7; the log shows that the installer went on by
+itself); the console from a second PC (Part 5, lines 39 to 44, 77); anything done by hand on the desktop (Part 7,
+lines 57, 60 to 62: they wait for the reference workstation, P-11). Lane W does not send the owner these lines.
 
 ## Part 1: NEW-WIN-1, the installer
 

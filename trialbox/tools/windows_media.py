@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -38,6 +39,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = ROOT / "deploy" / "windows"
 # the installer's own files: the launcher at the media's root, the rest under windows/
 LAUNCHER = "Install-TrialBox.cmd"
+# P-0 on a PC that is not a site's (NEW-WIN-12, D-615): the launcher passes -P0; the media's choices are in p0.json
+P0_LAUNCHER, P0_CHOICES = "Install-TrialBox-P0.cmd", "windows/p0.json"
 INSTALLER_FILES = (
     "box-install.ps1",
     "box-install.messages.json",
@@ -47,6 +50,7 @@ INSTALLER_FILES = (
     "preflight.ps1",
     "host_facts.ps1",
     "console-proxy.ps1",
+    "p0-record.ps1",
 )
 # what step 1 of box-install.ps1 looks for (Find-TbOne: exactly one match each); a test holds the two together
 NEEDS_ONE = {
@@ -214,6 +218,7 @@ def build(
     measured: Path | None = None,
     link: bool = False,
     source: Path = ROOT,
+    p0: dict[str, bool] | None = None,
 ) -> Path:
     if not VERSION_RE.match(version):
         raise MediaError(f"version '{version}': letters, digits, dot, dash and underscore only")
@@ -269,6 +274,13 @@ def build(
             link,
             source,
         )
+        if p0 is not None:
+            # the P-0 launcher and the choices made for this P-0 when the media was built (owner ruling D-510: the
+            # owner only starts it); the installer reads them with -P0 only
+            _text(source / "deploy/windows" / P0_LAUNCHER, media / P0_LAUNCHER, "\r\n")
+            choices = {"rehearsal": bool(p0.get("rehearsal")), "skip_bitlocker": bool(p0.get("skip_bitlocker"))}
+            (media / P0_CHOICES).write_text(json.dumps(choices) + "\n", encoding="utf-8")
+            write_sums(media)
         problems = check(media)
         if problems:  # never hand over a media the installer would stop on
             raise MediaError("the media just built does not pass its own check: " + "; ".join(problems))
@@ -419,6 +431,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--nvidia-driver", type=Path, help="the NVIDIA driver for Windows (the installer does not run it)")
     b.add_argument("--measured", type=Path, help="folder of serving_config.<gpu>.json")
     b.add_argument("--link", action="store_true", help="hard-link the large inputs when on the same file system")
+    b.add_argument("--p0", action="store_true", help="a P-0 media: Install-TrialBox-P0.cmd and windows/p0.json (D-615)")
+    b.add_argument("--rehearsal", action="store_true", help="with --p0: the P-0 is a rehearsal box (Stage B, D-614)")
+    b.add_argument("--skip-bitlocker", action="store_true", help="with --p0: BitLocker is left as it is")
     c = sub.add_parser("check", help="would the installer take this media?")
     c.add_argument("media", type=Path)
     w = sub.add_parser("sums", help="write SHA256SUMS again, after a file was added to the media")
@@ -426,10 +441,13 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         if args.cmd == "build":
+            if (args.rehearsal or args.skip_bitlocker) and not args.p0:
+                raise MediaError("--rehearsal and --skip-bitlocker are choices of a P-0 media: add --p0")
+            p0 = {"rehearsal": args.rehearsal, "skip_bitlocker": args.skip_bitlocker} if args.p0 else None
             media = build(
                 out=args.out, version=args.version, bundle=args.bundle, wsl_msi=args.wsl_msi, rootfs=args.rootfs,
                 debs=args.debs, vendor_pub=args.vendor_pub, nvidia_driver=args.nvidia_driver, measured=args.measured,
-                link=args.link,
+                link=args.link, p0=p0,
             )  # fmt: skip
             print(f"media: {media} ({len(_files(media))} files; {SUMS} written, not signed)")
             return 0

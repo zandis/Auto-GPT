@@ -129,16 +129,39 @@ EOP
   host-tree)
     tarf="${1:-}"; pub="${2:-}"
     [ -f "$tarf" ] && [ -f "$pub" ] || die "usage: wsl-setup.sh host-tree TAR PUBKEY"
+    unpack() {
+      # unpacked beside the folder and moved into place whole: an interrupted unpack never looks like a host tree
+      part="$ROOT.unpacking"
+      rm -rf "$part"; mkdir -p "$part"
+      tar -xf "$tarf" -C "$part" --no-same-owner || die "the host tree did not unpack"
+      [ -f "$part/deploy/box-install.sh" ] || die "the host tree carries no deploy/box-install.sh"
+    }
+    unused() {
+      # NEW-WIN-12 (D-615): a tree no install has used yet holds nothing of a site's: Stage A of P-0 stops in step 14
+      # before the Linux installer writes any of these (by reading). Any one of them keeps the tree as it is
+      local f
+      for f in "$DONE_MARK" deploy/.env deploy/settings.yaml deploy/updates/installed.json deploy/site/rehearsal.json \
+        deploy/site/box/answers.json; do
+        case "$f" in /*) [ ! -e "$f" ] || return 1 ;; *) [ ! -e "$ROOT/$f" ] || return 1 ;; esac
+      done
+    }
     if [ -f "$ROOT/deploy/box-install.sh" ]; then
-      echo "kept: $ROOT is already there"
+      media_sums="$(tar -xOf "$tarf" HOST-SHA256SUMS 2>/dev/null || true)"
+      if [ -n "$media_sums" ] && [ "$media_sums" != "$(cat "$ROOT/HOST-SHA256SUMS" 2>/dev/null)" ] && unused; then
+        # another media's release on a box no install has used (P-0 Stage B after Stage A): its tree replaces this
+        # one, key included, with no command of the owner's (owner ruling D-510)
+        unpack
+        mv "$ROOT" "$ROOT.previous"
+        mv "$part" "$ROOT"
+        rm -rf "$ROOT.previous"
+        echo "replaced: $ROOT (no install had used it; the media's release differs)"
+      else
+        echo "kept: $ROOT is already there"
+      fi
     elif [ -e "$ROOT" ] && [ -n "$(ls -A "$ROOT" 2>/dev/null)" ]; then
       die "$ROOT exists and is not a TrialBox host tree: it is not replaced"
     else
-      # unpacked beside the folder and moved into place whole: an interrupted unpack never looks like a host tree
-      part="$ROOT.unpacking"
-      mkdir -p "$part"
-      tar -xf "$tarf" -C "$part" --no-same-owner || die "the host tree did not unpack"
-      [ -f "$part/deploy/box-install.sh" ] || die "the host tree carries no deploy/box-install.sh"
+      unpack
       [ ! -d "$ROOT" ] || rmdir "$ROOT"   # an empty folder only (checked above)
       mv "$part" "$ROOT"
       echo "unpacked: $ROOT"

@@ -468,5 +468,10 @@
     "en": "-Rehearsal was ignored: this install is finished and is not a rehearsal. A rehearsal is a new install on a box that holds no site's install.",
     "ja": "-Rehearsal は無視されました。このインストールは完了しており、リハーサルではありません。リハーサルは、サイトのインストールを含まないボックスへの新しいインストールで行います。",
     "zh-TW": "已忽略 -Rehearsal：此安裝已完成，且不是演練。演練需在不含院方安裝的 box 上重新安裝。"
+  },
+  "p0_config_bad": {
+    "en": "The media's P-0 settings ({0}) cannot be read. Nothing was changed. The media needs to be built again; send this message to whoever built it.",
+    "ja": "メディアの P-0 設定（{0}）を読み取れません。何も変更していません。メディアを作り直す必要があります。このメッセージをメディアを作成した担当者に送ってください。",
+    "zh-TW": "無法讀取媒體的 P-0 設定（{0}）。未做任何變更。需要重新製作媒體；請將此訊息寄給製作媒體的人。"
   }
 }
