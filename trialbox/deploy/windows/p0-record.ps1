@@ -24,7 +24,7 @@ param(
   [switch]$LoadOnly
 )
 
-$script:TbRecTasks = @("TrialBox-WSL2", "TrialBox-Console-Proxy", "TrialBox-Install-Resume", "TrialBox-P0-Record")
+$script:TbRecTasks = @("TrialBox-WSL2", "TrialBox-Console-Proxy", "TrialBox-Install-Resume", "TrialBox-P0-Record", "TrialBox-Key-Probe")
 
 # ---- seams: the only places that touch Windows (each returns lines of text)
 function Invoke-TbRecWsl([string]$Name, [string[]]$Command) {
@@ -33,7 +33,23 @@ function Invoke-TbRecWsl([string]$Name, [string[]]$Command) {
 }
 function Test-TbRecWslRunning([string]$Name) {
   $env:WSL_UTF8 = "1"
-  return (@(& wsl.exe --list --running --quiet 2>$null | ForEach-Object { ([string]$_).Trim() }) -contains $Name)
+  return ((ConvertFrom-TbWslList @(& wsl.exe --list --running --quiet 2>$null)) -contains $Name)
+}
+function Find-TbRecMedia {
+  # the P-0 media on any drive: its checksum list, its choices and its launcher (at a start of Windows nobody
+  # passes its path, and its letter may have changed)
+  foreach ($d in @(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
+    foreach ($dir in @(Get-ChildItem -LiteralPath $d.Root -Directory -Filter "TRIALBOX-*" -ErrorAction SilentlyContinue)) {
+      if ((Test-Path -LiteralPath (Join-Path $dir.FullName "SHA256SUMS")) -and (Test-Path -LiteralPath (Join-Path $dir.FullName "windows\p0.json")) -and
+        (Test-Path -LiteralPath (Join-Path $dir.FullName "Install-TrialBox-P0.cmd"))) { return $dir.FullName }
+    }
+  }
+  return ""
+}
+function Test-TbRecProbeReady {
+  # the key probe's task wrote its result at this start of Windows (key-probe.ps1: result-at_startup.txt)
+  $f = Join-Path $env:ProgramData "TrialBox\key-probe\result-at_startup.txt"
+  return ((Test-Path -LiteralPath $f) -and (Get-Item -LiteralPath $f).Length -gt 0)
 }
 function Get-TbRecWindows {
   $cv = Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
@@ -85,12 +101,20 @@ function Get-TbRecBitLocker {
     })
 }
 function Get-TbRecTimes([string]$Name) {
-  # the last start of Windows, the start of WSL2's first process (only when WSL2 already runs: reading it would
-  # start it), and the first sign-in after the start (Winlogon's event 7001)
+  # the last start of Windows; the boot task (is it running, since when); WSL2's first process's start (only when
+  # WSL2 already runs: reading it would start it; from /proc/1/stat and the kernel's boot time, not a file's time);
+  # the first sign-in after the start (Winlogon's event 7001)
   $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime()
-  $t = @{ Boot = $boot; WslStart = $null; FirstSignIn = $null; WslNotRunning = $false }
+  $t = @{ Boot = $boot; WslStart = $null; FirstSignIn = $null; WslNotRunning = $false; BootTaskState = ""; BootTaskLastRun = $null; BootTaskResult = "" }
+  $bt = Get-ScheduledTask -TaskName "TrialBox-WSL2" -ErrorAction SilentlyContinue
+  if ($bt) {
+    $bi = Get-ScheduledTaskInfo -TaskName "TrialBox-WSL2" -ErrorAction SilentlyContinue
+    $t.BootTaskState = [string]$bt.State; $t.BootTaskResult = [string]$bi.LastTaskResult
+    if ($bi.LastRunTime -and $bi.LastRunTime.Year -gt 2000) { $t.BootTaskLastRun = $bi.LastRunTime.ToUniversalTime() }
+  }
   if (Test-TbRecWslRunning $Name) {
-    $epoch = [string](@(Invoke-TbRecWsl $Name @("stat", "-c", "%Y", "/proc/1")) | Select-Object -First 1)
+    $sh = 'b=$(awk ''/^btime/{print $2}'' /proc/stat); s=$(cut -d" " -f22 /proc/1/stat); echo $((b + s / $(getconf CLK_TCK)))'
+    $epoch = [string](@(Invoke-TbRecWsl $Name @("sh", "-c", $sh)) | Select-Object -First 1)
     if ($epoch -match "^\d+$") { $t.WslStart = ([datetime]"1970-01-01T00:00:00Z").ToUniversalTime().AddSeconds([double]$epoch) }
   } else { $t.WslNotRunning = $true }
   $ev = @(Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Microsoft-Windows-Winlogon"; Id = 7001; StartTime = $boot.ToLocalTime() } -ErrorAction SilentlyContinue |
@@ -98,22 +122,31 @@ function Get-TbRecTimes([string]$Name) {
   if ($ev.Count -gt 0) { $t.FirstSignIn = $ev[0].TimeCreated.ToUniversalTime() }
   return $t
 }
+function Get-TbRecKeyProbe([string]$Dir) {
+  # line 36a: the key probe's own lines (key-probe.ps1 -Collect, which also removes its task); dummy values only
+  return @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Dir "key-probe.ps1") -Collect 2>&1 | ForEach-Object { [string]$_ })
+}
 function Get-TbRecInside([string]$Name) {
   if (-not (Test-TbRecWslRunning $Name)) { return @("WSL2 is not running: nothing read inside it (reading would start it)") }
   $sh = "cd /opt/trialbox 2>/dev/null || exit 0; ip -4 -o addr show dev eth0; grep -E '^TB_(ENV|REHEARSAL)=' deploy/.env 2>/dev/null; " +
   "ls deploy/site/rehearsal.json 2>/dev/null; systemctl is-active docker 2>/dev/null; docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null; " +
-  "[ -f deploy/.env ] && python3 -m tools.trialbox doctor --env-file deploy/.env 2>&1 | tail -n 80"
+  "[ -f deploy/.env ] && python3 -m tools.trialbox doctor --env-file deploy/.env 2>&1 | tail -n 80 | " +
+  "PYTHONPATH=libs:. python3 -c 'import sys; from tools.support_bundle import redact_secrets; from tb_common.logging import redact; sys.stdout.write(redact(redact_secrets(sys.stdin.read())[0]))'"
   return @(Invoke-TbRecWsl $Name @("bash", "-c", $sh))
 }
 
-function Get-TbRecKeyProbe([string]$Dir) {
-  # line 36a: the key probe's own lines (key-probe.ps1 -Collect), when the installer armed it; dummy values only
-  $probe = Join-Path $Dir "key-probe.ps1"
-  if (-not (Test-Path -LiteralPath (Join-Path $env:ProgramData "TrialBox\key-probe"))) { return @("not armed") }
-  return @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $probe -Collect 2>&1 | ForEach-Object { [string]$_ })
-}
-
 # ---- logic
+function ConvertFrom-TbWslList([string[]]$Lines) {
+  # wsl.exe answers in UTF-16 when WSL_UTF8 is not honoured: its NULs are dropped, as key-probe.ps1 does
+  return @($Lines | ForEach-Object { ([string]$_ -replace "`0", "").Trim() } | Where-Object { $_ })
+}
+function Resolve-TbRecCopyTo([string]$When, [string]$CopyTo) {
+  if ($CopyTo) { return $CopyTo }
+  if ($When -ne "at-boot") { return "" }
+  $m = Find-TbRecMedia
+  if ($m) { return (Join-Path $m "P0-RECORD") }
+  return ""
+}
 function Protect-TbRecText([string[]]$Lines) {
   # a BitLocker recovery key is eight groups of six figures; a first-run code follows "One-time code"
   return @($Lines | ForEach-Object {
@@ -123,23 +156,25 @@ function Protect-TbRecText([string[]]$Lines) {
     })
 }
 function Format-TbTimeline($Times) {
-  # line 26a: did WSL2 (the box) start before anyone signed in?
-  $b = $Times.Boot; $w = $Times.WslStart; $s = $Times.FirstSignIn
-  if ($null -ne $b -and $Times.WslNotRunning) {
-    if ($null -eq $s) { return "wsl2_started_before_sign_in: no (WSL2 was not running when this was recorded; nobody signed in since)" }
-    return ("wsl2_started_before_sign_in: no (WSL2 was not running when this was recorded; first sign-in {0} s after boot)" -f [int]($s - $b).TotalSeconds)
+  # line 26a: does the boot task start WSL2 (and hold it) with nobody signed in? Decided by the task itself: whoever
+  # else may have started WSL2 first (the key probe, a person), the box returns only if the boot task runs
+  $b = $Times.Boot; $s = $Times.FirstSignIn; $r = $Times.BootTaskLastRun
+  if ($null -eq $b) { return "wsl2_started_before_sign_in: unknown (no start of Windows read)" }
+  $signin = "nobody signed in since"; if ($null -ne $s) { $signin = "first sign-in {0} s after boot" -f [int]($s - $b).TotalSeconds }
+  if ($Times.WslNotRunning) { return ("wsl2_started_before_sign_in: no (WSL2 was not running when this was recorded; {0})" -f $signin) }
+  if ($Times.BootTaskState -ne "Running") {
+    return ("wsl2_started_before_sign_in: no (the boot task TrialBox-WSL2 is {0}, last result {1}; {2})" -f $Times.BootTaskState, $Times.BootTaskResult, $signin)
   }
-  if ($null -eq $b -or $null -eq $w) { return "wsl2_started_before_sign_in: unknown (no start time read)" }
-  $ws = [int]($w - $b).TotalSeconds
-  if ($null -eq $s) { return ("wsl2_started_before_sign_in: yes ({0} s after boot; nobody signed in since)" -f $ws) }
-  $ss = [int]($s - $b).TotalSeconds
-  $answer = "no"; if ($w -lt $s) { $answer = "yes" }
-  return ("wsl2_started_before_sign_in: {0} ({1} s after boot; first sign-in {2} s after boot)" -f $answer, $ws, $ss)
+  if ($null -eq $r) { return ("wsl2_started_before_sign_in: unknown (the boot task runs, its start time was not read; {0})" -f $signin) }
+  $rs = [int]($r - $b).TotalSeconds
+  if ($null -ne $s -and $r -ge $s) {
+    return ("wsl2_started_before_sign_in: no (the boot task started {0} s after boot, after the first sign-in at {1} s)" -f $rs, [int]($s - $b).TotalSeconds)
+  }
+  return ("wsl2_started_before_sign_in: yes (the boot task TrialBox-WSL2 runs since {0} s after boot; {1})" -f $rs, $signin)
 }
 function Write-TbRecord([string]$Out, [string]$When, [string]$StateDir, [string]$Distro, [string]$WslConfig) {
   if (-not (Test-Path -LiteralPath $Out)) { New-Item -ItemType Directory -Force -Path $Out | Out-Null }
   $file = Join-Path $Out ("{0}-{1}.txt" -f [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"), $When)
-  $text = @(("TrialBox P-0 record, {0}, written {1:u}" -f $When, [DateTime]::UtcNow))
   $sections = [ordered]@{
     "windows" = { Get-TbRecWindows }
     "wsl" = { Get-TbRecWsl }
@@ -147,18 +182,28 @@ function Write-TbRecord([string]$Out, [string]$When, [string]$StateDir, [string]
     "network" = { Get-TbRecNetwork }
     "tasks" = { Get-TbRecTasks }
     "bitlocker" = { Get-TbRecBitLocker }
-    "times" = { $t = Get-TbRecTimes $Distro; @(("boot {0:u}; WSL2 started {1:u}; first sign-in {2:u}" -f $t.Boot, $t.WslStart, $t.FirstSignIn), (Format-TbTimeline $t)) }
-    "key probe" = { Get-TbRecKeyProbe $StateDir }
+    "times" = {
+      $t = Get-TbRecTimes $Distro
+      @(("boot {0:u}; boot task {1}, started {2:u}, last result {3}; WSL2's first process {4:u}; first sign-in {5:u}" -f $t.Boot,
+          $t.BootTaskState, $t.BootTaskLastRun, $t.BootTaskResult, $t.WslStart, $t.FirstSignIn), (Format-TbTimeline $t))
+    }
+    "key probe" = {
+      # collected at a start of Windows only, once the probe wrote its result: -Collect removes the probe's task
+      if ($When -ne "at-boot") { @("not collected after a run (collected at the next start of Windows)") }
+      elseif (-not (Test-TbRecProbeReady)) { @("no result from the probe yet (not armed, or its task has not run at this start)") }
+      else { Get-TbRecKeyProbe $StateDir }
+    }
     "inside WSL2" = { Get-TbRecInside $Distro }
     "installer log" = { $p = Join-Path $StateDir "box-install.log"; if (Test-Path -LiteralPath $p) { @(Get-Content -LiteralPath $p) } else { @("none") } }
     "console forwarding log" = { $p = Join-Path $StateDir "console-proxy.log"; if (Test-Path -LiteralPath $p) { @(Get-Content -LiteralPath $p) } else { @("none") } }
   }
+  # written section by section: a run the task's time limit ends keeps what it had read
+  Set-Content -LiteralPath $file -Value ("TrialBox P-0 record, {0}, written {1:u}" -f $When, [DateTime]::UtcNow) -Encoding ASCII
   foreach ($name in $sections.Keys) {
-    $text += ""
-    try { $text += ("== {0}" -f $name); $text += @(& $sections[$name]) }
-    catch { $text[-1] = ("== {0}`r`nerror: {1}" -f $name, $_.Exception.Message) }
+    $lines = @("", ("== {0}" -f $name))
+    try { $lines += @(& $sections[$name]) } catch { $lines += ("error: {0}" -f $_.Exception.Message) }
+    Add-Content -LiteralPath $file -Value (Protect-TbRecText $lines) -Encoding ASCII
   }
-  Set-Content -LiteralPath $file -Value (Protect-TbRecText $text) -Encoding ASCII
   return $file
 }
 function Copy-TbRecords([string]$From, [string]$To) {
@@ -192,6 +237,7 @@ if ($Register) {
   exit 0
 }
 $file = Write-TbRecord -Out $Out -When $When -StateDir $StateDir -Distro $Distro -WslConfig $WslConfig
+$CopyTo = Resolve-TbRecCopyTo $When $CopyTo
 if ($CopyTo) { Copy-TbRecords -From $Out -To $CopyTo }
 Write-Output ("record={0}" -f $file)
 exit 0

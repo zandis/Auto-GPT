@@ -151,6 +151,7 @@ EOP
         # another media's release on a box no install has used (P-0 Stage B after Stage A): its tree replaces this
         # one, key included, with no command of the owner's (owner ruling D-510)
         unpack
+        rm -rf "$ROOT.previous"   # what an interrupted replacement left
         mv "$ROOT" "$ROOT.previous"
         mv "$part" "$ROOT"
         rm -rf "$ROOT.previous"

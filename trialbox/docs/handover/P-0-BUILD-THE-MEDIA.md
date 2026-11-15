@@ -8,8 +8,8 @@
    itself: it restarts Windows once if WSL2 needs it and goes on after you sign in again. If BitLocker is on for
    this P-0 (your decision on the integrator's inbox), it shows a recovery key once: keep it as the window says.
    It never needs to be written down for us.
-3. When the window says it is done, or has stopped, leave the PC on for ten minutes, restart it once and do not
-   sign in for ten minutes (that start is recorded too), then hand the USB disk back. Everything P-0 asks is in its
+3. When the window says it is done, or has stopped, leave the USB disk plugged in, restart the PC once and do not
+   sign in for ten minutes (that start is recorded too, onto the disk), then hand the USB disk back. Everything P-0 asks is in its
    `P0-RECORD` folder (no recovery key and no first-run code are ever written there).
 
 Nothing else on this page is yours: the rest is how lane W builds the media and what the records answer.

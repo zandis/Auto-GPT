@@ -25,7 +25,8 @@
 #    9 packages       no Linux NVIDIA driver, before and after; Docker Engine and the NVIDIA Container Toolkit from
 #                     the media's linux/debs
 #   10 gpu-container  a container started with --gpus all sees the card
-#   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over an existing one)
+#   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over one an install has used; an
+#                     unused one of another release is replaced, NEW-WIN-12)
 #   12 boot-task      start without a person (NEW-WIN-2, D-602): hibernation and sleep off; the task TrialBox-WSL2
 #                     (register_keepalive.ps1) starts the distribution at boot, signed in or not. Windows Update
 #                     (NEW-WIN-5, D-606): installs and restarts only in the declared update window, never takes a
@@ -648,7 +649,7 @@ function Step-Drive {
   if (-not $d) {
     $mediaDrive = ""; if ($script:TbState.media_root -match "^([A-Za-z]:)") { $mediaDrive = $Matches[1].ToUpper() }
     $cands = @(Get-TbDataDriveCandidates @($script:TbFacts.SystemDrive.ToUpper(), $mediaDrive))
-    $p0Pick = ""; if ($script:TbState.p0 -and $cands.Count -gt 1) { $p0Pick = Select-TbP0Drive $cands $MinFreeGB }
+    $p0Pick = ""; if ($P0 -and $cands.Count -gt 1) { $p0Pick = Select-TbP0Drive $cands $MinFreeGB }
     if ($p0Pick) { $d = $p0Pick; Write-TbLog ("    P-0: data drive {0}, the one with the most room of {1}" -f $d, ($cands -join ", ")) }
     elseif ($cands.Count -eq 1) { $d = $cands[0] }
     elseif ($Yes) { Stop-TbStep "drive_unclear" @(($cands -join ", ")) }
@@ -786,7 +787,7 @@ function Step-WslEnable {
       $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1], $ProxyEveryMinutes
     if ($SkipBitLocker) { $more += " -SkipBitLocker" }
     if ($script:TbState.rehearsal) { $more += " -Rehearsal" }
-    if ($script:TbState.p0) { $more += " -P0" }  # D-614: the run after the restart is asked for it again
+    if ($P0) { $more += " -P0" }  # D-614: the run after the restart is asked for it again
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
@@ -1185,30 +1186,32 @@ function Invoke-TbInstall {
   $script:TbStop = $null
   Write-TbLog ("box-install.ps1 started by {0}; resume={1}; Windows {2} build {3}; language {4}" -f $script:TbFacts.Account,
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
-  if ($P0) {
+  if ($P0 -and -not $Resume) {
     # P-0 (D-615): the media's windows\p0.json, written by its builder, says whether this P-0 is a rehearsal (Stage B)
-    # and whether BitLocker is left as it is. Read once, at the first run; the resume task names both switches
-    $script:TbState.p0 = $true
-    # the media: given, else the one this install already used, else the folder this installer was started from
-    $media = $MediaRoot; if (-not $media) { $media = [string]$script:TbState.media_root }
+    # and whether BitLocker is left as it is. Read at each run started by hand, from the media found in the same
+    # order as the install's own (given, else beside this installer, else the one in the state: never an earlier
+    # media's when this one is here, review 5); the resume task names both switches. None, or one that cannot be
+    # read, stops the run before anything changes
+    $media = $MediaRoot
     if (-not $media) { $up = Split-Path -Parent $script:TbHere; if (Test-Path -LiteralPath (Join-Path $up "SHA256SUMS")) { $media = $up } }
-    $pj = ""; if ($media) { $pj = Join-Path (Join-Path $media "windows") "p0.json" }
-    if (-not $Resume -and $pj -and (Test-Path -LiteralPath $pj)) {
-      try { $cfg = Get-Content -LiteralPath $pj -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $cfg = $null }
-      $ok = $null -ne $cfg
-      foreach ($k in @("rehearsal", "skip_bitlocker")) { if ($ok -and $null -ne $cfg.$k -and $cfg.$k -isnot [bool]) { $ok = $false } }
-      if (-not $ok) {
-        Write-TbLog ("    P-0: {0} cannot be read (rehearsal and skip_bitlocker are true or false): stopped, nothing changed" -f $pj)
-        Write-TbScreen (Get-TbText "p0_config_bad" @($pj) $script:TbLang)
-        return 1
-      }
-      if ($cfg.rehearsal) { $Rehearsal = $true }
-      if ($cfg.skip_bitlocker) { $SkipBitLocker = $true }
-      $yn = "no"; if ($Rehearsal) { $yn = "yes" }
-      $bl = "turned on"; if ($SkipBitLocker) { $bl = "skipped" }
-      Write-TbLog ("    P-0: the media's p0.json: rehearsal {0}, BitLocker {1}" -f $yn, $bl)
+    if (-not $media) { $media = [string]$script:TbState.media_root }
+    $pj = "p0.json"; if ($media) { $pj = Join-Path (Join-Path $media "windows") "p0.json" }
+    $cfg = $null
+    if (Test-Path -LiteralPath $pj) { try { $cfg = Get-Content -LiteralPath $pj -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $cfg = $null } }
+    $ok = $null -ne $cfg
+    foreach ($k in @("rehearsal", "skip_bitlocker")) { if ($ok -and $null -ne $cfg.$k -and $cfg.$k -isnot [bool]) { $ok = $false } }
+    if (-not $ok) {
+      Write-TbLog ("    P-0: {0} is missing or cannot be read (rehearsal and skip_bitlocker are true or false): stopped, nothing changed" -f $pj)
+      Write-TbScreen (Get-TbText "p0_config_bad" @($pj) $script:TbLang)
+      return 1
     }
+    if ($cfg.rehearsal) { $Rehearsal = $true }
+    if ($cfg.skip_bitlocker) { $SkipBitLocker = $true }
+    $yn = "no"; if ($Rehearsal) { $yn = "yes" }
+    $bl = "turned on"; if ($SkipBitLocker) { $bl = "skipped" }
+    Write-TbLog ("    P-0: the media's p0.json: rehearsal {0}, BitLocker {1}" -f $yn, $bl)
   }
+  if ($P0) { $script:TbState.p0 = $true }
   # a rehearsal (D-614) goes on only when asked for again: a run without -Rehearsal on an unfinished rehearsal stops
   # here, before anything changes. Its box may have been emptied since (RUNBOOK section 16), and the Linux installer
   # would then take a site's media as a rehearsal unasked (review finding 3). The resume task names the switch
@@ -1323,10 +1326,10 @@ function Invoke-TbInstall {
   return 0
 }
 
-function Invoke-TbP0After {
+function Invoke-TbP0After([bool]$P0) {
   # P-0 (D-615): the recorder beside the state, its task for each start of Windows, and one record of this run,
-  # copied to the media. Never changes the run's own result
-  if ($null -eq $script:TbState -or -not $script:TbState.p0 -or -not $script:TbStateDir) { return }
+  # copied to the media. Only on a run started with -P0 whose p0.json was read (review 8). Never changes the result
+  if (-not $P0 -or $null -eq $script:TbState -or -not $script:TbState.p0 -or -not $script:TbStateDir) { return }
   try {
     $rec = Join-Path $script:TbStateDir "p0-record.ps1"
     $from = Join-Path $script:TbHere "p0-record.ps1"
@@ -1358,7 +1361,7 @@ function Invoke-TbRun {
   $script:TbState = $null; $script:TbStateDir = ""
   $code = Invoke-TbInstall -MediaRoot $MediaRoot -DataDrive $DataDrive -Distro $Distro -Lang $Lang -StateDir $StateDir `
     -Resume:$Resume -Yes:$Yes -Rehearsal:$Rehearsal -P0:$P0
-  Invoke-TbP0After
+  Invoke-TbP0After $P0.IsPresent
   return $code
 }
 

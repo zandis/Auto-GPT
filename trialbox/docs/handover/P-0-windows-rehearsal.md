@@ -39,7 +39,7 @@ column below says what a person would have run; the recorder runs the read-only 
 | `network` | 37, 38, 73, 74, 81, 83 (the row, the firewall rule, the network's profile, the IP Helper listener, the WSL adapter) |
 | `tasks` | 24 to 27, 75, 82 (each TrialBox task: state, sign-in, rights, last run and result, triggers, limits) |
 | `bitlocker` | 28 to 34 (states and protector kinds only; a key is never read) |
-| `times` | **26a** and 79: `wsl2_started_before_sign_in` from the start of Windows, WSL2's first process and the first sign-in |
+| `times` | **26a** and 79: `wsl2_started_before_sign_in`, decided by the boot task `TrialBox-WSL2` itself (running, and started before the first sign-in or with nobody signed in), with WSL2's first process's start beside it |
 | `key probe` | **36a** (the installer arms `key-probe.ps1 -AtStartup` once the boot task exists; each record collects its lines) |
 | `inside WSL2` | 23, 54, 58, 59, 65, 84, 85 (doctor; `TB_ENV`/`TB_REHEARSAL`; the containers), only when WSL2 already ran |
 | `installer log` | 1 to 19, 35 (every step's line; the log holds no secret) |

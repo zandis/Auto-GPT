@@ -67,8 +67,8 @@ BeforeAll {
     $p = @{ MediaRoot = $s.Media; DataDrive = $s.Data; StateDir = $s.StateDir; Lang = "en"; Yes = (-not $Ask) }
     if ($Resume) { $p.Remove("MediaRoot"); $p["Resume"] = $true }
     if ($Rehearsal) { $p["Rehearsal"] = $true }
-    if ($P0) { $p["P0"] = $true; return (Invoke-TbRun @p) }
-    return (Invoke-TbInstall @p)
+    if ($P0) { $p["P0"] = $true }
+    return (Invoke-TbRun @p)   # the script's own top-level path
   }
   function Get-Log { return (Get-Content -LiteralPath (Join-Path $script:S.StateDir "box-install.log") -Raw) }
   function Get-SetupSteps { return @($script:S.Calls | Where-Object { $_ -match "wsl-setup\.sh (\S+)" } | ForEach-Object { $Matches[1] }) }
@@ -977,6 +977,32 @@ Describe "box-install.ps1" {
     BeforeEach {
       $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }
       $script:S.WslInstalled = $true
+      Set-Content -LiteralPath (Join-Path $script:S.Media "windows/p0.json") -Value '{ "rehearsal": false, "skip_bitlocker": false }'
+    }
+    It "stops on a first -P0 run when the media has no p0.json, and records nothing (review 5, 8)" {
+      Remove-Item -LiteralPath (Join-Path $script:S.Media "windows/p0.json")
+      Invoke-Run -P0 | Should -Be 1
+      $script:S.P0Records.Count | Should -Be 0
+      $script:S.P0Registered | Should -Be 0
+      $script:S.Console.Count | Should -Be 0
+    }
+    It "reads p0.json from the media it is started from, not from an earlier media in its state (review 5)" {
+      Invoke-Run -P0 | Should -Be 0                                       # Stage A, from the scenario's media
+      $stageB = Join-Path $script:S.Base "stage-b"
+      Copy-Item -LiteralPath $script:S.Media -Destination $stageB -Recurse
+      Set-Content -LiteralPath (Join-Path $stageB "windows/p0.json") -Value '{ "rehearsal": true, "skip_bitlocker": false }'
+      $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
+      $state.finished = $false
+      $state | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:S.StateDir "state.json")
+      $script:TbHere = Join-Path $stageB "windows"
+      Invoke-TbRun -StateDir $script:S.StateDir -Lang "en" -Yes -P0 | Should -Be 0
+      Get-Log | Should -Match "P-0: the media's p0.json: rehearsal yes"
+    }
+    It "does nothing of P-0 on a later run without -P0 (review 8)" {
+      Invoke-Run -P0 | Should -Be 0
+      $n = $script:S.P0Records.Count
+      Invoke-Run | Should -Be 0
+      $script:S.P0Records.Count | Should -Be $n
     }
     It "writes a record after the run, copies it to the media, and registers the record of each start of Windows" {
       Invoke-Run -P0 | Should -Be 0
@@ -1036,6 +1062,8 @@ Describe "box-install.ps1" {
       Invoke-Run -P0 | Should -Be 1
       Get-Log | Should -Match "p0\.json"
       $script:S.Console.Count | Should -Be 0
+      $script:S.P0Registered | Should -Be 0                              # nothing changed: no task, no record (review 8)
+      $script:S.P0Records.Count | Should -Be 0
     }
     It "picks the drive with the most room when there are several, and none too small" {
       Mock Get-TbDriveFacts {
