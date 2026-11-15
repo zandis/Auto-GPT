@@ -36,7 +36,19 @@ from tools.public_accuracy.sets import Bundle, Trial
 REF = date(2026, 11, 1)  # the snapshot day of a built site (as tools.public_site.REF)
 CHART_DOCTOR = ("P00001", "Chart clinician (public-data site)", "MED")
 MRN0 = 71000000  # chart numbers are placed: 8 digits (the box's mrn rule), outside public_site's 70000000 range
+PI0 = 10001  # investigators P10001...: one per trial, the study's screen scope
 RULESET_ID = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
+# The installed box's accuracy run puts several sets on one box: each set gets its own range of chart numbers (8
+# digits; the largest set holds 500 patients), of investigator ids (TREC 2021+2022 at 3,000 pairs needs 2,133) and a
+# ruleset prefix (the same NCT trial is in TREC and SIGIR). The in-process dry run builds one set and uses none.
+SET_OFFSETS: dict[str, tuple[int, int, str]] = {
+    name: (MRN0 + 100000 * i, PI0 + 3000 * i, prefix)
+    for i, (name, prefix) in enumerate(
+        (("trec", "T"), ("trec2023", "U"), ("sigir", "S"), ("tfda", "F"), ("jrct", "J"), ("chia", "C"),
+         ("tcga", "G"), ("jmed", "M"), ("aci", "A"), ("maccrobat", "B"), ("opentw", "O"), ("pmc_zh", "Z")),
+        1,
+    )
+}  # fmt: skip
 HEADINGS = {
     "en": ("Inclusion criteria", "Exclusion criteria"),
     "ja": ("選択基準", "除外基準"),
@@ -45,18 +57,24 @@ HEADINGS = {
 }
 
 
-def ruleset_ids(trials: dict[str, Trial]) -> dict[str, str]:
+def ruleset_ids(trials: dict[str, Trial], prefix: str = "") -> dict[str, str]:
     """Trial key -> the box's ruleset id (1-16 letters, digits, ``-``, ``_``): the key itself when it fits (an NCT id,
-    ``TCGA-BRCA``), else a short prefix and a number (``TW0001`` for a TFDA protocol, ``JP0001`` for jRCT)."""
+    ``TCGA-BRCA``), else a short prefix and a number (``TW0001`` for a TFDA protocol, ``JP0001`` for jRCT).
+    ``prefix`` (a few letters) goes in front of every id: several sets on one box (the installed box's accuracy run)
+    may hold the same NCT trial, and each set's compile and screen must stay its own."""
+    if prefix and not RULESET_ID.match(prefix):
+        raise ValueError(f"ruleset prefix {prefix!r}: letters, digits, - and _ only")
     out: dict[str, str] = {}
     n: dict[str, int] = {}
     for key in sorted(trials):
-        if RULESET_ID.match(key):
-            out[key] = key
+        if RULESET_ID.match(prefix + key):
+            out[key] = prefix + key
             continue
-        prefix = {"TFDA": "TW", "jRCT": "JP"}.get(key.split(":")[0], "PA")
-        n[prefix] = n.get(prefix, 0) + 1
-        out[key] = f"{prefix}{n[prefix]:04d}"
+        short = {"TFDA": "TW", "jRCT": "JP"}.get(key.split(":")[0], "PA")
+        n[short] = n.get(short, 0) + 1
+        out[key] = f"{prefix}{short}{n[short]:04d}"
+        if not RULESET_ID.match(out[key]):
+            raise ValueError(f"ruleset id {out[key]!r} is longer than 16 characters: a shorter prefix")
     return out
 
 
@@ -103,15 +121,22 @@ def _jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows), encoding="utf-8")
 
 
-def build(bundle: Bundle, out: Path, ref: date = REF) -> dict[str, Any]:
-    """Write ``out/site`` (what the box is given) and ``out/gold`` (what only the scorer reads). Returns the counts."""
+def build(
+    bundle: Bundle, out: Path, ref: date = REF, *, mrn0: int = MRN0, pi0: int = PI0, rs_prefix: str = ""
+) -> dict[str, Any]:
+    """Write ``out/site`` (what the box is given) and ``out/gold`` (what only the scorer reads). Returns the counts.
+    ``ref`` is the site's day (the installed box screens on its own calendar day, so its accuracy run builds on that
+    day); ``mrn0``, ``pi0`` and ``rs_prefix`` keep the chart numbers, investigators and rulesets of several sets on one
+    box apart (:data:`SET_OFFSETS`)."""
     site, gold = out / "site", out / "gold"
     hosp, protos, profiles = site / "hospital", site / "protocols", site / "profiles"
     for d in (hosp, protos, profiles, gold):
         d.mkdir(parents=True, exist_ok=True)
-    rs = ruleset_ids(bundle.trials)
-    pis = {key: f"P{10001 + i}" for i, key in enumerate(sorted(bundle.trials))}
-    mrns = {key: f"{MRN0 + i}" for i, key in enumerate(sorted(bundle.patients), 1)}
+    rs = ruleset_ids(bundle.trials, rs_prefix)
+    pis = {key: f"P{pi0 + i}" for i, key in enumerate(sorted(bundle.trials))}
+    mrns = {key: f"{mrn0 + i}" for i, key in enumerate(sorted(bundle.patients), 1)}
+    if len(str(mrn0 + len(mrns))) != 8:
+        raise ValueError(f"chart numbers from {mrn0} for {len(mrns)} patients leave the 8 digits of the box's rule")
     pats, encs, notes, appts = [], [], [], []
     for i, (key, p) in enumerate(sorted(bundle.patients.items()), 1):
         mrn = mrns[key]
@@ -123,7 +148,7 @@ def build(bundle: Bundle, out: Path, ref: date = REF) -> dict[str, Any]:
         ntype = "pathology" if bundle.set == "tcga" else "consult"
         notes.append([f"N{mrn}", mrn, enc, (visit + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"), ntype, p.text])
     if not pats:  # a compile-only set (TFDA, jRCT, Chia): one placeholder chart so the box ingests a snapshot
-        mrn = f"{MRN0}"
+        mrn = f"{mrn0}"
         pats.append([mrn, "", "", "", "", "", ""])
         seen = f"{(ref - timedelta(days=7)).isoformat()} 10:00:00"
         encs.append([f"E{mrn}", mrn, seen, "MED", CHART_DOCTOR[0], "OPD"])
