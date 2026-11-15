@@ -15,7 +15,7 @@ file, on the data drive, or on the system drive is lost with the PC. A target co
 - **the hospital's share**, mounted inside WSL2 (`/mnt/share`, from `\\server\share`); or
 - **an outside drive** (a USB disk with BitLocker), mounted inside WSL2 under its letter (`/mnt/e`). It counts
   once the installer has checked it with Windows and marked it. With the disk plugged in, in an administrator
-  PowerShell: `<media>\windows\box-install.ps1 -BackupDrive E:`. Only a disk attached by USB that is none of the
+  PowerShell: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<media>\windows\box-install.ps1" -BackupDrive E:`. Only a disk attached by USB that is none of the
   PC's own drives is marked; the mark is a small file on the disk, so it goes with the disk. A disk on
   Thunderbolt, eSATA or a card reader is refused (Windows does not say it is outside): use the share.
 
