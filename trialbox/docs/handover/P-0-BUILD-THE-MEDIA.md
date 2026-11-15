@@ -2,8 +2,10 @@
 
 **Your part (owner ruling D-510).** Lane W builds the media and reads what P-0 writes down; you only start it.
 
-1. Plug the USB disk lane W sends into the Windows PC (signed in as the administrator who will own the box). If
-   the PC has no NVIDIA Windows driver yet, install it first.
+1. On any Windows PC, with an empty USB disk plugged in (exFAT or NTFS, 4 GB for Stage A, 32 GB for Stage B),
+   download the one file `Get-TrialBox-P0.cmd` from the GitHub release lane W names, and double-click it: it fetches
+   the media, checks every part and puts it on the disk. Then plug that disk into the P-0 PC (signed in as the
+   administrator who will own the box). If that PC has no NVIDIA Windows driver yet, install it first.
 2. Double-click `Install-TrialBox-P0.cmd` on the disk and approve Windows' prompt. The window then goes by
    itself: it restarts Windows once if WSL2 needs it and goes on after you sign in again. If BitLocker is on for
    this P-0 (your decision on the integrator's inbox), it shows a recovery key once: keep it as the window says.
@@ -13,6 +15,14 @@
    `P0-RECORD` folder (no recovery key and no first-run code are ever written there).
 
 Nothing else on this page is yours: the rest is how lane W builds the media and what the records answer.
+
+**How the media is made (NEW-WIN-13, D-616; owner ruling D-504).** The workflow `TrialBox P-0 media`
+(`.github/workflows/trialbox-p0-media.yml`, run by hand) runs `tools/p0_media.sh a` or `b` on a GitHub runner and
+attaches the result to a pre-release of this repository: the media as one tar cut into parts under GitHub's 2 GiB
+limit, their manifest, `get-p0-media.ps1` and `Get-TrialBox-P0.cmd` (the release's address and the script's sha256
+written into it). The release's notes name what the media redistributes and each licence (Microsoft's WSL package,
+MIT; Canonical's Ubuntu image; the Ubuntu packages, Docker Engine and the NVIDIA Container Toolkit among them,
+Apache-2.0). The commands in "Stage A, commands" and "Stage B, commands" below are what the script runs.
 
 **What has been run, and what has not.** Stage A's commands below were run for real on a Linux build machine, last on
 2026-11-15 from a clean checkout of `master` (8a7ad118): a media of 41 files that passes its check. Microsoft's WSL

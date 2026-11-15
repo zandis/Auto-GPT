@@ -467,3 +467,39 @@ def test_nothing_is_downloaded_and_no_windows_payload_is_in_the_repository() -> 
         p for p in (ROOT / "deploy/windows").rglob("*") if p.suffix.lower() in (".msi", ".exe", ".gz", ".deb", ".vhdx")
     ]
     assert payload == []
+
+
+# NEW-WIN-13 (D-616; D-504): the media in parts a GitHub release can carry (each asset under 2 GiB)
+def test_a_media_is_cut_into_parts_no_bigger_than_asked_and_joins_back_whole(tmp_path: Path) -> None:
+    import io
+    import tarfile as tf
+
+    media = _build(tmp_path, p0={"rehearsal": False, "skip_bitlocker": True})
+    out = tmp_path / "release"
+    manifest = wm.cut_parts(media, out, max_bytes=4096)
+    data = json.loads(manifest.read_text())
+    assert data["media"] == media.name
+    assert len(data["parts"]) > 1
+    joined = b""
+    for p in data["parts"]:
+        blob = (out / p["name"]).read_bytes()
+        assert len(blob) <= 4096 and len(blob) == p["size"]
+        assert wm.hashlib.sha256(blob).hexdigest() == p["sha256"]
+        joined += blob
+    assert wm.hashlib.sha256(joined).hexdigest() == data["sha256"]
+    with tf.open(fileobj=io.BytesIO(joined)) as t:
+        names = {m.name for m in t.getmembers() if m.isfile()}
+    assert f"{media.name}/Install-TrialBox-P0.cmd" in names and f"{media.name}/SHA256SUMS" in names
+    assert all(n.startswith(media.name + "/") for n in names)
+
+
+def test_only_a_media_that_passes_its_check_is_cut(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    (media / "windows/box-install.ps1").write_text("changed")
+    with pytest.raises(wm.MediaError, match="does not pass its check"):
+        wm.cut_parts(media, tmp_path / "release")
+    assert not (tmp_path / "release").exists()
+
+
+def test_the_part_size_keeps_under_githubs_asset_limit() -> None:
+    assert wm.PART_BYTES < 2 * 1024**3

@@ -34,6 +34,7 @@ import sys
 import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import IO
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = ROOT / "deploy" / "windows"
@@ -41,6 +42,9 @@ WINDOWS = ROOT / "deploy" / "windows"
 LAUNCHER = "Install-TrialBox.cmd"
 # P-0 on a PC that is not a site's (NEW-WIN-12, D-615): the launcher passes -P0; the media's choices are in p0.json
 P0_LAUNCHER, P0_CHOICES = "Install-TrialBox-P0.cmd", "windows/p0.json"
+# NEW-WIN-13 (D-616): the media as parts of a GitHub release. GitHub's documented limit is 2 GiB per release asset;
+# 1900 MiB leaves room under it whatever GitHub counts as a byte of a part
+PART_BYTES = 1900 * 1024**2
 INSTALLER_FILES = (
     "box-install.ps1",
     "box-install.messages.json",
@@ -293,6 +297,68 @@ def build(
     return final
 
 
+class _PartWriter:
+    """A file-like sink that rolls to a new part every ``max_bytes``; it keeps each part's size and sha256."""
+
+    def __init__(self, out: Path, stem: str, max_bytes: int) -> None:
+        self.out, self.stem, self.max = out, stem, max_bytes
+        self.parts: list[dict[str, object]] = []
+        self.whole = hashlib.sha256()
+        self._fh: IO[bytes] | None = None
+        self._sha = hashlib.sha256()
+        self._n = 0
+
+    def _roll(self) -> None:
+        self._close()
+        name = f"{self.stem}.tar.part-{len(self.parts) + 1:03d}"
+        self._fh = (self.out / name).open("wb")
+        self._sha, self._n = hashlib.sha256(), 0
+        self.parts.append({"name": name, "size": 0, "sha256": ""})
+
+    def _close(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self.parts[-1]["size"], self.parts[-1]["sha256"] = self._n, self._sha.hexdigest()
+            self._fh = None
+
+    def write(self, data: bytes) -> int:
+        view = memoryview(data)
+        while view:
+            if self._fh is None or self._n >= self.max:
+                self._roll()
+            assert self._fh is not None
+            take = view[: self.max - self._n]
+            self._fh.write(take)
+            self._sha.update(take)
+            self.whole.update(take)
+            self._n += len(take)
+            view = view[len(take) :]
+        return len(data)
+
+    def close(self) -> None:
+        self._close()
+
+
+def cut_parts(media: Path, out: Path, max_bytes: int = PART_BYTES) -> Path:
+    """Write ``media`` as one tar cut into parts of at most ``max_bytes`` and a manifest (name, size and sha256 of
+    each part and of the whole) into ``out``. Only a media that passes its own check is cut."""
+    problems = check(media)
+    if problems:
+        raise MediaError(f"{media} does not pass its check: " + "; ".join(problems))
+    out.mkdir(parents=True, exist_ok=True)
+    sink = _PartWriter(out, media.name, max_bytes)
+    try:
+        with tarfile.open(fileobj=sink, mode="w|", format=tarfile.PAX_FORMAT) as t:  # type: ignore[call-overload]
+            for f in sorted(p for p in media.rglob("*") if p.is_file()):  # SHA256SUMS too: the installer reads it
+                t.add(f, arcname=f"{media.name}/{f.relative_to(media).as_posix()}", recursive=False)
+    finally:
+        sink.close()
+    manifest = out / f"{media.name}.manifest.json"
+    body = {"media": media.name, "sha256": sink.whole.hexdigest(), "parts": sink.parts}
+    manifest.write_text(json.dumps(body, indent=1) + "\n", encoding="utf-8")
+    return manifest
+
+
 def _lay_out(
     media: Path,
     version: str,
@@ -438,6 +504,9 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("media", type=Path)
     w = sub.add_parser("sums", help="write SHA256SUMS again, after a file was added to the media")
     w.add_argument("media", type=Path)
+    pp = sub.add_parser("parts", help="the media as tar parts of a GitHub release and their manifest (D-616)")
+    pp.add_argument("media", type=Path)
+    pp.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     try:
         if args.cmd == "build":
@@ -450,6 +519,10 @@ def main(argv: list[str] | None = None) -> int:
                 link=args.link, p0=p0,
             )  # fmt: skip
             print(f"media: {media} ({len(_files(media))} files; {SUMS} written, not signed)")
+            return 0
+        if args.cmd == "parts":
+            manifest = cut_parts(args.media, args.out)
+            print(f"parts: {manifest} ({len(json.loads(manifest.read_text())['parts'])} parts)")
             return 0
         if args.cmd == "sums":
             if not (args.media / LAUNCHER).is_file():

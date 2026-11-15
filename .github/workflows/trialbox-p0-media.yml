@@ -1,0 +1,75 @@
+# TrialBox P-0 media (NEW-WIN-13, trialbox/docs/decisions/D-616; owner rulings D-510 and D-504): lane W builds the
+# media the owner's P-0 runs from, so the owner builds nothing, and attaches it to a GitHub release of this public
+# repository. trialbox/tools/p0_media.sh does the work:
+#   stage a  a stand-in bundle, no Docker (about 450 MB; one part)
+#   stage b  a signed rehearsal bundle with placeholder models (D-726): images built here, several parts
+# A release carries files of at most 2 GiB, so the media is one tar cut into parts with a manifest; the owner
+# downloads Get-TrialBox-P0.cmd only, which fetches, checks and unpacks them onto a USB disk.
+# By hand only: a run publishes a release. Inputs reach the shell through environment variables, never written into
+# a script; the tag is checked against a pattern before anything is built. Every action is pinned to a commit.
+name: TrialBox P-0 media
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "a (stand-in bundle) or b (rehearsal bundle; hours)"
+        required: true
+        type: choice
+        options: [a, b]
+      skip_bitlocker:
+        description: "the media's P-0 leaves BitLocker as it is (the owner's decision; skipped until he says otherwise)"
+        required: true
+        type: boolean
+        default: true
+      tag:
+        description: "the release's tag: p0-<letters, digits, dots, dashes>, e.g. p0-a-2026-11-15"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-p0-media-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write  # the release and its files; nothing else
+    env:
+      STAGE: ${{ inputs.stage }}
+      SKIP_BITLOCKER: ${{ inputs.skip_bitlocker }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check the tag
+        run: |
+          [[ "$TAG" =~ ^p0-[a-z0-9.-]+$ ]] || { echo "the tag must be p0-<lower-case letters, digits, dots, dashes>" >&2; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        if: inputs.stage == 'b'
+      - name: Room for stage B (images and the bundle need about 40 GB)
+        if: inputs.stage == 'b'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h /
+      - name: Build the media and its release files
+        working-directory: trialbox
+        env:
+          TB_RELEASE_BASE: https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag }}
+        run: |
+          opts=()
+          [ "$SKIP_BITLOCKER" != true ] || opts+=(--skip-bitlocker)
+          tools/p0_media.sh "$STAGE" "$RUNNER_TEMP/p0" "${opts[@]}"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rel="$RUNNER_TEMP/p0/release"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "TrialBox P-0 media, stage $STAGE" --notes-file "$rel/NOTES.md" \
+            "$rel"/TRIALBOX-*.tar.part-* "$rel"/TRIALBOX-*.manifest.json "$rel/get-p0-media.ps1" "$rel/Get-TrialBox-P0.cmd"
