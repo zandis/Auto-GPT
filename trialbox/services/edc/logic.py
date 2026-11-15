@@ -25,6 +25,7 @@ shortest text that reads back as the same number.
 
 from __future__ import annotations
 
+import itertools
 import math
 import re
 from collections.abc import Callable
@@ -511,8 +512,20 @@ class _Eval:
         return diff if signed else abs(diff)
 
 
+class DoubleMinus(LogicError):
+    """CGRD-B4 (D-819): two minus signs in a row, which REDCap cannot apply: a calculation is blank there."""
+
+
+def _double_minus(text: str) -> bool:
+    toks = _tokens(text)
+    return any(a == ("op", "-") and b == ("op", "-") for a, b in itertools.pairwise(toks))
+
+
 def evaluate(text: str, lookup: Lookup, today: date) -> Value:
-    """The value of ``text`` (raises :class:`LogicError` when it cannot be read or a reference cannot be resolved)."""
+    """The value of ``text`` (raises :class:`LogicError` when it cannot be read or a reference cannot be resolved).
+    Two minus signs in a row raise :class:`DoubleMinus` (CGRD-B4, D-819): REDCap cannot apply them."""
+    if _double_minus(text):
+        raise DoubleMinus("two minus signs in a row: REDCap stores such a calculation blank")
     try:
         return _Eval(lookup, today).run(parse(text))
     except RecursionError as exc:  # pragma: no cover - MAX_DEPTH keeps well below the interpreter's limit
@@ -528,7 +541,10 @@ def shown(text: str, lookup: Lookup, today: date) -> bool:
 
 def calculate(text: str, lookup: Lookup, today: date) -> str:
     """The value REDCap stores for a calculated field with equation ``text`` ("" when blank)."""
-    v = evaluate(text, lookup, today)
+    try:
+        v = evaluate(text, lookup, today)
+    except DoubleMinus:
+        return ""  # CGRD-B4 (D-819): blank, as REDCap stores it
     if isinstance(v, bool):
         return "1" if v else "0"
     if isinstance(v, float):

@@ -490,6 +490,8 @@ class EdcService:
                 look |= self._instance_fields(lay, meta, todo)
                 cur = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))], records=recs)
                            if recs else [], self.today())  # fmt: skip
+                if recs and lay.longitudinal:  # CGRD-B3 (D-841): the record's arms from every row it has
+                    cur.know_events(c.records(fields=[rid], records=recs))
                 imports: dict[Key, dict[str, str]] = {}
                 planned: list[tuple[dict[str, Any], str, Slot]] = []
                 taken: set[Key] = set()  # NEW-EDC-2: repeat instances that hold a value TrialBox did not write
@@ -784,6 +786,8 @@ class EdcService:
                 look = watched(meta, on_row | {live[i].form for i in items}, items) | self._slot_fields(lay, meta, slot)
                 cur = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))], records=[rec]),
                            self.today())  # fmt: skip
+                if lay.longitudinal:  # CGRD-B3 (D-841): the record's arms from every row it has
+                    cur.know_events(c.records(fields=[rid], records=[rec]))
                 taken = bool(slot.repeat and self._not_ours(rs, cur, live, rec, slot, record))
         except RcError as exc:
             raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc

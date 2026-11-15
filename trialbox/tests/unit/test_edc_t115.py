@@ -365,7 +365,7 @@ def test_a_cassette_records_and_replays_and_misses_loudly(tmp_path: Path) -> Non
     now, then = replay(out)
     assert now == then
     body = json.loads(out.read_text(encoding="utf-8"))
-    body["exchanges"][0]["body"] = "17.0.1"  # a REDCap version the client does not support
+    body["exchanges"][0]["body"] = "18.0.1"  # a REDCap version the client does not support (17 is, D-818)
     out.write_text(json.dumps(body), encoding="utf-8")
     now, then = replay(out)
     assert now["version"] == {"error": "RC-VERSION"} != then["version"]

@@ -17,7 +17,7 @@ from tb_common.http import EgressRefused
 
 # REDCap majors the connector accepts (FR-RC-14). Tested only against rc_sim so far: no real REDCap instance yet;
 # each site's version is recorded at go-live (RUNBOOK §6, DEP-026, D-393)
-SUPPORTED_MAJORS = (14, 15, 16)
+SUPPORTED_MAJORS = (14, 15, 16, 17)  # CGRD-B2 (D-818): 17 exercised on a real instance (the browser run of R1-R9)
 TOKEN_RE = re.compile(r"^[0-9A-F]{32}$")
 INPROC_PREFIX = "inproc://"  # demo and test only: a URL served by an in-process ASGI app (the simulator)
 _LOCAL: dict[str, Callable[[], httpx.Client]] = {}
@@ -28,10 +28,18 @@ _FIELD_NAME = re.compile(r"[a-z][a-z0-9_]*")  # a REDCap variable name
 # names; nothing else of REDCap's text is
 _KINDS: tuple[tuple[str, str], ...] = (
     ("is locked", "a form of the record is locked"),  # NEW-EDC-7: REDCap's exact sentence is read on our instance (R3)
+    # CGRD-B2 (D-818): the same refusals from a REDCap whose interface is Traditional Chinese (its language file's
+    # words, seen on a real instance), each beside its English marker's kind
+    ("已上鎖", "a form of the record is locked"),
+    ("請先解鎖", "a form of the record is locked"),
     ("could not be validated", "a value does not fit its field's validation"),
+    ("格式錯誤，無法被驗證", "a value does not fit its field's validation"),
+    ("非有效的類別", "a value does not fit its field's validation"),
+    ("無效的日期格式", "a value does not fit its field's validation"),
     # the lifecycle's schedule reads the word "classic" in this message (orchestrator/lifecycle_api.py)
     ("classic project", "the project is classic: it has no arms or events"),
     ("fields were not found in the project", "fields that are not in the project"),
+    ("不存在專案內", "fields that are not in the project"),
     ("not designated for event", "a field is not on an instrument of the event"),
     ("event name", "the event is missing or is not an event of the project"),
     ("redcap_event_name", "the event is missing or is not an event of the project"),
@@ -50,8 +58,9 @@ def error_kind(text: str) -> str:
     for marker, kind in _KINDS:
         if marker not in low:
             continue
-        if marker == "fields were not found in the project":
-            listed = text.split(":", 1)[1] if ":" in text else ""
+        if marker in ("fields were not found in the project", "不存在專案內"):
+            sep = ":" if ":" in text else "："  # a Chinese sentence lists after a full-width colon
+            listed = text.split(sep, 1)[1] if sep in text else ""
             names = [n.strip() for n in listed.split(",") if _FIELD_NAME.fullmatch(n.strip())]
             return kind + (": " + ", ".join(names[:_MAX_NAMES]) if names else "")
         return kind

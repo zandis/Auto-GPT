@@ -55,13 +55,24 @@ class Rows:
         for r in rows:
             self.rows[layout.key(str(r.get(rid) or ""), row_slot(r, layout.longitudinal))] = r
         self.overlay: dict[Key, dict[str, str]] = {}
+        self.events_of: dict[str, set[str]] = {}  # CGRD-B3 (D-841): record -> every event it has a row on
 
     def form(self, field: str) -> str:
         return str((self.meta.get(field) or {}).get("form_name") or "")
 
     def arms(self, record: str) -> set[int]:
-        """The arms the record already has rows on (empty: a record with no event row yet)."""
-        return {self.layout.events.get(k[1], 1) for k in self.rows if k[0] == record}
+        """The arms the record already has rows on (empty: a record with no event row yet), from the rows read and
+        from :meth:`know_events` (CGRD-B3, D-841: every event row of the record, whatever fields were read)."""
+        seen = {k[1] for k in self.rows if k[0] == record} | self.events_of.get(record, set())
+        return {self.layout.events.get(ev, 1) for ev in seen}
+
+    def know_events(self, rows: Iterable[dict[str, Any]]) -> None:
+        """CGRD-B3 (D-841): the events each record has a row on, from an export of the record id alone: a REDCap
+        may leave out of a narrower read an event row that holds none of the fields asked for."""
+        for r in rows:
+            rec, ev = str(r.get(self.rid) or ""), str(r.get("redcap_event_name") or "")
+            if rec and ev:
+                self.events_of.setdefault(rec, set()).add(ev)
 
     def value(self, record: str, slot: Slot, field: str) -> str:
         """The value on the row: the one about to be sent, else what REDCap holds."""
