@@ -101,3 +101,18 @@ def test_the_vendor_key_never_reaches_stdout_or_the_disk() -> None:
     assert sign.index("trap") < sign.index("secrets versions access")
     gates = text.index("run_step b04-gates"), text.index("run_step b05-sign")
     assert gates[0] < gates[1]  # the gates pass before the key is read
+
+
+def test_the_rehearsal_probes_the_door_only_while_the_run_waits_for_its_power_cycle() -> None:
+    """The happy case's door probe raced the VM's own power-off (2026-11-15: "the door refuses a call without the key"
+    read 000, not 401, because the probe ran after the done marker, and the VM powers off tb-done-grace seconds later).
+    The probe now runs at the one moment the run is known to be up: it has asked for its power cycle and waits for the
+    harness to give it. No other curl call to the door runs once the done marker is written."""
+    text = RUNNER.read_text()
+    happy = text[text.index("    happy)") : text.index("    step-fails)")]
+    order = ["TB-DOOR-UP", "asks_power", "door_probe", "power_cycle; to_the_end"]
+    at = [happy.index(s) for s in order]
+    assert at == sorted(at), happy
+    after_done = text[text.index("collect() {") : text.index("door_probe() {")] + text[text.index("to_the_end() {") :]
+    after_done = after_done[: after_done.index("\n", after_done.index("to_the_end() {"))]
+    assert "curl" not in after_done and "tb-door" not in after_done, after_done

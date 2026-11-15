@@ -89,8 +89,14 @@ ok(
     "done, results in the bucket" in poweroff or "cost cap" in poweroff,
     "the VM powered itself off once its results were up",
 )
-if (S / "evidence" / "no-key-http-code").exists():
-    ok((S / "evidence" / "no-key-http-code").read_text().strip() == "401", "the door refuses a call without the key")
+if (S / "metadata" / "tb-door-port").exists():  # a case with the door probes it while the run waits for its power cycle
+
+    def code(name: str) -> str:
+        f = S / "evidence" / f"{name}-http-code"
+        return f.read_text().strip() if f.exists() else "not probed"
+
+    ok(code("with-key") == "200", f"the door answers the key while the run is up ({code('with-key')})")
+    ok(code("no-key") == "401", f"the door refuses a call without the key ({code('no-key')})")
 
 
 def keys(prefix: list[str]) -> bool:

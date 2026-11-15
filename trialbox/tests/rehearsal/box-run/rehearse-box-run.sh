@@ -240,13 +240,20 @@ power_cycle() {  # as the driver does: it sees the request in the bucket, remove
   rm -f "$BKT/boxruns/rehearsal-$CASE/POWER-CYCLE-REQUEST"
   "$HERE/standins/reboot.sh" "$S"
 }
-collect() {  # the results from the bucket, unpacked into the evidence; with a door, a call without the key: refused
+collect() {  # the results from the bucket, unpacked into the evidence
   mkdir -p "$S/evidence/results"
   tar -xzf "$(RES)" -C "$S/evidence/results"
-  if [ -f "$S/metadata/tb-door-port" ]; then
-    /usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 10 --cacert "$S/driver/door.crt" \
-      --resolve "tb-door:$PORT:127.0.0.1" "https://tb-door:$PORT/tb/results.tgz" > "$S/evidence/no-key-http-code" || true
-  fi
+}
+door_probe() {  # the door, with and without the key, while the VM's run is known to be up: it waits for its power
+  # cycle, which only this harness gives. Never after the done marker: the VM powers itself off tb-done-grace
+  # seconds later, and a probe then races the power-off (it read 000 instead of 401 on 2026-11-15).
+  local code key
+  for code in no-key with-key; do
+    key=(); [ "$code" = no-key ] || key=(-H @"$S/driver/hdr")
+    /usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 5 --cacert "$S/driver/door.crt" \
+      --resolve "tb-door:$PORT:127.0.0.1" ${key[@]+"${key[@]}"} "https://tb-door:$PORT/tb/progress" \
+      > "$S/evidence/$code-http-code" || true
+  done
 }
 to_the_end() { wait_for "the done marker" is_done; collect; wait_for "the power-off (done, results in the bucket)" is_off; }
 
@@ -265,6 +272,8 @@ for CASE in "${CASES[@]}"; do
     happy)
       setup "$CASE" "start g6 g9 g10"; door_setup; start_setup; boot
       wait_for "the door" grep -q 'TB-DOOR-UP' "$S/vm/serial.log"
+      wait_for "the VM to ask for the power cycle" asks_power   # from here the run waits for us: the door is up
+      door_probe
       power_cycle; to_the_end ;;
     step-fails) setup "$CASE" start fail-qualify; start_setup; boot; to_the_end ;;
     reboot)
