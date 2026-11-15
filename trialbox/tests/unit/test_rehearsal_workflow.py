@@ -92,3 +92,28 @@ def test_an_explicit_kek_backend_seals_a_test_box_too() -> None:
     back end's switch without a hardening.conf, whose presence also sets the firewall and SSH)."""
     branch = next(ln for ln in INSTALL.splitlines() if ln.startswith("elif") and '[ -f "$HB_CONF" ]' in ln)
     assert '[ -n "${TB_KEK_BACKEND:-}" ]' in branch and '[ -f "$HB_CONF" ]' in branch
+
+
+CHECK_HOST = (ROOT / "deploy" / "check_host.sh").read_text(encoding="utf-8")
+
+
+def test_the_host_checks_doctor_sees_the_site_key_and_an_outside_compose_file() -> None:
+    """D-887, found by the rehearsal's CI run (the host check had never run on a box): doctor in the image read no
+    site key (FAIL site_key) and no override compose file outside deploy/ (FAIL chartno_rule, db_passwords)."""
+    assert "-v $SEC_HOST:/run/secrets/trialbox:ro" in CHECK_HOST
+    loop = CHECK_HOST[CHECK_HOST.index("for cf in") : CHECK_HOST.index("done", CHECK_HOST.index("for cf in"))]
+    assert "COMPOSE_FILE" in loop and '"$ROOT_DIR/deploy/"*' in loop and "-v $cf:$cf:ro" in loop
+
+
+def test_a_rehearsal_box_warns_for_the_egress_table_every_other_box_fails() -> None:
+    block = CHECK_HOST[
+        CHECK_HOST.index("# network egress") : CHECK_HOST.index("fi\n", CHECK_HOST.index("facility fail"))
+    ]
+    assert '[ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]' in block and "no NET_ADMIN" in block
+    assert 'facility fail "egress allowlist not loaded' in block
+
+
+def test_the_rehearsal_host_has_the_sites_zone_and_no_swap() -> None:
+    fn = BOX[BOX.index("install_box() (") : BOX.index("\n)\n", BOX.index("install_box() ("))]
+    assert "site_answers.yaml" in fn and "/etc/timezone" in fn
+    assert "sudo swapoff -a" in WF.read_text(encoding="utf-8")

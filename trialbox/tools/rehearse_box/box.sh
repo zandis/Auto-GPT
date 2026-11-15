@@ -23,6 +23,9 @@ IMAGE_PY="trialbox-py:1.0.0"
 # box stays a rehearsal (TEST) box: --rehearsal, as the model stand-ins are honoured on a TEST box only (D-726)
 install_box() (
   cd "$BOX" || exit 1
+  # the host's zone is the site's, as a site's IT sets it (doctor's site_tz, D-315); this host has no timedatectl
+  tz="$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)"
+  [ -n "$tz" ] && printf '%s\n' "$tz" > /etc/timezone
   if [ "${TB_RH_VARIANT:-test}" = validation ]; then
     # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
     install -d -m 0755 deploy/site && chown -R root:root deploy/site

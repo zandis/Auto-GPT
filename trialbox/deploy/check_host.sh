@@ -252,7 +252,12 @@ fi
 if command -v nft >/dev/null 2>&1 && nft list table inet trialbox_egress >/dev/null 2>&1; then
   pass "egress allowlist table loaded (deploy/network.sh apply)"
 else
-  facility fail "egress allowlist not loaded: run deploy/network.sh apply after docker compose up" "egress table"
+  if [ "$TBENV" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ]; then
+    # D-887: a rehearsal box runs without NET_ADMIN, so deploy/network.sh cannot load the table (the site's IQ checks it)
+    warn "egress allowlist not loaded: a rehearsal box has no NET_ADMIN (the site's IQ checks deploy/network.sh)"
+  else
+    facility fail "egress allowlist not loaded: run deploy/network.sh apply after docker compose up" "egress table"
+  fi
 fi
 
 # container runtime
@@ -304,6 +309,14 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   SEC_HOST="$(sed -n 's/^TB_SECRETS_HOST_DIR=//p' "$ENV_FILE" | tail -1)"
   [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)"
   [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="-v $SEC_HOST:$SEC_HOST:ro -e TB_SECRETS_HOST_DIR=$SEC_HOST"
+  # D-887 (found by the box rehearsal in CI): doctor's site_key check reads the site key where the services do
+  [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $SEC_HOST:/run/secrets/trialbox:ro"
+  # ...and every compose file of COMPOSE_FILE outside deploy/ (an override such as the rehearsal's stand-ins) where it is
+  OLD_IFS="$IFS"; IFS=:
+  for cf in $(sed -n 's/^COMPOSE_FILE=//p' "$ENV_FILE" | tail -1); do
+    case "$cf" in "$ROOT_DIR/deploy/"*) ;; /*) [ -f "$cf" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $cf:$cf:ro" ;; esac
+  done
+  IFS="$OLD_IFS"
   ANCHORS="$(sed -n 's/^TB_AUDIT_ANCHOR_TARGETS=//p' "$ENV_FILE" | tail -1)"
   OLD_IFS="$IFS"; IFS=:
   for anchor in $ANCHORS; do

@@ -20,6 +20,12 @@
    rehearsal box only (TB_ENV TEST, TB_REHEARSAL=1) the refused pin is said and the install goes on: the model
    stand-ins answer. Every other box still stops. The teardown's cleanup container runs as root.
 
+5. Its second run reached the install's host check (never run on a box before, first-contact handover) and found:
+   the doctor in the image read no site key and no compose file outside deploy/ (check_host.sh now mounts the
+   secrets volume at /run/secrets/trialbox and each such file, read-only); a rehearsal box cannot load the egress
+   table without NET_ADMIN (WARN there only); and the runner's swap and UTC zone, which a site's host has not (the
+   workflow turns swap off, the rehearsal host takes the site's zone).
+
 ## Test
 
 `tests/unit/test_rehearsal_workflow.py`: before, 6 failed; after, 6 passed. `tests/unit/test_install_pin_step.py`: the

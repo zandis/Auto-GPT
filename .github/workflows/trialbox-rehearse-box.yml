@@ -80,6 +80,11 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/go /opt/hostedtoolcache/Ruby /opt/hostedtoolcache/PyPy /opt/hostedtoolcache/node
           df -h /
 
+      # a site's host has swap off (deploy/check_host.sh FAILs it); a hosted runner has a swap file
+      - name: Swap off, as on a site host
+        working-directory: /
+        run: sudo swapoff -a && free -h
+
       # the rehearsal's media step runs the release gates: the venv, the pinned scanners and a fresh Trivy DB (D-883)
       - name: Python environment, scanners, Trivy DB
         run: make venv scanners trivy-db
