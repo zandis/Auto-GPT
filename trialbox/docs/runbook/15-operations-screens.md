@@ -18,6 +18,7 @@ console at `/data/ops`), and the host's runner runs the command this runbook alr
 | Check the newest backups | `trialbox backup-check` on the newest file of each target, in a trialbox-py container: whole, not cut, the copies equal. The content needs the key: `backup-verify` (§5) |
 | Verify this bundle | `tools/apply_update.sh <bundle> --dry-run` for a bundle copied into `deploy/updates/incoming` |
 | Apply this update | `tools/apply_update.sh <bundle>` (§5: backup first, automatic rollback) |
+| Apply this update in the quiet hour | the same, run by the operations timer in the box's quiet hour (`TB_UPDATE_QUIET_AT`, 05:00 for `TB_UPDATE_QUIET_HOURS` 2 by default, the site's clock) once no job runs; it waits up to 26 hours, then expires and is asked again (T-730b, D-731). The status lists it under `waiting`, with why |
 | Collect yesterday's logs | `trialbox logs collect` |
 | Write the network sheet again | `tools/network_sheet.py` into the folder's network part |
 

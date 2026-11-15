@@ -41,8 +41,9 @@ closed). Checks:
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
-  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
-  ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
+  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD``,
+  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no ``/etc/cron.d/trialbox-backup`` on a
+  host with ``/etc/cron.d``, no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
   on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
@@ -324,6 +325,28 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
     except ChannelsConfigError as e:
         return Check("channel_engine", "FAIL", str(e))
     return Check("channel_engine", "PASS", f"engine {cfg.engine}")
+
+
+def check_sae_mailbox(inp: DoctorInputs) -> Check:
+    """D-736 (LIFE-007): on a PRODUCTION box the trial office is mailed at once when a serious adverse event is
+    entered (``TB_SAE_OFFICE_MAILBOX``, one mail address); without it nobody is told until the next working day. A box
+    installed by ``box-install.sh`` starts without it, so this is a WARN, never a FAIL."""
+    import re
+
+    from tools.settings_wizard import MAILBOX_RE
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    to = (inp.env.get("TB_SAE_OFFICE_MAILBOX") or "").strip()
+    if to and re.fullmatch(MAILBOX_RE, to):
+        return Check(
+            "sae_mailbox", "PASS", f"the trial office is mailed at {to} when a serious adverse event is entered"
+        )
+    if env != "PRODUCTION":
+        return Check("sae_mailbox", "PASS", f"{env}: no SAE office mailbox needed")
+    why = (f"TB_SAE_OFFICE_MAILBOX {to!r} is not one mail address" if to else "no TB_SAE_OFFICE_MAILBOX") + (
+        ": nobody is mailed when a serious adverse event is entered; set it in deploy/.env (D-736, RUNBOOK §1)"
+    )
+    return Check("sae_mailbox", "WARN", why)
 
 
 def check_secure_cookie(inp: DoctorInputs) -> Check:
@@ -881,6 +904,9 @@ def check_backup(inp: DoctorInputs) -> Check:
     if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
         fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
     warns = []
+    if cfg.page_only(bs.has_mta()):
+        warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
+                     "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5)")  # fmt: skip
     if not cfg.archive_on:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
@@ -888,7 +914,7 @@ def check_backup(inp: DoctorInputs) -> Check:
     facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
-        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails) + f" ({facts})")
+        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
     if warns and prod:
         return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
     return Check("backup", "PASS", facts)
@@ -1820,6 +1846,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_sae_mailbox,
     check_console_mfa,
     check_ldap_ca,
     check_publish_gate,

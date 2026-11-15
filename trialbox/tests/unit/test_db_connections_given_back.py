@@ -12,7 +12,10 @@ from tb_common.db import Database, split_url
 
 from tests import db_connections as dc
 
-_HELD: list[Any] = []  # what a leaking test leaves referenced, as an app's stores are
+# what each leaking test leaves referenced, as an app's stores are. NIGHT-ORDER (D-733): the two tests are the same
+# shape, so the nightly's random order cannot break the pair: each leaves four connections and checks that what the
+# other one left is closed; whichever runs second proves that the harness closed them after the first
+_HELD: dict[str, list[Any]] = {}
 
 
 def _open(url: str) -> int:
@@ -24,21 +27,27 @@ def _open(url: str) -> int:
     return int(row[0])
 
 
-def test_1_a_test_that_leaves_stores_open(db_url: str) -> None:
-    for name in ("leak_a", "leak_b", "leak_c"):
-        _HELD.append(Database.connect(db_url, name))
-    _HELD.append(psycopg.connect(split_url(db_url)[0]))  # a raw connection too
-    assert all(not _con(x).closed for x in _HELD)
-
-
 def _con(x: Any) -> Any:
     return x._con if isinstance(x, Database) else x
 
 
+def _leak_and_check(me: str, db_url: str) -> None:
+    for other, held in _HELD.items():
+        if other != me:
+            assert len(held) == 4 and all(_con(x).closed for x in held), other  # the harness closed them
+    assert dc.TRACKER.open_from_tests() == 0  # and nothing of an earlier test is open now
+    held = [Database.connect(db_url, f"leak_{me}_{n}") for n in ("a", "b", "c")]
+    held.append(psycopg.connect(split_url(db_url)[0]))  # a raw connection too
+    _HELD[me] = held
+    assert all(not _con(x).closed for x in held)
+
+
+def test_1_a_test_that_leaves_stores_open(db_url: str) -> None:
+    _leak_and_check("1", db_url)
+
+
 def test_2_the_next_test_finds_them_closed(db_url: str) -> None:
-    assert len(_HELD) == 4 and all(_con(x).closed for x in _HELD)
-    _HELD.clear()
-    assert dc.TRACKER.open_from_tests() == 0
+    _leak_and_check("2", db_url)
 
 
 @pytest.fixture(scope="module")

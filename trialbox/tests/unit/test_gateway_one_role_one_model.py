@@ -450,7 +450,8 @@ def test_doctor_passes_when_the_gateway_takes_the_judge_and_the_verifier(tmp_pat
         ({"TB_TOPOLOGY": "B"}, "step_unconfirmed"),  # D3 with no step outside the box policy (D-142)
         ({"TB_GATEWAY_MODEL": "x-external"}, "class_route_mismatch"),  # a judge build not on the patient route
         ({"TB_GATEWAY_VERIFIER_MODEL": "f-frontdesk"}, "class_route_mismatch"),  # the verifier, the same way
-        ({"TB_ENV": "VALIDATION"}, "step_unconfirmed"),  # the box policy is PRODUCTION only
+        # the box policy is topology A only (D-823 added VALIDATION on A: there the judge routes on the box)
+        ({"TB_ENV": "VALIDATION", "TB_TOPOLOGY": "B"}, "step_unconfirmed"),
     ],
 )
 def test_doctor_fails_when_the_gateway_would_refuse_the_judge(tmp_path: Path, over: dict[str, str], why: str) -> None:

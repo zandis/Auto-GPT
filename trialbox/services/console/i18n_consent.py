@@ -57,6 +57,7 @@ EN: dict[str, str] = {
     "consent.record.reconsent": "again {day} on version {v}",
     "consent.flag.enrolment_before_consent": "Enrolment dated {day}, before the consent on {consent}.",
     "consent.flag.visit_before_consent": "Visit {event} done on {day}, before the consent on {consent}.",
+    "consent.flag.consent_in_future": "Consent dated {day}, after today: check the date (it came from REDCap as it is written there).",
     "consent.flag.no_consent_form": "This participant is past consent but no consent form is recorded.",
     "consent.flag.deviation": "Record a deviation",
 }
@@ -111,6 +112,7 @@ JA: dict[str, str] = {
     "consent.record.reconsent": "{day} に版 {v} で再同意",
     "consent.flag.enrolment_before_consent": "登録日 {day} が同意取得日 {consent} より前です。",
     "consent.flag.visit_before_consent": "来院 {event}（{day}）が同意取得日 {consent} より前です。",
+    "consent.flag.consent_in_future": "同意取得日が {day} で、今日より後です。日付を確認してください（REDCap の値をそのまま取り込んでいます）。",
     "consent.flag.no_consent_form": "この参加者は同意の段階を過ぎていますが、同意書フォームが記録されていません。",
     "consent.flag.deviation": "逸脱を記録する",
 }
@@ -165,6 +167,7 @@ ZH: dict[str, str] = {
     "consent.record.reconsent": "{day} 以版本 {v} 重新同意",
     "consent.flag.enrolment_before_consent": "收案日期 {day} 早於簽署同意日期 {consent}。",
     "consent.flag.visit_before_consent": "訪視 {event}（{day}）早於簽署同意日期 {consent}。",
+    "consent.flag.consent_in_future": "簽署同意日期為 {day}，晚於今天：請核對日期（此值依 REDCap 原樣讀入）。",
     "consent.flag.no_consent_form": "此受試者已過同意階段，但沒有記錄同意書表單。",
     "consent.flag.deviation": "記錄偏差",
 }

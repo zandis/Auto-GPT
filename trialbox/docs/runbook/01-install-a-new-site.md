@@ -59,7 +59,9 @@ mapping is never part of the image. The answers name the feed folder on the host
 mounts the one at the other, read-only), and the console's DNS name (`tls_hostname`) with `tls_mode` `hospital` (the
 default and first choice; then `tls_cert_file` and `tls_key_file`) or `internal` (Caddy's own CA: its root must be on
 every clinic PC by group policy, and personal devices cannot use it; the wizard warns). A PRODUCTION install stops without a feed folder or a TLS host
-name. The vendor builds the bundle with
+name, or without the trial office's mailbox (`sae_office_mailbox` in the answers, written as `TB_SAE_OFFICE_MAILBOX`;
+asked with the TLS name: told at once when a serious adverse event is entered, without the AE term; D-736). A re-run
+on a site that has its settings and a box install only warn, and `doctor` WARNs (`sae_mailbox`) until it is set. The vendor builds the bundle with
 `tools/make_bundle.sh` (`make release-bundle`: `--gates` is required, so only images that passed the release gates;
 the bundle carries `release.json`, the SBOMs, `NOTICE` and `CHANGELOG.md`, T-110b). The image vulnerability gate blocks
 for every image a bundle carries; the dated exceptions and open findings are in `deploy/security/known-image-findings.md`

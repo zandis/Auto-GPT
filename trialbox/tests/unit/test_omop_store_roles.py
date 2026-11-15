@@ -78,12 +78,15 @@ def _exists(url: str, name: str) -> bool:
 @pytest.mark.parametrize("role", schema.LAKE_SHARERS)
 def test_a_service_refuses_to_make_a_second_lakes_store(box: str, role: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_LAKE_DIR", "/data/lake")
-    name = schema.schema_for(OTHER_LAKE)
-    assert name.startswith("omop_") and name != "omop"
+    # a lake no other test of the module makes a store for: in random order (the nightly) the admin's test may have
+    # made OTHER_LAKE's store already, and then there is nothing to refuse (NIGHT-ORDER, D-733)
+    lake = Path(f"/srv/never-made-by-{role}/lake")
+    name = schema.schema_for(lake)
+    assert name.startswith("omop_") and name != "omop" and name != schema.schema_for(OTHER_LAKE)
     with pytest.raises(OmopError) as stop:
-        schema.connect(_as(box, role), name, lake_dir=OTHER_LAKE)
+        schema.connect(_as(box, role), name, lake_dir=lake)
     said = str(stop.value)
-    assert name in said and str(OTHER_LAKE) in said  # which store, which folder
+    assert name in said and str(lake) in said  # which store, which folder
     assert "TB_LAKE_DIR" in said and "/data/lake" in said  # what the box's lake is
     assert "trialbox omop-store" in said  # who makes it
     assert not _exists(box, name)  # and nothing was made

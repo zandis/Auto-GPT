@@ -38,6 +38,8 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict
+from pydantic import Field as PydField
 from tb_common import audit as tb_audit
 from tb_common.authz import permit
 from tb_common.csvfile import stream_for_spreadsheet
@@ -97,6 +99,7 @@ SHOWN = (
     "role", "affiliation", "action", "filename", "tag", "type", "format", "from", "to", "event", "who", "job",
     "lines", "ok", "head", "key_id", "anchors", "source", "run", "subject", "line", "bytes", "records", "patients",
     "breakglass", "page", "sent_event",  # D-718: the name a service sent, which the drain did not write as sent
+    "for", "by",  # D-771: a chart number's disclosure lookup and its report say so
 )  # fmt: skip
 
 
@@ -269,6 +272,13 @@ def hide_pids(row: Row) -> Row:
     return replace(row, detail={k: one(k, v) for k, v in row.detail.items()})
 
 
+def from_chart(row: Row) -> bool:
+    """D-771: a line written by a disclosure report for a chart number (its lookup, its report)."""
+    return (row.event == "console.chart_lookup" and row.detail.get("for") == "disclosure") or (
+        row.event == "console.audit_report" and row.detail.get("by") == "chart"
+    )
+
+
 def kind_of(event: str) -> str:
     for k in REPORT_KINDS:
         if event in KINDS[k]:
@@ -391,6 +401,9 @@ class Hooks:
     csrf_ok: Callable[[Session, str], bool]
     actor: Callable[[Session], str]
     au: Any
+    #: NEW-JRN-6 (D-771): the chart number's door (``console.team``), set under "chart_to_pid" once the workspace is
+    #: registered; empty without the workspace
+    doors: dict[str, Callable[..., Any]] = field(default_factory=dict)
 
 
 def register(app: FastAPI, h: Hooks) -> None:
@@ -407,7 +420,10 @@ def register(app: FastAPI, h: Hooks) -> None:
     def shown_to(sess: Session, rows: list[Row]) -> list[Row]:
         """D-380 (CR-023): a reader without ``audit.ids`` would see every pseudonym hidden. Both roles of
         ``audit.browse`` hold it today; the rule stays so a later row cannot widen what a reader sees."""
-        return rows if permit(sess.user.role, "audit.ids") else [hide_pids(r) for r in rows]
+        ids = permit(sess.user.role, "audit.ids")
+        # NEW-JRN-6 (the review of D-771): a disclosure lookup's own lines never show the pseudonym the chart number
+        # gave, whoever reads them (the reader of the report would otherwise find it one click away)
+        return [r if ids and not from_chart(r) else hide_pids(r) for r in rows]
 
     def label_of(lang: str) -> Any:
         return lambda event: i18n_audit.event_label(lang, event)
@@ -433,6 +449,7 @@ def register(app: FastAPI, h: Hooks) -> None:
         h.au.append("console.audit_search", actor=h.actor(sess),
                     detail={**f.audit_detail(), **({"page": "next"} if before else {})})  # fmt: skip
         return h.page(request, "audit.html", sess, records=rows, f=f, next_before=nxt, kinds=tuple(KINDS),
+                      by_chart_on="chart_to_pid" in h.doors,
                       events=i18n_audit.event_names(), bad_pid=bad == "pid" or (bool(pid.strip()) and not f.pid),
                       first=not before)  # fmt: skip
 
@@ -472,6 +489,40 @@ def register(app: FastAPI, h: Hooks) -> None:
         return h.page(request, "audit_patient.html", sess, records=rows, f=f, next_before=nxt, counts=counts,
                       kinds=REPORT_KINDS, rq=f.query(with_pid=False))  # fmt: skip
 
+    def report_by_chart(sess: Session, chart_no: str, fmt: str) -> tuple[Filter, list[Row], bool, bool | None]:
+        """D-771: the chart number's report for the page and ``/api/v1``: the door (capped, audited), the newest
+        events of the patient with every pseudonym hidden, the report's own audit event."""
+        door = h.doors.get("chart_to_pid")
+        if door is None:
+            raise h.problem(404, "notfound")
+        pid, known = door(sess, chart_no[:64], "disclosure")
+        if known is False:  # the review of D-771: a number the box holds no patient under (a slip of the hand)
+            raise h.problem(409, "request.refused", reason="the box holds no patient under this chart number")
+        f = report_filter(str(pid), "", "", "")
+        rows, more = search(directory(), f, REPORT_PAGE, "")
+        rows = [hide_pids(r) for r in rows]  # whatever the reader's rights: never the pseudonym
+        h.au.append("console.audit_report", actor=h.actor(sess),
+                    detail={**f.audit_detail(), "format": fmt, "by": "chart"})  # fmt: skip
+        return f, rows, bool(more), known
+
+    h.doors["report_by_chart"] = report_by_chart
+
+    @app.post("/audit/patients/by-chart", response_class=HTMLResponse)
+    def audit_patient_by_chart(request: Request, csrf: str = Form(""), chart_no: str = Form("")) -> Response:
+        """NEW-JRN-6 (D-771, JRN-006): one patient's report for a chart number (a patient's 開示 or 查詢 request):
+        the box turns the number into the pseudonym at the door (capped and audited as the opt-out door is,
+        ``for: disclosure``) and the report is shown without the pseudonym anywhere on the page. The newest page of
+        events; the filters and the file need the pseudonym and stay on the pseudonym's report."""
+        sess = guard(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        f, rows, more, known = report_by_chart(sess, chart_no, "page")
+        counts = {k: 0 for k in (*REPORT_KINDS, "other")}
+        for r in rows:
+            counts[kind_of(r.event)] += 1
+        return h.page(request, "audit_patient.html", sess, records=rows, f=f, next_before=None, counts=counts,
+                      kinds=REPORT_KINDS, rq="", by_chart=True, more=bool(more), unknown=known is None)  # fmt: skip
+
     @app.get("/audit/patients/{pid}/report.csv")
     def audit_patient_csv(request: Request, pid: str, kind: str = "", since: str = "", until: str = "") -> Response:
         """The same report as a file: the same guard, the same filter, one ``console.audit_report`` (format csv)."""
@@ -498,7 +549,15 @@ def register(app: FastAPI, h: Hooks) -> None:
         rows, nxt = search(directory(), Filter(), PAGE)
         rows = shown_to(sess, rows)
         return h.page(request, "audit.html", sess, records=rows, f=Filter(), next_before=nxt, kinds=tuple(KINDS),
+                      by_chart_on="chart_to_pid" in h.doors,
                       events=i18n_audit.event_names(), bad_pid=False, first=True, verified=result)  # fmt: skip
+
+
+class ByChart(BaseModel):
+    """The body of ``POST /api/v1/audit/patients/by-chart`` (D-771)."""
+
+    model_config = ConfigDict(extra="forbid")
+    chart_no: str = PydField(min_length=1, max_length=64)
 
 
 def register_api(app: FastAPI, h: Hooks, api_session: Callable[[Request], Session]) -> None:
@@ -521,3 +580,18 @@ def register_api(app: FastAPI, h: Hooks, api_session: Callable[[Request], Sessio
         done = {"ok": result["ok"], "lines": result["lines"], "anchors": len(result["anchors"])}
         h.au.append("console.audit_verify", actor=h.actor(sess), detail=done)
         return result
+
+    @app.post("/api/v1/audit/patients/by-chart")
+    @before_body(may)
+    def api_audit_by_chart(request: Request, body: ByChart) -> dict[str, Any]:
+        """D-771: the page's twin: ``{"chart_no": ...}`` gives the patient's newest events, every pseudonym hidden;
+        the same door, cap and audit as the page."""
+        sess = api_session(request)
+        may(sess, request)
+        report = h.doors.get("report_by_chart")
+        if report is None:
+            raise h.problem(404, "notfound")
+        _f, rows, more, known = report(sess, body.chart_no, "api")
+        events = [{"ts": r.ts, "event": r.event, "actor": r.actor, "ruleset": r.ruleset, "detail": r.detail}
+                  for r in rows]  # fmt: skip
+        return {"known": known, "events": events, "more": more}

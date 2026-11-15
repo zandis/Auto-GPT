@@ -184,7 +184,7 @@ PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("registry", ("registry", "candidate registry", "候補登録", "登録簿", "候選登錄", "登錄")),
     ("health", ("system health", "health", "稼働状況", "システム状態", "系統狀態", "健康狀態")),
     ("sources", ("data sources", "data source", "ingest", "データソース", "取り込み", "資料來源", "資料匯入")),
-    ("jobs", ("jobs", "job list", "ジョブ", "工作", "作業")),
+    ("jobs", ("jobs", "job list", "ジョブ", "処理", "工作", "作業")),  # T-317: 処理 is the help's own word (D-133)
     ("users", ("users", "accounts", "user accounts", "アカウント管理", "ユーザー", "使用者", "帳號管理")),
     ("audit", ("audit", "audit trail", "監査", "監査証跡", "稽核")),
     ("notices", ("notices received", "my notices", "notices", "notifications", "受信した通知", "通知", "收到的通知")),

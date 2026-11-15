@@ -261,8 +261,9 @@ EOF
 # ------------------------------------------------------------------------------------------------ model-guard
 guard)
   # D-177: vLLM checks its key on /v1 only. On model-net only model-guard answers to the servers' names: it passes
-  # /v1/models, /v1/chat/completions and /v1/completions with the key and /health, and nothing else. The stand-ins
-  # answer /invocations and /tokenize without a key, as vLLM does, so a box without the guard would show here.
+  # /v1/models, /v1/chat/completions, /v1/completions and /tokenize (D-739) with the key and /health, and nothing
+  # else. The stand-ins answer /invocations and /tokenize without a key, as vLLM does, so a box without the guard
+  # would show here (the stand-in counts a keyed /tokenize apart from the open calls).
   in_svc gateway <<'EOF' || fail "model-guard let a call through that it must not"
 import json, os, urllib.error, urllib.request
 key = open(os.environ["TB_LLM_API_KEY_FILE"]).read().strip()  # the compose secret (D-437); the variable is cleared
@@ -275,14 +276,18 @@ def call(method, url, k):
         return e.code
 for host in ("llm-service", "llm-verifier"):
     base = f"http://{host}:8000"
-    for path in ("/invocations", "/tokenize", "/detokenize", "/pooling", "/collective_rpc", "/sleep"):
+    st = call("POST", base + "/tokenize", "")
+    assert st == 401, f"{host} POST /tokenize (no key): HTTP {st}"  # D-739: with the key only
+    st = call("POST", base + "/tokenize", key)
+    assert st == 200, f"{host} POST /tokenize (key): HTTP {st}"
+    for path in ("/invocations", "/detokenize", "/pooling", "/collective_rpc", "/sleep"):
         for k in ("", key):
             st = call("POST", base + path, k)
             assert st == 404, f"{host} POST {path} ({'key' if k else 'no key'}): HTTP {st}"
     for path in ("/metrics", "/server_info", "/standin/stats"):
         assert call("GET", base + path, key) == 404, f"{host} GET {path}"
     assert call("GET", base + "/v1/models", "") == 401 and call("GET", base + "/v1/models", key) == 200
-    print(f"ok: {host}: /invocations, /tokenize, /collective_rpc, /metrics ... 404 with or without the key; /v1 needs it")
+    print(f"ok: {host}: /invocations, /collective_rpc, /metrics ... 404 with or without the key; /v1 and /tokenize need it")
 EOF
   stats="$(standin_stats)" || fail "cannot ask the stand-ins"
   echo "stand-ins: $stats"

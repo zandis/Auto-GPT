@@ -1,5 +1,7 @@
 # P-0: the Windows installer rehearsed on a Windows 10 or Windows 11 PC with an NVIDIA card
 
+**Reader:** the box owner, who runs the rehearsal, and the people who build TrialBox, who read its result.
+
 Plan v7.2 section 7.2, test P-0; plan step 8a (due 2027-01-08). Cards NEW-WIN-1 (D-600), then NEW-WIN-3, NEW-WIN-2
 and NEW-WIN-8 as they land: this sheet grows one part per card.
 
@@ -81,7 +83,7 @@ Read these during Part 1; they need no extra run.
 | 22a | `wsl -d TrialBox -- dmesg` (the first screen), and the size of `<drive>\TrialBox\wsl\ext4.vhdx` in Explorer before and after copying a 10 GB file into WSL2 and deleting it again (`wsl -d TrialBox -- sudo fstrim -av` once after the delete) | No message that WSL rejected a setting of `.wslconfig` (`sparseVhd`, `defaultVhdSize`); the file shrinks again after the delete | Any "wsl:" warning shown when WSL2 starts; the three sizes |
 | 22b | Only on a PC where the drive may be filled: nothing to do in P-0. Note for P-15: what WSL2 does when the drive fills before the virtual disk's limit is not known | - | - |
 | 23 | After line 15: `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"` | A line `wsl2_memory` with PASS (WARN if it names a service with no cap), the caps' sum and WSL2's memory. With the small stand-in model the model servers are not in the sum | That line |
-| 23a | After the install is finished, start the installer once more with `-DesktopSharePercent 50` (in an administrator PowerShell: `<media>\windows\box-install.ps1 -DesktopSharePercent 50`) | "WSL2 is given ..." with half the PC's figures; "The earlier .wslconfig was kept as ..."; the console stays up. `free -g` inside WSL2 still shows the OLD figure | The window's text; `free -g` before a restart |
+| 23a | After the install is finished, start the installer once more with `-DesktopSharePercent 50` (in an administrator PowerShell: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<media>\windows\box-install.ps1" -DesktopSharePercent 50`) | "WSL2 is given ..." with half the PC's figures; "The earlier .wslconfig was kept as ..."; the console stays up. `free -g` inside WSL2 still shows the OLD figure | The window's text; `free -g` before a restart |
 | 23b | Restart Windows, sign in, `wsl -d TrialBox -- free -g` and `nproc` | The NEW figures. Then start the installer with `-DesktopSharePercent 25` to put the share back, and restart once more | Both outputs |
 
 ## Part 3: NEW-WIN-2, start without a person (D-602)
@@ -190,7 +192,7 @@ mount line below is as Microsoft documents WSL2 to print it; none has been seen.
 | --- | --- | --- | --- |
 | 63 | After the install: `wsl -d TrialBox -u root -- cat /opt/trialbox/deploy/site/box/windows-drives`, and the log's line "this PC's own drives recorded" | The letters of the system drive, the data drive and every other fixed drive; **not** the media's letter when the media is a USB disk | The line; `Get-Disk \| Format-Table Number, BusType, FriendlyName` beside it. A USB disk that Windows lists with another BusType than USB breaks the rule: write its BusType down |
 | 64 | Plug in the USB disk (say it becomes `E:`). Inside WSL2: `ls /mnt/e` | The disk's files. If `/mnt/e` is not there: `mkdir -p /mnt/e && mount -t drvfs E: /mnt/e`, and note that a drive plugged in after WSL2 started is not mounted by itself | Whether it was there by itself; `grep -E " /mnt/[a-z] " /proc/mounts` whole (this is the line the backup check reads: the source `E:\` or `drvfs`, the type `9p`, `path=E:\` in the options) |
-| 64a | In an administrator PowerShell: `<media>\\windows\\box-install.ps1 -BackupDrive E:`; then the same with the data drive's letter, and with a letter that does not exist | "Drive E: is marked as an outside drive for backups", and a file `.trialbox-outside-drive` at `E:\\`; the data drive: "one of this PC's own drives"; the missing letter: "could not be checked or marked" | Each message; `(Get-Partition -DriveLetter E \| Get-Disk).BusType` for the USB disk (the rule needs it to read `USB`) |
+| 64a | In an administrator PowerShell: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<media>\\windows\\box-install.ps1" -BackupDrive E:`; then the same with the data drive's letter, and with a letter that does not exist | "Drive E: is marked as an outside drive for backups", and a file `.trialbox-outside-drive` at `E:\\`; the data drive: "one of this PC's own drives"; the missing letter: "could not be checked or marked" | Each message; `(Get-Partition -DriveLetter E \| Get-Disk).BusType` for the USB disk (the rule needs it to read `USB`) |
 | 65 | Set `TB_BACKUP_TARGETS=/mnt/e/trialbox` in `deploy/.env`, make the folder, then `python3 -m tools.trialbox doctor --env-file deploy/.env`, the `backup` line | The target counted as off-box ("1 off-box") | The line whole. Before line 64a it must say "no off-box backup target"; so must `/mnt/d/...` (the data drive) |
 | 66 | `bash /opt/trialbox/deploy/windows/wsl-setup.sh backup-speed /mnt/e/trialbox 1024`, and the same for a folder inside WSL2 (`/opt/trialbox/deploy/backups`) | `mbps=...` for each; the test file is gone | Both speeds: this is the figure nobody has for a path through Windows |
 | 67 | `doctor`'s `backup_speed` line | PASS, or the value to set for `TB_BACKUP_MIN_MBPS` | The line |
@@ -220,6 +222,15 @@ Microsoft's documentation (netsh `interface portproxy`; Task Scheduler with S4U)
 | 81 | **Is anything listening.** `Get-Service iphlpsvc \| Format-List Status,StartType`; `netstat -ano -p tcp \| findstr :443`; then `tasklist /svc /fi "PID eq <the PID netstat shows>"` | Running, Automatic; one `LISTENING` line on `0.0.0.0:443`, its process a `svchost.exe` that hosts `iphlpsvc` | All three outputs. A row in line 73 with no listener here means the IP Helper service does not serve it |
 | 82 | **The task's limits.** `$t = Get-ScheduledTask TrialBox-Console-Proxy`; `$t.Triggers \| ForEach-Object { $_.Repetition \| Format-List Interval,Duration }`; `$t.Settings.ExecutionTimeLimit` | One trigger with Interval `PT5M` and a Duration of about ten years (`P3650D`); ExecutionTimeLimit `PT2M` | The values. A Duration of one day or less means the five-minute runs stop |
 | 83 | **Which address is forwarded to.** `wsl -d TrialBox -u root --exec ip -4 -o addr show dev eth0`; `Get-NetIPAddress -AddressFamily IPv4 \| Where-Object InterfaceAlias -like 'vEthernet (WSL*' \| Format-List InterfaceAlias,IPAddress,PrefixLength` | eth0's address is the one in line 73's row, and inside the subnet of the `vEthernet (WSL...)` adapter | Both outputs, with the adapter's exact name: a later card may refuse an address outside that subnet (D-613) |
+
+## Part 10: NEW-WIN-11, Stage B as a rehearsal box (D-614; lane D's D-726)
+
+Stage B only, started with `-Rehearsal` (P-0-BUILD-THE-MEDIA.md, "On the Windows PC", step 4). By reading; not run.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 84 | Read the window at its start; then, after step 14, `wsl -d TrialBox -u root -- grep -E '^TB_(ENV|REHEARSAL)=' /opt/trialbox/deploy/.env` and `wsl -d TrialBox -u root -- ls /opt/trialbox/deploy/site/rehearsal.json` | "This is a rehearsal install" before step 1 changes anything; `TB_ENV=TEST` and `TB_REHEARSAL=1`; the mark is there | The window's first lines and both outputs |
+| 85 | `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"`, the `rehearsal` line | WARN "rehearsal box"; no FAIL for it | The line whole |
 
 ## What the answers decide
 
@@ -282,5 +293,8 @@ Microsoft's documentation (netsh `interface portproxy`; Task Scheduler with S4U)
 - Line 79 "no": as line 26a "no".
 - Line 81 "no listener" with a row in line 73: the IP Helper service does not serve the port proxy on this PC; the
   installer checks only that the service runs, so this is a card of its own.
+- Line 84 "no `--rehearsal` reached the Linux installer" (no mark, `TB_ENV` not TEST): the hand-over in
+  `wsl-setup.sh install`; fix in lane W. A refusal "holds a site's install ... from no rehearsal" after Stage A: the
+  box is emptied (`docs/runbook/16-box-install-rehearsal.md`, "A rehearsal box") and the install started again with `-Rehearsal`.
 - Line 82 "a short Duration": the task is registered with the repetition written out another way
   (`console-proxy.ps1`), a fix within lane W.

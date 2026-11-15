@@ -259,9 +259,11 @@ def test_schema_constrained_response_required(tmp_path: Path) -> None:
 
 @pytest.mark.req("LLM-15", "PRIV-29")
 def test_phi_tripwire_blocks_low_class_call(tmp_path: Path) -> None:
-    gw = _gw(tmp_path)
+    """On a route that leaves the box (D-506: DEV's public endpoint, asked for by name); on the box a hit goes on to
+    an on-box model (``test_phi_tripwire_leaves_box.py``)."""
+    gw = _gw(tmp_path, env=Environment.DEV)
     variables = {**JUDGE_VARS, "excerpts": [{"date": "2026-10-01", "note_type": "x", "text": "身分證 A123456789"}]}
-    res = gw.chat(H(), _judge_body(variables))
+    res = gw.chat(H(), {**_judge_body(variables), "model": "j-workhorse"})
     assert res.status == 403 and res.body["error"]["code"] == "phi_tripwire"
     text = "".join(f.read_text() for f in (tmp_path / "audit").glob("*.jsonl"))
     assert "A123456789" not in text and "TW_NATIONAL_ID" in text

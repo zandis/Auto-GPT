@@ -3,6 +3,8 @@
 {% block content %}
 <h1>{{ t('reports.title') }}</h1>
 {% if user.role == 'cro' %}<p class="hint" data-testid="cro-note">{{ t('reports.cro') }}</p>{% endif %}
+{% if user.role == 'cro' %}{% set grants = monitoring() %}{% if grants %}<section class="card" data-testid="monitoring"><h2>{{ t('roles.monitor.title') }}</h2><ul class="plain">{% for m in grants %}
+<li><a href="/studies/{{ m[0] }}/monitor" data-testid="monitoring-{{ m[0] }}">{{ t('monitoring.line', rs=m[0], visit=m[1] or '–', end=m[2] or '–') }}</a></li>{% endfor %}</ul></section>{% endif %}{% endif %}{# NEW-JRN-8 (D-772) #}
 <section class="card"><div class="scroll" tabindex="0">
 <table data-testid="reports">
 <thead><tr><th>{{ t('col.study') }}</th><th>{{ t('reports.run') }}</th><th class="num">{{ t('reports.per_month') }}</th><th>{{ t('reports.reading') }}</th><th class="num">{{ t('reports.pool') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>

@@ -23,7 +23,7 @@
 <thead><tr><th>{{ t('edc.col.item') }}</th><th>{{ t('edc.col.value') }}</th><th>{{ t('copy.col.source') }}</th><th>{{ t('copy.col.signed') }}</th><th>{{ t('copy.col.copied') }}</th></tr></thead>
 <tbody>{% for v in form['values'] %}<tr data-testid="copy-row-{{ v.item }}" id="d{{ v.id }}">
 <td>{{ v.label }}{% if v.given %} <span class="hint">({{ t('copy.as_written') }})</span>{% endif %}<br><span class="hint mono">{{ v.item }}</span></td>
-<td><output id="cv{{ v.id }}" class="bigvalue" data-testid="copy-value-{{ v.item }}">{{ v.value }}</output>{% if v.word %} <span data-testid="copy-word-{{ v.item }}">{{ v.word }}</span>{% endif %}
+<td><output id="cv{{ v.id }}" class="bigvalue" data-testid="copy-value-{{ v.item }}">{{ v.value }}</output>{% if v.word %} <span data-testid="copy-word-{{ v.item }}">{{ v.word }}</span>{% endif %}{% if v.redcap_now is not none %}<br><span class="pill warn" data-testid="copy-redcap-now-{{ v.item }}">{{ t('copy.redcap_now', value=v.redcap_now or '–') }}</span>{% endif %}
 <button type="button" class="small secondary" data-copy="cv{{ v.id }}" data-done="{{ t('copy.copied_to_clipboard') }}" hidden>{{ t('copy.copy_button') }}</button></td>
 <td data-testid="copy-source-{{ v.item }}">{{ v.source or '–' }}</td>
 <td>{{ v.signed_by }}<br><span class="hint">{{ v.signed_at|local }}</span></td>

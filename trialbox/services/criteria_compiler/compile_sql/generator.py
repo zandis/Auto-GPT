@@ -652,8 +652,8 @@ class SqlGenerator:
             HEADER.format(ruleset=self.ruleset, version=self.version, mark=MARK)
             + "WITH\n"
             + body
-            + "\nSELECT b.pid, b.index_date,\n  "
-            + ",\n  ".join(selects)
+            + "\nSELECT b.pid, b.index_date"
+            + "".join(",\n  " + x for x in selects)  # no trailing comma with no criterion (D-788)
             + "\nFROM base b\n"
             + "\n".join(final_joins)
             + "\nORDER BY b.pid, b.index_date\n"
