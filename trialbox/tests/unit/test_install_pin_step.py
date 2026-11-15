@@ -25,19 +25,21 @@ def _pin_block() -> str:
     return INSTALL[start : INSTALL.index('\ncase "$MODE:$GPU" in', start)]
 
 
-def _run(tmp: Path, docker_rc: int) -> tuple[subprocess.CompletedProcess[str], str]:
+def _run(tmp: Path, docker_rc: int, env: str = "") -> tuple[subprocess.CompletedProcess[str], str]:
     (tmp / "deploy").mkdir()
-    (tmp / "deploy" / ".env").write_text("JUDGE_MODEL=judge\n", encoding="utf-8")
+    (tmp / "deploy" / ".env").write_text("JUDGE_MODEL=judge\n" + env, encoding="utf-8")
     log = tmp / "docker.log"
     stand_ins = (
         "set -euo pipefail\n"
         'die() { echo "install: $*" >&2; exit 1; }\n'
         'say() { echo "==> $*"; }\n'
         "tree_args() { TREE_D=(); }\n"
+        'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
         "alive_start() { :; }\nalive_stop() { :; }\n"
         f'docker() {{ echo "$*" >> {log}; return {docker_rc}; }}\n'
         f'MODE=gpu; GPU=rtxpro6000; IMAGE_PY=trialbox-py:1.0.0; ROOT="{tmp}"\n'
         f'cd "{tmp}"\n'
+        'TB_ENV_SITE="$(envget TB_ENV)"\n'
     )
     res = subprocess.run(
         ["/bin/bash", "-c", stand_ins + _pin_block() + "\necho reached-the-end\n"],
@@ -54,6 +56,20 @@ def test_a_failed_pin_stops_the_install(tmp_path: Path) -> None:
     assert res.returncode == 1
     assert "reached-the-end" not in res.stdout
     assert "not pinned" in res.stderr and "RUNBOOK §8" in res.stderr
+
+
+@pytest.mark.parametrize("env", ["", "TB_ENV=TEST\n", "TB_REHEARSAL=1\n", "TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n"])
+def test_a_failed_pin_stops_every_box(tmp_path: Path, env: str) -> None:
+    """D-887: a rehearsal box too: its pin takes the media's placeholders (tools/pin_model.py), so a refused pin there
+    is a real fault, never passed over."""
+    res, _ = _run(tmp_path, docker_rc=1, env=env)
+    assert res.returncode == 1 and "not pinned" in res.stderr
+
+
+def test_the_pin_is_told_the_box(tmp_path: Path) -> None:
+    """D-887: TB_ENV and TB_REHEARSAL reach the pin container (it pins placeholders on a rehearsal box only)."""
+    _, log = _run(tmp_path, docker_rc=0, env="TB_ENV=TEST\nTB_REHEARSAL=1\n")
+    assert "-e TB_ENV=TEST" in log and "-e TB_REHEARSAL=1" in log
 
 
 def test_the_pin_container_runs_as_the_installer_user(tmp_path: Path) -> None:

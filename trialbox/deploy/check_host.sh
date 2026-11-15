@@ -84,6 +84,10 @@ facility() {  # facility strict|fail MESSAGE LABEL: as strict/fail, or a listed 
   elif [ "$1" = strict ]; then strict "$2"; else fail "$2"; fi
 }
 facilities() { [ -z "$FACILITIES" ] || warn "host profile poc: ${FACILITIES#, } (each one fails on a site host)"; }
+# D-887: a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with the mark deploy/site/rehearsal.json:
+# deploy/install.sh --rehearsal) runs in a container on a developer's or CI's host: no encrypted disk, no NET_ADMIN.
+# What only the site's host can have is a WARN there
+rehearsal_box() { [ "$(envget TB_REHEARSAL)" = 1 ] && { [ "$TBENV" = TEST ] || { [ "$TBENV" = VALIDATION ] && [ -f "$(dirname "$ENV_FILE")/site/rehearsal.json" ]; }; }; }
 if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" = PRODUCTION ]; then
   fail "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
 fi
@@ -141,6 +145,8 @@ for d in "$DOCKER_ROOT" "$ROOT_DIR/deploy/backups"; do
     pass "LUKS: $d is on the encrypted device $c"
     dev="$(cryptsetup status "$c" 2>/dev/null | sed -n 's/^ *device: *//p')"
     case " $LUKS_DEVS " in *" $dev "*) ;; *) [ -n "$dev" ] && LUKS_DEVS="$LUKS_DEVS $dev" ;; esac
+  elif rehearsal_box; then
+    warn "LUKS: $d is not on a dm-crypt device: a rehearsal box's host is not the site's (the site's IQ checks it)"
   else
     facility fail "LUKS: $d is not on a dm-crypt device (full-disk encryption required)" LUKS
   fi
@@ -252,7 +258,12 @@ fi
 if command -v nft >/dev/null 2>&1 && nft list table inet trialbox_egress >/dev/null 2>&1; then
   pass "egress allowlist table loaded (deploy/network.sh apply)"
 else
-  facility fail "egress allowlist not loaded: run deploy/network.sh apply after docker compose up" "egress table"
+  if rehearsal_box; then
+    # D-887: a rehearsal box runs without NET_ADMIN, so deploy/network.sh cannot load the table (the site's IQ checks it)
+    warn "egress allowlist not loaded: a rehearsal box has no NET_ADMIN (the site's IQ checks deploy/network.sh)"
+  else
+    facility fail "egress allowlist not loaded: run deploy/network.sh apply after docker compose up" "egress table"
+  fi
 fi
 
 # container runtime
@@ -304,6 +315,15 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   SEC_HOST="$(sed -n 's/^TB_SECRETS_HOST_DIR=//p' "$ENV_FILE" | tail -1)"
   [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)"
   [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="-v $SEC_HOST:$SEC_HOST:ro -e TB_SECRETS_HOST_DIR=$SEC_HOST"
+  # D-887 (found by the box rehearsal in CI): doctor's site_key check reads the site key where the services do
+  if [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ]; then AUDIT_MOUNTS="$AUDIT_MOUNTS -v $SEC_HOST:/run/secrets/trialbox:ro"
+  else AUDIT_MOUNTS="$AUDIT_MOUNTS -e TB_SECRETS_DIR=/nonexistent/secrets-volume-not-seen"; fi  # a WARN, not a FAIL
+  # ...and every compose file of COMPOSE_FILE outside deploy/ (an override such as the rehearsal's stand-ins) where it is
+  OLD_IFS="$IFS"; IFS=:
+  for cf in $(sed -n 's/^COMPOSE_FILE=//p' "$ENV_FILE" | tail -1); do
+    case "$cf" in "$ROOT_DIR/deploy/"*) ;; /*) [ -f "$cf" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $cf:$cf:ro" ;; esac
+  done
+  IFS="$OLD_IFS"
   ANCHORS="$(sed -n 's/^TB_AUDIT_ANCHOR_TARGETS=//p' "$ENV_FILE" | tail -1)"
   OLD_IFS="$IFS"; IFS=:
   for anchor in $ANCHORS; do
