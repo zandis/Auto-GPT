@@ -4,18 +4,20 @@
 #
 #   tests/rehearsal/demo-vm-local.sh run IMAGE_TARBALL     boot it (the tarball of `make demo-bundle`), wait for
 #                                                          DEMO-VM-READY, then check from outside: /login over TLS
-#                                                          (Caddy's local CA), a sign-in with the password, no :80
+#                                                          (Caddy's local CA), a sign-in with the password, no :80,
+#                                                          demo mode on (banner, a visitor's upload refused, the
+#                                                          acknowledgement first) and switched on before Caddy
 #   tests/rehearsal/demo-vm-local.sh clean                 remove the two containers and the VM's folders
 #
 # Shims (in a temporary folder first on PATH; nothing else is changed):
 #   curl      only http://metadata.google.internal/... is faked (the metadata from $W/md/<path>; the VM's external
 #             address is 127.0.0.1); every other URL goes to the real curl
 #   gcloud    `secrets versions access` reads $W/secret (a random password made here, never printed);
-#             `storage cp gs://local/<file>` copies from $W/bucket; `auth configure-docker` does nothing
+#             `storage cp gs://local/<file>` links (else copies) from $W/bucket; `auth configure-docker` does nothing
 #   shutdown  records the hard stop in $W/shutdown.txt: this machine is NEVER powered off
 #   apt-get, systemctl  record only (Docker is already here)
 # It writes /etc/tb-demo-vm, /var/lib/tb-demo-vm, /var/log/tb-demo-vm.log and /root/trialbox-demo.tar.gz, as the VM
-# does; `clean` removes them. Needs root, Docker, and tcp:443 and 127.0.0.1:8080 free.
+# does; `clean` removes them. The tarball is hard-linked, not copied, where it can be (disk is tight here). Needs root, Docker, and tcp:443 and 127.0.0.1:8080 free.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BOOT="$HERE/../../deploy/gcp/demo-vm-boot.sh"
@@ -40,7 +42,7 @@ REAL_CURL="$(command -v curl)"
 
 # the metadata: what demo-vm.sh up would give the VM
 SHA="$(sha256sum "$TARBALL" | cut -d' ' -f1)"
-cp "$TARBALL" "$W/bucket/trialbox-demo.tar.gz"
+ln -f "$TARBALL" "$W/bucket/trialbox-demo.tar.gz" 2>/dev/null || cp "$TARBALL" "$W/bucket/trialbox-demo.tar.gz"
 printf %s 127.0.0.1 > "$W/md/instance/network-interfaces/0/access-configs/0/external-ip"
 printf %s local-project > "$W/md/project/project-id"
 printf %s gs://local/trialbox-demo.tar.gz > "$W/md/instance/attributes/tb-demo-image"
@@ -68,7 +70,7 @@ cat > "$W/bin/gcloud" <<EOS
 #!/bin/bash
 case "\$1 \$2 \$3" in
   "secrets versions access") cat "$W/secret" ;;
-  "storage cp "*) cp "$W/bucket/\${3#gs://local/}" "\$4" ;;
+  "storage cp "*) ln -f "$W/bucket/\${3#gs://local/}" "\$4" 2>/dev/null || cp "$W/bucket/\${3#gs://local/}" "\$4" ;;
   "auth configure-docker"*) true ;;
   *) echo "local gcloud: not rehearsed: \$*" >&2; exit 1 ;;
 esac
@@ -92,12 +94,28 @@ fail=0
 ok() { echo "PASS $*"; }
 bad() { echo "FAIL $*"; fail=1; }
 ROOT_CRT=/var/lib/tb-demo-vm/caddy/pki/authorities/local/root.crt
+# demo mode (D-328) was switched on after the seed and before Caddy started: nobody outside saw it off
+order=$(grep -nE 'TB-DEMO-VM .* (demo mode on \(|caddy on :443)' "$W/boot.log" | cut -d: -f1 | tr '\n' ' ')
+grep -q '^demo mode on (flag.set by console:admin' "$W/boot.log" && [ "$(echo "$order" | wc -w)" = 2 ] \
+  && [ "${order%% *}" -lt "$(echo "$order" | cut -d' ' -f2)" ] \
+  && ok "demo mode switched on (audited, its refusal proven) before Caddy opened :443" || bad "demo mode order: $order"
+docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' tb-demo | grep -qx no \
+  && ok "the demo container does not restart by itself (a restart would reseed with demo mode off)" || bad "restart policy"
 grep -q "^shutdown -P +$(( ${TB_DEMO_VM_HOURS:-12} * 60 )) " "$W/shutdown.txt" && ok "the hard stop was armed (shimmed)" || bad "no hard stop"
 code=$("$REAL_CURL" -s -o "$W/login.html" -w '%{http_code}' --cacert "$ROOT_CRT" https://127.0.0.1/login) || true
 [ "$code" = 200 ] && grep -q 'name="login_csrf"' "$W/login.html" && ok "https://127.0.0.1/login answers 200 over TLS (Caddy's local CA)" || bad "/login over TLS: $code"
 "$REAL_CURL" -s -o /dev/null https://127.0.0.1/login 2>/dev/null && bad "a client that does not trust Caddy's CA was not warned" \
   || ok "without Caddy's root the TLS check fails (the browser's one warning)"
 "$REAL_CURL" -s -o /dev/null --max-time 5 http://127.0.0.1:80/ 2>/dev/null && bad "something answers on :80" || ok "nothing on :80"
+grep -q 'data-testid="demo-banner"' "$W/login.html" && ok "the demo banner is on the sign-in page" || bad "no demo banner on /login"
+# a visitor (no session) uploads a chart file through Caddy: refused before the body is read
+code=$(printf 'synthetic visitor chart\n' | "$REAL_CURL" -s -o "$W/upload.html" -w '%{http_code}' --cacert "$ROOT_CRT" \
+  -F csrf=x -F ruleset=GZQO -F 'charts=@-;filename=chart.txt' https://127.0.0.1/pilot/case) || true
+[ "$code" = 403 ] && grep -q 'data-testid="demo-banner"' "$W/upload.html" \
+  && ok "a visitor's upload is refused (403, the demo refusal page)" || bad "a visitor's upload answered $code"
+code=$("$REAL_CURL" -s -o /dev/null -w '%{http_code}' --cacert "$ROOT_CRT" --data-urlencode 'criteria=synthetic' \
+  https://127.0.0.1/pilot/protocol) || true
+[ "$code" = 403 ] && ok "a visitor's pasted protocol text is refused (403)" || bad "a visitor's paste answered $code"
 hsts=$("$REAL_CURL" -s -D - -o /dev/null --cacert "$ROOT_CRT" https://127.0.0.1/login | tr -d '\r' | grep -i '^strict-transport-security' || true)
 [ -n "$hsts" ] && ok "HSTS header" || bad "no HSTS header"
 [ "$(docker port tb-demo)" = "8080/tcp -> 127.0.0.1:8080" ] \
@@ -138,7 +156,8 @@ for _ in range(4):  # a role's home may redirect
         break
     path = h3["location"]
 assert st == 200, f"{path} answered {st}"
-print(f"admin: signed in, {path} answers {st}")
+assert path.startswith("/demo/ack"), f"demo mode: the first page after sign-in is {path}, not the acknowledgement"
+print(f"admin: signed in, {path} answers {st} (the demo acknowledgement first)")
 PY
-then ok "admin signs in over https with the password from the secret (Secure cookies)"; else bad "sign-in"; fi
+then ok "admin signs in over https with the password from the secret (Secure cookies), lands on /demo/ack"; else bad "sign-in"; fi
 [ "$fail" = 0 ] && echo "DEMO-VM-LOCAL: all checks pass" || { echo "DEMO-VM-LOCAL: FAILED"; exit 1; }
