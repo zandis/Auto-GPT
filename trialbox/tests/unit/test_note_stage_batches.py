@@ -113,7 +113,6 @@ def test_a_batch_size_below_one_is_refused(env: dict[str, Any]) -> None:
 def test_screen_runs_the_note_stage_in_batches_of_its_setting() -> None:
     from orchestrator.clients import StepFailed
     from orchestrator.scenarios.screen_cascade import note_batch_of
-
     from tb_common.config import DECLARED
 
     assert note_batch_of({}) == 1000  # SCREEN batches by default: the answers are the same, the memory bounded
