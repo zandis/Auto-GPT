@@ -437,6 +437,43 @@ def _reopen(work: Path) -> tuple[Any, Any, Callable[[], datetime]]:
     return box, InprocBackend(box, client, repo), clock
 
 
+#: DEMO-SEED (D-757): the synthetic chart the seed's one "Check one patient" (CASE) job reads, per language. Made up:
+#: no person's record. Demo mode refuses an upload by design (D-328), so the sheet is made before it is switched on.
+CASE_CHART = {
+    "en": "Synthetic chart for the demonstration. 54-year-old with obesity, BMI 31.4 kg/m2, type 2 diabetes on "
+    "metformin, HbA1c 7.6%. Gout with two flares last year. No pancreatitis, no thyroid cancer in the family. "
+    "Blood pressure 138/84 mmHg. Not pregnant.\n",
+    "ja": "デモ用の合成カルテ。54歳、肥満（BMI 31.4 kg/m2）、2型糖尿病でメトホルミン内服中、HbA1c 7.6%。"
+    "痛風発作が昨年2回。膵炎の既往なし、甲状腺がんの家族歴なし。血圧 138/84 mmHg。妊娠なし。\n",
+    "zh-TW": "示範用的合成病歷。54歲，肥胖（BMI 31.4 kg/m2），第二型糖尿病服用metformin，HbA1c 7.6%。"
+    "去年痛風發作兩次。無胰臟炎病史，無甲狀腺癌家族史。血壓 138/84 mmHg。未懷孕。\n",
+}
+
+
+def seed_case(pi: Any, box: Any, lang: str, ruleset: str = "GZQO") -> str | None:
+    """DEMO-SEED (D-757): one CASE job on a synthetic chart, asked by the investigator through the console's own
+    route as a user would, before demo mode is switched on; run to its end, so "Check one patient" has a sheet to
+    show. The job's id, or None when the console refused it."""
+    from tools import feas_demo as fd
+
+    page = pi.get("/pilot/case")
+    if page.status_code != 200:
+        return None
+    chart = CASE_CHART.get(lang) or CASE_CHART["en"]
+    r = pi.post(
+        "/pilot/case",
+        data={"csrf": fd._csrf(page.text), "ruleset": ruleset, "lang": lang},
+        files=[("charts", ("synthetic-chart.txt", chart.encode("utf-8"), "text/plain"))],
+        follow_redirects=False,
+    )
+    if r.status_code != 303:
+        return None
+    job_id = str(r.headers["location"]).rstrip("/").rsplit("/", 1)[-1]
+    box.orch.drain()
+    job = box.orch.db.get(job_id)
+    return job_id if job is not None and job.state == "done" else None
+
+
 def start(a: argparse.Namespace, environ: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Seed (or reopen with ``--keep``), seed the accounts file, and build the console to serve."""
     from console.app import COOKIE, create_app
@@ -459,6 +496,10 @@ def start(a: argparse.Namespace, environ: Mapping[str, str] | None = None) -> di
             seeded = e2e_simple.run(a.dir, password, a.lang)
         out["ok"], out["report"] = seeded["ok"], e2e_simple.report(seeded)
         res = seeded["result"]
+        out["case"] = seed_case(res["list"]["pi"], res["list"]["box"], a.lang)
+        if out["case"] is None:  # the seed is not whole without the sheet "Check one patient" shows
+            out["ok"] = False
+            out["report"] += "\nFAIL the seeded CASE job (Check one patient) did not end done"
         box, h = res["list"]["box"], res["app"].state.helpers
         backend, clock = h.bk, h.users.clock
         live = bool(res["list"].get("live"))
