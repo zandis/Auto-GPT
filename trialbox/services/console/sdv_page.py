@@ -88,6 +88,7 @@ def cited_items(drafts: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
             continue
         row: dict[str, Any] = {k: d.get(k) for k in ITEM_KEYS}
         row["value"] = d.get("final")
+        row["redcap_now"] = d.get("redcap_now")  # NEW-EDC-5c (D-801): REDCap holds another value since (D-686)
         row["citation"] = _cite(d.get("final_citation")) or _cite(d.get("citation"))
         sig = d.get("signature")
         row["signature"] = {k: str(sig.get(k) or "") for k in SIG_KEYS} if isinstance(sig, Mapping) else None

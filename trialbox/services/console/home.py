@@ -112,6 +112,8 @@ class Helpers:
     life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
     sae_sync: Callable[[str], None] | None = None  # set by console.sae_pages (D-277): the SAE register's write path
+    # set by console.sae_pages (D-763): how many SAE reports of a study are still to send (raises when not read)
+    sae_open: Callable[[str], int] | None = None
     # P-10 (D-143): one confirmation page before an action that is hard to take back
     confirm: Callable[..., Response] | None = None
     # D-146 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
@@ -130,6 +132,8 @@ class Helpers:
     pi_missing: Callable[..., list[str]] | None = None
     reveal: Any = None  # set by register(): console.reveal.Reveal, the one reveal path (T-103, D-438)
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
+    # set by console.team (NEW-JRN-6, D-771): a chart number turned into its pseudonym at the door, capped and audited
+    chart_to_pid: Callable[[Session, str, str], tuple[str, bool | None]] | None = None
     pid_match_per_hour: int = 0  # set by console.team (NEW-JRN-2): the match note's limit per person and hour
     irb_gate: bool = False  # set by console.team (D-395): the candidate view waits for the study's IRB-text record
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile

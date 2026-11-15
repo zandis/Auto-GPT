@@ -624,7 +624,19 @@ def create_app(
         u = sess.user
         if u.sponsor_form and not (
             path
-            in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help", "/ask")
+            in (
+                "/",
+                "/home",
+                "/reports",
+                "/lang",
+                "/logout",
+                "/cmd",
+                "/account",
+                "/account/password",
+                "/help",
+                "/ask",
+                "/help/guide",
+            )  # T-317 (D-774): the account's own role guide
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
             or _MONITOR_ROUTE.fullmatch(path)  # D-380: refused there unless a monitor grant holds
             or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)
@@ -800,25 +812,41 @@ def create_app(
     def actor(sess: Session) -> str:
         return f"console:{sess.user.username}"
 
+    def target_study(req: Any) -> str | None:
+        """SEC-SCOPE (D-769, its review): the study of the job a job-id command (STATUS, CANCEL, RELEASE) names, ""
+        for a job of no study, None when the command names no job. A target this box does not know reads as a job
+        of no study (refused to a scoped account, as an unknown study is: D-540)."""
+        target = str((req.options or {}).get("target") or "")
+        if not target:
+            return None
+        job = bk.get_job(target)
+        return str(job.ruleset or "") if job is not None else ""
+
     def submit(sess: Session, line: str, files: list[tuple[str, bytes, str]] | None = None) -> Job:
         """Audit, store the inputs, then the same ``POST /jobs`` the mail gateway makes."""
         mailbox = sess.user.mailbox or settings.admin_email
         if not mailbox:
             raise _Problem(400, "request.refused", reason="this account has no mailbox (console.cli set-mailbox)")
         job_id = new_ulid()
-        inputs = [bk.put_input(job_id, name, data, ctype) for name, data, ctype in files or []]
         cmd = line.split(" ", 1)[0].upper()
         if cmd in ("FEAS", "SCREEN", "CASE", "NAV", "MICROBATCH") and " lang=" not in f" {line}" and " -- " not in line:
             line = f"{line} lang={sess.lang}"  # D-100: mail and reports in the requester's language
-        try:
-            req = job_create(line, mailbox, job_id, f"web console ({sess.user.username})", inputs)
+        try:  # SEC-SCOPE (D-769, its review): the scope is checked before any upload is stored
+            req = job_create(line, mailbox, job_id, f"web console ({sess.user.username})", [])
         except ProposalError as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
-        if req.ruleset and not sess.user.sees_study(req.ruleset):  # D-104: a scoped account requests its studies only
-            au.append("console.denied", actor=actor(sess), detail={"action": f"request {req.ruleset}"})
+        study = req.ruleset or target_study(req)
+        if study is not None and (not sess.user.sees_study(study) or (study and settings.studies
+                                                                      and study not in settings.studies)):  # fmt: skip
+            # D-104: a scoped account requests its studies only; D-769: also a job-id command (STATUS, CANCEL,
+            # RELEASE) on another study's job, and a study that is not this site's (TB_CONSOLE_STUDIES, D-120)
+            au.append("console.denied", actor=actor(sess), detail={"action": f"request {study or req.type}"})
             # NEW-JRN-1 (D-540): said as a refusal of the request, not as "this page does not exist". The answer is
             # the same whether the study exists or not, so it tells a scoped account nothing about other studies.
             raise _Problem(403, "request.scope", studies=", ".join(sorted(sess.user.studies)))
+        inputs = [bk.put_input(job_id, name, data, ctype) for name, data, ctype in files or []]
+        if inputs:
+            req = job_create(line, mailbox, job_id, f"web console ({sess.user.username})", inputs)
         au.append(
             "console.request",
             job_id=job_id,
@@ -1218,9 +1246,8 @@ def create_app(
     from console import audit_page
 
     # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
-    audit_page.register(
-        app, audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
-    )
+    audit_hooks = audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
+    audit_page.register(app, audit_hooks)
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
@@ -1266,11 +1293,8 @@ def create_app(
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
     assert helpers.api_session is not None
-    audit_page.register_api(  # T-211c (D-451): the verify button's /api/v1 twin (T-657)
-        app,
-        audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au),
-        helpers.api_session,
-    )
+    # T-211c (D-451): the verify button's /api/v1 twin (T-657); D-771: the page's hooks, with its doors
+    audit_page.register_api(app, audit_hooks, helpers.api_session)
     approval.register(app, helpers, submit)  # S20 (D-108): the investigator approves, on one page
     screening_log.register(app, helpers)
     notify.register(app, helpers)
@@ -1282,6 +1306,8 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    if helpers.chart_to_pid is not None:  # NEW-JRN-6 (D-771): the audit browser's chart number door
+        audit_hooks.doors["chart_to_pid"] = helpers.chart_to_pid
     account_team["h"] = helpers  # D-719: the account notices find each study's PI here
     sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
@@ -1789,7 +1815,16 @@ def create_app(
             and (not settings.studies or r.id in settings.studies)
             and sess.user.sees_study(r.id)
         ]  # D-120: this site's own studies, and only those the account may see
-        return page(request, "request.html", sess, status, rulesets=approved, **ctx)
+        # NEW-JRN-3 (D-767, JRN-003): an account that prepares requests sees every study it sees, as before; another
+        # (the PI, T-512) sees the studies it may run each command on, and the forms show when there is one
+        u = sess.user
+
+        def runs(kinds: tuple[str, ...], command: str) -> list[Any]:
+            return [r for r in approved if r.kind in kinds and (u.can_request or helpers.may_run(u, r.id, command))]
+
+        feas, screen = runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+        return page(request, "request.html", sess, status, rulesets=approved, feas_rulesets=feas,
+                    screen_rulesets=screen, may_start=u.can_request or bool(feas or screen), **ctx)  # fmt: skip
 
     @app.get("/pilot/request", response_class=HTMLResponse)
     def request_form(request: Request, ruleset: str = "") -> Response:
@@ -1968,14 +2003,25 @@ def create_app(
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 
     # ------------------------------------------------------------------ single case (CASE, D-91)
-    def _trial_rulesets() -> list[Any]:
-        """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8)."""
-        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")]
+    def _trial_rulesets(sess: Session) -> list[Any]:
+        """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8).
+        SEC-SCOPE (D-769): only this site's studies the account sees, as the request page lists them (D-120, D-104):
+        a scoped account is not shown other studies' names (the CASE page and the registry's home)."""
+        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")
+                and (not settings.studies or r.id in settings.studies) and sess.user.sees_study(r.id)]  # fmt: skip
+
+    def _case_rulesets(sess: Session) -> list[Any]:
+        """NEW-JRN-3 (D-767): the trials this account may ask a CASE question of: every one for an account that
+        prepares requests (as before), else those it may run CASE on (the PI, T-512)."""
+        u = sess.user
+        return [r for r in _trial_rulesets(sess) if u.can_request or helpers.may_run(u, r.id, "CASE")]
 
     @app.get("/pilot/case", response_class=HTMLResponse)
     def case_form(request: Request, ruleset: str = "") -> Response:
         sess = need(request)
-        return page(request, "case.html", sess, rulesets=_trial_rulesets(), selected=ruleset, langs=LANGS)
+        rs = _case_rulesets(sess)
+        may = sess.user.can_request or bool(rs)  # the review of D-767: a coordinator with no trial yet, as before
+        return page(request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may)
 
     @app.post("/pilot/case")
     async def case_submit(
@@ -2005,7 +2051,15 @@ def create_app(
         if not files:
             msg = translate(lang_of(request, sess), "case.need_file")
             return page(
-                request, "case.html", sess, 422, rulesets=_trial_rulesets(), selected=rs, langs=LANGS, error=msg
+                request,
+                "case.html",
+                sess,
+                422,
+                rulesets=_case_rulesets(sess),
+                selected=rs,
+                langs=LANGS,
+                error=msg,
+                may_case=sess.user.can_request or bool(_case_rulesets(sess)),
             )
         parts = ["CASE", rs]
         chart_no = re.sub(r"\s+", "", mrn)
@@ -2043,7 +2097,7 @@ def create_app(
     def registry_home(request: Request) -> Response:
         sess = need(request)
         summaries = {s.ruleset: s for s in bk.registry_summaries()}
-        rulesets = _trial_rulesets()
+        rulesets = [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")]  # scoped below
         known = {r.id for r in rulesets}
         # a registry may outlive its ruleset version (e.g. after a re-approval): still list it
         rulesets += [RulesetInfo(rs_id, None, "registry", "trial") for rs_id in sorted(summaries) if rs_id not in known]

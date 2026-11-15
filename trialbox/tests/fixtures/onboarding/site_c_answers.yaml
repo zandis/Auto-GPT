@@ -36,6 +36,7 @@ imap_port: "993"
 imap_user: trialbox
 mta_authserv_id: mx.hospc.test
 tls_hostname: trialbox.hospc.test
+sae_office_mailbox: trial-office@hospc.test
 tls_mode: hospital  # the first choice (OPS-060); the files are the hospital's, read by install.sh
 tls_cert_file: /etc/trialbox/tls/site.crt
 tls_key_file: /etc/trialbox/tls/site.key

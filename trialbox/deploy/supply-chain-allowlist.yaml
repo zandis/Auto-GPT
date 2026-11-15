@@ -336,6 +336,13 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
     reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
     review_by: 2026-12-10
     owner: security owner (to assign)
+  # D-790, the owner's yes of 2026-11-15: dnspython in the pinned model server image, this image only, dated
+  - id: CVE-2026-128089
+    package: dnspython
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image (2.9.0, pulled in by fastapi[standard] -> email-validator), fixed in 2.9.2; the flaw is in zone-file text parsing (WKS from_text), which the model server never runs (no vLLM module imports dns); no stable vLLM image after the fix yet (v0.33.0 was built 2026-11-02, before 2.9.2); waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
   - id: CVE-2025-61726
     package: stdlib
     image: trialbox-postgres

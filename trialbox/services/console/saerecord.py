@@ -163,6 +163,8 @@ def rule_followups(ae: dict[str, Any], today: date, rules: dict[str, tuple[int, 
         party = str(c.get("party"))
         if party not in PARTIES:
             continue
+        if party == "regulator" and ae.get("ae_expected") == "1":
+            continue  # D-766: the 7 + 8 = day 15 follow-up is for an unexpected reaction, not the expected row
         extra = rules.get(party, (0, 0))[0 if grave else 1]
         if extra <= 0:
             continue
@@ -615,7 +617,12 @@ def case_view(ae: dict[str, Any], case: dict[str, Any] | None, reports: list[dic
     flags += [p for p in (rules or {}).get("problems") or [] if p != "noclock" or "noclock" not in flags]
     if any(r.get("due_at") for r in rows) and ae.get("ae_aware") and lc.aware_time(ae) is None:
         flags.append("aware_time_missing")  # the 24-hour report counts from 00:00 of the day learned
-    if ae.get("ae_expected") == "1" and ((rules or {}).get("parties") or {}).get("regulator", (0, 0)) != (0, 0):
+    has_reg = any(r.get("party") == "regulator" for r in ae.get("clock") or [])  # D-766: jp_gcp_ii keeps one
+    if (
+        ae.get("ae_expected") == "1"
+        and not has_reg
+        and ((rules or {}).get("parties") or {}).get("regulator", (0, 0)) != (0, 0)
+    ):
         flags.append("expected_noreg")  # expected per the reference safety information: no regulator clock
     return {
         "record": ae["record"], "event": ae["event"], "pid": str(ae.get("pid") or ""),

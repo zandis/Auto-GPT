@@ -20,3 +20,9 @@ The words are one plain vocabulary per idea, the same on every page (D-133). Som
 | Readiness | 準備状況 | 準備狀況 |
 | Please check | 確認をお願いします | 請確認 |
 | Audit trail | 監査証跡 | 稽核軌跡 |
+
+## The role guides
+
+Each role's guide in English, Japanese and Traditional Chinese, ready to print as the training handout, is in
+`docs/guides/`: it is generated from the console's help (T-317, D-774), so it says what the screens say. A
+signed-in person prints their own from Help ("Your role's guide, ready to print", `/help/guide`).

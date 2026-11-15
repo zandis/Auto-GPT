@@ -14,6 +14,13 @@
 <button type="submit" data-testid="audit-patient-go">{{ t('audit.patient.go') }}</button>
 </form>
 {% if bad_pid %}<p class="warn" role="alert" data-testid="audit-bad-pid">{{ t('audit.bad_pid') }}</p>{% endif %}
+{# NEW-JRN-6 (D-771): a patient's request names a chart number; the box turns it into the pseudonym at the door #}
+{% if by_chart_on %}<form method="post" action="/audit/patients/by-chart" class="inline" data-testid="audit-by-chart">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="p-chart">{{ t('audit.by_chart') }}</label> <input id="p-chart" name="chart_no" maxlength="64" size="20" class="mono" autocomplete="off" spellcheck="false">
+<button type="submit">{{ t('audit.patient.go') }}</button>
+<span class="hint">{{ t('audit.by_chart.help') }}</span>
+</form>{% endif %}
 </section>
 
 <section class="card" data-testid="audit-verify">

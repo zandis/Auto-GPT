@@ -3,6 +3,8 @@
 **Reader:** the box owner (a restore with Aimedics in a supervised session, §21).
 
 **Updates** (D-138, D-210): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
+On the Operations page an update can also be asked for in the box's quiet hour, so that nobody stays late for it:
+it then runs when the quiet hour comes and no job runs, with the same backup and automatic rollback (§15, D-731).
 
 The order of a release across the acceptance box and the sites (three working days apart), who applies it on site
 and what is filed: `docs/validation/change-control.md` §4 (D-344).
