@@ -39,6 +39,7 @@ def run(ctx: Ctx) -> Outcome:
         raise StepFailed("feedback", "Attach screen_feedback.csv (pid, outcome, reason_code, note).")
     ctx.state("running")
     pool = {p["pid"] for p in ctx.orch.db.pool(ruleset)}
+    gone = ctx.decision.register_now()  # D-513 (D-804): a row naming a patient opted out since is refused
     good: list[dict[str, Any]] = []
     errors: list[str] = []
     for f in files:
@@ -51,6 +52,9 @@ def run(ctx: Ctx) -> Outcome:
                 continue  # template row not filled in
             if outcome not in OUTCOMES:
                 errors.append(f"{f.filename} row {i}: outcome must be one of {', '.join(OUTCOMES)}")
+                continue
+            if pid in gone:
+                errors.append(f"{f.filename} row {i}: the patient has opted out; the row is not stored")
                 continue
             if pid not in pool:
                 errors.append(f"{f.filename} row {i}: pid not in the {ruleset} candidate pool")

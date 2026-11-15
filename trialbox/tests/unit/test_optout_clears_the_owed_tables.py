@@ -29,7 +29,8 @@ PLAIN = ("site.contact_outcomes", "site.excluded_review", "team.approach_overrid
          "team.referrals", "orch.feedback", "derived.input_link", "derived.conflict", "derived.score_row")  # fmt: skip
 #: the adversarial review of D-798: these stay owed (the screening log, NHI's send-once guard, the reveal cap, the
 #: not-matched sample) and the clear never touches them
-KEPT_OWED = ("site.weekly_seen", "orch.submissions", "team.candidate_views", "tuned.tuned_patients")
+KEPT_OWED = ("site.weekly_seen", "team.candidate_views", "tuned.tuned_patients")
+#: D-513 (D-804): a submission's dry run goes, a live one stays (test_readers_drop_the_opted_out holds it)
 
 
 def _stores(url: str) -> None:
@@ -120,7 +121,8 @@ def test_the_owed_tables_lose_the_opted_out_patient_and_keep_the_others(db_url: 
     _fill(db_url)
     env = _env(db_url)
     before = verify_tables(frozenset({A}), env)
-    assert set(before) == set(PLAIN) | {"derived.batch_run"} and all(before.values())
+    assert set(before) == set(PLAIN) | {"derived.batch_run", "orch.submissions"}
+    assert all(before[k] for k in (*PLAIN, "derived.batch_run"))
     out = clear_tables(frozenset({A}), env)
     assert A not in json.dumps(out) and sum(out.values()) >= len(PLAIN)  # counts only, never who
     assert verify_tables(frozenset({A}), env) == dict.fromkeys(before, 0)
@@ -146,7 +148,7 @@ def test_a_box_without_a_store_skips_it(db_url: str) -> None:
 
 def test_the_registry_no_longer_owes_the_cleared_tables() -> None:
     owed = {k for k, _card, _what in erasure.owed()}
-    cleared = set(PLAIN) | {"derived.batch_run"}
+    cleared = set(PLAIN) | {"derived.batch_run", "orch.submissions"}  # D-804: its dry runs
     assert not cleared & owed
     assert all(erasure.entries()[k].clear == "owed_tables" for k in cleared)
     assert set(erasure.tables_of("owed_tables")) == cleared
