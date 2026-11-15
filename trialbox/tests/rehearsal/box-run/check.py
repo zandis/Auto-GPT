@@ -357,6 +357,13 @@ if case == "acc-qualify-fails":
     ok("none" in parts["11-resolve"]["detail"]["judge_d3"], "11: PRODUCTION routes no judge (a candidate pair)")
     ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the run went on to its end")
 
+if case == "happy":
+    dk = json.loads((R / "records" / "disk.json").read_text())
+    ok(
+        dk["what"].startswith("grown") and calls["growpart /dev/sda 1"] == 1 and calls["resize2fs /dev/sda1"] == 1,
+        "the root partition and file system grown once to the larger disk; later boots find nothing to grow",
+    )
+
 if case == "probe":
     ok(list(parts) == ["00-facts"] and ended.startswith("TB-PROBE-DONE"), "probe: the facts, then the run ends")
     facts = (R / "records" / "facts-vm.txt").read_text()

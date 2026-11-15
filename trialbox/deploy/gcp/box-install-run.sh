@@ -119,7 +119,8 @@
 # TB_BOXRUN_MINUTE_S, TB_BOXRUN_POLL_S, TB_BOXRUN_DOOR_HOST, TB_BOXRUN_SHM (the tmpfs of the key), TB_BOXRUN_CGROUP
 # (the cgroup root), TB_ISSUE_DIR (deploy/box-install.sh's own knob: where the box's screen text goes),
 # TB_BOXRUN_INSTALL (the validation install command), TB_BOXRUN_MOUNT (the bind mount of the weights), TB_BOXRUN_TODAY,
-# TB_BOXRUN_ACC_PY (the python that runs lane G's accuracy tools on the VM).
+# TB_BOXRUN_ACC_PY (the python that runs lane G's accuracy tools on the VM), TB_BOXRUN_SYS and TB_BOXRUN_ROOT_MAJMIN (a
+# stand-in sysfs and root device for grow_root).
 TB=${TB_BOXRUN_ROOT:-/var/lib/tb}
 LOGDIR=${TB_BOXRUN_LOGDIR:-/var/log}
 SBIN=${TB_BOXRUN_SBIN:-/usr/local/sbin}
@@ -379,6 +380,43 @@ else
   echo "TB-NO-KEY: no bucket and no door from Secret Manager (tb-door-secret, tb-door-version, tb-door-cert); powering off"
   systemctl poweroff; exit 1
 fi
+# ------------------------------------------------------------------ the root disk grown to the disk (idempotent)
+# The disk was enlarged online (2026-11-15, 200 -> 400 GB); the root partition and file system follow only when
+# something grows them. Every boot, before any step: when the disk is more than 1 GiB larger than the root partition,
+# growpart and the file system's own grow tool; before and after sizes in records/disk.json. A missing tool is said
+# loudly (the run goes on, on the space it has; the free-space checks of b05 and 01 still guard it).
+SYSFS=${TB_BOXRUN_SYS:-/sys}
+grow_root() {
+  local mm part disk pn disk_b part_b fs before after out=""
+  mm=${TB_BOXRUN_ROOT_MAJMIN:-$(mountpoint -d /)}
+  part=$(basename "$(readlink -f "$SYSFS/dev/block/$mm")")
+  pn=$(cat "$SYSFS/class/block/$part/partition" 2>/dev/null)
+  disk=$(basename "$(dirname "$(readlink -f "$SYSFS/class/block/$part")")")
+  disk_b=$(( $(cat "$SYSFS/class/block/$disk/size" 2>/dev/null || echo 0) * 512 ))
+  part_b=$(( $(cat "$SYSFS/class/block/$part/size" 2>/dev/null || echo 0) * 512 ))
+  fs=$(findmnt -n -o FSTYPE /)
+  before=$(df -B1 --output=size / | tail -n 1 | tr -d ' ')
+  if [ -z "$pn" ] || [ "$disk_b" -le $((part_b + (1 << 30))) ]; then
+    out="nothing to grow (disk $disk_b B, root partition $part_b B)"
+  else
+    for t in growpart "$( [ "$fs" = xfs ] && echo xfs_growfs || echo resize2fs )"; do
+      command -v "$t" >/dev/null || { echo "TB-GROW-FAILED: no $t on this VM: the root stays at $before B" | tee -a "$LOG"; out="no $t"; }
+    done
+    if [ -z "$out" ]; then
+      growpart "/dev/$disk" "$pn" >> "$LOG" 2>&1
+      if [ "$fs" = xfs ]; then xfs_growfs / >> "$LOG" 2>&1; else resize2fs "/dev/$part" >> "$LOG" 2>&1; fi
+      out="grown: growpart /dev/$disk $pn, then the $fs file system"
+    fi
+  fi
+  after=$(df -B1 --output=size / | tail -n 1 | tr -d ' ')
+  # the record of the boot that grew it (or the first boot's) is kept; a later boot with nothing to grow adds none
+  case "$out" in "nothing to grow"*) [ -s "$RUN/records/disk.json" ] && { echo "TB-DISK root $after B ($out)" | tee -a "$LOG"; return 0; } ;; esac
+  printf '{"disk": "%s", "partition": "%s", "fs": "%s", "disk_bytes": %s, "partition_bytes_before": %s, "root_fs_bytes_before": %s, "root_fs_bytes_after": %s, "what": "%s"}\n' \
+    "$disk" "$part" "$fs" "$disk_b" "$part_b" "${before:-0}" "${after:-0}" "$out" > "$RUN/records/disk.json"
+  echo "TB-DISK root $before -> $after B ($out)" | tee -a "$LOG"
+}
+grow_root || echo "TB-GROW-FAILED: the root could not be grown (see the log)" | tee -a "$LOG"
+
 pack   # a results.tgz from the first minute on
 
 # ------------------------------------------------------------------ the settings, and what an earlier boot left
