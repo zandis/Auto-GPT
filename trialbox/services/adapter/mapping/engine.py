@@ -609,6 +609,17 @@ class Mapping:
                         f"{path}: {r.type}.{element} writes column atc under system {spec.get('system')!r}: {why}. "
                         "Write the atc column under `system: atc`"
                     )
+        for r in resources:  # CGRD-A3 (D-815): a site's own codes, kept as written
+            for element, spec in r.elements.items():
+                if isinstance(spec, dict) and "keep_as_written" in spec:
+                    keep = spec["keep_as_written"]
+                    if spec.get("dotted") != "icd10cm" or not (
+                        isinstance(keep, list) and keep and all(isinstance(k, str) and k.strip() for k in keep)
+                    ):
+                        raise MappingError(
+                            f"{path}: {r.type}.{element}: keep_as_written is a list of the site's own codes, with "
+                            "dotted: icd10cm"
+                        )
         for r in resources:  # D-689: a mapped coding takes only relations that say the code is the target
             for element, spec in r.elements.items():
                 if not isinstance(spec, dict) or spec.get("builder") != "mapped_coding" or "accept" not in spec:
@@ -1288,7 +1299,11 @@ class Mapper:
         text = str(code).strip()
         if args.get("dotted") == "icd10cm":
             bare = text.upper()
-            if _ICD10CM_DOTTED.fullmatch(bare):
+            if bare in {str(k).strip().upper() for k in args.get("keep_as_written") or ()}:
+                # CGRD-A3 (D-815): the site's own code: kept as written (never dotted into a code it is not), counted
+                text = bare
+                self._note_unmapped(rs.table, "local:icd10cm", text)
+            elif _ICD10CM_DOTTED.fullmatch(bare):
                 text = bare
             elif _ICD10CM_BARE.fullmatch(bare):
                 text = bare if len(bare) == 3 else f"{bare[:3]}.{bare[3:]}"
