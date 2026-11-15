@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 import re
 import threading
 import time
@@ -280,6 +281,10 @@ class Orchestrator:
         # T-726 (D-492): called with every job that reaches a final state, whatever ended it (the night's chain
         # starts its next step then)
         self.on_terminal: list[Callable[[Job], None]] = []
+        from tb_common import daily_limits  # D-507: a lift this box does not apply is said once, at start
+
+        for line in daily_limits.refused_lifts(os.environ, cfg.settings):
+            log.warning("daily limit not lifted on this box: %s", line)
 
     # ------------------------------------------------------------------ time
     def today(self) -> date:

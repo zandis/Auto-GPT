@@ -54,6 +54,8 @@ closed). Checks:
   map's: an opt-out registered by such a service would be filed under a pseudonym the feed never produces. Where
   the running containers or the pid map were not read (no docker, no database from here) the line says NOT CHECKED
   and is a WARN on a box that may hold real data; ``deploy/check_host.sh`` hands both in to the doctor's container;
+* ``daily_limits`` (D-507, D-775): a PRODUCTION box (``TB_ENV`` unset too) may lower the daily limits (heavy jobs a
+  sender, mails a recipient) but never lift them; a setting that would is not applied and FAILs here, named;
 * ``key_custody`` (T-210b, CR-041, D-347): the site keys are wrapped under the KEK (``tb_common.kek``). FAIL when a key
   is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
   folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
@@ -1812,6 +1814,21 @@ def check_chartno_rule(
     return Check(name, "PASS", said)
 
 
+def check_daily_limits(inp: DoctorInputs) -> Check:
+    """D-507 (lane C2's hunk): the daily limits (the heavy jobs one sender may start, the mails one recipient gets). A
+    PRODUCTION box, or a site box with ``TB_ENV`` unset, may lower them but never lift them: a setting that would is
+    not applied (today's value holds) and FAILs here, named. VALIDATION, TEST and DEV may set any value."""
+    from tb_common import daily_limits
+
+    refused = daily_limits.refused_lifts(inp.env, inp.settings)
+    if refused:
+        return Check("daily_limits", "FAIL", "not applied on this box (a lift needs VALIDATION, TEST or DEV): "
+                     + "; ".join(refused))  # fmt: skip
+    jobs = daily_limits.jobs_per_sender(inp.settings, inp.env) or "no limit"
+    mail = daily_limits.mail_per_recipient(inp.env) or "no limit"
+    return Check("daily_limits", "PASS", f"jobs {jobs} a sender, mail {mail} a recipient, a day")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -1831,6 +1848,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_restore_hold,
     check_site_key,
     check_chartno_rule,
+    check_daily_limits,  # D-507
     check_backup,
     check_key_custody,
     check_clock,
