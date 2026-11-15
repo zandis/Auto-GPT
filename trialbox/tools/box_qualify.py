@@ -109,6 +109,21 @@ def in_image(root: Path) -> bool:
 PATH_OPTS = ("--model-dir", "--server-log", "--audit-dir", "--evidence", "--check")
 
 
+def host_gpu_versions(run: Run) -> dict[str, str]:
+    """D-889: this host's NVIDIA driver, CUDA version and card (nvidia-smi), or {} when it has none; what qualify in
+    the image reports as the serving record's (TB_HOST_GPU)."""
+    try:
+        rows = run(["nvidia-smi", "--query-gpu=driver_version,name", "--format=csv,noheader"]).strip().splitlines()
+        full = run(["nvidia-smi"])
+    except Exception:
+        return {}
+    first = rows[0].split(",") if rows else []
+    if len(first) < 2 or not first[0].strip():
+        return {}
+    cuda = next((w.split()[0] for w in full.split("CUDA Version:")[1:2] if w.split()), "unknown")
+    return {"driver": first[0].strip(), "cuda": cuda, "gpu": first[-1].strip()}
+
+
 def relaunch_command(filled: list[str], root: Path, run: Run, env: dict[str, str] | None = None) -> list[str]:
     """D-881: ``docker run`` of qualify in the trialbox-py image, from the host. The release tree (``root``, resolved:
     ``/opt/trialbox/current``) is mounted read-only as TB_RELEASE_TREE and names the code; TB_CODE_IMAGE is the
@@ -121,6 +136,10 @@ def relaunch_command(filled: list[str], root: Path, run: Run, env: dict[str, str
     tree = root.resolve()
     cmd = [*docker, "run", "--rm", "-v", f"{tree}:/release:ro", "-e", "TB_RELEASE_TREE=/release",
            "-e", f"TB_CODE_IMAGE={image_id}"]  # fmt: skip
+    # D-889: the image has no GPU; the serving record's driver, CUDA and card are this host's (nvidia-smi here)
+    host_gpu = host_gpu_versions(run)
+    if host_gpu:
+        cmd += ["-e", "TB_HOST_GPU=" + json.dumps(host_gpu, separators=(",", ":"))]
     compose = shlex.split(
         env.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(tree / 'deploy'))}"
     )
