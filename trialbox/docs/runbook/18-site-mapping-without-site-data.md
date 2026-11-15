@@ -1,5 +1,7 @@
 # 18. Developing a site mapping without the site's data
 
+**Reader:** the data steward.
+
 The steward's procedure (T-011; TB-SITE-03). No row of the site's data leaves the hospital, and none is needed to
 write the mapping. (The card named this §13; §13 was already taken by D-201.)
 

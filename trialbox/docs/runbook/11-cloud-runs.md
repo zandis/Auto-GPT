@@ -1,5 +1,7 @@
 # 11. Cloud runs (owner's OK first)
 
+**Reader:** the people who build TrialBox.
+
 Qualifying a model pair on a card (G1b runs through it): [the qualify section](11-qualify.md) (D-313).
 
 GCP project `trialbox-demo`. Always use a private `CLOUDSDK_CONFIG` (and unset `CLOUDSDK_AUTH_ACCESS_TOKEN`), stop
