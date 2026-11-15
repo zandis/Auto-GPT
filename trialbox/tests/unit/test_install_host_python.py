@@ -93,6 +93,8 @@ def test_every_top_level_import_of_the_host_modules_is_checked_or_standard() -> 
 
 def test_the_long_load_says_it_is_alive_and_is_not_buffered() -> None:
     load = INSTALL[INSTALL.index('say "bundle: verify and load') : INSTALL.index('docker image inspect "$IMAGE_PY"')]
-    assert "--dry-run >/dev/null || die" not in load  # the verify step is no longer silent
-    assert "alive " in load and "PYTHONUNBUFFERED=1" in load
+    verify = load.index("--dry-run >/dev/null || die")
+    assert load.rfind('alive_start "verifying', 0, verify) != -1  # the verify step is no longer silent
+    assert 'alive_start "loading' in load and "export PYTHONUNBUFFERED=1" in load and "alive_stop" in load
+    assert "alive_stop;" in INSTALL[INSTALL.index("die() {") : INSTALL.index("\n", INSTALL.index("die() {"))]
     assert "| sed 's/^/    /'" not in load  # sed block-buffers into a pipe or a log; the shell prefixer does not

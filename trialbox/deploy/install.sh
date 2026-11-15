@@ -81,19 +81,25 @@ while [ $# -gt 0 ]; do
   shift
 done
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
-die() { printf 'install: %s\n' "$*" >&2; exit 1; }
-# D-831: a long step says it is alive once a minute on stderr (a watchdog sees life); indent prefixes each line as
-# it comes (sed block-buffers into a pipe or a log)
-alive() {
-  local what="$1" hb rc=0; shift
-  # the heartbeat ends its own sleep when stopped: a sleep left behind would hold a pipe open for up to a minute
+# D-831: a long step says it is alive once a minute on stderr (a watchdog sees life): alive_start before it,
+# alive_stop after; die stops it too. The heartbeat ends its own sleep when stopped: a sleep left behind would hold a
+# pipe open for up to a minute. indent prefixes each line as it comes (sed block-buffers into a pipe or a log)
+ALIVE_PID=""
+alive_start() {
+  local what="$1" installer=$$
+  # it also ends within a minute of the installer's own end (set -e, a signal): it never outlives the install
   ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
-    while :; do sleep 60 & s=$!; wait "$s"; n=$((n + 1)); echo "    ... still $what ($n min)" >&2; done
-  ) & hb=$!
-  "$@" || rc=$?
-  kill "$hb" 2>/dev/null || true; wait "$hb" 2>/dev/null || true
-  return "$rc"
+    while kill -0 "$installer" 2>/dev/null; do
+      sleep 60 & s=$!; wait "$s"; n=$((n + 1))
+      kill -0 "$installer" 2>/dev/null && echo "    ... still $what ($n min)" >&2
+    done
+  ) >&2 & ALIVE_PID=$!
 }
+alive_stop() {
+  [ -n "$ALIVE_PID" ] || return 0
+  kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""
+}
+die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
@@ -256,11 +262,14 @@ say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
-  alive "verifying the bundle" sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null \
-    || die "the bundle is not a valid signed TrialBox release; nothing was changed"
+  alive_start "verifying the bundle"
+  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
+  alive_stop
   echo "    loading the images, models and rulesets (10-20 minutes for a GPU bundle)"
-  TB_SKIP_AUDIT=1 PYTHONUNBUFFERED=1 alive "loading the bundle" sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 \
-    | indent || die "loading the bundle failed"
+  export PYTHONUNBUFFERED=1
+  alive_start "loading the bundle"
+  TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | indent || die "loading the bundle failed"
+  alive_stop
 fi
 docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"
 # T-631, D-367: compose files, host tools and configuration come only from the signed release
