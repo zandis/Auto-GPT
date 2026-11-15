@@ -52,7 +52,7 @@ LOG_COLUMNS = (
     "last_contact_outcome", "contact_attempts", "status", "reason", "status_date", "redcap_record_id", "subject_no",
     "referral_route", "referral_outcome", "referral_reason", "referral_requested", "referral_answered",
     "approach_irb_override", "criteria_version", "criterion_not_met", "consent_date", "consent_form_version",
-    "enrolment_date", "randomisation_date",
+    "enrolment_date", "randomisation_date", "opted_out",
 )  # fmt: skip
 DATE_COLUMNS = frozenset({"first_listed", "number_given", "pi_mark_date", "status_date", "referral_requested",
                           "referral_answered", "consent_date", "enrolment_date", "randomisation_date"})  # fmt: skip
