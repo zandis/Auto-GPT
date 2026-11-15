@@ -579,10 +579,10 @@ class Config:
     def alert_route(self) -> bool:
         return bool(self.alert_cmd or self.mailto or self.alert_page)
 
-    @property
-    def page_only(self) -> bool:
-        """D-735: the health tab is the only route: nobody is mailed; someone must open ``/admin``."""
-        return self.alert_page and not (self.alert_cmd or self.mailto)
+    def page_only(self, has_mta: bool) -> bool:
+        """D-735: the health tab is the only working route: no alert command, and no ``MAILTO`` that this host can
+        send (a box's settings always name the owner's address; without a mail transfer agent cron mails nothing)."""
+        return self.alert_page and not self.alert_cmd and not (self.mailto and has_mta)
 
     @property
     def last_file(self) -> Path:
@@ -615,6 +615,11 @@ ROUTE_HINT = (
     "TB_BACKUP_ALERT_CMD (a command that reads the message on stdin), or TB_BACKUP_MAILTO and a mail relay, or, on a "
     f"box with no mail, TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} (the /admin health tab), in deploy/.env (RUNBOOK §5)"
 )
+
+
+def has_mta() -> bool:
+    """Whether this host can send cron's mail (a mail transfer agent's ``sendmail``)."""
+    return shutil.which("sendmail") is not None
 
 
 def _alert_page(e: Mapping[str, str], errors: list[str]) -> bool:
@@ -1199,12 +1204,14 @@ def install_cron(cfg: Config, cron_dir: Path, root: Path, has_mta: bool) -> list
     notes = []
     if cfg.mailto and not has_mta:
         msg = "TB_BACKUP_MAILTO is set but this host has no mail transfer agent (sendmail): cron cannot mail"
-        if cfg.production and not cfg.alert_cmd:
-            raise ValueError(msg + "; set TB_BACKUP_ALERT_CMD (RUNBOOK §5)")
+        if cfg.production and not cfg.alert_cmd and not cfg.alert_page:
+            raise ValueError(msg + "; set TB_BACKUP_ALERT_CMD, or on a box with no mail "
+                             f"TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} (RUNBOOK §5)")  # fmt: skip
         notes.append("note: " + msg)
     if cfg.production and not cfg.alert_route:
-        raise ValueError("PRODUCTION needs a backup alert route: " + ROUTE_HINT)
-    if cfg.page_only:
+        bad = "".join(f"; {x}" for x in cfg.setting_errors if "TB_BACKUP_ALERT_ROUTE" in x)
+        raise ValueError("PRODUCTION needs a backup alert route: " + ROUTE_HINT + bad)
+    if cfg.page_only(has_mta):
         notes.append("note: backup alerts reach the /admin health tab and the audit only; nobody is mailed: someone "
                      "must open the health tab every working day (TB_BACKUP_ALERT_ROUTE, RUNBOOK §5)")  # fmt: skip
     if not cfg.alert_route:
@@ -1282,8 +1289,10 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
     from tools.trialbox import update
 
     cfg = config(deploy, update._env_file(deploy / ".env"))
+    for x in cfg.setting_errors:  # D-735 (review): a bad setting is said where the backup is installed
+        print(f"backup-install: bad setting: {x}")
     try:
-        for n in install_cron(cfg, cron_dir, deploy.resolve().parent, shutil.which("sendmail") is not None):
+        for n in install_cron(cfg, cron_dir, deploy.resolve().parent, has_mta()):
             print(n)
     except (OSError, ValueError) as e:
         print(f"backup-install: {e}")

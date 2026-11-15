@@ -627,7 +627,11 @@ def health_facts(box: Box) -> dict[str, Any]:
     try:
         from tools.trialbox import backup_schedule as bsch
 
-        backup: dict[str, Any] | None = bsch.status(bsch.config(box.deploy, box.env))
+        cfg = bsch.config(box.deploy, box.env)
+        # D-735 (review): WAL archiving's problems reach the health tile too, as the hourly backup-status sees them;
+        # on a box whose only alert route is the page nobody would hear of them otherwise
+        archiver = bsch._try(bsch.ComposeOps(box.deploy).archiver) if box.kind == "compose" and cfg.archive_on else None
+        backup: dict[str, Any] | None = bsch.status(cfg, archiver=archiver)
     except Exception:  # a box without a backup set-up yet: the check says unknown
         backup = None
     if str(ROOT / "libs") not in sys.path:
