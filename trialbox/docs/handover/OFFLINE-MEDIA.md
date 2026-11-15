@@ -1,5 +1,7 @@
 # Offline media layout (D-125, D-138)
 
+**Reader:** Aimedics, who make the media, and the box owner, who starts the installer from it.
+
 The Windows workstation never reaches the internet, at install or after (D-125). Everything comes on one USB disk
 (or the same folder copied to a local drive; a mapped network drive is not used: a window that runs as
 administrator does not see another sign-in's mapped drives), made by Aimedics from a signed release. The box owner starts
@@ -16,6 +18,7 @@ TRIALBOX-<version>/                      one folder per release, read-only on th
     box-install.messages.json            its messages in en, ja and zh-TW
     wsl-setup.sh                         its steps inside WSL2
     register_keepalive.ps1               the start-at-boot task the installer registers (NEW-WIN-2)
+    console-proxy.ps1                    Windows 10: keeps the console's forwarding pointed at WSL2 (NEW-WIN-10)
     key-probe.ps1                        which Windows key store the boot task can open (NEW-WIN-8; P-0 line 36)
     preflight.ps1, host_facts.ps1        deploy/windows/: the read-only checks (D-421)
     wsl/wsl.<version>.x64.msi            WSL itself, signed by Microsoft (the Store is not used); exactly one

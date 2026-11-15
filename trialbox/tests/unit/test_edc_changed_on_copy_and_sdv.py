@@ -1,4 +1,4 @@
-"""NEW-EDC-5c (D-615, the follow-up of D-695 and D-686): a value changed in REDCap after TrialBox sent it is marked on
+"""NEW-EDC-5c (D-801, the follow-up of D-695 and D-686): a value changed in REDCap after TrialBox sent it is marked on
 the copy-assist sheet and the monitor's SDV sheet.
 
 D-686 showed REDCap's value on the review page. The copy-assist sheet (a person copies the value by hand) and the SDV

@@ -16,18 +16,23 @@ from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the
 
 
 def test_report_rules_jp_tw_and_the_site_override() -> None:
-    assert lc.report_rules("Asia/Tokyo") == {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15)}
-    assert lc.report_rules("Asia/Taipei") == {"sponsor": (1, 1), "irb": (7, 15), "regulator": (7, 15)}
-    got = lc.report_rules("Asia/Taipei", "irb=3/10, regulator=0, nonsense=4, sponsor=x")
+    # D-766: the country's strictest set when named; nothing named gives no clock (no deadline until chosen)
+    assert lc.report_rules("Asia/Tokyo", rules="jp") == {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15),
+                                                         lc.EXPECTED_REGULATOR: (15, 0)}  # fmt: skip
+    assert lc.report_rules("Asia/Taipei", rules="tw") == {"sponsor": (1, 1), "irb": (7, 15), "regulator": (7, 15)}
+    assert lc.report_rules("Asia/Taipei") == {} and lc.report_rules("Asia/Tokyo") == {}
+    got = lc.report_rules("Asia/Taipei", "irb=3/10, regulator=0, nonsense=4, sponsor=x", "tw")
     assert got == {"sponsor": (1, 1), "irb": (3, 10), "regulator": (0, 0)}
     e = {"ae_serious": "1", "ae_outcome": "5", "ae_onset": "2026-11-01", "ae_aware": "2026-11-03",
          "ae_rep_sponsor": "2026-11-03"}  # fmt: skip
-    clock = {c["party"]: c for c in lc.report_clock(e, date(2026, 11, 11), lc.report_rules("Asia/Taipei"))}
+    clock = {c["party"]: c for c in lc.report_clock(e, date(2026, 11, 11), lc.report_rules("Asia/Taipei", rules="tw"))}
     assert clock["sponsor"] == {"party": "sponsor", "days": 1, "hours": 24, "due_at": "2026-11-04T00:00",
                                 "due": "2026-11-04", "done": "2026-11-03", "overdue": False, "bad_done": False}  # fmt: skip
     assert clock["irb"]["due"] == "2026-11-10" and clock["irb"]["overdue"]  # fatal: 7 days from the day learned
     other = {**e, "ae_outcome": "2", "ae_serious_why": "3", "ae_rep_sponsor": ""}
-    clock = {c["party"]: c for c in lc.report_clock(other, date(2026, 11, 11), lc.report_rules("Asia/Taipei"))}
+    clock = {
+        c["party"]: c for c in lc.report_clock(other, date(2026, 11, 11), lc.report_rules("Asia/Taipei", rules="tw"))
+    }
     assert clock["irb"]["due"] == "2026-11-18" and not clock["irb"]["overdue"] and clock["sponsor"]["overdue"]
     assert lc.report_clock({**e, "ae_serious": "0"}, date(2026, 11, 11), lc.report_rules()) == []
 
@@ -38,6 +43,7 @@ def test_a_fatal_sae_stays_until_the_pi_acknowledges_and_reports_have_a_clock(lb
     c, csrf = login(lb["app"], "crc", PW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
     c.get("/studies/GZQO/subjects")
+    c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"})  # D-766: the clock runs once chosen
     lb["clock"]["now"] = datetime(2026, 11, 11, 1, 0, tzinfo=UTC)  # a Wednesday, Asia/Taipei
     fatal = {"ae_term": "Myocardial infarction", "ae_onset": "2026-11-08", "ae_aware": "2026-11-09",
              "ae_serious": "1", "ae_serious_why": "1", "ae_severity": "3", "ae_outcome": "5", "ae_related": "9"}  # fmt: skip
@@ -105,3 +111,19 @@ def _audit(log: Any) -> list[dict[str, Any]]:
     import json
 
     return [json.loads(x) for f in sorted(log.directory.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+
+
+def test_a_serious_ae_with_no_set_chosen_is_listed_and_the_rules_line_names_parties_only(lb: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-766 (2, 5): no set chosen gives no deadline, and the SAE is still on the home page's overdue
+    list as "no deadline yet", never left out; a jp_gcp_ii rules line shows its parties, not the internal row."""
+    name_pi(lb, "pi")
+    no, _other = lb["nos"]
+    c, csrf = login(lb["app"], "crc", PW)
+    c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
+    c.get("/studies/GZQO/subjects")
+    fatal = {"ae_term": "Myocardial infarction", "ae_onset": "2026-11-08", "ae_aware": "2026-11-09",
+             "ae_serious": "1", "ae_serious_why": "1", "ae_severity": "3", "ae_outcome": "5", "ae_related": "9"}  # fmt: skip
+    _save(c, csrf, no, "tb_adverse_event", fatal, "ae1", "subject")
+    assert "no deadline yet" in c.get("/home").text
+    c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "jp_gcp_ii"})
+    assert "regulator_expected" not in c.get("/sae").text

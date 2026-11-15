@@ -1,4 +1,4 @@
-# D-614 An erase is ledgered before the import
+# D-800 An erase is ledgered before the import
 
 - **Task:** NEW-EDC-8c (D-691's known limit: "erase hidden values" wrote no attempt line)
 - **PR:** this branch (`agent/NEW-EDC-8c-erase-attempt`), cut from NEW-EDC-5b (#636), the EDC chain's head
@@ -6,7 +6,7 @@
 - **Status:** proposed (merges on green CI and one adversarial review)
 - **Builds on:** D-691 (the attempt ledger), D-692 (`refused`), D-690 (a repeat instance judged on TrialBox's own
   writes), D-414 (erase hidden values)
-- **Number:** the first number free on every branch (D-700 and D-701 are other lanes')
+- **Number:** lane E's block (renumbered from D-614, lane W's block)
 
 ## Context
 

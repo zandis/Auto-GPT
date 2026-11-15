@@ -1,5 +1,7 @@
 # Windows install checklist: the box form (NEW-WIN-9, D-611; D-600 to D-610)
 
+**Reader:** the box owner, or Aimedics for a prepared box.
+
 For the person who sets the workstation up: the box owner, or an Aimedics engineer beside them. Hospital IT is
 needed for two things only: the network address, and the data connection. Offline: the USB disk of
 `OFFLINE-MEDIA.md`. The owner's own pages are `windows-owner.{en,ja,zh-TW}.md`; what a desktop user may run is
@@ -10,9 +12,12 @@ run on Windows until the rehearsal (`P-0-windows-rehearsal.md`) has; until then 
 and write down where the two differ.
 
 **Before the visit**
-- [ ] The workstation: Windows 11 Pro, Pro for Workstations, Enterprise or Education (Home is refused), build
-      22621 or later; an NVIDIA card; a second fixed NTFS drive with 500 GB free for the data (the installer
-      chooses it when there is exactly one, and asks otherwise).
+- [ ] The workstation: Windows 10 22H2 (build 19045) or Windows 11, as Pro, Pro for Workstations, Enterprise or
+      Education (Home is refused: no BitLocker); an NVIDIA card; a second fixed NTFS drive with 500 GB free for
+      the data (the installer chooses it when there is exactly one, and asks otherwise; on a PC with several,
+      give `-DataDrive`). On Windows 10 the console is forwarded to WSL2 by a port-proxy rule and a task
+      (D-613); Windows 11 22H2 and later use mirrored networking. Windows 10's support has ended: security updates
+      only with Extended Security Updates (ESU), which the site arranges.
 - [ ] The tier has a measured serving record on the media (`measured/`); without it the Linux installer refuses
       the tier.
 - [ ] The media was built for this release and checked on the disk itself

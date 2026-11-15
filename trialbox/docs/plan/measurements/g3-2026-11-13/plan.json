@@ -1,0 +1,209 @@
+{
+ "patients": 5000,
+ "seconds_per_note_patient": 6.3,
+ "parts": [
+  "g1"
+ ],
+ "llm_concurrency": [
+  1,
+  4,
+  16
+ ],
+ "llm_speedup": [
+  1.0,
+  2.602,
+  4.435
+ ],
+ "llm_speedup_override": null,
+ "max_num_seqs": 16,
+ "rows": [
+  {
+   "scenario": "VM start, both models resident",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "VM setup: packages, venv, browser, fonts",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "db-csv (ja, 1 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1796.0,
+   "tags": [
+    "hospital-ja@c1"
+   ],
+   "floor_seconds": 1796.0,
+   "hours": 0.5,
+   "usd": 1.37
+  },
+  {
+   "scenario": "db-csv (ja, 4 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1267.5000768639509,
+   "tags": [
+    "hospital-ja@c4"
+   ],
+   "floor_seconds": 1796.0,
+   "hours": 0.35,
+   "usd": 0.96
+  },
+  {
+   "scenario": "db-csv (ja, 16 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1131.1512965050733,
+   "tags": [
+    "hospital-ja@c16"
+   ],
+   "floor_seconds": 1796.0,
+   "hours": 0.31,
+   "usd": 0.85
+  },
+  {
+   "scenario": "db-csv (zh-TW, 1 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1796.0,
+   "tags": [
+    "hospital-zh-TW@c1"
+   ],
+   "floor_seconds": 1796.0,
+   "hours": 0.5,
+   "usd": 1.37
+  },
+  {
+   "scenario": "db-csv (zh-TW, 4 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1267.5000768639509,
+   "tags": [
+    "hospital-zh-TW@c4"
+   ],
+   "floor_seconds": 1796.0,
+   "hours": 0.35,
+   "usd": 0.96
+  },
+  {
+   "scenario": "db-csv (zh-TW, 16 in flight)",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1131.1512965050733,
+   "tags": [
+    "hospital-zh-TW@c16"
+   ],
+   "floor_seconds": 1796.0,
+   "hours": 0.31,
+   "usd": 0.85
+  },
+  {
+   "scenario": "G-4 decoding: guided on/off, 16 in flight",
+   "patients": 0,
+   "model_items": 128,
+   "seconds": 283.9,
+   "tags": [
+    "g4-decoding"
+   ],
+   "hours": 0.08,
+   "usd": 0.22
+  },
+  {
+   "scenario": "G-5 token counts, 2 x 200 excerpts",
+   "patients": 0,
+   "model_items": 800,
+   "seconds": 1144.3,
+   "tags": [
+    "g5-tokens"
+   ],
+   "hours": 0.32,
+   "usd": 0.88
+  },
+  {
+   "scenario": "G-7 clipped against whole note",
+   "patients": 0,
+   "model_items": 16,
+   "seconds": 140.5,
+   "tags": [
+    "g7-clipped"
+   ],
+   "hours": 0.04,
+   "usd": 0.11
+  }
+ ],
+ "hours": 3.27,
+ "usd": 8.95,
+ "cap_hours": 5,
+ "cap_usd": 13.7,
+ "provisioning": "SPOT",
+ "price_per_hour": 2.74,
+ "llm_concurrency_default": false,
+ "llm_concurrency_order": {
+  "seed": 596281818,
+  "given": [
+   1,
+   4,
+   16
+  ]
+ },
+ "only": [
+  "hospital-ja",
+  "hospital-zh-TW",
+  "g4-decoding",
+  "g5-tokens",
+  "g7-clipped"
+ ],
+ "plan": {
+  "vms": 1,
+  "shards": [
+   {
+    "shard": 1,
+    "tags": [
+     "prepare",
+     "hospital-ja@c1",
+     "hospital-zh-TW@c1",
+     "hospital-ja@c4",
+     "hospital-zh-TW@c4",
+     "g5-tokens",
+     "hospital-ja@c16",
+     "hospital-zh-TW@c16",
+     "g4-decoding",
+     "g7-clipped"
+    ],
+    "rows": [
+     "db-csv (ja, 1 in flight)",
+     "db-csv (zh-TW, 1 in flight)",
+     "db-csv (ja, 4 in flight)",
+     "db-csv (zh-TW, 4 in flight)",
+     "G-5 token counts, 2 x 200 excerpts",
+     "db-csv (ja, 16 in flight)",
+     "db-csv (zh-TW, 16 in flight)",
+     "G-4 decoding: guided on/off, 16 in flight",
+     "G-7 clipped against whole note"
+    ],
+    "hours": 3.27,
+    "usd": 8.95,
+    "cap_hours": 5,
+    "cap_usd": 13.7,
+    "provisioning": "SPOT",
+    "price_per_hour": 2.74,
+    "vm": "tb-gpu-sim",
+    "zone": "asia-east1-a"
+   }
+  ],
+  "wall_hours": 3.27,
+  "hours": 3.27,
+  "usd": 8.95,
+  "cap_usd": 13.7
+ }
+}

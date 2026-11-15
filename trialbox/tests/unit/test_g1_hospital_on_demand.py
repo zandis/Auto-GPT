@@ -128,7 +128,7 @@ def test_a_resumed_shard_gets_a_recomputed_cap(tmp_path: Path) -> None:
     only = "install,hospital-ja,scenario-gateway"
     # one call in flight, as G1 measured it (not given, the run takes the serving record's 16: test_g3_throughput_curve)
     out = _dry(tmp_path, "--patients", "50000", "--only", only, "--llm-concurrency", "1", TB_RUN_ID="R")
-    assert "--max-run-duration=8h" in out and "--provisioning-model=STANDARD" in out
+    assert "--max-run-duration=6h" in out and "--provisioning-model=STANDARD" in out  # 3.98 h x 1.3
     o = tmp_path / "out"
     (o / "TB_HEAD.json").write_text(json.dumps({"head": HEAD}), encoding="utf-8")
     for tag in ("install", "prepare", "hospital-ja"):

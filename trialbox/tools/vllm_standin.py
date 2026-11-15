@@ -47,6 +47,12 @@ from typing import Any
 
 _BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
 MAX_BODY = 8 * 1024 * 1024  # bytes of one request body
+# The listen backlog: uvicorn's default (2048), which vLLM's OpenAI server listens with, so a burst of calls waits in
+# the kernel's queue while the accept loop is slow, as on vLLM. socketserver's default is 5: a burst of 16 (G-4 sends
+# the judge's slots at once) behind an accept loop starved of CPU and of the GIL overflowed it, the kernel answered
+# with SYN cookies, and one connection was reset before the stand-in read it (train 16 and PR #613: 127 of 128 calls
+# answered, the 128th "Connection reset by peer").
+BACKLOG = 2048
 OPEN_ROUTES = ("/invocations", "/tokenize")  # vLLM answers these without the key (counted under "open")
 
 
@@ -164,6 +170,17 @@ class Standin:
 
 def _error(message: str, kind: str, code: int) -> dict[str, Any]:
     return {"object": "error", "message": message, "type": kind, "param": None, "code": code}
+
+
+class StandinServer(ThreadingHTTPServer):
+    """The stand-in's HTTP server: a thread per connection, listening with vLLM's backlog (:data:`BACKLOG`)."""
+
+    request_queue_size = BACKLOG
+
+
+def serve(s: Standin, host: str = "127.0.0.1", port: int = 0) -> StandinServer:
+    """A server for ``s``, bound and listening (port 0: a free one); the caller runs ``serve_forever``."""
+    return StandinServer((host, port), make_handler(s))
 
 
 def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
@@ -304,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"vllm_standin: {exc}", file=sys.stderr)
         return 2
-    srv = ThreadingHTTPServer((a.host, a.port), make_handler(s))
+    srv = serve(s, a.host, a.port)
     flags = sum(1 for x in ignored if x.startswith("--"))
     print(f"vllm_standin: serving {s.served} on {a.host}:{a.port} (key required; {flags} vLLM flags ignored)",
           file=sys.stderr, flush=True)  # fmt: skip

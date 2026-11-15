@@ -1,0 +1,11 @@
+#!/bin/bash
+# Box-run rehearsal shim: `systemctl poweroff` records who powered off and why (the console's last TB- line that says
+# so), marks the "VM" TERMINATED and ends every process of it (its process group). The disk ($BR_S/vm) stays.
+if [ "$1" = poweroff ]; then
+  why=$(grep -a 'TB-WATCHDOG\|TB-NO-KEY\|TB-DOOR-FAILED' "$BR_S/vm/serial.log" 2>/dev/null | tail -n 1)
+  echo "$(date -u +%FT%TZ) poweroff | $why" >> "$BR_S/POWEROFF"
+  echo TERMINATED > "$BR_S/status"
+  kill -KILL -- "-$(cat "$BR_S/vm.pgid")" 2>/dev/null
+  exit 0
+fi
+echo "systemctl $* (no-op)" >> "$BR_S/units.log"

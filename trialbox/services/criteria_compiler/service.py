@@ -40,6 +40,7 @@ from tb_contracts import (
     dump,
 )
 
+from criteria_compiler import structure
 from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_cql.translator import TranslationError, Translator, fhirhelpers_source
 from criteria_compiler.compile_sql.generator import SqlGenerator
@@ -501,16 +502,24 @@ class Compiler:
             raise CompileFailed("parse", f"parsed document {req.parsed_doc_key} not found") from exc
         block = parsed.ie_block
         refs = block.refs or {}
-        lines = [
-            {"text": t, "kind": kind, "source_ref": refs.get(t, "")}
-            for kind, items in (
-                ("inclusion", block.inclusion),
-                ("exclusion", block.exclusion),
-                ("renewal", block.renewal or []),
-                ("documentation", block.documentation or []),
-            )
-            for t in items
-        ]
+        lines: list[dict[str, Any]] = []
+        for kind, items in (
+            ("inclusion", block.inclusion),
+            ("exclusion", block.exclusion),
+            ("renewal", block.renewal or []),
+            ("documentation", block.documentation or []),
+        ):
+            # NEW-LIFE-2: the parser's positional refs (each item's own section and its lead-in) when it gave them;
+            # else the text-keyed refs of a parsed document from before them
+            pos = (block.item_refs or {}).get(kind)
+            base = len(lines)
+            for i, t in enumerate(items):
+                if pos is not None and len(pos) == len(items):
+                    r = pos[i]
+                    parent = None if r.parent is None else base + r.parent
+                    lines.append({"text": t, "kind": kind, "source_ref": f"{r.section} #{r.n}", "parent": parent})
+                else:
+                    lines.append({"text": t, "kind": kind, "source_ref": refs.get(t, "")})
         if not lines:
             raise CompileFailed("parse", "no eligibility criteria were found in the document")
         ruleset = req.ruleset
@@ -554,9 +563,11 @@ class Compiler:
                     freed.setdefault(c.kind, []).append(c.id)
         new_iter = iter(criteria_new)
         criteria: list[CriterionIR] = []
+        reused: set[int] = set()
         for ln in lines:
             hit = reuse.get((ln["kind"], _norm(str(ln["text"]))))
             if hit:
+                reused.add(len(criteria))
                 criteria.append(hit.model_copy(update={"review": CriterionReview(status="draft")}))
                 continue
             fresh = next(new_iter)
@@ -569,6 +580,11 @@ class Compiler:
             criteria.append(fresh.model_copy(update={"id": new_id}))
         profile = self._profile(ruleset)
         lookback = int(options.get("lookback") or profile.get("scopes", {}).get("feas", {}).get("lookback_months", 36))
+        # NEW-LIFE-2: a heading, a group's alternatives, a glued heading, another phase or a second section is not one
+        # required criterion: a person decides it, and the warnings say why (LIFE-002)
+        shape = structure.check(lines, req.kind or "trial")
+        criteria, moved = structure.send_to_a_person(criteria, shape, keep=reused)  # a reviewer decided those
+        warnings.extend(shape.warnings + moved)
         criteria, demoted = self.demote_uncompilable(ruleset, version, criteria, valuesets)
         warnings.extend(demoted)
         art = self.build_artifacts(ruleset, version, criteria, valuesets, lookback)

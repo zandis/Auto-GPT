@@ -94,6 +94,41 @@ log = logging.getLogger("orchestrator")
 GENERATION_OPTION = "lake_generation"  # the job record's copy of the generation it reads (T-724, D-490)
 
 
+class QueryLimitsUnread(ValueError):
+    """``TB_LAKE_QUERY_LIMITS`` cannot be read (D-746): its words are written here and name the setting."""
+
+
+def lake_query_limit(job_type: str, environ: Mapping[str, str] | None = None) -> int | None:
+    """NEW-B-45 (D-746): the time limit of one lake query of a job of this type, seconds (``TB_LAKE_QUERY_LIMITS``,
+    ``TYPE=seconds`` by commas); None for a type not listed (the lake's own limit). A value that is not a whole number
+    of seconds above 0 is refused, naming the setting."""
+    from lake.store import MAX_QUERY_LIMIT_S
+    from tb_common.config import DECLARED
+
+    raw = (os.environ if environ is None else environ).get("TB_LAKE_QUERY_LIMITS")
+    text = raw or DECLARED["TB_LAKE_QUERY_LIMITS"].default  # an empty line is the default, not "no limits"
+    limits: dict[str, int] = {}
+    for part in (p.strip() for p in text.split(",")):
+        if not part:
+            continue
+        kind, sep, value = (x.strip() for x in part.partition("="))
+        ok = sep and kind and value.isascii() and value.isdigit() and 0 < int(value) <= MAX_QUERY_LIMIT_S
+        if not ok or kind.upper() in limits:
+            raise QueryLimitsUnread(
+                f"TB_LAKE_QUERY_LIMITS: {part!r} is not TYPE=seconds once per type (1 to {MAX_QUERY_LIMIT_S} s)"
+            )
+        limits[kind.upper()] = int(value)
+    return limits.get(job_type.upper())
+
+
+def _job_query_limit(job_type: str) -> int | None:
+    """The job's lake query limit; a setting that cannot be read fails the job in words that name it (D-746)."""
+    try:
+        return lake_query_limit(job_type)
+    except QueryLimitsUnread as exc:
+        raise StepFailed("running", f"{exc}. Correct the setting and send the request again.") from None
+
+
 class PinnedLake:
     """A job's view of the lake: every query and note search on the one snapshot it pinned, and, where the lake has
     generations (T-724, D-490), on the one generation of that date it pinned: a rebuild of the date meanwhile (a
@@ -109,8 +144,18 @@ class PinnedLake:
         holder: str | None = None,
         generation: str | None = None,
         on_generation: Callable[[str], None] | None = None,
+        query_limit_s: int | None = None,
     ) -> None:
         self.lake = lake
+        # D-746: the job's time limit of one lake query, sent to a lake that takes one (a stand-in may not)
+        self.query_limit_s = query_limit_s
+        import inspect
+
+        try:
+            self._sends_limit = "timeout_s" in inspect.signature(lake.query).parameters
+        except (AttributeError, TypeError, ValueError):
+            self._sends_limit = False
+        self._limit_dropped_said = False
         self.pinned = pinned
         self.holder = holder
         self.held = False
@@ -193,8 +238,17 @@ class PinnedLake:
     def snapshot(self) -> str | None:
         return self.pin()
 
-    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+    def query(
+        self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None
+    ) -> Any:
+        """``timeout_s``: a caller's own limit for this query; else the job's (D-746)."""
         self.pin()
+        limit = self.query_limit_s if timeout_s is None else timeout_s
+        if limit is not None and self._sends_limit:
+            return self.lake.query(sql, params, self._reads(snapshot), timeout_s=limit)
+        if limit is not None and not self._limit_dropped_said:  # a lake that takes no limit: said once, in the log
+            self._limit_dropped_said = True
+            log.warning("job %s: the lake takes no time limit; its queries have the lake's own", self.holder)
         return self.lake.query(sql, params, self._reads(snapshot))
 
     def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> Any:
@@ -242,6 +296,7 @@ def pinned_services(ctx: Ctx) -> Services:
         holder=job.job_id,
         generation=str((job.options or {}).get(GENERATION_OPTION) or "") or None,
         on_generation=record_generation,
+        query_limit_s=_job_query_limit(job.type),
     )
     return replace(base, lake=lake)
 

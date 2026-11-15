@@ -29,7 +29,7 @@ def _lines(path: Path) -> list[str]:
 
 @pytest.fixture(scope="module")
 def patterns() -> list[ds.Pattern]:
-    return ds.load_patterns()
+    return ds.load_patterns(exits=True)  # every pattern, the exits' too (D-747): each finds its planted positive
 
 
 @pytest.mark.parametrize("pid", PATTERN_IDS)

@@ -1,0 +1,36 @@
+{
+ "schema": "tb-capacity-inputs/1",
+ "run_id": "20261113T231557Z-0e9be8a5",
+ "run_ids": [
+  "20261113T231557Z-0e9be8a5"
+ ],
+ "commit": "0e9be8a5f27c7a512a68e4fd270c779e80682a15",
+ "commits": [
+  "0e9be8a5f27c7a512a68e4fd270c779e80682a15"
+ ],
+ "card": null,
+ "synthetic_data_only": true,
+ "complete": false,
+ "verdict": "FAILED",
+ "parts": {
+  "g5-tokens": "PASSED",
+  "g8-protocols": "FAILED"
+ },
+ "g1": {
+  "status": "NOT PLANNED",
+  "note": "the plan has no chat-template part"
+ },
+ "g3": {},
+ "cost": {
+  "hours": 0.8,
+  "hours_source": "VM hours given with --vm-hours",
+  "part_hours": 0.01,
+  "price_per_hour": 2.74,
+  "usd": 2.19,
+  "estimate_hours": 1.54,
+  "estimate_usd": 4.22,
+  "cap_hours": 3,
+  "cap_usd": 8.22,
+  "over_cap": false
+ }
+}

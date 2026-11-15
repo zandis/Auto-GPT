@@ -1,5 +1,7 @@
 # 3. Accounts
 
+**Reader:** the box owner, as the box's administrator (the build-gate parts: the people who build TrialBox).
+
 Administrators add accounts on **Users** (`/ops/users`). For a viewer or CRO account the one-time password shows once,
 in a read-only field; hand it over in person or by phone (D-133). For a coordinator, investigator, steward, privacy or
 administrator account only an enrolment code is shown (D-719): its holder signs in once with it at **First sign-in
@@ -26,7 +28,7 @@ other encodings (UTF-16, Big5, Shift-JIS, EUC-JP, GB18030) are decoded. A binary
 `tests/fixtures/`, `eval/`, `catalogue/`, `refdata/` and the reference tables `.gitattributes` names is refused. Exit
 2 on a hit; the output gives the file, the line, the pattern and at most two characters at each end, never the value.
 The same scan runs on a log (`python -m tools.data_scan --log make-test.log`), on a support bundle or any archive
-(`python -m tools.data_scan bundle.tgz`), as the pre-commit hook (`pre-commit install --config
+(`python -m tools.data_scan --exits bundle.tgz`: `--exits` adds the patterns of what leaves the box, D-747), as the pre-commit hook (`pre-commit install --config
 trialbox/.pre-commit-config.yaml`, from the repository root) and as the `data-scan` CI job. A synthetic value that
 looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is an incident (TB-SITE-03 §1.7).
 

@@ -205,7 +205,8 @@ class LlmClient:
     def context_tokens(self) -> int | None:
         """The model's context in tokens, or None when it cannot be told (T-603). Through the gateway: its
         ``GET /v1/models`` for this client's alias (:meth:`tb_llm.GatewayClient.context`). Direct (DEV, no
-        gateway): ``TB_LLM_CONTEXT`` when set. Asked again after :attr:`CONTEXT_TTL_S`."""
+        gateway): ``TB_LLM_CONTEXT`` when set. A known context is asked again after :attr:`CONTEXT_TTL_S`; an
+        unknown one at the next call."""
         now = time.monotonic()
         if self._context is not None and now - self._context[0] < self.CONTEXT_TTL_S:
             return self._context[1]
@@ -217,7 +218,10 @@ class LlmClient:
         else:
             raw = os.environ.get("TB_LLM_CONTEXT", "").strip()  # a direct call (DEV only): the context, if set
             ctx = int(raw) if raw.isdigit() and int(raw) > 0 else None
-        self._context = (now, ctx)
+        # deep review 2026-11-13 (screening, SCR-18): only a known context is kept. One failed ``GET /v1/models``
+        # kept "unknown" for the whole TTL, so every caller in it sized its excerpts from the small default and a
+        # run's excerpts, and so its tiers, depended on whether that one request failed
+        self._context = (now, ctx) if ctx is not None else None
         return ctx
 
     def text_budget(self, prompt_id: str, fixed: dict[str, Any]) -> int | None:

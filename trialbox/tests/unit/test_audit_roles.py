@@ -85,7 +85,9 @@ def test_the_closure_follows_what_a_process_runs() -> None:
     mods = _modules()
     console = _closure("console", mods)
     # a store the console's own page opens inside a function is the console's
-    assert "datacore.dataops" in console and "orchestrator.candidates" in console
+    assert "omop.conflicts" in console and "orchestrator.candidates" in console
+    # NEW-ARCH-3 (D-761): the night's data operations are the orchestrator's; the console imports none of them
+    assert "datacore.dataops" not in console
     # the orchestrator's app, reached only through imports inside the orchestrator's own functions, is not
     assert "orchestrator.app" not in console and "orchestrator.callers" not in console
     assert "orchestrator.callers" in _closure("orchestrator", mods)
@@ -166,7 +168,9 @@ def test_every_family_a_service_writes_is_in_its_row() -> None:
             assert aw.ROLE_EVENTS[role] == own | extra, f"{role}: the row is not what services/{name} writes"
             assert all(why.strip() for why in aw.EDGE_EXTRA.get(role, {}).values())
     lib = _written(sorted((ROOT / "libs").rglob("*.py")))
-    assert lib <= set(aw._SHARED), lib  # what tb_common writes for whoever calls it
+    # what tb_common writes for whoever calls it; and the chain's own records, which its writers write themselves
+    # (the drain, the file writer, the host's signer) and no service sends (D-718)
+    assert lib <= {*aw._SHARED, aw.RESERVED}, lib
     assert all(set(aw._SHARED) <= aw.ROLE_EVENTS[role] for role in HOSTS)
 
 

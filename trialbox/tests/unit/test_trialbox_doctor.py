@@ -46,6 +46,7 @@ def test_default_install_passes() -> None:
         "channel_engine",
         "secure_cookie",
         "console_mfa",
+        "ldap_ca",  # D-722
         "publish_gate",
         "note_block",
         "judge_route",
@@ -63,6 +64,7 @@ def test_default_install_passes() -> None:
         "audit_heads",
         "anchor_mount",  # D-638
         "rehearsal",  # D-726
+        "sae_mailbox",  # D-736
         "memory_caps",
         "wsl2_memory",
         "update_window",

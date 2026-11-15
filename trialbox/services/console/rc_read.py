@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from console import s28
+from console import actor, s28
 from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.study_setup import read_now
@@ -33,6 +33,11 @@ def run(h: Helpers, only: str | None = None) -> list[tuple[str, str]]:
             out.append((rs, f"error {getattr(exc, 'code', 'unavailable')}"))
             continue
         h.au.append("console.redcap_read", ruleset=rs, actor="console:nightly", detail={"changes": len(res["changes"])})
+        if (
+            h.sae_sync is not None
+        ):  # D-764 (its review): an SAE read back from REDCap is told now, not at the mail round
+            with actor.reading_as(actor.NOTIFY):
+                h.sae_sync(rs)
         out.append(
             (
                 rs,

@@ -1,0 +1,216 @@
+{
+ "stages": [
+  {
+   "name": "G-1 chat template: the passed file against the weights folder's own",
+   "ok": false,
+   "seconds": 5.3,
+   "checks": [
+    [
+     "the weights folder's tokenizer and chat template were read",
+     true,
+     "94899c0f917d93f6fe81c95744d1e8ddab2d21d39228d2e4aec1fb2a25bff413"
+    ],
+    [
+     "the template the serving configuration passes is here",
+     true,
+     "fetched: google/gemma-4-26B-A4B-it at 4d7ae4984b7d"
+    ],
+    [
+     "the two templates are identical (sha256 of the text)",
+     false,
+     {
+      "folder": "94899c0f917d93f6fe81c95744d1e8ddab2d21d39228d2e4aec1fb2a25bff413",
+      "passed": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4"
+     }
+    ],
+    [
+     "20 prompts: the server's token ids equal the folder tokenizer's",
+     false,
+     [
+      {
+       "prompt": 1,
+       "first_difference_at": 22,
+       "lengths": [
+        108,
+        107
+       ]
+      },
+      {
+       "prompt": 3,
+       "first_difference_at": 22,
+       "lengths": [
+        153,
+        152
+       ]
+      },
+      {
+       "prompt": 5,
+       "first_difference_at": 22,
+       "lengths": [
+        99,
+        98
+       ]
+      },
+      {
+       "prompt": 7,
+       "first_difference_at": 22,
+       "lengths": [
+        144,
+        143
+       ]
+      },
+      {
+       "prompt": 9,
+       "first_difference_at": 22,
+       "lengths": [
+        114,
+        113
+       ]
+      }
+     ]
+    ],
+    [
+     "20 prompts: the passed template gives the same token ids as the folder's",
+     true,
+     []
+    ]
+   ],
+   "shot": "chat-template.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "chat_template": {
+  "judge_model": "nvidia/Gemma-4-26B-A4B-NVFP4",
+  "judge_started_with": null,
+  "passed": {
+   "path": "/var/lib/tb/runs/20261112T165042Z-931a0f79-s1/chat-template/chat_template.passed.jinja",
+   "sha256": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+   "served_with_it": false,
+   "from": "fetched: google/gemma-4-26B-A4B-it at 4d7ae4984b7d"
+  },
+  "passed_text_sha256": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+  "folder_template_sha256": "94899c0f917d93f6fe81c95744d1e8ddab2d21d39228d2e4aec1fb2a25bff413",
+  "folder_template_chars": 16934,
+  "transformers": "5.19.0",
+  "tokens": {
+   "prompts": 20,
+   "tokens": 2268,
+   "server_equals_folder": false,
+   "server_different": [
+    {
+     "prompt": 1,
+     "first_difference_at": 22,
+     "lengths": [
+      108,
+      107
+     ]
+    },
+    {
+     "prompt": 3,
+     "first_difference_at": 22,
+     "lengths": [
+      153,
+      152
+     ]
+    },
+    {
+     "prompt": 5,
+     "first_difference_at": 22,
+     "lengths": [
+      99,
+      98
+     ]
+    },
+    {
+     "prompt": 7,
+     "first_difference_at": 22,
+     "lengths": [
+      144,
+      143
+     ]
+    },
+    {
+     "prompt": 9,
+     "first_difference_at": 22,
+     "lengths": [
+      114,
+      113
+     ]
+    }
+   ],
+   "passed_equals_folder": true,
+   "passed_different": []
+  },
+  "identical": false
+ },
+ "run": {
+  "id": "20261112T165042Z-931a0f79-s1",
+  "head": "931a0f79540ca8e80de546f6a56021b5f00b9184",
+  "subject": "Merge master into fix/g1-canary-rehearsal",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 1,
+ "metrics": {
+  "sampled": true,
+  "seconds": 5.9,
+  "folder": "parts/chat-template",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   }
+  },
+  "gpu": {
+   "samples": 2,
+   "every_s": 10.0,
+   "util_mean_pct": 0.0,
+   "util_max_pct": 0.0,
+   "memory_peak_mib": 62576.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 35.0,
+   "power_max_w": 89.28
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   },
+   "verifier": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   }
+  }
+ },
+ "wall_seconds": 5.9
+}

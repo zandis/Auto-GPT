@@ -1,5 +1,7 @@
 # RUNBOOK §4 part: GPU fault
 
+**Reader:** Aimedics, with the box owner at the box.
+
 *T-635 (OPS-074). Signs: `selftest.failed` in the audit, a run fails with "the model did not answer", the model
 server restarts again and again, `nvidia-smi` errors.*
 

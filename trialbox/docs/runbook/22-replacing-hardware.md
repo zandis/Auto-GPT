@@ -1,5 +1,7 @@
 # RUNBOOK §22 part: replacing hardware
 
+**Reader:** Aimedics, with the box owner.
+
 *T-635 (OPS-074, OPS-045). The box is dead, lost, or a part must be replaced and the disk cannot stay.*
 
 **Drill (T-213b):** `test_runbook_22_replacing_hardware` (Docker drill: restore onto a second machine from the backup

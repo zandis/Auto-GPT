@@ -5,6 +5,7 @@
 - **Date:** 2026-11-12
 - **Status:** accepted for the logic built and tested here; nothing in it has run on Windows. The run on a Windows
   11 PC with an NVIDIA card is test P-0 (`docs/handover/P-0-windows-rehearsal.md`)
+- **Updated by:** D-613 (owner ruling D-503): Windows 10 22H2 (build 19045) is taken as well as Windows 11.
 - **Owner decisions:** D-494 (the site machine is a Windows workstation, TrialBox in WSL2, Docker Engine inside
   WSL2, no Linux NVIDIA driver), OD-10 (no figure that is not from the hardware or a declared setting), OD-13 (the
   audience is the box owner: one installer, no shell step)

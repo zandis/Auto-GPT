@@ -11,9 +11,12 @@
 #   tb-only           the parts of this VM (complete_run --only tags; a shard of a parallel run, D-148); empty: all
 #   tb-llm-concurrency  the model calls in flight (TB_SCREEN_LLM_CONCURRENCY): one value for every part, or several
 #                     ("1 4 16 48": the hospital part once per value, review test G-3); empty: the record's max_num_seqs
+#   tb-repeats, tb-order-seed  each value that many times (hospital-<lang>@c<N>#r<k>, B5), every (value, repeat) in
+#                     the order the seed gives (the plan's); default 1, no seed
 #   tb-src-sha256     the sha256 of the code the driver uploads: anything else is refused before it is unpacked
 #   tb-max-minutes    hard cap of this boot (the driver sets the cloud cap too: max-run-duration, action STOP)
-#   tb-idle-minutes   the watchdog's idle limit in the run phase (default 20); tb-done-grace (default 30)
+#   tb-idle-minutes   the watchdog's idle limit in the run phase (default 20); tb-done-grace (default 30);
+#                     tb-fail-grace (default 5): the grace after a failure marker (finish), when nothing ran worth a wait
 #   tb-code-wait-minutes how long to wait for the upload (default 30)
 #   tb-collect-only   1: a results-only boot of a stopped VM (no models, no run): serve the last results.tgz to the
 #                     driver and power off once it has them (complete-run.sh --collect, review H-04)
@@ -22,11 +25,15 @@
 #
 # The VM stops itself, whatever happens to the driver:
 #   1. a hard cap (systemd timer, tb-max-minutes after boot) and the cloud's max-run-duration (set by the driver);
-#   2. a watchdog, per phase: serving 45 min, waiting for the code 35 min, setup 45 min; in the run, no heartbeat for
-#      tb-idle-minutes (the run touches it while a part works, D-150 / review H-03; the driver over HTTP too); the done
-#      marker older than tb-done-grace (at once once the driver says it collected the results);
+#   2. a watchdog, per phase: serving the sum of its own waits (SERVING_LIMIT_S below, derived), waiting for the code
+#      35 min, setup 45 min; in the run, no heartbeat for tb-idle-minutes (only the run touches it, while a part works:
+#      its processes' CPU, a part's container's CPU or the card busy; D-150 / review H-03). The driver's poll touches
+#      driver-alive, never the heartbeat: a driver that follows a stuck part must not keep it alive to the cap. The
+#      done marker older than tb-done-grace (tb-fail-grace after a failure marker; at once once the driver says it
+#      collected the results; with tb-bucket at once once the last results.tgz is in the bucket, B7);
 #   3. every failure ends with the done marker and a results.tgz that says why (TB-PREFLIGHT-FAILED,
-#      TB-SERVING-FAILED, TB-NO-CODE, TB-UPLOAD-REJECTED, TB-SETUP-FAILED), so a failed boot costs minutes, not hours.
+#      TB-SERVING-FAILED, TB-NO-CODE, TB-UPLOAD-REJECTED, TB-SETUP-FAILED), so a failed boot costs minutes, not hours
+#      (TB-NO-CODE powers off at once, without the grace: no code, nothing for a driver to wait for; A6).
 # The workload runs here, not on the driver: the code comes from the bucket or an HTTP upload by the driver, the model
 # parts run with --resume inside this run's own directory (a restart of the same run id continues where it stopped),
 # results.tgz is re-packed after every part, and waits in the bucket or at https://<vm>/tb/results.tgz (key needed).
@@ -47,19 +54,29 @@ phase() { printf '%s\n' "$1" > "$PHASE"; echo "TB-PHASE $1 $(date -u +%FT%TZ)"; 
 COLLECT_ONLY=$(md tb-collect-only || true)
 phase "$([ "$COLLECT_ONLY" = 1 ] && echo collect || echo serving)"
 touch "$HB"
-rm -f "$DONE" "$TB/collected" "$TB/run-ended"
+rm -f "$DONE" "$TB/collected" "$TB/run-ended" "$TB/grace"
 
 # ------------------------------------------------------------------ 1-2. the VM stops itself (first, before anything)
+# The waits of the serving phase (OD-10: each a setting with its reason; the phase's watchdog limit is their sum, so
+# the watchdog never cuts a boot that is still inside one of its own waits):
+DOCKER_WAIT_S=120      # docker may start after this script (M-05): 60 tries of 2 s
+DOOR_WAIT_S=210        # nginx's door through TLS: 30 tries of up to 5 s + 2 s
+HEALTH_WAIT_S=1200     # each model server healthy: 240 tries of 5 s (the bound the script already had)
+CHECK_WAIT_S=360       # per server: /v1/models 30 s, one chat call 300 s, the no-key refusal 30 s
+CAPTURE_WAIT_S=300     # the serving record (docker inspect, the weight files' sha256): unmeasured, a setting set high
+SERVING_LIMIT_S=$((DOCKER_WAIT_S + DOOR_WAIT_S + 2 * HEALTH_WAIT_S + 2 * CHECK_WAIT_S + CAPTURE_WAIT_S))
 MAXM=$(md tb-max-minutes || echo 300)
 IDLEM=$(md tb-idle-minutes || echo 20)
 GRACE=$(md tb-done-grace || echo 30)
+FAILGRACE=$(md tb-fail-grace || echo 5)   # a failure marker: no run, a driver polling every minute collects in 1-2
 systemd-run --unit tb-hard-cap --on-active="${MAXM}min" --description "TrialBox hard cap" \
   /bin/sh -c 'echo "TB-WATCHDOG hard cap reached, powering off" >/dev/ttyS0; systemctl poweroff'
 cat >/usr/local/sbin/tb-watchdog <<'EOS'
 #!/bin/sh
-# poweroff, checked every minute: the done marker older than $2 minutes (at once when collected); in the run phase no
-# heartbeat for $1 minutes; any other phase longer than its limit (the phase file's age).
-idle=$1; grace=$2; tb=/var/lib/tb
+# poweroff, checked every minute: the done marker older than $2 minutes ($tb/grace instead after a failure marker; at
+# once when collected); in the run phase no heartbeat for $1 minutes (the driver's poll touches driver-alive, which
+# never counts in the run); serving longer than $3 seconds; any other phase longer than its limit (the phase's age).
+idle=$1; grace=$2; serving=$3; tb=/var/lib/tb
 off() {  # say why, in the run log too, and pack what there is: a stopped VM always has a results.tgz to collect
   echo "TB-WATCHDOG $1: powering off" >/dev/ttyS0
   if [ -f $tb/current-run ] && [ ! -f $tb/DONE ]; then
@@ -74,13 +91,15 @@ while :; do
   since=$((now - $(stat -c %Y $tb/phase 2>/dev/null || echo "$now")))
   hb=$(stat -c %Y $tb/heartbeat 2>/dev/null || echo 0)
   if [ -f $tb/DONE ]; then
-    d=$(stat -c %Y $tb/DONE)
+    d=$(stat -c %Y $tb/DONE); g=$grace
+    [ -s $tb/grace ] && g=$(cat $tb/grace)
     [ -f $tb/collected ] && off "done, results collected"
-    [ $((now - d)) -ge $((grace * 60)) ] && off "done, grace of $grace minutes over"
+    [ $((now - d)) -ge $((g * 60)) ] && off "done, grace of $g minutes over"
   else
     case "$phase" in
       run) [ $((now - hb)) -ge $((idle * 60)) ] && off "no heartbeat for $idle minutes in the run (a stuck part)" ;;
-      serving|setup) [ "$since" -ge 2700 ] && off "phase $phase over 45 minutes" ;;
+      serving) [ "$since" -ge "$serving" ] && off "phase serving over $((serving / 60)) minutes (the sum of its waits)" ;;
+      setup) [ "$since" -ge 2700 ] && off "phase $phase over 45 minutes" ;;
       code) [ "$since" -ge 2100 ] && off "phase code over 35 minutes" ;;
       *) [ "$since" -ge 3600 ] && off "phase $phase over 60 minutes" ;;
     esac
@@ -88,7 +107,7 @@ while :; do
 done
 EOS
 chmod 0755 /usr/local/sbin/tb-watchdog
-systemd-run --unit tb-watchdog --description "TrialBox watchdog" /usr/local/sbin/tb-watchdog "$IDLEM" "$GRACE"
+systemd-run --unit tb-watchdog --description "TrialBox watchdog" /usr/local/sbin/tb-watchdog "$IDLEM" "$GRACE" "$SERVING_LIMIT_S"
 
 # the door from Secret Manager (T-119): the key and the TLS key into root-only files, the certificate from metadata
 TLS=/root/tls
@@ -113,9 +132,17 @@ RUN="$TB/runs/$RUN_ID"
 PATIENTS=$(md tb-patients || echo 50000)
 ONLY=$(md tb-only || true)
 LLMC=$(md tb-llm-concurrency || true)
+REPEATS=$(md tb-repeats || true); ORDER_SEED=$(md tb-order-seed || true)
+case "$REPEATS" in ''|*[!0-9]*|0) REPEATS=1 ;; esac
+case "$ORDER_SEED" in *[!0-9]*) ORDER_SEED="" ;; esac   # "none": the order given (a metadata value is never empty)
 BUCKET=$(md tb-bucket || true)
+# metadata stays on a VM between runs: only a gs:// value is this run's bucket (the driver sets "none" in door mode,
+# so a bucket an earlier run left there is never used, and never ends a door-mode run early: B7)
+case "$BUCKET" in gs://*) ;; *) BUCKET="" ;; esac
 SRC_SHA=$(md tb-src-sha256 || true)
 REC=/root/record
+VLLM=vllm/vllm-openai:v0.32.0
+NGINX=nginx:1.27-alpine
 mkdir -p $REC /models
 chmod 755 $REC
 umask 077; printf 'Authorization: Bearer %s\n' "$KEY" > "$TB/door-hdr"; umask 022
@@ -132,18 +159,40 @@ cp /root/record/serving_config.json "$run/serving_config.rtxpro6000.live.json" 2
 cd "$run" || exit 1
 set --
 for m in vm.log parts report gpu_peak.json serving_config.rtxpro6000.live.json serving-logs bench-embed/result.json \
-  bench-embed/set.json bench-profile/result.json; do [ -e "$m" ] && set -- "$@" "$m"; done
+  bench-embed/set.json bench-profile/result.json gw-audit-* chat-template; do [ -e "$m" ] && set -- "$@" "$m"; done
+# gw-audit-<part>: the gateway's audit of each model part (every call, every refusal: the report's per-call figures
+# and refusal counts are recomputed from it); chat-template: G-1's template texts and the tokenizer side's output
 tar -czf "$out.tmp" "$@" && mv -f "$out.tmp" "$out"
-if [ -n "$bucket" ]; then
-  gcloud storage cp "$out" "$bucket/runs/$(basename "$run")/results.tgz" >/dev/null 2>&1 \
-    || echo "TB-UPLOAD-FAILED: results.tgz to $bucket" | tee -a /var/log/tb-complete-run.log >/dev/ttyS0
+if [ -n "$bucket" ]; then  # 3 tries (30 s, 60 s apart): a failed upload leaves the marker; the disk keeps the archive
+  dst="$bucket/runs/$(basename "$run")/results.tgz"
+  for wait in 30 60 0; do
+    if gcloud storage cp "$out" "$dst" >/dev/null 2>&1; then rm -f /var/lib/tb/out/upload-failed; exit 0; fi
+    [ "$wait" = 0 ] || sleep "$wait"
+  done
+  echo "$dst" > /var/lib/tb/out/upload-failed
+  echo "TB-UPLOAD-FAILED: results.tgz to $dst (3 tries); it stays on this disk: a results-only collect fetches it" \
+    | tee -a /var/log/tb-complete-run.log >/dev/ttyS0
 fi
 EOS
 chmod 0755 /usr/local/sbin/tb-pack
+bucket_done() {  # B7: with tb-bucket the driver reads the results from the bucket, never from this VM, and its door
+  # call "collected" may never come (a driver behind a proxy: the reason for the bucket). Once the last results.tgz is
+  # in the bucket (tb-pack left no upload-failed marker) nothing is left to wait for: power off now, not after the
+  # grace. A failed upload keeps the VM to its grace: the archive is on this disk only, for a results-only collect.
+  # Door mode (no bucket) is unchanged: the driver's "collected", else the grace.
+  [ -n "$BUCKET" ] && [ ! -f "$TB/out/upload-failed" ] || return 1
+  touch "$TB/collected"
+  echo "TB-BUCKET-DONE: results.tgz is in $BUCKET/runs/$(basename "$RUN")/ and the driver reads the bucket: powering off now" \
+    | tee -a "$LOG"
+  systemctl poweroff; exit "${1:-0}"
+}
 finish() {  # $1 marker line, $2 phase: say why (run log, console), pack what there is, DONE; the watchdog does the rest
+  # after a failure the grace is tb-fail-grace (5 min), not tb-done-grace: nothing ran, a driver collects at its next poll
   echo "$1" | tee -a "$LOG"; phase "$2"
   /usr/local/sbin/tb-pack "$RUN" "$BUCKET"
-  touch "$DONE"; echo COMPLETE-RUN-DONE; exit 1
+  [ "$FAILGRACE" -lt "$GRACE" ] && echo "$FAILGRACE" > "$TB/grace"
+  touch "$DONE"; echo COMPLETE-RUN-DONE
+  bucket_done 1; exit 1
 }
 
 if [ "$COLLECT_ONLY" != 1 ]; then
@@ -165,7 +214,7 @@ fi
 # container and reaches the host as host.docker.internal (= the docker0 gateway), so the door cannot listen on
 # 127.0.0.1 (the first cloud run got 502 there). It listens on the gateway only, never on the public address, and it
 # checks the key itself as well as nginx does.
-for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done   # docker may start after us (M-05)
+for _ in $(seq 1 $((DOCKER_WAIT_S / 2))); do docker info >/dev/null 2>&1 && break; sleep 2; done   # docker may start after us (M-05)
 install -d -m 700 /var/lib/tb
 umask 077; printf '%s' "$KEY" > /var/lib/tb/door-key; umask 022
 DOOR_HOST=$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
@@ -184,7 +233,9 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_response(200); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body)))
         self.end_headers(); self.wfile.write(body)
     def do_POST(self):
-        if self.path == "/heartbeat": (TB / "heartbeat").touch(); return self._ok()
+        # the driver's poll: driver-alive, never the run's heartbeat (a driver following a stuck part must not keep it
+        # alive to the cap; the watchdog's idle limit in the run is the part's own work only)
+        if self.path == "/heartbeat": (TB / "driver-alive").touch(); return self._ok()
         if self.path == "/collected": (TB / "collected").touch(); return self._ok()
         self.send_error(404)
     def do_PUT(self):
@@ -209,7 +260,6 @@ PY
 systemd-run --unit tb-door --property=Restart=on-failure --description "TrialBox driver door" \
   python3 /usr/local/sbin/tb-door.py "$DOOR_HOST"
 
-VLLM=vllm/vllm-openai:v0.32.0
 J=nvidia/Gemma-4-26B-A4B-NVFP4
 V=cyankiwi/Qwen3.5-9B-AWQ-4bit
 JS=local/gemma-4-26b-a4b-nvfp4   # the served names: tools/pin_model.py JUDGE_SERVED, VERIFIER_SERVED (D-124)
@@ -235,7 +285,7 @@ http { resolver 127.0.0.11 valid=5s ipv6=off; client_max_body_size 200m; proxy_r
 NG
 umask 022
 docker run -d --name front --network tb -p 443:443 -p 127.0.0.1:8080:8080 --add-host host.docker.internal:host-gateway \
-  -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro -v "$TLS:$TLS:ro" nginx:1.27-alpine >/dev/null \
+  -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro -v "$TLS:$TLS:ro" "$NGINX" >/dev/null \
   || { echo "TB-FRONT-FAILED: the nginx container did not start; the driver cannot reach this VM: powering off"; systemctl poweroff; exit 1; }
 # the door through nginx with the key, as the driver will use it (M-05): unreachable means a paid VM nobody can drive
 for _ in $(seq 1 30); do curl -fsS -o /dev/null --max-time 5 "${DOOR_TLS[@]}" -H @"$TB/door-hdr" https://tb-door/tb/progress && break; sleep 2; done
@@ -243,8 +293,20 @@ curl -fsS -o /dev/null --max-time 5 "${DOOR_TLS[@]}" -H @"$TB/door-hdr" https://
   || { echo "TB-DOOR-FAILED: /tb/progress does not answer through nginx (TLS): powering off"; systemctl poweroff; exit 1; }
 echo "TB-DOOR-UP on $DOOR_HOST:8081 behind nginx :443 (TLS, no port 80)"
 
+# the images on this disk, every boot (the driver's --preflight reads the last boot's line from the serial console):
+# a missing one would be pulled inside the serving limit, or not at all without a network
+imgs=""; for im in "$VLLM" "$NGINX"; do
+  if docker image inspect "$im" >/dev/null 2>&1; then imgs="$imgs $im=present"; else imgs="$imgs $im=missing"; fi
+done
+echo "TB-IMAGES$imgs"
+
 if [ "$COLLECT_ONLY" = 1 ]; then  # a stopped VM started to hand over its results (review H-04): no models, no run
   if [ -f "$TB/out/results.tgz" ]; then echo "TB-COLLECT-ONLY: results.tgz ($(stat -c %s "$TB/out/results.tgz") bytes) at /tb/results.tgz"
+    if [ -n "$BUCKET" ]; then  # the run's upload may have failed (TB-UPLOAD-FAILED): once more, to the bucket too
+      gcloud storage cp "$TB/out/results.tgz" "$BUCKET/runs/$RUN_ID/results.tgz" >/dev/null 2>&1 \
+        && echo "TB-COLLECT-ONLY: results.tgz uploaded to $BUCKET/runs/$RUN_ID/" \
+        || echo "TB-COLLECT-ONLY: the upload to $BUCKET failed again; the driver fetches it through the door"
+    fi
   else echo "TB-COLLECT-ONLY: no results.tgz on this disk"; fi
   touch "$DONE"; echo COMPLETE-RUN-DONE; exit 0   # the watchdog powers off once collected, or after the grace
 fi
@@ -280,7 +342,9 @@ while True:
 PY
 start() {  # name model served util [extra...]
   local name=$1 model=$2 served=$3 util=$4; shift 4
+  # HF_HUB_OFFLINE: the weights are on this disk (the pre-flight checked); a server must never reach for the Hub
   docker run -d --name "$name" --network tb --gpus all --ipc host -v /models:/root/.cache/huggingface \
+    -e HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" \
     --restart unless-stopped $VLLM --model "$model" --served-model-name "$served" --max-model-len 32768 \
     --max-num-seqs 16 --enforce-eager --gpu-memory-utilization "$util" --api-key "$KEY" "$@" >/dev/null
 }
@@ -292,11 +356,11 @@ serving_failed() {  # the servers' own logs come back with the results (review H
   finish "TB-SERVING-FAILED: $1" serving-failed
 }
 start judge $J $JS 0.40 --limit-mm-per-prompt '{"image":0,"audio":0,"video":0}' || serving_failed "docker run judge"
-for _ in $(seq 1 240); do healthy judge && break; exited judge && break; touch "$HB"; sleep 5; done
+for _ in $(seq 1 $((HEALTH_WAIT_S / 5))); do healthy judge && break; exited judge && break; touch "$HB"; sleep 5; done
 healthy judge || serving_failed "judge not healthy (20 minutes, or its container exited)"
 start verifier $V $VS 0.20 --limit-mm-per-prompt '{"image":0,"video":0}' \
   --default-chat-template-kwargs '{"enable_thinking": false}' || serving_failed "docker run verifier"
-for _ in $(seq 1 240); do healthy verifier && break; exited verifier && break; touch "$HB"; sleep 5; done
+for _ in $(seq 1 $((HEALTH_WAIT_S / 5))); do healthy verifier && break; exited verifier && break; touch "$HB"; sleep 5; done
 healthy verifier || serving_failed "verifier not healthy (20 minutes, or its container exited)"
 # the run's own path (127.0.0.1:8080, nginx adds the key): each server lists exactly its served name, answers one chat
 # call, and refuses a call without the key. A name drift (run 4's 404) stops the boot here, not after hours.
@@ -314,11 +378,31 @@ for pair in "judge $JS" "verifier $VS"; do
   [ "$code" = 401 ] || serving_failed "$1: a call without the key answered HTTP $code, not 401"
   echo "TB-SERVING ok: $1 serves $2, one chat call answered, no key refused"
 done
+wsl_kernel_into() {  # $1 a serving record (tb-serving-config/1) this script wrote; [$2 /proc/version, $3 the release]
+  # The record's wsl_kernel (the owner's ask of 2026-11-13, for another lane's version check): the kernel release
+  # (uname -r) when /proc/version or the release says WSL2 ("microsoft" or "WSL2"), else null. The schema's validate
+  # allows a field it does not name; nothing else of the record changes. A record that is not there is left alone.
+  "${PY:-python3}" - "$1" "${2:-/proc/version}" "${3:-$(uname -r)}" <<'WSLPY'
+import json, os, re, sys
+rec_path, version_file, release = sys.argv[1], sys.argv[2], sys.argv[3].strip()
+if os.path.isfile(rec_path):
+    try:
+        text = open(version_file, encoding="utf-8", errors="replace").read()
+    except OSError:
+        text = ""
+    rec = json.load(open(rec_path, encoding="utf-8"))
+    rec["wsl_kernel"] = release if re.search(r"microsoft|wsl2", f"{text} {release}", re.I) else None
+    with open(rec_path + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=1)
+    os.replace(rec_path + ".tmp", rec_path)
+WSLPY
+}
 SC=$(md tb-serving-config || true)
 if [ -n "$SC" ]; then
   printf '%s\n' "$SC" > /root/serving_config.py
   python3 /root/serving_config.py capture --container judge=judge --container verifier=verifier --models-dir /models \
     --notes "rtxpro6000 profile (D-124): complete run ${RUN_ID}" --out $REC/serving_config.json || true
+  wsl_kernel_into $REC/serving_config.json || true
   chmod 644 $REC/serving_config.json 2>/dev/null || true
 fi
 echo PRO6000-RUN-READY | tee -a "$LOG"
@@ -333,7 +417,17 @@ fi
 WAITM=$(md tb-code-wait-minutes || echo 30)
 echo "TB-WAITING-FOR-CODE (${WAITM} minutes)" | tee -a "$LOG"
 for _ in $(seq 1 $((WAITM * 4))); do [ -f "$TB/incoming/src.tgz" ] && break; sleep 15; done
-[ -f "$TB/incoming/src.tgz" ] || finish "TB-NO-CODE: nothing uploaded in ${WAITM} minutes" no-code
+if [ ! -f "$TB/incoming/src.tgz" ]; then
+  # A6 (2026-11-12: the driver could not reach the door, the VM idled out its grace too, about US$3.50): no code means
+  # no run and no results worth a driver's wait; the log is packed (and in the bucket with TB_BUCKET), then power off
+  # now, not after tb-done-grace. The wait itself is tb-code-wait-minutes (default 30; the driver uploads as soon as
+  # the door answers, minutes after the boot, before this wait begins).
+  echo "TB-NO-CODE: nothing uploaded in ${WAITM} minutes" | tee -a "$LOG"; phase no-code
+  /usr/local/sbin/tb-pack "$RUN" "$BUCKET"
+  touch "$DONE"
+  echo "TB-NO-CODE: no code, so no run: powering off now (results.tgz holds this log)"
+  systemctl poweroff; exit 1
+fi
 mv -f "$TB/incoming/src.tgz" "$TB/src.tgz"   # the next boot waits for its own upload, never this one
 if [ -n "$SRC_SHA" ]; then
   got=$(sha256sum "$TB/src.tgz" | cut -d' ' -f1)
@@ -349,8 +443,13 @@ phase setup
 export DEBIAN_FRONTEND=noninteractive
 setup_failed() { finish "TB-SETUP-FAILED: $1" setup-failed; }
 echo "== setup $(date -u +%FT%TZ)" >>"$LOG"
-apt-get update -qq >>"$LOG" 2>&1
-apt-get install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra tesseract-ocr-eng \
+# DPkg::Lock::Timeout: the image's own unattended-upgrades may hold the lock at boot; wait for it (10 min) not fail
+APT=(apt-get -o DPkg::Lock::Timeout=600)
+# The same wait for every other apt on this VM: `playwright install --with-deps` calls apt-get itself, without the
+# option above, and run 20261113T072836Z ended at TB-SETUP-FAILED: playwright on unattended-upgrades' lock.
+echo 'DPkg::Lock::Timeout "600";' >/etc/apt/apt.conf.d/99tb-lock-timeout
+"${APT[@]}" update -qq >>"$LOG" 2>&1
+"${APT[@]}" install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra tesseract-ocr-eng \
   python3-venv python3-pip curl xz-utils git >>"$LOG" 2>&1 || setup_failed "apt-get install"
 touch "$HB"
 # Ubuntu 24.04 refuses a system-wide pip install (PEP 668), so uv comes from a venv of its own, else its installer
@@ -364,9 +463,17 @@ command -v uv >/dev/null || setup_failed "uv"
 [ -x .venv/bin/python ] || setup_failed "no .venv/bin/python"
 # Ubuntu's own Node.js is too old for Playwright (the third cloud run stopped on it): the pinned LTS from nodejs.org
 NODE_V=v22.23.4
-if [ ! -x /opt/node-$NODE_V-linux-x64/bin/node ]; then
-  { curl -fsSL "https://nodejs.org/dist/$NODE_V/node-$NODE_V-linux-x64.tar.xz" | tar -xJ -C /opt; } >>"$LOG" 2>&1 \
-    || setup_failed "node $NODE_V"
+# a download cut short (the rehearsal of 2026-11-13: curl 18, a partial file) leaves a half tree on the kept disk, with
+# node and without npm: both must be there, else the tree goes and the download is made again (3 tries)
+if [ ! -x /opt/node-$NODE_V-linux-x64/bin/node ] || [ ! -e /opt/node-$NODE_V-linux-x64/bin/npm ]; then
+  ok=0
+  for _ in 1 2 3; do
+    rm -rf /opt/node-$NODE_V-linux-x64
+    if { curl -fsSL "https://nodejs.org/dist/$NODE_V/node-$NODE_V-linux-x64.tar.xz" | tar -xJ -C /opt; } >>"$LOG" 2>&1 \
+      && [ -e /opt/node-$NODE_V-linux-x64/bin/npm ]; then ok=1; break; fi
+    sleep 10
+  done
+  [ "$ok" = 1 ] || { rm -rf /opt/node-$NODE_V-linux-x64; setup_failed "node $NODE_V"; }
 fi
 ln -sf /opt/node-$NODE_V-linux-x64/bin/node /opt/node-$NODE_V-linux-x64/bin/npm /opt/node-$NODE_V-linux-x64/bin/npx /usr/local/bin/
 mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 && npx playwright install --with-deps chromium) \
@@ -388,7 +495,7 @@ touch "$HB"
 # the embedding bench (tools/bench_embed.py) runs in the vLLM image: its torch and transformers already run on this card
 cat >/usr/local/sbin/tb-embed-py <<EOS
 #!/bin/sh
-exec docker run --rm --gpus all --ipc host -v /models:/root/.cache/huggingface -v $TB:$TB -w "\$PWD" \
+exec docker run --rm --label tb-part=1 --gpus all --ipc host -v /models:/root/.cache/huggingface -v $TB:$TB -w "\$PWD" \
   --entrypoint python3 $VLLM "\$@"
 EOS
 chmod 0755 /usr/local/sbin/tb-embed-py
@@ -405,10 +512,12 @@ NODE_PATH=/opt/node-tools/node_modules TB_GPU_KEY="$KEY" TB_ENV=DEV PYTHONPATH=l
   .venv/bin/python -m tools.complete_run --dir "$RUN" --run-id "$RUN_ID" --model pair --patients "$PATIENTS" \
   --ocr tesseract --judge-url http://127.0.0.1:8080/judge/v1 --verifier-url http://127.0.0.1:8080/verifier/v1 \
   --live-record $REC/serving_config.json --skip walk backup update scale --resume --heartbeat "$HB" \
-  --after-part "/usr/local/sbin/tb-pack $RUN $BUCKET" ${LLMC:+--llm-concurrency "$LLMC"} ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
+  --after-part "/usr/local/sbin/tb-pack $RUN $BUCKET" ${LLMC:+--llm-concurrency "$LLMC"} --repeats "$REPEATS" \
+  ${ORDER_SEED:+--order-seed "$ORDER_SEED"} ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
 echo "TB-RUN-EXIT $?" | tee -a "$LOG"
 touch "$TB/run-ended"
 /usr/local/sbin/tb-pack "$RUN" "$BUCKET"
 phase "done"
 touch "$DONE"
 echo COMPLETE-RUN-DONE
+bucket_done 0   # tb-bucket and the upload went through: off now (B7); else the watchdog: "collected" or the grace

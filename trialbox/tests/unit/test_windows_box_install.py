@@ -369,6 +369,31 @@ def test_install_goes_on_with_the_first_run_when_the_stack_was_already_installed
     assert "box-install --firstrun" in box.log() and str(bundle) not in box.log()
 
 
+def test_install_hands_the_rehearsal_on_to_the_linux_installer(box: Box) -> None:
+    # NEW-WIN-11 (D-614): box-install.ps1 -Rehearsal -> wsl-setup.sh install BUNDLE [--yes] --rehearsal
+    bundle = _installed_tree(box, "echo '  TrialBox is ready: https://box'")
+    out = box.run("install", str(bundle), "--yes", "--rehearsal")
+    assert out.returncode == 0, out.stderr
+    assert f"box-install {bundle} --yes --rehearsal" in box.log()
+    other = Box(box.tmp / "second")
+    bundle2 = _installed_tree(other, "echo '  TrialBox is ready: https://box'")
+    assert other.run("install", str(bundle2), "--rehearsal").returncode == 0
+    assert f"box-install {bundle2} --rehearsal" in other.log()
+    assert other.run("install", str(bundle2), "--bogus").returncode != 0
+
+
+def test_the_first_run_of_a_rehearsal_box_is_not_handed_the_rehearsal_again(box: Box) -> None:
+    # box-install.sh refuses --rehearsal with --firstrun: the first run finishes the box as it was installed
+    bundle = _installed_tree(box, "echo '  TrialBox is ready: https://box'")
+    site = box.root / "deploy/site/box"
+    site.mkdir(parents=True)
+    (site / "answers.json").write_text("{}")
+    (site / "install.log").write_text("==> TrialBox is running\n")
+    out = box.run("install", str(bundle), "--yes", "--rehearsal")
+    assert out.returncode == 0, out.stderr
+    assert "box-install --firstrun" in box.log() and "--rehearsal" not in box.log()
+
+
 def test_install_refuses_a_bundle_that_is_not_there(box: Box) -> None:
     _installed_tree(box, "exit 0")
     out = box.run("install", str(box.tmp / "missing.tar"))
@@ -384,6 +409,26 @@ def test_boot_check_wants_docker_and_the_stack_enabled(box: Box) -> None:
     assert out.returncode == 1 and "trialbox.service" in out.stderr and "docker.service" not in out.stderr
     box.stub("systemctl", "echo enabled")
     assert box.run("boot-check").returncode == 0
+
+
+def test_the_console_forwarding_task_has_one_definition_with_the_boot_tasks_sign_in() -> None:
+    """NEW-WIN-10 (D-613): on Windows 10 the forwarding script registers its own task; the installer only calls it."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    proxy = (WIN / "console-proxy.ps1").read_text(encoding="utf-8")
+    keep = (WIN / "register_keepalive.ps1").read_text(encoding="utf-8")
+    name = re.search(r'\$script:TbProxyTask = "([^"]+)"', ps1)
+    assert name and f'[string]$TaskName = "{name.group(1)}"' in proxy
+    assert "New-ScheduledTaskTrigger -AtStartup" in proxy and "-LogonType S4U -RunLevel Highest" in proxy
+    assert "-LogonType S4U -RunLevel Highest" in keep  # the same sign-in as the boot task: no stored password
+    assert "& $Script -Register -User $Account" in ps1
+    # it changes the console's port only, from every address of this PC, and nothing else
+    assert "listenaddress=0.0.0.0" in proxy and "portproxy" in proxy
+    assert (
+        "portproxy delete" not in proxy
+        and "portproxy reset" not in proxy
+        and "interface portproxy add v4tov6" not in proxy
+    )
+    assert proxy.isascii()
 
 
 def test_the_boot_task_has_one_definition_and_the_name_the_host_check_looks_for() -> None:

@@ -1,5 +1,7 @@
 # TrialBox 網路、連接埠與機密資訊一覽
 
+**Reader:** hospital IT（醫院資訊室；由擁有者連同 it-one-page.zh-TW.md 一起交給資訊室）。
+
 由下列 compose 檔以 tools/network_sheet.py 產生（D-138）。除主控台連接埠外，外部無法連到本機任何服務。本表不含任何機密的值。
 
 **compose 檔:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
@@ -16,7 +18,7 @@
 | criteria-compiler | 8012 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | db | 5432 | 未對外 | trialbox-net | TrialBox 各服務與 fhir-store（需密碼） | 常駐 |
 | doc-parser | 8011 | 未對外 | trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
-| embed-service | 8014 | 未對外 | trialbox-net | 僅限持有自身權杖者: lake; 主機上的管理者（operator 權杖） | 常駐 |
+| embed-service | 8014 | 未對外 | trialbox-net | 僅限持有自身權杖者: lake, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | fhir-store | 8080 | 未對外 | trialbox-net | adapter、orchestrator、criteria-compiler（僅網路隔離，尚無權杖） | 常駐 |
 | gateway | 8020 | 未對外 | egress-net, model-net, trialbox-net | 僅限持有自身權杖者: console, criteria-compiler, doc-parser, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | judge-sleep-init | 無（不監聽） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |

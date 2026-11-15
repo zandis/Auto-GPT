@@ -42,6 +42,7 @@ from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.i18n import translate
+from console.local_path import local_path
 
 _WS = re.compile(r"^[a-z][a-z0-9]{0,15}$")
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -776,7 +777,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         w, rs = ws_of(ws), study_of(sess, study)
         pid = pid.strip().lower()[:32]
         ans = assistant(sess, question, w, rs, pid) if (question or pid) else None
-        safe_back = back if back.startswith("/") and not back.startswith("//") else "/home"
+        safe_back = local_path(back, "/home")
         return h.page(
             request, "ask.html", sess, **ctx(sess, w, rs), question=question, pid=pid, ans=ans, back=safe_back
         )

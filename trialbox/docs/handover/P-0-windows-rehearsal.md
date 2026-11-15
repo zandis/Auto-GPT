@@ -1,4 +1,6 @@
-# P-0: the Windows installer rehearsed on a Windows 11 PC with an NVIDIA card
+# P-0: the Windows installer rehearsed on a Windows 10 or Windows 11 PC with an NVIDIA card
+
+**Reader:** the box owner, who runs the rehearsal, and the people who build TrialBox, who read its result.
 
 Plan v7.2 section 7.2, test P-0; plan step 8a (due 2027-01-08). Cards NEW-WIN-1 (D-600), then NEW-WIN-3, NEW-WIN-2
 and NEW-WIN-8 as they land: this sheet grows one part per card.
@@ -7,10 +9,12 @@ and NEW-WIN-8 as they land: this sheet grows one part per card.
 Nothing in it has run on Windows. This run is the first time. Each line below is a behaviour the installer relies
 on from Microsoft's or NVIDIA's documentation and has not seen.
 
-**The machine.** Any Windows 11 PC (Pro, Pro for Workstations, Enterprise or Education) with an NVIDIA card and
+**The machine.** A Windows 10 22H2 (build 19045) or Windows 11 PC (Pro, Pro for Workstations, Enterprise or
+Education) with an NVIDIA card and
 its Windows driver, virtualisation on in the firmware, and 500 GB free on a fixed NTFS drive (with less room, add
-`-MinFreeGB <what the drive has>` in step 3 and write the figure down). Not a machine that holds anything you need:
-the run enables Windows features, restarts once, and adds a WSL system. It removes nothing.
+`-MinFreeGB <what the drive has>` in step 3 and write the figure down). It may be your own computer: first read
+"On your own computer" in `P-0-BUILD-THE-MEDIA.md`, which says what the run changes for the whole computer and how
+each part is put back. The run removes nothing.
 
 **Data.** Synthetic only. No patient data, no site secret. How to build a media, in two stages (first without Docker, with a stand-in
 bundle; then with a signed bundle whose models are placeholders): `docs/handover/P-0-BUILD-THE-MEDIA.md`. Build it with
@@ -79,12 +83,14 @@ Read these during Part 1; they need no extra run.
 | 22a | `wsl -d TrialBox -- dmesg` (the first screen), and the size of `<drive>\TrialBox\wsl\ext4.vhdx` in Explorer before and after copying a 10 GB file into WSL2 and deleting it again (`wsl -d TrialBox -- sudo fstrim -av` once after the delete) | No message that WSL rejected a setting of `.wslconfig` (`sparseVhd`, `defaultVhdSize`); the file shrinks again after the delete | Any "wsl:" warning shown when WSL2 starts; the three sizes |
 | 22b | Only on a PC where the drive may be filled: nothing to do in P-0. Note for P-15: what WSL2 does when the drive fills before the virtual disk's limit is not known | - | - |
 | 23 | After line 15: `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"` | A line `wsl2_memory` with PASS (WARN if it names a service with no cap), the caps' sum and WSL2's memory. With the small stand-in model the model servers are not in the sum | That line |
-| 23a | After the install is finished, start the installer once more with `-DesktopSharePercent 50` (in an administrator PowerShell: `<media>\windows\box-install.ps1 -DesktopSharePercent 50`) | "WSL2 is given ..." with half the PC's figures; "The earlier .wslconfig was kept as ..."; the console stays up. `free -g` inside WSL2 still shows the OLD figure | The window's text; `free -g` before a restart |
+| 23a | After the install is finished, start the installer once more with `-DesktopSharePercent 50` (in an administrator PowerShell: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<media>\windows\box-install.ps1" -DesktopSharePercent 50`) | "WSL2 is given ..." with half the PC's figures; "The earlier .wslconfig was kept as ..."; the console stays up. `free -g` inside WSL2 still shows the OLD figure | The window's text; `free -g` before a restart |
 | 23b | Restart Windows, sign in, `wsl -d TrialBox -- free -g` and `nproc` | The NEW figures. Then start the installer with `-DesktopSharePercent 25` to put the share back, and restart once more | Both outputs |
 
 ## Part 3: NEW-WIN-2, start without a person (D-602)
 
-After Part 1 is finished. This part is the reason P-0 exists: nobody has seen WSL2 start from the boot task.
+After step 12 `boot-task` has run. With a Stage A media the install stops in step 14, which is enough for this part
+except lines 26b, 27 and 27c (they need a finished install). This part is the reason P-0 exists: nobody has seen
+WSL2 start from the boot task.
 
 | # | Do | Expect | Record |
 | --- | --- | --- | --- |
@@ -118,13 +124,15 @@ to line 36a, and write that you did. Never send a recovery key back; write only 
 | 34a | Start the installer again while a drive still encrypts | It goes on; no "suspended" stop | The window's text at step 4 |
 | 35 | Search for a recovery key where it must not be: `Select-String -Path C:\ProgramData\TrialBox\box-install\box-install.log -Pattern "\d{6}-\d{6}"`, the same on `state.json`, and `Get-ChildItem $env:USERPROFILE\Documents -Filter PowerShell_transcript* -Recurse` | No match in the two files. No transcript file (if there is one, the PC records PowerShell windows: the installer should have stopped instead of showing a key) | The three answers |
 | 35a | As a **standard** account: `Set-ItemProperty HKLM:\SOFTWARE\TrialBox -Name BitlockerUnlock -Value tpm` | Refused | The answer |
-| 36a | **The key probe, the run that decides.** After the install is finished, as the owner in an administrator window: `powershell -NoProfile -ExecutionPolicy Bypass -File <media>\windows\key-probe.ps1 -AtStartup`. Restart Windows. **Do not sign in for five minutes.** Sign in, then `... key-probe.ps1 -Collect` | Lines `mode=at_startup`, `ran_at=`, `ran_as=`, `desktop_shells_running=0`, then `dpapi_user=`, `dpapi_machine=`, `acl_file=`, `wsl_handover=`, each `ok` or `fail: <why>` | All of its lines, and the time you signed in. `ran_at` must be before your sign-in and `desktop_shells_running` 0: otherwise the run did not happen with nobody there, and it is repeated |
+| 36a | **The key probe, the run that decides.** Once step 12 has run (a Stage A media is enough), as the owner in an administrator window: `powershell -NoProfile -ExecutionPolicy Bypass -File <media>\windows\key-probe.ps1 -AtStartup`. Restart Windows. **Do not sign in for five minutes.** Sign in, then `... key-probe.ps1 -Collect` | Lines `mode=at_startup`, `ran_at=`, `ran_as=`, `desktop_shells_running=0`, then `dpapi_user=`, `dpapi_machine=`, `acl_file=`, `wsl_handover=`, each `ok` or `fail: <why>` | All of its lines, and the time you signed in. `ran_at` must be before your sign-in and `desktop_shells_running` 0: otherwise the run did not happen with nobody there, and it is repeated |
 | 36b | The same probe on demand, for comparison: `... key-probe.ps1` (no switch) | The same lines with `mode=on_demand` | All of its lines |
 | 36c | `Get-ScheduledTask TrialBox-Key-Probe` afterwards | No such task | The answer |
 
 ## Part 5: NEW-WIN-4, the console on the site's network (D-604; the rehearsal of P-14)
 
-Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). After Part 1 is finished.
+Needs a second PC on the same network (a laptop on the same switch or Wi-Fi). After Part 1 is finished. **On
+Windows 10** lines 37 and 38 are Part 9's instead (no mirrored networking, no Hyper-V firewall); lines 39 to 44
+are the same.
 
 | # | Do | Expect | Record |
 | --- | --- | --- | --- |
@@ -184,13 +192,45 @@ mount line below is as Microsoft documents WSL2 to print it; none has been seen.
 | --- | --- | --- | --- |
 | 63 | After the install: `wsl -d TrialBox -u root -- cat /opt/trialbox/deploy/site/box/windows-drives`, and the log's line "this PC's own drives recorded" | The letters of the system drive, the data drive and every other fixed drive; **not** the media's letter when the media is a USB disk | The line; `Get-Disk \| Format-Table Number, BusType, FriendlyName` beside it. A USB disk that Windows lists with another BusType than USB breaks the rule: write its BusType down |
 | 64 | Plug in the USB disk (say it becomes `E:`). Inside WSL2: `ls /mnt/e` | The disk's files. If `/mnt/e` is not there: `mkdir -p /mnt/e && mount -t drvfs E: /mnt/e`, and note that a drive plugged in after WSL2 started is not mounted by itself | Whether it was there by itself; `grep -E " /mnt/[a-z] " /proc/mounts` whole (this is the line the backup check reads: the source `E:\` or `drvfs`, the type `9p`, `path=E:\` in the options) |
-| 64a | In an administrator PowerShell: `<media>\\windows\\box-install.ps1 -BackupDrive E:`; then the same with the data drive's letter, and with a letter that does not exist | "Drive E: is marked as an outside drive for backups", and a file `.trialbox-outside-drive` at `E:\\`; the data drive: "one of this PC's own drives"; the missing letter: "could not be checked or marked" | Each message; `(Get-Partition -DriveLetter E \| Get-Disk).BusType` for the USB disk (the rule needs it to read `USB`) |
+| 64a | In an administrator PowerShell: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<media>\\windows\\box-install.ps1" -BackupDrive E:`; then the same with the data drive's letter, and with a letter that does not exist | "Drive E: is marked as an outside drive for backups", and a file `.trialbox-outside-drive` at `E:\\`; the data drive: "one of this PC's own drives"; the missing letter: "could not be checked or marked" | Each message; `(Get-Partition -DriveLetter E \| Get-Disk).BusType` for the USB disk (the rule needs it to read `USB`) |
 | 65 | Set `TB_BACKUP_TARGETS=/mnt/e/trialbox` in `deploy/.env`, make the folder, then `python3 -m tools.trialbox doctor --env-file deploy/.env`, the `backup` line | The target counted as off-box ("1 off-box") | The line whole. Before line 64a it must say "no off-box backup target"; so must `/mnt/d/...` (the data drive) |
 | 66 | `bash /opt/trialbox/deploy/windows/wsl-setup.sh backup-speed /mnt/e/trialbox 1024`, and the same for a folder inside WSL2 (`/opt/trialbox/deploy/backups`) | `mbps=...` for each; the test file is gone | Both speeds: this is the figure nobody has for a path through Windows |
 | 67 | `doctor`'s `backup_speed` line | PASS, or the value to set for `TB_BACKUP_MIN_MBPS` | The line |
 | 68 | `python3 -m tools.trialbox backup-nightly --deploy deploy` to the USB disk | It ends with a good backup on `/mnt/e/trialbox`; no step "stopped as hung" | Its duration; the file's size; any step that was cut |
 | 69 | **With nobody signed in.** Restart Windows, do not sign in, wait for the night's backup time (or set the schedule a few minutes ahead before restarting). Then sign in and look at the target and at `deploy/site/backup-last.json` | A new backup on the USB disk: the drive was reachable from the boot task's session | Whether `/mnt/e` existed in that session. This decides whether an outside drive works unattended at all |
 | 70 | The same as line 69 with the file share (`mount -t drvfs '\\server\share' /mnt/share` as root, target `/mnt/share/trialbox`) | Expected to **fail** when nobody is signed in: the boot task's sign-in (S4U) carries no network credentials, so Windows cannot reach the share for it | What happened, with the error. If it fails, the share is mounted another way (CIFS inside WSL2 with a credentials file kept in `/etc`, root only), which is a card of its own |
+
+## Part 9: NEW-WIN-10, Windows 10 22H2 (D-613; owner ruling D-503)
+
+Only on a Windows 10 PC (build 19045). Windows 10 has no mirrored networking for WSL2: the installer adds one
+port-proxy rule for the console's port, kept pointed at WSL2's own address by the task `TrialBox-Console-Proxy`,
+and one Windows Firewall rule for that port from this PC's own network on private and domain networks only. By
+Microsoft's documentation (netsh `interface portproxy`; Task Scheduler with S4U); none of it has been run.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 71 | Before the installer: `winver`, and in PowerShell `(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').CurrentBuildNumber`; `wsl --version` | Build 19045; WSL 2.x | The three answers. A WSL that was already on is kept |
+| 72 | At step 6, read `%USERPROFILE%\.wslconfig` | `localhostForwarding=false` and no `networkingMode` line | The file. If you already had a `.wslconfig`, it was kept as it is: write down whether it sets `localhostForwarding` |
+| 73 | At step 13, read the window; then `netsh interface portproxy show v4tov4` and `wsl -d TrialBox -- hostname -I` | One row `0.0.0.0 443 <WSL2's address> 443`, the address the same as `hostname -I`'s first | Both outputs |
+| 74 | `Get-NetFirewallRule -Name TrialBox-Console \| Format-List Enabled,Direction,Action,Profile`; `Get-NetFirewallRule -Name TrialBox-Console \| Get-NetFirewallAddressFilter`; `Get-NetConnectionProfile` | Enabled, Inbound, Allow, profile `Domain, Private`, remote address `LocalSubnet`. The network this PC is on shows as Private or Domain | All of it. **If the network shows Public, the console is not reachable from other PCs**: record it; the fix is the network's profile, which is the site's IT's choice |
+| 75 | `Get-ScheduledTask TrialBox-Console-Proxy \| Format-List State,Principal`; `Get-ScheduledTaskInfo TrialBox-Console-Proxy` | Ready; LogonType S4U, RunLevel Highest; LastTaskResult 0 | The values |
+| 76 | On this PC: `https://localhost/` and `https://<this PC's name>/` | The console's sign-in page on both | Which opened |
+| 77 | From the second PC: lines 39 and 40 | As there | As there |
+| 78 | **Does the rule follow WSL2.** `wsl --shutdown`, wait one minute, `wsl -d TrialBox -- hostname -I` (WSL2 starts again with a new address), then wait up to 6 minutes and run `netsh interface portproxy show v4tov4` | The row points at the new address; the console opens again from the second PC | The minutes until it pointed right; `C:\ProgramData\TrialBox\box-install\console-proxy.log`'s last lines |
+| 79 | **With nobody signed in.** Restart Windows, do not sign in, wait 6 minutes, then from the second PC open the console | It answers | Whether it answered before anyone signed in. With line 26a this decides whether Windows 10 serves a site unattended |
+| 80 | The host check (`deploy/check_host.sh`, an elevated terminal), its Windows lines | No FAIL for the network form; a WARN that Windows 10's support has ended | The lines whole |
+| 81 | **Is anything listening.** `Get-Service iphlpsvc \| Format-List Status,StartType`; `netstat -ano -p tcp \| findstr :443`; then `tasklist /svc /fi "PID eq <the PID netstat shows>"` | Running, Automatic; one `LISTENING` line on `0.0.0.0:443`, its process a `svchost.exe` that hosts `iphlpsvc` | All three outputs. A row in line 73 with no listener here means the IP Helper service does not serve it |
+| 82 | **The task's limits.** `$t = Get-ScheduledTask TrialBox-Console-Proxy`; `$t.Triggers \| ForEach-Object { $_.Repetition \| Format-List Interval,Duration }`; `$t.Settings.ExecutionTimeLimit` | One trigger with Interval `PT5M` and a Duration of about ten years (`P3650D`); ExecutionTimeLimit `PT2M` | The values. A Duration of one day or less means the five-minute runs stop |
+| 83 | **Which address is forwarded to.** `wsl -d TrialBox -u root --exec ip -4 -o addr show dev eth0`; `Get-NetIPAddress -AddressFamily IPv4 \| Where-Object InterfaceAlias -like 'vEthernet (WSL*' \| Format-List InterfaceAlias,IPAddress,PrefixLength` | eth0's address is the one in line 73's row, and inside the subnet of the `vEthernet (WSL...)` adapter | Both outputs, with the adapter's exact name: a later card may refuse an address outside that subnet (D-613) |
+
+## Part 10: NEW-WIN-11, Stage B as a rehearsal box (D-614; lane D's D-726)
+
+Stage B only, started with `-Rehearsal` (P-0-BUILD-THE-MEDIA.md, "On the Windows PC", step 4). By reading; not run.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 84 | Read the window at its start; then, after step 14, `wsl -d TrialBox -u root -- grep -E '^TB_(ENV|REHEARSAL)=' /opt/trialbox/deploy/.env` and `wsl -d TrialBox -u root -- ls /opt/trialbox/deploy/site/rehearsal.json` | "This is a rehearsal install" before step 1 changes anything; `TB_ENV=TEST` and `TB_REHEARSAL=1`; the mark is there | The window's first lines and both outputs |
+| 85 | `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"`, the `rehearsal` line | WARN "rehearsal box"; no FAIL for it | The line whole |
 
 ## What the answers decide
 
@@ -245,3 +285,16 @@ mount line below is as Microsoft documents WSL2 to print it; none has been seen.
   the Windows form is set from it.
 - Lines 69 and 70 decide which off-box target a site can use unattended: the outside drive, the share, or the
   share mounted by CIFS inside WSL2.
+- Line 73 or 78 "no row", or a row that does not follow WSL2: the port proxy does not serve WSL2 on this PC as
+  Microsoft documents it; the console on Windows 10 then needs another form (WSL's own localhost forwarding behind
+  a rule for the PC's address), a card of its own.
+- Line 74 "Public": the console stays closed to other PCs until the site's IT names the network private or domain;
+  the installer does not change a network's profile.
+- Line 79 "no": as line 26a "no".
+- Line 81 "no listener" with a row in line 73: the IP Helper service does not serve the port proxy on this PC; the
+  installer checks only that the service runs, so this is a card of its own.
+- Line 84 "no `--rehearsal` reached the Linux installer" (no mark, `TB_ENV` not TEST): the hand-over in
+  `wsl-setup.sh install`; fix in lane W. A refusal "holds a site's install ... from no rehearsal" after Stage A: the
+  box is emptied (`docs/runbook/16-box-install-rehearsal.md`, "A rehearsal box") and the install started again with `-Rehearsal`.
+- Line 82 "a short Duration": the task is registered with the repetition written out another way
+  (`console-proxy.ps1`), a fix within lane W.

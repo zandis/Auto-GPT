@@ -8,7 +8,8 @@
 # first one stopped, and it stops at the first failure with one message and one line in the log:
 #    1 media          the files it needs are on the media and match SHA256SUMS (a damaged copy; the bundle's
 #                     signature is checked later, inside WSL2, by deploy/install.sh); the WSL package is signed by Microsoft
-#    2 windows        administrator; Windows 11 Pro, Pro for Workstations, Enterprise or Education; virtualisation
+#    2 windows        administrator; Windows 10 22H2 or Windows 11, Pro, Pro for Workstations, Enterprise or
+#                     Education (NEW-WIN-10, D-613; owner ruling D-503); virtualisation
 #    3 gpu-driver     the NVIDIA driver for Windows answers (WSL2 uses it; no driver is ever installed in Linux)
 #    4 drive          the data drive (the only other fixed drive, or the one the owner names) has room; the folder
 #                     <drive>\TrialBox is made for administrators and this account only. BitLocker (NEW-WIN-8, D-603):
@@ -31,7 +32,10 @@
 #                     driver (the NVIDIA driver stays the measured one); only administrators may shut the PC down.
 #                     A Windows Update policy the site's IT already set is kept as it is
 #   13 network        the console on the site's network (NEW-WIN-4, D-604): WSL2 runs with mirrored networking, and
-#                     one firewall rule admits the console's port from the site's own network, nothing else
+#                     one firewall rule admits the console's port from the site's own network, nothing else. Where
+#                     Windows has no mirrored networking (Windows 10; D-613), one port-proxy rule passes the console's
+#                     port to WSL2's own address, kept pointed by a task (console-proxy.ps1), and one Windows Firewall
+#                     rule admits that port from the site's own network on a private or domain network only
 #   14 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
 #                     the owner. Its window is never written to the log. Then: Docker and the stack are enabled
 #                     to start with the distribution
@@ -51,9 +55,13 @@ param(
   # room the data drive must have: the figure preflight.ps1 and preflight.sh already declare (D-125: images and
   # models about 40 GB; the lake, the databases and the local backup copies are the rest)
   [int]$MinFreeGB = 500,
-  # Windows 11 22H2: the first build with WSL2's mirrored networking, the form the console is served in
-  # (NEW-WIN-4, D-604); systemd and GPU support in WSL2 are older
-  [int]$MinWindowsBuild = 22621,
+  # Windows 10 22H2, the build the sites' workstations run (owner ruling D-503; NEW-WIN-10, D-613); WSL2 with
+  # systemd, GPU support and the WSL package from the media all run on it. Windows 11 22H2 (build 22621) and later
+  # serve the console with mirrored networking; earlier builds through the port proxy (step 13)
+  [int]$MinWindowsBuild = 19045,
+  # how often the console's forwarding is checked on a PC without mirrored networking: after WSL2 restarts, the
+  # console answers again within this many minutes
+  [ValidateRange(1, 60)][int]$ProxyEveryMinutes = 5,
   # how long a stopped distribution may take to start again with systemd as PID 1
   [int]$StartWaitSeconds = 120,
   # percent of the installed memory and processors kept for Windows and the desktop user; WSL2 gets the rest.
@@ -64,6 +72,10 @@ param(
   [ValidateSet("tpm", "tpm_pin")][string]$BitLockerUnlock = "tpm",
   # a rehearsal on a PC that must stay unencrypted: BitLocker is left as it is, and the host check then fails
   [switch]$SkipBitLocker,
+  # a rehearsal box (NEW-WIN-11, D-614): handed to the Linux installer as --rehearsal (lane D's D-726: the box is
+  # TEST and says "rehearsal box", runs stand-in model servers, takes a bundle built with make_bundle.sh
+  # --rehearsal; a site box refuses such a bundle). Kept in state.json: the install stays one to its end
+  [switch]$Rehearsal,
   # the update window (NEW-WIN-5, D-606): the hour of the day, this PC's clock, at which Windows Update may install
   # and restart, and how many hours the window lasts. The declared settings TB_WIN_UPDATE_WINDOW_START and
   # TB_WIN_UPDATE_WINDOW_HOURS (libs/tb_common/config.py gives the reasons; the same defaults, held by a test).
@@ -99,6 +111,11 @@ $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", 
   "ProfessionalEducation")
 $script:TbFeatures = @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")
 $script:TbResumeTask = "TrialBox-Install-Resume"
+$script:TbMirroredBuild = 22621  # Windows 11 22H2: the first build with WSL2's mirrored networking (Microsoft Learn,
+                                  # "Accessing network applications with WSL"); earlier builds take the port proxy
+$script:TbProxyTask = "TrialBox-Console-Proxy"
+# where this run finds its own files: the media's folder, or after a restart the copy in the state (the task runs it)
+$script:TbHere = $PSScriptRoot
 $script:TbConsolePort = 443  # the one port the stack publishes (deploy/docker-compose.identity.yml; a test holds the two together)
 $script:TbFirewallRule = "TrialBox-Console"
 $script:TbBootTask = "TrialBox-WSL2"  # the name host_facts.ps1 and wsl2_policy.py look for (D-421)
@@ -376,6 +393,58 @@ function Write-TbOutsideMark([string]$Letter, [string[]]$Lines) {
   # one small file at the root of the outside drive: the backup check inside WSL2 looks for it (D-608)
   Set-Content -LiteralPath ($Letter + ":\.trialbox-outside-drive") -Value $Lines -Encoding ASCII
 }
+# ---- the console on Windows 10 (NEW-WIN-10, D-613): a Windows Firewall rule, the forwarding task and its script
+function Get-TbHostFirewallRule([string]$RuleName) {
+  $r = Get-NetFirewallRule -Name $RuleName -ErrorAction SilentlyContinue
+  if ($null -eq $r) { return $null }
+  $port = $r | Get-NetFirewallPortFilter; $addr = $r | Get-NetFirewallAddressFilter
+  return @{ Enabled = [string]$r.Enabled; Direction = [string]$r.Direction; Action = [string]$r.Action; Profile = [string]$r.Profile
+    Protocol = [string]$port.Protocol; LocalPort = (@($port.LocalPort) -join ","); RemoteAddress = (@($addr.RemoteAddress) -join ",") }
+}
+function Write-TbHostFirewallRule([string]$RuleName, [int]$Port, [bool]$Exists) {
+  $p = @{ Direction = "Inbound"; Protocol = "TCP"; LocalPort = $Port; RemoteAddress = "LocalSubnet"; Profile = @("Domain", "Private")
+    Action = "Allow"; Enabled = "True" }
+  if ($Exists) { Set-NetFirewallRule -Name $RuleName @p | Out-Null }
+  else { New-NetFirewallRule -Name $RuleName -DisplayName "TrialBox console (HTTPS) from the site's own network" @p | Out-Null }
+}
+function Get-TbProxyTaskInfo([string]$TaskName) {
+  $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($null -eq $t) { return $null }
+  return @{ State = [string]$t.State; Action = ((@($t.Actions) | ForEach-Object { "{0} {1}" -f $_.Execute, $_.Arguments }) -join " ; ") }
+}
+function Register-TbProxyTask([string]$Account, [string]$Script, [string]$Distro, [int]$Port, [int]$EveryMinutes, [string]$TaskName) {
+  # the forwarding script registers its own task (one definition, as register_keepalive.ps1 for the boot task)
+  & $Script -Register -User $Account -Distro $Distro -Port $Port -EveryMinutes $EveryMinutes -TaskName $TaskName | Out-Null
+}
+function Get-TbIpHelper {
+  # Windows' IP Helper service serves the port proxy: without it a rule is written and nothing listens
+  $svc = Get-Service -Name "iphlpsvc" -ErrorAction SilentlyContinue
+  if ($null -eq $svc) { return $null }
+  return @{ Status = [string]$svc.Status; StartType = [string]$svc.StartType }
+}
+function Set-TbIpHelperOn {
+  Set-Service -Name "iphlpsvc" -StartupType Automatic
+  Start-Service -Name "iphlpsvc"
+}
+function Get-TbProxyRowTarget([int]$Port) {
+  # the port proxy's row for 0.0.0.0:<port>, read only (console-proxy.ps1 reads the same table)
+  foreach ($line in @(& netsh.exe interface portproxy show v4tov4 2>$null)) {
+    if ([string]$line -match "^\s*0\.0\.0\.0\s+(\d+)\s+(\S+)\s+\d+\s*$" -and [int]$Matches[1] -eq $Port) { return $Matches[2] }
+  }
+  return ""
+}
+function Remove-TbProxyRow([int]$Port) {
+  & netsh.exe interface portproxy delete v4tov4 ("listenport={0}" -f $Port) "listenaddress=0.0.0.0" | Out-Null
+}
+function Unregister-TbProxyTask([string]$TaskName) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
+function Remove-TbHostFirewallRule([string]$RuleName) { Remove-NetFirewallRule -Name $RuleName }
+function Invoke-TbConsoleProxy([string]$Script, [string]$Distro, [int]$Port) {
+  # the forwarding script run once, now; its own output says what it did
+  $out = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script -Distro $Distro -Port $Port 2>&1)
+  $line = [string]($out | Where-Object { $_ -like "status=*" } | Select-Object -Last 1)
+  if ($line -match "^status=(\S+) address=(\S*)") { return @{ Status = $Matches[1]; Address = $Matches[2] } }
+  return @{ Status = "refused"; Address = "" }
+}
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -421,7 +490,7 @@ function Get-TbLang([string]$Asked, [string]$UiCulture) {
   if ($UiCulture -like "zh-TW*" -or $UiCulture -like "zh-Hant*" -or $UiCulture -like "zh-HK*" -or $UiCulture -like "zh-MO*") { return "zh-TW" }
   return "en"
 }
-function Get-TbWslConfigText([int]$MemoryGB, [int]$Processors, [int]$SharePercent, [long]$DiskBytes) {
+function Get-TbWslConfigText([int]$MemoryGB, [int]$Processors, [int]$SharePercent, [long]$DiskBytes, [bool]$Mirrored = $true) {
   # .wslconfig from the hardware (D-601): WSL2 gets what the desktop's share leaves, rounded down to whole units.
   # Nothing here is a constant of ours: two readings of the machine and one declared setting.
   $mem = [int][math]::Floor($MemoryGB * (100 - $SharePercent) / 100)
@@ -431,8 +500,13 @@ function Get-TbWslConfigText([int]$MemoryGB, [int]$Processors, [int]$SharePercen
     "# TrialBox: written by box-install.ps1 from this machine's hardware (NEW-WIN-3, D-601). Run the installer",
     ("# again after a hardware change. Installed: {0} GB, {1} logical processors; {2} percent kept for the desktop." -f $MemoryGB, $Processors, $SharePercent),
     "[wsl2]", ("memory={0}GB" -f $mem), ("processors={0}" -f $cpu),
-    "# the workstation's own network address is WSL2's (NEW-WIN-4, D-604)", "networkingMode=mirrored",
     "# no swap: patient data never pages to a disk file (D-421)", "swap=0")
+  if ($Mirrored) { $lines += @("# the workstation's own network address is WSL2's (NEW-WIN-4, D-604)", "networkingMode=mirrored") }
+  else {
+    # Windows 10 has no mirrored networking: the console's port is forwarded by the port proxy, which also answers
+    # on this PC's own name; WSL2's own forwarding of localhost would take the same port first (NEW-WIN-10, D-613)
+    $lines += @("# the console is forwarded to WSL2 by the port proxy (NEW-WIN-10, D-613)", "localhostForwarding=false")
+  }
   if ($DiskBytes -gt 0) { $lines += @("# the virtual disk may grow to the data drive's size", ("defaultVhdSize={0}" -f $DiskBytes)) }
   $lines += @("[experimental]", "# the disk file gives back freed space (D-421)", "sparseVhd=true", "")
   return ($lines -join "`r`n")
@@ -463,7 +537,7 @@ function Save-TbState {
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
     desktop_share_pct = -1; update_window = ""; update_window_told = ""; drives_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
-    restart_pending = $false; finished = $false }
+    restart_pending = $false; finished = $false; rehearsal = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($k in @($s.Keys)) { if ($null -ne $j.$k) { $s[$k] = $j.$k } }
@@ -669,14 +743,15 @@ function Step-WslEnable {
     # the copy the task runs must not depend on the media's drive letter after the restart
     $copy = Join-Path $script:TbStateDir "scripts"
     Protect-TbDirectory $copy $script:TbFacts.Account
-    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1")) {
-      $from = Join-Path $PSScriptRoot $n; $to = Join-Path $copy $n
+    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1", "console-proxy.ps1")) {
+      $from = Join-Path $script:TbHere $n; $to = Join-Path $copy $n
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
     # the run after the restart gets this run's settings (all checked: figures, a language of the list, a name)
-    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
-      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1]
+    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -ProxyEveryMinutes {9} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
+      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1], $ProxyEveryMinutes
     if ($SkipBitLocker) { $more += " -SkipBitLocker" }
+    if ($script:TbState.rehearsal) { $more += " -Rehearsal" }  # D-614: the run after the restart is asked for it again
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
@@ -703,14 +778,19 @@ function Step-WslConfig {
       # the account's own and is kept as it is
       $plain = @($bytes | Where-Object { $_ -eq 0 -or $_ -gt 127 }).Count -eq 0
       if (-not ($plain -and $text.StartsWith("# TrialBox"))) {
-        if ($text -notmatch "(?im)^\s*swap\s*=\s*0\s*$") { Say "wslconfig_kept_no_swap0" @($path) } else { Say "wslconfig_kept" @($path) }
+        $swap0 = $text -match "(?im)^\s*swap\s*=\s*0\s*$"
+        if ((Get-TbNetForm) -eq "proxy") {
+          # Windows 10 (D-613): WSL2's own localhost forwarding would take port 443 before the port proxy
+          if ($swap0 -and $text -match "(?im)^\s*localhostForwarding\s*=\s*false\s*$") { Say "wslconfig_kept_proxy" @($path) }
+          else { Say "wslconfig_kept_proxy_missing" @($path) }
+        } elseif (-not $swap0) { Say "wslconfig_kept_no_swap0" @($path) } else { Say "wslconfig_kept" @($path) }
         return "kept"
       }
       $old = $text
     }
   }
   $hw = Get-TbHardware
-  $new = Get-TbWslConfigText $hw.MemoryGB $hw.Processors $script:TbShare $script:TbDataDriveBytes
+  $new = Get-TbWslConfigText $hw.MemoryGB $hw.Processors $script:TbShare $script:TbDataDriveBytes ((Get-TbNetForm) -eq "mirrored")
   if ($null -eq $new) { Stop-TbStep "wslconfig_too_small" @($hw.MemoryGB, $hw.Processors, $script:TbShare) }
   if ($old -eq $new) { Write-TbLog ("    " + $path + " is as computed: not written"); return "same" }
   $backup = ""
@@ -926,12 +1006,85 @@ function Step-BootTask {
   Set-TbOwnDrives
   if ($BackupDrive) { Set-TbBackupDrive $BackupDrive }
 }
+function Get-TbNetForm {
+  # "mirrored" where Windows has WSL2's mirrored networking, else "proxy" (Windows 10; NEW-WIN-10, D-613)
+  if ([int]$script:TbFacts.Build -ge $script:TbMirroredBuild) { return "mirrored" }
+  return "proxy"
+}
+function Set-TbHostFirewall([string]$RuleName, [int]$Port) {
+  # Windows Firewall, on a PC without mirrored networking: the console's port from the workstation's own subnet, on a
+  # private or domain network only. A rule of that name is ours: one that is wider is put right. "kept", "added" or
+  # "corrected".
+  $rule = Get-TbHostFirewallRule $RuleName
+  if ($null -eq $rule) { Write-TbHostFirewallRule $RuleName $Port $false; return "added" }
+  $profiles = @(([string]$rule.Profile) -split "\s*,\s*" | Where-Object { $_ }) | Sort-Object
+  $right = ($rule.Enabled -eq "True" -and $rule.Direction -eq "Inbound" -and $rule.Action -eq "Allow" -and $rule.Protocol -eq "TCP" -and
+    $rule.LocalPort -eq [string]$Port -and $rule.RemoteAddress -eq "LocalSubnet" -and ($profiles -join ",") -eq "Domain,Private")
+  if ($right) { return "kept" }
+  Write-TbLog ("    rule {0} was: enabled {1}, {2} {3}, {4} ports {5}, from {6}, networks {7}" -f $RuleName, $rule.Enabled, $rule.Direction,
+    $rule.Action, $rule.Protocol, $rule.LocalPort, $rule.RemoteAddress, $rule.Profile)
+  Write-TbHostFirewallRule $RuleName $Port $true
+  return "corrected"
+}
+function Set-TbConsoleProxy([bool]$Quiet) {
+  # The forwarding script beside the state (administrators only), its task, and one run now. Returns the run's
+  # @{ Status; Address }. A task that is there and runs this script is kept as it is.
+  $script = Join-Path $script:TbStateDir "console-proxy.ps1"
+  $from = Join-Path $script:TbHere "console-proxy.ps1"
+  if ($from -ne $script) { Copy-Item -LiteralPath $from -Destination $script -Force }
+  $info = Get-TbProxyTaskInfo $script:TbProxyTask
+  if ($null -eq $info -or $info.State -eq "Disabled" -or -not ([string]$info.Action).Contains($script)) {
+    Register-TbProxyTask $script:TbFacts.Account $script $script:TbState.distro $script:TbConsolePort $ProxyEveryMinutes $script:TbProxyTask
+    Write-TbLog ("    task {0}: registered, every {1} minutes and at startup" -f $script:TbProxyTask, $ProxyEveryMinutes)
+  }
+  $r = Invoke-TbConsoleProxy $script $script:TbState.distro $script:TbConsolePort
+  Write-TbLog ("    console forwarding: {0}, port {1} to WSL2 at {2}" -f $r.Status, $script:TbConsolePort, $r.Address)
+  return $r
+}
+function Set-TbIpHelper {
+  # Returns "ok", "started" (it was only stopped or on demand) or "off" (switched off by the site, or missing: the
+  # site's IT decides; nothing is changed)
+  $ih = Get-TbIpHelper
+  if ($null -eq $ih -or $ih.StartType -eq "Disabled") { return "off" }
+  if ($ih.Status -eq "Running" -and $ih.StartType -eq "Automatic") { return "ok" }
+  Set-TbIpHelperOn
+  Write-TbLog ("    IP Helper (iphlpsvc): was {0}, {1}; now running, automatic" -f $ih.Status, $ih.StartType)
+  return "started"
+}
+function Remove-TbWin10Forwarding {
+  # a PC upgraded from Windows 10 to a Windows 11 with mirrored networking: the forwarding task, its row and the
+  # Windows Firewall rule would hold port 443 on the PC against WSL2's own (review finding 5)
+  $gone = @()
+  if ($null -ne (Get-TbProxyTaskInfo $script:TbProxyTask)) { Unregister-TbProxyTask $script:TbProxyTask; $gone += "task" }
+  if (Get-TbProxyRowTarget $script:TbConsolePort) { Remove-TbProxyRow $script:TbConsolePort; $gone += "row" }
+  if ($null -ne (Get-TbHostFirewallRule $script:TbFirewallRule)) { Remove-TbHostFirewallRule $script:TbFirewallRule; $gone += "firewall" }
+  if ($gone.Count -gt 0) { Write-TbLog ("    Windows 10 forwarding removed: {0}" -f ($gone -join ", ")) }
+}
 function Step-Network {
+  if ((Get-TbNetForm) -eq "proxy") {
+    # Windows 10 (NEW-WIN-10, D-613): WSL2 behind its own address; the port proxy passes the console's port to it
+    try { $ih = Set-TbIpHelper } catch { Stop-TbStep "proxy_failed" @([string]$_.Exception.Message) }
+    if ($ih -eq "off") { Stop-TbStep "iphelper_off" @() }
+    try { $did = Set-TbHostFirewall $script:TbFirewallRule $script:TbConsolePort }
+    catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
+    Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did)
+    if ($did -eq "corrected") { Say "firewall_corrected" @($script:TbFirewallRule) }
+    try { $r = Set-TbConsoleProxy $false }
+    catch { Stop-TbStep "proxy_failed" @([string]$_.Exception.Message) }
+    if ($r.Status -eq "no_address") { Stop-TbStep "proxy_failed" @("WSL2 gave no address") }
+    if ($r.Status -eq "refused") { Stop-TbStep "proxy_failed" @("netsh refused the rule") }
+    if ($r.Status -eq "conflict") {
+      Stop-TbStep "proxy_failed" @("another port-proxy rule takes port $($script:TbConsolePort) on one address: netsh interface portproxy show v4tov4")
+    }
+    Say "network_proxy" @($script:TbConsolePort)
+    return
+  }
   # the form is mirrored networking (.wslconfig, step 6): the workstation's own address is WSL2's, so the box sees
   # the site's real network and the console answers on the workstation's name
   $r = Invoke-TbSetup "network-mode" @()
   $mode = [string](@($r.Output) | Select-Object -Last 1)
   if ($r.ExitCode -ne 0 -or $mode -ne "mirrored") { Stop-TbStep "not_mirrored" @($mode) }
+  try { Remove-TbWin10Forwarding } catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
   try { $did = Set-TbConsoleFirewall $script:TbFirewallRule $script:TbConsolePort }
   catch { Stop-TbStep "firewall_failed" @([string]$_.Exception.Message) }
   Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did)
@@ -954,6 +1107,7 @@ function Step-LinuxInstall {
   $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
     (ConvertTo-TbWslPath $script:TbFiles.Bundle))
   if ($Yes) { $a += "--yes" }
+  if ($script:TbState.rehearsal) { $a += "--rehearsal" }
   $code = Invoke-TbNativeConsole "wsl.exe" $a
   Write-TbLog ("    the Linux installer ended with exit " + $code)
   $r = Invoke-TbSetup "state" @()
@@ -969,7 +1123,7 @@ function Step-LinuxInstall {
 # ------------------------------------------------------------------------------------------------ the run
 function Invoke-TbInstall {
   param([string]$MediaRoot, [string]$DataDrive, [string]$Distro = "TrialBox", [string]$Lang, [string]$StateDir,
-    [switch]$Resume, [switch]$Yes)
+    [switch]$Resume, [switch]$Yes, [switch]$Rehearsal)
   # a cmdlet that reports an error stops its step: nothing goes on after a failed copy, permission change or task
   # registration (Invoke-TbNative sets its own preference for a program's error text)
   $ErrorActionPreference = "Stop"
@@ -996,6 +1150,14 @@ function Invoke-TbInstall {
   $script:TbStop = $null
   Write-TbLog ("box-install.ps1 started by {0}; resume={1}; Windows {2} build {3}; language {4}" -f $script:TbFacts.Account,
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
+  # a rehearsal (D-614) goes on only when asked for again: a run without -Rehearsal on an unfinished rehearsal stops
+  # here, before anything changes. Its box may have been emptied since (RUNBOOK section 16), and the Linux installer
+  # would then take a site's media as a rehearsal unasked (review finding 3). The resume task names the switch
+  if ($script:TbState.rehearsal -and -not $script:TbState.finished -and -not $Rehearsal) {
+    Write-TbLog "    unfinished rehearsal started without -Rehearsal: stopped, nothing changed"
+    Write-TbScreen (Get-TbText "rehearsal_unasked" @($script:TbStatePath) $script:TbLang)
+    return 1
+  }
   # the resume task has done its work once this run started; step 5 registers it again if Windows wants a restart
   try { Unregister-TbResumeTask } catch { Write-TbLog ("    the resume task could not be removed: " + [string]$_.Exception.Message) }
   if ($script:TbShareGiven -or [int]$script:TbState.desktop_share_pct -lt 0) { $script:TbState.desktop_share_pct = $script:TbShareDefault }
@@ -1009,6 +1171,16 @@ function Invoke-TbInstall {
     if (-not $script:TbUpdateGiven[1]) { $script:TbUpdate[1] = [int]$Matches[2] }
   }
   $script:TbState.update_window = "{0}+{1}" -f $script:TbUpdate[0], $script:TbUpdate[1]
+  # a rehearsal is decided at the start and kept: never turned off by a run without the switch (a site's box is a
+  # new install, RUNBOOK section 16); the Linux installer refuses to make a box holding a site's install a rehearsal
+  if ($Rehearsal -and $script:TbState.finished -and -not $script:TbState.rehearsal) {
+    Write-TbLog "    -Rehearsal ignored: this install is finished and is not a rehearsal"
+    Say "rehearsal_ignored" @()
+  } elseif ($Rehearsal) { $script:TbState.rehearsal = $true }
+  if ($script:TbState.rehearsal -and -not $script:TbState.finished) {
+    Write-TbLog "    rehearsal: yes (the box will be TEST and say so; D-726)"
+    Say "rehearsal_on" @()
+  }
   if ($script:TbState.finished) {
     # A finished install is left alone, but for .wslconfig: it follows the hardware (memory was added, the share
     # was changed), so "start the installer again after a hardware change" is true on a finished box too.
@@ -1025,11 +1197,19 @@ function Invoke-TbInstall {
     try {
       $root = [string]$script:TbState.data_drive; if ($root -match "^[A-Za-z]:$") { $root = $root + "\" }
       $script:TbSetupWsl = ConvertTo-TbWslPath (Join-Path (Join-Path (Join-Path $root "TrialBox") "install") "wsl-setup.sh")
-      $mode = [string](@((Invoke-TbSetup "network-mode" @()).Output) | Select-Object -Last 1)
-      if ($mode -eq "mirrored") {
+      if ((Get-TbNetForm) -eq "proxy") {
+        if ((Set-TbIpHelper) -eq "off") { Say "iphelper_off" @() }
+        else {
+          $did = Set-TbHostFirewall $script:TbFirewallRule $script:TbConsolePort
+          if ($did -ne "kept") { Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did) }
+          $r = Set-TbConsoleProxy $true
+          if (@("no_address", "refused", "conflict") -contains $r.Status) { Say "proxy_failed" @($r.Status) }
+        }
+      } elseif (([string](@((Invoke-TbSetup "network-mode" @()).Output) | Select-Object -Last 1)) -eq "mirrored") {
+        Remove-TbWin10Forwarding
         $did = Set-TbConsoleFirewall $script:TbFirewallRule $script:TbConsolePort
         if ($did -ne "kept") { Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did); Say "network" @($script:TbConsolePort) }
-      } else { Say "network_pending" @($mode) }
+      } else { Say "network_pending" @("not mirrored") }
     } catch { Say "firewall_failed" @([string]$_.Exception.Message) }
     # and the start-at-boot task, when it was deleted or disabled by hand (D-602)
     try { if ((Set-TbBootTask) -ne "kept") { Say "boot_task_restored" @($script:TbBootTask) } }
@@ -1086,6 +1266,6 @@ function Invoke-TbInstall {
 
 if (-not $LoadOnly) {
   $code = Invoke-TbInstall -MediaRoot $MediaRoot -DataDrive $DataDrive -Distro $Distro -Lang $Lang -StateDir $StateDir `
-    -Resume:$Resume -Yes:$Yes
+    -Resume:$Resume -Yes:$Yes -Rehearsal:$Rehearsal
   exit $code
 }

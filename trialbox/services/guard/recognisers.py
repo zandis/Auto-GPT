@@ -103,31 +103,21 @@ PHONE_JP = re.compile(
     r"|0[789]0[-\s]?\d{4}[-\s]?\d{4}"
     r"|0\d{1,4}-\d{1,4}-\d{4})(?!\d)"
 )
-EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+EMAIL = phi_guard.EMAIL  # D-745: the masker reads the same form
 PASSPORT_JP = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{7}(?![0-9])")
 PASSPORT_CTX = re.compile(
     r"(?:護照(?:號碼|号码|號)?|旅券(?:番号)?|パスポート(?:番号)?|(?i:passport)(?:\s*(?:no\.?|number|#))?)"
     r"[\s:：#]*(?P<v>[A-Z0-9]{6,9})(?![A-Za-z0-9])"
 )
-MRN_CTX = re.compile(
-    r"(?:病歷號(?:碼)?|病历号|カルテ番号|患者ID|(?i:MRN|chart\s*no\.?|medical record (?:no\.?|number)))"
-    r"[\s:：#]*(?P<v>[A-Z0-9][A-Z0-9-]{3,14})(?![A-Za-z0-9])"
-)
-_NUM = r"[0-9０-９一二三四五六七八九十]+"
-ADDRESS_ZH = re.compile(
-    rf"(?:[{_CJK}]{{1,3}}(?:縣|市))?(?:[{_CJK}]{{1,3}}(?:區|鄉|鎮|市))?[{_CJK}]{{1,5}}(?:路|街|大道)"
-    rf"(?:{_NUM}段)?(?:{_NUM}巷)?(?:{_NUM}弄)?{_NUM}(?:之{_NUM})?號(?:{_NUM}樓(?:之{_NUM})?)?"
-)
-ADDRESS_JA = re.compile(
-    rf"(?:東京都|北海道|大阪府|京都府|[{_CJK}]{{2,3}}県)[{_CJK}{_KANA}]{{1,10}}?(?:市|区|町|村|郡)"
-    rf"[{_CJK}{_KANA}]{{0,8}}?[0-9０-９]+(?:(?:丁目|番地?|号|[-－ー])[0-9０-９]*){{1,4}}"
-)
-ADDRESS_EN = re.compile(
-    r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Boulevard|Blvd|Drive|Dr|Way)\b\.?"
-    r"(?:,\s*(?:Apt\.?|Unit|Suite)\s*\d+)?(?:,\s*[A-Z][a-z]+(?:\s[A-Z][a-z]+)?)?"
-)
-_DATE = dates.DOB_SPAN  # D-215: the pattern lives in tb_common.dates, unchanged
-DOB = re.compile(rf"(?:生日|出生(?:日期)?|生年月日|誕生日|(?i:DOB|date of birth|born(?: on)?))[\s:：]*(?P<v>{_DATE})")
+# D-745: the chart label, the addresses and the date of birth are the v1 guard's (tb_common.phi_guard), not copies
+MRN_CTX = phi_guard.MRN_LABELLED
+ADDRESS_ZH = phi_guard.ADDRESS_ZH
+ADDRESS_JA = phi_guard.ADDRESS_JA
+ADDRESS_EN = phi_guard.ADDRESS_EN
+ADDRESS_LABELLED = phi_guard.ADDRESS_LABELLED
+_DATE = dates.DOB_SPAN  # D-215: the guard's date-of-birth value lives in tb_common.dates, unchanged
+DOB = phi_guard.DOB_LABELLED
+DOB_BORN = phi_guard.DOB_BORN
 
 _SURNAMES_ROC = (
     "|".join(sorted(phi_guard.ROC_COMPOUND, key=len, reverse=True))
@@ -204,11 +194,14 @@ def recognisers(mrn_regex: str | None = None) -> list[tuple[str, Recogniser]]:
         ("passport_jp", lambda t: _spans(PASSPORT_JP, t, "PASSPORT")),
         ("phone_tw", lambda t: _spans(PHONE_TW, t, "PHONE")),
         ("phone_jp", lambda t: _spans(PHONE_JP, t, "PHONE")),
+        ("phone_en", lambda t: _spans(phi_guard.EN_PHONE, t, "PHONE", "v")),  # D-744: the v1 guard's, not a copy
         ("email", lambda t: _spans(EMAIL, t, "EMAIL")),
         ("address_zh", lambda t: _spans(ADDRESS_ZH, t, "ADDRESS")),
         ("address_ja", lambda t: _spans(ADDRESS_JA, t, "ADDRESS")),
         ("address_en", lambda t: _spans(ADDRESS_EN, t, "ADDRESS")),
         ("dob", lambda t: _spans(DOB, t, "DOB", "v")),
+        ("dob_born", lambda t: _spans(DOB_BORN, t, "DOB", "v")),
+        ("address_label", lambda t: _spans(ADDRESS_LABELLED, t, "ADDRESS", "v")),
         ("name_zh", lambda t: _spans(NAME_ZH_CTX, t, "NAME", "v")),
         ("name_zh_sex", lambda t: _spans(NAME_ZH_SEX, t, "NAME", "v")),
         ("name_ja", lambda t: _spans(NAME_JA_CTX, t, "NAME", "v")),

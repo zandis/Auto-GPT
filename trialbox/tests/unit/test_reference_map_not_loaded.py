@@ -99,7 +99,8 @@ def test_a_map_that_is_loaded_or_cannot_be_asked_about_is_asked_code_by_code_as_
     from adapter.mapping.engine import Mapping
 
     mapping = Mapping.load(_site(tmp_path).mapping_path)
-    assert mapping.concept_maps() == [(I9, I10)]
+    # D-689: the shared mapping also names the NHIA list's NHI-to-ATC map (another source system)
+    assert mapping.concept_maps() == [(I9, I10), ("urn:tw:nhi:drug", "http://www.whocc.no/atc")]
     for loaded in (True, None):
         asked = _pack(monkeypatch, loaded)
         ask = reference_maps(mapping, None)

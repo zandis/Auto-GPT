@@ -218,12 +218,17 @@ def _fill(src: str, ph: dict[str, str]) -> str:
     return re.sub(r"\{(\w+)\}", lambda m: ph.get(m.group(1), m.group(0)), src)
 
 
-def load_patterns(path: Path = PATTERNS) -> list[Pattern]:
+def load_patterns(path: Path = PATTERNS, *, exits: bool = False) -> list[Pattern]:
+    """The scan's patterns. ``exits``: also the patterns marked ``exit`` (D-747), for the scans of what leaves the
+    box (a support bundle, the comment export, the demo guard); the repository scan leaves them out, because the
+    repository's tests and evaluation sets hold synthetic values of those shapes by design."""
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     ph = _placeholders()
     out: list[Pattern] = []
     for p in doc["patterns"]:
         pid = p["id"]
+        if p.get("exit") and not exits:
+            continue
         try:
             if "phi_guard" in p:
                 rx = getattr(phi_guard, p["phi_guard"])
@@ -607,9 +612,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("paths", nargs="*", type=Path, help="files, folders or archives (default: git ls-files here)")
     ap.add_argument("--log", type=Path, action="append", default=[], help="a log file to scan (repeatable)")
     ap.add_argument("--staged", action="store_true", help="the files staged for the next commit (pre-commit hook)")
+    ap.add_argument("--exits", action="store_true", help="a file that leaves the box: the exits' patterns too")
     a = ap.parse_args(argv)
     try:
-        patterns, allow = load_patterns(), load_allow()
+        patterns, allow = load_patterns(exits=a.exits), load_allow()
     except (ConfigError, OSError, yaml.YAMLError, KeyError, TypeError) as e:
         print(f"data_scan: {e}", file=sys.stderr)
         return 1

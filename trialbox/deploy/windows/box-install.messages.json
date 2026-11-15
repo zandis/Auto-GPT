@@ -35,9 +35,9 @@
     "zh-TW": "這次安裝是由 Windows 帳戶 {0} 開始的，您目前以 {1} 登入。請以 {0} 登入後再啟動安裝程式：TrialBox 系統屬於該帳戶。"
   },
   "edition": {
-    "en": "This Windows is edition {0}, build {1}. TrialBox needs Windows 11 Pro, Pro for Workstations, Enterprise or Education. Nothing was changed.",
-    "ja": "この Windows はエディション {0}、ビルド {1} です。TrialBox には Windows 11 Pro、Pro for Workstations、Enterprise または Education が必要です。何も変更していません。",
-    "zh-TW": "這台 Windows 的版本是 {0}，組建 {1}。TrialBox 需要 Windows 11 專業版、工作站專業版、企業版或教育版。沒有做任何變更。"
+    "en": "This Windows is edition {0}, build {1}. TrialBox needs Windows 10 22H2 or Windows 11, as Pro, Pro for Workstations, Enterprise or Education. Nothing was changed.",
+    "ja": "この Windows はエディション {0}、ビルド {1} です。TrialBox には Windows 10 22H2 または Windows 11 の Pro、Pro for Workstations、Enterprise、Education のいずれかが必要です。何も変更していません。",
+    "zh-TW": "這個 Windows 是 {0} 版，組建 {1}。TrialBox 需要 Windows 10 22H2 或 Windows 11 的 Pro、Pro for Workstations、Enterprise 或 Education 版。未做任何變更。"
   },
   "virtualisation": {
     "en": "CPU virtualisation is off. Turn on Intel VT-x or AMD-V (SVM) in the firmware (BIOS) settings of this machine, then start the installer again. Nothing was changed.",
@@ -350,9 +350,9 @@
     "zh-TW": "主控台會以這台電腦的名稱與連接埠 {0}，回應與這台電腦位於同一網路的電腦。TrialBox 的其他部分無法從網路連入。"
   },
   "windows_too_old": {
-    "en": "This Windows is build {0}. TrialBox needs build {1} or later (Windows 11 22H2): install the Windows updates, then start the installer again. Nothing was changed.",
-    "ja": "この Windows はビルド {0} です。TrialBox にはビルド {1} 以降（Windows 11 22H2）が必要です。Windows の更新プログラムをインストールしてから、もう一度インストーラーを起動してください。何も変更していません。",
-    "zh-TW": "這台 Windows 的組建是 {0}。TrialBox 需要組建 {1} 以上（Windows 11 22H2）：請安裝 Windows 更新後再啟動安裝程式。沒有做任何變更。"
+    "en": "This Windows is build {0}. TrialBox needs build {1} or later (Windows 10 22H2, or Windows 11): install the Windows updates, then start the installer again. Nothing was changed.",
+    "ja": "この Windows はビルド {0} です。TrialBox にはビルド {1} 以降（Windows 10 22H2 または Windows 11）が必要です。Windows の更新をインストールしてから、インストーラーをもう一度起動してください。何も変更していません。",
+    "zh-TW": "這個 Windows 是組建 {0}。TrialBox 需要組建 {1} 或更新版本（Windows 10 22H2 或 Windows 11）：請安裝 Windows 更新，然後再次啟動安裝程式。未做任何變更。"
   },
   "wsl_inbound_blocked": {
     "en": "Note: Windows let network traffic into WSL by default (it was set to {0}). The installer closed that for every WSL system on this PC, not only TrialBox; only the console's port is let in.",
@@ -428,5 +428,45 @@
     "en": "Drive {0}: could not be checked or marked ({1}). Is the disk plugged in and unlocked? Nothing was changed; start the installer again with -BackupDrive when it is.",
     "ja": "ドライブ {0}: を確認または登録できませんでした（{1}）。ディスクは接続され、ロックが解除されていますか。何も変更していません。準備ができたら、-BackupDrive を付けてインストーラーをもう一度起動してください。",
     "zh-TW": "無法檢查或標記磁碟機 {0}:（{1}）。磁碟是否已接上並解除鎖定？未做任何變更；準備好後，請加上 -BackupDrive 再次啟動安裝程式。"
+  },
+  "network_proxy": {
+    "en": "The console will answer on this PC's name, port {0}, to computers on the same network as this PC, when Windows counts that network as private or domain. Windows passes that one port forwarded to TrialBox inside WSL2; nothing else of TrialBox is reachable from the network.",
+    "ja": "コンソールは、この PC と同じネットワーク上のコンピューターに対して、この PC の名前とポート {0} で応答します（Windows がそのネットワークをプライベートまたはドメインとして扱っている場合）。Windows はこのポートだけを WSL2 内の TrialBox に転送します。TrialBox のそれ以外の部分にはネットワークから到達できません。",
+    "zh-TW": "主控台會以這台電腦的名稱與連接埠 {0}，回應與這台電腦位於同一網路的電腦（前提是 Windows 將該網路視為私人或網域網路）。Windows 只把這一個連接埠轉送到 WSL2 內的 TrialBox；TrialBox 的其他部分無法從網路連入。"
+  },
+  "proxy_failed": {
+    "en": "The console could not be forwarded to TrialBox inside WSL2 ({0}). Start the installer again; if this message comes again, send the installer's log.",
+    "ja": "コンソールを WSL2 内の TrialBox に転送できませんでした（{0}）。インストーラーをもう一度起動してください。同じメッセージが再び出る場合は、インストーラーのログを送ってください。",
+    "zh-TW": "無法將主控台轉送到 WSL2 內的 TrialBox（{0}）。請再次啟動安裝程式；如果再次出現此訊息，請寄送安裝程式的記錄檔。"
+  },
+  "iphelper_off": {
+    "en": "Windows' IP Helper service (iphlpsvc), which carries the console's forwarding on this Windows, is switched off or missing on this PC. Nothing more was changed. Ask the site's IT whether it may start automatically; then start the installer again.",
+    "ja": "この Windows でコンソールの転送を担う Windows の IP ヘルパー サービス（iphlpsvc）が、この PC では無効になっているか、存在しません。これ以上は何も変更していません。自動で起動してよいかをサイトの IT 担当者に確認し、その後インストーラーをもう一度起動してください。",
+    "zh-TW": "在這個 Windows 上負責主控台轉送的 Windows IP Helper 服務（iphlpsvc）在這台電腦上已停用或不存在。其他項目都未變更。請向院方 IT 人員確認是否可以讓它自動啟動，然後再次啟動安裝程式。"
+  },
+  "wslconfig_kept_proxy": {
+    "en": "{0} already exists and was not written by TrialBox: it was not changed. WSL2's memory, processors and disk limit are then that file's or WSL's own, not computed from this machine. networkingMode is not used on this Windows.",
+    "ja": "{0} はすでに存在し、TrialBox が書いたものではないため、変更していません。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になり、この機械から計算した値ではありません。この Windows では networkingMode は使われません。",
+    "zh-TW": "{0} 已存在，且不是 TrialBox 寫入的，因此未做變更。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值，而不是依這台機器計算。這個 Windows 不使用 networkingMode。"
+  },
+  "wslconfig_kept_proxy_missing": {
+    "en": "Warning: {0} already exists and was not written by TrialBox: it was not changed, but it does not set both swap=0 and localhostForwarding=false under [wsl2]. On this Windows TrialBox needs both: without swap=0 the host check reports it; without localhostForwarding=false WSL2 may take port 443 on this PC before the console's forwarding does. WSL2's memory, processors and disk limit are that file's or WSL's own. networkingMode is not used on this Windows.",
+    "ja": "注意: {0} はすでに存在し、TrialBox が書いたものではないため変更していませんが、[wsl2] の下に swap=0 と localhostForwarding=false の両方が設定されていません。この Windows では TrialBox は両方を必要とします。swap=0 がないとホスト検査がこれを報告し、localhostForwarding=false がないと、コンソールの転送より先に WSL2 がこの PC のポート 443 を使うことがあります。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になります。この Windows では networkingMode は使われません。",
+    "zh-TW": "警告：{0} 已存在，且不是 TrialBox 寫入的，因此未做變更，但其中 [wsl2] 下沒有同時設定 swap=0 與 localhostForwarding=false。在這個 Windows 上 TrialBox 兩者都需要：沒有 swap=0，主機檢查會回報此項；沒有 localhostForwarding=false，WSL2 可能比主控台的轉送更早占用這台電腦的連接埠 443。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值。這個 Windows 不使用 networkingMode。"
+  },
+  "rehearsal_on": {
+    "en": "This is a rehearsal install: the box will be a test box and say \"rehearsal box\", with stand-in model servers and a rehearsal bundle. It is never a site's box: a site's box is a new install.",
+    "ja": "これはリハーサルのインストールです。ボックスはテスト用となり「rehearsal box」と表示され、代替のモデルサーバーとリハーサル用バンドルを使います。サイトのボックスにはなりません。サイトのボックスは新しいインストールで作ります。",
+    "zh-TW": "這是演練安裝：此 box 將是測試用 box，並顯示「rehearsal box」，使用替代的模型伺服器與演練用套件。它絕不會成為院方的 box：院方的 box 需重新安裝。"
+  },
+  "rehearsal_unasked": {
+    "en": "This install began as a rehearsal and is not finished, but it was started without -Rehearsal. Nothing was changed. To go on with the rehearsal, start the installer again with -Rehearsal. For a site's box, empty the rehearsal box first (docs/runbook/16-box-install-rehearsal.md, \"A rehearsal box\"), remove {0}, and start a new install.",
+    "ja": "このインストールはリハーサルとして始まり、まだ完了していませんが、-Rehearsal なしで起動されました。何も変更していません。リハーサルを続けるには、-Rehearsal を付けてインストーラーをもう一度起動してください。サイトのボックスにするには、先にリハーサルのボックスを空にし（docs/runbook/16-box-install-rehearsal.md の「A rehearsal box」）、{0} を削除してから、新しいインストールを始めてください。",
+    "zh-TW": "此安裝以演練方式開始且尚未完成，但這次啟動時沒有加上 -Rehearsal。未做任何變更。若要繼續演練，請加上 -Rehearsal 再次啟動安裝程式。若要作為院方的 box，請先清空演練用 box（docs/runbook/16-box-install-rehearsal.md 的「A rehearsal box」），刪除 {0}，再開始新的安裝。"
+  },
+  "rehearsal_ignored": {
+    "en": "-Rehearsal was ignored: this install is finished and is not a rehearsal. A rehearsal is a new install on a box that holds no site's install.",
+    "ja": "-Rehearsal は無視されました。このインストールは完了しており、リハーサルではありません。リハーサルは、サイトのインストールを含まないボックスへの新しいインストールで行います。",
+    "zh-TW": "已忽略 -Rehearsal：此安裝已完成，且不是演練。演練需在不含院方安裝的 box 上重新安裝。"
   }
 }

@@ -216,8 +216,12 @@ def _unknown(m: ItemMap, f: Field, why: str, snap: str) -> Draft:
     return Draft(m.item, f.form, m.cdash, m.test, "", "unknown", why, None, snap)
 
 
+#: NEW-EDC-13 (EDC-016): a drafted date before this year is a date that lost its century, never a patient's
+FIRST_YEAR = "1900"
+
+
 def _value(m: ItemMap, f: Field, value: str, cite: dict[str, Any], version: str) -> Draft:
-    if problem(f, value) is not None:
+    if problem(f, value) is not None or (f.kind in ("date", "dateTime") and value[:4] < FIRST_YEAR):
         return Draft(m.item, f.form, m.cdash, m.test, "", "unknown", "invalid", None, version)
     return Draft(m.item, f.form, m.cdash, m.test, value, "drafted", "", cite, version)
 
@@ -356,9 +360,69 @@ def _value_in_quote(f: Field, value: str, quote: str) -> bool:
     if f.kind in ("integer", "decimal"):
         return value in quote or value.rstrip("0").rstrip(".") in quote
     if f.kind in ("date", "dateTime"):
-        digits = re.sub(r"[^0-9]", "", quote)
-        return re.sub(r"[^0-9]", "", value)[:8] in digits
+        # NEW-EDC-13: the quote must write the date itself; digits gathered from across the quote (a phone, a lot
+        # number, two numbers side by side) never show one
+        return value[:10] in dates_in(quote)
     return True
+
+
+# NEW-EDC-13 (D-697, EDC-016): dates as notes at both sites write them, each turned into a Gregorian date that must
+# exist. A Japanese era (the first year written 元) must hold the date; a single letter (R, H, S, T) only in the
+# zero-padded form (R06.01.10), never right after a word, a digit, # or -, as a lab flag or a code can look like it;
+# a ROC year with 民國 or 民国, or a three-digit year in the zero-padded form 113/01/10; never a two-digit year.
+ERAS = {"令和": (2018, date(2019, 5, 1), date(9999, 12, 31)), "平成": (1988, date(1989, 1, 8), date(2019, 4, 30)),
+        "昭和": (1925, date(1926, 12, 25), date(1989, 1, 7)), "大正": (1911, date(1912, 7, 30), date(1926, 12, 24)),
+        "明治": (1867, date(1868, 1, 25), date(1912, 7, 29))}  # fmt: skip
+LETTERS = {"R": "令和", "H": "平成", "S": "昭和", "T": "大正"}
+ROC = 1911
+_D = r"(?![\d./-])"
+_ERA_WORD = re.compile(r"(令和|平成|昭和|大正|明治)\s*(\d{1,2}|元)\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})(?!\d)")
+_ERA_NUM = re.compile(r"(令和|平成|昭和|大正|明治)\s*(\d{1,2}|元)([./-])(\d{1,2})\3(\d{1,2})" + _D)
+_ERA_LETTER = re.compile(r"(?<![\w#./-])([RHST])(\d{2})([./-])(\d{2})\3(\d{2})" + _D)
+_ROC_WORD = re.compile(r"(?:民國|民国)\s*(\d{1,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})(?!\d)")
+_ROC_NUM = re.compile(r"(?<![\d./-])(1\d{2})([/.])(\d{2})\2(\d{2})" + _D)
+_GREG_SEP = re.compile(r"(?<![\d./-])((?:19|20)\d{2})([-/.])(\d{1,2})\2(\d{1,2})(?![\d])")
+_GREG_RUN = re.compile(r"(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)")
+_GREG_WORD = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})(?!\d)")
+
+
+def dates_in(text: str) -> set[str]:
+    """The dates a note's text writes, as YYYY-MM-DD: era and ROC years turned into Gregorian ones."""
+    out: set[str] = set()
+
+    def day(y: int, mo: str, d: str) -> date | None:
+        try:
+            return date(y, int(mo), int(d))
+        except ValueError:
+            return None
+
+    def era(name: str, y: str, mo: str, d: str) -> None:
+        base, first, last = ERAS[name]
+        n = 1 if y == "元" else int(y)
+        got = day(base + n, mo, d) if n >= 1 else None
+        if got is not None and first <= got <= last:
+            out.add(got.isoformat())
+
+    for name, y, mo, d in _ERA_WORD.findall(text):
+        era(name, y, mo, d)
+    for name, y, _s, mo, d in _ERA_NUM.findall(text):
+        era(name, y, mo, d)
+    for letter, y, _s, mo, d in _ERA_LETTER.findall(text):
+        era(LETTERS[letter], y, mo, d)
+    for y, mo, d in _ROC_WORD.findall(text):
+        if (got := day(ROC + int(y), mo, d)) is not None:
+            out.add(got.isoformat())
+    for y, _s, mo, d in _ROC_NUM.findall(text):
+        if (got := day(ROC + int(y), mo, d)) is not None:
+            out.add(got.isoformat())
+    for y, _s, mo, d in _GREG_SEP.findall(text):
+        if (got := day(int(y), mo, d)) is not None:
+            out.add(got.isoformat())
+    for pat in (_GREG_RUN, _GREG_WORD):
+        for y, mo, d in pat.findall(text):
+            if (got := day(int(y), mo, d)) is not None:
+                out.add(got.isoformat())
+    return out
 
 
 def build(pid: str, visit: date, items: list[ItemMap], fields: dict[str, Field], facts: Facts,

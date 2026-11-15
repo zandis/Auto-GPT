@@ -41,8 +41,9 @@ closed). Checks:
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
-  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
-  ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
+  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD``,
+  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no ``/etc/cron.d/trialbox-backup`` on a
+  host with ``/etc/cron.d``, no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
   on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
@@ -324,6 +325,28 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
     except ChannelsConfigError as e:
         return Check("channel_engine", "FAIL", str(e))
     return Check("channel_engine", "PASS", f"engine {cfg.engine}")
+
+
+def check_sae_mailbox(inp: DoctorInputs) -> Check:
+    """D-736 (LIFE-007): on a PRODUCTION box the trial office is mailed at once when a serious adverse event is
+    entered (``TB_SAE_OFFICE_MAILBOX``, one mail address); without it nobody is told until the next working day. A box
+    installed by ``box-install.sh`` starts without it, so this is a WARN, never a FAIL."""
+    import re
+
+    from tools.settings_wizard import MAILBOX_RE
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    to = (inp.env.get("TB_SAE_OFFICE_MAILBOX") or "").strip()
+    if to and re.fullmatch(MAILBOX_RE, to):
+        return Check(
+            "sae_mailbox", "PASS", f"the trial office is mailed at {to} when a serious adverse event is entered"
+        )
+    if env != "PRODUCTION":
+        return Check("sae_mailbox", "PASS", f"{env}: no SAE office mailbox needed")
+    why = (f"TB_SAE_OFFICE_MAILBOX {to!r} is not one mail address" if to else "no TB_SAE_OFFICE_MAILBOX") + (
+        ": nobody is mailed when a serious adverse event is entered; set it in deploy/.env (D-736, RUNBOOK §1)"
+    )
+    return Check("sae_mailbox", "WARN", why)
 
 
 def check_secure_cookie(inp: DoctorInputs) -> Check:
@@ -881,6 +904,9 @@ def check_backup(inp: DoctorInputs) -> Check:
     if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
         fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
     warns = []
+    if cfg.page_only(bs.has_mta()):
+        warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
+                     "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5)")  # fmt: skip
     if not cfg.archive_on:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
@@ -888,7 +914,7 @@ def check_backup(inp: DoctorInputs) -> Check:
     facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
-        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails) + f" ({facts})")
+        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
     if warns and prod:
         return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
     return Check("backup", "PASS", facts)
@@ -1169,6 +1195,72 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     if waiting:
         return Check("audit_heads", "WARN", "; ".join(waiting))
     return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
+
+
+def _public_roots() -> frozenset[bytes]:
+    """The public roots this process trusts (DER): what the image, or the host, ships as its bundle."""
+    import ssl
+
+    try:
+        return frozenset(ssl.create_default_context().get_ca_certs(binary_form=True))
+    except (ssl.SSLError, OSError):
+        return frozenset()
+
+
+def check_ldap_ca(inp: DoctorInputs) -> Check:
+    """AUTHELIA-CA (D-722): with the hospital sign-in on, Authelia's whole root list is the file ``TB_LDAP_CA``
+    (the identity overlay mounts it and points Go's certificate lookup at it). FAIL in VALIDATION and PRODUCTION
+    (WARN elsewhere) when it is not set, cannot be read, holds no certificate, holds a private key, or holds a
+    certificate that is also one of the public roots this machine trusts (a hospital's own CA never is: the file is
+    then a public root list under another name, which undoes the card). The content is read, not the path; a key's
+    content is never shown."""
+    import ssl
+
+    name = "ldap_ca"
+    if (inp.env.get("TB_OIDC_ENABLED") or "").strip().lower() not in ("1", "true", "on", "yes"):
+        return Check(name, "PASS", "the hospital sign-in is off: Authelia does not run")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    bad: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    given = (inp.env.get("TB_LDAP_CA") or "").strip().strip('"').strip("'").strip()
+    if not given:
+        return Check(name, bad, "the hospital sign-in is on and TB_LDAP_CA is not set: Authelia has no root to check "
+                                "the directory's certificate against, so no hospital account signs in. Set it in "
+                                "deploy/.env to the hospital's directory CA chain, one PEM file (RUNBOOK section 12, "
+                                "D-722)")  # fmt: skip
+    if not given.startswith(("/", "./", "../")):
+        return Check(name, bad, f"TB_LDAP_CA={given}: write the file's path from / or with ./ in front (from "
+                                "deploy/): compose reads a bare name as a volume's name, not as a file")  # fmt: skip
+    path = Path(given)
+    if not path.is_absolute():
+        path = (inp.deploy or ROOT / "deploy") / path
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return Check(name, bad, f"TB_LDAP_CA={given} cannot be read ({type(exc).__name__}): Authelia has no root to "
+                                "check the directory's certificate against")  # fmt: skip
+    if "PRIVATE KEY-----" in text:
+        return Check(name, bad, f"TB_LDAP_CA={given} holds a private key: it is the CA's certificates only (a key "
+                                "never belongs in this file)")  # fmt: skip
+    ders: list[bytes] = []
+    for block in text.replace("\r\n", "\n").split("-----BEGIN CERTIFICATE-----")[1:]:
+        body = block.split("-----END CERTIFICATE-----")[0]
+        try:
+            der = ssl.PEM_cert_to_DER_cert(f"-----BEGIN CERTIFICATE-----{body}-----END CERTIFICATE-----\n")
+            ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=der)  # a certificate, not just base64
+        except (ValueError, ssl.SSLError):
+            continue
+        ders.append(der)
+    if not ders:
+        return Check(name, bad, f"TB_LDAP_CA={given} holds no certificate (PEM, BEGIN CERTIFICATE): Authelia has no "
+                                "root to check the directory's certificate against")  # fmt: skip
+    public = sum(1 for der in ders if der in _public_roots())
+    if public:
+        return Check(name, bad, f"TB_LDAP_CA={given}: {public} of its {len(ders)} certificate(s) are public root "
+                                "certificates of this machine's own list. Authelia would trust a public certificate "
+                                "authority for the directory's name. Give it the hospital's own directory CA chain "
+                                "only (D-722)")  # fmt: skip
+    return Check(name, "PASS", f"Authelia's only roots are the {len(ders)} certificate(s) of TB_LDAP_CA: none is a "
+                               "public root")  # fmt: skip
 
 
 def check_anchor_mount(inp: DoctorInputs) -> Check:
@@ -1754,7 +1846,9 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_sae_mailbox,
     check_console_mfa,
+    check_ldap_ca,
     check_publish_gate,
     check_note_block,
     check_judge_route,
