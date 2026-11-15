@@ -24,6 +24,8 @@ class SqlSource:
 
     def __init__(self, dsn: str) -> None:
         self.engine = create_engine(dsn, future=True)
+        self._present: dict[str, bool] = {}  # CGRD-SQL (D-814): source name -> the database has it
+        self.absent_why: dict[str, str] = {}  # the kind of error that found a table absent (never its text)
 
     def columns(self, source_name: str) -> list[str]:
         """The column names of a table or view as the database gives them; no row is read."""
@@ -32,6 +34,30 @@ class SqlSource:
         with self.engine.connect() as con:
             result = con.execute(text(f"SELECT * FROM {source_name} WHERE 1 = 0"))
             return [str(c) for c in list(result.keys())]
+
+    def has_table(self, source_name: str) -> bool:
+        """CGRD-SQL (D-814): whether the database has the table or view. Absent only when reading it fails **and**
+        the catalogue has no table or view by that name; any other failure (a lost connection, no right to read it)
+        is raised, never taken for an absent table. Asked once per table."""
+        if source_name in self._present:
+            return self._present[source_name]
+        if not _IDENT.match(source_name):
+            raise ValueError(f"unsafe identifier in mapping: {source_name!r}")
+        try:
+            self.columns(source_name)
+            present = True
+        except Exception as exc:
+            from sqlalchemy import inspect
+
+            self.absent_why[source_name] = type(exc).__name__  # its kind only: the text may hold the connection
+
+            schema, _, name = source_name.rpartition(".")
+            insp = inspect(self.engine)  # a catalogue that cannot be read raises: never "absent"
+            if insp.has_table(name, schema or None) or name in insp.get_view_names(schema or None):
+                raise
+            present = False
+        self._present[source_name] = present
+        return present
 
     def _columns(self, source_name: str) -> set[str]:
         return {c.lower() for c in self.columns(source_name)}  # identifier validated by the caller too
@@ -73,6 +99,8 @@ class SqlSource:
         returned under the names given); a column the table does not have is not asked for."""
         if not _IDENT.match(source_name) or (delta_column and not _IDENT.match(delta_column)):
             raise ValueError(f"unsafe identifier in mapping: {source_name!r} / {delta_column!r}")
+        if not self.has_table(source_name):  # CGRD-SQL (D-814): absent, said in the night's report; no rows
+            return
         what, names = "*", None
         if columns is not None:
             have = {c.lower(): c for c in self.columns(source_name)}

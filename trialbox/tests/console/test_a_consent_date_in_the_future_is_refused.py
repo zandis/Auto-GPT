@@ -57,7 +57,14 @@ def test_a_future_consent_from_redcap_is_flagged_and_does_not_block_other_saves(
         lb["dc"].write("GZQO", no, "", f, v, "rc:read", "2026-11-08T01:00:00+00:00", "redcap")
     page = c.get(f"/studies/GZQO/subjects/{no}").text
     assert 'data-testid="consent-flag-consent_in_future"' in page and "2027-03-01" in page
-    r = _save(c, csrf, no, "tb_consent", {"ic_date": "2027-03-01", "ic_version": "v1", "ic_copy": "0"})
+    r = _save(
+        c,
+        csrf,
+        no,
+        "tb_consent",
+        {"ic_date": "2027-03-01", "ic_version": "v1", "ic_copy": "0"},
+        reason="no copy was given",
+    )  # D-778: a saved value changes with a reason
     assert lb["dc"].record("GZQO", no, "").get("ic_copy") == "0"  # the stored date is not rechecked
     assert r.status_code in (200, 303)
 
