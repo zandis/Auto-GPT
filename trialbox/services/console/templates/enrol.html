@@ -11,7 +11,7 @@
 {% elif failed == 'slowed' %}<p class="error" role="alert" data-testid="enrol-error">{{ t('enrol.slowed') }}</p>
 {% elif failed == 'locked' %}<p class="error" role="alert" data-testid="enrol-error">{{ t('enrol.locked') }}</p>
 {% elif failed %}<p class="error" role="alert" data-testid="enrol-error">{{ t('enrol.wrong') }}</p>{% endif %}
-<form method="post" action="/enrol">
+<form method="post" action="/enrol" data-enrol-link>{# D-776: filled from a one-time link #}
   <input type="hidden" name="login_csrf" value="{{ login_csrf }}">
   <label for="username">{{ t('login.user') }}</label>
   <input id="username" name="username" value="{{ username or '' }}" autocomplete="username" required maxlength="64" autocapitalize="none" spellcheck="false">
