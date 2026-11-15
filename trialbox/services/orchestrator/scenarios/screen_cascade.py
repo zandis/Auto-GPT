@@ -453,7 +453,7 @@ def held_in_snapshot(ctx: Ctx, pids: list[str], snapshot: str) -> set[str]:
     if not pids:
         return set()
     rows = ctx.services.lake.query(
-        "SELECT pid FROM patient WHERE list_contains(CAST($1 AS VARCHAR[]), pid)", [pids], snapshot=snapshot
+        "SELECT pid FROM patient WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))", [pids], snapshot=snapshot
     ).to_pylist()
     return {str(r["pid"]) for r in rows}
 
