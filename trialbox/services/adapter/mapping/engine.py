@@ -1378,11 +1378,17 @@ class Mapper:
     def row_id(self, rs: ResourceSpec, row: Row) -> str:
         if "pid" in rs.id:
             return self.pid(row, rs.id["pid"])
+        col = rs.id.get("hid") or rs.id.get("column")
+        if col is None:
+            raise MappingError(f"{rs.type}: id needs pid/hid/column")
+        value = row[col]
+        if value is None or str(value).strip() == "":
+            # CGRD-A1 (D-812): an empty key gave every such row one record id, and all but one were lost. Refused:
+            # the row is rejected and counted where rejected rows are
+            raise MappingError(f"{rs.type} from {rs.table}: no key ({col} is empty)")
         if "hid" in rs.id:
-            return resource_id(self.key, rs.type, f"{row[rs.id['hid']]}{rs.id.get('suffix', '')}")
-        if "column" in rs.id:
-            return str(row[rs.id["column"]])
-        raise MappingError(f"{rs.type}: id needs pid/hid/column")
+            return resource_id(self.key, rs.type, f"{value}{rs.id.get('suffix', '')}")
+        return str(value)
 
     def tombstones(self, table: str, rows: Iterator[Row]) -> Iterator[tuple[str, str]]:
         """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).
