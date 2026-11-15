@@ -43,7 +43,7 @@ pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash
 # a stand-in docker: image ids are the sha256 of the repository name, so a digest reference and the tag it is saved
 # under are the same image (as for docker save of a pulled image)
 FAKE_DOCKER = r"""#!PYTHON
-import hashlib, io, json, os, sys, tarfile
+import hashlib, io, json, os, re, sys, tarfile
 args = sys.argv[1:]
 with open(os.environ["FAKE_DOCKER_LOG"], "a") as log:
     log.write(" ".join(args) + "\n")
@@ -54,6 +54,17 @@ def repo(ref):
 def image_id(ref):
     return hashlib.sha256(repo(ref).encode()).hexdigest()
 if args[:1] == ["compose"]:
+    if os.environ.get("FAKE_COMPOSE_ERR"):
+        sys.exit(os.environ["FAKE_COMPOSE_ERR"])
+    # as compose does: a ${VAR:?...} or ${VAR?...} with no value in the project's .env stops the render (D-828)
+    proj = args[args.index("--project-directory") + 1]
+    with open(os.path.join(proj, ".env")) as fh:
+        env = dict(line.split("=", 1) for line in fh.read().splitlines() if "=" in line)
+    for f in [args[i + 1] for i, a in enumerate(args) if a == "-f"]:
+        with open(f) as fh:
+            for var in re.findall(r"\$\{([A-Za-z0-9_]+):?\?", fh.read()):
+                if not env.get(var):
+                    sys.exit(f'required variable {var} is missing a value')
     print("\n".join(os.environ["FAKE_COMPOSE_IMAGES"].split()))
 elif args[:2] == ["image", "inspect"]:
     ref = args[-1]
@@ -165,6 +176,30 @@ def test_a_bundle_without_its_checks_cannot_be_built(kit: dict[str, Any]) -> Non
     assert not kit["log"].exists()  # refused before any image is touched
     script = SCRIPT.read_text(encoding="utf-8")
     assert "WARNING no --gates" not in script  # the old warn-and-continue path is gone
+
+
+def test_the_staged_env_renders_every_required_compose_variable(kit: dict[str, Any]) -> None:
+    """D-828: the bundle's own .env holds every variable compose requires (TB_TZ, TB_TLS_HOSTNAME, ...): on a vendor
+    machine without deploy/.env the render failed and the bundle had no image list."""
+    required = set()
+    for name in ("docker-compose.yml", "docker-compose.identity.yml"):
+        text = (ROOT / "deploy" / name).read_text(encoding="utf-8")
+        required |= set(re.findall(r"\$\{([A-Za-z0-9_]+):?\?", text))
+    assert {"TB_TZ", "TB_TLS_HOSTNAME"} <= required
+    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
+    assert "is missing a value" not in res.stderr, res.stderr
+    assert "compose listed no" not in res.stderr, res.stderr
+
+
+def test_a_failed_compose_render_shows_compose_own_error(kit: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    env_err = "required variable TB_SOMETHING is missing a value: set it"
+    monkeypatch.setenv("FAKE_COMPOSE_ERR", env_err)
+    res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
+    assert res.returncode == 2
+    assert env_err in res.stderr
+    assert not (kit["tmp"] / "out.tar").exists()
 
 
 def test_an_image_outside_the_gate_record_is_refused(kit: dict[str, Any]) -> None:
