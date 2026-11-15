@@ -26,9 +26,10 @@ T-209a (D-379, review OPS-027 and OPS-032): N2 begins with one line on the box's
 a red line sends N2 even on a morning with nothing else in it, so the coordinator sees that note reading was off
 last night. ``HEALTH``, the administrators' daily health mail, gives one line per check every day (weekends too).
 
-D-386 (T-622, LIFE-008): the mails follow the study's state. A study in start-up or closed is left out; a paused
-study gives no list rows, marks, calls or new pre-screens, so a paused study with no participant visit or serious AE
-due gives no mail. Its participants' visits and unacknowledged serious AEs are still mailed (:data:`CARE_STATES`).
+D-386 (T-622, LIFE-008): the mails follow the study's state. A study in start-up is left out; a paused or closed
+study gives no list rows, marks, calls or new pre-screens, so it gives no mail unless a participant visit or serious
+AE is due: its participants' visits and unacknowledged serious AEs are still mailed (:data:`CARE_STATES`; closed
+since NEW-LIFE-6, D-763, which closes only an empty study).
 
 Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 07:30`` (N2), or from the admin home
 ("Send notices now"). A notice is sent at most once per person and day.
@@ -57,7 +58,9 @@ MAX_ROWS = 10  # per digest section; the rest is one line and the link
 # D-386 (LIFE-008): the states whose enrolled participants' visits and serious AEs are still mailed. Screening rows
 # (the list, marks, calls, new pre-screens) go out only for an open study (``StudyState.runs``); a paused study keeps
 # its participants' visit and SAE lines, because a pause stops recruitment, not the care of those already enrolled.
-CARE_STATES = ("open", "paused")
+# NEW-LIFE-6 (D-763): closed too: a study closes only empty, but a participant back on study after the close (an undo,
+# a REDCap read-back) is still mailed their visits and serious AEs; a closed study gives no list
+CARE_STATES = ("open", "paused", "closed")
 WEEKEND_N2 = "N2-SAE"  # D-764: the log kind of a weekend coordinator digest (it does not move the digest's cursor)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 

@@ -784,21 +784,27 @@ class SiteStore:
 
     def set_study_state(
         self, ruleset: str, state: str, reason: str, by: str, at: str,
-        before_commit: Callable[[StudyState], None] | None = None,
+        before_commit: Callable[[StudyState], None] | None = None, take_back: bool = False,
     ) -> StudyState:  # fmt: skip
         """Move the study to ``state``. Refuses a state not in :data:`STUDY_STATES` or a move not in
         :data:`STATE_MOVES` (ValueError). ``before_commit`` (the audit append) runs inside the transaction, so a
-        failed append keeps the old state (as D-273 does for marks)."""
+        failed append keeps the old state (as D-273 does for marks).
+
+        ``take_back`` (NEW-LIFE-6, D-763): the one way out of ``closed``: back to the state the close left, read
+        under the same lock (the caller checks who and that the close was made the same site day)."""
         if state not in STUDY_STATES:
             raise ValueError(f"state must be one of {', '.join(STUDY_STATES)}")
         rid = ruleset.upper()
         with self.db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"study_state:{rid}",))
             row = tx.fetchone(
-                "SELECT state FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1", (rid,)
+                "SELECT state, prev FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1", (rid,)
             )
             prev = str(row[0]) if row is not None else DEFAULT_STATE
-            if not state_move_ok(prev, state):
+            if take_back:
+                if prev != "closed" or row is None or str(row[1] or "") != state:
+                    raise ValueError(f"a close can only be taken back to the state it left, not to {state}")
+            elif not state_move_ok(prev, state):
                 raise ValueError(f"a study cannot move from {prev} to {state}")
             tx.execute(
                 "INSERT INTO study_state (ruleset, state, prev, reason, by, at) VALUES (?,?,?,?,?,?)",

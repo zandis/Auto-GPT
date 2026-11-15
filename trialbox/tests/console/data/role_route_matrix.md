@@ -203,6 +203,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/patients/{pid}/reveal` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/subjects/{record}/step` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/breakglass` | Y | - | Y | Y | - | - | - | - | - |
@@ -296,6 +297,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/sources/redcap/undo` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/studies/{rs}/state` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/aes/{event}/ack` | - | - | - | n | - | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/step` | - | U | - | - | U | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/undo` | - | U | - | - | U | - | - | - | - |

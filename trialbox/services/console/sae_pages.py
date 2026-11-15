@@ -266,6 +266,19 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
 
     h.life_reports = life_reports
 
+    def sae_open(rid: str) -> int:
+        """NEW-LIFE-6 (D-763): the study's serious AEs not done with, for the close check: every report still to send
+        (``saerecord.OPEN``), and every serious AE with no reporting clock (an unset or unknown rule set: no report
+        row to count) or not acknowledged by the investigator. Raises when the register cannot be read: the caller
+        refuses the close."""
+        day = today()
+        out = fetch(rid, day)
+        views, _lost = views_of(rid, day, out)
+        loose = sum(1 for a in out.get("aes") or [] if a.get("serious") and (a.get("noclock") or a.get("needs_ack")))
+        return sum(int(v.get("open") or 0) for v in views) + loose
+
+    h.sae_open = sae_open
+
     def context(rules_by: dict[str, dict[str, Any]]) -> dict[str, Any]:
         return {"study_rules": rules_by, "fu_rules": followup_rules(os.environ.get("TB_SAE_FOLLOWUP_DAYS", "")),
                 "tz": str(getattr(tz, "key", "UTC")), "parties": PARTIES}  # fmt: skip
