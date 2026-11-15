@@ -434,6 +434,7 @@ BUILD=$(md tb-build-root || echo /srv/tb-build)
 BUNDLE_SRC=$(md tb-bundle || true); BUNDLE_SHA=$(md tb-bundle-sha256 || true)
 BOXROOT=$(md tb-box-root || echo /opt/trialbox)
 INSTALLER="$BOXROOT/deploy/box-install.sh"
+export TB_SETTINGS_FILE=./settings.yaml   # every compose call of this run (selftest, doctor, Box.call): F16
 ASEC=$(md tb-answers-secret || true); AVER=$(md tb-answers-version || true)
 SITE_ANSWERS=$(md tb-site-answers | head -c 1 || true)   # validation: the synthetic site's answers in the metadata
 CONNECT=$(md tb-console-connect || echo 127.0.0.1:443)
@@ -611,7 +612,9 @@ fetch() {  # fetch <gs:// or path> <dest>
 }
 
 # ------------------------------------------------------------------ the box: one function per call (train 17)
-dc() { docker compose --project-directory "$BOXROOT/deploy" "$@"; }   # COMPOSE_FILE/PROFILES: install.sh's .env
+# COMPOSE_FILE/PROFILES: install.sh's .env. TB_SETTINGS_FILE as install.sh exports it (install.sh:459): it is not in
+# deploy/.env, and without it compose mounts settings.example.yaml into every service (F16, a product gap)
+dc() { TB_SETTINGS_FILE=./settings.yaml docker compose --project-directory "$BOXROOT/deploy" "$@"; }
 box_tool() { (cd "$BOXROOT" && PYTHONPATH="$BOXROOT/libs:$BOXROOT" exec "$BOXPY" -m "tools.$1" "${@:2}"); }
 in_svc() { dc exec -T "$1" python -; }   # a snippet on stdin in a service's container (as make rehearse-box does)
 d_install()  { "$INSTALLER" "$1" --prepare --yes; }
@@ -1829,6 +1832,15 @@ step_facts_box() {
   note facts_box "\"records/facts-box.txt\""
 }
 # ------------------------------------------------------------------ the run
+# a later boot of a direct-route box (a resume, or an acc launch): the stack as this tree starts it (the weights' bind,
+# the site's settings.yaml, every service healthy) before any step, since no systemd unit does it on this route (F15,
+# F16). Said in the log; a stack that cannot come up is the next step's stop, with its own log.
+st02=$(st get 02-install)
+if [ -n "$DIRECT" ] && [ -s "$BOXROOT/deploy/.env" ] \
+   && { [ "$st02" = "done" ] || { has acc && ! has dev && ! has start; }; }; then
+  echo "TB-STACK $(date -u +%T): bringing the box's stack up on this boot (compose up --wait)" | tee -a "$LOG"
+  d_direct_up >> "$LOG" 2>&1 && echo "TB-STACK up" | tee -a "$LOG" || echo "TB-STACK not healthy (see the log)" | tee -a "$LOG"
+fi
 [ -z "$PROBE" ] || run_step 00-facts step_facts
 if has probe; then   # a facts-only launch: the VM's facts, then the run ends (no build, no install)
   run_step 00-facts step_facts
