@@ -1,5 +1,7 @@
 # RUNBOOK §22 part: a planned power cut
 
+**Reader:** the box owner.
+
 *T-635 (OPS-074). Japanese hospitals have a yearly legal electrical inspection (法定点検) with the power off for some
 hours; any hospital may have planned work on its power.*
 

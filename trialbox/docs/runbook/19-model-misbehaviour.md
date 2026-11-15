@@ -1,5 +1,7 @@
 # 19. Model misbehaviour: note reading off, the runs a build touched
 
+**Reader:** Aimedics, with the box owner and the trial team.
+
 *T-609 (review OPS-042). What to do when a model gives wrong note answers: a quote from the wrong patient, a run of
 "not met" answers that a person can see are wrong, a canary that suddenly fails, a model update that behaves
 differently. Three steps: hold note reading, list what the build touched, release only after a passing canary.*

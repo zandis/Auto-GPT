@@ -1,5 +1,7 @@
 # RUNBOOK §4 part: disk full
 
+**Reader:** the box owner, with hospital IT where the disk is theirs.
+
 *T-635 (OPS-074). Signs: jobs fail with a write error, the database stops, `backup-status` is red, `doctor` warns.
 Never free space by deleting from the audit volume, the secrets volume or the database files.*
 

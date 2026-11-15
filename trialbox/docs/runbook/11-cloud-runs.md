@@ -1,5 +1,7 @@
 # 11. Cloud runs (owner's OK first)
 
+**Reader:** the people who build TrialBox.
+
 Qualifying a model pair on a card (G1b runs through it): [the qualify section](11-qualify.md) (D-313).
 
 GCP project `trialbox-demo`. Always use a private `CLOUDSDK_CONFIG` (and unset `CLOUDSDK_AUTH_ACCESS_TOKEN`), stop
@@ -311,6 +313,15 @@ owner sets it once in **his own** Cloud Shell (`deploy/gcp/setup-gcp.sh` asks fo
 `read -rs PW && printf %s "$PW" | gcloud secrets versions add tb-demo-password --data-file=- ; unset PW`) and reads
 it back there if needed (`gcloud secrets versions access latest --secret=tb-demo-password`). He gives it to the guest
 by his own channel. A Claude session never runs that command: the value would enter its transcript.
+
+**Demo mode (D-328).** The banner, the refusal of every upload and pasted text, and the acknowledgement at each
+account's first sign-in. The boot script switches the audited flag `demo.mode` on **after** the seed and **before**
+Caddy opens tcp:443: it signs in as `admin` inside the container and sets it on `/ops/flags` with a reason (one
+`flag.set` audit event), then checks that a multipart post is refused. It never puts `TB_DEMO_MODE=on` in the
+container: the demo seeds through the console's own routes in the same process, and demo mode refuses the seed's
+protocol paste (`POST /pilot/protocol`, 403), so the container never became ready (lane G's local rehearsal,
+2026-11-14). The demo container does not restart by itself, since every start reseeds with demo mode off; if it
+stops, Caddy answers 502 and `gcloud compute instances reset tb-demo-vm --zone asia-east1-a` reruns the boot script.
 
 **Once before the first `up`.** The deployer service account needs `roles/compute.networkAdmin` (the network and the
 subnet; `deploy/gcp/setup-gcp.sh` grants instance and firewall rights only) and, for the pre-flight's version check,

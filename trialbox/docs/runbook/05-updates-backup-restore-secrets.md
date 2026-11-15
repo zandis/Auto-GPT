@@ -1,5 +1,7 @@
 # 5. Updates, backup, restore, secrets
 
+**Reader:** the box owner (a restore with Aimedics in a supervised session, §21).
+
 **Updates** (D-138, D-210): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
 
 The order of a release across the acceptance box and the sites (three working days apart), who applies it on site

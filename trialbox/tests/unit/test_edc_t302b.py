@@ -129,20 +129,24 @@ def test_round_trip_with_arms_events_and_a_repeating_ae_instrument(tmp_path: Pat
                                "redcap_repeat_instance": "2", "ae_term": "skin rash (typed in REDCap)"})  # fmt: skip
     _enter(svc, "S-001", AE2, {"ae_term": "rash", "ae_serious": "1", "ae_sae_reason": "hospitalised"})
     out = svc.send_redcap(k.STUDY, "crc")
-    assert _held(out, "sent") == {(AE1, "ae_term"), (AE1, "ae_serious"), (AE2, "ae_serious"),
-                                  (AE2, "ae_sae_reason")}  # fmt: skip
+    assert _held(out, "sent") == {(AE1, "ae_term"), (AE1, "ae_serious")}
     assert out["conflict"] == [{"id": _drafts(svc, "S-001", AE2)["ae_term"]["id"], "record": "S-001", "visit": AE2,
                                 "item": "ae_term", "redcap": "skin rash (typed in REDCap)"}]  # fmt: skip
+    # NEW-EDC-2 (EDC-002): instance 2 is a person's adverse event; nothing of TrialBox's other event goes into it
+    # (before, `ae_serious=1` and `ae_sae_reason=hospitalised` were written into the person's "skin rash")
+    assert _held(out, "instance_taken") == {(AE2, "ae_serious"), (AE2, "ae_sae_reason")}
     rows = _rows(sim, token)
     assert rows[("1", WEEK4_1, "ae", "1")]["ae_term"] == "gout flare"
     assert rows[("1", WEEK4_1, "ae", "2")]["ae_term"] == "skin rash (typed in REDCap)"  # never overwritten
-    assert rows[("1", WEEK4_1, "ae", "2")]["ae_sae_reason"] == "hospitalised"
+    assert (rows[("1", WEEK4_1, "ae", "2")]["ae_serious"], rows[("1", WEEK4_1, "ae", "2")]["ae_sae_reason"]) == ("", "")
     assert ("1", WEEK4_1, "", "") not in rows  # no base row was written for the AE values (E-05)
     assert rows[("1", SCREEN1, "", "")]["weight"] == "72.5"
-    # a second send has only the conflict left: the instance keys hold across sends, nothing is written twice
+    # a second send has only the person's instance left: the instance keys hold across sends, nothing is written twice
     again = svc.send_redcap(k.STUDY, "crc")
     assert again["count"] == 0 and _held(again, "conflict") == {(AE2, "ae_term")}
-    assert sum(len(v) for key, v in again.items() if isinstance(v, list) and key not in ("conflict", "calc")) == 0
+    assert _held(again, "instance_taken") == {(AE2, "ae_serious"), (AE2, "ae_sae_reason")}
+    assert sum(len(v) for key, v in again.items()
+               if isinstance(v, list) and key not in ("conflict", "instance_taken", "calc")) == 0  # fmt: skip
 
 
 def test_a_value_is_never_written_to_another_arm(tmp_path: Path) -> None:
@@ -208,13 +212,24 @@ def test_a_value_redcap_would_hide_is_not_sent(tmp_path: Path) -> None:
 
 
 def test_holding_one_value_back_hides_the_one_that_depends_on_it(tmp_path: Path) -> None:
-    """``ae_serious`` is held back (REDCap holds another value); ``ae_sae_reason`` then shows only by REDCap's 0."""
+    """``tophus`` is held back (REDCap holds another value on the base row); ``tophus_site`` then shows only by
+    REDCap's 0. (On a repeat instance a person's value now holds the whole instance: NEW-EDC-2, below.)"""
+    svc, sim, _token, pid = _service(tmp_path)
+    _edit_in_redcap(sim, pid, {"record_id": "1", "redcap_event_name": SCREEN1, "tophus": "0"})
+    _enter(svc, "S-001", SCREEN1, {"tophus": "1", "tophus_site": "right ear"})
+    out = svc.send_redcap(k.STUDY, "crc")
+    assert _held(out, "conflict") == {(SCREEN1, "tophus")} and _held(out, "hidden") == {(SCREEN1, "tophus_site")}
+
+
+def test_a_persons_value_on_a_repeat_instance_holds_the_instance_before_its_logic_is_read(tmp_path: Path) -> None:
+    """The same case on a repeat instance (NEW-EDC-2): the person's ``ae_serious=0`` makes instance 1 theirs."""
     svc, sim, _token, pid = _service(tmp_path)
     _edit_in_redcap(sim, pid, {"record_id": "1", "redcap_event_name": WEEK4_1, "redcap_repeat_instrument": "ae",
                                "redcap_repeat_instance": "1", "ae_serious": "0"})  # fmt: skip
     _enter(svc, "S-001", AE1, {"ae_serious": "1", "ae_sae_reason": "hospitalised"})
     out = svc.send_redcap(k.STUDY, "crc")
-    assert _held(out, "conflict") == {(AE1, "ae_serious")} and _held(out, "hidden") == {(AE1, "ae_sae_reason")}
+    assert _held(out, "conflict") == {(AE1, "ae_serious")} and _held(out, "instance_taken") == {(AE1, "ae_sae_reason")}
+    assert out["hidden"] == [] and out["sent"] == []
 
 
 def test_erase_hidden_values_erases_only_what_trialbox_wrote(tmp_path: Path) -> None:

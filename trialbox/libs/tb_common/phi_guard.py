@@ -89,6 +89,111 @@ TW_ID = re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?![0-9])")
 PHONE = re.compile(
     r"(?<!\d)(?:\+886[-\s]?9\d{2}|09\d{2})[-\s]?\d{3}[-\s]?\d{3}(?!\d)|(?<!\d)\(?0[2-8]\)?[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)"
 )
+# NEW-B-43 (D-744): an English phone number (North American, British or any with a country code). The long forms
+# anywhere; a seven-digit local number, and a number written without separators, only after a word that says it is a
+# phone (``Tel``, ``phone (no.)``, ``mobile``, ``contact``, ``call``, ``pager``, ``T:`` ...). Separators never cross a
+# line: a prompt's variables are scanned one per line. Clinical ranges (100-300 mg, 4.5-11.0), runs of doses or counts
+# (250 500 1000), times (0800 1200), study, lot and kit numbers and a spaced lab code (JLAC10) have none of the shapes.
+# One pattern for the note masker, the gate before a call (:func:`scan`) and the guard service's recognisers. Group
+# ``v``: the number (the word stays).
+_SP = r"[^\S\n]"  # a space or tab, never a line break
+_DASH = r"[-.\u2010-\u2015\u2212]"  # hyphen, dot and the Unicode dashes
+_SEP = rf"(?:{_DASH}|{_SP})"
+_EN_PHONE_FULL = (
+    # with its country code (+ or 00), at least nine digits
+    rf"(?=(?:[^\d\n]{{0,3}}\d){{9}})(?:\+|(?<![\d.,])(?<!\d{_SP})00(?=[1-9]))\d{{1,3}}{_SEP}?\(?\d{{1,4}}\)?(?:{_SEP}?\d{{2,4}}){{2,3}}"
+    # North American: (area) or area and a dash, exchange, line; a leading 1 too
+    rf"|(?:1{_DASH})?(?:\([2-9]\d{{2}}\){_SP}?|[2-9]\d{{2}}{_DASH})\d{{3}}{_DASH}\d{{4}}"
+    # British national: the area code with a separator or in brackets, then the subscriber number
+    rf"|(?<!\d{_SP})(?:\(0\d{{4}}\){_SP}?|0\d{{4}}{_SEP})\d{{3}}{_SEP}?\d{{3}}"
+    rf"|(?<!\d{_SP})(?:\(0\d{{3}}\){_SP}?|0\d{{3}}{_SEP})\d{{3}}{_SEP}?\d{{4}}"
+    rf"|(?<!\d{_SP})(?:\(0\d{{2}}\){_SP}?|0\d{{2}}{_SEP})\d{{4}}{_SEP}?\d{{4}}"
+)
+_EN_PHONE_LABEL = (
+    r"(?i:\b(?:tel(?:ephone)?|phone|ph|mobile|mob|cell(?:phone)?|fax|pager|landline|helpline|contact|call|dial"
+    r"|home|number\s+is|[TM](?=\s*:))\b\.?"
+    rf"(?:{_SP}*(?:no\b\.?|number\b|#|details\b))?)(?:{_SP}|[:#.])*"
+)
+EN_PHONE = re.compile(
+    rf"{_EN_PHONE_LABEL}(?P<v>{_EN_PHONE_FULL}|0\d{{9,10}}|\d{{10}}|\d{{3}}{_SEP}?\d{{4}})(?![\dA-Za-z])(?!{_DASH}\d)"
+    rf"|(?<![A-Za-z0-9+.,])(?:{_EN_PHONE_FULL})(?![\dA-Za-z])(?!{_DASH}\d)"  # not inside a code (3D046 0000 019)
+)
+# NEW-B-44 (D-745): a date of birth, a postal address, a chart number after any of its labels and an email address.
+# The owner's run of ``mask_note`` on a month of real notes (counts only) found the first three surviving; the masker
+# had no email form either. One definition each for the note masker and the guard service's recognisers (which name
+# them, not a copy). Group ``v``: the value; the label stays.
+_CJK_A = "一-鿿"
+_KANA_A = "぀-ヿ"
+_D = "[0-9０-９]"  # a digit, half- or full-width
+_ZH_NUM = "[一二三四五六七八九十〇零]"
+_NUM_A = r"[0-9０-９一二三四五六七八九十]+"
+_MON = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?"
+# a date of birth's value: the guard's forms (D-215) and, after a label or before the word for born: 年月日 with spaces
+# or full-width digits, 西元 and 民國 (in figures or in Chinese numerals), the ROC year without 民國, an era and its
+# abbreviation (S31.3.14), day or month first with a two- or four-digit year, the month's name before or after the day
+_DOB_VALUE = (
+    rf"{dates.DOB_SPAN}"
+    rf"|(?:西元|民國)?\s?{_D}{{2,4}}\s?年\s?{_D}{{1,2}}\s?月\s?{_D}{{1,2}}\s?日"
+    rf"|民國{_ZH_NUM}{{1,4}}年{_ZH_NUM}{{1,3}}月{_ZH_NUM}{{1,3}}日"
+    rf"|(?:明治|大正|昭和|平成|令和|[MTSHR])\s?(?:{_D}{{1,2}}|元)[年./]\s?{_D}{{1,2}}[月./]\s?{_D}{{1,2}}日?"
+    rf"|{_D}{{2,4}}[/.\-／]{_D}{{1,2}}[/.\-／]{_D}{{1,2}}"
+    rf"|{_D}{{1,2}}[/.\-]{_D}{{1,2}}[/.\-](?:(?:19|20)\d{{2}}|\d{{2}})"
+    rf"|\d{{1,2}}[ -]{_MON},?[ -](?:19|20)\d{{2}}|{_MON} \d{{1,2}},? (?:19|20)\d{{2}}"
+)
+_DOB_LABEL = (
+    r"(?:出生日期|出生年月日|出生日|出生|生日|生年月日|誕生日"
+    r"|(?i:\bd\.?o\.?b\b\.?|\bdate\s+of\s+birth\b|\bbirth\s*date\b|\bborn(?:\s+on)?\b))[\s:：]*"
+)
+# after a label also a compact date (19560314, the ROC 0450314 of a hospital system's header)
+DOB_LABELLED = re.compile(rf"{_DOB_LABEL}(?P<v>{_DOB_VALUE}|(?:19|20)\d{{6}}|0?\d{{2}}[01]\d[0-3]\d)(?![0-9])")
+# a date followed by the word for born: 生 only at the end of the phrase (1956年3月14日生，), 生まれ, 出生;
+# never the 生 of 生検, 生体, 生病, 生長, 生效 and the like
+DOB_BORN = re.compile(rf"(?<![0-9])(?P<v>{_DOB_VALUE})\s?(?=生まれ|に生まれ|出生|生(?:$|[\s，,。、;；)）\]】]))")
+_ZH_NO = rf"{_NUM_A}(?:[-－之]{_NUM_A})?號(?:之{_NUM_A})?(?:{_NUM_A}樓(?:之{_NUM_A})?)?(?:{_NUM_A}室)?"
+ADDRESS_ZH = re.compile(
+    rf"(?:[{_CJK_A}]{{1,3}}(?:縣|市))?(?:[{_CJK_A}]{{1,3}}(?:區|鄉|鎮|市))?(?:[{_CJK_A}]{{1,4}}(?:村|里){_NUM_A}鄰)?"
+    rf"[{_CJK_A}]{{1,5}}(?:路|街|大道)(?:{_NUM_A}段)?(?:{_NUM_A}巷)?(?:{_NUM_A}弄)?{_ZH_NO}"
+    # a village's address with no road: county, township, village and 鄰, number
+    rf"|(?:[{_CJK_A}]{{1,3}}(?:縣|市))?[{_CJK_A}]{{1,3}}(?:鄉|鎮|區|市)[{_CJK_A}]{{1,4}}(?:村|里){_NUM_A}鄰{_ZH_NO}"
+)
+ADDRESS_JA = re.compile(
+    rf"(?:東京都|北海道|大阪府|京都府|[{_CJK_A}]{{2,3}}県)[{_CJK_A}{_KANA_A}]{{1,10}}?(?:市|区|町|村|郡)"
+    rf"[{_CJK_A}{_KANA_A}]{{0,8}}?[0-9０-９]+(?:(?:丁目|番地?|号|[-－ー]|の)[0-9０-９]*){{1,4}}"
+    rf"(?:\s?[0-9０-９]+号室)?"
+)
+# a number, one to three capitalised words that are not a unit or a count, a street of a known type, then a flat, a
+# town, a state or province and a ZIP code or a British postcode; never a year before it
+_EN_WORD = r"(?!(?:Units?|Mg|Mcg|Weeks?|Days?|Hours?|Times?|Doses?|Tablets?|Caps?|Post|Op|Daily|Dose)\b)[A-Z][a-z]+"
+ADDRESS_EN = re.compile(
+    rf"\b(?!(?:19|20)\d{{2}}\b)\d{{1,5}}[A-Z]?\s+(?:{_EN_WORD}\s+){{1,3}}"
+    r"(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Boulevard|Blvd|Drive|Dr|Way|Close|Court|Ct"
+    r"|Place|Pl|Crescent|Terrace|Square|Sq|Parade|Highway|Hwy|Circle|Gardens|Row|Mews|Grove)\b\.?"
+    r"(?:,\s*(?:Apt\.?|Unit|Suite)\s*\d+)?(?:,\s*[A-Z][a-z]+(?:\s[A-Z][a-z]+)?)?"
+    r"(?:,?\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?|\s+[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}|,\s*[A-Z]{2}\b(?![a-z]))?"
+    r"(?=\s*(?:[,.;:)]|$)|\s+[a-z])"
+)
+# whatever follows an address label, to the end of the field: punctuation, a line break, a tab, two spaces or the
+# next field's label (診斷:, Diagnosis:); its first word holds a figure or a word of an address (市, 路, 號, 丁目).
+# A Chinese or Japanese label takes a separator; an English one is "Address:" (capital, or after home, postal,
+# mailing, current, permanent): "to address: the renal dose" is no label
+_FIELD_END = r"(?=[，,。；;\n\t　]|\s{2}|\s+[^\s:：，,。]{1,12}[:：]|\s*$)"
+ADDRESS_LABELLED = re.compile(
+    r"(?:(?:通訊地址|戶籍地址|居住地址|聯絡地址|住址|地址|戶籍地|居住地|現住所|住所|居所|現住)[\s:：]+"
+    r"|(?<![入居現同])住[:：]\s*"  # never 入住: (admitted to)
+    r"|(?:\b(?:[Hh]ome|[Pp]ostal|[Mm]ailing|[Cc]urrent|[Pp]ermanent)\s+address|\bAddress|\bADDRESS|\bAddr\.)\s*[:：]\s*)"
+    rf"(?P<v>(?=[^\s，,。；;\n　]{{0,30}}?(?:[0-9０-９]|[市縣區鄉鎮村里路街號町都道府県丁番]))"
+    rf"[^\s，,。；;、\n（(：:][^，,。；;\n\t　]{{1,60}}?){_FIELD_END}"
+)
+# a chart number after its label, the labels of Taiwanese, Japanese and English records, the label against the number
+# too, written against it; full-width digits; the number holds four figures or more (never D-143, a decision's)
+MRN_LABELLED = re.compile(
+    r"(?:病歷號(?:碼)?(?:為|是)?|病歷編號|病歷碼|病歷No\.?|病历号|病例號(?:碼)?|病歴番号|住院號(?:碼)?|門診號(?:碼)?"
+    r"|病人編號|歸檔號|カルテ(?:番号|No\.?)|患者(?:ID|番号|No\.?)|診察券番号|病[人患]ID"
+    r"|(?i:(?<![A-Za-z])MRN|(?<![A-Za-z])chart\s*(?:no\.?|number|\#)|\bmedical record (?:no\b\.?|number\b)"
+    r"|\bhospital\s*(?:no\b\.?|number\b)|\badmission\s*no\b\.?|\bvisit\s*no\b\.?|\bpatient\s*ID\b|\binsurance\s*ID\b)|(?<![A-Za-z])ID\s*[:：](?:\s*No\.?)?)"
+    r"[\s:：#（(]*(?P<v>(?=(?:[A-Za-z-]*[0-9０-９]){4})[A-Za-z0-9０-９][A-Za-z0-9０-９-]{3,14})(?![A-Za-z0-9０-９])"
+)
+EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 DATE = dates.PHI_SPAN  # Gregorian and 民國 written out (D-215: the pattern lives in tb_common.dates, unchanged)
 EN_NAME = re.compile(
     r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\bPatient(?: name)?:\s*[A-Z][a-z]+\s+[A-Z][a-z]+"
@@ -159,6 +264,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
             findings.append(("mrn", _mask(m.group(0))))
     for m in PHONE.finditer(text):
         findings.append(("phone", _mask(m.group(0))))
+    for m in EN_PHONE.finditer(text):
+        findings.append(("phone", _mask(m.group("v") or m.group(0))))
     for m in KEYWORDS.finditer(text):
         findings.append(("keyword", m.group(0)))
     names = _cjk_names(text)
@@ -183,7 +290,9 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
 # are untouched. ``○`` is how Taiwanese and Japanese records mask a name by hand; the tokenizer drops it, so a masked
 # span gives no token to the full-text index or the hash embedder.
 MASK_CHAR = "○"
-NOTE_MASK_VERSION = "1"  # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask
+# recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744;
+# 3: dates of birth, addresses and chart labels, D-745)
+NOTE_MASK_VERSION = "3"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -193,13 +302,15 @@ _GIVEN_JP = rf"(?:(?!さん|様|くん|ちゃん|より|から)[{_CJK_N}{_KANA_N
 _ROLE_ZH = r"(?:醫師|醫生|護理師|藥師|個管師)"
 _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # chart numbers after their label (the site pattern, unlabelled, is added per call)
-    (
-        "mrn",
-        re.compile(
-            r"(?:病歷號(?:碼)?|病历号|カルテ番号|患者ID|(?i:MRN|chart\s*no\.?|medical record (?:no\.?|number)))"
-            r"[\s:：#]*(?P<v>[A-Z0-9][A-Z0-9-]{3,14})(?![A-Za-z0-9])"
-        ),
-    ),
+    ("mrn", MRN_LABELLED),
+    # dates of birth after their label or before the word for born, and postal addresses (D-745)
+    ("dob", DOB_LABELLED),
+    ("dob", DOB_BORN),
+    ("address", ADDRESS_LABELLED),
+    ("address", ADDRESS_ZH),
+    ("address", ADDRESS_JA),
+    ("address", ADDRESS_EN),
+    ("email", EMAIL),
     # insurance and ID numbers after their label
     (
         "id",
@@ -210,6 +321,7 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("id", TW_ID),
     ("phone", PHONE),
+    ("phone", EN_PHONE),
     (
         "phone",
         re.compile(
@@ -248,8 +360,10 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 
 def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, int]]:
-    """``(kind, start, end)`` of every name, phone number, chart number and ID number found in note text, overlaps
-    merged (kinds: ``name``, ``phone``, ``mrn``, ``id``). ``mrn_regex`` is the site's chart number pattern
+    """``(kind, start, end)`` of every name, phone number, chart number, ID number, date of birth, postal address
+    and email address found in note text, overlaps merged (kinds: ``name``, ``phone``, ``mrn``, ``id``, ``dob``,
+    ``address``, ``email``).
+    ``mrn_regex`` is the site's chart number pattern
     (``settings.mrn_regex``); it also masks a chart number written without its label."""
     found: list[tuple[str, int, int]] = []
     for kind, rx in _NOTE_PATTERNS:

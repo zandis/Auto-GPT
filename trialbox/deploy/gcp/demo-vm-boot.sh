@@ -10,7 +10,13 @@
 #               tb-demo-password; the VM's own service account reads it) into a root-only env file. It is never in
 #               the metadata (a secret-looking metadata key stops this script), never on a command line, never in
 #               this log: TB_DEMO_PASSWORD is set, so the demo does not print it either.
-#   demo mode   TB_DEMO_MODE=on seeds the audited flag demo.mode on the first start (banner, uploads refused)
+#   demo mode   the audited flag demo.mode (D-328: banner, uploads and pasted text refused) is switched on AFTER the
+#               seed and BEFORE Caddy opens tcp:443: the boot signs in as admin inside the container and sets it on
+#               /ops/flags with a reason (the owner's audited path), then proves a multipart post is refused. Never
+#               TB_DEMO_MODE=on in the container: the demo seeds through the console's own routes in the same
+#               process, and demo mode refuses the seed's protocol paste (POST /pilot/protocol, 403): the container
+#               then restarted for ever (lane G rehearsal, 2026-11-14). The container does not restart by itself:
+#               every start reseeds with demo mode off, so only this script may open it (a dead demo is a 502).
 #   the model   TB_LLM_MODE=stub, TB_DEMO_TOOL=demo: fixed here; no metadata key changes them (tb-llm-* stops it)
 #   TLS         Caddy (pinned by digest, as deploy/gcp/hosted-demo-startup.sh) with `tls internal` for the VM's own
 #               external address: the browser warns once. Only :443 is bound (no :80 listener, no redirect). The
@@ -21,15 +27,17 @@
 #   demo-vm-boot.sh                    the boot run, as root
 #   demo-vm-boot.sh --dry-run          print what it would do; metadata from TB_MD_<KEY> (e.g. TB_MD_TB_DEMO_IMAGE)
 #   demo-vm-boot.sh --print-caddyfile  the Caddyfile only (TB_MD_EXTERNAL_IP for the address)
+#   demo-vm-boot.sh --print-demo-switch  the Python that switches demo mode on (run inside the container)
 # No `set -x` (review A-12): nothing secret reaches the serial log.
 set -euo pipefail
 
-DRY=0; PRINT_CADDY=0
+DRY=0; PRINT_CADDY=0; PRINT_SWITCH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --print-caddyfile) PRINT_CADDY=1; DRY=1 ;;
-    -h | --help) sed -n 2,24p "$0"; exit 0 ;;
+    --print-demo-switch) PRINT_SWITCH=1; DRY=1 ;;
+    -h | --help) sed -n 2,31p "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -56,6 +64,85 @@ md() {  # md PATH [DEFAULT]: an instance metadata value; in a dry run the enviro
   fi
   curl -sf -H Metadata-Flavor:Google "$MD/$key" || printf '%s' "$def"
 }
+
+# demo mode on, inside the container (`docker exec -i tb-demo python - URL`), standard library only. It signs in as
+# admin with the container's own TB_DEMO_PASSWORD (never on a command line, never printed), sets demo.mode on
+# /ops/flags with a reason (audited: flag.set, actor console:admin), then posts a multipart form, which must be
+# refused (403, the demo banner on the refusal page). Cookies are kept by hand: they are Secure and this is plain
+# http on the container's loopback. Exit 0 only when the refusal was seen.
+demo_switch() {
+  cat <<'PY'
+import os, re, sys, urllib.error, urllib.parse, urllib.request
+
+BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080"
+REASON = "demo VM boot (deploy/gcp/demo-vm-boot.sh): demo mode on after the seed, before tcp:443 opens (D-328)"
+jar = {}
+
+
+class Keep(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):  # every redirect is read here, with the cookies
+        return None
+
+
+opener = urllib.request.build_opener(Keep)
+
+
+def call(method, path, form=None, multipart=None):
+    headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in jar.items())} if jar else {}
+    data = None
+    if form is not None:
+        data = urllib.parse.urlencode(form).encode()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    if multipart is not None:
+        b = "tb-demo-vm-boot-probe"
+        parts = [f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n' for k, v in multipart.items()]
+        parts.append(f'--{b}\r\nContent-Disposition: form-data; name="charts"; filename="probe.txt"\r\n'
+                     f"Content-Type: text/plain\r\n\r\nsynthetic probe of the demo VM boot\r\n--{b}--\r\n")
+        data = "".join(parts).encode()
+        headers["Content-Type"] = f"multipart/form-data; boundary={b}"
+    req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
+    try:
+        r = opener.open(req, timeout=60)
+    except urllib.error.HTTPError as e:
+        r = e
+    for v in r.headers.get_all("Set-Cookie") or []:
+        name, _, rest = v.partition("=")
+        value = rest.split(";", 1)[0]
+        if value and "max-age=0" not in v.lower():
+            jar[name.strip()] = value
+        else:
+            jar.pop(name.strip(), None)
+    return r.status, r.headers.get("Location", ""), r.read().decode("utf-8", "replace")
+
+
+def field(name, html, what):
+    m = re.search(f'name="{name}" value="([^"]+)"', html)
+    if not m:
+        sys.exit(f"demo switch: no {name} on {what}")
+    return m.group(1)
+
+
+pw = os.environ.get("TB_DEMO_PASSWORD") or sys.exit("demo switch: no TB_DEMO_PASSWORD in the container")
+st, _, html = call("GET", "/login")
+st, loc, _ = call("POST", "/login", {"username": "admin", "password": pw, "login_csrf": field("login_csrf", html, "/login")})
+if st != 303 or loc.startswith(("/login", "/account")):
+    sys.exit(f"demo switch: admin sign-in answered {st} -> {loc or '-'}")
+st, _, html = call("GET", "/ops/flags")
+if st != 200:
+    sys.exit(f"demo switch: /ops/flags answered {st}")
+form = {"csrf": field("csrf", html, "/ops/flags"), "name": "demo.mode", "value": "on", "reason": REASON,
+        "confirm": "yes", "old": "off"}
+st, loc, html = call("POST", "/ops/flags", form)
+if st != 303:
+    keys = sorted(set(re.findall(r"flags\.err\.[a-z]+", html)))
+    sys.exit(f"demo switch: setting demo.mode answered {st} {keys}")
+st, _, html = call("POST", "/pilot/case", multipart={"csrf": form["csrf"], "ruleset": "GZQO"})
+if st != 403 or 'data-testid="demo-banner"' not in html:
+    sys.exit(f"demo switch: a multipart post answered {st}, not the demo refusal: demo mode is NOT on")
+print("demo mode on (flag.set by console:admin with the boot's reason); a multipart post is refused (403)")
+PY
+}
+if [ "$PRINT_SWITCH" = 1 ]; then demo_switch; exit 0; fi
 
 # the serial console (demo-vm.sh status reads it); tests/rehearsal/demo-vm-local.sh points it at a file
 [ "$DRY" = 1 ] || exec > >(tee -a /var/log/tb-demo-vm.log "${DEMO_VM_SERIAL:-/dev/ttyS0}") 2>&1
@@ -141,7 +228,6 @@ else
 fi
 DEMO_ENV="TB_DEMO_TOOL=demo
 TB_LLM_MODE=stub
-TB_DEMO_MODE=on
 TB_DEMO_LANG=$LANG_UI
 TB_CONSOLE_SECURE_COOKIE=1
 TB_CONSOLE_PUBLIC_URL=https://$IP${SITE_LANG:+
@@ -165,15 +251,38 @@ else
 fi
 run docker pull -q "$CADDY_IMAGE_PIN"
 
-say "the demo (stub model, synthetic hospital; seeds for 3 to 6 minutes)"
+say "the demo (stub model, synthetic hospital; seeds for 3 to 6 minutes; demo mode off until the seed is done)"
 gone tb-demo
-run docker run -d --name tb-demo --restart unless-stopped --memory 6g -p 127.0.0.1:8080:8080 \
+gone tb-demo-caddy  # nothing answers on :443 until demo mode is on
+run docker run -d --name tb-demo --restart no --memory 6g -p 127.0.0.1:8080:8080 \
   --env-file "$ETC/demo.env" --env-file "$ETC/secret.env" "$REF"
+
+# the seed: the console answers on the VM's loopback only (Caddy is not running yet)
+if [ "$DRY" = 1 ]; then echo "+ wait up to $SEED_WAIT_S s for http://127.0.0.1:8080/login (the seed; the VM's loopback)"
+else
+  ok=0
+  for _ in $(seq 1 $((SEED_WAIT_S / 5))); do
+    if curl -sf -o /dev/null "http://127.0.0.1:8080/login" 2>/dev/null; then ok=1; break; fi
+    if [ "$(docker inspect -f '{{.State.Running}}' tb-demo 2>/dev/null)" != true ]; then
+      say "the demo container stopped during the seed (exit $(docker inspect -f '{{.State.ExitCode}}' tb-demo 2>/dev/null)): docker logs tb-demo (on the VM)"
+      echo DEMO-VM-NOT-READY; exit 3
+    fi
+    sleep 5
+  done
+  [ "$ok" = 1 ] || { say "the seed gave no answer on 127.0.0.1:8080 within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"; echo DEMO-VM-NOT-READY; exit 3; }
+fi
+
+say "demo mode on (D-328: banner, uploads and pasted text refused), before tcp:443 opens"
+if [ "$DRY" = 1 ]; then echo "+ docker exec -i tb-demo python - http://127.0.0.1:8080 < (demo-vm-boot.sh --print-demo-switch)"
+elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080; then
+  docker rm -f tb-demo >/dev/null 2>&1 || true
+  say "demo mode could not be switched on: the demo was removed and tcp:443 stays closed"
+  echo DEMO-VM-NOT-READY; exit 3
+fi
 
 say "caddy on :443 (tls internal for $IP)"
 if [ "$DRY" = 1 ]; then echo "+ write $ETC/Caddyfile:"; caddyfile | sed 's/^/    | /'
 else (umask 022; caddyfile >"$ETC/Caddyfile"); fi
-gone tb-demo-caddy
 run docker run -d --name tb-demo-caddy --restart unless-stopped --network host \
   -v "$ETC/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$DATA:/data" "$CADDY_IMAGE_PIN"
 

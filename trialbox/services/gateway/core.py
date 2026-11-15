@@ -114,7 +114,7 @@ class Upstream(str):
 
     def __new__(cls, text: str, kind: str = "other") -> Upstream:
         self = super().__new__(cls, text)
-        self.kind = kind  # busy | open | retried | other
+        self.kind = kind  # busy | open | retried | timeout | other
         return self
 
 
@@ -401,7 +401,8 @@ class Gateway:
         try:
             return self._chat(call, h, body, service)
         except Refusal as r:
-            self._record("llm.gateway.refuse", call, reason=r.reason, message=str(r))
+            said: dict[str, Any] = {"upstream_kinds": list(r.upstream_kinds)} if r.upstream_kinds else {}
+            self._record("llm.gateway.refuse", call, reason=r.reason, message=str(r), **said)
             headers = {
                 "X-TB-Call-Id": call.call_id,
                 "X-TB-Refusal": r.reason,
@@ -412,7 +413,7 @@ class Gateway:
                 headers["Retry-After"] = RETRY_AFTER[r.reason]
             return GatewayResponse(
                 r.status,
-                {"error": {"type": "tb_refusal", "code": r.reason, "message": str(r), "call_id": call.call_id}},
+                {"error": {"type": "tb_refusal", "code": r.reason, "message": str(r), "call_id": call.call_id, **said}},
                 headers,
             )
 
@@ -551,7 +552,8 @@ class Gateway:
             # configuration fault (400, 404) does: never sent again by anyone
             down = only_kinds(upstream_errors, {"busy", "open", "retried"})
             code = "upstream_down" if down else "upstream_failed"
-            raise Refusal(code, "; ".join(upstream_errors)[:500], status=502)
+            kinds = tuple(sorted({getattr(e, "kind", "other") for e in upstream_errors}))
+            raise Refusal(code, "; ".join(upstream_errors)[:500], status=502, upstream_kinds=kinds)
         first = registry_refusals[0] if registry_refusals else None
         raise Refusal(first.reason if first else "no_eligible_build", str(first) if first else "no candidate")
 
@@ -816,7 +818,12 @@ class Gateway:
                         breaker.cancel()
                     else:
                         breaker.failure("timeouts")
-                errors.append(Upstream(f"{name}{_BUSY}", "busy") if interactive else f"{name}: {type(e).__name__}")
+                # D-728: a batch timeout is a kind of its own, so the refusal can say it as a field
+                errors.append(
+                    Upstream(f"{name}{_BUSY}", "busy")
+                    if interactive
+                    else Upstream(f"{name}: {type(e).__name__}", "timeout")
+                )
                 return None
             except httpx.HTTPError as e:
                 if attempt == 1:
