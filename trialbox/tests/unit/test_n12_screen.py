@@ -130,7 +130,8 @@ def test_the_head_is_this_checkouts() -> None:
     """Review: ``git rev-parse`` ran in the caller's folder."""
     import subprocess
 
-    want = subprocess.run(["git", "rev-parse", "HEAD"], cwd=n12.ROOT, capture_output=True, text=True).stdout.strip()
+    git = ["git", "rev-parse", "HEAD"]
+    want = subprocess.run(git, cwd=n12.ROOT, capture_output=True, text=True, check=True).stdout.strip()
     assert n12.git_head() == want
 
 
