@@ -1,0 +1,171 @@
+
+$ df -h
+Filesystem       Size  Used Avail Use% Mounted on
+/dev/root        193G  149G   44G  78% /
+tmpfs             89G  1.1M   89G   1% /dev/shm
+tmpfs             36G  1.6M   36G   1% /run
+tmpfs            5.0M     0  5.0M   0% /run/lock
+efivarfs         256K   35K  217K  14% /sys/firmware/efi/efivars
+/dev/nvme0n1p16  881M  176M  643M  22% /boot
+/dev/nvme0n1p15  105M  6.2M   99M   6% /boot/efi
+[exit 0]
+
+$ findmnt -no TARGET,FSTYPE,SIZE,AVAIL /tmp
+[exit 1]
+
+$ du -sh /var/lib/docker /var/lib/containerd /models /models/hub /srv/tb-build /var/lib/tb /opt/trialbox
+29G	/var/lib/docker
+47G	/var/lib/containerd
+48G	/models
+5.1G	/srv/tb-build
+377M	/var/lib/tb
+du: cannot access '/opt/trialbox': No such file or directory
+[exit 1]
+
+$ ls -la /models /models/hub
+/models:
+total 28
+drwxr-xr-x  4 root root 4096 Nov  6 00:28 .
+drwxr-xr-x 24 root root 4096 Nov 15 08:50 ..
+-rw-r--r--  1 root root 9285 Nov 12 15:24 .agent_harnesses.json
+drwxr-xr-x  9 root root 4096 Nov  9 16:56 hub
+drwxr-xr-x  4 root root 4096 Nov  6 00:28 xet
+
+/models/hub:
+total 40
+drwxr-xr-x  9 root root 4096 Nov  9 16:56 .
+drwxr-xr-x  4 root root 4096 Nov  6 00:28 ..
+drwxr-xr-x  7 root root 4096 Nov  9 16:56 .locks
+-rw-r--r--  1 root root  191 Nov  6 00:28 CACHEDIR.TAG
+drwxr-xr-x 16 root root 4096 Nov  9 16:56 blobs
+drwxr-xr-x  6 root root 4096 Nov  9 16:56 models--BAAI--bge-m3
+drwxr-xr-x  6 root root 4096 Nov  9 16:56 models--Qwen--Qwen3-Embedding-0.6B
+drwxr-xr-x  7 root root 4096 Nov  6 01:06 models--cyankiwi--Qwen3.5-9B-AWQ-4bit
+drwxr-xr-x  7 root root 4096 Nov  8 04:01 models--cyankiwi--gemma-4-26B-A4B-it-qat-AWQ-INT4
+drwxr-xr-x  7 root root 4096 Nov  6 00:29 models--nvidia--Gemma-4-26B-A4B-NVFP4
+[exit 0]
+
+$ docker info -f {{.ServerVersion}} {{.Driver}} {{json .DriverStatus}}
+29.9.3 overlay2 [["Backing Filesystem","extfs"],["Supports d_type","true"],["Using metacopy","false"],["Native Overlay Diff","true"],["userxattr","false"]]
+[exit 0]
+
+$ docker compose version
+Docker Compose version v5.7.0
+[exit 0]
+
+$ docker image ls --format {{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}
+trialbox-demo:step5 ea5993c8069a 1.27GB
+trialbox-postgres:16-1 a41a833a41b6 565MB
+trialbox-embed:1.0.0 491fda444174 2.08GB
+trialbox-jvm:1.0.0 1cbb3dd8c983 1.61GB
+trialbox-py:1.0.0 1974704e3da3 815MB
+caddy:2.11.9-alpine 5813f7eb9b94 65.3MB
+vllm/vllm-openai:v0.32.0 bd8a5d7a8774 23.4GB
+hapiproject/hapi:v8.12.0-2 d4a0dc0bcde8 604MB
+authelia/authelia:4.39.28 b44a326fced1 79.7MB
+[exit 0]
+
+$ docker system df
+TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+Images          9         0         28.66GB   27.85GB (97%)
+Containers      0         0         0B        0B
+Local Volumes   0         0         0B        0B
+Build Cache     78        0         4.018GB   75.37kB
+[exit 0]
+
+$ cat /etc/docker/daemon.json
+{
+ "features": {
+  "containerd-snapshotter": false
+ }
+}[exit 0]
+
+$ python3 --version
+Python 3.12.3
+[exit 0]
+
+$ python3 -c import yaml, sys; print("yaml", yaml.__version__)
+yaml 6.0.1
+[exit 0]
+
+$ python3 -c import cryptography; print("cryptography", cryptography.__version__)
+cryptography 41.0.7
+[exit 0]
+
+$ systemctl --version
+systemd 255 (255.4-1ubuntu8.18)
++PAM +AUDIT +SELINUX +APPARMOR +IMA +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 -PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD -BPF_FRAMEWORK -XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified
+[exit 0]
+
+$ sh -c command -v systemd-creds; ls -l /dev/tpm0 /dev/tpmrm0
+/usr/bin/systemd-creds
+crw------- 1 root root  10,   224 Nov 15 08:50 /dev/tpm0
+crw------- 1 root root 252, 65536 Nov 15 08:50 /dev/tpmrm0
+[exit 0]
+
+$ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
+name, memory.total [MiB], driver_version
+NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887 MiB, 580.178.04
+[exit 0]
+
+$ sh -c ss -ltnp | head -40
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess                                                
+[line removed: IP address]
+[line removed: IP address]
+[line removed: IP address]
+[line removed: IP address]
+[line removed: IP address]
+[exit 0]
+
+$ sh -c command -v uv mvn java curl git make nft gcloud
+/usr/local/bin/uv
+[exit 0]
+
+$ cat /etc/os-release
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.5 LTS (Noble Numbat)"
+VERSION_CODENAME=noble
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=noble
+LOGO=ubuntu-logo
+[exit 0]
+
+$ docker ps -a --format {{.Names}} {{.Status}} {{.Image}}
+[exit 0]
+
+$ sh -c ls -ld /etc/cron.d; command -v nft cron crontab
+drwxr-xr-x 2 root root 4096 Oct 21 09:16 /etc/cron.d
+/usr/sbin/nft
+[exit 0]
+
+$ sh -c ls -d /models/hub/models--*/snapshots/* 2>/dev/null
+/models/hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181
+/models/hub/models--BAAI--bge-m3/snapshots/9a0624b896d81da7492a910ffa53731274b6cf3d
+/models/hub/models--Qwen--Qwen3-Embedding-0.6B/snapshots/97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+/models/hub/models--cyankiwi--Qwen3.5-9B-AWQ-4bit/snapshots/e4d2d39cede8c5d1716d824cd843e2889c648083
+/models/hub/models--cyankiwi--gemma-4-26B-A4B-it-qat-AWQ-INT4/snapshots/76373001e106330a6815f237ef00838c7fed9356
+/models/hub/models--nvidia--Gemma-4-26B-A4B-NVFP4/snapshots/a19cfe00be84568a6867111c9a68c9c44fdcffe6
+[exit 0]
+
+$ sh -c du -sh /models/hub/models--* 2>/dev/null
+92K	/models/hub/models--BAAI--bge-m3
+4.4M	/models/hub/models--Qwen--Qwen3-Embedding-0.6B
+10M	/models/hub/models--cyankiwi--Qwen3.5-9B-AWQ-4bit
+148K	/models/hub/models--cyankiwi--gemma-4-26B-A4B-it-qat-AWQ-INT4
+4.9M	/models/hub/models--nvidia--Gemma-4-26B-A4B-NVFP4
+[exit 0]
+
+$ sh -c ls -la /models/embedder /models/chat-templates 2>&1 | head -40
+ls: cannot access '/models/embedder': No such file or directory
+ls: cannot access '/models/chat-templates': No such file or directory
+[exit 0]
+
+$ sh -c f=$(find /models/hub -name "*.safetensors" -size +1G 2>/dev/null | head -n 1); [ -n "$f" ] && sync && echo 3 > /proc/sys/vm/drop_caches && dd if="$f" of=/dev/null bs=16M count=128 2>&1 | tail -n 1
+[exit 1]

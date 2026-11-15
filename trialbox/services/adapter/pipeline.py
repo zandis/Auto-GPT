@@ -617,6 +617,7 @@ def _run_ingest(
         mapper = Mapper(
             mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
             concept_map=reference_maps(mapping, cfg.db_url),  # D-665: a map that is not loaded is "not asked"
+            mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)

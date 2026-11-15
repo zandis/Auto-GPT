@@ -1,0 +1,40 @@
+diff --git a/trialbox/deploy/gcp/box-install-run.sh b/trialbox/deploy/gcp/box-install-run.sh
+index 550799ab0..1929847c1 100644
+--- a/trialbox/deploy/gcp/box-install-run.sh
++++ b/trialbox/deploy/gcp/box-install-run.sh
+@@ -473,10 +473,14 @@ note() { printf '%s\t%s\n' "$1" "$2" >> "$NOTES"; }          # a value of the st
+ watched() {  # run a command of the step, its output to the step's log; the log growing is the heartbeat
+   echo "+ $(basename "$1") (${#} words) $(date -u +%T)" >> "$STEP_LOG"
+   "$@" >> "$STEP_LOG" 2>&1 < /dev/null &
+-  local pid=$! size=-1 now
++  local pid=$! size=-1 now io=-1 ion
+   while kill -0 "$pid" 2>/dev/null; do
+     now=$(stat -c %s "$STEP_LOG" 2>/dev/null || echo 0)
+     [ "$now" = "$size" ] || { touch "$HB"; size=$now; }
++    if [ -n "${WATCH_IO:-}" ]; then   # a step whose product command is silent for long (install.sh's bundle checks):
++      ion=$(awk '{s += $6 + $10} END {print s + 0}' /proc/diskstats 2>/dev/null)   # the disks reading or writing
++      [ "$ion" = "$io" ] || { touch "$HB"; io=$ion; }                                # is progress; a hang does neither
++    fi
+     sleep "$POLL"
+   done
+   wait "$pid"
+@@ -623,7 +627,9 @@ d_g1_hf() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model pa
+ d_install_v() {  # as box-install.sh judges it: a FAIL list at the end (no backup target yet) leaves the stack running
+   local rc
+   # shellcheck disable=SC2086 # TB_BOXRUN_INSTALL is a command line on purpose (the rehearsal)
+-  ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
++  # line-buffered: install.sh pipes its long steps through sed, which holds a pipe's output until it ends (stdbuf's
++  # setting reaches every child), so the step's log grows while the bundle is verified and loaded
++  PYTHONUNBUFFERED=1 stdbuf -oL -eL ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
+     | "$PY" "$HELPER" redact | tee "$TB/install-v.log"
+   rc=${PIPESTATUS[0]}
+   [ "$rc" = 0 ] || grep -q "TrialBox is running" "$TB/install-v.log" || return "$rc"
+@@ -893,7 +899,7 @@ step_install() {
+         || { STOP="no site answers in Secret Manager (tb-answers-secret, tb-answers-version)"; return 1; }
+     fi
+     need "placing the site's weights in deploy/models" d_models_place || return 1
+-    need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
++    WATCH_IO=1 need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
+     rm -f "$ANSWERS.yaml"
+     return $rc
+   fi

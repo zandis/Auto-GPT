@@ -1,0 +1,46 @@
+{
+ "attempts": 1,
+ "boots": [
+  "b4c8f6cf-3cd4-40c8-a52a-ef13aa11ba10"
+ ],
+ "detail": {
+  "free_after_old_store": "51G",
+  "free_before_old_store": "51G",
+  "free_before_sign": " 51G /; 51G /;",
+  "key_left_on_tmpfs": false,
+  "mode": "validation",
+  "not_a_release": true
+ },
+ "ended": "2026-11-15T09:28:36Z",
+ "minutes": 7.94,
+ "ok": false,
+ "seconds": 476.492,
+ "started": "2026-11-15T09:20:40Z",
+ "status": "stop",
+ "step": "b05-sign",
+ "stop": {
+  "log_tail": [
+   "==> installer, runbook, settings example, notices, changelog",
+   "==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)",
+   "release: 1.0.0 val-ac36aa21fdc1 (seq 1): 8 images, 11 SBOM files, 29 components",
+   "==> signing /srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar (bundle id val-ac36aa21fdc1, release_seq 1)",
+   "Traceback (most recent call last):",
+   "  File \"/srv/tb-build/tb/trialbox/tools/sign_bundle.py\", line 254, in <module>",
+   "    raise SystemExit(main())",
+   "                     ^^^^^^",
+   "  File \"/srv/tb-build/tb/trialbox/tools/sign_bundle.py\", line 245, in main",
+   "    m = build(args.key, args.id, items, args.out, args.signer, args.description, release_seq=args.release_seq,",
+   "        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+   "  File \"/srv/tb-build/tb/trialbox/tools/sign_bundle.py\", line 203, in build",
+   "    add(tf, f\"files/{dest}\", src=src)",
+   "  File \"/srv/tb-build/tb/trialbox/tools/sign_bundle.py\", line 191, in add",
+   "    tf.addfile(info, fh)",
+   "  File \"/usr/lib/python3.12/tarfile.py\", line 2288, in addfile",
+   "    copyfileobj(fileobj, self.fileobj, tarinfo.size, bufsize=bufsize)",
+   "  File \"/usr/lib/python3.12/tarfile.py\", line 254, in copyfileobj",
+   "    dst.write(buf)",
+   "OSError: [Errno 28] No space left on device"
+  ],
+  "reason": "signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 1"
+ }
+}
