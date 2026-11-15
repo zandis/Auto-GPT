@@ -35,6 +35,10 @@ the canary or one template study.
   confidence and who answered (served name and build). The runs are lane G's (plan 37); lane A2 supplies the gold
   and reviews the calibration table.
 
+## Changes
+
+- 2026-11-15: the set's sha256 moved with D-786 (the excerpt builder splits English sentences); its counts did not.
+
 ## Not changed
 
 The canary and its gate (`orchestrator.selftest`) are unchanged. Labels for MedTxt-CR (real Japanese case reports),
