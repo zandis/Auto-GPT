@@ -722,8 +722,8 @@ def read_jrct(cache: Path, n: int = 10, get: Any = None) -> Bundle:
             url = f"https://jrct.mhlw.go.jp/latest-detail/{jid}"
             try:
                 data = (get or src.polite_get)(url)
-            except OSError as exc:  # a record the registry does not serve now (HTTP 500 on 2026-11-15): left out, said
-                b.provenance.append(f"jRCT {jid}: not fetched ({str(exc)[:80]}); left out")
+            except OSError as err:  # a record the registry does not serve now (HTTP 500 on 2026-11-15): left out, said
+                b.provenance.append(f"jRCT {jid}: not fetched ({str(err)[:80]}); left out")
                 continue
             f.write_bytes(data)
             rows.append(src.live_record(cache, "jrct", url, data))
