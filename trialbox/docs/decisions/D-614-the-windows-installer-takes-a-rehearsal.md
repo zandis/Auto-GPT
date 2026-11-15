@@ -20,9 +20,14 @@ and says so; the model stand-ins and an unmeasured card are honoured on it only;
 1. `box-install.ps1 -Rehearsal` records `rehearsal: true` in its state (`state.json`, administrators only) and
    step 14 adds `--rehearsal` to `wsl-setup.sh install`, which hands it to `box-install.sh`. The window says it is
    a rehearsal install, and the log says so, before step 1 changes anything.
-2. **Kept to the end.** The state carries it over the step-5 restart and over a run started again by hand without
-   the switch: a run never turns a rehearsal off (a site's box is a new install, as D-726 says). A finished install
-   that was no rehearsal is not made one: `-Rehearsal` is then ignored and logged.
+2. **Asked for every time, never assumed.** The resume task's command line carries `-Rehearsal` over the step-5
+   restart. A run started by hand without the switch on an unfinished rehearsal stops before it changes anything and
+   says how to go on (start it with `-Rehearsal`) or how to start a site's install (empty the box, remove the state,
+   install anew): the state outlives the box inside WSL2, and an emptied box with no mark would otherwise be made a
+   rehearsal with a site's media unasked (review finding 3). A run never turns a rehearsal off. A finished install
+   that was no rehearsal is not made one: `-Rehearsal` is then ignored, on screen and in the log. An unfinished
+   install that began without the switch may be started with it (Stage B after Stage A): the Linux installer
+   refuses a box that holds a site's install from no rehearsal (D-726).
 3. **Not on the first run.** When an earlier run installed the stack and stopped before the owner finished the
    set-up, `wsl-setup.sh install` goes on with `box-install.sh --firstrun` alone: `box-install.sh` refuses
    `--rehearsal` with `--firstrun`, and the first run finishes the box as it was installed.
@@ -34,15 +39,24 @@ and says so; the model stand-ins and an unmeasured card are honoured on it only;
 
 ## What is proven here, and what is not
 
-Proven here: Pester (151 tests with the rest): the switch reaches the Linux installer's command line and is said
-and logged before the import; never without the switch; kept over the restart and over a run started again without
-it; ignored on a finished install that was no rehearsal. Python tests on a fake WSL2 system: `wsl-setup.sh install`
-hands `--rehearsal` on with or without `--yes`, refuses an unknown option, and leaves it off the first run.
+Proven here: Pester (153 tests with the rest): the switch reaches the Linux installer's command line and is said
+and logged before step 1; never without the switch; named in the resume task's command line and carried over the
+restart; a run by hand without it on an unfinished rehearsal stops with nothing changed, and goes on with it;
+ignored, on screen, on a finished install that was no rehearsal. Python tests on a fake WSL2 system: `wsl-setup.sh
+install` hands `--rehearsal` on with or without `--yes`, refuses an unknown option, and leaves it off the first run.
 
 Not proven (P-0 Part 10): that the Linux installer, started this way inside WSL2, makes the box TEST with the mark
 and doctor's WARN "rehearsal box"; that after Stage A on the same PC the Linux installer takes the box as a
 rehearsal (by reading, Stage A's stop comes before it writes anything of a site; if it refuses, the box is emptied
 as `docs/runbook/16-box-install-rehearsal.md` says).
+
+## After the review
+
+One fresh reviewer, verdict "fix first", no HIGH: the Stage B command did not run on a PC whose execution policy
+is the default (now started through `powershell.exe -ExecutionPolicy Bypass -File`); Stage B on the same PC would
+have run Stage A's Linux installer (the page now removes Stage A's tree first); the kept state could make an emptied
+box a rehearsal unasked (point 2); the ignored switch was said in the log only; the test checked "before the import",
+not "before step 1". All fixed, test first.
 
 ## Consequences
 

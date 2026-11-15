@@ -920,7 +920,7 @@ Describe "box-install.ps1" {
       ($script:S.Said -join "`n") | Should -Match "rehearsal"
       $log = Get-Log
       $log | Should -Match "rehearsal: yes"
-      $log.IndexOf("rehearsal: yes") | Should -BeLessThan $log.IndexOf("import: start")
+      $log.IndexOf("rehearsal: yes") | Should -BeLessThan $log.IndexOf("step 1/")   # before step 1 changes anything
       (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).rehearsal | Should -BeTrue
     }
     It "does not make a finished install that was no rehearsal one afterwards" {
@@ -928,6 +928,7 @@ Describe "box-install.ps1" {
       Invoke-Run -Rehearsal | Should -Be 0
       (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).rehearsal | Should -BeFalse
       Get-Log | Should -Match "-Rehearsal ignored: this install is finished and is not a rehearsal"
+      ($script:S.Said -join "`n") | Should -Match "not a rehearsal"     # said on screen too (review finding 4)
       $script:S.Console.Count | Should -Be 1
     }
     It "never hands it on without the switch" {
@@ -935,17 +936,33 @@ Describe "box-install.ps1" {
       $script:S.Console[0] | Should -Not -Match "rehearsal"
       (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).rehearsal | Should -BeFalse
     }
-    It "stays a rehearsal over the restart and when started again without the switch" {
+    It "stays a rehearsal over the restart: the resume task's command line names it (review finding 3)" {
       $script:S.Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
       $script:S.WslInstalled = $false
       Invoke-Run -Rehearsal | Should -Be 3010
+      $script:S.ResumeMore | Should -Match " -Rehearsal$"
       $script:S.InstallExit = 1; $script:S.StateLine = "installed=0"   # step 14 stops after the restart
-      Invoke-Run -Resume | Should -Be 1
+      Invoke-Run -Resume -Rehearsal | Should -Be 1
       $script:S.Console[0] | Should -Match "--rehearsal$"
-      $script:S.InstallExit = 0; $script:S.StateLine = "installed=1"   # the owner starts it again by hand, no switch
-      Invoke-Run | Should -Be 0
-      $script:S.Console.Count | Should -Be 2
+    }
+    It "stops, changing nothing, when an unfinished rehearsal is started again by hand without the switch (review finding 3)" {
+      # a rehearsal that stopped, its box emptied, then started with a site's media and no -Rehearsal: never made
+      # a rehearsal unasked
+      $script:S.InstallExit = 1; $script:S.StateLine = "installed=0"
+      Invoke-Run -Rehearsal | Should -Be 1
+      $script:S.InstallExit = 0; $script:S.StateLine = "installed=1"
+      Invoke-Run | Should -Be 1
+      $script:S.Console.Count | Should -Be 1
+      ($script:S.Said -join "`n") | Should -Match "-Rehearsal"
+      Get-Log | Should -Match "unfinished rehearsal started without -Rehearsal: stopped"
+      Invoke-Run -Rehearsal | Should -Be 0                             # with the switch it goes on
       $script:S.Console[1] | Should -Match "--rehearsal$"
+    }
+    It "never names it in the resume task's command line without the switch" {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
+      $script:S.WslInstalled = $false
+      Invoke-Run | Should -Be 3010
+      $script:S.ResumeMore | Should -Not -Match "Rehearsal"
     }
   }
 

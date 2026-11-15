@@ -32,9 +32,11 @@ The two lines that decide the next card are **26a** (does WSL2 start from the bo
   commands below). By reading, not run.
 
 Do Stage A first and send its answers back. Stage B can follow on the same PC: the installer goes on where it
-stopped. One thing first, because Stage A left its stand-in key in the box and the installer refuses a media
-whose key differs from the one already there (by reading `wsl-setup.sh`, step `host-tree`; not run): in an
-administrator PowerShell, `wsl -d TrialBox -u root -- rm /opt/trialbox/deploy/keys/vendor_ed25519.pub`.
+stopped. One thing first: the Linux side keeps the host tree it unpacked in Stage A (by reading `wsl-setup.sh`,
+step `host-tree`: an existing `/opt/trialbox` is kept), so step 14 would run Stage A's Linux installer, which may
+not know `--rehearsal`, and the installer refuses a media whose key differs from Stage A's. Remove Stage A's tree,
+which holds nothing of yours, in an administrator PowerShell:
+`wsl -d TrialBox -u root -- rm -rf /opt/trialbox`. Stage B's media then unpacks its own.
 
 ## What you need
 
@@ -107,13 +109,16 @@ so whether the media is nearer 5 GB or 13 GB.
 1. Install the NVIDIA Windows driver first, if the PC does not have it.
 2. Decide about BitLocker before you start (the sheet, Part 4, "Choose first"): on a PC that must stay
    unencrypted, start the installer from an administrator PowerShell with
-   `<usb>\TRIALBOX-<version>\windows\box-install.ps1 -SkipBitLocker`; otherwise double-click `Install-TrialBox.cmd`.
+   `powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-<version>\windows\box-install.ps1" -SkipBitLocker` (Windows
+   blocks a script started by its name alone; `-ExecutionPolicy Bypass` lets this one run, as `Install-TrialBox.cmd`
+   does); otherwise double-click `Install-TrialBox.cmd`.
 3. Sign in as the administrator who will own the box, plug in the USB disk, start the installer, and follow the
    sheet line by line. Write the "Record" column down as you go. Never write a recovery key down for us: only
    "shown" and "confirmed".
 4. Stage B only: start the installer from an administrator PowerShell with `-Rehearsal`:
-   `<usb>\TRIALBOX-2026.11-p0\windows\box-install.ps1 -Rehearsal` (add `-DataDrive G:` and `-SkipBitLocker` as
-   you chose for Stage A). The window says it is a rehearsal install before it changes anything; the install stays
+   `powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-2026.11-p0\windows\box-install.ps1" -Rehearsal` (add
+   `-DataDrive G:` and `-SkipBitLocker` as you chose for Stage A). Give `-Rehearsal` every time you start it by
+   hand until the install is finished: without it the installer stops and changes nothing. The window says it is a rehearsal install before it changes anything; the install stays
    one to its end, also over the restart. After Stage A on the same PC the installer goes on where it stopped; by
    reading (not run), Stage A's stop in step 14 came before the Linux installer wrote anything of a site, so the
    Linux installer takes the box as a rehearsal. If it refuses ("holds a site's install ... from no rehearsal"),
@@ -130,7 +135,8 @@ so whether the media is nearer 5 GB or 13 GB.
 **Windows 10 22H2 can take P-0** (owner ruling D-503; NEW-WIN-10, D-613). The sheet's Part 9 has its own lines:
 Windows 10 has no mirrored networking for WSL2, so the console reaches other PCs through a forwarding rule that a
 task keeps pointed at WSL2. On a PC with several data drives, name the one with room: on yours, start the
-installer from an administrator PowerShell as `<usb>\TRIALBOX-<version>\windows\box-install.ps1 -DataDrive G:`
+installer from an administrator PowerShell as
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-<version>\windows\box-install.ps1" -DataDrive G:`
 (G:, H: and I: have about 2 TB free; C: has 222 GB, too little for a box). An RTX 3080 is enough for Stage A;
 it is not a tier's card, so Stage B's install runs as a rehearsal box only.
 

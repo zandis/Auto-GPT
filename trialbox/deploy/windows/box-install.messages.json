@@ -458,5 +458,15 @@
     "en": "This is a rehearsal install: the box will be a test box and say \"rehearsal box\", with stand-in model servers and a rehearsal bundle. It is never a site's box: a site's box is a new install.",
     "ja": "これはリハーサルのインストールです。ボックスはテスト用となり「rehearsal box」と表示され、代替のモデルサーバーとリハーサル用バンドルを使います。サイトのボックスにはなりません。サイトのボックスは新しいインストールで作ります。",
     "zh-TW": "這是演練安裝：此 box 將是測試用 box，並顯示「rehearsal box」，使用替代的模型伺服器與演練用套件。它絕不會成為院方的 box：院方的 box 需重新安裝。"
+  },
+  "rehearsal_unasked": {
+    "en": "This install began as a rehearsal and is not finished, but it was started without -Rehearsal. Nothing was changed. To go on with the rehearsal, start the installer again with -Rehearsal. For a site's box, empty the rehearsal box first (docs/runbook/16-box-install-rehearsal.md, \"A rehearsal box\"), remove {0}, and start a new install.",
+    "ja": "このインストールはリハーサルとして始まり、まだ完了していませんが、-Rehearsal なしで起動されました。何も変更していません。リハーサルを続けるには、-Rehearsal を付けてインストーラーをもう一度起動してください。サイトのボックスにするには、先にリハーサルのボックスを空にし（docs/runbook/16-box-install-rehearsal.md の「A rehearsal box」）、{0} を削除してから、新しいインストールを始めてください。",
+    "zh-TW": "此安裝以演練方式開始且尚未完成，但這次啟動時沒有加上 -Rehearsal。未做任何變更。若要繼續演練，請加上 -Rehearsal 再次啟動安裝程式。若要作為院方的 box，請先清空演練用 box（docs/runbook/16-box-install-rehearsal.md 的「A rehearsal box」），刪除 {0}，再開始新的安裝。"
+  },
+  "rehearsal_ignored": {
+    "en": "-Rehearsal was ignored: this install is finished and is not a rehearsal. A rehearsal is a new install on a box that holds no site's install.",
+    "ja": "-Rehearsal は無視されました。このインストールは完了しており、リハーサルではありません。リハーサルは、サイトのインストールを含まないボックスへの新しいインストールで行います。",
+    "zh-TW": "已忽略 -Rehearsal：此安裝已完成，且不是演練。演練需在不含院方安裝的 box 上重新安裝。"
   }
 }

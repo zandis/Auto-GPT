@@ -751,6 +751,7 @@ function Step-WslEnable {
     $more = "-MinFreeGB {0} -MinWindowsBuild {1} -ProxyEveryMinutes {9} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
       $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1], $ProxyEveryMinutes
     if ($SkipBitLocker) { $more += " -SkipBitLocker" }
+    if ($script:TbState.rehearsal) { $more += " -Rehearsal" }  # D-614: the run after the restart is asked for it again
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
@@ -1149,6 +1150,14 @@ function Invoke-TbInstall {
   $script:TbStop = $null
   Write-TbLog ("box-install.ps1 started by {0}; resume={1}; Windows {2} build {3}; language {4}" -f $script:TbFacts.Account,
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
+  # a rehearsal (D-614) goes on only when asked for again: a run without -Rehearsal on an unfinished rehearsal stops
+  # here, before anything changes. Its box may have been emptied since (RUNBOOK section 16), and the Linux installer
+  # would then take a site's media as a rehearsal unasked (review finding 3). The resume task names the switch
+  if ($script:TbState.rehearsal -and -not $script:TbState.finished -and -not $Rehearsal) {
+    Write-TbLog "    unfinished rehearsal started without -Rehearsal: stopped, nothing changed"
+    Write-TbScreen (Get-TbText "rehearsal_unasked" @($script:TbStatePath) $script:TbLang)
+    return 1
+  }
   # the resume task has done its work once this run started; step 5 registers it again if Windows wants a restart
   try { Unregister-TbResumeTask } catch { Write-TbLog ("    the resume task could not be removed: " + [string]$_.Exception.Message) }
   if ($script:TbShareGiven -or [int]$script:TbState.desktop_share_pct -lt 0) { $script:TbState.desktop_share_pct = $script:TbShareDefault }
@@ -1166,6 +1175,7 @@ function Invoke-TbInstall {
   # new install, RUNBOOK section 16); the Linux installer refuses to make a box holding a site's install a rehearsal
   if ($Rehearsal -and $script:TbState.finished -and -not $script:TbState.rehearsal) {
     Write-TbLog "    -Rehearsal ignored: this install is finished and is not a rehearsal"
+    Say "rehearsal_ignored" @()
   } elseif ($Rehearsal) { $script:TbState.rehearsal = $true }
   if ($script:TbState.rehearsal -and -not $script:TbState.finished) {
     Write-TbLog "    rehearsal: yes (the box will be TEST and say so; D-726)"
