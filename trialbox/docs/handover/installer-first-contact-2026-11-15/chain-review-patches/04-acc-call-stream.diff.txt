@@ -1,0 +1,27 @@
+diff --git a/trialbox/deploy/gcp/box_vm.py b/trialbox/deploy/gcp/box_vm.py
+index 4abd6c618..64adbcec4 100644
+--- a/trialbox/deploy/gcp/box_vm.py
++++ b/trialbox/deploy/gcp/box_vm.py
+@@ -741,8 +741,20 @@ class Box:
+             lf.write(f"+ {svc} onbox {cmd} {time.strftime('%H:%M:%S')}\n")
+             lf.flush()
+             p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf, text=True)
+-            stdout, _ = p.communicate(self.onbox.read_text(encoding="utf-8"), timeout=timeout)
+-            lf.write(stdout[-4000:])
++            assert p.stdin is not None and p.stdout is not None
++            p.stdin.write(self.onbox.read_text(encoding="utf-8"))
++            p.stdin.close()
++            # line by line, as onbox prints them: `wait` says each change of the job's state, and that line in the
++            # step's log (and the beat) is the VM's heartbeat while a job runs; a long answer line is cut in the log
++            lines: list[str] = []
++            for line in p.stdout:
++                lines.append(line)
++                lf.write(line if len(line) <= 4000 else line[:2000] + " ... (cut)\n")
++                lf.flush()
++                if self.beat is not None:
++                    self.beat.touch()
++            p.wait(timeout=timeout)
++            stdout = "".join(lines)
+         if self.beat is not None:
+             self.beat.touch()
+         if p.returncode != 0:

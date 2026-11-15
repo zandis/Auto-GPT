@@ -1,0 +1,25 @@
+{
+ "attempts": 1,
+ "boots": [
+  "57110725-bd04-4f57-a63b-a6304853b0d1"
+ ],
+ "detail": {},
+ "ended": "2026-11-15T06:10:01Z",
+ "minutes": 0.33,
+ "ok": false,
+ "seconds": 20.032,
+ "started": "2026-11-15T06:09:41Z",
+ "status": "stop",
+ "step": "b03-images",
+ "stop": {
+  "log_tail": [
+   "+ make (4 words) 06:09:41",
+   "make: Entering directory '/srv/tb-build/tb/trialbox'",
+   "tools/fetch_jvm_deps.sh",
+   "tools/fetch_jvm_deps.sh: line 64: mvn: command not found",
+   "make: *** [Makefile:304: jvm-deps] Error 127",
+   "make: Leaving directory '/srv/tb-build/tb/trialbox'"
+  ],
+  "reason": "make images: exit 2"
+ }
+}

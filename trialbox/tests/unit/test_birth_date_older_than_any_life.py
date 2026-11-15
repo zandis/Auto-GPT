@@ -75,3 +75,22 @@ def test_the_night_counts_them(tmp_path: Path) -> None:
     assert len(list(read_type(folder, "Patient"))) == 2
     comp = json.loads((folder / "completeness.json").read_text(encoding="utf-8"))
     assert comp["tables"]["patient"]["implausible_dates"] == {"birthDate": 1}
+
+
+# CGRD-A6 (D-817): a birth date the feed's range refuses (a placeholder, a year before 1850 or past today + 10) left
+# the whole patient row refused, and every record of the patient orphaned. On a birth date it is left out and counted
+@pytest.mark.parametrize("born", ["9999-12-31", "1800-01-01", "0001-01-01", "2199-01-01"])
+def test_a_placeholder_birth_date_keeps_the_patient_and_is_counted(born: str) -> None:
+    m = Mapper(Mapping.load(BASE), b"k" * 32, "s")
+    pat = _patient(m, born)
+    assert "birthDate" not in pat and pat["gender"] == "female"
+    assert m.implausible_dates() == {"patient": {"birthDate": 1}}
+
+
+def test_a_birth_date_that_is_not_a_date_still_refuses_the_row() -> None:
+    """Only the range is forgiven on a birth date: a value that is no date at all is refused, as before."""
+    from adapter.mapping.engine import MappingError
+
+    m = Mapper(Mapping.load(BASE), b"k" * 32, "s")
+    with pytest.raises(MappingError):
+        _patient(m, "not a date")

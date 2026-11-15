@@ -1,0 +1,16 @@
+{
+ "attempts": 1,
+ "boots": [
+  "497e878f-c35b-4b56-8263-16e152e58be1"
+ ],
+ "detail": {
+  "java": "\"openjdk version \"21.0.13.0.3\" 2026-10-24\""
+ },
+ "ended": "2026-11-15T08:06:46Z",
+ "minutes": 3.92,
+ "ok": true,
+ "seconds": 235.18,
+ "started": "2026-11-15T08:02:51Z",
+ "status": "done",
+ "step": "b03-images"
+}

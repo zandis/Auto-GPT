@@ -99,7 +99,9 @@ def test_the_api_twin_carries_the_built_in_forms_and_nothing_imported(sb: dict[s
     body = api.get(f"/api/v1/studies/GZQO/monitor/{NO}").json()
     got = {(v["event"], v["field"]): v for v in body["forms"]}
     assert got[("", "ic_date")]["value"] == "2026-11-02" and got[("", "ic_date")]["form"] == "tb_consent"
-    assert got[("ae1", "ae_onset")]["value"] == "2026-11-04" and got[("ae1", "ae_onset")]["by"] == "drsato"
+    assert (
+        got[("ae1", "ae_onset")]["value"] == "2026-11-04" and got[("ae1", "ae_onset")]["by"] == "console:drsato"
+    )  # D-799
     assert {f for _e, f in got} <= {f for f in got_fields(sb)}  # built-in fields only
     assert not {"weight", "urate", "brthdat", "sex"} & {f for _e, f in got}  # the EDC's own CRF: cited items only
     changes = [x for x in body["form_trail"] if x["field"] == "ae_onset"]

@@ -1,0 +1,28 @@
++ gcloud (5 words) 09:43:34
+WARNING: Parallel composite upload was turned ON to get the best performance on
+uploading large objects. If you would like to opt-out and instead
+perform a normal upload, run:
+`gcloud config set storage/parallel_composite_upload_enabled False`
+If you would like to disable this warning, run:
+`gcloud config set storage/parallel_composite_upload_enabled True`
+Note that with parallel composite uploads, your object might be
+uploaded as a composite object
+(https://cloud.google.com/storage/docs/composite-objects), which means
+that any user who downloads your object will need to use crc32c
+checksums to verify data integrity. gcloud storage is capable of
+computing crc32c checksums, but this might pose a problem for other
+clients.
+
+Copying file:///srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar to gs://trialbox-demo-runs/r2/val-ac36aa21fdc1/trialbox-val-ac36aa21fdc1.tar
+  
+......................................................................................................................................................................................................................
+
+Average throughput: 706.6MiB/s
++ gcloud (5 words) 09:44:19
+Copying file:///srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar.sha256 to gs://trialbox-demo-runs/r2/val-ac36aa21fdc1/trialbox-val-ac36aa21fdc1.tar.sha256
+  
+
++ gcloud (5 words) 09:44:24
+Copying file:///srv/tb-build/throwaway-signing-key.pub to gs://trialbox-demo-runs/r2/val-ac36aa21fdc1/throwaway-signing-key.pub
+  
+
