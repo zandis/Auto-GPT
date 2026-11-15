@@ -150,16 +150,15 @@ class SqlEngine:
                     if res.get(cid) is None:
                         reasons[cid] = why
             for c in crit:  # F-10 (D-130): FALSE beside an unreadable code is unknown, not an exclusion
-                # F11 (D-795): a list in a system no row of the domain carries cannot answer, either kind
-                if carried.doubt(c, rs.valuesets, res.get(c.id)):
-                    res[c.id], ev[c.id], reasons[c.id] = None, [], Reason.CODE_SYSTEM_NOT_CARRIED.value
-                    continue
                 gap = cov.refs(c, str(row["pid"]), index_date) if res.get(c.id) is False else []
                 if gap:
                     res[c.id], ev[c.id], reasons[c.id] = None, gap, Reason.UNKNOWN_CODE_SYSTEM.value
                 # D-135: a proposed fact that could change a decided answer makes it unknown ("needs information");
                 # it never decides one: it is not in the coded tables the SQL reads
+                doubt = carried.doubt(c, rs.valuesets, res.get(c.id))  # F11 (D-795): before the proposed rule reads it
                 fids = prop.refs(c, str(row["pid"]), index_date, res.get(c.id))
+                if doubt and not fids:  # a list in a system no row carries cannot answer; a proposed fact says more
+                    res[c.id], ev[c.id], reasons[c.id] = None, [], Reason.CODE_SYSTEM_NOT_CARRIED.value
                 if fids:  # a suspected diagnosis (疑い, D-142) the same way, with its own reason
                     res[c.id], ev[c.id], reasons[c.id] = None, fids, prop.reason(str(row["pid"]), fids)
             out[row["pid"]] = PatientEvaluation(
