@@ -1,0 +1,9 @@
+# D-758 The demo's CASE sheet reads its chart, and the demo's people receive it
+
+- **Task:** DEMO-SEED-2 (lane G's walk of 2026-11-16, zh-TW; placed with lane B2 by the integrator), lane B2 · **PR:** `agent/DEMO-SEED-2-label-and-case` · **Date:** 2026-11-16 · **Status:** accepted · **Builds on:** D-757
+
+1. The reworded GZQO-EXC-14 reads "Any other drug trial within 30 days." in English: a whole phrase within the 40 characters a draft's short label takes ("Participation in another interventional" was cut); ja and zh-TW keep the trial's own labels.
+2. The seeded CASE chart is made from the demo day in the seed's language, written as the box's readers read a chart (a dated visit with BMI 31.4 and HbA1c 7.6 %, two dated flares within the year, no current flare); the stub judge reads a BMI or HbA1c value against a criterion's threshold (only CASE asks it: SCREEN answers both from the lake). In zh-TW the sheet then has BMI met, the HbA1c exclusion not applying and the flare criterion met; the stub reads Japanese flares only where it is told the notes are Japanese, and no English flare.
+3. The demo VM's people who read patient data (`TB_DEMO_PEOPLE`, `name:role`, passed by `deploy/gcp/demo-vm-boot.sh`) are added as `<name>@hospa.test` to every study's internal `list_to` (the approved versions and the site profiles drafts take their routing from) before the box's ruleset repository is made, so the seeded CASE sheet and the study lists are theirs to open.
+4. Synthetic data only; nothing changes for a box that is not the demo (`TB_DEMO_PEOPLE` unset: no recipient added).
+5. Tests: `tests/unit/test_demo_seed_case.py` (the label's length; the stub's number reading; the chart's dates and values per language; the people as recipients, manifests and profiles; the boot passing them), `tests/integration/test_list_demo.py` (the zh-TW sheet's BMI, HbA1c and flare answers; the demo person a recipient, a viewer not).
