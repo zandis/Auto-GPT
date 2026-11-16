@@ -349,6 +349,8 @@ def cut_parts(media: Path, out: Path, max_bytes: int = PART_BYTES) -> Path:
     body = {"media": media.name, "sha256": sink.whole.hexdigest(), "parts": sink.parts}
     manifest.write_text(json.dumps(body, indent=1) + "\n", encoding="utf-8")
     return manifest
+
+
 def add_p0(media: Path, *, rehearsal: bool, skip_bitlocker: bool, source: Path = ROOT) -> None:
     """A P-0 media (NEW-WIN-12, D-615; owner ruling D-510: the owner only starts it): the P-0 launcher at the root
     and the choices made for this P-0 when the media was built, read by the installer with -P0 only. The list is
