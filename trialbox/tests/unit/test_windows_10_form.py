@@ -105,3 +105,28 @@ def test_the_facts_and_the_installer_name_the_same_build_task_and_port() -> None
     assert '"TrialBox-Console-Proxy"' in FACTS_PS1 and '$script:TbProxyTask = "TrialBox-Console-Proxy"' in PS1
     assert "interface portproxy show v4tov4" in FACTS_PS1  # read only: show, never add or set
     assert "portproxy add" not in FACTS_PS1 and "portproxy set" not in FACTS_PS1
+
+
+# NEW-WIN-15 (D-618): the site keys' KEK kept by Windows needs its task, or the keys wait after every restart
+def _site_lines(facts: dict[str, str], strict: bool = True) -> list[str]:
+    policy = _policy()
+    v = policy.Verdicts(strict)
+    policy.check_site_key(facts, v)
+    return list(v.lines)
+
+
+def test_a_kek_kept_by_windows_without_its_task_fails_and_with_it_passes() -> None:
+    assert _site_lines({"site_key_store": "acl_file", "site_key_task": "Ready"}) == [
+        "PASS  site keys: the KEK kept by Windows (acl_file), handed into WSL2 at each start by TrialBox-Site-Key (Ready)"
+    ]
+    for task in ("missing", "Disabled"):
+        lines = _site_lines({"site_key_store": "dpapi_user", "site_key_task": task})
+        assert len(lines) == 1 and lines[0].startswith("FAIL  site keys: the KEK is kept by Windows"), lines
+    assert _site_lines({"site_key_store": "none", "site_key_task": "missing"}) == []  # another back end
+    assert _site_lines({}) == []  # facts of an earlier release
+
+
+def test_the_facts_name_the_site_key_store_and_task() -> None:
+    for fact in ("site_key_store", "site_key_task"):
+        assert f'Fact "{fact}"' in FACTS_PS1, fact
+    assert '"TrialBox-Site-Key"' in FACTS_PS1 and '$script:TbSiteKeyTask = "TrialBox-Site-Key"' in PS1

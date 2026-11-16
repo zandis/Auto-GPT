@@ -1,0 +1,110 @@
+{"text": "DISEASE CHARACTERISTICS: Histologically confirmed esophageal squamous cell cancer that is stage T2-3 Nx M0", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Aged 5 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "18 and over", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 18 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 20 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 79 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher.", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Aged 45 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Pretreatment ( > 24 hours) with an antibiotic for the present exacerbation.", "kind": "exclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Pretreatment with corticosteroids (>30 mg for more than 4 days) for the present exacerbation.", "kind": "exclusion", "expect": ["no_placeholder_age"]}
+{"text": "Subject with uterine fibroids, who desire pregnancy within 12 months and has the one of the following criteria: Women 20-40 age. Women age < 46 years old who plan to have egg donation. Women above 38 should test for normal ovarian function as judged by endocrinological evaluation. If the couple has failed to conceive for more that 1 year, the woman should test for normal ovarian function as judged by endocrinological evaluation, and the male must have adequate sperm test. Women undergoing fertility treatment or plan to have sperm donation.", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Use or non use of non-steroidal treatments for excessive vaginal bleeding such as antifibrinolytic agents (e.g. Tranexamic acid) or non-steroidal anti-inflammatory drugs (e.g. Mefanamic Acid) has been maintained for the three months prior to the planned date of the study procedure and the patient has agreed to maintain this use or non-use through the 6-month follow-up period.", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Age <= 45 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "E. Age 13years to 75 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 13 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 75 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Female patient has at least one ovary and at least one ipsilateral patent fallopian tube confirmed by HSG or laparoscopy; pelvic pathology amenable to operative laparoscopy (pelvis restored to functional). The open tube cannot have had a previous ectopic (tubal) pregnancy and the closed tube cannot be a hydrosalpinx (a tube that is blocked at the end and filled with fluid), unless a tubal ligation has been performed at the junction of the uterus and fallopian tube.", "kind": "inclusion", "expect": ["no_placeholder_age"]}
+{"text": "Aged 21 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 40 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 80 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "age > 40 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 40 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "age < 40 years", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Clinically approved AIT patients who do not use any medication other than LT4 to keep TSH in the lower half of normal range.", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Menorrhagia and/or bulk symptoms associated with uterine fibroids", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "have a severe traumatic brain injury as defined by either a GCS ≤ 8 and an abnormal CT scan (intracranial hemorrhage, cerebral edema or diffuse axonal injury) or a motor score ≤ 3 and normal CT scan", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "are aged between 1 and 16 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 1 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 16 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "have fixed dilated pupils and GCS = 3", "kind": "exclusion", "expect": ["no_placeholder_age"]}
+{"text": "antibiotic treatment in preceding 7 days", "kind": "exclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Systemic Lupus Erythematosus subjects 4/11 of the American College of Rheumatology criteria for SLE (23), age less than 22 years.", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Age outside of range specified", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "Included patients had moderate to severe pain, as measured by the Sore Throat Pain Intensity Scale (STPIS) on swallowing ≥66 mm on a 100-mm visual analogue scale (VAS) and a minimum of 4 points on the 10-point Tonsillo-Pharyngitis Score (TPS) but who were not coughing or experiencing any evidence of mouth-breathing.", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Patients older than 15 years of age", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 15 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "History of Type II diabetes, as defined by the American Diabetes Association for more than 5 years that is either insulin requiring or treated with oral therapies such as sulfonylureas and metformin", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Aged 55 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Serum Creatinine > 3.0 mg/dL in patients who are not in hemodialysis.", "kind": "exclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Age 8-18 years, referred from emergency department for suspected appendicitis and receiving either CT scan or ultrasound of the abdomen for diagnosis", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Male Age 2 months to 20 years of age Female Age 2 months to 11 years of age", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Aged 0.17 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 20 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Female subjects diagnosed with KD 12 years of age and older.", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "Must not have received immunosuppressive agents for at least three months prior to enrollment.", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "Decisional capacity is adequate to provide informed consent or has an authorized appropriate surrogate decision maker. in a syndromal remission state at least for 2 months : CGI - BP ≤ 3", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Age <= 65 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "solitary erythema migrans in patients > 15 years", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "under twelve years of age", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 12 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Receiving continuous intra-venous infusion of positive inotropic therapy or intermittent therapy (intravenous infusion) more than twice per week", "kind": "exclusion", "expect": ["no_placeholder_age"]}
+{"text": "Age of less than 18 years", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Patients on monotherapy treatment with lithium carbonate at steady state level for a minimum of two weeks prior to study treatment assignment", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Age <= 60 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age > 18 years at the time of signing the informed consent form", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "55-85 kg body weight", "kind": "inclusion", "expect": ["no_placeholder_age"]}
+{"text": "Pleural effusion treated with chest drainage", "kind": "exclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "hospitalized with admitting diagnosis of heart failure in prior 8 weeks", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "severe renal insufficiency requiring dialysis", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "acute myocardial infarction within preceding 30 days", "kind": "exclusion", "expect": ["no_placeholder_age"]}
+{"text": "Patients with cancer and confirmed pulmonary embolism (PE) or deep vein thrombosis (DVT) of the leg who have been treated for minimally 6 and maximally 12 months with therapeutic doses of anticoagulants, i.e. LMWH or VKA or a new anticoagulant in a trial", "kind": "inclusion", "expect": ["no_placeholder_age"]}
+{"text": "Legal age limitations (country specific), minimum age at least 18 years", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Adequate bone marrow function as show by: normal leukocyte count, platelet count ≥ 120 x 109/L, Hgb > 12 g/dL", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Malignancies within the past 3 years except for adequately treated carcinoma of the cervix or basal or squamous cell carcinomas of the skins.", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "increased creatinine, urinary protein, or urinary casts outside the clinically normal range.", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "newly diagnosed without taking any antithyroid drug or beta receptor blocker with TSH level below the lower limits of reference range", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Age <= 85 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Premature birth (<36 weeks gestation)", "kind": "exclusion", "expect": ["no_placeholder_age"]}
+{"text": "Patients of chronic stable angina with abnormal Exercise Myocardial Perfusion Spect Scan with reversible and partially reversible ischemic changes.", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Age <= 90 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "be taking systemic glucocorticoids, interferon-alpha, anti-CD20 antibody, or anti-CTLA-4 antibody", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "be taking any medication for treatment of autoimmune thyroiditis other than L-thyroxine or equivalent", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "Subjects meeting full criteria for the diagnosis of current Major Depressive Disorder (MDD) without psychotic features, as determined by clinical evaluation and Mood Module of structured diagnostic interview (SCID), completed by the study clinician.", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Males and females, aged 18-55 years", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Age 18+", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 89 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Younger than 18 years of age", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Age 18 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "The patient has a known hypersensitivity or contraindication to any of the following medications: Heparin, Aspirin, Clopidogrel, Biolimus, Everolimus, Zotarolimus, and Contrast media (Patients with documented sensitivity to contrast media which can be effectively premedicated with steroids and diphenhydramine [e.g. rash] may be enrolled. Those with true anaphylaxis to prior contrast media, however, should not be enrolled.)", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "Greater than 18 years old", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Less than 18 years old", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Less than 18 years of age", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 100 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "secondary admittance(transfers)>24 post injury", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "Persistent(at least 12 weeks apart)aPL-positivity within 12 months prior to the screening defined as:", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Female (post menopausal or surgically sterile) and/or male aged 18 years or older", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Increased bleeding risk including: recent (<30 days) GI bleeding, any history of intracranial, intraocular, retroperitoneal, or spinal bleeding, recent (<30 days of dosing) major trauma, sustained uncontrolled hypertension (systolic blood pressure [SBP]>180mmHg or diastolic blood pressure [DBP]>100mmHg), history of hemorrhagic disorders that can increase the risk of bleeding, platelet count less than 100,000 mm3 or hemoglobin <10 g/dL.", "kind": "exclusion", "expect": ["no_derived"]}
+{"text": "Females who are at least 11 years of age or who are menarchal must have a negative urine/serum pregnancy test", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Pain present regularly for at least 6 weeks before enrollment;", "kind": "inclusion", "expect": ["no_placeholder_age"]}
+{"text": "Aged 10 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 25 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Patient at least 18 years of age presenting with a symptomatic chronic subdural hematoma", "kind": "inclusion", "expect": ["no_derived"]}
+{"text": "Age 50 to 89 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 50 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "age between 18 and 55 years at the time of enrollment;", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Age greater than 18 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Male or female patients aged >=18 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Uncontrolled asthma on medium doses of ICS+LABA with ACQ >=1.5", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Forced Expiratory Volume in one second (FEV1) ≤ 70 % of predicted value and FEV1 / Forced Vital Capacity (FVC) < 0.70;", "kind": "inclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "History of asthma or allergic rhinitis before the age of 40;", "kind": "exclusion", "expect": ["age_in_age"]}
+{"text": "Age≥ 40years old", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Is male or female, 18 years of age or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Patients with hepatic encephalopathy and tense ascites.", "kind": "exclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "single osteochondral lesion in knee/ankle (2-4 sq cm)", "kind": "inclusion", "expect": ["no_placeholder_age"]}
+{"text": "Children aged 6 months to 10 years presenting with CAP will be eligible. CAP will be defined if all of the four following numeric criteria are met:", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Aged 0.5 years or older", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Age <= 10 years", "kind": "inclusion", "expect": ["age_in_age"]}
+{"text": "Children will be excluded if they have any of the following: cystic fibrosis, anatomic lung disease, bronchiectasis, congenital heart disease, history of repeated aspiration or velopharyngeal incompetence, malignancy, conditions requiring treatment with immune suppressants, primary immunodeficiency, advanced HIV infection, prolonged admissions (>48 h) to hospital within the past 2 months, pneumonia previously diagnosed within the past month, lung abscess diagnosed within the past six months, receipt of > 24 hours of beta-lactam antibiotic therapy already received at presentation to the ED, receipt of at least a 5 day course of amoxicillin < 72h prior to presenting to the ED, receipt of an intravenous cephalosporin or azithromycin in the ED, or suspected allergy to penicillin. Children will not be eligible to participate more than once.", "kind": "exclusion", "expect": ["no_derived", "no_placeholder_age"]}
+{"text": "Patients, male and female, at any age ≥ 3 months (5 kg) of life, with KD according to the American Heart Association definition for complete or incomplete KD. fever ≥ 5 days and ≥ 4 of 5 main clinical signs: modification of the extremities, polymorphic exanthema, bilateral bulbar not exudative conjunctivitis, erythema of the lips or oral cavity, and cervical lymph nodes usually unilateral > 1.5 cm in diameter. In the presence of less than 4 clinical criteria and 5 days of fever, the diagnosis of disease KD is proposed in case of coronary abnormalities (at least one dilated coronary artery with internal diameter ≥ 2,5 SD from the mean normalized for body surface area (Z score) as determined by echocardiography. For indicative purpose, in case of incomplete KD, other biological supportive criteria for incomplete KD can help to ensure the diagnosis: leucocytosis, elevated CRP, elevated ESR, anaemia, hyponatremia, elevated ASAT, ALAT and gGT, hyperlipidaemia.", "kind": "inclusion", "expect": ["no_derived"]}
