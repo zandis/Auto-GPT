@@ -260,7 +260,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
         gone = h.gone()
         return prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
-                              refs, set(gone))  # fmt: skip
+                              refs, gone)  # fmt: skip
 
     def log_rows(rs: str) -> list[dict[str, Any]]:
         reg = registry_rows(rs)

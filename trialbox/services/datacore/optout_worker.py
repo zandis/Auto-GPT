@@ -408,6 +408,14 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "sitesetup")
     if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
         return Database.connect(url, "mail")
+    if schema == "pidmap":  # ERASE-A2 (D-875): read only, the chart merges a patient's consent is looked for under
+        return Database.connect(url, "pidmap")
+    if schema == "datacore":  # ERASE-A2 (D-875): the lifecycle and the consent forms (a subject's pseudonym is tokened)
+        return Database.connect(url, "datacore")
+    if schema == "study":  # ERASE-A2 (D-875): read only, REDCap's read-back and its link
+        return Database.connect(url, "study")
+    if schema == "edc":  # ERASE-A2 (D-875): read only, the EDC's drafts
+        return Database.connect(url, "edc")
     raise ValueError(f"no owed table in store {schema!r}")
 
 
@@ -550,6 +558,35 @@ def clear_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 def verify_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return _held_mail(pids, env, False)
+
+
+# ------------------------------------------------------------------------------------------------ the screening log
+def _screening_log(pids: frozenset[str], env: WorkerEnv, change: bool) -> dict[str, int]:
+    """ERASE-A2 (D-875, the owner's D-1032): a never-consented patient's screening-log rows stay, numbered, under a
+    random token (:mod:`datacore.screening_tokens`); a trial subject's stay as they are (OD-8). Counts only."""
+    from datacore import screening_tokens
+
+    url = str(env.register.db.url)
+
+    def has(schema: str, table: str) -> bool:
+        return store_has(url, schema, table)
+
+    def open_(schema: str) -> Any:
+        return _open(url, schema)
+
+    todo, kept = screening_tokens.plan(pids, has, open_)
+    if not change:  # the screening log's rows (and their subjects) still under a never-consented patient's pseudonym
+        return {"screening_log": sum(n for _holders, n in todo.values())}
+    days = screening_tokens.opted_out_days(env.register, pids, env.now)
+    return {"tokened": screening_tokens.apply(todo, days, has, open_), "kept_trial_subject": kept}
+
+
+def clear_screening_log(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _screening_log(pids, env, True)
+
+
+def verify_screening_log(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _screening_log(pids, env, False)
 
 
 # ------------------------------------------------------------------------------------------------ the set-up's uploads
