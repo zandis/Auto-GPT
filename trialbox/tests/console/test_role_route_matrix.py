@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -121,7 +121,67 @@ def _clients(b: dict[str, Any]) -> dict[str, tuple[TestClient, str, TestClient]]
     return out
 
 
+def _orchestrator_routes(b: dict[str, Any]) -> None:
+    """NEW-ARCH-3 slices 2 and 3 (D-865, D-864): the console's conflicts and instrument pages ask the orchestrator.
+    The walk's box answers those two families from the orchestrator's own routers, in process, through a client that
+    signs nothing itself. Only while the walk asks those two pages: every other route still sees a box with no study
+    store, as before (a study store changes how the console signs a patient read before it asks)."""
+    from types import SimpleNamespace
+
+    from console.backend import Unavailable, problem_of
+    from fastapi import FastAPI
+    from omop import schema
+    from orchestrator.conflicts_api import router as conflicts_router
+    from orchestrator.setup_api import router as setup_router
+    from sitesetup.store import SetupStore
+    from tb_common.audit import AuditLog
+
+    from tests.actor3 import SignedClient
+
+    held: dict[str, Any] = {}
+
+    def omop() -> Any:
+        if "db" not in held:
+            held["db"] = schema.connect()
+        return held["db"]
+
+    svc = SimpleNamespace(store=SetupStore(), stamp=lambda: "2026-11-16T09:00:00+00:00",
+                          audit=AuditLog(b["dir"] / "orch-audit"))  # fmt: skip
+    api = FastAPI()
+    api.include_router(conflicts_router(omop))
+    site = cast(Any, svc)  # the instrument routes read only the store, the stamp and the audit
+    api.include_router(
+        setup_router(lambda: site, lambda rid: {}, lambda rid: {}, lambda rid: None, lambda: False, lambda *a: None)
+    )
+    coc = SignedClient(api, strict=True)
+
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
+        if not path.startswith(("/omop/conflicts", "/setup/instruments")):
+            raise Unavailable("this backend has no study store")
+        kw: dict[str, Any] = {"headers": headers} if headers else {}
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
+        if r.status_code >= 400:
+            raise problem_of(r.status_code, r.text)
+        return r.json()
+
+    b["orchestrator_study_api"] = study_api
+
+
+_ASK_THE_ORCHESTRATOR = ("/data/conflicts", "/data/instruments")
+
+
+def _for(b: dict[str, Any], path: str) -> None:
+    """The orchestrator's two route families for the pages that ask them (D-864, D-865); no study store otherwise."""
+    bk = b["backend"]
+    if path.startswith(_ASK_THE_ORCHESTRATOR):
+        bk.study_api = b["orchestrator_study_api"]
+    elif "study_api" in vars(bk):
+        del bk.study_api
+
+
 def walk(b: dict[str, Any]) -> list[tuple[str, str, dict[str, str]]]:
+    _orchestrator_routes(b)
     _done_feas(b["backend"])
     job_id = _ulid(990)
     _done_screen(b["backend"], job_id)
@@ -134,12 +194,14 @@ def walk(b: dict[str, Any]) -> list[tuple[str, str, dict[str, str]]]:
                 if (method in CHANGING) != changing:
                     continue
                 url = _fill(path, job_id)
+                _for(b, path)
                 if path.startswith("/api/v1/"):
                     r = api.request(method, url, json={} if changing else None, follow_redirects=False)
                 else:
                     data = {"csrf": csrf} if changing else None
                     r = page.request(method, url, data=data, follow_redirects=False)
                 cells[(method, path)][col] = _cell(r)
+    _for(b, "")  # the box as it was: no study store
     return [(m, p, cells[(m, p)]) for m, p in routes]
 
 
