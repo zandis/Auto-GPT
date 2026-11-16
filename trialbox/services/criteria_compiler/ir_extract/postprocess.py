@@ -103,6 +103,39 @@ def is_diagnosis_name(name: str) -> bool:
     return bool(_DIAGNOSIS.search(name)) and not _OPERATION.search(name)
 
 
+# D-948 (F4 of the P1b review): sigir's 772 criteria carried 25 quantifiers, 6 values and 5 derived on demographic
+# atoms and 9 ages on other atoms (NCT00606840 EXC-02: a demographic age with quantifier all and derived egfr)
+_NOT_DEMOGRAPHIC = ("derived", "quantifier", "value", "count", "window", "duration")
+HOLD = ("age_on_non_demographic", "demographic_quantifier_none")  # these go to a person: their meaning is unsure
+
+
+def strip_stray(node: Any) -> tuple[Any, list[str]]:
+    """The raw logic without the fields its atom's domain cannot use, and a flag for each kind removed or held.
+
+    A demographic atom's derived / quantifier / value / count / window / duration are dropped (``stray_field``); its
+    ``quantifier: none`` is held for a person (it may mean "not", which the age compare never read). An age on any
+    other atom is held for a person: it may be an age at onset ("diabetes before 30"), and dropping it would widen
+    the criterion."""
+    flags: list[str] = []
+
+    def walk(n: Any) -> Any:
+        if not isinstance(n, dict):
+            return n
+        if "op" in n and "args" in n:
+            return {**n, "args": [walk(a) for a in n["args"] or []]}
+        if n.get("domain") == "demographic":
+            if n.get("quantifier") == "none":
+                flags.append("demographic_quantifier_none")
+            if any(n.get(k) is not None and not (k == "quantifier" and n[k] == "any") for k in _NOT_DEMOGRAPHIC):
+                flags.append("stray_field")
+            return {k: v for k, v in n.items() if k not in _NOT_DEMOGRAPHIC}
+        if n.get("age") is not None:
+            flags.append("age_on_non_demographic")
+        return n
+
+    return walk(node), sorted(set(flags))
+
+
 def _convert_logic(
     node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr", refiled: frozenset[str] = frozenset()
 ) -> dict[str, Any]:
@@ -208,7 +241,7 @@ def postprocess(
         cid = f"{ruleset}-{code}-{counters[code]:02d}"
         flags: list[str] = []
         raw = dump(ec)
-        logic_raw = raw.get("logic") or {"domain": "demographic"}
+        logic_raw, stray = strip_stray(raw.get("logic") or {"domain": "demographic"})
         try:
             logic = _convert_logic(logic_raw, concept_vs, egfr, frozenset(refiled))
         except CompileError as exc:
@@ -230,6 +263,13 @@ def postprocess(
         if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
             flags.append("domain_refiled")
             warnings.append(f"{cid}: {', '.join(moved)} filed as a procedure; read as a condition (check it)")
+        if stray:
+            flags.extend(stray)
+            warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
+        if ir.class_ in FILTERED and set(stray) & set(HOLD):
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: its logic's meaning is unsure; kept for a person to check")
         # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
         # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
         # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
