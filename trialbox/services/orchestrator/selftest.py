@@ -291,7 +291,6 @@ def preflight(orch: Any, force: bool = False) -> bool:
     ``force``: run even with ``TB_SELFTEST=off`` (the canary at start and the admin's "Run now")."""
     if (not enabled() and not force) or orch.services.llm is None:
         return True
-    from orchestrator import canary_gate
     from orchestrator.twophase import GatewaySwap
 
     gs = GatewaySwap.from_env()
@@ -301,31 +300,51 @@ def preflight(orch: Any, force: bool = False) -> bool:
         gs.use if gs is not None else None,
         release=gs.release if gs is not None else None,
     )
-    report["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    report["at_epoch"] = round(time.time(), 1)
-    canary_gate.GATE.configure(orch.data_dir)
+    return record(report, orch.data_dir, orch.audit)
+
+
+def orch_data_dir(cfg: Any) -> Path:
+    """The orchestrator's data folder (``TB_ORCH_DIR``, else ``<data dir>/orchestrator``): where the gate's
+    ``selftest.json`` lives, for the orchestrator and for ``trialbox selftest`` in its container alike."""
+    return Path(os.environ.get("TB_ORCH_DIR") or str(Path(cfg.env.data_dir) / "orchestrator"))
+
+
+def record(report: dict[str, Any], data_dir: Path | str, audit: Any, by: str = "orchestrator") -> bool:
+    """Record a canary as the gate's result: ``<data dir>/selftest.json`` (written whole, then moved into place), the
+    canary gate of this process and the audit (``selftest.passed`` / ``selftest.failed``; D-915: a canary that could
+    not reach a model is ``selftest.unreached`` and leaves the last result as it was). ``by``: who ran it, in the
+    audit (``orchestrator``, or ``trialbox selftest`` from the box's command line, D-916). True when it passed."""
+    from orchestrator import canary_gate
+
+    report.setdefault("at", time.strftime("%Y-%m-%dT%H:%M:%S"))
+    report.setdefault("at_epoch", round(time.time(), 3))
+    canary_gate.GATE.configure(data_dir)
     if not report["reached"]:
         # D-915: a model that was not there was not checked; the canary did not run. Nothing is recorded over the
         # last real result (the gate stays as it was, shut without a pass), the gate shows "waiting for the models"
         # and the canary is asked again (canary_gate.startup's backoff, the night gate's next tick)
         canary_gate.GATE.record_unreached(report)
-        orch.audit.append(
+        audit.append(
             "selftest.unreached",
-            detail={"unreached": report["unreached"], "problems": report["problems"], "cases": report["cases"]},
+            detail={k: report[k] for k in ("unreached", "problems", "cases")} | {"by": by},
         )
         log.warning("model self-test could not reach %s: not run, tried again", ", ".join(report["unreached"]))
         return False
     canary_gate.GATE.record(report)
     try:
-        out = Path(orch.data_dir) / "selftest.json"
+        out = Path(data_dir) / "selftest.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp = out.with_name(f".{out.name}.{os.getpid()}")  # the other process never reads half a report
+        tmp.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, out)
+        canary_gate.GATE.written(out)
     except (AttributeError, OSError) as exc:
         log.warning("selftest report not written: %s", exc)
-    orch.audit.append(
+    audit.append(
         "selftest.passed" if report["ok"] else "selftest.failed",
         detail={k: report[k] for k in ("ok", "cases", "problems")}
         | {
+            "by": by,
             "models": [
                 {k: m[k] for k in ("role", "model", "answered", "correct", "flips", "ok")} for m in report["models"]
             ],
@@ -338,6 +357,10 @@ def preflight(orch: Any, force: bool = False) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """``python -m orchestrator.selftest`` (what ``trialbox selftest`` runs in the orchestrator's container): the
+    canary, recorded as the gate's result (D-916; :func:`record`), so a pass at the box's command line opens the gate
+    of the running orchestrator, which reads the newer ``selftest.json`` (:meth:`canary_gate.Gate.check`). The
+    report is printed; exit 0 when it passed, 1 when it failed, 2 when it could not reach a model (not run)."""
     from tb_common.audit_writer import open_audit
     from tb_common.config import get_config
 
@@ -353,8 +376,9 @@ def main(argv: list[str] | None = None) -> int:
         gs.use if gs is not None else None,
         release=gs.release if gs is not None else None,
     )
+    ok = record(report, orch_data_dir(cfg), audit, by="trialbox selftest")
     print(json.dumps(report, ensure_ascii=False, indent=1))
-    return 0 if report["ok"] else 1
+    return 0 if ok else 1 if report["reached"] else 2
 
 
 if __name__ == "__main__":
@@ -368,7 +392,9 @@ __all__ = [
     "MIN_ANSWERED",
     "ModelReport",
     "check_model",
+    "orch_data_dir",
     "pair_report",
     "preflight",
+    "record",
     "run_selftest",
 ]

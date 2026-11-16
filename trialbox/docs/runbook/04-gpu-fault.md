@@ -18,6 +18,6 @@ Model jobs of the night wait for the pair canary and do not start while it fails
    service; the audit shows it (`ops.watchdog.restart`, D-360).
 3. **Reboot once** if `nvidia-smi` fails: `systemctl stop trialbox`, reboot, then check `nvidia-smi` again. Never
    update or reinstall the driver to fix it (§24: the driver is held).
-4. **Run the canary:** `sudo python3 -m tools.trialbox selftest` on the box (the compose files of `deploy/.env`; no `make` needed). Pass: the next night runs as usual; tell users the alert is over.
+4. **Run the canary:** `sudo python3 -m tools.trialbox selftest` on the box (the compose files of `deploy/.env`; no `make` needed), or "Run now" on the admin Models tile. Either is the gate's result: a pass lets note answers exclude again at once and the next night runs as usual; tell users the alert is over. "not run" means a model did not answer yet: wait a minute and run it again.
 5. **Still failing:** a P2 ticket (§21) with `nvidia-smi -q` and the gateway log (no patient data). A dead card is a
    hardware replacement (§22, "Replacing hardware").
