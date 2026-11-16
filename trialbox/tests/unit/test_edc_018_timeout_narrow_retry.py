@@ -3,7 +3,7 @@ only the records it touches.
 
 Deep review EDC-018 (Medium): a fixed 10 s timeout, no retry, and a whole-project export of every sent item on each
 send; the prefill paths answered ``RC-RATE`` with 409 while the client's register says 503. A large project or a slow
-hospital proxy made every send fail. On REDCap 13.7 (D-521) a burst past the rate limit gets the address banned, so
+hospital proxy made every send fail. On REDCap 13.7 (D-1021) a burst past the rate limit gets the address banned, so
 the client waits once and never loops."""
 
 from __future__ import annotations

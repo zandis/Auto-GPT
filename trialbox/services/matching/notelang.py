@@ -65,3 +65,15 @@ def notes_language(setting: str | None, texts: Iterable[str], fallback: str) -> 
     if setting in LANGS:
         return str(setting)
     return main_language(texts, fallback)
+
+
+def cascade_languages(setting: str, data_locale: str) -> tuple[str, str]:
+    """D-987: ``(language, notes_language)`` for a ``CascadeConfig`` built outside SCREEN (the measurement tools).
+    ``setting`` is the tool's ``--language`` (``auto``, the default, or one of :data:`LANGS`): a named language is
+    the notes' and the fallback's both; ``auto`` reads each patient's notes, with the tool's data's own locale as the
+    fallback (never the engine's default, which once set it for every run)."""
+    if setting == "auto":
+        return data_locale, "auto"
+    if setting not in LANGS:
+        raise ValueError(f"--language {setting!r}: give auto or one of {', '.join(LANGS)}")
+    return setting, setting

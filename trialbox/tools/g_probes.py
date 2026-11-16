@@ -529,7 +529,7 @@ def run_g7(a: Any) -> dict[str, Any]:
         refused: list[tuple[str, bool, Any]] = [("the pair is wired through the gateway (--model pair)", False, why)]
         return {"stages": _one(f"{TESTS[G7]} clipped notes: no pair", refused, time.perf_counter() - t0),
                 "not_run": "no model pair"}  # fmt: skip
-    floor = CascadeConfig(study_id="g7", run_date=date(2026, 6, 30)).confidence_floor
+    floor = CascadeConfig(study_id="g7", run_date=date(2026, 6, 30), language="en").confidence_floor  # D-987
     nj = NoteJudge(lake=None, llm=llm, verifier=verifier)
     cases = []
     for case in clip_cases():

@@ -1,6 +1,6 @@
-"""Load code systems onto the box (D-528; TERM-1, D-858): ``python -m tools.terminology_install``.
+"""Load code systems onto the box (D-1028; TERM-1, D-858): ``python -m tools.terminology_install``.
 
-A code system that may not be committed (D-528 as amended by D-529) is supplied by the site or the vendor and this
+A code system that may not be committed (D-1028 as amended by D-1029) is supplied by the site or the vendor and this
 command loads it into ``TB_TERMINOLOGY_DIR`` (default ``/data/terminology``), each table
 with its manifest line (source, version, licence note, sha256). ``trialbox doctor`` reports what is loaded.
 
@@ -9,7 +9,7 @@ with its manifest line (source, version, licence note, sha256). ``trialbox docto
 
 ``icd10cm``: CMS's ``<year>-code-tables-tabular-and-index.zip`` (US public domain; cms.gov, "ICD-10-CM" files),
 read without unpacking: its tabular list's blocks and its Alphabetic Index. The FY2026 tables ship in the image
-(D-529); this loads a later release in their place.
+(D-1029); this loads a later release in their place.
 """
 
 from __future__ import annotations

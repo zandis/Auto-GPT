@@ -76,7 +76,7 @@ _KINDS: tuple[tuple[str, str], ...] = (
     ("data access group", "the data access group is not valid"),
     ("record identifier", "the record identifier field is missing"),
     ("not in a valid format", "the import is not in a valid format"),
-    # RC13-A (D-847): REDCap 13.7's English sentences, seen on the private 13.7 instance (D-521)
+    # RC13-A (D-847): REDCap 13.7's English sentences, seen on the private 13.7 instance (D-1021)
     ("invalid date format", "a value does not fit its field's validation"),
     ("not a valid category", "a value does not fit its field's validation"),
     ("record id field", "the record identifier field is missing"),

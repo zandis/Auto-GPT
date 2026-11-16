@@ -1,6 +1,6 @@
 """TERM-1 (D-858): a condition named in a protocol resolves to ICD-10-CM families through ICD-10-CM's blocks and its
-Alphabetic Index, beside the full code list. The FY2026 tables ship (US public domain, D-529); a later release loaded
-on the box at install (D-528) is read in their place, only when its manifest line vouches for it.
+Alphabetic Index, beside the full code list. The FY2026 tables ship (US public domain, D-1029); a later release loaded
+on the box at install (D-1028) is read in their place, only when its manifest line vouches for it.
 
 Launch P1b's review (public ClinicalTrials.gov protocols): 47 of 588 drafted condition concepts resolved. The install
 tests load a stand-in of CMS's code-tables zip written by the test (a few blocks and index terms, worded as the

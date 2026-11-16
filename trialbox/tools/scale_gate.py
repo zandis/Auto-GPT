@@ -135,6 +135,7 @@ class Params:
     backup_quiesce: str = ""  # "" : the box's default (D-455: off); "pause": D-274's pause, to show the gate sees it
     publish_wait_s: float = 6 * 3600.0  # a guard for a hung lake; the CI job's own timeout is the real bound
     stall_s: float = 600.0  # TB_SCALE_STALL_S (STALL_S): no progress for this long ends the gate (0: never)
+    language: str = "auto"  # --language (D-987): the notes' language for the cascade, auto by default
     caps: dict[str, int] = field(default_factory=dict)
 
 
@@ -306,7 +307,7 @@ from tb_common.policy.classes import Environment, Topology
 from tb_llm import GatewayClient
 from tools.cascade_e2e import load_trial
 
-lake_url, stub_url, trial, snap, run_date, work = sys.argv[1:7]
+lake_url, stub_url, trial, snap, run_date, work, lang_arg = sys.argv[1:8]
 for name in ("gateway", "httpx"):
     logging.getLogger(name).setLevel(logging.WARNING)
 # the gateway as its container runs it: the real policy, breakers and budgets, the stand-in over real HTTP
@@ -316,7 +317,10 @@ gw = Gateway(RoutingPolicy.load(), Registry.load(), AuditLog(Path(work) / "audit
 client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
 judge = GatewayJudge(client)
 rs = load_trial(trial)
+from matching.notelang import cascade_languages
+language, notes_language = cascade_languages(lang_arg, "zh-TW")  # D-987: the synthetic site writes zh-TW notes
 cfg = CascadeConfig(study_id=trial, run_date=date.fromisoformat(run_date), lookback_months=36,
+                    language=language, notes_language=notes_language,
                     notes_class="D0", purpose="feasibility", step_id=f"scale:{trial}", sample_per_stratum=200,
                     snapshot=snap)
 t0 = time.perf_counter()
@@ -743,6 +747,7 @@ def _screen(
                 SNAPSHOT,
                 REF_DATE.isoformat(),
                 str(work / "screen"),
+                p.language,
             ],
             _env(TB_SERVICE_TOKEN=token),
             ROOT,
@@ -985,7 +990,9 @@ def limit_s() -> float:
     return limit
 
 
-def params_from_env(out: Path, patients: int | None = None, profile: str | None = None) -> Params:
+def params_from_env(
+    out: Path, patients: int | None = None, profile: str | None = None, language: str = "auto"
+) -> Params:
     """The gate's settings from ``TB_SCALE_*`` (the nightly job's values are in trialbox-e2e.yml)."""
     e = os.environ
 
@@ -1010,6 +1017,7 @@ def params_from_env(out: Path, patients: int | None = None, profile: str | None 
         restart_gap_s=f("TB_SCALE_RESTART_GAP_S", 0.0),
         lake_timeout_s=float(lt) if lt else None,
         stall_s=stall,
+        language=language,
     )
 
 
@@ -1020,8 +1028,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--profile", choices=PROFILES, help="thin (default) or dense: about 500 records, 40 notes per patient"
     )
+    ap.add_argument(
+        "--language", default="auto", help="the notes' language: auto (read per patient), en, zh-TW, ja (D-987)"
+    )
     a = ap.parse_args(argv)
-    rep = run(params_from_env(a.out, a.patients, a.profile))
+    rep = run(params_from_env(a.out, a.patients, a.profile, a.language))
     sys.stdout.write(rep.markdown())
     return 0 if rep.ok() else 1
 

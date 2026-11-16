@@ -1,6 +1,6 @@
 """RC13-C (D-850): the test-instance tool's never-run steps, as REDCap 13.7 needed them.
 
-The owner's REDCap 13.7.23 package, run privately and offline in lane E's container (D-521; synthetic projects only),
+The owner's REDCap 13.7.23 package, run privately and offline in lane E's container (D-1021; synthetic projects only),
 showed where ``tools/redcap_instance`` (written before any REDCap ran) did not fit a real REDCap:
 
 * the package is an upgrade zip (the version folder only, with its own installer): the tool refused it;

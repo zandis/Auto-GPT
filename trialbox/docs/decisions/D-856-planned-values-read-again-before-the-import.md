@@ -1,6 +1,6 @@
 # D-856 The planned values are read again just before the import; one a person changed is held
 
-- **Task:** EDC-011 (deep review 2026-11-12, Medium, case 9b; wave 6, unfrozen by D-527)
+- **Task:** EDC-011 (deep review 2026-11-12, Medium, case 9b; wave 6, unfrozen by D-1027)
 - **PR:** this branch (`agent/EDC-011-reread-before-import`), cut from EDC-018 (#848)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)

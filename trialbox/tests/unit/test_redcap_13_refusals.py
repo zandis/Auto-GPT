@@ -1,6 +1,6 @@
 """RC13-A (D-847): REDCap 13.7's English refusals read as their kinds.
 
-The private REDCap 13.7 instance (D-521; synthetic projects only) refused imports with English sentences the bridge
+The private REDCap 13.7 instance (D-1021; synthetic projects only) refused imports with English sentences the bridge
 did not know: a date it cannot read, a value that is not one of the field's choices, a missing record-id field,
 an import that is not well-formed JSON, and a write to a record of another data access group. A bad repeat instance
 was read as an event problem, because REDCap's sentence names the event before the instance. The texts below are

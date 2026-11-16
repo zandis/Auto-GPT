@@ -4,7 +4,7 @@ Tables (``terminology/*.parquet``, built by ``tools/build_terminology.py`` from 
 official NHI / LOINC releases): ``icd10cm_tw``, ``nhi_drug`` (with ATC), ``atc``, ``loinc_tw`` (with
 ``component_of`` for panel members), ``nhi_order``, ``department``, ``synonyms``.
 
-ICD-10-CM's blocks and Alphabetic Index (D-858; committed as US public domain, D-529: ``icd10cm_blocks``,
+ICD-10-CM's blocks and Alphabetic Index (D-858; committed as US public domain, D-1029: ``icd10cm_blocks``,
 ``icd10cm_index``) resolve a condition's name to its families after every curated step; a newer release loaded on
 the box at install (``terminology.installed``) is read in their place.
 
@@ -237,8 +237,8 @@ class Terminology:
             path = directory / f"{fname}.parquet"
             if path.exists():
                 self.full[key] = pq.read_table(path).to_pylist()
-        # TERM-1 (D-858, D-529): block name -> categories, index term -> code or the term it sees, display -> codes.
-        # The blocks and the index ship beside the tables (US public domain, D-529); a newer release loaded on the box
+        # TERM-1 (D-858, D-1029): block name -> categories, index term -> code or the term it sees, display -> codes.
+        # The blocks and the index ship beside the tables (US public domain, D-1029); a newer release loaded on the box
         # at install (``terminology.installed``) is read instead when its manifest line vouches for it. A refused
         # table is reported (``installed_problems``), never read, and the shipped one answers
         from criteria_compiler.terminology import installed as inst

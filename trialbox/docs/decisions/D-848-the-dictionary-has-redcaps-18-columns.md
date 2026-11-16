@@ -1,6 +1,6 @@
 # D-848 The data dictionary TrialBox hands out has REDCap's 18 columns, in REDCap's order
 
-- **Task:** RC13-B (D-521: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
+- **Task:** RC13-B (D-1021: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
   projects only)
 - **PR:** this branch (`agent/RC13-B-dictionary-all-columns`)
 - **Date:** 2026-11-16
