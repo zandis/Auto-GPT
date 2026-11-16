@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import cache
+from typing import Any
 
 from tb_common.config import environment_name
 from tb_common.http import make_app
@@ -55,7 +58,16 @@ def mrn_regex() -> str | None:
     return site_mrn_regex()
 
 
-app = make_app("embed-service", checks=[health])
+@asynccontextmanager
+async def lifespan(_app: Any) -> AsyncIterator[None]:
+    """D-907 (from lane G's #772): the model is loaded when the service starts, in every environment, under the one
+    lock (a request that arrives meanwhile waits for this load), so the first SCREEN request does not pay for it and a
+    configuration the loader refuses stops the service at start."""
+    embedder()
+    yield
+
+
+app = make_app("embed-service", checks=[health], lifespan=lifespan)
 
 if environment_name(os.environ) == "PRODUCTION":  # refuse at start: a box never runs on the stub or unpinned weights
     embedder()
