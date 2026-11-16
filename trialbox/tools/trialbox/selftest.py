@@ -5,7 +5,9 @@ files the box was installed with: ``COMPOSE_FILE`` in ``deploy/.env`` (install.s
 secrets overlay, the GPU profile, the identity overlay and any site override), and the profiles of
 ``COMPOSE_PROFILES``. Without ``COMPOSE_FILE`` (a checkout that was never installed) it uses the base file and says
 so. ``TB_COMPOSE`` replaces the ``docker compose --project-directory deploy`` command, as for ``secrets`` and
-``update``. The exit code is the canary's: 0 when it passes.
+``update``. The exit code is the canary's: 0 when it passes, 2 when it could not reach a model (not run). The
+result is the gate's (D-916): ``orchestrator.selftest`` writes ``selftest.json`` and the audit, and the running
+orchestrator takes the newer result, so a pass opens the gate without a restart or the console.
 
 Standard library only, so it runs with the host's ``python3`` from the install folder:
 ``sudo python3 -m tools.trialbox selftest``.
@@ -77,5 +79,10 @@ def main(deploy: Path, *, dry_run: bool = False, run: Runner = _run) -> int:
         print(shlex.join(cmd))
         return 0
     code = run(cmd)
-    print("selftest: the pair canary passed" if code == 0 else f"selftest: FAIL: the pair canary exited {code}")
+    if code == 0:
+        print("selftest: the pair canary passed; recorded as the gate's result (note answers may exclude again)")
+    elif code == 2:  # D-915, D-916: a model could not be reached; nothing recorded
+        print("selftest: not run: the canary could not reach a model (still loading?); wait a minute and run it again")
+    else:
+        print(f"selftest: FAIL: the pair canary exited {code}")
     return code
