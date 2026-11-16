@@ -411,7 +411,7 @@ MASK_CHAR = "○"
 # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744;
 # 3: dates of birth, addresses and chart labels, D-745; 4: ARC, 12-digit, bed and room numbers, staff and honorific
 # names without a listed surname, wider labelled values, D-756; 5: full addresses with spaces, D-756)
-NOTE_MASK_VERSION = "5"
+NOTE_MASK_VERSION = "6"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -461,6 +461,48 @@ def _finditer(rx: re.Pattern[str], text: str) -> Iterator[re.Match[str]]:
     for lo, hi in spans:
         yield from rx.finditer(text, lo, hi)
 
+
+# NEW-B-55 (D-923): English Taiwan charts (D-1037's check). A Latin name word may be hyphenated (Mei-Ling,
+# Ellison-Ward); a name is up to three words (and an initial); an EMR writes it in capitals, surname first (CHEN,
+# MEI-LING)
+_EN_NAME_WORD = r"[A-Z][a-z]+(?:-[A-Za-z][a-z]+)*"
+_EN_NAME = rf"{_EN_NAME_WORD}(?:\s+[A-Z]\.)?(?:\s+{_EN_NAME_WORD}){{0,2}}"
+_EN_NAME_CAPS = r"[A-Z]{2,}(?:-[A-Z]{2,})*,?\s+[A-Z]{2,}(?:-[A-Z]{2,})*\b"
+#: the common surnames of Taiwan as passports and charts romanise them (Wade-Giles), and in pinyin
+_ROC_LATIN_WORDS = (
+    "Bai Cai Cao Chang Chao Chen Cheng Chi Chiang Chien Chiu Chou Chu Chuang Chung Dai Deng Du Fan Fang Fu "
+    "Gao Guan Guo He Ho Hong Hou Hsiao Hsieh Hsu Hsueh Hu Huang Hung Ji Jian Jiang Kang Kao Ke Ko Kuan Kuo "
+    "Lai Lan Lee Li Liao Lin Liu Lo Lu Luo Lyu Ma Pai Pan Peng Qiu Shen Shih Shi Su Sun Tai Tang Teng Tsai "
+    "Tsao Tseng Tsou Tu Wang Wei Wen Weng Wu Xiao Xie Xu Xue Yang Yao Yeh Ye Yen Yan Yu Zeng Zhang Zhao "
+    "Zheng Zhong Zhou Zhu Zhuang Zou"
+)
+ROC_SURNAMES_LATIN = tuple(_ROC_LATIN_WORDS.split())
+_ROC_LATIN = "|".join(sorted(ROC_SURNAMES_LATIN, key=len, reverse=True))
+_ROC_LATIN_CAPS = "|".join(sorted((x.upper() for x in ROC_SURNAMES_LATIN), key=len, reverse=True))
+_GIVEN_LATIN = r"[A-Z][a-z]{1,6}-[A-Za-z][a-z]{1,6}"  # two syllables joined: Mei-Ling, Chih-ming
+# a Taiwanese name in Latin letters with no label: a surname of the list and a two-syllable given name, in either
+# order (Chen Mei-Ling, Mei-Ling Chen) or in capitals (CHEN MEI-LING, CHEN, MEI-LING)
+ROMANISED_TW_NAME = re.compile(
+    rf"\b(?P<v>(?:{_ROC_LATIN})\s+{_GIVEN_LATIN}|{_GIVEN_LATIN}\s+(?:{_ROC_LATIN})"
+    rf"|(?:{_ROC_LATIN_CAPS}),?\s+[A-Z]{{1,7}}-[A-Z]{{1,7}})\b(?![-'])"
+)
+# a Han name after an English label or a word for a relative (Name: 黃家豪, son 曾冠宇, by 林建宏): a surname of the
+# list and one or two characters, the end of the Han run after it
+NAME_HAN_AFTER_EN = re.compile(
+    r"\b(?:[Nn]ame|NAME|[Pp]atient|[Dd]aughter|[Ss]on|[Ww]ife|[Hh]usband|[Mm]other|[Ff]ather|[Ss]ister|[Bb]rother"
+    r"|[Ss]pouse|[Pp]artner|[Rr]elative|[Cc]aregiver|[Gg]uardian|[Cc]ontact|by|Dr)\b\.?\s*[:：,]?\s*"
+    rf"(?P<v>(?:{_ROC})[{_CJK_N}]{{1,2}})(?![{_CJK_N}])"
+)
+# a Taiwan address in its English form, as the post office writes it (13F., No. 322, Sec. 4, Minsheng Rd., Da'an
+# Dist., Taipei City 106): run only around each "No." (the window holds the longest such address)
+_TW_EN_WORD = r"[A-Z0-9][A-Za-z0-9'\-]*\.?\s"
+ADDRESS_TW_EN = re.compile(
+    r"(?:\b\d{1,3}F\.?(?:-\d{1,2})?,?\s?)?\bNo\.\s?\d{1,5}(?:-\d{1,4})?,\s?"
+    r"(?:(?:Aly|Alley|Ln|Lane)\.?\s?\d{1,4},\s?){0,2}(?:Sec\.\s?\d{1,2},\s?)?"
+    rf"(?:{_TW_EN_WORD}){{1,4}}?(?:Rd|Road|St|Street|Ave|Avenue|Blvd|Boulevard)\b\.?"
+    rf"(?:,\s?(?:{_TW_EN_WORD}){{1,3}}?(?:Dist|District|Township|Twp|Vil|Village)\b\.?)?"
+    r"(?:,\s?(?:\d{3,6}\s)?(?:[A-Z][A-Za-z'\-]*\s){1,3}?(?:City|County)\b(?:\s\d{3,6}\b)?)?"
+)
 
 _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # chart numbers after their label (the site pattern, unlabelled, is added per call)
@@ -526,16 +568,24 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("name", re.compile(rf"(?P<v>(?:{_JP})[\s　]?[{_CJK_N}{_KANA_N}]{{1,3}}?)\s?{HONORIFIC}")),
     (
         "name",
-        re.compile(r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+|\bPatient(?: name)?:\s*)(?P<v>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"),
+        re.compile(
+            r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+|\b(?:Patient|PATIENT)(?: [Nn]ame)?:\s*|\b(?:Name|NAME)\s*:\s*)"
+            rf"(?P<v>{_EN_NAME_CAPS}|{_EN_NAME})"
+        ),
     ),
     (
         "name",
         re.compile(
             r"\b(?:[Dd]aughter|[Ss]on|[Ww]ife|[Hh]usband|[Mm]other|[Ff]ather|[Ss]ister|[Bb]rother|[Ss]pouse"
-            r"|[Pp]artner|[Rr]elative|[Ss]een by|[Rr]eviewed by|[Dd]ictated by|[Nn]ame\s*[:：])"
-            r"\s+(?:Dr\.?\s+)?(?!(?:Mr|Mrs|Ms|Miss|Dr)\b)(?P<v>[A-Z][a-z]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-z]+)?)"
+            r"|[Pp]artner|[Rr]elative|[Cc]aregiver|[Gg]uardian|[Ss]een by|[Rr]eviewed by|[Dd]ictated by"
+            r"|[Bb]rought by|[Aa]ccompanied by)"
+            rf",?\s+(?:Dr\.?\s+)?(?!(?:Mr|Mrs|Ms|Miss|Dr)\b)(?P<v>{_EN_NAME})"
         ),
     ),
+    # NEW-B-55 (D-923): English Taiwan charts
+    ("name", ROMANISED_TW_NAME),
+    ("name", NAME_HAN_AFTER_EN),
+    ("address", _windowed(ADDRESS_TW_EN, re.compile(r"No\."), 12, 160, to_line_end=False)),
 )
 
 
@@ -568,6 +618,7 @@ class _Facts:
 _DIGIT = re.compile(r"\d")  # what the patterns' \\d matches: every Unicode digit
 _ALPHA = re.compile(r"[A-Za-z]")
 _UPPER = re.compile(r"[A-Z]")
+_HAN = re.compile(f"[{_CJK_N}]")
 _EN_FULL_ONLY = re.compile(_EN_PHONE_FULL)
 # the word each costly pattern cannot match without (a literal first, so the look is fast)
 _BORN_WORD = re.compile(r"生まれ|出生|生(?:$|[\s，,。、;；)）\]】])|(?i:born)")
@@ -664,6 +715,9 @@ _NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
     lambda f: f.has(*_HONORIFIC_WORDS),
     lambda f: f.alpha,
     lambda f: f.alpha,
+    lambda f: f.upper and "-" in f.text,  # every form holds a hyphenated given name
+    lambda f: f.alpha and _HAN.search(f.text) is not None,
+    lambda f: f.digit and f.has("No."),
 )
 
 

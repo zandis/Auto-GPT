@@ -36,3 +36,17 @@ The public SIGIR notes have no identifier in them (53 English and 53 code-mixed)
 | A bare surname (`Huang family`) flagged by Presidio | real but minor | Not planted; the masker does not mask a surname alone. |
 
 The real misses are fixed in a masking card with its adversarial review (lane B2).
+
+## After the fix: note masking version 6 (NEW-B-55, D-923)
+
+`results.json` is now the run against version 6 (each set names its `note_mask_version`). Planted identifiers found in full by phi_guard:
+
+| Category | `tw-en` (version 5 → 6) | `phi_synth-en` (version 5 → 6) |
+| --- | --- | --- |
+| Name, Latin script | 0 → **167** of 167 | 33 → **97** of 117 |
+| Name, Han script | 73 → **149** of 149 | — |
+| Address | 34 → **60** of 60 | 38 → 38 of 40 |
+
+The 20 Latin names of `phi_synth-en` still counted partial are labelled with their title (`Dr. Samuel Okafor`). The masker masks the name and keeps the title, as before; Presidio does the same.
+
+On the 106 public notes, phi_guard still flags nothing, and no decoy of either labelled set is newly hit.
