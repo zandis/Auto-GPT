@@ -30,7 +30,7 @@ def _one(cls: str, kind: str, note_question: str | None, logic: dict[str, Any], 
     return c
 
 
-BAD = {"domain": "demographic", "concept": "smoking_history", "quantifier": "none"}  # no age, no sex: cannot run
+BAD = {"domain": "condition", "concept": "Pneumonia", "derived": "bmi"}  # a score on a condition: cannot run
 
 
 def test_a_mixed_criterion_whose_coded_part_cannot_run_is_read_from_the_notes() -> None:
