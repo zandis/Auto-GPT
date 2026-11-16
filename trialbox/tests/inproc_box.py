@@ -126,6 +126,23 @@ SITE_B: dict[str, Any] = {  # the alliance member box (synthetic hospital B) for
 }
 
 
+def _add_list_to(seed: Path, mailboxes: tuple[str, ...]) -> None:
+    """D-758: the demo's people named recipients of every study's lists and CASE sheets (synthetic data only)."""
+    import yaml
+
+    if not mailboxes:
+        return
+    # the approved versions' manifests, and the site profiles a new draft takes its routing from
+    for manifest in [*sorted(seed.glob("*/manifest.yaml")), *sorted(seed.glob("profiles/*.yaml"))]:
+        doc = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+        routing = doc.get("routing")
+        if not isinstance(routing, dict):
+            continue
+        have = [str(a) for a in routing.get("list_to") or []]
+        routing["list_to"] = have + [m for m in mailboxes if m not in have]
+        manifest.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
 def make_box(
     tmp_path: Path,
     lake_dir: Path,
@@ -133,9 +150,11 @@ def make_box(
     today: date = date(2026, 10, 5),
     settings_update: Mapping[str, Any] | None = None,
     extra_profiles: Path | None = None,
+    extra_list_to: tuple[str, ...] = (),
 ) -> Box:
     """``extra_profiles``: a folder of ``<RULESET>.yaml`` site profiles added to the seed (studies that exist only for
-    a test, such as the public-data studies of ``tools.public_site``)."""
+    a test, such as the public-data studies of ``tools.public_site``). ``extra_list_to``: mailboxes added to every
+    ruleset's internal ``routing.list_to`` before the repository is made (the demo's people, D-758)."""
     from tools import pglocal
 
     pglocal.for_work(tmp_path)  # D-126: the box's trial database (TB_DB_URL, or a local throwaway one)
@@ -160,6 +179,7 @@ def make_box(
     seed = tmp_path / "seed"
     if not seed.exists():  # a box reopened on its own folder (the demo's --keep, T-505b) keeps its repo and seed
         copy_rulesets(seed, "tests")
+        _add_list_to(seed, extra_list_to)
     if extra_profiles is not None:
         for f in sorted(extra_profiles.glob("*.yaml")):
             shutil.copy2(f, seed / "profiles" / f.name)
@@ -204,6 +224,9 @@ def make_box(
         secrets_dir=tmp_path,
         authserv_id=f"mx.{domain}",  # the hospital MTA of the test mails (AUTH); D-369: no authserv-id trusts nothing
         allow_phi_zip=True,  # a synthetic box: the tests open the zip (unzip_phi); a real box refuses it (D-369)
+        outputs_current=lambda job_id, files: _outputs_current(
+            holder["o"], job_id, files
+        ),  # D-863: the orchestrator's answer
     )
     services = Services(
         lake=LakeLocal(lake_dir, HashEmbedder()), parser=InprocParser(store), compiler=comp, mail=gw, llm=llm
@@ -282,3 +305,14 @@ def unzip_phi(box: Box, mail: Sent) -> dict[str, bytes]:
     with tempfile.TemporaryDirectory() as td, py7zr.SevenZipFile(io.BytesIO(data), password=password) as z:
         z.extractall(td)
         return {p.name: p.read_bytes() for p in Path(td).rglob("*") if p.is_file()}
+
+
+def _outputs_current(orch: Any, job_id: str, keys: list[str]) -> bool:
+    """D-863: what ``GET /jobs/{job_id}/outputs-current`` answers, in process (the box's own orchestrator)."""
+    from orchestrator.app import outputs_name_opted_out
+    from orchestrator.decision_context import register_now
+
+    job = orch.db.get(job_id)
+    if job is None:
+        raise KeyError(job_id)
+    return not outputs_name_opted_out(orch, job, frozenset(register_now()), keys or None)

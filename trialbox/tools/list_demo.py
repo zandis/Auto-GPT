@@ -50,7 +50,9 @@ from tools import feas_demo as fd  # noqa: E402
 TRIAL, COHORT = "GZQO", "GOUT-COH"
 PI_PRACTITIONER = "P12345"
 COHORT_CLINICS = "P12345,P23456,P34567,P45678"
-EXTRA_EXCLUSION = "Participation in another interventional drug trial within the last 30 days."
+# D-758: within the 40 characters a draft's short label takes in English, a whole phrase ("Participation in another
+# interventional" was cut); the same meaning as GZQO-EXC-14, which it rewords
+EXTRA_EXCLUSION = "Any other drug trial within 30 days."
 # the scenarios: trial -> (registry, investigator, registry clinics, added exclusion, "need info" note, site)
 SCENARIOS: dict[str, dict[str, Any]] = {
     "GZQO": {

@@ -16,7 +16,9 @@ The answer is validated against the prompt's output schema here too, as ``tb_com
 from __future__ import annotations
 
 import hashlib
+import json
 import unicodedata
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
@@ -26,6 +28,38 @@ from tb_common.quotes import quote_in, quote_key
 from tb_llm.budget import estimate_tokens
 
 JUDGE_PROMPT = "judge"
+
+
+@dataclass(frozen=True)
+class Asking:
+    """Who and what a judge question is about, beside the prompt (D-908, the owner's D-519): set by the cascade
+    around each question so a model client below it (the judged-pair store of SCREEN) can key and erase an answer by
+    the patient's pseudonym, the criterion's canonical hash and the window. ``audit``: a question of an audit sample
+    (CAS-8's stratified draw), which is always asked live and never stored."""
+
+    pid: str
+    criterion_hash: str
+    window: tuple[str, str]
+    audit: bool = False
+    role: str = "judge"  # the cascade's role: S3 ``judge`` or S4 ``second_opinion``
+    question: str = ""  # :func:`question_digest` of what the models are shown: only that call is the question
+
+
+#: the question being asked in this thread (None outside the cascade's judge calls)
+ASKING: ContextVar[Asking | None] = ContextVar("tb_cascade_asking", default=None)
+
+
+def question_digest(criterion_text: str, note_question: str, index_date: str, excerpts: list[dict[str, Any]]) -> str:
+    """The sha256 of a note question as the models see it: the criterion's wording, the note question, the index
+    date and the excerpts' shown fields. A model call below the cascade whose variables give another digest (a wake
+    check's canary case, any other prompt) is not the cascade's question (D-908)."""
+    body = json.dumps(
+        [criterion_text, note_question, index_date, [{k: e.get(k) for k in SHOWN} for e in excerpts]],
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

@@ -159,6 +159,8 @@ def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
 
 def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
     """One sentence for the mail and the PDF: who judged the notes and whether a note answer could exclude."""
+    if j.get("mode") == "nothing":  # D-909: every criterion is a person's
+        return t(lang, "screen.judging.nothing")
     if j.get("mode") == "none":
         return t(lang, "screen.judging.none")
     if j.get("may_block"):

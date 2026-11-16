@@ -116,8 +116,8 @@ def test_intake_decisions(tmp_path: Path) -> None:
 
 def _store(tmp_path: Path) -> FsStore:
     store = FsStore(tmp_path / "obj")
-    store.put("outputs/J/list.xlsx", b"PK candidate list")
-    store.put("outputs/J/report.pdf", b"%PDF summary")
+    store.put("outputs/01JB0000000000000000000000/list.xlsx", b"PK candidate list")
+    store.put("outputs/01JB0000000000000000000000/report.pdf", b"%PDF summary")
     return store
 
 
@@ -130,7 +130,9 @@ def _req(to: list[str], tag: str = "phi", enc: bool = True) -> SendRequest:
             "body_md": "**Done.**\n\n| a | b |\n|---|---|\n| 1 | 2 |",
             "tag": tag,
             "encrypt": enc,
-            "attachments": [{"minio_key": "outputs/J/list.xlsx", "filename": "list.xlsx", "tag": tag}],
+            "attachments": [
+                {"minio_key": "outputs/01JB0000000000000000000000/list.xlsx", "filename": "list.xlsx", "tag": tag}
+            ],
         }
     )
 
@@ -308,6 +310,7 @@ def _send_gateway(tmp_path: Path, transport, allow_phi_zip: bool = True):  # typ
         jobs=lambda req: pytest.fail("no job"),
         secrets_dir=tmp_path,
         allow_phi_zip=allow_phi_zip,  # the example settings' zip mode: a synthetic box unless a test says otherwise
+        outputs_current=lambda _job, _files: True,  # D-863: the orchestrator says the job's outputs are current
     )
 
 

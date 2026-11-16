@@ -87,6 +87,11 @@ def test_screen_by_email(world: dict[str, Any], synth_dir: Path) -> None:
             if mrn in expected and v.id in expected[mrn]:
                 pred = expected[mrn][v.id]
                 want = "unknown" if pred is None else ("pass" if pred != (kinds[v.id] == "exclusion") else "fail")
+                if v.evidence is not None and v.evidence.reason == "no_record_of_kind":
+                    # D-914: the runtime leaves unknown an excluding coded answer the patient has no record of the
+                    # kind for; the recorded verdict is the raw coded one, so only its excluding side may differ
+                    assert v.verdict == "unknown" and want == "fail", (mrn, v.id, v.verdict, want)
+                    continue
                 total += 1
                 agree += int(v.verdict == want)
             gold = truth.get(mrn, {}).get(v.id)

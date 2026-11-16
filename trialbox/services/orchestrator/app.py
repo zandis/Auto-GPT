@@ -13,10 +13,10 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from tb_common.actor_v3 import Claim
@@ -173,6 +173,20 @@ def _queue() -> dict[str, Any]:
     return {"queued_or_running": len(o.db.find(state="running")) + len(o.db.find(state="received"))}
 
 
+class WorkersNotAlive(RuntimeError):
+    """D-895: fewer job workers alive than were started; the health line names it (and the box's watchdog restarts
+    the service on its failing health check)."""
+
+
+def _workers() -> dict[str, Any]:
+    """D-895: every started job worker is alive. A dead worker leaves jobs accepted and never taken."""
+    o = orch()
+    alive, started = o.workers_alive()
+    if alive < started:
+        raise WorkersNotAlive(f"{alive} of {started} job workers alive")
+    return {"workers_alive": f"{alive}/{started}"}
+
+
 # D-114: every changing call carries the box's service token; D-130 (plan v4 F4): every read too (jobs and their
 # outputs, the registry, studies, the data core), since they are patient level. /healthz stays open.
 # T-713 (D-464): which verified service reaches which route is one table (route_callers.yaml), enforced right after the
@@ -180,7 +194,7 @@ def _queue() -> dict[str, Any]:
 CALLER_GATE = Gate(load_callers(), lambda: orch().audit)
 route_actor.bind(lambda: orch().audit)  # T-715 (D-483): where a refused person is recorded
 #: the stage before `require_actor` (route_actors.yaml): a changing call without a v3 assertion is counted
-app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
+app = make_app("orchestrator", checks=[_queue, _workers], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
 
 
 def _claim(request: Request, fallback: str | None = None) -> Actor:
@@ -386,6 +400,30 @@ def waiting_studies() -> list[str]:
     return orch().db.waiting_rulesets()
 
 
+@app.get("/jobs/{job_id}/outputs-current")
+def job_outputs_current(job_id: str, key: Annotated[list[str] | None, Query()] = None) -> dict[str, bool]:
+    """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``key``, by object
+    key; every output when none is named) are still current against the opt-out register, asked by the mail gateway just
+    before it sends them (at publish, a queued try, a person's resend). ``current`` false: one names a patient opted
+    out since it was made, and the mail is held, never sent. The answer is one yes or no, never a patient or a
+    count. A register that does not answer is a 503: the gateway holds the mail."""
+    from orchestrator.decision_context import register_now
+
+    o = orch()
+    job = o.db.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    try:
+        gone = frozenset(register_now())
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="the opt-out register did not answer") from exc
+    keys = list(key or [])
+    current = not outputs_name_opted_out(o, job, gone, keys or None)
+    # the review of D-863: each ask is audited, by count (a yes or no for so many files; never a name or a patient)
+    o.audit.append("optout.outputs_asked", job_id=job_id, detail={"files": len(keys), "current": current})
+    return {"current": current}
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)
@@ -435,6 +473,22 @@ EXPORTS = RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10)  # screening-log exports wit
 # T-103 (D-438): the calling service's total across every name it signs
 REVEALS_SERVICE = RevealLimit("TB_REVEAL_MAX_PER_HOUR_PER_SERVICE", 600, "reveal_service")
 EXPORTS_SERVICE = RevealLimit("TB_EXPORT_MAX_PER_HOUR_PER_SERVICE", 60, "export_service")
+
+
+def outputs_name_opted_out(o: Any, job: Any, gone: frozenset[str], keys: list[str] | None = None) -> bool:
+    """NEW-MAIL-1 (D-863): whether the job's patient-level outputs a mail carries (``keys``, by object key; all of
+    them when None) name a patient on the opt-out register now (:func:`tb_common.patient_files.naming`). A key that
+    is not one of the job's outputs, or an output that cannot be read, counts as naming one (fail closed)."""
+    from tb_common import patient_files
+
+    outs = list(job.outputs or [])
+    mine = outs if keys is None else [f for f in outs if f.minio_key in set(keys)]
+    if keys is not None and len({f.minio_key for f in mine}) < len(set(keys)):
+        return True  # the review of D-863: matched by the key the gateway attaches, never by a name it was given
+    try:
+        return bool(patient_files.naming(o.store.get, mine, outs, gone))
+    except Exception:
+        return True
 
 
 def listed_pids(o: Any, job: Any) -> set[str]:

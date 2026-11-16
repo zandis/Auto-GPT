@@ -27,6 +27,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
+import numpy as np
+
 #: public-prior similarity threshold (placeholder for the LTT fit) and the site safety margin (CAS-14)
 PUBLIC_PRIOR_THRESHOLD = 0.12
 SITE_SAFETY_MARGIN = 0.02
@@ -88,6 +90,19 @@ def cosine(a: list[float], b: list[float]) -> float:
     return num / (da * db)
 
 
+def cosines(q: Sequence[float], rows: Sequence[Sequence[float]]) -> list[float]:
+    """:func:`cosine` of ``q`` with every row, in numpy (D-907): the same formula, a zero vector's norm read as 1. A
+    zero-hit pair compares its query with every window of every note; a loop in Python was most of S2b's own time."""
+    if not rows:
+        return []
+    qv = np.asarray(q, dtype=np.float64)
+    m = np.asarray(rows, dtype=np.float64)
+    dq = float(np.sqrt(qv @ qv)) or 1.0
+    dm = np.sqrt(np.einsum("ij,ij->i", m, m))
+    dm[dm == 0.0] = 1.0
+    return [float(x) for x in (m @ qv) / (dm * dq)]
+
+
 @dataclass(frozen=True)
 class S2bResult:
     above: bool
@@ -128,10 +143,8 @@ def screen(embedder: Embedder, query: str, sentences: list[str], threshold: Thre
         return S2bResult(False, 0.0, threshold, [])
     pieces: list[tuple[int, str]] = [(i, w) for i, s in enumerate(sentences) for w in windows(s)]
     vecs = embedder.embed([query, *(w for _, w in pieces)])
-    q = vecs[0]
     score: dict[int, float] = {}
-    for (i, _), v in zip(pieces, vecs[1:], strict=True):
-        c = cosine(q, v)
+    for (i, _), c in zip(pieces, cosines(vecs[0], vecs[1:]), strict=True):
         score[i] = max(score.get(i, c), c)
     sims = sorted(score.items(), key=lambda t: (-t[1], t[0]))
     best = sims[0][1] if sims else 0.0
@@ -187,5 +200,6 @@ __all__ = [
     "Threshold",
     "ThresholdTable",
     "cosine",
+    "cosines",
     "screen",
 ]

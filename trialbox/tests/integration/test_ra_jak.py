@@ -89,7 +89,21 @@ def _rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
-def _recount(site: Path, states: dict[str, dict[str, str]], verdicts: dict[str, dict[str, Any]]) -> set[str]:
+def _no_record(lake_dir: Path, mrn: dict[str, str]) -> Any:
+    """D-914: whether a coded answer is left unknown because the patient has no record of its kind at all."""
+    from embed_service.embedder import HashEmbedder
+    from lake.client import LakeLocal
+    from matching.recorded import Recorded
+
+    by_id = Ruleset.load(ROOT / "rulesets" / RID).by_id()
+    rec = Recorded.load(LakeLocal(lake_dir, HashEmbedder()), list(mrn), None)
+    pid = {m: p for p, m in mrn.items()}
+    return lambda m, cid, v: bool(rec.doubt(by_id[cid], pid[m], v))
+
+
+def _recount(
+    site: Path, states: dict[str, dict[str, str]], verdicts: dict[str, dict[str, Any]], no_record: Any = None
+) -> set[str]:
     """The trial's list by hand: a booked appointment with an RA-JAK doctor in the next 180 days or a visit to one in
     the last 12 months, alive, not refusing contact, and no coded criterion that rules the patient out (the gold for
     the trial's own patients, the SQL for the rest of the clinic)."""
@@ -116,9 +130,11 @@ def _recount(site: Path, states: dict[str, dict[str, str]], verdicts: dict[str, 
     scoped = {m for m in scoped if contact.get(m) != "N"}
 
     def coded_ok(m: str) -> bool:
-        if states[m].get("archetype") == "rajak":
-            return rajak.coded_candidate(states[m])
+        if states[m].get("archetype") == "rajak" and rajak.coded_candidate(states[m]):
+            return True
         for cid, v in verdicts[m].items():
+            if no_record is not None and no_record(m, cid, v):  # D-914: no record of the kind says nothing
+                continue
             if (rajak.KINDS[cid] == "inclusion" and v is False) or (rajak.KINDS[cid] == "exclusion" and v is True):
                 return False
         return True
@@ -136,7 +152,8 @@ def test_screen_lists_the_recount_and_the_planted_states(tw: dict[str, Any]) -> 
     files = unzip_phi(box, mail)
     cl = c.CandidateList.model_validate_json(next(v for k, v in files.items() if k.endswith(".json")))
     listed = {tw["mrn"][r.pid] for r in cl.rows}
-    want = _recount(tw["site"], tw["states"], _verdicts(tw["tmp"] / "lake", tw["mrn"]))
+    lake = tw["tmp"] / "lake"
+    want = _recount(tw["site"], tw["states"], _verdicts(lake, tw["mrn"]), _no_record(lake, tw["mrn"]))
     assert len(want) > 80
     assert listed == want, (sorted(listed - want)[:5], sorted(want - listed)[:5])
     st = tw["states"]
