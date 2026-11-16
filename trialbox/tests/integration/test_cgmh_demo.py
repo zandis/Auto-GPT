@@ -31,7 +31,10 @@ def test_t2_ra_jak_list_in_zh_tw(work: Path) -> None:
     assert 'lang="zh-TW"' in res["list_html"] and 'lang="zh-TW"' in res["patient_html"]
     assert len(res["listed"]) > 80 and not res["coded_listed"]
     planted = {m for m in res["listed"] if res["states"][m].get("archetype") == "rajak"}
-    assert planted and planted <= res["gold_candidates"]
+    # D-914: a planted patient the codes alone would rule out for a record of a kind they have none of is listed
+    # for review, with that criterion unknown (no_record_of_kind); every other listed patient is a gold candidate
+    assert planted and planted - res["gold_candidates"] <= res["no_record_listed"]
+    assert res["gold_candidates"] & planted
     assert len(res["note_only_listed"]) > 5  # a zoster or thrombosis written only in a note: kept for a person
 
 
