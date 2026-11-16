@@ -192,3 +192,47 @@ def test_two_branches_each_adding_a_decision_and_a_contract_merge_cleanly(tmp_pa
     assert check.returncode == 0, check.stderr
     models = (root / "libs" / "tb_contracts" / "generated" / "models.py").read_text(encoding="utf-8")
     assert "class AaaNote(" in models and "class ZzzFlag(" in models
+
+
+def test_flip_merged(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test --flip-merged flips only appropriate reserved single rows."""
+    registry = """# Decision number registry
+
+| Number | State | Holder | Note |
+| --- | --- | --- | --- |
+| D-01 | reserved | T-101 | with file |
+| D-02 | reserved | T-102 | no file |
+| D-03..D-05 | reserved | T-103 | range |
+| D-06 | merged | T-106 | already merged |
+| D-07 | unused | — | unused |
+| D-08 | missing | — | missing |
+| D-09 | reserved | T-109 | with log |
+| D-10 | `reserved` | T-110 | backticked |
+"""
+    log = """# Decisions log
+
+**D-09 Log entry.** Text.
+"""
+    files = {
+        "D-01-a.md": "**D-01 A.** Task T-101.\n",
+        "D-10-c.md": "**D-10 C.** Task T-110.\n",
+    }
+    root = make(tmp_path, log=log, registry=registry, files=files)
+    ret = di.main(["--flip-merged", "--root", str(root)])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert out == "flipped 3 row(s) to merged\n"
+    reg_path = root / "docs" / "decisions" / "REGISTRY.md"
+    new_reg = reg_path.read_text(encoding="utf-8")
+    expected = (
+        registry.replace("| D-01 | reserved |", "| D-01 | merged |")
+        .replace("| D-09 | reserved |", "| D-09 | merged |")
+        .replace("| D-10 | `reserved` |", "| D-10 | `merged` |")
+    )
+    assert new_reg == expected
+    # second run
+    ret2 = di.main(["--flip-merged", "--root", str(root)])
+    assert ret2 == 0
+    out2 = capsys.readouterr().out
+    assert out2 == "flipped 0 row(s) to merged\n"
+    assert reg_path.read_text(encoding="utf-8") == new_reg
