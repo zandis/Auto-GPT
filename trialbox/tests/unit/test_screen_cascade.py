@@ -134,6 +134,9 @@ def test_trace_to_candidate_rows() -> None:
     assert [x.id for x in pv.verdicts] == ids  # protocol order, every criterion present
     assert next(x for x in pv.verdicts if x.id == "GZQO-EXC-01").evidence.reason == "not_evaluated"  # type: ignore[union-attr]
     assert judged(strong) and not judged(_trace("p0"))
+    nothing = _trace("p8", a=Outcome("GZQO-EXC-13", "pending_human", "S5", reason="human criterion"))
+    nothing.tier = "strong"
+    assert verdicts_of(rs, nothing).tier == "review"  # D-909: nothing decided says this patient may meet the criteria
 
     # a strong trace with an open coded question is a person's check (review), as v1 tiered it
     open_q = _trace("p2", a=Outcome("GZQO-EXC-02", "pass", "S1", unknown_kind="data_gap", reason="unknown kept"))
@@ -161,7 +164,13 @@ def test_trace_to_candidate_rows() -> None:
     deny.tier, deny.contact_ok = "strong", False
     pv = verdicts_of(rs, deny)
     assert pv.tier == "excluded" and any("contact: deny" in a for a in pv.actions)
-    pend = _trace("p7", a=Outcome("GZQO-EXC-13", "pending_human", "S5", reason="human criterion"))
+    # a person's open check on a patient the records and models found fine (D-909: a "strong" trace with nothing
+    # decided at all is not "high")
+    pend = _trace(
+        "p7",
+        a=Outcome("GZQO-EXC-13", "pending_human", "S5", reason="human criterion"),
+        b=Outcome("GZQO-INC-05", "pass", "S3", evidence=[span, meta]),
+    )
     pend.tier = "strong"
     pv = verdicts_of(rs, pend)
     assert next(x for x in pv.verdicts if x.id == "GZQO-EXC-13").verdict == "pending_human" and pv.tier == "high"
