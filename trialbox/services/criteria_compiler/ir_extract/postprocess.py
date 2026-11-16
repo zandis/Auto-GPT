@@ -263,7 +263,14 @@ def postprocess(
             except CompileError as exc:
                 warnings.append(f"{cid}: {exc}")
                 flags.append("logic_invalid")
-        if "logic_invalid" in flags and ir.class_ in FILTERED:
+        if "logic_invalid" in flags and ir.class_ == "mixed" and ir.note_question:
+            # G9 of the P1b review (D-954): 111 of sigir's mixed criteria had a note question and went to a person
+            # only because their coded part could not run, while ``demote_uncompilable`` keeps such a criterion as
+            # note (D-98); this is what made the all-human and notes-only rulesets. The notes decide it, as there
+            flags.append("coded_part_dropped")
+            ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
+            warnings.append(f"{cid}: its coded part cannot be run; the notes decide it (check it)")
+        elif "logic_invalid" in flags and ir.class_ in FILTERED:
             # D-910: logic the compiler cannot run (an age-or-sex atom with neither, an atom of no kind) went into
             # the SQL as written ("()") and failed later, at approval, with an HTTP 500. A person checks it instead
             ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
