@@ -56,8 +56,8 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     assert (
         groups
         == set(ra.TABLE["refuse"])
-        == {"lifecycle", "sponsor", "job_reveal", "registry", "study", "dataops", "datacore", "setup"}
-    )  # T-715f (D-799)
+        == {"lifecycle", "sponsor", "job_reveal", "registry", "study", "dataops", "datacore", "setup", "omop_conflicts"}
+    )  # T-715f (D-799); NEW-ARCH-3 slice 2 (D-865): the steward's clinical conflicts
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
     assert all(r[2] or CALLER_GATE.table.group_of(f"{r[0]} {r[1]}") in (*ra.TABLE["v2"], *ra.TABLE["no_person"])
                for r in changing)  # fmt: skip
