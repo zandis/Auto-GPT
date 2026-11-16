@@ -134,8 +134,9 @@ test-random-locked:
 
 test-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
-	TMPDIR="$(TB_TEST_ROOT)/tmp" $(PY) -m pytest -q -n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" \
-		-m "not integration and not e2e and not llm and not perf" $(SHARD_ARGS) $(TESTS); rc=$$?; \
+	TMPDIR="$(TB_TEST_ROOT)/tmp" $(if $(TRACE),TB_TRACE_OUT="$(TRACE)",) $(PY) -m pytest -q -n $(PYTEST_N) \
+		--basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf" $(SHARD_ARGS) \
+		$(TESTS); rc=$$?; \
 	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
 
