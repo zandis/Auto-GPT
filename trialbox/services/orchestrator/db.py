@@ -200,7 +200,7 @@ SELECT seq, site_id, disease, quarter, criterion_id, definition_version, criteri
 """
 # D-908 (the owner's D-519): the judged-pair store. One row per model answer (the judge's and the verifier's apart,
 # never a combined verdict), by the key of ``orchestrator.judged_store``; the patient's pseudonym and the snapshot
-# of the run that last used it are columns so an opt-out deletes the patient's rows and the snapshots' retention
+# whose notes it read are columns so an opt-out deletes the patient's rows and the snapshots' retention
 # (D-452) takes the rows with it. Class D3: never exported, never in a support bundle.
 SCHEMA_V5 = """
 CREATE TABLE IF NOT EXISTS judged_pairs (
@@ -557,13 +557,6 @@ class JobDB:
                 "ON CONFLICT (key) DO UPDATE SET snapshot = EXCLUDED.snapshot, answer = EXCLUDED.answer, "
                 "at = EXCLUDED.at",
                 (key, pid, snapshot, role, build_sha, answer, at),
-            )
-
-    def pair_touch(self, key: str, snapshot: str) -> None:
-        """A stored answer read by a run of ``snapshot`` now goes with that snapshot (D-452)."""
-        with self.tx() as con:
-            con.execute(
-                "UPDATE judged_pairs SET snapshot = ? WHERE key = ? AND snapshot < ?", (snapshot, key, snapshot)
             )
 
     def pair_snapshots(self) -> list[str]:

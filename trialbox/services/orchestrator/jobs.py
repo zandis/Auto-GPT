@@ -529,22 +529,22 @@ class KeptAnswers:
 
 
 def judged_pairs_for(ctx: Any) -> Any:
-    """The judged-pair store of a SCREEN job (D-908, D-519), or None with ``TB_JUDGED_STORE=off``. The opt-out
-    register is read now: one that cannot be read leaves the store off for the job (D-127: fail closed). The
-    snapshots' retention (D-452) is applied to the store here."""
+    """The judged-pair store of a SCREEN job (D-908, D-519): on unless ``TB_JUDGED_STORE=off`` (off, it is still
+    there to apply the snapshots' retention at the job's end). Its snapshot is the job's, read when it is first used
+    (the job pins it after its services are built); the opt-out register is read before each write and read hit."""
     from orchestrator import judged_store
 
-    if not judged_store.enabled():
-        return None
-    try:
-        register: frozenset[str] | None = ctx.decision.register_now()
-    except Exception:  # the register did not answer: nothing is read or stored in this job
-        register = None
-    snap = ctx.job.snapshot_date.isoformat() if ctx.job.snapshot_date else ""
-    pairs = judged_store.JudgedPairs(ctx.orch.db, snap, register, lambda: ctx.orch._now().isoformat())
-    if pairs.on:
-        pairs.retain(ctx.orch._now().date())
-    return pairs
+    ret = getattr(getattr(getattr(ctx, "cfg", None), "settings", None), "retention", None)
+    nightly = getattr(ret, "nightly_snapshots", None)
+    months = getattr(ret, "month_end_snapshots_months", None)
+    return judged_store.JudgedPairs(
+        ctx.orch.db,
+        lambda: ctx.job.snapshot_date.isoformat() if ctx.job.snapshot_date else "",
+        ctx.decision.register_now,
+        lambda: ctx.orch._now().isoformat(),
+        on=judged_store.enabled(),
+        retention=(int(nightly if nightly is not None else 3), int(months if months is not None else 36)),
+    )
 
 
 class GuardedLlm:
@@ -655,26 +655,26 @@ class GuardedLlm:
             if kept is not None:
                 return kept
         # D-908: the judged-pair store, after the job's own kept answers and before the model
+        variables = args[1] if len(args) >= 2 else None
         stored_key = None
-        if self.pairs is not None and len(args) >= 2:
-            stored_key = self.pairs.key(self._label, self.inner, str(args[0]), args[1], schema)
+        if self.pairs is not None and variables is not None:
+            stored_key = self.pairs.key(self._label, self.inner, str(args[0]), variables, schema)
             if stored_key is not None:
                 self._check_stop()
-                stored = self.pairs.get(stored_key)
+                stored = self.pairs.get(stored_key, variables)
                 if stored is not None:
                     return stored
         try:
             out = self._call(self.inner.chat_json, *args, **kw)
-        except BaseException:
-            if self.pairs is not None:
-                self.pairs.asked(self._label, None)
+        except LlmError:
+            if self.pairs is not None and variables is not None:
+                self.pairs.asked(self._label, None, variables)
             raise
-        if self.pairs is not None:
-            self.pairs.asked(self._label, out)
-            if stored_key is None and len(args) >= 2:  # the role's first live answer named its build just now
-                stored_key = self.pairs.key(self._label, self.inner, str(args[0]), args[1], schema)
+        if self.pairs is not None and variables is not None:
+            self.pairs.asked(self._label, out, variables)  # the role's build is the one this answer names
+            stored_key = self.pairs.key(self._label, self.inner, str(args[0]), variables, schema)
             if stored_key is not None:
-                self.pairs.put(stored_key, self._label, out)
+                self.pairs.put(stored_key, self._label, out, variables)
         if key is not None and self._answers is not None:
             self._answers.put(key, out, self._label)
         return out

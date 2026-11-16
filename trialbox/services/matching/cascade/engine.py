@@ -55,6 +55,7 @@ from matching.cascade.judge import (
     JudgeReply,
     expected_tokens,
     norm,
+    question_digest,
     sentence_hash,
     verify_span,
 )
@@ -1060,8 +1061,10 @@ class _Run:
                 self.metrics.cache_hits += 1
                 return self.cache[key], True
         # D-908: the store below the judge keys and erases by these; an audit sample (CAS-8) is always asked live
+        question = question_digest(c.text, c.note_question or c.text, t.index_date.isoformat(), list(r.excerpts))
         asking = ASKING.set(Asking(r.pid, self.hashes[r.cid], (lo.isoformat(), hi.isoformat()),
-                                   audit=self.cfg.sample_per_stratum is not None))  # fmt: skip
+                                   audit=self.cfg.sample_per_stratum is not None, role=role,
+                                   question=question))  # fmt: skip
         try:
             reply = self.judge.judge(
                 role=role,
