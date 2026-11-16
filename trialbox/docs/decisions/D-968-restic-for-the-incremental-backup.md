@@ -55,6 +55,10 @@ restic does the incremental backup, on these conditions:
       binary is kept; the restore rehearsal on the built binary is R4. The suite runs as an unprivileged user (`gotest`):
       restic's tests that make a file unreadable expect an error that root never gets. A failing run prints the
       failing tests, since the build log keeps only the step's tail.
+      The FUSE mount tests are skipped with restic's own switch (`RESTIC_TEST_FUSE=0`): a build has no FUSE, and the
+      box never mounts a repository. `go vet` is off (`-vet=off`): it is a lint, and Go 1.26's checks are newer than
+      the release's code; the run that showed this (#894, rehearse at `6f20780c`) failed only on the mount test and
+      on one helper package that `go test` reported as "build failed".
     - `x/crypto` v0.59.0 requires `golang.org/x/text` v0.44.0 (its own `go.mod`), so `x/text` goes to v0.44.0, one
       past restic's main branch (v0.43.0), as part of the same ruling; the build with v0.43.0 failed in `go get` with
       exactly that conflict. `x/sys` (v0.50.0) and `x/term` (v0.48.0) rise with them by Go's minimal version
