@@ -1143,9 +1143,9 @@ class _Run:
         from matching.inferred import inferred  # D-985; local, beside the one rule that reads it
 
         quoted = str((span or {}).get("quote") or reply.quote or "")
-        if c.kind == "exclusion" and condition_present and inferred(quoted, f"{c.text} {c.note_question or ''}"):
-            # D-985 (F6 of the P1b review): an exclusion present on a quote that names no diagnosis (a drug, a value,
-            # findings counted into one) is the models' inference (both agreed on four on jmed): a person looks
+        if c.kind == "exclusion" and condition_present and inferred(quoted, c.text):
+            # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a drug, a
+            # value, findings counted into one) is the models' inference (both agreed on four on jmed): a person looks
             why = "inferred: the quote does not state the condition; review"
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
