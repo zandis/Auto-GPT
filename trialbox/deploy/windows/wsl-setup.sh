@@ -178,6 +178,9 @@ EOP
         [ -r "$bundle" ] || die "no such bundle: $bundle"
       fi
       args=("$bundle"); [ -z "$yes" ] || args+=(--yes); [ -z "$rehearsal" ] || args+=(--rehearsal)
+      # NEW-WIN-15 (D-618): the site keys' KEK kept by Windows, once the host tree's seal_keys.sh has that back end
+      # (lane D's half); WSL2 has no security chip, and a passphrase would be asked after every restart
+      if grep -q '^  windows)' "$ROOT/deploy/hardening/seal_keys.sh" 2>/dev/null; then export TB_KEK_BACKEND=windows; fi
     fi
     work="$(mktemp -d)"
     mkfifo "$work/pipe"

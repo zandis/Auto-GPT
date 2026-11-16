@@ -38,6 +38,7 @@ BeforeAll {
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
       BootInfo = $null; BootRegistered = 0; NetMode = "mirrored"; Firewall = @(); FwDefault = "Block"; FwRule = $null; FwBlockSet = 0
       HostFw = $null; HostFwWrites = New-Object System.Collections.ArrayList; HyperVCalls = 0
+      SiteKeyRuns = New-Object System.Collections.ArrayList; SiteKeyStatus = "no_handout"; SiteKeyTask = $null; SiteKeyRegistered = 0
       ProxyTask = $null; ProxyRegistered = 0; ProxyRuns = 0; ProxyStatus = "added"; ProxyAddress = "172.28.14.5"
       IpHelper = @{ Status = "Running"; StartType = "Automatic" }; IpHelperSet = 0; ProxyRow = ""; ProxyRemoved = New-Object System.Collections.ArrayList
       EgressVerdict = "verdict=held"; LanLine = "firewall open to '192.0.2.0/24'; this PC's network address '192.0.2.10/24'"
@@ -119,6 +120,10 @@ Describe "box-install.ps1" {
     Mock Remove-TbProxyRow { [void]$script:S.ProxyRemoved.Add("row"); $script:S.ProxyRow = "" }
     Mock Unregister-TbProxyTask { [void]$script:S.ProxyRemoved.Add("task"); $script:S.ProxyTask = $null }
     Mock Remove-TbHostFirewallRule { [void]$script:S.ProxyRemoved.Add("firewall"); $script:S.HostFw = $null }
+    # the site keys' KEK held by Windows (NEW-WIN-15): one take after the Linux install, its task at each start
+    Mock Invoke-TbSiteKey { [void]$script:S.SiteKeyRuns.Add("$Mode|$Store"); return [string]$script:S.SiteKeyStatus }
+    Mock Get-TbSiteKeyTaskInfo { return $script:S.SiteKeyTask }
+    Mock Register-TbSiteKeyTask { $script:S.SiteKeyRegistered++; $script:S.SiteKeyTask = @{ State = "Ready"; Action = "powershell.exe -File `"$Script`" -Hand" }; $script:S.SiteKeyScript = $Script; $script:S.SiteKeyStoreSet = $Store }
     # where the installer finds its own files: the media's folder, or its copy after a restart
     $script:TbHere = Join-Path $script:Root "deploy/windows"
     Mock Write-TbConsoleFirewallRule {
@@ -288,7 +293,7 @@ Describe "box-install.ps1" {
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
       $MinFreeGB = 200; $script:S.FreeGB = 250
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 19045 -ProxyEveryMinutes 5 -StartWaitSeconds 120 -DesktopSharePercent 25 -UpdateWindowStart 19 -UpdateWindowHours 6 -Distro TrialBox -Lang en -BitLockerUnlock tpm"
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 19045 -ProxyEveryMinutes 5 -StartWaitSeconds 120 -DesktopSharePercent 25 -UpdateWindowStart 19 -UpdateWindowHours 6 -Distro TrialBox -Lang en -BitLockerUnlock tpm -KeyStore acl_file"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -966,6 +971,54 @@ Describe "box-install.ps1" {
     }
   }
 
+  Context "the site keys' KEK held by Windows (NEW-WIN-15, D-618; NEW-WIN-8 part 2)" {
+    BeforeEach {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }
+      $script:S.WslInstalled = $true
+    }
+    It "takes the KEK the Linux side handed out, keeps it in the closed folder, and registers its task once" {
+      $script:S.SiteKeyStatus = "stored"
+      Invoke-Run | Should -Be 0
+      $script:S.SiteKeyRuns | Should -Be @("take|acl_file")
+      $script:S.SiteKeyRegistered | Should -Be 1
+      Split-Path -Parent $script:S.SiteKeyScript | Should -Be $script:S.StateDir
+      Get-Log | Should -Match "site key: stored \(store acl_file\)"
+      $script:S.SiteKeyStatus = "exists"
+      Invoke-Run | Should -Be 0                                          # a finished install: the task is kept
+      $script:S.SiteKeyRegistered | Should -Be 1
+      $script:S.SiteKeyTask = $null
+      Invoke-Run | Should -Be 0                                          # deleted by hand: registered again
+      $script:S.SiteKeyRegistered | Should -Be 2
+    }
+    It "takes it even when the Linux installer stopped afterwards, so a restart cannot lose it" {
+      $script:S.SiteKeyStatus = "stored"; $script:S.InstallExit = 1; $script:S.StateLine = "installed=0"
+      Invoke-Run | Should -Be 1
+      $script:S.SiteKeyRuns | Should -Be @("take|acl_file")
+    }
+    It "does nothing more when the Linux side used another back end (no hand-out)" {
+      Invoke-Run | Should -Be 0
+      $script:S.SiteKeyRegistered | Should -Be 0
+      Get-Log | Should -Match "site key: no hand-out from the Linux side"
+    }
+    It "stops when the KEK could not be kept, and says the Linux side still holds it" {
+      $script:S.SiteKeyStatus = "mismatch"
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "STOP step 14/\d+ .*site key"
+      $script:S.SiteKeyRegistered | Should -Be 0
+    }
+    It "uses the store given with -KeyStore, and hands it over the restart" {
+      $script:S.SiteKeyStatus = "stored"
+      $KeyStore = "dpapi_user"
+      Invoke-Run | Should -Be 0
+      $script:S.SiteKeyRuns | Should -Be @("take|dpapi_user")
+      $script:S.SiteKeyStoreSet | Should -Be "dpapi_user"
+      New-Scenario | Out-Null
+      $KeyStore = "dpapi_user"
+      Invoke-Run | Should -Be 3010
+      $script:S.ResumeMore | Should -Match " -KeyStore dpapi_user"
+    }
+  }
+
   Context "small pieces" {
     It "turns a Windows path into the path WSL2 mounts it at" {
       ConvertTo-TbWslPath "D:\TrialBox\install\wsl-setup.sh" | Should -Be "/mnt/d/TrialBox/install/wsl-setup.sh"
@@ -1204,7 +1257,7 @@ Describe "box-install.ps1" {
       $script:S.Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
       $script:S.WslInstalled = $false
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Match "-BitLockerUnlock tpm$"
+      $script:S.ResumeMore | Should -Match "-BitLockerUnlock tpm -KeyStore acl_file$"
     }
   }
 }

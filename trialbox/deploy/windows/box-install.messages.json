@@ -468,5 +468,10 @@
     "en": "-Rehearsal was ignored: this install is finished and is not a rehearsal. A rehearsal is a new install on a box that holds no site's install.",
     "ja": "-Rehearsal は無視されました。このインストールは完了しており、リハーサルではありません。リハーサルは、サイトのインストールを含まないボックスへの新しいインストールで行います。",
     "zh-TW": "已忽略 -Rehearsal：此安裝已完成，且不是演練。演練需在不含院方安裝的 box 上重新安裝。"
+  },
+  "site_key_failed": {
+    "en": "Windows could not keep the site keys' key ({0}). The Linux side still holds it on WSL2's disk, so nothing is lost. Start the installer again; if this message comes again, send the installer's log.",
+    "ja": "Windows はサイトの鍵の鍵を保管できませんでした（{0}）。Linux 側が WSL2 のディスク上にまだ保持しているので、失われたものはありません。インストーラーをもう一度起動してください。同じメッセージが再び出る場合は、インストーラーのログを送ってください。",
+    "zh-TW": "Windows 無法保存站台金鑰的金鑰（{0}）。Linux 端仍將它保存在 WSL2 的磁碟上，因此沒有遺失任何東西。請再次啟動安裝程式；如果再次出現此訊息，請寄送安裝程式的記錄檔。"
   }
 }

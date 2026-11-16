@@ -76,6 +76,10 @@ param(
   # TEST and says "rehearsal box", runs stand-in model servers, takes a bundle built with make_bundle.sh
   # --rehearsal; a site box refuses such a bundle). Kept in state.json: the install stays one to its end
   [switch]$Rehearsal,
+  # where Windows keeps the site keys' KEK (NEW-WIN-15, D-618; NEW-WIN-8 part 2): "acl_file", a file in the
+  # installer's closed folder, which the boot task's S4U sign-in is expected to read; "dpapi_user", this account's
+  # protected store, once P-0 line 36a shows that sign-in can open it with nobody signed in (D-603 point 8)
+  [ValidateSet("acl_file", "dpapi_user")][string]$KeyStore = "acl_file",
   # the update window (NEW-WIN-5, D-606): the hour of the day, this PC's clock, at which Windows Update may install
   # and restart, and how many hours the window lasts. The declared settings TB_WIN_UPDATE_WINDOW_START and
   # TB_WIN_UPDATE_WINDOW_HOURS (libs/tb_common/config.py gives the reasons; the same defaults, held by a test).
@@ -111,6 +115,7 @@ $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", 
   "ProfessionalEducation")
 $script:TbFeatures = @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")
 $script:TbResumeTask = "TrialBox-Install-Resume"
+$script:TbSiteKeyTask = "TrialBox-Site-Key"
 $script:TbMirroredBuild = 22621  # Windows 11 22H2: the first build with WSL2's mirrored networking (Microsoft Learn,
                                   # "Accessing network applications with WSL"); earlier builds take the port proxy
 $script:TbProxyTask = "TrialBox-Console-Proxy"
@@ -438,6 +443,22 @@ function Remove-TbProxyRow([int]$Port) {
 }
 function Unregister-TbProxyTask([string]$TaskName) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
 function Remove-TbHostFirewallRule([string]$RuleName) { Remove-NetFirewallRule -Name $RuleName }
+function Invoke-TbSiteKey([string]$Script, [string]$Mode, [string]$Store, [string]$Distro) {
+  # site-key.ps1 -Take: its own output is one status line; the KEK never passes through this process
+  $out = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script -Take -Store $Store -Dir $script:TbStateDir -Distro $Distro 2>&1)
+  $line = [string]($out | Where-Object { $_ -like "status=*" } | Select-Object -Last 1)
+  if ($line -match "^status=(\S+)") { return $Matches[1] }
+  return "refused"
+}
+function Get-TbSiteKeyTaskInfo([string]$TaskName) {
+  $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($null -eq $t) { return $null }
+  return @{ State = [string]$t.State; Action = ((@($t.Actions) | ForEach-Object { "{0} {1}" -f $_.Execute, $_.Arguments }) -join " ; ") }
+}
+function Register-TbSiteKeyTask([string]$Account, [string]$Script, [string]$Store, [string]$Dir, [string]$Distro, [string]$TaskName) {
+  # the script registers its own task (one definition, as console-proxy.ps1)
+  & $Script -Register -User $Account -Store $Store -Dir $Dir -Distro $Distro -TaskName $TaskName | Out-Null
+}
 function Invoke-TbConsoleProxy([string]$Script, [string]$Distro, [int]$Port) {
   # the forwarding script run once, now; its own output says what it did
   $out = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script -Distro $Distro -Port $Port 2>&1)
@@ -743,13 +764,13 @@ function Step-WslEnable {
     # the copy the task runs must not depend on the media's drive letter after the restart
     $copy = Join-Path $script:TbStateDir "scripts"
     Protect-TbDirectory $copy $script:TbFacts.Account
-    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1", "console-proxy.ps1")) {
+    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1", "console-proxy.ps1", "site-key.ps1")) {
       $from = Join-Path $script:TbHere $n; $to = Join-Path $copy $n
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
     # the run after the restart gets this run's settings (all checked: figures, a language of the list, a name)
-    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -ProxyEveryMinutes {9} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
-      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1], $ProxyEveryMinutes
+    $more = "-MinFreeGB {0} -MinWindowsBuild {1} -ProxyEveryMinutes {9} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6} -KeyStore {10}" -f $MinFreeGB,
+      $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1], $ProxyEveryMinutes, $KeyStore
     if ($SkipBitLocker) { $more += " -SkipBitLocker" }
     if ($script:TbState.rehearsal) { $more += " -Rehearsal" }  # D-614: the run after the restart is asked for it again
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
@@ -1102,6 +1123,25 @@ function Test-TbNetworkAfterInstall {
   $lan = [string](@($r.Output) | Select-Object -Last 1)
   if ($r.ExitCode -ne 0) { Say "lan_mismatch" @($lan) }
 }
+function Set-TbSiteKey([bool]$Quiet) {
+  # NEW-WIN-15 (D-618): the KEK the Linux side handed out (KEK_BACKEND=windows) is kept by Windows, and a task hands
+  # it into WSL2 at each start. Nothing is done when the Linux side used another back end (no hand-out)
+  $script = Join-Path $script:TbStateDir "site-key.ps1"
+  $from = Join-Path $script:TbHere "site-key.ps1"
+  if ($from -ne $script) { Copy-Item -LiteralPath $from -Destination $script -Force }
+  $st = Invoke-TbSiteKey $script "take" $KeyStore $script:TbState.distro
+  if ($st -eq "no_handout") { Write-TbLog "    site key: no hand-out from the Linux side (another key back end): nothing to keep"; return }
+  if (@("stored", "exists") -notcontains $st) {
+    if ($Quiet) { Say "site_key_failed" @($st); return }
+    Stop-TbStep "site_key_failed" @($st)
+  }
+  Write-TbLog ("    site key: {0} (store {1})" -f $st, $KeyStore)
+  $info = Get-TbSiteKeyTaskInfo $script:TbSiteKeyTask
+  if ($null -eq $info -or $info.State -eq "Disabled" -or -not ([string]$info.Action).Contains($script)) {
+    Register-TbSiteKeyTask $script:TbFacts.Account $script $KeyStore $script:TbStateDir $script:TbState.distro $script:TbSiteKeyTask
+    Write-TbLog ("    task {0}: registered, at each start" -f $script:TbSiteKeyTask)
+  }
+}
 function Step-LinuxInstall {
   Say "linux_install" @()
   $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
@@ -1110,6 +1150,8 @@ function Step-LinuxInstall {
   if ($script:TbState.rehearsal) { $a += "--rehearsal" }
   $code = Invoke-TbNativeConsole "wsl.exe" $a
   Write-TbLog ("    the Linux installer ended with exit " + $code)
+  # at once, even if the Linux installer stopped after it sealed the keys: the KEK has one copy until Windows has it
+  Set-TbSiteKey $false
   $r = Invoke-TbSetup "state" @()
   $line = [string](@($r.Output) | Select-Object -Last 1)
   if ($line -ne "installed=1") { Stop-TbStep "linux_install_stopped" @($code) }
@@ -1211,6 +1253,8 @@ function Invoke-TbInstall {
         if ($did -ne "kept") { Write-TbLog ("    firewall rule {0}: {1}" -f $script:TbFirewallRule, $did); Say "network" @($script:TbConsolePort) }
       } else { Say "network_pending" @("not mirrored") }
     } catch { Say "firewall_failed" @([string]$_.Exception.Message) }
+    # and the site key's task (D-618), when it was deleted or disabled by hand
+    try { Set-TbSiteKey $true } catch { Say "site_key_failed" @([string]$_.Exception.Message) }
     # and the start-at-boot task, when it was deleted or disabled by hand (D-602)
     try { if ((Set-TbBootTask) -ne "kept") { Say "boot_task_restored" @($script:TbBootTask) } }
     catch { Say "boot_task_failed" @([string]$_.Exception.Message) }
