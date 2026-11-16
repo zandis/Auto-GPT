@@ -953,3 +953,41 @@ How the rows moved from 7.5:
 - **Unchanged:** the rows that 7.5 counted as in progress elsewhere (the CI, goldens and supply-chain sessions) are still counted that way; this session did not re-check them.
 
 Only #86, #97 and #104 were checked as merged on master `92b02ee`. The open PRs #107 and #108 were not read in this session; their rows follow the integrator's closing note.
+
+## 9. Update 3: the console rows checked against master (2026-11-16, lane C2)
+
+The status column above was last set on 2026-11-10. Lane C2 checked every row in the console, privacy, roles, dates, audit and opt-out area against master `9e6d04cb`, by the decision that closes it and the code that proves it. A row is "fixed" when its decision is merged and the code does what the row asked. The other rows say what is left.
+
+| Row | Now | By | What is left |
+|---|---|---|---|
+| CR-008 | fixed | D-277 (`datacore/lifecycle.py` `is_serious`) | |
+| CR-010 | fixed | D-277 (a)-(c) | D-277 open item 4: N1 and N2 still count partial reads |
+| CR-011 | fixed | D-277, D-270 (`timefmt.site_zone` raises) | D-277 open items 5 and 6: deaths before enrolment are held; old duplicate rows block migration 3 |
+| CR-012 | partly | D-277, T-602 (the write-path hook, the office mailbox) | no wrong-clock OQ test; `/api/v1` has the acknowledgement route only, no register route |
+| CR-014 | fixed | D-446 (T-310a) | |
+| CR-016 | owner | D-272 masks the writers and `/audit` from then on | the events already in the chain wait for the owner's OD-7 |
+| CR-017 | fixed | D-273 (1), D-438 | |
+| CR-018 | fixed | D-273 (`Helpers.delegated`), D-425 | |
+| CR-019 | fixed | D-273 (`Helpers.gone`), D-441 | |
+| CR-020 | fixed | D-273 (3) | |
+| CR-021 | fixed | D-273 (4) | `/site/charts` lists the first 8 characters of a pseudonym |
+| CR-022 | fixed | D-273 (5) | |
+| CR-023 | fixed | D-280, D-380 | |
+| CR-024 | fixed | D-366, D-380, D-425, D-438 | |
+| CR-026 | fixed | D-477 (FEAS and COHORT) | the data-core exports are left unfiltered under OD-8 (an enrolled subject's data stays) |
+| CR-027 | partly | D-441, D-798, D-860, D-862, D-863, D-866 | the owed list of the erasure registry (`docs/validation/erasure-registry.md`) |
+| CR-030 | open | | no clinician role; T-314 waits on the regulatory consultant's opinion |
+| CR-033 | fixed | D-192, D-193, D-279, D-320, D-447 | |
+| CR-034 | fixed | D-279, D-391 | |
+| CR-035 | fixed | D-281, D-391 | |
+| CR-039 | fixed | D-192 (H1) | |
+| CR-049 | fixed | D-270 (#86) | |
+| CR-050 | fixed | D-270 (#86) | |
+| CR-055 | fixed | D-273, D-281 | |
+| CR-067 | fixed | D-353, D-427, D-443 | |
+| CR-078 | fixed | D-351 (T-116) | |
+| CR-111 | partly (section 3) | the warning and the logged override are in place | the monthly override report (T-310c) is not built |
+| CR-116 | fixed | D-279 | |
+| CR-117 | fixed | D-279 | |
+
+CR-099, CR-101 and CR-104 stay as section 3 has them: fixed, re-confirmed by the 11-12 deep review. Rows outside this area are not checked here.
