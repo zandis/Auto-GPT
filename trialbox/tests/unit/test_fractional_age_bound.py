@@ -29,7 +29,11 @@ def _inc(age: dict[str, float]) -> CriterionIR:
                                        "logic": {"domain": "demographic", "valueset": "NONE", "age": age}})  # fmt: skip
 
 
-@pytest.mark.parametrize("age", [{"min": 0.17}, {"min": 1.5}, {"max": 17.5}, {"min": 0.5, "max": 2}])
+@pytest.mark.parametrize(
+    "age",
+    [{"min": 0.17}, {"min": 1.5}, {"max": 17.5}, {"min": 0.5, "max": 2}, {"min": 18.000000001},
+     {"min": float("inf")}, {"max": float("nan")}],
+)  # fmt: skip
 def test_a_fractional_age_bound_is_not_compiled(age: dict[str, float]) -> None:
     atom = Atom(domain="demographic", valueset="NONE", age=age)  # type: ignore[arg-type]
     with pytest.raises(CompileError, match="whole number of years"):
@@ -46,6 +50,14 @@ def test_p1b_nct01260883_an_infant_is_not_failed_on_0_17_years() -> None:
          "logic": {"domain": "demographic", "age": {"min": 0.17}}, "concept_candidates": []}]})  # fmt: skip
     (c,) = pp.postprocess("T", out, Terminology(), "1.0.0").criteria
     assert c.class_ == "human" and {"needs_review", "logic_invalid"} <= set(c.flags or [])  # a person, never FALSE
+
+
+@pytest.mark.parametrize("raw", ['{"min": 1e400}', '{"min": NaN}', '{"max": Infinity}'])
+def test_a_bound_that_is_not_a_number_goes_to_a_person_not_a_crash(raw: str) -> None:
+    js = ('{"criteria": [{"kind": "inclusion", "class": "structured", "text": "Age", "concept_candidates": [],'
+          ' "logic": {"domain": "demographic", "age": ' + raw + "}}]}")  # fmt: skip
+    (c,) = pp.postprocess("T", LlmExtractOutput.model_validate_json(js), Terminology(), "1.0.0").criteria
+    assert c.class_ == "human" and "logic_invalid" in (c.flags or [])
 
 
 def test_an_approved_fractional_bound_goes_to_a_person_and_the_rest_compiles() -> None:
