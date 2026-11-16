@@ -17,8 +17,10 @@ too (SEC-63, DEP-010: "safetensors from the publisher" is a criterion of D-429).
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
@@ -184,10 +186,31 @@ class LocalEmbedder:
         return out
 
 
-class HttpEmbedder:
-    """Client for embed-service ``POST /embed``."""
+log = logging.getLogger("embed")
+#: T-701: a batch the service did not answer for a reason of its own (it was down, restarting, busy: no connection, a
+#: timeout, a 5xx, a 429) is sent again after these waits, seconds; a refusal of the request itself (a 4xx) is not
+RETRY_WAITS = (2.0, 5.0, 15.0)
 
-    def __init__(self, base_url: str, model: str = "remote", timeout: float = 300) -> None:
+
+def _retryable(exc: Exception) -> bool:
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500 or exc.response.status_code == 429
+    return isinstance(exc, httpx.TransportError)  # connection refused or reset, a timeout
+
+
+class HttpEmbedder:
+    """Client for embed-service ``POST /embed``. T-701: a batch is sent again, after :data:`RETRY_WAITS`, when the
+    service did not answer it for a reason of its own, so one failed batch in a thousand does not stop a lake rebuild;
+    a refusal of the request (a 4xx) raises at once."""
+
+    waits: tuple[float, ...] = RETRY_WAITS  # class defaults: a client built without __init__ (a test) retries too
+    sleep: Any = staticmethod(time.sleep)
+    retried = 0
+
+    def __init__(self, base_url: str, model: str = "remote", timeout: float = 300,
+                 waits: tuple[float, ...] = RETRY_WAITS, sleep: Any = time.sleep) -> None:  # fmt: skip
         import httpx
 
         self.base_url = base_url.rstrip("/")
@@ -196,13 +219,28 @@ class HttpEmbedder:
         self.client = httpx.Client(timeout=timeout, headers=auth_headers())  # D-127 (F-11)
         self.model = model
         self.dim = DIM
+        self.waits, self.sleep = waits, sleep
+        self.retried = 0  # batches sent again (a rebuild's log reports it)
+
+    def _post(self, texts: list[str]) -> dict[str, Any]:
+        for attempt in range(len(self.waits) + 1):
+            try:
+                resp = self.client.post(f"{self.base_url}/embed", json={"texts": texts})
+                resp.raise_for_status()
+                return dict(resp.json())
+            except Exception as exc:
+                if attempt >= len(self.waits) or not _retryable(exc):
+                    raise
+                self.retried += 1
+                log.warning("embed batch of %d not answered (%s): again in %.0f s", len(texts),
+                            type(exc).__name__, self.waits[attempt])  # fmt: skip
+                self.sleep(self.waits[attempt])
+        raise AssertionError("unreachable")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
         for i in range(0, len(texts), 64):
-            resp = self.client.post(f"{self.base_url}/embed", json={"texts": texts[i : i + 64]})
-            resp.raise_for_status()
-            body = resp.json()
+            body = self._post(texts[i : i + 64])
             self.model = body["model"]
             self.dim = int(body.get("dim") or self.dim)  # the service's embedder decides (D-439)
             out.extend(body["vectors"])
