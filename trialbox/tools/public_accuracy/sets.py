@@ -187,8 +187,6 @@ def stream_lines(cache: Path, source_id: str) -> Iterator[str]:
     """A large corpus line by line: the kept file when there is one, else streamed and checked against its pin at the
     end (a mismatch raises after the last line: the caller's selection is then discarded, never kept)."""
     import hashlib
-    import ssl
-    import urllib.request
 
     s = src.BY_ID[source_id]
     local = src.path_of(source_id, cache)
@@ -196,10 +194,8 @@ def stream_lines(cache: Path, source_id: str) -> Iterator[str]:
         with local.open(encoding="utf-8") as fh:
             yield from fh
         return
-    ctx = ssl.create_default_context(cafile=__import__("os").environ.get("SSL_CERT_FILE") or None)
-    req = urllib.request.Request(s.url, headers={"User-Agent": src.USER_AGENT})
     h = hashlib.sha256()
-    with urllib.request.urlopen(req, timeout=900, context=ctx) as resp:
+    with src.https_open(s.url, timeout=900) as resp:
         buf = b""
         for chunk in iter(lambda: resp.read(1 << 20), b""):
             h.update(chunk)

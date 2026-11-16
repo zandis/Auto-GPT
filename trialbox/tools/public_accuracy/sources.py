@@ -349,16 +349,37 @@ def fetch(sets: Iterable[str] | None = None, cache: Path = CACHE) -> dict[str, s
 _LAST: dict[str, float] = {}
 
 
-def _get(url: str, timeout: float = 120.0) -> bytes:
-    """One https GET through the configured proxy (``SSL_CERT_FILE`` as the CA file when set)."""
+def https_open(url: str, timeout: float) -> Any:
+    """The open answer to one https GET of ``url`` with this package's User-Agent, through the configured proxy
+    (``SSL_CERT_FILE`` as the CA file when set). The opener speaks https only: no ``file:``, ``ftp:`` or plain
+    ``http:`` handler is in it, a redirect is followed only to https, and an answer that ended anywhere else is
+    refused. Errors are urllib's (``HTTPError`` and ``URLError``, both OSErrors) or a ``ValueError`` for a scheme
+    other than https."""
     import ssl
     import urllib.request
 
     if urllib.parse.urlsplit(url).scheme != "https":
         raise ValueError(f"{url}: only https is fetched")
     ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.ProxyHandler(),
+        urllib.request.HTTPSHandler(context=ctx),
+        urllib.request.HTTPRedirectHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        urllib.request.HTTPErrorProcessor(),
+    ):
+        opener.add_handler(handler)
+    resp = opener.open(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout)
+    if urllib.parse.urlsplit(resp.geturl()).scheme != "https":
+        resp.close()
+        raise ValueError(f"{url}: the answer came from {resp.geturl()}, not an https address")
+    return resp
+
+
+def _get(url: str, timeout: float = 120.0) -> bytes:
+    """One https GET through the configured proxy (``SSL_CERT_FILE`` as the CA file when set): :func:`https_open`."""
+    with https_open(url, timeout) as resp:
         data: bytes = resp.read()
     return data
 

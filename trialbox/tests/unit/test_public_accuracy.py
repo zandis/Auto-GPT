@@ -108,6 +108,12 @@ def test_trec_topics_qrels_and_a_balanced_sample() -> None:
     assert {p.patient for p in s1} == {"trec2021:1", "trec2021:2", "trec2021:3"} and len(s1) == 4
 
 
+def test_only_an_https_address_is_opened() -> None:
+    for url in ("file:///etc/passwd", "http://h.invalid/a", "ftp://h.invalid/a"):
+        with pytest.raises(ValueError, match="only https"):
+            src.https_open(url, timeout=1)
+
+
 def test_tfda_quirks_are_cleaned(tmp_path: Path) -> None:
     i, e, issues = sets.tfda_clean("A &#8805; 1", "B")
     assert i == "A ≥ 1" and "html_entities" in issues
