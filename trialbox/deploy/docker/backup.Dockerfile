@@ -7,7 +7,8 @@
 # change). The licence register's row `restic` holds the same version and sums (tools/licence_register.py --check).
 # RESTIC_MODULE_BUMPS: the release's modules that the image gates find open advisories in, raised to the versions on
 # restic's own main branch (no release carries them yet); each is pinned, `go get` adds their sums under GOSUMDB and
-# the build then runs -mod=readonly. Drop a bump once a restic release carries that version (D-968).
+# the build then runs -mod=readonly. restic_bumps.sh fails the build on a bump that is not newer than the release's
+# own version: drop it then (D-968).
 # Optional build secret "extra_ca" (PEM): trusted for the downloads only (corporate TLS proxies).
 ARG GO_IMAGE=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 ARG BASE_IMAGE=trialbox-py:1.0.0
@@ -18,12 +19,14 @@ ARG RESTIC_SHA256_SRC=bb9b1a19040744d26d8a79be029d4e6b189c45ccc9d8831d7fe367d3c3
 ARG RESTIC_MODULE_BUMPS="github.com/go-jose/go-jose/v4@v4.1.6 github.com/klauspost/compress@v1.20.3 golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.62.0 golang.org/x/text@v0.43.0 google.golang.org/grpc@v1.85.0"
 ENV CGO_ENABLED=0 GOFLAGS="-mod=readonly -trimpath" GOTOOLCHAIN=local
 WORKDIR /src
+COPY deploy/docker/restic_bumps.sh /usr/local/bin/restic_bumps.sh
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
     curl --fail --silent --show-error --location --retry 3 --retry-all-errors -o restic.tar.gz \
       "https://github.com/restic/restic/releases/download/v$RESTIC_VERSION/restic-$RESTIC_VERSION.tar.gz"; \
     echo "$RESTIC_SHA256_SRC  restic.tar.gz" | sha256sum -c -; \
     tar -xzf restic.tar.gz --strip-components=1; rm restic.tar.gz; \
+    sh /usr/local/bin/restic_bumps.sh go.mod $RESTIC_MODULE_BUMPS; \
     GOFLAGS=-trimpath go get $RESTIC_MODULE_BUMPS; go mod verify; \
     go build -ldflags "-s -w" -o /out/restic ./cmd/restic; \
     /out/restic version
