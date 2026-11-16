@@ -5,7 +5,8 @@ The cascade refused such a ruleset at S1 ("has no compiled structured criteria")
 rule. A public protocol that compiles to note criteria only was refused outright. Now S1 passes every in-scope
 patient alive at an index date to the note stage, and in screening (one index date) the notes answer each patient as
 they do when the coded criteria pass. Guards (review of D-788): a ruleset where nothing decides (no coded and no note
-inclusion or exclusion) is still refused; such a run needs a pair budget (``max_pairs``), since every patient goes
+inclusion or exclusion) sends every patient in scope to review (D-909, before it was refused); a notes-only run needs
+a pair budget (``max_pairs``), since every patient goes
 to the models; and with nothing coded a patient is "strong" only on a judged "met", never on absence alone. The SQL
 for no criterion has no trailing comma. Synthetic fixture, stub judges.
 """
@@ -144,15 +145,30 @@ def test_in_screening_removing_the_coded_criteria_changes_no_note_outcome_of_a_p
     assert decided  # the comparison compared decided answers
 
 
-def test_a_ruleset_where_nothing_decides_is_still_refused(env: dict[str, Any]) -> None:
-    """Review: all-human (every coded criterion demoted at compile) or empty, every patient read "high"."""
-    from matching.cascade.engine import CascadeError
+def test_a_ruleset_where_nothing_decides_sends_every_patient_to_review(env: dict[str, Any]) -> None:
+    """Review of D-788: all-human (every coded criterion demoted at compile) or empty, every patient read "high", so
+    the run was refused. D-909 (red of lane G's run, 2026-11-16: 16 public protocols compiled to "for a person" only):
+    such a run is an answer. S0 and S1 still scope the patients, nobody is judged, and every patient in scope is
+    listed for review, never "high" and never under criteria not matched; the report says why."""
+    from orchestrator.scenarios.screen import judging_sentence
+    from orchestrator.scenarios.screen_cascade import verdicts_of
 
     rs = env["rs"]
     human = replace(rs, criteria=[c.model_copy(update={"class_": "human"}) for c in rs.criteria])
     human.sql = _sql(rs, [])
-    with pytest.raises(CascadeError, match="nothing"):
-        _run(env, human)
+    empty = replace(rs, criteria=[])
+    empty.sql = _sql(rs, [])
+    for each in (human, empty):
+        res = _run(env, each)
+        assert res.metrics.nothing_decides
+        scoped = [t for t in res.traces.values() if t.in_scope]
+        assert scoped
+        for t in scoped:
+            v = verdicts_of(each, t)
+            assert v.tier == "review" or (v.tier == "excluded" and not t.contact_ok), (t.pid, v.actions)
+            assert not any(o.status in ("pass", "fail") for o in t.outcomes.values())  # nobody decided anything
+    for lang in ("en", "ja", "zh-TW"):
+        assert judging_sentence({"mode": "nothing"}, lang) != judging_sentence({"mode": "none"}, lang)
 
 
 def test_a_run_with_nothing_coded_needs_a_pair_budget(env: dict[str, Any]) -> None:

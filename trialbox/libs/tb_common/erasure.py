@@ -413,16 +413,22 @@ TABLES: dict[str, Entry] = {
 # ------------------------------------------------------------------------------------------------ the lake
 # D-513 (the owner, 2026-11-15): the kept snapshots are not rebuilt; they are withheld on read and kept until
 # retention rewrites them. Every job's patient scope drops an opted-out pseudonym at receipt and again at publish,
-# audited by count (D-441); still owed: the criteria compiler's equivalence sample and a direct call of the lake's
-# /query (T-206b part 2b)
-_SNAPSHOTS = "withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query"
+# audited by count (D-441); still owed (D-862): the criteria compiler's equivalence sample and a direct call of the
+# lake's /query
+_SNAPSHOTS = (
+    "withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's "
+    "equivalence sample (every patient) and a direct call of the lake's /query (D-862)"
+)
 LAKE: dict[str, Entry] = {
     "lake:ndjson": _owed("the nightly NDJSON extracts (3 nightly + month-ends kept)", _SNAPSHOTS),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
     "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),
     "lake:parquet": _owed("the Parquet copy of each snapshot", _SNAPSHOTS),
     "lake:site": _owed("facts the site set-up published, as NDJSON, by pseudonym"),
-    "lake:embed_cache.duckdb": _owed("vectors of note chunks by text hash, never pruned", "pruning by the patient"),
+    "lake:embed_cache.duckdb": _owed(
+        "vectors of note chunks by text hash, never pruned",
+        "pruning by the patient across every kept snapshot, with the nightly build not embedding them again (D-862)",
+    ),
     "lake:fhir_ledger": _owed("the FHIR sync ledger: resource ids and hashes per patient"),
     "lake:backfill": _owed("the back-fill's working copy of a year's extract"),
     "lake:tmp": _owed(
@@ -443,7 +449,10 @@ OBJECTS: dict[str, Entry] = {
         "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row",
         "the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest)",
     ),
-    "objects:attachments": _owed("files mailed or uploaded to a job (consent forms, review sheets, case requests)"),
+    "objects:attachments": _owed(
+        "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
+        "a CASE chart is parsed before the subject's opt-out is checked (D-862)",
+    ),
     "objects:ctgov": _none("public registry text and its parse"),
 }
 

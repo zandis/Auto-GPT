@@ -24,16 +24,16 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | --- | --- | --- | --- |
 | `edc.draft` | T-206b | the drafts of a patient who never enrolled (an enrolled subject's stay, OD-8) | an EDC draft, by pseudonym |
 | `lake:backfill` | T-206b | the clear | the back-fill's working copy of a year's extract |
-| `lake:db` | T-206b | withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query | the DuckDB snapshots (nightly and month-end) and their side files |
-| `lake:embed_cache.duckdb` | T-206b | pruning by the patient | vectors of note chunks by text hash, never pruned |
+| `lake:db` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the DuckDB snapshots (nightly and month-end) and their side files |
+| `lake:embed_cache.duckdb` | T-206b | pruning by the patient across every kept snapshot, with the nightly build not embedding them again (D-862) | vectors of note chunks by text hash, never pruned |
 | `lake:fhir_ledger` | T-206b | the clear | the FHIR sync ledger: resource ids and hashes per patient |
-| `lake:ndjson` | T-206b | withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query | the nightly NDJSON extracts (3 nightly + month-ends kept) |
-| `lake:ndjson-rerun` | T-206b | withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query | a re-run of a promoted night until it passes the gate (D-271) |
-| `lake:parquet` | T-206b | withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query | the Parquet copy of each snapshot |
+| `lake:ndjson` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the nightly NDJSON extracts (3 nightly + month-ends kept) |
+| `lake:ndjson-rerun` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | a re-run of a promoted night until it passes the gate (D-271) |
+| `lake:parquet` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the Parquet copy of each snapshot |
 | `lake:site` | T-206b | the clear | facts the site set-up published, as NDJSON, by pseudonym |
 | `lake:tmp` | T-206b | the clear | the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them) |
 | `mail.send_keys` | T-206b | the clear | the outbox's send request while queued (attachments by key, recipients) |
-| `objects:attachments` | T-206b | the clear | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
+| `objects:attachments` | T-206b | a CASE chart is parsed before the subject's opt-out is checked (D-862) | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
 | `objects:outputs` | T-206b | the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest) | job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the console's pages and downloads (a per-patient file by its patient), a submission and a feedback row |
 | `omop.cohort` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
 | `omop.condition_era` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
