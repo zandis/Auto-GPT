@@ -18,6 +18,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     login,
 )
 from tests.console.test_role_pages import _csrf, _user
+from tests.console.test_site_setup_pages import sb  # noqa: F401 - the box with the orchestrator's set-up routes
 
 
 def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
@@ -44,7 +45,10 @@ def test_the_steward_sees_the_register_with_each_instruments_terms(box: dict[str
     assert r.text.count('data-testid="not-in-catalogue"') == sum(1 for i in reg if not i.items)
 
 
-def test_a_switch_needs_a_licence_reference_and_both_are_audited(box: dict[str, Any]) -> None:
+def test_a_switch_needs_a_licence_reference_and_both_are_audited(sb: dict[str, Any]) -> None:
+    """NEW-ARCH-3 slice 3 (D-864): the switch is the orchestrator's (a signed ``PUT /setup/instruments/{iid}``); the
+    console still writes both events."""
+    box = sb
     c, _ = login(box["app"])
     csrf = _csrf(c.get("/data/instruments").text)
     r = c.post("/data/instruments/mmse", data={"csrf": csrf, "storable": "score+items", "licence_ref": "  "},
@@ -67,6 +71,20 @@ def test_a_switch_needs_a_licence_reference_and_both_are_audited(box: dict[str, 
     assert 'data-item="neuro.mmse_total" data-storable="score"' in c.get("/data/instruments").text
     assert c.post("/data/instruments/eq5d", data={"csrf": csrf, "storable": "score", "licence_ref": "x"},
                   follow_redirects=False).status_code == 400  # fmt: skip
+
+
+def test_the_orchestrator_refuses_a_switch_signed_by_a_coordinator(sb: dict[str, Any]) -> None:
+    """NEW-ARCH-3 slice 3 (D-864): the callee asks for the administrator, as the page does; a coordinator holds
+    ``site.setup`` for the site's set-up but not the instrument switches."""
+    from tb_common import actor_v3
+
+    path, body = "/setup/instruments/mmse", {"storable": "score+items", "licence_ref": "LIC-SYN-7"}
+    for role, want in (("coordinator", 403), ("admin", 200)):
+        token = actor_v3.mint(sub=f"console:{role}1", role=role, action="site.setup", method="PUT", path=path,
+                              body=body, study="")  # fmt: skip
+        r = sb["oc"].put(path, json=body, headers={actor_v3.HEADER: token})
+        assert r.status_code == want, (role, r.text)
+    assert sb["oc"].put(path, json=body).status_code in (401, 403)  # no person: refused
 
 
 @pytest.mark.parametrize("role", ["coordinator", "investigator", "viewer", "cro"])
