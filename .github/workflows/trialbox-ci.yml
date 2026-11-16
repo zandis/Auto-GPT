@@ -291,7 +291,7 @@ jobs:
           PYTEST_ADDOPTS: --cov --cov-report= --durations=30  # the 30 slowest tests of the shard, to watch the balance
         run: |
           mkdir -p "$RUNNER_TEMP/shard"
-          make test PYTEST_N=auto SHARD=${{ matrix.shard }}/${{ strategy.job-total }} SHARD_RECORD="$RUNNER_TEMP/shard/shard.json" 2>&1 | tee "$RUNNER_TEMP/unit.log"
+          make test PYTEST_N=auto SHARD=${{ matrix.shard }}/${{ strategy.job-total }} SHARD_RECORD="$RUNNER_TEMP/shard/shard.json" TRACE="$RUNNER_TEMP/shard/trace.jsonl" 2>&1 | tee "$RUNNER_TEMP/unit.log"
       # D-203: the test log carries no identifier either
       - name: Data-handling scan of the test log
         run: make data-scan SCAN="--log $RUNNER_TEMP/unit.log"
@@ -349,6 +349,22 @@ jobs:
         with:
           name: coverage
           path: ${{ runner.temp }}/coverage.json
+          if-no-files-found: ignore
+      # NEW-STD-3 (STD-003): which requirement each test proves (@pytest.mark.req) and this run's result per test, from
+      # the shards' trace files (`make test TRACE=`) and TB-DS-01 Appendix D. A report, never a gate (D-311): it cannot turn `unit` red.
+      - name: Traceability from the tests
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          .venv/bin/python -m tools.traceability --srs docs/plan/design/01-SRS.md --out "$RUNNER_TEMP/traceability" \
+            "$RUNNER_TEMP"/shards/unit-shard-*/trace.jsonl
+          cat "$RUNNER_TEMP/traceability/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the traceability table
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: traceability
+          path: ${{ runner.temp }}/traceability/
           if-no-files-found: ignore
 
   # T-747 (D-475): the tests that fail only when two cards meet (`make cross-card`, the list in the Makefile), first
