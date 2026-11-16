@@ -95,13 +95,24 @@ def _events(orch: Orchestrator) -> list[dict[str, Any]]:
             for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]  # fmt: skip
 
 
+_SIGN = "x-test-sign-as"  # the person a call is signed as: the test's own note, taken off before the call
+
+
 def _as(service: str, role: str = "admin", who: str = "console:admin") -> dict[str, str]:
-    return {sa.TOKEN_HEADER: token_of(service), **sa.actor_header(who, role=role)}
+    return {sa.TOKEN_HEADER: token_of(service), _SIGN: f"{who}|{role}"}
 
 
 def _retry(client: TestClient, job_id: str, headers: dict[str, str], body: dict[str, Any] | None = None) -> Any:
-    return client.post(f"/jobs/{job_id}/retry", json=body if body is not None else {"reply_to": ADMIN_MAIL},
-                       headers=headers)  # fmt: skip
+    """T-715 refuse mode (D-871): the route takes a v3 assertion of ``job.retry_scheduled`` for exactly this call."""
+    from tb_common import actor_v3
+
+    body = body if body is not None else {"reply_to": ADMIN_MAIL}
+    path, hdr = f"/jobs/{job_id}/retry", dict(headers)
+    who, _, role = hdr.pop(_SIGN, "|").partition("|")
+    if who:
+        hdr[actor_v3.HEADER] = actor_v3.mint(sub=who, role=role, action="job.retry_scheduled", method="POST",
+                                             path=path, body=body, study="")  # fmt: skip
+    return client.post(path, json=body, headers=hdr)
 
 
 def test_the_scheduled_types_are_the_plan() -> None:
@@ -232,3 +243,31 @@ def test_core_refuses_without_the_matrix_right(orch: Orchestrator) -> None:
     with pytest.raises(NotRetryable):
         orch.retry_scheduled(_failed(orch, "CALIBRATION", state="done").job_id, by="console:admin", role="admin",
                              reply_to=ADMIN_MAIL)  # fmt: skip
+
+
+# ---------------------------------------------------------------------------------------- T-715 refuse mode: cancel
+def _cancel(client: TestClient, job_id: str, who: str | None, role: str = "admin", action: str = "request.prepare",
+            by: str | None = None) -> Any:  # fmt: skip
+    from tb_common import actor_v3
+
+    path = f"/jobs/{job_id}/cancel"
+    hdr = {sa.TOKEN_HEADER: token_of("console")}
+    if who:
+        hdr[actor_v3.HEADER] = actor_v3.mint(sub=who, role=role, action=action, method="POST", path=path, body={},
+                                             study="")  # fmt: skip
+    return client.post(path + (f"?by={by}" if by else ""), json={}, headers=hdr)
+
+
+def test_a_cancel_takes_the_verified_administrator_and_nothing_else(orch: Orchestrator, client: TestClient) -> None:
+    """T-715 refuse mode (D-871): no v2 name and no ``by``; a coordinator holds the row and is refused at the
+    orchestrator as the console's jobs page refuses them; the administrator cancels."""
+    job = _failed(orch, "NAV", state="running")
+    assert _cancel(client, job.job_id, None, by="console:admin").status_code == 403  # a name is no person
+    old = {sa.TOKEN_HEADER: token_of("console"), **sa.actor_header("console:admin", role="admin")}
+    assert client.post(f"/jobs/{job.job_id}/cancel", json={}, headers=old).status_code == 403  # v2 is refused
+    assert _cancel(client, job.job_id, "console:crc1", role="coordinator").status_code == 403
+    assert _cancel(client, job.job_id, "console:admin", action="job.retry_scheduled").status_code == 403
+    r = _cancel(client, job.job_id, "console:admin")
+    assert r.status_code == 200, r.text
+    refused = [e for e in _events(orch) if e["event"] == "actor.refused"]
+    assert {e["detail"]["route"] for e in refused} >= {"POST /jobs/{job_id}/cancel"}
