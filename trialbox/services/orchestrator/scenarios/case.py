@@ -390,10 +390,12 @@ def run(ctx: Ctx) -> Outcome:
         raise StepFailed(
             "routing", f"Ruleset {rs.id} has no internal routing.list_to; an eligibility sheet cannot be sent."
         )
-    excerpts, charts = read_charts(ctx)
-    lang = pick_lang(ctx, " ".join(str(e.get("text", "")) for e in excerpts[:40]))
+    # ERASE-D (D-873): the subject is checked against the opt-out register before the chart is read or parsed: an
+    # opted-out patient's chart never reaches the parser or the model (D-862 named the gap)
     subj = resolve_subject(ctx, opts.get("mrn"))
     refuse_opted_out(ctx, subj.pid)
+    excerpts, charts = read_charts(ctx)
+    lang = pick_lang(ctx, " ".join(str(e.get("text", "")) for e in excerpts[:40]))
     if subj.snapshot:
         ctx.update(snapshot_date=date.fromisoformat(subj.snapshot))
     ctx.state("running")
