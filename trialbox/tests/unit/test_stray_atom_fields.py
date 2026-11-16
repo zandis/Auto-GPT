@@ -1,12 +1,12 @@
-"""F4 of the integrator's root-cause review of the P1b run (#639, 2026-11-16), D-948: sigir's 772 compiled criteria
-carried 25 quantifiers, 6 values and 5 derived on demographic atoms, and 9 ages on other atoms; NCT00606840 EXC-02
-was ``{"domain":"demographic","quantifier":"all","age":{"min":18,"max":35},"derived":"egfr"}``.
+"""F4 and G10 of the integrator's reviews of the P1b run (#639, 2026-11-16), D-948. sigir's extracted criteria
+(``raw-traces.json``, public SIGIR protocols) carried fields their atoms cannot use; the compile ignored or refused
+them. The lines below are the run's own.
 
-* A demographic atom's derived / quantifier / value / count / window / duration are dropped, flagged ``stray_field``.
-* A demographic ``quantifier: none`` (it may mean "not") and an age on any other atom (it may be an age at onset;
-  dropping it would widen the criterion) go to a person.
-
-Public protocol text; no patient rows.
+* A demographic atom's derived / quantifier / value / count / window / duration are dropped (``stray_field``);
+  an unambiguous age written in ``value`` becomes ``age`` (``value_read_as_age``); a ``none`` on a negated line goes
+  to a person.
+* On any other atom a derived name off an observation is dropped; an age is dropped unless the line writes its numbers
+  beside an age word (an age at onset), which goes to a person.
 """
 
 from __future__ import annotations
@@ -19,42 +19,97 @@ from criteria_compiler.terminology.mapper import Terminology
 from tb_contracts import Atom, LlmExtractOutput
 
 
-def _one(logic: dict[str, Any], kind: str = "inclusion", concepts: list[dict[str, str]] | None = None) -> Any:
-    crit = {"kind": kind, "class": "structured", "text": "line", "logic": logic, "concept_candidates": concepts or []}
+def _one(text: str, logic: dict[str, Any], kind: str = "inclusion", concepts: list[dict[str, str]] | None = None,
+         cls: str = "structured") -> tuple[Any, Any]:  # fmt: skip
+    crit = {"kind": kind, "class": cls, "text": text, "logic": logic, "concept_candidates": concepts or []}
     post = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0")
     (c,) = post.criteria
     return c, post
 
 
+def _age(c: Any) -> tuple[Any, Any]:
+    assert isinstance(c.logic, Atom) and c.logic.age is not None, c.logic
+    return c.logic.age.min, c.logic.age.max
+
+
 def test_p1b_nct00606840_exc02_loses_its_quantifier_and_derived() -> None:
-    c, post = _one({"domain": "demographic", "quantifier": "all", "age": {"min": 18, "max": 35}, "derived": "egfr"},
-                   kind="exclusion")  # fmt: skip
+    c, post = _one("Age outside of range specified", {"domain": "demographic", "concept": "age", "quantifier": "all",
+                   "age": {"min": 18, "max": 35}, "derived": "egfr"}, kind="exclusion")  # fmt: skip
     assert isinstance(c.logic, Atom) and c.logic.derived is None and c.logic.quantifier == "any"
-    assert c.logic.age is not None and (c.logic.age.min, c.logic.age.max) == (18, 35)
-    assert "stray_field" in (c.flags or []) and not any(k.startswith("VS_EGFR") for k in post.valuesets)
+    assert _age(c) == (18, 35) and "stray_field" in (c.flags or [])
+    assert not any(k.startswith("VS_EGFR") for k in post.valuesets)
 
 
 @pytest.mark.parametrize(
-    "extra",
-    [{"value": {"op": ">=", "num": 18}}, {"count": 2}, {"window": {"from_days": -30}}, {"quantifier": "latest"}],
+    ("text", "logic"),
+    [
+        ("Aged 40 years or older", {"domain": "demographic", "concept": "age", "quantifier": "none", "age": {"min": 40}}),
+        ("Aged 18 years or older", {"domain": "demographic", "concept": "age", "quantifier": "count>=", "count": 1,
+                                    "age": {"min": 18}}),
+        ("Age <= 50 years", {"domain": "demographic", "concept": "age", "quantifier": "count>=", "count": 1,
+                             "age": {"max": 50}}),
+        ("Female participants only", {"domain": "demographic", "concept": "sex", "quantifier": "none", "sex": "female"}),
+    ],
+)  # fmt: skip
+def test_a_demographic_atoms_stray_fields_are_dropped_and_it_compiles(text: str, logic: dict[str, Any]) -> None:
+    c, _ = _one(text, logic)
+    assert c.class_ == "structured" and "stray_field" in (c.flags or []), text
+    assert isinstance(c.logic, Atom) and c.logic.quantifier == "any" and c.logic.count is None
+
+
+def test_a_demographic_none_on_a_negated_line_goes_to_a_person() -> None:
+    c, _ = _one("Not aged 18 to 65", {"domain": "demographic", "quantifier": "none", "age": {"min": 18, "max": 65}})
+    assert c.class_ == "human" and "demographic_negated" in (c.flags or [])
+
+
+@pytest.mark.parametrize(
+    ("text", "value", "age"),
+    [
+        ("18 and over", {"op": ">=", "num": 18}, (18, None)),
+        ("Aged 50 years or older", {"op": ">=", "num": 50, "unit": "years"}, (50, None)),
+        ("Age 18-65", {"op": "between", "num": 18, "num2": 65, "unit": "years"}, (18, 65)),
+        ("65歳以下", {"op": "<=", "num": 65, "unit": "歳"}, (None, 65)),
+    ],
 )
-def test_a_demographic_atoms_stray_field_is_dropped(extra: dict[str, Any]) -> None:
-    c, _ = _one({"domain": "demographic", "age": {"min": 18}, **extra})
+def test_an_unambiguous_age_in_value_is_read_as_age(text: str, value: dict[str, Any], age: tuple[Any, Any]) -> None:
+    c, _ = _one(text, {"domain": "demographic", "concept": "age", "quantifier": "all", "value": value})
+    assert c.class_ == "structured" and "value_read_as_age" in (c.flags or []) and _age(c) == age, text
+
+
+@pytest.mark.parametrize(
+    ("text", "logic"),
+    [
+        ("Age 50 to 89 years", {"domain": "demographic", "concept": "age", "value": {"op": ">=", "num": 50}}),  # 89
+        ("Aged 5 years or older", {"domain": "demographic", "concept": "age", "value": {"op": ">=", "unit": "years"}}),
+        ("Age > 18", {"domain": "demographic", "concept": "age", "value": {"op": ">", "num": 18}}),  # 18 or 19?
+        ("Cigarette smoking greater than or equal to 30 pack years",
+         {"domain": "demographic", "concept": "smoking_history", "value": {"op": ">=", "num": 30, "unit": "pack_years"}}),
+    ],
+)  # fmt: skip
+def test_an_ambiguous_value_is_not_read_as_age(text: str, logic: dict[str, Any]) -> None:
+    c, _ = _one(text, logic)
+    assert "value_read_as_age" not in (c.flags or []) and c.class_ == "human", text  # no age, no sex: a person
+
+
+def test_the_prompts_placeholders_on_a_condition_are_dropped_and_it_compiles() -> None:
+    c, _ = _one(
+        "DISEASE CHARACTERISTICS: Histologically confirmed esophageal squamous cell cancer that is stage T2-3 Nx M0",
+        {"domain": "condition", "concept": "esophageal squamous cell carcinoma", "window": {"anchor": "index"},
+         "age": {"min": 0, "max": 150}, "derived": "asdas"},
+        concepts=[{"domain": "condition", "name": "esophageal squamous cell carcinoma"}],
+    )  # fmt: skip
     assert c.class_ == "structured" and "stray_field" in (c.flags or [])
-    assert isinstance(c.logic, Atom) and c.logic.value is None and c.logic.count is None and c.logic.window is None
+    assert isinstance(c.logic, Atom) and c.logic.age is None and c.logic.derived is None
+
+
+def test_an_age_at_onset_on_a_condition_goes_to_a_person_not_widened() -> None:
+    c, _ = _one("Type 2 diabetes diagnosed before age 30", {"domain": "condition", "concept": "Type 2 diabetes",
+                "age": {"max": 30}}, kind="exclusion",
+                concepts=[{"name": "Type 2 diabetes", "domain": "condition"}])  # fmt: skip
+    assert c.class_ == "human" and "age_on_non_demographic" in (c.flags or [])
 
 
 def test_a_plain_demographic_atom_is_not_flagged() -> None:
-    c, _ = _one({"domain": "demographic", "quantifier": "any", "age": {"min": 18}, "sex": "female"})
-    assert c.class_ == "structured" and not {"stray_field", *pp.HOLD} & set(c.flags or [])
-
-
-def test_a_demographic_none_goes_to_a_person() -> None:
-    c, _ = _one({"domain": "demographic", "quantifier": "none", "age": {"max": 17}})
-    assert c.class_ == "human" and "demographic_quantifier_none" in (c.flags or [])
-
-
-def test_an_age_on_a_condition_goes_to_a_person_not_widened() -> None:
-    c, _ = _one({"domain": "condition", "concept": "Type 2 diabetes", "age": {"max": 30}}, kind="exclusion",
-                concepts=[{"name": "Type 2 diabetes", "domain": "condition"}])  # fmt: skip
-    assert c.class_ == "human" and "age_on_non_demographic" in (c.flags or [])
+    c, _ = _one("Women aged 18 or older", {"domain": "demographic", "quantifier": "any", "age": {"min": 18},
+                                           "sex": "female"})  # fmt: skip
+    assert c.class_ == "structured" and not c.flags

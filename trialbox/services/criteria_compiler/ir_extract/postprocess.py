@@ -103,19 +103,50 @@ def is_diagnosis_name(name: str) -> bool:
     return bool(_DIAGNOSIS.search(name)) and not _OPERATION.search(name)
 
 
-# D-948 (F4 of the P1b review): sigir's 772 criteria carried 25 quantifiers, 6 values and 5 derived on demographic
-# atoms and 9 ages on other atoms (NCT00606840 EXC-02: a demographic age with quantifier all and derived egfr)
+# D-948 (F4 and G10 of the P1b reviews, #639): sigir's 1,032 extracted criteria carried fields their atoms cannot use,
+# which the compile ignored or refused: on demographic atoms 111 quantifiers (every "none" an age or sex line such as
+# "Aged 40 years or older"), 134 values (64 "Aged N years or older" with the number in ``value``, not ``age``),
+# 8 derived (NCT00606840 EXC-02: quantifier all, derived egfr); on other atoms 35 ages (28 of them numbers not in the
+# line, such as the prompt's 0-150) and 29 derived names (the prompt's "asdas"). Holding them all for a person would
+# demote more lines (G9); a field is dropped, flagged, and only a line whose words may give it meaning goes to a person
 _NOT_DEMOGRAPHIC = ("derived", "quantifier", "value", "count", "window", "duration")
-HOLD = ("age_on_non_demographic", "demographic_quantifier_none")  # these go to a person: their meaning is unsure
+HOLD = ("demographic_negated", "age_on_non_demographic")  # these go to a person: their meaning is unsure
+_NEGATION = re.compile(r"\b(?:not|no|non|never|without|except|other\s+than)\b|以外|除く|ではない|でない|不是|非", re.I)
+_AGE_WORD = re.compile(r"\bage[ds]?\b|\byears?\s+old\b|歳|才|歲|onset|発症|發病|发病", re.I)
+_NUMBER = re.compile(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])")
+_AGE_CONCEPTS = (None, "", "age")
+_YEARS = (None, "", "y", "yr", "yrs", "year", "years", "歳", "才", "歲")
 
 
-def strip_stray(node: Any) -> tuple[Any, list[str]]:
-    """The raw logic without the fields its atom's domain cannot use, and a flag for each kind removed or held.
+def _value_as_age(n: dict[str, Any], text: str) -> dict[str, Any] | None:
+    """G10: an age written in ``value`` ("18 and over" as ``value >= 18``) as ``age``, only when unambiguous: an age
+    concept, years, ``>=`` / ``<=`` / ``between``, and the line's numbers are exactly the value's ("Age 50 to 89
+    years" as ``value >= 50`` is not repaired: its 89 would be lost)."""
+    v = n.get("value")
+    if not isinstance(v, dict) or n.get("age") is not None or n.get("concept") not in _AGE_CONCEPTS:
+        return None
+    if str(v.get("unit") or "").strip().lower() not in _YEARS or v.get("codes"):
+        return None
+    op, x, y = v.get("op"), v.get("num"), v.get("num2")
+    age = {">=": {"min": x}, "<=": {"max": x}, "between": {"min": x, "max": y}}.get(str(op))
+    if age is None or any(b is None for b in age.values()):
+        return None
+    if {float(m) for m in _NUMBER.findall(text)} != {float(b) for b in age.values() if b is not None}:
+        return None
+    return age
 
-    A demographic atom's derived / quantifier / value / count / window / duration are dropped (``stray_field``); its
-    ``quantifier: none`` is held for a person (it may mean "not", which the age compare never read). An age on any
-    other atom is held for a person: it may be an age at onset ("diabetes before 30"), and dropping it would widen
-    the criterion."""
+
+def strip_stray(node: Any, text: str = "") -> tuple[Any, list[str]]:
+    """The raw logic without the fields its atom's domain cannot use, and a flag for each kind repaired, dropped or
+    held (D-948). The compile ignored the demographic fields and an age on another atom (dropping them changes no
+    answer); it refused a derived name off an observation atom (the whole line went to a person; now it compiles).
+
+    * A demographic atom: an unambiguous age in ``value`` becomes ``age`` (``value_read_as_age``); derived /
+      quantifier / value / count / window / duration are dropped (``stray_field``). A ``quantifier: none`` on a line
+      with a negation word is held for a person (``demographic_negated``): the age compare never read the "not".
+    * Any other atom: a ``derived`` name off an observation atom is dropped (``stray_field``); an age is dropped when
+      the line does not write its numbers beside an age word, else held for a person (``age_on_non_demographic``:
+      an age at onset, "diabetes before age 30", which dropping would widen)."""
     flags: list[str] = []
 
     def walk(n: Any) -> Any:
@@ -124,14 +155,29 @@ def strip_stray(node: Any) -> tuple[Any, list[str]]:
         if "op" in n and "args" in n:
             return {**n, "args": [walk(a) for a in n["args"] or []]}
         if n.get("domain") == "demographic":
-            if n.get("quantifier") == "none":
-                flags.append("demographic_quantifier_none")
+            n = dict(n)
+            age = _value_as_age(n, text)
+            if age is not None:
+                n["age"] = age
+                flags.append("value_read_as_age")
+            if n.get("quantifier") == "none" and _NEGATION.search(text):
+                flags.append("demographic_negated")
             if any(n.get(k) is not None and not (k == "quantifier" and n[k] == "any") for k in _NOT_DEMOGRAPHIC):
                 flags.append("stray_field")
             return {k: v for k, v in n.items() if k not in _NOT_DEMOGRAPHIC}
-        if n.get("age") is not None:
-            flags.append("age_on_non_demographic")
-        return n
+        out = dict(n)
+        if out.get("derived") is not None and out.get("domain") != "observation":
+            out.pop("derived")
+            flags.append("stray_field")
+        if out.get("age") is not None:
+            nums = [b for b in (out["age"].get("min"), out["age"].get("max")) if b is not None]
+            written = {float(m) for m in _NUMBER.findall(text)}
+            if nums and _AGE_WORD.search(text) and all(float(b) in written for b in nums):
+                flags.append("age_on_non_demographic")
+            else:
+                out.pop("age")
+                flags.append("stray_field")
+        return out
 
     return walk(node), sorted(set(flags))
 
@@ -241,7 +287,7 @@ def postprocess(
         cid = f"{ruleset}-{code}-{counters[code]:02d}"
         flags: list[str] = []
         raw = dump(ec)
-        logic_raw, stray = strip_stray(raw.get("logic") or {"domain": "demographic"})
+        logic_raw, stray = strip_stray(raw.get("logic") or {"domain": "demographic"}, str(raw.get("text") or ""))
         try:
             logic = _convert_logic(logic_raw, concept_vs, egfr, frozenset(refiled))
         except CompileError as exc:
