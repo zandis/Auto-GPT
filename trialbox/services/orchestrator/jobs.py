@@ -94,6 +94,41 @@ log = logging.getLogger("orchestrator")
 GENERATION_OPTION = "lake_generation"  # the job record's copy of the generation it reads (T-724, D-490)
 
 
+class QueryLimitsUnread(ValueError):
+    """``TB_LAKE_QUERY_LIMITS`` cannot be read (D-746): its words are written here and name the setting."""
+
+
+def lake_query_limit(job_type: str, environ: Mapping[str, str] | None = None) -> int | None:
+    """NEW-B-45 (D-746): the time limit of one lake query of a job of this type, seconds (``TB_LAKE_QUERY_LIMITS``,
+    ``TYPE=seconds`` by commas); None for a type not listed (the lake's own limit). A value that is not a whole number
+    of seconds above 0 is refused, naming the setting."""
+    from lake.store import MAX_QUERY_LIMIT_S
+    from tb_common.config import DECLARED
+
+    raw = (os.environ if environ is None else environ).get("TB_LAKE_QUERY_LIMITS")
+    text = raw or DECLARED["TB_LAKE_QUERY_LIMITS"].default  # an empty line is the default, not "no limits"
+    limits: dict[str, int] = {}
+    for part in (p.strip() for p in text.split(",")):
+        if not part:
+            continue
+        kind, sep, value = (x.strip() for x in part.partition("="))
+        ok = sep and kind and value.isascii() and value.isdigit() and 0 < int(value) <= MAX_QUERY_LIMIT_S
+        if not ok or kind.upper() in limits:
+            raise QueryLimitsUnread(
+                f"TB_LAKE_QUERY_LIMITS: {part!r} is not TYPE=seconds once per type (1 to {MAX_QUERY_LIMIT_S} s)"
+            )
+        limits[kind.upper()] = int(value)
+    return limits.get(job_type.upper())
+
+
+def _job_query_limit(job_type: str) -> int | None:
+    """The job's lake query limit; a setting that cannot be read fails the job in words that name it (D-746)."""
+    try:
+        return lake_query_limit(job_type)
+    except QueryLimitsUnread as exc:
+        raise StepFailed("running", f"{exc}. Correct the setting and send the request again.") from None
+
+
 class PinnedLake:
     """A job's view of the lake: every query and note search on the one snapshot it pinned, and, where the lake has
     generations (T-724, D-490), on the one generation of that date it pinned: a rebuild of the date meanwhile (a
@@ -109,8 +144,18 @@ class PinnedLake:
         holder: str | None = None,
         generation: str | None = None,
         on_generation: Callable[[str], None] | None = None,
+        query_limit_s: int | None = None,
     ) -> None:
         self.lake = lake
+        # D-746: the job's time limit of one lake query, sent to a lake that takes one (a stand-in may not)
+        self.query_limit_s = query_limit_s
+        import inspect
+
+        try:
+            self._sends_limit = "timeout_s" in inspect.signature(lake.query).parameters
+        except (AttributeError, TypeError, ValueError):
+            self._sends_limit = False
+        self._limit_dropped_said = False
         self.pinned = pinned
         self.holder = holder
         self.held = False
@@ -193,8 +238,17 @@ class PinnedLake:
     def snapshot(self) -> str | None:
         return self.pin()
 
-    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+    def query(
+        self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None
+    ) -> Any:
+        """``timeout_s``: a caller's own limit for this query; else the job's (D-746)."""
         self.pin()
+        limit = self.query_limit_s if timeout_s is None else timeout_s
+        if limit is not None and self._sends_limit:
+            return self.lake.query(sql, params, self._reads(snapshot), timeout_s=limit)
+        if limit is not None and not self._limit_dropped_said:  # a lake that takes no limit: said once, in the log
+            self._limit_dropped_said = True
+            log.warning("job %s: the lake takes no time limit; its queries have the lake's own", self.holder)
         return self.lake.query(sql, params, self._reads(snapshot))
 
     def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> Any:
@@ -242,6 +296,7 @@ def pinned_services(ctx: Ctx) -> Services:
         holder=job.job_id,
         generation=str((job.options or {}).get(GENERATION_OPTION) or "") or None,
         on_generation=record_generation,
+        query_limit_s=_job_query_limit(job.type),
     )
     return replace(base, lake=lake)
 
@@ -473,6 +528,25 @@ class KeptAnswers:
         self._db.answer_put(self.job_id, key, raw, self._now(), replace=other)
 
 
+def judged_pairs_for(ctx: Any) -> Any:
+    """The judged-pair store of a SCREEN job (D-908, D-519): on unless ``TB_JUDGED_STORE=off`` (off, it is still
+    there to apply the snapshots' retention at the job's end). Its snapshot is the job's, read when it is first used
+    (the job pins it after its services are built); the opt-out register is read before each write and read hit."""
+    from orchestrator import judged_store
+
+    ret = getattr(getattr(getattr(ctx, "cfg", None), "settings", None), "retention", None)
+    nightly = getattr(ret, "nightly_snapshots", None)
+    months = getattr(ret, "month_end_snapshots_months", None)
+    return judged_store.JudgedPairs(
+        ctx.orch.db,
+        lambda: ctx.job.snapshot_date.isoformat() if ctx.job.snapshot_date else "",
+        ctx.decision.register_now,
+        lambda: ctx.orch._now().isoformat(),
+        on=judged_store.enabled(),
+        retention=(int(nightly if nightly is not None else 3), int(months if months is not None else 36)),
+    )
+
+
 class GuardedLlm:
     """A job's view of one model client: the cancel check before each call, the wait on a model outage, the kept
     answers of a screening job and, for SCREEN, the breaker."""
@@ -485,6 +559,7 @@ class GuardedLlm:
         label: str,
         outage: OutageBudget | None = None,
         answers: KeptAnswers | None = None,
+        pairs: Any = None,
     ) -> None:
         self.inner = inner
         self._should_stop = should_stop
@@ -492,6 +567,7 @@ class GuardedLlm:
         self._label = label
         self._outage = outage
         self._answers = answers
+        self.pairs = pairs  # D-908: the judged-pair store of a SCREEN job (orchestrator.judged_store), or None
 
     def __getattr__(self, name: str) -> Any:  # model, base_url, gateway, text_budget ... of the wrapped client
         return getattr(self.inner, name)
@@ -570,15 +646,35 @@ class GuardedLlm:
 
     def chat_json(self, *args: Any, **kw: Any) -> Any:
         key = None
+        schema = (args[2] if len(args) > 2 else kw.get("schema")) if len(args) >= 2 else None
         if self._answers is not None and len(args) >= 2:
-            schema = args[2] if len(args) > 2 else kw.get("schema")
             key = self._answers.key(self._label, self.inner, str(args[0]), args[1], schema)
         if key is not None and self._answers is not None:
             self._check_stop()
             kept = self._answers.get(key, self._label)
             if kept is not None:
                 return kept
-        out = self._call(self.inner.chat_json, *args, **kw)
+        # D-908: the judged-pair store, after the job's own kept answers and before the model
+        variables = args[1] if len(args) >= 2 else None
+        stored_key = None
+        if self.pairs is not None and variables is not None:
+            stored_key = self.pairs.key(self._label, self.inner, str(args[0]), variables, schema)
+            if stored_key is not None:
+                self._check_stop()
+                stored = self.pairs.get(stored_key, variables)
+                if stored is not None:
+                    return stored
+        try:
+            out = self._call(self.inner.chat_json, *args, **kw)
+        except LlmError:
+            if self.pairs is not None and variables is not None:
+                self.pairs.asked(self._label, None, variables)
+            raise
+        if self.pairs is not None and variables is not None:
+            self.pairs.asked(self._label, out, variables)  # the role's build is the one this answer names
+            stored_key = self.pairs.key(self._label, self.inner, str(args[0]), variables, schema)
+            if stored_key is not None:
+                self.pairs.put(stored_key, self._label, out, variables)
         if key is not None and self._answers is not None:
             self._answers.put(key, out, self._label)
         return out
@@ -637,12 +733,14 @@ def guarded_services(ctx: Ctx, base: Services) -> Services:
             lambda: ctx.orch._now().isoformat(),
         )
 
+    pairs = judged_pairs_for(ctx) if ctx.job.type == "SCREEN" else None
+
     def guard(client: Any, label: str) -> Any:
         if client is None:
             return None
         if id(client) not in wrapped:
             b = breaker_for(ctx.orch, client) if screen else None
-            wrapped[id(client)] = GuardedLlm(client, stop, b, label, outage, answers)
+            wrapped[id(client)] = GuardedLlm(client, stop, b, label, outage, answers, pairs)
         return wrapped[id(client)]
 
     return replace(base, llm=guard(base.llm, "judge"), verifier=guard(base.verifier, "verifier"))

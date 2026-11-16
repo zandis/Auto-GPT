@@ -1,0 +1,160 @@
+diff --git a/trialbox/deploy/gcp/box-install-run.sh b/trialbox/deploy/gcp/box-install-run.sh
+index 550799ab0..22b705569 100644
+--- a/trialbox/deploy/gcp/box-install-run.sh
++++ b/trialbox/deploy/gcp/box-install-run.sh
+@@ -453,6 +453,11 @@ if has start || has g6 || has g9 || has g10 || has acc; then
+   [ -d "$MODELS" ] || pf="$pf; no model folders at $MODELS"
+ fi
+ if has start; then
++  if [ "$MODE" = validation ]; then   # install.sh seals a VALIDATION box's site keys (KEK_BACKEND tpm, seal_keys.sh)
++    [ -n "${TB_BOXRUN_ROOT:-}" ] || [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ] \
++      || pf="$pf; no TPM 2.0 device: install.sh seals a VALIDATION box's site keys with KEK_BACKEND=tpm (turn the VM's vTPM on)"
++    command -v systemd-creds >/dev/null || [ -n "${TB_BOXRUN_ROOT:-}" ] || pf="$pf; no systemd-creds (seal_keys.sh, KEK_BACKEND=tpm)"
++  fi
+   [ -n "$BUNDLE_SRC" ] || pf="$pf; no tb-bundle"
+   [ -n "$BUNDLE_SHA" ] || pf="$pf; no tb-bundle-sha256 (a bundle is never installed unchecked)"
+   [ -n "$VPUB_SRC" ] || pf="$pf; no tb-vendor-pub (the installer refuses a bundle without the vendor's public key)"
+@@ -473,10 +478,14 @@ note() { printf '%s\t%s\n' "$1" "$2" >> "$NOTES"; }          # a value of the st
+ watched() {  # run a command of the step, its output to the step's log; the log growing is the heartbeat
+   echo "+ $(basename "$1") (${#} words) $(date -u +%T)" >> "$STEP_LOG"
+   "$@" >> "$STEP_LOG" 2>&1 < /dev/null &
+-  local pid=$! size=-1 now
++  local pid=$! size=-1 now io=-1 ion
+   while kill -0 "$pid" 2>/dev/null; do
+     now=$(stat -c %s "$STEP_LOG" 2>/dev/null || echo 0)
+     [ "$now" = "$size" ] || { touch "$HB"; size=$now; }
++    if [ -n "${WATCH_IO:-}" ]; then   # a step whose product command is silent for long (install.sh's bundle checks):
++      ion=$(awk '{s += $6 + $10} END {print s + 0}' /proc/diskstats 2>/dev/null)   # the disks reading or writing
++      [ "$ion" = "$io" ] || { touch "$HB"; io=$ion; }                                # is progress; a hang does neither
++    fi
+     sleep "$POLL"
+   done
+   wait "$pid"
+@@ -530,6 +539,8 @@ d_firstrun() { "$INSTALLER" --firstrun; }                                     #
+ img_tool() {
+   local o=()
+   while [ $# -gt 1 ]; do case "$1" in -v|-e) o+=("$1" "$2"); shift 2 ;; *) break ;; esac; done
++  # the release tree too, as install.sh's tree_args (OPS-004): the shipped files under deploy/ are links into it
++  [ -d "$BOXROOT/current" ] && o+=(-v "$(readlink -f "$BOXROOT/current"):/current:ro")
+   docker run --rm --user 0 --network "${IMG_NET:-none}" -v "$BOXROOT/deploy:/d" ${o[@]+"${o[@]}"} "$(img_py)" \
+     python -m "tools.$1" "${@:2}"
+ }
+@@ -623,12 +634,28 @@ d_g1_hf() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model pa
+ d_install_v() {  # as box-install.sh judges it: a FAIL list at the end (no backup target yet) leaves the stack running
+   local rc
+   # shellcheck disable=SC2086 # TB_BOXRUN_INSTALL is a command line on purpose (the rehearsal)
+-  ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
++  # line-buffered: install.sh pipes its long steps through sed, which holds a pipe's output until it ends (stdbuf's
++  # setting reaches every child), so the step's log grows while the bundle is verified and loaded
++  PYTHONUNBUFFERED=1 stdbuf -oL -eL ${TB_BOXRUN_INSTALL:-bash $BOXROOT/deploy/install.sh} "$1" --answers "$2" --gpu "$PROFILE" --mode gpu --yes 2>&1 \
+     | "$PY" "$HELPER" redact | tee "$TB/install-v.log"
+   rc=${PIPESTATUS[0]}
+   [ "$rc" = 0 ] || grep -q "TrialBox is running" "$TB/install-v.log" || return "$rc"
+   echo "install.sh exit $rc (a FAIL list at the end; the stack runs)"
+ }
++# What install.sh runs with the host's python3 needs PyYAML (tools/trialbox/anchors.py, and pre-start through
++# doctor.py) and, for its own verifier, cryptography; egress wants nft, the retention and backup schedules cron. The
++# product's own rehearsal host has exactly these (tools/rehearse_box/host.Dockerfile); a GCE image may not.
++d_host_prereq() {
++  local miss=()
++  python3 -c 'import yaml' 2>/dev/null || miss+=(python3-yaml)
++  python3 -c 'import cryptography' 2>/dev/null || miss+=(python3-cryptography)
++  command -v nft >/dev/null || miss+=(nftables)
++  [ -d /etc/cron.d ] || miss+=(cron)
++  note host_packages_added "\"${miss[*]-}\""
++  [ ${#miss[@]} = 0 ] && return 0
++  [ -z "${TB_BOXRUN_ROOT:-}" ] || return 0   # the rehearsal installs nothing on its host
++  DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${miss[@]}"
++}
+ d_models_place() {  # the site's weights in deploy/models, where install.sh pins them from (the VM's /models, bound)
+   local l=() x
+   # the box's flat folders (compose's JUDGE_MODEL_DIR, VERIFIER_MODEL_DIR defaults, the registry's template file,
+@@ -853,12 +880,21 @@ d["release_gates"] = ("green: every image blocks" if d["release_gates_vuln_mode"
+ json.dump(d, open(p, "w"))
+ PY
+   note sha256 "\"$sha\""; note object "\"$OUTP/trialbox-$RID.tar\""
++  # the bundle is in the bucket now (its sha256 beside it): the local copy goes, or the start on this same disk
++  # holds it four times (this copy, 01's fetch, install.sh's dry-run stage and its real stage)
++  rm -f "$b"; note local_copy_removed true
++  note disk_after "\"$(df -B1 --output=used,avail / | tail -n 1 | tr -s ' ')\""
+ }
+ 
+ # ================================================================== start (G-2)
+ step_bundle() {
+   local size free got
+   mkdir -p "$TB/bundle"
++  # a start on the VM that built the bundle: the build's tree and Docker's build cache are not needed any more
++  if [ -d "$BUILD" ] && ! has build; then
++    rm -rf "${BUILD:?}/out" "${BUILD:?}/verify-stage" "${BUILD:?}/tb"; note build_tree_removed "\"$BUILD\""
++    docker builder prune -af >> "$STEP_LOG" 2>&1 || true
++  fi
+   need "fetching the bundle" fetch "$BUNDLE_SRC" "$BUNDLE" || return 1
+   size=$(stat -c %s "$BUNDLE"); note bundle_bytes "$size"
+   got=$(sha256sum "$BUNDLE" | cut -d' ' -f1)
+@@ -866,10 +902,13 @@ step_bundle() {
+   touch "$HB"
+   [ ! -e "$BOXROOT/deploy/updates/installed.json" ] \
+     || { STOP="an installed box is already at $BOXROOT: a production start needs a fresh root (tb-box-root)"; return 1; }
+-  # the installer's room: the bundle again (its image tars are loaded from it) and the host tree, from the data
+-  free=$(df -B1 --output=avail "$TB" | tail -n 1 | tr -dc 0-9)
++  note disk "\"$(df -B1 --output=used,avail / | tail -n 1 | tr -s ' ')\""
++  note models_bytes "$(du -sxb "$MODELS" 2>/dev/null | cut -f1 | grep . || echo null)"
++  # the installer's room: tools/apply_update.sh stages a full copy of the bundle under ${TMPDIR:-/tmp} (once for
++  # install.sh's --dry-run, once for the load; verify_update.py wants 1.05 x the payloads), beside this copy
++  free=$(df -B1 --output=avail "${TMPDIR:-/tmp}" | tail -n 1 | tr -dc 0-9)
+   note free_bytes "${free:-0}"
+-  [ "${free:-0}" -gt "$size" ] || { STOP="${free:-0} bytes free under $TB, the install needs at least the bundle's $size"; return 1; }
++  [ "${free:-0}" -gt $((size * 11 / 10)) ] || { STOP="${free:-0} bytes free under ${TMPDIR:-/tmp}, the install stages the bundle's $size there (x1.05)"; return 1; }
+   need "TB-BUNDLE-REFUSED: the bundle against its manifest and as a PRODUCTION box reads it" \
+     vm bundle-check "$BUNDLE" --production ${COMMIT:+--commit "$COMMIT"} --release-out "$REC/release.json" \
+       --host-out "$TB/bundle/host.tar" --notes "$NOTES" --beat "$HB" || return 1
+@@ -892,8 +931,9 @@ step_install() {
+       (umask 077; gcloud secrets versions access "$AVER" --secret="$ASEC" > "$ANSWERS.yaml" 2>/dev/null) && [ -s "$ANSWERS.yaml" ] \
+         || { STOP="no site answers in Secret Manager (tb-answers-secret, tb-answers-version)"; return 1; }
+     fi
++    need "the installer's host packages (python3-yaml: install.sh's anchors-compose and pre-start import yaml)" d_host_prereq || return 1
+     need "placing the site's weights in deploy/models" d_models_place || return 1
+-    need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
++    WATCH_IO=1 need "the installer (install.sh --answers: a VALIDATION box)" d_install_v "$BUNDLE" "$ANSWERS.yaml"; local rc=$?
+     rm -f "$ANSWERS.yaml"
+     return $rc
+   fi
+@@ -1308,7 +1348,10 @@ step_acc_settings() {
+   else
+     note tripwire "\"on: no setting used (gateway step 4 runs on every call of class D0 to D2)\""
+   fi
+-  need "the stack recreated on the new settings" d_recreate || return 1
++  # every service that reads deploy/.env, not the two model servers (their settings did not change; a reload of both
++  # is minutes of the card for nothing)
++  local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-')
++  need "the stack recreated on the new settings (not the model servers)" d_recreate "${svcs[@]}" || return 1
+   acc_call mail-gateway env > "$REC/acc-settings-after.json" || { STOP="the box's settings cannot be read after the change"; return 1; }
+   st set "$STEP" acc_sender "$(first_of "$REC/acc-settings-after.json" senders)"
+   st set "$STEP" acc_reviewer "$(first_of "$REC/acc-settings-after.json" reviewers)"
+diff --git a/trialbox/deploy/gcp/box_vm.py b/trialbox/deploy/gcp/box_vm.py
+index 4abd6c618..64adbcec4 100644
+--- a/trialbox/deploy/gcp/box_vm.py
++++ b/trialbox/deploy/gcp/box_vm.py
+@@ -741,8 +741,20 @@ class Box:
+             lf.write(f"+ {svc} onbox {cmd} {time.strftime('%H:%M:%S')}\n")
+             lf.flush()
+             p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf, text=True)
+-            stdout, _ = p.communicate(self.onbox.read_text(encoding="utf-8"), timeout=timeout)
+-            lf.write(stdout[-4000:])
++            assert p.stdin is not None and p.stdout is not None
++            p.stdin.write(self.onbox.read_text(encoding="utf-8"))
++            p.stdin.close()
++            # line by line, as onbox prints them: `wait` says each change of the job's state, and that line in the
++            # step's log (and the beat) is the VM's heartbeat while a job runs; a long answer line is cut in the log
++            lines: list[str] = []
++            for line in p.stdout:
++                lines.append(line)
++                lf.write(line if len(line) <= 4000 else line[:2000] + " ... (cut)\n")
++                lf.flush()
++                if self.beat is not None:
++                    self.beat.touch()
++            p.wait(timeout=timeout)
++            stdout = "".join(lines)
+         if self.beat is not None:
+             self.beat.touch()
+         if p.returncode != 0:

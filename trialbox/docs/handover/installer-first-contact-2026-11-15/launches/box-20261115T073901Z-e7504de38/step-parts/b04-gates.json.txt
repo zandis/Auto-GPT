@@ -1,0 +1,17 @@
+{
+ "attempts": 1,
+ "boots": [
+  "c582a252-337b-41e3-ab5d-254b80927742"
+ ],
+ "detail": {
+  "gates": "build/supply-chain/gates.json",
+  "gates_vuln_mode": "report (test-only mail images deferred)"
+ },
+ "ended": "2026-11-15T07:49:10Z",
+ "minutes": 5.25,
+ "ok": true,
+ "seconds": 315.235,
+ "started": "2026-11-15T07:43:55Z",
+ "status": "done",
+ "step": "b04-gates"
+}

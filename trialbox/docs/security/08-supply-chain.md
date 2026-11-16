@@ -31,7 +31,8 @@ The build side needs the network; the box never runs these tools. Code: `tools/s
   `make images-multiarch`, by digest. `make release-bundle` makes a bundle only from images in a passing record
   (`tools/make_bundle.sh --gates`, which refuses any other image id or a record older than 7 days).
 - **The vulnerability gate blocks for every image a bundle carries** (T-110b, D-340). Report mode
-  (`--vuln-mode report`) is left for the test-only mail servers (MailHog, GreenMail), which no bundle carries. The
+  (`--vuln-mode report`) is left for the test-only mail servers (Mailpit, GreenMail), which no bundle carries; since
+  D-827 they are report-only in the default mode too. The
   open findings of HAPI FHIR, vLLM and the `trialbox-postgres` base are dated allow-list entries scoped to that image (`image:`), each with
   `review_by: 2026-12-10`; a new finding blocks. One exception, D-622: one dated entry accepts every finding of the kernel headers package `linux-libc-dev` in the pinned vLLM image, so a new finding of that package there does not block. The list, with planned fixes, is in
   `deploy/security/known-image-findings.md`. MailHog has no arm64 image; it is left out of the arm64 gates by name

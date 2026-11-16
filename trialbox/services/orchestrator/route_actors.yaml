@@ -22,10 +22,11 @@ refuse:
   - job_reveal            # a chart number: the grant and the delegation log are read by the orchestrator (T-716, D-484)
   - registry              # T-715b (D-550): a status change and a promotion, by the verified requester
   - study                 # T-715d (D-554): the study's set-up, its REDCap link and the box's connections
+  - dataops               # NEW-SEC-4 (D-760): the steward's accept of a held night (dataops.decide)
+  - datacore              # T-715f (D-799): the study's set-up, data entry and an SAE report's day sent
+  - setup                 # T-715g (D-803): the site's set-up, the opt-out desk's pseudonym, the remote help switch
 
-report:
-  - datacore
-  - setup
+report: []
 
 v2:
   - jobs_start            # the signed role authorises a console job; a mailed job has no person (D-146, D-464)
@@ -37,6 +38,7 @@ v2:
 no_person:
   models_canary: the pair canary of the box; it changes no record and names nobody
   patients: a read sent as POST (pseudonyms in the body); nothing changes
+  assist: the help page's draft answer phrased by the local model; it reads and writes nothing (T-715g, D-803)
 
 # service principals: a console timer has no session. Each may take only the actions listed, on routes that say so.
 principals:
@@ -58,6 +60,7 @@ reads_without_patient:
   GET /docs/oauth2-redirect: "FastAPI's own schema page"
   GET /redoc: "FastAPI's own schema page"
   GET /models: "the model registry's state and the box's status lines; counts, no patient"
+  GET /jobs/{job_id}/outputs-current: "D-863: whether a job's outputs are still current against the opt-out register; a yes or no, no patient, no count"
   GET /metrics: "counters of the service"
   GET /rulesets/{ruleset}: "a study's criteria, approved versions and drafts"
   GET /jobs: "job records (type, state, who asked, the names of their files); the rows are in the files, which the console reads from the object store"
@@ -82,3 +85,13 @@ reads_without_patient:
   GET /studies/{rs}/edc/map/suggest: "suggested field mappings"
   GET /registry: "per study, counts of the registry's states"
   GET /registry/{ruleset}/export.xlsx: "every chart number of a study; the handler verifies the signed person, role and studies itself (v2, D-273, S-09) and audits it"
+  # NEW-ARCH-3 (D-761): the night's data operations, read by the console's /data-ops page (D-443): a night's row
+  # (source, snapshot, attempt, state, who changed it and when; its gate detail is counts and table names) and its
+  # steps (old and new state, who, when, the reason typed); never a patient's row or identifier
+  GET /dataops/can-publish: "whether this service can publish an accepted night (a yes or no)"
+  GET /dataops/sources: "the newest night of each source: its batch row (states, counts, table names), no patient"
+  GET /dataops/held: "the held nights: their batch rows (states, counts, table names), no patient"
+  GET /dataops/counts: "how many nights in each state"
+  GET /dataops/history: "nights' batch rows, newest first (states, counts, table names), no patient"
+  GET /dataops/batches/{bid}: "one night's batch row (states, counts, table names), no patient"
+  GET /dataops/batches/{bid}/steps: "one night's steps: old and new state, who, when, the reason typed; no patient"

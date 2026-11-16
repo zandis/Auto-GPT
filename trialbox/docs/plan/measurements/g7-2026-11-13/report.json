@@ -1,0 +1,587 @@
+{
+ "schema": "tb-complete-run/3",
+ "git": {
+  "head": "c25cea6bc78e6182f39dd3d6a1b30132f760e7ce",
+  "subject": "Lane G: every apt on the run VM waits for the dpkg lock, not only the script's own calls",
+  "dirty": false,
+  "source": "parts",
+  "heads": [
+   "c25cea6bc78e6182f39dd3d6a1b30132f760e7ce"
+  ]
+ },
+ "started": "2026-11-13T08:19:57+00:00",
+ "finished": "2026-11-13T08:20:59+00:00",
+ "model": "pair",
+ "models": [
+  "local/gemma-4-26b-a4b-nvfp4",
+  "local/qwen3.5-9b-awq"
+ ],
+ "path": "gateway (installed box, synthetic weight pins)",
+ "ocr": "tesseract",
+ "patients": 50000,
+ "langs": [
+  "ja",
+  "zh-TW"
+ ],
+ "host": {
+  "machine": "x86_64",
+  "cpus": 48,
+  "python": "3.12.3",
+  "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+ },
+ "run_ids": [
+  "20261113T081311Z-c25cea6b-s1"
+ ],
+ "parts": [
+  {
+   "stages": [
+    {
+     "name": "G-4 structured output: backend, guided decoding on and off, eager start",
+     "ok": false,
+     "seconds": 31.5,
+     "checks": [
+      [
+       "the structured-output backend is read from the servers",
+       true,
+       {
+        "backend": "auto",
+        "from": "the serving record (the container's command line)",
+        "named": false,
+        "note": "auto: vLLM picks the backend per request; not named by a flag"
+       }
+      ],
+      [
+       "guided on: 64 calls answered",
+       true,
+       {
+        "answered": 64,
+        "errors": 0
+       }
+      ],
+      [
+       "guided on: no answer outside the judge schema",
+       false,
+       1
+      ],
+      [
+       "guided off: 64 calls answered (schema failures recorded, not a pass rule)",
+       true,
+       {
+        "answered": 64,
+        "errors": 0,
+        "schema_failures": 64
+       }
+      ]
+     ],
+     "shot": "g4-decoding.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "decoding": {
+    "backend": {
+     "backend": "auto",
+     "from": "the serving record (the container's command line)",
+     "named": false,
+     "note": "auto: vLLM picks the backend per request; not named by a flag"
+    },
+    "prompts": 64,
+    "in_flight": 16,
+    "guided_on": {
+     "calls": 64,
+     "answered": 64,
+     "errors": 0,
+     "schema_failures": 1,
+     "seconds": 17.9,
+     "calls_per_second": 3.576,
+     "p50_s": 2.2844,
+     "p95_s": 9.3712,
+     "completion_tokens": 5805,
+     "schema_failures_by_finish_reason": {
+      "stop": 1
+     },
+     "schema_failure_examples": [
+      {
+       "finish_reason": "stop",
+       "completion_tokens": 71,
+       "content_head": "{\n \"verdict\": \"unknown\",\n \"reason\": \"The provided excerpt does not mention gout or any gout flares; it only discusses stomach discomfort and dietary advice.\",\n \"quote\": \"unknown\",\n \"quote_date\": \"0000"
+      }
+     ]
+    },
+    "guided_off": {
+     "calls": 64,
+     "answered": 64,
+     "errors": 0,
+     "schema_failures": 64,
+     "seconds": 13.53,
+     "calls_per_second": 4.732,
+     "p50_s": 1.657,
+     "p95_s": 3.844,
+     "completion_tokens": 4853,
+     "schema_failures_by_finish_reason": {
+      "stop": 64
+     },
+     "schema_failure_examples": [
+      {
+       "finish_reason": "stop",
+       "completion_tokens": 64,
+       "content_head": "```json\n{\n \"answer\": \"fail\",\n \"quote_date\": \"2026-06-01\",\n \"quote\": \"過去一年間に痛風発作はなく、関節の発赤・腫脹もない。\",\n \"confidence\": 1.0\n}\n```"
+      },
+      {
+       "finish_reason": "stop",
+       "completion_tokens": 38,
+       "content_head": "```json\n{\n \"answer\": \"unknown\",\n \"quote\": null,\n \"quote_date\": null,\n \"confidence\": 1.0\n}\n```"
+      },
+      {
+       "finish_reason": "stop",
+       "completion_tokens": 76,
+       "content_head": "```json\n{\n \"answer\": \"unknown\",\n \"quote\": \"現在、右第一中足趾節関節に急性の発赤・腫脹・疼痛あり、急性痛風発作中である。\",\n \"quote_date\": \"2026-06-03\",\n \"confidence\": 1.0\n}\n```"
+      },
+      {
+       "finish_reason": "stop",
+       "completion_tokens": 87,
+       "content_head": "```json\n{\n \"answer\": \"unknown\",\n \"quote_date\": \"2026-06-04\",\n \"quote\": \"2025年12月1日に右足関節の発赤・腫脹・熱感・疼痛あり、急性痛風発作と診断しコルヒチンで改善した。\",\n \"confidence\": 0.8\n}\n```"
+      },
+      {
+       "finish_reason": "stop",
+       "completion_tokens": 203,
+       "content_head": "```json\n{\n \"answer\": \"pass\",\n \"quote_date\": \"2026-06-05\",\n \"quote\": \"令和8年2月3日に左膝関節の発赤・腫脹・熱感・疼痛あり、急性痛風発作と診断しコルヒチンで改善した。\",\n \"confidence\": 1.0\n}\n```\n\n**Note on reasoning:**\nThe note dated 2026-06-05 desc"
+      }
+     ]
+    },
+    "profile": "guided decoding on",
+    "eager": {
+     "enforce_eager": true,
+     "switched": false,
+     "result": "needs a restart: not run (--enforce-eager is a start flag; the part never restarts a server)"
+    },
+    "record": "/root/record/serving_config.json"
+   },
+   "run": {
+    "id": "20261113T081311Z-c25cea6b-s1",
+    "head": "c25cea6bc78e6182f39dd3d6a1b30132f760e7ce",
+    "subject": "Lane G: every apt on the run VM waits for the dpkg lock, not only the script's own calls",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 33.5,
+    "folder": "parts/g4-decoding",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 60214.0,
+      "generation_tokens": 10658.0,
+      "requests": 128.0,
+      "ttft_seconds_sum": 58.571,
+      "ttft_count": 128.0,
+      "queue_seconds_sum": 20.28,
+      "queue_count": 128.0,
+      "e2e_seconds_sum": 357.022,
+      "e2e_count": 128.0,
+      "ttft_mean_s": 0.4576,
+      "queue_mean_s": 0.1584,
+      "e2e_mean_s": 2.7892
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 0.0,
+      "generation_tokens": 0.0,
+      "requests": 0.0,
+      "ttft_seconds_sum": 0.0,
+      "ttft_count": 0.0,
+      "queue_seconds_sum": 0.0,
+      "queue_count": 0.0,
+      "e2e_seconds_sum": 0.0,
+      "e2e_count": 0.0
+     }
+    },
+    "gpu": {
+     "samples": 5,
+     "every_s": 10.0,
+     "util_mean_pct": 25.8,
+     "util_max_pct": 48.0,
+     "memory_peak_mib": 62582.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 44.0,
+     "power_max_w": 218.54
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 16.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.02529801119188979
+     },
+     "verifier": {
+      "running_max": 0.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.0
+     }
+    }
+   },
+   "wall_seconds": 33.5,
+   "started_at": "2026-11-13T08:19:57+00:00",
+   "finished_at": "2026-11-13T08:20:31+00:00",
+   "part": "g4-decoding",
+   "lang": "",
+   "tag": "g4-decoding",
+   "seconds_total": 33.5
+  },
+  {
+   "stages": [
+    {
+     "name": "G-7 clipped against whole note (LLM-001)",
+     "ok": true,
+     "seconds": 26.3,
+     "checks": [
+      [
+       "2 LLM-001 cases: the judge and the verifier answered on the clipped and the whole note",
+       true,
+       {
+        "LLM-001-ja-family-history": [
+         "unknown",
+         "unknown"
+        ],
+        "LLM-001-zh-TW-denied-list": [
+         "fail",
+         "fail"
+        ]
+       }
+      ],
+      [
+       "0 exclusions on a clipped note (no final not met from a clipped note)",
+       true,
+       []
+      ]
+     ],
+     "shot": "g7-clipped.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "clipped": {
+    "criterion": "Active or past tuberculosis",
+    "lexicon": [
+     "tuberculosis",
+     "結核",
+     "肺結核",
+     "tb"
+    ],
+    "confidence_floor": 0.75,
+    "cases": [
+     {
+      "id": "LLM-001-ja-family-history",
+      "lang": "ja",
+      "truth": "not the patient's own (family)",
+      "what": "肺結核 only under 【家族歴】",
+      "clipped": true,
+      "left_out": 1,
+      "chars_whole": 3958,
+      "chars_shown": 1349,
+      "kept_heading": {
+       "【家族歴】": true,
+       "【既往歴】": true
+      },
+      "clipped_view": {
+       "judge": "unknown",
+       "verifier": "unknown",
+       "pair": "unknown",
+       "reasons": [
+        "abstained",
+        "quote_not_found",
+        "abstained"
+       ],
+       "quote": "【家族歴】",
+       "left_out": 1,
+       "final": "review"
+      },
+      "whole_view": {
+       "judge": "unknown",
+       "verifier": "unknown",
+       "pair": "unknown",
+       "reasons": [
+        "abstained",
+        "quote_not_found",
+        "abstained"
+       ],
+       "quote": "【家族歴】な肺結核。",
+       "left_out": 0,
+       "final": "review"
+      }
+     },
+     {
+      "id": "LLM-001-zh-TW-denied-list",
+      "lang": "zh-TW",
+      "truth": "denied by the patient",
+      "what": "肺結核 in a list after 病人否認下列病史：",
+      "clipped": true,
+      "left_out": 1,
+      "chars_whole": 3965,
+      "chars_shown": 1429,
+      "kept_heading": {
+       "【過去病史】": true,
+       "病人否認下列病史": true
+      },
+      "clipped_view": {
+       "judge": "fail",
+       "verifier": "fail",
+       "pair": "fail",
+       "reasons": [
+        "note",
+        "note",
+        "note"
+       ],
+       "quote": "病人否認下列病史：肺結核。",
+       "left_out": 1,
+       "final": "met"
+      },
+      "whole_view": {
+       "judge": "fail",
+       "verifier": "fail",
+       "pair": "fail",
+       "reasons": [
+        "note",
+        "note",
+        "note"
+       ],
+       "quote": "病人否認下列病史：肺結核。",
+       "left_out": 0,
+       "final": "met"
+      }
+     }
+    ],
+    "final_not_met_from_clipped_note": []
+   },
+   "run": {
+    "id": "20261113T081311Z-c25cea6b-s1",
+    "head": "c25cea6bc78e6182f39dd3d6a1b30132f760e7ce",
+    "subject": "Lane G: every apt on the run VM waits for the dpkg lock, not only the script's own calls",
+    "dirty": false,
+    "host": {
+     "machine": "x86_64",
+     "cpus": 48,
+     "python": "3.12.3",
+     "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+    },
+    "weight_pins": "synthetic"
+   },
+   "llm_concurrency": 16,
+   "metrics": {
+    "sampled": true,
+    "seconds": 26.8,
+    "folder": "parts/g7-clipped",
+    "servers": {
+     "judge": {
+      "scraped": true,
+      "prompt_tokens": 19532.0,
+      "generation_tokens": 585.0,
+      "requests": 8.0,
+      "ttft_seconds_sum": 0.515,
+      "ttft_count": 8.0,
+      "queue_seconds_sum": 0.01,
+      "queue_count": 8.0,
+      "e2e_seconds_sum": 14.09,
+      "e2e_count": 8.0,
+      "ttft_mean_s": 0.0644,
+      "queue_mean_s": 0.0013,
+      "e2e_mean_s": 1.7612
+     },
+     "verifier": {
+      "scraped": true,
+      "prompt_tokens": 13751.0,
+      "generation_tokens": 504.0,
+      "requests": 6.0,
+      "ttft_seconds_sum": 2.439,
+      "ttft_count": 6.0,
+      "queue_seconds_sum": 1.223,
+      "queue_count": 6.0,
+      "e2e_seconds_sum": 11.412,
+      "e2e_count": 6.0,
+      "ttft_mean_s": 0.4065,
+      "queue_mean_s": 0.2038,
+      "e2e_mean_s": 1.902
+     }
+    },
+    "gpu": {
+     "samples": 4,
+     "every_s": 10.0,
+     "util_mean_pct": 28.0,
+     "util_max_pct": 40.0,
+     "memory_peak_mib": 62590.0,
+     "memory_total_mib": 97887.0,
+     "temperature_max_c": 46.0,
+     "power_max_w": 167.6
+    },
+    "gauges": {
+     "judge": {
+      "running_max": 1.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.006681031141975824
+     },
+     "verifier": {
+      "running_max": 1.0,
+      "waiting_max": 0.0,
+      "kv_cache_usage_max": 0.009345794392523366
+     }
+    }
+   },
+   "throughput": {
+    "source": "gateway audit (llm.gateway.call)",
+    "calls": 14,
+    "busy_seconds": 25.5,
+    "calls_per_second": 0.548,
+    "tokens_in": 33283,
+    "tokens_out": 1089,
+    "tokens_in_per_second": 1303.599,
+    "tokens_out_per_second": 42.653,
+    "tokens_per_second": 1346.252,
+    "p50_s": 1.617,
+    "p95_s": 2.801,
+    "mean_in_flight": 1.0,
+    "cached": 0,
+    "endpoints": {
+     "serving": {
+      "calls": 8,
+      "busy_seconds": 14.1,
+      "calls_per_second": 0.567,
+      "tokens_in": 19532,
+      "tokens_out": 585,
+      "tokens_in_per_second": 1384.595,
+      "tokens_out_per_second": 41.47,
+      "tokens_per_second": 1426.065,
+      "p50_s": 1.692,
+      "p95_s": 2.274,
+      "mean_in_flight": 1.0
+     },
+     "verifier": {
+      "calls": 6,
+      "busy_seconds": 11.4,
+      "calls_per_second": 0.525,
+      "tokens_in": 13751,
+      "tokens_out": 504,
+      "tokens_in_per_second": 1203.592,
+      "tokens_out_per_second": 44.114,
+      "tokens_per_second": 1247.706,
+      "p50_s": 1.549,
+      "p95_s": 3.127,
+      "mean_in_flight": 1.0
+     }
+    },
+    "breaker_opens": {
+     "embed": 0,
+     "external_x": 0,
+     "openrouter": 0,
+     "serving": 0,
+     "stub": 0,
+     "verifier": 0
+    }
+   },
+   "refusals": {
+    "asked": 14,
+    "refused": 0,
+    "by_reason": {},
+    "by_role": {}
+   },
+   "wall_seconds": 26.8,
+   "started_at": "2026-11-13T08:20:33+00:00",
+   "finished_at": "2026-11-13T08:20:59+00:00",
+   "part": "g7-clipped",
+   "lang": "",
+   "tag": "g7-clipped",
+   "seconds_total": 26.8
+  }
+ ],
+ "llm_concurrency": [
+  16
+ ],
+ "throughput": [
+  {
+   "tag": "g4-decoding",
+   "llm_concurrency": 16,
+   "calls": 0,
+   "calls_per_second": null,
+   "tokens_per_second": null,
+   "p50_s": null,
+   "p95_s": null,
+   "gpu_util_mean_pct": 25.8,
+   "gpu_memory_peak_mib": 62582.0,
+   "queue_mean_s": {
+    "judge": 0.1584
+   },
+   "ttft_mean_s": {
+    "judge": 0.4576
+   },
+   "breaker_opens": null,
+   "refused": null,
+   "candidates": null,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 48.0,
+   "kv_cache_peak": {
+    "judge": 0.02529801119188979,
+    "verifier": 0.0
+   }
+  },
+  {
+   "tag": "g7-clipped",
+   "llm_concurrency": 16,
+   "calls": 14,
+   "calls_per_second": 0.548,
+   "tokens_per_second": 1346.252,
+   "p50_s": 1.617,
+   "p95_s": 2.801,
+   "gpu_util_mean_pct": 28.0,
+   "gpu_memory_peak_mib": 62590.0,
+   "queue_mean_s": {
+    "judge": 0.0013,
+    "verifier": 0.2038
+   },
+   "ttft_mean_s": {
+    "judge": 0.0644,
+    "verifier": 0.4065
+   },
+   "breaker_opens": 0,
+   "refused": {
+    "asked": 14,
+    "refused": 0,
+    "by_reason": {},
+    "by_role": {}
+   },
+   "candidates": null,
+   "candidates_sha256": null,
+   "window": "whole part",
+   "gpu_util_max_pct": 40.0,
+   "kv_cache_peak": {
+    "judge": 0.006681031141975824,
+    "verifier": 0.009345794392523366
+   }
+  }
+ ],
+ "candidates_compare": {},
+ "candidates_identical": {},
+ "door_secret": "door secret tb-gpu-door: enabled version(s) 2 remain (this run's not destroyed: none); destroy each with: gcloud secrets versions destroy <version> --secret tb-gpu-door --quiet",
+ "checks": 6,
+ "failed": 1,
+ "not_run": [],
+ "checks_never_ran": null,
+ "shots": 2,
+ "shots_ok": 2,
+ "findings": [],
+ "not_started": [],
+ "verdict": "FAILED",
+ "ok": false,
+ "seconds": 60.3,
+ "report_built": "2026-11-13T08:36:31+00:00",
+ "times_from_parts": true,
+ "langs_run": []
+}

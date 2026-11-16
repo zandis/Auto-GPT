@@ -19,6 +19,7 @@ from console import about, command
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
+from console.local_path import local_path
 from console.models_view import build_rows
 
 # the orchestrator's in-process principals (orchestrator.core.SYSTEM_SENDERS; D-464): a retry names a person instead
@@ -58,6 +59,15 @@ HELP_PAGES: tuple[tuple[str, str], ...] = (
     (r"^/studies/[^/]+/edc", "edc"),
     (r"^/reports", "reports"),
     (r"^/admin(/redcap)?$", "admin"),
+    # T-317 (D-774): the pages of the steward, the privacy office and the administrator's accounts get their own text
+    (r"^/ops/users", "users"),
+    (r"^/ops/accounts/requests", "account_requests"),
+    (r"^/breakglass", "breakglass"),
+    (r"^/audit", "audit"),
+    (r"^/data/conflicts", "conflicts"),
+    (r"^/data-ops", "dataops"),
+    (r"^/site/opt-outs", "optouts"),
+    (r"^/site/staff", "staff"),
     (r"^/(pilot/)?jobs", "jobs"),
     (r"^/account", "account"),
     (r"^/notices/received", "notices"),
@@ -95,7 +105,7 @@ def own_study(back: str, studies: list[str], logged: list[str]) -> str:
 
 
 def _safe_back(path: str) -> str:
-    return path if path.startswith("/") and not path.startswith("//") else "/home"
+    return local_path(path, "/home")
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -264,6 +274,16 @@ def register(app: FastAPI, h: Helpers) -> None:
             studies=studies,
             mine=own_study(target, studies, logged),
         )
+
+    @app.get("/help/guide")
+    def role_guide(request: Request) -> Response:
+        """T-317 (D-774): the signed-in account's own role guide in its language, printable; the same text as
+        ``docs/guides/<role>.<lang>.md`` (``console.guides``), built from this help catalogue."""
+        from console import guides
+
+        sess = h.need(request)
+        role = sess.user.role if sess.user.role in guides.ROLES else "viewer"
+        return h.page(request, "role_guide.html", sess, role=role, sections=guides.sections)  # in the page's language
 
     about.register(app, h)  # T-617a: /about, the third-party notices (NOTICE), beside the help panel
 

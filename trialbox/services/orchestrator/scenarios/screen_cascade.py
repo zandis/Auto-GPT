@@ -18,7 +18,10 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import logging
 import os
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -115,6 +118,7 @@ class OrchestratorJudge(NoteJudge):
         )
 
 
+log = logging.getLogger("orchestrator")
 VEC_FLAG = "vec.s2b"  # T-203b (D-449): S2b from the vector store; off until the S2b threshold refit after G1 (D-429)
 
 
@@ -149,6 +153,168 @@ def job_vec_s2b(ctx: Ctx) -> bool:
     with contextlib.suppress(AttributeError):  # a stand-in context without attributes: read again next time
         ctx._tb_vec_s2b = on  # type: ignore[attr-defined]
     return on
+
+
+EMBED_OUTAGE_WAIT_S = 600  # TB_EMBED_OUTAGE_WAIT_S: seconds of one job spent waiting for the embed service
+
+
+def _transport_fault(exc: BaseException) -> bool:
+    """The embed service did not answer (a dropped or refused connection, a timeout, a 5xx): worth waiting for. A 4xx
+    or a malformed answer is not: it would fail again."""
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.TransportError)
+
+
+class _VectorCache:
+    """Vectors the embed service gave, by model and text hash, least recently used out first (red of 2026-11-15:
+    S2b embeds a patient's window sentences for every zero-hit criterion, and again for every protocol; the same
+    sentence is now embedded once). ``TB_EMBED_CACHE_VECTORS`` of them (about 4 kB each); in this process only."""
+
+    def __init__(self, size: int) -> None:
+        from collections import OrderedDict
+
+        self.size = size
+        self._d: OrderedDict[tuple[str, str], tuple[float, ...]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    @classmethod
+    def from_env(cls) -> _VectorCache:
+        raw = (os.environ.get("TB_EMBED_CACHE_VECTORS") or "").strip()
+        return cls(max(0, int(raw)) if raw else 20000)
+
+    @staticmethod
+    def _key(model: str, text: str) -> tuple[str, str]:
+        return model, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def get(self, model: str, text: str) -> list[float] | None:
+        k = self._key(model, text)
+        with self._lock:
+            v = self._d.get(k)
+            if v is None:
+                return None
+            self._d.move_to_end(k)
+            return list(v)
+
+    def put(self, model: str, text: str, vec: list[float]) -> None:
+        if self.size <= 0:
+            return
+        k = self._key(model, text)
+        with self._lock:
+            self._d[k] = tuple(vec)
+            self._d.move_to_end(k)
+            while len(self._d) > self.size:
+                self._d.popitem(last=False)
+
+
+_VECTORS = _VectorCache.from_env()
+
+
+class _Served:
+    """The embed service's model for one job. NEW-LLM-2 (review): a service that stops answering, or changes its model,
+    after the probe stops the job with a sentence; never a generic error, never two embedders in one run."""
+
+    def __init__(self, inner: Any, clock: Any = None, sleep: Any = None) -> None:
+        import time
+
+        self.inner = inner
+        self.model = str(inner.model)
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
+        self.requests = 0  # answered, for the sentence a job that gives up says (red of 2026-11-15)
+        self.sentences = 0
+        self.waited = 0.0  # this job's seconds spent waiting for the service to come back
+
+    def _send(self, texts: list[str]) -> list[list[float]]:
+        """One request, sent again after a growing wait while it fails in transport (the service restarting) and the
+        job's ``TB_EMBED_OUTAGE_WAIT_S`` lasts, as a model outage is waited out (T-689)."""
+        from matching.cascade.engine import CascadeError
+
+        allowance = float(os.environ.get("TB_EMBED_OUTAGE_WAIT_S") or EMBED_OUTAGE_WAIT_S)
+        step = 2.0
+        while True:
+            try:
+                out = list(self.inner.embed(texts))
+            except Exception as exc:
+                if not _transport_fault(exc) or self.waited >= allowance:
+                    raise CascadeError(
+                        f"the embed service stopped answering during the run ({type(exc).__name__}) after "
+                        f"{self.requests} request{'s' if self.requests != 1 else ''} and {self.sentences} sentences "
+                        f"embedded; those are kept, so the request sent again starts where this one stopped"
+                    ) from exc
+                t0 = self._clock()
+                self._sleep(step)
+                self.waited += self._clock() - t0
+                step = min(step * 2, 30.0)
+                continue
+            self.requests += 1
+            self.sentences += len(texts)
+            return out
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from matching.cascade.engine import CascadeError
+
+        got: list[list[float] | None] = [_VECTORS.get(self.model, t) for t in texts]
+        todo = list(dict.fromkeys(t for t, v in zip(texts, got, strict=True) if v is None))
+        fresh: dict[str, list[float]] = {}
+        if todo:
+            out = self._send(todo)
+            if str(self.inner.model) != self.model:
+                raise CascadeError(
+                    f"the embed service changed its model during the run ({self.model} to {self.inner.model}); send "
+                    f"the request again"
+                )
+            for t, v in zip(todo, out, strict=True):
+                fresh[t] = list(v)
+                _VECTORS.put(self.model, t, fresh[t])
+        return [v if v is not None else fresh[t] for t, v in zip(texts, got, strict=True)]
+
+
+def screen_embedder(url: str | None) -> Any:
+    """The embedder SCREEN ranks note sentences with (NEW-LLM-2, LLM-002): the box's embed service when it serves a
+    real model; the local hash stub when there is no service, it serves the stub or it does not answer (said in the
+    log), so retrieval by meaning is off and a criterion with no lexicon term reads "not evaluated"."""
+    from embed_service.embedder import HashEmbedder, HttpEmbedder
+
+    if not url:
+        return HashEmbedder()
+    probe = None
+    try:
+        probe = HttpEmbedder(url)  # its own timeout: a refused connection fails at once, a hung one once per job
+        probe.embed(["probe"])
+    except Exception as exc:
+        log.warning(
+            "screening ranks note sentences with the hash stub: the embed service did not answer (%s)",
+            type(exc).__name__,
+        )
+        return HashEmbedder()
+    finally:
+        if probe is not None:
+            probe.client.close()
+    if str(probe.model).startswith("hash"):
+        return HashEmbedder()
+    served = HttpEmbedder(url)
+    served.model = probe.model
+    return _Served(served)
+
+
+_JOB_EMBEDDER: dict[str, Any] = {}  # job id -> its embedder: one probe per job (MICROBATCH screens many studies)
+
+
+def job_embedder(ctx: Any) -> Any:
+    """:func:`screen_embedder` once per job."""
+    job_id = str(getattr(getattr(ctx, "job", None), "job_id", "") or "")
+    if job_id and job_id in _JOB_EMBEDDER:
+        return _JOB_EMBEDDER[job_id]
+    url = getattr(getattr(getattr(ctx, "cfg", None), "env", None), "embed_url", None)
+    got = screen_embedder(url)
+    if job_id:
+        while len(_JOB_EMBEDDER) >= 32:
+            _JOB_EMBEDDER.pop(next(iter(_JOB_EMBEDDER)))
+        _JOB_EMBEDDER[job_id] = got
+    return got
 
 
 def s2b_source(lake: Any, snapshot: str, on: bool) -> Any:
@@ -278,6 +444,8 @@ def verdicts_of(
     # as before, does not count: the status is the one function's over the outcomes the cascade has
     st = decision.status_of(rs.by_id(), judged_rows, policy or DEFAULT_POLICY)
     tier, actions, unknown = st.tier, list(st.actions), st.n_unknown
+    if tier == "high" and not any(o.status in ("pass", "fail") for o in t.outcomes.values()):
+        tier = "review"  # D-909: nothing the records or the models decided says this patient may meet the criteria
     if tier == "excluded" and TIER.get(t.tier, "review") != "excluded":
         tier = "review"  # the engine did not exclude: the rows never exclude on their own (cannot happen by CAS-7)
     if tier == "high" and (t.notes_over_budget or TIER.get(t.tier, "review") == "review"):
@@ -327,6 +495,7 @@ def summary(res: CascadeResult) -> dict[str, Any]:
             "pairs_s2_hit": m.pairs_s2_hit,
             "pairs_s2_zero_hit": m.pairs_s2_zero_hit,
             "pairs_s2_no_notes": m.pairs_s2_no_notes,
+            "nothing_decides": m.nothing_decides,  # D-909
             "pairs_s2b_above": m.pairs_s2b_above,
             "pairs_s2b_below": m.pairs_s2b_below,
             "pairs_judged": dict(m.pairs_judged),
@@ -361,6 +530,26 @@ class CascadeScreen:
 # else TB_SCREEN_MAX_PAIRS, else none: the population's own pairs (scoped patients x note criteria), so by default
 # nothing is left unprocessed. The fixed 20,000 is gone. The run says when a budget ran out and which. Calls run
 # TB_SCREEN_LLM_CONCURRENCY at a time (compose sets it to the serving profile's vLLM --max-num-seqs)
+# T-694 part 3 (D-794): the cascade's note stage reads this many patients' notes at a time; the answers are the same for
+# any size, only the memory the notes take changes
+NOTE_BATCH = 1000
+
+
+def note_batch_of(env: Mapping[str, str] | None = None) -> int:
+    """The note stage's batch of patients: TB_SCREEN_NOTE_BATCH, else ``NOTE_BATCH``."""
+    e = os.environ if env is None else env
+    raw = str(e.get("TB_SCREEN_NOTE_BATCH") or "").strip()
+    if not raw:
+        return NOTE_BATCH
+    try:
+        v = int(raw)
+    except ValueError as exc:
+        raise StepFailed("running", "TB_SCREEN_NOTE_BATCH must be a whole number of patients") from exc
+    if v < 1:
+        raise StepFailed("running", "TB_SCREEN_NOTE_BATCH must be at least 1 patient")
+    return v
+
+
 def max_pairs_of(opts: dict[str, Any] | None = None, env: Mapping[str, str] | None = None) -> int | None:
     """The pair budget an operator set (the job's option, else the setting), or None: the population's own pairs."""
     e = os.environ if env is None else env
@@ -381,7 +570,7 @@ def held_in_snapshot(ctx: Ctx, pids: list[str], snapshot: str) -> set[str]:
     if not pids:
         return set()
     rows = ctx.services.lake.query(
-        "SELECT pid FROM patient WHERE list_contains(CAST($1 AS VARCHAR[]), pid)", [pids], snapshot=snapshot
+        "SELECT pid FROM patient WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))", [pids], snapshot=snapshot
     ).to_pylist()
     return {str(r["pid"]) for r in rows}
 
@@ -408,11 +597,10 @@ def screen_with_cascade(
     judge = OrchestratorJudge.from_note_judge(note_judge, in_flight) if note_judge is not None else None
     dctx = decision_of(ctx)
     may_block = dctx.note_block(note_judge).may_block
-    from embed_service.embedder import HashEmbedder
-
     from orchestrator import derive
 
     source = s2b_source(ctx.services.lake, snapshot, job_vec_s2b(ctx))  # once per job (D-449)
+    embedder = job_embedder(ctx)  # NEW-LLM-2: the box's embed service when it serves a model, probed once per job
     cfg = CascadeConfig(
         study_id=rs.id,
         run_date=run_date,
@@ -427,17 +615,37 @@ def screen_with_cascade(
         population=pids,
         note_block=may_block,
         absence_semantics=False,
+        s2b_when_fits=False,  # D-904: where every window note fits, the ranking changes no prompt; no embedding
         require_retrieval=True,  # NEW-LLM-2: nothing to retrieve with is said, never the first sentences read
         max_llm_items=max_pairs,
+        note_batch=note_batch_of(),  # T-694 part 3: the notes of a batch of patients at a time, same answers
         llm_concurrency=in_flight,
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
         registry=lambda: dctx.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
     )
+    # D-908 (D-519): the judged-pair store below the job's model clients; its end-of-job step (the opt-outs of the
+    # run, the snapshots' retention) runs however the job ends
+    from orchestrator.judged_store import JudgedPairs
+
+    pairs = getattr(getattr(note_judge, "llm", None), "pairs", None)
+    try:
+        return _screen(ctx, rs, cfg, judge, note_judge, embedder, source, snapshot, pids, judging, confidence_floor,
+                       may_block, max_pairs, pairs)  # fmt: skip
+    finally:
+        if isinstance(pairs, JudgedPairs):
+            pairs.close(run_date)
+
+
+def _screen(ctx: Ctx, rs: Ruleset, cfg: CascadeConfig, judge: Any, note_judge: Any, embedder: Any, source: Any,
+            snapshot: str, pids: list[str], judging: dict[str, Any], confidence_floor: float, may_block: bool,
+            max_pairs: int | None, pairs: Any) -> CascadeScreen:  # fmt: skip
+    from orchestrator.judged_store import JudgedPairs
+
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
             judge,
             lambda j: run_cascade(
-                ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None, s2b_source=source
+                ctx.services.lake, rs, cfg, judge=j, embedder=embedder, reviewer=None, s2b_source=source
             ),
         )
     except CascadeError as exc:
@@ -451,7 +659,9 @@ def screen_with_cascade(
     for pid in pids:
         if pid not in results:  # not in the lake's patient table on this snapshot: a person looks (D-118)
             results[pid] = not_in_snapshot(rs, pid)
-    if judge is not None:
+    if res.metrics.nothing_decides:  # D-909: nothing a machine decides; every patient in scope goes to review
+        judging = {**judging, "mode": "nothing"}
+    elif judge is not None:
         judging = {**judging, "disagreements": judge.disagreements, "failures": judge.failures}
         m = ctx.job.metrics
         ctx.metrics(
@@ -470,6 +680,8 @@ def screen_with_cascade(
         "hit": res.metrics.unprocessed > 0,
         "stopped_by": res.metrics.budget_stopped or None,
     }
+    if isinstance(pairs, JudgedPairs):
+        out["judged_store"] = pairs.report()  # D-908 (D-519): model calls answered from the store, and asked live
     sources = None
     if source is not None:
         sources = {pid: dict(t.s2b_source) for pid, t in sorted(res.traces.items()) if t.s2b_source is not None}
@@ -486,6 +698,7 @@ __all__ = [
     "judged",
     "llm_concurrency",
     "max_pairs_of",
+    "note_batch_of",
     "pipeline",
     "s2b_source",
     "screen_with_cascade",

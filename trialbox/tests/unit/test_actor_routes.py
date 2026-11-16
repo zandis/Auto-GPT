@@ -42,7 +42,7 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     refuse = [r for r in rows if r[2] == "refuse"]
     report = [r for r in rows if r[2] == "report" and r[0] not in sa.SAFE_METHODS]
     # lifecycle, sponsor, the registry and the study router converted; the rest counted
-    assert len(refuse) >= 22 and len(report) == 23
+    assert len(refuse) >= 44 and len(report) == 0  # T-715f/g (D-799, D-803): the data core and the setup router
     # D-717: a patient read names the actions it takes (phi.view, or monitor.read too); each is a matrix row
     assert {a for r in refuse for a in ((r[3],) if isinstance(r[3], str) else r[3])} <= set(MATRIX)
     # NEW-SEC-1 (D-717): a refuse route takes no person from its request; the two EDC reads of the v2 group keep
@@ -53,7 +53,11 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     # NEW-SEC-1 (D-717): a patient read refuses whatever its group's stage; the groups are those of the changing routes
     groups = {CALLER_GATE.table.group_of(f"{m} {p}") for m, p, *_ in refuse if m not in sa.SAFE_METHODS}
     # T-716: the chart number; T-715b (D-550): the registry; T-715d (D-554): the study router
-    assert groups == set(ra.TABLE["refuse"]) == {"lifecycle", "sponsor", "job_reveal", "registry", "study"}
+    assert (
+        groups
+        == set(ra.TABLE["refuse"])
+        == {"lifecycle", "sponsor", "job_reveal", "registry", "study", "dataops", "datacore", "setup"}
+    )  # T-715f (D-799)
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
     assert all(r[2] or CALLER_GATE.table.group_of(f"{r[0]} {r[1]}") in (*ra.TABLE["v2"], *ra.TABLE["no_person"])
                for r in changing)  # fmt: skip
@@ -423,37 +427,53 @@ def test_the_standing_in_the_claim_is_what_the_matrix_is_asked_with() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ report stage
+def _report_route() -> TestClient:
+    """T-715g (D-803): no route of the app is in stage `report` any more; the stage (kept for a router that is moved
+    there first) is held on a route of its own, with the app's audit (the ``box`` fixture's)."""
+    from fastapi import FastAPI
+
+    mini = FastAPI()
+
+    @mini.post("/setup/{ws}/codes", dependencies=[ra.report_actor])
+    def x(ws: str) -> dict[str, str]:
+        return {"ws": ws}
+
+    @mini.get("/setup/{ws}/codes")
+    def y(ws: str) -> dict[str, str]:
+        return {"ws": ws}
+
+    return TestClient(mini)
+
+
 def test_a_report_route_counts_an_unsigned_call_and_lets_it_through(box: Any) -> None:
-    client, events = box
-    # T-715d (D-554): the settings route this test used refuses now; the data core's own forms route still reports
-    path, body = "/studies/GZQO/forms/builtin", {"by": "dr_tanaka"}
-    key = "POST /studies/{rs}/forms/builtin"
+    _client, events = box
+    client = _report_route()
+    path, body = "/setup/w1/codes", {"by": "dr_tanaka"}
+    key = "POST /setup/{ws}/codes"
     before = sum(n for (route, _), n in ra.UNSIGNED.items() if route == key)
     r = client.post(path, json=body)
     assert _refused(r) == "" and not [e for e in events if e["kind"] == "actor.refused"]  # let through: report
     assert sum(n for (route, _), n in ra.UNSIGNED.items() if route == key) == before + 1
     assert ra.UNSIGNED[(key, "no v3 assertion")] >= 1
     # a valid assertion for this request is not counted; one for another body is
-    client.post(path, json=body, headers=signed("study.setup", "GZQO", "POST", path, body))
+    client.post(path, json=body, headers=signed("site.setup", "", "POST", path, body))
     assert sum(n for (route, _), n in ra.UNSIGNED.items() if route == key) == before + 1
-    client.post(path, json=body, headers=signed("study.setup", "GZQO", "POST", path, {"other": 1}))
+    client.post(path, json=body, headers=signed("site.setup", "", "POST", path, {"other": 1}))
     assert ra.UNSIGNED[(key, "body")] >= 1
-    assert (
-        client.get("/studies/GZQO/forms").status_code != 403
-        and ra.UNSIGNED.get(("GET /studies/{rs}/forms", "no v3 assertion")) is None
-    )
+    assert client.get(path).status_code == 200 and ra.UNSIGNED.get(("GET /setup/{ws}/codes", "no v3 assertion")) is None
 
 
 def test_a_report_route_counts_a_claim_for_another_study_or_without_the_right(box: Any) -> None:
     """Review M1: in stage `report` a claim counts as a verified person only when it is for this study and the
     matrix allows its own action to its role; the first of each route and reason is in the audit trail."""
-    client, events = box
-    path, body = "/studies/GZQO/forms/builtin", {"by": "dr_tanaka"}  # T-715d: the settings route refuses now
-    key = "POST /studies/{rs}/forms/builtin"
+    _client, events = box
+    client = _report_route()
+    # the other-study case: test_a_report_stage_route_that_names_a_study_counts_a_claim_for_another
+    path, body = "/setup/w1/codes", {"by": "dr_tanaka"}
+    key = "POST /setup/{ws}/codes"
     for reason, headers in (
-        ("study", signed("study.setup", "OTHER", "POST", path, body)),
-        ("right", signed("sae.ack", "GZQO", "POST", path, body, role="viewer")),
-        ("principal", signed("sae.ack", "GZQO", "POST", path, body, sub="service:console-notify", role="service")),
+        ("right", signed("sae.ack", "", "POST", path, body, role="viewer")),
+        ("principal", signed("sae.ack", "", "POST", path, body, sub="service:console-notify", role="service")),
     ):
         before = ra.UNSIGNED[(key, reason)]
         assert _refused(client.post(path, json=body, headers=headers)) == ""  # let through: report
@@ -534,3 +554,25 @@ def test_a_report_route_keeps_why_a_claim_was_not_a_verified_person() -> None:
         headers=signed("optout.keep", "", "POST", "/setup/pseudonym", body, role="steward"),
     )
     assert why == ["right", "no v3 assertion", ""]
+
+
+def test_a_report_stage_route_that_names_a_study_counts_a_claim_for_another() -> None:
+    """The review of D-799 (4): the last report routes name no study, so the report stage's study check is held here,
+    on a route of its own that names one."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    mini = FastAPI()
+
+    @mini.post("/studies/{rs}/x", dependencies=[ra.report_actor])
+    def x(rs: str) -> dict[str, str]:
+        return {"rs": rs}
+
+    c, path, body = TestClient(mini), "/studies/GZQO/x", {"a": 1}
+    key = "POST /studies/{rs}/x"
+    before = ra.UNSIGNED[(key, "study")]
+    r = c.post(path, json=body, headers=signed("study.setup", "OTHER", "POST", path, body))
+    assert r.status_code == 200 and ra.UNSIGNED[(key, "study")] == before + 1  # let through, counted
+    mine = ra.UNSIGNED[(key, "study")]
+    c.post(path, json=body, headers=signed("study.setup", "GZQO", "POST", path, body))
+    assert ra.UNSIGNED[(key, "study")] == mine  # its own study: not counted

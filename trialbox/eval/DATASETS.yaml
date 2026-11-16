@@ -55,7 +55,7 @@ datasets:
     path: eval/suites/criteria_extract_public
     data_class: D0
     kind: open
-    licence: Chia corpus - licence unconfirmed (App. H); loader disabled, no data
+    licence: Chia corpus, CC BY 4.0 (Kury et al., Sci Data 2020, figshare 10.6084/m9.figshare.11855817), as the chia entry; this suite's loader is not built yet, no data
   trec_ct:
     path: eval/trec_ct (model answers and scores; NIST topics/qrels and NCBI corpus in .cache, never committed)
     data_class: D0
@@ -73,6 +73,11 @@ datasets:
     licence: written for TrialBox (fictional text, no patient data)
   canary_local:
     path: eval/canary_local (answers of 4-bit GGUF builds on CPU to the orchestrator canary, services/orchestrator/canary; 2026-11-08)
+    data_class: D0
+    kind: synthetic
+    licence: written for TrialBox (fictional notes, no patient data)
+  accuracy:
+    path: eval/accuracy (the note accuracy set per language and stratum, NEW-LLM-6, D-784; generated from a seed by tools/accuracy_set.py and pinned by MANIFEST.json, never committed; reports hold counts and rates only)
     data_class: D0
     kind: synthetic
     licence: written for TrialBox (fictional notes, no patient data)

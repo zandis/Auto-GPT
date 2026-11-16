@@ -141,7 +141,8 @@ def test_randomised_on_the_log_and_possible_deviations(lb: dict[str, Any]) -> No
     assert f'data-testid="randomised-{no}"' in log and "Randomised 2026-11-04" in log
     ws: Any = load_workbook(io.BytesIO(crc.get("/studies/GZQO/screening-log.xlsx").content))["screening log"]
     rows = [list(x) for x in ws.iter_rows(values_only=True)]
-    assert rows[0][-1] == "randomisation_date" and any(r[-1] == "2026-11-04" for r in rows[1:])
+    at = rows[0].index("randomisation_date")  # D-762 put the opt-out day after it
+    assert rows[0][at + 1 :] == ["opted_out"] and any(r[at] == "2026-11-04" for r in rows[1:])
     # enrolled on the 2nd, consent on the 3rd: a possible deviation, never a deviation by itself
     page = crc.get("/studies/GZQO/deviations").text
     assert f'data-testid="dev-{no}-consent_after"' in page and "before consent on 2026-11-03" in page

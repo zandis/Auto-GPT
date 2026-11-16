@@ -30,7 +30,7 @@ import time
 import urllib.request
 from collections import Counter
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +168,48 @@ def gauge_summary(rows: Iterable[dict[str, str]]) -> dict[str, dict[str, float]]
             if v is not None:
                 s[f"{g}_max"] = max(s.get(f"{g}_max", 0.0), v)
     return out
+
+
+def _gpu_at(cell: str) -> float | None:
+    """``nvidia-smi``'s timestamp (``2026/11/12 17:26:37.329``, the VM's clock, UTC) as epoch seconds."""
+    try:
+        return datetime.strptime(cell.strip(), "%Y/%m/%d %H:%M:%S.%f").replace(tzinfo=UTC).timestamp()
+    except ValueError:
+        return None
+
+
+def window_card(folder: Path, t0: float, t1: float) -> dict[str, Any]:
+    """The card and the servers' gauges inside ``[t0, t1]`` (epoch seconds; the main SCREEN's own window): the
+    utilisation's mean and max over the samples in it (``nvidia-smi`` utilisation is the share of time a kernel ran,
+    not how much of the card is left: no headroom measure), and each server's KV-cache usage peak from vllm.csv."""
+    out: dict[str, Any] = {"from": t0, "to": t1}
+    g = folder / "gpu.csv"
+    if g.exists():
+        with g.open(newline="", encoding="utf-8") as fh:
+            rows = [r for r in csv.reader(fh) if r and r[0] != GPU_FIELDS[0]]
+        inside = [r for r in rows if (at := _gpu_at(r[0])) is not None and t0 <= at <= t1]
+        s = gpu_summary(inside)
+        out["gpu"] = {k: s.get(k) for k in ("samples", "util_mean_pct", "util_max_pct")}
+    v = folder / "vllm.csv"
+    if v.exists():
+        with v.open(newline="", encoding="utf-8") as fh:
+            rows2 = list(csv.DictReader(fh))
+        keep = []
+        for r in rows2:
+            try:
+                at = datetime.fromisoformat(r.get("at", "")).timestamp()
+            except ValueError:
+                continue
+            if t0 <= at <= t1:
+                keep.append(r)
+        out["kv_cache_usage_max"] = {n: s2.get("kv_cache_usage_max") for n, s2 in gauge_summary(keep).items()}
+    return out
+
+
+def window_calls(calls: list[dict[str, Any]], t0: float, t1: float) -> list[dict[str, Any]]:
+    """The calls that started and ended inside ``[t0, t1]`` (the main SCREEN's window: the canary before it and the
+    later stages' one-at-a-time calls are left out)."""
+    return [c for c in calls if c["end"] - c["latency_s"] >= t0 and c["end"] <= t1]
 
 
 class Monitor:
@@ -329,19 +371,76 @@ def call_stats(calls: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+# ---------------------------------------------------------------- the gateway's refusals
+def audit_refusals(audit_dir: Path, since: datetime | None = None) -> list[dict[str, Any]]:
+    """The calls the gateway refused in ``audit_dir`` at or after ``since`` (``llm.gateway.refuse``: the PHI
+    tripwire, the guard, an unregistered prompt, a busy model ...): ``{"end", "reason", "role"}``. No message text is
+    kept: the reason code and the caller's role only."""
+    out: list[dict[str, Any]] = []
+    for f in sorted(audit_dir.glob("*.jsonl")) if audit_dir.is_dir() else []:
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if '"llm.gateway.refuse"' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+                end = datetime.fromisoformat(rec["ts"])
+            except (ValueError, KeyError, TypeError):
+                continue
+            d = rec.get("detail") or {}
+            if rec.get("event") != "llm.gateway.refuse" or (since is not None and end < since):
+                continue
+            out.append({"end": end.timestamp(), "reason": str(d.get("reason") or "?"),
+                        "role": str(d.get("role") or "")})  # fmt: skip
+    return out
+
+
+def refusal_stats(calls: list[dict[str, Any]], refusals: list[dict[str, Any]]) -> dict[str, Any]:
+    """``N of M`` for the throughput table (the integrator's ask; the scale gate saw 5 of 85 judge calls refused on
+    synthetic notes): the calls asked (answered + refused), the refused ones, by reason and by the caller's role."""
+    asked = len(calls) + len(refusals)
+    return {"asked": asked, "refused": len(refusals),
+            "by_reason": dict(sorted(Counter(r["reason"] for r in refusals).items())),
+            "by_role": dict(sorted(Counter(r["role"] or "?" for r in refusals).items()))}  # fmt: skip
+
+
+def refused_cell(s: dict[str, Any] | None) -> str:
+    """``5 of 85 (phi_tripwire 5)``; ``-`` when nothing was measured."""
+    if not s or not s.get("asked"):
+        return "-"
+    why = ", ".join(f"{k} {v}" for k, v in (s.get("by_reason") or {}).items())
+    return f"{s['refused']} of {s['asked']}" + (f" ({why})" if why else "")
+
+
 # ---------------------------------------------------------------- the candidate list
-def candidate_list(results: dict[str, Any]) -> dict[str, Any]:
-    """Who a SCREEN listed (every tier but ``excluded``), sorted, with the sha256 of the list: equal lists at two
-    concurrency settings have equal hashes. ``results``: pid -> the cascade's verdicts (``tier``)."""
-    rows = sorted((str(pid), str(getattr(pv, "tier", ""))) for pid, pv in results.items()
-                  if getattr(pv, "tier", "excluded") != "excluded")  # fmt: skip
+def _listed(pairs: Iterable[tuple[str, str]]) -> dict[str, Any]:
+    rows = sorted((str(pid), str(tier)) for pid, tier in pairs if tier != "excluded")
     digest = hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
     return {"count": len(rows), "sha256": digest, "tiers": dict(sorted(Counter(t for _, t in rows).items())),
             "list": [list(r) for r in rows]}  # fmt: skip
 
 
+def candidate_list(results: dict[str, Any]) -> dict[str, Any]:
+    """Who a SCREEN listed (every tier but ``excluded``), sorted, with the sha256 of the list: equal lists at two
+    concurrency settings have equal hashes. ``results``: pid -> the cascade's verdicts (``tier``)."""
+    return _listed((str(pid), str(getattr(pv, "tier", "excluded"))) for pid, pv in results.items())
+
+
+def candidate_list_of_rows(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """The same from a SCREEN job's own ``candidate_list_*.json`` (its ``rows``: ``pid`` and ``tier``): the list of
+    the part's main SCREEN, the one whose funnel the report shows (the 2026-11-12 run compared a one-patient list of a
+    later stage's SCREEN instead and called four different lists identical)."""
+    return _listed((str(r.get("pid", "")), str(r.get("tier", "excluded"))) for r in rows)
+
+
+def _main_list(r: dict[str, Any]) -> bool:
+    """The part's candidate list is of the SCREEN whose funnel it reports: its count is the screen's ``listed``."""
+    c, listed = r.get("candidates") or {}, (r.get("screen") or {}).get("listed")
+    return bool(c.get("sha256")) and (listed is None or c.get("count") == listed)
+
+
 def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The report's throughput table: one line per part result that measured calls or a card."""
+    """The report's throughput table: one line per part result that measured calls or a card. ``candidates``: the
+    main SCREEN's ``listed``; its list's hash only when the recorded list is that screen's (else ``None``)."""
     out = []
     for r in rows:
         t, m, c = r.get("throughput") or {}, r.get("metrics") or {}, r.get("candidates") or {}
@@ -349,6 +448,7 @@ def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         gpu = m.get("gpu") or {}
         srv = m.get("servers") or {}
+        listed = (r.get("screen") or {}).get("listed")
         out.append({
             "tag": r.get("tag"), "llm_concurrency": r.get("llm_concurrency"), "calls": t.get("calls", 0),
             "calls_per_second": t.get("calls_per_second"), "tokens_per_second": t.get("tokens_per_second"),
@@ -357,18 +457,83 @@ def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "queue_mean_s": {n: s.get("queue_mean_s") for n, s in srv.items() if s.get("queue_mean_s") is not None},
             "ttft_mean_s": {n: s.get("ttft_mean_s") for n, s in srv.items() if s.get("ttft_mean_s") is not None},
             "breaker_opens": sum((t.get("breaker_opens") or {}).values()) if "breaker_opens" in t else None,
-            "candidates": c.get("count"), "candidates_sha256": c.get("sha256"),
+            "refused": r.get("refusals"),
+            "candidates": listed if listed is not None else c.get("count"),
+            "candidates_sha256": c.get("sha256") if _main_list(r) else None,
+            "window": "whole part", "gpu_util_max_pct": gpu.get("util_max_pct"),
+            "kv_cache_peak": {n: g.get("kv_cache_usage_max") for n, g in (m.get("gauges") or {}).items()} or None,
         })  # fmt: skip
+        ts = r.get("throughput_screen")
+        if ts:  # audit a: the main SCREEN's own window first; the whole part (canary, stages 15 and 17) after it
+            g2 = ts.get("gpu") or {}
+            out.insert(len(out) - 1, {**out[-1], "window": "main SCREEN", "calls": ts.get("calls", 0),
+                                      "calls_per_second": ts.get("calls_per_second"),
+                                      "tokens_per_second": ts.get("tokens_per_second"), "p50_s": ts.get("p50_s"),
+                                      "p95_s": ts.get("p95_s"), "gpu_util_mean_pct": g2.get("util_mean_pct"),
+                                      "gpu_util_max_pct": g2.get("util_max_pct"),
+                                      "kv_cache_peak": ts.get("kv_cache_usage_max") or None})  # fmt: skip
     return out
 
 
-def lists_identical(rows: list[dict[str, Any]]) -> dict[str, bool]:
-    """Per hospital language with more than one result that has a candidate list: are the lists the same?"""
-    by: dict[str, set[str]] = {}
-    n: Counter[str] = Counter()
+def repeat_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """B5 (``--repeats``): per hospital language and calls-in-flight setting run more than once
+    (``hospital-<lang>@c<N>#r<k>``), the main SCREEN's calls/s of each repeat, their mean, min and max. A repeat with no
+    main SCREEN measured counts in ``repeats`` but not in the figures."""
+    by: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for r in rows:
-        sha = (r.get("candidates") or {}).get("sha256")
-        if r.get("part") == "hospital" and sha:
-            by.setdefault(str(r.get("lang")), set()).add(sha)
-            n[str(r.get("lang"))] += 1
-    return {lang: len(s) == 1 for lang, s in sorted(by.items()) if n[lang] > 1}
+        tag = str(r.get("tag") or "")
+        if r.get("part") == "hospital" and "#r" in tag:
+            by.setdefault((_lang(r), tag.split("#", 1)[0]), []).append(r)
+    out = []
+    for (lang, setting), rs in sorted(by.items(), key=lambda kv: (kv[0][0], _in_flight(kv[0][1]))):
+        rates = [float(x) for r in rs if (x := (r.get("throughput_screen") or {}).get("calls_per_second")) is not None]
+        out.append({"lang": lang, "setting": setting, "llm_concurrency": _in_flight(setting), "repeats": len(rs),
+                    "measured": len(rates), "tags": [str(r.get("tag")) for r in rs],
+                    "mean": round(sum(rates) / len(rates), 3) if rates else None,
+                    "min": min(rates) if rates else None, "max": max(rates) if rates else None})  # fmt: skip
+    return out
+
+
+def _in_flight(setting: str) -> int:
+    tail = setting.rsplit("@c", 1)[-1] if "@c" in setting else ""
+    return int(tail) if tail.isdigit() else 0
+
+
+def _lang(r: dict[str, Any]) -> str:
+    return str(r.get("lang") or str(r.get("tag", "")).split("@", 1)[0].removeprefix("hospital-"))
+
+
+def lists_compare(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per hospital language with more than one result: are the main SCREEN's candidate lists the same at every
+    calls-in-flight setting? ``identical`` True / False, or None (not comparable: a result has no list of its main
+    SCREEN, ``why`` says which). When they differ, ``differ`` names each pseudonymous id that is not listed alike,
+    with its tier at every setting (``-``: not listed there)."""
+    by: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        if r.get("part") == "hospital" and (r.get("candidates") or (r.get("screen") or {}).get("listed") is not None):
+            by.setdefault(_lang(r), []).append(r)
+    out: dict[str, dict[str, Any]] = {}
+    for lang, rs in sorted(by.items()):
+        if len(rs) < 2:
+            continue
+        tags = [str(r.get("tag")) for r in rs]
+        bad = [r for r in rs if not _main_list(r) or not isinstance((r.get("candidates") or {}).get("list"), list)]
+        if bad:
+            why = "; ".join(f"{r.get('tag')}: list of {(r.get('candidates') or {}).get('count', 'no')} "
+                            f"patient(s), its main SCREEN listed {(r.get('screen') or {}).get('listed', '?')}"
+                            for r in bad)  # fmt: skip
+            out[lang] = {"identical": None, "settings": tags, "differ": [],
+                         "why": f"not the main SCREEN's list ({why})"}  # fmt: skip
+            continue
+        tiers = [{str(p): str(t) for p, t in r["candidates"]["list"]} for r in rs]
+        pids = sorted(set().union(*tiers))
+        differ = [{"pid": p, "tiers": {tag: t.get(p, "-") for tag, t in zip(tags, tiers, strict=True)}}
+                  for p in pids if len({t.get(p, "-") for t in tiers}) > 1]  # fmt: skip
+        same = len({r["candidates"]["sha256"] for r in rs}) == 1 and not differ
+        out[lang] = {"identical": same, "settings": tags, "differ": differ, "why": ""}
+    return out
+
+
+def lists_identical(rows: list[dict[str, Any]]) -> dict[str, bool | None]:
+    """Per hospital language with more than one result: are the main SCREEN's lists the same (None: not comparable)?"""
+    return {lang: v["identical"] for lang, v in lists_compare(rows).items()}

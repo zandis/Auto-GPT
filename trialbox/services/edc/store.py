@@ -111,19 +111,32 @@ ALTER TABLE signature ALTER COLUMN sig_version SET DEFAULT 2;
 ALTER TABLE signature DROP CONSTRAINT IF EXISTS signature_v2_only;
 ALTER TABLE signature ADD CONSTRAINT signature_v2_only CHECK (sig_version = 2) NOT VALID
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
+# NEW-EDC-4 (D-694): the source a draft run read for an item a person had already decided, when it differs from the
+# source the decision was made against (``source_changed``), and the source a person last kept or changed it under
+# (``source_seen``); both JSON
+SCHEMA_V6 = """
+ALTER TABLE draft ADD COLUMN IF NOT EXISTS source_changed TEXT;
+ALTER TABLE draft ADD COLUMN IF NOT EXISTS source_seen TEXT
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick")  # fmt: skip
+#: the send's lines that say what REDCap held for an item after TrialBox's write, and the write itself (NEW-EDC-8)
+READ_BACK = ("attempt", "sent", "readback", "erased", "already_there", "conflict", "instance_taken", "refused")
+#: NEW-EDC-5b: the words before REDCap's value in a ``changed_in_redcap`` line, and the ledger detail's length
+CHANGED_SAYS = "REDCap holds another value than TrialBox sent: "
+DETAIL_MAX = 300
 REENTRY_SOURCES = ("admin", "pq")  # who wrote the record: an administrator with the filed report, or the PQ tooling
 SIG_VERSION = 2
 METHODS = ("password", "password+totp", "oidc+mfa")  # how the signer re-authenticated (D-279; T-205: at the directory)
 KEY_ENV = "TB_EDC_SIGN_KEY_FILE"
 KEY_FILE = "edc_sign.key"  # in the orchestrator's secrets folder when TB_EDC_SIGN_KEY_FILE is not set
 _DEV_KEY = b"trialbox DEV/TEST EDC signature key, never on a box"
-FATES = ("open", "confirmed", "edited", "rejected", "superseded")
+FATES = ("open", "confirmed", "edited", "rejected", "superseded", "retired")  # retired: NEW-EDC-6 (D-696)
 DECIDED = ("confirmed", "edited")
-ACTIONS = ("confirm", "edit", "reject")
+#: keep: NEW-EDC-4, a decided value whose source changed since; retire: NEW-EDC-6, one whose item an amendment removed
+ACTIONS = ("confirm", "edit", "reject", "keep", "retire")
 ACK_KINDS = ("sponsor_letter", "iit_pi_sponsor")
 REENTRY_PAGES = 30  # WS-16.4: 30 real CRF pages double-entered blind against the drafts
 REENTRY_ACCURACY = 0.98  # post-confirmation field accuracy before prefill is enabled for the study
@@ -173,6 +186,19 @@ class Switch:
 #: what a draft was built under (T-115, E-15, E-16): in the value's hash when set, so a draft from before keeps its
 #: hash and its signature
 BUILT_UNDER = ("map_sha", "dict_sha", "target")
+
+
+def source_key(value: Any, state: Any, citation: Any) -> dict[str, str]:
+    """What a person compared a value with (NEW-EDC-4): the drafted value and the row it came from (table, row, day,
+    quote). Not the snapshot: the same row and value read on another night is the same source; not the citation's
+    kind (a site fact confirmed since is the same row)."""
+    c = citation if isinstance(citation, dict) else {}
+    return {"value": str(value or "") if state == "drafted" else "",
+            **{k: str(c.get(k) or "") for k in ("table", "row", "day", "quote")}}  # fmt: skip
+
+
+#: a draft run that could not read the source (no model; the notes past what one call takes) says nothing about it
+UNREAD = ("no_model", "too_long")
 
 
 def draft_sha(d: dict[str, Any]) -> str:
@@ -512,14 +538,20 @@ class EdcStore:
                                 (study, record, pid))  # fmt: skip
             if other is not None:
                 raise EdcError("edc.pid_mismatch", "this record key was drafted for another subject")
-            decided = {r["item"] for r in tx.fetchdicts(
-                "SELECT item FROM draft WHERE study = ? AND record = ? AND visit = ? "
-                "AND fate IN ('confirmed', 'edited')",
+            decided = {r["item"]: self._row(r) for r in tx.fetchdicts(
+                "SELECT * FROM draft WHERE study = ? AND record = ? AND visit = ? "
+                "AND fate IN ('confirmed', 'edited') FOR UPDATE",
                 (study, record, visit))}  # fmt: skip
             tx.execute("UPDATE draft SET fate = 'superseded' WHERE study = ? AND record = ? AND visit = ? AND "
                        "fate IN ('open', 'rejected')", (study, record, visit))  # fmt: skip
+            back = {str(d["item"]) for d in drafts}  # NEW-EDC-6: a retired item in the study again is drafted again
+            for r in tx.fetchdicts("SELECT * FROM draft WHERE study = ? AND record = ? AND visit = ? AND "
+                                   "fate = 'retired'", (study, record, visit)):  # fmt: skip
+                if str(r["item"]) in back:
+                    self._reopen(tx, study, r, by, at)
             for d in drafts:
                 if d["item"] in decided:
+                    self._mark_source(tx, study, decided[d["item"]], d, run_id, by, at)
                     continue
                 ids.append(int(tx.fetchval(
                     "INSERT INTO draft (study, record, pid, visit, visit_date, item, form, cdash, test, value, state, "
@@ -530,6 +562,44 @@ class EdcStore:
                      d["version"], run_id, by, at, str(d.get("map_sha") or ""), str(d.get("dict_sha") or ""),
                      str(d.get("target") or "")))))  # fmt: skip
         return ids
+
+    @staticmethod
+    def _mark_source(tx: Any, study: str, cur: dict[str, Any], d: dict[str, Any], run_id: str, by: str,
+                     at: str) -> None:  # fmt: skip
+        """NEW-EDC-4 (EDC-004): a draft run read the source of an item a person had decided. When it differs from the
+        source the decision was made against (the one drafted then, or the one the person last kept or changed it
+        under), the decided value is marked ``source_changed``, with a ``source_changed`` line in the decisions; it
+        is held from signing and sending until a person keeps it (with a reason) or changes it. The same change read
+        again marks nothing new."""
+        if d["state"] != "drafted" and d["why"] in UNREAD:
+            return
+        new = source_key(d["value"], d["state"], d["citation"])
+        seen = cur["source_seen"] or source_key(cur["value"], cur["state"], cur["citation"])
+        if new == seen:
+            return
+        flagged = cur["source_changed"]
+        if flagged and source_key(flagged.get("value"), flagged.get("state"), flagged.get("citation")) == new:
+            return
+        mark: dict[str, Any] = {"value": d["value"], "state": d["state"], "why": d["why"], "citation": d["citation"],
+                                "run_id": run_id, "at": at}  # fmt: skip
+        mark["id"] = hashlib.sha256(json.dumps(mark, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+        tx.execute("UPDATE draft SET source_changed = ? WHERE id = ?",
+                   (json.dumps(mark, ensure_ascii=False), int(cur["id"])))  # fmt: skip
+        tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, citation, "
+                   "by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (int(cur["id"]), study, cur["record"], cur["visit"], cur["item"], "source_changed", cur["final"],
+                    d["value"] if d["state"] == "drafted" else "", "the source changed since this value was decided",
+                    json.dumps(d["citation"], ensure_ascii=False) if d["citation"] else None, by, at))  # fmt: skip
+
+    @staticmethod
+    def _reopen(tx: Any, study: str, r: dict[str, Any], by: str, at: str) -> None:
+        """NEW-EDC-6: a retired value whose item is in the study again is set aside, with a ``reopened`` line, so
+        the new draft is the item's one current draft (two would stop every send and export: ``edc.duplicate``)."""
+        tx.execute("UPDATE draft SET fate = 'superseded' WHERE id = ?", (int(r["id"]),))
+        tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, citation, "
+                   "by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (int(r["id"]), study, r["record"], r["visit"], r["item"], "reopened", r["final"], None,
+                    "the item is in the study again; it is drafted again", None, by, at))  # fmt: skip
 
     def add_proposals(self, study: str, proposals: list[dict[str, Any]], run_id: str, by: str,
                       at: str) -> dict[str, list[dict[str, Any]]]:  # fmt: skip
@@ -559,6 +629,10 @@ class EdcStore:
                         and (_cit(last["citation"]) or {}).get("file") == p["citation"]["file"]):  # fmt: skip
                     out["same"].append(brief)
                     continue
+                for r in cur:  # NEW-EDC-6: a retired item in the file again is proposed again
+                    if r["fate"] == "retired":
+                        full = tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (int(r["id"]),))[0]
+                        self._reopen(tx, study, full, by, at)
                 tx.execute("UPDATE draft SET fate = 'superseded' WHERE study = ? AND record = ? AND visit = ? AND "
                            "item = ? AND fate IN ('open', 'rejected')", key)  # fmt: skip
                 did = int(tx.fetchval(
@@ -576,6 +650,8 @@ class EdcStore:
         r = dict(r)
         r["citation"] = _cit(r.get("citation"))
         r["final_citation"] = _cit(r.get("final_citation"))
+        for k in ("source_changed", "source_seen"):  # NEW-EDC-4
+            r[k] = json.loads(r[k]) if r.get(k) else None
         r["sha"] = draft_sha(r) if r.get("fate") in DECIDED else ""  # what a signature would cover now
         return r
 
@@ -613,7 +689,7 @@ class EdcStore:
     def decide(self, study: str, draft_id: int, action: str, *, value: str = "", reason: str = "",
                citation: dict[str, Any] | None = None, by: str, at: str, unlock: bool = False,
                before_commit: Callable[[dict[str, Any]], None] | None = None,
-               built: Mapping[str, str] | None = None) -> dict[str, Any]:  # fmt: skip
+               built: Mapping[str, str] | None = None, mark: str = "") -> dict[str, Any]:  # fmt: skip
         """Confirm, edit (with a reason) or reject one draft. The value's check against the field is the caller's
         (it knows the dictionary); the rules on citations, reasons and order are here.
 
@@ -631,6 +707,8 @@ class EdcStore:
             d = self._row(rows[0])
             if d["fate"] == "superseded":
                 raise EdcError("edc.superseded", "a newer draft replaced this one; open the subject again")
+            if d["fate"] == "retired":  # NEW-EDC-6: final until the item is in the study again (drafted again then)
+                raise EdcError("edc.retired", "this value is retired: its item left the study")
             if d["signature_id"] is not None:
                 if not unlock:
                     raise EdcError("edc.locked", "this value is signed; type your password again to change it", 423)
@@ -638,67 +716,116 @@ class EdcStore:
                     raise EdcError("edc.reason", "say why a signed value is changed", 400)
             old = d["final"] if d["fate"] in DECIDED else None
             cite = d["citation"]
-            if action == "confirm":
-                if d["fate"] in DECIDED:
-                    raise EdcError("edc.decided", "already decided; change it with a reason instead")
-                if d["state"] != "drafted" or not d["value"] or not cite:
-                    raise EdcError("edc.no_citation", "a value without a citation cannot be confirmed")
-                fate, final, final_cite = "confirmed", d["value"], cite
-            elif action == "edit":
+            flagged = d.get("source_changed")
+            seen = (json.dumps(source_key(flagged.get("value"), flagged.get("state"), flagged.get("citation")))
+                    if flagged else d.get("source_seen") and json.dumps(d["source_seen"]))  # fmt: skip
+            if action == "keep":  # NEW-EDC-4: the decided value stands although its source changed; signature kept
+                if not flagged:
+                    raise EdcError("edc.not_changed", "the source of this value has not changed since it was decided")
+                if not mark or mark != str(flagged.get("id") or ""):  # the mark the person saw, not a later one
+                    raise EdcError("edc.mark_changed", "the source changed again since the page was shown; open it "
+                                   "again")  # fmt: skip
                 if not reason.strip():
-                    raise EdcError("edc.reason", "say why the value is changed", 400)
-                if not value.strip():
-                    raise EdcError("edc.value", "type the value", 400)
-                final_cite = cite
-                if citation and str(citation.get("text") or "").strip():
-                    final_cite = {"kind": "manual", "text": str(citation["text"]).strip()[:300],
-                                  "day": str(citation.get("day") or "")[:10], "by": by,
-                                  **({"replaces": cite} if cite else {})}  # fmt: skip
-                elif value.strip() != (d["value"] or ""):
-                    # a changed value never keeps the machine's citation of the old one (review E-08)
-                    raise EdcError("edc.edit_source", "a changed value needs its own source: say where it comes from",
-                                   400)  # fmt: skip
-                if not final_cite:
-                    raise EdcError("edc.no_citation", "a value without a citation cannot be confirmed: name the source")
-                rebuilt = bool(built) and any(str((built or {}).get(k) or "") != str(d.get(k) or "")
-                                              for k in BUILT_UNDER)  # fmt: skip
-                if (d["fate"] in DECIDED and final_cite == d["final_citation"] and value.strip() == d["final"]
-                        and not rebuilt):  # fmt: skip
-                    raise EdcError("edc.same", "the value and its source are unchanged")  # compared by value (E-28)
-                fate, final = "edited", value.strip()
-            else:  # reject
-                if d["sent_at"]:
-                    raise EdcError("edc.sent", "a sent value is changed with a reason, not rejected")
-                if d["fate"] in DECIDED and not reason.strip():
-                    raise EdcError("edc.reason", "say why a decided value is withdrawn", 400)
-                fate, final, final_cite = "rejected", None, None
-            if d["signature_id"] is not None:  # the change withdraws the signature over this value: keep that visible
+                    raise EdcError("edc.reason", "say why the value stands although its source changed", 400)
+                tx.execute("UPDATE draft SET source_changed = NULL, source_seen = ? WHERE id = ?", (seen, draft_id))
                 tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
                            "citation, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                           (draft_id, study, d["record"], d["visit"], d["item"], "signature_void", old, old,
-                            f"signature {d['signature_id']} no longer covers this value", None, by, at))  # fmt: skip
-                tx.execute("INSERT INTO signature_void (signature_id, study, record, visit, draft_id, item, action, "
-                           "reason, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                           (int(d["signature_id"]), study, d["record"], d["visit"], draft_id, d["item"], action,
-                            reason.strip()[:300], by, at))  # fmt: skip
-            tx.execute("UPDATE draft SET fate = ?, final = ?, final_citation = ?, reason = ?, decided_by = ?, "
-                       "decided_at = ?, signature_id = NULL, signed_sha = NULL WHERE id = ?",
-                       (fate, final, json.dumps(final_cite, ensure_ascii=False) if final_cite else None,
-                        reason.strip()[:300], by, at, draft_id))  # fmt: skip
-            if action == "edit" and built:
-                tx.execute("UPDATE draft SET map_sha = ?, dict_sha = ?, target = ? WHERE id = ?",
-                           (*(str(built.get(k) or "") for k in BUILT_UNDER), draft_id))  # fmt: skip
-            tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
-                       "citation, "
-                       "by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                       (draft_id, study, d["record"], d["visit"], d["item"], action, old, final, reason.strip()[:300],
-                        json.dumps(final_cite, ensure_ascii=False) if final_cite else None, by, at))  # fmt: skip
-            if before_commit is not None:
-                row = self._row(tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (draft_id,))[0])
-                before_commit({**row, "voided": d["signature_id"]})
+                           (draft_id, study, d["record"], d["visit"], d["item"], "keep", old, old,
+                            reason.strip()[:300], json.dumps(flagged.get("citation"), ensure_ascii=False)
+                            if flagged.get("citation") else None, by, at))  # fmt: skip
+                if before_commit is not None:
+                    row = self._row(tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (draft_id,))[0])
+                    before_commit({**row, "voided": None, "kept_signed": d["signature_id"]})
+            elif action == "retire":  # NEW-EDC-6: the item left the study (the caller checked); the value is kept
+                if d["fate"] not in DECIDED:
+                    raise EdcError("edc.not_decided", "only a confirmed or changed value is retired; reject a draft")
+                if not reason.strip():
+                    raise EdcError("edc.reason", "say why the value is retired", 400)
+                tx.execute("UPDATE draft SET fate = 'retired', reason = ?, decided_by = ?, decided_at = ?, "
+                           "source_changed = NULL WHERE id = ?", (reason.strip()[:300], by, at, draft_id))  # fmt: skip
+                tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
+                           "citation, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                           (draft_id, study, d["record"], d["visit"], d["item"], "retire", old, old,
+                            reason.strip()[:300], None, by, at))  # fmt: skip
+                if before_commit is not None:
+                    row = self._row(tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (draft_id,))[0])
+                    before_commit({**row, "voided": None, "kept_signed": d["signature_id"]})
+            else:
+                self._decide_in(tx, study, draft_id, d, action, old, cite, flagged, seen, value=value,
+                                reason=reason, citation=citation, by=by, at=at, before_commit=before_commit,
+                                built=built)  # fmt: skip
         out = self.draft(study, draft_id)
         assert out is not None
         return out
+
+    def _decide_in(self, tx: Any, study: str, draft_id: int, d: dict[str, Any], action: str, old: Any, cite: Any,
+                   flagged: Any, seen: Any, *, value: str, reason: str, citation: dict[str, Any] | None, by: str,
+                   at: str, before_commit: Callable[[dict[str, Any]], None] | None,
+                   built: Mapping[str, str] | None) -> None:  # fmt: skip
+        """Confirm, edit or reject inside :meth:`decide`'s transaction."""
+        if action == "confirm":
+            if d["fate"] in DECIDED:
+                raise EdcError("edc.decided", "already decided; change it with a reason instead")
+            if d["state"] != "drafted" or not d["value"] or not cite:
+                raise EdcError("edc.no_citation", "a value without a citation cannot be confirmed")
+            fate, final, final_cite = "confirmed", d["value"], cite
+        elif action == "edit":
+            if not reason.strip():
+                raise EdcError("edc.reason", "say why the value is changed", 400)
+            if not value.strip():
+                raise EdcError("edc.value", "type the value", 400)
+            final_cite = cite
+            if citation and str(citation.get("text") or "").strip():
+                final_cite = {"kind": "manual", "text": str(citation["text"]).strip()[:300],
+                              "day": str(citation.get("day") or "")[:10], "by": by,
+                              **({"replaces": cite} if cite else {})}  # fmt: skip
+            elif value.strip() != (d["value"] or ""):
+                # a changed value never keeps the machine's citation of the old one (review E-08)
+                raise EdcError("edc.edit_source", "a changed value needs its own source: say where it comes from",
+                               400)  # fmt: skip
+            if not final_cite:
+                raise EdcError("edc.no_citation", "a value without a citation cannot be confirmed: name the source")
+            if flagged and final_cite == cite:  # NEW-EDC-4: the machine's citation is of the source before it changed
+                raise EdcError("edc.edit_source", "the source changed since this value was decided: say where the "
+                               "value comes from", 400)  # fmt: skip
+            rebuilt = bool(built) and any(str((built or {}).get(k) or "") != str(d.get(k) or "")
+                                          for k in BUILT_UNDER)  # fmt: skip
+            if (d["fate"] in DECIDED and final_cite == d["final_citation"] and value.strip() == d["final"]
+                    and not rebuilt):  # fmt: skip
+                raise EdcError("edc.same", "the value and its source are unchanged")  # compared by value (E-28)
+            fate, final = "edited", value.strip()
+        else:  # reject
+            if d["sent_at"]:
+                raise EdcError("edc.sent", "a sent value is changed with a reason, not rejected")
+            if d["fate"] in DECIDED and not reason.strip():
+                raise EdcError("edc.reason", "say why a decided value is withdrawn", 400)
+            fate, final, final_cite = "rejected", None, None
+        if d["signature_id"] is not None:  # the change withdraws the signature over this value: keep that visible
+            tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
+                       "citation, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (draft_id, study, d["record"], d["visit"], d["item"], "signature_void", old, old,
+                        f"signature {d['signature_id']} no longer covers this value", None, by, at))  # fmt: skip
+            tx.execute("INSERT INTO signature_void (signature_id, study, record, visit, draft_id, item, action, "
+                       "reason, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (int(d["signature_id"]), study, d["record"], d["visit"], draft_id, d["item"], action,
+                        reason.strip()[:300], by, at))  # fmt: skip
+        tx.execute("UPDATE draft SET fate = ?, final = ?, final_citation = ?, reason = ?, decided_by = ?, "
+                   "decided_at = ?, signature_id = NULL, signed_sha = NULL WHERE id = ?",
+                   (fate, final, json.dumps(final_cite, ensure_ascii=False) if final_cite else None,
+                    reason.strip()[:300], by, at, draft_id))  # fmt: skip
+        if flagged:  # NEW-EDC-4: changed or withdrawn after its source changed: the mark is answered
+            tx.execute("UPDATE draft SET source_changed = NULL, source_seen = ? WHERE id = ?", (seen, draft_id))
+        if action == "edit" and built:
+            tx.execute("UPDATE draft SET map_sha = ?, dict_sha = ?, target = ? WHERE id = ?",
+                       (*(str(built.get(k) or "") for k in BUILT_UNDER), draft_id))  # fmt: skip
+        tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
+                   "citation, "
+                   "by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (draft_id, study, d["record"], d["visit"], d["item"], action, old, final, reason.strip()[:300],
+                    json.dumps(final_cite, ensure_ascii=False) if final_cite else None, by, at))  # fmt: skip
+        if before_commit is not None:
+            row = self._row(tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (draft_id,))[0])
+            before_commit({**row, "voided": d["signature_id"]})
 
     # ------------------------------------------------------------------ signature
     def sign(self, study: str, record: str, visit: str, *, signer: str, printed_name: str, role: str, meaning: str,
@@ -718,6 +845,10 @@ class EdcStore:
                 "AND signature_id IS NULL ORDER BY id FOR UPDATE", (study, record, visit))]  # fmt: skip
             if not rows:
                 raise EdcError("edc.nothing_to_sign", "no confirmed value waits for a signature")
+            changed = sorted(str(r["item"]) for r in rows if r.get("source_changed"))
+            if changed:  # NEW-EDC-4: the signature says each value was compared with its source; that source changed
+                raise EdcError("edc.source_changed", "the source changed since these values were decided; keep or "
+                               f"change each first: {', '.join(changed)}")  # fmt: skip
             shas = {int(r["id"]): draft_sha(r) for r in rows}
             if {int(k): str(v) for k, v in seen.items()} != shas:
                 raise EdcError("edc.sign_changed", "the values changed since the page was shown; open it again")
@@ -790,7 +921,11 @@ class EdcStore:
         return rows
 
     def sendable(self, study: str, record: str | None = None, visit: str | None = None) -> list[dict[str, Any]]:
-        """Decided, signed values whose content still matches the signature and that are not sent as they are."""
+        """Decided, signed values whose content still matches the signature and that are not sent as they are; a
+        value whose source changed since it was decided is held (NEW-EDC-4)."""
+        return [d for d in self._sendable(study, record, visit) if not d.get("source_changed")]
+
+    def _sendable(self, study: str, record: str | None, visit: str | None) -> list[dict[str, Any]]:
         sigs = {int(s["id"]): s for s in self.signatures(study)}
         out = []
         for d in self._current(study, record, visit):
@@ -802,6 +937,10 @@ class EdcStore:
                 continue
             out.append(d)
         return out
+
+    def held_source_changed(self, study: str, record: str | None = None) -> list[dict[str, Any]]:
+        """NEW-EDC-4: the values :meth:`sendable` would give but for a source that changed since they were decided."""
+        return [d for d in self._sendable(study, record, None) if d.get("source_changed")]
 
     def signed(self, study: str, record: str | None = None) -> list[dict[str, Any]]:
         """Decided, signed values whose content still matches the signature (the ODM export)."""
@@ -815,7 +954,7 @@ class EdcStore:
             tx.execute("INSERT INTO sent (study, record, visit, item, draft_id, value, target, target_record, result, "
                        "detail, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                        (study, d["record"], d["visit"], d["item"], int(d["id"]), d["final"] or "", target,
-                        target_record, result, detail[:300], by, at))  # fmt: skip
+                        target_record, result, detail[:DETAIL_MAX], by, at))  # fmt: skip
             if result in ("sent", "already_there"):
                 tx.execute("UPDATE draft SET sent_value = ?, sent_at = ? WHERE id = ?", (d["final"], at, int(d["id"])))
 
@@ -824,12 +963,66 @@ class EdcStore:
             return self._all("SELECT * FROM sent WHERE study = ? ORDER BY id", (study,))
         return self._all("SELECT * FROM sent WHERE study = ? AND record = ? ORDER BY id", (study, record))
 
-    def last_sent(self, study: str, record: str, visit: str, item: str) -> str | None:
-        """The value TrialBox last wrote to the EDC for this item (None: never written)."""
-        rows = self._all("SELECT value FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? AND "
-                         "target = 'redcap' AND result IN ('sent', 'already_there') ORDER BY id DESC LIMIT 1",
+    def redcap_changes(self, study: str, record: str | None = None) -> dict[tuple[str, str, str], str]:
+        """NEW-EDC-5b (D-686): what REDCap holds for each item whose last read-again line is an open
+        ``changed_in_redcap`` (D-695), by (record, visit, item). The ledger's detail is cut at 300 characters: a
+        value cut there ends in "…"."""
+        rows = self._all("SELECT record, visit, item, result, detail FROM sent WHERE study = ? AND target = 'redcap' "
+                         "AND result IN ('sent', 'already_there', 'erased', 'changed_in_redcap', 'equal_again') "
+                         + ("AND record = ? " if record else "") + "ORDER BY id",
+                         (study, record) if record else (study,))  # fmt: skip
+        last: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for r in rows:
+            last[(str(r["record"]), str(r["visit"]), str(r["item"]))] = r
+        out: dict[tuple[str, str, str], str] = {}
+        for key, r in last.items():
+            if r["result"] != "changed_in_redcap":
+                continue
+            detail = str(r["detail"])
+            value = detail.split(CHANGED_SAYS, 1)[1] if CHANGED_SAYS in detail else ""
+            out[key] = value + ("…" if len(detail) >= DETAIL_MAX else "")
+        return out
+
+    def last_delivered(self, study: str, record: str, visit: str, item: str) -> str | None:
+        """What REDCap last held of TrialBox's for this item (NEW-EDC-5): the value of its last ``sent`` or
+        ``already_there`` line, or "" after its own ``erased``. None: nothing delivered."""
+        rows = self._all("SELECT value, result FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? AND "
+                         "target = 'redcap' AND result IN ('sent', 'already_there', 'erased') ORDER BY id DESC LIMIT 1",
                          (study, record, visit, item))  # fmt: skip
-        return str(rows[0]["value"]) if rows else None
+        if not rows:
+            return None
+        return "" if rows[0]["result"] == "erased" else str(rows[0]["value"])
+
+    def last_redcap_line(self, study: str, record: str, visit: str, item: str) -> dict[str, Any] | None:
+        """The item's last ``redcap`` ledger line (NEW-EDC-5: a change read again adds no line)."""
+        rows = self._all("SELECT result, detail FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? "
+                         "AND target = 'redcap' ORDER BY id DESC LIMIT 1", (study, record, visit, item))  # fmt: skip
+        return dict(rows[0]) if rows else None
+
+    def last_written(self, study: str, record: str, visit: str, item: str) -> str | None:
+        """The value TrialBox itself last wrote into REDCap for this item (NEW-EDC-2): ``sent`` (written and read
+        back) or ``erased`` (written empty). An ``already_there`` line is not a write: the value was someone's
+        before TrialBox came. None: TrialBox never wrote it."""
+        rows = self._all("SELECT value, result FROM sent WHERE study = ? AND record = ? AND visit = ? AND item = ? AND "
+                         "target = 'redcap' AND result IN ('sent', 'erased') ORDER BY id DESC LIMIT 1",
+                         (study, record, visit, item))  # fmt: skip
+        if not rows:
+            return None
+        return "" if rows[0]["result"] == "erased" else str(rows[0]["value"])
+
+    def open_attempt(self, study: str, record: str, visit: str, item: str) -> dict[str, Any] | None:
+        """TrialBox's write to REDCap whose answer never came back (NEW-EDC-8): an ``attempt`` line, written just
+        before the import, with no later line that read the item back from REDCap or heard it refused (``sent``,
+        ``readback``, ``erased``, ``already_there``, ``conflict``, ``instance_taken``, ``refused``). REDCap may hold
+        its value or not; the next send reads it back. A line that never read REDCap (opted out, no record, hidden,
+        changed) leaves it open. None: no write is open."""
+        marks = ",".join("?" * len(READ_BACK))
+        rows = self._all("SELECT value, result, draft_id, by_user, at FROM sent WHERE study = ? AND record = ? AND "
+                         f"visit = ? AND item = ? AND target = 'redcap' AND result IN ({marks}) "
+                         "ORDER BY id DESC LIMIT 1", (study, record, visit, item, *READ_BACK))  # fmt: skip
+        if not rows or rows[0]["result"] != "attempt":
+            return None
+        return dict(rows[0])
 
     # ------------------------------------------------------------------ copy-assist (D-434)
     def add_ticks(self, study: str, values: list[dict[str, Any]], action: str, *, reason: str = "", by: str, at: str,

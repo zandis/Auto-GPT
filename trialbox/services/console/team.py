@@ -270,6 +270,21 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
 
+    def monitor_grants(user: User) -> list[tuple[str, str, str]]:
+        """NEW-JRN-8 (D-772): the studies a CRO account reads today under a monitor grant, with the visit id and the
+        grant's last day, so the reports page and the menu link the monitoring page (it was a typed address)."""
+        if not monitor_account(user):
+            return []
+        out = []
+        for r in bk.rulesets():
+            if user.sees_study(r.id) and h.permit(user, "monitor.read", r.id).allowed:  # any kind: the grant decides
+                g = stand(user, r.id).monitor
+                if g is not None:
+                    out.append((r.id, g.training_ref or "", g.end or ""))
+        return out
+
+    h.monitor_grants = monitor_grants
+
     def pi_missing(user: User) -> list[str]:
         """NEW-JRN-1 (D-540): the studies this account sees whose criteria wait for approval while the delegation
         log names no PI: nobody can approve them until the steward names one (D-380)."""
@@ -1047,6 +1062,19 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise h.problem(409, "request.refused", reason="the box could not turn the chart number into a pseudonym")
         known = (out or {}).get("known")
         return got, known if isinstance(known, bool) else None
+
+    def chart_to_pid(sess: Session, chart_no: str, purpose: str) -> tuple[str, bool | None]:
+        """NEW-JRN-6 (D-771): a chart number turned into its pseudonym at the door, for another reader than the
+        opt-out register (the privacy office's disclosure report): the same cap per person and hour (D-273 PV-6),
+        its own ``console.chart_lookup`` event with ``for``; the number is never stored, the caller never shows the
+        pseudonym. Returns the pseudonym and whether the box holds a patient under the number (D-544)."""
+        chart_lookup(sess, purpose)
+        pid, known = to_pid(sess, chart_no, "")
+        au.append("console.chart_lookup", actor=h.actor(sess),
+                  detail={"pid": pid, "for": purpose, "role": sess.user.role, "known": KNOWN_WORD[known]})  # fmt: skip
+        return pid, known
+
+    h.chart_to_pid = chart_to_pid
 
     def on_lists(pid: str) -> bool | None:
         """NEW-JRN-2 (D-542): is this pseudonym on a registry or a current list of any study of this box? Read

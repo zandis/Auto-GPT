@@ -45,7 +45,7 @@ memory:
   db:                {limit_gib: 8, measured_peak_gib: null, basis: "Postgres, shared_buffers as the db image sets"}
   fhir-store:        {limit_gib: 8, measured_peak_gib: null, basis: "HAPI_XMX 6g + JVM overhead"}
   lake:              {limit_gib: 6, measured_peak_gib: null, basis: "DuckDB over the 50,000-patient synthetic lake"}
-  embed-service:     {limit_gib: 4, measured_peak_gib: null, basis: "bge-m3 on CPU or CUDA"}
+  embed-service:     {limit_gib: 6, measured_peak_gib: null, basis: "bge-m3 on CPU or CUDA: one load about 3.5 GB (D-890)"}
   orchestrator:      {limit_gib: 3, measured_peak_gib: null, basis: "the night's SCREEN fan-out"}
   adapter:           {limit_gib: 3, measured_peak_gib: null, basis: "ingest with the validator (TB_VALIDATOR_XMX 3g shares it)"}
   doc-parser:        {limit_gib: 2, measured_peak_gib: null, basis: "PDF and Office parsing"}

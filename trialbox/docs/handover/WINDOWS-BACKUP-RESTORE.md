@@ -1,5 +1,7 @@
 # Backup and restore on a Windows workstation (NEW-WIN-7, D-608)
 
+**Reader:** the box owner, with hospital IT.
+
 For the box owner and the hospital's IT. The backup itself is the same as on any box (RUNBOOK §5: one encrypted
 file per night, `trialbox backup-nightly`, written to every folder of `TB_BACKUP_TARGETS`). What is different on
 Windows is where those folders may be, how fast they are, and what a restore on another machine starts with.

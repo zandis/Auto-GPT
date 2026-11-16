@@ -212,6 +212,8 @@ def test_the_update_paths_dumps_and_container_get_limits_from_size(tmp_path: Pat
         line = " ".join(argv)
         if "pg_database_size" in line:
             return f"{10 * GB}\n"
+        if "FROM orch.jobs" in line:  # T-695: no job running
+            return "0\n"
         if "pg_dump" in line:
             seen[argv[-1]] = timeout
             Path(str(stdout_file)).write_bytes(b"d" * 1_000_000)
@@ -525,12 +527,13 @@ def _swap_during_read(monkeypatch: Any, lake: Path, bk: Any) -> list[threading.T
     return started
 
 
-def test_a_rebuild_swap_waits_for_the_lakes_read_and_the_restored_lake_passes_its_check(
+def test_a_rebuild_swap_waits_only_for_the_listing_and_the_restored_lake_passes_its_check(
     tmp_path: Path, db_url: str, monkeypatch: Any
 ) -> None:
     """Review H1: the lake was listed once and read file by file without the lake's lock, so a swap in the middle
     gave the old DuckDB file with the new sidecar and a mix of Parquet files: a "good" backup whose restored lake
-    failed its own check. Now the swap waits for the lake's served files to be read."""
+    failed its own check. D-455 held the lock for the whole read; PERF-011 (D-755) holds it for the listing only:
+    the files are opened under it, and a swap done before a byte is read leaves the backup one state, all old."""
     from tb_common.db import Database
 
     from tools.trialbox import backup as bk
@@ -541,11 +544,20 @@ def test_a_rebuild_swap_waits_for_the_lakes_read_and_the_restored_lake_passes_it
     (lake / ".rebuild.lock").write_text("")
     priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
     bk.keygen(priv, pub)
-    started = _swap_during_read(monkeypatch, lake, bk)
+    real, swapped = bk._read_held, list[float]()
+
+    def read_held(tar: Any, held: Any, manifest: Any) -> Any:
+        t = threading.Thread(target=_swap, args=(lake,))
+        t.start()
+        t.join(10)  # the lock is let go: the swap runs to its end before a byte of the lake is read
+        swapped.append(float(t.is_alive()))
+        return real(tar, held, manifest)
+
+    monkeypatch.setattr(bk, "_read_held", read_held)
     env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs={"lake": lake})[0]
-    started[0].join()
-    assert (lake / "parquet" / "snapshot=S" / "c.parquet").exists()  # the swap did happen, after the read
+    assert swapped == [0.0]  # the swap did not wait for the read
+    assert (lake / "parquet" / "snapshot=S" / "c.parquet").exists()  # and it did happen
     out = tmp_path / "x"
     bk.unpack(f, priv, out)
     got = out / "dirs" / "lake"
@@ -836,3 +848,35 @@ def test_the_wait_bound_is_declared_from_the_schedule() -> None:
     assert bs.config(Path("/x"), {}, process_env=False).job_wait_s == 6 * HOUR
     assert bs.config(Path("/x"), {"TB_BACKUP_JOB_WAIT_S": "0"}, process_env=False).job_wait_s == 0
     assert bs.config(Path("/x"), {"TB_BACKUP_JOB_WAIT_S": "-1"}, process_env=False).setting_errors
+
+
+def test_more_lake_files_than_may_be_held_open_are_read_under_the_lock(
+    tmp_path: Path, db_url: str, monkeypatch: Any
+) -> None:
+    """PERF-011 (D-755): a process that may not hold every served file open reads them under the lock, as before."""
+    from tb_common.db import Database
+
+    from tools.trialbox import backup as bk
+
+    Database.connect(db_url, "site").migrate(["CREATE TABLE marks (n BIGINT PRIMARY KEY)"])
+    lake = tmp_path / "lake"
+    _lake_files(lake, "old", ("a", "b"))
+    (lake / ".rebuild.lock").write_text("")
+    priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
+    bk.keygen(priv, pub)
+    monkeypatch.setattr(bk, "_fds_for", lambda n: False)
+    started = _swap_during_read(monkeypatch, lake, bk)
+    f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"lake": lake})[0]
+    started[0].join()
+    out = tmp_path / "x"
+    bk.unpack(f, priv, out)
+    files = sorted(p.name for p in (out / "dirs" / "lake" / "parquet" / "snapshot=S").glob("*.parquet"))
+    assert files == ["a.parquet", "b.parquet"]  # the swap waited for the reads under the lock
+
+
+def test_the_lake_s_source_record_is_taken_while_it_grows() -> None:
+    """ENG-011 (D-755): the lake's record of each rebuild's source is only appended to, as the audit chain is."""
+    from tools.trialbox import backup as bk
+
+    assert bk._append_only("dirs/lake/source.jsonl") and bk._append_only("dirs/audit/2026-11-15.jsonl")
+    assert not bk._append_only("dirs/lake/parquet/snapshot=S/a.parquet")

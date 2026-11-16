@@ -165,6 +165,18 @@ actions:
     steward: false
     privacy: false
 
+  # NEW-LIFE-6 (D-763): a close is final, but the study's PI may take back one made the same site day (a coordinator
+  # who picked "closed" for "closed to recruitment" at last-patient-in)
+  study.reopen:
+    what: take back a close of the study made the same site day (D-763, LIFE-006)
+    admin: false
+    coordinator: false
+    investigator: [pi]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+
   # ---------------------------------------------------------------- the IRB text's coverage (D-395, RSK-42)
   # The PI records that the study's approved IRB text covers the cross-department identified view; the whole-hospital
   # candidate view (D-147) opens only while that record says so. A record, not a review step of the developers.

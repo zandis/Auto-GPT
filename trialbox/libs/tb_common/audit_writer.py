@@ -271,11 +271,16 @@ SKEW_ENV = "TB_AUDIT_TS_MAX_SKEW_S"
 #: shared libraries (and helpers of each other): their rows cover every family written anywhere in the modules
 #: they import. A service that reads outside input (mail, model output, hospital files, protocols) has the
 #: narrowest row: exactly what its own folder writes, plus :data:`EDGE_EXTRA`, each with its reason.
-_SHARED = ("audit", "flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
+_SHARED = ("flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
+#: NEW-SEC-2 (D-718): the chain's own records. Its writers write them themselves (the drain, the file writer, the
+#: host's signer); none comes through the journal. A row of this family from any role but the audit's own writer and
+#: the administrator is written under :data:`RESERVED_NAME`, with the name it was sent as (security review SEC-10).
+RESERVED = "audit"
+RESERVED_NAME = "journal.reserved_name"
 _ORCH = ("actor", "case", "cohort", "consent", "data", "derive", "edc", "feas", "job", "lake", "life", "microbatch",
          "nav", "notice", "notmatched", "opportunity", "optout", "redcap", "registry", "rerun", "retention",
          "scheduler", "screen", "selftest", "service", "setup", "sponsor", "study", "terminology", "twpas")  # fmt: skip
-_CONSOLE = ("console", "dataops", "demo", "edc", "feedback", "instrument", "notmatched", "optout", "registry",
+_CONSOLE = ("console", "demo", "edc", "feedback", "instrument", "notmatched", "optout", "registry",
             "setup", "sponsor", "terminology")  # fmt: skip
 #: The host's `trialbox` tools (backup, update, watchdog, the operations runner) and `deploy/install.sh` send their
 #: events from inside the orchestrator's container (`compose exec -T orchestrator python -c "... open_audit()"`),
@@ -285,7 +290,11 @@ _HOST_TOOLS = ("backup", "ops", "update")
 EXACT_EVENTS: dict[str, dict[str, str]] = {
     "tb_orchestrator": {
         "console.ops": "the operations runner of the host (tools/trialbox/ops.py) sends it from the "
-        "orchestrator's container"
+        "orchestrator's container",
+        # D-718: the one record of the chain's own family that comes through the journal. verify trusts no event of
+        # it: the signed heads are read from the anchor folders, and a key rotation never from the journal
+        "audit.head_signed": "the host's nightly signer (trialbox audit-sign) records its head from the "
+        "orchestrator's container",
     },
 }
 #: what an edge service writes beyond its own folder's events, and why
@@ -300,7 +309,7 @@ ROLE_EVENTS: dict[str, frozenset[str]] = {
     "tb_lake": frozenset({"lake"}),
     "tb_adapter": frozenset({"ingest", "terminology"}),
     "tb_criteria_compiler": frozenset({"approve", "compile", "ctgov", "llm"}),
-    "tb_audit_writer": frozenset({"audit"}),
+    "tb_audit_writer": frozenset({"audit", "journal"}),  # D-718: the drain's own record of a reserved name
 }
 
 
@@ -362,6 +371,45 @@ def flagged(directory: Path) -> list[dict[str, Any]]:
     return out
 
 
+# What a sender may not set in a journal row's fields: the chain's own keys (security review 2026-11-13). Before,
+# a row whose fields held ``ts`` or ``event``, a ``detail`` that was not an object, or a time without a zone stopped
+# the drain with a TypeError or ValueError on every start, and the journal is append-only: no event after that row
+# reached the chain again. Such values are kept under ``detail`` and the row is marked, never dropped.
+_RESERVED = ("ts", "event", "journal", "hash", "prev_hash", "self")
+
+
+def _readable(at: Any, ts: Any, fields: Any) -> tuple[dict[str, Any], datetime, list[str]]:
+    """The fields, the time and what was wrong with one journal row, so that every row can be written."""
+    problem: list[str] = []
+    try:
+        raw = fields if isinstance(fields, dict) else json.loads(fields or "{}")
+    except (TypeError, ValueError):
+        raw, problem = {"value": str(fields)[:2000]}, ["fields"]
+    if not isinstance(raw, dict):
+        raw, problem = {"value": raw}, ["fields"]
+    f = dict(raw)
+    detail = f.pop("detail", None)
+    if detail is not None and not isinstance(detail, dict):
+        detail, problem = {"value": detail}, [*problem, "detail"]
+    detail = dict(detail or {})
+    for key in _RESERVED:
+        if key in f:
+            val = f.pop(key)
+            if key != "journal":  # the drain's own record; a sender's copy was always dropped
+                detail[f"sent_{key}"] = val
+                problem.append(key)
+    if detail:
+        f["detail"] = detail
+    try:
+        stamp = datetime.fromisoformat(str(ts))
+        if stamp.tzinfo is None:
+            raise ValueError("no zone")
+    except (TypeError, ValueError):
+        stamp = datetime.fromisoformat(_iso(at))  # the journal's own time of the row; the sent text goes in journal
+        problem.append("time")
+    return f, stamp, problem
+
+
 class Drain:
     """Copies the journal into the chain in ``directory``, in ``seq`` order; the only writer of the chain on a box."""
 
@@ -413,13 +461,22 @@ class Drain:
         """Write the next batch to the chain; the number written."""
         rows = self._rows()
         for seq, at, role, event, ts, fields in rows:
-            f = dict(fields if isinstance(fields, dict) else json.loads(fields or "{}"))
-            f.pop("journal", None)
-            stamp = datetime.fromisoformat(ts)
+            f, stamp, problem = _readable(at, ts, fields)
             journal: dict[str, Any] = {"seq": int(seq), "role": role, "at": _iso(at)}
+            if problem:  # security review 2026-11-13: a malformed row is written, marked; it never stops the drain
+                journal["unreadable"] = problem
+                if "time" in problem:  # the time the sender wrote, where the sender cannot write
+                    journal["sent_ts"] = str(ts)[:64]
             # T-721 (D-488): who may say what, and when. The mark is part of the record the event is written in,
             # so there is no moment at which the event is in the chain without it.
-            if marks := flags_of(str(role), str(event), stamp, at):
+            marks = flags_of(str(role), str(event), stamp, at) + (["unreadable"] if problem else [])
+            # the audit's family, and the drain's own (a service sending `journal.reserved_name` itself)
+            if str(event).split(".", 1)[0] in (RESERVED, "journal") and foreign(str(role), str(event)):
+                # D-718: never a record of the chain's own family from a service; what was sent is kept, flagged
+                f["detail"] = {**dict(f.get("detail") or {}), "sent_event": str(event)[:120]}
+                event = RESERVED_NAME
+                marks.append("reserved")
+            if marks:  # an unreadable row is flagged too, so `flagged()` and `audit_verify --foreign` list it
                 journal["flag"] = marks
                 # the event's name is the sender's own text: it stays in the record, not in the log line
                 log.warning("audit journal row %s from %s marked %s", seq, role, ", ".join(marks))

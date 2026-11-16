@@ -1,0 +1,19 @@
+{
+ "attempts": 1,
+ "boots": [
+  "5c90e503-23ff-4e86-af3c-976e077f0e43"
+ ],
+ "detail": {
+  "disk_after": "151661277184 263243440128",
+  "local_copy_removed": true,
+  "object": "gs://trialbox-demo-runs/r2/val-ac36aa21fdc1/trialbox-val-ac36aa21fdc1.tar",
+  "sha256": "2288a81be64500f49a81c13ede3ba39d79396a0d883fe9b1e8f8f790da756178"
+ },
+ "ended": "2026-11-15T09:44:31Z",
+ "minutes": 1.21,
+ "ok": true,
+ "seconds": 72.845,
+ "started": "2026-11-15T09:43:18Z",
+ "status": "done",
+ "step": "b07-upload"
+}

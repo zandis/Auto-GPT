@@ -39,6 +39,12 @@ for _p in ("libs", "services"):
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
 MAPPING_ROOT = ROOT / "services" / "adapter"
 SITE_MAPPING = ROOT / "deploy" / "site" / "mapping"  # the site's own mappings (kept by every update, D-367)
+# D-736: one plain mail address, as deploy/install.sh checks it too (the same text there): no quote first, no $, `,
+# backslash, space or comma that deploy/.env or compose would read otherwise; every domain label non-empty
+MAILBOX_RE = (
+    r"[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*"  # the local part: no quote first
+    r"@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+"  # every label non-empty
+)
 TLS_MODES = ("hospital", "internal")  # OPS-060: the hospital certificate is the first choice
 
 # key, question, default (None = from the example settings), kind
@@ -90,6 +96,8 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("mta_authserv_id", "authserv-id your MTA writes first in Authentication-Results (e.g. mx.hospital.tw)", "", "str"),
     # T-632 (OPS-013): the console is reached at https://<tls_hostname> through Caddy (RUNBOOK §12)
     ("tls_hostname", "Console DNS name for https (from hospital IT)", "", "str"),
+    # D-736 (LIFE-007): told at once when a serious adverse event is entered (no AE term); a PRODUCTION install needs it
+    ("sae_office_mailbox", "Trial office mailbox, told at once when a serious adverse event is entered", "", "str"),
     # OPS-060: the hospital's certificate is the first choice; Caddy's own CA needs its root on every clinic PC by
     # group policy and never works on a personal device
     (
@@ -410,6 +418,12 @@ def build(
             )
     else:
         warnings.append("tls_hostname is empty: install.sh asks for it (a PRODUCTION box runs only behind https)")
+    sae_to = str(a.get("sae_office_mailbox") or "").strip()
+    if sae_to and not re.fullmatch(MAILBOX_RE, sae_to):
+        errors.append(f"sae_office_mailbox {sae_to!r} is not one mail address (for example trial-office@hospital.tw)")
+    elif not sae_to:
+        warnings.append("sae_office_mailbox is empty: nobody is mailed when a serious adverse event is entered; a "
+                        "PRODUCTION install stops without it (D-736)")  # fmt: skip
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and not a.get("twpas_org_id"):
         errors.append("TWPAS needs the NHI hospital code (twpas_org_id)")
@@ -538,6 +552,8 @@ def build(
     env["TB_SOURCE_DIR"] = str(a.get("data_source_host_dir") or "./site/feed")
     env["TB_SOURCE_MOUNT"] = str(data_source.get("path") or "/data/source/site")
     env.update(tls_env)
+    if sae_to:
+        env["TB_SAE_OFFICE_MAILBOX"] = sae_to
     env.update(extra)
     return settings, env, warnings
 

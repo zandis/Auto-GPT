@@ -69,6 +69,8 @@ T: dict[str, dict[str, str]] = {
         "screen.scores_unverified": "Scores not verified for snapshot {snapshot}: the score batch did not finish, so "
         "criteria on eGFR, DAS28, CDAI and SDAI read as needing information on this list.",
         "screen.judging.none": "Note criteria were not read (no model on this box): they go to review.",
+        "screen.judging.nothing": "Nothing in this ruleset can be decided from the records: every criterion is checked "
+        "by a person, so every patient in scope is listed for review and no one under criteria not matched.",
         "screen.judging.pair": "Note criteria: read by {judge} and checked by {verifier}; a note answer puts a patient "
         "under criteria not matched only when both models agree.",
         "screen.judging.single": "Note criteria: read by {judge} alone; on this run a note answer put no one under "
@@ -80,6 +82,7 @@ T: dict[str, dict[str, str]] = {
         "screen.judging.why.no_verifier": "no second model is set up to check the first",
         "screen.judging.why.same_model": "the checking model is not a second model",
         "screen.judging.why.wake": "a model failed its check after waking",
+        "screen.judging.why.waiting": "the models were not answering yet when the self-test tried them",
         "screen.judging.why.none": "the model self-test has not run yet",
         "screen.judging.why.failed": "the last model self-test failed",
         "screen.judging.why.single": "the last model self-test checked one model only",
@@ -103,6 +106,8 @@ T: dict[str, dict[str, str]] = {
         "feas.attached": "Attached: feasibility report (PDF), workbook (XLSX) and the machine-readable result (JSON).",
         "pop.line": "Protocol population: stage {stage}; arm {arm}. Counts and candidates are for this population only.",
         "feas.headline": "{low}–{high} in {months} mo",
+        "feas.nothing": "{trial} ({rs} v{ver}): nothing to count. Feasibility counts the structured criteria only, and every criterion of this ruleset is read from the notes or checked by a person; screening reads them.",
+        "feas.nothing_headline": "nothing to count",
         # PDF labels
         "pdf.feas.title": "Feasibility report — {trial}",
         "pdf.item": "Item",
@@ -197,6 +202,8 @@ T: dict[str, dict[str, str]] = {
         "screen.scores_unverified": "スナップショット {snapshot} のスコアは未確認です（スコアの一括計算が完了していません）。"
         "このリストでは eGFR、DAS28、CDAI、SDAI を使う基準は「情報が必要」です。",
         "screen.judging.none": "記録基準は読み取っていません（この装置にモデルなし）：確認待ちに回します。",
+        "screen.judging.nothing": "このルールセットには記録から自動で答えられる基準がありません：すべての基準を人が確認するため、"
+        "対象の患者全員を確認待ちとし、基準に合致しないとはしません。",
         "screen.judging.pair": "記録基準：{judge} が読み取り {verifier} が検証。両モデルが一致したときのみ、記録の回答で基準に合致しないとします。",
         "screen.judging.single": "記録基準：{judge} のみが読み取り。この実行では記録の回答で基準に合致しないとした患者はいません（{why}）。"
         "記録基準に該当しない患者は確認待ちに載せています。",
@@ -206,6 +213,7 @@ T: dict[str, dict[str, str]] = {
         "screen.judging.why.no_verifier": "検証用の第二のモデルが未設定",
         "screen.judging.why.same_model": "検証モデルが別のモデルではありません",
         "screen.judging.why.wake": "起動後の確認でモデルが不合格",
+        "screen.judging.why.waiting": "自己テストの時点でモデルがまだ応答していない",
         "screen.judging.why.none": "モデルの自己テストが未実行",
         "screen.judging.why.failed": "直近のモデル自己テストが不合格",
         "screen.judging.why.single": "直近の自己テストは一つのモデルのみ確認",
@@ -227,6 +235,8 @@ T: dict[str, dict[str, str]] = {
         "feas.attached": "添付：フィージビリティ報告書（PDF）、ワークブック（XLSX）、機械可読の結果（JSON）。",
         "pop.line": "プロトコルの対象集団：病期 {stage}；群 {arm}。件数と候補者はこの集団に限ります。",
         "feas.headline": "{months} か月で {low}–{high}",
+        "feas.nothing": "{trial}（{rs} v{ver}）：数える基準がありません。フィージビリティは構造化基準だけを数えます。このルールセットの基準はすべて記録の文章から読むか、人が確認するもので、スクリーニングで読みます。",
+        "feas.nothing_headline": "数える基準なし",
         "pdf.feas.title": "フィージビリティ報告書 — {trial}",
         "pdf.item": "項目",
         "pdf.value": "値",
@@ -319,6 +329,8 @@ T: dict[str, dict[str, str]] = {
         "提高 max_pairs 後重新執行即可判讀。",
         "screen.scores_unverified": "快照 {snapshot} 的分數未經確認（分數批次計算未完成）：本名單中使用 eGFR、DAS28、CDAI、SDAI 的條件列入「需要更多資訊」。",
         "screen.judging.none": "病歷條件未經判讀（本機沒有模型）：列為待確認。",
+        "screen.judging.nothing": "本規則集沒有可由病歷自動回答的條件：所有條件皆由人員確認，因此範圍內的病人全部列為待確認，"
+        "不列為未符合條件。",
         "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證；兩個模型一致時病歷判讀才會將病人列為未符合條件。",
         "screen.judging.single": "病歷條件：僅由 {judge} 判讀；本次執行中病歷判讀未將任何人列為未符合條件（{why}）。病歷條件不符的病人列入待確認。",
         "screen.judging.why.held": "病歷判讀已暫停",
@@ -327,6 +339,7 @@ T: dict[str, dict[str, str]] = {
         "screen.judging.why.no_verifier": "未設定第二個驗證模型",
         "screen.judging.why.same_model": "驗證模型不是另一個模型",
         "screen.judging.why.wake": "模型喚醒後的檢查未通過",
+        "screen.judging.why.waiting": "自我測試時模型尚未回應",
         "screen.judging.why.none": "模型自我測試尚未執行",
         "screen.judging.why.failed": "最近一次模型自我測試未通過",
         "screen.judging.why.single": "最近一次自我測試只檢查了一個模型",
@@ -348,6 +361,8 @@ T: dict[str, dict[str, str]] = {
         "feas.attached": "附件：可行性報告（PDF）、活頁簿（XLSX）與機器可讀結果（JSON）。",
         "pop.line": "試驗計畫對象族群：病期 {stage}；組別 {arm}。件數與候選者僅限此族群。",
         "feas.headline": "{months} 個月 {low}–{high}",
+        "feas.nothing": "{trial}（{rs} v{ver}）：沒有可計數的條件。可行性只計算結構化條件，本規則集的條件皆由病歷文字判讀或由人員確認，由篩選時判讀。",
+        "feas.nothing_headline": "沒有可計數的條件",
         "pdf.feas.title": "可行性報告 — {trial}",
         "pdf.item": "項目",
         "pdf.value": "數值",

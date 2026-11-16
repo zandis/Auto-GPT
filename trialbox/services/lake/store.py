@@ -277,6 +277,8 @@ def query_failure_status(exc: BaseException) -> int:
     the engine's own grouping, not by a list kept here. (400, a statement the guard refused, is the route's.)"""
     if isinstance(exc, (FileNotFoundError, StaleSnapshotError, LakeSchemaError, LakeLimitError)):
         return 503
+    if isinstance(exc, duckdb.OutOfMemoryException):  # D-742: the engine met the box's limit, wherever it was
+        return 503
     if isinstance(exc, duckdb.InterruptException):
         return 503
     if isinstance(exc, (duckdb.ProgrammingError, duckdb.DataError, duckdb.NotSupportedError, duckdb.IntegrityError)):
@@ -303,6 +305,8 @@ def error_answer(exc: BaseException, what: str = "query") -> str:
     name = type(exc).__name__
     if isinstance(exc, (LakeLimitError, LakeSchemaError, StaleSnapshotError, LakeSaid)):
         return f"{name}: {str(exc)[:500]}"
+    if isinstance(exc, duckdb.OutOfMemoryException) and what != "build":  # D-742: the box's limit, the lake's words
+        return f"{name}: {_limit_message(exc)[:500]}"
     first = str(exc).splitlines()[0] if str(exc) else ""
     if any(shape.fullmatch(first) for shape in _PASSED_ON):
         return f"{name}: {first}"
@@ -622,8 +626,12 @@ def _compat_views(con: duckdb.DuckDBPyConnection, version: int) -> None:
         return
     row = con.execute("SELECT current_database()").fetchone()
     db = str(row[0]).replace('"', '""') if row else "main"
-    with contextlib.suppress(duckdb.Error):  # no patient table (a partial test lake): nothing to add
+    try:
         con.execute(f'CREATE TEMP VIEW patient AS SELECT *, CAST(NULL AS BOOLEAN) AS deceased FROM "{db}".main.patient')
+    except duckdb.OutOfMemoryException:  # D-742: the box's limit is said, not read as a table that is not there
+        raise
+    except duckdb.Error:  # no patient table (a partial test lake): nothing to add
+        pass
 
 
 def _file_sha(path: Path) -> str:
@@ -727,6 +735,17 @@ class LakeLimitError(RuntimeError):
     ``TB_LAKE_MAX_TEMP``). The query is stopped; nothing is left on disk."""
 
 
+#: D-746: the longest time limit a caller may give one lake query. A day: no query of the night runs that long, and
+#: a timer beyond ``threading.TIMEOUT_MAX`` would never fire (the query would run with no limit at all).
+MAX_QUERY_LIMIT_S = 86400
+
+
+class LakeTimeLimitError(LakeLimitError):
+    """NEW-B-45 (D-746): a lake query ran past the time limit its caller sent (a job's: ``TB_LAKE_QUERY_LIMITS``)
+    and was stopped. The lake's limit, as memory is (503): the caller says the lake could not answer in time, never
+    "no data"."""
+
+
 class _NdjsonFile:
     """One NDJSON file of a snapshot or of the site's inputs, parsed line by line each time it is iterated (T-692)."""
 
@@ -762,12 +781,16 @@ def _write_parquet(rows: Iterable[dict[str, Any]], schema: pa.Schema, path: Path
     return n
 
 
+def _first_line(exc: BaseException) -> str:
+    return (str(exc).splitlines() or [""])[0][:200]
+
+
 def _limit_message(exc: Exception) -> str:
     return (
         "LAKE-LIMIT: the lake query needed more than the box allows (memory_limit "
         f"{memory_limit()}, spill limit TB_LAKE_MAX_TEMP) and was stopped before it filled the disk. This usually "
         "means a join that multiplies rows (one patient listed twice); raise TB_LAKE_MAX_TEMP only if the data "
-        f"really is that large. DuckDB: {str(exc).splitlines()[0][:200]}"
+        f"really is that large. DuckDB: {_first_line(exc)}"
     )
 
 
@@ -1556,6 +1579,14 @@ class Lake:
     # ------------------------------------------------------------------ query
     def connect(self, snapshot: str | None = None) -> duckdb.DuckDBPyConnection:
         """Read-only connection with FTS loaded, external file access disabled and configuration locked."""
+        # NEW-B-41 (D-742): the box's memory limit met while the snapshot is opened is the lake's limit, as in a query
+        try:
+            return self._open(snapshot)
+        except duckdb.OutOfMemoryException as exc:
+            log.error("lake snapshot not opened: the memory limit was met: %s", _first_line(exc))
+            raise LakeLimitError(_limit_message(exc)) from exc
+
+    def _open(self, snapshot: str | None) -> duckdb.DuckDBPyConnection:
         # DuckDB shares one database instance per file inside a process: a concurrent connection finds the
         # instance already hardened (FTS loaded, external access off, configuration locked) and must not re-set it.
         with _CONNECT_LOCK:
@@ -1569,24 +1600,33 @@ class Lake:
                 except duckdb.IOException:
                     if path.exists() or attempt == 2:  # a link removed by a swap meanwhile: look again
                         raise
-            row = con.execute("SELECT current_setting('lock_configuration')").fetchone()
-            if not (row and row[0]):
-                con.execute(f"LOAD '{fts_extension_path()}'")
-                # bounded memory, spill to the lake volume: a hospital-scale FEAS must not take the host down (D-80)
-                tmp = temp_dir(self.dir)
-                tmp.mkdir(parents=True, exist_ok=True)
-                con.execute(f"SET memory_limit = '{memory_limit()}'")
-                con.execute(f"SET temp_directory = '{tmp}'")
-                con.execute(f"SET max_temp_directory_size = '{temp_limit(tmp)}'")
-                con.execute("SET preserve_insertion_order = false")
-                con.execute("SET enable_external_access = false")
-                con.execute("SET lock_configuration = true")
+            try:
+                self._harden(con)
+            except Exception:  # the limit met while it is set up: the connection is not left open
+                con.close()
+                raise
         try:
             _compat_views(con, check_schema(con, snapshot or self.current() or ""))
-        except LakeSchemaError:
+        except (LakeSchemaError, duckdb.OutOfMemoryException):
             con.close()
             raise
         return con
+
+    def _harden(self, con: duckdb.DuckDBPyConnection) -> None:
+        """A new instance hardened once: FTS loaded, bounded memory and spill, no external access, configuration
+        locked (a later connection to the same instance finds it so)."""
+        row = con.execute("SELECT current_setting('lock_configuration')").fetchone()
+        if not (row and row[0]):
+            con.execute(f"LOAD '{fts_extension_path()}'")
+            # bounded memory, spill to the lake volume: a hospital-scale FEAS must not take the host down (D-80)
+            tmp = temp_dir(self.dir)
+            tmp.mkdir(parents=True, exist_ok=True)
+            con.execute(f"SET memory_limit = '{memory_limit()}'")
+            con.execute(f"SET temp_directory = '{tmp}'")
+            con.execute(f"SET max_temp_directory_size = '{temp_limit(tmp)}'")
+            con.execute("SET preserve_insertion_order = false")
+            con.execute("SET enable_external_access = false")
+            con.execute("SET lock_configuration = true")
 
     def query(
         self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int = 300
@@ -1594,13 +1634,29 @@ class Lake:
         from lake.sqlguard import check_select
 
         check_select(sql)
+        if not 0 < timeout_s <= MAX_QUERY_LIMIT_S:  # D-746: a limit of 0, below or above a day is no limit
+            raise LakeSaid(f"a lake query's time limit is 1 to {MAX_QUERY_LIMIT_S} s, not {timeout_s}")
         con = self.connect(snapshot)
-        timer = threading.Timer(timeout_s, con.interrupt)
+        stopped = threading.Event()
+
+        def stop() -> None:
+            stopped.set()
+            con.interrupt()
+
+        timer = threading.Timer(timeout_s, stop)
         timer.start()
         try:
             return con.execute(sql, params or []).to_arrow_table()
+        except duckdb.InterruptException as exc:
+            if not stopped.is_set():  # interrupted for another reason: as before
+                raise
+            log.error("lake query stopped at its time limit of %s s", timeout_s)
+            raise LakeTimeLimitError(
+                f"LAKE-TIME: the lake query was stopped at its time limit of {timeout_s} s. A job's limit is "
+                "TB_LAKE_QUERY_LIMITS (per job type); a query over the whole lake grows with the number of patients"
+            ) from exc
         except duckdb.OutOfMemoryException as exc:
-            log.error("lake query stopped at its limit: %s", str(exc).splitlines()[0][:200])
+            log.error("lake query stopped at its limit: %s", _first_line(exc))
             raise LakeLimitError(_limit_message(exc)) from exc
         finally:
             timer.cancel()

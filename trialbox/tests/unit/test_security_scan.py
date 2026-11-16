@@ -125,3 +125,12 @@ def test_the_repository_ignore_file_is_valid_and_every_path_exists() -> None:
             assert (sc.ROOT / row.path).is_file(), row.path
     table = sc.ignores_table(sc.IGNORES)
     assert table.startswith("| Scan | File | Rule | Count | Reason |")
+
+
+def test_an_ignore_that_matches_nothing_fails() -> None:
+    """Security review 2026-11-13: a dead ignore (the code it named is gone) let the next finding of its rule in that
+    file pass unseen; it now fails until it is removed."""
+    ign = [sc.Ignore("a.py", "B608", 1, "values are bound as parameters"), sc.Ignore("b.py", "B324", 1, "md5 of x")]
+    failures, notes = sc.judge([sc.Finding("a.py", "B608", 3)], ign)
+    assert failures == ["b.py: B324: the ignore accepts 1 and nothing is found: remove it"]
+    assert notes == []

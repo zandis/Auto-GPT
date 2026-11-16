@@ -418,16 +418,27 @@ class ValueSets:
     by_name: dict[str, dict[str, Any]]
     terminology: Terminology | None = None
 
-    def url(self, name: str) -> str:
-        return str(self.by_name[name]["url"])
-
-    def version(self, name: str) -> str:
-        return str(self.by_name[name].get("version") or "")
-
-    def codes(self, name: str) -> list[tuple[str, str]]:
+    def _defined(self, name: str) -> dict[str, Any]:
+        """The value set ``name``; B14 (D-502): one the IR names and no concept candidate defined is a compile error
+        (the criterion goes to a person), never a ``KeyError`` that fails the whole protocol."""
         vs = self.by_name.get(name)
         if vs is None:
-            raise KeyError(f"ValueSet {name} not defined for ruleset {self.ruleset}")
+            from criteria_compiler.semantics import UnknownValueSet
+
+            raise UnknownValueSet(
+                f"ValueSet {name} not defined for ruleset {self.ruleset}: the criterion names a concept that is not "
+                f"among its concept candidates"
+            )
+        return vs
+
+    def url(self, name: str) -> str:
+        return str(self._defined(name)["url"])
+
+    def version(self, name: str) -> str:
+        return str(self._defined(name).get("version") or "")
+
+    def codes(self, name: str) -> list[tuple[str, str]]:
+        vs = self._defined(name)
         return [(inc["system"], c["code"]) for inc in vs["compose"]["include"] for c in inc.get("concept", [])]
 
     def yj_stems(self, name: str) -> list[str]:

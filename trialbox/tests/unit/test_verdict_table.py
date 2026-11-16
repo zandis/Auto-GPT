@@ -15,7 +15,9 @@ from typing import Any
 
 import pytest
 from matching import verdict as vt
+from matching.carried import Carried
 from matching.cascade.engine import _Run, is_value_criterion
+from matching.recorded import Recorded
 from orchestrator.scenarios import evaluate
 from tb_contracts import CriterionIR, PatientEvaluation
 
@@ -97,6 +99,10 @@ def _run(semantics: str, gap: list[str], facts: list[str]) -> Any:
         cfg=SimpleNamespace(snapshot=None),
         coverage=SimpleNamespace(refs=lambda c, pid, idx: list(gap)),
         proposed=SimpleNamespace(refs=lambda c, pid, idx, v: list(facts), reason=lambda pid, fids: "proposed_fact"),
+        carried=Carried(),  # every system carried (not read): D-795's check has its own test
+        recorded=Recorded(),  # every kind of record there (not read): D-914's check has its own test
+        rs=SimpleNamespace(valuesets={}),
+        _uncarried_index=set(),
     )
     ns._s1_coded = lambda c, row: _Run._s1_coded(ns, c, row)  # type: ignore[arg-type]
     return ns

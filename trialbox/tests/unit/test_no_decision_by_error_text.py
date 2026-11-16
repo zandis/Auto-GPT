@@ -44,6 +44,11 @@ LISTED: dict[str, tuple[int, str]] = {
         1,
         "orchestrator: 'classic' in the EDC adapter's own error message (a REDCap project without arms)",
     ),
+    "services/orchestrator/scenarios/screen_cascade.py": (
+        1,
+        "SCREEN: _transport_fault(exc) reads the embed service error's type and HTTP status to wait for a restart "
+        "(D-902), no text",
+    ),
     "services/sitesetup/service.py": (
         3,
         "site set-up: the lake's refusal of a rebuild by its type, its 409 and header, then the answer's words; "

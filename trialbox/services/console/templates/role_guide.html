@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{# T-317 (D-774): the account's own role guide, printable; built from the help catalogue (console.guides) #}
+{% block title %}{{ sections(role, lang).title }}{% endblock %}
+{% block content %}
+{% set g = sections(role, lang) %}
+<article class="guide" data-testid="role-guide" data-role="{{ role }}">
+<div class="headrow"><h1>{{ g.title }}</h1><span class="noprint hint" data-testid="guide-print">{{ t('guide.print') }}: Ctrl+P</span></div>
+<p class="hint">{{ g.intro }}</p>
+<section class="card"><h2>{{ g.what[0] }}</h2><p>{{ g.what[1] }}</p></section>
+<section class="card"><h2>{{ g.rights[0] }}</h2><p>{{ g.rights[1] }}</p></section>
+<section class="card" data-testid="guide-pages"><h2>{{ g.pages[0] }}</h2>
+{% for name, text in g.pages[1] %}<h3>{{ name }}</h3><p>{{ text }}</p>{% endfor %}</section>
+{% if g.words %}<section class="card"><h2>{{ g.words[0] }}</h2><ul class="plain">{% for w in g.words[1] %}<li>{{ w }}</li>{% endfor %}</ul></section>{% endif %}
+{% if g.commands[2] %}<section class="card"><h2>{{ g.commands[0] }}</h2><p class="hint">{{ g.commands[1] }}</p><ul class="plain">{% for x in g.commands[2] %}<li><code>{{ x }}</code></li>{% endfor %}</ul></section>{% endif %}
+<section class="card"><h2>{{ g.ask[0] }}</h2><p>{{ g.ask[1] }}</p></section>
+<p class="noprint"><a class="button secondary" href="/help">{{ t('cmd.back') }}</a></p>
+</article>
+{% endblock %}

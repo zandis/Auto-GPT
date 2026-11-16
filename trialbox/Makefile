@@ -45,6 +45,8 @@ UV_SYNC := uv sync --frozen --group test --extra dev --python 3.12
 # venv has no pip, so `pip install` into it is refused. `make test` refuses a venv that drifted from the lock.
 venv:
 	$(UV_SYNC)
+	@# D-829: say it before the first SCREEN job, not at its report (no download here: CI runs make venv in every job)
+	@[ -f $(FONTS) ] || echo "venv: the PDF reports need the fonts, not fetched yet: run 'make fonts' once (network) before the first SCREEN job" >&2
 
 venv-check:
 	@$(UV_SYNC) --check >/dev/null 2>&1 || { echo "venv-check: .venv differs from uv.lock (a dependency or pyproject.toml changed, or a package was installed by hand): run 'make venv'" >&2; exit 1; }
@@ -491,7 +493,7 @@ TRIVY_CACHE ?= .cache/trivy
 SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-embed:1.0.0 trialbox-postgres:16-1 trialbox-demo:step5
 # The identity overlay too (Caddy, Authelia; D-574): make_bundle.sh puts it in every bundle, and an image the gates
 # never saw cannot pass bundle-check. Its host name is a placeholder here, as there: only the images are read.
-SC_THIRD_PARTY ?= $(shell TB_TLS_HOSTNAME=bundle.invalid docker compose --project-directory deploy \
+SC_THIRD_PARTY ?= $(shell TB_TLS_HOSTNAME=bundle.invalid TB_TZ=$${TB_TZ:-UTC} docker compose --project-directory deploy \
 	-f deploy/docker-compose.yml -f deploy/docker-compose.test.yml -f deploy/docker-compose.identity.yml \
 	--profile stub --profile test --profile gpu --profile oidc config --images 2>/dev/null | grep -v '^trialbox-' | sort -u)
 # the third-party images are scanned in their registry, by digest, for this machine's platform (or SC_PLATFORM)

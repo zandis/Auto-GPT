@@ -24,6 +24,12 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "簽署鏈首並存至本機外",
     ),
     "audit.signing_key_rotated": ("Audit signing key handed over", "監査署名鍵の引き継ぎ", "稽核簽章金鑰交接"),
+    # D-718: a service sent a name of the audit's own records; kept under this name, flagged
+    "journal.reserved_name": (
+        "A service sent a name reserved for the audit's own records (kept, flagged)",
+        "サービスが監査記録専用の名前で送信（保存・印付け）",
+        "服務以稽核專用的名稱送出（已保存並標記）",
+    ),
     "audit.journal_resync": ("Audit journal resynchronised", "監査ジャーナルの再同期", "稽核日誌重新同步"),
     # reading the audit (this page)
     "console.audit_search": ("Audit trail searched", "監査証跡の検索", "搜尋稽核軌跡"),
@@ -141,6 +147,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "管理員重新執行失敗的排程作業",
     ),
     "scheduler.held": ("Scheduled run held", "予定処理の保留", "保留排程作業"),
+    "selftest.unreached": (
+        "Model self-test could not reach the models (tried again)",
+        "モデル自己テストがモデルに接続できず（再試行）",
+        "模型自我測試無法連線到模型（將重試）",
+    ),
     "rerun.checked": ("Re-run checked", "再実行の確認", "檢查重新執行"),
     "microbatch.budget": ("Night budget used", "夜間予算の使用", "使用夜間額度"),
     "notice.sent": ("Notice sent", "通知の送信", "寄送通知"),
@@ -231,6 +242,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "edc.reentry": ("EDC re-entry", "EDC 再入力", "EDC 重新輸入"),
     "edc.refused": ("EDC call refused", "EDC 呼出の拒否", "拒絕 EDC 呼叫"),
     "edc.sent": ("EDC values sent", "EDC 値の送信", "送出 EDC 數值"),
+    "edc.reconciled": (
+        "EDC values read again from REDCap",
+        "EDC 値を REDCap から再読込",
+        "從 REDCap 重新讀取 EDC 數值",
+    ),
     "edc.sign": ("EDC values signed", "EDC 値の署名", "簽署 EDC 數值"),
     "edc.switch": ("EDC prefill switched", "EDC 事前入力の切替", "切換 EDC 預填"),
     "redcap.connection": (
@@ -337,6 +353,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "ctgov.search": ("Trial registry searched", "臨床試験登録の検索", "搜尋臨床試驗登錄"),
     "compile.start": ("Criteria compiling started", "基準の変換開始", "開始轉換條件"),
+    "compile.error": (
+        "Criteria compiler error (bug)",
+        "基準変換サービスのエラー（不具合）",
+        "條件轉換服務錯誤（程式錯誤）",
+    ),
     "compile.done": ("Criteria compiled", "基準の変換完了", "完成轉換條件"),
     "approve.done": ("Criteria approved", "基準の承認", "核准條件"),
     "approve.max_rounds": (
@@ -377,6 +398,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "optout.worker": ("Opt-out worker run", "利用拒否処理の実行", "執行拒絕研究使用處理"),
     "optout.worker_failed": ("Opt-out worker failed", "利用拒否処理の失敗", "拒絕研究使用處理失敗"),
+    "optout.outputs_asked": (
+        "Mail checked against opt-outs",
+        "メール送信前の利用拒否確認",
+        "寄信前核對拒絕研究使用",
+    ),
     "notmatched.held": (
         "Weekly sample of criteria not matched held",
         "条件に合致しない患者の週次抽出の保留",
@@ -430,6 +456,8 @@ KEYS: dict[str, tuple[str, str, str]] = {
     "tag": ("tag", "区分", "標記"),
     "type": ("type", "型", "類型"),
     "format": ("format", "形式", "格式"),
+    "for": ("for", "用途", "用途"),  # D-771
+    "by": ("by", "方法", "方式"),  # D-771
     "from": ("from", "開始", "起"),
     "to": ("to", "終了", "迄"),
     "event": ("event", "イベント", "事件"),
@@ -439,6 +467,7 @@ KEYS: dict[str, tuple[str, str, str]] = {
     "ok": ("passed", "合格", "通過"),
     "head": ("head", "先頭", "鏈首"),
     "key_id": ("key", "鍵", "金鑰"),
+    "sent_event": ("name as sent", "送信時の名前", "送出時的名稱"),  # D-718
     "anchors": ("anchor folders", "アンカーフォルダ", "錨點資料夾"),
     "source": ("source", "ソース", "來源"),
     "run": ("run", "実行", "執行"),
@@ -482,6 +511,12 @@ EN: dict[str, str] = {
     "audit.patient.help": "Enter a pseudonym to see every event that names it: chart numbers shown or refused, break-glass uses, exports and downloads.",
     "audit.patient.go": "Show the report",
     "audit.report.title": "Audit report for {pid}",
+    "audit.report.title_chart": "Audit report for the chart number given",
+    "audit.report.unknown_chart": "The box could not say whether it holds a patient under this chart number: check the number before you answer the request.",
+    "audit.report.help_chart": "Every event that names this patient, newest first. The patient's pseudonym is not shown; the lookup of the chart number is on the record.",
+    "audit.report.more_chart": "There are older events: this page shows the newest ones.",
+    "audit.by_chart": "Or a chart number (a patient's request)",
+    "audit.by_chart.help": "Each lookup of a chart number is recorded and counted per person and hour.",
     "audit.report.help": "Every event of the chain that names this pseudonym, newest first. Shown as the events hold it: no name and no chart number are added. Reading this report is recorded.",
     "audit.report.counts": "On this page",
     "audit.report.csv": "Download as CSV",
@@ -525,6 +560,12 @@ JA: dict[str, str] = {
     "audit.patient.help": "仮名IDを入力すると、それを含むすべてのイベント（カルテ番号の表示・拒否、緊急アクセスの使用、エクスポート、ダウンロード）を表示します。",
     "audit.patient.go": "報告を表示",
     "audit.report.title": "{pid} の監査報告",
+    "audit.report.title_chart": "入力したカルテ番号の監査報告",
+    "audit.report.unknown_chart": "このカルテ番号の患者がいるかどうか、機器は答えられませんでした。請求に答える前に番号を確認してください。",
+    "audit.report.help_chart": "この患者の記録に触れたすべての操作（新しい順）。仮名は表示しません。カルテ番号の照会は記録されます。",
+    "audit.report.more_chart": "さらに古い操作があります。このページには新しいものを表示しています。",
+    "audit.by_chart": "またはカルテ番号（患者からの請求）",
+    "audit.by_chart.help": "カルテ番号の照会はすべて記録され、1 人 1 時間あたりの回数が数えられます。",
     "audit.report.help": "この仮名IDを含むチェーン上のすべてのイベントを新しい順に表示します。イベントの記録どおりに表示し、氏名やカルテ番号は加えません。この報告の閲覧も記録されます。",
     "audit.report.counts": "このページの件数",
     "audit.report.csv": "CSV でダウンロード",
@@ -568,6 +609,12 @@ ZH: dict[str, str] = {
     "audit.patient.help": "輸入假名代碼，即可看到所有提及該代碼的事件：病歷號顯示或拒絕、緊急存取使用、匯出與下載。",
     "audit.patient.go": "顯示報告",
     "audit.report.title": "{pid} 的稽核報告",
+    "audit.report.title_chart": "所輸入病歷號的稽核報告",
+    "audit.report.unknown_chart": "本機器無法確認此病歷號是否有病人：回覆請求前請先核對號碼。",
+    "audit.report.help_chart": "所有涉及此病人的事件（由新至舊）。不顯示假名；查詢病歷號本身會留下紀錄。",
+    "audit.report.more_chart": "還有更早的事件：本頁顯示最新的部分。",
+    "audit.by_chart": "或病歷號（病人的請求）",
+    "audit.by_chart.help": "每次查詢病歷號都會留下紀錄，並按每人每小時計次。",
     "audit.report.help": "鏈中所有提及此假名代碼的事件，最新在前。依事件所載內容顯示，不另加入姓名或病歷號。閱讀本報告亦會被記錄。",
     "audit.report.counts": "本頁筆數",
     "audit.report.csv": "下載 CSV",

@@ -1,5 +1,7 @@
 # 6. Go-live acceptance
 
+**Reader:** Aimedics and the box owner, who sign the acceptance together.
+
 `tools/acceptance.py` writes one result per criterion under `acceptance/`; `tools/acceptance.py report` sums them.
 
 1. `ingest --report <ingest_report.json>`
@@ -12,8 +14,20 @@
 6. `reproduce --results rerun.jsonl`, after `docker compose exec orchestrator python -m orchestrator.rerun <job ids>
    > rerun.jsonl`
 7. `audit --dir <audit copy>`
+8. `capacity --jobs night.json` (T-317a, D-730): one night of the site's own data, the jobs as the orchestrator lists
+   them (`GET /jobs?limit=500`) saved as one JSON list. The night's chain (its ingest, then screen, nav and
+   retention) must end `done` before the first morning notice (`TB_NOTICE_N1_AT`, 07:00 by default, in `TB_TZ`)
+   with at least an hour to spare. `--night <name>` picks a night other than the newest.
+9. `power-cycle --doctor doctor-after.json --audit-dir <audit copy>` (T-317a, D-730): during the planned power cut
+   of §22, or a test of it before go-live. After the power comes back, run `trialbox doctor --json > doctor-after.json`:
+   no FAIL, and the audit chain verifies.
 
 Also run `make test-egress` (§1 of [Security](../SECURITY.md)) and keep the host check output.
+
+**Keys (IQ-05, D-893).** Keep the signed key ceremony record (`deploy/site/key-ceremony-<time>.md`, made by `python -m
+tools.keys ceremony-record`, TB-SOP-03 in [security §10](../security/10-key-ceremony-and-escrow.md)) with the
+acceptance; `trialbox doctor` (`key_ceremony`) shows it is there for the box's KEK. And one restore drill that
+passed (`trialbox restore-drill`, §5, D-892).
 
 **REDCap version per site** (DEP-026, D-393). The connector accepts REDCap 14, 15 and 16 (`SUPPORTED_MAJORS` in
 `services/rc_bridge/client.py`) but has been tested only against the simulator (`rc_sim`). Before go-live, ask the

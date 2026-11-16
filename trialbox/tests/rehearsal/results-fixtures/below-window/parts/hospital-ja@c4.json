@@ -1,0 +1,144 @@
+{
+ "stages": [
+  {
+   "name": "0 data in",
+   "ok": true,
+   "seconds": 0.4,
+   "checks": [
+    [
+     "lake counts = generator counts (patients, notes, encounters)",
+     true,
+     "5000"
+    ]
+   ]
+  },
+  {
+   "name": "15 delegation, candidates and referral",
+   "ok": true,
+   "seconds": 905.4,
+   "checks": [
+    [
+     "SCREEN finished",
+     true,
+     ""
+    ],
+    [
+     "the pair canary passed",
+     true,
+     "54/54"
+    ]
+   ]
+  }
+ ],
+ "llm_concurrency": 4,
+ "candidates": {
+  "count": 3,
+  "sha256": "6fb0a487072083f8936ed0f471513d2858b4092c76261dcd8c5bc4e41fbc7690",
+  "tiers": {
+   "high": 1,
+   "review": 2
+  },
+  "list": [
+   [
+    "syn0001",
+    "high"
+   ],
+   [
+    "syn0002",
+    "review"
+   ],
+   [
+    "syn0003",
+    "review"
+   ]
+  ]
+ },
+ "screen": {
+  "listed": 3,
+  "judging": {
+   "mode": "agreement",
+   "judge_model": "local/synthetic-judge-fixture",
+   "verifier_model": "local/synthetic-verifier-fixture"
+  }
+ },
+ "scenario": {
+  "counts": {
+   "patients": 5000
+  },
+  "model_calls": 670
+ },
+ "metrics": {
+  "sampled": true,
+  "seconds": 905.4,
+  "folder": "parts/hospital-ja@c4",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "queue_mean_s": 0.2
+   },
+   "verifier": {
+    "scraped": true,
+    "queue_mean_s": 0.1
+   }
+  },
+  "gpu": {
+   "samples": 90,
+   "every_s": 10.0,
+   "util_mean_pct": 58.0,
+   "util_max_pct": 100.0,
+   "memory_peak_mib": 62400.0,
+   "memory_total_mib": 97887.0
+  }
+ },
+ "throughput": {
+  "source": "gateway audit (llm.gateway.call)",
+  "calls": 670,
+  "busy_seconds": 905.4,
+  "calls_per_second": 0.74,
+  "tokens_in": 0,
+  "tokens_out": 0,
+  "tokens_in_per_second": 454.5,
+  "tokens_out_per_second": 50.5,
+  "tokens_per_second": 505.0,
+  "p50_s": 2.4,
+  "p95_s": 4.6,
+  "mean_in_flight": 4.0,
+  "cached": 0,
+  "endpoints": {
+   "serving": {
+    "calls": 400,
+    "busy_seconds": 905.4,
+    "calls_per_second": 0.442,
+    "tokens_per_second": 301.5,
+    "p50_s": 2.4,
+    "p95_s": 4.6
+   },
+   "verifier": {
+    "calls": 270,
+    "busy_seconds": 905.4,
+    "calls_per_second": 0.298,
+    "tokens_per_second": 203.5,
+    "p50_s": 2.4,
+    "p95_s": 4.6
+   }
+  },
+  "breaker_opens": {
+   "serving": 0,
+   "verifier": 0
+  }
+ },
+ "run": {
+  "id": "20261112T090000Z-0f1e2d3c-s1",
+  "head": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+  "subject": "fixture",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "fixture-vm"
+  },
+  "weight_pins": "synthetic"
+ },
+ "wall_seconds": 1145.4
+}

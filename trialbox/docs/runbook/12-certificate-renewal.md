@@ -1,5 +1,7 @@
 # RUNBOOK §12 part: certificate renewal
 
+**Reader:** hospital IT, or the box owner where the box makes its own certificate.
+
 *T-635 (OPS-074). The console is served on 443 by Caddy (§12).*
 
 **Drill (T-213b):** `test_runbook_12_certificate_renewal` (Docker drill: a certificate that ends in 20 days gives the

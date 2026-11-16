@@ -1,0 +1,60 @@
++ d_sign_throwaway (1 words) 09:20:46
+TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release
+==> release gates (/srv/tb-build/tb/trialbox/build/supply-chain/gates.json)
+bundle-check: PASS (8 images)
+==> images
+    authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54
+    caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
+    trialbox-embed:1.0.0
+    trialbox-jvm:1.0.0
+    trialbox-postgres:16-1
+    trialbox-py:1.0.0
+    vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34
+    image pins: 4 digest references (image-pins.json)
+==> host tree (compose files, host tools, configuration; tools/host_tree.py, D-367)
+    {"files": 576, "sha256": "19be417286382c51e31357f76d13d1edd56195d0623bae259628800551ffaae8"}
+==> installer, runbook, settings example, notices, changelog
+==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)
+release: 1.0.0 val-ac36aa21fdc1 (seq 1): 8 images, 11 SBOM files, 29 components
+==> signing /srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar (bundle id val-ac36aa21fdc1, release_seq 1)
+Traceback (most recent call last):
+  File "/srv/tb-build/tb/trialbox/tools/sign_bundle.py", line 254, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/srv/tb-build/tb/trialbox/tools/sign_bundle.py", line 245, in main
+    m = build(args.key, args.id, items, args.out, args.signer, args.description, release_seq=args.release_seq,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/srv/tb-build/tb/trialbox/tools/sign_bundle.py", line 203, in build
+    add(tf, f"files/{dest}", src=src)
+  File "/srv/tb-build/tb/trialbox/tools/sign_bundle.py", line 191, in add
+    tf.addfile(info, fh)
+  File "/usr/lib/python3.12/tarfile.py", line 2288, in addfile
+    copyfileobj(fileobj, self.fileobj, tarinfo.size, bufsize=bufsize)
+  File "/usr/lib/python3.12/tarfile.py", line 254, in copyfileobj
+    dst.write(buf)
+OSError: [Errno 28] No space left on device
++ d_sign_throwaway (1 words) 09:33:50
+TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release
+==> release gates (/srv/tb-build/tb/trialbox/build/supply-chain/gates.json)
+bundle-check: PASS (8 images)
+==> images
+    authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54
+    caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
+    trialbox-embed:1.0.0
+    trialbox-jvm:1.0.0
+    trialbox-postgres:16-1
+    trialbox-py:1.0.0
+    vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34
+    image pins: 4 digest references (image-pins.json)
+==> host tree (compose files, host tools, configuration; tools/host_tree.py, D-367)
+    {"files": 576, "sha256": "19be417286382c51e31357f76d13d1edd56195d0623bae259628800551ffaae8"}
+==> installer, runbook, settings example, notices, changelog
+==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)
+release: 1.0.0 val-ac36aa21fdc1 (seq 1): 8 images, 11 SBOM files, 29 components
+==> signing /srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar (bundle id val-ac36aa21fdc1, release_seq 1)
+wrote /srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar: 29 files, bundle val-ac36aa21fdc1
+release check: PASS (trialbox-val-ac36aa21fdc1.tar)
+2288a81be64500f49a81c13ede3ba39d79396a0d883fe9b1e8f8f790da756178  /srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar
+done: hand over /srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar and /srv/tb-build/out/trialbox-val-ac36aa21fdc1.tar.sha256 on a USB stick; the site runs: deploy/install.sh trialbox-val-ac36aa21fdc1.tar

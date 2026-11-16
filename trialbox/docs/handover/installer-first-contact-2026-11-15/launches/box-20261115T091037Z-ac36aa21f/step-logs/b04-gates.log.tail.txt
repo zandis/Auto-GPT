@@ -1,0 +1,70 @@
++ make (4 words) 09:14:59
+make: Entering directory '/srv/tb-build/tb/trialbox'
+PYTHONPATH=libs:services:. .venv/bin/python -m tools.supply_chain scanners --dest .cache/scanners
+scanners: syft -> .cache/scanners/bin/syft
+scanners: trivy -> .cache/scanners/bin/trivy
+/srv/tb-build/tb/trialbox/.cache/scanners/bin/trivy image --download-db-only --cache-dir .cache/trivy --skip-version-check
+2026-11-15T09:14:59Z	INFO	[vulndb] Need to update DB
+2026-11-15T09:14:59Z	INFO	[vulndb] Downloading vulnerability DB...
+2026-11-15T09:14:59Z	INFO	[vulndb] Downloading artifact...	repo="mirror.gcr.io/aquasec/trivy-db:2"
+55.09 MiB / 134.06 MiB [------------------------>___________________________________] 41.10% ? p/s ?117.97 MiB / 134.06 MiB [--------------------------------------------------->_______] 88.00% ? p/s ?134.06 MiB / 134.06 MiB [--------------------------------------------------------->] 100.00% ? p/s ?134.06 MiB / 134.06 MiB [------------------------------------------->] 100.00% 131.60 MiB p/s ETA 0s134.06 MiB / 134.06 MiB [------------------------------------------->] 100.00% 131.60 MiB p/s ETA 0s134.06 MiB / 134.06 MiB [------------------------------------------->] 100.00% 131.60 MiB p/s ETA 0s [cut at 600 characters]
+/srv/tb-build/tb/trialbox/.cache/scanners/bin/trivy image --download-java-db-only --cache-dir .cache/trivy --skip-version-check
+2026-11-15T09:15:02Z	INFO	[javadb] Downloading Java DB...
+2026-11-15T09:15:02Z	INFO	[javadb] Downloading artifact...	repo="mirror.gcr.io/aquasec/trivy-java-db:1"
+47.86 MiB / 953.79 MiB [--->_________________________________________________________] 5.02% ? p/s ?98.85 MiB / 953.79 MiB [------>_____________________________________________________] 10.36% ? p/s ?143.73 MiB / 953.79 MiB [-------->__________________________________________________] 15.07% ? p/s ?187.80 MiB / 953.79 MiB [-------->____________________________________] 19.69% 233.24 MiB p/s ETA 3s234.46 MiB / 953.79 MiB [----------->_________________________________] 24.58% 233.24 MiB p/s ETA 3s281.13 MiB / 953.79 MiB [------------->_______________________________] 29.48% 233.24 MiB p/s ETA 2s [cut at 600 characters]
+2026-11-15T09:15:14Z	INFO	[javadb] Java DB is cached for 3 days. If you want to update the database more frequently, "trivy clean --java-db" command clears the DB cache.
+make: Leaving directory '/srv/tb-build/tb/trialbox'
++ make (5 words) 09:15:19
+make: Entering directory '/srv/tb-build/tb/trialbox'
+PYTHONPATH=libs:services:. .venv/bin/python -m tools.supply_chain scanners --dest .cache/scanners
+scanners: syft -> .cache/scanners/bin/syft
+scanners: trivy -> .cache/scanners/bin/trivy
+uv venv -q --allow-existing --python 3.12 .cache/lock-env
+uv pip install -q --no-config --python .cache/lock-env/bin/python --require-hashes --only-binary :all: \
+	-r deploy/requirements.lock
+PATH=/srv/tb-build/tb/trialbox/.cache/scanners/bin:$PATH PYTHONPATH=libs:services:. .venv/bin/python -m tools.supply_chain lock-sbom --env .cache/lock-env --out dist/sbom/requirements.lock.cdx.json
+lock-sbom: PASS -> dist/sbom/requirements.lock.cdx.json
+cp .env.example deploy/.env && chmod 600 deploy/.env
+trialbox-py:1.0.0
+trialbox-jvm:1.0.0
+trialbox-embed:1.0.0
+trialbox-postgres:16-1
+trialbox-demo:step5
+registry:authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54=linux/amd64
+registry:axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce=linux/amd64
+registry:caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee=linux/amd64
+registry:greenmail/standalone:2.1.15@sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f=linux/amd64
+registry:hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e=linux/amd64
+registry:vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34=linux/amd64
+PATH=/srv/tb-build/tb/trialbox/.cache/scanners/bin:$PATH PYTHONPATH=libs:services:. .venv/bin/python -m tools.supply_chain release-gates --cache-dir .cache/trivy --out build/supply-chain --sbom-dir dist/sbom \
+	--lock-sbom dist/sbom/requirements.lock.cdx.json --vuln-mode report --image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 --image trialbox-embed:1.0.0 --image trialbox-postgres:16-1 --image trialbox-demo:step5 --image registry:authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54=linux/amd64 --image registry:axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce=linux/amd64 --image registry:caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee=linux/amd64 --image registry: [cut at 600 characters]
+release gates: PASS
+  PASS  trialbox-py:1.0.0 linux/amd64 sha256:d5abdf434af7d100d2fd9b15a1ecb6bd4309b88727ce099c17f752b56b16be6e
+  PASS  trialbox-jvm:1.0.0 linux/amd64 sha256:a10068cdb33e8cffb537133c97bcb2f9c03a6e5196ba297d8422627fca8ce9a2
+  PASS  trialbox-embed:1.0.0 linux/amd64 sha256:bd3f0b7f53258f8e143134eca31ab2094030c6a7ae73805ecf15f3215ac5ba18
+  PASS  trialbox-postgres:16-1 linux/amd64 sha256:0f1a394ef9b6ebcad69b3b7e5f95b851e243baa75c4a843a46cf715c073485f3
+  PASS  trialbox-demo:step5 linux/amd64 sha256:2e45c079e10cf0594bcdaa60c9e6932ab52bf387ee3e0be1c3f0be4ead9fb6a3
+  PASS  authelia/authelia@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54 linux/amd64 sha256:b44a326fced15f005f46eb98ca5a42e97d5a42ffd26075e07c9befb306bec5f0
+  PASS  axllent/mailpit@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce linux/amd64 sha256:cfdafb05e489fd0a93f82045a641610317dbaa7ea1da3d7a847cdb82f1001937
+        REPORT GO-2026-5932 UNKNOWN golang-org/x/crypto v0.58.0 (fixed in 0.58.1-0.20261009181718-2f1f834330b2)
+        REPORT CVE-2026-97054 UNKNOWN stdlib v1.27.3 (fixed in 1.26.11, 1.27.4)
+  PASS  caddy@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee linux/amd64 sha256:5813f7eb9b94fac4970f9f576695fe1ed1d53d41586fd3eaa350caf7c4627d9c
+  PASS  greenmail/standalone@sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f linux/amd64 sha256:b99bca7f23719486cba8c8af358a0d98e3bf2681dbf8a9ccea369cc7c54ee0e5
+        REPORT CVE-2026-109518 HIGH apt 3.0.3 (fixed in 3.0.4)
+        REPORT CVE-2026-109518 HIGH libapt-pkg7-0 3.0.3 (fixed in 3.0.4)
+        REPORT CVE-2026-111497 CRITICAL libbrotli1 1.1.0-2+b7 (fixed in 1.1.0-2+deb13u1)
+        REPORT CVE-2026-76844 HIGH zlib1g 1:1.3.dfsg+really1.3.1-1+b1 (fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1)
+        REPORT CVE-2026-85091 HIGH zlib1g 1:1.3.dfsg+really1.3.1-1+b1 (fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1)
+  PASS  hapiproject/hapi@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e linux/amd64 sha256:d4a0dc0bcde83fbbb855fc739aa952b376a31b27dca343c51e8607a1db6a8e35
+  PASS  vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34 linux/amd64 sha256:bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d
+  PASS  licences (licences.md)
+        ok    budget authelia/authelia *: 88 open, budget 88
+        ok    budget axllent/mailpit *: 52 open, budget 52
+        ok    budget caddy *: 148 open, budget 148
+        ok    budget greenmail/standalone *: 36 open, budget 36
+        ok    budget hapiproject/hapi *: 179 open, budget 179
+        ok    budget trialbox-demo maven: 1 open, budget 67
+        ok    budget trialbox-jvm maven: 71 open, budget 71
+        ok    budget trialbox-postgres golang: 3 open, budget 3
+        ok    budget vllm/vllm-openai *: 618 open, budget 630
+make: Leaving directory '/srv/tb-build/tb/trialbox'

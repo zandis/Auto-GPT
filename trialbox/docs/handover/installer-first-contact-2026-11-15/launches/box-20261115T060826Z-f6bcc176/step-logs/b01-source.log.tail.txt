@@ -1,0 +1,25 @@
++ fetch (3 words) 06:09:14
+Copying gs://trialbox-demo-runs/r2/val-f6bcc1761a59/src.bundle to file:///srv/tb-build/src.bundle
+  
+
+
+Average throughput: 1.1GiB/s
++ git (5 words) 06:09:19
+Note: switching to 'f6bcc1761a59d6e56fb78408e5919e170f709f63'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
++ git (7 words) 06:09:24

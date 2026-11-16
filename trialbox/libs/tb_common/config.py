@@ -402,6 +402,7 @@ DECLARED: dict[str, Declared] = {
         "float", "0.5", "part of a target's capacity this box's backups may fill; the rest is for others (D-455)"
     ),
     "TB_BACKUP_MAILTO": Declared("str", "", "address told when the backup is too old"),
+    "TB_BACKUP_ALERT_ROUTE": Declared("str", "", "health-page: the /admin health tab is the backup alert route"),
     "TB_BACKUP_MAX_AGE_HOURS": Declared("float", "", "age after which backup-status alerts"),
     "TB_BACKUP_MIN_MBPS": Declared(
         "float", "5", "slowest MB/s a backup step may run before it counts as hung: a tenth of a box disk (D-455)"
@@ -426,6 +427,8 @@ DECLARED: dict[str, Declared] = {
     "TB_CANARY_GATE": Declared("bool", "", "note answers gated on a passed canary"),
     "TB_CANARY_MAX_AGE_H": Declared("float", "", "hours a passed canary stays valid"),
     "TB_CANARY_RESULT": Declared("str", "", "platform check: path of the canary result"),
+    "TB_CANARY_RETRY_MAX_S": Declared("float", "600", "longest wait between canaries that could not reach a model"),
+    "TB_CANARY_RETRY_S": Declared("float", "30", "first wait before a canary that could not reach a model runs again"),
     "TB_CANARY_WHY_CASES": Declared(
         "int", "2", "wrong cases named in a failed canary's line, read on one screen line (the report keeps ten)"
     ),
@@ -438,6 +441,10 @@ DECLARED: dict[str, Declared] = {
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
+    # D-748: the lake's memory grows with the rows one S1 query carries (patients times index dates). Measured on the
+    # 10k lake at 1 GB (the smallest limit lake.store.memory_limit derives): 12,000 rows fit for GZQO and RA-BIO at 36,
+    # 12 and 1 index dates, 24,000 failed (GZQO, 12 dates). A 500 MB lake sets it lower (RA-BIO fitted 2,000)
+    "TB_CASCADE_S1_ROWS": Declared("int", "12000", "cascade: rows (patients x index dates) one S1 query may carry"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
@@ -487,6 +494,12 @@ DECLARED: dict[str, Declared] = {
     "TB_DB_ROLES_CMD": Declared("str", "", "restore: the command that puts the service roles back (D-573)"),
     "TB_DB_URL": Declared("str", "", "the trial database URL"),
     "TB_DEMO_ACCOUNTS": Declared("str", "", "demo: accounts to create"),
+    # deploy/gcp/demo-vm.sh (the small demo VM, deploy/gcp/demo_vm.py has each reason): never empty; the world only
+    # through the explicit word "any" (the owner's ruling of 2026-11-15: a PoC with synthetic data only, reachable from
+    # anywhere, kept by the sign-in password and TLS alone)
+    "TB_DEMO_ALLOW": Declared(
+        "str", "", "demo VM: tcp:443 source ranges, comma separated, or any (open; owner 2026-11-15, PoC, synthetic)"
+    ),
     "TB_DEMO_CONTAINER": Declared("str", "trialbox-demo", "demo: container name"),
     "TB_DEMO_DAY": Declared("str", "today", "demo: the day the demo shows"),
     "TB_DEMO_DIR": Declared("path", "", "demo: work folder"),
@@ -497,8 +510,54 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_MODE": Declared("str", "", "demo mode flag"),
     "TB_DEMO_OPINIONS": Declared("str", "", "demo: recorded first and second checks"),
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
+    "TB_DEMO_PEOPLE": Declared("str", "", "demo: the VM's people (name:role), recipients of the study lists (D-758)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
     "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
+    # the small demo VM (deploy/gcp/demo-vm.sh): each limit's reason is in deploy/gcp/demo_vm.py (OD-10); prices are
+    # settings with their source and date because list prices change
+    "TB_DEMO_VM_DISK_GB": Declared(
+        "int", "30", "demo VM: boot disk GB (Debian, Docker, the demo image and its tarball)"
+    ),
+    "TB_DEMO_VM_DISK_PRICE_GB_MONTH": Declared("float", "0.11", "demo VM estimate: pd-balanced US$ per GB-month"),
+    "TB_DEMO_VM_ENROL_HOURS": Declared(
+        "int", "24", "demo VM: hours an unused one-time code is good for (one working day; product range 1-72, D-719)"
+    ),
+    "TB_DEMO_VM_HANDOFF": Declared(
+        "str", "", "demo VM: private gs:// place of the people's one-time codes (unset: $TB_BUCKET/demo-vm)"
+    ),
+    "TB_DEMO_VM_HOST": Declared(
+        "str", "", "demo VM: a DNS name for a public certificate; refused (DNS-01 is not built)"
+    ),
+    "TB_DEMO_VM_HOURS": Declared(
+        "int", "12", "demo VM: hard stop, hours after each up (one working day with margin; a forgotten VM stops)"
+    ),
+    "TB_DEMO_VM_IMAGE": Declared("str", "", "demo VM: the demo image by digest, or gs:// tarball of make demo-bundle"),
+    "TB_DEMO_VM_IMAGE_SHA256": Declared("str", "", "demo VM: sha256 of the gs:// tarball, checked on the VM"),
+    "TB_DEMO_VM_IP_PRICE_HOUR": Declared("float", "0.005", "demo VM estimate: an in-use external IPv4, US$ per hour"),
+    "TB_DEMO_VM_MACHINE": Declared(
+        "str", "e2-standard-4", "demo VM: machine type (peak 1.8 GB + PostgreSQL, 4 cores for the seed); never a GPU"
+    ),
+    "TB_DEMO_VM_MIN_PREFIX": Declared(
+        "int", "16", "demo VM: an allowed IPv4 range broader than this prefix is refused (a home range is /24)"
+    ),
+    "TB_DEMO_VM_NAME": Declared("str", "tb-demo-vm", "demo VM: prefix of its VM, network, subnet, rule and tag"),
+    "TB_DEMO_VM_NETWORK": Declared(
+        "str", "default", "demo VM: default (the project's network; no networkAdmin, a deny-all on its tag) or own"
+    ),
+    "TB_DEMO_VM_PEOPLE": Declared(
+        "str",
+        "owner:investigator,guest:coordinator",
+        "demo VM: one account per person, name:role; each sets a password",
+    ),
+    "TB_DEMO_VM_PRICE_DATE": Declared("str", "", "demo VM estimate: the date its prices were read (unset: unchecked)"),
+    "TB_DEMO_VM_PRICE_HOUR": Declared(
+        "float", "0.1528", "demo VM estimate: the machine's US$ per hour (e2-standard-4, asia-east1; check at order)"
+    ),
+    "TB_DEMO_VM_PRICE_SOURCE": Declared("str", "", "demo VM estimate: where its prices come from (unset: from memory)"),
+    "TB_DEMO_VM_STOP_WAIT_S": Declared(
+        "int", "300", "demo VM down: seconds to wait for TERMINATED (an e2 VM stops in under a minute)"
+    ),
+    "TB_DEMO_VM_ZONE": Declared("str", "asia-east1-a", "demo VM: zone (the owner's choice for the 2026-11-17 demo)"),
     "TB_DEMO_WAIT_S": Declared("float", "900", "demo: seconds to wait for health"),
     "TB_DIRECTORY_URL": Declared("str", "", "platform check: directory URL"),
     "TB_DOCKER": Declared("str", "docker", "the docker command"),
@@ -513,13 +572,18 @@ DECLARED: dict[str, Declared] = {
     "TB_EGRESS_STATE": Declared(
         "str", "/var/lib/trialbox/egress-state.json", "egress: state file of the applied table"
     ),
+    "TB_EMBED_BATCH_BUDGET": Declared("int", "8192", "embed service: tokens one encode call holds (D-900)"),
+    "TB_EMBED_CACHE_VECTORS": Declared("int", "20000", "SCREEN: embedding vectors kept by text hash, 0 off (D-900)"),
+    "TB_EMBED_CONCURRENCY": Declared("int", "1", "embed service: requests encoded at a time (D-900)"),
     "TB_EMBED_DEVICE": Declared("str", "cpu", "embedder device (cpu or cuda)"),
     "TB_EMBED_IMAGE": Declared("str", "", "platform: embedder image"),
+    "TB_EMBED_INPUT_CAP": Declared("int", "512", "embed service: an input is cut at this many tokens (D-900)"),
     "TB_EMBED_MODE": Declared(
         "str", "hash", "embedder: model or hash (stub, refused in PRODUCTION); unset: model in PRODUCTION (D-429)"
     ),
+    "TB_EMBED_OUTAGE_WAIT_S": Declared("int", "600", "SCREEN: seconds a job waits for the embed service to return"),
     "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
-    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST or PRODUCTION (unset is PRODUCTION)"),
+    "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST, VALIDATION or PRODUCTION (unset is PRODUCTION)"),
     "TB_EP_SERVING_URL": Declared("str", "", "scenario tool: judge endpoint"),
     "TB_EP_VERIFIER_URL": Declared("str", "", "scenario tool: verifier endpoint"),
     "TB_EVAL_LIMIT": Declared("int", "", "eval: cases per suite"),
@@ -535,6 +599,12 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
     "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
     "TB_FONTS_DIR": Declared("path", "", "report fonts folder"),
+    # master has no real RA or early-AD protocol; the owner puts two public ones here before a G-8 launch
+    "TB_G8_PROTOCOLS_DIR": Declared(
+        "path",
+        "tests/fixtures/public_protocols",
+        "complete-run part g8-protocols (review G-8): public protocols folder",
+    ),
     "TB_GATEWAY_BREAKER_FAILURES": Declared("int", "5", "gateway: failures in a row that open an endpoint's breaker"),
     "TB_GATEWAY_BREAKER_OPEN_S": Declared("float", "30", "gateway: seconds a breaker stays open before one try"),
     "TB_GATEWAY_CALL_BUDGET_S": Declared("float", "210", "gateway: seconds one call may take, retry and fallbacks in"),
@@ -542,6 +612,9 @@ DECLARED: dict[str, Declared] = {
     "TB_GATEWAY_INTERACTIVE_TIMEOUT_S": Declared("float", "", "gateway: timeout of an interactive call"),
     "TB_GATEWAY_MAX_INFLIGHT": Declared("int", "64", "gateway: chat calls on threads at once (T-608)"),
     "TB_GATEWAY_MODEL": Declared("str", "", "the alias a judge call asks the gateway for"),
+    "TB_GATEWAY_PHI_TRIPWIRE": Declared(
+        "str", "on", "gateway: the PHI tripwire on calls whose route leaves the box (D-506); off turns it off"
+    ),
     "TB_GATEWAY_RETRY_DELAY_S": Declared("float", "", "gateway: delay before a retry"),
     "TB_GATEWAY_SLOTS": Declared("int", "16", "gateway: calls at once per endpoint without a serving record"),
     "TB_GATEWAY_STALL_S": Declared("float", "40", "gateway: seconds without an answer before a stall probe"),
@@ -578,11 +651,13 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_ROOT": Declared("path", "", "host scripts: fake host root for the tests only, empty on the box (D-408)"),
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
+    "TB_CODE_IMAGE": Declared("str", "", "qualify: the image id naming the code with no release tree (D-881)"),
+    "TB_HOST_GPU": Declared("str", "", "qualify in the image: the host's NVIDIA driver, CUDA, card as JSON (D-889)"),
     "TB_INGEST_SORT_MB": Declared(
         "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
     ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
-    "TB_INSTALL_UP_TIMEOUT": Declared("int", "900", "install: seconds to wait for health"),
+    "TB_INSTALL_UP_TIMEOUT": Declared("int", "", "install: seconds to wait for health; empty: from the health checks"),
     "TB_IRB_TEXT_GATE": Declared(
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
@@ -593,6 +668,9 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JUDGED_STORE": Declared(
+        "str", "on", "SCREEN: the judged-pair store, on or off; off asks every note question live (D-908, D-519)"
+    ),
     "TB_JOB_MAX_RESTARTS": Declared(
         "int",
         "3",
@@ -601,6 +679,20 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
+    "TB_HOST_PROFILE": Declared(
+        "str",
+        "site",
+        "site or poc: poc (a plain VM) makes host-facility checks WARN and listed; never PRODUCTION (D-837)",
+    ),
+    "TB_BOX_DEFER_SEAL": Declared(
+        "bool", "0", "install.sh: the site keys are sealed later, at box-install.sh's apply step (T-729, D-837)"
+    ),
+    "TB_SYSTEMD": Declared(
+        "bool", "1", "install.sh and seal_keys.sh: 0 skips the systemd units (the poc host profile's default, D-837)"
+    ),
+    "TB_KEK_BACKEND": Declared(
+        "str", "", "seal_keys.sh: the KEK back end (tpm, shamir or passphrase) without a hardening.conf (D-836)"
+    ),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
     "TB_KMS_TOKEN": Declared("str", "", "kms KEK back end: the hospital KMS token (secret; T-319)"),
     "TB_KMS_URL": Declared("str", "", "kms KEK back end: the KMS transit address when it moved from kek.json's"),
@@ -613,6 +705,11 @@ DECLARED: dict[str, Declared] = {
     "TB_LAKE_MAX_TEMP": Declared("str", "", "lake: temporary space cap"),
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": Declared("int", "0", "oldest lake snapshot a job accepts, days (0: off; D-383)"),
     "TB_LAKE_MEMORY_LIMIT": Declared("str", "", "lake: memory cap"),
+    # D-746: FEAS and COHORT are one query over the whole lake; 300 s is crossed at about 140,000 patients (F-29,
+    # measured) and the time grows with the rows, so 500,000 needs about 1,070 s: 1,800 s leaves 1.7 times that
+    "TB_LAKE_QUERY_LIMITS": Declared(
+        "str", "FEAS=1800,COHORT=1800", "lake: one query's time limit per job type, TYPE=seconds (others 300 s)"
+    ),
     "TB_LAKE_SOURCE": Declared("str", "legacy", "lake source (legacy or omop)"),
     "TB_LAKE_TEMP_DIR": Declared("path", "", "lake: temporary folder"),
     "TB_LINK_ADDR": Declared("str", "", "two-device link: this device's address on the hospital network"),
@@ -634,6 +731,9 @@ DECLARED: dict[str, Declared] = {
         "jobs: seconds a job waits in model outages in all; a server reloads in minutes (0: no wait; D-456)",
     ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
+    "TB_JOBS_PER_SENDER_PER_DAY": Declared(
+        "int", "", "heavy jobs a sender may start a day, overriding settings.yaml; 0: no limit (D-146, D-775)"
+    ),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
     "TB_LOG_MAX_SIZE": Declared("str", "100m", "size of one container log file (provisional, D-389)"),
@@ -676,6 +776,7 @@ DECLARED: dict[str, Declared] = {
     "TB_OIDC_CLIENT_SECRET": Declared("path", "", "OIDC: the file of the client secret (compose secret source)"),
     "TB_OIDC_CLIENT_SECRET_FILE": Declared("path", "", "OIDC: file with the client secret"),
     "TB_OIDC_ENABLED": Declared("bool", "0", "OIDC sign-in on"),
+    "TB_LDAP_CA": Declared("str", "", "the hospital's directory CA chain (PEM): Authelia's only roots (D-722)"),
     "TB_OIDC_GROUPS_CLAIM": Declared("str", "groups", "OIDC: groups claim"),
     "TB_OIDC_GROUP_ROLES": Declared("str", "", "OIDC: group to role map"),
     "TB_OIDC_ISSUER": Declared("str", "", "OIDC: issuer"),
@@ -709,6 +810,15 @@ DECLARED: dict[str, Declared] = {
     "TB_PGBACKREST_FULL_DAY": Declared("int", "", "pgBackRest: weekday of the full backup"),
     "TB_PGBACKREST_REPO": Declared("str", "", "pgBackRest: repository"),
     "TB_PG_ARCHIVE_MODE": Declared("str", "off", "PostgreSQL WAL archiving"),
+    # T-703 (D-751): written by deploy/install.sh from TB_MEM_DB (tools/trialbox/pgsize.py); compose's defaults are
+    # PostgreSQL's and docker's own
+    "TB_PG_EFFECTIVE_CACHE_SIZE": Declared("str", "4GB", "PostgreSQL effective_cache_size (D-751)"),
+    "TB_PG_IDLE_TX_TIMEOUT": Declared("str", "0", "PostgreSQL idle_in_transaction_session_timeout (D-751)"),
+    "TB_PG_MAINTENANCE_WORK_MEM": Declared("str", "64MB", "PostgreSQL maintenance_work_mem (D-751)"),
+    "TB_PG_MAX_WAL_SIZE": Declared("str", "1GB", "PostgreSQL max_wal_size (D-751)"),
+    "TB_PG_MIN_WAL_SIZE": Declared("str", "80MB", "PostgreSQL min_wal_size (D-751)"),
+    "TB_PG_SHARED_BUFFERS": Declared("str", "128MB", "PostgreSQL shared_buffers (D-751)"),
+    "TB_PG_SHM": Declared("str", "64m", "the database container's /dev/shm (D-751)"),
     "TB_PG_BIN": Declared("str", "", "local PostgreSQL bin folder (tools)"),
     "TB_PG_DIR": Declared("path", "", "local PostgreSQL data folder (demo)"),
     "TB_PG_DSN": Declared("str", "", "testbench: PostgreSQL DSN"),
@@ -757,12 +867,13 @@ DECLARED: dict[str, Declared] = {
     "TB_REDCAP_TEST_TIMEOUT_S": Declared("float", "120", "REDCap test instance (D-584): seconds one API call may take"),
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
-    "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box, TEST only; doctor says so (D-726)"),
+    "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box; doctor says so (D-726, D-887)"),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
+    "TB_RELEASE_TREE": Declared("path", "", "qualify in the image: the signed release tree mounted read-only (D-881)"),
     "TB_RESTORE_ACTOR": Declared("str", "trialbox restore", "restore: actor in the audit"),
     "TB_RESTORE_FILE": Declared("str", "newest", "platform restore job: the backup on the share to restore (T-633)"),
     "TB_RESTORE_KEEP_DIR": Declared("path", "deploy/pre-restore", "restore: where the old files go"),
@@ -776,9 +887,20 @@ DECLARED: dict[str, Declared] = {
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),
     "TB_RUN_ID": Declared("str", "", "complete-run tool: run id"),
+    "TB_REPORT_DETAIL_CHARS": Declared(
+        "int", "300", "complete-run report: a failed check's detail cut in report.md (failed-checks.json has it all)"
+    ),
     "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
     "TB_ESTIMATE_LLM_SPEEDUP": Declared(
-        "float", "2", "complete-run estimate: most that N model calls in flight cut the screening time by"
+        "float", "", "complete-run estimate: override of G-3's measured gain, min(N, this) (unset: the curve)"
+    ),
+    "TB_BUCKET": Declared("str", "", "complete-run: gs:// bucket for the code and results (unset: through the door)"),
+    "TB_START_RETRIES": Declared(
+        "int", "3", "complete-run: retries of a VM start refused for a stockout (no other refusal is retried)"
+    ),
+    "TB_START_RETRY_SECONDS": Declared("int", "240", "complete-run: seconds between those retries of a VM start"),
+    "TB_DOOR_DIRECT": Declared(
+        "bool", "", "complete-run: launch in door mode though HTTPS_PROXY is set (this host reaches the VM directly)"
     ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
@@ -819,6 +941,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCREEN_LLM_CONCURRENCY": Declared("int", "", "SCREEN: model calls side by side (1 to 64)"),
     "TB_SCREEN_MAX_PAIRS": Declared(
         "int", "", "SCREEN: model call budget per job (unset: the population's own pairs; D-456)"
+    ),
+    "TB_SCREEN_NOTE_BATCH": Declared(
+        "int", "1000", "SCREEN: patients whose notes the note stage reads at a time (same answers; T-694, D-794)"
     ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
@@ -894,6 +1019,10 @@ DECLARED: dict[str, Declared] = {
     "TB_UPDATE_CHECK_CMD": Declared("str", "", "update: health check command"),
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),
     "TB_UPDATE_INCOMING": Declared("str", "", "update: incoming bundle folder"),
+    "TB_UPDATE_QUIET_AT": Declared(
+        "str", "05:00", "ops: the quiet hour's start, site clock, for an update asked for then (D-731)"
+    ),
+    "TB_UPDATE_QUIET_HOURS": Declared("float", "2", "ops: how long the quiet hour lasts, hours (D-731)"),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
     "TB_VALIDATION_SAMPLE_CAP": Declared(
         "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"

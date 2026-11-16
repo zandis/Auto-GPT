@@ -1,0 +1,5 @@
+{# D-147 with D-146's "Who to screen": whose patients this run looked at. D-797 (lane G's walk, finding 1): a scope
+   that names neither the whole hospital nor any doctor says nothing (it printed an empty list). #}
+{% set sc = ((wk or {}).get('summary') or {}).get('scope') or {} %}{% if wk %}
+{% if sc.get('whole_hospital') %}<p class="ok" data-testid="scope-hospital">{{ t('team.scope.hospital') }}</p>
+{% elif sc.get('practitioners') %}<p class="warn" data-testid="scope-pract">{{ t('team.scope.pract', ids=sc.get('practitioners')|join(', ')) }} <a href="/studies/{{ rs }}/setup#who" data-testid="to-who">{{ t('team.scope.change') }}</a></p>{% endif %}{% endif %}

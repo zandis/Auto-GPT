@@ -1,6 +1,17 @@
 # 11. Cloud runs (owner's OK first)
 
+**Reader:** the people who build TrialBox.
+
 Qualifying a model pair on a card (G1b runs through it): [the qualify section](11-qualify.md) (D-313).
+
+**Validation reset (2026-11-14).** No paid run so far is evidence of the shipped product: every one served the models
+with lane G's own script (no pinned chat template, the vLLM image by tag, weights unchecked) and ran the box in one
+Python process with the hash embedder, on commits older than trains 15 to 17. Each results folder under
+`docs/plan/measurements/` says so in its `SUPERSEDED.md`. The plan of what to run instead, in order, is
+`docs/plan/measurements/validation-reset-2026-11-14.md`. `complete-run.sh` now refuses (exit 8) a launch whose
+serving differs from `deploy/docker-compose.rtxpro6000.yml` or whose plan holds a part that is not the product path
+(`scenario-public-trec`, `scenario-public-mimic`); `--not-product-evidence` launches anyway, for plumbing only, and
+the plan, the report and the results reader then mark every result "not product evidence".
 
 GCP project `trialbox-demo`. Always use a private `CLOUDSDK_CONFIG` (and unset `CLOUDSDK_AUTH_ACCESS_TOKEN`), stop
 every VM after use and check that it shows `TERMINATED`.
@@ -13,6 +24,8 @@ password comes from Secret Manager (`tb-demo-password`, asked once by `deploy/gc
 put in the metadata is refused and the VM does not start the demo. A restart resets the demo. The update path on it: `deploy/gcp/demo-vm-update.sh build <bucket>`,
 then `run <bucket>` (a good bundle applied and checked with `e2e_simple`, a broken one rolled back; about one hour,
 US$0.15).
+For a demo to a guest use the small demo VM below instead: https only (from named addresses, or from any address with
+`TB_DEMO_ALLOW=any`), each person choosing their own password, with a hard stop.
 
 **The GPU VM** (`tb-gpu-sim`, g4-standard-48 spot, one RTX PRO 6000, asia-east1-a, about US$2.74 an hour; the disk
 with the weights is kept, so boot to serving is about 10–15 minutes). No script opens port 80 on it to the internet
@@ -22,12 +35,12 @@ never in the metadata); reach them with `gcloud compute ssh tb-gpu-sim --zone as
 
 | Run | Script | About |
 | --- | --- | --- |
-| PRO 6000 profile, serving record, `public_e2e`, canary (done 2026-11-08) | `deploy/gcp/gpu-pro6000-run.sh` as startup script | 0.6 h, US$1.50 |
+| PRO 6000 profile, serving record, `public_e2e`, canary (done 2026-11-08; superseded, not for validation) | `deploy/gcp/gpu-pro6000-run.sh` as startup script | 0.6 h, US$1.50 |
 | 32 GB-capped pair (the 5090 stand-in) | `deploy/gcp/gpu-sim-startup.sh` (the usual startup script) | per run |
 | serving record with hashes | `deploy/gcp/capture-serving-config.sh prepare`, start, `fetch`, stop | 0.5 h |
-| N-12 on the deployed files (done 2026-11-08) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
-| the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate` (each hospital part from G1's measured 17,960 s at 50,000 patients, scaled with `--patients`); D-141 |
-| the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | about 5.5 h (a hospital part is 5.0 h, measured in G1), US$46; D-148 |
+| N-12 on the deployed files (done 2026-11-08; the bench prompt of `tools/mlbench.py` straight to the servers, not the product path: not for validation) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
+| the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate` (each hospital part from the measured parts of 2026-11-13, scaled with `--patients`; the output names the runs); D-141 |
+| the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | `--estimate` (the 2026-11-11 figure of 5.0 h per hospital part is superseded); D-148 |
 
 **The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour;
 D-150, after the independent review of the four failed runs of that day). The workload runs on the VM; the VM stops
@@ -45,16 +58,18 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 | `run-a` | a fresh disk, a bounded run at 500 patients (hospital-ja, public-ja, the gateway probe, emr-fhir, it-dump, MedTxt, TREC), driven with `--no-wait` and repeated `--collect`: setup, the data, both model servers' check, every part reported, the hospital part measured at 16 calls in flight (both `/metrics`, `gpu.csv`, its calls), no 404 or 401 at the servers, the report's HEAD = the commit, power-off once collected |
 | `run-b` | the same disk, a new run: nothing kept from `run-a`, a fresh log |
 | `served` | the judge serves a wrong name: `TB-SERVING-FAILED` before any part, the servers' logs in `results.tgz` |
-| `no-upload` | nobody uploads: `TB-NO-CODE`, power-off after the grace |
-| `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
+| `no-upload` | nobody uploads: `TB-NO-CODE`, power-off at once (no grace) |
+| `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM (its first results-only start is refused, as in a stockout: said, nothing marked, the next `--collect` starts it) |
+| `hang-driven` | the same stuck part with a driver following it (wait mode, a poll every minute; one status describe fails on the way): the poll touches the VM's `driver-alive`, not the run's heartbeat, so the VM powers off within the idle limit; "unknown" is not the end of the run; the driver then collects results-only and sets the VM back to spot |
 | `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
-| `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door |
+| `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door; the VM powers off at once after its last upload (`TB-BUCKET-DONE`, B7), not after its grace |
 | `preempt` | three short parts done, the VM pre-empted while a fourth runs; `--collect` gets the three from the stopped VM and removes none; the same run started again (`--shard 1`) keeps them (`--resume`) and runs only the fourth (G1 bug A1) |
 
 In every case the door is TLS on 443 with the driver's pinned certificate, the key and the TLS key come from the
 Secret Manager stand-in (never the metadata) and their version is destroyed once collected, and `run-a`, `run-b`
 and `bucket` capture the serving record on the "VM" (`docker inspect` of the two stand-ins, the weight hashes;
-T-119). Some cases only: `make rehearse CASES=run-a,bucket`.
+T-119; the record's `wsl_kernel` is null there, the kernel release under WSL2). Some cases only:
+`make rehearse CASES=run-a,bucket`.
 
 It needs docker (it starts a private `dockerd` when none answers and stops it afterwards), about 4 GB of disk and
 the ports 443 and 8080 free; the evidence of each case stays in `$TB_REHEARSAL_DIR/evidence/<case>/`. Model quality
@@ -62,14 +77,29 @@ is not rehearsed (the stand-ins answer with the deterministic stub, so the canar
 keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
 
 1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario (`--only TAG,TAG`
-   for a bounded run). `--dry-run` prints every command and starts nothing.
+   for a bounded run). `--dry-run` prints every command and starts nothing. `deploy/gcp/complete-run.sh --preflight
+   [--vms N --zones ...]` (free: read-only gcloud calls, nothing made or started) prints **every** problem of the
+   project at once, each with the exact command that fixes it: the firewall (door mode: tcp:443 open, tcp:80 closed),
+   the Secret Manager API, the secret `tb-gpu-door`, the deployer's `roles/secretmanager.viewer`, each VM and its
+   service account, and with `TB_BUCKET` the bucket, both accounts' objectAdmin on it and no stale objects for the
+   run id (the 2026-11-12 run failed on these one at a time, A7). A launch runs the same checks before any VM starts.
+   **Behind an HTTPS proxy** (`HTTPS_PROXY` set, as in a sandbox) the door cannot be reached: a launch without
+   `TB_BUCKET` refuses at once (A6; that run's VM waited for its code and idled out). Set `TB_BUCKET`, or
+   `TB_DOOR_DIRECT=1` if this machine does reach the VM's address directly.
 2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, then
    `deploy/gcp/complete-run.sh --patients 50000 --no-wait` (or `--detach`). Every command of the driver (the launch,
    each `--collect`, `--stop`, each VM's child, `--provision`, `--teardown`) first activates the service account from
    `TB_SA_KEY_FILE` (gcloud gets the file's path; the driver never reads it) and probes the token: a dead credential
    stops it at once with `credentials expired: re-activate` (G1 bug A2). It:
    * probes the credential (`gc_probe`), reads the GPU and CPU quota (read-only) and refuses when the VMs cannot run,
-     and refuses unless every VM is `TERMINATED`;
+     and refuses unless every VM is `TERMINATED`. It reads each VM's `tb-run-id`: the VM keeps one run directory and
+     a launch of another run id deletes the earlier one's results, so it refuses while that run's results are not here
+     (its folder's state `done` or `noresults`); `--collect <that run>` first, or `--discard-previous`, which is also
+     the way when that run was collected in another folder (the launch looks only in its own runs folder, the
+     parent of this run's folder or `TB_RUNS_DIR`). One driver per
+     run folder (`flock` on `driver.lock`) and one launch per VM (`.cache/complete-run/locks`, `TB_LOCK_DIR`): a
+     second one says who holds the lock and exits. `--hours` takes whole hours only. A `--shard i` restart by hand
+     reads its zone's quota as a launch does;
    * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
      --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP
      --provisioning-model=STANDARD|SPOT` (`--hours N` to change). A VM whose shard holds a hospital part runs **on
@@ -87,24 +117,47 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
      and uploads the code through the door: HTTPS on 443, the certificate it made as the only trust root and its
      public key pinned (`--pinnedpubkey`), no proxy; plain HTTP or any other certificate is refused (`git archive`
      of HEAD with `TB_HEAD.json`: local changes are not in the run; the VM refuses an archive with another sha256).
-     Once the results are here the driver destroys the secret version.
+     Once the results are here the driver destroys the secret version: a `--collect` that has every part of the plan
+     (even while the VM still runs its grace, or through the bucket) and `--stop` destroy every version this run
+     made (also one a retried `versions add` left), and each says "no enabled version" or names what remains (the
+     report too, A8). A start that gives up (no door in 30 minutes by the clock, a failed start or upload, and any
+     other exit or signal of the driver from the start until the upload is accepted: a trap) stops the VM and destroys
+     its version; without code the VM powers off at once (`TB-NO-CODE`), not after its grace (A6). A start refused
+     for a **stockout** (no GPU free in the zone now: `ZONE_RESOURCE_POOL_EXHAUSTED`, `STOCKOUT`, "does not have
+     enough resources available") is tried again `TB_START_RETRIES` times (3), `TB_START_RETRY_SECONDS` apart
+     (240 s), the VM `TERMINATED` meanwhile; any other refusal (a quota, a permission) is not. A launch with
+     `--no-wait` whose VM was not started with its code exits non-zero (2026-11-13: it exited 0). The door's
+     certificate is valid 30 days (`DOOR_CERT_DAYS`), so a late `--collect` still reaches it.
 3. On the VM: a systemd hard cap and a watchdog start first; then a pre-flight (docker with the NVIDIA runtime, the
    weights in `/models`, 50 GB free: else `TB-PREFLIGHT-FAILED`); then both model servers, which must be healthy,
    list exactly their served names, answer one chat call and refuse a call without the key, else
    `TB-SERVING-FAILED` and their logs in the results; only then `PRO6000-RUN-READY`. Setup installs git, the venv,
    Node.js, Playwright (Chromium must launch) and fetches the data git does not carry (`tools/fetch_run_data.py`: the
    CQL translator's `quick-5.4.0.jar`, MedTxt, TREC CT; a dataset it cannot fetch is named `TB-DATA-MISSING`, and
-   its parts fail at once as "data missing" without using the card). The watchdog limits each phase (serving and
-   setup 45 minutes, the code 35) and, in the run, powers off when no part has worked for 20 minutes (the run's own
-   heartbeat follows the part's CPU, so a long silent SCREEN stays alive and a stuck one does not), and 30 minutes
-   after the done marker (at once when the driver has collected). The model parts run in the run's own directory
+   its parts fail at once as "data missing" without using the card). The watchdog limits each phase (serving: the
+   sum of its own waits, `SERVING_LIMIT_S` in the script, so it never cuts a boot inside one of them; setup 45
+   minutes, the code 35) and, in the run, powers off when no part has worked for 20 minutes (the run's own heartbeat
+   follows the part's CPU, its own containers' CPU, `docker run --label tb-part=1` as the embed bench and G-1's
+   tokenizer run, and the card's utilisation, so a long silent SCREEN stays alive and a stuck one does not; the
+   driver's poll touches `driver-alive`, never this heartbeat, so a driver following a stuck part cannot keep it alive
+   to its cap), and 30 minutes after the done marker (5 after a failure marker, `tb-fail-grace`; at once when the
+   driver has collected; with `TB_BUCKET` at once when its last `results.tgz` upload went through, `TB-BUCKET-DONE`:
+   the driver reads the bucket, not the VM, B7). Every boot writes `TB-IMAGES` (the vLLM and nginx images present or missing) to its serial
+   console, which `--preflight` reads for a stopped VM; the model servers run with `HF_HUB_OFFLINE=1`; apt waits up to
+   10 minutes for the dpkg lock. With `TB_BUCKET` the VM tries the results upload three times; one that still fails
+   (`TB-UPLOAD-FAILED`) leaves the archive on the disk, and `--collect` fetches it by a results-only start through
+   the door, naming what is missing. The model parts run in the run's own directory
    (`/var/lib/tb/runs/<run id>`) with `--resume --ocr tesseract`, through the gateway built as an installed box builds
    it; `results.tgz` is re-packed after every part.
 4. Collect: `deploy/gcp/complete-run.sh --collect <run id>`, as often as wanted (each call is short: one look, the
    results so far, the report so far, "still running"; `--follow` polls to the end). The driver need not live through
    the run: the operator's shell may be capped at two hours, the run is not. When the VM has stopped with its
    results not yet collected, `--collect` starts it once in a **results-only** mode (no models, no run, a 20-minute
-   cloud cap; it powers off as soon as the results are here; about US$0.20). Once every VM is done, it runs the walk,
+   cloud cap; it powers off as soon as the results are here; about US$0.20). A start that is refused (a stockout)
+   marks nothing: the next `--collect` tries again. The poll ends only on `TERMINATED` or `STOPPED`: a status that
+   cannot be read is taken as still running, never as the end. Once a VM is collected and has powered off it goes
+   back to spot with the usual startup script, as `--stop` does. `prepare` and `install` (run on every VM with a
+   hospital part) are merged as failed if any VM's copy failed. Once every VM is done, it runs the walk,
    backup, update and scale on the stub here (at the run's `--patients`, OCR tesseract) and writes the report, whose
    head, host and run id are the VM's. A restart of the same run (`TB_RUN_ID=<run id> --shard i`) keeps the parts
    passed in that run at that HEAD; a new run never keeps anything. `<run id>` and the VM's `<run id>-s<i>` are one
@@ -132,7 +185,9 @@ then the full plan.
 `--llm-concurrency N` sets `TB_SCREEN_LLM_CONCURRENCY` for every part on the VM; not given, the run takes the judge's
 `max_num_seqs` from the serving record (16), as an installed box does, and the plan prints it (G1's hospital-ja ran
 with 1: pass `--llm-concurrency 1` to repeat it). A list is G-3's curve in one VM run: the hospital part runs once
-per value, as its own part `hospital-<lang>@c<N>`, on one prepared hospital. `chat-template` in `--only` adds G-1
+per value, as its own part `hospital-<lang>@c<N>`, on one prepared hospital; `--repeats N` runs each value N times,
+each its own part `hospital-<lang>@c<N>#r<k>`, every (value, repeat) in the seeded order (B5), and the report gives
+each value's mean, min and max of the main SCREEN's calls/s. `chat-template` in `--only` adds G-1
 (`tools/chat_template_check.py`): the sha256 of the template the serving configuration passes (the registry row's
 file, fetched from the developer's repository at the registry's revision when it is not on the disk) against the
 weights folder's own, and token identity on 20 synthetic prompts (the judge's `/tokenize` against the folder's
@@ -147,17 +202,45 @@ a call was in flight, p50 and p95 call time, per endpoint, from the gateway's au
 peak) and, for a hospital part, `candidates` (who was listed, with a sha256). The raw files are in `parts/<part>/`:
 `vllm-<server>-before.prom`, `-after.prom`, `gpu.csv` (`nvidia-smi` every 10 s) and `vllm.csv` (running, waiting,
 KV cache every 10 s). The report has one table of them and says whether the lists are identical at every setting.
+Since the audit of that run: a list runs in a random order from a seed the plan prints and records (`--order-seed S`
+to repeat one, `--keep-order` for the order given); a value above the gateway's 16 slots per endpoint is flagged in
+the plan as "measures the gateway queue". Each stage of a hospital part has its start and end, and the part has its
+main SCREEN's window (the job's received and last-updated times): the table's **main SCREEN** row is the curve
+(calls, tokens, card utilisation mean and max, each server's KV-cache peak, inside that window only); **whole part**
+(with the canary and stages 15 and 17) is the second row. `nvidia-smi` utilisation is not a headroom measure. The
+main SCREEN's per-patient list (pseudonymous id, tier, each model's answer the product returns) is kept per setting
+in `parts/<part>/screen-list.json`; the gateway's audit (`gw-audit-<part>/`) and G-1's work folder (both template
+texts, the tokenizer side's `hf.json`) come back in `results.tgz`. G-1 reports three verdicts (the texts' sha256,
+the two templates' token ids, the server's ids against the folder tokenizer's), whether the server was started with
+`--chat-template`, and every differing prompt. The report's start and end are the parts' own times; "min of part
+time" is the parts' times summed; every failed check's whole detail is in `report/failed-checks.json`
+(`TB_REPORT_DETAIL_CHARS` cuts it in `report.md`). Not measured: the gateway's slot wait per call (the gateway does
+not record it); not offered: a model-server restart between settings or repeats (not in scope).
 Limits to know before reading a curve:
 
-* The estimate's screening time is G1's 0.78 calls/s at one call in flight, divided by min(N, 2). The 2 is the
-  declared setting `TB_ESTIMATE_LLM_SPEEDUP` (OD-10): no rate above N = 1 is measured yet, so the estimate, and the
-  cap made from it, is an upper bound for N > 1; G-3's measured rate replaces it (1 = the single-call time at any N).
+* A hospital part's estimate comes from the measured parts (`HOSPITAL_MEASURED` in `tools/complete_run.py`, OD-10;
+  superseded runs of lane G's own serving and in-process box: they size the hours and the cap only, never a capacity
+  figure or product evidence):
+  run 20261113T085509Z-c25cea6b (50,000 patients, 16 in flight: 2,986 s ja, 2,991 s zh-TW; main SCREEN 3,226 calls
+  at 4.447/s and 3,217 at 4.558/s) and run 20261113T044219Z-2b9eec74 (5,000 patients at 1, 4, 16 in flight, both
+  languages). Three times, each scaled with the patients (linear between the sizes, proportional beyond): non-LLM
+  time (wall minus the seconds a call was in flight), the main SCREEN's calls over its calls/s, the part's other calls
+  over theirs. A setting a size did not measure takes that size's nearest measured setting times the 5,000-patient
+  curve's gain (above 16 held). The output names the runs. `TB_ESTIMATE_LLM_SPEEDUP` overrides the gain with
+  min(N, factor). The hard cap (x 1.3) never drops below the part at the largest setting measured at its size (1 in
+  flight when none is at or below the asked one). The old estimate (G1's 17,960 s at one in flight times the
+  2026-11-12 gain) said 3.14 h per 50,000-patient part at 16 in flight: about 3.6x the measured part.
+* The report's candidate list per part is the main SCREEN's (the job whose funnel it shows), compared across the
+  settings by pseudonymous id; when they differ the report names each id and its tier at every setting (M1: the
+  2026-11-12 report compared a later stage's one-patient list and called 54, 54, 55, 55 identical). The throughput
+  table also says how many calls the gateway refused, by reason (PHI tripwire, guard, busy ...): "N of M" (M2).
 * The VM starts both servers with `--max-num-seqs 16` and the gateway gives an endpoint 16 slots. A value above 16
   (48) measures the queue in the gateway, not a larger batch; the plan says so. A point beyond 16 sequences needs
   the servers started with more, which this driver does not do.
-* Each repeat is a whole hospital part (data in to re-run), not the SCREEN alone; `throughput` counts only the time
-  a call was in flight. The repeats send the same prompts in the order of the list, and the servers are not
-  restarted between them: what a server's prefix cache still holds from the repeat before is in the later points.
+* Each setting, and each of its repeats, is a whole hospital part (data in to re-run), not the SCREEN alone;
+  `throughput` counts only the time a call was in flight. The parts send the same prompts, and the servers are not
+  restarted between them: what a server's prefix cache still holds from the part before is in the later points (the
+  seeded order spreads it over the settings; `--repeats` shows the spread).
 
 **Several VMs at once** (D-148). `--vms N` splits the run into N shards of whole parts (no part is split, so the
 merged report is the single-VM report); VM 1 is `tb-gpu-sim` in the first zone, VM i is `tb-gpu-sim-i` in zone i of
@@ -190,6 +273,134 @@ compute firewall-rules create tb-gpu-door --network <network> --allow tcp:443 --
 tb-gpu-door`), and any rule that opens tcp:80 to it is deleted (or its tag removed). The driver says which, before
 anything starts.
 
-Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
-access; the `bucket` case of the rehearsal); without it they go through the TLS door. A billing budget with a kill switch
+Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the `bucket` case of the rehearsal);
+without it they go through the TLS door. `TB_BUCKET=gs://<bucket> bash deploy/gcp/setup-gcp.sh <project>` makes the
+bucket and grants objectAdmin to the deployer and the VMs' service account (and the deployer the reading of its
+policy, for the pre-flight); setup-gcp.sh also grants the deployer `roles/secretmanager.viewer` on `tb-gpu-door`. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
+
+**The small demo VM** (the demo of 2026-11-17). The owner approved "a small VM with TLS in front, reachable by me and my guest, no real-model mode". One script,
+`deploy/gcp/demo-vm.sh`, makes it; the VM's boot script is `deploy/gcp/demo-vm-boot.sh`; the settings, their
+reasons and the cost arithmetic are in `deploy/gcp/demo_vm.py` (each one a declared `TB_*` setting, OD-10). It runs
+the same demo image as CI's `demo-boot` job (`demo/Dockerfile`, `tools/demo.py`): the synthetic hospital, the stub
+model, one sign-in per role. No GPU, no real model (`TB_LLM_MODE` other than `stub` is refused; the VM fixes
+`TB_LLM_MODE=stub` and `TB_DEMO_TOOL=demo` and stops at boot on any metadata key that would change them), no real
+data, no port 80, no SSH.
+
+**What it costs.** `deploy/gcp/demo-vm.sh --estimate` (no cloud call). With the declared prices (the e2-standard-4
+figure the PoC host and this runbook already use, from memory and not checked against the pricing page; set
+`TB_DEMO_VM_PRICE_HOUR`, `TB_DEMO_VM_PRICE_SOURCE` and `TB_DEMO_VM_PRICE_DATE` after checking
+cloud.google.com/compute/vm-instance-pricing):
+
+| | US$ |
+| --- | --- |
+| running, per hour (e2-standard-4 0.1528 + 30 GB pd-balanced + an external IPv4 address 0.005) | 0.16 |
+| running, per day (24 h) / per week (168 h; cannot happen by itself, see the hard stop) | 3.90 / 27.27 |
+| one `up` until its hard stop (12 h) | at most 1.95 |
+| stopped (the disk only), per day / per week; `delete` ends it | 0.11 / 0.76 |
+
+Egress, the one secret version and the image's storage are cents. **The hard stop:** each `up` sets Compute Engine's
+max-run-duration to `TB_DEMO_VM_HOURS` (12) with the action STOP, and the boot script arms `shutdown -P` for the same
+time at every boot, before anything else. A forgotten demo stops after 12 hours; only its disk costs after that.
+
+**Who can reach it.** By default (`TB_DEMO_VM_NETWORK=default`) the VM sits on the project's `default` network, so
+`up` needs only what the deployer already has (`roles/compute.instanceAdmin.v1` and `roles/compute.securityAdmin`
+from `deploy/gcp/setup-gcp.sh`), not `roles/compute.networkAdmin`. That network's own rules (`default-allow-ssh`,
+`-rdp`, `-icmp`, `-internal`, priority 65534) apply to every instance, so `up` gives the VM two rules on its tag:
+allow tcp:443 (priority 500) and deny everything (priority 510, which wins over them), and refuses when any other
+allow rule could reach the VM before the deny. The VM also stops and disables sshd at boot, and the metadata
+`block-project-ssh-keys=TRUE` keeps the project's SSH keys off it. `TB_DEMO_VM_NETWORK=own` instead makes a network
+of its own (`tb-demo-vm-net`, needs networkAdmin) with the one tcp:443 rule and no other. **For the demo of 2026-11-17 it is
+open to any address** (`TB_DEMO_ALLOW=any`): the owner's ruling of 2026-11-15, because the demo is a PoC with
+synthetic data only; the sign-in password and TLS are its only protection, and `up`, `--dry-run` and `status` say
+"open to any address; the sign-in password is the only gate". Only the word `any` alone does that: an empty or
+missing `TB_DEMO_ALLOW`, `0.0.0.0/0` written out, or `any` mixed with ranges is refused. Otherwise the rule takes the
+ranges in `TB_DEMO_ALLOW`, exactly, and a range broader than /16 (`TB_DEMO_VM_MIN_PREFIX`), a private range and IPv6
+are refused; anyone else gets no answer at all, and a second `up` with new ranges replaces them.
+
+**TLS.** Caddy (pinned by digest, the same pin as the PoC host) in front of the console, `tls internal`: its own
+certificate for the VM's address. **The browser warns once** ("not private", `NET::ERR_CERT_AUTHORITY_INVALID`):
+Advanced, then Proceed. The boot log shows the SHA-256 of Caddy's root (`demo-vm.sh status`) to compare with the
+certificate the browser shows. A publicly trusted certificate for a DNS name (`TB_DEMO_VM_HOST`) is **not built**:
+with the address lock ACME's HTTP-01 and TLS-ALPN-01 cannot pass, with `any` TLS-ALPN-01 would still need a DNS name
+for the VM's address, and DNS-01 needs the DNS provider's API credential and a Caddy built with that provider; the
+script refuses the setting and says so.
+
+**The passwords: each person chooses their own.** Nobody runs anything in Cloud Shell and there is no Secret
+Manager secret. After the seed the boot opens one account per person (`TB_DEMO_VM_PEOPLE`, default
+`owner:investigator,guest:coordinator`) with the product's own one-time enrolment code (D-719,
+`UserStore.open_by_code`; only the code's hash is stored), writes the codes to **one private object** in the bucket
+(`TB_DEMO_VM_HANDOFF`, default `$TB_BUCKET/demo-vm/enrol-<time>.txt`; the VM's service account has objectAdmin there),
+and only then opens tcp:443. The codes are never in the metadata, the serial console, a log or a file left on the
+VM. After `status` shows `DEMO-VM-READY` the lead runs `deploy/gcp/demo-vm.sh links`: it prints the newest object
+once and deletes every one; the lead gives each person their own line in a private channel. Each line carries the
+person's one-time link (D-776), `https://<address>/enrol#u=<name>&c=<code>`, with the user name and the code also
+written out. The part after `#` never reaches the box; the console's script fills the first sign-in's two fields from
+it and removes it from the address bar (without the script the person types the two values). Each person opens the
+link, best in a private window, chooses a password (the product's rule: at least 12
+characters, no white space at either end; `console/auth.py`), and is signed in. The code then works no more; an unused
+one expires after `TB_DEMO_VM_ENROL_HOURS` (24, the product's own default). Every `up` of a stopped VM reseeds, so it
+makes new accounts and new links (`links` again). The seed's own accounts (`admin`, `crc`, `pi`, ...) get a password
+the boot makes from 48 random bytes and tells nobody; the boot uses it once, inside the container, for demo mode.
+Failed sign-ins: five within 15 minutes lock that account from that browser address for 15 minutes, many from one
+address slow it (at most a minute a try), 50 from all addresses lock it everywhere (D-279); the console counts the
+browser's own address behind Caddy (`FORWARDED_ALLOW_IPS=*` in the container: only Caddy reaches it, and Caddy
+replaces the header a client sends).
+
+**Which accounts.** No console role sees everything (D-280: the administrator has no patient-level page; D-380). The
+owner's `investigator` account is sub-investigator on every demo study's delegation log with all four study tasks
+(screen, approach, refer, enter data): the work list, patient-level synthetic rows, the CASE sheet, approach and
+referral. The seed's `pi` stays the PI, so the PI-only steps (approving criteria) are not his. The guest's
+`coordinator` account is CRC on the same studies with the same tasks: the coordinator's view of the same synthetic
+hospital. `viewer` (aggregates only) is the other choice for a guest.
+
+**Demo mode (D-328).** The banner, the refusal of every upload and pasted text, and the acknowledgement at each
+account's first sign-in. The boot script switches the audited flag `demo.mode` on **after** the seed and **before**
+Caddy opens tcp:443: it signs in as `admin` inside the container and sets it on `/ops/flags` with a reason (one
+`flag.set` audit event), then checks that a multipart post is refused. It never puts `TB_DEMO_MODE=on` in the
+container: the demo seeds through the console's own routes in the same process, and demo mode refuses the seed's
+protocol paste (`POST /pilot/protocol`, 403), so the container never became ready (lane G's local rehearsal,
+2026-11-14). The demo container does not restart by itself, since every start reseeds with demo mode off; if it
+stops, Caddy answers 502 and `gcloud compute instances reset tb-demo-vm --zone asia-east1-a` reruns the boot script.
+
+**Once before the first `up`.** Nothing from the owner. The deployer service account needs what
+`deploy/gcp/setup-gcp.sh` gave it (instance and firewall rights, objectAdmin on the bucket); with
+`TB_DEMO_VM_NETWORK=own` only, also `roles/compute.networkAdmin`. The VM's service account (the Compute Engine default
+one, scope cloud-platform) must write to `TB_DEMO_VM_HANDOFF` (objectAdmin on `TB_BUCKET`, setup-gcp.sh) and read
+the image. The image: either an image by digest that already exists (`deploy/gcp/poc-host.sh image --yes` pushes
+one to Artifact Registry), `TB_DEMO_VM_IMAGE=<registry>/<path>@sha256:<digest>`; or `make demo-bundle`, copy
+`dist/trialbox-demo.tar.gz` to a bucket, `TB_DEMO_VM_IMAGE=gs://<bucket>/trialbox-demo.tar.gz` and
+`TB_DEMO_VM_IMAGE_SHA256=$(sha256sum dist/trialbox-demo.tar.gz | cut -d" " -f1)` (the VM checks it before loading).
+
+**Run it** (a private `CLOUDSDK_CONFIG`, never the default one, and `TB_SA_KEY_FILE` as for every script here: the
+key file's path only; the project is the gcloud config's):
+
+    export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file path>
+    export TB_DEMO_ALLOW=any TB_DEMO_VM_IMAGE=<image, as above>   # or <owner IPv4>/32,<guest IPv4>/32
+    deploy/gcp/demo-vm.sh --estimate          # the cost, no cloud call
+    deploy/gcp/demo-vm.sh --dry-run           # every gcloud command `up` would run; runs none
+    deploy/gcp/demo-vm.sh up --yes            # network, subnet, the tcp:443 rule, the VM (or starts the stopped VM)
+    deploy/gcp/demo-vm.sh status              # RUNNING, the address, the rule's ranges, the hard stop, DEMO-VM-READY
+    deploy/gcp/demo-vm.sh links               # each person's one-time link, printed once, then deleted
+
+`up` creates, in order: on the `default` network the rule `tb-demo-vm-deny` (INGRESS, all, deny, priority 510, tag
+`tb-demo-vm`); with `own` instead the network `tb-demo-vm-net` (custom subnets, no rules) and the subnet
+`tb-demo-vm-subnet` (10.42.0.0/24 in the zone's region); then the rule `tb-demo-vm-https` (INGRESS, tcp:443,
+`TB_DEMO_ALLOW`, priority 500, tag `tb-demo-vm`), and the VM `tb-demo-vm` (e2-standard-4, asia-east1-a, Debian 12, 30 GB pd-balanced, Shielded VM,
+standard provisioning, max-run-duration 12 h with STOP, an ephemeral external IPv4 address, the boot script and the
+non-secret metadata: the image, the hours, the language, the people's names and roles, the codes' gs:// place;
+`block-project-ssh-keys=TRUE`). On a stopped VM it updates the metadata
+and the hard stop and starts it. The first answer comes 5 to 10 minutes after the start (Docker, the image, the
+3-to-6-minute seed); start it at least 30 minutes before the demo. Without `TB_DEMO_KEEP` every start reseeds, so a
+stop and start resets the demo.
+
+**What the guest sees.** Their one-time link once, then `https://<address>/` (the address `up` and
+`status` print): the browser's warning once, then the TrialBox sign-in page in the browser's language (`TB_DEMO_LANG`, ja by default, is the language the seed's
+notes and tasks are written in; the demo of 2026-11-17 is seeded with zh-TW; `/lang` switches); after sign-in the role's
+home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). With an address list instead of
+`any`, other addresses get nothing.
+
+**Stop it.** `deploy/gcp/demo-vm.sh down` stops the VM and waits until it shows `TERMINATED` (at most
+`TB_DEMO_VM_STOP_WAIT_S`, 300 s; else it fails and says to stop it in the console). The disk stays (about US$0.11 a
+day). `deploy/gcp/demo-vm.sh delete --yes` deletes the VM and its disk and its rules (with `own`, the subnet and the
+network too; the project's `default` network stays). Check afterwards: `gcloud compute instances list` shows no `tb-demo-vm`, or shows it `TERMINATED`.

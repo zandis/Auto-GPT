@@ -21,6 +21,7 @@ timeout (T-608, D-445; review LLM-023): the same body, so the same role and buil
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ import httpx
 
 from tb_llm.budget import estimate_messages, retry_max_tokens
 from tb_llm.timeouts import caller_timeout, once_more
+
+log = logging.getLogger(__name__)
 
 FREE_FORM_ROLES = frozenset({"frontdesk_converse"})
 
@@ -56,16 +59,30 @@ class GatewayDown(GatewayError):
 
 class GatewayRefused(GatewayError):
     """The gateway refused the call; ``reason`` is its stable refusal code (``no_route``, ``phi_tripwire`` …).
-    ``retry_after``: the seconds of its ``Retry-After`` header, when it sent one (the 503 refusals; T-689)."""
+    ``retry_after``: the seconds of its ``Retry-After`` header, when it sent one (the 503 refusals; T-689).
+    ``upstream_kinds``: what the model servers did (``timeout``, ``retried`` ...), when the refusal came from them
+    (D-728); decide by it, never by the message (D-636). Empty from a gateway before D-728."""
 
     def __init__(
-        self, reason: str, status: int, message: str, call_id: str = "", retry_after: float | None = None
+        self,
+        reason: str,
+        status: int,
+        message: str,
+        call_id: str = "",
+        retry_after: float | None = None,
+        upstream_kinds: tuple[str, ...] = (),
     ) -> None:
         super().__init__(f"gateway refused ({status} {reason}): {message}")
         self.reason = reason
         self.status = status
         self.call_id = call_id
         self.retry_after = retry_after
+        self.upstream_kinds = upstream_kinds
+
+
+def _kinds(value: Any) -> tuple[str, ...]:
+    """The refusal's ``upstream_kinds`` (D-728) as a tuple of strings; empty when absent or not a list."""
+    return tuple(str(k) for k in value) if isinstance(value, list) else ()
 
 
 def retry_after_s(value: str | None) -> float | None:
@@ -162,22 +179,37 @@ class GatewayClient:
         self.allow_fallback = allow_fallback
         self._contexts: dict[str, int | None] = {}
         self._contexts_at = 0.0
+        self.last_context_error: str | None = None  # D-728: why the last lookup gave nothing, None when it answered
 
     CONTEXT_TTL_S = 300.0  # the gateway's contexts change only with a new pin (a restart): asked again after this
 
     def contexts(self) -> dict[str, int | None]:
         """Alias -> context in tokens, from ``GET /v1/models`` (T-603); None for an alias with none recorded. An
-        unreachable gateway gives an empty map (the caller keeps its own default; the gateway still checks)."""
+        unreachable gateway gives an empty map (the caller keeps its own default; the gateway still checks). D-728:
+        a failed lookup is logged with why (an HTTP status or the error's type, never a body) and kept in
+        :attr:`last_context_error`; it is not kept as an answer, so the next call asks again."""
         now = time.monotonic()
         if self._contexts and now - self._contexts_at < self.CONTEXT_TTL_S:
             return dict(self._contexts)
+        why: str | None = None
+        data: Any = []
         try:
             from tb_common.service_auth import auth_headers
 
             resp = self.http.get(f"{self.base_url}/models", headers=auth_headers())  # reads need it (LLM-043)
-            data = resp.json().get("data", []) if resp.status_code == 200 else []
-        except (httpx.HTTPError, ValueError, AttributeError):
+            if resp.status_code != 200:
+                why = f"HTTP {resp.status_code}"
+            else:
+                data = resp.json().get("data", [])
+        except httpx.HTTPError as e:
+            why = type(e).__name__
+        except (ValueError, AttributeError):
+            why = "the answer is not JSON with a data list"
+        if why is not None:
+            self.last_context_error = why
+            log.warning("tb_llm: GET /v1/models gave no contexts (%s): this call keeps its own default", why)
             return {}
+        self.last_context_error = None
         out: dict[str, int | None] = {}
         for m in data if isinstance(data, list) else []:
             if not isinstance(m, dict) or not m.get("id"):
@@ -237,6 +269,7 @@ class GatewayClient:
                     str(err.get("message")),
                     str(err.get("call_id") or ""),
                     retry_after_s(resp.headers.get("retry-after")),  # T-689 (F-04): it was never read
+                    _kinds(err.get("upstream_kinds")),
                 )
             kind = GatewayDown if resp.status_code >= 500 else GatewayError
             raise kind(f"gateway error {resp.status_code}: {resp.text[:500]}")

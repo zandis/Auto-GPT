@@ -14,6 +14,7 @@ row read twice is merged by its key, a row skipped is a correction lost.
 
 from __future__ import annotations
 
+import codecs
 import csv
 import logging
 import shutil
@@ -22,13 +23,35 @@ from pathlib import Path
 
 from tb_common import encoding
 
-from adapter.sources.base import Row, after
+from adapter.sources.base import Row, after, change_time_is_date
 
 log = logging.getLogger("adapter")
 
 QUARANTINE_DIR = "quarantine"
 # settings.data_source.encoding -> the detector's candidate name (Big5 tries CP950 itself; Shift_JIS is read as CP932)
 _DECLARED = {"big5": "big5", "cp950": "big5", "shift_jis": "cp932", "sjis": "cp932", "cp932": "cp932"}
+
+
+def _utf8_throughout(path: Path) -> str | None:
+    """``utf-8-sig`` or ``utf-8`` when the file is valid UTF-8 from end to end and holds no replacement character
+    (U+FFFD, a file damaged before it came: :func:`tb_common.encoding.file_codec` refuses it with its line); None
+    otherwise. Read in chunks, never held whole (T-692)."""
+    dec = codecs.getincrementaldecoder("utf-8")()
+    with path.open("rb") as fh:
+        head = fh.read(len(codecs.BOM_UTF8))
+        bom = head == codecs.BOM_UTF8
+        chunk = b"" if bom else head
+        try:
+            while True:
+                if "\ufffd" in dec.decode(chunk):
+                    return None
+                chunk = fh.read(1 << 16)
+                if not chunk:
+                    dec.decode(b"", final=True)
+                    break
+        except UnicodeDecodeError:
+            return None
+    return "utf-8-sig" if bom else "utf-8"
 
 
 def candidates(declared: str | None) -> tuple[str, ...]:
@@ -47,12 +70,20 @@ class CsvSource:
             raise FileNotFoundError(f"csv source directory not found: {directory}")
         self.directory = directory
         self.candidates: Sequence[str] = candidates(declared_encoding)
+        # D-805: the site says its export is UTF-8. Valid UTF-8 is then read as UTF-8, never weighed against Shift_JIS
+        # or Big5 (an English note with one "β" or "®" was too short to tell); other bytes are weighed as before
+        self.declared_utf8 = (declared_encoding or "").strip().lower().replace("_", "-") in ("utf-8", "utf8")
         self.encodings: dict[str, str] = {}  # source_name -> codec read
         self._quarantined: dict[str, str] = {}  # source_name -> why (no cell text, only the code and the line)
+        self._not_a_date: dict[str, int] = {}  # F14 (D-810): source_name -> rows whose change time is not a date
 
     def has_table(self, source_name: str) -> bool:
         """Whether the export holds the table's file at all (T-611: a missing file is not an empty table)."""
         return source_name in self._quarantined or (self.directory / f"{source_name}.csv").is_file()
+
+    def change_time_not_a_date(self, source_name: str) -> int:
+        """Rows of ``source_name`` read on this delta night because their change time is not a date (F14, D-810)."""
+        return self._not_a_date.get(source_name, 0)
 
     def quarantine_reason(self, source_name: str) -> str | None:
         """Why ``source_name`` was quarantined on this read, or None."""
@@ -73,7 +104,9 @@ class CsvSource:
         """T-692 (D-473): the file's character set, and a first pass that parses it whole without keeping a row, so a
         file that is not a readable CSV is quarantined before any of its rows is given (as when it was read whole)."""
         try:
-            codec = encoding.file_codec(path, self.candidates)
+            codec = (_utf8_throughout(path) if self.declared_utf8 else None) or encoding.file_codec(
+                path, self.candidates
+            )
         except encoding.EncodingRefused as exc:
             self._quarantine(path, source_name, str(exc))
             return None
@@ -101,6 +134,10 @@ class CsvSource:
             col = delta_column if since and delta_column and delta_column in fields else None
             for raw in reader:
                 row = dict(raw)
-                if col is not None and str(row.get(col) or "").strip() and not after(row.get(col), since):
-                    continue
+                if col is not None and str(row.get(col) or "").strip():
+                    if not change_time_is_date(row.get(col)):
+                        # F14 (D-810): a change time that is not a date never decides: read, as an empty one is
+                        self._not_a_date[source_name] = self._not_a_date.get(source_name, 0) + 1
+                    elif not after(row.get(col), since):
+                        continue
                 yield row

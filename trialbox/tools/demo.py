@@ -437,6 +437,60 @@ def _reopen(work: Path) -> tuple[Any, Any, Callable[[], datetime]]:
     return box, InprocBackend(box, client, repo), clock
 
 
+def case_chart(lang: str, today: date) -> str:
+    """DEMO-SEED (D-757, D-758): the synthetic chart of the seed's one "Check one patient" (CASE) job, made up (no
+    person's record), dated from the demo day, in the seed's language, written the way the box's readers read a
+    chart: a visit with BMI 31.4 and HbA1c 7.6 % ten days ago, and two dated gout flares within the year (zh-TW and
+    ja; the stub reads no English flare). Demo mode refuses an upload by design (D-328): it is made before."""
+    from tools.synth.notes import roc
+
+    visit, flare1, flare2 = today - timedelta(days=10), today - timedelta(days=60), today - timedelta(days=200)
+    if lang == "zh-TW":
+        return (
+            f"{roc(visit)}門診紀錄。BMI 31.4 kg/m2。HbA1c 7.6%。第二型糖尿病，服用metformin。\n"
+            f"病人於{roc(flare1)}右側第一蹠趾關節紅腫熱痛，臨床診斷為急性痛風發作，給予秋水仙素治療後緩解。\n"
+            f"病人於{roc(flare2)}左膝紅腫熱痛，臨床診斷為急性痛風發作，給予秋水仙素治療後緩解。\n"
+            f"{roc(visit)}目前無急性痛風發作，關節檢查無紅腫或壓痛。血壓 138/84 mmHg。未懷孕。\n"
+        )
+    if lang == "ja":
+        return (
+            f"{roc(visit)}外来。BMI 31.4 kg/m2。HbA1c 7.6%。2型糖尿病でメトホルミン内服中。\n"
+            f"{roc(flare1)}に右第一中足趾節関節の発赤・腫脹・熱感・疼痛あり、急性痛風発作と診断しコルヒチンで改善した。\n"
+            f"{roc(flare2)}に左膝の発赤・腫脹・熱感・疼痛あり、急性痛風発作と診断しコルヒチンで改善した。\n"
+            f"{roc(visit)}現在、急性痛風発作はなく、関節の発赤・圧痛は認めない。血圧 138/84 mmHg。妊娠なし。\n"
+        )
+    return (
+        f"Clinic visit {visit.isoformat()}. BMI 31.4 kg/m2. HbA1c 7.6%. Type 2 diabetes on metformin.\n"
+        f"Acute gout flare of the right first toe on {flare1.isoformat()}, treated with colchicine.\n"
+        f"Acute gout flare of the left knee on {flare2.isoformat()}, treated with colchicine.\n"
+        f"Visit {visit.isoformat()}: no current flare. Blood pressure 138/84 mmHg. Not pregnant.\n"
+    )
+
+
+def seed_case(pi: Any, box: Any, lang: str, ruleset: str = "GZQO") -> str | None:
+    """DEMO-SEED (D-757): one CASE job on a synthetic chart, asked by the investigator through the console's own
+    route as a user would, before demo mode is switched on; run to its end, so "Check one patient" has a sheet to
+    show. The job's id, or None when the console refused it."""
+    from tools import feas_demo as fd
+
+    page = pi.get("/pilot/case")
+    if page.status_code != 200:
+        return None
+    chart = case_chart(lang, box.orch.today())
+    r = pi.post(
+        "/pilot/case",
+        data={"csrf": fd._csrf(page.text), "ruleset": ruleset, "lang": lang},
+        files=[("charts", ("synthetic-chart.txt", chart.encode("utf-8"), "text/plain"))],
+        follow_redirects=False,
+    )
+    if r.status_code != 303:
+        return None
+    job_id = str(r.headers["location"]).rstrip("/").rsplit("/", 1)[-1]
+    box.orch.drain()
+    job = box.orch.db.get(job_id)
+    return job_id if job is not None and job.state == "done" else None
+
+
 def start(a: argparse.Namespace, environ: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Seed (or reopen with ``--keep``), seed the accounts file, and build the console to serve."""
     from console.app import COOKIE, create_app
@@ -459,6 +513,10 @@ def start(a: argparse.Namespace, environ: Mapping[str, str] | None = None) -> di
             seeded = e2e_simple.run(a.dir, password, a.lang)
         out["ok"], out["report"] = seeded["ok"], e2e_simple.report(seeded)
         res = seeded["result"]
+        out["case"] = seed_case(res["list"]["pi"], res["list"]["box"], a.lang)
+        if out["case"] is None:  # the seed is not whole without the sheet "Check one patient" shows
+            out["ok"] = False
+            out["report"] += "\nFAIL the seeded CASE job (Check one patient) did not end done"
         box, h = res["list"]["box"], res["app"].state.helpers
         backend, clock = h.bk, h.users.clock
         live = bool(res["list"].get("live"))

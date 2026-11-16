@@ -3,6 +3,7 @@
     python -m tools.pin_model --build qwen3.5-35b-a3b-candidate --model-dir deploy/models/qwen3.5-35b-a3b-q4 \\
         --served-name qwen3.5-35b-a3b-q4
     python -m tools.pin_model --build qwen3.5-35b-a3b-candidate --model-dir deploy/models/qwen3.5-35b-a3b-q4 --verify
+    python -m tools.pin_model --resolve --env-file deploy/.env [--require judge]   # what PRODUCTION routes (D-738)
 
 The **weight manifest** of a model directory lists every regular file below it as ``<sha256>  <relative path>``
 (``sha256sum`` format, paths with ``/``, sorted by path, LF line ends). The build's registry ``sha256`` is the SHA-256
@@ -182,6 +183,64 @@ def expected_of(row: dict[str, Any]) -> tuple[str | None, str | None]:
     return (exp.get("manifest_sha256") or None), (exp.get("revision") or None)
 
 
+# D-887: the box rehearsal's media carries placeholder weights (tools/rehearse_box/rehearse.sh), never a model. Pinned
+# on a rehearsal box only, as candidate, so that SCREEN runs through the gateway: it proves the path a box judges by,
+# nothing about a model. Never promoted, never qualified.
+PLACEHOLDER_ARCH = "TrialBoxRehearsalPlaceholder"
+PLACEHOLDER_TRUST = "rehearsal_placeholder"
+# the integrator's (i): a rehearsal box is VALIDATION (D3 on the box, D-823), or TEST as it was; never PRODUCTION
+REHEARSAL_ENVS = ("TEST", "VALIDATION")
+
+
+def is_placeholder(model_dir: Path) -> bool:
+    """The rehearsal media's placeholder folder (its config.json names the placeholder architecture alone)."""
+    import json
+
+    try:
+        cfg = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(cfg, dict) and cfg.get("architectures") == [PLACEHOLDER_ARCH]
+
+
+def placeholder_refusal(env: dict[str, str], installed: Path, dirs: list[Path]) -> str | None:
+    """None when the pair's folders are rehearsal placeholders that may be pinned here; "" when none is a placeholder
+    (the release's rules apply); else why they may not be (nothing is pinned)."""
+    import json
+
+    marks = [is_placeholder(d) for d in dirs if d.is_dir()]
+    if not any(marks):
+        return ""
+    if not all(marks):
+        return "a real weight folder beside a rehearsal placeholder: nothing is pinned (no mixing)"
+    if env.get("TB_ENV") not in REHEARSAL_ENVS or env.get("TB_REHEARSAL") != "1":
+        return (f"rehearsal placeholder weights are pinned on a rehearsal box only (TB_ENV TEST or VALIDATION, "
+                f"TB_REHEARSAL=1); this box is TB_ENV={env.get('TB_ENV') or '?'}: nothing is pinned")  # fmt: skip
+    try:
+        rec = json.loads(installed.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rec = {}
+    if not isinstance(rec, dict) or rec.get("rehearsal_box") is not True:
+        # the integrator's (i): the mark install.sh --rehearsal writes, recorded at the load; never a variable alone
+        return (f"rehearsal placeholder weights, but {installed} records no rehearsal box (deploy/install.sh "
+                "--rehearsal): nothing is pinned")  # fmt: skip
+    if rec.get("rehearsal") is not True:
+        return f"rehearsal placeholder weights, but the installed bundle is not a rehearsal bundle ({installed})"
+    return None
+
+
+def rehearsal_box_refusal(out: Path) -> str | None:
+    """Why nothing is promoted or qualified on this box: the rehearsal mark beside the site pins
+    (deploy/site/rehearsal.json, written by deploy/install.sh --rehearsal only); None on any other box."""
+    mark = out.parent / "rehearsal.json"
+    if mark.is_file():
+        return (
+            f"a rehearsal box ({mark}, deploy/install.sh --rehearsal): placeholder models, synthetic data only; "
+            "nothing is promoted or qualified on it (D-887)"
+        )
+    return None
+
+
 def load_override(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"kind": "registry-site-override", "builds": {}}
@@ -205,6 +264,7 @@ def pin(
     now: datetime | None = None,
     trust_first_use: bool = False,
     chat_template: Path | None = None,
+    placeholder: bool = False,
 ) -> tuple[Manifest, Path]:
     """Compute the manifest, check it against the build's expected weights, write it and the override entry; returns
     (manifest, override path). ``chat_template`` is the template file the server is started with (T-674): it is
@@ -232,14 +292,20 @@ def pin(
     ):
         raise PinError(f"{model_dir}: the embedder needs .safetensors weights (D-429), not GGUF; refused")
     want_sha, want_rev = expected_of(known[build_id])
-    if want_sha and m.sha256 != want_sha:
+    if placeholder:  # D-887: install_pins checked the box, the bundle and every folder; this one is checked again
+        if not is_placeholder(model_dir):
+            raise PinError(f"{model_dir}: not the rehearsal media's placeholder; refused")
+        if status not in (None, "candidate"):
+            raise PinError(f"{build_id}: a rehearsal placeholder is pinned as candidate only")
+        want_sha, want_rev, chat_template, status = None, None, None, "candidate"
+    elif want_sha and m.sha256 != want_sha:
         raise PinError(
             f"{model_dir}: these are not the weights of {build_id}: manifest {m.sha256[:12]} ({m.files} files, "
             f"{m.bytes} bytes) differs from the expected {want_sha[:12]} in models/registry.yaml; refused"
         )
     if want_rev and revision and revision != want_rev:
         raise PinError(f"{build_id}: revision {revision} is not the expected {want_rev}; refused")
-    if not want_sha and not trust_first_use:
+    if not want_sha and not trust_first_use and not placeholder:
         raise PinError(
             f"{build_id}: models/registry.yaml names no expected weights (expected.manifest_sha256), so these files "
             "cannot be checked; refused (no trust on first use). Pin with --trust-first-use for an evaluation "
@@ -260,7 +326,7 @@ def pin(
             "bytes": m.bytes,
             "model_dir": model_dir.name,
             "pinned_at": (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "trust": "expected" if want_sha else "first_use",
+            "trust": PLACEHOLDER_TRUST if placeholder else "expected" if want_sha else "first_use",
         },
     }
     if template:
@@ -392,7 +458,10 @@ def verify(
     if not pinned:
         return False, f"{build_id} is not pinned in {out}"
     want = expected_of(_committed()[1].get(build_id) or {})[0]
-    if want and pinned != want:
+    placeholder = (entry.get("weights") or {}).get("trust") == PLACEHOLDER_TRUST
+    if placeholder and not is_placeholder(model_dir):
+        return False, f"{build_id}: pinned as a rehearsal placeholder, but {model_dir} is not one; re-pin"
+    if want and pinned != want and not placeholder:  # D-887: a placeholder pin is checked against its own pin
         return False, f"{build_id}: the pin {pinned[:12]} is not the expected manifest {want[:12]}; re-pin the release"
     m = weight_manifest(model_dir)
     if m.sha256 != pinned:
@@ -506,6 +575,7 @@ def install_pins(
     registry_path: Path | None = None,
     *,
     with_embedder: bool = False,
+    installed: Path | None = None,
 ) -> tuple[bool, list[str]]:
     """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, which
     must be the release's expected manifest (T-012b: a folder of other files is refused and nothing is pinned), the
@@ -523,8 +593,31 @@ def install_pins(
         pairs = [*pairs, EMBED_PIN]
     have = (load_override(out).get("builds") or {}) if out.exists() else {}
     known = _committed(registry_path)[1]
+    # D-887: the rehearsal media's placeholders, pinned only when the box, the bundle and every pair folder say so
+    dirs = [models_root / (e.get(p[2]) or p[3]) for p in pairs if p[0] != EMBED_BUILD]
+    refusal = placeholder_refusal(e, installed or models_root.parent / "updates" / "installed.json", dirs)
+    if refusal:
+        return False, [refusal]
+    placeholders = refusal is None
     ok, lines = True, []
     for build, endpoint, dir_var, dir_default, name_var, name_default in pairs:
+        if placeholders:
+            d = models_root / (e.get(dir_var) or dir_default)
+            if build == EMBED_BUILD or not d.is_dir():
+                lines.append(f"{build}: no rehearsal placeholder in {d}: not pinned")
+                ok = ok and build == EMBED_BUILD
+                continue
+            name = e.get(name_var) or name_default
+            try:
+                m, _ = pin(build, d, served_name=name, endpoint=endpoint, out=out, status="candidate",
+                           registry_path=registry_path, placeholder=True)  # fmt: skip
+            except PinError as exc:
+                ok = False
+                lines.append(f"{build}: {exc}")
+                continue
+            lines.append(f"{build}: pinned {m.sha256[:12]} as candidate on {endpoint}: a rehearsal placeholder, which "
+                         "proves the path a box judges by, nothing about a model; never promoted (D-887)")  # fmt: skip
+            continue
         name = e.get(name_var) or name_default
         pinned = (have.get(build) or {}).get("sha256")
         want = expected_of(known.get(build) or {})[0]
@@ -632,6 +725,10 @@ def promote(
 
     from tools.qualify import check_record
 
+    if (why := rehearsal_box_refusal(out)) is not None:
+        raise PinError(f"{build_id}: {why}")
+    if ((load_override(out)["builds"].get(build_id) or {}).get("weights") or {}).get("trust") == PLACEHOLDER_TRUST:
+        raise PinError(f"{build_id}: a rehearsal placeholder pin is never promoted (D-887): it is not a model")
     pinned_tpl = ((load_override(out)["builds"].get(build_id) or {}).get("weights") or {}).get("chat_template") or {}
     if pinned_tpl.get("trust") == "first_use":  # HW-005 (D-567)
         raise PinError(
@@ -878,6 +975,104 @@ def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE, *, record_id: str | None
     return lines
 
 
+# ------------------------------------------------------------------------------------------------ resolve (D-738)
+@dataclass(frozen=True)
+class RouteRow:
+    """One role and data class on PRODUCTION: the build the gateway would call, or why none."""
+
+    role: str
+    data_class: str
+    route: str | None
+    alias: str | None
+    endpoint: str | None
+    build: str | None
+    served: str | None
+    refusals: list[str]
+
+
+def resolve_roles(
+    registry: Any, policy: Any, env: dict[str, str], classes: tuple[str, ...] = ("D1", "D3")
+) -> list[RouteRow]:
+    """PIN-RESOLVE (D-738), lane G's blocker 6: the gateway's own path for each role of the routing table and each
+    data class, on PRODUCTION with the box's topology and profile: the route and its candidates
+    (``RoutingPolicy.candidates``, the no-fallback rule of a patient role included, D-276), then the registry's
+    resolution of each candidate in order (``Registry.resolve``). A candidate the registry refuses is passed, as the
+    gateway passes it; nothing is sent to a model."""
+    from gateway.core import GatewayConfig
+    from gateway.policy import Refusal
+    from registry.registry import RegistryError
+    from tb_common.policy.classes import Environment
+    from tb_contracts.dataclass import ClassLabel, DataClass
+
+    cfg = GatewayConfig.from_env({**env, "TB_ENV": "PRODUCTION"})
+    rows: list[RouteRow] = []
+    for role in sorted(r for r in policy.roles if not r.startswith("shadow:") and "*" not in r):
+        for cls in classes:
+            label = ClassLabel(data_class=DataClass(cls))
+            try:
+                route, cands = policy.candidates(role, label, cfg.topology, Environment.PRODUCTION, cfg.profile,
+                                                 cloud_opt_in=cfg.cloud_opt_in)  # fmt: skip
+            except Refusal as exc:
+                rows.append(RouteRow(role, cls, None, None, None, None, None, [f"{exc.reason}: {exc}"]))
+                continue
+            if policy.no_fallback(route, role):
+                cands = [c for c in cands if c.alias == route.builds[0][0]]
+            refusals: list[str] = []
+            row = RouteRow(role, cls, route.id, None, None, None, None, refusals)
+            for c in cands:
+                try:
+                    res = registry.resolve(c.alias, c.endpoint.name, role=role, env=Environment.PRODUCTION)
+                except RegistryError as exc:
+                    refusals.append(f"{c.alias}@{c.endpoint.name}: {exc.reason}: {exc}")
+                    continue
+                row = RouteRow(role, cls, route.id, c.alias, c.endpoint.name, res.build.build_id, res.served_name,
+                               refusals)  # fmt: skip
+                break
+            else:
+                if not cands:
+                    refusals.append(f"no_eligible_build: route {route.id}'s first build may not take {cls}")
+            rows.append(row)
+    return rows
+
+
+def _env_file(path: Path | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path is None or not path.is_file():
+        return out
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.split("=", 1)
+            out[k.strip()] = v.strip().strip("\"'")
+    return out
+
+
+def resolve_main(env_file: Path | None, out: Path, require: list[str]) -> int:
+    """``--resolve``: one line a role and class; exit 1 when a ``--require`` role does not route on D3."""
+    import os
+
+    from gateway.policy import RoutingPolicy
+    from registry.registry import Registry
+
+    env = {k: v for k, v in os.environ.items() if k.startswith("TB_")}
+    env.update(_env_file(env_file))
+    env["TB_REGISTRY_OVERRIDE"] = str(out)
+    policy = RoutingPolicy.load(Path(env["TB_ROUTING_PATH"])) if env.get("TB_ROUTING_PATH") else RoutingPolicy.load()
+    rows = resolve_roles(Registry.from_env(env), policy, env)
+    print(f"PRODUCTION, topology {env.get('TB_TOPOLOGY', 'A')}, profile {env.get('TB_PROFILE', 'P-GB10')}, "
+          f"site pins {out}{'' if out.is_file() else ' (none)'}")  # fmt: skip
+    for r in rows:
+        if r.build:
+            print(f"{r.role} {r.data_class} -> {r.build} ({r.alias}@{r.endpoint}, served {r.served}; route {r.route})")
+        else:
+            print(
+                f"{r.role} {r.data_class} -> none (route {r.route or '-'}): {'; '.join(r.refusals) or 'no candidate'}"
+            )
+    bad = [n for n in require if not any(r.role == n and r.data_class == "D3" and r.build for r in rows)]
+    for n in bad:
+        print(f"pin_model: {n} does not route on D3 in PRODUCTION", file=sys.stderr)
+    return 1 if bad else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", help="build_id in models/registry.yaml")
@@ -936,7 +1131,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--name-judge", metavar="GPU", help="print the judge GPU profile serves (install.sh); write nothing"
     )
+    ap.add_argument("--resolve", action="store_true", help="print the build PRODUCTION routes each role to (D-738)")
+    ap.add_argument("--env-file", type=Path, default=None, help="--resolve: the box's deploy/.env (topology, profile)")
+    ap.add_argument("--require", action="append", default=[], help="--resolve: exit 1 unless this role routes on D3")
     args = ap.parse_args(argv)
+    if args.resolve:
+        return resolve_main(args.env_file, args.out, args.require)
     if args.name_judge:
         try:
             print(judge_line(args.name_judge, args.out))
@@ -945,6 +1145,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return 0
     if args.promote_shipped:
+        if (why := rehearsal_box_refusal(args.out)) is not None:  # a note for the installer, as a placeholder is
+            print(f"{why}; no shipped record is looked for")
+            return 5
+        pinned = (load_override(args.out).get("builds") or {}) if args.out.exists() else {}
+        trusts = {b: ((e or {}).get("weights") or {}).get("trust") for b, e in pinned.items()}
+        held = sorted(b for b, t in trusts.items() if t == PLACEHOLDER_TRUST)
+        if held:  # D-887: never promoted, so nothing to look for: said, and the installer takes it as a note
+            print(f"{', '.join(held)}: rehearsal placeholder, never promoted; no shipped record is looked for (D-887)")
+            return 5
         try:
             good, lines = promote_shipped(args.promote_shipped, args.records, args.out, images_lock=args.images_lock)
         except (PinError, ValueError) as exc:

@@ -198,7 +198,7 @@ def _scan() -> Any:
         sys.path.append(str(ROOT))
     from tools import data_scan
 
-    patterns = data_scan.load_patterns()
+    patterns = data_scan.load_patterns(exits=True)  # D-747: the share report is the one report that leaves the site
     allow = data_scan.Allow({}, [])
     return lambda text: bool(data_scan.scan_text(text, "share", patterns, allow))
 
@@ -213,7 +213,19 @@ def _wanted(m: Any, table: str, tspec: dict[str, Any], specs: list[Any]) -> tupl
         if isinstance(spec.profile, dict):
             optional |= referenced_columns(spec.profile)
     need.add(str(tspec.get("key", "")))
+    need.add(str((tspec.get("rows") or {}).get("column") or ""))  # CGRD-A2 (D-813): the column the rows are told by
     need.discard("")
+    pv = tspec.get("pivot")  # CGRD-A8 (D-846): the source has the keys, the item and the value; the pivot the rest
+    if pv:
+        made = set(pv["columns"].values()) | {str(tspec.get("key") or "")}
+        need.difference_update(made)
+        optional.difference_update(made)
+        need.update([*pv["keys"], pv["item"], pv["value"]])
+    for col, parts in (tspec.get("join") or {}).items():  # F10 (D-809): a joined key is made of columns the source has
+        for group in (need, optional):
+            if col in group:
+                group.discard(col)
+                group.update(parts)
     canon = need | optional | set((tspec.get("identity") or {}).values()) | set(tspec.get("values") or {})
     if tspec.get("delta"):
         canon.add(str(tspec["delta"]))
@@ -328,7 +340,7 @@ def check(
         since, until = f"{the_day.isoformat()} 00:00:00", f"{(the_day + timedelta(days=1)).isoformat()} 00:00:00"
     if until and not since:
         raise SystemExit("--until needs --since (or give --day)")
-    mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK")
+    mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK", mrn_regex=chart_pattern)
     net = sharereport.Net(_scan(), chart_pattern, min_patients or sharereport.MIN_PATIENTS)
     report: dict[str, Any] = {"mapping": str(mapping_path), "tables": {}, "missing_columns": 0, "invalid": 0}
     report["rejected"] = 0
@@ -343,6 +355,11 @@ def check(
         need, optional, wanted = _wanted(m, table, tspec, specs)
         got = []
         cut = False
+        if source_kind == "cgrd_sql" and not src.has_table(tspec["source"]):  # CGRD-SQL (D-814): absent, said
+            why = src.absent_why.get(tspec["source"], "absent")  # the kind of error, as when the read raised it
+            report["tables"][table] = {"source": tspec["source"], "rows_read": 0, "cannot_be_read": why}
+            report["missing_columns"] += len(need)
+            continue
         delta = tspec.get("delta") if (since or until) else None
         local_delta = {c: loc for loc, c in (tspec.get("rename") or {}).items()}.get(delta, delta) if delta else None
         forms: list[str] | None = None
@@ -370,7 +387,10 @@ def check(
                 if rows and i >= rows:
                     cut = True
                     break
-                got.append(m.normalize(table, row) if hasattr(m, "normalize") else row)
+                canon = m.normalize(table, row) if hasattr(m, "normalize") else row
+                if hasattr(m, "keeps") and not m.keeps(table, canon):  # CGRD-A2 (D-813): another table's line
+                    continue
+                got.append(canon)
         except Exception as exc:
             if source_kind != "cgrd_sql":
                 raise
@@ -379,7 +399,17 @@ def check(
             report["tables"][table] = bad
             report["missing_columns"] += len(need)
             continue
+        pivoted: dict[str, int] = {}
+        if tspec.get("pivot"):  # CGRD-A8 (D-846): one item per row, turned into one row per patient and time
+            import tempfile
+
+            from adapter.mapping.engine import pivot_rows
+
+            with tempfile.TemporaryDirectory() as work:
+                got = list(pivot_rows(iter(got), tspec["pivot"], str(tspec.get("key") or ""), Path(work), pivoted))
         t: dict[str, Any] = {"source": tspec["source"], "rows_read": len(got), "cut_at_rows_limit": cut}
+        if pivoted:
+            t["pivot"] = dict(sorted(pivoted.items()))
         if source_kind == "cgrd_sql":
             have = src.columns(tspec["source"])
             low = {c.lower() for c in have}

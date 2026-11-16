@@ -13,13 +13,14 @@
 <dt>{{ t('sdv.col.state') }}</dt><dd data-state="{{ subject.state }}">{{ t('life.state.' ~ subject.state) }} ({{ subject.state }}{% if subject.since %}, {{ subject.since }}{% endif %})</dd>
 <dt>{{ t('sdv.col.consented') }}</dt><dd>{{ subject.consented or '–' }}{% if subject.icf_version %} · {{ subject.icf_version }}{% endif %}</dd>
 <dt>{{ t('sdv.col.enrolled') }}</dt><dd>{{ subject.enrolled or '–' }}</dd>
+{% if subject.opted_out %}<dt>{{ t('log.opt_out_col') }}</dt><dd data-testid="sdv-opted-out">{% if subject.opted_out != 'yes' %}{{ t('log.opted_out', d=subject.opted_out) }}{% else %}{{ t('log.opted_out_merged') }}{% endif %}</dd>{% endif %}
 </dl>
 </section>
 <section class="card"><h2>{{ t('sdv.sheet.title') }}</h2>
 <p class="hint">{{ t('sdv.sheet.help') }}</p>
 {% if not items %}<p class="empty" data-testid="sdv-items-none">{{ t('sdv.sheet.none') }}</p>{% else %}<div class="scroll" tabindex="0"><table class="candidates" data-testid="sdv-items">
 <thead><tr><th>{{ t('sdv.col.visit') }}</th><th>{{ t('sdv.col.item') }}</th><th>{{ t('sdv.col.value') }}</th><th>{{ t('sdv.col.source') }}</th><th>{{ t('sdv.col.signed') }}</th></tr></thead>
-<tbody>{% for d in items %}{% set c = d.citation %}<tr data-testid="sdv-item-{{ d.item }}"><td class="mono">{{ d.visit or '–' }}{% if d.visit_date %} · {{ d.visit_date }}{% endif %}</td><td class="mono">{{ d.item }}</td><td>{{ d.value if d.value is not none else '–' }} <span class="hint">{{ t('edc.fate.' ~ d.fate) }}</span></td>
+<tbody>{% for d in items %}{% set c = d.citation %}<tr data-testid="sdv-item-{{ d.item }}"><td class="mono">{{ d.visit or '–' }}{% if d.visit_date %} · {{ d.visit_date }}{% endif %}</td><td class="mono">{{ d.item }}</td><td>{{ d.value if d.value is not none else '–' }}{% if d.redcap_now is not none %} <span class="pill warn" data-testid="sdv-redcap-now-{{ d.item }}">{{ t('sdv.redcap_now', value=d.redcap_now or '–') }}</span>{% endif %} <span class="hint">{{ t('edc.fate.' ~ d.fate) }}</span></td>
 <td data-testid="sdv-cite-{{ d.item }}">{% if c %}<span class="pill">{{ t('edc.cite.' ~ c.kind) }}</span> {{ c.text }}{% if c.day %} · {{ c.day }}{% endif %}{% if c.quote %}<br><q>{{ c.quote }}</q>{% endif %}{% if c.table or c.row or c.snapshot %}<br><span class="hint mono">{{ c.table }} {{ c.row }}{% if c.snapshot %} · {{ c.snapshot }}{% endif %}</span>{% endif %}{% if c.name %}<br><span class="hint mono">{{ c.name }} {{ c.path }}</span>{% endif %}{% if c.replaces %}<br><span class="hint">{{ c.replaces }}</span>{% endif %}{% else %}–{% endif %}</td>
 <td>{% if d.signature %}{{ d.signature.printed_name }} · {{ d.signature.at|local }}{% else %}{{ t('sdv.signed.no') }}{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
@@ -29,5 +30,19 @@
 <thead><tr><th>{{ t('edc.trail.when') }}</th><th>{{ t('edc.trail.who') }}</th><th>{{ t('sdv.col.visit') }}</th><th>{{ t('sdv.col.item') }}</th><th>{{ t('edc.col.action') }}</th><th>{{ t('edc.trail.old') }}</th><th>{{ t('edc.trail.new') }}</th><th>{{ t('edc.review.reason') }}</th></tr></thead>
 <tbody>{% for x in decisions %}<tr><td class="nowrap">{{ x.at|local }}</td><td>{{ x.by }}</td><td class="mono">{{ x.visit }}</td><td class="mono">{{ x.item }}</td><td>{{ t('edc.action.' ~ x.action) }}</td><td>{{ x.old if x.old is not none else '–' }}</td><td>{{ x.new if x.new is not none else '–' }}</td><td>{{ x.reason }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 {% if signatures %}<ul class="plain" data-testid="sdv-signatures">{% for s in signatures %}<li>{{ s.at|local }} · <strong>{{ s.printed_name }}</strong> ({{ t('role.' ~ s.role) }}) · <span class="mono">{{ s.visit }}</span> · <span class="mono">{{ s['items']|join(', ') }}</span>{% if not s.intact %} <span class="pill warn">{{ t('edc.trail.sig_broken') }}</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
+</section>
+{# NEW-JRN-8 (D-772): the values typed into TrialBox's own forms, who entered each and when, and every change #}
+<section class="card"><h2>{{ t('sdv.forms.title') }}</h2>
+<p class="hint">{{ t('sdv.forms.help') }}</p>
+{% macro shown(f, v) %}{% if v is none %}–{% else %}{% set code = v|string %}{{ (f.option_labels.get(lang) or {}).get(code) or f.options.get(code) or code }}{% endif %}{% endmacro %}
+{% if not forms %}<p class="empty" data-testid="sdv-forms-none">{{ t('sdv.forms.none') }}</p>{% else %}
+{% set by_field = {} %}{% for f in forms %}{% set _ = by_field.update({f.field: f}) %}{% endfor %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="sdv-forms">
+<thead><tr><th>{{ t('sdv.col.form') }}</th><th>{{ t('sdv.col.entry') }}</th><th>{{ t('sdv.col.item') }}</th><th>{{ t('sdv.col.value') }}</th><th>{{ t('sdv.col.by') }}</th><th>{{ t('sdv.col.at') }}</th></tr></thead>
+<tbody>{% for f in forms %}<tr data-testid="sdv-form-{{ (f.event ~ '-') if f.event else '' }}{{ f.field }}"><td>{{ f.form_titles.get(lang) or f.form }}</td><td class="mono">{{ f.event or '–' }}</td><td>{{ given(f.labels.get(lang) or f.label) }} <span class="hint mono">{{ f.field }}</span></td><td>{{ shown(f, f.value) }}</td><td>{{ f.by }}</td><td class="nowrap">{{ f.at|local }}</td></tr>{% endfor %}</tbody></table></div>
+{% if form_trail %}<h3>{{ t('sdv.forms.trail') }}</h3><div class="scroll" tabindex="0"><table class="candidates" data-testid="sdv-form-trail">
+<thead><tr><th>{{ t('edc.trail.when') }}</th><th>{{ t('edc.trail.who') }}</th><th>{{ t('sdv.col.entry') }}</th><th>{{ t('sdv.col.item') }}</th><th>{{ t('edc.trail.old') }}</th><th>{{ t('edc.trail.new') }}</th></tr></thead>
+<tbody>{% for x in form_trail %}{% set f = by_field.get(x.field) %}<tr><td class="nowrap">{{ x.at|local }}</td><td>{{ x.by }}</td><td class="mono">{{ x.event or '–' }}</td><td class="mono">{{ x.field }}</td><td>{{ shown(f, x.old) if f else (x.old if x.old is not none else '–') }}</td><td>{{ shown(f, x.new) if f else x.new }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+{% endif %}
 </section>
 {% endblock %}

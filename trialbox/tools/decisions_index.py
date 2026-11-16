@@ -205,12 +205,49 @@ def index(c: Corpus) -> str:
     return "\n".join(lines) + "\n"
 
 
+def flip_merged(c: Corpus, root: Path) -> int:
+    """Flip reserved single-number rows to merged when their decision file is on master.
+
+    Only changes the state cell; prints count; returns 0.
+    """
+    reg_path = root / "docs" / "decisions" / "REGISTRY.md"
+    if not reg_path.exists():
+        print("flipped 0 row(s) to merged")
+        return 0
+    text = reg_path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    flipped = 0
+    for r in c.rows:
+        if r.state != "reserved" or r.first != r.last:
+            continue
+        num = r.first
+        if num in c.files:  # a row of the frozen log (D-01 to D-270) keeps the state it was given
+            idx = r.line - 1
+            if 0 <= idx < len(lines):
+                line = lines[idx]
+                parts = line.split("|")
+                if len(parts) > 2:
+                    new_parts = parts[:]
+                    new_parts[2] = parts[2].replace("reserved", "merged", 1)
+                    new_line = "|".join(new_parts)
+                    if new_line != line:
+                        lines[idx] = new_line
+                        flipped += 1
+    if flipped > 0:
+        reg_path.write_text("".join(lines), encoding="utf-8")
+    print(f"flipped {flipped} row(s) to merged")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="exit 1 on a number used twice")
+    ap.add_argument("--flip-merged", action="store_true", help="flip reserved single rows whose text is on master")
     ap.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     c = load(args.root)
+    if args.flip_merged:
+        return flip_merged(c, args.root)
     if not args.check:
         sys.stdout.write(index(c))
         return 0

@@ -115,11 +115,15 @@ class CascadeMetrics:
 
     n_scope: int = 0
     n_after: dict[str, int] = field(default_factory=dict)
+    # D-909: the ruleset has no coded and no note criterion (every criterion is a person's): S0 and S1 only, every
+    # patient in scope goes to review
+    nothing_decides: bool = False
     note_criteria: int = 0
     pairs_s2_hit: int = 0
     pairs_s2_zero_hit: int = 0
     pairs_s2_no_notes: int = 0
     pairs_s2b_above: int = 0
+    s2b_skipped_fit: int = 0  # zero-hit pairs routed without S2b: the window fit, nothing to rank (D-904)
     pairs_s2b_below: int = 0
     pairs_judged: dict[str, int] = field(default_factory=lambda: {"S3": 0, "S4": 0})
     tokens_in: int = 0

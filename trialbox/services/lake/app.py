@@ -13,6 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pyarrow as pa
 from embed_service.embedder import Embedder, from_env
 from fastapi import Header, HTTPException, Response
@@ -34,6 +35,7 @@ from lake.store import (
     GENERATION_HEADER,
     Lake,
     LakeBusy,
+    LakeLimitError,
     RebuildError,
     error_answer,
     query_failure_status,
@@ -117,6 +119,8 @@ def chunks_search(
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (LakeLimitError, duckdb.OutOfMemoryException) as exc:  # D-742: the box's limit is the lake's: 503
+        raise HTTPException(status_code=query_failure_status(exc), detail=error_answer(exc)) from exc
     return ChunkSearchResult(hits=[ChunkHit(**h) for h in hits])
 
 

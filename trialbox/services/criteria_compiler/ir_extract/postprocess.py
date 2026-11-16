@@ -14,11 +14,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
 from tb_common.derived import CODES, COMPONENTS
-from tb_contracts import CriterionIR, LlmExtractOutput, dump
+from tb_contracts import Atom, BoolExpr, CriterionIR, LlmExtractOutput, dump
 
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.polarity import is_negated, positive
@@ -47,10 +49,33 @@ class PostResult:
         return ValueSets(ruleset, self.valuesets, term)
 
 
-def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr") -> dict[str, Any]:
+# red of 2026-11-15 (tcga): a diagnosis the model filed under ``procedure`` ("invasive breast carcinoma") is re-filed
+# under ``condition``; a name with an operation word stays a procedure
+_DIAGNOSIS = re.compile(
+    r"carcinoma|cancer|neoplas|tumou?r|lymphoma|leuka?emia|melanoma|sarcoma|myeloma|glioma|blastoma|disease|"
+    r"syndrome|disorder|infection|failure|diabetes|hypertension|\w+itis\b|がん|癌|腫瘍|肉腫|病|症候群|炎",
+    re.IGNORECASE,
+)
+_OPERATION = re.compile(
+    r"\w+ectomy|\w+otomy|\w+ostomy|\w+plasty|resection|surgery|surgical|operation|biopsy|transplant|x-ray|scan|"
+    r"imaging|therapy|radiation|手術|切除|摘出|術|移植|生検|照射",
+    re.IGNORECASE,
+)
+
+
+def is_diagnosis_name(name: str) -> bool:
+    """The concept's name names a diagnosis and no operation (the test of a mis-filed procedure)."""
+    return bool(_DIAGNOSIS.search(name)) and not _OPERATION.search(name)
+
+
+def _convert_logic(
+    node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr", refiled: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     if "op" in node and "args" in node:
-        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr) for a in node["args"]]}
+        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr, refiled) for a in node["args"]]}
     atom = {k: v for k, v in node.items() if k != "concept" and v is not None}
+    if atom.get("domain") == "procedure" and str(node.get("concept") or "").strip().lower() in refiled:
+        atom["domain"] = "condition"
     if atom.get("derived") == "egfr" and egfr != "egfr":  # D-149: the site's equation, named in the ruleset
         atom["derived"] = egfr
     if node.get("domain") == "demographic":
@@ -63,6 +88,28 @@ def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str], egfr: str =
             raise CompileError(f"{node.get('domain')} atom has no concept")
         atom["valueset"] = concept_vs.get(concept.strip().lower()) or vs_name_for(concept)
     return atom
+
+
+def _question(text: str) -> str:
+    return f"Does the patient meet this criterion: {text.strip()}?"
+
+
+def _for_a_person(cid: str, ruleset: str, kind_: str, text: str, source_ref: Any) -> CriterionIR:
+    """A criterion the compiler could not build, kept as a person's check (D-910): its line, its kind, no logic."""
+    return CriterionIR.model_validate(
+        {"id": cid, "ruleset": ruleset, "kind": kind_, "class": "human", "text": text or cid,
+         "human_question": _question(text or cid), "logic": {"domain": "demographic", "valueset": "NONE"},
+         "review": {"status": "draft"}, **({"source_ref": source_ref} if source_ref else {})}
+    )  # fmt: skip
+
+
+def _positive_logic(logic: Any) -> Any:
+    """The positive form of a wholly negated logic (an atom with quantifier ``none``, or ``not(x)``); None otherwise."""
+    if isinstance(logic, BoolExpr):
+        return logic.args[0] if logic.op == "not" and len(logic.args) == 1 else None
+    if isinstance(logic, Atom) and logic.quantifier == "none":
+        return logic.model_copy(update={"quantifier": "any"})
+    return None
 
 
 def derived_valueset(ruleset: str, derived: str, version: str, term: Terminology) -> dict[str, Any]:
@@ -92,9 +139,13 @@ def postprocess(
     warnings: list[str] = []
     criteria: list[CriterionIR] = []
     # 1. concepts -> ValueSets
+    refiled: set[str] = set()
     for ec in extracted.criteria:
         for cand in ec.concept_candidates:
             key = cand.name.strip().lower()
+            if cand.domain == "procedure" and is_diagnosis_name(cand.name):
+                refiled.add(key)
+                cand = cand.model_copy(update={"domain": "condition"})
             if key in concept_vs or cand.domain == "demographic":
                 continue
             vs_name = vs_name_for(cand.name)
@@ -124,13 +175,34 @@ def postprocess(
         raw = dump(ec)
         logic_raw = raw.get("logic") or {"domain": "demographic"}
         try:
-            logic = _convert_logic(logic_raw, concept_vs, egfr)
+            logic = _convert_logic(logic_raw, concept_vs, egfr, frozenset(refiled))
         except CompileError as exc:
             warnings.append(f"{cid}: {exc}")
             logic, flags = {"domain": "demographic", "valueset": "NONE"}, ["needs_review", "logic_invalid"]
         ir_dict = {k: v for k, v in raw.items() if k not in ("concept_candidates", "logic") and v is not None}
         ir_dict.update({"id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}})
-        ir = CriterionIR.model_validate(ir_dict)
+        try:
+            ir = CriterionIR.model_validate(ir_dict)
+        except ValidationError as exc:
+            # D-910: one criterion the model wrote outside the IR (a public protocol is messier than the shipped
+            # ones) failed the whole compile with an HTTP 500. It is kept as a person's check, flagged, with where
+            # the IR refused it (never the refused value)
+            where = ", ".join(".".join(str(x) for x in e["loc"]) or "criterion" for e in exc.errors()[:3])
+            warnings.append(f"{cid}: not a valid criterion ({where}); kept for a person to check")
+            ir = _for_a_person(cid, ruleset, ec.kind, str(raw.get("text") or ""), raw.get("source_ref"))
+            flags = [*flags, "ir_invalid"]
+        moved = sorted({str(c.name) for c in ec.concept_candidates if c.name.strip().lower() in refiled})
+        if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
+            flags.append("domain_refiled")
+            warnings.append(f"{cid}: {', '.join(moved)} filed as a procedure; read as a condition (check it)")
+        # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
+        # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
+        # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
+        pos = _positive_logic(ir.logic) if ir.kind == "exclusion" and ir.class_ in FILTERED else None
+        if pos is not None:
+            ir = ir.model_copy(update={"logic": pos})
+            flags.append("negated_logic_rewritten")
+            warnings.append(f"{cid}: exclusion logic was negated; rewritten to the positive form (check it)")
         if ir.class_ in FILTERED:
             try:
                 check_bool(ir.logic)
@@ -150,6 +222,12 @@ def postprocess(
             except CompileError as exc:
                 warnings.append(f"{cid}: {exc}")
                 flags.append("logic_invalid")
+        if "logic_invalid" in flags and ir.class_ in FILTERED:
+            # D-910: logic the compiler cannot run (an age-or-sex atom with neither, an atom of no kind) went into
+            # the SQL as written ("()") and failed later, at approval, with an HTTP 500. A person checks it instead
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: its logic cannot be run; kept for a person to check")
         if ir.class_ in JUDGED and not ir.note_question:
             flags.append("missing_note_question")
         if ir.class_ == "human" and not ir.human_question:

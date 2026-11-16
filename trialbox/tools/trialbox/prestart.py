@@ -82,12 +82,27 @@ def _fhir_password(box: ComposeBox) -> str:
     return "made now" if box.ensure_fhir_password() else "in place"
 
 
+def _ldap_ca(box: ComposeBox) -> str:
+    """D-722: this release gives Authelia the hospital's directory CA as its whole root list. A box whose hospital
+    sign-in is on and that has no usable ``TB_LDAP_CA`` would start an Authelia that can check no certificate:
+    every hospital sign-in would fail, with no word before. Doctor's own check, before anything is made or started;
+    an update that meets it puts the box back as it was. Harmless to the release before: it reads nothing new."""
+    from tools.trialbox import doctor
+    from tools.trialbox.update import UpdateFailed
+
+    check = doctor.check_ldap_ca(doctor.DoctorInputs(env=dict(box.env), deploy=box.deploy))
+    if check.status == "FAIL":
+        raise UpdateFailed(f"{check.detail}. This release needs it before Authelia starts; nothing was started")
+    return check.detail
+
+
 #: name, step; in the order they run. The first two are what every release before this one ran in the updater itself.
 STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
     ("image pins", _image_pins),
     ("model key", _model_key),
     ("actor signing key", _actor_key),
     ("FHIR store password", _fhir_password),
+    ("hospital directory CA", _ldap_ca),  # D-722: a refusal, not a making; last, so the order before it stands
 ]
 
 

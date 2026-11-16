@@ -92,6 +92,21 @@ services:
       - log_min_error_statement=panic
       - -c
       - log_parameter_max_length_on_error=0
+      # T-703 (D-751, F-19): sized from TB_MEM_DB by deploy/install.sh (tools/trialbox/pgsize.py); PostgreSQL's own
+      # defaults when unset (a dev or test stack)
+      - -c
+      - shared_buffers=${TB_PG_SHARED_BUFFERS:-128MB}
+      - -c
+      - effective_cache_size=${TB_PG_EFFECTIVE_CACHE_SIZE:-4GB}
+      - -c
+      - maintenance_work_mem=${TB_PG_MAINTENANCE_WORK_MEM:-64MB}
+      - -c
+      - max_wal_size=${TB_PG_MAX_WAL_SIZE:-1GB}
+      - -c
+      - min_wal_size=${TB_PG_MIN_WAL_SIZE:-80MB}
+      - -c
+      - idle_in_transaction_session_timeout=${TB_PG_IDLE_TX_TIMEOUT:-0}
+    shm_size: ${TB_PG_SHM:-64m}
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi
@@ -118,6 +133,9 @@ services:
     networks: [trialbox-net]
     restart: unless-stopped
     mem_limit: ${TB_MEM_DB:-4g}
+    # T-695 (D-752, F-10): PostgreSQL's shutdown checkpoint writes its dirty buffers; docker's 10 s left crash
+    # recovery to the next start. 120 s: the review's floor; a box with large buffers raises it in an override file
+    stop_grace_period: 120s
     pids_limit: 512   # a backend per connection: well above max_connections (100)
     labels: {tb.watchdog: report}   # a restart does not cure a database; the watchdog audits it and a person looks
     healthcheck:
@@ -176,7 +194,7 @@ services:
 
   embed-service:
     <<: *py
-    mem_limit: ${TB_MEM_EMBED:-4g}
+    mem_limit: ${TB_MEM_EMBED:-6g}   # D-890: one load about 3.5 GB (weights, runtime, a batch); 4g was too tight
     # ENG-003 (D-563): the embedder's own image (trialbox-py plus the hashed `embed` extra, CPU wheels); the
     # other services do not carry the library
     image: ${TB_EMBED_IMAGE:-trialbox-embed:1.0.0}
@@ -322,7 +340,8 @@ services:
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
                   TB_AUDIT_WRITER: db, TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
-                  TB_GATEWAY_INTERACTIVE_TIMEOUT_S: "${TB_GATEWAY_INTERACTIVE_TIMEOUT_S:-30}"}
+                  TB_GATEWAY_INTERACTIVE_TIMEOUT_S: "${TB_GATEWAY_INTERACTIVE_TIMEOUT_S:-30}",
+                  TB_GATEWAY_PHI_TRIPWIRE: "${TB_GATEWAY_PHI_TRIPWIRE:-on}"}  # D-824: on unless the site says
     # model-net: the only network with llm-service / llm-stub; egress-net: external model endpoints, filtered per
     # container by network.sh (deploy/egress.py gives model hosts to this service only)
     networks: [trialbox-net, model-net, egress-net]
@@ -432,8 +451,9 @@ services:
   model-guard:
     # D-177: the only way to the model servers. vLLM checks its key on /v1 only (/invocations, /tokenize, /metrics
     # and, in dev mode, /collective_rpc answer without it), so vLLM sits on model-backend-net and this guard answers
-    # to its names on model-net: the key on every call, and only /v1/models, /v1/chat/completions, /v1/completions
-    # (/sleep, /wake_up, /is_sleeping with TB_GUARD_ADMIN=1) and /health. Everything else is 404 (services/model_guard).
+    # to its names on model-net: the key on every call, and only /v1/models, /v1/chat/completions, /v1/completions,
+    # /tokenize (D-739) (/sleep, /wake_up, /is_sleeping with TB_GUARD_ADMIN=1) and /health. Everything else is 404
+    # (services/model_guard).
     profiles: [gpu]
     logging: *logging
     image: ${TB_IMAGE:-trialbox-py:1.0.0}

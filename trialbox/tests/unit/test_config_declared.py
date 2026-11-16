@@ -47,8 +47,23 @@ def test_every_tb_setting_read_is_declared() -> None:
     assert not bad, "add these to tb_common.config.DECLARED (type, default, doc):\n  " + "\n  ".join(bad)
 
 
+# the installer's own shell scripts read settings too (TB_KEK_BACKEND, TB_SYSTEMD, TB_BOX_DEFER_SEAL, D-836, D-837):
+# a declared row they read is not stale. Only these folders, only ${TB_X} / $TB_X; the undeclared check stays on Python
+SHELL_READERS = ("deploy/*.sh", "deploy/hardening/*.sh")
+SHELL_READ = re.compile(r"\$\{?(TB_[A-Z0-9_]+)")
+
+
+def shell_reads(root: Path) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for pattern in SHELL_READERS:
+        for f in sorted(root.glob(pattern)):
+            for name in SHELL_READ.findall(f.read_text(encoding="utf-8", errors="replace")):
+                found.setdefault(name, f.relative_to(root).as_posix())
+    return found
+
+
 def test_nothing_is_declared_that_nothing_reads() -> None:
-    found = read_names([ROOT / d for d in SCANNED])
+    found = {**shell_reads(ROOT), **read_names([ROOT / d for d in SCANNED])}
     stale = sorted(n for n in DECLARED if n not in found)
     assert not stale, f"declared but read nowhere (remove the rows): {stale}"
 

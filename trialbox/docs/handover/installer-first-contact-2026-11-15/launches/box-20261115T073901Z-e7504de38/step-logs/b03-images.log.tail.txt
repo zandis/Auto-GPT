@@ -1,0 +1,81 @@
+[first 445 lines not copied: the last 80 only]
+#11 exporting attestation manifest sha256:febb9fc945f7cc271a22ae7f1887be164fb814343d3c07e1e03a94cfa54d651b 0.0s done
+#11 exporting manifest list sha256:72b8bc1002fb6a5ad116b44c8dd218797b5fb83057d5143f2689ba3d253013a2 done
+#11 naming to docker.io/library/trialbox-postgres:16-1 done
+#11 unpacking to docker.io/library/trialbox-postgres:16-1 done
+#11 DONE 0.1s
+make: Leaving directory '/srv/tb-build/tb/trialbox'
++ d_demo_image (1 words) 07:43:44
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 6.37kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#2 DONE 0.3s
+
+#3 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#3 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e 0.0s done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+#4 DONE 0.0s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 969B done
+#5 DONE 0.0s
+
+#6 [stage-0 1/8] FROM docker.io/library/python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+#6 resolve docker.io/library/python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 128.96MB 0.5s done
+#7 DONE 0.5s
+
+#8 [stage-0 2/8] RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin tb && mkdir /data && chown tb:tb /data  # T-505b: a volume on /data
+#8 CACHED
+
+#9 [stage-0 3/8] WORKDIR /app
+#9 CACHED
+
+[line removed: password, token, secret or code]
+#10 CACHED
+
+#11 [stage-0 5/8] COPY deploy/requirements.lock /tmp/requirements.lock
+#11 CACHED
+
+[line removed: password, token, secret or code]
+#12 CACHED
+
+#13 [stage-0 7/8] COPY --chown=tb:tb . /app
+#13 DONE 0.7s
+
+[line removed: password, token, secret or code]
+[line removed: password, token, secret or code]
+#14 0.116 + python tools/fetch_fonts.py
+#14 0.510 0b3c2116e87f85a95bfdb2a86e575406babc279baf3def39b0a784fff5037702  NotoSansJP-Bold.ttf
+#14 0.514 8fd0ebcb292b841cb2bf256a9a5c1759490abf809b68dfdbec21d0a32fd98d24  NotoSansJP-Regular.ttf
+#14 0.519 e14c4584b32c4599128e4eaf7d5875b48d0fdbcfa5a559615366e3eae34980cc  NotoSansTC-Bold.ttf
+#14 0.524 30aa8e24e711ee97335026a2b8a6d7bb00c2fadde6d534244ee10a429bfd4816  NotoSansTC-Regular.ttf
+#14 0.541 + mkdir -p /app/.cache/jvm/cql-translator/lib
+#14 0.545 + ls /app/.cache/jvm/cql-translator/lib/quick-5.4.0.jar
+#14 0.549 + PYTHONPATH=services python -c import sys; from criteria_compiler.compile_cql.translator import fhirhelpers_source as f; open(sys.argv[1],'wb').write(f().encode()) /app/.cache/jvm/FHIRHelpers-4.0.1.cql
+#14 0.712 + echo 6748661c16fe66dd07a68f07f77f7fea44e8b933d265dcc3c575964ba8329591  /app/.cache/jvm/FHIRHelpers-4.0.1.cql
+#14 0.712 + sha256sum -c /app/.cache/jvm/FHIRHelpers-4.0.1.cql.sha256
+#14 0.714 /app/.cache/jvm/FHIRHelpers-4.0.1.cql: OK
+#14 0.714 + chown -R tb:tb /app/.cache
+#14 DONE 0.8s
+
+#15 exporting to image
+#15 exporting layers
+#15 exporting layers 2.2s done
+#15 exporting manifest sha256:4009d1405399856c903183614c86ab19c0fe5e2658ca93662728f9b7a5aba528 done
+#15 exporting config sha256:f433c95b246710d56e8f8b1dfaf2ce156e1d3849b42d686bd330c492e9ebcd81 0.0s done
+#15 exporting attestation manifest sha256:7fc22a1d677f7d45c0d705bde8ff5160da96f42f5c3521b5502b8b2f2c136033 0.0s done
+#15 exporting manifest list sha256:ee75519ceeb99691d07563d301b2e4fad8d7b1f2b3d860bde409aba42f3f5722 0.0s done
+#15 naming to docker.io/library/trialbox-demo:step5 done
+#15 unpacking to docker.io/library/trialbox-demo:step5
+#15 unpacking to docker.io/library/trialbox-demo:step5 0.4s done
+#15 DONE 2.6s

@@ -10,7 +10,8 @@ unchanged, and it is stricter than vLLM where a box goes wrong:
 * **Open routes, as vLLM.** ``POST /invocations`` (SageMaker: chat) and ``POST /tokenize`` answer without the key,
   as vLLM v0.32 does (it checks the key on ``/v1``, ``/v2``, ``/inference`` and ``/cohere`` only), so a rehearsal
   without ``model-guard`` in front would show the hole (``trialbox doctor --serving`` probes them). ``/tokenize``
-  takes a ``prompt`` or ``messages`` and returns token ids (one per character: a stand-in's tokenizer).
+  takes a ``prompt`` or ``messages`` and returns token ids (one per character: a stand-in's tokenizer). A
+  ``/tokenize`` with the key (model-guard forwards it, D-739) is counted under ``tokenize``, not ``open``.
 * **Metrics.** ``GET /metrics`` answers without the key, as vLLM's does, in Prometheus text with vLLM's names
   (prompt and generation tokens, requests, time to first token, queue time, running, waiting, KV cache), counted
   from the answered calls: the complete run scrapes it around every part (review test G-3).
@@ -47,6 +48,12 @@ from typing import Any
 
 _BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
 MAX_BODY = 8 * 1024 * 1024  # bytes of one request body
+# The listen backlog: uvicorn's default (2048), which vLLM's OpenAI server listens with, so a burst of calls waits in
+# the kernel's queue while the accept loop is slow, as on vLLM. socketserver's default is 5: a burst of 16 (G-4 sends
+# the judge's slots at once) behind an accept loop starved of CPU and of the GIL overflowed it, the kernel answered
+# with SYN cookies, and one connection was reset before the stand-in read it (train 16 and PR #613: 127 of 128 calls
+# answered, the 128th "Connection reset by peer").
+BACKLOG = 2048
 OPEN_ROUTES = ("/invocations", "/tokenize")  # vLLM answers these without the key (counted under "open")
 
 
@@ -99,12 +106,14 @@ class Standin:
         self.counts: Counter[int] = Counter()  # model calls (POST /v1/chat/completions, /v1/completions) by status
         self.listings: Counter[int] = Counter()  # GET /v1/models by status
         self.open_calls: Counter[int] = Counter()  # /invocations, /tokenize (no key, as vLLM) by status
+        self.tokenize_calls: Counter[int] = Counter()  # D-739: /tokenize with the key (model-guard forwards it)
         self.tokens: Counter[str] = Counter()  # prompt and generation tokens of the answered calls (/metrics)
         self.lock = threading.Lock()
 
     def count(self, status: int, kind: str = "call") -> None:
         with self.lock:
-            {"call": self.counts, "listing": self.listings, "open": self.open_calls}[kind][status] += 1
+            {"call": self.counts, "listing": self.listings, "open": self.open_calls,
+             "tokenize": self.tokenize_calls}[kind][status] += 1  # fmt: skip
 
     def stats(self) -> dict[str, Any]:
         with self.lock:
@@ -113,6 +122,7 @@ class Standin:
                 "counts": {str(k): v for k, v in sorted(self.counts.items())},
                 "listings": {str(k): v for k, v in sorted(self.listings.items())},
                 "open": {str(k): v for k, v in sorted(self.open_calls.items())},
+                "tokenize": {str(k): v for k, v in sorted(self.tokenize_calls.items())},
             }
 
     def authorised(self, header: str | None) -> bool:
@@ -166,6 +176,17 @@ def _error(message: str, kind: str, code: int) -> dict[str, Any]:
     return {"object": "error", "message": message, "type": kind, "param": None, "code": code}
 
 
+class StandinServer(ThreadingHTTPServer):
+    """The stand-in's HTTP server: a thread per connection, listening with vLLM's backlog (:data:`BACKLOG`)."""
+
+    request_queue_size = BACKLOG
+
+
+def serve(s: Standin, host: str = "127.0.0.1", port: int = 0) -> StandinServer:
+    """A server for ``s``, bound and listening (port 0: a free one); the caller runs ``serve_forever``."""
+    return StandinServer((host, port), make_handler(s))
+
+
 def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -205,8 +226,10 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
             except ValueError:
                 body = {}
             body = body if isinstance(body, dict) else {}
-            if path == "/tokenize":
-                self._send(200, tokenize(body), "open")
+            if path == "/tokenize":  # D-739: with the key it is model-guard's forward, not an open call
+                self._send(
+                    200, tokenize(body), "tokenize" if s.authorised(self.headers.get("Authorization")) else "open"
+                )
             elif "messages" in body:  # /invocations: SageMaker's chat route
                 status, payload = s.complete({**body, "model": body.get("model") or s.served[0]},
                                              self.headers.get("X-TB-Prompt-Id", ""))  # fmt: skip
@@ -304,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"vllm_standin: {exc}", file=sys.stderr)
         return 2
-    srv = ThreadingHTTPServer((a.host, a.port), make_handler(s))
+    srv = serve(s, a.host, a.port)
     flags = sum(1 for x in ignored if x.startswith("--"))
     print(f"vllm_standin: serving {s.served} on {a.host}:{a.port} (key required; {flags} vLLM flags ignored)",
           file=sys.stderr, flush=True)  # fmt: skip

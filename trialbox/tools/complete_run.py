@@ -43,9 +43,12 @@ from __future__ import annotations
 
 import argparse
 import html
+import itertools
 import json
+import math
 import os
 import platform
+import re
 import secrets
 import shlex
 import shutil
@@ -54,7 +57,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -64,7 +67,7 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from tools import pin_model  # noqa: E402  (after the path setup, as the parts import it)
+from tools import g_probes, pin_model  # noqa: E402  (after the path setup, as the parts import them)
 
 LANGS = ("ja", "zh-TW")
 JUDGE, VERIFIER = pin_model.JUDGE_SERVED, pin_model.VERIFIER_SERVED  # the vLLM served names (D-124)
@@ -113,17 +116,44 @@ PUBLIC_PAGES = [
 
 
 # ---------------------------------------------------------------- helpers
+def _iso(t: float) -> str:
+    return datetime.fromtimestamp(t, UTC).isoformat(timespec="seconds")
+
+
 def _stages(stages: list[Any]) -> list[dict[str, Any]]:
-    return [
-        {"name": st.name, "ok": st.ok, "seconds": round(st.seconds, 1), "checks": [list(c) for c in st.checks]}
-        for st in stages
-    ]
+    """The stages as a part result holds them; a stage made by :class:`_TimedStage` has its start and end too."""
+    out = []
+    for st in stages:
+        d = {"name": st.name, "ok": st.ok, "seconds": round(st.seconds, 1), "checks": [list(c) for c in st.checks]}
+        if getattr(st, "started", None):
+            d["started_at"], d["ended_at"] = _iso(st.started), _iso(st.started + st.seconds)
+        out.append(d)
+    return out
+
+
+def timed_stages(module: Any) -> Any:
+    """``module.Stage`` (a dataclass made at a stage's start, ``seconds`` set at its end) as a subclass that records
+    when it was made: each stage's start and end in the part result (the audit of 2026-11-12 could not say which
+    model calls belonged to which stage). Returns the original, to put back."""
+    orig = module.Stage
+
+    class _TimedStage(orig):  # type: ignore[misc,valid-type]
+        def __init__(self, *args: Any, **kw: Any) -> None:
+            super().__init__(*args, **kw)
+            self.started = time.time()
+
+    module.Stage = _TimedStage
+    return orig
 
 
 def _one(name: str, checks: list[tuple[str, bool, Any]], seconds: float) -> list[dict[str, Any]]:
     return [{"name": name, "ok": all(c[1] for c in checks), "seconds": round(seconds, 1), "checks": checks}]
 
 
+FAILED_DETAIL_FILE = "failed-checks.json"  # beside report.md: every failed check with its whole recorded detail
+# the report's cut of a check's detail (OD-10: a declared setting; a table row stays readable, the file has it all)
+REPORT_DETAIL_CHARS = int(os.environ.get("TB_REPORT_DETAIL_CHARS") or 300)
+DOOR_STATE = "door-secret.txt"  # complete-run.sh: the door's secret versions after a collect or stop (A8)
 HEAD_FILE = "TB_HEAD.json"  # written into the uploaded archive by the driver (git archive --add-file): the VM's HEAD
 
 
@@ -280,10 +310,10 @@ def _attach_shots(stages: list[dict[str, Any]], got: dict[str, dict[str, Any]]) 
             st["shot_error"] = r["error"]
 
 
-def _models(a: argparse.Namespace) -> tuple[Any, Any]:
+def _models(a: argparse.Namespace, caller: str = "orchestrator") -> tuple[Any, Any]:
     from tools import scenarios
 
-    return scenarios.models(a, a.dir / f"gw-audit-{a.part}")
+    return scenarios.models(a, a.dir / f"gw-audit-{a.part}", caller=caller)
 
 
 # ---------------------------------------------------------------- the parts (each in its own process)
@@ -360,7 +390,11 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     from tools import scenarios
 
     scenarios.capture_screens()
-    out = e2e_simple.run(work, a.password, a.lang)
+    orig_stage = timed_stages(e2e_simple)
+    try:
+        out = e2e_simple.run(work, a.password, a.lang)
+    finally:
+        e2e_simple.Stage = orig_stage  # type: ignore[misc]
     stages = _stages(out["stages"])
     lst = out["result"]["list"]
     box = lst["box"]
@@ -369,7 +403,14 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     # the database-feed scenario (db-csv): model calls, and the models' exclusions against the generator's note truth
     summary = json.loads((a.dir / f"synth-{a.patients}" / "summary.json").read_text(encoding="utf-8"))
     truth = scenarios.note_truth([a.dir / f"synth-{a.patients}" / x["dir"] for x in summary["sites"]], fd.KEY)
-    cap: dict[str, Any] = next((c for c in reversed(scenarios.CAPTURED) if c["ruleset"] == e2e_simple.TRIAL), {})
+    # the main SCREEN's own verdicts (its list is the job's), not a later stage's one-patient SCREEN (M1, 2026-11-12)
+    main = main_candidates(box, sj)
+    tag = _tag("hospital", a.lang, getattr(a, "variant", ""))
+    main["rows_file"] = f"parts/{tag}/screen-list.json"
+    main["rows_saved"] = save_screen_rows(box, sj, a.dir / main["rows_file"])
+    ours = [c for c in scenarios.CAPTURED if c["ruleset"] == e2e_simple.TRIAL]
+    same = [c for c in ours if run_metrics.candidate_list(c["results"])["sha256"] == main["sha256"]]
+    cap: dict[str, Any] = (same or ours or [{}])[0 if same else -1]
     ex = scenarios.model_exclusions(cap.get("results") or {}, truth)
     stages += _one("db-csv: model exclusions against the generator's note truth", [
         ("no false model exclusion (a note criterion the truth does not block on)", ex["false"] == 0,
@@ -377,10 +418,13 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     extra = {
         "seconds": out["seconds"],
         "chain_seconds": out["chain_seconds"],
-        "screen": {k: scr.get(k) for k in ("funnel", "tiers", "listed", "judging")},
+        # the main SCREEN job's own window (received, last updated): its calls and the card in it are the curve's
+        # figures; the canary before it and stages 15 and 17 after it (one patient at a time) are not
+        "screen": {**{k: scr.get(k) for k in ("funnel", "tiers", "listed", "judging")}, "window": screen_window(sj)},
         "canary": canary.get("status"),
-        # G-3: who was listed, with a hash: the list must be the same at every TB_SCREEN_LLM_CONCURRENCY
-        "candidates": run_metrics.candidate_list(cap.get("results") or {}),
+        # G-3: who the main SCREEN listed (the job whose funnel is above, from its own candidate_list_*.json), with a
+        # hash: the list must be the same at every TB_SCREEN_LLM_CONCURRENCY
+        "candidates": main,
         "scenario": {
             "title": "Hospital database feed (CGRD-style CSV)",
             "input": f"CGRD-style CSV export of {a.patients:,} synthetic patients (two sites, JP and TW style)",
@@ -400,6 +444,50 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     finally:
         srv.stop()
     return {"stages": stages, **extra}
+
+
+SCREEN_ROW_KEYS = ("pid", "tier", "judge", "verifier", "llm", "model", "verdict", "agree")
+
+
+def save_screen_rows(box: Any, job: Any, out: Path) -> int:
+    """The main SCREEN's per-patient list as the job's own ``candidate_list_*.json`` has it, one file per setting
+    (``parts/<tag>/screen-list.json``): the pseudonymous id, the tier and each per-model answer the product returns
+    (keys naming a judge, verifier, model or verdict), so a patient listed differently at two settings can be named
+    with what each model said. Returns the number of rows."""
+    from tools import e2e_simple
+
+    try:
+        doc = e2e_simple._json_output(box, job, "candidate_list_")
+    except StopIteration:
+        return 0
+    rows = [{k: v for k, v in r.items() if any(w in k.lower() for w in SCREEN_ROW_KEYS)}
+            for r in doc.get("rows") or [] if isinstance(r, dict)]  # fmt: skip
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"job": getattr(job, "job_id", ""), "rows": rows}, default=str, ensure_ascii=False),
+                   encoding="utf-8")  # fmt: skip
+    return len(rows)
+
+
+def screen_window(job: Any) -> dict[str, Any] | None:
+    """The SCREEN job's window as epoch seconds: ``received_at`` to ``updated_at`` (its last state change, the end
+    of a finished job); None when the job has no end."""
+    t0, t1 = getattr(job, "received_at", None), getattr(job, "updated_at", None)
+    if t0 is None or t1 is None:
+        return None
+    return {"from": t0.timestamp(), "to": t1.timestamp(), "from_at": t0.isoformat(), "to_at": t1.isoformat()}
+
+
+def main_candidates(box: Any, job: Any) -> dict[str, Any]:
+    """The candidate list of the part's main SCREEN job (``job``: the one whose funnel and ``listed`` the part
+    reports), from the job's own ``candidate_list_*.json``; ``of`` names the job. Not the last SCREEN captured in the
+    process: a later stage screens one patient (the 2026-11-12 run's lists were of that one, ``count`` 1)."""
+    from tools import e2e_simple, run_metrics
+
+    try:
+        doc = e2e_simple._json_output(box, job, "candidate_list_")
+    except StopIteration:
+        return {"count": 0, "sha256": "", "list": None, "of": getattr(job, "job_id", ""), "why": "no candidate list"}
+    return {**run_metrics.candidate_list_of_rows(doc.get("rows") or []), "of": getattr(job, "job_id", "")}
 
 
 def part_public(a: argparse.Namespace) -> dict[str, Any]:
@@ -656,10 +744,12 @@ PARTS = {
     "profile": part_profile,
     "selftest": part_selftest,
     "chat-template": _chat_template,
+    **g_probes.PARTS,
 }
-NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile", "selftest", "chat-template")
+NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile", "selftest", "chat-template",
+              *g_probes.PARTS)  # fmt: skip
 # on the card; walk, backup, update, scale: stub
-MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile", "chat-template")
+MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile", "chat-template", *g_probes.PARTS)
 G1_CHECK = "chat-template"  # review test G-1 (tools.chat_template_check): in a run only when --only names it
 BENCH_PARTS = ("embed", "profile")  # in a run only when --only names them (not part of the complete run, G1)
 STUB_PARTS = ("walk", "backup", "update", "scale")  # run on the driver after the VM has stopped
@@ -671,14 +761,44 @@ def _tag(part: str, lang: str = "", scenario: str = "") -> str:
         return f"scenario-{scenario}"
     if part == "selftest":
         return f"selftest-{scenario}"
-    if part == "hospital" and scenario:  # a repeat at its own concurrency (G-3): hospital-ja@c4
+    if part == "hospital" and scenario:  # a run at its own concurrency (G-3): hospital-ja@c4, its repeat @c4#r2
         return f"hospital-{lang}@{scenario}"
     return part + (f"-{lang}" if part in ("hospital", "public") and lang else "")
 
 
 def base_tag(tag: str) -> str:
-    """``hospital-ja@c4`` -> ``hospital-ja``: the part a repeat at its own concurrency belongs to."""
+    """``hospital-ja@c4`` or ``hospital-ja@c4#r2`` -> ``hospital-ja``: the part a setting or a repeat belongs to."""
     return tag.split("@", 1)[0]
+
+
+def setting_tag(tag: str) -> str:
+    """``hospital-ja@c4#r2`` -> ``hospital-ja@c4``: the setting a repeat belongs to (B5)."""
+    return tag.split("#", 1)[0]
+
+
+def variant_concurrency(variant: str) -> int:
+    """``c16`` or ``c16#r2`` -> 16."""
+    return int(variant.removeprefix("c").split("#", 1)[0])
+
+
+def hospital_variants(lc: tuple[int, ...], repeats: int = 1, seed: int | None = None) -> list[str]:
+    """The hospital part's variants in run order (G-3; B5). One setting, one run: ``[""]`` (the tag hospital-<lang>).
+    Several settings, once each: ``c<N>`` in the order of ``lc`` (the estimate has already put them in the seeded
+    order). ``repeats`` above 1: each setting ``repeats`` times as its own part, ``c<N>#r<k>``, every (setting,
+    repeat) pair in the order a shuffle with ``seed`` gives (the seed is recorded; None: settings as given, repeat by
+    repeat)."""
+    import random
+
+    if repeats <= 1:
+        return [f"c{n}" for n in lc] if len(lc) > 1 else [""]
+    pairs = [(n, k) for k in range(1, repeats + 1) for n in lc]
+    if seed is not None:
+        random.Random(seed).shuffle(pairs)
+    return [f"c{n}#r{k}" for n, k in pairs]
+
+
+def repeats_of(a: argparse.Namespace) -> int:
+    return max(1, int(getattr(a, "repeats", 1) or 1))
 
 
 # ---------------------------------------------------------------- model calls in flight (review G-3, D-142)
@@ -695,6 +815,19 @@ def parse_concurrency(text: str | None) -> tuple[int, ...]:
         if int(x) not in out:
             out.append(int(x))
     return tuple(out)
+
+
+def shuffled(lc: tuple[int, ...], seed: int) -> tuple[int, ...]:
+    """The settings in the order a seeded shuffle gives (audit e: a fixed rising order puts every later setting on a
+    warmer prefix cache and a hotter card; the seed is recorded so the order can be made again)."""
+    import random
+
+    out = list(lc)
+    random.Random(seed).shuffle(out)
+    return tuple(out)
+
+
+GATEWAY_SLOTS = 16  # the gateway's slots per endpoint (services/gateway/load.py: the serving record's max_num_seqs)
 
 
 def record_max_seqs(record: Path | None = None) -> int:
@@ -832,8 +965,16 @@ def run_part(a: argparse.Namespace) -> int:
     if a.part in MODEL_PARTS:
         res["metrics"] = monitor.stop()
         calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began)
+        refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began)
         if calls:
             res["throughput"] = run_metrics.call_stats(calls)
+        win = (res.get("screen") or {}).get("window")
+        if win:  # the main SCREEN only (audit a): its calls, the card and the KV cache in its window
+            inside = run_metrics.window_calls(calls, win["from"], win["to"])
+            res["throughput_screen"] = {**run_metrics.call_stats(inside),
+                                        **run_metrics.window_card(monitor.folder, win["from"], win["to"])}  # fmt: skip
+        if calls or refused:  # M2: "N of M calls refused" (the PHI tripwire, the guard, ...), from the same audit
+            res["refusals"] = run_metrics.refusal_stats(calls, refused)
     if a.model == "pair":
         from tools import scenarios
 
@@ -841,6 +982,7 @@ def run_part(a: argparse.Namespace) -> int:
         if "throughput" in res:
             res["throughput"]["breaker_opens"] = scenarios.breaker_opens()
     res["wall_seconds"] = round(time.perf_counter() - t0, 1)
+    res["started_at"], res["finished_at"] = began.astimezone(UTC).isoformat(timespec="seconds"), _iso(time.time())
     if a.part in NO_CONSOLE:
         url = table_page(a.shots / f"{tag}.html", f"TrialBox complete run: {tag}", res["stages"])
         got = shoot([{"name": tag, "url": url}], a.shots, a.password)
@@ -862,10 +1004,12 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
 
     out = [("prepare", "", ""), ("install", "", "")]
     out += [(G1_CHECK, "", "")] if G1_CHECK in (a.only or []) else []  # G-1 before the parts that depend on it
+    out += [(p, "", "") for p in g_probes.PARTS if p in (a.only or [])]  # G-4, G-5, G-7, G-8: only when named
     # several --llm-concurrency values: the hospital part once per value, as hospital-<lang>@c<N> (G-3's curve);
-    # each repeat reads the same prepared hospital
-    lc = concurrency_of(a)
-    variants = [f"c{n}" for n in lc] if len(lc) > 1 else [""]
+    # --repeats N: each value N times, hospital-<lang>@c<N>#r<k>, in the seeded order (B5); each reads the same
+    # prepared hospital
+    reps = repeats_of(a)
+    variants = hospital_variants(concurrency_of(a), reps, getattr(a, "order_seed", None) if reps > 1 else None)
     out += [("hospital", lang, v) for lang in a.langs for v in variants]
     out += [("public", lang, "") for lang in a.langs]
     out += [("scenario", a.langs[0], sc) for sc in (a.scenarios or scenarios.SCENARIOS)]
@@ -874,7 +1018,8 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
     out += [("selftest", "", s) for s in SELFTESTS if f"selftest-{s}" in (a.only or [])]
     keep = [p for p in out if p[0] not in a.skip]
     if a.only:
-        keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only or base_tag(_tag(*p)) in a.only]
+        keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only or base_tag(_tag(*p)) in a.only
+                or setting_tag(_tag(*p)) in a.only]  # fmt: skip
     return keep
 
 
@@ -884,8 +1029,8 @@ def _cmd(a: argparse.Namespace, part: str, lang: str, scenario: str, shots: Path
     if lang:
         cmd += ["--lang", lang]
     lc = concurrency_of(a)
-    if part == "hospital" and scenario:  # a repeat at its own concurrency: the variant c<N>
-        cmd += ["--variant", scenario, "--llm-concurrency", scenario.removeprefix("c")]
+    if part == "hospital" and scenario:  # a run at its own concurrency: the variant c<N> (a repeat: c<N>#r<k>)
+        cmd += ["--variant", scenario, "--llm-concurrency", str(variant_concurrency(scenario))]
     else:
         cmd += ["--scenario", scenario] if scenario else []
         cmd += ["--llm-concurrency", str(lc[0])] if lc else []
@@ -928,16 +1073,61 @@ def _tree_cpu(pid: int) -> float | None:
     return total / (os.sysconf("SC_CLK_TCK") or 100)
 
 
+def gpu_busy() -> bool | None:
+    """The card is working now: ``nvidia-smi`` utilisation above 0 on any card (None: no card or no answer). The
+    resident model servers idle at 0; a part's model calls, or its own GPU work in a container, show here."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=10, check=False).stdout  # fmt: skip
+        vals = [float(x) for x in out.split()]
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    return any(v > 0 for v in vals) if vals else None
+
+
+# complete-run-vm.sh tb-embed-py: `docker run --label tb-part=1` (the embed bench, G-1's tokenizer)
+PART_LABEL = "tb-part"
+
+
+def containers_cpu() -> float | None:
+    """CPU seconds used so far by the part's own containers (label :data:`PART_LABEL`), from their cgroups: work in
+    ``docker run`` is under dockerd, not under the part's process tree. None: none running, or not readable."""
+    try:
+        ids = subprocess.run(["docker", "ps", "-q", "--no-trunc", "--filter", f"label={PART_LABEL}"],
+                             capture_output=True, text=True, timeout=10, check=False).stdout.split()  # fmt: skip
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    total, seen = 0.0, False
+    for cid in ids:
+        v2 = Path(f"/sys/fs/cgroup/system.slice/docker-{cid}.scope/cpu.stat")
+        v1 = Path(f"/sys/fs/cgroup/cpu,cpuacct/docker/{cid}/cpuacct.usage")
+        try:
+            if v2.exists():
+                usec = next(int(ln.split()[1]) for ln in v2.read_text().splitlines() if ln.startswith("usage_usec"))
+                total, seen = total + usec / 1e6, True
+            elif v1.exists():
+                total, seen = total + int(v1.read_text().strip()) / 1e9, True
+        except (OSError, ValueError, StopIteration, IndexError):
+            continue
+    return total if seen else None
+
+
 class Heartbeat:
     """The in-run heartbeat (review H-03): while a part runs, touch ``path`` every ``every`` seconds in which the
-    part's processes used CPU. A 50,000-patient SCREEN is silent in the log for hours but always busy, so the VM's
-    idle watchdog no longer depends on the driver being alive; a part that is stuck (no CPU at all) stops touching it
-    and the watchdog powers the VM off after its idle limit, as before."""
+    part worked: its processes used CPU, a container of its own (``docker run --label tb-part=1``: the embed bench, the
+    G-1 tokenizer, invisible in its process tree) used CPU, or the card was busy. A 50,000-patient SCREEN is silent in
+    the log for hours but always busy, so the VM's idle watchdog does not depend on a driver; a part that is stuck (no
+    work anywhere) stops touching it and the watchdog powers the VM off after its idle limit, as before. The driver's
+    poll never touches this file (complete-run-vm.sh: driver-alive)."""
 
-    def __init__(self, path: str, pid: int, every: float = 30.0) -> None:
+    def __init__(self, path: str, pid: int, every: float = 30.0,
+                 gpu: Callable[[], bool | None] = gpu_busy,
+                 containers: Callable[[], float | None] = containers_cpu) -> None:  # fmt: skip
         self.path, self.pid, self.every = Path(path), pid, every
+        self.gpu, self.containers = gpu, containers
         self.stop = threading.Event()
         self.beats = 0
+        self.why: dict[str, int] = {"cpu": 0, "container": 0, "gpu": 0}
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
@@ -946,11 +1136,23 @@ class Heartbeat:
         # been reaped): no beat, so a beat between its end and close() cannot make a stopped part look busy
         no_proc = not Path("/proc").is_dir()
         last = _tree_cpu(self.pid)
+        last_c = self.containers()
         while not self.stop.wait(self.every):
             now = _tree_cpu(self.pid)
+            why = ""
             if no_proc or (now is not None and last is not None and now > last):
+                why = "cpu"
+            elif now is not None:  # the part still runs: its containers, then the card
+                c = self.containers()
+                if c is not None and last_c is not None and c > last_c:
+                    why = "container"
+                elif self.gpu():
+                    why = "gpu"
+                last_c = c
+            if why:
                 self.path.touch()
                 self.beats += 1
+                self.why[why] += 1
             last = now
 
     def close(self) -> None:
@@ -1051,10 +1253,18 @@ def run_all(a: argparse.Namespace) -> int:
 def _write_report(a: argparse.Namespace, rows: list[dict[str, Any]], head: dict[str, Any], started: datetime,
                   out: Path) -> dict[str, Any]:  # fmt: skip
     rep = report(a, rows, head, started)
+    save_report(rep, out)
+    return rep
+
+
+def save_report(rep: dict[str, Any], out: Path) -> None:
+    """report.json, report.md and, beside them, every failed check with its whole recorded detail."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
     (out / "report.md").write_text(markdown(rep), encoding="utf-8")
-    return rep
+    fails = [{"part": r["tag"], "stage": st["name"], "check": c[0], "detail": c[2]}
+             for r in rep["parts"] for st in r["stages"] for c in st["checks"] if not c[1]]  # fmt: skip
+    (out / FAILED_DETAIL_FILE).write_text(json.dumps(fails, default=str, ensure_ascii=False, indent=1), "utf-8")
 
 
 def report_only(a: argparse.Namespace) -> int:
@@ -1077,9 +1287,7 @@ def report_only(a: argparse.Namespace) -> int:
         rows.append(res)
     rep = report(a, rows, made_by(rows) or git_head(), datetime.now(UTC))
     out = a.dir / "report"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
-    (out / "report.md").write_text(markdown(rep), encoding="utf-8")
+    save_report(rep, out)
     print(f"report {rep['verdict']}: {rep['checks'] - rep['failed']}/{rep['checks']} checks; "
           f"{out / 'report.md'}")  # fmt: skip
     return 0 if rep["ok"] else 1
@@ -1137,7 +1345,13 @@ def report(
     rep["llm_concurrency"] = sorted({int(r["llm_concurrency"]) for r in rows
                                      if r.get("llm_concurrency") and r.get("part") in MODEL_PARTS})  # fmt: skip
     rep["throughput"] = run_metrics.curve(rows)
-    rep["candidates_identical"] = run_metrics.lists_identical(rows)
+    rep["repeats"] = run_metrics.repeat_summary(rows)
+    rep["candidates_compare"] = run_metrics.lists_compare(rows)
+    rep["candidates_identical"] = {lang: v["identical"] for lang, v in rep["candidates_compare"].items()}
+    # A8: the door's secret after the collect (complete-run.sh writes door-secret.txt): none enabled, or what remains
+    door = Path(a.dir) / DOOR_STATE if getattr(a, "dir", None) else None
+    if door is not None and door.is_file():
+        rep["door_secret"] = door.read_text(encoding="utf-8").strip()
     rep["checks"] = sum(len(st["checks"]) for r in rows for st in r["stages"])
     rep["failed"] = sum(1 for r in rows for st in r["stages"] for c in st["checks"] if not c[1])
     # a part that crashed, did not report or had no data counts one failed check; its own checks never ran (review
@@ -1159,6 +1373,26 @@ def report(
         rep["verdict"] = "INCOMPLETE" if rep["not_started"] else "PASSED"
     rep["ok"] = rep["verdict"] == "PASSED"
     rep["seconds"] = round(sum(r["seconds_total"] for r in rows), 1)
+    # the run's own times, from its parts (a report rebuilt by --collect is not the run's start); the languages that
+    # ran, not the ones the plan could have had (the audit of 2026-11-12: "Languages: ja, zh-TW" for a ja-only run)
+    ran = [r for r in rows if not r.get("state")]
+    began = sorted(str(r["started_at"]) for r in ran if r.get("started_at"))
+    ended = sorted(str(r["finished_at"]) for r in ran if r.get("finished_at"))
+    rep["report_built"] = rep["finished"]
+    rep["times_from_parts"] = bool(began and ended)
+    if began and ended:
+        rep["started"], rep["finished"] = began[0], ended[-1]
+    rep["langs_run"] = sorted(
+        {str(r["lang"]) for r in ran if r.get("part") in ("hospital", "public") and r.get("lang")}
+    )
+    # the validation reset (2026-11-14): why these results are not evidence of the shipped product, from what the
+    # launch recorded in plan.json (a run on the model pair; a stub run is no model evidence by design)
+    if a.model == "pair":
+        from tools import product_evidence
+
+        pf = Path(a.dir) / "plan.json" if getattr(a, "dir", None) else None
+        pdoc = json.loads(pf.read_text(encoding="utf-8")) if pf is not None and pf.is_file() else {}
+        rep["not_product_evidence"] = product_evidence.report_reasons(pdoc, [str(r["tag"]) for r in rows])
     return rep
 
 
@@ -1207,7 +1441,9 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
             shots = sorted({st["shot"] + ("" if st.get("shot_ok") else " (missing)") for st in r["stages"]
                             if st.get("shot")})  # fmt: skip
             out.append(f"* Time: {r['seconds_total']} s. Screenshot: {', '.join(f'`{x}`' for x in shots[:3]) or '-'}")
-        out += [f"* FAILED: {c[0]}: {str(c[2])[:200]}" for c in bad]
+            # under the part that failed it (the 2026-11-12 report printed every part's under the last one)
+            out += [f"* FAILED ({r['tag']} / {st['name']}): {c[0]}: {str(c[2])[:REPORT_DETAIL_CHARS]}"
+                    for st in r["stages"] for c in st["checks"] if not c[1]]  # fmt: skip
         out.append("")
     if rep["findings"]:
         out += ["## Known findings (reported, not fixed in this run)", ""]
@@ -1222,6 +1458,8 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
 
 def _throughput_section(rep: dict[str, Any]) -> list[str]:
     """Review G-3: per part, the calls in flight, calls and tokens per second, call times, the card, the list."""
+    from tools import run_metrics
+
     rows = rep.get("throughput") or []
     if not rows:
         return []
@@ -1231,19 +1469,81 @@ def _throughput_section(rep: dict[str, Any]) -> list[str]:
             return ", ".join(f"{k} {x}" for k, x in v.items()) or "-"
         return "-" if v is None else str(v)
 
-    keys = ("tag", "llm_concurrency", "calls", "calls_per_second", "tokens_per_second", "p50_s", "p95_s",
-            "queue_mean_s", "gpu_util_mean_pct", "gpu_memory_peak_mib", "breaker_opens", "candidates")  # fmt: skip
+    keys = ("tag", "window", "llm_concurrency", "calls", "calls_per_second", "tokens_per_second", "p50_s", "p95_s",
+            "queue_mean_s", "gpu_util_mean_pct", "gpu_util_max_pct", "kv_cache_peak", "gpu_memory_peak_mib",
+            "breaker_opens", "candidates")  # fmt: skip
     out = ["", "## Throughput (model calls through the gateway)", "",
            "Calls and tokens per second are over the seconds in which a call was in flight (the gateway's audit); the "
-           "servers' `/metrics` before and after, `gpu.csv` (every 10 s) and `vllm.csv` are in `parts/<part>/`.", "",
-           "| part | in flight | calls | calls/s | tokens/s | p50 s | p95 s | queue s (vLLM) | GPU % mean | "
-           "GPU MiB peak | breaker opened | listed | list sha256 |",
-           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
-    out += ["| " + " | ".join(cell(r.get(k)) for k in keys) + f" | `{str(r.get('candidates_sha256') or '-')[:12]}` |"
-            for r in rows]  # fmt: skip
-    for lang, same in (rep.get("candidates_identical") or {}).items():
-        verdict = "**identical**." if same else "**DIFFERENT** (the list must not depend on the calls in flight)."
+           "servers' `/metrics` before and after, `gpu.csv` (every 10 s) and `vllm.csv` are in `parts/<part>/`. "
+           "A hospital part has two rows: **main SCREEN** (the SCREEN job's own window: the throughput of the curve) "
+           "and **whole part** (with the canary's one-at-a-time calls and stages 15 and 17). GPU % is `nvidia-smi` "
+           "utilisation, the share of time a kernel ran: not a headroom measure (a card at 100 % may take more "
+           "calls). KV peak: each server's KV-cache usage peak (vllm.csv). Not measured: the gateway's slot wait "
+           "per call (the gateway does not record it).", "",
+           "| part | window | in flight | calls | calls/s | tokens/s | p50 s | p95 s | queue s (vLLM) | GPU % mean | "
+           "GPU % max | KV peak | GPU MiB peak | breaker opened | listed | list sha256 | refused (of asked) |",
+           "|" + " --- |" * 17]  # fmt: skip
+    out += ["| " + " | ".join(cell(r.get(k)) for k in keys) + f" | `{str(r.get('candidates_sha256') or '-')[:12]}` | "
+            f"{run_metrics.refused_cell(r.get('refused'))} |" for r in rows]  # fmt: skip
+    reps = run_metrics.repeat_summary(rep.get("parts") or [])
+    if reps:  # B5: a setting run several times: the main SCREEN's calls/s of its repeats
+        out += ["", "Repeats (`--repeats`): the main SCREEN's calls/s per setting, over its repeats. The model servers "
+                "are not restarted between settings or repeats (not in scope); the order of every (setting, repeat) "
+                "is randomised from the recorded seed.", "",
+                "| hospital | in flight | repeats | measured | main SCREEN calls/s mean | min | max |",
+                "| --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
+        out += [f"| {x['lang']} | {x['llm_concurrency']} | {x['repeats']} | {x['measured']} | {cell(x['mean'])} | "
+                f"{cell(x['min'])} | {cell(x['max'])} |" for x in reps]  # fmt: skip
+    old = rep.get("candidates_identical") or {}
+    cmp = rep.get("candidates_compare") or {lang: {"identical": v, "differ": [], "why": ""} for lang, v in old.items()}
+    for lang, c in cmp.items():
+        if c["identical"] is None:
+            verdict = f"**not compared**: {c['why']}."
+        elif c["identical"]:
+            verdict = "**identical**."
+        else:
+            verdict = (f"**DIFFERENT** (the list must not depend on the calls in flight): {len(c['differ'])} "
+                       "patient(s) not listed alike (pseudonymous ids; `-`: not listed at that setting).")  # fmt: skip
         out += ["", f"Candidate lists of hospital-{lang} at every setting: {verdict}"]
+        if c.get("differ"):
+            tags = c.get("settings") or list(c["differ"][0]["tiers"])
+            out += ["", "| pid | " + " | ".join(tags) + " |", "| --- |" + " --- |" * len(tags)]
+            out += [f"| `{d['pid']}` | " + " | ".join(d["tiers"].get(t, "-") for t in tags) + " |"
+                    for d in c["differ"][:50]]  # fmt: skip
+    return out
+
+
+def _chat_template_section(rep: dict[str, Any]) -> list[str]:
+    """Review G-1: three separate verdicts, whether the server was started with ``--chat-template``, and every prompt
+    whose token ids differ (the work folder with both template texts and the tokenizer side's output comes back)."""
+    out: list[str] = []
+
+    def word(v: Any) -> str:
+        return "not measured" if v is None else ("identical" if v else "**DIFFERENT**")
+
+    for r in rep["parts"]:
+        b = r.get("chat_template") or {}
+        v = b.get("verdicts")
+        if not v:
+            continue
+        t = b.get("tokens") or {}
+        started = f"yes ({b.get('judge_started_with')})" if v.get("server_started_with_chat_template") else "no"
+        out += ["", f"## {r['tag']}: G-1 chat template", "",
+                f"* Passed file against the weights folder's template, text (sha256): "
+                f"{word(v.get('passed_vs_folder_text_sha256'))}",
+                f"* Passed file against the weights folder's template, token ids (the folder's tokenizer): "
+                f"{word(v.get('passed_vs_folder_token_ids'))}",
+                f"* The server against the folder's tokenizer, token ids: {word(v.get('server_vs_folder_token_ids'))}",
+                f"* The server was started with --chat-template: {started}",
+                "* The texts: `chat-template/chat_template.passed.jinja` and "
+                "`chat-template/chat_template.folder.jinja`; the tokenizer side: `chat-template/hf.json` (in the VM's "
+                "results)."]  # fmt: skip
+        for key, what in (("server_different", "server against folder"), ("passed_different", "passed against folder")):
+            d = t.get(key) or []
+            if d:
+                out.append(f"* Prompts that differ, {what} ({len(d)}): "
+                           + "; ".join(f"#{x.get('prompt')} at token {x.get('first_difference_at', '-')} "
+                                       f"(lengths {x.get('lengths')})" for x in d))  # fmt: skip
     return out
 
 
@@ -1271,18 +1571,37 @@ def markdown(rep: dict[str, Any]) -> str:
         f"Head `{g['head'][:12]}` ({g['subject'] or g.get('source', '')}){' with local changes' if g['dirty'] else ''}"
         f"{mixed}. Run: {', '.join(rep.get('run_ids') or []) or '-'}. "
         f"Model: {', '.join(rep['models'])} ({rep.get('path', '')}). Hospital: {rep['patients']:,} synthetic patients. "
-        f"Languages: {', '.join(rep['langs'])}. OCR: {rep.get('ocr', '-')}. "
+        f"Languages run: {', '.join(rep['langs_run'] if 'langs_run' in rep else rep['langs']) or '-'}. "
+        f"OCR: {rep.get('ocr', '-')}. "
         f"Model calls in flight: {', '.join(map(str, rep.get('llm_concurrency') or [])) or '-'}. "
         f"Host: {rep['host'].get('machine')}, {rep['host'].get('cpus')} CPUs.",
-        f"Started {rep['started']}, finished {rep['finished']}.",
+        (
+            f"Run started {rep['started']}, finished {rep['finished']} (the parts' own times); report built "
+            f"{rep.get('report_built', rep['finished'])}."
+            if rep.get("times_from_parts")
+            else f"Run start and end: not recorded in the parts (an older driver's results); report built "
+            f"{rep.get('report_built', rep['finished'])}."
+        ),
         "",
         f"**{rep.get('verdict') or ('PASSED' if rep['ok'] else 'FAILED')}**: {rep['checks'] - rep['failed']} of "
-        f"{rep['checks']} checks; "
-        f"{rep['shots_ok']} of {rep['shots']} screenshots; {rep['seconds'] / 60:.1f} min in all; "
+        f"{rep['checks']} checks passed ({rep['failed']} failed); "
+        f"{rep['shots_ok']} of {rep['shots']} screenshots; {rep['seconds'] / 60:.1f} min of part time (each part's "
+        "wall time, summed: parts on several VMs ran at the same time); "
         f"{len(rep.get('findings') or [])} known findings reported.{never}",
         "",
+        *(
+            [
+                "**Not evidence of the shipped product** (validation reset 2026-11-14, "
+                "`docs/plan/measurements/validation-reset-2026-11-14.md`); do not quote these results as such:",
+                *[f"- {x}" for x in rep["not_product_evidence"]],
+                "",
+            ]
+            if rep.get("not_product_evidence")
+            else []
+        ),
         "Screenshots are in the run's `report/shots/` folder (not committed).",
         "",
+        *([f"Door secret after the collect (T-119): {rep['door_secret']}", ""] if rep.get("door_secret") else []),
         "| part | stage | checks | result | seconds | screenshot |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
@@ -1295,12 +1614,17 @@ def markdown(rep: dict[str, Any]) -> str:
             lines.append(f"| {r['tag']} | {st['name']} | {n - len(bad)}/{n} | {result} | {st['seconds']} | {shot} |")
     lines += _scenario_sections(rep)
     lines += _throughput_section(rep)
+    lines += g_probes.report_lines(rep)
     lines += ["", "## Part times", "", "| part | wall seconds |", "| --- | --- |"]
     lines += [f"| {r['tag']} | {r['seconds_total']} |" for r in rep["parts"]]
     fails = [(r["tag"], st["name"], c) for r in rep["parts"] for st in r["stages"] for c in st["checks"] if not c[1]]
     if fails:
-        lines += ["", "## Failed checks", ""]
-        lines += [f"- {t} / {s}: {c[0]}: {str(c[2])[:200]}" for t, s, c in fails]
+        lines += ["", "## Failed checks", "",
+                  f"Each detail is cut at {REPORT_DETAIL_CHARS} characters here (TB_REPORT_DETAIL_CHARS); the "
+                  f"whole detail of each is in `{FAILED_DETAIL_FILE}` beside this report (as the part recorded it).",
+                  ""]  # fmt: skip
+        lines += [f"- {t} / {s}: {c[0]}: {str(c[2])[:REPORT_DETAIL_CHARS]}" for t, s, c in fails]
+    lines += _chat_template_section(rep)
     for r in rep["parts"]:
         for key in ("screen", "canary", "walk", "scale", "embed", "profile", "chat_template"):
             if r.get(key):
@@ -1332,69 +1656,227 @@ def price_per_hour(model: str) -> float:
     return ON_DEMAND_PRICE_PER_HOUR if model == "STANDARD" else PRICE_PER_HOUR
 
 
+def cap_hours(rows: list[dict[str, Any]], hours: float) -> int:
+    """The hard cap of one VM that runs ``rows`` (``hours`` estimated): the estimate x 1.3 rounded up, and never below
+    the same rows with no gain from the calls in flight (``floor_seconds``; speedup 1): the measured curve shortens the
+    estimate, never the cap below what the run would take if the gain were not there."""
+    floor = sum(float(r.get("floor_seconds", r["seconds"])) for r in rows) / 3600
+    return math.ceil(max(hours * 1.3, floor))
+
+
 def _priced(e: dict[str, Any], rows: list[dict[str, Any]], hours: float) -> dict[str, Any]:
     """Hours, cap and US$ of one VM that runs ``rows``: spot, or on demand when a hospital part is among them."""
-    import math
 
     model = provisioning([t for r in rows for t in r["tags"]])
     price = price_per_hour(model)
     for r in rows:
         r["usd"] = round(r["hours"] * price, 2)
-    cap = math.ceil(hours * 1.3)
-    return {**e, "rows": rows, "hours": round(hours, 2), "usd": round(hours * price, 2), "cap_hours": cap,
+    cap = cap_hours(rows, hours)
+    # US$ from the hours as printed (two decimals), so a reader's hours x price is the US$ shown
+    return {**e, "rows": rows, "hours": round(hours, 2), "usd": round(round(hours, 2) * price, 2), "cap_hours": cap,
             "cap_usd": round(cap * price, 2), "provisioning": model, "price_per_hour": price}  # fmt: skip
 
 
+# Validation reset (2026-11-14): the measured constants below come from runs of lane G's own serving and in-process
+# box (docs/plan/measurements/*/SUPERSEDED.md). They size a run's hours and US$ cap only: never a capacity figure,
+# never product evidence (docs/plan/measurements/validation-reset-2026-11-14.md).
 SETUP_HOURS = 0.25  # apt (PostgreSQL, tesseract jpn/chi_tra/eng, node), the venv, Playwright's Chromium, fonts
 BOOT_HOURS = 0.25  # VM start, both models resident (PRO6000-RUN-READY in about 15 minutes, D-139)
 CANARY_SECONDS = 300.0  # the pair canary (D-117, 54 cases) at the start of every box that has the pair
 S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient hospital, D-139; GOUT-COH: none)
-PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
+PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (superseded run; estimate only)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
-# A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (G1, run 20261111T183639Z-986d91c9,
-# commit 986d91c): hospital-ja's wall_seconds 17,960 at 50,000 patients, of which the screening stage 8,584 s; the
-# rest is prepare's lake at 50,000 and the other 19 stages. Source: docs/plan/measurements/g1-2026-11-11/
-# hospital-ja.json (wall_seconds; stage "15 delegation, candidates and referral"). The old estimate counted only the
-# screening (2.14 h) and made the hard cap stop an --only run mid-part (G1 bug A4). OD-10: scaled with the patients
-# the part reads; a newer measurement replaces these two numbers.
-HOSPITAL_PART_SECONDS = 17960.0
-HOSPITAL_PART_PATIENTS = 50000
-# The same measurement's model time: 6,704 calls in the 8,584 s of the screening stage, one call in flight (G1 ran
-# with TB_SCREEN_LLM_CONCURRENCY unset): 0.78 calls per second. With N calls in flight the screening time is the
-# calls over that rate times min(N, LLM_SPEEDUP); the rest of the part does not change with N.
-G1_SCREEN_SECONDS = 8584.0
-G1_SCREEN_CALLS = 6704
-G1_CALLS_PER_SECOND = G1_SCREEN_CALLS / G1_SCREEN_SECONDS  # 0.78 at N = 1
-# OD-10, a declared setting with its reason: the most the estimate lets N calls in flight raise the calls per second.
-# No rate at N > 1 is measured yet (review test G-3 measures it), so the estimate must stay an upper bound of the
-# time: it assumes only that two or more calls in flight are served at twice the single-call rate (vLLM batches
-# them on one card), and no more however large N is. TB_ESTIMATE_LLM_SPEEDUP changes it: 1 is the strict bound (the
-# single-call time at every N); G-3's measured calls per second at the chosen N, over 0.78, replaces it.
-LLM_SPEEDUP = 2.0
+# A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (OD-10: the estimator's source data;
+# a newer measurement replaces these rows). Each row is one part result, ``parts/<tag>.json`` of the run named:
+#   patients, n          the hospital's patients and the model calls in flight (TB_SCREEN_LLM_CONCURRENCY)
+#   wall                 the part's wall_seconds
+#   calls, cps           the whole part's model calls and calls/s ("throughput": over the seconds a call was in flight)
+#   screen_calls, screen_cps   the main SCREEN job's own ("throughput_screen", its window only)
+# 2026-11-13, commit c25cea6 (run 20261113T085509Z-c25cea6b): both languages at 50,000 patients, 16 in flight.
+# 2026-11-13, run 20261113T044219Z-2b9eec74: both languages at 5,000 patients, 1, 4 and 16 in flight (G-3's curve).
+# The estimate before these (G1's 17,960 s at 50,000 and one in flight, commit 986d91c, scaled by G-3's 5,000-patient
+# gain) said 3.14 h per hospital part at 16 in flight; the part took 2,986 s (ja) and 2,991 s (zh-TW).
+HOSPITAL_RUN_50K = "20261113T085509Z-c25cea6b"
+HOSPITAL_RUN_CURVE = "20261113T044219Z-2b9eec74"
+HOSPITAL_MEASURED: tuple[dict[str, Any], ...] = (
+    {"run": HOSPITAL_RUN_50K, "lang": "ja", "patients": 50000, "n": 16, "wall": 2986.1, "calls": 6568, "cps": 3.876,
+     "screen_calls": 3226, "screen_cps": 4.447},
+    {"run": HOSPITAL_RUN_50K, "lang": "zh-TW", "patients": 50000, "n": 16, "wall": 2990.7, "calls": 6550,
+     "cps": 3.934, "screen_calls": 3217, "screen_cps": 4.558},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "ja", "patients": 5000, "n": 1, "wall": 1685.5, "calls": 606, "cps": 0.402,
+     "screen_calls": 244, "screen_cps": 0.385},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "ja", "patients": 5000, "n": 4, "wall": 734.1, "calls": 597, "cps": 1.046,
+     "screen_calls": 244, "screen_cps": 1.435},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "ja", "patients": 5000, "n": 16, "wall": 501.5, "calls": 603, "cps": 1.779,
+     "screen_calls": 246, "screen_cps": 4.391},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "zh-TW", "patients": 5000, "n": 1, "wall": 1655.8, "calls": 600,
+     "cps": 0.404, "screen_calls": 243, "screen_cps": 0.388},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "zh-TW", "patients": 5000, "n": 4, "wall": 791.5, "calls": 602,
+     "cps": 0.958, "screen_calls": 246, "screen_cps": 1.432},
+    {"run": HOSPITAL_RUN_CURVE, "lang": "zh-TW", "patients": 5000, "n": 16, "wall": 507.9, "calls": 600,
+     "cps": 1.741, "screen_calls": 244, "screen_cps": 4.613},
+)  # fmt: skip
+# the size whose rows span several N: the gain of calls/s with the calls in flight comes from it
+HOSPITAL_CURVE_PATIENTS = 5000
+# The model, per language (a language with no row: every row): a part's wall time is three times, each scaled with the
+# patients (linear between the two measured sizes; proportional beyond them, from the nearer one):
+#   non-LLM   wall - the seconds a call was in flight (calls / cps); does not change with N (mean over the size's rows)
+#   main SCREEN   screen_calls / screen_cps at N
+#   other calls   (calls - screen_calls) / their own rate: the canary, stages 15 and 17, the rest of the part
+# A rate at an N the size did not measure: the measured N nearest in log2 at that size, times the curve's gain from
+# that N to the asked one (5,000-patient rows, each kind of call its own curve; interpolated in log2(N), held above
+# 16 and at 1 below 1). Below 5,000 patients the old floor stays (the canary, the stub time and the note-stage model
+# time do not shrink with the patients). TB_ESTIMATE_LLM_SPEEDUP keeps its meaning: the gain at N is then min(N,
+# that factor) for both kinds of call (1: one call in flight's rate at every N).
+SINGLE_CALL_CPS = round(sum(r["cps"] for r in HOSPITAL_MEASURED if r["n"] == 1) /
+                        sum(1 for r in HOSPITAL_MEASURED if r["n"] == 1), 3)  # fmt: skip
+
+
+def _mean(xs: Iterable[float]) -> float:
+    v = list(xs)
+    return sum(v) / len(v)
+
+
+def _hospital_rows(lang: str = "") -> list[dict[str, Any]]:
+    rows = [r for r in HOSPITAL_MEASURED if r["lang"] == lang]
+    return rows or list(HOSPITAL_MEASURED)
+
+
+def _kind_rate(r: dict[str, Any], kind: str) -> float:
+    """Calls/s of one kind of call in a measured row: ``main`` (the main SCREEN) or ``other`` (the rest)."""
+    if kind == "main":
+        return float(r["screen_cps"])
+    other_busy = r["calls"] / r["cps"] - r["screen_calls"] / r["screen_cps"]
+    return float(r["calls"] - r["screen_calls"]) / float(other_busy)
+
+
+def _kind_calls(r: dict[str, Any], kind: str) -> float:
+    return float(r["screen_calls"] if kind == "main" else r["calls"] - r["screen_calls"])
+
+
+def rate_curve(kind: str, lang: str = "") -> dict[int, float]:
+    """Calls/s of ``kind`` at each N measured at :data:`HOSPITAL_CURVE_PATIENTS` (mean over the rows)."""
+    by: dict[int, list[float]] = {}
+    for r in _hospital_rows(lang):
+        if r["patients"] == HOSPITAL_CURVE_PATIENTS:
+            by.setdefault(int(r["n"]), []).append(_kind_rate(r, kind))
+    return {n: _mean(v) for n, v in sorted(by.items())}
+
+
+def curve_gain(curve: dict[int, float], n: int) -> float:
+    """rate(n) / rate(1) of ``curve``, interpolated linearly in log2(n) between its points, held above the last
+    point, 1 at or below 1."""
+    pts = sorted(curve.items())
+    base = curve[pts[0][0]]
+    if n <= pts[0][0]:
+        return 1.0
+    for (n0, r0), (n1, r1) in itertools.pairwise(pts):
+        if n <= n1:
+            f = (math.log2(n) - math.log2(n0)) / (math.log2(n1) - math.log2(n0))
+            return (r0 + f * (r1 - r0)) / base
+    return pts[-1][1] / base
+
+
+def measured_gain(n: int) -> float:
+    """The main SCREEN's measured gain at ``n`` calls in flight, both languages' mean (the G-3 table's figure)."""
+    return round(_mean(curve_gain(rate_curve("main", lang), n) for lang in LANGS), 3)
+
+
+def speedup_override() -> float | None:
+    """``TB_ESTIMATE_LLM_SPEEDUP`` (the owner's override of the measured curve), None when not set."""
+    raw = os.environ.get("TB_ESTIMATE_LLM_SPEEDUP", "").strip()
+    if not raw:
+        return None
+    try:
+        factor = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}") from exc
+    if not math.isfinite(factor) or factor < 1:
+        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}")
+    return factor
 
 
 def llm_speedup(n: int) -> float:
-    """What the estimate divides the single-call screening time by at ``n`` calls in flight: ``min(n, the declared
-    factor)`` (:data:`LLM_SPEEDUP`, ``TB_ESTIMATE_LLM_SPEEDUP``), never below 1."""
-    raw = os.environ.get("TB_ESTIMATE_LLM_SPEEDUP", "").strip()
-    try:
-        factor = float(raw) if raw else LLM_SPEEDUP
-    except ValueError as exc:
-        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}") from exc
-    if factor < 1:
-        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}")
-    return max(1.0, min(float(n), factor))
+    """The gain the estimate gives ``n`` calls in flight over one: the main SCREEN's measured gain
+    (:func:`measured_gain`), or ``min(n, TB_ESTIMATE_LLM_SPEEDUP)`` when the owner set it; never below 1."""
+    factor = speedup_override()
+    if factor is not None:
+        return max(1.0, min(float(n), factor))
+    return max(1.0, measured_gain(n))
 
 
-def hospital_seconds(patients: int, n: int = 1) -> float:
-    """A hospital part's wall seconds at ``patients`` with ``n`` model calls in flight: G1's measurement scaled with
-    the patients, its screening share (the calls at 0.78 per second) divided by :func:`llm_speedup`. At ``n`` 1 it
-    is the measurement itself; above, an upper bound until G-3 measures the rate."""
-    scale = patients / HOSPITAL_PART_PATIENTS
-    return (HOSPITAL_PART_SECONDS - G1_SCREEN_SECONDS) * scale + G1_SCREEN_SECONDS * scale / llm_speedup(n)
+def _gain(curve: dict[int, float], n: int) -> float:
+    factor = speedup_override()
+    return max(1.0, min(float(n), factor)) if factor is not None else curve_gain(curve, n)
 
 
+def _size_split(lang: str, size: int, n: int) -> dict[str, float]:
+    """The three times of a part at a measured ``size`` with ``n`` in flight (see :data:`HOSPITAL_MEASURED`)."""
+    rows = [r for r in _hospital_rows(lang) if r["patients"] == size]
+    ns = sorted({int(r["n"]) for r in rows})
+    m = min(ns, key=lambda x: (abs(math.log2(x) - math.log2(max(1, n))), x))
+    at_m = [r for r in rows if r["n"] == m]
+    out = {"non_llm": _mean(r["wall"] - r["calls"] / r["cps"] for r in rows)}
+    for kind in ("main", "other"):
+        curve = rate_curve(kind, lang)
+        one = _mean(_kind_rate(r, kind) for r in at_m) / curve_gain(curve, m)  # this size's rate at 1 in flight
+        rate = one * _gain(curve, n) if (n != m or speedup_override() is not None) else _mean(
+            _kind_rate(r, kind) for r in at_m)  # fmt: skip
+        calls = _mean(_kind_calls(r, kind) for r in rows)
+        out[f"{kind}_calls"], out[kind] = calls, calls / rate
+    return out
+
+
+def hospital_split(patients: int, n: int = 1, lang: str = "") -> dict[str, Any]:
+    """A hospital part at ``patients`` with ``n`` calls in flight: ``non_llm``, ``main`` (the main SCREEN's calls),
+    ``other`` (the part's other calls) seconds and their sum ``seconds``, the calls of each kind, whether ``n`` was
+    measured at the sizes used (``measured``) and the runs the figures come from (``runs``)."""
+    rows = _hospital_rows(lang)
+    sizes = sorted({int(r["patients"]) for r in rows})
+    lo = max([s for s in sizes if s <= patients] or [sizes[0]])
+    hi = min([s for s in sizes if s >= patients] or [sizes[-1]])
+    a, b = _size_split(lang, lo, n), _size_split(lang, hi, n)
+    if lo == hi:
+        f = patients / lo
+        mix = {k: v * f for k, v in a.items()}
+    else:
+        t = (patients - lo) / (hi - lo)
+        mix = {k: a[k] + t * (b[k] - a[k]) for k in a}
+    used = {lo, hi}
+    measured = all(any(r["patients"] == s and r["n"] == n for r in rows) for s in used)
+    # the runs the figures come from: the sizes used, and the curve's run when its gain carried a rate to this N
+    runs = sorted(
+        {
+            str(r["run"])
+            for r in rows
+            if r["patients"] in used or (not measured and r["patients"] == HOSPITAL_CURVE_PATIENTS)
+        }
+    )
+    return {"non_llm": mix["non_llm"], "main": mix["main"], "other": mix["other"],
+            "calls": round(mix["main_calls"] + mix["other_calls"]), "main_calls": round(mix["main_calls"]),
+            "seconds": mix["non_llm"] + mix["main"] + mix["other"], "measured": measured, "runs": runs,
+            "sizes": sorted(used)}  # fmt: skip
+
+
+def hospital_seconds(patients: int, n: int = 1, gain: bool = True, lang: str = "") -> float:
+    """A hospital part's wall seconds at ``patients`` with ``n`` model calls in flight (:func:`hospital_split`);
+    ``gain`` False: at one call in flight."""
+    return float(hospital_split(patients, n if gain else 1, lang)["seconds"])
+
+
+def hospital_floor_n(patients: int, n: int, lang: str = "") -> int:
+    """The calls in flight the hard cap's floor assumes: the largest N up to ``n`` measured at every size the estimate
+    of ``patients`` uses, else 1 (no gain the measurements did not show at that size)."""
+    s = hospital_split(patients, n, lang)
+    rows = _hospital_rows(lang)
+    common = set.intersection(*({int(r["n"]) for r in rows if r["patients"] == z} for z in s["sizes"]))
+    return max([x for x in common if x <= n] or [1])
+
+
+# the 50,000-patient part at one call in flight (both languages' rows): derived, as no run measured it directly
+HOSPITAL_PART_PATIENTS = 50000
+HOSPITAL_PART_SECONDS = round(hospital_seconds(HOSPITAL_PART_PATIENTS, 1), 1)
 # the benches (owner's approval of 2026-11-09; no card measurement yet, so set high): the embedding comparison is two
 # small models over about 7,000 notes plus the weights' download; the profile stand-in samples ``--profile-patients``
 # at 2 s each on the card's batch (16 sequences) plus a sequential latency sample and its synthetic hospital
@@ -1410,12 +1892,13 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
 
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
              local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
-             profile_patients: int = 400, llm_concurrency: tuple[int, ...] = (1,)) -> dict[str, Any]:  # fmt: skip
-    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the G1
-    measurement (:data:`HOSPITAL_PART_SECONDS` at :data:`HOSPITAL_PART_PATIENTS`) scaled with ``patients``, never
-    below its model time. ``llm_concurrency``: the model calls in flight (:func:`hospital_seconds`; the default 1 is
-    what G1 measured); several values: one hospital part per value and language, tagged ``hospital-<lang>@c<N>``
-    (review G-3's curve). Model time: note-stage patients
+             profile_patients: int = 400, llm_concurrency: tuple[int, ...] = (1,), repeats: int = 1,
+             order_seed: int | None = None) -> dict[str, Any]:  # fmt: skip
+    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the measured parts
+    of :data:`HOSPITAL_MEASURED` (:func:`hospital_split`: non-LLM time, the main SCREEN's calls and the other calls,
+    each scaled with ``patients``), at the ``llm_concurrency`` model calls in flight; several values: one hospital
+    part per value and language, tagged ``hospital-<lang>@c<N>`` (review G-3's curve). Its ``model_items`` are the
+    part's model calls. The other scenarios' model time: note-stage patients
     times the measured 6.3 s per patient on the RTX PRO 6000 (VALIDATION §3; a chart read counts as one), criterion
     checks at 0.3 s each, the canary once per box with the pair. Other time: the part's stub time on the local run,
     scaled with its patients. The walk, backup, update and scale run after the VM has stopped: no card time.
@@ -1441,16 +1924,30 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     ]
     g1 = "g1" in parts
     lc = tuple(llm_concurrency) or (1,)
+    reps = max(1, int(repeats))
+    variants = hospital_variants(lc, reps, order_seed)
     for lang in langs if g1 else ():
         notes = S3_SHARE * patients
-        for n in lc:
-            # the G1 measurement scaled with the patients (G1 bug A4) and the calls in flight; never below the model
-            # time of the old sum at that concurrency, which is most of a small hospital (the canary, the stub time)
-            measured = hospital_seconds(patients, n)
+        for v in variants:
+            n = variant_concurrency(v) if v else lc[0]
+            # the measured parts (HOSPITAL_MEASURED) scaled with the patients and the calls in flight: non-LLM time,
+            # the main SCREEN's calls and the other calls, each on its own. Below the smallest measured hospital the
+            # old sum stays as a floor (the canary and the stub time do not shrink with the patients)
+            split = hospital_split(patients, n, lang)
+            small = patients < min(int(r["patients"]) for r in HOSPITAL_MEASURED)
             model = notes * sec / llm_speedup(n) + CANARY_SECONDS + other("hospital", patients, local_patients)
-            many = len(lc) > 1
-            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''})", patients, notes,
-                            max(measured, model), (f"hospital-{lang}" + (f"@c{n}" if many else ""),)))  # fmt: skip
+            many = len(lc) > 1 or reps > 1
+            again = f", repeat {v.split('#r', 1)[1]}" if "#r" in v else ""
+            rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''}{again})", patients, split["calls"],
+                            max(split["seconds"], model) if small else split["seconds"],
+                            (_tag("hospital", lang, v),)))  # fmt: skip
+            rows[-1]["split"] = {k: round(float(split[k]), 1) for k in ("non_llm", "main", "other")}
+            rows[-1]["source"] = split["runs"]
+            # the cap's floor: the same part with no gain the measurements did not show at its size (a cap below
+            # the part stops it mid-run, G1 bug A4)
+            fn = hospital_floor_n(patients, n, lang)
+            no_gain = notes * sec / llm_speedup(fn) + CANARY_SECONDS + other("hospital", patients, local_patients)
+            rows[-1]["floor_seconds"] = max(hospital_seconds(patients, fn, lang=lang), no_gain if small else 0.0)
         rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
     for name in scenarios.SCENARIOS if g1 else ():
         t = (f"scenario-{name}",)
@@ -1478,7 +1975,11 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
         r["hours"] = round(r["seconds"] / 3600, 2)
     hours = sum(r["seconds"] for r in rows) / 3600
     head = {"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts), "llm_concurrency": list(lc),
-            "llm_speedup": [llm_speedup(n) for n in lc], "max_num_seqs": record_max_seqs()}  # fmt: skip
+            "repeats": reps,
+            "llm_speedup": [llm_speedup(n) for n in lc], "llm_speedup_override": speedup_override(),
+            "max_num_seqs": record_max_seqs()}  # fmt: skip
+    if g1 and langs:
+        head["hospital_source"] = sorted({x for r in rows for x in r.get("source") or []})
     return _priced(head, rows, hours)
 
 
@@ -1491,15 +1992,18 @@ def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
     selftests = [f"selftest-{s}" for s in SELFTESTS if f"selftest-{s}" in only]  # the rehearsal's (tests/rehearsal)
     tags = {t for r in e["rows"] for t in r["tags"]}
     # a hospital part named without its concurrency (hospital-ja) is every repeat of it (hospital-ja@c1, @c4 ...)
-    known = tags | {base_tag(t) for t in tags} | {"install", "prepare", G1_CHECK, *selftests}
+    known = tags | {base_tag(t) for t in tags} | {setting_tag(t) for t in tags}
+    known |= {"install", "prepare", G1_CHECK, *selftests, *g_probes.PARTS}
     unknown = sorted(set(only) - known)
     if unknown:
         raise ValueError(f"--only: no such part in the plan: {' '.join(unknown)}")
     rows = [dict(r) for r in e["rows"]
-            if not r["tags"] or set(r["tags"]) & set(only) or {base_tag(t) for t in r["tags"]} & set(only)]  # fmt: skip
+            if not r["tags"] or set(r["tags"]) & set(only) or {base_tag(t) for t in r["tags"]} & set(only)
+            or {setting_tag(t) for t in r["tags"]} & set(only)]  # fmt: skip
     fixed = [r for r in rows if not r["tags"]]
     extra = [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17}
              for t in selftests]  # fmt: skip
+    extra += g_probes.estimate_rows(only, int(e.get("max_num_seqs") or 1))  # G-4, G-5, G-7, G-8 when named
     if G1_CHECK in only:  # review test G-1 (tools.chat_template_check), before the parts that depend on it
         from tools.chat_template_check import N_PROMPTS, SECONDS
 
@@ -1520,7 +2024,6 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
     hospital). Longest part first onto the least-loaded VM (LPT, deterministic). Every VM pays its own start and
     setup; ``prepare`` (the shared synthetic hospital) goes with every shard that has a hospital part, ``install``
     (the serving records) with the first. Each VM has its own hard cap: its estimate x 1.3, rounded up."""
-    import math
 
     fixed = [r for r in e["rows"] if not r["tags"]]
     work = sorted((r for r in e["rows"] if r["tags"]), key=lambda r: (-r["seconds"], r["scenario"]))
@@ -1541,11 +2044,11 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
                 tags = ["install", *tags]
         sec = fixed_s + sum(r["seconds"] for r in b)
         h = sec / 3600
-        cap = math.ceil(h * 1.3)
+        cap = cap_hours([*fixed, *b], h)
         model = provisioning(tags)  # D-468: on demand for a VM with a hospital part, spot for the others
         price = price_per_hour(model)
         shards.append({"shard": i + 1, "tags": tags, "rows": [r["scenario"] for r in b], "hours": round(h, 2),
-                       "usd": round(h * price, 2), "cap_hours": cap, "cap_usd": round(cap * price, 2),
+                       "usd": round(round(h, 2) * price, 2), "cap_hours": cap, "cap_usd": round(cap * price, 2),
                        "provisioning": model, "price_per_hour": price})  # fmt: skip
     total = sum(x["hours"] for x in shards)
     return {"vms": len(shards), "shards": shards, "wall_hours": max(x["hours"] for x in shards),
@@ -1573,8 +2076,12 @@ def shard_now(doc: dict[str, Any], i: int, dirs: list[Path], run_id: str, head: 
     is left, and spot once its hospital parts are done. Nothing known (no results, no HEAD): the whole shard."""
     s = doc["plan"]["shards"][i - 1]
     left = [t for t in s["tags"] if not (head and _done(dirs, t, f"{run_id}-s{i}", head))]
-    e = estimate(int(doc["patients"]), parts=tuple(doc.get("parts") or ("g1",)),
-                 llm_concurrency=tuple(doc.get("llm_concurrency") or (1,)))  # fmt: skip
+    e = estimate(
+        int(doc["patients"]),
+        parts=tuple(doc.get("parts") or ("g1",)),
+        llm_concurrency=tuple(doc.get("llm_concurrency") or (1,)),
+        repeats=int(doc.get("repeats") or 1),
+    )
     now = restrict(e, left or ["install"])  # nothing left: the start and setup rows only
     return {"left": left, "done": [t for t in s["tags"] if t not in left], "hours": now["hours"], "usd": now["usd"],
             "cap_hours": now["cap_hours"], "cap_usd": now["cap_usd"], "provisioning": provisioning(left),
@@ -1649,6 +2156,272 @@ def quota_check(folder: Path, zones: list[str], standard: list[str] | None = Non
     return 0
 
 
+# ---------------------------------------------------------------- a start refused for a stockout (2026-11-13)
+# A spot start in a zone that has no RTX PRO 6000 free fails at once (2026-11-13: STOCKOUT on tb-gpu-sim; the launch
+# gave up and the run was lost). Such a refusal is often gone minutes later, so the driver tries the start again;
+# every other refusal (quota, permission, a VM not TERMINATED) is not retried. OD-10, settings with a reason:
+#   TB_START_RETRIES 3          three more tries: with the wait below, about 12 minutes of a zone's spot pool turning
+#                               over before the launch gives up (the operator then picks another zone or on demand)
+#   TB_START_RETRY_SECONDS 240  four minutes between tries: longer than a typical spot reclaim or a released VM's
+#                               cleanup, short against the run itself; the VM is TERMINATED meanwhile and costs nothing
+START_RETRIES_DEFAULT = 3
+START_RETRY_SECONDS_DEFAULT = 240
+# Compute Engine's words for "no capacity in the zone now" (its error codes and messages), not for quota or rights
+STOCKOUT = re.compile(r"STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|RESOURCE_POOL_EXHAUSTED|"
+                      r"does not have enough resources available|resource availability|resources are not available",
+                      re.IGNORECASE)  # fmt: skip
+
+
+def start_retry(env: Mapping[str, str]) -> tuple[int, int]:
+    """``(retries, seconds)`` of a start refused for a stockout, from ``TB_START_RETRIES`` and
+    ``TB_START_RETRY_SECONDS`` (declared in ``tb_common.config.DECLARED``); ValueError on a value that is not a whole
+    number from 0."""
+    out = []
+    for name, default in (("TB_START_RETRIES", START_RETRIES_DEFAULT),
+                          ("TB_START_RETRY_SECONDS", START_RETRY_SECONDS_DEFAULT)):  # fmt: skip
+        raw = (env.get(name) or "").strip()
+        if not raw:
+            out.append(default)
+            continue
+        if not raw.isdigit():
+            raise ValueError(f"{name} must be a whole number from 0, not {raw!r}")
+        out.append(int(raw))
+    return out[0], out[1]
+
+
+def is_stockout(text: str) -> bool:
+    """Is a refused start's error text a stockout (no capacity in the zone now), the one refusal worth retrying?"""
+    return bool(STOCKOUT.search(text or ""))
+
+
+# ---------------------------------------------------------------- free checks before a paid start (2026-11-12: A6, A7)
+def door_reach_problem(env: Mapping[str, str]) -> str:
+    """A6: the door is TLS straight to the VM's address (``door_curl --noproxy '*'``, its own pinned certificate). A
+    machine whose outbound HTTPS goes through a proxy (``HTTPS_PROXY`` set; often a TLS-inspecting one) cannot reach
+    it, and the VM waited for its code and idled out (2026-11-12, about US$3.50). Without ``TB_BUCKET`` and with a
+    proxy set this is the refusal's text; ``TB_DOOR_DIRECT=1`` says this machine does reach the VM directly. "" when
+    the launch may go on. The proxy's address is never printed (it may carry a credential)."""
+    if str(env.get("TB_BUCKET") or "").strip():
+        return ""
+    if not str(env.get("HTTPS_PROXY") or env.get("https_proxy") or "").strip():
+        return ""
+    if str(env.get("TB_DOOR_DIRECT") or "").strip().lower() in ("1", "true", "yes", "on"):
+        return ""
+    return ("door: HTTPS_PROXY is set here, so this machine's outbound HTTPS goes through a proxy, and the door is TLS "
+            "straight to the VM's address (no proxy, the VM's own pinned certificate): the code could not be uploaded "
+            "and the VM would idle out (2026-11-12). Set TB_BUCKET=gs://<bucket> (code and results through the "
+            "bucket; `TB_BUCKET=gs://<bucket> bash deploy/gcp/setup-gcp.sh <project>` makes it and grants "
+            "access), or TB_DOOR_DIRECT=1 if this machine does reach the VM's address directly. Nothing was "
+            "started.")  # fmt: skip
+
+
+def _gcloud_error(text: str) -> str:
+    """What a failed read-only gcloud call says: ``disabled`` (the API is off), ``denied``, ``missing`` or ``other``."""
+    t = text.lower()
+    if "service_disabled" in t or "has not been used in project" in t or "it is disabled" in t:
+        return "disabled"
+    if "permission_denied" in t or "permission denied" in t or "403" in t or "does not have" in t:
+        return "denied"
+    if "not_found" in t or "not found" in t or "404" in t or "bucketnotfound" in t:
+        return "missing"
+    return "other"
+
+
+def _member(account: str) -> str:
+    return ("serviceAccount:" if account.endswith(".gserviceaccount.com") else "user:") + (account or "<deployer>")
+
+
+def _bound(policy: dict[str, Any], member: str, roles: set[str]) -> bool:
+    return any(b.get("role") in roles and member in (b.get("members") or []) for b in policy.get("bindings") or [])
+
+
+def images_of_console(console: str) -> dict[str, str] | None:
+    """The images the VM's last boot found on its disk: its last ``TB-IMAGES <image>=present|missing ...`` line
+    (complete-run-vm.sh, every boot); None when the console has none."""
+    lines = [ln for ln in console.splitlines() if ln.startswith("TB-IMAGES")]
+    if not lines:
+        return None
+    return dict(x.rsplit("=", 1) for x in lines[-1].split()[1:] if "=" in x)
+
+
+def preflight_problems(folder: Path, secret: str = "tb-gpu-door") -> tuple[list[str], list[str]]:
+    """A7: every reason a launch would fail in the cloud, from the read-only gcloud answers the driver saved in
+    ``folder`` (``complete-run.sh --preflight``; the same at the start of a real launch, before any VM starts):
+    ``project.txt``, ``account.txt``, ``mode.txt`` (door or bucket), ``vms.txt`` (``name zone`` lines),
+    ``secret.json|.err``, ``secret-iam.json|.err``, ``vm-<name>.json|.err``, ``firewall.err``,
+    ``firewall-<name>.txt`` (door_firewall_check's refusals), ``bucket.txt``, ``bucket-ls.err``,
+    ``bucket-iam.json|.err``. Returns (problems, each with the exact fix command; checks that could not be confirmed
+    read-only, e.g. a role granted on the project rather than on the resource)."""
+
+    def read(name: str) -> str:
+        p = folder / name
+        return p.read_text(encoding="utf-8", errors="replace").strip() if p.is_file() else ""
+
+    def doc(name: str) -> dict[str, Any] | None:
+        raw = read(name)
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            return None
+
+    project, account, mode = read("project.txt") or "<project>", read("account.txt"), read("mode.txt") or "door"
+    member = _member(account)
+    bad: list[str] = []
+    notes: list[str] = []
+    setup = f"bash deploy/gcp/setup-gcp.sh {project}"
+    err = read("secret.err")
+    if err:
+        kind = _gcloud_error(err)
+        if kind == "disabled":
+            bad.append(f"Secret Manager API is disabled in {project}: gcloud services enable "
+                       f"secretmanager.googleapis.com --project {project}   (a project owner; or {setup})")  # fmt: skip
+        elif kind == "missing":
+            bad.append(f"no secret {secret}: run deploy/gcp/setup-gcp.sh once ({setup}), or gcloud secrets create "
+                       f"{secret} --replication-policy=automatic --project {project}")  # fmt: skip
+        elif kind == "denied":
+            bad.append(f"the deployer {account or '?'} cannot read secret {secret} (secretmanager.secrets.get): gcloud "
+                       f"secrets add-iam-policy-binding {secret} --member={member} --role=roles/secretmanager.viewer "
+                       f"--project {project}   (a project owner; {setup} grants it)")  # fmt: skip
+        else:
+            bad.append(f"secret {secret}: gcloud secrets describe failed: {err.splitlines()[-1][:200]}")
+    vm_sas: list[str] = []
+    for line in read("vms.txt").splitlines():
+        if not line.split():
+            continue
+        name, zone = [*line.split(), ""][:2]
+        verr = read(f"vm-{name}.err")
+        if verr:
+            kind = _gcloud_error(verr)
+            if kind == "missing":
+                bad.append(f"VM {name} does not exist in {zone}: deploy/gcp/complete-run.sh --provision --vms N "
+                           "--zones ... makes the clones of tb-gpu-sim (tb-gpu-sim itself: RUNBOOK §11)")  # fmt: skip
+            elif kind == "denied":
+                bad.append(f"the deployer cannot describe VM {name}: gcloud projects add-iam-policy-binding {project} "
+                           f"--member={member} --role=roles/compute.instanceAdmin.v1   (or {setup})")  # fmt: skip
+            else:
+                last = verr.splitlines()[-1][:200]
+                bad.append(f"VM {name} ({zone}): gcloud compute instances describe failed: {last}")
+            continue
+        vm = doc(f"vm-{name}.json") or {}
+        sa = ((vm.get("serviceAccounts") or [{}])[0]).get("email", "")
+        if not sa:
+            bad.append(f"VM {name} has no service account (it reads its door from Secret Manager with it): gcloud "
+                       f"compute instances set-service-account {name} --zone {zone} --service-account "
+                       f"<project-number>-compute@developer.gserviceaccount.com --scopes cloud-platform")  # fmt: skip
+        else:
+            vm_sas.append(sa)
+        if mode == "door":
+            fw = read(f"firewall-{name}.txt")
+            bad += [f"VM {name}: {x}" for x in fw.splitlines() if x.strip()]
+        if (folder / f"console-{name}.txt").exists():
+            got = images_of_console(read(f"console-{name}.txt"))
+            if got is None:
+                notes.append(f"VM {name}: no TB-IMAGES line in its serial console (its last boot ran an older script, "
+                             "or the console has rolled over): its images are checked at its next boot")  # fmt: skip
+            for im in sorted(k for k, v in (got or {}).items() if v != "present"):
+                bad.append(f"VM {name}: image {im} is not on its disk (its last boot's TB-IMAGES): start it with the "
+                           f"usual startup script and run: sudo docker pull {im}; then stop it (a pull inside the "
+                           "serving limit, or none without a network, would cost the boot)")  # fmt: skip
+    ferr = read("firewall.err")
+    if ferr and mode == "door":
+        bad.append(f"the firewall rules are not readable (the door needs tcp:443 open and tcp:80 closed): gcloud "
+                   f"projects add-iam-policy-binding {project} --member={member} --role=roles/compute.securityAdmin   "
+                   f"(or {setup})")  # fmt: skip
+    pol = doc("secret-iam.json")
+    if pol is not None:
+        sm = "roles/secretmanager."
+        if account and not _bound(pol, member, {sm + "secretVersionManager", sm + "admin"}):
+            notes.append(f"the deployer is not granted on secret {secret} itself to add and destroy its versions "
+                         f"(fine if granted on the project): gcloud secrets add-iam-policy-binding {secret} "
+                         f"--member={member} --role={sm}secretVersionManager --project {project}")  # fmt: skip
+        for sa in sorted(set(vm_sas)):
+            if not _bound(pol, f"serviceAccount:{sa}", {sm + "secretAccessor", sm + "admin"}):
+                notes.append(f"the VMs' service account {sa} is not granted on secret {secret} itself to read it "
+                             f"(fine if granted on the project): gcloud secrets add-iam-policy-binding {secret} "
+                             f"--member=serviceAccount:{sa} --role={sm}secretAccessor --project {project}")  # fmt: skip
+    elif read("secret-iam.err") and not err:
+        notes.append(f"secret {secret}'s policy is not readable by the deployer: who may read and add versions is not "
+                     "checked (roles/secretmanager.viewer on the secret lets the pre-flight read it)")  # fmt: skip
+    if mode == "bucket":
+        bucket = read("bucket.txt") or "gs://<bucket>"
+        berr = read("bucket-ls.err")
+        if berr:
+            kind = _gcloud_error(berr)
+            if kind == "missing":
+                bad.append(f"bucket {bucket} does not exist: TB_BUCKET={bucket} {setup}   (makes it in the run's "
+                           "region and grants objectAdmin to the deployer and the VMs' service account)")  # fmt: skip
+            elif kind == "denied":
+                bad.append(f"the deployer cannot use bucket {bucket}: gcloud storage buckets add-iam-policy-binding "
+                           f"{bucket} --member={member} --role=roles/storage.objectAdmin   (or TB_BUCKET={bucket} "
+                           f"{setup})")  # fmt: skip
+            else:
+                bad.append(f"bucket {bucket}: gcloud storage ls failed: {berr.splitlines()[-1][:200]}")
+        bpol = doc("bucket-iam.json")
+        admin = {"roles/storage.objectAdmin", "roles/storage.admin"}
+        if bpol is not None:  # the bucket's own policy must show both: the code goes up, the results come back
+            for who in sorted({member, *(f"serviceAccount:{s}" for s in vm_sas)}):
+                if not _bound(bpol, who, admin):
+                    bad.append(f"{who} has no objectAdmin on {bucket} (the code goes up and the results come back "
+                               f"through it): gcloud storage buckets add-iam-policy-binding {bucket} --member={who} "
+                               f"--role=roles/storage.objectAdmin   (or TB_BUCKET={bucket} {setup})")  # fmt: skip
+        elif not berr:
+            bad.append(f"{bucket}'s policy is not readable by the deployer, so the VMs' access cannot be checked: "
+                       f"gcloud storage buckets add-iam-policy-binding {bucket} --member={member} "
+                       f"--role=roles/storage.legacyBucketOwner   (or TB_BUCKET={bucket} {setup})")  # fmt: skip
+        stale = [x for x in read("bucket-stale.txt").splitlines() if x.strip()]
+        if stale:
+            run = read("run-id.txt") or "<run id>"
+            bad.append(f"{len(stale)} object(s) already under {bucket}/runs/{run}-s*: a stale run with this new run's "
+                       f"id; remove them: gcloud storage rm -r '{bucket}/runs/{run}-s*'")  # fmt: skip
+    return bad, notes
+
+
+def preflight_check(folder: Path) -> int:
+    """``--preflight-check DIR``: print every problem at once, each with its fix; exit 6 when there is one."""
+    bad, notes = preflight_problems(folder)
+    for n in notes:
+        print(f"preflight: check: {n}")
+    for b in bad:
+        print(f"preflight: PROBLEM: {b}", file=sys.stderr)
+    if bad:
+        print(f"preflight: {len(bad)} problem(s); nothing was started (read-only calls only)", file=sys.stderr)
+        return 6
+    print("preflight: the project is ready for this launch (read-only calls only; nothing was started)")
+    return 0
+
+
+def parts_missing(doc: dict[str, Any], parts: Path) -> list[str]:
+    """A8: the plan's part tags with no result in ``parts`` yet (empty: every part is in, the door may go)."""
+    tags = [t for s in doc["plan"]["shards"] for t in s["tags"]]
+    return [t for t in tags if not (parts / f"{t}.json").is_file()]
+
+
+SHARED_PARTS = ("prepare", "install")  # run on every VM that needs them: one row in the merged report
+
+
+def merge_parts(src: Path, dst: Path) -> list[str]:
+    """One VM's part results (``src``/*.json) into the merged ``dst``. A part every VM runs for itself (prepare,
+    install) is one row: failed if any VM's copy failed (a later VM's passed copy never hides an earlier failure).
+    Returns a line per shared part whose copies disagree."""
+    dst.mkdir(parents=True, exist_ok=True)
+    said = []
+    for f in sorted(src.glob("*.json")) if src.is_dir() else []:
+        to = dst / f.name
+        if f.stem in SHARED_PARTS and to.exists():
+            try:
+                old_ok = _passed(json.loads(to.read_text(encoding="utf-8")))
+                new_ok = _passed(json.loads(f.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                old_ok, new_ok = False, True
+            if not old_ok and new_ok:
+                said.append(f"{f.stem}: failed on another VM, passed on {src.parent.name}: kept as failed")
+                continue
+            if old_ok and not new_ok:
+                said.append(f"{f.stem}: failed on {src.parent.name}: merged as failed")
+        shutil.copy2(f, to)
+    return said
+
+
 def print_shards(e: dict[str, Any], p: dict[str, Any]) -> str:
     lines = [f"Split over {p['vms']} VM(s), each one RTX PRO 6000 (g4-standard-48: spot US${PRICE_PER_HOUR}/h, on "
              f"demand US${ON_DEMAND_PRICE_PER_HOUR}/h for a VM with a hospital part, D-468); "
@@ -1669,20 +2442,70 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
     if not lc:
         return []
     seqs = e.get("max_num_seqs")
+    reps = int(e.get("repeats") or 1)
     out = [f"model calls in flight (TB_SCREEN_LLM_CONCURRENCY): {', '.join(map(str, lc))}"
            + (f" (not given: the serving record's max_num_seqs, {seqs})" if e.get("llm_concurrency_default") else "")
            + ("; the hospital part runs once per value (hospital-<lang>@c<N>), on one prepared hospital"
-              if len(lc) > 1 else "")]  # fmt: skip
+              if len(lc) > 1 and reps == 1 else "")
+           + (f"; the hospital part runs {reps} times per value, each its own part (hospital-<lang>@c<N>#r<k>), on "
+              "one prepared hospital" if reps > 1 else "")]  # fmt: skip
     if any(n > 1 for n in lc):
-        factor = max(e.get("llm_speedup") or [1.0])
-        out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, divided by min(N, "
-                   f"{factor:g}) (TB_ESTIMATE_LLM_SPEEDUP): an UPPER BOUND for N > 1 (no rate above 1 in flight is "
-                   f"measured yet; it counts on a gain of {factor:g}x and no more)")  # fmt: skip
+        gains = ", ".join(f"{n}: {g:g}x" for n, g in zip(lc, e.get("llm_speedup") or [], strict=False) if n > 1)
+        if e.get("llm_speedup_override"):
+            out.append(f"  model time at N in flight: one call in flight's rate times min(N, "
+                       f"{e['llm_speedup_override']:g}) (TB_ESTIMATE_LLM_SPEEDUP, the owner's override of the measured "
+                       f"curve; {gains})")  # fmt: skip
+        else:
+            top = max(int(r["n"]) for r in HOSPITAL_MEASURED if r["patients"] == HOSPITAL_CURVE_PATIENTS)
+            out.append(
+                f"  model time at N in flight: the rates measured at that N where a run measured it, else the "
+                f"gain of the curve measured in run {HOSPITAL_RUN_CURVE} ({HOSPITAL_CURVE_PATIENTS:,} patients, "
+                f"ja and zh-TW; main SCREEN {gains}; between points interpolated, above {top} held at {top}'s)"
+            )
+    order = e.get("llm_concurrency_order") or {}
+    if order.get("seed") is not None:
+        every = " every (setting, repeat) pair" if reps > 1 else ""
+        out.append(f"  order:{every} randomised with seed {order['seed']} (given: "
+                   f"{', '.join(map(str, order['given']))}; --keep-order runs them as given)")  # fmt: skip
+    elif len(lc) > 1 or reps > 1:
+        out.append("  order: as given (--keep-order, or no seed)")
+    if order.get("runs") and reps > 1:
+        out.append(f"  run order: {' '.join(order['runs'])}")
+    if len(lc) > 1 or reps > 1:
+        out.append("  the model servers are not restarted between settings or repeats (not in scope): a later run "
+                   "may find a warm prefix cache")  # fmt: skip
+    slots = int(seqs or GATEWAY_SLOTS)
+    queue = [n for n in lc if n > slots]
+    if queue and not seqs:
+        out.append(f"  {', '.join(map(str, queue))} in flight: above the gateway's {slots} slots per endpoint: "
+                   "measures the gateway queue, not a larger batch")  # fmt: skip
     over = [n for n in lc if seqs and n > int(seqs)]
     if over:
         out.append(f"  note: {', '.join(map(str, over))} in flight is above the servers' max_num_seqs ({seqs}) and "
-                   "the gateway's slots: the calls beyond wait in the gateway (it measures the queue, not a larger "
-                   "batch)")  # fmt: skip
+                   "the gateway's slots: the calls beyond wait in the gateway (measures the gateway queue, not a "
+                   "larger batch)")  # fmt: skip
+    return out
+
+
+def hospital_source_lines(e: dict[str, Any]) -> list[str]:
+    """The estimate's lines naming the measured runs a hospital part's figures come from."""
+    runs = e.get("hospital_source") or []
+    if not any(r["tags"] and r["tags"][0].startswith("hospital-") for r in e.get("rows") or []):
+        return []
+    out = [f"hospital parts: from the measured runs {', '.join(runs)} (each part's non-LLM time, its main SCREEN calls "
+           "and its other calls, each scaled with the patients):"]  # fmt: skip
+    for r in HOSPITAL_MEASURED:
+        if r["run"] in runs:
+            out.append(f"  {r['run']} hospital-{r['lang']} {r['patients']:,} patients, {r['n']} in flight: wall "
+                       f"{r['wall']:,.0f} s, {r['calls']:,} calls at {r['cps']}/s, main SCREEN {r['screen_calls']:,} "
+                       f"calls at {r['screen_cps']}/s")  # fmt: skip
+    for r in e["rows"]:
+        if r["tags"] and r["tags"][0].startswith("hospital-") and r.get("split"):
+            x = r["split"]
+            out.append(
+                f"  {r['tags'][0]}: non-LLM {x['non_llm']:,.0f} s + main SCREEN {x['main']:,.0f} s + other "
+                f"calls {x['other']:,.0f} s; the cap's floor {float(r.get('floor_seconds', 0)):,.0f} s"
+            )
     return out
 
 
@@ -1695,7 +2518,9 @@ def print_estimate(e: dict[str, Any]) -> str:
             f"{r['scenario']:<42}{r['patients']:>10,}{r['model_items']:>13,}{r['hours']:>8.2f}{r['usd']:>9.2f}"
         )
     lines += ["", f"{'total':<42}{'':>10}{'':>13}{e['hours']:>8.2f}{e['usd']:>9.2f}", *concurrency_lines(e),
-              f"hard cap (estimate x 1.3, rounded up): {e['cap_hours']} h, at most US${e['cap_usd']}",
+              *hospital_source_lines(e),
+              f"hard cap (estimate x 1.3, rounded up, never below each hospital part's floor): {e['cap_hours']} h, "
+              f"at most US${e['cap_usd']}",
               f"one VM: {'on demand (a hospital part, D-468)' if e.get('provisioning') == 'STANDARD' else 'spot'}, "
               f"US${e['price_per_hour']}/h",
               f"a bounded run: only {' '.join(e['only'])}" if e.get("only") else
@@ -1741,6 +2566,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--profile-workers", type=int, default=16, help="profile bench: parallel calls (vLLM batch)")
     ap.add_argument("--run-id", default=os.environ.get("TB_RUN_ID", ""),
                     help="the run's id: --resume keeps only parts of this run id and HEAD (H-01)")  # fmt: skip
+    ap.add_argument("--repeats", type=int, default=1, metavar="N",
+                    help="each --llm-concurrency setting runs N times, each its own hospital part "
+                    "hospital-<lang>@c<N>#r<k>, every (setting, repeat) in the --order-seed order (B5)")  # fmt: skip
+    ap.add_argument("--order-seed", type=int, default=None,
+                    help="run the --llm-concurrency settings (with --repeats: every setting and repeat) in a random "
+                    "order from this seed (recorded in the plan); not given: the order given")  # fmt: skip
     ap.add_argument("--llm-concurrency", default="", metavar="N[,N...]",
                     help="model calls in flight (TB_SCREEN_LLM_CONCURRENCY) for every part; several values: the "
                     "hospital part once per value, as hospital-<lang>@c<N> (review G-3). Not given with --model "
@@ -1752,6 +2583,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.add_argument("--variant", default="", help="a hospital part's repeat, c<N>: the tag hospital-<lang>@c<N>")
         ap.add_argument("--shots", type=Path, required=True)
         a = ap.parse_args(argv[1:])
+        if a.repeats < 1:
+            ap.error("--repeats: a whole number from 1")
         return run_part(a)
     ap.add_argument("--langs", nargs="+", default=list(LANGS), choices=["ja", "zh-TW", "en"])
     ap.add_argument("--skip", nargs="*", default=[], choices=sorted(set(PARTS) - {"prepare"}))
@@ -1780,7 +2613,56 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report-parts", nargs="*", default=[], help="--report-only: only these parts or tags")
     ap.add_argument("--pending-parts", nargs="*", default=[],
                     help="--report-only: tags whose VM still runs (pending, not 'VM stopped')")  # fmt: skip
+    ap.add_argument("--start-retry", action="store_true",
+                    help="print the retries of a start refused for a stockout, and the seconds between")  # fmt: skip
+    ap.add_argument("--is-stockout", type=Path, help="a refused start's error text: exit 0 when it is a stockout")
+    ap.add_argument("--door-reach-check", action="store_true",
+                    help="exit 2 with the reason when the door cannot be reached from here (A6)")  # fmt: skip
+    ap.add_argument("--preflight-check", type=Path, help="a folder of read-only gcloud answers: every problem (A7)")
+    ap.add_argument("--launch-gate", type=Path, metavar="PLAN",
+                    help="a run's plan.json: refuse (exit 8) a launch that would not be evidence of the shipped "
+                         "product, and record why in the plan (tools/product_evidence.py)")  # fmt: skip
+    ap.add_argument(
+        "--not-product-evidence",
+        action="store_true",
+        help="--launch-gate: launch anyway; the plan and the report mark the run not product evidence",
+    )
+    ap.add_argument("--dry-run", action="store_true", help="--launch-gate: say what a launch would do; change nothing")
+    ap.add_argument("--parts-missing", type=Path, help="a run's plan.json: print its tags with no result in "
+                    "--parts-dir (A8)")  # fmt: skip
+    ap.add_argument("--merge-parts", type=Path, help="one VM's parts/ folder: its results into --parts-dir "
+                    "(prepare / install: failed if any VM's copy failed)")  # fmt: skip
     a = ap.parse_args(argv)
+    if a.repeats < 1:
+        ap.error("--repeats: a whole number from 1")
+    if a.merge_parts:
+        for line in merge_parts(a.merge_parts, (a.parts_dir or [a.dir / "parts"])[0]):
+            print(line)
+        return 0
+    if a.start_retry:
+        try:
+            print(*start_retry(os.environ))
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        return 0
+    if a.is_stockout:
+        return 0 if is_stockout(a.is_stockout.read_text(encoding="utf-8", errors="replace")) else 1
+    if a.door_reach_check:
+        why = door_reach_problem(os.environ)
+        if why:
+            print(why, file=sys.stderr)
+        return 2 if why else 0
+    if a.preflight_check:
+        return preflight_check(a.preflight_check)
+    if a.launch_gate:
+        from tools import product_evidence
+
+        return product_evidence.launch_gate(a.launch_gate, a.not_product_evidence, a.dry_run)
+    if a.parts_missing:
+        doc = json.loads(a.parts_missing.read_text(encoding="utf-8"))
+        print(" ".join(parts_missing(doc, (a.parts_dir or [a.dir / "parts"])[0])))
+        return 0
     try:
         a.lc = parse_concurrency(a.llm_concurrency)
     except ValueError as exc:
@@ -1803,9 +2685,18 @@ def main(argv: list[str] | None = None) -> int:
         parts = tuple(x for x in a.parts.split(",") if x)
         if not parts or set(parts) - {"g1", *BENCH_PARTS}:
             ap.error(f"--parts: g1, {', '.join(BENCH_PARTS)}")
+        given = a.lc
+        # the curve's settings in a recorded random order (audit e); with --repeats every (setting, repeat) pair is
+        # shuffled instead, from the same recorded seed, on the VM as here (hospital_variants)
+        if a.order_seed is not None and len(a.lc) > 1 and a.repeats == 1:
+            a.lc = shuffled(a.lc, a.order_seed)
+        seed = a.order_seed if a.repeats > 1 else None
         try:
-            e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc)
+            e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients, a.lc, a.repeats, seed)
             e["llm_concurrency_default"] = a.lc_default
+            if len(a.lc) > 1 or a.repeats > 1:
+                e["llm_concurrency_order"] = {"seed": a.order_seed, "given": list(given),
+                                              "runs": hospital_variants(a.lc, a.repeats, seed)}  # fmt: skip
             e = restrict(e, a.only)
         except ValueError as exc:
             ap.error(str(exc))

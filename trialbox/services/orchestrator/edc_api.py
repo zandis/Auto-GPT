@@ -16,7 +16,8 @@ here (``edc.service``).
   person confirms and signs (D-435); refused whole with a named ``odm.*`` reason.
 * ``GET /studies/{rs}/edc/copy?record=&format=``: the copy-assist sheet (D-434), signed values only, audited;
   ``POST /studies/{rs}/edc/copy/tick``: "copied" ticks (or their undo, with a reason) on values of the sheet.
-* ``POST /studies/{rs}/edc/send/redcap``; ``GET /studies/{rs}/edc/export/odm``;
+* ``POST /studies/{rs}/edc/send/redcap``; ``POST /studies/{rs}/edc/reconcile`` (NEW-EDC-5: what REDCap now holds
+  differently from what TrialBox sent); ``GET /studies/{rs}/edc/export/odm``;
   ``GET /studies/{rs}/edc/trail/{record}``.
 
 Who acts (D-162, review E-01): every route that changes something, and the export, takes the person from the
@@ -125,6 +126,7 @@ class DecideBody(BaseModel):
     citation: dict[str, str] | None = None
     by: str | None = Field(default=None, pattern=_USER)
     unlock: bool = False  # counts only on a DEV or TEST box without a token, as ``by`` (D-281)
+    mark: str = Field(default="", max_length=64)  # NEW-EDC-4: the "source changed" mark a keep answers
 
 
 class SignBody(BaseModel):
@@ -279,8 +281,10 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         store = get().store
         rows = store.drafts(rid, _rec(record) if record else None, visit or None)
         covered = store.covered_ids(rid, rows)  # D-461: "signed" only while an intact signature covers the value
+        changed = store.redcap_changes(rid, _rec(record) if record else None)  # NEW-EDC-5b (D-686)
         for d in rows:
             d["covered"] = int(d["id"]) in covered
+            d["redcap_now"] = changed.get((str(d["record"]), str(d["visit"]), str(d["item"])))
         if record:  # the signature beside each covered value: who, as what, when, and its meaning (E-12)
             sigs = {int(s["id"]): s for s in store.signatures(rid, _rec(record))}
             for d in rows:
@@ -297,7 +301,8 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         # (with a token); on a DEV or TEST box without one, the console says so in the body, as it names the person
         unlock = reauthenticated(a) if a.verified else body.unlock
         return run(lambda: get().decide(_rs(rs), draft_id, body.action, value=body.value, reason=body.reason,
-                                        citation=body.citation, by=a.name, unlock=unlock))  # fmt: skip
+                                        citation=body.citation, by=a.name, unlock=unlock,
+                                        mark=body.mark))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/sign")
     def sign(rs: str, body: SignBody, request: Request) -> dict[str, Any]:
@@ -343,6 +348,16 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
     def send(rs: str, body: SendBody, request: Request) -> dict[str, Any]:
         a = who(request, "send", body.by, rs)
         return run(lambda: get().send_redcap(_rs(rs), a.name, body.record.upper() if body.record else None))
+
+    @r.post("/studies/{rs}/edc/reconcile")
+    def reconcile(rs: str, body: SendBody, request: Request) -> dict[str, Any]:
+        """NEW-EDC-5 (D-695): the values TrialBox sent that REDCap now holds differently, both values each."""
+        a = who(request, "send", body.by, rs)
+        return run(
+            lambda: {
+                "changed_in_redcap": get().reconcile(_rs(rs), a.name, body.record.upper() if body.record else None)
+            }
+        )
 
     @r.get("/studies/{rs}/edc/export/odm", dependencies=[PATIENT_READ])
     def export_odm(rs: str, request: Request, by: str | None = None) -> dict[str, Any]:

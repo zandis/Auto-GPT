@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import http.client
 import json
+import socket
 import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
-from http.server import ThreadingHTTPServer
 from typing import Any
 
 import pytest
@@ -24,9 +25,9 @@ JUDGE_INPUT = {
 }
 
 
-def _serve(argv: list[str], env: dict[str, str] | None = None) -> tuple[ThreadingHTTPServer, str]:
+def _serve(argv: list[str], env: dict[str, str] | None = None) -> tuple[vs.StandinServer, str]:
     s, _, _ = vs.build(argv, env or {})
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), vs.make_handler(s))
+    srv = vs.serve(s)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
@@ -112,7 +113,7 @@ def test_stats_count_model_calls_only(base: str) -> None:
 
 def test_health_during_loading_is_not_counted() -> None:
     s, _, _ = vs.build([f"--served-model-name={NAME}", "--api-key", KEY, "--load-delay", "60"], {})
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), vs.make_handler(s))
+    srv = vs.serve(s)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}"
     try:
@@ -167,3 +168,52 @@ def test_bad_or_huge_content_length_is_refused_before_reading(base: str) -> None
         c.endheaders()
         assert c.getresponse().status == want
         c.close()
+
+
+def test_a_burst_waits_in_the_listen_queue_while_the_accept_loop_is_busy() -> None:
+    """Train 16 and PR #613: G-4's 16 calls at once reached a stand-in whose accept loop was starved (a loaded runner,
+    the GIL shared with the 16 calling threads); socketserver's backlog of 5 overflowed, the kernel answered with SYN
+    cookies and reset one connection before the stand-in read it (127 of 128 answered). Here the accept loop is not
+    running at all while a burst connects and sends: every handshake must complete in the kernel's queue (with a
+    backlog of 5 the seventh connect times out: its SYN is dropped), and every call is answered once the loop runs."""
+    s, _, _ = vs.build([f"--served-model-name={NAME}", "--api-key", KEY], {})
+    srv = vs.serve(s)
+    addr = ("127.0.0.1", srv.server_address[1])
+    n = 64  # G-4's whole prompt set at once (4 rounds of the judge's 16 slots): more than any burst it sends
+    body = json.dumps(_chat(NAME)).encode()
+    head = (f"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {KEY}\r\n"
+            f"X-TB-Prompt-Id: judge\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\n"
+            "Connection: close\r\n\r\n").encode()  # fmt: skip
+    socks: list[socket.socket] = []
+    loop = threading.Thread(target=srv.serve_forever, daemon=True)
+    try:
+        for _ in range(n):  # the accept loop not started: the kernel alone completes (or drops) each handshake
+            c = socket.create_connection(addr, timeout=2.0)  # a dropped SYN is retried after 1 s, 3 s
+            socks.append(c)
+            c.sendall(head + body)
+        loop.start()
+        statuses = []
+        for c in socks:
+            c.settimeout(30.0)
+            r = http.client.HTTPResponse(c)
+            r.begin()
+            statuses.append(r.status)
+            r.read()
+        assert statuses == [200] * n
+        assert s.stats()["counts"] == {"200": n}
+    finally:
+        for c in socks:
+            c.close()
+        if loop.is_alive():
+            srv.shutdown()  # only a running loop can be shut down (it waits for the loop to say it stopped)
+        srv.server_close()
+
+
+def test_a_keyed_tokenize_is_counted_apart_from_the_open_calls(base: str) -> None:
+    """D-739: model-guard forwards /tokenize with the key; the rehearsal's "nothing reached an open route" must not
+    count that call. Without the key it is still an open call, as vLLM answers it."""
+    assert _call(f"{base}/tokenize", {"prompt": "abc"})[0] == 200
+    assert _call(f"{base}/tokenize", {"prompt": "abc"}, key=None)[0] == 200
+    assert _call(f"{base}/tokenize", {"prompt": "abc"}, key="wrong")[0] == 200  # a wrong key is no key, as vLLM
+    status, doc = _call(f"{base}/standin/stats")
+    assert status == 200 and doc["tokenize"] == {"200": 1} and doc["open"] == {"200": 2}
