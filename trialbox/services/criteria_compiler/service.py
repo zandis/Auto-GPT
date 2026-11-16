@@ -11,12 +11,14 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import httpx
 import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
 from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
-from tb_common.fhir import FhirEvaluator, library_resource
+from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource
+from tb_common.http import ServiceError
 from tb_common.llm import LlmClient, LlmError
 from tb_common.objstore import ObjectStore
 from tb_common.phi_guard import PhiScan, scan, variables_text
@@ -342,10 +344,21 @@ class Compiler:
             library_resource("TB_Common", "1.0.0", art.cql["TB_Common"], art.elm.get("TB_Common")),
             library_resource(art.library, art.library_version, art.cql[art.library], art.elm.get(art.library)),
         ]
-        self.d.fhir.load(libs, valuesets.values())
-        return self.enforce(
-            run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold), active
-        )
+        try:
+            self.d.fhir.load(libs, valuesets.values())
+            report = run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold)
+        except (FhirEvalError, ServiceError, httpx.HTTPError) as exc:
+            # D-910: the FHIR server refusing a ruleset's CQL or ValueSets, or the lake its SQL, is a reason the
+            # equivalence check could not run, said by type and status (never the server's text: it can quote a
+            # patient's id), not an HTTP 500
+            status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            where = "the FHIR server" if isinstance(exc, FhirEvalError) else "the data lake"
+            raise CompileFailed(
+                "equivalence",
+                f"the comparison of the compiled CQL and SQL could not run: {where} refused it "
+                f"({type(exc).__name__}{f', HTTP {status}' if status else ''}); check the criteria flagged for review",
+            ) from exc
+        return self.enforce(report, active)
 
     @staticmethod
     def enforce(tests: EquivalenceReport, criteria: list[CriterionIR]) -> EquivalenceReport:
