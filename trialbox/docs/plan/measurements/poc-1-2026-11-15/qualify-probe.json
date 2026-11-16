@@ -1,0 +1,82 @@
+{
+ "run": "box-20261115T150421Z-f2288a501 (phase B)",
+ "timebox_s": 300,
+ "items": "full documented sizes",
+ "exit": "143 (ended by the time box)",
+ "gates": {
+  "pin": "passed",
+  "serving_record": "failed (no git HEAD or signed tree, no nvidia-smi in the image; red posted, lane D)",
+  "licence": "passed",
+  "schema": "passed",
+  "longest_prompt": "passed",
+  "log_marker": "passed",
+  "canary": "passed"
+ },
+ "checkpoints": [
+  {
+   "elapsed_s": 61,
+   "calls": 20,
+   "calls_per_min": 19.6,
+   "latency_s": {
+    "median": 2.39,
+    "p95": 6.05,
+    "max": 7.14
+   },
+   "queue_s": {
+    "median": 0.0,
+    "max": 0.0
+   },
+   "calls_over_60s": 0,
+   "refusals": {}
+  },
+  {
+   "elapsed_s": 122,
+   "calls": 47,
+   "calls_per_min": 23.0,
+   "latency_s": {
+    "median": 2.21,
+    "p95": 5.29,
+    "max": 7.14
+   },
+   "queue_s": {
+    "median": 0.0,
+    "max": 0.0
+   },
+   "calls_over_60s": 0,
+   "refusals": {}
+  },
+  {
+   "elapsed_s": 183,
+   "calls": 75,
+   "calls_per_min": 24.5,
+   "latency_s": {
+    "median": 2.26,
+    "p95": 3.59,
+    "max": 7.14
+   },
+   "queue_s": {
+    "median": 0.0,
+    "max": 0.0
+   },
+   "calls_over_60s": 0,
+   "refusals": {}
+  },
+  {
+   "elapsed_s": 245,
+   "calls": 110,
+   "calls_per_min": 26.9,
+   "latency_s": {
+    "median": 2.0,
+    "p95": 3.44,
+    "max": 7.14
+   },
+   "queue_s": {
+    "median": 0.0,
+    "max": 0.0
+   },
+   "calls_over_60s": 0,
+   "refusals": {}
+  }
+ ],
+ "why_not_run_in_full": "promotion is for a hospital install, and it cannot pass in this phase without the TREC 2021/22 evidence and a signed release tree"
+}

@@ -43,8 +43,16 @@ restic does the incremental backup, on these conditions:
     `go get` adds their sums under GOSUMDB, `go mod verify`, then the build runs `-mod=readonly`). No advisory is
     waived. A bump is dropped once a restic release carries that version. The integrator confirmed this on #639.
     - The six bumps: `github.com/go-jose/go-jose/v4` v4.1.4 to v4.1.6; `github.com/klauspost/compress` v1.18.6 to
-      v1.20.3; `golang.org/x/crypto` v0.52.0 to v0.58.0; `golang.org/x/net` v0.55.0 to v0.62.0; `golang.org/x/text`
+      v1.20.3; `golang.org/x/crypto` v0.52.0 to v0.59.0; `golang.org/x/net` v0.55.0 to v0.62.0; `golang.org/x/text`
       v0.37.0 to v0.43.0; `google.golang.org/grpc` v1.81.1 to v1.85.0.
+    - **D-1039 (the integrator, 2026-11-16).** On the bumped build one advisory stayed: GO-2026-5932, the package
+      `golang.org/x/crypto/openpgp` (unmaintained, unsafe by design), fixed after v0.58.0, the version on restic's main
+      branch. `x/crypto` goes to v0.59.0, the first tag with the fix: the one bump past upstream, because upstream has
+      not taken the fix yet. restic compiles `openpgp` only into its self-update command (`//go:build selfupdate`),
+      which this build leaves out; the scanner flags the module from the binary's module list. The ruling's
+      conditions: the version pinned (an exact version, its sum under GOSUMDB, `go mod verify`), the licence count
+      still 86, and restic's own test suite (`go test -short ./...`) run in the build on these modules before the
+      binary is kept; the restore rehearsal on the built binary is R4.
     - The rule is checked: `deploy/docker/restic_bumps.sh` runs in the build before `go get`, against the release's
       own `go.mod`, and fails on a bump that names a module the release does not require, that is not an exact
       version, or that is not newer than the version the release carries. A restic upgrade that already carries a
