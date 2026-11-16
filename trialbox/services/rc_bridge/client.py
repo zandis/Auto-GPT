@@ -17,7 +17,7 @@ from tb_common.http import EgressRefused
 
 # REDCap majors the connector accepts (FR-RC-14). Tested only against rc_sim so far: no real REDCap instance yet;
 # each site's version is recorded at go-live (RUNBOOK §6, DEP-026, D-393)
-SUPPORTED_MAJORS = (14, 15, 16, 17)  # CGRD-B2 (D-818): 17 exercised on a real instance (the browser run of R1-R9)
+SUPPORTED_MAJORS = (13, 14, 15, 16, 17)  # D-818: 17 on a real instance; RC13-F (D-852): 13 (13.7.23, R1-R9 and ICD-04)
 TOKEN_RE = re.compile(r"^[0-9A-F]{32}$")
 INPROC_PREFIX = "inproc://"  # demo and test only: a URL served by an in-process ASGI app (the simulator)
 _LOCAL: dict[str, Callable[[], httpx.Client]] = {}
