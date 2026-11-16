@@ -620,6 +620,24 @@ def screen_with_cascade(
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
         registry=lambda: dctx.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
     )
+    # D-908 (D-519): the judged-pair store below the job's model clients; its end-of-job step (the opt-outs of the
+    # run, the snapshots' retention) runs however the job ends
+    from orchestrator.judged_store import JudgedPairs
+
+    pairs = getattr(getattr(note_judge, "llm", None), "pairs", None)
+    try:
+        return _screen(ctx, rs, cfg, judge, note_judge, embedder, source, snapshot, pids, judging, confidence_floor,
+                       may_block, max_pairs, pairs)  # fmt: skip
+    finally:
+        if isinstance(pairs, JudgedPairs):
+            pairs.close(run_date)
+
+
+def _screen(ctx: Ctx, rs: Ruleset, cfg: CascadeConfig, judge: Any, note_judge: Any, embedder: Any, source: Any,
+            snapshot: str, pids: list[str], judging: dict[str, Any], confidence_floor: float, may_block: bool,
+            max_pairs: int | None, pairs: Any) -> CascadeScreen:  # fmt: skip
+    from orchestrator.judged_store import JudgedPairs
+
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
             judge,
@@ -657,14 +675,8 @@ def screen_with_cascade(
         "hit": res.metrics.unprocessed > 0,
         "stopped_by": res.metrics.budget_stopped or None,
     }
-    # D-908 (D-519): how many model calls the judged-pair store answered and how many were asked live; a patient who
-    # opted out while the job ran has no row left in it
-    from orchestrator.judged_store import JudgedPairs
-
-    pairs = getattr(getattr(note_judge, "llm", None), "pairs", None)
     if isinstance(pairs, JudgedPairs):
-        pairs.close(dctx.register_now)
-        out["judged_store"] = pairs.report()
+        out["judged_store"] = pairs.report()  # D-908 (D-519): model calls answered from the store, and asked live
     sources = None
     if source is not None:
         sources = {pid: dict(t.s2b_source) for pid, t in sorted(res.traces.items()) if t.s2b_source is not None}
