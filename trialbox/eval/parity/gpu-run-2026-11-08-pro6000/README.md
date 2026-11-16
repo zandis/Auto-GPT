@@ -1,5 +1,7 @@
 # RTX PRO 6000 profile run, 2026-11-08 (TB-PLAN-04 step 1, D-124)
 
+> **Not the product path (D-918).** This run sent the benchmark prompt straight to the model servers (`tools.trec_ct_eval` / `tools.trialgpt_compare`), served by a one-boot script, on a commit before trains 15–45. It is not evidence for a shipped box: the validation figures are defined in `docs/VALIDATION.md` §3.
+
 `tb-gpu-sim` (g4-standard-48 spot, one RTX PRO 6000 Blackwell Server Edition, 97,887 MiB), uncapped, started with
 `deploy/gcp/gpu-pro6000-run.sh`: judge Gemma 4 26B-A4B NVFP4 and verifier Qwen3.5-9B AWQ, both resident, 32k
 context, 16 sequences, 0.40 + 0.20 of the card, vLLM 0.32.0. VM up 13:32–14:05 UTC (about US$1.50), then stopped
