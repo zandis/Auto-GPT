@@ -62,8 +62,9 @@ MAP: list[dict[str, Any]] = [
     {"item": "comments"},
 ]  # fmt: skip
 TARGET = {"token_ref": "edc", "key_field": "tb_screening_no", "id_field": "record_id"}
+# EDC-023 (D-859): prefill on also names the protocol's or the data-management plan's section on the data flow
 ACK = {"kind": "sponsor_letter", "reference": "SPN-2026-041", "ack_date": "2026-11-01", "reentry_pages": 30,
-       "reentry_accuracy": 0.985}  # fmt: skip
+       "reentry_accuracy": 0.985, "dataflow_ref": "DMP v1.0 §5 (data flow)"}  # fmt: skip
 
 
 def dictionary_csv() -> str:

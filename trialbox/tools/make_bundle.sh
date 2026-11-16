@@ -6,6 +6,7 @@
 #   tools/make_bundle.sh --key keys/vendor_ed25519.key --id 2026.11-1 --release-seq 3 --out dist/trialbox-2026.11-1.tar \
 #       --gates build/supply-chain/gates.json [--sbom-dir dist/sbom] [--models deploy/models] [--rulesets dist/rulesets] \
 #       [--refdata dist/trialbox-refdata-<date>.tar ...] [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
+#       [--job-image trialbox-backup:1.0.0]   (an image the box runs as a one-off job: release.json `runs: job`, D-968)
 #       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
 #       [--rehearsal]                (a bundle for a rehearsal box: release.json says so; a site box refuses it, D-726)
 #
@@ -16,7 +17,8 @@
 # every file with its sha256) and the release's images.lock; the SBOMs, NOTICE and CHANGELOG.md ride inside the signed
 # bundle, and `tools/release.py check` re-reads the signed bundle before it is handed over.
 # Default images: every image the box's compose file runs (profiles stub and gpu): ours (trialbox-py, trialbox-jvm,
-# trialbox-postgres) and the third-party ones (so the site needs no registry access). Never the test mail servers of
+# trialbox-postgres) and the third-party ones (so the site needs no registry access), and the nightly backup's image
+# (trialbox-backup, D-968), a job image: release.json marks each image `runs: service` or `runs: job`. Never the test mail servers of
 # docker-compose.test.yml (OPS-017). --no-third-party keeps ours only, for a site that mirrors the others itself.
 # --refdata adds a reference data pack (tools/refdata_fetch.py build; payload kind refdata, D-140), which install.sh
 # loads once the box runs.
@@ -27,7 +29,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""; REHEARSAL=()
-IMAGES=(); REFDATA=()
+IMAGES=(); REFDATA=(); JOBS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --key) KEY="$2"; shift ;;
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
     --rulesets) RULESETS="$2"; shift ;;
     --refdata) REFDATA+=("$2"); shift ;;
     --image) IMAGES+=("$2"); shift ;;
+    --job-image) IMAGES+=("$2"); JOBS+=(--job "$2"); shift ;;  # D-968: an image the box runs as a one-off job
     --no-third-party) THIRD=0 ;;
     --gates) GATES="$2"; shift ;;
     --sbom-dir) SBOM_DIR="$2"; shift ;;
@@ -115,6 +118,9 @@ if [ ${#IMAGES[@]} -eq 0 ]; then
   case " ${IMAGES[*]-} " in *" trialbox-py:"*) ;; *)
     echo "make_bundle: compose listed no trialbox-py image (docker compose config):" >&2
     cat "$STAGE/compose.err" >&2; exit 2 ;; esac
+  # PERF-010 (D-968): the nightly backup's image is no compose service (the nightly runs it), so it is named here
+  # (release.json marks it a job: no box container runs it between nights)
+  case " ${IMAGES[*]} " in *" trialbox-backup:1.0.0 "*) ;; *) IMAGES+=("trialbox-backup:1.0.0"); JOBS+=(--job "trialbox-backup:1.0.0") ;; esac
   if [ "$THIRD" = 1 ]; then
     n3=0; for img in "${IMAGES[@]}"; do case "$img" in trialbox-*) ;; *) n3=$((n3 + 1)) ;; esac; done
     [ "$n3" -gt 0 ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
@@ -209,7 +215,7 @@ else
 fi
 echo "==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$ID" \
-  --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" ${REHEARSAL[@]+"${REHEARSAL[@]}"} "${SAVED[@]}" "${ITEMS[@]}") \
+  --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" ${REHEARSAL[@]+"${REHEARSAL[@]}"} ${JOBS[@]+"${JOBS[@]}"} "${SAVED[@]}" "${ITEMS[@]}") \
   || { echo "make_bundle: no release record: the bundle is not built" >&2; exit 1; }
 while IFS= read -r it; do [ -n "$it" ] && ITEMS+=("$it"); done < "$STAGE/meta/items.txt"
 mkdir -p "$(dirname "$OUT")"

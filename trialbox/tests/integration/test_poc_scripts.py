@@ -231,7 +231,8 @@ def seed_registry(s: Site) -> None:
                                            "token": made["token"]})  # fmt: skip
     assert r.status_code == 200
     sw = {"csrf": csrf(pi.get(f"/studies/{cd.REGISTRY}/edc").text), "on": "1", "kind": "sponsor_letter",
-          "reference": "IIT-GOUTCOH-001", "ack_date": visit.isoformat(), "reentry_pages": "30",
+          "reference": "IIT-GOUTCOH-001", "ack_date": visit.isoformat(), "dataflow_ref": "DMP §5",
+          "reentry_pages": "30",
           "reentry_accuracy": "98.6"}  # fmt: skip
     assert pi.post(f"/studies/{cd.REGISTRY}/edc/switch", data=sw, follow_redirects=False).status_code == 303
     mp = crc.get(f"/studies/{cd.REGISTRY}/edc/map")

@@ -117,11 +117,11 @@ preconditions() {
 
 images() {
   if [ "${TB_REHEARSE_SKIP_BUILD:-0}" = 1 ]; then
-    docker image inspect trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 >/dev/null || return 1
-    echo "ok: TB_REHEARSE_SKIP_BUILD=1: using the built trialbox-py, trialbox-jvm and trialbox-postgres"
+    docker image inspect trialbox-py:1.0.0 trialbox-backup:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 >/dev/null || return 1
+    echo "ok: TB_REHEARSE_SKIP_BUILD=1: using the built trialbox-py, trialbox-backup, trialbox-jvm and trialbox-postgres"
   else
     make images PY="$PY" || return 1
-    echo "ok: trialbox-py, trialbox-jvm and trialbox-postgres built from this checkout"
+    echo "ok: trialbox-py, trialbox-backup, trialbox-jvm and trialbox-postgres built from this checkout"
   fi
 }
 
@@ -138,9 +138,9 @@ media() (  # a subshell: set -e stops the step, not the run
     printf '{"architectures": ["TrialBoxRehearsalPlaceholder"], "name": "%s"}\n' "$d" > "$W/vendor/models/$d/config.json"
     printf 'box-install rehearsal placeholder for %s: not a model\n' "$d" > "$W/vendor/models/$d/model.safetensors"
   done
-  # the images a box runs without a GPU: the three TrialBox images (the database is built here since D-204) and the
-  # third-party ones of the base compose file
-  local imgs=(trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1) args=() i
+  # the images a box runs without a GPU: the TrialBox images (the database is built here since D-204; the nightly
+  # backup's since D-968) and the third-party ones of the base compose file
+  local imgs=(trialbox-py:1.0.0 trialbox-backup:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1) args=() i
   # compose renders nothing without an env file, and since D-315 nothing without TB_TZ: the rehearsal site's zone
   mkdir -p "$W/vendor/cfg"
   printf 'TB_TZ=%s\n' "$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)" > "$W/vendor/cfg/.env"
@@ -153,14 +153,15 @@ media() (  # a subshell: set -e stops the step, not the run
     < <(docker compose --project-directory "$W/vendor/cfg" -f deploy/docker-compose.yml -f deploy/docker-compose.secrets.yml \
           -f deploy/docker-compose.rtxpro6000.yml -f deploy/docker-compose.identity.yml \
           -f tools/rehearse_box/standins.yml config --images | sort -u)
-  [ ${#imgs[@]} -ge 4 ] || { echo "compose listed no third-party image"; return 1; }
+  [ ${#imgs[@]} -ge 5 ] || { echo "compose listed no third-party image"; return 1; }
   : > "$W/vendor/bundle-images.txt"
   for i in "${imgs[@]}"; do
     # `set -e` does not act here (the step runs inside an `if`): a failed pull must stop the step by name
     docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i" >/dev/null \
       || { echo "cannot pull $i (the registry refused or is not reachable): pull it once, then run again"; return 1; }
     echo "$i $(docker image inspect --format '{{.Id}}' "$i")" >> "$W/vendor/bundle-images.txt"
-    args+=(--image "$i")
+    # D-968: the nightly backup's image runs as a one-off job, as make_bundle's own default says (release.json)
+    case "$i" in trialbox-backup:*) args+=(--job-image "$i") ;; *) args+=(--image "$i") ;; esac
   done
   # no bundle without its checks (T-110b, D-340): the release gates over exactly these images, then the bundle
   make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$W/vendor/gates" SC_IMAGES="${imgs[*]}" || { echo "the release gates did not pass"; return 1; }

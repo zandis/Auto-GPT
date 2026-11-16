@@ -239,6 +239,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "edc.map": ("EDC mapping changed", "EDC マッピングの変更", "EDC 對應變更"),
     "edc.odm_import": ("ODM file imported", "ODM ファイルの取込", "匯入 ODM 檔"),
     "edc.preview": ("EDC preview", "EDC プレビュー", "EDC 預覽"),
+    "edc.direct_source": ("EDC fields recorded directly in the EDC", "EDC に直接記録する項目", "直接記錄於 EDC 的欄位"),
     "edc.reentry": ("EDC re-entry", "EDC 再入力", "EDC 重新輸入"),
     "edc.refused": ("EDC call refused", "EDC 呼出の拒否", "拒絕 EDC 呼叫"),
     "edc.sent": ("EDC values sent", "EDC 値の送信", "送出 EDC 數值"),

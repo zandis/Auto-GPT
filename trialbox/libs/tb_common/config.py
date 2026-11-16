@@ -591,6 +591,9 @@ DECLARED: dict[str, Declared] = {
     "TB_EXPORT_MAX_PER_HOUR_PER_SERVICE": Declared(
         "int", "60", "screening-log exports per calling service per hour, every name together (D-438)"
     ),
+    "TB_EXTRACT_RATE_PER_S": Declared(
+        "float", "40", "compiler: tokens a second the model writes, sizing an extraction part to the timeout (D-981)"
+    ),
     "TB_EXTRA_CA_FILE": Declared("path", "", "extra CA bundle the services trust"),
     "TB_FEED_DROP_OVERRIDE": Declared("str", "", "allow one feed load that drops too many rows"),
     "TB_FEED_MAX_DROP_PCT": Declared("float", "", "largest row drop a feed load may make"),
