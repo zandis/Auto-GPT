@@ -103,6 +103,59 @@ def is_diagnosis_name(name: str) -> bool:
     return bool(_DIAGNOSIS.search(name)) and not _OPERATION.search(name)
 
 
+def _convert_logic(
+    node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr", refiled: frozenset[str] = frozenset()
+) -> dict[str, Any]:
+    if "op" in node and "args" in node:
+        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr, refiled) for a in node["args"]]}
+    atom = {k: v for k, v in node.items() if k != "concept" and v is not None}
+    if atom.get("domain") == "procedure" and str(node.get("concept") or "").strip().lower() in refiled:
+        atom["domain"] = "condition"
+    if atom.get("derived") == "egfr" and egfr != "egfr":  # D-149: the site's equation, named in the ruleset
+        atom["derived"] = egfr
+    if node.get("domain") == "demographic":
+        atom["valueset"] = "NONE"
+    elif atom.get("derived"):
+        atom["valueset"] = f"VS_{str(atom['derived']).upper()}_COMPONENTS"
+    else:
+        concept = node.get("concept")
+        if not concept:
+            raise CompileError(f"{node.get('domain')} atom has no concept")
+        atom["valueset"] = concept_vs.get(concept.strip().lower()) or vs_name_for(concept)
+    return atom
+
+
+def _question(text: str) -> str:
+    return f"Does the patient meet this criterion: {text.strip()}?"
+
+
+def _for_a_person(cid: str, ruleset: str, kind_: str, text: str, source_ref: Any) -> CriterionIR:
+    """A criterion the compiler could not build, kept as a person's check (D-910): its line, its kind, no logic."""
+    return CriterionIR.model_validate(
+        {"id": cid, "ruleset": ruleset, "kind": kind_, "class": "human", "text": text or cid,
+         "human_question": _question(text or cid), "logic": {"domain": "demographic", "valueset": "NONE"},
+         "review": {"status": "draft"}, **({"source_ref": source_ref} if source_ref else {})}
+    )  # fmt: skip
+
+
+def _positive_logic(logic: Any) -> Any:
+    """The positive form of a wholly negated logic (an atom with quantifier ``none``, or ``not(x)``); None otherwise."""
+    if isinstance(logic, BoolExpr):
+        return logic.args[0] if logic.op == "not" and len(logic.args) == 1 else None
+    if isinstance(logic, Atom) and logic.quantifier == "none":
+        return logic.model_copy(update={"quantifier": "any"})
+    return None
+
+
+def derived_valueset(ruleset: str, derived: str, version: str, term: Terminology) -> dict[str, Any]:
+    concepts = []
+    for comp in COMPONENTS[derived]:
+        system, code = CODES[comp]
+        hit = term.concept(system, code)
+        concepts.append(hit or Concept(system, code, comp))
+    return valueset(ruleset, f"VS_{derived.upper()}_COMPONENTS", f"{derived.upper()} components", concepts, version)
+
+
 # D-948 (F4 and G10 of the P1b reviews, #639): sigir's 1,032 extracted criteria carried fields their atoms cannot use,
 # which the compile ignored or refused: on demographic atoms 111 quantifiers (every "none" an age or sex line such as
 # "Aged 40 years or older"), 134 values (64 "Aged N years or older" with the number in ``value``, not ``age``),
@@ -193,59 +246,6 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
     return walk(node), sorted(set(flags))
 
 
-def _convert_logic(
-    node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr", refiled: frozenset[str] = frozenset()
-) -> dict[str, Any]:
-    if "op" in node and "args" in node:
-        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr, refiled) for a in node["args"]]}
-    atom = {k: v for k, v in node.items() if k != "concept" and v is not None}
-    if atom.get("domain") == "procedure" and str(node.get("concept") or "").strip().lower() in refiled:
-        atom["domain"] = "condition"
-    if atom.get("derived") == "egfr" and egfr != "egfr":  # D-149: the site's equation, named in the ruleset
-        atom["derived"] = egfr
-    if node.get("domain") == "demographic":
-        atom["valueset"] = "NONE"
-    elif atom.get("derived"):
-        atom["valueset"] = f"VS_{str(atom['derived']).upper()}_COMPONENTS"
-    else:
-        concept = node.get("concept")
-        if not concept:
-            raise CompileError(f"{node.get('domain')} atom has no concept")
-        atom["valueset"] = concept_vs.get(concept.strip().lower()) or vs_name_for(concept)
-    return atom
-
-
-def _question(text: str) -> str:
-    return f"Does the patient meet this criterion: {text.strip()}?"
-
-
-def _for_a_person(cid: str, ruleset: str, kind_: str, text: str, source_ref: Any) -> CriterionIR:
-    """A criterion the compiler could not build, kept as a person's check (D-910): its line, its kind, no logic."""
-    return CriterionIR.model_validate(
-        {"id": cid, "ruleset": ruleset, "kind": kind_, "class": "human", "text": text or cid,
-         "human_question": _question(text or cid), "logic": {"domain": "demographic", "valueset": "NONE"},
-         "review": {"status": "draft"}, **({"source_ref": source_ref} if source_ref else {})}
-    )  # fmt: skip
-
-
-def _positive_logic(logic: Any) -> Any:
-    """The positive form of a wholly negated logic (an atom with quantifier ``none``, or ``not(x)``); None otherwise."""
-    if isinstance(logic, BoolExpr):
-        return logic.args[0] if logic.op == "not" and len(logic.args) == 1 else None
-    if isinstance(logic, Atom) and logic.quantifier == "none":
-        return logic.model_copy(update={"quantifier": "any"})
-    return None
-
-
-def derived_valueset(ruleset: str, derived: str, version: str, term: Terminology) -> dict[str, Any]:
-    concepts = []
-    for comp in COMPONENTS[derived]:
-        system, code = CODES[comp]
-        hit = term.concept(system, code)
-        concepts.append(hit or Concept(system, code, comp))
-    return valueset(ruleset, f"VS_{derived.upper()}_COMPONENTS", f"{derived.upper()} components", concepts, version)
-
-
 def postprocess(
     ruleset: str,
     extracted: LlmExtractOutput,
@@ -318,10 +318,6 @@ def postprocess(
             warnings.append(f"{cid}: not a valid criterion ({where}); kept for a person to check")
             ir = _for_a_person(cid, ruleset, ec.kind, str(raw.get("text") or ""), raw.get("source_ref"))
             flags = [*flags, "ir_invalid"]
-        moved = sorted({str(c.name) for c in ec.concept_candidates if c.name.strip().lower() in refiled})
-        if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
-            flags.append("domain_refiled")
-            warnings.append(f"{cid}: {', '.join(moved)} filed as a procedure; read as a condition (check it)")
         if stray:
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
@@ -333,6 +329,10 @@ def postprocess(
                 ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
                                            "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
                 warnings.append(f"{cid}: its logic's meaning is unsure; kept for a person to check")
+        moved = sorted({str(c.name) for c in ec.concept_candidates if c.name.strip().lower() in refiled})
+        if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
+            flags.append("domain_refiled")
+            warnings.append(f"{cid}: {', '.join(moved)} filed as a procedure; read as a condition (check it)")
         # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
         # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
         # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
