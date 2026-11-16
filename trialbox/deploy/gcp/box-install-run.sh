@@ -500,7 +500,8 @@ QTIMEBOX=$(md tb-qualify-timebox || true)          # the owner's probe: qualify 
 ACC_PROTOCOLS=$(md tb-acc-protocols || true)     # "set:RS1,RS2 ...": only these protocols of a set (a sized subset)
 SITE_ENV=$(md tb-site-env || true)
 ACC_RS_TAG=$(md tb-acc-rs-tag || true)
-SKIP_STEPS=$(md tb-skip || true)                 # steps left out of this launch (e.g. 08-qualify), each said           # a second run on one box: its rulesets' ids carry this tag (F29)               # "TB_MEM_EMBED=16g ...": the site's own limits in deploy/.env (D-360)
+SKIP_STEPS=$(md tb-skip || true)
+ACC_STREAMS=$(md tb-acc-streams || true)         # "set:n ...": protocols of a set in flight at once (owner, 2026-11-16)                 # steps left out of this launch (e.g. 08-qualify), each said           # a second run on one box: its rulesets' ids carry this tag (F29)               # "TB_MEM_EMBED=16g ...": the site's own limits in deploy/.env (D-360)
 ACC_DEADLINE=$(md tb-acc-deadline || true)         # the owner's probe: each set's time budget, seconds (else the plan's)   # "set:size:high_seconds ..." from the plan (tools/box_run.py metadata)
 PROBE=$(md tb-probe || true)
 DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
@@ -670,6 +671,18 @@ d_weights()  { img_tool pin_model --verify-all /d/models --out "$SITE_PINS"; }
 # (the weight folders under the box root, the servers' json-file logs, the audit volume) at the same paths. The
 # gateway at its compose name on trialbox-net, with the operator's token (tools/trialbox/svc_secrets.py: the
 # administrator's token on the host); the qualify cache (medtxt) in $TB/qualify-cache. $1 the record, rest evidence.
+# lane D's settings for qualify outside a signed release (#649, D-881, D-889): the poc host profile, the code named
+# by the box image's digest, and the host's GPU facts read here (the box image has no GPU)
+host_gpu_json() {
+  nvidia-smi --query-gpu=driver_version,name --format=csv,noheader 2>/dev/null | head -n 1 | "$PY" -c '
+import json, re, subprocess, sys
+d, n = [x.strip() for x in (sys.stdin.read() + ",").split(",", 1)]
+try:
+    cuda = re.search(r"CUDA Version: *([0-9.]+)", subprocess.run(["nvidia-smi"], capture_output=True, text=True).stdout).group(1)
+except Exception:
+    cuda = "see nvidia-smi"
+print(json.dumps({"driver": d, "cuda": cuda, "gpu": n.rstrip(",")}))'
+}
 d_qualify() {
   local out=$1 tok=() m=() p; shift
   for p in /var/run/docker.sock /var/lib/docker/containers /var/lib/docker/volumes "$BOXROOT" "$MODELS"; do
@@ -693,6 +706,8 @@ d_qualify() {
   IMG_NET=trialbox-net img_tool --name tb-qualify ${m[@]+"${m[@]}"} ${tok[@]+"${tok[@]}"} -v "$TB/qualify-cache:/app/.cache" -v "$TB/qualify-out:/q" \
     -e "TB_COMPOSE=docker compose --project-directory $BOXROOT/deploy" -e TB_DOCKER=docker \
     -e "TB_ENV=$(envget TB_ENV)" \
+    -e TB_HOST_PROFILE=poc -e "TB_CODE_IMAGE=$(docker image inspect -f '{{.Id}}' "$(img_py)" 2>/dev/null)" \
+    -e "TB_HOST_GPU=$(host_gpu_json)" \
     trialbox eval qualify --box --profile "$PROFILE" --gateway-url http://gateway:8020/v1 --operator lane-g-box-run \
     --out /q "$@"
   local rc=$? rec
@@ -1181,7 +1196,38 @@ d_models_bind() {
   mountpoint -q "$BOXROOT/deploy/models" && return 0
   mount --bind "$MODELS" "$BOXROOT/deploy/models" && dc restart llm-service llm-verifier embed-service
 }
-d_direct_up()   { d_site_env && d_models_bind && dc up -d --pull never --wait --wait-timeout 900; }
+d_direct_up()   { d_site_env && d_serving_mode && d_models_bind && dc up -d --pull never --wait --wait-timeout 900; }
+# The owner's exception for this validation box (2026-11-16), never a product change: tb-serving "tuned" starts the
+# judge and the verifier with --max-num-seqs 48 and without --enforce-eager (CUDA graphs on), SCREEN's calls in flight
+# to match, by a compose override beside the site's files; "shipped" (or unset) takes the override away. Everything
+# else of the two servers' command lines is the profile's own, read from its compose file.
+SERVING=$(md tb-serving || true)
+d_serving_mode() {
+  local f="$BOXROOT/deploy/site/compose.serving-tuned.yml" env="$BOXROOT/deploy/.env" cf
+  cf=$(envget COMPOSE_FILE)
+  if [ "$SERVING" = tuned ]; then
+    python3 - "$BOXROOT/deploy/docker-compose.$PROFILE.yml" "$f" <<'PYT' || return 1
+import sys, yaml
+src = yaml.safe_load(open(sys.argv[1]))["services"]
+out = {"services": {}}
+for name in ("llm-service", "llm-verifier"):
+    cmd = [c for c in src[name]["command"] if c != "--enforce-eager"]
+    cmd = ["--max-num-seqs=48" if c.startswith("--max-num-seqs=") else c for c in cmd]
+    out["services"][name] = {"command": cmd}
+out["services"]["orchestrator"] = {"environment": {"TB_SCREEN_LLM_CONCURRENCY": "48"}}
+yaml.safe_dump(out, open(sys.argv[2], "w"), sort_keys=False)
+PYT
+    case ":$cf:" in *":site/compose.serving-tuned.yml:"*) ;; *)
+      sed -i "/^COMPOSE_FILE=/d" "$env"; echo "COMPOSE_FILE=${cf:-docker-compose.yml:docker-compose.$PROFILE.yml}:site/compose.serving-tuned.yml" >> "$env" ;; esac
+    echo "TB-SERVING tuned (owner's exception for this validation box: --max-num-seqs 48, CUDA graphs on)" | tee -a "$LOG"
+  else
+    case ":$cf:" in *":site/compose.serving-tuned.yml:"*)
+      sed -i "/^COMPOSE_FILE=/d" "$env"
+      echo "COMPOSE_FILE=$(printf '%s' "$cf" | tr ':' '\n' | grep -vx 'site/compose.serving-tuned.yml' | paste -sd: -)" >> "$env" ;; esac
+    rm -f "$f"
+    echo "TB-SERVING shipped (the profile's own settings)" | tee -a "$LOG"
+  fi
+}
 # F27 (2026-11-15): the site's own container limits (D-360: TB_MEM_<NAME> in deploy/.env), only those keys, set before
 # the stack comes up; each one said in the log. A hospital sets them the same way.
 d_site_env() {
@@ -1898,6 +1944,9 @@ step_acc_set() {
   local only=() pl
   pl=$(printf '%s\n' $ACC_PROTOCOLS | sed -n "s/^$name://p" | head -n 1)
   if [ -n "$pl" ]; then only=(--protocols "$pl"); note protocols_only "\"$pl\""; fi
+  local ns   # protocols in flight at once: at most the orchestrator's job workers (TB_WORKERS 4, one for the ingest)
+  ns=$(printf '%s\n' $ACC_STREAMS | sed -n "s/^$name://p" | head -n 1)
+  if [ -n "$ns" ]; then only+=(--streams "$ns"); note streams "$ns"; fi
   local e   # F29: every earlier attempt's work of this set, newest first
   while IFS= read -r e; do only+=(--earlier "$e"); done < <(ls -1dt "$RUN"/logs/*-acc-"$name".work-* 2>/dev/null)
   dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
@@ -1909,11 +1958,21 @@ step_acc_set() {
   fi
   note sender "\"$(st kv _ acc_sender)\""; note reviewer "\"$(st kv _ acc_reviewer)\""
   ACC_CUR=$name
+  # B4 (owner's plan 2026-11-16): the embed service's memory sampled every second while the set runs
+  local ms_pid=""
+  if [ -z "${TB_BOXRUN_ROOT:-}" ]; then
+    mkdir -p "$ACC/$name/work"
+    ( c=$(dc ps -q embed-service 2>/dev/null | head -n 1); [ -n "$c" ] || exit 0
+      while :; do printf '%s\t%s\n' "$(date -u +%T)" "$(docker stats --no-stream --format '{{.MemUsage}}' "$c" 2>/dev/null)"; sleep 1; done
+    ) >> "$ACC/$name/work/embed-mem.tsv" 2>/dev/null &
+    ms_pid=$!
+  fi
   WATCH_GPU=1 PROG_FN=prog_acc need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
     vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
       --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID$(acc_attempt "$name")" ${co[@]+"${co[@]}"} \
       --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" \
-      ${only[@]+"${only[@]}"} || return 1
+      ${only[@]+"${only[@]}"} || { [ -z "$ms_pid" ] || kill "$ms_pid" 2>/dev/null; return 1; }
+  [ -z "$ms_pid" ] || kill "$ms_pid" 2>/dev/null
   # F22 (2026-11-15): a set that answered nothing has no figure (a SCREEN set needs patients answered, a compile-only
   # set compiled criteria). The first set of the run is the gate: it stops the run, its work packed first. A later set
   # says "not scored, because" and the group goes on (a product fault is skipped, said, never shown as a figure).

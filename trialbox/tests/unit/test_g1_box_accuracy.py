@@ -417,3 +417,15 @@ def test_box_call_sends_a_long_argument_in_the_program_text(tmp_path: Path) -> N
     box = box_vm.Box([str(dc)], prog, tmp_path / "calls.log", None)
     assert box.call("svc", "echo", {"x": "a" * 10}) == {"n": 10}
     assert box.call("svc", "echo", {"x": "a" * 300_000}) == {"n": 300_000}
+
+
+def test_acc_set_runs_protocols_side_by_side(tmp_path: Path) -> None:
+    """The owner's ruling (2026-11-16): several protocols in flight at once; each is mailed once and answered."""
+    built = _built(tmp_path, trials=4)
+    box = FakeBox()
+    kw = {"sender": "c@x", "reviewer": "pi@x", "run_id": "r1", "compile_only": False, "job_s": 5}
+    res = box_vm.acc_set("sigir", built, tmp_path / "work", box, streams=3, **kw)
+    assert res["counts"]["screened"] == 4 and res["pass"] is True
+    assert sorted(box.sent) == sorted(f"{k} NCT9000000{i}" for i in range(1, 5) for k in ("FEAS", "APPROVE", "SCREEN"))
+    answers = json.loads((tmp_path / "work" / "answers.json").read_text(encoding="utf-8"))
+    assert len(answers) == 4 and all(a["outcome"] == "screened" for a in answers.values())

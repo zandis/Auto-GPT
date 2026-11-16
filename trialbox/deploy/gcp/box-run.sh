@@ -82,7 +82,9 @@ while [ $# -gt 0 ]; do
     --acc-protocols) V[tb-acc-protocols]="$2"; shift 2 ;;   # "set:RS1,RS2 ...": only these protocols of the set
     --site-env) V[tb-site-env]="$2"; shift 2 ;;
     --acc-rs-tag) V[tb-acc-rs-tag]="$2"; shift 2 ;;
-    --skip) V[tb-skip]="${2//,/ }"; shift 2 ;;              # steps left out of the launch, each said (never a pass)         # a second run on one box: new ruleset ids (F29)             # "TB_MEM_EMBED=16g ...": the site's deploy/.env limits
+    --skip) V[tb-skip]="${2//,/ }"; shift 2 ;;
+    --acc-streams) V[tb-acc-streams]="$2"; shift 2 ;;
+    --serving) V[tb-serving]="$2"; shift 2 ;;               # shipped | tuned (the owner's exception, this box only)       # "set:n ...": protocols in flight at once per set              # steps left out of the launch, each said (never a pass)         # a second run on one box: new ruleset ids (F29)             # "TB_MEM_EMBED=16g ...": the site's deploy/.env limits
     --redo) V[tb-redo]="${2//,/ }"; shift 2 ;;   # with --resume: these steps run again (an acc set from no work)   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
@@ -233,7 +235,7 @@ if [ -n "$RESUME" ]; then
   fi
   # one launch's own asks (F24): a step to run again and a set budget hold for the launch that names them, never
   # for the next resume (a redo sent twice would throw away the set it just ran)
-  for k in tb-redo tb-acc-deadline tb-acc-protocols tb-site-env; do
+  for k in tb-redo tb-acc-deadline tb-acc-protocols tb-site-env tb-acc-streams tb-skip tb-serving; do
     if [ -n "${V[$k]:-}" ]; then
       printf '%s' "${V[$k]}" > "$OUT/md/$k"
       case ",$RFILES," in *",$k="*) ;; *) RFILES="$RFILES,$k=$OUT/md/$k" ;; esac

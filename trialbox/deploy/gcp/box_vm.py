@@ -61,6 +61,7 @@ import ssl
 import struct
 import sys
 import tarfile
+import threading
 import time
 import urllib.parse
 from collections.abc import Iterable
@@ -871,6 +872,7 @@ def acc_set(
     deadline_s: float = 0.0,
     protocols: list[str] | None = None,
     earlier: list[Path] | None = None,
+    streams: int = 1,
 ) -> dict[str, Any]:
     """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
 
@@ -906,8 +908,11 @@ def acc_set(
     def used() -> float:
         return used0 + time.monotonic() - t_start
 
+    tick_lock = threading.Lock()
+
     def tick() -> None:
-        _save(clock_p, {"used_s": round(used(), 1), "deadline_s": deadline_s})
+        with tick_lock:  # one writer at a time when protocols run side by side
+            _save(clock_p, {"used_s": round(used(), 1), "deadline_s": deadline_s})
 
     def left() -> float:
         return deadline_s - used() if deadline_s > 0 else float("inf")
@@ -927,34 +932,51 @@ def acc_set(
         return dict(box.call("mail-gateway", "wait", {"job": job, "until": list(until), "timeout_s": t,
                                                       "poll_s": poll_s}))  # fmt: skip
 
-    for proto in protos:
+    lock = threading.Lock()
+
+    def _retry(fn: Any) -> None:  # another stream may change the progress while it is written: write again
+        for _ in range(20):
+            try:
+                with lock:
+                    fn()
+                return
+            except RuntimeError:
+                time.sleep(0.05)
+
+    def save() -> None:
+        _retry(lambda: _save(prog_p, prog))
+
+    def answers() -> None:
+        _retry(lambda: _answers(work, prog))
+
+    def one(proto: Path) -> None:
         rs = proto.stem
         a = prog.setdefault(rs, {"ruleset": rs})
         tick()
         if prog.get(rs, {}).get("finished"):
-            _answers(work, prog)
-            continue
+            answers()
+            return
         if left() <= 0 and "feas_job" not in a:  # the set's time budget is spent: nothing new is started
             a.update(outcome="not_run_time_budget", finished=True)
-            _save(prog_p, prog)
-            continue
-        _answers(work, prog)
+            save()
+            return
+        answers()
         # --- FEAS with the protocol attached, from the coordinator
         if "feas_job" not in a:
             r = send(rs, "feas", f"FEAS {rs}", sender, {proto.name: proto.read_bytes()})
             a["feas_intake"] = {k: r.get(k) for k in ("action", "reason")}
             if r.get("action") != "job" or not r.get("job"):
                 a.update(outcome="refused_at_intake", finished=True)
-                _save(prog_p, prog)
-                continue
+                save()
+                return
             a["feas_job"] = r["job"]
-            _save(prog_p, prog)
+            save()
         j = wait(a["feas_job"], FEAS_ENDS)
         a["feas"], a["feas_error"], a["version"] = j.get("state"), j.get("error"), j.get("ruleset_version")
         if j.get("waited") == "timeout":
             a.update(outcome="timeout_feas", finished=True)
-            _save(prog_p, prog)
-            continue
+            save()
+            return
         files = box.call("mail-gateway", "fetch", {"job": a["feas_job"], "suffixes": [".xlsx", "-draft.zip"],
                                                    "prefixes": ["review_", "ruleset_"]})["files"]  # fmt: skip
         z = next((v for k, v in files.items() if k.endswith("-draft.zip")), None)
@@ -976,16 +998,16 @@ def acc_set(
             a.update(
                 draft=b.get("draft") or [], approve_job=b["approve_job"], approved_in="the attempt before the redo"
             )
-            _save(prog_p, prog)
+            save()
         elif a["feas"] != "awaiting_approval" and not xlsx:
             a.update(outcome=classify(a.get("feas_error")) if a["feas"] == "failed" else f"feas_{a['feas']}",
                      finished=True)  # fmt: skip
-            _save(prog_p, prog)
-            continue
+            save()
+            return
         if compile_only:
             a.update(outcome="compiled", finished=True)
-            _save(prog_p, prog)
-            continue
+            save()
+            return
         # --- APPROVE by the box's named reviewer, the review workbook as it came
         if "approve_job" not in a:
             assert xlsx is not None
@@ -993,26 +1015,26 @@ def acc_set(
             r = send(rs, "approve", subject, reviewer, {"review.xlsx": base64.b64decode(xlsx[1])})
             if r.get("action") != "job" or not r.get("job"):
                 a.update(approve_intake=r.get("reason"), outcome="approve_refused_at_intake", finished=True)
-                _save(prog_p, prog)
-                continue
+                save()
+                return
             a["approve_job"] = r["job"]
-            _save(prog_p, prog)
+            save()
         j = wait(a["approve_job"], JOB_ENDS)
         a["approve"], a["approve_error"] = j.get("state"), j.get("error")
         if a["approve"] != "done":
             a.update(outcome="approve_" + str(a["approve"]), finished=True)
-            _save(prog_p, prog)
-            continue
+            save()
+            return
         # --- SCREEN scoped to the trial's investigator (the mail grammar's pract=)
         if "screen_job" not in a:
             pi = (ids.get("investigators") or {}).get(rs, "")
             r = send(rs, "screen", f"SCREEN {rs}" + (f" pract={pi}" if pi else ""), sender, {})
             if r.get("action") != "job" or not r.get("job"):
                 a.update(screen_intake=r.get("reason"), outcome="screen_refused_at_intake", finished=True)
-                _save(prog_p, prog)
-                continue
+                save()
+                return
             a["screen_job"] = r["job"]
-            _save(prog_p, prog)
+            save()
         j = wait(a["screen_job"], JOB_ENDS)
         a["screen"], a["screen_error"] = j.get("state"), j.get("error")
         a["screen_metrics"] = j.get("metrics")
@@ -1033,7 +1055,21 @@ def acc_set(
                 _save(work / "screen" / f"{rs}.json", json.loads(base64.b64decode(b64).decode("utf-8")))
         a["outcome"] = "screened" if a["screen"] == "done" else classify(a.get("screen_error"))
         a["finished"] = True
-        _save(prog_p, prog)
+        save()
+
+    # the owner's ruling (2026-11-16): several protocols in flight at once ("streams"), as many as the orchestrator
+    # runs jobs side by side (TB_WORKERS 4, the first kept for the ingest: 3); each protocol's flow is unchanged
+    for rs_ in (p_.stem for p_ in protos):
+        prog.setdefault(rs_, {"ruleset": rs_})
+    if streams <= 1:
+        for proto in protos:
+            one(proto)
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=streams, thread_name_prefix="acc") as pool:
+            for f in [pool.submit(one, proto) for proto in protos]:
+                f.result()
     # --- the box's pseudonyms of the placed chart numbers, for the scorer's join outside the box
     pm_p = work / "pidmap.json"
     if not pm_p.exists():
@@ -1226,6 +1262,9 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument("--deadline-s", type=float, default=0.0, help="the set's own time budget (0: none)")
     ac.add_argument("--protocols", default="", help="comma-separated rulesets: only these protocols of the set")
     ac.add_argument("--earlier", type=Path, action="append", help="a work folder of an earlier attempt (F29)")
+    ac.add_argument(
+        "--streams", type=int, default=1, help="protocols in flight at once (the orchestrator's job workers)"
+    )
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
     cl = sub.add_parser("acc-call")
@@ -1308,7 +1347,7 @@ def main(argv: list[str] | None = None) -> int:
                           compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll,
                           deadline_s=a.deadline_s,
                           protocols=[x for x in a.protocols.split(",") if x] or None,
-                          earlier=a.earlier)  # fmt: skip
+                          earlier=a.earlier, streams=a.streams)  # fmt: skip
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"acc-set {a.set}: {exc}", file=sys.stderr)
             return 1

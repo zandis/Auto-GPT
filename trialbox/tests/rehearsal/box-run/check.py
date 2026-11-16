@@ -419,6 +419,7 @@ if case == "acc-cut":
 if case == "acc-cut":
     ok("acc-send FEAS SNCT90000001 new" not in calls and parts["61-acc-sigir"]["detail"].get("protocols_only")
        == "SNCT90000002", "acc-cut: tb-acc-protocols: only the named protocol of sigir was sent, and said")  # fmt: skip
+    ok(parts["60-acc-jmed"]["detail"].get("streams") == 2, "acc-cut: tb-acc-streams: jmed ran 2 protocols at once, said")
 
 if case == "direct":
     env = (S / "box-root" / "deploy" / ".env").read_text()
