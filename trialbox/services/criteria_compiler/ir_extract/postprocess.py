@@ -103,6 +103,25 @@ def is_diagnosis_name(name: str) -> bool:
     return bool(_DIAGNOSIS.search(name)) and not _OPERATION.search(name)
 
 
+# D-947 (F3 of the P1b review, NCT01260883): "2-18 months" came out as age 2 to 18 (years) and "<36 weeks gestation"
+# as age.max 36. The age is complete years; a bound the line writes in months, weeks or days is not one
+_SHORT_UNIT = re.compile(
+    r"(\d+(?:\.\d+)?)(?:\s*(?:-|–|~|〜|to|から|至)\s*(\d+(?:\.\d+)?))?\s*"
+    r"(?:months?|mos?\b|weeks?|wks?\b|days?\b|か月|ヶ月|カ月|ケ月|箇月|週|日齢|日|個月|天)",
+    re.IGNORECASE,
+)
+
+
+def age_in_short_units(text: str, logic: Any) -> bool:
+    """An age bound of the logic is a number the line writes in months, weeks or days (D-947)."""
+    nums = {float(n) for m in _SHORT_UNIT.finditer(text or "") for n in m.groups() if n is not None}
+    if not nums or logic is None:
+        return False
+    return any(
+        b is not None and float(b) in nums for a in atoms(logic) if a.age is not None for b in (a.age.min, a.age.max)
+    )
+
+
 def _convert_logic(
     node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr", refiled: frozenset[str] = frozenset()
 ) -> dict[str, Any]:
@@ -230,6 +249,11 @@ def postprocess(
         if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
             flags.append("domain_refiled")
             warnings.append(f"{cid}: {', '.join(moved)} filed as a procedure; read as a condition (check it)")
+        if ir.class_ in FILTERED and age_in_short_units(ir.text, ir.logic):
+            flags.append("age_unit_not_years")
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: an age written in months, weeks or days was read as years; kept for a person")
         # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
         # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
         # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
