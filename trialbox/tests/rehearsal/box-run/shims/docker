@@ -1,0 +1,22 @@
+#!/bin/bash
+# Box-run rehearsal shim for docker on the "VM": only what box-install-run.sh itself asks of docker.
+#   docker inspect --format '{{.State.Pid}}' NAME     a live process of the "VM" (its resident memory is real, small)
+#   docker inspect --format '{{.Config.Image}}' NAME  the image of $BR_S/knobs/vllm-image
+#   docker restart NAME    the stand-in box is unhealthy for a moment, and the stand-in screen repeats its calls in
+#                          flight (standins/tool.py interrupt); written to $BR_S/calls.log
+#   docker info            a daemon
+# Anything else fails: a new docker call of the script is noticed here first.
+case "$1" in
+  info) echo "Server Version: box-run rehearsal"; exit 0 ;;
+  inspect)
+    [ -f "$BR_S/box/wizard-done" ] || { echo "Error: No such object: ${!#}" >&2; exit 1; }
+    case "$3" in
+      *State.Pid*) cat "$BR_S/vm.pgid" ;;
+      *Config.Image*) cat "$BR_S/knobs/vllm-image" ;;
+      *) exit 1 ;;
+    esac ;;
+  restart)
+    echo "docker-restart $2" >> "$BR_S/calls.log"
+    python3 "$BR_HERE/standins/tool.py" interrupt; echo "$2" ;;
+  *) echo "box-run rehearsal docker: not rehearsed: $1" >&2; exit 1 ;;
+esac

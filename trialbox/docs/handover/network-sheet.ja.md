@@ -1,5 +1,7 @@
 # TrialBox ネットワーク・ポート・秘密情報一覧
 
+**Reader:** hospital IT（病院情報システム部門。オーナーが it-one-page.ja.md と一緒に渡します）。
+
 下記の compose ファイルから tools/network_sheet.py で生成（D-138）。コンソールのポート以外、外部から到達できるものはありません。秘密情報の値はこの一覧に載せていません。
 
 **compose ファイル:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
@@ -16,7 +18,7 @@
 | criteria-compiler | 8012 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | db | 5432 | 公開なし | trialbox-net | TrialBox の各サービスと fhir-store（パスワード） | 常時 |
 | doc-parser | 8011 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| embed-service | 8014 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: lake; ホスト上の管理者（operator トークン） | 常時 |
+| embed-service | 8014 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: lake, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | fhir-store | 8080 | 公開なし | trialbox-net | adapter、orchestrator、criteria-compiler（ネットワーク分離のみ、トークンなし） | 常時 |
 | gateway | 8020 | 公開なし | egress-net, model-net, trialbox-net | 自身のトークンを持つ次のみ: console, criteria-compiler, doc-parser, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | judge-sleep-init | なし（待ち受けなし） | 公開なし | model-backend-net | - | GPU プロファイル (rtx5090) |

@@ -21,6 +21,10 @@ class Reason(StrEnum):
     NOT_MENTIONED = "not_mentioned"  # the notes in the window were searched and never mention it
     CODE_OUTSIDE_LIST = "code_outside_list"  # coded inside the grouper's family, outside its list (D-113)
     UNKNOWN_CODE_SYSTEM = "unknown_code_system"  # a record coded in a system the mapping does not know (D-130)
+    # the criterion's list is in a code system no record of the site carries (no ATC, no LOINC; D-795)
+    CODE_SYSTEM_NOT_CARRIED = "code_system_not_carried"
+    # the patient has no coded record of the criterion's kind at all (no medication row, no observation row; D-914)
+    NO_RECORD_OF_KIND = "no_record_of_kind"
     PROPOSED_FACT = "proposed_fact"  # a fact read from a chart that a person has not confirmed yet (D-135)
     SUSPECTED_DIAGNOSIS = "suspected_diagnosis"  # a diagnosis recorded as suspected (疑い, provisional; D-142)
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
@@ -77,6 +81,8 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("not evaluated", "not sampled", "unprocessed", "not judged", "no judge"), Reason.NOT_EVALUATED),
     (("unknown_kept", "unknown kept"), Reason.UNKNOWN_KEPT),
     (("unknown code system", "unknown_code_system"), Reason.UNKNOWN_CODE_SYSTEM),
+    (("code_system_not_carried",), Reason.CODE_SYSTEM_NOT_CARRIED),
+    (("no_record_of_kind",), Reason.NO_RECORD_OF_KIND),
     (("proposed_fact", "proposed fact"), Reason.PROPOSED_FACT),
     (("derived_unit",), Reason.DERIVED_UNIT),
     (("derived_adult_only",), Reason.DERIVED_ADULT_ONLY),
@@ -113,6 +119,16 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "a record coded in a system TrialBox cannot read: please check",
         "ja": "TrialBox が読めないコード体系の記録あり：確認してください",
         "zh-TW": "有以無法辨識的代碼系統記錄的資料：請確認",
+    },
+    "code_system_not_carried": {
+        "en": "the site's records carry no code of this list's system: please check",
+        "ja": "施設の記録にこの一覧のコード体系がありません：確認してください",
+        "zh-TW": "本院紀錄沒有此清單所用的代碼系統：請確認",
+    },
+    "no_record_of_kind": {
+        "en": "the patient has no coded record of this kind at all: please check",
+        "ja": "この種類のコード化された記録が患者にまったくありません：確認してください",
+        "zh-TW": "此病人完全沒有此類的編碼紀錄：請確認",
     },
     "proposed_fact": {
         "en": "a fact read from a chart, not yet confirmed: please check",

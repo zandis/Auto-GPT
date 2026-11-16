@@ -1,0 +1,80 @@
+{
+ "ended": "TB-BOX-RUN-COMPLETE: every step ran; the parts say which test rules passed",
+ "kv": {
+  "gates_mode": "--vuln-mode report"
+ },
+ "order": [
+  "b01-source",
+  "b02-venv",
+  "b03-images",
+  "b04-gates",
+  "b05-sign",
+  "b06-verify",
+  "b07-upload"
+ ],
+ "steps": {
+  "b01-source": {
+   "attempts": 1,
+   "boots": [
+    "b4c8f6cf-3cd4-40c8-a52a-ef13aa11ba10"
+   ],
+   "first_started": 1794733898.3978806,
+   "seconds": 17.259,
+   "status": "done"
+  },
+  "b02-venv": {
+   "attempts": 1,
+   "boots": [
+    "b4c8f6cf-3cd4-40c8-a52a-ef13aa11ba10"
+   ],
+   "first_started": 1794733916.4014475,
+   "seconds": 20.926,
+   "status": "done"
+  },
+  "b03-images": {
+   "attempts": 1,
+   "boots": [
+    "b4c8f6cf-3cd4-40c8-a52a-ef13aa11ba10"
+   ],
+   "first_started": 1794733938.093596,
+   "seconds": 160.156,
+   "status": "done"
+  },
+  "b04-gates": {
+   "attempts": 1,
+   "boots": [
+    "b4c8f6cf-3cd4-40c8-a52a-ef13aa11ba10"
+   ],
+   "first_started": 1794734099.0032218,
+   "seconds": 340.241,
+   "status": "done"
+  },
+  "b05-sign": {
+   "attempts": 1,
+   "boots": [
+    "5c90e503-23ff-4e86-af3c-976e077f0e43"
+   ],
+   "first_started": 1794735224.9692369,
+   "seconds": 521.301,
+   "status": "done"
+  },
+  "b06-verify": {
+   "attempts": 1,
+   "boots": [
+    "5c90e503-23ff-4e86-af3c-976e077f0e43"
+   ],
+   "first_started": 1794735747.0272076,
+   "seconds": 51.179,
+   "status": "done"
+  },
+  "b07-upload": {
+   "attempts": 1,
+   "boots": [
+    "5c90e503-23ff-4e86-af3c-976e077f0e43"
+   ],
+   "first_started": 1794735798.9610758,
+   "seconds": 72.845,
+   "status": "done"
+  }
+ }
+}

@@ -143,5 +143,7 @@ fi
 # in the 0700 stage folder, beside the staged manifest.json whose sha256 the update path checks against it
 ( umask 077; printf '%s' "$SUMMARY" > "$STAGE/summary.json" )
 cd "$ROOT"
+# D-888: the update restarts the stack: never on the example settings while the site's exist
+sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
   --deploy "$ROOT/deploy" $NOBACKUP

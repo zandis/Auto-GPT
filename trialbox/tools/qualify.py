@@ -72,7 +72,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field, replace
@@ -116,7 +116,7 @@ STEPS = (
     "planted_defect",
 )
 EVIDENCE_STEPS = {
-    "n12": ["-m", "tools.trec_ct_eval", "--help"],
+    "n12": ["-m", "tools.n12_screen", "--help"],  # D-826: N-12 from SCREEN (lane A2's tool), not the benchmark path
     "public_e2e": ["-m", "tools.public_e2e", "--help"],
     "goldens": ["-m", "tools.goldens", "--help"],
 }
@@ -366,12 +366,31 @@ def bad(reason: str, detail: dict[str, Any] | None = None) -> StepResult:
     return StepResult("failed", reason, detail or {})
 
 
+def placeholder_problems(override: Path) -> list[str]:
+    """D-887: the box rehearsal's placeholder pins, refused by name: they are not a model and qualify nothing; and
+    a rehearsal box (deploy/site/rehearsal.json beside the pins, the integrator's (i)), whatever it serves."""
+    mark = override.parent / "rehearsal.json"
+    box = [f"a rehearsal box ({mark}, deploy/install.sh --rehearsal): nothing is qualified on it (D-887)"]
+    try:
+        doc = yaml.safe_load(override.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return box if mark.is_file() else []
+    builds = doc.get("builds") if isinstance(doc, dict) else None
+    return (box if mark.is_file() else []) + [
+        f"{b} is a rehearsal placeholder pin (D-887): not a model, it is never qualified"
+        for b, e in sorted((builds or {}).items())
+        if isinstance(e, dict) and (e.get("weights") or {}).get("trust") == "rehearsal_placeholder"
+    ]
+
+
 def step_pin(ctx: Ctx) -> StepResult:
     j, v = ctx.builds["judge"], ctx.builds["verifier"]
     detail: dict[str, Any] = {
         r: {"build_id": b.build_id, "weights_sha256": b.weights_sha256} for r, b in ctx.builds.items()
     }
-    problems: list[str] = []
+    problems: list[str] = placeholder_problems(
+        Path(os.environ.get("TB_REGISTRY_OVERRIDE") or ROOT / "deploy" / "site" / "registry.site.yaml")
+    )
     listed = ctx.target.models()
     detail["gateway_models"] = sorted(listed)
     want = {j.alias, v.alias} if ctx.opts.profile != "ci" else {"trialbox-stub", STUB_VERIFIER_ALIAS}
@@ -424,14 +443,33 @@ def _run(cmd: list[str], timeout: float = 30.0) -> tuple[int, str]:
 
 
 def git_head() -> tuple[str, bool]:
-    rc, head = _run(["git", "rev-parse", "HEAD"])
-    rc2, dirty = _run(["git", "status", "--porcelain", "--untracked-files=no"])
-    return (head if rc == 0 else "unknown"), (rc2 != 0 or bool(dirty))
+    """The code this record names, and whether it differs from it: a git commit, or on a box installed from a signed
+    bundle the release tree's ``release:<sha256>`` (QUALIFY-BOX, D-734; ``tools.code_identity``)."""
+    from tools import code_identity
+
+    return code_identity.head(ROOT)
+
+
+def dirty_problem(head: str, dirty: bool) -> str:
+    """What a dirty tree is called: a checkout with uncommitted changes, or a release that differs from its sums."""
+    if not dirty:
+        return ""
+    if head.startswith("release:"):
+        return "the installed release differs from its signed HOST-SHA256SUMS: a record must name one release"
+    return "the working tree has uncommitted changes: a record must name one commit"
 
 
 def gpu_versions() -> dict[str, str]:
-    """Driver and CUDA version from ``nvidia-smi``; ``none`` when this host has no NVIDIA driver."""
+    """Driver and CUDA version from ``nvidia-smi``; ``none`` when this host has no NVIDIA driver. In the trialbox-py
+    image (no GPU there) the host's, as the box wrapper read them: TB_HOST_GPU, a JSON object (D-889)."""
     if shutil.which("nvidia-smi") is None:
+        try:
+            host = json.loads(os.environ.get("TB_HOST_GPU") or "null")
+        except ValueError:
+            host = None
+        if isinstance(host, dict) and str(host.get("driver") or "").strip():
+            return {"driver": str(host["driver"]), "cuda": str(host.get("cuda") or "unknown"),
+                    "gpu": str(host.get("gpu") or "unknown"), "driver_source": "host (TB_HOST_GPU)"}  # fmt: skip
         return {"driver": "none", "cuda": "none", "gpu": "none"}
     rc, out = _run(["nvidia-smi", "--query-gpu=driver_version,name", "--format=csv,noheader"])
     rc2, full = _run(["nvidia-smi"])
@@ -460,6 +498,21 @@ def pinned_template_sha256(build_id: str) -> str | None:
     return str(sha) if sha else None
 
 
+def code_note(head: str) -> str:
+    """D-881: what the record says of a code named by the image alone."""
+    return "no release tree: code named by the image digest" if head.startswith("image:") else ""
+
+
+def code_problems(head: str, env: Mapping[str, str]) -> list[str]:
+    """Why ``head`` cannot name the code of this record: unknown, or (D-881) only an image id on a box that is not
+    run under the poc host profile (a site box has its signed release tree)."""
+    if head == "unknown":
+        return ["no git HEAD and no signed release tree (HOST-SHA256SUMS): the record cannot name its code"]
+    if head.startswith("image:") and (env.get("TB_HOST_PROFILE") or "").strip() != "poc":
+        return ["no signed release tree: an image id alone names a site box's code only under TB_HOST_PROFILE=poc"]
+    return []
+
+
 def step_serving_record(ctx: Ctx) -> StepResult:
     from gateway.policy import RoutingPolicy
     from tb_llm.prompt_registry import default_registry
@@ -481,11 +534,11 @@ def step_serving_record(ctx: Ctx) -> StepResult:
         "chat_template_sha256": pinned_template_sha256(ctx.builds["judge"].build_id),
     }
     ctx.state["serving"] = detail
-    problems = []
-    if head == "unknown":
-        problems.append("no git HEAD")
+    if code_note(head):
+        detail["code"] = code_note(head)
+    problems = code_problems(head, os.environ)
     if dirty and ctx.opts.profile != "ci":
-        problems.append("the working tree has uncommitted changes: a record must name one commit")
+        problems.append(dirty_problem(head, dirty))
     if ctx.opts.profile != "ci" and detail["driver"] == "none":
         problems.append("no NVIDIA driver on this host")
     return bad("; ".join(problems), detail) if problems else ok(detail)
@@ -878,9 +931,43 @@ def pair_item(judge: QClient, verifier: QClient, it: Any) -> Any:
     return row
 
 
-def run_pair(judge: QClient, verifier: QClient, items: list[Any], workers: int) -> list[Any]:
-    with ThreadPoolExecutor(max(1, workers)) as ex:
-        return list(ex.map(lambda it: pair_item(judge, verifier, it), items))
+PROGRESS_EVERY_S = 30.0  # D-838: the pair gate's heartbeat (a box's watchdog took 20 silent minutes for a hang)
+
+
+def run_pair(
+    judge: QClient,
+    verifier: QClient,
+    items: list[Any],
+    workers: int,
+    say: Callable[[str], None] | None = None,
+    every_s: float = PROGRESS_EVERY_S,
+) -> list[Any]:
+    """Each item through the pair, in the items' order. D-838: every ``every_s`` seconds, and once at the end, one
+    line says how many are answered, whichever item is slow."""
+    say = say or (lambda m: print(m, file=sys.stderr, flush=True))
+    n, done, t0 = len(items), [0], time.monotonic()
+    stop, lock = threading.Event(), threading.Lock()
+
+    def heartbeat() -> None:
+        while not stop.wait(every_s):
+            say(f"qualify: pair_gate: {done[0]}/{n} items answered ({time.monotonic() - t0:.0f} s)")
+
+    def one(it: Any) -> Any:
+        row = pair_item(judge, verifier, it)
+        with lock:
+            done[0] += 1
+        return row
+
+    beat = threading.Thread(target=heartbeat, daemon=True)
+    beat.start()
+    try:
+        with ThreadPoolExecutor(max(1, workers)) as ex:
+            rows = list(ex.map(one, items))
+    finally:
+        stop.set()
+        beat.join()
+    say(f"qualify: pair_gate: {n}/{n} items answered ({time.monotonic() - t0:.0f} s)")
+    return rows
 
 
 def _gate(ctx: Ctx) -> Any:
@@ -1009,6 +1096,10 @@ def step_evidence(name: str) -> Callable[[Ctx], StepResult]:
             detail["basis"] = doc.get("basis")
             if doc.get("basis") != "unadjusted":
                 return bad(f"evidence {path.name} does not say basis unadjusted: N-12 gates on the raw figure", detail)
+            detail["source"] = doc.get("source")  # D-826: from the product path (tools.n12_screen), not a benchmark
+            if doc.get("source") != "screen":
+                return bad(f"evidence {path.name} does not say source screen: N-12 is read from SCREEN's own run "
+                           "(python -m tools.n12_screen)", detail)  # fmt: skip
         if ev_head and ev_head != head:
             return bad(f"evidence {path.name} is from {ev_head[:12]}, not this HEAD", detail)
         if not ev_head and not ctx.opts.stub:

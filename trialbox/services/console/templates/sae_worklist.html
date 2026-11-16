@@ -9,6 +9,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ t('sae.title') }}</h1></div>
 <p class="hint">{{ t('sae.help') }}</p>
+{% if no_mailbox %}<p class="warn" role="alert" data-testid="sae-no-mailbox">{{ t('sae.no_mailbox') }}</p>{% endif %}
 {% if overdue or late or dates or downgraded or rule_alerts %}<section class="card attention" role="alert" data-testid="sae-alert">
 {% if rule_alerts %}<p data-testid="sae-alert-rules"><strong>{{ t('sae.alert.rules', studies=rule_alerts|join(', ')) }}</strong></p>{% endif %}
 {% if overdue %}<p data-testid="sae-alert-overdue"><strong>{{ t('sae.alert.overdue', n=overdue) }}</strong></p>{% endif %}
@@ -28,7 +29,7 @@
 {% if v.fatal %}<br><span class="pill bad">{{ t('life.sae.fatal') }}</span>{% elif v.grave %}<br><span class="pill bad">{{ t('sae.grave') }}</span>{% endif %}
 <br><a class="button secondary" href="/studies/{{ v.rs }}/sae/{{ v.record|urlencode }}/{{ v.event }}" data-testid="sae-open-{{ v.record }}-{{ v.event }}">{{ t('sae.open') }}</a></td>
 <td><span class="nowrap">{{ t('sae.dates', onset=v.onset or '–', aware=v.aware or '–') }}</span>
-{% for f in v.flags %}<br><span class="{% if f in ('nostart', 'aware_before_onset', 'future_date', 'bad_sent', 'downgraded', 'noclock', 'serious_mismatch', 'unknown_rules', 'no_country', 'other_country', 'bad_override') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ v.record }}-{{ v.event }}-{{ f }}">{{ t('sae.flag.' + f) }}</span>{% endfor %}</td>
+{% for f in v.flags %}<br><span class="{% if f in ('nostart', 'aware_before_onset', 'future_date', 'bad_sent', 'downgraded', 'noclock', 'serious_mismatch', 'unknown_rules', 'no_country', 'other_country', 'bad_override', 'unconfirmed') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ v.record }}-{{ v.event }}-{{ f }}">{{ t('sae.flag.' + f) }}</span>{% endfor %}</td>
 <td><ul class="plain">{% for r in v.reports %}{{ report(r, (study_rules.get(v.rs) or {}).get('regulator', '')) }}{% endfor %}</ul></td>
 <td>{% if v.downgraded %}–{% elif v.ack_by %}<span class="hint">{{ t('sae.ack.yes', who=v.ack_by|who, at=v.ack_at|local) }}</span>{% else %}<span class="pill warn" data-testid="sae-noack-{{ v.record }}-{{ v.event }}">{{ t('sae.ack.no') }}</span>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>

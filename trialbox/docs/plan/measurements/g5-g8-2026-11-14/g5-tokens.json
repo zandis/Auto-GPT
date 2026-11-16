@@ -1,0 +1,214 @@
+{
+ "stages": [
+  {
+   "name": "G-5 token counts: /tokenize against the product's estimates",
+   "ok": true,
+   "seconds": 16.2,
+   "checks": [
+    [
+     "/tokenize counted all 200 excerpts of each language (ja, zh-TW, en)",
+     true,
+     {
+      "ja": 200,
+      "zh-TW": 200,
+      "en": 200
+     }
+    ],
+    [
+     "the largest real / estimated ratio x 1.05 fits the budget's share (1 / SAFETY = 1.176)",
+     true,
+     {
+      "max_ratio": 0.9888,
+      "safety_from_measurement": 0.85
+     }
+    ]
+   ],
+   "shot": "g5-tokens.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "tokens": {
+  "per_language": {
+   "ja": {
+    "budget": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.7273,
+     "p95": 0.8,
+     "max": 0.9143,
+     "mean": 0.7256
+    },
+    "cascade": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.7273,
+     "p95": 0.8,
+     "max": 0.9143,
+     "mean": 0.7256
+    },
+    "prompt": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.9018,
+     "p95": 0.9622,
+     "max": 0.9743,
+     "mean": 0.9041
+    }
+   },
+   "zh-TW": {
+    "budget": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.8317,
+     "p95": 0.8972,
+     "max": 0.9355,
+     "mean": 0.8267
+    },
+    "cascade": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.8317,
+     "p95": 0.8972,
+     "max": 0.9355,
+     "mean": 0.8267
+    },
+    "prompt": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.9392,
+     "p95": 0.9707,
+     "max": 0.9792,
+     "mean": 0.9394
+    }
+   },
+   "en": {
+    "budget": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.8429,
+     "p95": 0.9208,
+     "max": 0.9888,
+     "mean": 0.8401
+    },
+    "cascade": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.8429,
+     "p95": 0.9208,
+     "max": 0.9888,
+     "mean": 0.8401
+    },
+    "prompt": {
+     "n": 200,
+     "missing": 0,
+     "p50": 0.9494,
+     "p95": 0.9716,
+     "max": 0.9819,
+     "mean": 0.948
+    }
+   }
+  },
+  "max_ratio": 0.9888,
+  "margin": 1.05,
+  "safety": 0.85,
+  "limit": 1.1765,
+  "fits": true,
+  "safety_from_measurement": 0.85,
+  "excerpts": {
+   "ja": 200,
+   "zh-TW": 200,
+   "en": 200
+  },
+  "counted": {
+   "ja": 200,
+   "zh-TW": 200,
+   "en": 200
+  },
+  "chars": {
+   "ja": [
+    14,
+    420
+   ],
+   "zh-TW": [
+    12,
+    388
+   ],
+   "en": [
+    39,
+    1056
+   ]
+  }
+ },
+ "run": {
+  "id": "20261113T231557Z-0e9be8a5-s1",
+  "head": "0e9be8a5f27c7a512a68e4fd270c779e80682a15",
+  "subject": "Lane G: G-5 measures the product's current token estimate (D-645)",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 16,
+ "metrics": {
+  "sampled": true,
+  "seconds": 17.3,
+  "folder": "parts/g5-tokens",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   }
+  },
+  "gpu": {
+   "samples": 3,
+   "every_s": 10.0,
+   "util_mean_pct": 0.0,
+   "util_max_pct": 0.0,
+   "memory_peak_mib": 62576.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 36.0,
+   "power_max_w": 89.88
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   },
+   "verifier": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   }
+  }
+ },
+ "wall_seconds": 17.3,
+ "started_at": "2026-11-13T23:22:30+00:00",
+ "finished_at": "2026-11-13T23:22:48+00:00"
+}

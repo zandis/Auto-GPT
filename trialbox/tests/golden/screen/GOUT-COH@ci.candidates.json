@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
+  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
+  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -13,9 +13,51 @@
  },
  "sets": {
   "public-en": {
-   "candidate_pids": [],
-   "candidates": 0,
-   "outcomes_sha": "5ce4852860f6c008da35041f760b02ebdf822994f71c7d0468b7d4136d4d2142",
+   "candidate_pids": [
+    "012260c0215fd5b91329e46d0b185935",
+    "03d48eca4bd18ffcac2878e455e3b443",
+    "0ca5381cfa6bdf1c22961d65579f93b3",
+    "1afe78d42518132b113c5858cedcbb54",
+    "1bd9a3b0a6c6208ac19622e6012724db",
+    "1bec6fc26b4d6a9ad56ec6ca8e9747ec",
+    "23eeb6239d5526cc352af991cf4097df",
+    "246a9d57bc8fb9e0df51287246862028",
+    "2513e7eccdbfda7d3a6e26f29a7dae81",
+    "25e73010dfb8eeb9372fc6b1d55a6920",
+    "2602d470ae89e2877ea45403975198f7",
+    "300524fd24e31b29c00df0db2084e3ea",
+    "3dc4ae5472db57bd44de053c12adf732",
+    "3e71e53309d23397bfac1e637f06ed16",
+    "3e872b0dc260650e86c2a109407ec5fb",
+    "4f9c7b3efbe64f3008957d32ce0969c1",
+    "50a6cf37e620eeba15e1c4501d18d57c",
+    "5223fe09e7da8a394ed1adadeb9bc2d9",
+    "5495673bc813284ec62b11de2f1848b2",
+    "59469ec0445045a88114ffcb93189d2a",
+    "68f6141a131e33f6eb6ed9f3a8dac569",
+    "765c7f1d5c41727e702f2b65ae697277",
+    "77f7586b54c65081ea8f18b8661edd51",
+    "7eff4a3fe55566754c23082a86dce1a2",
+    "894337f570d44ab4d2f93815f6f79cd6",
+    "9045042394f9011aebdaec5a556847ad",
+    "9282f5aaf4a56a6cb01c1004b674b23b",
+    "9382c7c63d8ac7933ef1b60e9c4fe1b4",
+    "b658fe6508a4528ba89cfb31fccfef54",
+    "be3bdb4d5e891ae26b3aeab3bdc941be",
+    "c0dc3438553bb20ec4bf889363d8c0ea",
+    "c16e9aa86a14af8f903980c6720d2e3e",
+    "c18a050acb21504e6b762b1f3a5ada95",
+    "cd9d2a49a46481ffdb9774947fed4fe0",
+    "d51950f360a76c53dd7bd9672fcf1fdd",
+    "d7515377ba6318e1716cc7e35e2cb0ce",
+    "df261f5f5065731b2bf2a0fa5d864105",
+    "e82f88139df61be21bdf3a914adaa5c9",
+    "f7ba588ea5c8e11f98dcae797aa3453a",
+    "fa0d8f8683020ee31fb98e1db4110688",
+    "fb273aef57a096467966d0e78be4c989"
+   ],
+   "candidates": 41,
+   "outcomes_sha": "2705514850d0b78e2fda87ecb93541db04415ac615e6805cbc3f7d71fec20b68",
    "patients": 53,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -29,8 +71,8 @@
    "verdicts": {
     "GOUT-COH-INC-01": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 12,
+     "unknown": 41
     },
     "GOUT-COH-INC-02": {
      "met": 0,
@@ -39,13 +81,13 @@
     },
     "GOUT-COH-INC-03": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 0,
+     "unknown": 53
     },
     "GOUT-COH-INC-04": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 12,
+     "unknown": 41
     },
     "GOUT-COH-INC-05": {
      "met": 0,
@@ -59,15 +101,30 @@
     },
     "GOUT-COH-INC-07": {
      "met": 4,
-     "not_met": 49,
-     "unknown": 0
+     "not_met": 8,
+     "unknown": 41
     }
    }
   },
   "ssmix2-jp": {
-   "candidate_pids": [],
-   "candidates": 0,
-   "outcomes_sha": "873927ce8437d07eb46e543a24d3181189b918131a740094c582f7fc12396417",
+   "candidate_pids": [
+    "20e10cadd2826063640513ccee355a5f",
+    "2c1b2af25fc2c64d7e06db9ffea5e4e3",
+    "322f79f4288aaf2e8b0aed44d371864c",
+    "3c63b4a3f99f9cb1bba408f84aa006a0",
+    "446941198ee472b0bd68133838aecde1",
+    "4919811fdedc03f2c0937ec59da8bc66",
+    "69865cd7cf35b5a55713668040aea992",
+    "7b17691f882920c2f622897a5a153c19",
+    "9febdf6f45cad8bbe3aa8a2bdcd98499",
+    "a30cb0397806f852803456966106f1d6",
+    "ab429bd09851846fee90a35bccc98c9f",
+    "c08e7a9de69a54d3797f79ae64747907",
+    "ed23c714e75938b14cd4f892d3b64d67",
+    "f6c9de662c323cc869d4fec2a08950b6"
+   ],
+   "candidates": 14,
+   "outcomes_sha": "5b1e0b8d69fa4075cdc522ea3c9ac00ab14af6cf3649dce4c1ddef19e0996a01",
    "patients": 400,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -81,8 +138,8 @@
    "verdicts": {
     "GOUT-COH-INC-01": {
      "met": 118,
-     "not_met": 282,
-     "unknown": 0
+     "not_met": 249,
+     "unknown": 33
     },
     "GOUT-COH-INC-02": {
      "met": 82,
@@ -91,13 +148,13 @@
     },
     "GOUT-COH-INC-03": {
      "met": 90,
-     "not_met": 310,
-     "unknown": 0
+     "not_met": 193,
+     "unknown": 117
     },
     "GOUT-COH-INC-04": {
      "met": 22,
-     "not_met": 378,
-     "unknown": 0
+     "not_met": 345,
+     "unknown": 33
     },
     "GOUT-COH-INC-05": {
      "met": 81,
@@ -111,23 +168,73 @@
     },
     "GOUT-COH-INC-07": {
      "met": 67,
-     "not_met": 333,
-     "unknown": 0
+     "not_met": 300,
+     "unknown": 33
     }
    }
   },
   "synthetic-jp-a": {
    "candidate_pids": [
+    "00025487fb712f497c197253b8a5f47c",
+    "016ff0b742bdb8155e3372b9f8dc1927",
     "020b5c6c37bda7ce9709ffdd1af8fdfd",
     "034ca5970393eb79513ec5eba57470d2",
+    "036b2a10cec547b9e45a3ec821b56e96",
+    "095990d7f7637c59292a024b43b16d64",
+    "0bcca9cc7625f94fd85be43ec253c5f2",
+    "0e3223e6415be8fdc850dc4480e00140",
+    "17d2a632086ce92147cbc82fb098bd88",
+    "222b2434feecd5945214ffc13f60abfd",
+    "278114e8eb8d6f5c7ea868c97b7827fe",
+    "27a8253e7c3b99a2e21245d9d478de7f",
+    "28ce11593201a17b6e9584017dcc6141",
+    "2aeb98f01ed596f1fa6d0921aff1c039",
+    "34d6655b3b78b9c381928163b5a4828b",
+    "3dd0d0021ff1cbb7af9311eb0d37fcb1",
+    "3f7f234a10e958b63c2c155778eb3358",
+    "3f83b34cdf48da99d34d5577c434bec7",
+    "4342c917cfc288493b8207284ea08ec0",
     "4919811fdedc03f2c0937ec59da8bc66",
     "4dedd303d6ca946521256323e5c2bbec",
+    "4e9b94b521fbab3be1678be5a6883ec8",
+    "4e9defd0af58322fdce08501668cd92b",
+    "522ca59911f16262d6280e90a534522e",
+    "5326b1d3bfec21d379aa15ab6755933d",
+    "563a075d046797df0da511434b80781a",
+    "568105eeb1bc711318d2b1a438948906",
+    "606b97c5bbf39de02f7ed7bba35081b3",
+    "61e60a30749d4a78f39edd643260d0c9",
+    "6ba9d1d47c21f18b4ecfcdd8ea180e63",
+    "7696893402202dfcf09d79e62c197cf5",
+    "837a43193d3981d3f41bb24a4f865fa6",
+    "899f15b68f8fd8a64dfe1fffea5467d3",
+    "8c4263151f0871399624511986dd04f3",
+    "9bacd5407d9c60b6c5b60908b29d4543",
+    "a4cc219ee601f664cf875b83db3687d3",
+    "a5e2a7daa1ed86e91bd0d781e7b4a920",
+    "a794eb416cc3d939307cb9f0c313f6f5",
+    "a9063af017a31136a41bdced4607de62",
     "b4a1b842b6cc4358865fa8b73e7c8d6c",
+    "bad3df46d0837f490aea8384dffcaef4",
     "c2bb3196003046cdd98e2ac10edce5a6",
-    "d47858b4b25b344806b8fb1efb63cedd"
+    "c70fadd2f0d5e26a2045d06b74e0ab30",
+    "ca5314ddffb184c87df4187bb6ef896d",
+    "d47858b4b25b344806b8fb1efb63cedd",
+    "d4fb2e559b6248cdfd6111954758152e",
+    "d75134febd0e53a7e49f640007cd86ec",
+    "da02426d2ba9503f7397f3206a0af30d",
+    "df68c259147990ac7a92702755b0d746",
+    "dfad4baaf4e66f88ee56cd22930c772b",
+    "e36c2fffe2066789c6e8e38849d77cb5",
+    "ec570932811426a01f371a102e97885a",
+    "eed73904caa51b2b9b91aef5e6450506",
+    "f0132b88cfb34735b4b3a0e725078b18",
+    "f5db619da0fba5328ce31bac89fb10dc",
+    "fb0d7ae2a2acaeba30660c3aa255aa19",
+    "fbf788e6202e52cc9ed43ffa1351cc81"
    ],
-   "candidates": 7,
-   "outcomes_sha": "7a94347e274deb151a6727329fdc0d966a3ecbb5598de9dc3cc76fb1918322a3",
+   "candidates": 57,
+   "outcomes_sha": "01571582e09a4ce48abf30c65dfc8e5024939f9b0a4e4e8607aad323528b4fd0",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -141,8 +248,8 @@
    "verdicts": {
     "GOUT-COH-INC-01": {
      "met": 734,
-     "not_met": 1758,
-     "unknown": 8
+     "not_met": 1583,
+     "unknown": 183
     },
     "GOUT-COH-INC-02": {
      "met": 542,
@@ -151,13 +258,13 @@
     },
     "GOUT-COH-INC-03": {
      "met": 521,
-     "not_met": 1973,
-     "unknown": 6
+     "not_met": 1146,
+     "unknown": 833
     },
     "GOUT-COH-INC-04": {
      "met": 115,
-     "not_met": 2375,
-     "unknown": 10
+     "not_met": 2200,
+     "unknown": 185
     },
     "GOUT-COH-INC-05": {
      "met": 472,
@@ -171,23 +278,98 @@
     },
     "GOUT-COH-INC-07": {
      "met": 392,
-     "not_met": 2108,
-     "unknown": 0
+     "not_met": 1931,
+     "unknown": 177
     }
    }
   },
   "synthetic-jp-a-deletes": {
    "candidate_pids": [
+    "016ff0b742bdb8155e3372b9f8dc1927",
+    "02bba53653019476be4675c15ca4476a",
     "034ca5970393eb79513ec5eba57470d2",
+    "036b2a10cec547b9e45a3ec821b56e96",
+    "06dbe87962ab875f8bd88f73222218f8",
+    "095990d7f7637c59292a024b43b16d64",
+    "0bcca9cc7625f94fd85be43ec253c5f2",
+    "0cfc35e24974a7abea2a8b9bf5073b6d",
+    "0e3223e6415be8fdc850dc4480e00140",
+    "12b6e5d5c526d574c71de2d7f33182ae",
+    "163713ca0790637b8e363067ed6e2574",
+    "17d2a632086ce92147cbc82fb098bd88",
+    "222b2434feecd5945214ffc13f60abfd",
+    "278114e8eb8d6f5c7ea868c97b7827fe",
+    "27a8253e7c3b99a2e21245d9d478de7f",
+    "28ce11593201a17b6e9584017dcc6141",
+    "2aeb98f01ed596f1fa6d0921aff1c039",
+    "34d6655b3b78b9c381928163b5a4828b",
+    "35fd6e9a2ce2066b3efdffee0e5b01f1",
+    "3dd0d0021ff1cbb7af9311eb0d37fcb1",
+    "3eb21eaa13f807df9f0d089f467fdf07",
+    "3eb87abc6dd9b69b9c430201b03731ca",
+    "3f7f234a10e958b63c2c155778eb3358",
+    "3f83b34cdf48da99d34d5577c434bec7",
+    "4342c917cfc288493b8207284ea08ec0",
+    "4743c17b63b10fa37a42d1cda102d18d",
     "4dedd303d6ca946521256323e5c2bbec",
+    "4e9b94b521fbab3be1678be5a6883ec8",
+    "4e9defd0af58322fdce08501668cd92b",
+    "522ca59911f16262d6280e90a534522e",
+    "5326b1d3bfec21d379aa15ab6755933d",
+    "563a075d046797df0da511434b80781a",
+    "568105eeb1bc711318d2b1a438948906",
+    "5805d008fcb2fa4b9256d5642905a10c",
+    "5d2e34b7615b3cbffde62fcbe4605ad2",
+    "606b97c5bbf39de02f7ed7bba35081b3",
+    "61e60a30749d4a78f39edd643260d0c9",
+    "67e93746ca84dfd5c1aece6e4b6c8f6e",
+    "6ba9d1d47c21f18b4ecfcdd8ea180e63",
+    "740827eafe56929584b82f181f4f645c",
+    "7696893402202dfcf09d79e62c197cf5",
+    "7860bdc4b53ac510c31698ff9ad04fd9",
+    "7bb4a154c854431b3cd95cf8d8ff1dee",
+    "837a43193d3981d3f41bb24a4f865fa6",
+    "899f15b68f8fd8a64dfe1fffea5467d3",
     "8b85e2b3a8c24b78bc02d836acbf72fc",
+    "8c4263151f0871399624511986dd04f3",
+    "9bacd5407d9c60b6c5b60908b29d4543",
+    "9d9473c15963bd2ed9f5a06703f000c0",
+    "9da8bbc3d9942187f75893948a03b0c4",
+    "a4cc219ee601f664cf875b83db3687d3",
+    "a5e2a7daa1ed86e91bd0d781e7b4a920",
+    "a794eb416cc3d939307cb9f0c313f6f5",
+    "a9063af017a31136a41bdced4607de62",
     "b4a1b842b6cc4358865fa8b73e7c8d6c",
+    "bad3df46d0837f490aea8384dffcaef4",
+    "bf363beaae77f69533dd6e93ec544f01",
     "c2bb3196003046cdd98e2ac10edce5a6",
+    "c70fadd2f0d5e26a2045d06b74e0ab30",
+    "ca5314ddffb184c87df4187bb6ef896d",
+    "d263f3aa48543a0da27869b445eca485",
     "d47858b4b25b344806b8fb1efb63cedd",
-    "d591edeb5920715e0bd200fdec855805"
+    "d4fb2e559b6248cdfd6111954758152e",
+    "d591edeb5920715e0bd200fdec855805",
+    "d69f5fb84d8ec7ce60861cb22296e102",
+    "d75134febd0e53a7e49f640007cd86ec",
+    "da02426d2ba9503f7397f3206a0af30d",
+    "dddd1727bbd34cd3286cf9a8f6089057",
+    "df68c259147990ac7a92702755b0d746",
+    "dfad4baaf4e66f88ee56cd22930c772b",
+    "e36c2fffe2066789c6e8e38849d77cb5",
+    "e7fd6a7fab32e2fb8724cfcb7eb40292",
+    "e89ddfedc807fbd9620cb2460daf1d85",
+    "eab67c95d6bf1bd900bf503e75ba69cb",
+    "eb315b703c3adf27a589100f62f6ded2",
+    "ec570932811426a01f371a102e97885a",
+    "eed73904caa51b2b9b91aef5e6450506",
+    "f0132b88cfb34735b4b3a0e725078b18",
+    "f2eac2fda7f8289fb9778dcb8a19630a",
+    "f5db619da0fba5328ce31bac89fb10dc",
+    "fb0d7ae2a2acaeba30660c3aa255aa19",
+    "fbf788e6202e52cc9ed43ffa1351cc81"
    ],
-   "candidates": 7,
-   "outcomes_sha": "49335badd162276146e16103bbd7442bd95c1313814ab0a0b8613090b21575bd",
+   "candidates": 82,
+   "outcomes_sha": "9a7fc3b0371f083ecf9fd6053ffcdc5a33f556996c0ee51c519607c48217ff0f",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -201,8 +383,8 @@
    "verdicts": {
     "GOUT-COH-INC-01": {
      "met": 701,
-     "not_met": 1791,
-     "unknown": 8
+     "not_met": 1551,
+     "unknown": 248
     },
     "GOUT-COH-INC-02": {
      "met": 509,
@@ -211,13 +393,13 @@
     },
     "GOUT-COH-INC-03": {
      "met": 521,
-     "not_met": 1973,
-     "unknown": 6
+     "not_met": 1134,
+     "unknown": 845
     },
     "GOUT-COH-INC-04": {
      "met": 94,
-     "not_met": 2396,
-     "unknown": 10
+     "not_met": 2156,
+     "unknown": 250
     },
     "GOUT-COH-INC-05": {
      "met": 464,
@@ -231,23 +413,93 @@
     },
     "GOUT-COH-INC-07": {
      "met": 347,
-     "not_met": 2153,
-     "unknown": 0
+     "not_met": 1910,
+     "unknown": 243
     }
    }
   },
   "synthetic-tw-a": {
    "candidate_pids": [
     "01ca75965505568ea795970b81b916c1",
+    "030ec7c934b13bef4baf4b858b104769",
+    "03ff05f49a7ea2032bed2a64b7b2c697",
+    "05e2231ea6fdb2c39453c6917eab60fc",
+    "10cc4645798a85e7e056890d578a0526",
+    "1318ced01c83b1c20a399f7760ab0471",
+    "19736e732693815ca3ab2e8a3cbf9664",
+    "1e99a10fde08d96313a72a247998bdd6",
+    "20a16335ecc372ee19e8781374a004f7",
+    "223494b2e544da1111da06606b817c2a",
+    "22a522c479711a4868c8fb5a32cf931f",
+    "2321e2df8fa01f30145f1051f8cb8a33",
+    "25130c4bedbab8024353665adad018e6",
+    "2641c014b81caffca2e5a673c0c51e3e",
+    "2893a9c625124dcbd34f20afb9b7b5df",
+    "29164e805c552598c6483af46e0ae1d3",
+    "291da033f440857da3dcd077169a621d",
+    "2e249f0236f4f7a36835e949ae8b46d7",
+    "2e2a4fc4a63614978e9c38183541df2d",
+    "38dc32a416ff27828e4a2718cc04167f",
+    "3a1988690fc9476cdbd23ad4a05dadd2",
     "3db4580b1e51fc139aeff58ee3980561",
+    "3e1f4c4d992b1b39854fc553098e7553",
+    "3f109965674a8d76c41eab98708ba46b",
+    "4007708ff1587a23f9c36341be9c9c5e",
     "40f417a15d121a2877536fe48fb00bc3",
+    "42b6caeb41e8fe5dc9ab9d6524edae6c",
+    "43eae57f5afa215076628a57ae236fe9",
+    "47ca53eb88feb8899ae1d1ef7220d3c6",
+    "4d4a0d94d76af66964f08eab2626b314",
+    "4dd5a61f7f4171490a83509e9ddad4d7",
+    "4ee01af7b6dc8d7618cb71ce2ed7558f",
+    "50a182e015e83dc08a6920e499e164ff",
+    "541094c74e5776cf788ce912c699dc05",
+    "575e620fcf239c72e86a156ad311549b",
+    "5b6d56e293071d3a513c3542fc5b04fd",
+    "5c6d96292d91685912fef3d35afabbb9",
     "5da59ec8f2dc09e59b6e020fb24839c5",
+    "634e8cd88f6d1e44c5af4571f249c648",
+    "72017e901d0378a0176ff88dd60657aa",
     "77388c7f746504c417b7f990151b35df",
+    "7b32240510d44cd544498c843e79eac7",
+    "7c4837a969b41f159cb125c118625994",
+    "81b0fe8e3e85b781a6431d7ef724067c",
+    "8348829e2fe6cc2874f2528705838bef",
+    "875cd83bb4f71f16b9c2b4fa8a4a77ac",
+    "8c47d3336336f0bc0348c429fb89dc62",
+    "8e6eb0a31d0f062234bf77b9a1df4eb7",
+    "9061885a43cdf36ca675ca288773dd3e",
+    "9ae9bc843cb11e437de546906a856afd",
+    "9f69485fa20bcf28be52eb5604d5a9d1",
+    "a2b7dde2d8c60cd5256248f6d7c3a048",
+    "a52f6b4434c798ea575e72f9a1817da2",
+    "a7ffebb3229bb094dd3302c2fb99ddaa",
+    "acf12f77cb589bc2f34679b7687cde39",
+    "ad39e4cbcb36463d2ee6807ea1e70e89",
+    "b1aa81134d5a98d33feba27658775161",
+    "b2eef7422abd7b1754b73761ed426df7",
+    "b558967fb82a5f7614586e801a3f4824",
     "bad926ed536872ce7d0d835f3f854fdd",
-    "c3a18f529c61537ffd914ef5a70bf6e9"
+    "bcafd6b19f2be685e46621a8f13c349f",
+    "bce1630a9163e96c4b932b7c45b14d90",
+    "bdac18365d8ffcd4f4bebdb53c951568",
+    "c0b47b73495b22dcd6162ef855fd32a4",
+    "c3a18f529c61537ffd914ef5a70bf6e9",
+    "c98a3144cec3166e4601d0541f8ac8d9",
+    "cb6e39a6a1422881c8c9e6d9486f2647",
+    "cd498e664c738d67aaf9b9063281cb5d",
+    "ce116c5189f6be6f1dd6e947613674bc",
+    "d89f598614b0726a9874c372520c2b3d",
+    "d9cdda49f16999e2ab45132312df5233",
+    "db7a5b64c2591621b959037a71ec8cc8",
+    "e40d4791591d84c0e3bdbb20ccb70c1e",
+    "e839089abbacf504ebb5d5b0ec5a8c32",
+    "e9df2ae2e7f7833f850a3f7709832ddd",
+    "f7c4d9435a568ddc123beeaf5a873d51",
+    "f9c00ecd7666eb4665f5d59d39abe596"
    ],
-   "candidates": 7,
-   "outcomes_sha": "f3d360f6dd80a52a623bbd0aa266094dbe3b149cac17d729872b79dccb3d4926",
+   "candidates": 77,
+   "outcomes_sha": "6a8a5db45935e1f638d681dcd7689f19228fd6aecff37791858e3c90673ddde8",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -261,8 +513,8 @@
    "verdicts": {
     "GOUT-COH-INC-01": {
      "met": 750,
-     "not_met": 1742,
-     "unknown": 8
+     "not_met": 1549,
+     "unknown": 201
     },
     "GOUT-COH-INC-02": {
      "met": 501,
@@ -271,13 +523,13 @@
     },
     "GOUT-COH-INC-03": {
      "met": 540,
-     "not_met": 1952,
-     "unknown": 8
+     "not_met": 1160,
+     "unknown": 800
     },
     "GOUT-COH-INC-04": {
      "met": 146,
-     "not_met": 2344,
-     "unknown": 10
+     "not_met": 2151,
+     "unknown": 203
     },
     "GOUT-COH-INC-05": {
      "met": 526,
@@ -291,8 +543,8 @@
     },
     "GOUT-COH-INC-07": {
      "met": 369,
-     "not_met": 2131,
-     "unknown": 0
+     "not_met": 1938,
+     "unknown": 193
     }
    }
   }

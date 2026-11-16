@@ -7,6 +7,7 @@ link to the screening log in the sponsor's columns). Words as ``i18n_edc``: 治�
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "copy.redcap_now": "REDCap now holds {value}: it changed there after TrialBox sent it. Check before copying.",
     "copy.title": "Copy-assist",
     "copy.help": "The signed values of this subject, visit by visit and form by form in the order of the sponsor's form, each with its source. Type each value into the sponsor's EDC, then tick it as copied. TrialBox writes nothing to the sponsor's EDC. A value that is not signed is not shown here.",
     "copy.open": "Copy-assist",
@@ -53,6 +54,7 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "copy.redcap_now": "REDCap の現在の値は {value}：TrialBox の送信後に変更されています。転記の前に確認してください。",
     "copy.title": "転記支援",
     "copy.help": "この被験者の電子署名済みの値を、来院ごと・フォームごとに治験依頼者のフォームの順で、原資料とともに表示します。各値を治験依頼者の EDC に入力し、転記済みとして印を付けてください。TrialBox は治験依頼者の EDC に何も書き込みません。署名されていない値はここに表示されません。",
     "copy.open": "転記支援",
@@ -99,6 +101,7 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "copy.redcap_now": "REDCap 目前的值為 {value}：TrialBox 送出後已在該處變更。抄寫前請先確認。",
     "copy.title": "轉錄輔助",
     "copy.help": "本受試者已電子簽章的數值，依訪視與表單、按試驗委託者表單的順序列出，並附原始資料。請將各數值輸入試驗委託者的 EDC，再標記為已轉錄。TrialBox 不會寫入試驗委託者的 EDC。未簽章的數值不會顯示於此。",
     "copy.open": "轉錄輔助",

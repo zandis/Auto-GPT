@@ -17,8 +17,9 @@
 #                   the media is loaded, ClinicalTrials.gov offline, no route out of the box
 #   egress-override no route out, with the REHEARSAL's internal egress-net (standins.yml); the shipped egress-net and
 #                   deploy/network.sh are not rehearsed (no NET_ADMIN): the site's IQ checks them
-#   guard           on model-net only model-guard answers to the model servers' names: /invocations, /tokenize,
-#                   /collective_rpc, /metrics ... 404 with or without the key, /v1 needs the key (D-177)
+#   guard           on model-net only model-guard answers to the model servers' names: /invocations,
+#                   /collective_rpc, /metrics ... 404 with or without the key, /v1 and /tokenize need the key (D-177,
+#                   D-739)
 #   console         the console answers /healthz and its sign-in page; it resolves no outside name and reaches nothing
 #                   outside (console-net, D-176)
 #   screen          SCREEN GZQO on synthetic hospital A ends done, through the gateway to both pinned builds
@@ -31,9 +32,14 @@
 #
 # Writes $TB_REHEARSE_DIR/report.md and report.json; exit 0 only when every step passes.
 #
+# The rehearsal box is VALIDATION (D-887, the integrator's (i)), run as a validation run on a plain VM: no TPM and the
+# passphrase KEK (TB_KEK_BACKEND=passphrase, a throwaway synthetic passphrase), TB_HOST_PROFILE=poc.
+# TB_REHEARSE_VARIANT=validation adds a root-owned deploy/site and a second install of the same bundle.
 # Knobs: TB_REHEARSE_DIR (default a fresh mktemp dir; the same path is mounted in the box container, docker-outside-of-
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
+# TB_REHEARSE_MIN_FREE_GB (default 30: free space wanted for the work dir and Docker's root), TRIVY_CACHE (default
+# .cache/trivy: the gates' database, `make trivy-db` at most 7 days before; D-883).
 # Needs: Docker with compose, no other TrialBox stack running on it, port 8090 free, python3 with the repo's venv.
 # Either Docker image store: the containerd store keeps digests, the classic overlay2 store does not (tools/
 # image_pins.py); DOCKER_HOST=unix:///path/docker.sock rehearses on another daemon (its socket goes into the box).
@@ -41,6 +47,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT" || exit 2
 PY="${PY:-$ROOT/.venv/bin/python}"
+VARIANT="${TB_REHEARSE_VARIANT:-test}"
+case "$VARIANT" in test|validation) ;; *) echo "rehearse: TB_REHEARSE_VARIANT must be test or validation" >&2; exit 2 ;; esac
 # The work dir holds box.sh, which runs with the Docker socket: a fresh private dir by default; a given one must be
 # absolute, at least three levels deep, not a system folder, and new or the caller's own earlier rehearsal dir.
 if [ -z "${TB_REHEARSE_DIR:-}" ]; then
@@ -87,7 +95,7 @@ step() {  # step <name> <fatal 0|1> <command...>
   [ "$fatal" = 1 ] && BLOCKED="$name"
   return 1
 }
-in_box() { docker exec -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
+in_box() { docker exec -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
   "$HOST_CT" bash "$W/run/box.sh" "$@"; }
 box_containers() { docker ps -q --filter label=com.docker.compose.project=trialbox; }
 
@@ -98,6 +106,10 @@ preconditions() {
   [ -z "$(docker ps -aq --filter label=com.docker.compose.project=trialbox)" ] \
     || { echo "a TrialBox compose project already exists on this Docker host (make down / poc-down first)"; return 1; }
   [ -x "$PY" ] || { echo "no venv at $PY (make venv)"; return 1; }
+  # D-883: the gates' Trivy database and the disk, before the build rather than half an hour into it
+  "$PY" -m tools.rehearse_box.preflight --work "$W" --trivy-cache "${TRIVY_CACHE:-.cache/trivy}" \
+    --docker-root "$(docker info --format '{{.DockerRootDir}}')" --min-free-gb "${TB_REHEARSE_MIN_FREE_GB:-30}" \
+    || return 1
   mkdir -p "$W/vendor" "$W/run" "$MEDIA/linux" "$MEDIA/measured" "$MEDIA/windows" || return 1
   cp tools/rehearse_box/box.sh "$W/run/box.sh" && cp -r tools/rehearse_box/shims "$W/run/shims"
   echo "ok: docker $(docker version --format '{{.Server.Version}}'), work dir $W"
@@ -153,7 +165,8 @@ media() (  # a subshell: set -e stops the step, not the run
   # no bundle without its checks (T-110b, D-340): the release gates over exactly these images, then the bundle
   make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$W/vendor/gates" SC_IMAGES="${imgs[*]}" || { echo "the release gates did not pass"; return 1; }
   # D-631: a rehearsal builds from the working tree and says so; a release for a site never passes --allow-dirty
-  tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" \
+  # D-726, D-887: a rehearsal bundle (release.json says so): a site box refuses it; a rehearsal box pins its placeholders
+  tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" --rehearsal \
     --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
     --out "$MEDIA/linux/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
     --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
@@ -207,8 +220,12 @@ host_up() {
   docker rm -f "$HOST_CT" >/dev/null 2>&1
   # --network host: the console's published 127.0.0.1 port is the host's; no NET_ADMIN, so the installer's nftables
   # step (deploy/network.sh apply) cannot touch the Docker host's firewall and reports that it was not applied
+  # D-887: the box host sees the secrets volume by its host path, as a site's host does (the host check hands it to the
+  # doctor); the seal also writes the KEK where the services mount it, /run/trialbox
+  local droot; droot="$(docker info --format '{{.DockerRootDir}}')" || return 1
+  local site=(-v "$droot/volumes:$droot/volumes" -v "/run/trialbox:/run/trialbox")
   docker run -d --name "$HOST_CT" --hostname trialbox-rehearsal --network host --restart no \
-    -v "$SOCK:/var/run/docker.sock" -v "$W:$W" "$HOST_IMG" sleep infinity || return 1
+    -v "$SOCK:/var/run/docker.sock" -v "$W:$W" ${site[@]+"${site[@]}"} "$HOST_IMG" sleep infinity || return 1
   docker exec "$HOST_CT" sh -c '. /etc/os-release; echo "ok: box host $PRETTY_NAME, $(docker compose version)"'
 }
 
@@ -249,15 +266,18 @@ teardown() {
     >>"$LOGS/teardown.log" 2>&1 || true
   docker rm -f "$HOST_CT" >/dev/null 2>&1 || true
   docker image rm "$HOST_IMG" >/dev/null 2>&1 || true
+  # D-887: the rehearsal's KEK and its throwaway passphrase do not outlive it
+  docker run --rm -v /run/trialbox:/k ubuntu:24.04 rm -f /k/kek >/dev/null 2>&1 || true
+  rm -f "$W/vendor/kek-pass"
   restore_images
   # keep the report and logs; drop the media and the box (gigabytes)
-  docker run --rm -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
+  docker run --rm --user 0:0 -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
     sh -c "rm -rf '$W/media' '$W/box' '$W/vendor/models'" >/dev/null 2>&1 || rm -rf "${W:?}/media" "${W:?}/box" "${W:?}/vendor/models"
 }
 
 # ------------------------------------------------------------------------------------------------ run
 find "$W" -mindepth 1 -delete 2>/dev/null; rm -rf "$W"; (umask 077 && mkdir -p "$W") && touch "$W/.tb-rehearse-box" && mkdir -p "$LOGS" || exit 2
-echo "TrialBox box-install rehearsal $ID, work dir $W"
+echo "TrialBox box-install rehearsal $ID ($VARIANT), work dir $W"
 BLOCKED=""
 step preconditions 1 preconditions
 step images 1 images
@@ -268,6 +288,7 @@ step host-up 1 host_up
 step wsl2 0 in_box wsl2
 step media-negative 0 in_box media-negative
 step install 1 in_box install
+[ "$VARIANT" = validation ] && step reinstall 1 in_box reinstall
 step doctor 0 in_box doctor
 step served 0 in_box served
 step offline 0 in_box offline
@@ -289,7 +310,7 @@ teardown
 VERDICT=PASS
 for s in "${STATES[@]}"; do [ "$s" = PASS ] || VERDICT=FAIL; done
 {
-  echo "# TrialBox box-install rehearsal: $VERDICT"
+  echo "# TrialBox box-install rehearsal ($VARIANT): $VERDICT"
   echo
   echo "Media $ID from $(git rev-parse --short HEAD), $(date -u +%FT%TZ), docker $(docker version --format '{{.Server.Version}}' 2>/dev/null) ($(docker info --format '{{.Driver}}' 2>/dev/null) image store)," \
     "real deploy/install.sh --tier large in Ubuntu 24.04 with the strict vLLM stand-ins (D-176, D-177)."
@@ -300,11 +321,11 @@ for s in "${STATES[@]}"; do [ "$s" = PASS ] || VERDICT=FAIL; done
   echo
   echo "Logs: $LOGS (compose.log: every box service)."
 } | tee "$W/report.md"
-"$PY" - "$W/report.json" "$VERDICT" "$ID" "${NAMES[@]}" -- "${STATES[@]}" <<'EOF' || true
+"$PY" - "$W/report.json" "$VERDICT" "$ID" "$VARIANT" "${NAMES[@]}" -- "${STATES[@]}" <<'EOF' || true
 import json, sys
-out, verdict, media, *rest = sys.argv[1:]
+out, verdict, media, variant, *rest = sys.argv[1:]
 cut = rest.index("--")
-json.dump({"verdict": verdict, "media": media, "steps": dict(zip(rest[:cut], rest[cut + 1 :], strict=True))},
+json.dump({"verdict": verdict, "media": media, "variant": variant, "steps": dict(zip(rest[:cut], rest[cut + 1 :], strict=True))},
           open(out, "w"), indent=1)
 EOF
 [ "$VERDICT" = PASS ]

@@ -116,7 +116,8 @@ def test_an_update_keeps_the_bundle_pins_and_resolves_them_before_the_restart(
     n = len(calls)
     with pytest.raises(up.UpdateFailed, match="pinned images"):
         box.restart(plan)
-    assert len(calls) == n
+    # D-834: the one compose call before the stop is the read-only `config --images` (the images the stack runs)
+    assert [c[-2:] for c in calls[n:]] == [["config", "--images"]]
 
 
 # ------------------------------------------------------------------------------------------------ OPS-004b (D-574)

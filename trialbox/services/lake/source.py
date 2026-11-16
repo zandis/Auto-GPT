@@ -33,7 +33,7 @@ import time
 from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from lake.flatten import Flattener
 
@@ -145,8 +145,9 @@ def lake_rows(
         for k, v in site.items():  # D-135: the site's own inputs join every snapshot (after the hospital's)
             merged.setdefault(k, []).extend(v)
         return Flattener(tz).flatten(merged)
-    if stream:  # NEW-B-37 (D-678): re-readable streams go to the OMOP load as they are, read a chunk at a time
-        return omop_rows(feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
+    if stream:  # NEW-B-37 (D-678): re-readable streams go to the OMOP load as they are, read a chunk at a time;
+        # T-702 (D-754): the export back comes as re-readable streams of a spool on the lake's volume
+        return omop_rows(feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted, spool=True)
     feed_l: Resources = {k: list(v) for k, v in feed.items()}
     site_l: Resources = {k: list(v) for k, v in site.items()}
     return omop_rows(feed_l, site_l, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
@@ -172,11 +173,16 @@ def omop_rows(
     url: str | None = None,
     lake_dir: Path | None = None,
     deleted: dict[str, list[str]] | None = None,
+    spool: bool = False,
 ) -> Rows:
+    """Load the snapshot into the lake's OMOP store and export the lake rows back. With ``spool`` (T-702, D-754) the
+    rows come back as re-readable streams of files in the lake's scratch folder (``lake.store.temp_dir``), removed
+    once the streams are dropped: never the whole export in memory."""
     import logging
+    import tempfile
 
     from omop import schema
-    from omop.export import export_rows
+    from omop.export import export_rows, export_spool
     from omop.load import load_batch
 
     log = logging.getLogger("lake")
@@ -187,7 +193,16 @@ def omop_rows(
         files = {k: f"ndjson/{snapshot}/{k}.ndjson" for k in feed}
         f = load_batch(db, "feed", snapshot, feed, files, tz, name, deleted=deleted)
         s = load_batch(db, "site", f"site@{snapshot}", site, {k: f"site/{k}.ndjson" for k in site}, tz, name)
-        rows = export_rows(db)
+        if spool:
+            from lake.store import temp_dir
+
+            base = temp_dir(lake_dir) if lake_dir is not None else Path(tempfile.gettempdir())
+            base.mkdir(parents=True, exist_ok=True)
+            out = Path(tempfile.mkdtemp(prefix="omop-export-", dir=base))
+            # re-readable streams in place of lists, as the legacy path's stream (Flattener.stream) gives them
+            rows: Rows = cast(Rows, export_spool(db, out, remove_when_done=True))
+        else:
+            rows = export_rows(db)
     finally:
         db.close()
     log.info("lake from OMOP: feed %s, site %s, export in %.1f s", f.as_dict(), s.as_dict(), time.perf_counter() - t0)

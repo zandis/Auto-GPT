@@ -36,8 +36,10 @@ from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.flatten import BASIS, DEMOGRAPHIC
 from lake.store import Lake
+from matching import carried as carried_mod
 from matching import coverage as coverage_mod
 from matching import proposed as proposed_mod
+from matching import recorded as recorded_mod
 from matching.cascade import engine as cascade_engine
 from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.cascade.judge import JudgeReply
@@ -314,6 +316,14 @@ class _FakeLake:
         if sql == coverage_mod.SQL:
             self.queries.append("coverage")
             return _Rows([r for r in self.gaps if params[0] is None or r["pid"] in params[0]])
+        if sql == carried_mod.SQL:  # D-795: a site whose rows carry every system the ruleset's lists use
+            self.queries.append("carried")
+            systems = {i["system"] for v in (self.rs.valuesets or {}).values()
+                       for i in (v.get("compose") or {}).get("include") or [] if i.get("system")}  # fmt: skip
+            return _Rows([{"domain": d, "system": sy} for d in carried_mod.DOMAINS for sy in sorted(systems)])
+        if sql in recorded_mod.QUERIES.values():  # D-914: every patient has records of every kind
+            self.queries.append("recorded")
+            return _Rows([{"pid": p} for p in params[0]])
         if sql == proposed_mod.SQL:
             self.queries.append("proposed")
             return _Rows([r for r in self.facts if params[0] is None or r["pid"] in params[0]])
@@ -629,13 +639,20 @@ def test_p3_proposed_facts_never_decide_an_answer(prop_world: dict[str, Any]) ->
     """For every fact kind at every date: the runtime answer is the coded answer or ``unknown``, never another
     decided answer, and an unknown coded answer stays unknown. Kills P01 to P04, P08, P11."""
     raw, ev = prop_world["raw"], prop_world["evaluated"]
+    # D-914: a patient with no coded record of the criterion's kind at all also reads unknown, with its own reason
+    rec = recorded_mod.Recorded.load(prop_world["lake"], prop_world["pids"], None)
+    by_id = prop_world["rs"].by_id()
     for pid in prop_world["pids"]:
         got = ev[pid].results
         for c in PROP_IDS:
             assert got[c] in (raw[pid][c], None), (pid, c, raw[pid][c], got[c])
             if got[c] is None and raw[pid][c] is not None:
+                why = (ev[pid].reasons or {})[c]
+                if why == recorded_mod.NO_RECORD:
+                    assert rec.doubt(by_id[c], pid, raw[pid][c]), (pid, c)  # only for a record that is not there
+                    continue
                 want = SUSPECTED_DIAGNOSIS if pid.startswith("S-") else PROPOSED_FACT
-                assert (ev[pid].reasons or {})[c] == want, (pid, c)
+                assert why == want, (pid, c)
     base = {c: ev["BASE-G"].results[c] for c in PROP_IDS}
     assert base == raw["BASE-G"] and not ev["BASE-G"].reasons
 

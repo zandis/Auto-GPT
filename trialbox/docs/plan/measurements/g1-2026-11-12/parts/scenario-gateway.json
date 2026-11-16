@@ -1,0 +1,117 @@
+{
+ "stages": [
+  {
+   "name": "installed-box gateway: a judge call and a chart-reading call",
+   "ok": true,
+   "seconds": 4.4,
+   "checks": [
+    [
+     "the probe ran",
+     true,
+     "{'judge': 'answered', 'chart_facts': 'answered'}"
+    ],
+    [
+     "A-01 (D-142): a judge call (a PHI prompt) through the installed box's gateway is answered",
+     true,
+     "answered"
+    ],
+    [
+     "GW-02 (D-142): a chart_facts call (a PHI prompt) through the installed box's gateway is answered",
+     true,
+     "answered"
+    ]
+   ],
+   "shot": "scenario-gateway.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "scenario": {
+  "input": "TB_ENV=PRODUCTION, TB_PROFILE=P-PRO6000, no TB_DATA_CLASS (as install.sh leaves it)",
+  "counts": {},
+  "expected": {
+   "judge": "answered",
+   "chart_facts": "answered"
+  },
+  "got": {
+   "judge": "answered",
+   "chart_facts": "answered"
+  },
+  "model_calls": 0,
+  "seconds": 4.5,
+  "title": "Probe: the installed box's model gateway"
+ },
+ "findings": [],
+ "run": {
+  "id": "20261112T165042Z-931a0f79-s1",
+  "head": "931a0f79540ca8e80de546f6a56021b5f00b9184",
+  "subject": "Merge master into fix/g1-canary-rehearsal",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "llm_concurrency": 1,
+ "metrics": {
+  "sampled": true,
+  "seconds": 5.0,
+  "folder": "parts/scenario-gateway",
+  "servers": {
+   "judge": {
+    "scraped": true,
+    "prompt_tokens": 705.0,
+    "generation_tokens": 169.0,
+    "requests": 2.0,
+    "ttft_seconds_sum": 0.105,
+    "ttft_count": 2.0,
+    "queue_seconds_sum": 0.003,
+    "queue_count": 2.0,
+    "e2e_seconds_sum": 3.919,
+    "e2e_count": 2.0,
+    "ttft_mean_s": 0.0525,
+    "queue_mean_s": 0.0015,
+    "e2e_mean_s": 1.9595
+   },
+   "verifier": {
+    "scraped": true,
+    "prompt_tokens": 0.0,
+    "generation_tokens": 0.0,
+    "requests": 0.0,
+    "ttft_seconds_sum": 0.0,
+    "ttft_count": 0.0,
+    "queue_seconds_sum": 0.0,
+    "queue_count": 0.0,
+    "e2e_seconds_sum": 0.0,
+    "e2e_count": 0.0
+   }
+  },
+  "gpu": {
+   "samples": 2,
+   "every_s": 10.0,
+   "util_mean_pct": 0.0,
+   "util_max_pct": 0.0,
+   "memory_peak_mib": 62592.0,
+   "memory_total_mib": 97887.0,
+   "temperature_max_c": 39.0,
+   "power_max_w": 134.8
+  },
+  "gauges": {
+   "judge": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   },
+   "verifier": {
+    "running_max": 0.0,
+    "waiting_max": 0.0,
+    "kv_cache_usage_max": 0.0
+   }
+  }
+ },
+ "wall_seconds": 5.1
+}

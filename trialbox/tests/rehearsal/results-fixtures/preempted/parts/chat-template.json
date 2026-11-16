@@ -1,0 +1,66 @@
+{
+ "stages": [
+  {
+   "name": "G-1 chat template: the passed file against the weights folder's own",
+   "ok": true,
+   "seconds": 41.0,
+   "checks": [
+    [
+     "the two templates are identical (sha256 of the text)",
+     true,
+     {
+      "folder": "ad2b31d291ad4baadea5b62e5cf9da45fe05553ff7685ec3cb80e30d1a2526e8",
+      "passed": "ad2b31d291ad4baadea5b62e5cf9da45fe05553ff7685ec3cb80e30d1a2526e8"
+     }
+    ],
+    [
+     "the judge's server gives the folder's tokens on every prompt",
+     true,
+     []
+    ],
+    [
+     "the passed template gives the folder's tokens on every prompt",
+     true,
+     []
+    ]
+   ]
+  }
+ ],
+ "chat_template": {
+  "judge_model": "local/synthetic-judge-fixture",
+  "judge_started_with": "chat_template.jinja",
+  "passed": {
+   "path": "chat_template.jinja",
+   "sha256": "ad2b31d291ad4baadea5b62e5cf9da45fe05553ff7685ec3cb80e30d1a2526e8",
+   "from": "the serving record",
+   "served_with_it": true
+  },
+  "passed_text_sha256": "ad2b31d291ad4baadea5b62e5cf9da45fe05553ff7685ec3cb80e30d1a2526e8",
+  "folder_template_sha256": "ad2b31d291ad4baadea5b62e5cf9da45fe05553ff7685ec3cb80e30d1a2526e8",
+  "folder_template_chars": 1532,
+  "transformers": "fixture",
+  "tokens": {
+   "prompts": 20,
+   "tokens": 3120,
+   "server_equals_folder": true,
+   "server_different": [],
+   "passed_equals_folder": true,
+   "passed_different": []
+  },
+  "identical": true
+ },
+ "run": {
+  "id": "20261112T090000Z-0f1e2d3c-s1",
+  "head": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+  "subject": "fixture",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "fixture-vm"
+  },
+  "weight_pins": "synthetic"
+ },
+ "wall_seconds": 44.2
+}

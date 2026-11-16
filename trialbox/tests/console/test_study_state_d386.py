@@ -156,7 +156,8 @@ def test_a_paused_study_gives_no_mail() -> None:
 
 def test_a_paused_study_still_mails_its_participants_care() -> None:
     """A pause stops recruitment, not the care of the enrolled: an unacknowledged serious AE is still mailed, without
-    any list row. Start-up and closed mail nothing."""
+    any list row. Start-up mails nothing. NEW-LIFE-6 (D-763): a closed study (closed only when empty) still mails the
+    care of a participant back on study after the close, and no list row."""
     store = SiteStore()
     store.save_notify_person(NotifyPerson("pi", None, lang="en"))
     h = _helpers(store, life={"today": [], "week": [], "overdue": [], "reports": [], "sae": 1})
@@ -165,7 +166,8 @@ def test_a_paused_study_still_mails_its_participants_care() -> None:
     assert len(n1) == 1 and n1[0].counts == {"today": 0, "week": 0, "sae": 1}
     assert "11111111" not in n1[0].body
     store.set_study_state("GZQO", "closed", "ended", "crc", "2026-11-02T00:10:00+00:00")
-    assert notify.collect(h, MONDAY, ("N1",)) == []
+    n1 = notify.collect(h, MONDAY, ("N1",))
+    assert len(n1) == 1 and n1[0].counts == {"today": 0, "week": 0, "sae": 1} and "11111111" not in n1[0].body
 
 
 # ---------------------------------------------------------------------------------------------- no list when paused
@@ -255,7 +257,7 @@ def test_the_coordinator_pauses_the_study_and_the_ids_print_on_the_log(box: dict
     assert _events(box, "console.study_identity")[0]["detail"]["jrct"] == JRCT
     log = crc.get("/studies/GZQO/screening-log").text
     assert f'data-testid="log-id-jrct">{JRCT}<' in log and f'data-testid="log-id-tw">{TW}<' in log
-    assert "Paused" in log
+    assert "Closed to recruitment / paused" in log  # D-763 (LIFE-006): the label says what the state means
     x = crc.get("/studies/GZQO/screening-log.xlsx")
     assert x.status_code == 200
     about = {row[0]: row[1:] for row in load_workbook(io.BytesIO(x.content))["about"].iter_rows(values_only=True)}
@@ -300,4 +302,4 @@ def test_the_strings_exist_in_every_language() -> None:
     for lang, cat in CATALOGUES.items():
         for st in STUDY_STATES:
             assert cat[f"sstate.{st}"] and cat[f"sstate.effect.{st}"], (lang, st)
-    assert CATALOGUES["ja"]["sstate.paused"] == "一時停止" and CATALOGUES["zh-TW"]["sstate.open"] == "收案中"
+    assert CATALOGUES["ja"]["sstate.paused"] == "募集終了／一時停止" and CATALOGUES["zh-TW"]["sstate.open"] == "收案中"

@@ -1,0 +1,8 @@
+[
+ {
+  "part": "g4-decoding",
+  "stage": "G-4 structured output: backend, guided decoding on and off, eager start",
+  "check": "guided on: no answer outside the judge schema",
+  "detail": 1
+ }
+]

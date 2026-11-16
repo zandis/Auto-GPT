@@ -43,7 +43,9 @@ def test_every_window_note_is_shown_while_it_fits_and_nothing_is_left_out() -> N
 def test_the_evidence_notes_are_read_first_and_the_rest_counts_as_left_out() -> None:
     """The ranking decides what is read first, never what counts as read (review H4)."""
     long = FILLER * 40
-    window = [_n("new", "2026-10-01", long), _n("mid", "2026-09-01", long), _n("old", "2026-08-01", "Gout flare.")]
+    # distinct texts: an identical one would be a copy-forward, shown once (D-905)
+    window = [_n("new", "2026-10-01", long), _n("mid", "2026-09-01", long + " Mid."),
+              _n("old", "2026-08-01", "Gout flare.")]  # fmt: skip
     one = note_tokens(long)
     got = build(window, {"old": ["Gout flare."]}, one + note_tokens("Gout flare.") + 5)
     assert [e["did"] for e in got.shown] == ["new", "old"]  # the evidence note, then the newest that fits
@@ -67,7 +69,7 @@ def test_a_note_that_does_not_fit_is_cut_around_its_evidence_and_counts_as_left_
 def test_a_ranking_orders_the_reading_of_its_notes_best_first() -> None:
     """``ranked``: the note the ranking puts first is read first, even when it is the older one."""
     long = FILLER * 40
-    window = [_n("new", "2026-10-01", long), _n("old", "2026-08-01", long)]
+    window = [_n("new", "2026-10-01", long), _n("old", "2026-08-01", long + " Old.")]  # distinct (D-905)
     budget = note_tokens(long) + 5  # room for one
     by_rank = build(window, {"old": ["x"], "new": ["y"]}, budget, ranked=True)
     assert [e["did"] for e in by_rank.shown] == ["old"] and by_rank.cut == ["new"]
@@ -79,9 +81,9 @@ def test_a_short_note_that_no_longer_fits_is_skipped_never_shredded() -> None:
     """Only an evidence note longer than half the budget is cut, to that half; the others are whole or absent."""
     note = FILLER * 20
     one = note_tokens(note)
-    window = [_n(f"n{i}", f"2026-09-{i:02d}", note) for i in range(1, 7)]
+    window = [_n(f"n{i}", f"2026-09-{i:02d}", f"{note} {i}") for i in range(1, 7)]  # distinct (D-905)
     got = build(window, {n.did: [FILLER.strip()] for n in window}, 2 * one + one // 2)
-    assert [e["text"] == note for e in got.shown] == [True, True] and got.left_out == 4
+    assert [e["text"] == f"{note} {e['did'][1:]}" for e in got.shown] == [True, True] and got.left_out == 4
 
 
 def test_an_empty_note_is_not_shown_and_is_left_out() -> None:
@@ -470,7 +472,9 @@ def test_the_v1_read_counts_a_window_note_the_retrieval_did_not_return() -> None
         def chunks_search(self, pid: str, query: str, k: int = 5, **kw: Any) -> list[dict[str, Any]]:
             return [c for c in self.chunks if c["did"] != "D3"]
 
-    lake = Lake([_chunk(1, "Seen in clinic."), _chunk(2, "Seen in clinic."), _chunk(3, f"{FLARE}.\n" + FILLER * 300)])
+    lake = Lake(
+        [_chunk(1, "Seen in clinic."), _chunk(2, "Seen in clinic today."), _chunk(3, f"{FLARE}.\n" + FILLER * 300)]
+    )  # fmt: skip  (distinct notes, D-905)
     nj = _judge(lake, "fail", 1500, 1500, quote="Seen in clinic")
     got = nj.window("P", INC, IDX)
     assert {e["did"] for e in got.shown} == {"D1", "D2"} and got.cut == ["D3"]

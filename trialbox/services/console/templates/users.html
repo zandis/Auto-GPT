@@ -12,6 +12,13 @@
 <h2 id="made-h">{{ t('users.made.code', user=made) }}</h2>
 <label for="enrol-code-value">{{ t('identity.code.label') }}</label>
 <input id="enrol-code-value" class="mono" readonly data-testid="enrol-code-value" value="{{ code }}" autocomplete="off" spellcheck="false">
+{# D-776 (D-509): the one-time link, on the box's public address (TB_CONSOLE_PUBLIC_URL, never the request's Host);
+   the code sits after "#", which a browser never sends to the server #}
+{% if public_url %}{% set enrol_link = public_url ~ '/enrol#u=' ~ (made|urlencode) ~ '&c=' ~ (code|urlencode) %}
+<label for="enrol-link">{{ t('enrol.link.label') }}</label>
+<div class="pair"><input id="enrol-link" class="mono" readonly data-testid="enrol-link" value="{{ enrol_link }}" autocomplete="off" spellcheck="false" aria-describedby="enrol-link-help"><button type="button" class="secondary" data-copy="enrol-link" data-done="{{ t('copy.copied_to_clipboard') }}" hidden>{{ t('copy.copy_button') }}</button></div>
+<p class="hint" id="enrol-link-help">{{ t('enrol.link.help') }}</p>
+{% else %}<p class="hint" data-testid="enrol-link-none">{{ t('enrol.link.none') }}</p>{% endif %}
 <p>{{ t('users.code.handover', user=made) }}</p>
 <p class="warn">{{ t('users.pw.once') }}</p>
 </section>{% elif made %}<section class="card attention" id="made" data-testid="users-made" aria-labelledby="made-h">

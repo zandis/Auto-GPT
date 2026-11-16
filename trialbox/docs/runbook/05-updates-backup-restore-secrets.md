@@ -1,6 +1,10 @@
 # 5. Updates, backup, restore, secrets
 
+**Reader:** the box owner (a restore with Aimedics in a supervised session, §21).
+
 **Updates** (D-138, D-210): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
+On the Operations page an update can also be asked for in the box's quiet hour, so that nobody stays late for it:
+it then runs when the quiet hour comes and no job runs, with the same backup and automatic rollback (§15, D-731).
 
 The order of a release across the acceptance box and the sites (three working days apart), who applies it on site
 and what is filed: `docs/validation/change-control.md` §4 (D-344).
@@ -71,7 +75,9 @@ backup. Driver updates are outside the bundle and need a change request. Held by
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI
 databases, every data folder and a manifest, compressed with zstd level 3 on every core and then encrypted
-(AES-256-GCM to an X25519 key). The box keeps running: each database is dumped and counted in one database snapshot,
+(AES-256-GCM to an X25519 key). The trial database includes the judged-pair store (`orch.judged_pairs`, D-908): model
+answers to note questions, by pseudonym; after a restore the opt-out worker deletes again the rows of every patient on
+the register (it clears the owed tables). The box keeps running: each database is dumped and counted in one database snapshot,
 and a file that changes while it is read is read again. Left out on purpose: the vendor reference pack's rows (public;
 the pack file is kept in `deploy/refdata/loaded` and loaded again by the restore; the hospital's own reference rows
 are in the backup), the lake's NDJSON except that of `CURRENT` and the two newest snapshots (every Parquet and DuckDB
@@ -90,7 +96,10 @@ you may push to the hospital's git server.
    tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
    on when it can (below), and runs the first backup once the backup key is there (run the command again after
    `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
-   reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent. The cron runs
+   reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent, or, on a box with no
+   mail, `TB_BACKUP_ALERT_ROUTE=health-page`: the site's written choice that the red backup tile on the `/admin`
+   health tab and the audit carry the alert (D-735). Then nobody is mailed: someone must open the health tab every
+   working day, and `doctor` WARNs in PRODUCTION to keep that in sight. Any other value is a setting error. The cron runs
    `backup-nightly` at 04:45 (move it after the night's jobs) and `backup-status --quiet` every hour. A run checks
    free space first and never runs twice at once. It first **waits while a job runs or is queued**, at most
    `TB_BACKUP_JOB_WAIT_S` (6 h: half the 12 h between the 24 h cron and the 36 h age alert), then goes on anyway
@@ -148,6 +157,19 @@ least the last two weeks:
    compose --project-directory deploy run --rm -u postgres db pgbackrest --stanza=trialbox --delta --type=time
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
+
+**Restore drill (T-730d, D-892).** Proof that the newest backup restores, without touching the box's data. Hospital
+IT brings the key from the envelope and types, on the box's host (the Operations page's backups tab shows this line
+with the newest file filled in): `sudo python3 -m tools.trialbox restore-drill <backup file> --key <the key>`. It
+checks free space first (the unpacked backup and scratch databases; it says how many GB it needs and starts nothing
+when short), opens the backup with the key and checks every file against its signed manifest, restores each
+database into a scratch database (`tb_drill_<id>_<name>`, never the live one), compares rows and content hashes
+with the manifest, and drops the scratch databases and the unpacked files, after a failure too. Exit 0 is a pass,
+1 a fail, 2 nothing started. The result (never the key or its path) is the box's key-check record and an audit
+event (`backup.restore_drill`): the health check's `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100)
+days without one, or at once on a failed drill until one passes, and a failed drill is a backup problem that goes
+through the alert route (mail, or the health page). Run it at least every 90 days, after hardware changes and before
+go-live acceptance (§6).
 
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not

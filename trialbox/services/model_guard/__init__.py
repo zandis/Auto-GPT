@@ -6,7 +6,8 @@ without it: the SageMaker ``POST /invocations`` (chat and pooling), ``/tokenize`
 So the vLLM servers sit on their own internal network (``model-backend-net``), and this guard is the only thing on
 ``model-net`` that answers to their names (``llm-service``, ``llm-verifier``). It lets through, with the key only:
 
-* ``GET /v1/models``, ``POST /v1/chat/completions``, ``POST /v1/completions``;
+* ``GET /v1/models``, ``POST /v1/chat/completions``, ``POST /v1/completions``, and ``POST /tokenize`` (D-739: lane
+  G's G-1 counts tokens on the shipped server; the key already opens chat completions, which do more than count);
 * with ``TB_GUARD_ADMIN=1`` (the RTX 5090 profile's sleep swap): ``POST /sleep``, ``POST /wake_up``,
   ``GET /is_sleeping``;
 * ``GET /health`` without the key (vLLM's own health answer, nothing else).
@@ -51,6 +52,7 @@ KEYED: dict[str, set[str]] = {
     "/v1/models": {"GET"},
     "/v1/chat/completions": {"POST"},
     "/v1/completions": {"POST"},
+    "/tokenize": {"POST"},  # D-739: counts tokens; the key already opens chat completions, which do more
 }
 ADMIN: dict[str, set[str]] = {"/sleep": {"POST"}, "/wake_up": {"POST"}, "/is_sleeping": {"GET"}}
 OPEN: dict[str, set[str]] = {"/health": {"GET"}}

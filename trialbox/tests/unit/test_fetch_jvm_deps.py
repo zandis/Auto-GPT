@@ -124,7 +124,7 @@ def test_jar_list_is_well_formed_and_names_the_translator() -> None:
         names.append(m.group(2))
     assert len(names) == len(set(names))
     assert any(n.startswith("cql-to-elm") for n in names)
-    assert "-C" in SCRIPT.read_text(encoding="utf-8").split("dependency:copy-dependencies")[0].rsplit("mvn", 1)[1]
+    assert "-C" in SCRIPT.read_text(encoding="utf-8").split(":copy-dependencies")[0].rsplit("mvn", 1)[1]
 
 
 def test_one_tampered_byte_in_a_cached_translator_jar_fails(tmp_path: Path) -> None:
@@ -151,3 +151,40 @@ def test_an_extra_or_missing_translator_jar_fails(tmp_path: Path, change: str) -
     res = _run(out, tmp_path, JVM_LIB_SUMS=str(sums), **env)
     assert res.returncode != 0
     assert "refusing them" in res.stderr
+
+
+def _bare_path(tmp_path: Path) -> str:
+    """A PATH with the shell tools the script uses and no Maven (CI's runners have one on their own PATH)."""
+    d = tmp_path / "bare"
+    d.mkdir(exist_ok=True)
+    for tool in ("bash", "sh", "sha256sum", "sort", "sed", "grep", "cut", "ls", "mkdir", "cat", "head", "diff",
+                 "dirname", "mv", "rm", "tr", "true"):  # fmt: skip
+        found = shutil.which(tool)
+        if found and not (d / tool).exists():
+            (d / tool).symlink_to(found)
+    return str(d)
+
+
+def test_no_maven_says_what_the_build_host_needs(tmp_path: Path) -> None:
+    """I-7 (D-885): lane G's VM stopped at `mvn: command not found`; the fetch now names Maven and the JDK first."""
+    out, env = _cached(tmp_path, {})
+    res = subprocess.run(["bash", str(SCRIPT), str(out)], capture_output=True, text=True, timeout=60, check=False,
+                         env={"PATH": _bare_path(tmp_path), "HOME": str(tmp_path), "PY": "true", **env})  # fmt: skip
+    assert res.returncode == 1
+    major = (ROOT / ".java-version").read_text(encoding="utf-8").strip()
+    assert "Maven" in res.stderr and f"JDK {major}" in res.stderr and "openjdk-" in res.stderr
+    assert "command not found" not in res.stderr
+
+
+def test_maven_without_a_jdk_says_so(tmp_path: Path) -> None:
+    out, env = _cached(tmp_path, {})
+    stub = tmp_path / "nojdk"
+    stub.mkdir()
+    (stub / "mvn").write_text(
+        "#!/bin/sh\necho 'The JAVA_HOME environment variable is not defined correctly' >&2\nexit 1\n"
+    )
+    (stub / "mvn").chmod(0o755)
+    res = subprocess.run(["bash", str(SCRIPT), str(out)], capture_output=True, text=True, timeout=60, check=False,
+                         env={"PATH": f"{stub}{os.pathsep}{_bare_path(tmp_path)}", "HOME": str(tmp_path), "PY": "true",
+                              **env})  # fmt: skip
+    assert res.returncode == 1 and "mvn -v failed" in res.stderr and "JDK" in res.stderr

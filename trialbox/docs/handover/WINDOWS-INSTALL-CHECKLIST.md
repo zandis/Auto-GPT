@@ -1,5 +1,7 @@
 # Windows install checklist: the box form (NEW-WIN-9, D-611; D-600 to D-610)
 
+**Reader:** the box owner, or Aimedics for a prepared box.
+
 For the person who sets the workstation up: the box owner, or an Aimedics engineer beside them. Hospital IT is
 needed for two things only: the network address, and the data connection. Offline: the USB disk of
 `OFFLINE-MEDIA.md`. The owner's own pages are `windows-owner.{en,ja,zh-TW}.md`; what a desktop user may run is

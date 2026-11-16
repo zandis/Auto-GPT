@@ -77,8 +77,9 @@ def lb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
 
 
 def _save(c: TestClient, csrf: str, record: str, form: str, values: dict[str, str], event: str = "",
-          back: str = "") -> Any:  # fmt: skip
-    data: dict[str, Any] = {"csrf": csrf, "record": record, "event": event, "form": form, "back": back}
+          back: str = "", reason: str = "") -> Any:  # fmt: skip
+    data: dict[str, Any] = {"csrf": csrf, "record": record, "event": event, "form": form, "back": back,
+                            "reason": reason}  # fmt: skip
     data.update({f"f_{k}": v for k, v in values.items()})
     return c.post("/studies/GZQO/entry", data=data)
 

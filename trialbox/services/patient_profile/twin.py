@@ -59,7 +59,9 @@ _TIMELINE: dict[str, tuple[str, tuple[str, ...]]] = {
     "document": ("did", ("date", "type")),
 }
 _PROV = ("src_table", "src_row_hash", "mapping_version")
-_PROVENANCE_FROM = 3  # lake schema version that added the provenance columns (T-106b)
+#: NEW-B-40 (D-741): the oldest lake schema a twin is read from: the encounter's status and each row's provenance
+#: (T-106b) came with schema 3. The lake still serves schemas 1 and 2 (``lake.store.MIN_READABLE_SCHEMA``)
+TWIN_MIN_SCHEMA = 3
 
 MIGRATIONS: tuple[str, ...] = (
     """
@@ -142,8 +144,14 @@ def read_lake(lake: LakeReader, pids: Sequence[str], snapshot: str) -> dict[str,
     out: dict[str, dict[str, list[dict[str, Any]]]] = {p: {} for p in pids}
     if not pids:
         return out
-    prov = lake_schema(lake, snapshot) >= _PROVENANCE_FROM
-    pcols = ", ".join(_PROV) if prov else ", ".join(f"CAST(NULL AS VARCHAR) AS {c}" for c in _PROV)
+    version = lake_schema(lake, snapshot)
+    if version < TWIN_MIN_SCHEMA:
+        raise TwinError(
+            f"lake snapshot {snapshot} has lake schema {version}; a twin needs schema {TWIN_MIN_SCHEMA} or later (the "
+            "encounter's status and each row's provenance came with it): rebuild the snapshot from its NDJSON (the "
+            "lake's rebuild) before twins are built from it"
+        )
+    pcols = ", ".join(_PROV)
     plist = [sorted(pids)]
     tables: dict[str, tuple[str, tuple[str, ...]]] = {
         "patient": ("pid", ("birth_date", "sex", "deceased_date", "deceased")),
@@ -152,7 +160,7 @@ def read_lake(lake: LakeReader, pids: Sequence[str], snapshot: str) -> dict[str,
     for table, (idc, cols) in tables.items():
         quoted = ", ".join(f'"{c}"' for c in (idc, *cols) if c != "pid")
         sql = (f'SELECT pid, {quoted}, {pcols} FROM "{table}" '  # constants only, never user input
-               "WHERE list_contains($1::VARCHAR[], pid)")  # fmt: skip
+               "WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))")  # fmt: skip
         for r in lake.query(sql, plist, snapshot).to_pylist():
             if r["pid"] in out:
                 out[r["pid"]].setdefault(table, []).append(r)
@@ -461,7 +469,10 @@ def after_ingest(orch_db: Any, lake: LakeReader, snapshot: str, now: str, url: s
                  rep.unchanged, rep.erased, len(rep.failed))  # fmt: skip
         return rep
     except Exception as exc:  # the follow-up must not turn a passed ingest into a failed one
-        log.error("twin build after the ingest did not run: %s", type(exc).__name__)
+        # a TwinError is this module's own sentence (a snapshot's name and a layout, never a patient): said whole
+        log.error(
+            "twin build after the ingest did not run: %s", exc if isinstance(exc, TwinError) else type(exc).__name__
+        )
         return None
 
 

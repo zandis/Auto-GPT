@@ -39,7 +39,6 @@ ALLOWED: dict[str, str] = {
     "services/model_guard/__init__.py": "D-177: the key and path allowlist in front of vLLM: forwards the gateway's calls",
     "tests/unit/test_model_guard.py": "drives model-guard against a local recording upstream (no model, no network)",
     "tests/unit/test_doctor_serving.py": "the doctor's serving check against local vLLM stand-ins (no network)",
-    "deploy/gcp/gpu-fit-test.sh": "runs on the GPU VM: a one-line smoke prompt (no patient data) to its own servers",
     "tests/unit/test_model_swap.py": "fake vLLM servers behind an httpx.MockTransport (no network)",
     "libs/tb_testkit/scale.py": "T-687: counts the slow stub stand-in's calls in its own request log (no model)",
     "tests/unit/test_scale_gate_logic.py": "T-687: drives the stub stand-in on a local port (no model, no network)",
@@ -63,6 +62,11 @@ ALLOWED: dict[str, str] = {
     "fakes vLLM's GET /v1/models (no network)",
     "tests/rehearsal/": "D-150 the rehearsal's vLLM stand-in serves the API (the repository stub behind it); "
     "it calls nothing",
+    "tools/g_probes.py": "D-497 G-4 (plan section 13.1) times the judge's own server with guided decoding on and off, "
+    "which the gateway does not switch per call (the serving measurement itself); synthetic excerpts only, the "
+    "run's own server on the GPU VM; not shipped on a box",
+    "tests/unit/test_g4_g8_probes.py": "D-497 drives the G-4 probe against the vLLM stand-in on a local port "
+    "(no model, no network)",
 }
 
 

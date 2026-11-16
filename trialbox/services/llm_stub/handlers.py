@@ -193,6 +193,14 @@ def _zh_dates(sentence: str) -> list[date]:
     return out
 
 
+_NUMERIC_ASKED = re.compile(r"\b(bmi|hba1c)\b")
+_NUMERIC = {
+    "bmi": re.compile(r"BMI\s*[:：=]?\s*(\d+(?:\.\d+)?)"),
+    "hba1c": re.compile(r"(?:HbA1c|糖化血色素|ヘモグロビンA1c)\s*[:：=]?\s*(\d+(?:\.\d+)?)\s*%"),
+}
+_THRESHOLD = re.compile(r"(≥|>=|>)\s*(\d+(?:\.\d+)?)")
+
+
 def judge(inp: dict[str, Any]) -> dict[str, Any]:
     q = str(inp.get("note_question", "")).lower()
     index = date.fromisoformat(str(inp["index_date"])[:10])
@@ -207,6 +215,18 @@ def judge(inp: dict[str, Any]) -> dict[str, Any]:
             "reason": reason[:300],
         }
 
+    # D-758: a number the chart states against the criterion's threshold. Only CASE puts these to the judge (SCREEN
+    # answers BMI and HbA1c from the lake), so the synthetic charts of the demo are read as a reader would
+    num = _NUMERIC_ASKED.search(q)
+    if num is not None:
+        value_rx, more = _NUMERIC[num.group(1)], _THRESHOLD.search(q)
+        for ex in excerpts:
+            for s in _sentences(str(ex.get("text", ""))):
+                m = value_rx.search(s)
+                if m and more:
+                    v, limit = float(m.group(1)), float(more.group(2))
+                    meets = v >= limit if more.group(1) in ("≥", ">=") else v > limit
+                    return found("pass" if meets else "fail", s, ex, f"{num.group(1)} {v:g} against {more.group(0)}")
     if "flare" in q and ("two" in q or "2" in q):
         flare_dates: dict[date, tuple[str, dict[str, Any]]] = {}
         for ex in excerpts:

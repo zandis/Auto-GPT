@@ -79,6 +79,9 @@ class Field:
     vmax: str = ""
     branching: str = ""  # REDCap's branching logic, as written
     validation: str = ""  # REDCap's text validation type as written (``number_1dp``, ``time``...; STD-061)
+    # CGRD-B1 (D-840): the decimal places TrialBox keeps for a ``number`` field, from ``@TB-DECIMALS=n`` in REDCap's
+    # field annotation (an instance may not offer ``number_1dp``; REDCap ignores an action tag it does not know)
+    places: str = ""
 
     def label_in(self, lang: str) -> str:
         return self.labels.get(lang) or self.label or self.name
@@ -86,6 +89,23 @@ class Field:
     def options_in(self, lang: str) -> dict[str, str]:
         tr = self.option_labels.get(lang) or {}
         return {c: tr.get(c) or d for c, d in self.options.items()}
+
+
+_TB_DECIMALS = re.compile(r"@TB-DECIMALS=(\d)\b")
+
+
+def _places(row: dict[str, Any], kind: str) -> str:
+    """CGRD-B1 (D-840): ``@TB-DECIMALS=n`` in a decimal field's annotation, else ""."""
+    m = _TB_DECIMALS.search(str(row.get("field_annotation") or ""))
+    return m.group(1) if m and kind == "decimal" else ""
+
+
+def _decimals(f: Field) -> int | None:
+    """The decimal places a decimal field keeps: its validation's (``number_1dp``), else its ``@TB-DECIMALS``."""
+    dp = _DP.match(f.validation)
+    if dp:
+        return int(dp.group(1))
+    return int(f.places) if f.places else None
 
 
 def parse_choices(text: str) -> dict[str, str]:
@@ -130,7 +150,8 @@ def field_of(row: dict[str, Any]) -> Field:
                  {g: v for g, v in labels.items() if v}, {g: v for g, v in olabels.items() if v},
                  str(row.get("text_validation_min") or "").strip(), str(row.get("text_validation_max") or "").strip(),
                  str(row.get("branching_logic") or "").strip(),
-                 valid if kind in ("text", "") and valid not in _PLAIN else "")  # fmt: skip
+                 valid if kind in ("text", "") and valid not in _PLAIN else "",
+                 _places(row, k))  # fmt: skip
 
 
 def read_dictionary(text: str) -> list[Field]:
@@ -371,9 +392,9 @@ def problem(f: Field, value: str) -> dict[str, str] | None:
         return {**p, "code": "integer"}
     if f.kind == "decimal" and not re.match(r"^-?\d+(\.\d+)?$", value):
         return {**p, "code": "decimal"}
-    dp = _DP.match(v)
-    if f.kind == "decimal" and dp and len(value.partition(".")[2]) > int(dp.group(1)):
-        return {**p, "code": "decimals", "places": dp.group(1)}  # never rounded here: a person decides the value
+    places = _decimals(f)
+    if f.kind == "decimal" and places is not None and len(value.partition(".")[2]) > places:
+        return {**p, "code": "decimals", "places": str(places)}  # never rounded here: a person decides the value
     if f.kind in ("integer", "decimal"):
         x, lo, hi = _num(value), _num(f.vmin.replace(",", ".")), _num(f.vmax.replace(",", "."))
         if x is not None and lo is not None and x < lo:
@@ -395,7 +416,8 @@ _WHY = {"choice": "{v!r} is not a choice of {f}", "date": "{f} is a date (YYYY-M
         "unknown": "{f}: not a field of this form", "decimals": "{f} has at most {places} decimal places",
         "chars": "{f} holds a character that cannot be stored (a control character from pasted text)",
         "time": "{f} is a time (HH:MM)", "email": "{f} is an e-mail address",
-        "phone": "{f} is a phone number"}  # fmt: skip
+        "phone": "{f} is a phone number",
+        "reason": "{f} was saved before: give the reason for the change (D-778)"}  # fmt: skip
 
 
 def reason(p: dict[str, str], value: str = "") -> str:
@@ -405,18 +427,32 @@ def reason(p: dict[str, str], value: str = "") -> str:
                                                       places=p.get("places", ""), code=p["code"])  # fmt: skip
 
 
+def checkbox_column(field: str, code: str) -> str:
+    """REDCap's column of one choice of a checkbox (NEW-EDC-3b, review F1): ``field___`` and the code lowercased,
+    ``-`` and ``.`` written ``_`` (``Unknown, -99`` is ``field____99``; ``A`` is ``field___a``)."""
+    return f"{field}___{code.lower().replace('-', '_').replace('.', '_')}"
+
+
+def checkbox_code(f: Field, column: str) -> str | None:
+    """The choice of ``f`` whose REDCap column is ``column`` (None: no choice of the field)."""
+    return next((c for c in f.options if checkbox_column(f.name, c) == column), None)
+
+
 def redcap_value(f: Field, value: str) -> str:
     """A value that passes :func:`problem`, written the way REDCap's import takes it for the field's validation
     (STD-061): ``number_1dp`` gets exactly one decimal place (``72`` -> ``72.0``, never rounded), a decimal-comma type
     gets the comma. REDCap refuses a whole import batch on one value in another format."""
     v = f.validation
+    if f.kind == "multi" and value:  # NEW-EDC-3b: the codes chosen, once each, in the field's choice order
+        chosen = {c.strip() for c in value.split(",") if c.strip()}
+        return ",".join(c for c in f.options if c in chosen)
     if f.kind != "decimal" or not value:
         return value
     out = value.replace(",", ".", 1)
-    dp = _DP.match(v)
-    if dp:
+    places = _decimals(f)
+    if places:
         whole, _, frac = out.partition(".")
-        out = f"{whole}.{frac.ljust(int(dp.group(1)), '0')}"
+        out = f"{whole}.{frac.ljust(places, '0')}"
     return out.replace(".", ",", 1) if "comma_decimal" in v else out
 
 
@@ -427,7 +463,7 @@ def field_sha(f: Field) -> str:
     import json
 
     body = {"name": f.name, "form": f.form, "kind": f.kind, "validation": f.validation, "options": f.options,
-            "vmin": f.vmin, "vmax": f.vmax}  # fmt: skip
+            "vmin": f.vmin, "vmax": f.vmax, **({"places": f.places} if f.places else {})}  # fmt: skip
     return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 

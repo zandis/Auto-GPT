@@ -14,7 +14,7 @@ never in CI, and this tool downloads nothing. Without the zip every command stop
     python -m tools.redcap_instance run --stand-in   # the dry run: project and R1 to R9 against the simulator
 
 The test project is ``tests/edc_kit.py`` (``CONF_*``): the kit's CRF, the longitudinal and repeating set, and one
-checkbox, one ``date_dmy`` and one ``number_1dp`` field. Synthetic data only.
+checkbox, one ``date_dmy`` and one number TrialBox keeps to one decimal place (D-840). Synthetic data only.
 
 **What has run and what has not.** ``check``, the unpacking, ``database.php``, the project builder and R1 to R9 run
 in the unit tests against a stand-in archive and the simulator (``rc_sim``). The install itself (``up``: the
@@ -263,15 +263,18 @@ class SimAdmin(Admin):
         return Instance(
             "stand-in", version, "inproc://rc-sim", int(main["project_id"]), int(logic["project_id"]),
             {"full": token, "export_only": token, "dag": token, "expired": token, "logic": str(logic["token"])},
-            ["the stand-in has one token per project: no rights, no expiry, no data access group (R4 cannot pass)",
-             "the stand-in has no locking (R3 cannot pass)", "the stand-in has no log (R9 cannot pass)"],
+            ["the stand-in has one token per project: no rights, no expiry, no data access group (R4 cannot pass)"],
         )  # fmt: skip
 
     def lock(self, inst: Instance, record: str, event: str, form: str) -> str:
-        return "the stand-in has no locking"
+        """CGRD-B5c (D-845): the simulator's lock, as the locker; "" when done."""
+        r = self.http.post("/sim/lock", json={"project_id": inst.project_id, "record": record, "event": event,
+                                              "form": form, "lock": True, "username": "tb_locker"})  # fmt: skip
+        return "" if r.status_code == 200 else f"the stand-in did not lock the form ({r.status_code})"
 
     def unlock(self, inst: Instance, record: str, event: str, form: str) -> None:
-        return None
+        self.http.post("/sim/lock", json={"project_id": inst.project_id, "record": record, "event": event,
+                                          "form": form, "lock": False, "username": "tb_locker"})  # fmt: skip
 
     def set_autonumber(self, inst: Instance, on: bool) -> str:
         return "the stand-in does not switch auto-numbering"
@@ -485,10 +488,11 @@ def r1_validation(admin: Admin, inst: Instance) -> dict[str, Any]:
     post, tok = admin.post(), inst.tokens["full"]
     fields = {f.name: f for f in forms.read_dictionary(_csv(k.CONF_CRF))}
     key1 = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1}
-    # (field, value, REDCap must refuse it). ``temp`` is number_1dp: 37 is refused, 37.0 (what TrialBox sends for
-    # 37, ``forms.redcap_value``) is taken. ``visit_dmy`` is date_dmy: the API takes Y-M-D whatever the field shows.
+    # (field, value, REDCap must refuse it). ``temp`` is ``number`` with ``@TB-DECIMALS=1`` (D-840: the instance
+    # offers no number_1dp): REDCap takes 37 and 37.55; TrialBox sends 37 as 37.0 and refuses 37.55 itself.
+    # ``visit_dmy`` is date_dmy: the API takes Y-M-D whatever the field shows.
     cases = [("sex", "9", True), ("mh_gout", "maybe", True), ("weight", "heavy", True),
-             ("brthdat", "115/11/01", True), ("temp", "37", True), ("temp", "37.0", False),
+             ("brthdat", "115/11/01", True), ("temp", "37", False), ("temp", "37.0", False), ("temp", "37.55", False),
              ("visit_dmy", "2026-11-05", False), ("visit_dmy", "05-11-2026", True)]  # fmt: skip
     out: list[dict[str, Any]] = []
     for name, value, must_refuse in cases:
@@ -505,7 +509,7 @@ def r1_validation(admin: Admin, inst: Instance) -> dict[str, Any]:
     wrote_good = None if rows is None else any(r.get("weight") == marker for r in rows)
     said = _through_client(admin, tok, [{**key1, "sex": "9"}])
     as_expected = all(c["redcap_refused"] == c["redcap_must_refuse"] for c in out)
-    # where REDCap refuses, TrialBox refuses too, or sends another spelling REDCap takes (temp 37 -> 37.0)
+    # where REDCap refuses, TrialBox refuses too, or sends another spelling REDCap takes
     ours_holds = all(c["trialbox_refused"] or c["trialbox_sends"] != c["value"] for c in out if c["redcap_refused"])
     return {"pass": as_expected and ours_holds and _refused(batch) and wrote_good is False and "message" in said,
             "cases": out, "batch": {**_said(batch), "the_good_row_was_written": wrote_good},
@@ -519,10 +523,19 @@ def r2_checkbox(admin: Admin, inst: Instance) -> dict[str, Any]:
     post, tok = admin.post(), inst.tokens["full"]
     key = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1}
     bare = import_rows(post, tok, [{**key, "joints": "1,3"}])
-    cols = import_rows(post, tok, [{**key, "joints___1": "1", "joints___2": "0", "joints___3": "1"}])
+    # REDCap names a choice's column from the code lowercased, "-" and "." written "_" (D-842): -99 is joints____99
+    cols = import_rows(post, tok, [{**key, "joints___1": "1", "joints___2": "0", "joints___3": "1",
+                                    "joints____99": "0"}])  # fmt: skip
     rows = export_rows(post, tok, **{"records[0]": "1", "fields[0]": "record_id", "fields[1]": "joints"})
-    back = {c: v for r in rows or [] for c, v in r.items() if c.startswith("joints")}
-    ok = _refused(bare) and not _refused(cols) and back.get("joints___1") == "1" and back.get("joints___3") == "1"
+    mine = [
+        r
+        for r in rows or []
+        if r.get("redcap_event_name", key["redcap_event_name"]) == key["redcap_event_name"]
+        and not r.get("redcap_repeat_instrument")
+    ]  # the row written: a record's other rows have their own boxes
+    back = {c: v for r in mine for c, v in r.items() if c.startswith("joints")}
+    ok = (_refused(bare) and not _refused(cols) and back.get("joints___1") == "1" and back.get("joints___3") == "1"
+          and back.get("joints____99") == "0")  # fmt: skip
     return {"pass": ok, "bare_column": _said(bare), "three_columns": _said(cols), "exported": back,
             "export_read": rows is not None}  # fmt: skip
 

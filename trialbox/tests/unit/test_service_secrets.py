@@ -90,6 +90,17 @@ def test_each_service_accepts_only_its_own_callers(box: Path, monkeypatch: pytes
     assert _app("embed-service").post("/x", headers=_as(monkeypatch, box, "gateway")).status_code == 403
 
 
+def test_the_embed_service_accepts_the_orchestrator_and_no_one_else(box: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """NEW-LLM-2 (#589): SCREEN ranks note sentences with the box's embed service, so the orchestrator calls it. The
+    embed service takes no person and answers vectors, never a patient's row; it masks every text it is sent (T-600,
+    D-337). Only the lake (its vectors) and the orchestrator (SCREEN) may call it."""
+    embed = _app("embed-service")
+    for caller in ("lake", "orchestrator"):
+        assert embed.post("/x", headers=_as(monkeypatch, box, caller)).status_code == 200, caller
+    for caller in ("console", "doc-parser", "gateway", "adapter", "mail-gateway", "criteria-compiler"):
+        assert embed.post("/x", headers=_as(monkeypatch, box, caller)).status_code == 403, caller
+
+
 def test_the_old_shared_token_works_until_rotation_with_a_warning(
     box: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -288,6 +299,9 @@ def test_the_caller_table_covers_every_call_between_services_in_the_code() -> No
         "ParserHttp(": "doc-parser", "compiler_url": "criteria-compiler", "CompilerHttp(": "criteria-compiler",
         "adapter_url": "adapter", "AdapterHttp(": "adapter", "HttpEmbedder(": "embed-service",
         "TB_GATEWAY_URL": "gateway", "GatewayClient(": "gateway",
+        # the review of SVC-EMBED: the lake reaches the embed service through from_env and EMBED_URL, not
+        # HttpEmbedder(, and SCREEN (#589) through the settings' embed_url
+        "EMBED_URL": "embed-service", "embed_url": "embed-service",
     }  # fmt: skip
     dirs = {"orchestrator": "orchestrator", "console": "console", "mail-gateway": "mail_gateway", "lake": "lake",
             "criteria-compiler": "criteria_compiler", "adapter": "adapter", "doc-parser": "doc_parser",

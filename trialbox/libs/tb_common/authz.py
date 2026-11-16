@@ -3,6 +3,7 @@ accounts: one permission function, :func:`permit`, over the matrix ``authz_matri
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -264,12 +265,21 @@ def edc_role_may(role: str, action: str) -> bool:
 HEAVY_JOBS: tuple[str, ...] = ("FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "CALIBRATION")
 
 
-def daily_limit(settings: Settings, command: str) -> int | None:
-    """Jobs of type ``command`` one sender may start in 24 hours: ``rate_limits_per_day[command]`` when set, else
-    ``rate_limit_per_sender_per_day`` for a heavy job type; None (no limit) for the others and for a limit of 0."""
+def daily_limit(settings: Settings, command: str, env: Mapping[str, str] | None = None) -> int | None:
+    """Jobs of type ``command`` one sender may start in 24 hours: for a heavy job type ``TB_JOBS_PER_SENDER_PER_DAY``
+    when set (D-775), else ``rate_limits_per_day[command]`` when set, else ``rate_limit_per_sender_per_day`` for a
+    heavy job type; None (no limit) for the others and for a limit of 0. ``env`` is the process environment when not
+    given."""
+    import os
+
+    from tb_common.daily_limits import jobs_override
+
     cmd = command.upper()
     per_type = dict(settings.rate_limits_per_day or {})
-    if cmd in per_type:
+    override = jobs_override(os.environ if env is None else env) if cmd in HEAVY_JOBS else None
+    if override is not None:
+        n = override
+    elif cmd in per_type:
         n = int(per_type[cmd])
     elif cmd in HEAVY_JOBS:
         n = int(settings.rate_limit_per_sender_per_day or 20)

@@ -47,6 +47,7 @@ from typing import Any
 
 from tools import feas_demo as fd
 from tools import list_demo as ld
+from tools import signed_api
 from tools import synth_charts as sc
 from tools.e2e_simple import Stage
 
@@ -151,15 +152,18 @@ def breaker_opens() -> dict[str, int]:
     return out
 
 
-def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
+def gateway_client(env: dict[str, str], upstream: Any = None, caller: str = "orchestrator") -> Any:
     """``tb_llm.GatewayClient`` to an in-process tb-gateway built exactly as an installed box builds it
     (:func:`gateway.app.from_env` over ``env``: ``TB_ENV``, ``TB_PROFILE``, ``TB_EP_*_URL``, the registry with its
     site pins). ``upstream``: the HTTP client to the model servers (the stub in process; None = the network).
 
-    The client calls as the orchestrator, so it carries the orchestrator's service token where the run's box has one
-    token per service (``tools.role_demo.orch_client``, as ``trialbox secrets init`` makes them): the gateway routes
-    on the service the token names, not on the header (D-437). The process's own token is the box console's, which
-    may not make that claim. Read at each call: the box's tokens are made after the model clients."""
+    The client calls as ``caller`` (the orchestrator unless named), so it carries that service's token where the run's
+    box has one token per service (``tools.role_demo.orch_client``, as ``trialbox secrets init`` makes them): the
+    gateway routes on the service the token names, not on the header (D-437). The process's own token is the box
+    console's, which may make neither claim. Read at each call: the box's tokens are made after the model clients.
+    ``caller`` is a service that calls under its own name (``models/routing.yaml`` ``service_callers``): the
+    criteria compiler calls as ``criteria-compiler``, the one caller (with doc-parser) that may extract criteria
+    (defect B13: G-8 compiled as the orchestrator and every extraction was refused ``role_not_allowed``)."""
     from fastapi.testclient import TestClient
     from gateway.app import create_app
     from gateway.core import Gateway, GatewayConfig
@@ -185,13 +189,13 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     GATEWAYS.append(gw)
     http = TestClient(create_app(gw))
 
-    def as_orchestrator(request: Any) -> None:
-        tok = service_token_of("orchestrator")
+    def as_service(request: Any) -> None:
+        tok = service_token_of(caller)
         if tok:
             request.headers[TOKEN_HEADER] = tok
 
-    http.event_hooks["request"].append(as_orchestrator)
-    client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=http)
+    http.event_hooks["request"].append(as_service)
+    client = GatewayClient("http://tb-gateway/v1", caller, http=http)
     # the box's callers load the prompt version that box's TB_ENV serves (D-359), not this harness's environment
     # by the one rule for TB_ENV (unset is PRODUCTION, as the gateway built above reads it), never "" or None
     client.prompt_environment = environment_name(env)  # type: ignore[attr-defined]
@@ -292,9 +296,10 @@ def installed_env(audit_dir: Path, judge_url: str = "", verifier_url: str = "") 
     return env
 
 
-def models(a: Any, audit_dir: Path) -> tuple[Any, Any]:
+def models(a: Any, audit_dir: Path, caller: str = "orchestrator") -> tuple[Any, Any]:
     """The run's judge and verifier clients: None on the stub (the box keeps its own); with ``--model pair``
-    either straight to the card (``--direct``) or, by default, through the gateway as an installed box routes."""
+    either straight to the card (``--direct``) or, by default, through the gateway as an installed box routes, calling
+    as ``caller`` (:func:`gateway_client`; G-8 compiles as ``criteria-compiler``, as the box's compiler does)."""
     if getattr(a, "model", "stub") != "pair":
         return None, None
     os.environ["TB_CANARY_GATE"] = "on"  # plan v4 §5: screening with the pair and the canary gate
@@ -311,7 +316,7 @@ def models(a: Any, audit_dir: Path) -> tuple[Any, Any]:
     out = []
     # the gateway picks the build (the client's model is not sent); the name is what the run reports (judging, canary)
     for alias, served in (("", pin_model.JUDGE_SERVED), ("v-verifier", pin_model.VERIFIER_SERVED)):
-        c = LlmClient("http://unused/v1", served, gateway=gateway_client(env))
+        c = LlmClient("http://unused/v1", served, gateway=gateway_client(env, caller=caller))
         if alias:
             c.gateway.model = alias
         out.append(c)
@@ -1583,7 +1588,7 @@ def sc_redcap(a: Any, work: Path) -> Result:
     sim = create_app()
     register_inproc(sim)
     w = world(work, work / "lake", sec, a)
-    api = w.h.bk.study_api
+    api = signed_api.signed(w.h.bk.study_api)  # T-715f (D-799): the data core takes the signed person
     proj = next(p for p in load_projects().values() if p["project"]["project_id"] == 202)
     page = w.admin.get("/admin/redcap")
     w.admin.post(

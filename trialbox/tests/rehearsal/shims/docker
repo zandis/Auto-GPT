@@ -44,6 +44,7 @@ PY
         --entrypoint) entry=$2; shift 2 ;;
         -w) workdir=$2; shift 2 ;;
         -d|--rm) shift ;;
+        -e|--env|--label) shift 2 ;;
         --gpus|--ipc|--network|-v|-p|--add-host|--restart) shift 2 ;;
         *) rest+=("$1"); shift ;;
       esac

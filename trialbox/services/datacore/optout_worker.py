@@ -34,6 +34,7 @@ The orchestrator runs a tick every ``TB_OPTOUT_WORKER_MINUTES`` (default 5; 0: o
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -323,6 +324,178 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     with Database.connect(url, "profile") as db:
         n = db.fetchval("SELECT count(*) FROM tb_patient_profile WHERE pid = ANY(?)", (sorted(pids),))
     return {"profile.tb_patient_profile": int(n)}
+
+
+# T-206b part 1 (D-798): the owed tables keyed by the pseudonym, each a plain delete of the patient's rows, in an
+# order that deletes a referencing row before the row it references. The screening log's tables (marks, screening
+# numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.
+# The adversarial review of D-798 kept four out: site.weekly_seen (the kept screening-log row's first-listed day),
+# orch.submissions (NHI's send-once guard), team.candidate_views (the reveal cap's ledger) and tuned.tuned_patients (a
+# reviewed week's sample would be drawn again); they stay on the owed list with why.
+#: per store, per table: the count and the delete of the patients' rows (written out: no SQL is put together)
+OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+    ("site", (
+        ("contact_outcomes", "SELECT count(*) FROM contact_outcomes WHERE pid = ANY(?)",
+         "DELETE FROM contact_outcomes WHERE pid = ANY(?)"),
+        ("excluded_review", "SELECT count(*) FROM excluded_review WHERE pid = ANY(?)",
+         "DELETE FROM excluded_review WHERE pid = ANY(?)"),
+    )),
+    ("team", (
+        ("approach_overrides", "SELECT count(*) FROM approach_overrides WHERE pid = ANY(?)",
+         "DELETE FROM approach_overrides WHERE pid = ANY(?)"),
+        ("referral_events", "SELECT count(*) FROM referral_events WHERE pid = ANY(?)",
+         "DELETE FROM referral_events WHERE pid = ANY(?)"),
+        ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),
+    )),
+    ("orch", (
+        ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
+        # D-908 (the owner's D-519): the judged-pair store's model answers about the patient
+        ("judged_pairs", "SELECT count(*) FROM judged_pairs WHERE pid = ANY(?)",
+         "DELETE FROM judged_pairs WHERE pid = ANY(?)"),
+        # D-513 (the owner, 2026-11-15; D-860): a dry run goes; a live submission is NHI's send-once guard and the
+        # record of a disclosure already made, and stays
+        ("submissions", "SELECT count(*) FROM submissions WHERE pid = ANY(?) AND dry_run = 1",
+         "DELETE FROM submissions WHERE pid = ANY(?) AND dry_run = 1"),
+    )),
+)  # fmt: skip
+
+
+def _open(url: str, schema: str) -> Any:
+    """The store's connection, each named here (the schemas the code opens are enumerated, D-378)."""
+    from tb_common.db import Database
+
+    if schema == "site":
+        return Database.connect(url, "site")
+    if schema == "team":
+        return Database.connect(url, "team")
+    if schema == "orch":
+        return Database.connect(url, "orch")
+    if schema == "derived":
+        return Database.connect(url, "derived")
+    if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
+        return Database.connect(url, "mail")
+    raise ValueError(f"no owed table in store {schema!r}")
+
+
+#: the derived store: the input links and conflicts of a score row go before the row (their foreign keys)
+DERIVED = "derived"
+
+
+def _derived(db: Any, pids: list[str], delete: bool) -> dict[str, int]:
+    """The derived store's rows of ``pids``: counted, or deleted (counts). ``batch_run.failed_pids`` (a JSON list)
+    loses the pseudonyms; the batch itself stays (it holds no other patient data)."""
+    out: dict[str, int] = {}
+    if delete:
+        # a conflict carried from one of the patient's (always the patient's own): unlink before the delete
+        db.execute("UPDATE conflict SET carried_from = NULL WHERE carried_from IN (SELECT id FROM conflict WHERE"
+                   " pid = ANY(?)) AND NOT (pid = ANY(?))", (pids, pids))  # fmt: skip
+        out["derived.input_link"] = db.execute(
+            "DELETE FROM input_link WHERE row_id IN (SELECT id FROM score_row WHERE pid = ANY(?))", (pids,)
+        )
+        out["derived.conflict"] = db.execute("DELETE FROM conflict WHERE pid = ANY(?)", (pids,))
+        out["derived.score_row"] = db.execute("DELETE FROM score_row WHERE pid = ANY(?)", (pids,))
+    else:
+        out["derived.input_link"] = int(db.fetchval(
+            "SELECT count(*) FROM input_link WHERE row_id IN (SELECT id FROM score_row WHERE pid = ANY(?))", (pids,)
+        ))  # fmt: skip
+        out["derived.conflict"] = int(db.fetchval("SELECT count(*) FROM conflict WHERE pid = ANY(?)", (pids,)))
+        out["derived.score_row"] = int(db.fetchval("SELECT count(*) FROM score_row WHERE pid = ANY(?)", (pids,)))
+    gone = set(pids)
+    n = 0
+    for bid, raw in db.fetchall("SELECT id, failed_pids FROM batch_run WHERE failed_pids IS NOT NULL"):
+        try:
+            listed = [str(x) for x in json.loads(raw)]
+        except (TypeError, ValueError):
+            continue
+        if gone & set(listed):
+            n += 1
+            if delete:
+                left = [x for x in listed if x not in gone]
+                db.execute("UPDATE batch_run SET failed_pids = ?, failed = GREATEST(COALESCE(failed, 0) - ?, 0)"
+                           " WHERE id = ?", (json.dumps(left), len(listed) - len(left), bid))  # fmt: skip
+    out["derived.batch_run"] = n
+    return out
+
+
+def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    out: dict[str, int] = {}
+    for schema, tables in OWED_TABLES:
+        here = [x for x in tables if store_has(url, schema, x[0])]
+        if not here or not want:
+            out.update({f"{schema}.{t}": 0 for t, _c, _d in here})
+            continue
+        with _open(url, schema) as db, db.transaction() as tx:  # one schema's deletes: all or none
+            for t, count, drop in here:
+                if delete:
+                    out[f"{schema}.{t}"] = int(tx.execute(drop, (want,)) or 0)
+                else:
+                    out[f"{schema}.{t}"] = int(tx.fetchval(count, (want,)))
+    if store_has(url, DERIVED, "score_row") and want:
+        with _open(url, DERIVED) as db:
+            if delete:
+                with db.transaction() as tx:
+                    out.update({k: int(v or 0) for k, v in _derived(tx, want, True).items()})
+            else:
+                out.update(_derived(db, want, False))
+    return out
+
+
+def clear_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """T-206b part 1 (D-798): the opted-out patients' rows of the owed tables keyed by the pseudonym go (counts by
+    table, never who). A store this box does not have is left out; the worker never creates one."""
+    return _owed_tables(pids, env, delete=True)
+
+
+def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """The rows of ``pids`` still in each owed table (and batches still naming one)."""
+    return _owed_tables(pids, env, delete=False)
+
+
+# ------------------------------------------------------------------------------------------------ a held mail
+_HELD = "SELECT key, request FROM send_keys WHERE state = 'failed' AND last_error = ? AND request IS NOT NULL"
+
+
+def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    """NEW-MAIL-1 (D-863, the integrator's ruling): a mail the gateway held because its files name a patient opted
+    out since they were made (``send_keys`` ``failed`` with :data:`tb_common.patient_files.HELD`) and that carries a
+    per-patient file of such a patient (its name ends in the pseudonym's prefix, which the kept request holds) is
+    dropped: its request and recipients go, so nothing can send it again. A held mail of lists names no one in the
+    outbox (its files by key) and stays for a person to drop or resend (asked again): the review of D-863 (a list
+    held for a patient on another list must not be lost without a person). The job's files themselves stay: other
+    patients' pages read them, withheld on read until retention (D-513, D-860). Counts mails only."""
+    from tb_common import patient_files
+
+    url = str(env.register.db.url)
+    if not pids or not store_has(url, "mail", "send_keys"):
+        return {"mail.send_keys": 0}
+    low = {p.lower() for p in pids}
+    with _open(url, "mail") as db:
+        names: list[str] = []
+        for key, raw in db.fetchall(_HELD, (patient_files.HELD,)):
+            try:
+                atts = json.loads(raw).get("attachments") or []
+            except (TypeError, ValueError, AttributeError):
+                continue  # a request that cannot be read: a person decides
+            owners = {patient_files.owner_of(str(a.get("filename") or "")) for a in atts if isinstance(a, dict)}
+            if any(o and any(p.startswith(o) for p in low) for o in owners):
+                names.append(str(key))
+        if delete and names:
+            db.execute(
+                "UPDATE send_keys SET state = 'dropped', resolved_by = ?, request = NULL, recipients = NULL, at = ?, "
+                "next_at = NULL WHERE key = ANY(?) AND state = 'failed'",
+                (ACTOR, env.now.isoformat(), names),
+            )
+        return {"mail.send_keys": len(names)}
+
+
+def clear_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _held_mail(pids, env, True)
+
+
+def verify_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _held_mail(pids, env, False)
 
 
 def run_once(env: WorkerEnv) -> dict[str, Any]:

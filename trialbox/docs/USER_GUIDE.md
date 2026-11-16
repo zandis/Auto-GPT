@@ -14,7 +14,7 @@ after adding or renaming a section file run `python -m tools.doclint --write`, a
 
 ## 1. Help in your language
 
-File: [user-guide/01-help-in-your-language.md](user-guide/01-help-in-your-language.md).
+File: [user-guide/01-help-in-your-language.md](user-guide/01-help-in-your-language.md). In it: [The role guides](user-guide/01-help-in-your-language.md#the-role-guides).
 
 ## 2. Roles
 

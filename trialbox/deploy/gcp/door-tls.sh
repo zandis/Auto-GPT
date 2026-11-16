@@ -5,7 +5,7 @@
 #   door_make DIR            a fresh door for one VM and run, all files 0600 in DIR:
 #                              tb-key       the bearer key of the door and the two model servers
 #                              door.key     the TLS private key of the VM's nginx (P-256, made here, never printed)
-#                              door.crt     its self-signed certificate (CN and SAN "tb-door", 3 days): public, it
+#                              door.crt     its self-signed certificate (CN and SAN "tb-door", 30 days: a collect may come weeks later, review 12): public, it
 #                                           goes to the VM as metadata tb-door-cert
 #                              door.pin     sha256 of the certificate's public key (curl --pinnedpubkey)
 #                              door-secret.json  {"key", "tls_key"}: what the VM reads from Secret Manager
@@ -31,7 +31,7 @@ door_make() {
   (
     umask 077
     "$py" -c 'import secrets; print(secrets.token_urlsafe(32))' > "$dir/tb-key"
-    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3 -subj "/CN=$DOOR_NAME" \
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days "${DOOR_CERT_DAYS:-30}" -subj "/CN=$DOOR_NAME" \
       -addext "subjectAltName=DNS:$DOOR_NAME" -keyout "$dir/door.key" -out "$dir/door.crt" >/dev/null 2>&1
     openssl x509 -in "$dir/door.crt" -pubkey -noout | openssl pkey -pubin -outform der 2>/dev/null \
       | openssl dgst -sha256 -binary | openssl base64 -A > "$dir/door.pin"
@@ -44,8 +44,10 @@ json.dump({"key": open(d + "/tb-key").read().strip(), "tls_key": open(d + "/door
 door_curl() {
   local dir=$1 host=$2 m=$3 p=$4; shift 4
   [ -s "$dir/door.crt" ] && [ -s "$dir/door.pin" ] && [ -s "$dir/tb-key" ] || { echo "door: no door files in $dir" >&2; return 2; }
-  # --noproxy: straight to the VM, as the plain-HTTP door went; an HTTPS proxy that re-signs would fail the pin anyway
-  curl -fsS --max-time 600 --noproxy '*' --proto =https --tlsv1.2 --cacert "$dir/door.crt" \
+  # --noproxy: straight to the VM, as the plain-HTTP door went; an HTTPS proxy that re-signs would fail the pin anyway.
+  # --connect-timeout (DOOR_CONNECT_TIMEOUT_S, 20 s; OD-10: a setting with a reason): a VM that answers connects in
+  # well under a second; a dropped SYN must not hold a poll for curl's own 300 s (the driver's waits are wall-clock)
+  curl -fsS --connect-timeout "${DOOR_CONNECT_TIMEOUT_S:-20}" --max-time 600 --noproxy '*' --proto =https --tlsv1.2 --cacert "$dir/door.crt" \
     --pinnedpubkey "sha256//$(cat "$dir/door.pin")" --resolve "$DOOR_NAME:$DOOR_PORT:$host" \
     -X "$m" -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$dir/tb-key")") "https://$DOOR_NAME:$DOOR_PORT/tb/$p" "$@"
 }

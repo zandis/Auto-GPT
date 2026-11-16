@@ -58,6 +58,12 @@ EN: dict[str, str] = {
     "ops.backup.unreachable": "This target cannot be reached now (not mounted?).",
     "ops.backup.verify_cli": "A full check of the content needs the private key: python3 -m tools.trialbox "
     "backup-verify, with the key from the envelope (RUNBOOK §5).",
+    "ops.drill.last": "Last restore drill",
+    "ops.drill.pass": "passed",
+    "ops.drill.fail": "failed",
+    "ops.drill.none": "none yet",
+    "ops.drill.cli": "The restore drill proves the newest backup restores, into scratch databases (the live ones are "
+    "never touched). Hospital IT types it on the box's host with the key from the envelope (RUNBOOK §5):",
     "ops.open": "Open",
     "ops.update.applied": "applied",
     "ops.update.rolled_back": "rolled back",
@@ -195,6 +201,12 @@ JA: dict[str, str] = {
     "ops.backup.unreachable": "この保存先にいま接続できません（マウントされていない可能性があります）。",
     "ops.backup.verify_cli": "内容の完全な確認には秘密鍵が必要です：封筒の鍵を使って python3 -m tools.trialbox "
     "backup-verify を実行します（RUNBOOK §5）。",
+    "ops.drill.last": "前回の復元訓練",
+    "ops.drill.pass": "合格",
+    "ops.drill.fail": "失敗",
+    "ops.drill.none": "まだありません",
+    "ops.drill.cli": "復元訓練は、最新のバックアップが一時データベースに復元できることを確かめます（稼働中の"
+    "データベースには触れません）。病院の情報部門が封筒の鍵を使って本機のホストで入力します（RUNBOOK §5）：",
     "ops.open": "開く",
     "ops.update.applied": "適用済み",
     "ops.update.rolled_back": "切り戻し済み",
@@ -325,6 +337,12 @@ ZH: dict[str, str] = {
     "ops.backup.unreachable": "目前無法連到此備份位置（可能未掛載）。",
     "ops.backup.verify_cli": "完整檢查內容需要私鑰：以信封中的金鑰執行 python3 -m tools.trialbox backup-verify（RUNBOO"
     "K §5）。",
+    "ops.drill.last": "上次還原演練",
+    "ops.drill.pass": "通過",
+    "ops.drill.fail": "失敗",
+    "ops.drill.none": "尚未執行",
+    "ops.drill.cli": "還原演練確認最新備份能還原到暫存資料庫（不會碰到正在使用的資料庫）。由醫院資訊人員以信封中的金"
+    "鑰在本機主機上輸入（RUNBOOK §5）：",
     "ops.open": "開啟",
     "ops.update.applied": "已套用",
     "ops.update.rolled_back": "已還原",

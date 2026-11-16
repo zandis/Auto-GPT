@@ -149,8 +149,10 @@ def test_prompt_through_the_gateway_is_allowed_or_refused_and_audited(client: Te
     assert "HTTP 403: refused (step_unconfirmed)" in d3.text
     d1 = client.post("/llm/prompt", data={"text": "x", "data_class": "D1"})
     assert "class_not_allowed_in_env" in d1.text
+    # D-506: on a route that stays on the box a tripwire hit is answered by an on-box model and audited as such
     phi = client.post("/llm/prompt", data={"text": "Patient A123456789 has gout", "data_class": "D0"})
-    assert "phi_tripwire" in phi.text and "A123456789" not in phi.text.split("Audit records")[1]
+    assert "HTTP 200: allowed" in phi.text and "on_box" in phi.text
+    assert "A123456789" not in phi.text.split("Audit records")[1]
 
 
 def test_registry_and_model_cards_are_shown(client: TestClient) -> None:

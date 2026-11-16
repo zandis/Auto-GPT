@@ -7,7 +7,11 @@ call. ``/healthz`` names the build and the first 12 characters of the weights' m
 from __future__ import annotations
 
 import os
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import cache
+from typing import Any
 
 from tb_common.config import environment_name
 from tb_common.http import make_app
@@ -17,13 +21,30 @@ from tb_contracts import EmbedRequest, EmbedResponse
 from embed_service.embedder import Embedder, service_embedder
 
 _embedder: Embedder | None = None
+_load_lock = threading.Lock()
+_gate: threading.BoundedSemaphore | None = None
+_gate_lock = threading.Lock()
 
 
 def embedder() -> Embedder:
+    """The model, loaded once (red of 2026-11-15: requests that arrived together each loaded their own copy, and the
+    service ran out of memory and restarted)."""
     global _embedder
     if _embedder is None:
-        _embedder = service_embedder()
+        with _load_lock:
+            if _embedder is None:
+                _embedder = service_embedder()
     return _embedder
+
+
+def gate() -> threading.BoundedSemaphore:
+    """``TB_EMBED_CONCURRENCY`` requests encode at a time (1 by default: one CPU-bound encode uses every core)."""
+    global _gate
+    if _gate is None:
+        with _gate_lock:
+            if _gate is None:
+                _gate = threading.BoundedSemaphore(max(1, int(os.environ.get("TB_EMBED_CONCURRENCY") or 1)))
+    return _gate
 
 
 def health() -> dict[str, str]:
@@ -37,7 +58,16 @@ def mrn_regex() -> str | None:
     return site_mrn_regex()
 
 
-app = make_app("embed-service", checks=[health])
+@asynccontextmanager
+async def lifespan(_app: Any) -> AsyncIterator[None]:
+    """D-907 (from lane G's #772): the model is loaded when the service starts, in every environment, under the one
+    lock (a request that arrives meanwhile waits for this load), so the first SCREEN request does not pay for it and a
+    configuration the loader refuses stops the service at start."""
+    embedder()
+    yield
+
+
+app = make_app("embed-service", checks=[health], lifespan=lifespan)
 
 if environment_name(os.environ) == "PRODUCTION":  # refuse at start: a box never runs on the stub or unpinned weights
     embedder()
@@ -48,4 +78,7 @@ def embed(req: EmbedRequest) -> EmbedResponse:
     """Every input is masked first (T-600, D-337): a caller that sends note text unmasked still embeds no name, phone
     number, chart number or ID number. Masking keeps the length and is a no-op on text already masked."""
     e = embedder()
-    return EmbedResponse(vectors=e.embed([mask_note(t, mrn_regex()) for t in req.texts]), model=e.model, dim=e.dim)
+    texts = [mask_note(t, mrn_regex()) for t in req.texts]
+    with gate():
+        vectors = e.embed(texts)
+    return EmbedResponse(vectors=vectors, model=e.model, dim=e.dim)

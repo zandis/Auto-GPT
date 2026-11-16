@@ -30,12 +30,13 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sitesetup import help as site_help
 from sitesetup import publish, readiness
 from sitesetup.intake import IntakeError
 from sitesetup.service import SiteSetup, ws_ok
 from sitesetup.store import SetupError
+from tb_common.actor_v3 import Claim
 from tb_common.patient_reads import PHI as _PHI
 
 from orchestrator.actor import require_actor as _require_actor
@@ -46,77 +47,100 @@ LANGS = ("ja", "zh-TW", "en")
 #: NEW-SEC-1 (D-717): a route that returns a patient's row takes the verified person, allowed to see
 #: patient-level data on the route's study (tb_common.patient_reads)
 PATIENT_READ = _require_actor(_PHI)  # D-717 review: no service principal
+#: T-715g (D-803): the changing routes refuse a call without a verified person for the action: the site's set-up,
+#: the opt-out desk (and the console's opt-out check timer) for a pseudonym, and the administrator's box network row
+#: for the remote help switch (it opens the box to the vendor's connection; a row of its own waits for the guides)
+AS_SITE = _require_actor("site.setup")
+AS_OPTOUT = _require_actor("optout.keep", service=True)
+AS_REMOTE = _require_actor("ops.network")
+
+
+def _sees_patients(who: Claim, request: Request) -> None:
+    """The review of D-803 (3): a set-up change that reads or writes one patient's facts (a fact, a chart, a person
+    to resolve) also needs the signed role to see patient data, as the console's page asks (``need_view``); the
+    administrator holds ``site.setup`` but not ``phi.view``."""
+    from tb_common.authz import permit
+
+    from orchestrator import actor as route_actor
+
+    if not permit(who.role, "phi.view").allowed:  # on the record as every refusal (actor.refused)
+        raise route_actor.refusal(request, "site.setup", "right", who.sub, None)
 
 
 class SheetBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     kind: str = Field(pattern=r"^(sheet|dump)$")
     name: str = Field(max_length=200)
     b64: str
     roles: dict[str, str] = Field(default_factory=dict)
-    by: str
 
 
 class RolesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     roles: dict[str, str]
-    by: str
 
 
 class PseudonymBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     chart_no: str = Field(max_length=40)
     # NEW-DIN-3 (D-544): the opt-out desk asks whether the box knows the pseudonym; another caller pays no lookup
     ask_known: bool = False
 
 
 class ChartBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     chart_no: str = Field(max_length=40)
     name: str = Field(default="pasted.txt", max_length=200)
     text: str = Field(default="", max_length=60_000)
     b64: str = ""
     lang: str = "ja"
-    by: str
 
 
 class DecideBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     action: str = Field(pattern=r"^(confirm|correct|reject|undo)$")  # undo: D-178
     changes: dict[str, str] = Field(default_factory=dict)
-    by: str
 
 
 class MapBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     domain: str
     system: str
     code: str
     target_system: str = ""
     target_code: str = ""
     target_display: str = ""
-    by: str
 
 
 class MapSheetBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     b64: str
-    by: str
 
 
 class AnswerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     answer: str = Field(max_length=40)
-    by: str
 
 
 class ResolveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     pid: str = Field(pattern=r"^[0-9a-f]{32}$")
     what: str = Field(pattern=r"^(birth_date|sex)$")
     keep: str = Field(max_length=20)
-    by: str
 
 
 class ByBody(BaseModel):
-    by: str
+    """No field: the person is the verified one (T-715g, D-803)."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class RemoteBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     on: bool
-    approved_by: str = Field(default="", max_length=80)  # the hospital's approval (needed with real data)
-    by: str
+    # the hospital's approval (needed with real data): who approved, as the hospital writes it; not the caller
+    # (T-715g, D-803: a field named like a person is no field of a refuse route)
+    hospital_approval: str = Field(default="", max_length=80)
 
 
 class AssistBody(BaseModel):
@@ -274,7 +298,7 @@ def router(
             return {**out, "feas": None, "lake_unread": True}
 
     @r.post("/setup/{ws}/sheets")
-    def post_sheet(ws: str, body: SheetBody, request: Request) -> dict[str, Any]:
+    def post_sheet(ws: str, body: SheetBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
         svc, w = get(), ws_of(ws)
         admitted = door(request, SETUP_DOOR)  # T-719 (D-487): a sheet's chart numbers become pseudonyms here
         try:
@@ -282,26 +306,27 @@ def router(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"code": "SETUP-FILE", "message": "not base64"}) from exc
         try:
-            out = dict(call(lambda: svc.add_sheet(w, body.kind, body.name, data, body.roles, body.by)))
+            out = dict(call(lambda: svc.add_sheet(w, body.kind, body.name, data, body.roles, who.name)))
         except IntakeError as exc:
             raise _intake_fail(exc) from exc
         admitted.record_input(out.get("input") or out.get("id"))
         return out
 
     @r.post("/setup/{ws}/sheets/{iid}/roles")
-    def post_roles(ws: str, iid: int, body: RolesBody, request: Request) -> dict[str, Any]:
+    def post_roles(ws: str, iid: int, body: RolesBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
         svc = get()
         ws_of(ws)
         admitted = door(request, SETUP_DOOR)  # a new chart-number column is hashed at the re-read
         try:
-            out = dict(call(lambda: svc.reread(iid, body.by, body.roles)))
+            out = dict(call(lambda: svc.reread(iid, who.name, body.roles)))
         except IntakeError as exc:  # T-629 (FIT-U09): a chart-number column Excel turned into numbers
             raise _intake_fail(exc) from exc
         admitted.record_input(iid)
         return out
 
     @r.post("/setup/{ws}/charts")
-    def post_chart(ws: str, body: ChartBody, request: Request) -> dict[str, Any]:
+    def post_chart(ws: str, body: ChartBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who, request)
         svc, w = get(), ws_of(ws)
         admitted = door(request, SETUP_DOOR)  # T-719 (D-487): the chart's number becomes a pseudonym here
         lang = body.lang if body.lang in LANGS else "en"
@@ -310,12 +335,12 @@ def router(
                 data = base64.b64decode(body.b64, validate=True)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail={"code": "SETUP-FILE", "message": "not base64"}) from exc
-            out = dict(call(lambda: svc.add_chart(w, body.chart_no, body.name, data, body.by, lang)))
+            out = dict(call(lambda: svc.add_chart(w, body.chart_no, body.name, data, who.name, lang)))
         else:
             out = dict(
                 call(
                     lambda: svc.add_chart(
-                        w, body.chart_no, "pasted.txt", body.text.encode("utf-8"), body.by, lang, pasted=True
+                        w, body.chart_no, "pasted.txt", body.text.encode("utf-8"), who.name, lang, pasted=True
                     )
                 )
             )
@@ -323,21 +348,22 @@ def router(
         return out
 
     @r.post("/setup/{ws}/facts/{fid}")
-    def post_fact(ws: str, fid: int, body: DecideBody) -> dict[str, Any]:
+    def post_fact(ws: str, fid: int, body: DecideBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who, request)
         svc, w = get(), ws_of(ws)
         f = svc.store.fact(fid)
         if f is None or f["ws"] != w:
             raise HTTPException(status_code=404, detail={"code": "SETUP-FACT", "message": "no such fact"})
-        return dict(call(lambda: svc.decide(fid, body.action, body.by, dict(body.changes))))
+        return dict(call(lambda: svc.decide(fid, body.action, who.name, dict(body.changes))))
 
     @r.post("/setup/{ws}/codes")
-    def post_code(ws: str, body: MapBody) -> dict[str, Any]:
+    def post_code(ws: str, body: MapBody, who: Claim = AS_SITE) -> dict[str, Any]:
         svc, w = get(), ws_of(ws)
         target = {"system": body.target_system, "code": body.target_code, "display": body.target_display}
-        return dict(call(lambda: svc.map_code(w, body.domain, body.system, body.code, target, body.by)))
+        return dict(call(lambda: svc.map_code(w, body.domain, body.system, body.code, target, who.name)))
 
     @r.post("/setup/{ws}/codes/sheet")
-    def post_code_sheet(ws: str, body: MapSheetBody) -> dict[str, Any]:
+    def post_code_sheet(ws: str, body: MapSheetBody, who: Claim = AS_SITE) -> dict[str, Any]:
         """A filled mapping sheet: every row with a standard code is mapped, as the sender's own decision."""
         from sitesetup import mapping as mp
 
@@ -347,27 +373,28 @@ def router(
         for row in rows:
             target = {"system": mp.TARGET.get(row["domain"], ""), "code": row["use"]}
             try:
-                svc.map_code(w, row["domain"], row["system"], row["code"], target, body.by)
+                svc.map_code(w, row["domain"], row["system"], row["code"], target, who.name)
                 done += 1
             except SetupError as exc:
                 refused.append({"code": row["code"], "why": exc.code})
         return {"mapped": done, "refused": refused}
 
     @r.post("/setup/{ws}/checks/{cid}")
-    def post_check(ws: str, cid: int, body: AnswerBody) -> dict[str, Any]:
+    def post_check(ws: str, cid: int, body: AnswerBody, who: Claim = AS_SITE) -> dict[str, Any]:
         svc, w = get(), ws_of(ws)
         c = svc.store.check(cid)
         if c is None or c["ws"] != w:
             raise HTTPException(status_code=404, detail={"code": "SETUP-CHECK", "message": "no such check"})
-        return dict(call(lambda: svc.answer(cid, body.answer, body.by)))
+        return dict(call(lambda: svc.answer(cid, body.answer, who.name)))
 
     @r.post("/setup/{ws}/people/resolve")
-    def post_resolve(ws: str, body: ResolveBody) -> dict[str, Any]:
+    def post_resolve(ws: str, body: ResolveBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
+        _sees_patients(who, request)
         svc, w = get(), ws_of(ws)
-        return dict(call(lambda: svc.resolve(w, body.pid, body.what, body.keep, body.by)))
+        return dict(call(lambda: svc.resolve(w, body.pid, body.what, body.keep, who.name)))
 
     @r.post("/setup/pseudonym")
-    def post_pseudonym(body: PseudonymBody, request: Request) -> dict[str, Any]:
+    def post_pseudonym(body: PseudonymBody, request: Request, who: Claim = AS_OPTOUT) -> dict[str, Any]:
         """D-147: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
         stores only the pseudonym and the number is never kept or logged. T-719 (D-487): for the verified person of
         the call only, capped, and on the record with the pseudonym. NEW-DIN-3 (D-544): ``known``: the pid map has
@@ -384,27 +411,27 @@ def router(
         return {"pid": pid, "known": svc.known_pid(pid)} if body.ask_known else {"pid": pid}
 
     @r.post("/setup/{ws}/publish")
-    def post_publish(ws: str, body: ByBody) -> dict[str, Any]:
-        return dict(get().publish(ws_of(ws), body.by, force=True))
+    def post_publish(ws: str, body: ByBody, who: Claim = AS_SITE) -> dict[str, Any]:
+        return dict(get().publish(ws_of(ws), who.name, force=True))
 
     @r.post("/setup/practice/load")
-    def practice_load(body: ByBody) -> dict[str, Any]:
+    def practice_load(body: ByBody, who: Claim = AS_SITE) -> dict[str, Any]:
         svc = get()
-        svc.reset("practice", body.by)
+        svc.reset("practice", who.name)
         inp = site_help.practice_inputs()
-        call(lambda: svc.add_sheet("practice", "dump", inp["dump"][0], inp["dump"][1], {}, body.by))
-        call(lambda: svc.add_sheet("practice", "sheet", inp["sheet"][0], inp["sheet"][1], {}, body.by))
+        call(lambda: svc.add_sheet("practice", "dump", inp["dump"][0], inp["dump"][1], {}, who.name))
+        call(lambda: svc.add_sheet("practice", "sheet", inp["sheet"][0], inp["sheet"][1], {}, who.name))
         for no, text in inp["charts"]:
             try:
-                svc.add_chart("practice", no, "pasted.txt", text.encode("utf-8"), body.by, "ja", pasted=True)
+                svc.add_chart("practice", no, "pasted.txt", text.encode("utf-8"), who.name, "ja", pasted=True)
             except SetupError as exc:
                 raise _fail(exc) from exc
-        svc.audit.append("setup.practice", actor=body.by, detail={"action": "load"})
+        svc.audit.append("setup.practice", actor=who.name, detail={"action": "load"})
         return {"loaded": True, "inputs": len(svc.store.inputs("practice"))}
 
     @r.post("/setup/practice/reset")
-    def practice_reset(body: ByBody) -> dict[str, Any]:
-        get().reset("practice", body.by)
+    def practice_reset(body: ByBody, who: Claim = AS_SITE) -> dict[str, Any]:
+        get().reset("practice", who.name)
         return {"reset": True}
 
     @r.get("/setup/terminology")
@@ -425,24 +452,25 @@ def router(
         }
 
     @r.put("/setup/remote")
-    def put_remote(body: RemoteBody) -> dict[str, Any]:
+    def put_remote(body: RemoteBody, who: Claim = AS_REMOTE) -> dict[str, Any]:
         """Remote help from Aimedics (D-132): a switch only, off by default; no connection is made by TrialBox.
         With real patient data on the box, switching it on needs the hospital's approval (who approved)."""
         svc = get()
-        if body.on and real_data() and not body.approved_by.strip():
+        if body.on and real_data() and not body.hospital_approval.strip():
             raise HTTPException(
                 status_code=409,
                 detail={"code": "SETUP-REMOTE", "message": "real data is present: the hospital's approval is needed"},
             )
         at = svc.stamp()
-        svc.store.set_setting("remote_help", "on" if body.on else "off", body.by, at)
-        svc.store.set_setting("remote_help_approved_by", body.approved_by.strip() if body.on else "", body.by, at)
+        approval = body.hospital_approval.strip() if body.on else ""
+        svc.store.set_setting("remote_help", "on" if body.on else "off", who.name, at)
+        svc.store.set_setting("remote_help_approved_by", approval, who.name, at)
         svc.audit.append(
             "setup.remote",
-            actor=body.by,
-            detail={"on": body.on, "approved_by": body.approved_by[:80], "real_data": real_data()},
+            actor=who.name,
+            detail={"on": body.on, "approved_by": body.hospital_approval[:80], "real_data": real_data()},
         )
-        return {"on": body.on, "approved_by": body.approved_by.strip() if body.on else "", "real_data": real_data()}
+        return {"on": body.on, "approved_by": approval, "real_data": real_data()}
 
     @r.post("/assist")
     def assist(body: AssistBody) -> dict[str, Any]:

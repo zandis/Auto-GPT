@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
   "ref_date": "2026-11-01",
   "ruleset": "NEUR-COH",
   "ruleset_version": "1.0.0",
@@ -15,7 +15,7 @@
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "848f142b36604f4aafe6ca9c4cdc8bd3812917fbc7c81625467e8a81749be745",
+   "outcomes_sha": "bd79bcbae941779d2cc3ceaf2a9c726919ccca30419e6fb5710c6093956e0b7c",
    "patients": 53,
    "structured_criteria": [
     "NEUR-COH-INC-01",
@@ -25,8 +25,8 @@
    "verdicts": {
     "NEUR-COH-INC-01": {
      "met": 0,
-     "not_met": 53,
-     "unknown": 0
+     "not_met": 12,
+     "unknown": 41
     },
     "NEUR-COH-INC-02": {
      "met": 0,
@@ -43,7 +43,7 @@
   "ssmix2-jp": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "bf00d1a22d1278c5c660a5b1714ce91f871a40b4d3ef6c5de3120153c68f3a43",
+   "outcomes_sha": "105c3c75a0e9ce306d02040f477fb1686cfaa612b07ff5754d309412534679ad",
    "patients": 400,
    "structured_criteria": [
     "NEUR-COH-INC-01",
@@ -53,8 +53,8 @@
    "verdicts": {
     "NEUR-COH-INC-01": {
      "met": 0,
-     "not_met": 400,
-     "unknown": 0
+     "not_met": 367,
+     "unknown": 33
     },
     "NEUR-COH-INC-02": {
      "met": 0,
@@ -71,7 +71,7 @@
   "synthetic-jp-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "5ecb50cbfde90b7c962214e1cab3b3b2664454a96511322e49227e0142cb84b8",
+   "outcomes_sha": "0387618786eb852fe344c37b24de472879b5995a9a7ff51425cbf5e819728344",
    "patients": 2500,
    "structured_criteria": [
     "NEUR-COH-INC-01",
@@ -81,8 +81,8 @@
    "verdicts": {
     "NEUR-COH-INC-01": {
      "met": 0,
-     "not_met": 2500,
-     "unknown": 0
+     "not_met": 2323,
+     "unknown": 177
     },
     "NEUR-COH-INC-02": {
      "met": 0,
@@ -97,9 +97,11 @@
    }
   },
   "synthetic-jp-a-deletes": {
-   "candidate_pids": [],
-   "candidates": 0,
-   "outcomes_sha": "1488d2d68e5b4677360488eeed7da0c80a0afd49b9bffc92fbb167ba5abbc5b7",
+   "candidate_pids": [
+    "4610fae88ac442bad2486780c1c55ef5"
+   ],
+   "candidates": 1,
+   "outcomes_sha": "ef05fbab67498c4e5341523fb2f8a420221d12edcbf4caba6f160d1789fe06a5",
    "patients": 2500,
    "structured_criteria": [
     "NEUR-COH-INC-01",
@@ -109,13 +111,13 @@
    "verdicts": {
     "NEUR-COH-INC-01": {
      "met": 0,
-     "not_met": 2500,
-     "unknown": 0
+     "not_met": 2257,
+     "unknown": 243
     },
     "NEUR-COH-INC-02": {
      "met": 0,
-     "not_met": 2500,
-     "unknown": 0
+     "not_met": 2497,
+     "unknown": 3
     },
     "NEUR-COH-INC-03": {
      "met": 1760,
@@ -127,7 +129,7 @@
   "synthetic-tw-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "95d2814fa5bf913e6980a91f48b1e2147b54985bf3b2a8b4a45630ee85b8cbec",
+   "outcomes_sha": "592506a0533d4da412707f001047e27b4f92778f6ea7110caa30c79902d5ab5d",
    "patients": 2500,
    "structured_criteria": [
     "NEUR-COH-INC-01",
@@ -137,8 +139,8 @@
    "verdicts": {
     "NEUR-COH-INC-01": {
      "met": 0,
-     "not_met": 2500,
-     "unknown": 0
+     "not_met": 2307,
+     "unknown": 193
     },
     "NEUR-COH-INC-02": {
      "met": 0,

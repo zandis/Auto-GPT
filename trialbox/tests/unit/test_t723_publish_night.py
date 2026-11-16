@@ -370,12 +370,12 @@ def test_accept_publishes_the_held_night_with_the_same_function(
 def test_the_stewards_accept_goes_through_the_adapter_and_a_failed_publish_keeps_the_night_held(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The console's promoter (``adapter_promoter``) over the adapter's ``/publish`` job, inside
+    """The orchestrator's promoter (``orchestrator.dataops_api.promoter``, NEW-ARCH-3) over the adapter's ``/publish`` job, inside
     ``DataOps.decide``: a publish that fails leaves the night held with the step in ``publish.json``; a second
     accept resumes there and the night is PUBLISHED."""
     from adapter import app as adapter_app
-    from console.dataops_page import adapter_promoter
     from fastapi.testclient import TestClient
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
@@ -387,20 +387,27 @@ def test_the_stewards_accept_goes_through_the_adapter_and_a_failed_publish_keeps
     monkeypatch.setattr(adapter_app, "_spawn", lambda run: run())  # the job runs in the request (a test)
     http = TestClient(adapter_app.app)
 
-    class Adapter:
-        def post_raw(self, path: str, body: Any) -> Any:
-            r = http.post(path, json=body)
+    class Orch:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
             if r.status_code >= 400:
                 raise ServiceError("adapter", r.status_code, r.text)
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path).json()
+            return http.get(path.replace("/dataops/publish", "/publish")).json()
 
-    class Bk:
-        adapter = Adapter()
+    class AsAdapter:  # NEW-ARCH-3 (D-761): the orchestrator's adapter client; the publish runs at the orchestrator
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().post_raw("/publish", body).json()
+            return out
 
-    promote = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().get_json(f"/publish/{rid}")
+            return out
+
+    promote = promoter(AsAdapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+
     audit = AuditLog(tmp_path / "audit")
     ops = DataOps()
     try:
@@ -625,8 +632,8 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
     answer was lost). Before: the row stayed HELD with no trace, a second accept got 404 for ever, and a reject
     was recorded while the night was served. Now the accept is in the audit and in the row before the publish
     starts, a reject is refused, and a second accept is answered "done" and records the night as published."""
-    from console.dataops_page import adapter_promoter
     from datacore.dataops import ACCEPTING, DataOpsError
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
@@ -638,9 +645,9 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
     http = _adapter(cfg, monkeypatch)
     lost = [True]
 
-    class Adapter:
-        def post_raw(self, path: str, body: Any) -> Any:
-            r = http.post(path, json=body)
+    class Orch:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
             if lost[0]:  # the publish ran; its answer never reached the console
                 raise ServiceError("adapter", 502, "bad gateway")
             if r.status_code >= 400:
@@ -648,12 +655,19 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path).json()
+            return http.get(path.replace("/dataops/publish", "/publish")).json()
 
-    class Bk:
-        adapter = Adapter()
+    class AsAdapter:  # NEW-ARCH-3 (D-761): the orchestrator's adapter client; the publish runs at the orchestrator
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().post_raw("/publish", body).json()
+            return out
 
-    promote = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().get_json(f"/publish/{rid}")
+            return out
+
+    promote = promoter(AsAdapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+
     audit_dir = tmp_path / "audit"
     audit = AuditLog(audit_dir)
     ops = DataOps()
@@ -687,7 +701,7 @@ def test_an_accept_whose_end_the_console_lost_is_recorded_and_can_only_be_accept
 def test_a_publish_that_ended_without_serving_the_night_can_still_be_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from console.dataops_page import adapter_promoter
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
@@ -698,20 +712,27 @@ def test_a_publish_that_ended_without_serving_the_night_can_still_be_rejected(
     row = _held_night(tmp_path, cfg)
     http = _adapter(cfg, monkeypatch)
 
-    class Adapter:
-        def post_raw(self, path: str, body: Any) -> Any:
-            r = http.post(path, json=body)
+    class Orch:  # NEW-SEC-4 (D-760): the orchestrator's route, which starts the adapter's publish
+        def post_raw(self, path: str, body: Any, headers: Any = None) -> Any:
+            r = http.post(path.replace("/dataops/publish", "/publish"), json=body)
             if r.status_code >= 400:
                 raise ServiceError("adapter", r.status_code, r.text)
             return r
 
         def get_json(self, path: str) -> Any:
-            return http.get(path).json()
+            return http.get(path.replace("/dataops/publish", "/publish")).json()
 
-    class Bk:
-        adapter = Adapter()
+    class AsAdapter:  # NEW-ARCH-3 (D-761): the orchestrator's adapter client; the publish runs at the orchestrator
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().post_raw("/publish", body).json()
+            return out
 
-    promote = adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = Orch().get_json(f"/publish/{rid}")
+            return out
+
+    promote = promoter(AsAdapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+
     audit = AuditLog(tmp_path / "audit")
     ops = DataOps()
     try:

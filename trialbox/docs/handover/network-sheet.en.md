@@ -1,5 +1,7 @@
 # TrialBox network, port and secret sheet
 
+**Reader:** hospital IT (the box owner hands it to IT with IT's one page, it-one-page.en.md).
+
 Generated from the compose files below by tools/network_sheet.py (D-138). Nothing on the box is reachable from outside except the console port. No secret value is on this sheet.
 
 **Compose files:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
@@ -16,7 +18,7 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 | criteria-compiler | 8012 | not published | egress-net, trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
 | db | 5432 | not published | trialbox-net | TrialBox services and fhir-store, with a password | always |
 | doc-parser | 8011 | not published | trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
-| embed-service | 8014 | not published | trialbox-net | with its own token, only: lake; the administrator on the host (operator token) | always |
+| embed-service | 8014 | not published | trialbox-net | with its own token, only: lake, orchestrator; the administrator on the host (operator token) | always |
 | fhir-store | 8080 | not published | trialbox-net | adapter, orchestrator, criteria-compiler (network only, no token yet) | always |
 | gateway | 8020 | not published | egress-net, model-net, trialbox-net | with its own token, only: console, criteria-compiler, doc-parser, orchestrator; the administrator on the host (operator token) | always |
 | judge-sleep-init | none (listens on no port) | not published | model-backend-net | - | GPU profile (rtx5090) |

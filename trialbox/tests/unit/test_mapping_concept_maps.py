@@ -19,7 +19,7 @@ def _site(tmp_path: Path, body: str) -> Mapping:
 
 
 def test_the_base_mapping_asks_for_the_icd9_to_icd10cm_map_once() -> None:
-    assert Mapping.load(BASE).concept_maps() == [(I9, I10CM)]
+    assert Mapping.load(BASE).concept_maps() == [(I9, I10CM), ("urn:tw:nhi:drug", "http://www.whocc.no/atc")]
 
 
 def test_a_site_that_exports_no_diagnosis_asks_for_none(tmp_path: Path) -> None:

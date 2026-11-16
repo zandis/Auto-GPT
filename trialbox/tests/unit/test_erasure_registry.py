@@ -211,7 +211,10 @@ def test_a_table_with_a_patient_column_is_never_no_patient_data(monkeypatch: pyt
 def test_every_clear_resolves_and_the_worker_runs_each() -> None:
     names = [c.name for c in erasure.clears()]
     # T-723 (D-489) adds pid_pending: the pid map's staging of a held night
-    assert names == ["candidate_pool", "candidate_registry", "omop", "pid_pending", "profile", "vec"]
+    # T-206b part 1 (D-798) adds owed_tables: the plain tables keyed by the pseudonym
+    # NEW-MAIL-1 (D-863) adds held_mail: a mail held for an opt-out loses the job files that name the patient
+    assert names == ["candidate_pool", "candidate_registry", "held_mail", "omop", "owed_tables", "pid_pending",
+                     "profile", "vec"]  # fmt: skip
     for c in erasure.clears():
         clear, verify = c.resolve()
         assert callable(clear) and callable(verify), c.name

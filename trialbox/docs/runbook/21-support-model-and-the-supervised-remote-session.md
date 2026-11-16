@@ -1,5 +1,7 @@
 # 21. Support model and the supervised remote session
 
+**Reader:** the box owner, and Aimedics.
+
 *T-635, D-390. Closes OPS-038 and OPS-039; the support part of CR-096. The incident plan (severity scale for
 incidents, notification clocks, the six cases) is T-318, not this page. The sheet the hospital keeps is
 `docs/plan/sites/support-sheet.md` (en, ja, zh-TW).*
@@ -53,7 +55,7 @@ to the hospital's incident procedure at once (§7), whatever its ticket priority
 One mail address per country, given on the support sheet. A ticket carries: the site, the priority, what was seen,
 when, the job id if there is one, and the output of `python3 -m tools.trialbox ops status` and `trialbox doctor`
 (both hold no patient data). **Never** a patient list, a chart number, a screenshot of a patient page, the pid map or
-a key. Before a file is attached, the administrator may run `python -m tools.data_scan <file>` on it (§3).
+a key. Before a file is attached, the administrator may run `python -m tools.data_scan --exits <file>` on it (§3; `--exits`: the patterns of what leaves the box, D-747).
 
 **The support bundle (T-209b, D-405).** When support asks for more than that, the administrator runs, on the box:
 

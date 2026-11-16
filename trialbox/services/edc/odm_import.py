@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from xml.parsers import expat
 
+from datacore import forms
 from datacore.export import BASE_EVENT, ODM_NS
 from datacore.forms import Field, problem, reason
 from tb_common.encoding import EncodingRefused, decode
@@ -326,7 +327,7 @@ def proposals(f: OdmFile, fields: Mapping[str, Field], mapped: Iterable[str], re
     for v in f.values:
         if v.item in skip:
             continue
-        base, sep, code = v.item.partition("___")
+        base, sep, _code = v.item.partition("___")
         name = base if sep else v.item
         fld = fields.get(name)
         if fld is None or name not in allowed:
@@ -340,9 +341,10 @@ def proposals(f: OdmFile, fields: Mapping[str, Field], mapped: Iterable[str], re
         visit = _visit(v, f)
         key = (v.record, visit, name)
         if sep:
-            if code not in fld.options or v.value not in ("", "0", "1"):
+            choice = forms.checkbox_code(fld, v.item)  # the column as REDCap names it (NEW-EDC-3b)
+            if choice is None or v.value not in ("", "0", "1"):
                 raise OdmRefused("odm.invalid", f"{v.item[:60]!r}: a choice of {name} is 0 or 1", v.path)
-            ticks.setdefault(key, {})[code] = v.value
+            ticks.setdefault(key, {})[choice] = v.value
             rows.setdefault(key, (fld.form, "", v.path.rsplit("/", 1)[0] + f"/{name}"))
             continue
         if key in rows:

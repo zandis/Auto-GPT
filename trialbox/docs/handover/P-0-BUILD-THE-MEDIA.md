@@ -1,5 +1,7 @@
 # P-0: the owner starts it; lane W does the rest
 
+**Reader:** the box owner for "Your part" below; lane W for the rest, for the P-0 rehearsal.
+
 **Your part (owner ruling D-510).** Lane W builds the media and reads what P-0 writes down; you only start it.
 
 1. Plug the USB disk lane W sends into the Windows PC (signed in as the administrator who will own the box). If

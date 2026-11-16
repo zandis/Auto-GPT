@@ -2,10 +2,19 @@
 
 *Owner: Aimedics engineer. Status: living; changed in the same pull request as the code it describes. History: the git log of this file and of `docs/runbook/`; the merge into eight documents is D-139; the split into section files is D-352.*
 
-For the site's IT. Commands run on the box from `/opt/trialbox` as root unless noted. D-numbers are in
+Each page names its reader on its **Reader:** line (T-735a, D-729): the box owner, hospital IT, the data
+steward, the trial team, Aimedics, or the people who build TrialBox. The box owner's own pages for a box set up by
+the owner are in [`docs/handover/`](handover/) (`windows-owner.*.md`); IT's one page is
+[`docs/handover/it-one-page.en.md`](handover/it-one-page.en.md). Commands run on the box from `/opt/trialbox` as
+root unless noted. D-numbers are in
 [DECISIONS](DECISIONS.md). Host hardening is in [Security](SECURITY.md); data sources in [Data](DATA.md).
 Sections whose audience is `team` (the table at the end) are for the people who build TrialBox; their way in is
 [Developing](DEVELOPING.md) (T-635, D-390). Support, recovery, keys, patches and leavers are §21 to §25.
+
+**Other install forms** (T-735): §8 (a DGX Spark by hand, and two devices), §9 (a proof of concept on any Docker
+host), §10 (one RTX 5090), §17 (on a hospital platform) and §26 (platform day 2). A box set up by its owner
+(`deploy/box-install.sh`, the owner's pages) needs none of them; they are kept for Aimedics and for a hospital that
+runs TrialBox on its own platform.
 
 **Sections are files (T-669, D-352).** Each numbered section is one file in [`docs/runbook/`](runbook/), named
 `NN-<slug>.md` and starting `# N. Title`. Change a section by editing its file. The list below is generated:
@@ -128,34 +137,35 @@ The one table of RUNBOOK section numbers (T-669, D-352; plan TB-PLAN-06 §6.1 ru
 by adding its row here before the card's branch is cut; the card then adds `docs/runbook/NN-<slug>.md` and runs
 `python -m tools.doclint --write`. A number is never given twice and never reused. Extending a section that exists
 (for example T-111b on §5) is an edit of its file and needs no row. T-633's plan row says §14, which is the judge bake-off on master; it takes §26. `doclint` fails when a section file
-has no row here. *Audience* is who the section is for: `site` (the site's IT) or `team` (the people who build
-TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
+has no row here. *Audience* is who the section is for, as its page's **Reader:** line says (T-735a, D-729):
+`owner` (the box owner), `IT` (hospital IT), `steward` (the data steward), `Aimedics`, or `team` (the people who
+build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 
 | § | Title | Holder | Audience |
 | --- | --- | --- | --- |
-| 1 | Install a new site | on master | site |
-| 2 | Daily operation | on master | site |
-| 3 | Accounts | on master | site (the build-gate parts: team) |
-| 4 | Troubleshooting | on master | site |
-| 5 | Updates, backup, restore, secrets | on master | site |
-| 6 | Go-live acceptance | on master | site |
-| 7 | Contacts and escalation | on master | site |
-| 8 | DGX Spark end to end | on master | site |
-| 9 | Proof of concept with Docker | on master | site |
-| 10 | One RTX 5090: the swap and the night check | on master | site |
+| 1 | Install a new site | on master | Aimedics, IT |
+| 2 | Daily operation | on master | owner |
+| 3 | Accounts | on master | owner (the build-gate parts: team) |
+| 4 | Troubleshooting | on master | owner |
+| 5 | Updates, backup, restore, secrets | on master | owner |
+| 6 | Go-live acceptance | on master | Aimedics, owner |
+| 7 | Contacts and escalation | on master | owner |
+| 8 | DGX Spark end to end | on master | Aimedics (other install form) |
+| 9 | Proof of concept with Docker | on master | Aimedics (other install form) |
+| 10 | One RTX 5090: the swap and the night check | on master | Aimedics (other install form) |
 | 11 | Cloud runs | on master | team |
-| 12 | Identity and TLS | on master | site |
+| 12 | Identity and TLS | on master | IT |
 | 13 | Working in parallel on one machine | on master | team |
 | 14 | Judge bake-off | on master | team |
-| 15 | Operations screens | on master | site |
+| 15 | Operations screens | on master | owner |
 | 16 | Box-install rehearsal | on master | team |
-| 17 | On a hospital platform | on master | site |
-| 18 | Developing a site mapping without the site's data | on master | team |
-| 19 | Model misbehaviour: note reading off, the runs a build touched | on master | site |
-| 20 | Close-out and decommissioning | on master | site |
-| 21 | Support model and the supervised remote session | on master | site |
-| 22 | Disaster recovery with measured RPO and RTO | on master | site |
-| 23 | Key inventory and the lost-box list | on master | site |
-| 24 | Patch policy | on master | site |
-| 25 | Leavers | on master | site |
-| 26 | Platform day 2 | on master | site |
+| 17 | On a hospital platform | on master | IT (other install form) |
+| 18 | Developing a site mapping without the site's data | on master | steward |
+| 19 | Model misbehaviour: note reading off, the runs a build touched | on master | Aimedics, owner |
+| 20 | Close-out and decommissioning | on master | owner |
+| 21 | Support model and the supervised remote session | on master | owner, Aimedics |
+| 22 | Disaster recovery with measured RPO and RTO | on master | owner, Aimedics |
+| 23 | Key inventory and the lost-box list | on master | owner |
+| 24 | Patch policy | on master | IT, Aimedics |
+| 25 | Leavers | on master | owner |
+| 26 | Platform day 2 | on master | IT (other install form) |

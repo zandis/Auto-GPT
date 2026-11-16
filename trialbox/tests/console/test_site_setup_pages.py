@@ -27,7 +27,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from lake.client import LakeLocal
 from llm_stub.app import app as stub
-from orchestrator.actor import report_actor
 from orchestrator.setup_api import router as setup_router
 from sitesetup import help as site_help
 from sitesetup.ocr import NoOcr
@@ -98,8 +97,7 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
             lambda: bool(state["real"]),
             _door,
         ),
-        dependencies=[report_actor],  # as orchestrator.app includes it: the stage reads the signed person
-    )
+    )  # T-715g (D-803): as orchestrator.app includes it, with no report stage (the routes refuse themselves)
     oc = SignedClient(api)  # the test's own calls (seeding)
     coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
     calls: list[tuple[str, str]] = []
@@ -437,3 +435,16 @@ def test_words_in_three_languages() -> None:
             "權杖",
         ):
             assert not [k for k, v in cat.items() if re.search(word, v)], word
+
+
+def test_a_patients_fact_needs_a_role_that_sees_patient_data(sb: dict[str, Any]) -> None:
+    """T-715g (D-803), its review (3): the administrator holds ``site.setup`` but not ``phi.view``; the orchestrator
+    refuses an administrator's signed change of a fact, a chart or a person, as the console's page does."""
+    from tests.actor3 import signed
+
+    for path, body in (("/setup/main/facts/1", {"action": "confirm", "changes": {}}),
+                       ("/setup/main/charts", {"chart_no": "10000001", "text": "synthetic", "lang": "en"}),
+                       ("/setup/main/people/resolve", {"pid": "a" * 32, "what": "sex", "keep": "F"})):  # fmt: skip
+        hdr = signed("site.setup", "", "POST", path, body, sub="console:admin", role="admin")
+        r = sb["oc"].post(path, json=body, headers=hdr)
+        assert r.status_code == 403 and r.json()["detail"]["reason"] == "right", (path, r.text[:200])

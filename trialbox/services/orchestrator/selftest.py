@@ -36,7 +36,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from tb_common.llm import LlmClient, LlmError
+from tb_common.llm import LlmClient, LlmError, LlmModelFault
 from tb_common.pair import same_model, served_keys
 
 from orchestrator.scenarios.evaluate import postprocess
@@ -93,6 +93,13 @@ class ModelReport:
     wrong: list[dict[str, str]] = field(default_factory=list)
     answers: dict[str, str] = field(default_factory=dict)  # case id -> predicate (not reported, used for the pair)
     served: list[str] = field(default_factory=list)  # the model names the answers came back under (D-276)
+    faults: int = 0  # calls the model did not answer for a reason of its own (LlmModelFault: down, not loaded)
+
+    @property
+    def unreached(self) -> bool:
+        """D-915: no case answered, every call a model fault (the gateway's ``upstream_down``, an endpoint that
+        cannot be reached): the model was not there to be checked, which says nothing about its answers."""
+        return self.cases > 0 and self.answered == 0 and self.faults == self.cases
 
     @property
     def ok(self) -> bool:
@@ -164,6 +171,7 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
             res = client.chat_json(prompt, variables, job_id="selftest")
         except LlmError as exc:
             rep.errors.append(clip(f"{c['id']}: {exc}"))
+            rep.faults += isinstance(exc, LlmModelFault)
             continue
         rep.answered += 1
         for name in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
@@ -196,6 +204,7 @@ def run_selftest(
     cs = cases if cases is not None else load_cases()
     models: list[ModelReport] = []
     problems: list[str] = []
+    unreached: list[str] = []  # D-915: the roles whose model could not be reached (woken, or asked)
     if llm is None:
         problems.append("no judge model configured")
     for role, endpoint, client in (("judge", "serving", llm), ("verifier", "verifier", verifier)):
@@ -207,6 +216,8 @@ def run_selftest(
             models.append(check_model(role, client, cs))
         except LlmError as exc:  # the swap itself failed
             problems.append(f"{role}: {clip(str(exc))}")
+            if isinstance(exc, LlmModelFault):
+                unreached.append(role)
     if release is not None:
         release()
     elif swap is not None and verifier is not None:
@@ -214,7 +225,12 @@ def run_selftest(
             swap("serving")
         except LlmError as exc:
             problems.append(f"judge did not wake after the self-test: {clip(str(exc))}")
-    problems += [f"{m.role} {m.model} failed the canary ({m.why()})" for m in models if not m.ok]
+    unreached += [m.role for m in models if m.unreached]
+    problems += [
+        f"{m.role} {m.model} could not be reached ({clip(m.errors[0])})" if m.unreached else
+        f"{m.role} {m.model} failed the canary ({m.why()})"
+        for m in models if not m.ok
+    ]  # fmt: skip
     by_role = {m.role: m for m in models}
     pair = None
     if "judge" in by_role and "verifier" in by_role:
@@ -231,6 +247,8 @@ def run_selftest(
             )
     return {
         "ok": not problems,
+        "reached": not unreached,
+        "unreached": unreached,
         "cases": len(cs),
         "models": [m.as_dict() for m in models],
         "pair": pair,
@@ -286,6 +304,17 @@ def preflight(orch: Any, force: bool = False) -> bool:
     report["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     report["at_epoch"] = round(time.time(), 1)
     canary_gate.GATE.configure(orch.data_dir)
+    if not report["reached"]:
+        # D-915: a model that was not there was not checked; the canary did not run. Nothing is recorded over the
+        # last real result (the gate stays as it was, shut without a pass), the gate shows "waiting for the models"
+        # and the canary is asked again (canary_gate.startup's backoff, the night gate's next tick)
+        canary_gate.GATE.record_unreached(report)
+        orch.audit.append(
+            "selftest.unreached",
+            detail={"unreached": report["unreached"], "problems": report["problems"], "cases": report["cases"]},
+        )
+        log.warning("model self-test could not reach %s: not run, tried again", ", ".join(report["unreached"]))
+        return False
     canary_gate.GATE.record(report)
     try:
         out = Path(orch.data_dir) / "selftest.json"

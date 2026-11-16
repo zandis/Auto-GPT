@@ -28,7 +28,10 @@ spec:
         - name: db
           image: trialbox-postgres
           args: ["-c", "wal_compression=zstd", "-c", "default_toast_compression=lz4", "-c", "archive_mode=off",
-                 "-c", "log_min_error_statement=panic", "-c", "log_parameter_max_length_on_error=0"]
+                 "-c", "log_min_error_statement=panic", "-c", "log_parameter_max_length_on_error=0",
+                 # T-703 (D-751): tools/trialbox/pgsize.py's sizes for this container's limit (4Gi); a test keeps them
+                 "-c", "shared_buffers=1024MB", "-c", "effective_cache_size=3072MB", "-c", "maintenance_work_mem=256MB",
+                 "-c", "max_wal_size=16GB", "-c", "min_wal_size=4GB", "-c", "idle_in_transaction_session_timeout=3600s"]
           env:
             - {name: POSTGRES_DB, value: hapi}
             - {name: POSTGRES_USER, value: hapi}
@@ -46,9 +49,11 @@ spec:
             - {name: db-pg, mountPath: /var/lib/postgresql/data}
             - {name: db-init, mountPath: /docker-entrypoint-initdb.d, readOnly: true}
             - {name: run, mountPath: /var/run/postgresql}
+            - {name: shm, mountPath: /dev/shm}
       volumes:
         - {name: db-init, configMap: {name: trialbox-db-init, defaultMode: 0555}}  # run, not sourced, as in compose
         - {name: run, emptyDir: {}}
+        - {name: shm, emptyDir: {medium: Memory, sizeLimit: 1024Mi}}  # T-703: docker's shm_size
   volumeClaimTemplates:
     - metadata: {name: db-pg}
       spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 50Gi}}}

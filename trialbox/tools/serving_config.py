@@ -77,6 +77,7 @@ FLAGS = {
     "--gpu-memory-utilization": ("gpu_memory_utilization", float),
     "--kv-cache-dtype": ("kv_cache_dtype", str),
     "--chat-template": ("chat_template", str),
+    "--chat-template-content-format": ("chat_template_content_format", str),  # D-880
 }
 SECRET_FLAGS = {"--api-key"}  # never recorded
 ROLES = ("judge", "verifier")
@@ -91,6 +92,7 @@ def parse_args(args: list[str]) -> dict[str, Any]:
         "kv_cache_dtype": "auto",
         "quantization": None,
         "chat_template": None,
+        "chat_template_content_format": None,
         "extra_args": [],
     }
     out["structured_outputs_backend"] = "auto"
@@ -206,6 +208,10 @@ def template_problems(rec: dict[str, Any], want_sha256: str | None, role: str = 
         return [f"{role} names no chat_template_sha256"]
     if want_sha256 and sha != want_sha256:
         return [f"{role} chat template {sha[:12]} is not the pinned {want_sha256[:12]}"]
+    # D-880: rendered as strings; vLLM's own choice for this template is list parts, whose system branch adds a space
+    fmt = next((s.get("chat_template_content_format") for s in rec.get("servers") or [] if s.get("role") == role), None)
+    if fmt != "string":
+        return [f"{role} ran with --chat-template-content-format {fmt or 'unset'} (string wanted, D-880)"]
     return []
 
 

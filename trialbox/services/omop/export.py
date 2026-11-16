@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Callable, Iterator
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from lake.flatten import DEMOGRAPHIC, PROVENANCE_COLS, SCHEMAS, sex_of
@@ -118,6 +120,50 @@ def export_rows(db: Database, as_of: datetime | None = None) -> dict[str, list[R
     except _Discard:
         pass
     return out
+
+
+class Spooled:
+    """One table of a spooled export, its rows read back line by line each time it is iterated (T-702, D-754)."""
+
+    def __init__(self, path: Path, keep: object = None) -> None:
+        self.path = path
+        self._keep = keep  # the spool folder's owner: the folder goes when its last table is dropped
+
+    def __iter__(self) -> Iterator[Row]:
+        from omop.load import _decoded
+
+        with self.path.open(encoding="utf-8") as fh:
+            for line in fh:
+                yield json.loads(line, object_hook=_decoded)
+
+
+class _Folder:
+    """A spool folder removed once nothing holds it (every :class:`Spooled` of it garbage)."""
+
+    def __init__(self, path: Path) -> None:
+        import shutil
+        import weakref
+
+        weakref.finalize(self, shutil.rmtree, path, True)
+
+
+def export_spool(db: Database, folder: Path, remove_when_done: bool = False) -> dict[str, Spooled]:
+    """:func:`export_rows` (the store now) written table by table into ``folder`` as it is read, one line a row with
+    each value's type (a date, a datetime, a decimal), and given back as re-readable streams: the export is never
+    held whole (T-702, D-754; scale review F-17). The lake writes its Parquet from the streams; ``folder`` is the
+    caller's to delete, or with ``remove_when_done`` removed once the streams are dropped."""
+    from omop.load import _encoded
+
+    folder.mkdir(parents=True, exist_ok=True)
+    files = {name: (folder / f"{name}.jsonl").open("w", encoding="utf-8") for name in SCHEMAS}
+    try:
+        with db.transaction() as tx:
+            _emit_all(tx, lambda t, row: files[t].write(json.dumps(row, default=_encoded, ensure_ascii=False) + "\n"))
+    finally:
+        for fh in files.values():
+            fh.close()
+    keep = _Folder(folder) if remove_when_done else None
+    return {name: Spooled(folder / f"{name}.jsonl", keep) for name in SCHEMAS}
 
 
 def _keep_withheld_out(tx: Any) -> None:
@@ -234,6 +280,13 @@ def _wind_back(tx: Any, at: datetime) -> None:
 
 def _export(tx: Any) -> dict[str, list[Row]]:
     out: dict[str, list[Row]] = {name: [] for name in SCHEMAS}
+    _emit_all(tx, lambda table, row: out[table].append(row))
+    return out
+
+
+def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
+    """Every lake row of the store, table by table, each passed to ``emit`` as it is read (T-702, D-754): the
+    store's rows come through a server-side cursor a batch at a time, never a table whole."""
     ids: dict[str, dict[int, str]] = defaultdict(dict)
     for kind, oid, sid in tx.fetchall("SELECT id_kind, omop_id, source_id FROM tb_id_map"):
         ids[str(kind)][int(oid)] = str(sid)
@@ -255,7 +308,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         return systems.get(cid) if cid else None
 
     # -- patient: the merged sources, an item in open conflict unknown
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT p.person_id, p.birth_datetime, p.gender_source_value, d.death_date, d.death_type_concept_id, "
         "o.extra FROM person p "
         "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
@@ -276,20 +329,21 @@ def _export(tx: Any) -> dict[str, list[Row]]:
             got = conflicts.get((r["person_id"], item))
             if got:
                 row[item] = None if got[0] == "open" else _typed("patient", item, got[1])
-        out["patient"].append(row)
+        emit("patient", row)
     # -- practitioner
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         f"SELECT r.record_id, r.extra FROM tb_record r WHERE r.cdm_table = 'provider' AND {LIVE} {ORDER}"
     ):
-        out["practitioner"].append(_apply("practitioner", {"practitioner_id": provider[r["record_id"]]}, r["extra"]))
+        emit("practitioner", _apply("practitioner", {"practitioner_id": provider[r["record_id"]]}, r["extra"]))
     # -- encounter
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.source_record_id, r.extra, v.person_id, v.visit_start_datetime, v.care_site_id, v.provider_id, "
         "v.visit_source_value, v.visit_end_datetime FROM tb_record r JOIN visit_occurrence v "
         "ON v.visit_occurrence_id = r.record_id "
         f"WHERE r.cdm_table = 'visit_occurrence' AND {LIVE} AND r.status <> 'rejected' {ORDER}"
     ):
-        out["encounter"].append(
+        emit(
+            "encounter",
             _apply(
                 "encounter",
                 {
@@ -302,14 +356,15 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "end": r["visit_end_datetime"],
                 },
                 r["extra"],
-            )
+            ),
         )
     # -- appointment
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.source_record_id, r.extra, a.* FROM tb_record r JOIN tb_appointment a ON a.appointment_id = "
         f"r.record_id WHERE r.cdm_table = 'tb_appointment' AND {LIVE} {ORDER}"
     ):
-        out["appointment"].append(
+        emit(
+            "appointment",
             _apply(
                 "appointment",
                 {
@@ -321,11 +376,11 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "status": r["status"],
                 },
                 r["extra"],
-            )
+            ),
         )
     facts: dict[str, list[Row]] = {"Condition": [], "MedicationRequest": [], "Observation": []}
     # -- condition
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.source_record_id, r.extra, r.status, r.basis, c.person_id, c.condition_source_value, "
         "c.condition_source_concept_id, c.condition_start_datetime, c.condition_status_source_value, "
         "c.condition_status_concept_id, vr.source_record_id AS eid FROM tb_record r JOIN (SELECT "
@@ -372,10 +427,11 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         if b is not None:
             facts["Condition"].append({**fact, "basis": b})
         if r["status"] in COUNTED:
-            out["condition"].append(row)
+            emit("condition", row)
     # -- observation: measurement rows (components included) and demographic facts (OMOP OBSERVATION)
-    obs_rows = tx.fetchdicts(
-        "SELECT r.source_record_id, r.part, r.extra, r.status, r.basis, r.source_kind, r.source_row, m.person_id, "
+    obs_rows = tx.iterdicts(
+        "SELECT * FROM (SELECT r.source_record_id, r.part, r.extra, r.status, r.basis, r.source_kind, r.source_row, "
+        "m.person_id, "
         "m.measurement_source_value AS code, m.measurement_source_concept_id AS src, m.measurement_datetime AS ts, "
         "m.value_as_number, m.unit_source_value, m.value_as_concept_id, m.operator_concept_id, "
         "m.value_source_value, false AS demographic FROM tb_record r JOIN measurement m "
@@ -385,12 +441,11 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         "o.value_as_number, o.unit_source_value, o.value_as_concept_id, NULL, o.value_source_value, "
         "coalesce((r.extra->>'demographic')::boolean, false) FROM tb_record r JOIN observation o "
         "ON o.observation_id = r.record_id WHERE r.cdm_table = 'observation' AND r.resource_type = 'Observation' "
-        f"AND {LIVE} AND r.status <> 'rejected' ORDER BY 6, 7, 2"
+        # the hospital's rows, then the site's (D-135), by file position and part: in SQL, so the rows stream
+        f"AND {LIVE} AND r.status <> 'rejected') u ORDER BY (u.source_kind = 'site'), u.source_row, u.part"
     )
     for r in obs_rows:
         r["source_kind"] = r["source_kind"] == "site"
-    obs_rows.sort(key=lambda r: (r["source_kind"], r["source_row"], r["part"]))
-    for r in obs_rows:
         vcode = codes.get(r["value_as_concept_id"]) if r["value_as_concept_id"] else None
         code = r["code"]
         row = _apply(
@@ -432,9 +487,9 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                 }
             )
         if r["status"] in COUNTED and not demographic:
-            out["observation"].append(row)
+            emit("observation", row)
     # -- medication
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.source_record_id, r.extra, r.status, r.basis, d.person_id, d.drug_source_value, "
         "d.drug_exposure_start_datetime, d.verbatim_end_date, d.sig FROM tb_record r JOIN drug_exposure d "
         f"ON d.drug_exposure_id = r.record_id WHERE r.cdm_table = 'drug_exposure' AND {LIVE} "
@@ -479,9 +534,9 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                 }
             )
         if r["status"] in COUNTED:
-            out["medication"].append(row)
+            emit("medication", row)
     # -- procedure
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.source_record_id, r.extra, p.person_id, p.procedure_source_value, p.procedure_source_concept_id, "
         "p.procedure_datetime FROM tb_record r JOIN (SELECT procedure_occurrence_id AS rid, person_id, "
         "procedure_source_value, procedure_source_concept_id, procedure_datetime FROM procedure_occurrence UNION ALL "
@@ -489,7 +544,8 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         "observation_datetime FROM observation) p ON p.rid = r.record_id WHERE r.resource_type = 'Procedure' "
         f"AND r.cdm_table IN ('procedure_occurrence', 'observation') AND {LIVE} AND r.status <> 'rejected' {ORDER}"
     ):
-        out["procedure"].append(
+        emit(
+            "procedure",
             _apply(
                 "procedure",
                 {
@@ -500,10 +556,10 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "performed": _day(r["procedure_datetime"]),
                 },
                 r["extra"],
-            )
+            ),
         )
     # -- report and document: NOTE
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.resource_type, r.source_record_id, r.extra, n.person_id, n.note_datetime, n.note_title, "
         "n.note_text, n.note_source_value, vr.source_record_id AS eid FROM tb_record r JOIN note n "
         "ON n.note_id = r.record_id LEFT JOIN tb_record vr ON vr.cdm_table = 'visit_occurrence' "
@@ -512,7 +568,8 @@ def _export(tx: Any) -> dict[str, list[Row]]:
     ):
         pid = person.get(r["person_id"])
         if r["resource_type"] == "DiagnosticReport":
-            out["report"].append(
+            emit(
+                "report",
                 _apply(
                     "report",
                     {
@@ -524,10 +581,11 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                         "conclusion": r["note_text"],
                     },
                     r["extra"],
-                )
+                ),
             )
         else:
-            out["document"].append(
+            emit(
+                "document",
                 _apply(
                     "document",
                     {
@@ -539,14 +597,15 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                         "text": r["note_text"],
                     },
                     r["extra"],
-                )
+                ),
             )
     # -- claim, consent (local tables)
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.source_record_id, r.extra, c.* FROM tb_record r JOIN tb_claim c ON c.claim_id = r.record_id "
         f"WHERE r.cdm_table = 'tb_claim' AND {LIVE} {ORDER}"
     ):
-        out["claim"].append(
+        emit(
+            "claim",
             _apply(
                 "claim",
                 {
@@ -559,13 +618,14 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "approval_end": r["approval_end"],
                 },
                 r["extra"],
-            )
+            ),
         )
-    for r in tx.fetchdicts(
+    for r in tx.iterdicts(
         "SELECT r.source_record_id, r.extra, c.* FROM tb_record r JOIN tb_consent c ON c.consent_id = r.record_id "
         f"WHERE r.cdm_table = 'tb_consent' AND {LIVE} {ORDER}"
     ):
-        out["consent"].append(
+        emit(
+            "consent",
             _apply(
                 "consent",
                 {
@@ -576,7 +636,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "date": r["consent_date"],
                 },
                 r["extra"],
-            )
+            ),
         )
-    out["site_fact"] = [*facts["Condition"], *facts["MedicationRequest"], *facts["Observation"]]
-    return out
+    for fact in [*facts["Condition"], *facts["MedicationRequest"], *facts["Observation"]]:
+        emit("site_fact", fact)

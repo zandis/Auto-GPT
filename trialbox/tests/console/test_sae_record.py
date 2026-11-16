@@ -23,7 +23,8 @@ from tb_common.authz import ROLE_SAE_ACTIONS, sae_allowed
 from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 
-TW, JP = lc.report_rules("Asia/Taipei"), lc.report_rules("Asia/Tokyo")
+# D-766: the named sets (no set chosen gives no clock)
+TW, JP = lc.report_rules("Asia/Taipei", rules="tw_trial"), lc.report_rules("Asia/Tokyo", rules="jp_gcp_ii")
 FU = sr.followup_rules()
 
 
@@ -250,6 +251,7 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     c, csrf = login(lb["app"], "crc", PW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
     c.get("/studies/GZQO/subjects")
+    c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"})  # D-766: the clock runs once chosen
     lb["clock"]["now"] = datetime(2026, 11, 10, 0, 30, tzinfo=UTC)  # 08:30 on 11-10 in Taipei
     fatal = {"ae_term": "Myocardial infarction", "ae_onset": "2026-11-08", "ae_aware": "2026-11-09",
              "ae_aware_time": "09:00", "ae_serious": "1", "ae_serious_why": "1", "ae_severity": "3", "ae_outcome": "5",
@@ -260,7 +262,8 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     row = f'data-testid="sae-row-GZQO-{no}-ae1"'
     assert row in page and "Myocardial" not in page  # never the AE term on the worklist
     assert 'data-testid="sae-alert"' not in page  # sponsor due 11-10 09:00 (24 h from the time learned): not overdue
-    assert 'data-testid="sae-unconfirmed"' in page and f'data-testid="sae-noack-{no}-ae1"' in page
+    # D-766: the clock runs only on a chosen set, so the page names who chose it (it ran unconfirmed on the default)
+    assert 'data-testid="sae-confirmed"' in page and f'data-testid="sae-noack-{no}-ae1"' in page
     lb["clock"]["now"] = datetime(2026, 11, 10, 16, 30, tzinfo=UTC)  # 00:30 on 11-11 in Taipei; still 11-10 in UTC
     page = c.get("/sae").text
     assert 'data-testid="sae-alert-overdue"' in page and "Overdue reports: 1" in page
@@ -321,7 +324,8 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     assert r.status_code == 409 and "Already recorded" in r.text
     # a date changed on the AE form moves the deadlines: a change row with old and new
     _save(c, csrf, no, "tb_adverse_event", {**fatal, "ae_aware": "2026-11-08", "ae_rep_sponsor": "2026-11-10",
-                                            "ae_rep_reg": "2026-11-11"}, "ae1")  # fmt: skip
+                                            "ae_rep_reg": "2026-11-11"}, "ae1",
+          reason="the site learned of it on the 8th")  # D-778: a saved value changes with a reason  # fmt: skip
     # review H3: the PI happens to look first; the change is still the coordinator's, written by the register
     p, _pcsrf = login(lb["app"], "pi", PW)
     assert p.get("/sae").status_code == 200
@@ -361,7 +365,8 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     # review H4: downgraded on the AE form with three overdue reports: it stays in the alert with its last clock
     c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/sae"})
     _save(c, csrf, no, "tb_adverse_event", {**fatal, "ae_term": "Sepsis", "ae_outcome": "1", "ae_onset": "2026-11-01",
-                                            "ae_aware": "2026-11-01", "ae_serious": "0", "ae_serious_why": ""}, "ae2")  # fmt: skip
+                                            "ae_aware": "2026-11-01", "ae_serious": "0", "ae_serious_why": ""}, "ae2",
+          reason="the investigator judged it not serious")  # D-778: a saved value changes with a reason  # fmt: skip
     page = c.get("/sae").text
     assert f'data-testid="sae-row-GZQO-{no}-ae2"' in page and f'data-testid="sae-downgraded-{no}-ae2"' in page
     assert 'data-testid="sae-alert-downgraded"' in page and "No longer serious, with open reports: 1" in page

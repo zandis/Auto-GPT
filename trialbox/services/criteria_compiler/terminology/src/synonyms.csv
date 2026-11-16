@@ -13,6 +13,26 @@ condition,type 1 diabetes,icd10cm,E10,prefix
 condition,第一型糖尿病,icd10cm,E10,prefix
 condition,type 2 diabetes mellitus,icd10cm,E11,prefix
 condition,第二型糖尿病,icd10cm,E11,prefix
+condition,diabetes mellitus,icd10cm,E08,prefix
+condition,diabetes mellitus,icd10cm,E09,prefix
+condition,diabetes mellitus,icd10cm,E10,prefix
+condition,diabetes mellitus,icd10cm,E11,prefix
+condition,diabetes mellitus,icd10cm,E13,prefix
+condition,diabetes,icd10cm,E08,prefix
+condition,diabetes,icd10cm,E09,prefix
+condition,diabetes,icd10cm,E10,prefix
+condition,diabetes,icd10cm,E11,prefix
+condition,diabetes,icd10cm,E13,prefix
+condition,糖尿病,icd10cm,E08,prefix
+condition,糖尿病,icd10cm,E09,prefix
+condition,糖尿病,icd10cm,E10,prefix
+condition,糖尿病,icd10cm,E11,prefix
+condition,糖尿病,icd10cm,E13,prefix
+condition,breast cancer,icd10cm,C50,prefix
+condition,breast carcinoma,icd10cm,C50,prefix
+condition,invasive breast carcinoma,icd10cm,C50,prefix
+condition,乳癌,icd10cm,C50,prefix
+condition,乳がん,icd10cm,C50,prefix
 condition,pancreatitis,icd10cm,K85,prefix
 condition,pancreatitis,icd10cm,K86.0,exact
 condition,pancreatitis,icd10cm,K86.1,exact

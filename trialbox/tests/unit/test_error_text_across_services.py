@@ -222,9 +222,13 @@ def test_a_held_mail_and_a_missing_attachment_name_the_errors_type() -> None:
 _NO_TEXT = {"type", "isinstance", "trace_of", "str", "repr"}  # read above, or take no text
 HANDED_MINE: dict[tuple[str, str], tuple[int, str]] = {
     ("console/api_first.py", "handler"): (1, "the framework's own handler, then the answer without values (D-551)"),
-    ("console/dataops_page.py", "getattr"): (2, "reads two yes-or-no marks of a data operation's error"),
     ("console/home.py", "getattr"): (1, "reads the error's `status`, a number"),
     ("orchestrator/core.py", "_error"): (1, "the job's error record: the type only for an unexpected error (D-557)"),
+    ("orchestrator/scenarios/screen_cascade.py", "_transport_fault"): (
+        1,
+        "the embed service failed: the type and HTTP status, to wait for a restart (D-902)",
+    ),
+    ("sitesetup/readiness.py", "_query_failed"): (2, "the lake failed or the question: the type and status (D-715)"),
     ("sitesetup/service.py", "_building_refusal"): (1, "tests the lake's refusal for 'already building': a yes or no"),
     ("sitesetup/service.py", "_held_refusal"): (1, "tests the lake's refusal for 'running job': a yes or no"),
 }

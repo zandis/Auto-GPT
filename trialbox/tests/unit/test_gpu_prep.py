@@ -65,7 +65,8 @@ def test_every_part_runs_on_exactly_one_vm(vms: int) -> None:
 def test_four_vms_finish_the_50000_run_in_one_hospital_part() -> None:
     one = cr.shard_plan(cr.estimate(50000), 1)
     four = cr.shard_plan(cr.estimate(50000), 4)
-    # a hospital part is 5.0 h at 50,000 (G1, measured; bug A4): four VMs take one hospital part and their start
+    # a hospital part is 3.5 h at 50,000 and one in flight (measured parts, 2026-11-13): four VMs take one hospital
+    # part and their start
     hospital = cr.HOSPITAL_PART_SECONDS / 3600 + cr.BOOT_HOURS + cr.SETUP_HOURS
     assert one["wall_hours"] > 2 * hospital - 1 and abs(four["wall_hours"] - hospital) < 0.05
     assert {s["shard"] for s in four["shards"] if any(t.startswith("hospital-") for t in s["tags"])} == {1, 2}
@@ -250,8 +251,8 @@ def test_one_vm_is_the_d141_run(tmp_path: Path) -> None:
     # one call in flight, as G1 measured the hospital parts (not given: the record's 16, test_g3_throughput_curve)
     out = _dry(tmp_path, "--patients", "50000", "--llm-concurrency", "1")
     assert (
-        "set-scheduling tb-gpu-sim --zone asia-east1-a --max-run-duration=19h" in out
-    )  # 14.56 h x 1.3 (G1 bug A4: was 12h)
+        "set-scheduling tb-gpu-sim --zone asia-east1-a --max-run-duration=16h" in out
+    )  # 11.54 h x 1.3 (G1 bug A4: was 12h; on G1's 17,960 s per hospital part 19h; re-based 2026-11-13)
     assert "[vm" not in out and "tb-gpu-sim-2" not in out
 
 

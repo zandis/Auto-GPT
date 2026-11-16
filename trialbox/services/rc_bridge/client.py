@@ -17,7 +17,7 @@ from tb_common.http import EgressRefused
 
 # REDCap majors the connector accepts (FR-RC-14). Tested only against rc_sim so far: no real REDCap instance yet;
 # each site's version is recorded at go-live (RUNBOOK §6, DEP-026, D-393)
-SUPPORTED_MAJORS = (14, 15, 16)
+SUPPORTED_MAJORS = (14, 15, 16, 17)  # CGRD-B2 (D-818): 17 exercised on a real instance (the browser run of R1-R9)
 TOKEN_RE = re.compile(r"^[0-9A-F]{32}$")
 INPROC_PREFIX = "inproc://"  # demo and test only: a URL served by an in-process ASGI app (the simulator)
 _LOCAL: dict[str, Callable[[], httpx.Client]] = {}
@@ -27,10 +27,19 @@ _FIELD_NAME = re.compile(r"[a-z][a-z0-9_]*")  # a REDCap variable name
 # (what REDCap's text holds, what the box says): the first that matches. A list of field names is given back as
 # names; nothing else of REDCap's text is
 _KINDS: tuple[tuple[str, str], ...] = (
+    ("is locked", "a form of the record is locked"),  # NEW-EDC-7: REDCap's exact sentence is read on our instance (R3)
+    # CGRD-B2 (D-818): the same refusals from a REDCap whose interface is Traditional Chinese (its language file's
+    # words, seen on a real instance), each beside its English marker's kind
+    ("已上鎖", "a form of the record is locked"),
+    ("請先解鎖", "a form of the record is locked"),
     ("could not be validated", "a value does not fit its field's validation"),
+    ("格式錯誤，無法被驗證", "a value does not fit its field's validation"),
+    ("非有效的類別", "a value does not fit its field's validation"),
+    ("無效的日期格式", "a value does not fit its field's validation"),
     # the lifecycle's schedule reads the word "classic" in this message (orchestrator/lifecycle_api.py)
     ("classic project", "the project is classic: it has no arms or events"),
     ("fields were not found in the project", "fields that are not in the project"),
+    ("不存在專案內", "fields that are not in the project"),
     ("not designated for event", "a field is not on an instrument of the event"),
     ("event name", "the event is missing or is not an event of the project"),
     ("redcap_event_name", "the event is missing or is not an event of the project"),
@@ -49,8 +58,9 @@ def error_kind(text: str) -> str:
     for marker, kind in _KINDS:
         if marker not in low:
             continue
-        if marker == "fields were not found in the project":
-            listed = text.split(":", 1)[1] if ":" in text else ""
+        if marker in ("fields were not found in the project", "不存在專案內"):
+            sep = ":" if ":" in text else "："  # a Chinese sentence lists after a full-width colon
+            listed = text.split(sep, 1)[1] if sep in text else ""
             names = [n.strip() for n in listed.split(",") if _FIELD_NAME.fullmatch(n.strip())]
             return kind + (": " + ", ".join(names[:_MAX_NAMES]) if names else "")
         return kind
@@ -58,7 +68,9 @@ def error_kind(text: str) -> str:
 
 
 class RcError(RuntimeError):
-    """An ICD-04 error: ``code`` from the register, ``status`` the HTTP status TrialBox answers with."""
+    """An ICD-04 error: ``code`` from the register, ``status`` the HTTP status TrialBox answers with. ``refused``
+    (NEW-EDC-7): REDCap answered and said no (HTTP 400 with its error), so nothing of the call applied; a call
+    REDCap did not answer, or answered with a server error, may have applied and is not ``refused``."""
 
     STATUS: ClassVar[dict[str, int]] = {
         "RC-TOKEN": 409,
@@ -68,10 +80,11 @@ class RcError(RuntimeError):
         "RC-FORBIDDEN": 403,
     }
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, refused: bool = False) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+        self.refused = refused
         self.status = self.STATUS.get(code, 409)
 
 
@@ -159,7 +172,8 @@ class RedcapClient:
             msg = ""
         # REDCap's text is not passed on: an import error quotes the record, the field and the value it refused, and
         # this message reaches the set-up page and the stored read log (D-555). The kind of error is said instead
-        raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {error_kind(msg)}" if msg else ""))
+        raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {error_kind(msg)}" if msg else ""),
+                      refused=resp.status_code == 400 and bool(msg))  # fmt: skip
 
     def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
         resp = self._send(content, extra)

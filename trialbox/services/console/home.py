@@ -112,6 +112,8 @@ class Helpers:
     life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
     sae_sync: Callable[[str], None] | None = None  # set by console.sae_pages (D-277): the SAE register's write path
+    # set by console.sae_pages (D-763): how many SAE reports of a study are still to send (raises when not read)
+    sae_open: Callable[[str], int] | None = None
     # P-10 (D-143): one confirmation page before an action that is hard to take back
     confirm: Callable[..., Response] | None = None
     # D-146 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
@@ -125,11 +127,15 @@ class Helpers:
     optout: Any = None
     may_approve: Callable[..., bool] | None = None
     stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
+    #: NEW-JRN-8 (D-772): an account's monitor grants today, as (study, visit id, last day), for the menu
+    monitor_grants: Callable[..., list[tuple[str, str, str]]] | None = None
     team_due: Callable[[str], bool] | None = None
     # set by console.team (NEW-JRN-1, D-540): the studies waiting for approval whose log names no PI yet
     pi_missing: Callable[..., list[str]] | None = None
     reveal: Any = None  # set by register(): console.reveal.Reveal, the one reveal path (T-103, D-438)
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
+    # set by console.team (NEW-JRN-6, D-771): a chart number turned into its pseudonym at the door, capped and audited
+    chart_to_pid: Callable[[Session, str, str], tuple[str, bool | None]] | None = None
     pid_match_per_hour: int = 0  # set by console.team (NEW-JRN-2): the match note's limit per person and hour
     irb_gate: bool = False  # set by console.team (D-395): the candidate view waits for the study's IRB-text record
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
@@ -159,6 +165,24 @@ class Helpers:
         The one register read of the console's pages (D-477, review M3): with the surviving pseudonym of a merged
         chart, as the jobs read it."""
         return set(self.optout.effective()) if self.optout is not None else set()  # D-477 (M3): merged charts too
+
+    def opted_out_on(self) -> dict[str, str]:
+        """NEW-LIFE-5 (D-762): each pseudonym of :meth:`gone` with the site's day it was opted out (the first opt-out
+        event since its last lift); "" for the surviving chart of a merge, which has no opt-out event of its own. For
+        the rows a numbered patient keeps (the screening log, the monitor's sheet): the trial record of a consented
+        or enrolled subject stays (D-441)."""
+        if self.optout is None:
+            return {}
+        # the review of D-762: the first opt-out since the patient's last lift, not a later repeat (a person's own
+        # opt-out after the registry's is an event of its own, D-441)
+        first: dict[str, str] = {}
+        for e in self.optout.events():
+            if e.action == "lift":
+                first.pop(e.pid, None)
+            elif e.action == "opt_out":
+                first.setdefault(e.pid, e.at)
+        tz = site_zone(self.bk)
+        return {p: local_date(first[p], tz) if p in first else "" for p in self.gone()}
 
     def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
         """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,
@@ -1547,10 +1571,14 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_screening_log(request: Request, rs: str) -> list[dict[str, Any]]:
         sess = api_session(request)
         rid = rows_or_403(sess, rs, request.url.path)
-        gone = h.gone()  # D-147: never an opted-out patient
+        # D-147: never an opted-out patient's pseudonym. NEW-LIFE-5 (D-762): a numbered one keeps the row, with
+        # the day of the opt-out ("yes" for a merged chart) and nothing of the contact work, as on the page
+        gone = h.opted_out_on()
         refs = h.team.latest_referrals(rid) if h.team is not None else {}
         return [
+            {"pid": "", "screening_no": b, "at": c, "referral_route": "", "referral_outcome": "",
+             "opted_out": gone[a] or "yes"} if a in gone else
             {"pid": a, "screening_no": b, "at": c, "referral_route": refs[a].route if a in refs else "",
-             "referral_outcome": refs[a].state if a in refs else ""}
-            for a, b, c in store.screening_rows(rid) if a not in gone
+             "referral_outcome": refs[a].state if a in refs else "", "opted_out": ""}
+            for a, b, c in store.screening_rows(rid)
         ]  # fmt: skip

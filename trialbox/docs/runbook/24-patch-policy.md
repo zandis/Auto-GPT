@@ -1,5 +1,7 @@
 # 24. Patch policy
 
+**Reader:** hospital IT and Aimedics.
+
 *T-635, D-390. Who patches what, how fast, and how a patch is checked. The split is the IT pack's (A.6 and A.7): the
 hospital patches the host, Aimedics patches TrialBox.*
 

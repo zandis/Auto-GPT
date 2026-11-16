@@ -11,7 +11,7 @@
 <p class="hint">{{ t('sdv.list.help') }}</p>
 {% if not subjects %}<p class="empty" data-testid="sdv-none">{{ t('sdv.list.none') }}</p>{% else %}<div class="scroll" tabindex="0"><table class="candidates" data-testid="sdv-subjects">
 <thead><tr><th>{{ t('sdv.col.record') }}</th><th>{{ t('sdv.col.state') }}</th><th>{{ t('sdv.col.consented') }}</th><th>{{ t('sdv.col.enrolled') }}</th></tr></thead>
-<tbody>{% for s in subjects %}<tr data-testid="sdv-subject-{{ s.record }}"><td class="mono"><a href="/studies/{{ rs }}/monitor/{{ s.record }}">{{ s.record }}</a></td><td>{{ t('life.state.' ~ s.state) }}</td><td>{{ s.consented or '–' }}</td><td>{{ s.enrolled or '–' }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+<tbody>{% for s in subjects %}<tr data-testid="sdv-subject-{{ s.record }}"><td class="mono"><a href="/studies/{{ rs }}/monitor/{{ s.record }}">{{ s.record }}</a></td><td>{{ t('life.state.' ~ s.state) }}</td><td>{{ s.consented or '–' }}</td><td>{{ s.enrolled or '–' }}{% if s.opted_out %}<br><span class="hint" data-testid="sdv-list-opted-out-{{ s.record }}">{% if s.opted_out != 'yes' %}{{ t('log.opted_out', d=s.opted_out) }}{% else %}{{ t('log.opted_out_merged') }}{% endif %}</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>{% endif %}
 <section class="card"><h2>{{ t('sdv.visits.title') }}</h2>
 {% if not visits %}<p class="empty">{{ t('sdv.visits.none') }}</p>{% else %}<div class="scroll" tabindex="0"><table class="candidates" data-testid="sdv-visits">

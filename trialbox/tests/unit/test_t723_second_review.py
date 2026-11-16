@@ -47,8 +47,9 @@ AT = "2026-10-02T09:00:00+08:00"
 
 
 def _promoter(http: Any, lost: list[bool] | None = None) -> Any:
-    """The console's promoter over the adapter's app (``lost``: the answer to the start never reaches the console)."""
-    from console.dataops_page import adapter_promoter
+    """The orchestrator's promoter over the adapter's app (NEW-ARCH-3, D-761; ``lost``: the answer to the start never
+    reaches the orchestrator)."""
+    from orchestrator.dataops_api import promoter
     from tb_common.http import ServiceError
     from tb_common.jobpoll import Poll
 
@@ -64,10 +65,15 @@ def _promoter(http: Any, lost: list[bool] | None = None) -> Any:
         def get_json(self, path: str) -> Any:
             return http.get(path).json()
 
-    class Bk:
-        adapter = Adapter()
+        def publish(self, body: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = self.post_raw("/publish", body).json()
+            return out
 
-    return adapter_promoter(Bk(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
+        def publish_state(self, rid: str) -> dict[str, Any]:
+            out: dict[str, Any] = self.get_json(f"/publish/{rid}")
+            return out
+
+    return promoter(Adapter(), Poll(interval=0.01, lost_after=1.0, sleep=lambda _s: None))
 
 
 def _accept(ops: DataOps, tmp_path: Path, bid: int, promote: Any) -> Any:

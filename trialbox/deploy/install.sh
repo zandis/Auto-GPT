@@ -3,6 +3,7 @@
 #
 #   sudo deploy/install.sh trialbox-<version>.tar --tier small|medium|large [--answers site.yaml] [--yes]
 #   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu rtxpro6000|gb10|rtx5090|rtx4090] [--yes]
+#        [--environment DEV|TEST|VALIDATION|PRODUCTION]   (D-837; default PRODUCTION, D-127)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
@@ -49,10 +50,11 @@
 # TPM) leaves the site keys to the box's apply step, which seals them under the passphrase the owner set.
 # TB_COMPOSE_OVERRIDE=<file> adds one compose file after the others (the box rehearsal's model stand-ins, D-176); it is
 # printed and kept in deploy/.env COMPOSE_FILE so every later compose command uses it too.
-# --rehearsal (D-726): a rehearsal box, which says so. It is TEST from before the bundle loads (deploy/site/
+# --rehearsal (D-726, D-887): a rehearsal box, which says so. It is TEST from before the bundle loads (deploy/site/
 # rehearsal.json), refused on a PRODUCTION or VALIDATION box and on a box whose volumes hold data from no rehearsal;
-# deploy/.env gets TB_ENV=TEST and TB_REHEARSAL=1, doctor says "rehearsal box", and a site box refuses a bundle
-# built with make_bundle.sh --rehearsal. The model stand-ins and TB_ACCEPT_UNMEASURED_GPU=1 work on a TEST box only.
+# deploy/.env gets TB_ENV=VALIDATION (the integrator's (i): D3 stays on the box, so SCREEN reaches the pinned builds)
+# and TB_REHEARSAL=1, doctor says "REHEARSAL BOX", and a site box refuses a bundle built with make_bundle.sh
+# --rehearsal. The model stand-ins and TB_ACCEPT_UNMEASURED_GPU=1 work on a rehearsal box only.
 # Re-running is safe: every step is idempotent. Nothing leaves the host: no registry, no download, no telemetry.
 # The one exception: when live ClinicalTrials.gov is chosen, one HTTPS request to clinicaltrials.gov (no data sent)
 # checks that this host can reach it (D-140).
@@ -62,6 +64,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
+ENVIRONMENT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -74,6 +77,7 @@ while [ $# -gt 0 ]; do
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
     --rehearsal) REHEARSAL=1 ;;
+    --environment) ENVIRONMENT="$2"; shift ;;
     -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -81,7 +85,26 @@ while [ $# -gt 0 ]; do
   shift
 done
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
-die() { printf 'install: %s\n' "$*" >&2; exit 1; }
+# D-831: a long step says it is alive once a minute on stderr (a watchdog sees life): alive_start before it,
+# alive_stop after; die stops it too. The heartbeat ends its own sleep when stopped: a sleep left behind would hold a
+# pipe open for up to a minute. indent prefixes each line as it comes (sed block-buffers into a pipe or a log)
+ALIVE_PID=""
+alive_start() {
+  local what="$1" installer=$$
+  # it also ends within a minute of the installer's own end (set -e, a signal): it never outlives the install
+  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
+    while kill -0 "$installer" 2>/dev/null; do
+      sleep 60 & s=$!; wait "$s"; n=$((n + 1))
+      kill -0 "$installer" 2>/dev/null && echo "    ... still $what ($n min)" >&2
+    done
+  ) >&2 & ALIVE_PID=$!
+}
+alive_stop() {
+  [ -n "$ALIVE_PID" ] || return 0
+  kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""
+}
+die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
+indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
@@ -158,6 +181,18 @@ say "host"
 command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
 docker info >/dev/null 2>&1 || die "Docker is not running (sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"
+# HOST-PYTHON (D-831): the host steps run python3 -m tools.... (anchors, pre-start, doctor, the secrets); the modules
+# they import at the top are checked here, before anything loads, not 20 minutes in. module:Debian package, one per
+# word. Not cryptography: the host python3 may lack it (libs/tb_common/kek.py). Without python3 those steps say so.
+HOST_PY_MODULES="yaml:python3-yaml"
+if command -v python3 >/dev/null; then
+  HOST_PY_MISSING=""
+  for pair in $HOST_PY_MODULES; do
+    python3 -c "import ${pair%%:*}" 2>/dev/null || HOST_PY_MISSING="$HOST_PY_MISSING ${pair#*:}"
+  done
+  [ -z "$HOST_PY_MISSING" ] || die "the host's python3 lacks what the installer needs:$HOST_PY_MISSING (Debian/Ubuntu: sudo apt-get install -y$HOST_PY_MISSING); install it, then re-run; nothing was changed"
+fi
+# ---- end of HOST-PYTHON
 if [ "$MODE" = auto ]; then
   if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then MODE=gpu; else MODE=stub; fi
 fi
@@ -198,11 +233,12 @@ echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), m
 # REHEARSAL (D-726): before anything loads
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
 # from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
-# upper case); only DEV, TEST or nothing may become a rehearsal box
+# upper case); only DEV, TEST or nothing may become a rehearsal box, and a VALIDATION box that already is one (D-887)
 RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
 if [ "$REHEARSAL" = 1 ]; then
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
+    VALIDATION) [ -f deploy/site/rehearsal.json ] || die "--rehearsal: this box is VALIDATION (deploy/.env TB_ENV) with no rehearsal mark: a site box is never made a rehearsal box" ;;
     *) die "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box" ;;
   esac
   if [ ! -f deploy/site/rehearsal.json ]; then
@@ -219,7 +255,7 @@ if [ "$REHEARSAL" = 1 ]; then
   # the stand-ins unless TB_COMPOSE_OVERRIDE is set: set empty, the real model servers (an unmeasured card's trial boot)
   export TB_COMPOSE_OVERRIDE="${TB_COMPOSE_OVERRIDE-$ROOT/tools/rehearse_box/standins.yml}"
   export TB_ACCEPT_UNMEASURED_GPU=1
-  echo "install: note: a rehearsal box (TB_ENV TEST, ${TB_COMPOSE_OVERRIDE:-the real model servers}, an unmeasured card accepted)" >&2
+  echo "install: note: a rehearsal box (TB_ENV VALIDATION, ${TB_COMPOSE_OVERRIDE:-the real model servers}, an unmeasured card accepted)" >&2
 elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_REHEARSAL=1' deploy/.env; }; then
   # a rehearsal box (or one left half emptied) never becomes a site box by an install without the argument
   die "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
@@ -227,11 +263,20 @@ fi
 # ---- end of REHEARSAL (D-726): before anything loads
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
+# D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them
+[ -f deploy/settings.yaml ] && export TB_SETTINGS_FILE="./settings.yaml"
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+  echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
+  alive_start "verifying the bundle"
   sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
-  TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | sed 's/^/    /' || die "loading the bundle failed"
+  alive_stop
+  echo "    loading the images, models and rulesets (10-20 minutes for a GPU bundle)"
+  export PYTHONUNBUFFERED=1
+  alive_start "loading the bundle"
+  TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | indent || die "loading the bundle failed"
+  alive_stop
 fi
 docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"
 # T-631, D-367: compose files, host tools and configuration come only from the signed release
@@ -249,6 +294,8 @@ fi
 # ------------------------------------------------------------------------------------------------ 3. settings
 say "settings"
 FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
+# D-837: a TB_ENV written into deploy/.env before the wizard rewrites the file (ENVIRONMENT below keeps it)
+PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
 mkdir -p deploy/keys deploy/secrets deploy/site/mapping
 # T-632 (OPS-011): the site's own mapping is in deploy/site/mapping, never in the image; the wizard and the adapter see
 # it at /etc/trialbox/mapping and look there first (adapter.mapping.site). A mapping folder beside the answers file
@@ -257,7 +304,9 @@ MAPPING_MOUNT=(-v "$ROOT/deploy/site/mapping:/etc/trialbox/mapping:ro")
 if [ -n "$ANSWERS" ] && [ -d "$(dirname "$ANSWERS")/mapping" ] && [ "$(cd "$(dirname "$ANSWERS")/mapping" && pwd)" != "$ROOT/deploy/site/mapping" ]; then
   cp -rn "$(dirname "$ANSWERS")/mapping/." deploy/site/mapping/ && echo "    site mapping folder: deploy/site/mapping (from $(dirname "$ANSWERS")/mapping)"
 fi
+SETTINGS_NEW=0
 if [ ! -f deploy/settings.yaml ]; then
+  SETTINGS_NEW=1  # D-736: a fresh install (a re-run keeps the site's settings and never stops a running site)
   if [ -n "$ANSWERS" ]; then
     [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
     tree_args
@@ -314,24 +363,57 @@ fi
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
 # REHEARSAL (D-726): the box says TEST
+# D-887 (the integrator's (i)): it says VALIDATION, where D3 stays on the box (D-823), with the mark and TB_REHEARSAL=1
 if [ "$REHEARSAL" = 1 ]; then
   RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
-    *) die "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is TEST" ;;
+    VALIDATION) [ -f deploy/site/rehearsal.json ] || die "--rehearsal: the answers make this box VALIDATION with no rehearsal mark: a rehearsal box is made by --rehearsal" ;;
+    *) die "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is VALIDATION" ;;
   esac
-  sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=TEST\nTB_REHEARSAL=1\n' >> deploy/.env
+  sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=VALIDATION\nTB_REHEARSAL=1\n' >> deploy/.env
 fi
 # ---- end of REHEARSAL (D-726): the box says TEST
+# ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
+# silently (a pre-written VALIDATION was lost and the D-127 default below made the box PRODUCTION)
+NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+if [ -n "$ENVIRONMENT" ]; then
+  ENVIRONMENT="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
+  case "$ENVIRONMENT" in DEV|TEST|VALIDATION|PRODUCTION) ;; *) die "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT" ;; esac
+  [ "$REHEARSAL" != 1 ] || [ "$ENVIRONMENT" = VALIDATION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
+  [ -z "$NOW_ENV" ] || [ "$NOW_ENV" = "$ENVIRONMENT" ] \
+    || die "deploy/.env says TB_ENV=$NOW_ENV and --environment says $ENVIRONMENT: a box's environment is not changed by an install"
+  sed -i '/^TB_ENV=/d' deploy/.env && echo "TB_ENV=$ENVIRONMENT" >> deploy/.env
+elif [ -z "$NOW_ENV" ] && [ -n "$PRE_ENV" ]; then
+  sed -i '/^TB_ENV=/d' deploy/.env && echo "TB_ENV=$PRE_ENV" >> deploy/.env
+  echo "    TB_ENV=$PRE_ENV kept (written in deploy/.env before the settings wizard)"
+fi
+# ---- end of ENVIRONMENT
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
 grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# HOST PROFILE (D-837): TB_HOST_PROFILE=poc, a proof of concept or validation run on a plain VM: the host-facility
+# checks (TPM seal, LUKS, egress table, systemd units, firewall, SSH, cron) WARN and are listed, here, in
+# check_host.sh and in doctor. Never on PRODUCTION. It sets TB_SYSTEMD's default to 0 (no units on such a VM)
+HOST_PROFILE="${TB_HOST_PROFILE:-$(envget TB_HOST_PROFILE)}"; HOST_PROFILE="${HOST_PROFILE:-site}"
+case "$HOST_PROFILE" in
+  site) ;;
+  poc)
+    [ "$TB_ENV_SITE" != PRODUCTION ] \
+      || die "TB_HOST_PROFILE=poc is never a PRODUCTION box: install with --environment VALIDATION (or TEST), or without the profile"
+    envset TB_HOST_PROFILE poc
+    TB_SYSTEMD="${TB_SYSTEMD:-0}"; export TB_SYSTEMD
+    echo "    host profile poc ($TB_ENV_SITE): WARN, not FAIL, for the TPM seal, LUKS, the egress table, the systemd units, the firewall, SSH and cron (listed by the host check)"
+    ;;
+  *) die "TB_HOST_PROFILE must be site or poc, not '$HOST_PROFILE'" ;;
+esac
+# ---- end of HOST PROFILE
 # D-726: what only a rehearsal box may use (the model stand-ins, an unmeasured card's trial boot)
-rehearsal_only() {
-  [ "$TB_ENV_SITE" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ] \
-    || die "$1: only on a rehearsal box (TB_ENV TEST and TB_REHEARSAL=1, deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
+rehearsal_only() {  # D-887: TEST with TB_REHEARSAL=1, or VALIDATION with TB_REHEARSAL=1 and the mark file
+  [ "$(envget TB_REHEARSAL)" = 1 ] && { [ "$TB_ENV_SITE" = TEST ] || { [ "$TB_ENV_SITE" = VALIDATION ] && [ -f deploy/site/rehearsal.json ]; }; } \
+    || die "$1: only on a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with deploy/site/rehearsal.json: deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
 }
 # D-726 (review F1): the stand-ins are known by what the file says, wherever it lies (a copy, the release tree's own)
 is_standins() {
@@ -360,7 +442,29 @@ if [ -z "$TLS_HOST" ]; then
   echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
 else
   grep -q '^TB_TLS_MODE=.' deploy/.env || envset TB_TLS_MODE internal
+  # D-887: reached at https only, so the session cookie is Secure in every environment (doctor secure_cookie FAILs it
+  # off on VALIDATION); a value the site wrote is kept
+  grep -q '^TB_CONSOLE_SECURE_COOKIE=' deploy/.env || envset TB_CONSOLE_SECURE_COOKIE 1
 fi
+# SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
+SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
+[ -n "$SAE_TO" ] || SAE_TO="${TB_SAE_OFFICE_MAILBOX:-}"   # exported for this run
+if [ -z "$SAE_TO" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
+  printf '  The trial office'"'"'s mailbox, told at once when a serious adverse event is entered (e.g. trial-office@hospital.tw): '; read -r SAE_TO || SAE_TO=""
+fi
+SAE_TO="$(printf '%s' "$SAE_TO" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+case "$SAE_TO" in \"*\") SAE_TO="${SAE_TO#\"}"; SAE_TO="${SAE_TO%\"}" ;; \'*\') SAE_TO="${SAE_TO#\'}"; SAE_TO="${SAE_TO%\'}" ;; esac
+if [ -n "$SAE_TO" ]; then
+  printf '%s\n' "$SAE_TO" | grep -Eqx "[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+" \
+    || die "TB_SAE_OFFICE_MAILBOX $SAE_TO is not one mail address (for example trial-office@hospital.tw)"
+  envset TB_SAE_OFFICE_MAILBOX "$SAE_TO"
+  echo "    SAE office mailbox: $SAE_TO"
+elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ] && [ "${SETTINGS_NEW:-0}" = 1 ]; then
+  die "no SAE office mailbox: when a serious adverse event is entered the trial office must be told at once (a sponsor report can be due within 24 h). Put TB_SAE_OFFICE_MAILBOX in deploy/.env or sae_office_mailbox in the answers file, then re-run (RUNBOOK §1)"
+else
+  echo "install: warning: no SAE office mailbox ($TB_ENV_SITE): nobody is mailed when a serious adverse event is entered until TB_SAE_OFFICE_MAILBOX is set in deploy/.env (RUNBOOK §1)" >&2
+fi
+# ---- end of SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 # TB_LLM_MODE is the services' word (tb_common.config: vllm | stub ...), not the compose profile's (gpu | stub), D-142
 LLM_MODE=stub; [ "$MODE" = gpu ] && LLM_MODE=vllm
 grep -q '^TB_LLM_MODE=' deploy/.env && sed -i "s/^TB_LLM_MODE=.*/TB_LLM_MODE=$LLM_MODE/" deploy/.env || echo "TB_LLM_MODE=$LLM_MODE" >> deploy/.env
@@ -382,16 +486,23 @@ grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPO
 # `trialbox doctor` (memory_caps) says when it is too small
 if command -v python3 >/dev/null; then
   LAKE_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_lake-data" 2>/dev/null || true)"
-  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | sed 's/^/    /'
-  [ "${PIPESTATUS[0]}" = 0 ] || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER and TB_MEM_LAKE in deploy/.env, then re-run"
+  # D-832: the die hangs on the pipe (under pipefail a failing pipe ended the script before a PIPESTATUS line)
+  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | indent || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER and TB_MEM_LAKE in deploy/.env, then re-run"
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER and TB_MEM_LAKE keep the compose defaults (doctor memory_caps checks them)" >&2
+fi
+# T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
+# a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | indent || die "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
 fi
 chmod 600 deploy/.env
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
 chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
+# D-888: in deploy/.env too, so every start mounts it (the systemd unit, an update, an operator's docker compose up)
+envset TB_SETTINGS_FILE "./settings.yaml"
 if [ "$MODE" = gpu ]; then
   # D-142 (review R-01): pin the profile's deployed pair from the site's own weights, which must be the release
   # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
@@ -401,17 +512,26 @@ if [ "$MODE" = gpu ]; then
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
   done
   say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
+  # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
+  # was only a warning: lane G's box went on with no model pinned); a pin that fails stops the install
+  alive_start "hashing the model weights"
+  # D-887: the box (TB_ENV, TB_REHEARSAL) goes to the pin, which pins the rehearsal media's placeholders on a
+  # rehearsal box only, from a rehearsal bundle (deploy/updates/installed.json), every folder a placeholder
   tree_args
-  docker run --rm -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL \
+    -e TB_ENV="$TB_ENV_SITE" -e TB_REHEARSAL="$(envget TB_REHEARSAL)" "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
-    || echo "install: warning: a model of the $GPU pair is not pinned (see above): it routes nothing until its weights are in deploy/models and install runs again (RUNBOOK §8)" >&2
+    || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
+  alive_stop
   if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
     # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
     say "checking the pinned model weights (tools/pin_model.py --verify-all)"
+    alive_start "checking the model weights"
     tree_args
     docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
       python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
       || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+    alive_stop
   else
     echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
   fi
@@ -460,8 +580,8 @@ if [ -n "$TLS_HOST" ]; then
   for v in TB_TLS_CERT_FILE TB_TLS_KEY_FILE; do f="$(envget "$v")"; [ -z "$f" ] || TLS_MOUNT+=(-v "$f:$f:ro"); done
   docker run --rm -e TB_ENV="$TB_ENV_SITE" -e TB_TLS_MODE="$(envget TB_TLS_MODE)" -e TB_TLS_HOSTNAME="$TLS_HOST" \
     -e TB_TLS_CERT_FILE="$(envget TB_TLS_CERT_FILE)" -e TB_TLS_KEY_FILE="$(envget TB_TLS_KEY_FILE)" \
-    ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 "$IMAGE_PY" python -m console.cli check-tls 2>&1 | sed 's/^/    /'
-  [ "${PIPESTATUS[0]}" = 0 ] || die "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"
+    ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 "$IMAGE_PY" python -m console.cli check-tls 2>&1 \
+    | indent || die "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"
   COMPOSE+=(-f deploy/docker-compose.identity.yml); FILES="$FILES:$ROOT/deploy/docker-compose.identity.yml"
 fi
 if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the console's first-run folder (box-install.sh makes it, tmpfs)
@@ -554,17 +674,22 @@ say "site keys (made once, never replaced)"
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
   || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
 # T-634 (D-408; OPS-043): sealed at once, before any service opens them. VALIDATION and PRODUCTION always; a DEV or TEST
-# box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (KEK_BACKEND, default tpm); the
+# box only when it has deploy/site/hardening.conf or TB_KEK_BACKEND asks for it (D-887). The KEK's back end is the site's (TB_KEK_BACKEND in the installer's
+# environment, else hardening.conf's KEK_BACKEND, default tpm; D-836); the
 # host check FAILs a plain site key in VALIDATION and PRODUCTION
 HB_CONF="$ROOT/deploy/site/hardening.conf"
 if [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
   echo "    site keys: sealed at the box's apply step, under the owner's passphrase (box-install.sh, T-729)"
-elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ]; then
+elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
+    && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
+  # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
+  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE seals them); the host check lists it"
+elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
-    || die "the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md"
+    || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
@@ -584,8 +709,14 @@ else
     orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
     || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 fi
-"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
-  || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+# T-695 (D-752, F-24): the wait for every service healthy, from the compose files' health checks (start period, then
+# the retries); the stop, from the longest stop grace. Without PyYAML on the host, the waits of before (900 s, 300 s).
+BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" || BOOT_WAIT=900
+STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
+alive_start "waiting for every service to be healthy (up to ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} s)"
+"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
+  || { alive_stop; "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+alive_stop
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
   # gateway would get 404 or 401 on every call and the box would screen nothing (doctor check "serving")
@@ -621,7 +752,9 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
   if [ "$EGRESS_OK" = 1 ]; then
     say "systemd units (egress at boot, the stack after a restart, watchdog)"
     for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
-      sed "s#@TB_ROOT@#$ROOT#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
+      sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_BOOT_WAIT@#${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}#g" \
+          -e "s#@TB_BOOT_LIMIT@#$(( ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} + 300 ))#g" \
+          -e "s#@TB_STOP_LIMIT@#$(( STOP_WAIT + 10 ))#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
     done
     systemctl daemon-reload
@@ -672,7 +805,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   QUAL_DIR="$(readlink -f deploy/qualification 2>/dev/null || true)"; [ -d "$QUAL_DIR" ] || QUAL_DIR="$ROOT/deploy/site"
   LOCK_FILE="$(readlink -f deploy/images.lock 2>/dev/null || true)"
   pin_tool() {
-    docker run --rm -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
+    docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
       python -m tools.pin_model "$@" --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /'
     return "${PIPESTATUS[0]}"
   }
@@ -699,6 +832,8 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
     else
       FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
     fi
+  elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
+    echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
   elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
     FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
   fi
@@ -716,7 +851,8 @@ fi
 [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
 # T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
-# TB_BACKUP_MAILTO with a mail relay); `trialbox doctor` then checks the backup's age and its off-box target
+# TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox
+# doctor` then checks the backup's age and its off-box target
 if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
@@ -724,7 +860,7 @@ if [ "$CAN_CRON" = 1 ]; then
   rc="${PIPESTATUS[0]}"
   set -e
   if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
-    die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
+    die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page in deploy/.env (RUNBOOK §5), then re-run"
   elif [ "$rc" != 0 ]; then
     # OPS-003 (D-566): a box has no alert route yet (no mail relay on a fresh host). A stop here is a stop before
     # the wizard; a FAIL line leaves the stack running, and box-install.sh goes on to the first-run code and
@@ -834,6 +970,9 @@ if [ -n "$TLS_HOST" ]; then
   done
   [ "$ANSWERED" = 1 ] && echo "    $URL/login answers (certificate checked)" || FAILS+=("$URL/login does not answer from this host (curl above; RUNBOOK §12)")
 fi
+# D-884: the release gates' mode from the installed record; "report" is not a green release
+GATES_MODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("vuln_mode") or "not recorded")' deploy/updates/installed.json 2>/dev/null || echo "not recorded")"
+[ "$GATES_MODE" = block ] || [ "$GATES_MODE" = "not recorded" ] || GATES_MODE="$GATES_MODE (findings shown, not blocking: not a green release)"
 cat <<EOT
 
   TrialBox is running.
@@ -843,6 +982,7 @@ cat <<EOT
   $JUDGE
   First ingest:       docker compose --project-directory deploy exec adapter python -m adapter.cli run   (or 02:00 nightly)
   Acceptance:         docs/RUNBOOK.md §6 before go-live;  updates: tools/apply_update.sh <bundle>
+  Release gates:      $GATES_MODE
 EOT
 if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2

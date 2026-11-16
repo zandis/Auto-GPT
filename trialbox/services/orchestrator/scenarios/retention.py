@@ -1,7 +1,9 @@
 """RETENTION (SPEC §10.3; every night, the last step of the night's chain: T-726, D-492; DECISIONS D-78).
 
 * inbound attachments (``attachments/``) older than ``retention.attachments_days`` and outputs (``outputs/``, plus the
-  public ClinicalTrials.gov cache ``ctgov/``) older than ``retention.outputs_days`` are deleted from the object store;
+  public ClinicalTrials.gov cache ``ctgov/``) older than ``retention.outputs_days`` are deleted from the object store,
+  except the attachments and outputs of a job of a study that is not ``closed`` (NEW-LIFE-9, D-765: held while the
+  study runs; a study whose state cannot be read is held);
   the audit chain keeps their sha256 (``retention.deleted`` per job: keys + hashes recorded when they were created);
 * candidate pools and CRC feedback of rulesets that are no longer approved on this box, untouched for
   ``retention.pool_months_after_ruleset`` months, are deleted;
@@ -16,16 +18,20 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta
 from typing import Any
 
-from tb_common.retention import expired
+from tb_common.retention import expired, held_after_close
 from tb_common.ruleset import list_rulesets
 
 from orchestrator.core import Ctx, Outcome
 from orchestrator.scenarios.review import approved_or_none
 
 PREFIXES = (("attachments/", "attachments_days"), ("outputs/", "outputs_days"), ("ctgov/", "outputs_days"))
+CLOSED = "closed"  # the console's last study state (D-386): only then do a study's files go by their age (D-765)
+RUNNING = "running"  # D-765: held while the study is not closed
+AFTER_CLOSE = "after_close"  # D-779: held for the study's period after the close
 
 
 def _hashes(ctx: Ctx, job_id: str) -> dict[str, str]:
@@ -73,6 +79,52 @@ def kept_for_open_studies(ctx: Ctx) -> set[str]:
     return keep
 
 
+def study_hold(rid: str, now: datetime) -> str:
+    """Why a study's files are held on ``now``, or "": :data:`RUNNING` (D-765: a recorded state that is not
+    ``closed``, or a state that cannot be read) or :data:`AFTER_CLOSE` (D-779, T-305c: closed, and the close's own
+    period, or the default one, has not ended; a close that cannot be read is held too: keep rather than delete)."""
+    from orchestrator import scheduler
+
+    try:
+        state = scheduler.recorded_study_state(rid)
+    except Exception:
+        return RUNNING
+    if state is None:
+        return ""
+    if state != CLOSED:
+        return RUNNING
+    try:
+        row = scheduler.recorded_close(rid)
+    except Exception:
+        return AFTER_CLOSE
+    if row is None or row[0] != CLOSED:  # changed between the two reads: held until the next night
+        return AFTER_CLOSE
+    return AFTER_CLOSE if held_after_close(row[1], row[2], now) else ""
+
+
+def held_for_running_studies(ctx: Ctx, now: datetime) -> Callable[[str], str]:
+    """NEW-LIFE-9 (D-765, LIFE-009; T-305c without waiting for T-305b): whether the objects of one job (its
+    ``attachments/<job>/`` and ``outputs/<job>/``) are held: the job's ruleset is a study the console has a recorded
+    state for, and that state is not ``closed``. A study whose state cannot be read is held (keep rather than
+    delete). A ruleset with no recorded state (a feasibility of a trial the site declined, a cohort, a case: never set
+    up as a study), a job of no ruleset and a job this box no longer knows keep the configured ages (the review of
+    D-765: "no row" is not a running study). After the close, held for the study's period (D-779). One read per job
+    and per ruleset; the answer is why (:func:`study_hold`), "" when not held."""
+    studies: dict[str, str] = {}
+    jobs: dict[str, str] = {}
+
+    def held(group: str) -> str:
+        if group not in jobs:
+            job = ctx.orch.db.get(group) if group else None
+            rid = str(job.ruleset or "") if job is not None else ""
+            if rid and rid not in studies:
+                studies[rid] = study_hold(rid, now)
+            jobs[group] = studies.get(rid, "")
+        return jobs[group]
+
+    return held
+
+
 def run(ctx: Ctx) -> Outcome:
     ret = ctx.cfg.settings.retention
     days = {
@@ -84,14 +136,22 @@ def run(ctx: Ctx) -> Outcome:
     now = ctx.orch._now()
     deleted: dict[str, list[str]] = {}
     keep = kept_for_open_studies(ctx)
+    held = held_for_running_studies(ctx, now)
     kept: list[str] = []
+    on_hold: list[str] = []
+    after_close: list[str] = []
     for prefix, key in PREFIXES:
         for obj in ctx.store.list(prefix):
             if expired(obj.last_modified, now, days[key]):
                 if obj.key in keep:  # an open study's next micro-batch reads it (D-458)
                     kept.append(obj.key)
                     continue
-                deleted.setdefault(obj.key.split("/", 2)[1] if obj.key.count("/") >= 2 else prefix, []).append(obj.key)
+                group = obj.key.split("/", 2)[1] if obj.key.count("/") >= 2 else prefix
+                why = held(group) if prefix != "ctgov/" else ""
+                if why:  # D-765: a study's file stays until the study is closed; D-779: and its period after
+                    (after_close if why == AFTER_CLOSE else on_hold).append(obj.key)
+                    continue
+                deleted.setdefault(group, []).append(obj.key)
     count = 0
     for group, keys in sorted(deleted.items()):
         known = _hashes(ctx, group)
@@ -110,6 +170,8 @@ def run(ctx: Ctx) -> Outcome:
     approved = {
         rid for rid in list_rulesets(ctx.rulesets_dir) if approved_or_none(ctx, rid, None, run=False) is not None
     }
+    # the review of D-765: a running study's pool and marks are kept too, even while its approval has lapsed
+    approved |= {rid for rid in ctx.orch.db.pool_rulesets() if study_hold(rid, now)}  # D-779: and after the close
     cutoff = (now - timedelta(days=round(pool_months * 30.44))).isoformat()
     pools = ctx.orch.db.prune_inactive(approved, cutoff)
     if pools["pool"] or pools["feedback"]:
@@ -118,6 +180,8 @@ def run(ctx: Ctx) -> Outcome:
         "run_at": now.isoformat(timespec="seconds"),
         "objects_deleted": count,
         "kept_for_open_studies": len(kept),  # past their age, kept: an open study's next micro-batch reads them
+        "held_for_running_studies": len(on_hold),  # D-765: past their age, of a study not closed
+        "held_after_close": len(after_close),  # D-779: past their age, of a closed study within its period
         "by_prefix": {p: sum(1 for ks in deleted.values() for k in ks if k.startswith(p)) for p, _ in PREFIXES},
         "pool_rows_deleted": pools["pool"],
         "feedback_rows_deleted": pools["feedback"],

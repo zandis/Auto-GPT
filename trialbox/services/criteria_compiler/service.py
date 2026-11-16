@@ -11,12 +11,14 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import httpx
 import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
 from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
-from tb_common.fhir import FhirEvaluator, library_resource
+from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource
+from tb_common.http import ServiceError
 from tb_common.llm import LlmClient, LlmError
 from tb_common.objstore import ObjectStore
 from tb_common.phi_guard import PhiScan, scan, variables_text
@@ -40,11 +42,12 @@ from tb_contracts import (
     dump,
 )
 
+from criteria_compiler import structure
 from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_cql.translator import TranslationError, Translator, fhirhelpers_source
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
-from criteria_compiler.equivalence.gate import run_gate, unproven
+from criteria_compiler.equivalence.gate import run_gate, unproven, without_pseudonyms
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
@@ -54,6 +57,121 @@ from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 log = logging.getLogger("criteria-compiler")
 MAX_ROUNDS = 3
 EquivalenceFn = Callable[[list[CriterionIR], str, str, date, str], EquivalenceReport]
+
+
+def align(lines: list[dict[str, Any]], answers: list[Any]) -> tuple[list[Any], set[int]]:
+    """Each answer matched to its line (D-912), by the line's text, in order: ``(matched, twice)``. ``matched[k]`` is
+    line k's answer or None; ``twice`` holds the lines the model answered more than once (it split the line). An
+    answer whose text is no line's, the model's own wording, is matched by position when the counts agree, else left
+    out (its line is asked again)."""
+    if len(answers) == len(lines) and all(
+        _norm(str(getattr(a, "text", ""))) == _norm(str(ln["text"])) for a, ln in zip(answers, lines, strict=True)
+    ):
+        return list(answers), set()
+    by_text: dict[str, list[int]] = {}
+    for k, ln in enumerate(lines):
+        by_text.setdefault(_norm(str(ln["text"])), []).append(k)
+    matched: list[Any] = [None] * len(lines)
+    seen: dict[int, int] = {}
+    unplaced = 0
+    for a in answers:
+        ks = by_text.get(_norm(str(getattr(a, "text", ""))), [])
+        free = [k for k in ks if matched[k] is None]
+        if free:
+            matched[free[0]] = a
+            seen[free[0]] = 1
+        elif ks:
+            seen[ks[-1]] = seen.get(ks[-1], 1) + 1
+        else:
+            unplaced += 1
+    if unplaced and len(answers) == len(lines):  # reworded, not miscounted: by position
+        return list(answers), set()
+    return matched, {k for k, n in seen.items() if n > 1}
+
+
+def _for_a_person(line: dict[str, Any], why: str) -> dict[str, Any]:
+    """A line the model gave no criterion of its own (D-912), kept as a person's check with its text and kind."""
+    said = {
+        "not_extracted": "The model gave no criterion for this line",
+        "split_by_model": "The model answered this line with more than one criterion",
+    }[why]
+    out: dict[str, Any] = {
+        "kind": line["kind"],
+        "class": "human",
+        "text": line["text"],
+        "human_question": f"{said}: check it by hand. {line['text']}",
+        "concept_candidates": [],
+    }
+    if line.get("source_ref"):
+        out["source_ref"] = line["source_ref"]
+    return out
+
+
+#: the answer tokens one extracted criterion takes at most, with its concept candidates and synonyms (measured on the
+#: shipped rulesets' compiles: 150 to 330); a part is sized so its answer fits the prompt's ``max_tokens`` (D-911)
+TOKENS_PER_CRITERION = 400
+ANSWER_SHARE = 0.75  # of max_tokens: room for the JSON's own frame and a long line
+
+
+def lines_per_part(max_tokens: int | None = None) -> int:
+    """How many protocol lines one ``ir_extract`` call carries (D-911): its answer must fit the prompt's cap."""
+    from tb_common.llm import load_prompt
+
+    cap = max_tokens if max_tokens is not None else int(load_prompt("ir_extract").meta.max_tokens or 8192)
+    return max(1, int(cap * ANSWER_SHARE) // TOKENS_PER_CRITERION)
+
+
+def extraction_parts(lines: list[dict[str, Any]], size: int) -> list[tuple[int, list[dict[str, Any]]]]:
+    """``lines`` as ``(first index, lines)`` parts of at most ``size`` lines (D-911). A line and the lines under it
+    (``parent``) stay in one part, whatever its size; a part ends at a section boundary (``kind``) when the next group
+    would not fit or the section changes and the part is at least half full. Each part's ``parent`` is rebased."""
+    groups: list[list[int]] = []  # contiguous runs of lines: a parent, the lines under it, and any lines between
+    owner: dict[int, int] = {}
+    for i, ln in enumerate(lines):
+        p = ln.get("parent")
+        if isinstance(p, int) and p in owner:
+            g = owner[p]
+            if g < len(groups) - 1:  # a line under an earlier parent: that group runs on to here
+                for later in groups[g + 1 :]:
+                    groups[g].extend(later)
+                del groups[g + 1 :]
+                owner.update({j: g for j in groups[g]})
+        else:
+            groups.append([])
+            g = len(groups) - 1
+        groups[g].append(i)
+        owner[i] = g
+    parts: list[list[int]] = []
+    cur: list[int] = []
+    for group in groups:
+        boundary = bool(cur) and lines[cur[-1]].get("kind") != lines[group[0]].get("kind")
+        if cur and (len(cur) + len(group) > size or (boundary and len(cur) >= size // 2)):
+            parts.append(cur)
+            cur = []
+        cur.extend(group)
+    if cur:
+        parts.append(cur)
+    out: list[tuple[int, list[dict[str, Any]]]] = []
+    for idx in parts:
+        start = idx[0]
+        rebased = []
+        for i in idx:
+            ln = dict(lines[i])
+            if isinstance(ln.get("parent"), int):
+                ln["parent"] = ln["parent"] - start
+            rebased.append(ln)
+        out.append((start, rebased))
+    return out
+
+
+def flag_unread(criteria: list[CriterionIR], unread: dict[int, str], warnings: list[str]) -> list[CriterionIR]:
+    """The criteria of the lines the model gave no criterion of their own (D-912), flagged for the reviewer."""
+    out = list(criteria)
+    for i, why in sorted(unread.items()):
+        c = out[i]
+        out[i] = c.model_copy(update={"flags": sorted(set(c.flags or []) | {why, "needs_review"})})
+        warnings.append(f"{c.id}: {why.replace('_', ' ')}; kept for a person to check")
+    return out
 
 
 class CompileFailed(RuntimeError):
@@ -228,25 +346,63 @@ class Compiler:
 
     def _extract(
         self, job_id: str, ruleset: str, language: str, lines: list[dict[str, Any]]
-    ) -> tuple[LlmExtractOutput, PhiScan]:
+    ) -> tuple[LlmExtractOutput, PhiScan, dict[int, str]]:
+        """The model's criteria for ``lines``, one per line in order, asked in parts (D-911): one call answered a whole
+        protocol, and a long one ran past the prompt's answer cap (``max_tokens``), so its JSON was cut and the
+        gateway refused it (``upstream_failed``). Each part holds at most :func:`lines_per_part` lines, split at a
+        section boundary where it can be, a line never apart from the lines under it.
+
+        D-912: an answer with another count of criteria than lines was a hard refusal of the whole compile. Each
+        answer is now matched to its line by the line's text (the prompt has the model copy it verbatim); the lines
+        left without one are asked once more, alone; a line still without one, or one the
+        model answered twice, is a person's check. Nothing is dropped or merged in silence: the third value names
+        those lines (index -> ``not_extracted`` or ``split_by_model``) for the caller to flag."""
         variables = {"ruleset": ruleset, "language": language, "criteria": lines}
-        guard = scan(variables_text(variables), self.d.mrn_regex)  # exactly what the prompt carries (cloud routing)
+        guard = scan(variables_text(variables), self.d.mrn_regex)  # exactly what the prompts carry (cloud routing)
+        got: list[Any] = [None] * len(lines)
+        notes: dict[int, str] = {}
+        parts = extraction_parts(lines, lines_per_part())
+        for n, (start, part) in enumerate(parts, start=1):
+            where = f" (part {n} of {len(parts)}, lines {start + 1}-{start + len(part)})" if len(parts) > 1 else ""
+            answers = self._ask_extract(job_id, ruleset, language, part, guard, where)
+            matched, twice = align(part, answers)
+            missing = [k for k, c in enumerate(matched) if c is None and k not in twice]
+            if missing:  # once more, the lines without an answer alone (naming the mismatch to the model would
+                # need a new prompt version: the template shows the lines only, and the lines are data to it)
+                retry = [{**part[k], "parent": None} for k in missing]
+                again, _ = align(retry, self._ask_extract(job_id, ruleset, language, retry, guard, where))
+                for k, c in zip(missing, again, strict=True):
+                    matched[k] = c
+            for k, c in enumerate(matched):
+                i = start + k
+                if k in twice:
+                    notes[i] = "split_by_model"
+                elif c is None:
+                    notes[i] = "not_extracted"
+                got[i] = c if c is not None and k not in twice else _for_a_person(lines[i], notes[i])
+        out = LlmExtractOutput.model_validate({"criteria": [c if isinstance(c, dict) else dump(c) for c in got]})
+        return out, guard, notes
+
+    def _ask_extract(
+        self,
+        job_id: str,
+        ruleset: str,
+        language: str,
+        part: list[dict[str, Any]],
+        guard: PhiScan,
+        where: str,
+    ) -> list[Any]:
+        variables: dict[str, Any] = {"ruleset": ruleset, "language": language, "criteria": part}
         try:
             res = self.d.llm.chat_json(
-                "ir_extract",
-                variables,
-                job_id=job_id,
-                clearance=guard.clearance,
-                phi_guard_hit=guard.hit,
+                "ir_extract", variables, job_id=job_id, clearance=guard.clearance, phi_guard_hit=guard.hit
             )
         except LlmError as exc:  # was an unhandled 500 ("internal error") in the requester's Failed mail
             raise CompileFailed(
-                "ir_extract", f"the model did not return usable criteria ({str(exc)[:160]}); send the protocol again"
+                "ir_extract",
+                f"the model did not return usable criteria{where} ({str(exc)[:160]}); send the protocol again",
             ) from exc
-        out = LlmExtractOutput.model_validate(res.data)
-        if len(out.criteria) != len(lines):
-            raise CompileFailed("ir_extract", f"model returned {len(out.criteria)} criteria for {len(lines)} lines")
-        return out, guard
+        return list(LlmExtractOutput.model_validate(res.data).criteria)
 
     def demote_uncompilable(
         self, ruleset: str, version: str, criteria: list[CriterionIR], valuesets: dict[str, dict[str, Any]]
@@ -341,10 +497,21 @@ class Compiler:
             library_resource("TB_Common", "1.0.0", art.cql["TB_Common"], art.elm.get("TB_Common")),
             library_resource(art.library, art.library_version, art.cql[art.library], art.elm.get(art.library)),
         ]
-        self.d.fhir.load(libs, valuesets.values())
-        return self.enforce(
-            run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold), active
-        )
+        try:
+            self.d.fhir.load(libs, valuesets.values())
+            report = run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold)
+        except (FhirEvalError, ServiceError, httpx.HTTPError) as exc:
+            # D-910: the FHIR server refusing a ruleset's CQL or ValueSets, or the lake its SQL, is a reason the
+            # equivalence check could not run, said by type and status (never the server's text: it can quote a
+            # patient's id), not an HTTP 500
+            status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            where = "the FHIR server" if isinstance(exc, FhirEvalError) else "the data lake"
+            raise CompileFailed(
+                "equivalence",
+                f"the comparison of the compiled CQL and SQL could not run: {where} refused it "
+                f"({type(exc).__name__}{f', HTTP {status}' if status else ''}); check the criteria flagged for review",
+            ) from exc
+        return self.enforce(report, active)
 
     @staticmethod
     def enforce(tests: EquivalenceReport, criteria: list[CriterionIR]) -> EquivalenceReport:
@@ -392,7 +559,7 @@ class Compiler:
             if name != "FHIRHelpers":
                 files[f"cql/elm/{name}.json"] = text.encode("utf-8")
         files[f"sql/{manifest.id}.sql"] = art.sql.encode("utf-8")
-        files["tests/equivalence.json"] = json_bytes(dump(tests))
+        files["tests/equivalence.json"] = json_bytes(dump(without_pseudonyms(tests)))  # D-862: no pseudonym kept
         return files
 
     def _manifest(
@@ -501,16 +668,24 @@ class Compiler:
             raise CompileFailed("parse", f"parsed document {req.parsed_doc_key} not found") from exc
         block = parsed.ie_block
         refs = block.refs or {}
-        lines = [
-            {"text": t, "kind": kind, "source_ref": refs.get(t, "")}
-            for kind, items in (
-                ("inclusion", block.inclusion),
-                ("exclusion", block.exclusion),
-                ("renewal", block.renewal or []),
-                ("documentation", block.documentation or []),
-            )
-            for t in items
-        ]
+        lines: list[dict[str, Any]] = []
+        for kind, items in (
+            ("inclusion", block.inclusion),
+            ("exclusion", block.exclusion),
+            ("renewal", block.renewal or []),
+            ("documentation", block.documentation or []),
+        ):
+            # NEW-LIFE-2: the parser's positional refs (each item's own section and its lead-in) when it gave them;
+            # else the text-keyed refs of a parsed document from before them
+            pos = (block.item_refs or {}).get(kind)
+            base = len(lines)
+            for i, t in enumerate(items):
+                if pos is not None and len(pos) == len(items):
+                    r = pos[i]
+                    parent = None if r.parent is None else base + r.parent
+                    lines.append({"text": t, "kind": kind, "source_ref": f"{r.section} #{r.n}", "parent": parent})
+                else:
+                    lines.append({"text": t, "kind": kind, "source_ref": refs.get(t, "")})
         if not lines:
             raise CompileFailed("parse", "no eligibility criteria were found in the document")
         ruleset = req.ruleset
@@ -533,12 +708,12 @@ class Compiler:
         # the parser's warnings (hidden text, a planted instruction, masked contact lines; T-208, T-606): to the review
         warnings: list[str] = list(parsed.warnings or [])
         if todo:
-            extracted, guard = self._extract(req.job_id, ruleset, parsed.language, todo)
+            extracted, guard, unread = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
             post = postprocess(
                 ruleset, extracted, self.d.term, version, self._concept_map(req.job_id), dict(offsets), self.d.egfr()
             )
-            criteria_new = post.criteria
+            criteria_new = flag_unread(post.criteria, unread, warnings)
             valuesets.update(post.valuesets)
             warnings.extend(post.warnings)
         # changed criteria keep the id of the approved criterion they replace (positional pairing per kind)
@@ -554,9 +729,11 @@ class Compiler:
                     freed.setdefault(c.kind, []).append(c.id)
         new_iter = iter(criteria_new)
         criteria: list[CriterionIR] = []
+        reused: set[int] = set()
         for ln in lines:
             hit = reuse.get((ln["kind"], _norm(str(ln["text"]))))
             if hit:
+                reused.add(len(criteria))
                 criteria.append(hit.model_copy(update={"review": CriterionReview(status="draft")}))
                 continue
             fresh = next(new_iter)
@@ -569,6 +746,22 @@ class Compiler:
             criteria.append(fresh.model_copy(update={"id": new_id}))
         profile = self._profile(ruleset)
         lookback = int(options.get("lookback") or profile.get("scopes", {}).get("feas", {}).get("lookback_months", 36))
+        # NEW-LIFE-2: a heading, a group's alternatives, a glued heading, another phase or a second section is not one
+        # required criterion: a person decides it, and the warnings say why (LIFE-002)
+        shape = structure.check(lines, req.kind or "trial")
+        # D-793: a set of alternative groups whose members are all structured is one criterion, or(and(group …));
+        # its lines carry no structure finding any more. The rest goes to a person (D-785)
+        grouped, folded, combined = structure.combine(criteria, lines, keep=reused, report=shape)
+        shape.findings = [f for f in shape.findings if f.index not in folded]
+        if not any(f.flag in ("group_member", "alternatives_in_line") for f in shape.findings):
+            shape.warnings = [w for w in shape.warnings if not w.startswith("some lines may be alternatives")]
+        criteria, moved = structure.send_to_a_person(criteria, shape, keep=reused)  # a reviewer decided those
+        if folded:
+            keep_ids = {c.id for c in grouped}
+            by_id = {c.id: c for c in grouped}
+            criteria = [by_id.get(c.id, c) for c in criteria if c.id in keep_ids]
+        warnings.extend(combined)
+        warnings.extend(shape.warnings + moved)
         criteria, demoted = self.demote_uncompilable(ruleset, version, criteria, valuesets)
         warnings.extend(demoted)
         art = self.build_artifacts(ruleset, version, criteria, valuesets, lookback)
@@ -741,10 +934,11 @@ class Compiler:
             updated.append(new)
         if to_extract:
             lines = [{"text": text, "kind": c.kind, "source_ref": c.source_ref or ""} for c, text in to_extract]
-            extracted, _ = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
+            extracted, _, unread = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
             post = postprocess(
                 req.ruleset, extracted, self.d.term, req.version, self._concept_map(job_id), egfr=self.d.egfr()
             )
+            post.criteria = flag_unread(post.criteria, unread, [])
             valuesets.update(post.valuesets)
             replaced = {
                 orig.id: new.model_copy(update={"id": orig.id, "review": CriterionReview(status="draft")})
