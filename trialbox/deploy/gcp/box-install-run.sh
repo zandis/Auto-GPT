@@ -745,6 +745,22 @@ for m in msgs:
 print(json.dumps({"ids": ids, "errors": errors, "url": root + "/tokenize", "keyed": bool(key)}))
 EOF
 }
+# G-1's extra token (D-880, #739): for the first prompt whose server ids differ, the ids at positions 18 to 26 from
+# the server and from the weights folder's tokenizer, each decoded by that tokenizer (offline, in the same image)
+d_g1_span() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model path, $4 the work folder
+  docker run --rm --network none --user 0 --entrypoint python3 -e HF_HUB_OFFLINE=1 -v "$2:/models:ro" -v "$4:/w" "$1" -c '
+import json, sys
+from transformers import AutoTokenizer
+srv, hf = json.load(open("/w/server.json"))["ids"], json.load(open("/w/hf.json"))["ids"]
+tok = AutoTokenizer.from_pretrained(sys.argv[1])
+for i, (a, b) in enumerate(zip(srv, hf)):
+    if a is not None and list(a) != list(b):
+        at = next((k for k, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+        span = lambda ids: [{"pos": k, "id": ids[k], "text": tok.decode([ids[k]])} for k in range(max(0, at - 4), min(len(ids), at + 5))]
+        print(json.dumps({"prompt": i, "first_difference_at": at, "server": span(a), "folder": span(b)}, ensure_ascii=False))
+        break
+' "$3"
+}
 d_g1_hf() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model path, $4 the work folder, [$5 template]
   local t=(); [ -z "${5:-}" ] || t=(--template "$5")
   docker run --rm --network none --user 0 --entrypoint python3 -e HF_HUB_OFFLINE=1 -e PYTHONPATH=/tbt \
@@ -1306,6 +1322,9 @@ step_g1() {
     note tokens_prompts "\"not made (the box's image cannot run tools.chat_template_check prompts)\""
   fi
   cp "$g1w/chat_template.folder.jinja" "$REC/chat_template.folder.jinja" 2>/dev/null
+  if [ -s "$g1w/server.json" ] && [ -s "$g1w/hf.json" ] && [ -n "$img" ]; then
+    d_g1_span "$img" "$src" "$model" "$g1w" > "$REC/g1-token-span.json" 2>> "$STEP_LOG" || note tokens_span_exit $?
+  fi
   vm g1-tokens --server "$g1w/server.json" --hf "$g1w/hf.json" --notes "$NOTES" > "$REC/g1-tokens.json" 2>> "$STEP_LOG"
   vm identity --box "$REC/identity-box.json" --lock "$BOXROOT/deploy/images.lock" --template-sha "$sha" \
     --images "$RUN/logs/images.json" --weights-exit "$wrc" --tokens "$REC/g1-tokens.json" --notes "$NOTES" > "$REC/identity.json"
