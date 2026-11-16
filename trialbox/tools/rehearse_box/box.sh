@@ -278,13 +278,18 @@ EOF
 # ------------------------------------------------------------------------------------------------ offline media
 offline)
   # 1. images: every running box container runs an image the bundle loaded (rehearse.sh removed them all before the
-  #    install, by id), the third-party ones too, and the daemon pulled nothing
-  python3 - "$W/vendor/bundle-images.txt" "$W/logs/image-events.log" <<'EOF' || fail "an image is not the bundle's"
-import json, subprocess, sys
+  #    install, by id), the third-party ones too, and the daemon pulled nothing. A service image (release.json of the
+  #    signed bundle: `runs: service`, or no `runs`) must be run by a box container; a job image (`runs: job`, D-968:
+  #    the nightly backup's, a one-off container) must be on the box with exactly the bundle's image id
+  python3 - "$W/vendor/bundle-images.txt" "$W/logs/image-events.log" "$BUNDLE" <<'EOF' || fail "an image is not the bundle's"
+import json, subprocess, sys, tarfile
 def sh(*a):
     return subprocess.run(a, capture_output=True, text=True, check=True).stdout
 bundle = dict(line.split() for line in open(sys.argv[1]))  # vendor reference -> image id
 ids = set(bundle.values())
+with tarfile.open(sys.argv[3]) as tf:
+    rel = json.load(tf.extractfile("release.json"))
+jobs = {img["source"] for img in rel["images"].values() if img.get("runs") == "job"}
 cts = sh("docker", "ps", "-q", "--filter", "label=com.docker.compose.project=trialbox").split()
 used = {}
 for c in json.loads(sh("docker", "inspect", *cts)):
@@ -292,6 +297,13 @@ for c in json.loads(sh("docker", "inspect", *cts)):
     assert c["Image"] in ids, f"{svc}: runs {c['Config']['Image']} = {c['Image']}, not an image of the bundle"
     used.setdefault(c["Image"], []).append(svc)
 for ref, iid in sorted(bundle.items()):
+    if ref in jobs and iid not in used:
+        r = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", ref], capture_output=True, text=True)
+        assert r.returncode == 0, f"{ref}: a job image of the bundle, not on the box: {r.stderr.strip()}"
+        got = r.stdout.strip()
+        assert got == iid, f"{ref}: a job image of the bundle, but the box has {got}, not the bundle's {iid}"
+        print(f"ok: job image {ref} = bundle image {iid[:19]}, loaded from the media (release.json: runs: job)")
+        continue
     assert iid in used, f"{ref}: in the bundle, but no box container runs it"
     kind = "TrialBox" if ref.startswith("trialbox-") else "third-party"
     print(f"ok: {kind} {ref} = bundle image {iid[:19]}, run by {', '.join(sorted(used[iid]))}")
