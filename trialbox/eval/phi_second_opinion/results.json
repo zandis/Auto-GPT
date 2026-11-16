@@ -1,11 +1,11 @@
 [
  {
   "set": "tw-en",
+  "note_mask_version": "6",
   "notes": 60,
   "planted": {
    "address": {
-    "phi_guard_found": 34,
-    "phi_guard_partial": 26,
+    "phi_guard_found": 60,
     "presidio_found": 60
    },
    "dob": {
@@ -22,16 +22,13 @@
     "presidio_found": 60
    },
    "name_han": {
-    "phi_guard_found": 73,
-    "phi_guard_missed": 71,
-    "phi_guard_partial": 5,
+    "phi_guard_found": 149,
     "presidio_found": 82,
     "presidio_missed": 63,
     "presidio_partial": 4
    },
    "name_latin": {
-    "phi_guard_missed": 91,
-    "phi_guard_partial": 76,
+    "phi_guard_found": 167,
     "presidio_found": 152,
     "presidio_partial": 15
    },
@@ -41,1352 +38,7 @@
    }
   },
   "planted_differences": {
-   "presidio_only": [
-    {
-     "note": 0,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 0,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 0,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 1,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 1,
-     "type": "address",
-     "shape": "99A., Aa. 999, Aaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 1,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 1,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 1,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 2,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 2,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 2,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 2,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 2,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 3,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 3,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 3,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 3,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 4,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 4,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 4,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 4,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 5,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 5,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 5,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 5,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 6,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 6,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 6,
-     "type": "name_latin",
-     "shape": "Aaa Aaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 6,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 6,
-     "type": "name_latin",
-     "shape": "Aaaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 7,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 7,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 7,
-     "type": "name_latin",
-     "shape": "Aaa Aaaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 7,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 7,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 8,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 8,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 8,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 9,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 9,
-     "type": "name_latin",
-     "shape": "Aaaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 9,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 10,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 10,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 10,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 10,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 10,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 11,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 11,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 11,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 12,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 12,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 12,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 13,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 13,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 13,
-     "type": "name_latin",
-     "shape": "Aaaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 14,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 14,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 14,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 14,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 15,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaaaaaaa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 15,
-     "type": "name_latin",
-     "shape": "Aa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 15,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 16,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 16,
-     "type": "name_latin",
-     "shape": "Aaa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 17,
-     "type": "address",
-     "shape": "99A., Aa. 99, Aaaaaaaaa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 17,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 17,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 17,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 18,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 18,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 18,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 18,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 19,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 19,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 19,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 19,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 20,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 20,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 20,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 20,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 20,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 21,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 21,
-     "type": "address",
-     "shape": "9A., Aa. 99, Aaaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 21,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 21,
-     "type": "name_latin",
-     "shape": "Aa Aaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 22,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 22,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 22,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 22,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 22,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 22,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 23,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 23,
-     "type": "address",
-     "shape": "9A., Aa. 9, Aaaaaaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 23,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 23,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 23,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 23,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 24,
-     "type": "address",
-     "shape": "99A., Aa. 999, Aaaaaaaa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 24,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 24,
-     "type": "name_latin",
-     "shape": "Aaa Aaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 24,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 25,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 25,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 25,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 25,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 26,
-     "type": "address",
-     "shape": "9A., Aa. 99, Aaa. 9, Aaaaaa 9aa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 26,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 26,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 26,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 27,
-     "type": "address",
-     "shape": "99A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 27,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 27,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 27,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 28,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 28,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 29,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaaaaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 29,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 29,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 29,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 29,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 30,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 30,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 30,
-     "type": "name_latin",
-     "shape": "Aaa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 31,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 31,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 31,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 32,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aaaaaaa Aaaa., Aaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 32,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 32,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 32,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 33,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 33,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 33,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 34,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 34,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 34,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 34,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 35,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 35,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 35,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 36,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 36,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 36,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 36,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 37,
-     "type": "address",
-     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 37,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 37,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 37,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 38,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 38,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 38,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 39,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 39,
-     "type": "name_latin",
-     "shape": "Aa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 39,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 39,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 40,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 40,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 40,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 41,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 41,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 41,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 41,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 42,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 42,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 42,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 42,
-     "type": "name_latin",
-     "shape": "Aa Aaaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 43,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 43,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 43,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 44,
-     "type": "address",
-     "shape": "99A., Aa. 99, Aaa. 9, Aaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 44,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 44,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 45,
-     "type": "name_latin",
-     "shape": "Aaa Aaaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 45,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 46,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 46,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 46,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 47,
-     "type": "name_latin",
-     "shape": "Aaaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 47,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 47,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 47,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 48,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 48,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 48,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 49,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 49,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 49,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 50,
-     "type": "address",
-     "shape": "9A., Aa. 99, Aaa. 9, Aaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 50,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 50,
-     "type": "name_latin",
-     "shape": "Aaaaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 50,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 51,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 51,
-     "type": "name_latin",
-     "shape": "Aa Aaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 51,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 52,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 52,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 52,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 53,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 53,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 53,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 53,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 53,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 54,
-     "type": "address",
-     "shape": "9A., Aa. 99, Aaaaaa 9aa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 54,
-     "type": "name_latin",
-     "shape": "Aa Aa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 54,
-     "type": "name_latin",
-     "shape": "Aaaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 55,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 55,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 55,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 56,
-     "type": "name_latin",
-     "shape": "Aaa Aaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 56,
-     "type": "address",
-     "shape": "99A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 56,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 56,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 57,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 57,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 57,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 57,
-     "type": "name_latin",
-     "shape": "Aaa Aaaa-Aa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 58,
-     "type": "name_latin",
-     "shape": "Aaaa Aaa-Aaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 58,
-     "type": "address",
-     "shape": "9A., Aa. 99, Aaaaaaaa Aa., Aaaaaaa Aaaa., Aaaaaaa Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 58,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 58,
-     "type": "name_latin",
-     "shape": "Aaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 59,
-     "type": "name_han",
-     "shape": "漢漢漢",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 59,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaa-Aaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 59,
-     "type": "name_latin",
-     "shape": "Aaaa Aa-Aaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 59,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaa-Aaa",
-     "phi_guard": "missed"
-    }
-   ],
+   "presidio_only": [],
    "phi_guard_only": [
     {
      "note": 0,
@@ -1395,6 +47,24 @@
      "presidio": "missed"
     },
     {
+     "note": 0,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 0,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 1,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
      "note": 1,
      "type": "name_han",
      "shape": "漢漢漢",
@@ -1411,6 +81,12 @@
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
+    },
+    {
+     "note": 4,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "partial"
     },
     {
      "note": 4,
@@ -1444,6 +120,12 @@
     },
     {
      "note": 8,
+     "type": "name_latin",
+     "shape": "AAA, AAAAA-AAAA",
+     "presidio": "partial"
+    },
+    {
+     "note": 8,
      "type": "dob",
      "shape": "99/99/99",
      "presidio": "missed"
@@ -1467,10 +149,40 @@
      "presidio": "missed"
     },
     {
+     "note": 9,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
      "note": 10,
      "type": "dob",
      "shape": "99/99/99",
      "presidio": "missed"
+    },
+    {
+     "note": 11,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 12,
+     "type": "name_latin",
+     "shape": "AAAAA, AAAA-AA",
+     "presidio": "partial"
+    },
+    {
+     "note": 12,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 13,
+     "type": "name_latin",
+     "shape": "AAAA, AA-AAAA",
+     "presidio": "partial"
     },
     {
      "note": 13,
@@ -1486,6 +198,18 @@
     },
     {
      "note": 15,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 15,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 16,
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
@@ -1516,6 +240,12 @@
     },
     {
      "note": 18,
+     "type": "name_latin",
+     "shape": "AAAAA, AAA-AAAA",
+     "presidio": "partial"
+    },
+    {
+     "note": 18,
      "type": "dob",
      "shape": "漢漢99漢9漢9漢",
      "presidio": "missed"
@@ -1536,6 +266,12 @@
      "note": 20,
      "type": "dob",
      "shape": "漢漢99漢9漢9漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 21,
+     "type": "name_han",
+     "shape": "漢漢漢",
      "presidio": "missed"
     },
     {
@@ -1569,6 +305,18 @@
      "presidio": "missed"
     },
     {
+     "note": 26,
+     "type": "name_latin",
+     "shape": "AAAA, AAAAA-AAAA",
+     "presidio": "partial"
+    },
+    {
+     "note": 27,
+     "type": "name_latin",
+     "shape": "AAA, AAAAA-AAAA",
+     "presidio": "partial"
+    },
+    {
      "note": 27,
      "type": "name_han",
      "shape": "漢漢漢",
@@ -1588,6 +336,18 @@
     },
     {
      "note": 28,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "partial"
+    },
+    {
+     "note": 28,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 29,
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
@@ -1611,7 +371,31 @@
      "presidio": "missed"
     },
     {
+     "note": 32,
+     "type": "name_latin",
+     "shape": "AAA, AA-AAAA",
+     "presidio": "partial"
+    },
+    {
      "note": 33,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 33,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 33,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 35,
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
@@ -1623,9 +407,27 @@
      "presidio": "missed"
     },
     {
+     "note": 35,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 36,
+     "type": "name_latin",
+     "shape": "AAAA, AAAA-AAA",
+     "presidio": "partial"
+    },
+    {
      "note": 36,
      "type": "dob",
      "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 37,
+     "type": "name_han",
+     "shape": "漢漢漢",
      "presidio": "missed"
     },
     {
@@ -1639,6 +441,18 @@
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
+    },
+    {
+     "note": 37,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 38,
+     "type": "name_latin",
+     "shape": "AA, AAA-AAAA",
+     "presidio": "partial"
     },
     {
      "note": 38,
@@ -1659,7 +473,25 @@
      "presidio": "missed"
     },
     {
+     "note": 39,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
      "note": 40,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 40,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 41,
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
@@ -1695,6 +527,18 @@
      "presidio": "missed"
     },
     {
+     "note": 44,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 45,
+     "type": "name_latin",
+     "shape": "AAA, AA-AAAA",
+     "presidio": "partial"
+    },
+    {
      "note": 45,
      "type": "dob",
      "shape": "漢漢99漢9漢99漢",
@@ -1707,9 +551,21 @@
      "presidio": "missed"
     },
     {
+     "note": 45,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
      "note": 46,
      "type": "dob",
      "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 46,
+     "type": "name_han",
+     "shape": "漢漢漢",
      "presidio": "missed"
     },
     {
@@ -1731,10 +587,28 @@
      "presidio": "missed"
     },
     {
+     "note": 48,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 49,
+     "type": "name_latin",
+     "shape": "AAAAA, AAAA-AAAAA",
+     "presidio": "partial"
+    },
+    {
      "note": 49,
      "type": "dob",
      "shape": "漢漢99漢9漢99漢",
      "presidio": "missed"
+    },
+    {
+     "note": 50,
+     "type": "name_latin",
+     "shape": "AAAA, AAAAA-AAA",
+     "presidio": "partial"
     },
     {
      "note": 51,
@@ -1743,10 +617,28 @@
      "presidio": "missed"
     },
     {
+     "note": 51,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 52,
+     "type": "name_latin",
+     "shape": "AAAA, AA-AAAA",
+     "presidio": "partial"
+    },
+    {
      "note": 52,
      "type": "dob",
      "shape": "漢漢99漢9漢99漢",
      "presidio": "missed"
+    },
+    {
+     "note": 54,
+     "type": "name_latin",
+     "shape": "AAAAA, AAAA-AAAAA",
+     "presidio": "partial"
     },
     {
      "note": 54,
@@ -1758,7 +650,19 @@
      "note": 54,
      "type": "name_han",
      "shape": "漢漢漢",
+     "presidio": "partial"
+    },
+    {
+     "note": 54,
+     "type": "name_han",
+     "shape": "漢漢漢",
      "presidio": "missed"
+    },
+    {
+     "note": 55,
+     "type": "name_latin",
+     "shape": "AAAA, AAA-AAA",
+     "presidio": "partial"
     },
     {
      "note": 55,
@@ -1771,6 +675,12 @@
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
+    },
+    {
+     "note": 56,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "partial"
     },
     {
      "note": 57,
@@ -1786,6 +696,18 @@
     },
     {
      "note": 58,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 58,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 59,
      "type": "name_han",
      "shape": "漢漢漢",
      "presidio": "missed"
@@ -1922,122 +844,10 @@
     ],
     [
      [
-      "name",
-      "Aaa Aa-Aaaa"
-     ],
-     5
-    ],
-    [
-     [
-      "name",
-      "Aaaaa Aaa-Aaa"
-     ],
-     5
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aa-Aaaa"
-     ],
-     5
-    ],
-    [
-     [
-      "name",
-      "Aaa Aaaa-Aaaa"
-     ],
-     4
-    ],
-    [
-     [
-      "name",
-      "Aaa Aaa-Aaaa"
-     ],
-     4
-    ],
-    [
-     [
       "organization",
       "Aaaaaaa AAA"
      ],
      4
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aaa-Aaa"
-     ],
-     4
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aaaa-Aaaaa"
-     ],
-     3
-    ],
-    [
-     [
-      "name",
-      "Aaaaa Aaaa-Aaa"
-     ],
-     3
-    ],
-    [
-     [
-      "name",
-      "Aaa Aaa-Aaa"
-     ],
-     3
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aaa-Aaaa"
-     ],
-     3
-    ],
-    [
-     [
-      "name",
-      "Aaa Aaaaa-Aaaa"
-     ],
-     2
-    ],
-    [
-     [
-      "name",
-      "Aaa Aaaaa-Aaa"
-     ],
-     2
-    ],
-    [
-     [
-      "name",
-      "Aaaaa Aa-Aaaa"
-     ],
-     2
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aaaaa-Aaaa"
-     ],
-     2
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aaaa-Aaaa"
-     ],
-     2
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aaaa-Aa"
-     ],
-     2
     ],
     [
      [
@@ -2048,71 +858,8 @@
     ],
     [
      [
-      "name",
-      "Aaaaa Aaaa-Aa"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aaaaa Aaaaa-Aaa"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aa Aaa-Aaaa"
-     ],
-     1
-    ],
-    [
-     [
       "date",
       "Aaaa 99"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aaa Aaaa-Aaaaa"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aa Aaa-Aaa"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aaaa Aaaaa-Aaa"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aaa Aaaa-Aaa"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aa Aaaa-Aaaaa"
-     ],
-     1
-    ],
-    [
-     [
-      "name",
-      "Aa Aa-Aaaa"
      ],
      1
     ]
@@ -2137,6 +884,7 @@
  },
  {
   "set": "phi_synth-en",
+  "note_mask_version": "6",
   "notes": 40,
   "planted": {
    "address": {
@@ -2161,9 +909,8 @@
     "presidio_partial": 5
    },
    "name_latin": {
-    "phi_guard_found": 33,
-    "phi_guard_missed": 38,
-    "phi_guard_partial": 46,
+    "phi_guard_found": 97,
+    "phi_guard_partial": 20,
     "presidio_found": 97,
     "presidio_partial": 20
    },
@@ -2175,390 +922,6 @@
   },
   "planted_differences": {
    "presidio_only": [
-    {
-     "note": 0,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 1,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 1,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 2,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 2,
-     "type": "name_latin",
-     "shape": "Aaaaaa Aaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 3,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 4,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa A. Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 4,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 5,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 5,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 6,
-     "type": "name_latin",
-     "shape": "Aaaaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 7,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa A. Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 7,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 8,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 8,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 9,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 10,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa A. Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 10,
-     "type": "name_latin",
-     "shape": "Aaaaaa Aaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 11,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 11,
-     "type": "name_latin",
-     "shape": "Aaaaaaaaa Aaaaaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 13,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 14,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 15,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 15,
-     "type": "name_latin",
-     "shape": "Aaaaaaa Aaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 16,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 16,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 17,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 18,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa A. Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 18,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 19,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 19,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 20,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 20,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 21,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 22,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 22,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 23,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 23,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 24,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 25,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa A. Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 25,
-     "type": "name_latin",
-     "shape": "Aaaaaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 26,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa A. Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 26,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 27,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 27,
-     "type": "name_latin",
-     "shape": "Aaaaaaa Aaaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 28,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 28,
-     "type": "name_latin",
-     "shape": "Aaaa Aaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 29,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 29,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 30,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 31,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 32,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaaaa-Aaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 32,
-     "type": "name_latin",
-     "shape": "Aaaaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 33,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 33,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 34,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa A. Aaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 35,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 36,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaa Aaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 36,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 37,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 38,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 38,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa-Aaaaa",
-     "phi_guard": "missed"
-    },
-    {
-     "note": 39,
-     "type": "name_latin",
-     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaaa",
-     "phi_guard": "partial"
-    },
-    {
-     "note": 39,
-     "type": "name_latin",
-     "shape": "Aaaaa Aaaaaaaaa",
-     "phi_guard": "missed"
-    },
     {
      "note": 39,
      "type": "phone",
@@ -3265,6 +1628,7 @@
  },
  {
   "set": "sigir-en",
+  "note_mask_version": "6",
   "notes": 53,
   "planted": {},
   "planted_differences": {
@@ -3917,6 +2281,7 @@
  },
  {
   "set": "sigir-mixed",
+  "note_mask_version": "6",
   "notes": 53,
   "planted": {},
   "planted_differences": {

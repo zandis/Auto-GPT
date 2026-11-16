@@ -145,9 +145,12 @@ def test_the_key_names_every_part_the_owner_listed(db: JobDB, monkeypatch: pytes
         assert k is not None and k == store.key("judge", m, "judge", dict(reversed(list(VARS.items()))), None)
         assert store.key("verifier", m, "judge", VARS, None) not in (k, None)  # the client's role (and its build)
         assert store.key("judge", m, "judge", VARS, "schema-2") not in (k, None)  # the schema
-        monkeypatch.setattr(judged_store, "NOTE_MASK_VERSION", "6")
+        from tb_common import phi_guard
+
+        real = phi_guard.NOTE_MASK_VERSION  # NEW-B-55: whatever the version is, another one changes the key
+        monkeypatch.setattr(judged_store, "NOTE_MASK_VERSION", f"{real}.next")
         assert store.key("judge", m, "judge", VARS, None) not in (k, None)  # the note mask's version
-        monkeypatch.setattr(judged_store, "NOTE_MASK_VERSION", "5")
+        monkeypatch.setattr(judged_store, "NOTE_MASK_VERSION", real)
         assert store.key("judge", m, "no_such_prompt", VARS, None) is None  # a prompt that cannot be loaded
     change: dict[str, Any]
     for change in ({"criterion_text": "Prior TIA"}, {"note_question": "Any TIA?"}, {"excerpts": []},
