@@ -472,8 +472,9 @@ OBJECTS: dict[str, Entry] = {
         "kept until retention (D-513): other patients' pages read the same files, so no clear deletes them",
     ),
     "objects:attachments": _owed(
-        "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
-        "a CASE chart is parsed before the subject's opt-out is checked (D-862)",
+        "files mailed or uploaded to a job (consent forms, review sheets, case requests); a CASE chart of an "
+        "opted-out subject is refused before it is read (D-873)",
+        "the files kept with a job until retention (D-513): an attached chart of a patient who opted out after it came",
     ),
     "objects:ctgov": _none("public registry text and its parse"),
 }
