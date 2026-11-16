@@ -1,0 +1,4458 @@
+[
+ {
+  "set": "tw-en",
+  "notes": 60,
+  "planted": {
+   "address": {
+    "phi_guard_found": 34,
+    "phi_guard_partial": 26,
+    "presidio_found": 60
+   },
+   "dob": {
+    "phi_guard_found": 60,
+    "presidio_found": 29,
+    "presidio_missed": 31
+   },
+   "id": {
+    "phi_guard_found": 60,
+    "presidio_found": 60
+   },
+   "mrn": {
+    "phi_guard_found": 60,
+    "presidio_found": 60
+   },
+   "name_han": {
+    "phi_guard_found": 73,
+    "phi_guard_missed": 71,
+    "phi_guard_partial": 5,
+    "presidio_found": 82,
+    "presidio_missed": 63,
+    "presidio_partial": 4
+   },
+   "name_latin": {
+    "phi_guard_missed": 91,
+    "phi_guard_partial": 76,
+    "presidio_found": 152,
+    "presidio_partial": 15
+   },
+   "phone": {
+    "phi_guard_found": 60,
+    "presidio_found": 60
+   }
+  },
+  "planted_differences": {
+   "presidio_only": [
+    {
+     "note": 0,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 0,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 0,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 1,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 1,
+     "type": "address",
+     "shape": "99A., Aa. 999, Aaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 1,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 1,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 1,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 2,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 2,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 2,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 2,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 2,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 3,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 3,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 3,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 3,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 4,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 4,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 4,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 4,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 5,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 5,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 5,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 5,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 6,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 6,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 6,
+     "type": "name_latin",
+     "shape": "Aaa Aaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 6,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 6,
+     "type": "name_latin",
+     "shape": "Aaaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 7,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 7,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 7,
+     "type": "name_latin",
+     "shape": "Aaa Aaaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 7,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 7,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 8,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 8,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 8,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 9,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 9,
+     "type": "name_latin",
+     "shape": "Aaaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 9,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 10,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 10,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 10,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 10,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 10,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 11,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 11,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 11,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 12,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 12,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 12,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 13,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 13,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 13,
+     "type": "name_latin",
+     "shape": "Aaaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 14,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 14,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 14,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 14,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 15,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaaaaaaa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 15,
+     "type": "name_latin",
+     "shape": "Aa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 15,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 16,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 16,
+     "type": "name_latin",
+     "shape": "Aaa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 17,
+     "type": "address",
+     "shape": "99A., Aa. 99, Aaaaaaaaa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 17,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 17,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 17,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 18,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 18,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 18,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 18,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 19,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 19,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 19,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 19,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 20,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 20,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 20,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 20,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 20,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 21,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 21,
+     "type": "address",
+     "shape": "9A., Aa. 99, Aaaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 21,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 21,
+     "type": "name_latin",
+     "shape": "Aa Aaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 22,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 22,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 22,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 22,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 22,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 22,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 23,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 23,
+     "type": "address",
+     "shape": "9A., Aa. 9, Aaaaaaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 23,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 23,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 23,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 23,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 24,
+     "type": "address",
+     "shape": "99A., Aa. 999, Aaaaaaaa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 24,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 24,
+     "type": "name_latin",
+     "shape": "Aaa Aaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 24,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 25,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 25,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 25,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 25,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 26,
+     "type": "address",
+     "shape": "9A., Aa. 99, Aaa. 9, Aaaaaa 9aa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 26,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 26,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 26,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 27,
+     "type": "address",
+     "shape": "99A., Aa. 999, Aaa. 9, Aaaaaa 9aa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 27,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 27,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 27,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 28,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 28,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 29,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaaaaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 29,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 29,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 29,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 29,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 30,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 30,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 30,
+     "type": "name_latin",
+     "shape": "Aaa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 31,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 31,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 31,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 32,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aaaaaaa Aaaa., Aaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 32,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 32,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 32,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 33,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 33,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 33,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 34,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 34,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 34,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 34,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 35,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 35,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 35,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 36,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 36,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 36,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 36,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 37,
+     "type": "address",
+     "shape": "9A., Aa. 999, Aaa. 9, Aaaaaaaaa Aa., Aaaaaa Aaaa., Aaaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 37,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 37,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 37,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 38,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 38,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 38,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 39,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 39,
+     "type": "name_latin",
+     "shape": "Aa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 39,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 39,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 40,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 40,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 40,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 41,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 41,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 41,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 41,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 42,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 42,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 42,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 42,
+     "type": "name_latin",
+     "shape": "Aa Aaaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 43,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 43,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 43,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 44,
+     "type": "address",
+     "shape": "99A., Aa. 99, Aaa. 9, Aaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 44,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 44,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 45,
+     "type": "name_latin",
+     "shape": "Aaa Aaaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 45,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 46,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 46,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 46,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 47,
+     "type": "name_latin",
+     "shape": "Aaaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 47,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 47,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 47,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 48,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 48,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 48,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 49,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 49,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 49,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 50,
+     "type": "address",
+     "shape": "9A., Aa. 99, Aaa. 9, Aaaaaaaa Aa., Aa'aa Aaaa., Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 50,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 50,
+     "type": "name_latin",
+     "shape": "Aaaaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 50,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 51,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 51,
+     "type": "name_latin",
+     "shape": "Aa Aaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 51,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 52,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 52,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 52,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 53,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 53,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 53,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 53,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 53,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 54,
+     "type": "address",
+     "shape": "9A., Aa. 99, Aaaaaa 9aa Aa., Aaaaa Aaaa., Aaaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 54,
+     "type": "name_latin",
+     "shape": "Aa Aa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 54,
+     "type": "name_latin",
+     "shape": "Aaaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 55,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 55,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 55,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 56,
+     "type": "name_latin",
+     "shape": "Aaa Aaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 56,
+     "type": "address",
+     "shape": "99A., Aa. 999, Aaa. 9, Aaaaa Aa., Aaaaaaa Aaaa., Aaa Aaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 56,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 56,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 57,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 57,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 57,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 57,
+     "type": "name_latin",
+     "shape": "Aaa Aaaa-Aa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 58,
+     "type": "name_latin",
+     "shape": "Aaaa Aaa-Aaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 58,
+     "type": "address",
+     "shape": "9A., Aa. 99, Aaaaaaaa Aa., Aaaaaaa Aaaa., Aaaaaaa Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 58,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 58,
+     "type": "name_latin",
+     "shape": "Aaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 59,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 59,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaa-Aaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 59,
+     "type": "name_latin",
+     "shape": "Aaaa Aa-Aaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 59,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaa-Aaa",
+     "phi_guard": "missed"
+    }
+   ],
+   "phi_guard_only": [
+    {
+     "note": 0,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 1,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 2,
+     "type": "dob",
+     "shape": "漢漢99漢9漢9漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 3,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 4,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 5,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 6,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 6,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 7,
+     "type": "dob",
+     "shape": "漢漢99漢99漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 8,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 8,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 9,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 9,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 10,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 13,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 14,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 15,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 16,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 17,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 17,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 17,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 18,
+     "type": "dob",
+     "shape": "漢漢99漢9漢9漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 18,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 19,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 20,
+     "type": "dob",
+     "shape": "漢漢99漢9漢9漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 21,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 23,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 24,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 25,
+     "type": "dob",
+     "shape": "漢漢99漢99漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 25,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 27,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 28,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 28,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 28,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 30,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 30,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 31,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 33,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 35,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 36,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 37,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 37,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 38,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 39,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 39,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 40,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 41,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 42,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 43,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 44,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 44,
+     "type": "dob",
+     "shape": "漢漢99漢9漢9漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 45,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 45,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 46,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 46,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 47,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 48,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 49,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 51,
+     "type": "dob",
+     "shape": "漢漢99漢99漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 52,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 54,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 54,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 55,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 55,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 57,
+     "type": "dob",
+     "shape": "漢漢99漢9漢99漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 58,
+     "type": "dob",
+     "shape": "99/99/99",
+     "presidio": "missed"
+    },
+    {
+     "note": 58,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    },
+    {
+     "note": 59,
+     "type": "name_han",
+     "shape": "漢漢漢",
+     "presidio": "missed"
+    }
+   ]
+  },
+  "decoy_hits": {
+   "presidio:Bell's palsy": 15,
+   "presidio:Cushing": 9,
+   "presidio:Foley": 14,
+   "presidio:Glasgow": 10,
+   "presidio:Hashimoto": 8,
+   "presidio:Norvasc": 15
+  },
+  "unplanted_differences": {
+   "presidio_only": [
+    [
+     [
+      "date",
+      "9 aaaa"
+     ],
+     60
+    ],
+    [
+     [
+      "organization",
+      "HTN"
+     ],
+     60
+    ],
+    [
+     [
+      "date",
+      "9 aaa"
+     ],
+     60
+    ],
+    [
+     [
+      "date",
+      "Aaaa 99 a/a"
+     ],
+     56
+    ],
+    [
+     [
+      "organization",
+      "OPD"
+     ],
+     25
+    ],
+    [
+     [
+      "name",
+      "Aaaa"
+     ],
+     22
+    ],
+    [
+     [
+      "name",
+      "Aaaaa"
+     ],
+     18
+    ],
+    [
+     [
+      "name",
+      "Aaa"
+     ],
+     18
+    ],
+    [
+     [
+      "address",
+      "ROC"
+     ],
+     16
+    ],
+    [
+     [
+      "name",
+      "Foley"
+     ],
+     14
+    ],
+    [
+     [
+      "organization",
+      "Norvasc"
+     ],
+     11
+    ],
+    [
+     [
+      "address",
+      "Glasgow"
+     ],
+     10
+    ],
+    [
+     [
+      "name",
+      "Cushing"
+     ],
+     9
+    ],
+    [
+     [
+      "organization",
+      "Aaaa"
+     ],
+     9
+    ],
+    [
+     [
+      "date",
+      "Aaaaaaaaa 9 aa aa"
+     ],
+     8
+    ],
+    [
+     [
+      "organization",
+      "Aaaa'a"
+     ],
+     6
+    ],
+    [
+     [
+      "name",
+      "Aaa Aa-Aaaa"
+     ],
+     5
+    ],
+    [
+     [
+      "name",
+      "Aaaaa Aaa-Aaa"
+     ],
+     5
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aa-Aaaa"
+     ],
+     5
+    ],
+    [
+     [
+      "name",
+      "Aaa Aaaa-Aaaa"
+     ],
+     4
+    ],
+    [
+     [
+      "name",
+      "Aaa Aaa-Aaaa"
+     ],
+     4
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaa AAA"
+     ],
+     4
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aaa-Aaa"
+     ],
+     4
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aaaa-Aaaaa"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "Aaaaa Aaaa-Aaa"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "Aaa Aaa-Aaa"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aaa-Aaaa"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "Aaa Aaaaa-Aaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaa Aaaaa-Aaa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaaaa Aa-Aaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aaaaa-Aaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aaaa-Aaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aaaa-Aa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaaaa Aaaa-Aa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaaa Aaaaa-Aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aa Aaa-Aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "Aaaa 99"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaa Aaaa-Aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aa Aaa-Aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaa Aaaaa-Aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaa Aaaa-Aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aa Aaaa-Aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aa Aa-Aaaa"
+     ],
+     1
+    ]
+   ],
+   "phi_guard_only": [
+    [
+     [
+      "bed",
+      "9A-99"
+     ],
+     32
+    ],
+    [
+     [
+      "bed",
+      "99A-99"
+     ],
+     22
+    ]
+   ]
+  }
+ },
+ {
+  "set": "phi_synth-en",
+  "notes": 40,
+  "planted": {
+   "address": {
+    "phi_guard_found": 38,
+    "phi_guard_partial": 2,
+    "presidio_partial": 40
+   },
+   "dob": {
+    "phi_guard_found": 40,
+    "presidio_found": 40
+   },
+   "email": {
+    "phi_guard_found": 38,
+    "presidio_found": 37,
+    "presidio_partial": 1
+   },
+   "id": {
+    "phi_guard_found": 40,
+    "phi_guard_missed": 3,
+    "presidio_found": 36,
+    "presidio_missed": 2,
+    "presidio_partial": 5
+   },
+   "name_latin": {
+    "phi_guard_found": 33,
+    "phi_guard_missed": 38,
+    "phi_guard_partial": 46,
+    "presidio_found": 97,
+    "presidio_partial": 20
+   },
+   "phone": {
+    "phi_guard_found": 39,
+    "phi_guard_missed": 1,
+    "presidio_found": 40
+   }
+  },
+  "planted_differences": {
+   "presidio_only": [
+    {
+     "note": 0,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 1,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 1,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 2,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 2,
+     "type": "name_latin",
+     "shape": "Aaaaaa Aaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 3,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 4,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa A. Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 4,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 5,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 5,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 6,
+     "type": "name_latin",
+     "shape": "Aaaaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 7,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa A. Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 7,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 8,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 8,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 9,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 10,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa A. Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 10,
+     "type": "name_latin",
+     "shape": "Aaaaaa Aaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 11,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 11,
+     "type": "name_latin",
+     "shape": "Aaaaaaaaa Aaaaaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 13,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 14,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 15,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 15,
+     "type": "name_latin",
+     "shape": "Aaaaaaa Aaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 16,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 16,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 17,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 18,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa A. Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 18,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 19,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 19,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 20,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 20,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 21,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 22,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 22,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 23,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 23,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 24,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 25,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa A. Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 25,
+     "type": "name_latin",
+     "shape": "Aaaaaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 26,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa A. Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 26,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 27,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 27,
+     "type": "name_latin",
+     "shape": "Aaaaaaa Aaaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 28,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 28,
+     "type": "name_latin",
+     "shape": "Aaaa Aaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 29,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 29,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 30,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 31,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 32,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaaaa-Aaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 32,
+     "type": "name_latin",
+     "shape": "Aaaaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 33,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 33,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 34,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa A. Aaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 35,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa-Aaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 36,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaa Aaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 36,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 37,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 38,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 38,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa-Aaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 39,
+     "type": "name_latin",
+     "shape": "Aaaaaaaa Aaaaaaa Aaaaaaaaa",
+     "phi_guard": "partial"
+    },
+    {
+     "note": 39,
+     "type": "name_latin",
+     "shape": "Aaaaa Aaaaaaaaa",
+     "phi_guard": "missed"
+    },
+    {
+     "note": 39,
+     "type": "phone",
+     "shape": "99999 999 9999",
+     "phi_guard": "missed"
+    }
+   ],
+   "phi_guard_only": [
+    {
+     "note": 0,
+     "type": "address",
+     "shape": "99 Aaaaaaaa Aaaa, Aaaaaaa AA9 9AA",
+     "presidio": "partial"
+    },
+    {
+     "note": 1,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 1,
+     "type": "id",
+     "shape": "AA-9999999-99",
+     "presidio": "missed"
+    },
+    {
+     "note": 2,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaaa Aaaa, Aaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 3,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 3,
+     "type": "id",
+     "shape": "AAA-9999999A",
+     "presidio": "missed"
+    },
+    {
+     "note": 4,
+     "type": "address",
+     "shape": "999 Aaaaaaaaa Aaaa, Aaaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 5,
+     "type": "address",
+     "shape": "999 Aaaaaa Aaaaa, Aaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 6,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 7,
+     "type": "address",
+     "shape": "999 Aaaaaaaa Aaaa, Aaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 8,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 9,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 10,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 11,
+     "type": "address",
+     "shape": "99 Aaaaaaaa Aaaa, Aaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 12,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 13,
+     "type": "address",
+     "shape": "9999 Aaaaa Aaaaaa Aaaaa, Aaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 14,
+     "type": "address",
+     "shape": "99 Aaaaaaaa Aaaa, Aaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 15,
+     "type": "address",
+     "shape": "999 Aaaaaaa Aaaa, Aaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 16,
+     "type": "address",
+     "shape": "999 Aaaaaaaa Aaaa, Aaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 17,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 18,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 19,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 21,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaa Aaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 22,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 23,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 24,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 25,
+     "type": "address",
+     "shape": "999 Aaaaaa Aaaaa Aaaa, Aaaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 26,
+     "type": "address",
+     "shape": "999 Aaaaaa Aaaaa Aaaa, Aaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 27,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaaaaaa, Aaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 27,
+     "type": "email",
+     "shape": "aaaaaaa.aaaaa@aaaaaaa.aaaaaaa",
+     "presidio": "partial"
+    },
+    {
+     "note": 28,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 29,
+     "type": "address",
+     "shape": "99 Aaaaaaaa Aaaa, Aaaaaaa AA9 9AA",
+     "presidio": "partial"
+    },
+    {
+     "note": 30,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 31,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaaaa Aaaa, Aaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 32,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaaaaaa, Aaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 33,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 34,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaaaaaa, Aaaaaaaaa, AA",
+     "presidio": "partial"
+    },
+    {
+     "note": 34,
+     "type": "id",
+     "shape": "AA-9999-9999-A",
+     "presidio": "partial"
+    },
+    {
+     "note": 35,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 36,
+     "type": "id",
+     "shape": "9999-aaaaaaaaaa",
+     "presidio": "partial"
+    },
+    {
+     "note": 36,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaa, Aaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 37,
+     "type": "address",
+     "shape": "99 Aaaaa Aaaaa, Aaaaaa, AA 99999",
+     "presidio": "partial"
+    },
+    {
+     "note": 38,
+     "type": "address",
+     "shape": "999 Aaaaa Aaaaa Aaaa, Aaaaaaaaaaa, AA 99999",
+     "presidio": "partial"
+    }
+   ]
+  },
+  "decoy_hits": {
+   "phi_guard:Cardiology": 3,
+   "phi_guard:Pulmonology": 1,
+   "presidio:Apixaban": 1,
+   "presidio:Augmentin": 18,
+   "presidio:Cardiology": 5,
+   "presidio:Cardiology Department": 1,
+   "presidio:Cardiology department": 1,
+   "presidio:Department of Cardiology": 1,
+   "presidio:Geriatrics Department": 3,
+   "presidio:Hashimoto": 3,
+   "presidio:Neurology": 5,
+   "presidio:Neurology department": 4,
+   "presidio:Rehabilitation Medicine": 1,
+   "presidio:cardiology department": 1
+  },
+  "unplanted_differences": {
+   "presidio_only": [
+    [
+     [
+      "date",
+      "99/99/9999"
+     ],
+     80
+    ],
+    [
+     [
+      "organization",
+      "MRN"
+     ],
+     32
+    ],
+    [
+     [
+      "date",
+      "99-aaaa-aaa"
+     ],
+     27
+    ],
+    [
+     [
+      "date",
+      "aaa aaaaa"
+     ],
+     20
+    ],
+    [
+     [
+      "date",
+      "9 aaaaa"
+     ],
+     18
+    ],
+    [
+     [
+      "organization",
+      "Augmentin"
+     ],
+     18
+    ],
+    [
+     [
+      "date",
+      "aaa 99"
+     ],
+     12
+    ],
+    [
+     [
+      "name",
+      "Neurology"
+     ],
+     9
+    ],
+    [
+     [
+      "date",
+      "aaa 9"
+     ],
+     8
+    ],
+    [
+     [
+      "date",
+      "9 aaaa"
+     ],
+     7
+    ],
+    [
+     [
+      "name",
+      "Aa. Aaaaaaa'a"
+     ],
+     7
+    ],
+    [
+     [
+      "date",
+      "aaaaa"
+     ],
+     6
+    ],
+    [
+     [
+      "organization",
+      "Cardiology"
+     ],
+     5
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaa Aaaaaaaa Aaaaaaaa"
+     ],
+     5
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaa Aaaaaaaaaa"
+     ],
+     4
+    ],
+    [
+     [
+      "name",
+      "Aaaaaaaa"
+     ],
+     4
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaa Aaaaaa"
+     ],
+     4
+    ],
+    [
+     [
+      "name",
+      "Aaaaaaaaaa"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "Hashimoto"
+     ],
+     3
+    ],
+    [
+     [
+      "date",
+      "99 aaaa"
+     ],
+     3
+    ],
+    [
+     [
+      "group",
+      "AA"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaa Aaaaaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "aaaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "aaaaaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaa Aaaaaaa Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaaa Aaaaaaa'a"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaa Aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "AA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaa Aaaaaaa Aaaaaa\n"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "Neurology"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaaa Aaaaaaa Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaa aa Aaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaa Aaaaaaaa Aaaaaaa Aaaaaa\n\nAaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "Aaa 99"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aa. Aaaaaaaa Aaaaaaaa Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9-aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaa Aaaaaaaa Aaaaaaa Aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aa. Aaaaaaa'a"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "aaa Aaaaaaaaaaaaaa Aaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "aaa aaaaaaaaaa aaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaa Aaaaaaaaa Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaa Aaaaaaaa Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "aaa Aaaaaaaaaaaaaa Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aa. Aaaaaa'a Aaaaaaa Aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Apixaban"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaa Aaaaaa, Aaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "99 aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AAA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaa Aa"
+     ],
+     1
+    ],
+    [
+     [
+      "mrn",
+      "AAA 99-aaaaaaaa-"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaa 99/99/9999"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Neurology"
+     ],
+     1
+    ]
+   ],
+   "phi_guard_only": [
+    [
+     [
+      "name",
+      "Cardiology"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Pulmonology"
+     ],
+     1
+    ]
+   ]
+  }
+ },
+ {
+  "set": "sigir-en",
+  "notes": 53,
+  "planted": {},
+  "planted_differences": {
+   "presidio_only": [],
+   "phi_guard_only": []
+  },
+  "decoy_hits": {},
+  "unplanted_differences": {
+   "presidio_only": [
+    [
+     [
+      "date",
+      "99-aaaa-aaa"
+     ],
+     34
+    ],
+    [
+     [
+      "date",
+      "9 aaaaa"
+     ],
+     6
+    ],
+    [
+     [
+      "organization",
+      "ER"
+     ],
+     5
+    ],
+    [
+     [
+      "date",
+      "9-aaaa-aaa"
+     ],
+     4
+    ],
+    [
+     [
+      "date",
+      "9 aaaa"
+     ],
+     3
+    ],
+    [
+     [
+      "organization",
+      "CT"
+     ],
+     3
+    ],
+    [
+     [
+      "date",
+      "aaa 99"
+     ],
+     3
+    ],
+    [
+     [
+      "date",
+      "99 aaaa aaa"
+     ],
+     3
+    ],
+    [
+     [
+      "date",
+      "99 aaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "aaaaaaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "99-aaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "WBC"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "HPF"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "AAA"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa 99 aaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "99/aaa"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaa aaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "aaa aaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "Hb"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "BAL"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaa"
+     ],
+     2
+    ],
+    [
+     [
+      "group",
+      "Aaaaaaa-Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaa aa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "EKG"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaaaaa aa aaa aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaaaaaa 9 aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "CBC"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa 9 aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "mIU"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaaa aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "Aaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AAAAAA"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaaa aaaa aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AAAA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AA 99/99"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9-aaaaa-aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "group",
+      "Aaaaaaa Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaaaaa aaaaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "Aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9 aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaa aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaaa a aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "a aaaa aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "Aaaa aa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaa Aaaaaaa Aaaa Aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9/99"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaa Aaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "Aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaaaaa Aaaaaaaaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa 9 aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9 aaaaa aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9 aaaaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "aaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "99aa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "group",
+      "Aaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "aaaaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9 aaaaa aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9999"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "a aaa aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9 aaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9 aaaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaa aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "aa Aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaaaa aaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "99.9A"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9 aaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "Aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "a aaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "999/99"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaaaaaa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "AA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "A/a"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaaaa A"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "a aaa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaaaaaa aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "999aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "aaa aaaa aaa aaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "Aaa aaaaa aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "Aaaaa aaaaa aaa"
+     ],
+     1
+    ]
+   ],
+   "phi_guard_only": []
+  }
+ },
+ {
+  "set": "sigir-mixed",
+  "notes": 53,
+  "planted": {},
+  "planted_differences": {
+   "presidio_only": [],
+   "phi_guard_only": []
+  },
+  "decoy_hits": {},
+  "unplanted_differences": {
+   "presidio_only": [
+    [
+     [
+      "name",
+      "漢漢漢漢漢"
+     ],
+     23
+    ],
+    [
+     [
+      "organization",
+      "漢漢漢漢漢"
+     ],
+     19
+    ],
+    [
+     [
+      "name",
+      "漢漢"
+     ],
+     6
+    ],
+    [
+     [
+      "organization",
+      "AAA"
+     ],
+     5
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢"
+     ],
+     5
+    ],
+    [
+     [
+      "organization",
+      "a/a"
+     ],
+     4
+    ],
+    [
+     [
+      "organization",
+      "CBC"
+     ],
+     3
+    ],
+    [
+     [
+      "date",
+      "99/aaa"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "漢"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢漢漢"
+     ],
+     3
+    ],
+    [
+     [
+      "name",
+      "PMH"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢。"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "PE"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "CT"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "a/a A，漢"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "aaa，AA"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "Aaaaaa"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢"
+     ],
+     2
+    ],
+    [
+     [
+      "date",
+      "99 a/a"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢漢"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "漢漢漢"
+     ],
+     2
+    ],
+    [
+     [
+      "address",
+      "AA"
+     ],
+     2
+    ],
+    [
+     [
+      "organization",
+      "BAL"
+     ],
+     2
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "a/a A，漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "group",
+      "aaaaaa，AA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "a/a A，漢漢漢漢，漢"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "CXR"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "99-aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "mIU"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "a/a aaaaa A，Aa aa AAAA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "SG"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AAA 9/AAA，AAA 99/AAA，aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9/AAA"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "。"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "Aaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "a/a A，漢漢漢漢漢AA"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "a/a A，a/a"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "aaa AA:"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢。"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢漢漢漢 aaaaaa、aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "AA 99"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AA aaaa，漢漢漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Aaaaaa Aaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "漢漢漢漢 aaaaaaaaaaaaa，漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "aaaa。"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "aaaaaaaaaaaa，漢"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "99 a/a A"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AA 漢漢漢漢，漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "a/a A，aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "漢漢漢漢漢漢漢，漢 AA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "A，AAA"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "漢漢漢漢 a/a"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "Hb"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "9999"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "aa Aaaaaaa-Aaaaaaaa A"
+     ],
+     1
+    ],
+    [
+     [
+      "address",
+      "aaaaa，AAA"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "99漢漢漢，漢漢漢漢漢漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AA 99.9A"
+     ],
+     1
+    ],
+    [
+     [
+      "date",
+      "99 a/a A 漢漢漢，a/a"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "漢漢漢漢漢 aaaa aaaaaaaa，漢漢漢漢漢漢，漢漢漢漢漢漢漢"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "a/a A，漢漢漢 AA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "漢漢，漢漢漢漢漢漢漢 AA"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "aa/aa，AA 99 A/a，AA"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "Aa"
+     ],
+     1
+    ],
+    [
+     [
+      "name",
+      "漢漢漢漢漢漢漢 99.9"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "aaaaaaaaaaaa"
+     ],
+     1
+    ],
+    [
+     [
+      "organization",
+      "AA"
+     ],
+     1
+    ]
+   ],
+   "phi_guard_only": []
+  }
+ }
+]

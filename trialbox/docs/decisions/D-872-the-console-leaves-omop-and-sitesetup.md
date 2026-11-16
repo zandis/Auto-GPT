@@ -1,0 +1,7 @@
+# D-872 The console's database role leaves `omop` and `sitesetup` (NEW-ARCH-3, after D-864 and D-865)
+
+- **Task:** ROLE-SCHEMAS, lane C2's backlog: the last step of NEW-ARCH-3 (D-761). With slices 2 and 3 (D-865, D-864, #812) the console opens no domain store; its database role still listed the two schemas it no longer opens. · **Date:** 2026-11-16
+- **Decision:** `tb_console` loses `omop` and `sitesetup` in both copies of the role script (`deploy/docker/db-init/30-service-roles.sh` and the platform copy, still identical). The script takes a schema off a service's role on its next run, and the update runs it (D-486), so an installed box follows at its next update. A compromised or broken console can no longer read the clinical store of record or the site set-up's uploads.
+- **Moved:** the role drill (`tools/role_paths.py`, held by `tests/unit/test_role_paths.py`) had the console read a second lake's OMOP store. That read ended with D-865, the console's only OMOP reader being the conflicts page. The drill now has the lake and the orchestrator read it and the console refused.
+- **Also moved:** `tests/unit/test_optout_every_omop_store_roles.py` had every OMOP service open a per-lake store, the console among them; the console is now refused. The pinned list of OMOP store openers in `tests/unit/test_optout_worker.py` counts the drill's new refusal.
+- **Held by:** `tests/unit/test_role_paths.py`, `tests/unit/test_db_schemas_enumerated.py` (every schema the console's code opens is on its list), and `tests/unit/test_the_console_opens_no_domain_store.py`.

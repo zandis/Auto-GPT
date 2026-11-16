@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -31,6 +32,23 @@ def library_id(name: str) -> str:
 
 class FhirEvalError(RuntimeError):
     pass
+
+
+_PATIENT_REF = re.compile(r"\b(Patient|subject)([/=:]\s*)([\w.\-]+)", re.IGNORECASE)
+
+
+def server_said(exc: BaseException, limit: int = 300) -> str:
+    """G11 of the P1b review (D-959): what the FHIR server said, safe for a job's error and the log. D-910 kept only
+    the error's type and status, since an ``$evaluate`` error can quote a patient's id; a refused ``PUT`` of a
+    ValueSet then read "FhirEvalError, HTTP 422" with nothing to act on. The text is kept with patient references
+    (``Patient/…``, ``subject=…``), identifying keys (``mrn=…``) and identifier-shaped tokens masked (``redact``)."""
+    from tb_common.audit import ID_MASK, mask_ids
+    from tb_common.logging import redact
+
+    text = " ".join(str(exc).split())
+    text = _PATIENT_REF.sub(lambda m: f"{m.group(1)}{m.group(2)}{ID_MASK}", text)
+    text = redact(mask_ids(text))
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def library_resource(name: str, version: str, cql: str, elm: str | None) -> dict[str, Any]:

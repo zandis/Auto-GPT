@@ -85,7 +85,7 @@ def test_unit_is_skipped_on_a_draft_and_never_success() -> None:
     assert 'needs.unit-shard.result }}" != "success"' in first and "exit 1" in first  # skipped shards are not a pass
 
 
-def _full(event: str, draft: str, head_ref: str, tmp_path: Path, proved: str = "") -> str:
+def _full(event: str, draft: str, head_ref: str, tmp_path: Path, proved: str = "", docs_only: str = "") -> str:
     """Run the `changes` job's tier step as the runner would, with the values it reads."""
     step = next(s for s in _wf(CI)["jobs"]["changes"]["steps"] if s.get("id") == "tier")
     assert step["env"] == {
@@ -93,11 +93,12 @@ def _full(event: str, draft: str, head_ref: str, tmp_path: Path, proved: str = "
         "DRAFT": "${{ github.event.pull_request.draft }}",
         "HEAD_REF": "${{ github.head_ref }}",
         "PROVED": "${{ steps.proved.outputs.proved }}",
+        "DOCS_ONLY": "${{ steps.diff.outputs.docs_only }}",
     }  # values reach the script through the environment, never pasted into it
     out = tmp_path / "out"
     out.write_text("", encoding="utf-8")
-    env = {"EVENT": event, "DRAFT": draft, "HEAD_REF": head_ref, "PROVED": proved, "GITHUB_OUTPUT": str(out),
-           "PATH": "/usr/bin:/bin"}  # fmt: skip
+    env = {"EVENT": event, "DRAFT": draft, "HEAD_REF": head_ref, "PROVED": proved, "DOCS_ONLY": docs_only,
+           "GITHUB_OUTPUT": str(out), "PATH": "/usr/bin:/bin"}  # fmt: skip
     subprocess.run(["bash", "-euo", "pipefail", "-c", step["run"]], env=env, check=True, capture_output=True)
     return dict(ln.split("=", 1) for ln in out.read_text(encoding="utf-8").split())["full"]
 
@@ -131,6 +132,22 @@ def test_a_master_push_at_a_proved_tree_runs_the_fast_tier(
     event: str, draft: str, head_ref: str, proved: str, full: str, tmp_path: Path
 ) -> None:
     assert _full(event, draft, head_ref, tmp_path, proved) == full
+
+
+@pytest.mark.parametrize(
+    ("event", "draft", "head_ref", "docs_only", "full"),
+    [
+        ("pull_request", "false", "agent/T-1-a-card", "true", "false"),  # D-969: a card that changes only documents
+        ("pull_request", "false", "agent/T-1-a-card", "false", "true"),
+        ("pull_request", "false", "train/7", "true", "true"),  # a merge train runs everything, whatever it holds
+        ("push", "", "", "true", "true"),  # master: the diff step says false there; the rule is for pull requests
+        ("workflow_dispatch", "", "", "true", "true"),
+    ],
+)
+def test_a_docs_only_card_runs_the_fast_tier(
+    event: str, draft: str, head_ref: str, docs_only: str, full: str, tmp_path: Path
+) -> None:
+    assert _full(event, draft, head_ref, tmp_path, docs_only=docs_only) == full
 
 
 def test_the_proved_rule_asks_for_every_full_tier_job() -> None:
