@@ -15,6 +15,7 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
     python -m tools.keys rotate pid_map                     # a new pid_map.key; every pid map row re-encrypted
     python -m tools.keys seal-objects [--store DIR]         # T-210c: uploads and outputs sealed under objects.key
     python -m tools.keys seal-objects --check               # exit 1 when the store is not sealed or a file is plain
+    python -m tools.keys restic-key                         # D-968: the incremental backup's password, under the KEK
     python -m tools.keys ceremony-record --custodian A --custodian B --custodian C --witness W [--shares-dir DIR]
                                                             # TB-SOP-03 (D-893): the record the custodians sign
     python -m tools.keys escrow-shares --threshold 2 --shares 3 --escrow-out /media/usb --custodian A ... (x3)
@@ -47,7 +48,7 @@ DEFAULT_DEPLOY = str(Path(__file__).resolve().parents[1] / "deploy")
 INVENTORY: tuple[dict[str, Any], ...] = (
     {"key": "KEK (key-encryption key)", "where": "not on the box's disks: steward shares, a passphrase, or a "
      "TPM-sealed credential; unsealed into /run/trialbox/kek (tmpfs)",
-     "protects": "site_hmac.key, pid_map.key, objects.key, audit_sign.key, edc_sign.key",
+     "protects": "site_hmac.key, pid_map.key, objects.key, audit_sign.key, edc_sign.key, restic.key",
      "holder": "the site's key stewards (shares) or hospital IT (TPM, passphrase); a TPM KEK's escrow shares with "
      "their custodians (escrow-shares, D-894)",
      "rotation": "yearly, and when a steward leaves", "code": "python -m tools.keys rotate-kek",
@@ -79,6 +80,12 @@ INVENTORY: tuple[dict[str, Any], ...] = (
      "holder": "the orchestrator", "rotation": "on compromise (no command yet)", "code": None,
      "breaks": "every signature made under it stops verifying: its values are not sent until signed again",
      "compromise": "rotate-kek; a new key means the open signatures are signed again (a later card)"},
+    {"key": "restic.key", "where": "secrets volume, wrapped (restic.key.wrapped); a copy of the wrapped file and of "
+     "kek.json beside each restic repository on the backup targets (KEK ciphertext only)", "protects": "the "
+     "incremental backup's repository (D-968)", "holder": "the box; the custodians through the KEK's escrow shares "
+     "(D-894) and the copy on the target", "rotation": "never in place: a new key means a new repository (the old "
+     "one stays readable with the old key)", "code": None, "breaks": "every snapshot of the repository it opens",
+     "compromise": "rotate-kek; a new repository under a new key, the old one destroyed with hospital IT"},
     {"key": "totp.key", "where": "console data volume (/data/console/totp.key)", "protects": "the second-factor "
      "secrets of the accounts", "holder": "the box", "rotation": "on compromise: every account enrols its second "
      "factor again", "code": None, "breaks": "every second factor until re-enrolled",
@@ -235,6 +242,16 @@ def cmd_wrap(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     sec = secrets_dir(a.secrets, env)
     done = wrap_plain(sec, K.load_kek(sec, env))
     _say("\n".join(f"wrapped {d}" for d in done) if done else "no plain key left to wrap")
+    return 0
+
+
+def cmd_restic_key(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    from tools.trialbox import restic_repo
+
+    sec = secrets_dir(a.secrets, env)
+    made = restic_repo.make_key(sec, env)
+    key = K.load_key_file(sec / restic_repo.KEY, env)
+    _say(f"{'made' if made else 'kept'} {restic_repo.KEY} under the KEK (fingerprint {K.fingerprint(key)})")
     return 0
 
 
@@ -585,6 +602,7 @@ def parser() -> argparse.ArgumentParser:
     cr.add_argument("--backup-pub", help="the box's backup public key (TB_BACKUP_PUBKEY; default deploy/secrets)")
     cr.add_argument("--deploy", default=DEFAULT_DEPLOY, help="the box's deploy folder: the record goes to deploy/site")
     cr.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
+    with_secrets(sub.add_parser("restic-key", help="the incremental backup's password, under the KEK (D-968)"))
     es = with_secrets(sub.add_parser("escrow-shares", help="the escrow copy of a TPM-sealed KEK (D-894)"))
     es.add_argument("--threshold", type=int, default=2, help="shares needed to open the KEK (default 2)")
     es.add_argument("--shares", type=int, default=3, help="shares made, one per custodian (default 3)")
@@ -597,7 +615,7 @@ def parser() -> argparse.ArgumentParser:
 COMMANDS = {"init": cmd_init, "wrap": cmd_wrap, "unseal": cmd_unseal, "status": cmd_status, "check": cmd_check,
             "inventory": cmd_inventory, "rotate-kek": cmd_rotate_kek, "rotate": cmd_rotate,
             "seal-objects": cmd_seal_objects, "ceremony-record": cmd_ceremony_record,
-            "escrow-shares": cmd_escrow_shares}  # fmt: skip
+            "escrow-shares": cmd_escrow_shares, "restic-key": cmd_restic_key}  # fmt: skip
 
 
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
