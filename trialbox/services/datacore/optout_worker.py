@@ -509,8 +509,8 @@ def _setup_uploads(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[s
     ``erased``; no pseudonym, name, hash, path, summary or date of care), which no page lists. Each tick sweeps the
     marked ids again, so an upload that raced the clear (its files or facts written after the row was marked) is
     finished on the next tick; nothing else is ever swept (the review of D-869: a sweep of every file no row names
-    would delete every upload of a database restored behind its files). A sheet of many patients is not a patient's own upload: it stays
-    owed. Counts uploads, and what is left of the marked ones."""
+    would delete every upload of a database restored behind its files). A sheet of many patients is not a patient's
+    own upload: it stays owed. Counts uploads, and what is left of the marked ones."""
     url = str(env.register.db.url)
     want = sorted(pids)
     if not want or not store_has(url, "sitesetup", "input"):
