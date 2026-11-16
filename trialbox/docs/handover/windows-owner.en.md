@@ -39,7 +39,7 @@ we want to hear it.
 | The console does not open | Is the PC on? Wait five minutes after a restart. Then open it on this PC itself (`https://localhost/`). If it opens there and not from other computers, tell hospital IT: the network changed |
 | The health line is red and names the graphics card | A program on the desktop is using the card. Close it (the desktop-use page lists which). Do not restart the PC for this |
 | The health line is red and names the backup | Is the outside disk plugged in, or the share reachable? Then wait for the next night |
-| Windows asks for a BitLocker recovery key at start | Type the key you were given on the set-up day. If that happens again, tell us |
+| Windows asks for a BitLocker recovery key at start | Type the key with the same key ID as the screen: `windows-bitlocker-recovery.en.md`. If that happens again, tell us |
 | Memory, a disk or the graphics card was changed | Double-click `Install-TrialBox.cmd` once more. It changes nothing that is right |
 | Anything else | Do not reinstall. Send us the file `C:\ProgramData\TrialBox\box-install\box-install.log` and what the health line says |
 
