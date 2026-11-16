@@ -180,6 +180,11 @@ TABLES: dict[str, Entry] = {
         "a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: "
         "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
     ),
+    "orch.judged_pairs": _erase(
+        "owed_tables",
+        "the judged-pair store (D-908, D-519): a model's answer to a note question, by pseudonym; deleted at an "
+        "opt-out and with its snapshot (D-452); class D3, never exported",
+    ),
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
     "orch.submissions": _erase(
         "owed_tables",
