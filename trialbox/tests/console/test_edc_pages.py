@@ -102,17 +102,17 @@ def test_only_the_pi_switches_on_and_the_acknowledgement_is_needed(eb: dict[str,
     page = crc.get("/studies/GZQO/edc")
     assert page.status_code == 200 and 'data-testid="edc-pi-only"' in page.text and "edc-switch-on" not in page.text
     r = crc.post("/studies/GZQO/edc/switch", data={"csrf": _csrf(page.text), "on": "1", "kind": "sponsor_letter",
-                                                   "reference": "X", "ack_date": "2026-11-01", "reentry_pages": "30",
+                                                   "reference": "X", "ack_date": "2026-11-01", "dataflow_ref": "DMP §5", "reentry_pages": "30",
                                                    "reentry_accuracy": "99"})  # fmt: skip
     assert r.status_code == 403
     pi, _ = login(eb["app"], "drsato", PW)
     page = pi.get("/studies/GZQO/edc").text
     r = pi.post("/studies/GZQO/edc/switch", data={"csrf": _csrf(page), "on": "1", "kind": "sponsor_letter",
-                                                  "reference": "", "ack_date": "2026-11-01", "reentry_pages": "30",
+                                                  "reference": "", "ack_date": "2026-11-01", "dataflow_ref": "DMP §5", "reentry_pages": "30",
                                                   "reentry_accuracy": "99"})  # fmt: skip
     assert r.status_code == 409 and 'data-testid="edc-error"' in r.text and "edc.ack_reference" in r.text
     r = pi.post("/studies/GZQO/edc/switch", data={"csrf": _csrf(page), "on": "1", "kind": "sponsor_letter",
-                                                  "reference": "SPN-1", "ack_date": "2026-11-01", "reentry_pages": "30",
+                                                  "reference": "SPN-1", "ack_date": "2026-11-01", "dataflow_ref": "DMP §5", "reentry_pages": "30",
                                                   "reentry_accuracy": "98.5"}, follow_redirects=False)  # fmt: skip
     assert r.status_code == 303
     assert eb["svc"].store.switch("GZQO").on and eb["svc"].store.switch("GZQO").reentry_accuracy == 0.985
@@ -265,7 +265,7 @@ def test_e10_signing_and_switching_on_need_the_delegation_log(eb: dict[str, Any]
     kato, _ = login(eb["app"], "drkato", PW)
     page = kato.get("/studies/GZQO/edc")
     r = kato.post("/studies/GZQO/edc/switch", data={"csrf": _csrf(page.text), "on": "1", "kind": "sponsor_letter",
-                                                    "reference": "SPN-1", "ack_date": "2026-11-01",
+                                                    "reference": "SPN-1", "ack_date": "2026-11-01", "dataflow_ref": "DMP §5",
                                                     "reentry_pages": "30", "reentry_accuracy": "99"})  # fmt: skip
     assert r.status_code in (403, 409) and not eb["svc"].store.switch("GZQO").on
     eb["svc"].set_switch("GZQO", True, by="drsato", role="investigator", **k.ACK)

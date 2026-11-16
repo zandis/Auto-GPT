@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import unicodedata
 from collections.abc import Callable, Sequence
@@ -19,7 +20,7 @@ from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
 from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource, server_said
 from tb_common.http import ServiceError
-from tb_common.llm import LlmClient, LlmError
+from tb_common.llm import LlmClient, LlmError, LlmUpstreamFailed
 from tb_common.objstore import ObjectStore
 from tb_common.phi_guard import PhiScan, scan, variables_text
 from tb_common.ruleset import Ruleset
@@ -113,12 +114,27 @@ TOKENS_PER_CRITERION = 400
 ANSWER_SHARE = 0.75  # of max_tokens: room for the JSON's own frame and a long line
 
 
-def lines_per_part(max_tokens: int | None = None) -> int:
-    """How many protocol lines one ``ir_extract`` call carries (D-911): its answer must fit the prompt's cap."""
+#: G4 of the P1b review: the answer tokens a model writes per second while it extracts, for sizing a part by time
+#: (``TB_EXTRACT_RATE_PER_S``); a guess until it is measured on the box's GPU, kept low on purpose
+EXTRACT_TOKENS_PER_S = 40.0
+TIME_SHARE = 0.6  # of the gateway's read timeout: room for the prompt's own reading and a slow moment
+
+
+def lines_per_part(max_tokens: int | None = None, read_s: float | None = None) -> int:
+    """How many protocol lines one ``ir_extract`` call carries (D-911): its answer must fit the prompt's cap, and
+    (G4 of the P1b review) it must be written within the gateway's read timeout (``TB_GATEWAY_UPSTREAM_READ_S``,
+    180 s): parts of 15 lines ran past it on four protocols, which failed whole."""
     from tb_common.llm import load_prompt
 
     cap = max_tokens if max_tokens is not None else int(load_prompt("ir_extract").meta.max_tokens or 8192)
-    return max(1, int(cap * ANSWER_SHARE) // TOKENS_PER_CRITERION)
+    by_tokens = int(cap * ANSWER_SHARE) // TOKENS_PER_CRITERION
+    read = read_s if read_s is not None else float(os.environ.get("TB_GATEWAY_UPSTREAM_READ_S") or 180)
+    rate = float(os.environ.get("TB_EXTRACT_RATE_PER_S") or EXTRACT_TOKENS_PER_S)
+    by_time = int(read * rate * TIME_SHARE) // TOKENS_PER_CRITERION
+    return max(1, min(by_tokens, by_time))
+
+
+MAX_HALVINGS = 2
 
 
 def extraction_parts(lines: list[dict[str, Any]], size: int) -> list[tuple[int, list[dict[str, Any]]]]:
@@ -364,7 +380,7 @@ class Compiler:
         parts = extraction_parts(lines, lines_per_part())
         for n, (start, part) in enumerate(parts, start=1):
             where = f" (part {n} of {len(parts)}, lines {start + 1}-{start + len(part)})" if len(parts) > 1 else ""
-            answers = self._ask_extract(job_id, ruleset, language, part, guard, where)
+            answers = self._ask_in_halves(job_id, ruleset, language, part, guard, where)
             matched, twice = align(part, answers)
             missing = [k for k, c in enumerate(matched) if c is None and k not in twice]
             if missing:  # once more, the lines without an answer alone (naming the mismatch to the model would
@@ -382,6 +398,34 @@ class Compiler:
                 got[i] = c if c is not None and k not in twice else _for_a_person(lines[i], notes[i])
         out = LlmExtractOutput.model_validate({"criteria": [c if isinstance(c, dict) else dump(c) for c in got]})
         return out, guard, notes
+
+    def _ask_in_halves(
+        self,
+        job_id: str,
+        ruleset: str,
+        language: str,
+        part: list[dict[str, Any]],
+        guard: PhiScan,
+        where: str,
+        depth: int = 0,
+    ) -> list[Any]:
+        """G4 of the P1b review (D-981): a part the gateway gave up on (``LlmUpstreamFailed``) is asked again as two
+        halves, each a smaller answer, at most :data:`MAX_HALVINGS` times deep; any other failure, or a single line,
+        fails as before. The halves are cut where :func:`extraction_parts` would cut (a line never apart from the
+        lines under it); the answers are matched to their lines by text afterwards (D-912)."""
+        try:
+            return self._ask_extract(job_id, ruleset, language, part, guard, where)
+        except CompileFailed as exc:
+            # by the cause's type (D-651: never its text): the gateway gave up on the answer, a shorter one may do
+            halves = extraction_parts(part, max(1, (len(part) + 1) // 2)) if len(part) > 1 else []
+            if not isinstance(exc.__cause__, LlmUpstreamFailed) or depth >= MAX_HALVINGS or len(halves) < 2:
+                raise
+            log.warning("ir_extract%s: the gateway gave up on the answer; asking it again in %d parts", where,
+                        len(halves))  # fmt: skip
+            out: list[Any] = []
+            for _, half in halves:
+                out.extend(self._ask_in_halves(job_id, ruleset, language, half, guard, where, depth + 1))
+            return out
 
     def _ask_extract(
         self,
@@ -1062,9 +1106,11 @@ class Compiler:
             try:
                 self.d.fhir.load(libs, valuesets.values())
             except (FhirEvalError, httpx.HTTPError) as exc:
-                log.warning("approve %s v%s: the FHIR server refused the load: %s", req.ruleset, req.version, exc)
+                # D-952 with D-959: what the server said, masked (never a patient's id); a transport error by its type
+                said = server_said(exc) if isinstance(exc, FhirEvalError) else type(exc).__name__
+                log.warning("approve %s v%s: the FHIR server refused the load: %s", req.ruleset, req.version, said)
                 raise CompileFailed(
-                    "approve", f"the FHIR server did not take the ruleset's libraries or value sets: {exc}"
+                    "approve", f"the FHIR server did not take the ruleset's libraries or value sets: {said}"
                 ) from exc
         self.d.repo.write_dir(
             branch, "main", f"{req.ruleset}/", files, f"approve {req.ruleset} v{req.version} by {req.by}", req.by

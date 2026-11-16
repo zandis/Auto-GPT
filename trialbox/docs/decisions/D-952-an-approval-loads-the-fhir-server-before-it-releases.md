@@ -6,3 +6,5 @@
   - Libraries and value sets loaded for an approval that then fails to write are harmless: no released ruleset names them, and the next approval overwrites them by id.
 - **Not in this card:** the cause of those two refusals. G1 is the ValueSet id over 64 characters, and G11 is the server's text being hidden by D-910.
 - **Test:** `tests/unit/test_approve_loads_fhir_first.py`. Two of its tests fail on master.
+
+**Amended 2026-11-16 (after D-959 merged):** the refusal no longer carries the error's raw text, which an `$evaluate` error can fill with a patient's id. A `FhirEvalError` is said through `tb_common.fhir.server_said` (patient references and identifier-shaped tokens masked), in the job's error and in the log; a transport error (`httpx.HTTPError`) is named by its type. Test: `test_a_patients_id_in_the_servers_refusal_is_masked`.
