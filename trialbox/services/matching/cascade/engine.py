@@ -86,6 +86,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
+from matching.inferred import inferred
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
 from matching.stored_scores import apply_rows
@@ -1140,6 +1141,12 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
+        quoted = str((span or {}).get("quote") or reply.quote or "")
+        if c.kind == "exclusion" and condition_present and inferred(quoted, f"{c.text} {c.note_question or ''}"):
+            # D-985 (F6 of the P1b review): an exclusion present on a quote that names no diagnosis (a drug, a value,
+            # findings counted into one) is the models' inference (both agreed on four on jmed): a person looks
+            why = "inferred: the quote does not state the condition; review"
+            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
             return Outcome(
                 c.id,
