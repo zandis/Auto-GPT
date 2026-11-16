@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -19,6 +20,42 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
 from tests.console.test_role_pages import PW, _user
 
 PID = "p" + "1" * 31  # a synthetic pseudonym
+
+
+@pytest.fixture(autouse=True)
+def _over_the_orchestrator(box: dict[str, Any]) -> Iterator[None]:
+    """NEW-ARCH-3 slice 2 (D-865): the page asks the orchestrator's conflicts routes, here in process, through a
+    client that signs nothing itself: the console's own signing is what the orchestrator verifies."""
+    from console.backend import problem_of
+    from fastapi import FastAPI
+    from omop import schema
+    from orchestrator.conflicts_api import router
+
+    from tests.actor3 import SignedClient
+
+    held: dict[str, Any] = {}
+
+    def store() -> Any:
+        if "db" not in held:
+            held["db"] = schema.connect()
+        return held["db"]
+
+    api = FastAPI()
+    api.include_router(router(store))
+    coc = SignedClient(api, strict=True)
+
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
+        kw: dict[str, Any] = {"headers": headers} if headers else {}
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
+        if r.status_code >= 400:
+            raise problem_of(r.status_code, r.text)
+        return r.json()
+
+    box["backend"].study_api = study_api
+    yield
+    if "db" in held:
+        held["db"].close()
 
 
 def _plant(state: str = "open") -> int:

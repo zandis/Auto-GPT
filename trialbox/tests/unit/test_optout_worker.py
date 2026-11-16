@@ -772,12 +772,12 @@ def test_the_worker_knows_every_name_an_omop_store_can_have() -> None:
                     callers.setdefault(str(f.relative_to(root)), []).append(ast.unparse(name) if name else "omop")
     assert callers == {
         "services/adapter/dual_write.py": ["name"],  # schema.schema_for(cfg.lake_dir)
-        "services/console/conflicts_page.py": ["omop"],
         "services/criteria_compiler/terminology/resolver.py": ["omop"],
         "services/datacore/optout_worker.py": ["omop", "name"],  # the box's own, then every name it found
         "services/lake/source.py": ["schema.schema_for(lake_dir)"],
         "services/omop/__main__.py": ["omop"],
         "services/omop/catalogue_load.py": ["omop"],
+        "services/orchestrator/app.py": ["omop"],  # NEW-ARCH-3 slice 2 (D-865): the clinical conflicts, the box's own
         "tools/backup_drill.py": ["omop"],
         "tools/codemap_release.py": ["omop"],
         "tools/omop_parity.py": ["schema.schema_for(lake_dir)"],
