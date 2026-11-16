@@ -72,6 +72,64 @@ TABLE_FILES = {
 
 FULL_FILES = {"icd10cm": "icd10cm_full"}
 
+# TERM-1 (D-858): ICD-10-CM's blocks and Alphabetic Index (CMS, public domain), for a condition's name. Trial words
+# and abbreviations the index does not spell, written as the index or a block names them, or as ``@`` and the
+# ICD-10-CM categories they stand for (our own list)
+ICD_WORDS: dict[str, str] = {
+    "copd": "@J44",
+    "chronic obstructive pulmonary disease": "@J44",
+    "copd exacerbation": "@J44",
+    "epilepsy": "@G40",
+    "major depressive disorder": "@F32,F33",
+    "chf": "heart failure",
+    "congestive heart failure": "heart failure",
+    "chronic heart failure": "heart failure",
+    "mi": "myocardial infarction",
+    "heart attack": "myocardial infarction",
+    "ckd": "chronic kidney disease",
+    "htn": "hypertensive diseases",
+    "hypertension": "hypertensive diseases",
+    "uncontrolled hypertension": "hypertensive diseases",
+    "t2dm": "type 2 diabetes mellitus",
+    "type ii diabetes": "type 2 diabetes mellitus",
+    "type 2 diabetes": "type 2 diabetes mellitus",
+    "t1dm": "type 1 diabetes mellitus",
+    "type i diabetes": "type 1 diabetes mellitus",
+    "type 1 diabetes": "type 1 diabetes mellitus",
+    "cancer": "malignant neoplasms",
+    "malignancy": "malignant neoplasms",
+    "stroke": "cerebrovascular diseases",
+    "cerebrovascular disease": "cerebrovascular diseases",
+    "ischemic heart disease": "ischemic heart diseases",
+    "ischaemic heart disease": "ischemic heart diseases",
+    "coronary artery disease": "ischemic heart diseases",
+    "cad": "ischemic heart diseases",
+    "renal insufficiency": "chronic kidney disease",
+    "renal disease": "chronic kidney disease",
+    "chronic renal insufficiency": "chronic kidney disease",
+    "hepatic disease": "diseases of liver",
+    "liver disease": "diseases of liver",
+    "seizure disorder": "@G40",
+    "sle": "systemic lupus erythematosus",
+    "lupus": "systemic lupus erythematosus",
+    "substance abuse": "mental and behavioral disorders due to psychoactive substance use",
+    "uterine fibroids": "leiomyoma of uterus",
+    "fibroids": "leiomyoma of uterus",
+}
+ICD_BLOCK_FILE, ICD_INDEX_FILE = "icd10cm_blocks", "icd10cm_index"
+
+
+def _icd_key(text: str) -> str:
+    """A name as ICD-10-CM's lists are matched: lower case, no brackets or punctuation, a plain plural made singular."""
+    s = re.sub(r"\([^)]*\)", " ", unicodedata.normalize("NFKC", text).lower())
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    words = [w[:-1] if len(w) > 4 and w.endswith("s") and not w.endswith(("ss", "us", "is")) else w for w in s.split()]
+    return " ".join(words)
+
+
+_ICD_WORDS = {_icd_key(k): v for k, v in ICD_WORDS.items()}
+
+
 # D-314: WHO ICD-10 categories that ICD-10-CM does not have (Japan codes in WHO ICD-10 2013, through MEDIS 標準病名).
 # A grouper whose ICD-10-CM family is one of the related categories (or a prefix of the WHO category: C9 holds C97)
 # also stands for the WHO-only category, under the WHO URI: a record coded E14.9, I64 or F00.1 is then inside the
@@ -162,6 +220,25 @@ class Terminology:
             path = directory / f"{fname}.parquet"
             if path.exists():
                 self.full[key] = pq.read_table(path).to_pylist()
+        # TERM-1 (D-858): block name -> categories, index term -> code or the term it sees, display -> codes
+        self.icd_blocks: dict[str, list[str]] = {}
+        self.icd_index: dict[str, tuple[str, str]] = {}
+        self.icd_display: dict[str, list[str]] = {}
+        cats = sorted({str(r["code"]) for r in self.full.get("icd10cm", []) if len(str(r["code"])) == 3})
+        # read beside the tables, else from the shipped ones (a box's vocabulary-built tables hold codes, not these):
+        # they change only with an ICD-10-CM release, which changes ``icd10cm_full`` and so the release id
+        bpath, ipath = (directory / f"{ICD_BLOCK_FILE}.parquet", directory / f"{ICD_INDEX_FILE}.parquet")
+        bpath = bpath if bpath.exists() else TERM_DIR / f"{ICD_BLOCK_FILE}.parquet"
+        ipath = ipath if ipath.exists() else TERM_DIR / f"{ICD_INDEX_FILE}.parquet"
+        if bpath.exists():
+            for r in pq.read_table(bpath).to_pylist():
+                inside = [c for c in cats if str(r["first"]) <= c <= str(r["last"])]
+                self.icd_blocks.setdefault(_icd_key(str(r["name"])), inside)
+        if ipath.exists():
+            for r in pq.read_table(ipath).to_pylist():
+                self.icd_index.setdefault(_icd_key(str(r["term"])), (str(r["code"] or ""), str(r["see"] or "")))
+        for r in self.full.get("icd10cm", []):
+            self.icd_display.setdefault(_icd_key(str(r["display"])), []).append(str(r["code"]))
         syn = directory / "synonyms.parquet"
         self.synonyms = pq.read_table(syn).to_pylist() if syn.exists() else []
         self._by_code: dict[tuple[str, str], Concept] = {}
@@ -280,6 +357,12 @@ class Terminology:
         found = self._via(name, domain, other, grouped, exact, "dictionary", True)
         if found is not None:
             return found
+        # 2d. TERM-1 (D-858): a condition's name in ICD-10-CM itself: a block's name (every category in it), a code's
+        #     description (that code; a category: its family), or an Alphabetic Index term (its code's category).
+        #     Deterministic and from the code system's own words; an index term or a trial word is for review
+        found = self._icd10cm(name, domain)
+        if found is not None:
+            return found
         # 3. LLM-proposed candidates (always needs_review)
         cands = self.candidates(domain, names, 20)
         if llm is not None and cands:
@@ -288,6 +371,57 @@ class Terminology:
             if chosen:
                 return MappingResult(name, domain, _dedupe(chosen), "llm", True, [f"LLM-proposed (review={review})"])
         return MappingResult(name, domain, [], "none", True, ["no mapping found"])
+
+    def _icd10cm(self, name: str, domain: str) -> MappingResult | None:
+        if domain != "condition" or "icd10cm" not in self.full:
+            return None
+        raw = _icd_key(name)
+        word = _ICD_WORDS.get(raw)
+        key = _icd_key(word) if word else raw
+        cats: list[str] = []
+        how = ""
+        if word and word.startswith("@"):
+            cats, how = word[1:].split(","), "category"
+        elif key in self.icd_blocks:
+            cats, how = self.icd_blocks[key], "block"
+        elif key in self.icd_display:
+            code = min(self.icd_display[key], key=len)
+            cats, how = ([code] if len(code) == 3 else []), "description"
+            if not cats:
+                hits = self.expand("icd10cm", code, "exact") or [
+                    c for c in [self.concept(SYSTEMS["icd10cm"], code)] if c
+                ]
+                return MappingResult(name, domain, _dedupe(hits), "icd10cm", word is not None,
+                                     [f"ICD-10-CM description: {code}"]) if hits else None  # fmt: skip
+        else:
+            words = key.split()
+            turned = " ".join(
+                words[-1:] + words[:-1]
+            )  # "cerebrovascular accident": the index's "Accident, cerebrovascular"
+            code = (
+                self._index_code(key) or self._index_code(raw) or (self._index_code(turned) if len(words) > 1 else "")
+            )
+            if code:
+                cats, how = [code[:3]], "index"
+        if not cats:
+            return None
+        hits = [c for cat in cats for c in self.expand("icd10cm", cat, "prefix")]
+        if not hits:
+            return None
+        fams = {(SYSTEMS["icd10cm"], cat) for cat in cats}
+        review = how == "index" or word is not None
+        note = f"ICD-10-CM {how}: {cats[0]}" + (f"-{cats[-1]}" if len(cats) > 1 else "")
+        return MappingResult(name, domain, _dedupe(hits), "icd10cm", review, [note],
+                             families=sorted(fams | who_only_families(fams)))  # fmt: skip
+
+    def _index_code(self, key: str, hops: int = 0) -> str:
+        """The code an Alphabetic Index term leads to, following at most two "see" references; "" for none."""
+        code, see = self.icd_index.get(key, ("", ""))
+        if code:
+            return code
+        if see and hops < 2:
+            return self._index_code(_icd_key(see.split(",")[0]) if "," not in see else _icd_key(see), hops + 1)
+        return ""
 
     def _dictionary(self, name: str, domain: str, primary: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """The dictionary's entries for the name: (trusted, other). Trusted = curated by the TrialBox team and not
