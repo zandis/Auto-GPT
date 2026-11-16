@@ -163,3 +163,18 @@ question, no first-run code and no wait. Use it for the hospital's own unattende
   command's environment; the site keys are sealed under it at the install.
 - A file that does not parse changes nothing.
 - It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
+
+**A bare Ubuntu box from the media (OPS-006, D-966):** a machine with only Ubuntu 24.04 on it gets Docker, the NVIDIA
+driver and toolkit and the host's libraries from the offline media, not by hand.
+- The vendor builds the media: `python3 -m tools.linux_media debs` (online, on any Debian or Ubuntu machine) collects
+  the packages; `make media-linux MEDIA_ARGS="..."` lays out `dist/media/TRIALBOX-<version>/`; `python3 -m
+  tools.linux_media sign` signs its `SHA256SUMS` on the signing machine; `python3 -m tools.linux_media check` reads it
+  back before it leaves.
+- On the box: `sudo bash <media>/linux/box-prepare.sh <media> --pub <the vendor key given apart from the disk>`. It
+  refuses another system, a key other than the one given, a bad signature, a changed byte and an unlisted file before
+  it installs anything; then it installs the packages, starts Docker with the nvidia runtime and puts the host tree in
+  `/opt/trialbox`. It prints what to run next: a restart when the driver is not loaded yet, then
+  `sudo /opt/trialbox/deploy/box-install.sh <media>/linux/trialbox-<version>.tar`.
+- `box-install.sh` on a machine without Docker says to run this step first.
+- The disk's unlock rule (HW-010) is not set here: it waits on the owner's decision. The run on a real bare box is
+  T-213b's.

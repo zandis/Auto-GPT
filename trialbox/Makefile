@@ -19,7 +19,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 
 
 .PHONY: differential cross-card embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
-	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
+	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -570,6 +570,12 @@ sc-images: deploy/.env
 # inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
 release-bundle: release-gates
 	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
+
+# OPS-006 (D-966): the offline media of a bare Ubuntu box from a signed bundle and the packages of
+# `python3 -m tools.linux_media debs` (online, run apart); sign it on the signing machine (tools.linux_media sign)
+#   make media-linux MEDIA_ARGS="--version 1.0.0 --bundle dist/trialbox-1.0.0.tar --debs debs/ --vendor-pub keys/vendor_ed25519.pub"
+media-linux:
+	PYTHONPATH=libs:. $(PY) -m tools.linux_media build --out dist/media --measured deploy/measured $(MEDIA_ARGS)
 
 # the release version (pyproject.toml, the one place) and its tag (T-110b)
 release-version:
