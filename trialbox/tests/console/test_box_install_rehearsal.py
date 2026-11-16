@@ -254,3 +254,71 @@ def test_a_new_install_removes_the_applied_mark() -> None:
     first_run = text[text.index("5. first run") :]
     assert first_run.index('if [ -f "$BOX/applied" ]; then') < first_run.index("show_code() {")
     assert first_run.index("box_py apply") < first_run.index('> "$BOX/applied"') < first_run.index("timedatectl")
+
+
+# ------------------------------------------------------------------------------- BOX-ANSWERS (D-898): unattended
+OWNER = {
+    "site_name": "示範醫院A (synthetic)", "tz": "Asia/Tokyo", "language": "ja", "owner_full_name": "Dr Owner",
+    "owner_username": "owner", "owner_email": "owner@hospa.test", "box_name": "trialbox",
+    "backup_kind": "second_disk", "backup_disk": "/dev/sdb", "source": "spreadsheet", "environment": "VALIDATION",
+}  # fmt: skip
+
+
+def _unattended(t: dict[str, Any], tmp_path: Path, owner: dict[str, Any], *extra: str,
+                env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:  # fmt: skip
+    f = tmp_path / "owner.json"
+    f.write_text(json.dumps(owner, ensure_ascii=False), encoding="utf-8")
+    return subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--answers", str(f), *extra],
+                          cwd=tmp_path, env={**t["env"], **(env or {})}, stdin=subprocess.DEVNULL,
+                          capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
+
+
+def test_a_box_installs_unattended_from_the_owners_answers_file(tmp_path: Path) -> None:
+    """The hospital's install is unattended: no question, no first-run code, no wait. The plan is made from the
+    owner's answers (here a VALIDATION box), the install makes the first administrator as the IT form does (TB_BOX=0:
+    its password and enrolment code printed once), then the host check and the last line."""
+    t: dict[str, Any] = _tree(tmp_path)
+    r = _unattended(t, tmp_path, OWNER)
+    assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-2000:]
+    install = t["calls"].read_text(encoding="utf-8")
+    assert "install TB_BOX=0 TB_BOX_DEFER_SEAL=0" in install and "--mode gpu --gpu rtxpro6000 --yes" in install
+    planned = json.loads((t["deploy"] / "site" / "box" / "answers.json").read_text(encoding="utf-8"))
+    assert planned["env_extra"]["TB_ENV"] == "VALIDATION" and planned["tls_hostname"] == "trialbox.local"
+    assert "hostcheck" in install and not t["issue"].exists() and not (t["fr"] / "code.json").exists()
+    assert "One-time code" not in r.stdout and "unattended" in r.stdout
+    assert "TrialBox is ready: https://trialbox.local" in r.stdout and "printed above" in r.stdout
+    assert (t["deploy"] / "site" / "box" / "applied").is_file()  # a later --firstrun asks nothing again
+
+
+def test_an_answers_file_with_a_password_or_that_does_not_parse_changes_nothing(tmp_path: Path) -> None:
+    t: dict[str, Any] = _tree(tmp_path)
+    for bad, said in (({**OWNER, "password": "x" * 16}, "password"), ({**OWNER, "kek_passphrase": "y" * 16},
+                      "kek_passphrase"), ({**OWNER, "site_name": ""}, "site_name")):  # fmt: skip
+        r = _unattended(t, tmp_path, bad)
+        assert r.returncode == 1 and said in r.stderr and "nothing was changed" in r.stderr, r.stderr
+        assert not t["calls"].exists() or "install " not in t["calls"].read_text(encoding="utf-8")
+        assert not (t["deploy"] / "site" / "box" / "answers.json").exists()
+
+
+def test_without_a_tpm_the_passphrase_comes_from_the_environment_never_the_file(tmp_path: Path) -> None:
+    t: dict[str, Any] = _tree(tmp_path)
+    hw = json.loads(Path(t["env"]["TB_BOX_HARDWARE"]).read_text(encoding="utf-8"))
+    Path(t["env"]["TB_BOX_HARDWARE"]).write_text(json.dumps({**hw, "tpm": False}), encoding="utf-8")
+    r = _unattended(t, tmp_path, OWNER, env={"TB_KEK_PASSPHRASE": ""})
+    assert r.returncode == 1 and "TB_KEK_PASSPHRASE" in r.stderr and "nothing was changed" in r.stderr
+    assert not t["calls"].exists()
+    r = _unattended(t, tmp_path, OWNER, env={"TB_KEK_PASSPHRASE": "a long synthetic test phrase"})
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    assert "install TB_BOX=0 TB_BOX_DEFER_SEAL=0" in t["calls"].read_text(encoding="utf-8")  # sealed at install
+    assert "KEK_BACKEND=passphrase" in (t["deploy"] / "site" / "hardening.conf").read_text(encoding="utf-8")
+    assert "a long synthetic test phrase" not in r.stdout + r.stderr
+
+
+def test_answers_is_not_for_a_prepared_or_a_rehearsal_box(tmp_path: Path) -> None:
+    t: dict[str, Any] = _tree(tmp_path)
+    for other in ("--prepare", "--rehearsal"):
+        r = _unattended(t, tmp_path, OWNER, other)
+        assert r.returncode == 2 and "--answers" in r.stderr and not t["calls"].exists()
+    r = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--answers"], cwd=tmp_path,
+                       env=t["env"], capture_output=True, text=True, timeout=30, check=False)  # fmt: skip
+    assert r.returncode == 2 and "--answers needs" in r.stderr
