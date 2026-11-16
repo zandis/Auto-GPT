@@ -681,6 +681,8 @@ def main() -> int:
             return g1_prompts()
         if "-m" in a and a[a.index("-m") + 1].startswith("tools."):
             return img_run(a[1:])
+        if a[-2:] == ["python", "-"]:  # a snippet on stdin in the box image (07g's gate, with the operator token)
+            return snippet("box-image", sys.stdin.read())
         return feed(a[1:])
     if a[:1] == ["interrupt"]:
         interrupt(a[1])

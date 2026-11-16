@@ -1392,12 +1392,14 @@ step_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" =
 # "Run now": POST /models/canary in the orchestrator), so the gate holds a passing record and a note-read "not met" may
 # exclude (D-117: a passing pair canary under 36 h, no failed wake check since). The host's selftest above records
 # nothing in the box. The gate's status (GET /models) is kept in records/canary-gate.json.
-d_gate() {
-  in_svc orchestrator <<'PYG'
+d_gate() {   # the operator's token (allowed everywhere; the orchestrator refuses its own token: 403), from the box image
+  local otok="$BOXROOT/deploy/secrets/services/operator.token" IMG_NET=trialbox-net tk=()
+  [ -s "$otok" ] && tk=(-v "$otok:/run/tb-operator.token:ro" -e TB_SERVICE_TOKEN_FILE=/run/tb-operator.token)
+  docker run --rm -i --user 0 --network "${IMG_NET:-none}" ${tk[@]+"${tk[@]}"} "$(img_py)" python - <<'PYG'
 # tb-boxrun: canary-gate
 import json, time, urllib.request
 from tb_common.service_auth import auth_headers
-base = "http://127.0.0.1:8010"
+base = "http://orchestrator:8010"
 def call(method, path):
     req = urllib.request.Request(base + path, method=method, headers=auth_headers(), data=b"" if method == "POST" else None)
     with urllib.request.urlopen(req, timeout=60) as r:
