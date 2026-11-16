@@ -61,7 +61,11 @@ restic does the incremental backup, on these conditions:
       on one helper package that `go test` reported as "build failed". With vet off that package passed; the next run failed only
       on `TestStdinFromCommandNoOutput`, one of four tests that run `python` (absent from the Go image) to test
       `backup --stdin-from-command`, which the box never uses. Those four are skipped by name (`-skip
-      '^TestStdinFromCommand'`); every other test of the release runs.
+      '^TestStdinFromCommand'`). The run after that failed only in setting up `internal/selfupdate`: it imports
+      `golang.org/x/crypto/openpgp`, which `x/crypto` v0.59.0 removed (that removal is the GO-2026-5932 fix, D-1039).
+      Only restic's self-update command uses the package, behind `//go:build selfupdate`, and this build leaves the
+      tag out, so the binary builds; that one package is left out of the test run (`go list ./...` without it).
+      Every other package of the release is tested.
     - `x/crypto` v0.59.0 requires `golang.org/x/text` v0.44.0 (its own `go.mod`), so `x/text` goes to v0.44.0, one
       past restic's main branch (v0.43.0), as part of the same ruling; the build with v0.43.0 failed in `go get` with
       exactly that conflict. `x/sys` (v0.50.0) and `x/term` (v0.48.0) rise with them by Go's minimal version

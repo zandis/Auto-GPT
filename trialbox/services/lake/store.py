@@ -1544,8 +1544,11 @@ class Lake:
                     cache.close()
             pending["sha"], pending["vec"] = [], []
 
+        step = max(64, (len(missing) // 10) // 64 * 64)  # T-701: a progress line about every tenth of the work
         for i in range(0, len(missing), 64):
             batch = missing[i : i + 64]
+            if i and i % step == 0:
+                log.info("embedding chunks: %d of %d", i, len(missing))
             vecs = embedder.embed([text_by_sha[s] for s in batch])
             pending["sha"].extend(batch)
             pending["vec"].extend(np.asarray(v, dtype=np.float32).tolist() for v in vecs)

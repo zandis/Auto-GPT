@@ -997,6 +997,11 @@ DECLARED: dict[str, Declared] = {
     "TB_STUB_OUTAGE_STATUS": Declared("int", "502", "model stub: the HTTP status of the stand-in's outage (T-687)"),
     "TB_SWAP_HOLD_S": Declared("float", "", "gateway swap: hold time"),
     "TB_SWAP_WAKE_TIMEOUT_S": Declared("float", "", "gateway swap: wake timeout"),
+    "TB_TERMINOLOGY_DIR": Declared(
+        "path",
+        "/data/terminology",
+        "compiler (D-528, D-858): code systems loaded on the box, each with its manifest line",
+    ),
     "TB_TERMINOLOGY_SOURCE": Declared("str", "", "compiler: terminology source"),
     "TB_TESTBENCH_E2E": Declared("str", "", "testbench: run the e2e entry point"),
     "TB_TESTBENCH_E2E_STRICT": Declared("bool", "", "testbench: a failing entry point fails the run"),

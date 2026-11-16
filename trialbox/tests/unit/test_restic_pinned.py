@@ -53,7 +53,11 @@ def test_each_module_bump_is_an_exact_version() -> None:
     assert text.index("go mod verify") < text.index("go test -short -vet=off -count=1") < text.index("go build")
     assert "RESTIC_TEST_FUSE=0" in text  # no FUSE in a build; restic's own switch skips only the mount tests
     # only the tests that need a tool the build has no use for are skipped, by name
-    assert "-skip '^TestStdinFromCommand' ./..." in text
+    assert "-skip '^TestStdinFromCommand'" in text
+    # internal/selfupdate imports x/crypto/openpgp, which the D-1039 bump removed; only the build-tagged
+    # self-update command uses it, and the binary leaves it out: that one package is not tested
+    assert "$(go list ./... | grep -v '/internal/selfupdate$')" in text
+    assert "./cmd/restic" in text and "-tags" not in text  # the binary is built without the selfupdate tag
     assert "runuser -u gotest" in text  # not as root: restic's permission tests need an ordinary user
 
 
