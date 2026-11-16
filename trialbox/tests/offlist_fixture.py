@@ -45,8 +45,16 @@ def compiled(expected: dict[str, Any]) -> dict[str, dict[str, bool | None]]:
 
 
 def resources() -> list[dict[str, Any]]:
+    """The fixture's resources in the adapter's load order (``LOAD_ORDER``): a Patient before the records that name it.
+    Alphabetical order PUT each Condition and MedicationRequest before its Patient existed, and a FHIR server without
+    referential integrity on write (HAPI as deployed) does not index a reference to a resource that is not there yet:
+    a search for the patient's records found none, so the gate on HAPI read every patient as having no record."""
+    from adapter.load_fhir import LOAD_ORDER
+
+    rank = {t: i for i, t in enumerate(LOAD_ORDER)}
+    files = sorted(FIX.glob("*.ndjson"), key=lambda f: (rank.get(f.stem, len(rank)), f.stem))
     out = []
-    for f in sorted(FIX.glob("*.ndjson")):
+    for f in files:
         out += [json.loads(line) for line in f.read_text("utf-8").splitlines() if line.strip()]
     return out
 

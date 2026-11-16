@@ -125,7 +125,13 @@ def test_feas_email_to_pdf() -> None:
     assert ("Eligibility funnel" in text or "資格篩選漏斗" in text) and f"job {job['job_id']}" in text
     assert any(k.endswith(".xlsx") for k in atts) and any(k.endswith(".json") for k in atts)
     final = final_job(job["job_id"])
-    assert final["state"] == "done" and len(final["outputs"]) == 4
+    # the four of FEAS and D-104's profile (stored, not mailed), named rather than counted
+    assert final["state"] == "done"
+    names = sorted(str(o["filename"]) for o in final["outputs"])
+    stem = names[0].rsplit(".", 1)[0]  # feasibility_<ruleset>_v<version>_<snapshot>
+    assert stem.startswith("feasibility_GZQO_v"), names
+    assert names == sorted([f"{stem}.json", f"{stem}.pdf", f"{stem}.raw.json", f"{stem}.xlsx",
+                            stem.replace("feasibility_", "feasprofile_", 1) + ".json"]), names  # fmt: skip
 
 
 def test_approve_loop_by_email() -> None:
