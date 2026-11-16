@@ -20,10 +20,6 @@ FILES = ["icd10cm_tw", "nhi_drug", "atc", "loinc_tw", "nhi_order", "department",
 # full code lists (D-122): gzipped CSV source -> <name>.parquet; the mapper uses them for code lookups and prefix
 # groupers only. ICD-10-CM 2026 (CMS / CDC NCHS order file, public domain), every header and billable code.
 FULL = {"icd10cm_full": "icd10cm_2026.csv.gz"}
-# TERM-1 (D-858): ICD-10-CM's blocks and its Alphabetic Index (CMS, public domain; ``tools/icd10cm_cms.py``), for
-# matching a concept's name: a block is a family of categories, an index term leads to a code
-EXTRA = {"icd10cm_blocks": ("icd10cm_blocks_2026.csv", ("name", "first", "last")),
-         "icd10cm_index": ("icd10cm_index_2026.csv.gz", ("term", "code", "see"))}  # fmt: skip
 
 
 def build(src: Path, out: Path) -> dict[str, int]:
@@ -47,19 +43,6 @@ def build(src: Path, out: Path) -> dict[str, int]:
         table = pa.table({c: pa.array([r[c] for r in full], pa.string()) for c in ("code", "display")})
         pq.write_table(table, out / f"{name}.parquet", compression="zstd")
         counts[name] = len(full)
-    for name, (fname, wanted) in EXTRA.items():
-        path = src / fname
-        if not path.exists():
-            continue
-        if fname.endswith(".gz"):
-            with gzip.open(path, "rt", encoding="utf-8", newline="") as gz:
-                extra = list(csv.DictReader(gz))
-        else:
-            with path.open(encoding="utf-8", newline="") as fh:
-                extra = list(csv.DictReader(fh))
-        table = pa.table({c: pa.array([r[c] for r in extra], pa.string()) for c in wanted})
-        pq.write_table(table, out / f"{name}.parquet", compression="zstd")
-        counts[name] = len(extra)
     return counts
 
 

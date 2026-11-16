@@ -1,34 +1,37 @@
-# D-858 A condition's name resolves through ICD-10-CM itself: its codes, its blocks and its Alphabetic Index
+# D-858 A condition's name resolves through ICD-10-CM itself; its blocks and index are loaded at install
 
-- **Task:** TERM-1 (the review of GPU launch P1b; the owner: "do everything to remedy these ... make it works")
+- **Task:** TERM-1 (the review of GPU launch P1b; the owner: "do everything to remedy these ... make it works"),
+  reworked on the owner's ruling D-528 (no standard code system committed beyond what is there; loaded at install)
 - **PR:** this branch (`agent/TERM-1-icd10cm-names-blocks-index`)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)
-- **Builds on:** D-122 (the full ICD-10-CM list, for code lookups only), D-113 and D-518 (families: a record coded
-  inside a family but outside the list is unknown), D-314 (WHO-only categories)
+- **Builds on:** D-122 (the full ICD-10-CM list), D-113 and D-518 (families), D-314 (WHO-only categories), D-171
 
 ## Decision
 
-1. **Measured first.** On P1b's public protocols (ClinicalTrials.gov, the SIGIR set), the compiler drafted 588
-   condition concepts; the tables resolved 47. Name matching read only the 79 curated rows. With this change, 255
-   resolve (measured offline on the stored drafts; the model's step not counted).
-2. **A new step 2d in `Terminology.map`, for conditions only**, after every curated step and before the model's:
-   - a block's or chapter's name (`Ischemic heart diseases` I20-I25, `Malignant neoplasms`, `Cerebrovascular
-     diseases`): every category in it, each kept as a family;
-   - a code's own description: that code (a category: its family);
-   - an Alphabetic Index term, following at most two "see" references, the words also read turned
-     (`cerebrovascular accident`: `Accident, cerebrovascular`): its code's category, as a family;
-   - before these, a short list of our own for trial words and abbreviations (COPD, CHF, MI, CKD, T2DM, SLE, "cancer",
-     "renal insufficiency"), written as the index or a block names them, or as the categories themselves.
-   An index term or one of our words is for review; a block or a description is not. Curated rows still win.
-3. **Data.** `tools/icd10cm_cms.py` reads CMS's code-tables zip (public domain, US government) and writes
-   `src/icd10cm_blocks_2026.csv` (280 blocks and chapters) and `src/icd10cm_index_2026.csv.gz` (28,792 main terms
-   and first-level subterms); `tools/build_terminology.py` makes them Parquet. The zip itself is not kept. The
-   licence register's ICD-10-CM row lists the four files.
-4. **Release.** The two tables are read beside the code tables, else from the shipped ones (a box's tables built
-   from its vocabulary hold codes only). They are not part of the release id: they change only with an ICD-10-CM
-   release, which changes `icd10cm_full`.
+1. **Loaded at install, never committed (D-528).** `python -m tools.terminology_install icd10cm <CMS code-tables
+   zip>` reads CMS's ICD-10-CM release (US public domain) without unpacking it and loads two tables into
+   `TB_TERMINOLOGY_DIR` (default `/data/terminology`): the tabular list's blocks and chapters, and the Alphabetic
+   Index's main terms and first-level subterms. Each table has its line in `manifest.json`: source (the zip's name
+   and sha256), version, licence note, the table's sha256, rows, when loaded. A table with no line, or whose bytes
+   differ from it, is refused: never read, reported by the mapper and by `trialbox doctor` (`terminology`: FAIL; none
+   loaded: WARN).
+2. **A new step 2d in `Terminology.map`, for conditions only**, after every curated step and before the model's: a
+   block's or chapter's name (every category in it, as families); a code's own description in the shipped full list
+   (that code; a category: its family); an Alphabetic Index term, following "see" references and read turned
+   (`cerebrovascular accident`: `Accident, cerebrovascular`), to its code's category; before these, a short list of
+   our own English trial words and abbreviations (COPD, CHF, MI, CKD, T2DM, SLE, "cancer"). An index term or one of
+   our words is for review; curated rows still win.
+3. **Measured offline** on P1b's stored drafts (public ClinicalTrials.gov protocols), with the 2026 release loaded by
+   the same command into a private folder: of 588 drafted condition concepts, 47 resolved before; 162 with this
+   change and nothing loaded (the shipped descriptions and our words); **255 with the blocks and index loaded**.
+4. **Which ICD-10.** Taiwan's NHI codes diagnoses in ICD-10-CM (its Chinese edition: 2014 until 2024-12-31, 2023
+   from 2025-01-01, D-171), not WHO ICD-10; the US release's blocks and index name the same categories. The
+   differences that matter for mapping: ICD-10-CM adds detail below the WHO category (up to seven characters), splits
+   some WHO categories (diabetes E08-E13 where WHO has E10-E14; hypertension I10-I1A) and lacks five WHO categories
+   (E14, I64, F00, B24, C97: D-314 keeps them as WHO families, so a WHO-coded record is unknown, never a silent
+   no). A block found here is ICD-10-CM's; a site's own code list stays the primary source (D-528 point 2).
 5. **One test's input moved, on purpose:** `test_parser_terminology_review` showed the model's step with "type 2
-   diabetes", which ICD-10-CM now resolves; it uses a name nothing can place.
-6. Not in this card: labs (LOINC), drugs (an ingredient-to-ATC table) and procedures (ICD-10-PCS or NHI codes) wait
-   for the owner's answers on #639; the model's candidates from the full list is lane A2's call site.
+   diabetes", which the shipped list's descriptions now resolve; it uses a name nothing can place.
+6. Not in this card: labs (LOINC), drugs (through the NHI drug codes, D-528 point 6) and procedures, and the model's
+   candidates from the full list (lane A2's call site).

@@ -4,6 +4,9 @@ Tables (``terminology/*.parquet``, built by ``tools/build_terminology.py`` from 
 official NHI / LOINC releases): ``icd10cm_tw``, ``nhi_drug`` (with ATC), ``atc``, ``loinc_tw`` (with
 ``component_of`` for panel members), ``nhi_order``, ``department``, ``synonyms``.
 
+Loaded at install (D-528, D-858): ICD-10-CM's blocks and Alphabetic Index (``terminology.installed``), when the box has
+them, resolve a condition's name to its families after every curated step.
+
 Full code lists (D-122): ``icd10cm_full`` holds every ICD-10-CM code (CMS/CDC 2026 release, public domain, built
 from ``src/icd10cm_2026.csv.gz``). It answers code lookups and code-prefix groupers ("malignancy" = C0..C9 lists
 every code in the families, so a valid code is never outside the list for want of a demo row); name matching and
@@ -116,7 +119,6 @@ ICD_WORDS: dict[str, str] = {
     "uterine fibroids": "leiomyoma of uterus",
     "fibroids": "leiomyoma of uterus",
 }
-ICD_BLOCK_FILE, ICD_INDEX_FILE = "icd10cm_blocks", "icd10cm_index"
 
 
 def _icd_key(text: str) -> str:
@@ -204,7 +206,8 @@ def vs_name_for(concept: str, unique: bool = False) -> str:
 
 
 class Terminology:
-    def __init__(self, directory: Path = TERM_DIR, name_synonyms: NameSynonyms | None = None) -> None:
+    def __init__(self, directory: Path = TERM_DIR, name_synonyms: NameSynonyms | None = None,
+                 installed: Path | None = None) -> None:  # fmt: skip
         self.dir = directory
         self.name_synonyms = name_synonyms
         # T-610: a Japanese site's ingredient-to-ATC table (stem -> {atc, ingredient}); drug ValueSets then carry
@@ -220,23 +223,29 @@ class Terminology:
             path = directory / f"{fname}.parquet"
             if path.exists():
                 self.full[key] = pq.read_table(path).to_pylist()
-        # TERM-1 (D-858): block name -> categories, index term -> code or the term it sees, display -> codes
+        # TERM-1 (D-858): block name -> categories, index term -> code or the term it sees, display -> codes. The
+        # blocks and the index are loaded on the box at install (D-528: never committed), read only when their
+        # manifest line vouches for them; a refused table is reported (``installed_problems``), never read
+        from criteria_compiler.terminology import installed as inst
+
         self.icd_blocks: dict[str, list[str]] = {}
         self.icd_index: dict[str, tuple[str, str]] = {}
         self.icd_display: dict[str, list[str]] = {}
+        self.installed_problems: list[str] = []
+        where = installed if installed is not None else inst.installed_dir()
         cats = sorted({str(r["code"]) for r in self.full.get("icd10cm", []) if len(str(r["code"])) == 3})
-        # read beside the tables, else from the shipped ones (a box's vocabulary-built tables hold codes, not these):
-        # they change only with an ICD-10-CM release, which changes ``icd10cm_full`` and so the release id
-        bpath, ipath = (directory / f"{ICD_BLOCK_FILE}.parquet", directory / f"{ICD_INDEX_FILE}.parquet")
-        bpath = bpath if bpath.exists() else TERM_DIR / f"{ICD_BLOCK_FILE}.parquet"
-        ipath = ipath if ipath.exists() else TERM_DIR / f"{ICD_INDEX_FILE}.parquet"
-        if bpath.exists():
-            for r in pq.read_table(bpath).to_pylist():
-                inside = [c for c in cats if str(r["first"]) <= c <= str(r["last"])]
-                self.icd_blocks.setdefault(_icd_key(str(r["name"])), inside)
-        if ipath.exists():
-            for r in pq.read_table(ipath).to_pylist():
-                self.icd_index.setdefault(_icd_key(str(r["term"])), (str(r["code"] or ""), str(r["see"] or "")))
+        for name in (inst.ICD_BLOCKS, inst.ICD_INDEX):
+            try:
+                rows = inst.read_table(where, name) or []
+            except inst.TerminologyRefused as exc:
+                self.installed_problems.append(str(exc))
+                rows = []
+            for r in rows:
+                if name == inst.ICD_BLOCKS:
+                    inside = [c for c in cats if str(r["first"]) <= c <= str(r["last"])]
+                    self.icd_blocks.setdefault(_icd_key(str(r["name"])), inside)
+                else:
+                    self.icd_index.setdefault(_icd_key(str(r["term"])), (str(r["code"] or ""), str(r["see"] or "")))
         for r in self.full.get("icd10cm", []):
             self.icd_display.setdefault(_icd_key(str(r["display"])), []).append(str(r["code"]))
         syn = directory / "synonyms.parquet"
