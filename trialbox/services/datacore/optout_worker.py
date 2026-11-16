@@ -53,6 +53,9 @@ ACTOR = "optout-worker"
 OPEN_STATUSES = ("candidate", "contacted")
 WITHDRAW_REASON = "opted out (research-use register)"
 MINUTES_ENV = "TB_OPTOUT_WORKER_MINUTES"
+#: ``WorkerEnv.extra``: the months an opted-out patient's before-images are kept (D-1031: the lake's month-end
+#: snapshots, ``settings.retention.month_end_snapshots_months``); none: nothing is blanked
+KEEP_MONTHS = "omop_keep_months"
 
 
 @dataclass
@@ -146,9 +149,12 @@ def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
     stores = _omop_open(env)
     total: dict[str, int] = {}
+    months = env.extra.get(KEEP_MONTHS)
     for name, db in stores:
         try:
             counts = load.withhold(db, pids, ACTOR).as_dict()
+            if months is not None:  # D-1031: past retention, the before-images and the FHIR fields go
+                counts.update(load.blank_at_retention(db, env.now, int(months)))
         except Exception as exc:
             log.error("opt-out worker: the OMOP store %s was not cleared (%s)", name, type(exc).__name__)
             env.not_cleared.append(name)
@@ -198,8 +204,13 @@ def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     if not pids:
         return {}
     out: dict[str, int] = {}
+    months = env.extra.get(KEEP_MONTHS)
     for name, db in _omop_open(env):
         out.update(_verify_one_omop(name, db, pids))
+        if months is not None:  # D-1031: what is past retention and not blanked yet
+            from omop import load
+
+            out.update({f"{name}.{k}": v for k, v in load.owed_at_retention(db, env.now, int(months)).items()})
     return out
 
 
@@ -408,6 +419,14 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "sitesetup")
     if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
         return Database.connect(url, "mail")
+    if schema == "pidmap":  # ERASE-A2 (D-875): read only, the chart merges a patient's consent is looked for under
+        return Database.connect(url, "pidmap")
+    if schema == "datacore":  # ERASE-A2 (D-875): the lifecycle and the consent forms (a subject's pseudonym is tokened)
+        return Database.connect(url, "datacore")
+    if schema == "study":  # ERASE-A2 (D-875): read only, REDCap's read-back and its link
+        return Database.connect(url, "study")
+    if schema == "edc":  # ERASE-A2 (D-875): read only, the EDC's drafts
+        return Database.connect(url, "edc")
     raise ValueError(f"no owed table in store {schema!r}")
 
 
@@ -502,7 +521,10 @@ def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 
 # ------------------------------------------------------------------------------------------------ a held mail
-_HELD = "SELECT key, request FROM send_keys WHERE state = 'failed' AND last_error = ? AND request IS NOT NULL"
+_HELD = (
+    "SELECT key, request FROM send_keys WHERE request IS NOT NULL AND ((state = 'failed' AND last_error = ?) "
+    "OR state = 'queued')"
+)
 
 
 def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
@@ -512,7 +534,10 @@ def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, 
     dropped: its request and recipients go, so nothing can send it again. A held mail of lists names no one in the
     outbox (its files by key) and stays for a person to drop or resend (asked again): the review of D-863 (a list
     held for a patient on another list must not be lost without a person). The job's files themselves stay: other
-    patients' pages read them, withheld on read until retention (D-513, D-860). Counts mails only."""
+    patients' pages read them, withheld on read until retention (D-513, D-860). ERASE-D (D-874): a queued mail
+    carrying such a file goes the same way (the gateway would hold it: it asks before each send, D-863); one the
+    gateway has taken to send since is left (the update asks the state again), and an uncertain one stays owed (it
+    may have left: a person checks the mailbox). Counts mails only."""
     from tb_common import patient_files
 
     url = str(env.register.db.url)
@@ -532,7 +557,7 @@ def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, 
         if delete and names:
             db.execute(
                 "UPDATE send_keys SET state = 'dropped', resolved_by = ?, request = NULL, recipients = NULL, at = ?, "
-                "next_at = NULL WHERE key = ANY(?) AND state = 'failed'",
+                "next_at = NULL WHERE key = ANY(?) AND state IN ('failed', 'queued')",
                 (ACTOR, env.now.isoformat(), names),
             )
         return {"mail.send_keys": len(names)}
@@ -544,6 +569,35 @@ def clear_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 def verify_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return _held_mail(pids, env, False)
+
+
+# ------------------------------------------------------------------------------------------------ the screening log
+def _screening_log(pids: frozenset[str], env: WorkerEnv, change: bool) -> dict[str, int]:
+    """ERASE-A2 (D-875, the owner's D-1032): a never-consented patient's screening-log rows stay, numbered, under a
+    random token (:mod:`datacore.screening_tokens`); a trial subject's stay as they are (OD-8). Counts only."""
+    from datacore import screening_tokens
+
+    url = str(env.register.db.url)
+
+    def has(schema: str, table: str) -> bool:
+        return store_has(url, schema, table)
+
+    def open_(schema: str) -> Any:
+        return _open(url, schema)
+
+    todo, kept = screening_tokens.plan(pids, has, open_)
+    if not change:  # the screening log's rows (and their subjects) still under a never-consented patient's pseudonym
+        return {"screening_log": sum(n for _holders, n in todo.values())}
+    days = screening_tokens.opted_out_days(env.register, pids, env.now)
+    return {"tokened": screening_tokens.apply(todo, days, has, open_), "kept_trial_subject": kept}
+
+
+def clear_screening_log(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _screening_log(pids, env, True)
+
+
+def verify_screening_log(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _screening_log(pids, env, False)
 
 
 # ------------------------------------------------------------------------------------------------ the set-up's uploads
@@ -738,6 +792,14 @@ def _failed(orch: Any, what: list[str], now: datetime) -> None:
         log.error("opt-out worker failure not audited: %s", type(exc).__name__)
 
 
+def _keep_months(orch: Any) -> int:
+    """D-1031: the months the lake keeps a month-end snapshot (``settings.retention.month_end_snapshots_months``, 36
+    when unset, as the adapter reads it)."""
+    ret = getattr(getattr(getattr(orch, "cfg", None), "settings", None), "retention", None)
+    months = getattr(ret, "month_end_snapshots_months", None)
+    return int(months) if months is not None else 36
+
+
 def tick(orch: Any) -> dict[str, Any] | None:
     """One tick with the orchestrator's own handles. Never raises (a scheduler job): a tick that fails or leaves a
     store not cleared is audited (``optout.worker_failed``) and turns the health line red (:data:`STATUS`)."""
@@ -755,7 +817,8 @@ def tick(orch: Any) -> dict[str, Any] | None:
         env = WorkerEnv(
             register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop,
             not_opened=not_opened, omop_more=more,
-            extra={"setup_root": Path(orch.data_dir) / "sitesetup" if getattr(orch, "data_dir", None) else None},
+            extra={"setup_root": Path(orch.data_dir) / "sitesetup" if getattr(orch, "data_dir", None) else None,
+                   KEEP_MONTHS: _keep_months(orch)},
         )  # fmt: skip
         out = run_once(env)
     except Exception as exc:
