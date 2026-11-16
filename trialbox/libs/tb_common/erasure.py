@@ -98,12 +98,6 @@ CLEARS: dict[str, Clear] = {
             "the staged chart number and identity of the patient go; a later night stages them again (D-489)",
         ),
         Clear(
-            "embed_cache",
-            f"{_W}:clear_embed_cache",
-            f"{_W}:verify_embed_cache",
-            "T-206b part 2b (D-862; D-513): the lake's embed cache loses the vectors only the patient's notes hold",
-        ),
-        Clear(
             "owed_tables",
             f"{_W}:clear_tables",
             f"{_W}:verify_tables",
@@ -417,18 +411,23 @@ TABLES: dict[str, Entry] = {
 }
 
 # ------------------------------------------------------------------------------------------------ the lake
-# D-513 (the owner, 2026-11-15): the kept snapshots, the job outputs and the attachments are not rewritten for an
-# opt-out. They are withheld on read (every job's patient scope at receipt and at publish, D-441; the console's
-# downloads, D-860) and kept until retention rewrites them (D-862)
-_WITHHELD = "withheld on read (D-441, D-860), kept until retention (D-513)"
+# D-513 (the owner, 2026-11-15): the kept snapshots are not rebuilt; they are withheld on read and kept until
+# retention rewrites them. Every job's patient scope drops an opted-out pseudonym at receipt and again at publish,
+# audited by count (D-441); still owed: the criteria compiler's equivalence sample and a direct call of the lake's
+# /query (T-206b part 2b)
+_SNAPSHOTS = (
+    "withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's "
+    "equivalence sample (every patient) and a direct call of the lake's /query (D-862)"
+)
 LAKE: dict[str, Entry] = {
-    "lake:ndjson": _keep("D-862", "the nightly NDJSON extracts (3 nightly + 36 month-ends kept): " + _WITHHELD),
-    "lake:ndjson-rerun": _keep("D-862", "a re-run of a promoted night until it passes the gate (D-271): " + _WITHHELD),
-    "lake:db": _keep("D-862", "the DuckDB snapshots (nightly and month-end) and their side files: " + _WITHHELD),
-    "lake:parquet": _keep("D-862", "the Parquet copy of each snapshot: " + _WITHHELD),
+    "lake:ndjson": _owed("the nightly NDJSON extracts (3 nightly + month-ends kept)", _SNAPSHOTS),
+    "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
+    "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),
+    "lake:parquet": _owed("the Parquet copy of each snapshot", _SNAPSHOTS),
     "lake:site": _owed("facts the site set-up published, as NDJSON, by pseudonym"),
-    "lake:embed_cache.duckdb": _erase(
-        "embed_cache", "vectors of note chunks by text hash: those only an opted-out patient's notes hold go (D-513)"
+    "lake:embed_cache.duckdb": _owed(
+        "vectors of note chunks by text hash, never pruned",
+        "pruning by the patient across every kept snapshot, with the nightly build not embedding them again (D-862)",
     ),
     "lake:fhir_ledger": _owed("the FHIR sync ledger: resource ids and hashes per patient"),
     "lake:backfill": _owed("the back-fill's working copy of a year's extract"),
@@ -445,11 +444,14 @@ LAKE: dict[str, Entry] = {
 
 # ------------------------------------------------------------------------------------------------ object store
 OBJECTS: dict[str, Entry] = {
-    "objects:outputs": _keep(
-        "D-862", "job outputs: candidate and excluded lists, micro-batch pids (365 days): " + _WITHHELD
+    "objects:outputs": _owed(
+        "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the "
+        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row",
+        "the mail outbox: a queued or re-sent message reads its outputs with no register check (D-862)",
     ),
-    "objects:attachments": _keep(
-        "D-862", "files mailed or uploaded to a job (consent forms, review sheets, case requests): " + _WITHHELD
+    "objects:attachments": _owed(
+        "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
+        "a CASE chart is parsed before the subject's opt-out is checked (D-862)",
     ),
     "objects:ctgov": _none("public registry text and its parse"),
 }

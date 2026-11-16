@@ -180,9 +180,7 @@ def test_every_entry_keeps_the_rules() -> None:
     for k in ("lake:db", "lake:ndjson", "lake:parquet", "lake:embed_cache.duckdb", "outside:fhir_store",
               "omop.tb_record_event", "derived.score_row", "objects:outputs", "edc.draft", "outside:backups",
               "vec.note_chunk", "profile.tb_patient_profile"):  # fmt: skip
-        # D-862 (the owner's ruling D-513): a kept file withheld on read until retention is a keep under that record
-        withheld = es[k].kind == erasure.KEEP and es[k].decision == "D-862"
-        assert es[k].kind == erasure.ERASE or withheld, k
+        assert es[k].kind == erasure.ERASE, k
 
 
 _PATIENT_COLUMN = re.compile(r"\b(pid|person_id|subject_id|pid_hash|old_pid|mrn)\b")
@@ -214,9 +212,7 @@ def test_every_clear_resolves_and_the_worker_runs_each() -> None:
     names = [c.name for c in erasure.clears()]
     # T-723 (D-489) adds pid_pending: the pid map's staging of a held night
     # T-206b part 1 (D-798) adds owed_tables: the plain tables keyed by the pseudonym
-    # T-206b part 2b (D-862) adds embed_cache: the vectors only an opted-out patient's notes hold
-    assert names == ["candidate_pool", "candidate_registry", "embed_cache", "omop", "owed_tables", "pid_pending",
-                     "profile", "vec"]  # fmt: skip
+    assert names == ["candidate_pool", "candidate_registry", "omop", "owed_tables", "pid_pending", "profile", "vec"]
     for c in erasure.clears():
         clear, verify = c.resolve()
         assert callable(clear) and callable(verify), c.name

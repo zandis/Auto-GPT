@@ -61,7 +61,6 @@ READERS: dict[str, tuple[str, Callable[[LakeHttp], Any], Any, Any]] = {
         False,
     ),
     "put_site": ("/site", lambda c: c.put_site({}), {"counts": {"Patient": 3}}, {"Patient": 3}),
-    "prune_cache": ("/cache/prune", lambda c: c.prune_cache(["p1"]), {"vectors": 2}, {"vectors": 2}),  # D-862
     "chunks_search": (
         "/chunks/search",
         lambda c: c.chunks_search("p1", "q"),
@@ -115,7 +114,6 @@ def test_a_200_answer_without_the_readers_key_is_an_error_of_the_lake(reader: st
         ("generation", {"generation": 3, "site_in_sync": True}),
         ("site_in_sync", {"generation": None, "site_in_sync": "yes"}),
         ("put_site", {"counts": [3]}),
-        ("prune_cache", {"vectors": "2"}),
         ("chunks_search", {"hits": {"did": "d1"}}),
     ],
 )
