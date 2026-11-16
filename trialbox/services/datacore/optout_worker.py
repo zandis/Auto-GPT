@@ -40,6 +40,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -178,6 +179,15 @@ OMOP_BY_PERSON = (
     "note",
     "tb_appointment",
     "tb_claim",
+    # ERASE-B (D-867): the tables no loader writes yet, and the clinical conflicts
+    "device_exposure",
+    "specimen",
+    "visit_detail",
+    "condition_era",
+    "drug_era",
+    "dose_era",
+    "payer_plan_period",
+    "episode",
 )
 
 
@@ -205,6 +215,14 @@ def _verify_one_omop(name: str, db: Any, pids: frozenset[str]) -> dict[str, int]
         return out
     for t in OMOP_BY_PERSON:
         out[f"{name}.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE person_id = ANY(?)", (persons,)))
+    out[f"{name}.cohort"] = int(db.fetchval("SELECT count(*) FROM cohort WHERE subject_id = ANY(?)", (persons,)))
+    out[f"{name}.episode_event"] = int(
+        db.fetchval(
+            "SELECT count(*) FROM episode_event WHERE episode_id IN (SELECT episode_id FROM episode "
+            "WHERE person_id = ANY(?))",
+            (persons,),
+        )
+    )
     out[f"{name}.tb_record"] = int(
         db.fetchval(
             "SELECT count(*) FROM tb_record WHERE status <> 'tombstoned' AND (person_id = ANY(?) OR "
@@ -331,7 +349,8 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 # numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.
 # The adversarial review of D-798 kept four out: site.weekly_seen (the kept screening-log row's first-listed day),
 # orch.submissions (NHI's send-once guard), team.candidate_views (the reveal cap's ledger) and tuned.tuned_patients (a
-# reviewed week's sample would be drawn again); they stay on the owed list with why.
+# reviewed week's sample would be drawn again). D-860 took the submissions' dry runs; D-868 keeps the last two's rows
+# and makes their pseudonym a random token.
 #: per store, per table: the count and the delete of the patients' rows (written out: no SQL is put together)
 OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
     ("site", (
@@ -346,6 +365,17 @@ OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
         ("referral_events", "SELECT count(*) FROM referral_events WHERE pid = ANY(?)",
          "DELETE FROM referral_events WHERE pid = ANY(?)"),
         ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),
+        # ERASE-C (D-868): the reveal cap counts a person's rows and they say who saw an identity, so each row stays
+        # and its pseudonym becomes a random token: unlinked in this table; the kept audit log keeps the link (D-771)
+        ("candidate_views", "SELECT count(*) FROM candidate_views WHERE pid = ANY(?)",
+         "UPDATE candidate_views SET pid = 'erased:' || gen_random_uuid() WHERE pid = ANY(?)"),
+    )),
+    ("tuned", (
+        # ERASE-C (D-868): a reviewed week's sample keeps its size (it is never drawn again for the week); the row's
+        # pseudonym becomes a random token, which the not-matched page counts as removed, and the PI's free-text note
+        # goes (the review of D-868: its copy in site.excluded_review is deleted by the same clear)
+        ("tuned_patients", "SELECT count(*) FROM tuned_patients WHERE pid = ANY(?)",
+         "UPDATE tuned_patients SET pid = 'erased:' || gen_random_uuid(), note = NULL WHERE pid = ANY(?)"),
     )),
     ("orch", (
         ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
@@ -368,14 +398,16 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "site")
     if schema == "team":
         return Database.connect(url, "team")
+    if schema == "tuned":  # ERASE-C (D-868): the PI's weekly sample of patients not matched
+        return Database.connect(url, "tuned")
     if schema == "orch":
         return Database.connect(url, "orch")
     if schema == "derived":
         return Database.connect(url, "derived")
+    if schema == "sitesetup":  # ERASE-A1 (D-866), ERASE-A4 (D-869): the site set-up's facts and uploads
+        return Database.connect(url, "sitesetup")
     if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
         return Database.connect(url, "mail")
-    if schema == "sitesetup":  # ERASE-A1 (D-866): the site set-up's facts by pseudonym
-        return Database.connect(url, "sitesetup")
     raise ValueError(f"no owed table in store {schema!r}")
 
 
@@ -512,6 +544,62 @@ def clear_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 def verify_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return _held_mail(pids, env, False)
+
+
+# ------------------------------------------------------------------------------------------------ the set-up's uploads
+def _setup_uploads(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    """ERASE-A4 (D-869): a per-patient upload of the site set-up (a chart: ``sitesetup.input`` with the patient's
+    pseudonym) is erased: its files on disk (the upload, its text and its lake text, ``<ws>/inputs/<id>.*`` under the
+    set-up's folder), its check items, its column fixes and its facts go, and its row stays as a marker (status
+    ``erased``; no pseudonym, name, hash, path, summary or date of care), which no page lists. Each tick sweeps the
+    marked ids again, so an upload that raced the clear (its files or facts written after the row was marked) is
+    finished on the next tick; nothing else is ever swept (the review of D-869: a sweep of every file no row names
+    would delete every upload of a database restored behind its files). A sheet of many patients is not a patient's
+    own upload: it stays owed. Counts uploads, and what is left of the marked ones."""
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    if not want or not store_has(url, "sitesetup", "input"):
+        return {"sitesetup.input": 0}
+    root = env.extra.get("setup_root")
+    with _open(url, "sitesetup") as db:
+        new = [(int(r[0]), str(r[1])) for r in db.fetchall("SELECT id, ws FROM input WHERE pid = ANY(?)", (want,))]
+        marked = [(int(r[0]), str(r[1])) for r in db.fetchall("SELECT id, ws FROM input WHERE status = 'erased'")]
+        rows = new + marked
+        ids = [i for i, _ in rows]
+        if not delete:
+            left = 0
+            if ids:
+                left = int(db.fetchval("SELECT count(*) FROM fact WHERE input_id = ANY(?)", (ids,)))
+            if root is not None:
+                left += sum(1 for iid, ws in marked if any((Path(root) / ws / "inputs").glob(f"{iid}.*")))
+            return {"sitesetup.input": len(new) + left}
+        if not rows:
+            return {"sitesetup.input": 0}
+        if root is None:  # the uploads are there and their files cannot be reached: never called cleared
+            raise RuntimeError("no site set-up folder for the uploads")
+        for iid, ws in rows:  # the files first: a crash after them leaves the rows, and the next tick ends the job
+            for f in (Path(root) / ws / "inputs").glob(f"{iid}.*"):
+                if f.is_file():
+                    f.unlink(missing_ok=True)
+        with db.transaction() as tx:
+            tx.execute("DELETE FROM check_item WHERE input_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM fix WHERE input_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM fact WHERE input_id = ANY(?)", (ids,))
+            if new:
+                tx.execute(
+                    "UPDATE input SET status = 'erased', pid = NULL, name = '', sha256 = '', path = '', "
+                    "summary = '{}', roles = '{}', ref_day = '' WHERE id = ANY(?)",
+                    ([i for i, _ in new],),
+                )
+    return {"sitesetup.input": len(new)}
+
+
+def clear_setup_uploads(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _setup_uploads(pids, env, True)
+
+
+def verify_setup_uploads(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _setup_uploads(pids, env, False)
 
 
 def run_once(env: WorkerEnv) -> dict[str, Any]:
@@ -667,6 +755,7 @@ def tick(orch: Any) -> dict[str, Any] | None:
         env = WorkerEnv(
             register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop,
             not_opened=not_opened, omop_more=more,
+            extra={"setup_root": Path(orch.data_dir) / "sitesetup" if getattr(orch, "data_dir", None) else None},
         )  # fmt: skip
         out = run_once(env)
     except Exception as exc:

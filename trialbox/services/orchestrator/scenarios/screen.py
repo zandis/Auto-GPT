@@ -52,6 +52,7 @@ from orchestrator.scenarios.evaluate import (
     is_note_answer,
     not_in_snapshot,
     row,
+    served,
     sort_key,
 )
 from orchestrator.scenarios.review import recipients, require_approved
@@ -145,8 +146,11 @@ def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
     may_block, policy, reason, code = nb.may_block, nb.policy, nb.reason, nb.code
     return {
         "mode": judge.mode if judge is not None else "none",
-        "judge_model": judge.llm.model if judge is not None else None,
-        "verifier_model": judge.verifier.model if judge is not None and judge.verifier is not None else None,
+        # G12 (D-960): the model that answered, by the name it answered under; the configured one until it has
+        "judge_model": (served(judge, "judge") or judge.llm.model) if judge is not None else None,
+        "verifier_model": (served(judge, "verifier") or judge.verifier.model)
+        if judge is not None and judge.verifier is not None
+        else None,
         "note_block": policy,
         "note_block_reason": reason,
         "note_block_code": code,
@@ -359,7 +363,7 @@ def provenance(ctx: Ctx, rs: Ruleset, meta: ReportMeta, judging: dict[str, Any] 
         "run_date": meta.run_date,
         "clock": meta.clock or "system clock",
         "job_id": meta.job_id,
-        "language": meta.locale,
+        "language": meta.locale,  # the report's language (the site's locale), not the notes' (G12, D-980)
         "site": meta.site_id,
     }
 

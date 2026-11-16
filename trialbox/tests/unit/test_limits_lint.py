@@ -102,3 +102,13 @@ def test_a_wait_of_two_seconds_without_a_line_fails_too(tmp_path: Path) -> None:
     found = ll.scan(tmp_path)
     assert [(x.kind, x.value) for x in found] == [("timeout", "2")]
     assert any("new fixed timeout 2" in p for p in ll.check(found, []))
+
+
+def test_a_four_digit_decision_number_is_a_reason() -> None:
+    """A decision number may have four digits (the owner's rulings from D-1020); no reference is still no reason."""
+    found = [ll.Literal("services/x.py", 1, "limit", "5")]
+    cited = ll.Entry("services/x.py", "limit", "5", 1, "D-1021")
+    assert ll._REASON.search(cited.reason)
+    assert ll.check(found, [cited]) == []
+    bare = ll.Entry("services/x.py", "limit", "5", 1, "the owner said so")
+    assert any("has no reason" in p for p in ll.check(found, [bare]))

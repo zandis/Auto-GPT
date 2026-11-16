@@ -25,7 +25,7 @@ def _named_for_card() -> set[str]:
             continue
         for lo, hi in re.findall(r"WS-18\.(\d) to WS-18\.(\d)", line):
             named |= {f"WS-18.{n}" for n in range(int(lo), int(hi) + 1)}
-        named |= set(re.findall(r"\bD-\d{3}\b", line))
+        named |= set(re.findall(r"\bD-\d{3,4}\b", line))
     return named
 
 

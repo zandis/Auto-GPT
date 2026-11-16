@@ -104,6 +104,12 @@ CLEARS: dict[str, Clear] = {
             "a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863)",
         ),
         Clear(
+            "setup_uploads",
+            f"{_W}:clear_setup_uploads",
+            f"{_W}:verify_setup_uploads",
+            "a patient's own upload to the site set-up (a chart) goes whole: rows, items, facts and files (D-869)",
+        ),
+        Clear(
             "owed_tables",
             f"{_W}:clear_tables",
             f"{_W}:verify_tables",
@@ -146,8 +152,17 @@ _CONFIG = _none("settings and configuration, no patient")
 _STAFF = _none("staff, accounts or sign-in state, no patient")
 _OD8 = _keep("OD-8", "the trial record of a consented or enrolled subject stays (GCP)")
 _OMOP_CLEARED = _erase("omop", "OMOP clinical rows of the person (deleted by the withhold, D-441)")
-_OMOP_UNWRITTEN = _owed(
-    "a CDM table keyed by person that no loader writes today", "a delete by person when a loader writes it"
+_OMOP_UNWRITTEN = _erase(
+    "omop",
+    "a CDM table keyed by person that no loader writes today: deleted by person at the withhold, so a loader that "
+    "writes it later is covered from its first row, and read back by the worker (D-867)",
+)
+#: D-867: reached only through the person (an event, the person row): deleted then, and not read back after it
+_OMOP_THROUGH = _erase(
+    "omop",
+    "a CDM table no loader writes today, reached through the person: deleted at the withhold with the person's "
+    "events (cost, by domain) or its last person (an address); not read back, as nothing names the person after it "
+    "(D-867)",
 )
 _OMOP_VOCAB = _none("OMOP vocabulary and metadata")
 
@@ -213,10 +228,23 @@ TABLES: dict[str, Entry] = {
     "orch.id_limits": _none("the identifier caps' use rows: staff and kind only"),
     "orch.mails": _none("a mail sent: message id, job, kind, subject"),
     "orch.trial_cache": _none("the public registry cache"),
-    "sitesetup.input": _owed("an uploaded file and the patient it belongs to"),
+    "sitesetup.input": _erase(
+        "setup_uploads",
+        "an uploaded file and the patient it belongs to: a patient's own upload is erased, file included, its row an "
+        "empty marker (D-869)",
+        "a sheet of many patients that names the patient (its file and its rows are not keyed by patient)",
+    ),
     "sitesetup.fact": _erase("owed_tables", "a fact read from an uploaded file, by pseudonym (D-866)"),
-    "sitesetup.check_item": _owed("the raw value of an uploaded row"),
-    "sitesetup.fix": _owed("example values of an uploaded column"),
+    "sitesetup.check_item": _erase(
+        "setup_uploads",
+        "the raw value of an uploaded row: those of a patient's own upload go with it (D-869)",
+        "a sheet's rows of the patient (not keyed by patient)",
+    ),
+    "sitesetup.fix": _erase(
+        "setup_uploads",
+        "example values of an uploaded column: those of a patient's own upload go with it (D-869)",
+        "a sheet's examples of the patient (not keyed by patient)",
+    ),
     **_each("sitesetup", ("local_code", "setting"), _CONFIG),
     "sitesetup.published": _none("a publish: when, snapshot, digest, counts"),
     "mail.intake": _none("a mail received: sender, action, job"),
@@ -306,9 +334,10 @@ TABLES: dict[str, Entry] = {
         "OD-8", "a monitoring visit's record: the subjects reviewed are trial subjects (an essential record)"
     ),
     "team.approach_overrides": _erase("owed_tables", "an override of an approach warning, by pseudonym"),
-    "team.candidate_views": _owed(
-        "a cross-department view of a candidate, by pseudonym",
-        "the reveal cap counts these rows and they say who saw an identity: a clear that keeps both",
+    "team.candidate_views": _erase(
+        "owed_tables",
+        "a cross-department view of a candidate: the row stays for the reveal cap and for who saw an identity, its "
+        "pseudonym becomes a random token, unlinked in this table; the kept audit log keeps the link (D-868, D-771)",
     ),
     "team.referrals": _erase("owed_tables", "a referral of a patient, by pseudonym"),
     "team.referral_events": _erase("owed_tables", "a referral's events, by pseudonym"),
@@ -343,9 +372,10 @@ TABLES: dict[str, Entry] = {
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
     "dataops.built": _none("which generation each derived artefact is built from: names, states and times (D-491)"),
     "dataops.built_kept": _none("the finished generations of the derived rows and their batch ids: no patient (D-525)"),
-    "tuned.tuned_patients": _owed(
-        "the weekly PI sample of patients not matched, by pseudonym",
-        "a clear that does not redraw a reviewed week's sample",
+    "tuned.tuned_patients": _erase(
+        "owed_tables",
+        "the weekly PI sample of patients not matched: the row stays so a reviewed week is never drawn again, its "
+        "pseudonym becomes a random token and the PI's note goes; counted as removed on the page (D-868)",
     ),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),
@@ -391,19 +421,21 @@ TABLES: dict[str, Entry] = {
             "episode",
             "episode_event",
             "payer_plan_period",
-            "cost",
             "cohort",
-            "location",
         ),
         _OMOP_UNWRITTEN,
     ),
+    **_each("omop", ("cost", "location"), _OMOP_THROUGH),
     "omop.tb_record": _erase(
         "omop",
         "the record ledger: the person's live records are tombstoned",
         "the tombstoned row keeps the person id and the source record id",
     ),
     "omop.tb_record_event": _owed("every change of a record with its before-image", "the before-images"),
-    "omop.tb_conflict": _owed("a source conflict of a person"),
+    "omop.tb_conflict": _owed(
+        "a source conflict of a person, every source's value and the steward's ruling",
+        "at retention, or with a before-image: a lift undoes the withhold, and the ruling must still hold (D-867)",
+    ),
     "omop.tb_consent": _keep("D-441", "the refusal itself must reach the lake, or the registry would read as silent"),
     "omop.tb_id_map": _keep("D-441", "pseudonym to person id: the worker and the loader must still find the person"),
     "omop.tb_withheld": _keep("D-441", "the register's copy the loader reads to keep the patient out"),
@@ -488,7 +520,9 @@ OUTSIDE: dict[str, Entry] = {
     "outside:backups": _owed("every backup: the databases, the lake, the FHIR store", "the backups (with T-728)"),
     "outside:sitesetup_space_omop": _owed(
         "the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake "
-        "folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of "
+        "folder>, made by a publish while the lake is built from OMOP), and that space's own lake (its site files "
+        "and snapshot keep a deleted chart's text until the space is published again, D-869): the space's uploaded "
+        "patients; Reset of "
         "the space drops it whole (D-714)",
         "the opt-out's clear in a practice space's store",
     ),

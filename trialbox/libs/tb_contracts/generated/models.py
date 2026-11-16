@@ -598,7 +598,10 @@ class Judging(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    mode: Literal["agreement", "single", "none"]
+    mode: Literal["agreement", "single", "none", "nothing"]
+    """
+    nothing: D-909, no criterion a machine decides (every one is a person's); the judges were not called.
+    """
     judge_model: str | None = None
     verifier_model: str | None = None
     note_block: Literal["both_agree", "never"]
@@ -1398,6 +1401,9 @@ class ReportProvenance(BaseModel):
     clock: str
     job_id: str
     language: str
+    """
+    The language the report is written in: the site's report language (its locale), not the language of the notes that were read (G12 of the P1b review, D-980).
+    """
     site: str
 
 
@@ -1535,6 +1541,10 @@ class SiteInfo(BaseModel):
     name: str
     tz: str
     locale: str = "zh-TW"
+    notes_language: Literal["auto", "en", "zh-TW", "ja"] = "auto"
+    """
+    D-983: the language the site's notes are written in, for every language-dependent choice of the screening cascade; auto reads it from each patient's notes, falling back to locale (the report language). The name and default await the owner.
+    """
     contact: str | None = None
 
 
