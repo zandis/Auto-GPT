@@ -1,0 +1,4 @@
+#!/bin/bash
+# The VM's tb-box-python in the rehearsal: `boxpy -m tools.<name> ...` reaches the box stand-in (box.py) instead of
+# the installed box's tools (the paid run: python3 -m tools.<name> in the box's own tree).
+exec python3 "$(dirname "$0")/box.py" "$@"
