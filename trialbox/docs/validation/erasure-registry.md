@@ -34,7 +34,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:tmp` | T-206b | the clear | the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them) |
 | `mail.send_keys` | T-206b | the clear | the outbox's send request while queued (attachments by key, recipients) |
 | `objects:attachments` | T-206b | a CASE chart is parsed before the subject's opt-out is checked (D-862) | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
-| `objects:outputs` | T-206b | the mail outbox: a queued or re-sent message reads its outputs with no register check (D-862) | job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the console's pages and downloads (a per-patient file by its patient), a submission and a feedback row |
+| `objects:outputs` | T-206b | the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest) | job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the console's pages and downloads (a per-patient file by its patient), a submission and a feedback row |
 | `omop.cohort` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
 | `omop.condition_era` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
 | `omop.cost` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |

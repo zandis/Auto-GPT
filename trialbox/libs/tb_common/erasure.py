@@ -447,7 +447,7 @@ OBJECTS: dict[str, Entry] = {
     "objects:outputs": _owed(
         "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the "
         "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row",
-        "the mail outbox: a queued or re-sent message reads its outputs with no register check (D-862)",
+        "the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest)",
     ),
     "objects:attachments": _owed(
         "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
