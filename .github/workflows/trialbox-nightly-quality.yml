@@ -2,7 +2,8 @@
 # coverage of the unit suite. Never on a pull request: the mutation run takes hours, and the pull-request
 # unit job already checks line coverage (trialbox-ci.yml, step "Coverage ratchet"). Every night and on demand.
 #
-# mutation: tools/mutation.py over the targets of tools/mutation.toml, in four shards (engine.py in two parts); the
+# mutation: tools/mutation.py over the targets of tools/mutation.toml, in eight shards (engine.py in six parts, D-973:
+#   no shard over 90 minutes, D-537); the
 #   `mutation-score` job adds them up and fails under the floor of the config (the target is 90 %). The JSON of every
 #   mutant is an artifact.
 # branch-coverage: the unit suite with branches measured (the classic tracer: slower, so not on a pull request), in
@@ -33,17 +34,26 @@ env:
 jobs:
   mutation:
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
-    timeout-minutes: 300  # the runner starts no mutant after 200 minutes (--budget-minutes); the rest are listed
+    timeout-minutes: 90  # D-537, D-973: no job over 90 minutes; no mutant starts after 75 (--budget-minutes)
     strategy:
       fail-fast: false
       matrix:
         include:
-          # ENG-006: engine.py alone ran out of the 200 minutes (114 mutants not run, 2026-11-15): two parts, every
-          # mutant in exactly one (tools/mutation.py --part)
+          # ENG-006: engine.py alone ran out of the 200 minutes (114 mutants not run, 2026-11-15): parts, every mutant
+          # in exactly one (tools/mutation.py --part). D-973: two parts took 207 and 149 minutes (2026-11-16), so six
+          # parts of about 60 minutes each, every one inside the 90 of D-537
           - shard: engine-1
-            targets: --target services/matching/cascade/engine.py --part 1/2
+            targets: --target services/matching/cascade/engine.py --part 1/6
           - shard: engine-2
-            targets: --target services/matching/cascade/engine.py --part 2/2
+            targets: --target services/matching/cascade/engine.py --part 2/6
+          - shard: engine-3
+            targets: --target services/matching/cascade/engine.py --part 3/6
+          - shard: engine-4
+            targets: --target services/matching/cascade/engine.py --part 4/6
+          - shard: engine-5
+            targets: --target services/matching/cascade/engine.py --part 5/6
+          - shard: engine-6
+            targets: --target services/matching/cascade/engine.py --part 6/6
           - shard: evaluate
             targets: --target services/orchestrator/scenarios/evaluate.py
           - shard: rules
@@ -82,7 +92,7 @@ jobs:
         # the score is judged over all shards in mutation-score; a shard under the threshold alone does not fail
         run: |
           # shellcheck disable=SC2086  # TARGETS is a list of flags
-          .venv/bin/python -m tools.mutation $TARGETS --workers "$(nproc)" --budget-minutes 200 \
+          .venv/bin/python -m tools.mutation $TARGETS --workers "$(nproc)" --budget-minutes 75 \
             --report "$RUNNER_TEMP/mutation-${{ matrix.shard }}.json" 2>&1 | tee "$RUNNER_TEMP/mutation.log" || true
           test -s "$RUNNER_TEMP/mutation-${{ matrix.shard }}.json"
       - name: Data-handling scan of the log
