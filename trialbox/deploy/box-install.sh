@@ -6,6 +6,7 @@
 #   sudo deploy/box-install.sh trialbox-<version>.tar --prepare      # Aimedics, before shipping: stop before the wizard
 #   sudo deploy/box-install.sh trialbox-<version>.tar --rehearsal    # a rehearsal box: TEST, stand-ins (D-726)
 #   deploy/box-install.sh --firstrun                                 # the prepared box's first boot (trialbox-firstrun.service)
+#   sudo deploy/box-install.sh trialbox-<version>.tar --answers owner.json   # unattended (D-898): the hospital's install
 #
 # What it does, in order:
 #   1. hardware: python3 -m tools.box detect (the GPU, memory, disks, TPM, the box's network); shown, and the one
@@ -22,6 +23,12 @@
 #   6. apply:    the keys sealed under the owner's passphrase when deferred; python -m tools.box apply in the image (the
 #                owner's answers into settings.yaml and deploy/.env, the install's passwords kept); the host's time zone;
 #                the stack restarted on the new settings; the backup schedule; the host check with `trialbox doctor`
+# Unattended (--answers, D-898): the owner's answers come from a JSON file (the first-run form's fields, flat or
+# nested; `environment` PRODUCTION or VALIDATION) instead of the first-run wizard. No question, no code, no wait: the
+# plan is made from those answers, the install makes the first administrator as the IT form does (TB_BOX=0: its
+# password and enrolment code printed once), then the time zone, the backup schedule and the host check. The file
+# never holds a password or a passphrase (refused); a board without a TPM takes TB_KEK_PASSPHRASE from the
+# environment and the keys are sealed at the install. A bad file changes nothing.
 # Knobs for the tests and the rehearsal only: TB_BOX_HARDWARE (a hardware.json instead of detecting), TB_BOX_INSTALL
 # (the install command), TB_BOX_PY (a python command instead of the image), TB_BOX_COMPOSE (the compose command),
 # TB_BOX_HOST_CHECK (the host check command), TB_ISSUE_DIR, TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
@@ -29,20 +36,25 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0
+BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
     --prepare) PREPARE=1 ;;
     --firstrun) FIRSTRUN=1 ;;
     --rehearsal) REHEARSAL=1 ;;
-    -h|--help) sed -n 2,29p "$0"; exit 0 ;;
+    --answers) [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "box-install: --answers needs the owner's answers file (JSON)" >&2; exit 2; }
+      OWNER="$2"; shift ;;
+    -h|--help) sed -n 2,35p "$0"; exit 0 ;;
     -*) echo "box-install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
   shift
 done
 if [ "$REHEARSAL" = 1 ] && [ "$PREPARE" = 1 ]; then echo "box-install: --rehearsal with --prepare: a prepared box goes to a site" >&2; exit 2; fi
+if [ -n "$OWNER" ] && [ "$PREPARE$REHEARSAL$FIRSTRUN" != 000 ]; then
+  echo "box-install: --answers is the site's unattended install: not with --prepare, --rehearsal or --firstrun" >&2; exit 2
+fi
 if [ "$REHEARSAL" = 1 ] && [ "$FIRSTRUN" = 1 ]; then echo "box-install: --rehearsal with --firstrun: the first run finishes the box as it was installed" >&2; exit 2; fi
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'box-install: %s\n' "$*" >&2; exit 1; }
@@ -86,6 +98,25 @@ print(f"    memory:  {h['ram_gib']} GiB, {h['cpu_count']} processors, {h['disk_f
 print(f"    disks for backups: {', '.join(d['path'] for d in h.get('disks') or []) or 'none'}")
 print(f"    security chip (TPM): {'yes' if h.get('tpm') else 'no'};  network: {h.get('lan') or '-'};  name: {h['hostname']}")
 EOP
+  if [ -n "$OWNER" ]; then  # D-898: checked before anything is written; a bad file changes nothing
+    [ -f "$OWNER" ] || die "no such answers file: $OWNER (nothing was changed)"
+    python3 - "$OWNER" <<'EOP' || die "the owner's answers file is refused (above): nothing was changed"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError) as e:
+    sys.exit(f"box-install: {sys.argv[1]} is not a JSON file ({type(e).__name__})")
+secret = sorted(k for k in d if k in ("password", "password2", "totp", "kek", "kek2", "kek_passphrase"))
+if secret:
+    sys.exit(f"box-install: {', '.join(secret)} in the answers file: a password or passphrase never goes in a file "
+             "(the administrator's password is made and printed by the install; TB_KEK_PASSPHRASE comes from the "
+             "environment)")
+EOP
+    if [ "$(json_get "$BOX/hardware.json" tpm)" != True ] && [ "${#TB_KEK_PASSPHRASE}" -lt 12 ]; then
+      die "no usable TPM: set TB_KEK_PASSPHRASE (12 characters or more) in the environment of this command; the site keys are sealed under it at the install (nothing was changed)"
+    fi
+    YES=1
+  fi
   if [ "$YES" != 1 ] && [ -t 0 ]; then
     printf 'Is this the machine to install TrialBox on? [Y/n] '; read -r ans
     case "$ans" in n|N) die "stopped: nothing was changed" ;; esac
@@ -93,16 +124,22 @@ EOP
   # ---------------------------------------------------------------------------------------------- 2. plan
   say "plan from the hardware"
   rm -f "$BOX/applied"  # D-576: a new install: the answers are provisional again and the wizard is due
-  ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --provisional --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)"
+  if [ -n "$OWNER" ]; then
+    ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --owner "$OWNER" --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)" \
+      || die "the owner's answers do not parse (above): nothing was changed"
+  else
+    ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --provisional --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)"
+  fi
   read -r -a INSTALL_ARGS <<< "${ARGS_LINE#install-args: }"
   [ "$REHEARSAL" = 1 ] && INSTALL_ARGS+=(--rehearsal)  # D-726: a rehearsal box, handed on to install.sh
-  DEFER=0; [ "$(json_get "$BOX/hardware.json" tpm)" = True ] || DEFER=1
+  DEFER=0; [ "$(json_get "$BOX/hardware.json" tpm)" = True ] || [ -n "$OWNER" ] || DEFER=1
+  INBOX=1; [ -z "$OWNER" ] || INBOX=0  # D-898: unattended, the install makes the first administrator (the IT form)
   echo "    install: ${INSTALL_ARGS[*]}"
   [ "$DEFER" = 0 ] || echo "    no TPM: the site keys are sealed after the wizard, under the owner's passphrase"
   # ---------------------------------------------------------------------------------------------- 3. install
   set +e
   # shellcheck disable=SC2086 # TB_BOX_INSTALL is a command line on purpose (tests)
-  TB_BOX=1 TB_BOX_DEFER_SEAL="$DEFER" ${TB_BOX_INSTALL:-bash "$ROOT/deploy/install.sh"} "$BUNDLE" \
+  TB_BOX="$INBOX" TB_BOX_DEFER_SEAL="$DEFER" ${TB_BOX_INSTALL:-bash "$ROOT/deploy/install.sh"} "$BUNDLE" \
     --answers "$BOX/answers.json" "${INSTALL_ARGS[@]}" --yes 2>&1 | tee "$BOX/install.log"
   rc="${PIPESTATUS[0]}"
   set -e
@@ -127,7 +164,9 @@ fi
 # BOX-APPLIED (D-576): the owner's answers were applied by an earlier start that did not reach its last line (the
 # window closed, the session dropped). The console's set-up is finished: a new code would never be accepted and the
 # wait would never end. Nothing is asked again; what follows the apply is done again.
-if [ -f "$BOX/applied" ]; then
+if [ -n "$OWNER" ]; then  # D-898: the answers were the install's own; no wizard, no code
+  say "unattended: the owner's answers came from $OWNER (no first-run code; the administrator's password and enrolment code are printed above)"
+elif [ -f "$BOX/applied" ]; then
   say "the owner's answers were applied on $(cat "$BOX/applied"): finishing the set-up (no new code)"
 else
 cp "$BOX/hardware.json" "$FR/hardware.json" && chmod 600 "$FR/hardware.json" && chown 10001:10001 "$FR/hardware.json" 2>/dev/null || true
@@ -180,6 +219,13 @@ elif [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ] && command -v timedatectl >/d
   timedatectl set-timezone "$TZ_NEW" || echo "box-install: warning: the host's time zone is not $TZ_NEW" >&2
 fi
 fi  # the answers were not applied before
+if [ -n "$OWNER" ]; then  # D-898: the host's zone from the answers file, then the mark (a later --firstrun asks nothing)
+  ZONE="$(json_get "$BOX/answers.json" tz)"
+  if [ "$WSL2" = 0 ] && [ -n "$ZONE" ] && [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ] && command -v timedatectl >/dev/null; then
+    timedatectl set-timezone "$ZONE" || echo "box-install: warning: the host's time zone is not $ZONE" >&2
+  fi
+  date -u +%FT%TZ > "$BOX/applied"
+fi
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
 # OPS-005: the name the box prints resolves on the clinic's network: the host takes the owner's name and the mDNS
 # responder answers it (the firewall lets UDP 5353 in from the box's network when hardening.conf says MDNS=on)
@@ -207,5 +253,9 @@ set +e
 ${TB_BOX_HOST_CHECK:-sh "$ROOT/deploy/check_host.sh"}
 rc=$?
 set -e
-printf '\n  TrialBox is ready: https://%s  (sign in with the account you made in the set-up)\n' "$HOST"
+if [ -n "$OWNER" ]; then
+  printf '\n  TrialBox is ready: https://%s  (sign in as admin with the password and enrolment code printed above)\n' "$HOST"
+else
+  printf '\n  TrialBox is ready: https://%s  (sign in with the account you made in the set-up)\n' "$HOST"
+fi
 exit "$rc"
