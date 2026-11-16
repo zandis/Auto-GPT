@@ -6,7 +6,7 @@ closed). Checks:
 * ``inputs`` (OPS-016): one FAIL line per input that cannot be read (a ``--settings`` file that is missing or does not
   parse); the other checks still run, on empty settings;
 * ``topology``: ``TB_TOPOLOGY`` (A/B/C) and ``TB_ENV`` (DEV/TEST/VALIDATION/PRODUCTION) are valid;
-* ``terminology`` (D-528, D-858): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its rows and
+* ``terminology`` (D-1028, D-858): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its rows and
   version; a table without its manifest line, or with other bytes, is FAIL; none loaded is WARN;
 * ``env_class_ceiling``: no configured data store (``settings.data_stores``), dataset (``eval/DATASETS.yaml``, in
   DEV and TEST) or ``TB_DATA_CLASS`` exceeds the environment ceiling of §17.8 (D3 data in DEV fails);
@@ -1928,9 +1928,9 @@ def check_chartno_rule(
 
 
 def check_terminology(inp: DoctorInputs) -> Check:
-    """D-528, D-529, D-858 (lane E's hunk): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its
+    """D-1028, D-1029, D-858 (lane E's hunk): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its
     rows and version. A table without its manifest line, or whose bytes differ from it, is FAIL (it is never read).
-    None loaded is PASS: the shipped tables (ICD-10-CM FY2026 with its blocks and index, D-529) answer."""
+    None loaded is PASS: the shipped tables (ICD-10-CM FY2026 with its blocks and index, D-1029) answer."""
     from criteria_compiler.terminology import installed
 
     where = installed.installed_dir(dict(inp.env))

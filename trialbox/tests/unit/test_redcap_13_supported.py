@@ -1,7 +1,7 @@
-"""RC13-F (D-852): REDCap 13 is a supported version (the owner's ruling D-524: 13.7 is the hospital's production
+"""RC13-F (D-852): REDCap 13 is a supported version (the owner's ruling D-1024: 13.7 is the hospital's production
 version).
 
-The evidence is the owner's REDCap 13.7.23, installed privately and offline (D-521; synthetic projects only): the
+The evidence is the owner's REDCap 13.7.23, installed privately and offline (D-1021; synthetic projects only): the
 conformance tests R1 to R9 pass on it with the instance tool's fixes (D-850), and the client's ICD-04 calls (version,
 project, metadata, events, form-event mapping, data access groups, the record export and the export since a time)
 all answer. 12 and earlier stay refused."""

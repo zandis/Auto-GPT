@@ -1,6 +1,6 @@
 # D-855 The EDC's lake reader is tested on a lake
 
-- **Task:** EDC-020 (deep review 2026-11-12, Medium, E-24; wave 6, unfrozen by D-527)
+- **Task:** EDC-020 (deep review 2026-11-12, Medium, E-24; wave 6, unfrozen by D-1027)
 - **PR:** this branch (`agent/EDC-020-lakefacts-on-a-lake`)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)

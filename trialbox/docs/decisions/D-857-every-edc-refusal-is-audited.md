@@ -1,6 +1,6 @@
 # D-857 Every refusal of the EDC service is audited, the early ones too
 
-- **Task:** EDC-019 (deep review 2026-11-12, Medium, E-20; wave 6, unfrozen by D-527)
+- **Task:** EDC-019 (deep review 2026-11-12, Medium, E-20; wave 6, unfrozen by D-1027)
 - **PR:** this branch (`agent/EDC-019-early-refusals-audited`)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)

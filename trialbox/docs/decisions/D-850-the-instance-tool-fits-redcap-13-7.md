@@ -1,6 +1,6 @@
 # D-850 The test-instance tool fits a real REDCap (13.7)
 
-- **Task:** RC13-C (D-521: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
+- **Task:** RC13-C (D-1021: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
   projects only)
 - **PR:** this branch (`agent/RC13-C-instance-tool-on-13-7`)
 - **Date:** 2026-11-16

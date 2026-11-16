@@ -1,6 +1,6 @@
 # D-851 The handed-out dictionary keeps a calculated field's expression and a decimal field's places
 
-- **Task:** RC13-E (from the REDCap 13.7.23 run, D-521; synthetic projects only)
+- **Task:** RC13-E (from the REDCap 13.7.23 run, D-1021; synthetic projects only)
 - **PR:** this branch (`agent/RC13-E-calc-expression-kept`), cut from RC13-B (D-848)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)
