@@ -178,6 +178,15 @@ OMOP_BY_PERSON = (
     "note",
     "tb_appointment",
     "tb_claim",
+    # ERASE-B (D-867): the tables no loader writes yet, and the clinical conflicts
+    "device_exposure",
+    "specimen",
+    "visit_detail",
+    "condition_era",
+    "drug_era",
+    "dose_era",
+    "payer_plan_period",
+    "episode",
 )
 
 
@@ -205,6 +214,14 @@ def _verify_one_omop(name: str, db: Any, pids: frozenset[str]) -> dict[str, int]
         return out
     for t in OMOP_BY_PERSON:
         out[f"{name}.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE person_id = ANY(?)", (persons,)))
+    out[f"{name}.cohort"] = int(db.fetchval("SELECT count(*) FROM cohort WHERE subject_id = ANY(?)", (persons,)))
+    out[f"{name}.episode_event"] = int(
+        db.fetchval(
+            "SELECT count(*) FROM episode_event WHERE episode_id IN (SELECT episode_id FROM episode "
+            "WHERE person_id = ANY(?))",
+            (persons,),
+        )
+    )
     out[f"{name}.tb_record"] = int(
         db.fetchval(
             "SELECT count(*) FROM tb_record WHERE status <> 'tombstoned' AND (person_id = ANY(?) OR "
@@ -388,6 +405,8 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "derived")
     if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
         return Database.connect(url, "mail")
+    if schema == "sitesetup":  # ERASE-A1 (D-866): the site set-up's facts by pseudonym
+        return Database.connect(url, "sitesetup")
     raise ValueError(f"no owed table in store {schema!r}")
 
 
@@ -453,7 +472,21 @@ def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str
                     out.update({k: int(v or 0) for k, v in _derived(tx, want, True).items()})
             else:
                 out.update(_derived(db, want, False))
+    out.update(_more_owed(pids, env, delete))
     return out
+
+
+def _more_owed(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    """ERASE-A1 (D-866): ``sitesetup.fact``, a fact read from an uploaded file, by pseudonym, goes. The site set-up
+    no longer writes one again (a re-read of the sheet, a chart: ``sitesetup.service.SiteSetup``)."""
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    if not want or not store_has(url, "sitesetup", "fact"):
+        return {"sitesetup.fact": 0}
+    with _open(url, "sitesetup") as db:
+        if delete:
+            return {"sitesetup.fact": int(db.execute("DELETE FROM fact WHERE pid = ANY(?)", (want,)) or 0)}
+        return {"sitesetup.fact": int(db.fetchval("SELECT count(*) FROM fact WHERE pid = ANY(?)", (want,)))}
 
 
 def clear_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:

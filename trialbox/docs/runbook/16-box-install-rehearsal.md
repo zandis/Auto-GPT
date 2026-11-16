@@ -145,3 +145,29 @@ first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the 
 this path without Docker is `tests/console/test_box_install_rehearsal.py` (the real script, stand-ins for the inner
 install, compose and the host check, the wizard in process); what only a real box proves is listed in D-466 for
 T-213b's rental-workstation and Spark runs.
+
+**Unattended (D-898):** `sudo deploy/box-install.sh trialbox-<version>.tar --answers owner.json` installs a box with no
+question, no first-run code and no wait. Use it for the hospital's own unattended install, or for a run on a VM.
+- `owner.json` holds the first-run form's fields:
+  - `site_name`, `tz`, `language`;
+  - `owner_full_name`, `owner_username`, `owner_email`;
+  - `box_name`;
+  - `backup_kind` with `backup_disk` or `backup_share`;
+  - `source`;
+  - optionally `chartno_rule`, `mta_authserv_id`, and `environment` (`PRODUCTION`, or `VALIDATION` for public or
+    synthetic data).
+- The plan is made from that file. The install then makes the first administrator as the IT form does: the password
+  and enrolment code are printed once.
+- After the install it sets the host's time zone, installs the backup schedule and runs the host check.
+- A password or passphrase in the file is refused. On a board without a usable TPM, set `TB_KEK_PASSPHRASE` in the
+  command's environment; the site keys are sealed under it at the install.
+- A file that does not parse changes nothing.
+- It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
+
+**The box's name (OPS-005):** a box named `<name>.local` answers that name on the clinic's network.
+- `hardening.conf` says `MDNS=on`, and the input firewall then lets mDNS (UDP 5353) in from the box's own network only.
+- The apply step sets the host name to the owner's choice and starts `avahi-daemon`. When the responder is not
+  installed, it says so.
+- The first-run screen also prints the box's address, for a computer that cannot resolve `.local`. The browser then
+  warns, because the certificate names the box, not its address.
+- A box with a name in the hospital's DNS keeps `MDNS=off`.

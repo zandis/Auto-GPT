@@ -25,7 +25,7 @@ from typing import Any
 
 from datacore.sync import Row
 
-from rc_bridge.link import WRITE_FIELDS, ProjectLink
+from rc_bridge.link import GROUP_COLUMN, WRITE_FIELDS, ProjectLink, in_group
 
 STATUSES = ("candidate", "contacted", "consented", "enrolled", "screen_fail", "declined", "withdrawn")
 STATUS_CODES = {s: str(i) for i, s in enumerate(STATUSES, 1)}  # tb_status choices "1, candidate | 2, contacted | ..."
@@ -130,6 +130,7 @@ class LinkSource:
     record_of: dict[str, str] = field(default_factory=dict)  # screening number -> REDCap record id (pulled)
     updated: dict[str, str] = field(default_factory=dict)  # this push
     created: dict[str, str] = field(default_factory=dict)
+    group_bound: bool = False  # RC13-D (D-849): the token is a group user's (read from the last pull)
 
     def fields(self) -> list[str]:
         return list(WRITE_FIELDS)
@@ -137,8 +138,7 @@ class LinkSource:
     def pull(self) -> list[Row]:
         with self.client() as rc:
             rows = rc.records(fields=[self.id_field, self.link.link_field, *WRITE_FIELDS], dags=bool(self.link.dag))
-        if self.link.dag:
-            rows = [r for r in rows if str(r.get("redcap_data_access_group") or "") == self.link.dag]
+        rows, self.group_bound = in_group(rows, self.link.dag)
         idx = existing_index(rows, self.link, self.id_field)
         self.duplicates = sorted(no for no in self.numbers if len(idx.get(no, [])) > 1)
         self.record_of = {no: ids[0] for no, ids in idx.items() if no in self.numbers and len(ids) == 1}
@@ -163,8 +163,8 @@ class LinkSource:
                 upd.append({self.id_field: r.source_id, **base, **r.values})
                 self.updated[r.record] = r.source_id
             elif self.link.write_mode == "create":
-                if self.link.dag:
-                    base["redcap_data_access_group"] = self.link.dag
+                if self.link.dag and not self.group_bound:  # a group user's import may not carry the column
+                    base[GROUP_COLUMN] = self.link.dag
                 new.append((r.record, {self.id_field: f"tb-new-{len(new) + 1}", **base,
                                        self.link.link_field: r.record, **r.values}))  # fmt: skip
         with self.client() as rc:

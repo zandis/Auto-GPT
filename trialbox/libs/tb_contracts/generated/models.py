@@ -2270,6 +2270,17 @@ class Atom(BaseModel):
     """
     computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021
     """
+    clinical_status: (
+        list[
+            Literal[
+                "active", "recurrence", "relapse", "inactive", "remission", "resolved"
+            ]
+        ]
+        | None
+    ) = Field(None, min_length=1)
+    """
+    condition atoms only (D-917): the clinical statuses that count; a row recorded with another status makes the answer unknown, a row with no status counts as before
+    """
 
 
 class B200Layout(BaseModel):
