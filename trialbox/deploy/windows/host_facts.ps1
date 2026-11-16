@@ -191,6 +191,17 @@ if ($null -eq $proxyTask) { Fact "console_proxy_task" "missing" } else { Fact "c
 $ipHelper = Get-Service -Name "iphlpsvc" -ErrorAction SilentlyContinue
 if ($null -eq $ipHelper) { Fact "ip_helper" "missing" } else { Fact "ip_helper" ("{0}/{1}" -f $ipHelper.Status, $ipHelper.StartType) }
 
+# NEW-WIN-15 (D-618): where Windows keeps the site keys' KEK (the file's name only, never its content) and the task
+# that hands it into WSL2 at each start
+$keyDir = Join-Path $env:ProgramData "TrialBox\box-install"
+# the folder the task hands from (-Dir in its arguments): an install with its own -StateDir keeps the KEK there
+$keyTask = Get-ScheduledTask -TaskName "TrialBox-Site-Key" -ErrorAction SilentlyContinue
+if ($null -ne $keyTask -and ((@($keyTask.Actions) | ForEach-Object { $_.Arguments }) -join " ") -match '-Dir "([^"]+)"') { $keyDir = $Matches[1] }
+if (Test-Path -LiteralPath (Join-Path $keyDir "site-key.dpapi")) { Fact "site_key_store" "dpapi_user" }
+elseif (Test-Path -LiteralPath (Join-Path $keyDir "site-key.bin")) { Fact "site_key_store" "acl_file" }
+else { Fact "site_key_store" "none" }
+if ($null -eq $keyTask) { Fact "site_key_task" "missing" } else { Fact "site_key_task" $keyTask.State }
+
 # the start-at-boot task that keeps WSL2 running whether or not anyone is signed in (register_keepalive.ps1)
 Fact "keepalive_task_name" $TaskName
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue

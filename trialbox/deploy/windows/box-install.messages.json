@@ -473,5 +473,10 @@
     "en": "The media's P-0 settings ({0}) cannot be read. Nothing was changed. The media needs to be built again; send this message to whoever built it.",
     "ja": "メディアの P-0 設定（{0}）を読み取れません。何も変更していません。メディアを作り直す必要があります。このメッセージをメディアを作成した担当者に送ってください。",
     "zh-TW": "無法讀取媒體的 P-0 設定（{0}）。未做任何變更。需要重新製作媒體；請將此訊息寄給製作媒體的人。"
+  },
+  "site_key_failed": {
+    "en": "Windows could not keep the site keys' key ({0}). The Linux side still holds it on WSL2's disk, so nothing is lost. Start the installer again; if this message comes again, send the installer's log.",
+    "ja": "Windows はサイトの鍵の鍵を保管できませんでした（{0}）。Linux 側が WSL2 のディスク上にまだ保持しているので、失われたものはありません。インストーラーをもう一度起動してください。同じメッセージが再び出る場合は、インストーラーのログを送ってください。",
+    "zh-TW": "Windows 無法保存站台金鑰的金鑰（{0}）。Linux 端仍將它保存在 WSL2 的磁碟上，因此沒有遺失任何東西。請再次啟動安裝程式；如果再次出現此訊息，請寄送安裝程式的記錄檔。"
   }
 }
