@@ -1996,3 +1996,63 @@ def withhold_persons(tx: Any, pids: Sequence[str], actor: str) -> int:
         ],
     )
     return len(live)
+
+
+# D-531 (the owner, 2026-11-16; replaces D-526 for the event table): an opted-out patient's before-images are kept,
+# hidden (the export as of a time keeps a withheld patient out, D-493), so a lift and the as-of export keep working
+# until retention; at retention they are blanked, as D-513 does with the lake's files. Retention is the lake's: the
+# months a month-end snapshot is kept (``settings.retention.month_end_snapshots_months``), counted from the day the
+# patient was withheld. A record keeps its ids and provenance (D-441); the FHIR fields it carried (``extra``) go,
+# in the record and in each of its images. A patient released (lifted) before then is no longer withheld: nothing is
+# blanked.
+# The review of D-531: the consent statements the withhold keeps (:data:`KEEP_WITHHELD`, D-441) are not blanked; the
+# day counts as the lake's does (a month-end snapshot of month X goes on the first of month X + M + 1, so the last
+# one that held the patient, the month before the opt-out, goes on the first of month(since) + M).
+_RETAINED = (
+    "SELECT r.record_key FROM tb_record r JOIN tb_id_map m ON m.id_kind = 'person' AND (r.person_id = m.omop_id OR "
+    "(r.cdm_table = 'person' AND r.record_id = m.omop_id)) JOIN tb_withheld w ON w.pid = m.source_id "
+    "WHERE date_trunc('month', w.since) + make_interval(months => ?) <= ?::timestamptz "
+    "AND coalesce(r.cdm_table, '') <> ALL(?)"
+)
+#: a blanked image says so: an export as of a time before it is refused for a patient no longer withheld (the review
+#: of D-531: after a lift, a wind-back past a blanked image would drop the record's history without a word)
+BLANKED = "blanked"
+_IMAGES_LEFT = (
+    "SELECT count(*) FROM tb_record_event WHERE record_key = ANY(?) AND (before IS NOT NULL OR before_sha IS NOT NULL "
+    "OR coalesce(record_before -> 'extra', '{}'::jsonb) <> '{}'::jsonb)"
+)
+_EXTRA_LEFT = "SELECT count(*) FROM tb_record WHERE record_key = ANY(?) AND extra <> '{}'::jsonb"
+
+
+def owed_at_retention(db: Any, now: datetime, months: int) -> dict[str, int]:
+    """The before-images and records of patients withheld past retention not blanked yet (counts only)."""
+    keys = [int(r[0]) for r in db.fetchall(_RETAINED, (int(months), now, list(KEEP_WITHHELD)))]
+    if not keys:
+        return {"tb_record_event": 0, "tb_record.extra": 0}
+    return {"tb_record_event": int(db.fetchval(_IMAGES_LEFT, (keys,))),
+            "tb_record.extra": int(db.fetchval(_EXTRA_LEFT, (keys,)))}  # fmt: skip
+
+
+def blank_at_retention(db: Database, now: datetime, months: int) -> dict[str, int]:
+    """D-531: blank the before-images and the records' FHIR fields of every patient withheld for ``months`` or more
+    at ``now``, under the loader's lock (:class:`LoadRunning` at once while a load holds it, as the withhold). An
+    image keeps the record's ids, so an export as of an earlier time still winds back (the patient stays out)."""
+    with db.transaction() as tx:
+        got = tx.fetchall("SELECT pg_try_advisory_xact_lock(hashtext('trialbox-omop-load'))")
+        if not (got and got[0][0] is True):
+            raise LoadRunning("an OMOP load is running: the before-images are blanked on a tick after it")
+        keys = [int(r[0]) for r in tx.fetchall(_RETAINED, (int(months), now, list(KEEP_WITHHELD)))]
+        if not keys:
+            return {"images_blanked": 0, "records_blanked": 0}
+        # a person's free-text reason (a status set by a steward) goes; the withhold's own reason stays
+        images = tx.execute(
+            "UPDATE tb_record_event SET before = NULL, before_sha = NULL, reason = CASE WHEN reason = ? THEN reason "
+            "ELSE NULL END, record_before = CASE WHEN record_before IS NULL THEN NULL ELSE record_before || "
+            "jsonb_build_object('extra', '{}'::jsonb, ?::text, true) END WHERE record_key = ANY(?) AND (before IS NOT "
+            "NULL OR before_sha IS NOT NULL OR coalesce(record_before -> 'extra', '{}'::jsonb) <> '{}'::jsonb)",
+            (OPTED_OUT, BLANKED, keys),
+        )
+        records = tx.execute(
+            "UPDATE tb_record SET extra = '{}'::jsonb WHERE record_key = ANY(?) AND extra <> '{}'::jsonb", (keys,)
+        )
+    return {"images_blanked": int(images or 0), "records_blanked": int(records or 0)}

@@ -437,12 +437,17 @@ TABLES: dict[str, Entry] = {
         _OMOP_UNWRITTEN,
     ),
     **_each("omop", ("cost", "location"), _OMOP_THROUGH),
-    "omop.tb_record": _erase(
-        "omop",
-        "the record ledger: the person's live records are tombstoned",
-        "the tombstoned row keeps the person id and the source record id",
+    "omop.tb_record": _keep(
+        "D-531",
+        "the record ledger, ids and provenance (D-441): the person's live records are tombstoned at the opt-out, and "
+        "the FHIR fields a record carried (extra) are blanked at retention by the omop clear",
     ),
-    "omop.tb_record_event": _owed("every change of a record with its before-image", "the before-images"),
+    "omop.tb_record_event": _erase(
+        "omop",
+        "every change of a record with its before-image: blanked at retention by the omop clear (D-531)",
+        "an opted-out patient's before-images until retention (the lake's month-end months): kept hidden, so a lift "
+        "and the export as of a time work (D-531, as D-513 for the lake's files)",
+    ),
     "omop.tb_conflict": _owed(
         "a source conflict of a person, every source's value and the steward's ruling",
         "at retention, or with a before-image: a lift undoes the withhold, and the ruling must still hold (D-867)",

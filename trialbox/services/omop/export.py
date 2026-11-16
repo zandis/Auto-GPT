@@ -191,6 +191,25 @@ def _wind_back(tx: Any, at: datetime) -> None:
     lost = tx.fetchval(
         "SELECT count(*) FROM tb_record_event WHERE at > ? AND record_before IS NULL AND event <> 'insert'", (at,)
     )
+    # the review of D-531: an image blanked at retention can no longer bring its row back. A patient withheld now
+    # is kept out anyway; for one released since (a lift), an instant before a blanked image is refused, never
+    # guessed (the record's history would be dropped without a word)
+    from tb_common.optout import register_now
+
+    withheld = sorted({str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")} | set(register_now()))
+    held = [int(r[0]) for r in tx.fetchall(
+        "SELECT omop_id FROM tb_id_map WHERE id_kind = 'person' AND source_id = ANY(?)", (withheld,))]  # fmt: skip
+    blanked = tx.fetchval(
+        "SELECT count(*) FROM tb_record_event e JOIN tb_record r USING (record_key) WHERE e.at > ? AND "
+        "(e.record_before ->> 'blanked') IS NOT NULL AND NOT (coalesce(r.person_id = ANY(?), false) OR "
+        "(r.cdm_table = 'person' AND r.record_id = ANY(?)))",
+        (at, held, held),
+    )
+    if blanked:
+        raise OmopError(
+            f"the store cannot be exported as of {at.isoformat()}: {blanked} later changes of a patient released "
+            "since had their before-images blanked at retention (D-531)"
+        )
     if lost:
         raise OmopError(
             f"the store cannot be exported as of {at.isoformat()}: {lost} later changes have no record before-image "

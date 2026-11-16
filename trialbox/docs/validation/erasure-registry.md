@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-229 entries: 88 erase, 26 keep, 115 no patient data. 29 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+229 entries: 87 erase, 27 keep, 115 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -13,7 +13,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `candidate_pool` | MICROBATCH's pool rows go (D-441) | `orch.pool` |
 | `candidate_registry` | open candidates become withdrawn; consented and enrolled are kept (OD-8, D-441) | `orch.candidates` |
 | `held_mail` | a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863) | `mail.send_keys` |
-| `omop` | tb_withheld, and the live rows deleted and tombstoned at once (D-441) | `omop.cohort`, `omop.condition_era`, `omop.condition_occurrence`, `omop.condition_occurrence_ydefault`, `omop.cost`, `omop.death`, `omop.device_exposure`, `omop.dose_era`, `omop.drug_era`, `omop.drug_exposure`, `omop.drug_exposure_ydefault`, `omop.episode`, `omop.episode_event`, `omop.fact_relationship`, `omop.location`, `omop.measurement`, `omop.measurement_ydefault`, `omop.note`, `omop.note_nlp`, `omop.note_ydefault`, `omop.observation`, `omop.observation_period`, `omop.observation_ydefault`, `omop.payer_plan_period`, `omop.person`, `omop.procedure_occurrence`, `omop.procedure_occurrence_ydefault`, `omop.specimen`, `omop.tb_appointment`, `omop.tb_claim`, `omop.tb_record`, `omop.visit_detail`, `omop.visit_occurrence`, `omop.visit_occurrence_ydefault` |
+| `omop` | tb_withheld, and the live rows deleted and tombstoned at once (D-441) | `omop.cohort`, `omop.condition_era`, `omop.condition_occurrence`, `omop.condition_occurrence_ydefault`, `omop.cost`, `omop.death`, `omop.device_exposure`, `omop.dose_era`, `omop.drug_era`, `omop.drug_exposure`, `omop.drug_exposure_ydefault`, `omop.episode`, `omop.episode_event`, `omop.fact_relationship`, `omop.location`, `omop.measurement`, `omop.measurement_ydefault`, `omop.note`, `omop.note_nlp`, `omop.note_ydefault`, `omop.observation`, `omop.observation_period`, `omop.observation_ydefault`, `omop.payer_plan_period`, `omop.person`, `omop.procedure_occurrence`, `omop.procedure_occurrence_ydefault`, `omop.specimen`, `omop.tb_appointment`, `omop.tb_claim`, `omop.tb_record_event`, `omop.visit_detail`, `omop.visit_occurrence`, `omop.visit_occurrence_ydefault` |
 | `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `sitesetup.fact`, `team.approach_overrides`, `team.candidate_views`, `team.referral_events`, `team.referrals`, `tuned.tuned_patients` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
@@ -39,8 +39,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `objects:attachments` | T-206b | the files kept with a job until retention (D-513): an attached chart of a patient who opted out after it came | files mailed or uploaded to a job (consent forms, review sheets, case requests); a CASE chart of an opted-out subject is refused before it is read (D-873) |
 | `objects:outputs` | T-206b | kept until retention (D-513): other patients' pages read the same files, so no clear deletes them | job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the console's pages and downloads (a per-patient file by its patient), a submission and a feedback row; the mail outbox asks before each send (D-863) |
 | `omop.tb_conflict` | T-206b | at retention, or with a before-image: a lift undoes the withhold, and the ruling must still hold (D-867) | a source conflict of a person, every source's value and the steward's ruling |
-| `omop.tb_record` | T-206b | the tombstoned row keeps the person id and the source record id | the record ledger: the person's live records are tombstoned |
-| `omop.tb_record_event` | T-206b | the before-images | every change of a record with its before-image |
+| `omop.tb_record_event` | T-206b | an opted-out patient's before-images until retention (the lake's month-end months): kept hidden, so a lift and the export as of a time work (D-531, as D-513 for the lake's files) | every change of a record with its before-image: blanked at retention by the omop clear (D-531) |
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
@@ -75,6 +74,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.signature_void` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `omop.tb_consent` | D-441 | the refusal itself must reach the lake, or the registry would read as silent |
 | `omop.tb_id_map` | D-441 | pseudonym to person id: the worker and the loader must still find the person |
+| `omop.tb_record` | D-531 | the record ledger, ids and provenance (D-441): the person's live records are tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the omop clear |
 | `omop.tb_withheld` | D-441 | the register's copy the loader reads to keep the patient out |
 | `optout.optout_events` | D-441 | the opt-out register itself: the record of the refusal (D-147) |
 | `orch.judge_answers` | D-456 | a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone |

@@ -53,6 +53,9 @@ ACTOR = "optout-worker"
 OPEN_STATUSES = ("candidate", "contacted")
 WITHDRAW_REASON = "opted out (research-use register)"
 MINUTES_ENV = "TB_OPTOUT_WORKER_MINUTES"
+#: ``WorkerEnv.extra``: the months an opted-out patient's before-images are kept (D-531: the lake's month-end
+#: snapshots, ``settings.retention.month_end_snapshots_months``); none: nothing is blanked
+KEEP_MONTHS = "omop_keep_months"
 
 
 @dataclass
@@ -146,9 +149,12 @@ def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
     stores = _omop_open(env)
     total: dict[str, int] = {}
+    months = env.extra.get(KEEP_MONTHS)
     for name, db in stores:
         try:
             counts = load.withhold(db, pids, ACTOR).as_dict()
+            if months is not None:  # D-531: past retention, the before-images and the FHIR fields go
+                counts.update(load.blank_at_retention(db, env.now, int(months)))
         except Exception as exc:
             log.error("opt-out worker: the OMOP store %s was not cleared (%s)", name, type(exc).__name__)
             env.not_cleared.append(name)
@@ -198,8 +204,13 @@ def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     if not pids:
         return {}
     out: dict[str, int] = {}
+    months = env.extra.get(KEEP_MONTHS)
     for name, db in _omop_open(env):
         out.update(_verify_one_omop(name, db, pids))
+        if months is not None:  # D-531: what is past retention and not blanked yet
+            from omop import load
+
+            out.update({f"{name}.{k}": v for k, v in load.owed_at_retention(db, env.now, int(months)).items()})
     return out
 
 
@@ -781,6 +792,14 @@ def _failed(orch: Any, what: list[str], now: datetime) -> None:
         log.error("opt-out worker failure not audited: %s", type(exc).__name__)
 
 
+def _keep_months(orch: Any) -> int:
+    """D-531: the months the lake keeps a month-end snapshot (``settings.retention.month_end_snapshots_months``, 36
+    when unset, as the adapter reads it)."""
+    ret = getattr(getattr(getattr(orch, "cfg", None), "settings", None), "retention", None)
+    months = getattr(ret, "month_end_snapshots_months", None)
+    return int(months) if months is not None else 36
+
+
 def tick(orch: Any) -> dict[str, Any] | None:
     """One tick with the orchestrator's own handles. Never raises (a scheduler job): a tick that fails or leaves a
     store not cleared is audited (``optout.worker_failed``) and turns the health line red (:data:`STATUS`)."""
@@ -798,7 +817,8 @@ def tick(orch: Any) -> dict[str, Any] | None:
         env = WorkerEnv(
             register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop,
             not_opened=not_opened, omop_more=more,
-            extra={"setup_root": Path(orch.data_dir) / "sitesetup" if getattr(orch, "data_dir", None) else None},
+            extra={"setup_root": Path(orch.data_dir) / "sitesetup" if getattr(orch, "data_dir", None) else None,
+                   KEEP_MONTHS: _keep_months(orch)},
         )  # fmt: skip
         out = run_once(env)
     except Exception as exc:
