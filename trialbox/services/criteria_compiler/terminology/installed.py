@@ -1,6 +1,6 @@
-"""Code systems loaded on the box at install (D-528, D-529; TERM-1, D-858).
+"""Code systems loaded on the box at install (D-1028, D-1029; TERM-1, D-858).
 
-A code system that may not be committed (LOINC, WHO ICD-10, ATC, a site's own lists: D-528 as amended by D-529) is
+A code system that may not be committed (LOINC, WHO ICD-10, ATC, a site's own lists: D-1028 as amended by D-1029) is
 loaded onto each box at install and at update, by ``python -m tools.terminology_install``, into
 ``TB_TERMINOLOGY_DIR`` (default ``/data/terminology``). Every table written there has its line in ``manifest.json``:
 the source, the version, the licence note, the file's sha256, its rows and when it was loaded. A table with no line,
@@ -11,7 +11,7 @@ Loaders today:
 * ``icd10cm_blocks`` and ``icd10cm_index``, from CMS's ICD-10-CM code-tables zip (the tabular list and the
   Alphabetic Index, US public domain): the blocks and chapters (``Ischemic heart diseases``, I20 to I25) and the
   index's main terms and first-level subterms (``Epilepsy``; ``Accident, cerebrovascular``). The FY2026 tables also
-  ship in the repository (D-529); a later release loaded here is read in their place, so a box takes the next
+  ship in the repository (D-1029); a later release loaded here is read in their place, so a box takes the next
   year's names without a new image. Taiwan's NHI codes diagnoses in ICD-10-CM (its 2023 edition since 2025-01-01,
   D-171); the US release's blocks and index serve its names.
 """

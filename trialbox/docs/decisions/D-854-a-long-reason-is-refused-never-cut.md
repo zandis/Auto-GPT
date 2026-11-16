@@ -1,6 +1,6 @@
 # D-854 A reason or a citation longer than 300 characters is refused, never cut
 
-- **Task:** EDC-022 (deep review 2026-11-12, Low; wave 6, unfrozen by D-527)
+- **Task:** EDC-022 (deep review 2026-11-12, Low; wave 6, unfrozen by D-1027)
 - **PR:** this branch (`agent/EDC-022-long-reason-refused`)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)

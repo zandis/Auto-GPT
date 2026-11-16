@@ -3,7 +3,7 @@ places, also after the form has been stored as a Questionnaire.
 
 The handed-out dictionary is built from the study's stored Questionnaires (``export.export_fields``). A calculated
 field's expression was never kept, so it went out empty and a site could not build the field from it; a decimal
-field's ``@TB-DECIMALS`` places (D-840) were lost on the way through the Questionnaire. REDCap 13.7 (D-521) takes a
+field's ``@TB-DECIMALS`` places (D-840) were lost on the way through the Questionnaire. REDCap 13.7 (D-1021) takes a
 calculated field only with its expression."""
 
 from __future__ import annotations

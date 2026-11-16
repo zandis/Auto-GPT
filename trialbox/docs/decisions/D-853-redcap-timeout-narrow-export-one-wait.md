@@ -1,10 +1,10 @@
 # D-853 The REDCap client's timeout is a setting, a rate limit is waited on once, the send exports only its records
 
-- **Task:** EDC-018 (deep review 2026-11-12, Medium; wave 6, now unfrozen by D-527)
+- **Task:** EDC-018 (deep review 2026-11-12, Medium; wave 6, now unfrozen by D-1027)
 - **PR:** this branch (`agent/EDC-018-redcap-timeout-narrow-export`)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)
-- **Builds on:** NEW-EDC-7 (the error register), D-521 (REDCap 13.7's rate limit seen), STD-060
+- **Builds on:** NEW-EDC-7 (the error register), D-1021 (REDCap 13.7's rate limit seen), STD-060
 
 ## Decision
 

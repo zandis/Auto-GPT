@@ -1,6 +1,6 @@
 # D-847 REDCap 13.7's English refusals read as their kinds
 
-- **Task:** RC13-A (D-521: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
+- **Task:** RC13-A (D-1021: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
   projects only)
 - **PR:** this branch (`agent/RC13-A-redcap-13-refusals`)
 - **Date:** 2026-11-16
