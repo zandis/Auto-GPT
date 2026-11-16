@@ -1450,7 +1450,9 @@ step_qualify() {
   if [ -n "$DIRECT" ]; then WATCH_IO=1 need "the stack healthy before qualify (compose up --wait)" d_direct_up || return 1; fi
   watched d_medtxt; note medtxt_fetch_exit $?
   # the box's own commit, for the files qualify reads that the image lacks (F13): the source bundle beside the bundle
-  if has dev && [ -d "$CK" ] && [ ! -d "$TB/qsrc/trialbox" ]; then ln -sfn "${CK%/trialbox}" "$TB/qsrc"; fi
+  # F36 (2026-11-16): always this run's checkout; a link kept from an earlier commit's run mounted that commit's eval/
+  # over the image's own (pin: "no /app/eval/qualification/judge_set.jsonl", a file D-838 moved)
+  if has dev && [ -d "$CK" ]; then rm -rf "$TB/qsrc"; ln -sfn "${CK%/trialbox}" "$TB/qsrc"; fi
   if [ -n "$COMMIT" ] && [ ! -d "$TB/qsrc/trialbox" ]; then
     rm -rf "$TB/qsrc"
     { fetch "${BUNDLE_SRC%/*}/src.bundle" "$TB/qsrc.bundle" && git clone -q "$TB/qsrc.bundle" "$TB/qsrc" \
