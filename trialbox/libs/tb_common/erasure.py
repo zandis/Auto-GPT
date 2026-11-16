@@ -438,9 +438,10 @@ TABLES: dict[str, Entry] = {
     ),
     **_each("omop", ("cost", "location"), _OMOP_THROUGH),
     "omop.tb_record": _keep(
-        "D-1031",
-        "the record ledger, ids and provenance (D-441): the person's live records are tombstoned at the opt-out, and "
-        "the FHIR fields a record carried (extra) are blanked at retention by the omop clear",
+        "D-876",
+        "the record ledger, ids and provenance (D-441, the owner's D-1031): the person's live records are "
+        "tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the "
+        "omop clear",
     ),
     "omop.tb_record_event": _erase(
         "omop",

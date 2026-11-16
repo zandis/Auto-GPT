@@ -74,7 +74,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.signature_void` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `omop.tb_consent` | D-441 | the refusal itself must reach the lake, or the registry would read as silent |
 | `omop.tb_id_map` | D-441 | pseudonym to person id: the worker and the loader must still find the person |
-| `omop.tb_record` | D-1031 | the record ledger, ids and provenance (D-441): the person's live records are tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the omop clear |
+| `omop.tb_record` | D-876 | the record ledger, ids and provenance (D-441, the owner's D-1031): the person's live records are tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the omop clear |
 | `omop.tb_withheld` | D-441 | the register's copy the loader reads to keep the patient out |
 | `optout.optout_events` | D-441 | the opt-out register itself: the record of the refusal (D-147) |
 | `orch.judge_answers` | D-456 | a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone |
