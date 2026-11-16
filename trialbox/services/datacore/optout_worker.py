@@ -178,6 +178,16 @@ OMOP_BY_PERSON = (
     "note",
     "tb_appointment",
     "tb_claim",
+    # ERASE-B (D-867): the tables no loader writes yet, and the clinical conflicts
+    "device_exposure",
+    "specimen",
+    "visit_detail",
+    "condition_era",
+    "drug_era",
+    "dose_era",
+    "payer_plan_period",
+    "episode",
+    "tb_conflict",
 )
 
 
@@ -205,6 +215,14 @@ def _verify_one_omop(name: str, db: Any, pids: frozenset[str]) -> dict[str, int]
         return out
     for t in OMOP_BY_PERSON:
         out[f"{name}.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE person_id = ANY(?)", (persons,)))
+    out[f"{name}.cohort"] = int(db.fetchval("SELECT count(*) FROM cohort WHERE subject_id = ANY(?)", (persons,)))
+    out[f"{name}.episode_event"] = int(
+        db.fetchval(
+            "SELECT count(*) FROM episode_event WHERE episode_id IN (SELECT episode_id FROM episode "
+            "WHERE person_id = ANY(?))",
+            (persons,),
+        )
+    )
     out[f"{name}.tb_record"] = int(
         db.fetchval(
             "SELECT count(*) FROM tb_record WHERE status <> 'tombstoned' AND (person_id = ANY(?) OR "

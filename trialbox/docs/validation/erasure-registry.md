@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-229 entries: 87 erase, 27 keep, 115 no patient data. 49 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+229 entries: 87 erase, 27 keep, 115 no patient data. 36 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -13,7 +13,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `candidate_pool` | MICROBATCH's pool rows go (D-441) | `orch.pool` |
 | `candidate_registry` | open candidates become withdrawn; consented and enrolled are kept (OD-8, D-441) | `orch.candidates` |
 | `held_mail` | a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863) | `mail.send_keys` |
-| `omop` | tb_withheld, and the live rows deleted and tombstoned at once (D-441) | `omop.condition_occurrence`, `omop.condition_occurrence_ydefault`, `omop.death`, `omop.drug_exposure`, `omop.drug_exposure_ydefault`, `omop.fact_relationship`, `omop.measurement`, `omop.measurement_ydefault`, `omop.note`, `omop.note_nlp`, `omop.note_ydefault`, `omop.observation`, `omop.observation_period`, `omop.observation_ydefault`, `omop.person`, `omop.procedure_occurrence`, `omop.procedure_occurrence_ydefault`, `omop.tb_appointment`, `omop.tb_claim`, `omop.tb_record`, `omop.visit_occurrence`, `omop.visit_occurrence_ydefault` |
+| `omop` | tb_withheld, and the live rows deleted and tombstoned at once (D-441) | `omop.cohort`, `omop.condition_era`, `omop.condition_occurrence`, `omop.condition_occurrence_ydefault`, `omop.cost`, `omop.death`, `omop.device_exposure`, `omop.dose_era`, `omop.drug_era`, `omop.drug_exposure`, `omop.drug_exposure_ydefault`, `omop.episode`, `omop.episode_event`, `omop.fact_relationship`, `omop.location`, `omop.measurement`, `omop.measurement_ydefault`, `omop.note`, `omop.note_nlp`, `omop.note_ydefault`, `omop.observation`, `omop.observation_period`, `omop.observation_ydefault`, `omop.payer_plan_period`, `omop.person`, `omop.procedure_occurrence`, `omop.procedure_occurrence_ydefault`, `omop.specimen`, `omop.tb_appointment`, `omop.tb_claim`, `omop.tb_conflict`, `omop.tb_record`, `omop.visit_detail`, `omop.visit_occurrence`, `omop.visit_occurrence_ydefault` |
 | `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `team.approach_overrides`, `team.referral_events`, `team.referrals` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
@@ -36,21 +36,8 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `mail.send_keys` | T-206b | a queued, uncertain or held mail of lists: its files are asked about before each send (D-863), its row stays until a person or the send ends it; only a held mail of the patient's own file is dropped | the outbox's send request while queued (attachments by key, a per-patient file's name, recipients) |
 | `objects:attachments` | T-206b | a CASE chart is parsed before the subject's opt-out is checked (D-862) | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
 | `objects:outputs` | T-206b | kept until retention (D-513): other patients' pages read the same files, so no clear deletes them | job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the console's pages and downloads (a per-patient file by its patient), a submission and a feedback row; the mail outbox asks before each send (D-863) |
-| `omop.cohort` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.condition_era` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.cost` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.device_exposure` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.dose_era` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.drug_era` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.episode` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.episode_event` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.location` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.payer_plan_period` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.specimen` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
-| `omop.tb_conflict` | T-206b | the clear | a source conflict of a person |
 | `omop.tb_record` | T-206b | the tombstoned row keeps the person id and the source record id | the record ledger: the person's live records are tombstoned |
 | `omop.tb_record_event` | T-206b | the before-images | every change of a record with its before-image |
-| `omop.visit_detail` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
 | `orch.candidate_events` | T-206b | the events of a patient never consented (OD-8 keeps the rest) | each status change of a candidate, by pseudonym |
 | `orch.candidates` | T-206b | a withdrawn row keeps the pseudonym (consented and enrolled rows are kept, OD-8) | the candidate registry |
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |

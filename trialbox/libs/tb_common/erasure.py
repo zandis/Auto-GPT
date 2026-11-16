@@ -146,8 +146,11 @@ _CONFIG = _none("settings and configuration, no patient")
 _STAFF = _none("staff, accounts or sign-in state, no patient")
 _OD8 = _keep("OD-8", "the trial record of a consented or enrolled subject stays (GCP)")
 _OMOP_CLEARED = _erase("omop", "OMOP clinical rows of the person (deleted by the withhold, D-441)")
-_OMOP_UNWRITTEN = _owed(
-    "a CDM table keyed by person that no loader writes today", "a delete by person when a loader writes it"
+_OMOP_UNWRITTEN = _erase(
+    "omop",
+    "a CDM table keyed by person that no loader writes today: deleted by person at the withhold, so a loader that "
+    "writes it later is covered from its first row (D-867; cost through the person's events, an address with its "
+    "last person)",
 )
 _OMOP_VOCAB = _none("OMOP vocabulary and metadata")
 
@@ -394,7 +397,9 @@ TABLES: dict[str, Entry] = {
         "the tombstoned row keeps the person id and the source record id",
     ),
     "omop.tb_record_event": _owed("every change of a record with its before-image", "the before-images"),
-    "omop.tb_conflict": _owed("a source conflict of a person"),
+    "omop.tb_conflict": _erase(
+        "omop", "a source conflict of a person, every source's value: deleted by person (D-867)"
+    ),
     "omop.tb_consent": _keep("D-441", "the refusal itself must reach the lake, or the registry would read as silent"),
     "omop.tb_id_map": _keep("D-441", "pseudonym to person id: the worker and the loader must still find the person"),
     "omop.tb_withheld": _keep("D-441", "the register's copy the loader reads to keep the patient out"),
