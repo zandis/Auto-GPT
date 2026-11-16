@@ -74,9 +74,12 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from tb_common import kek as _K
+from tb_common.crypto import KeyMissingError
 
 # shared with the host-side schedule, which has only the standard library (re-exported: bk.prune, bk.read_sidecar ...)
 from tools.trialbox import backup_schedule as _sched
+from tools.trialbox import restic_repo as _rr
 
 SUFFIX = _sched.SUFFIX
 prune = _sched.prune
@@ -909,14 +912,103 @@ def _read_lake_files(
     return sides, len(locked)
 
 
-def _add_lake(tar: tarfile.TarFile, root: Path, manifest: dict[str, Any]) -> tuple[int, dict[str, int]]:
+def _add_lake_restic(
+    tar: tarfile.TarFile, root: Path, manifest: dict[str, Any], repo: _rr.Repo
+) -> tuple[int, dict[str, int]]:
+    """PERF-010 (D-968): the lake's served files (``db/``, ``parquet/``) go to restic, the rest into the sealed
+    file. Under the lake's lock, held until restic has read them (a rebuild's swap waits for the whole read; lane
+    B2 may relax this to the listing only): the listing, each sidecar read into the sealed file, each served
+    file's sha256 (its sidecar's, else read once) and size recorded in ``manifest["restic"]``, and exactly those
+    files given to restic. A restore checks restic's files against that sealed record. The rest of the lake is read
+    after the lock, as before."""
+    with _lake_lock(root) as locked_ok:
+        rels, left = select_files("lake", root)
+        locked = [r for r in rels if Path(r).parts[0] in LAKE_LOCKED]
+        problems = _lake_listing_problems(root, locked)
+        if problems:
+            raise BackupError(f"the lake fails its own check ({problems[:3]}): a person looks at it "
+                              "(trialbox doctor; the lake's /verify) before it can be backed up")  # fmt: skip
+        sides: dict[str, str] = {}
+        for rel in [r for r in locked if r.endswith(".sha256")]:
+            data = (root / rel).read_bytes()
+            arc = f"dirs/lake/{rel}"
+            manifest["files"][arc], manifest["sizes"][arc] = _add_bytes(tar, data, arc, (root / rel).stat().st_mtime)
+            sides[rel[: -len(".sha256")]] = _sidecar_sha(data)
+        served = [r for r in locked if not r.endswith(".sha256")]
+        files = {rel: [sides.get(rel) or _sha_file(root / rel), (root / rel).stat().st_size] for rel in served}
+        try:
+            snapshot = repo.backup(root, served, tag=_rr.LAKE_TAG) if served else ""
+        except _rr.ResticError as e:
+            raise BackupError(str(e)) from e
+        after = [r for r in select_files("lake", root)[0] if Path(r).parts[0] in LAKE_LOCKED]
+    if after != locked:
+        raise BackupError("the lake changed while restic read it "
+                          f"({'under its lock' if locked_ok else 'no lake lock'}); run the backup again")  # fmt: skip
+    manifest["restic"] = {"repository": _rr.REPO_DIR, "snapshot": snapshot, "root": str(root.resolve()), "files": files}
+    n = len(locked)
+    for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED]:
+        arc = f"dirs/lake/{rel}"
+        try:
+            manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+        except FileNotFoundError:  # removed since the listing (a retention prune): not in the backup
+            left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
+            continue
+        n += 1
+    return n, left
+
+
+def _same_file(path: Path, sha: str, size: int) -> bool:
+    return path.is_file() and path.stat().st_size == size and _sha_file(path) == sha
+
+
+def _restore_lake_from_restic(file: Path, into: Path, manifest: dict[str, Any], pw: str | None) -> None:
+    """The lake's served files of a restic backup (PERF-010, D-968), from the repository beside ``file``, each
+    checked against the sealed manifest (sha256 and size) before it is put where the tar would have put it."""
+    rec = manifest["restic"]
+    if not rec.get("files"):
+        return
+    where = file.parent / rec["repository"]
+    if pw is None:
+        raise BackupError(
+            f"this backup's lake is in the restic repository beside it ({where}): open it with the box's KEK "
+            "(--restic-from-box) or with the custodians' shares (--restic-share FILE, one per share)"
+        )
+    stage = into / ".restic-restore"
+    try:
+        _rr.Repo(where, pw).restore(rec["snapshot"], stage)
+        src = _rr.restored_root(stage, Path(rec["root"]))
+        bad = [f"dirs/lake/{rel}" for rel, (sha, size) in sorted(rec["files"].items())
+               if not _same_file(src / rel, sha, size)]  # fmt: skip
+        got = {p.relative_to(src).as_posix() for p in src.rglob("*") if p.is_file()} if src.is_dir() else set()
+        extra = [f"dirs/lake/{rel}" for rel in got - set(rec["files"])]
+        if bad or extra:
+            raise BackupError(
+                f"the lake restored from restic does not match the backup's sealed manifest: {len(bad)} changed, "
+                f"{len(extra)} unlisted" + _named("changed", bad) + _named("unlisted", extra)
+            )
+        for rel, (sha, size) in rec["files"].items():
+            dst = into / "dirs" / "lake" / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src / rel, dst)
+            manifest["files"][f"dirs/lake/{rel}"], manifest["sizes"][f"dirs/lake/{rel}"] = sha, size
+    except _rr.ResticError as e:
+        raise BackupError(str(e)) from e
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def _add_lake(
+    tar: tarfile.TarFile, root: Path, manifest: dict[str, Any], repo: _rr.Repo | None = None
+) -> tuple[int, dict[str, int]]:
     """The lake (D-455, H1). Its served files (``db/``, ``parquet/``) are listed and opened under the lake's lock and
     read through the open files after it (PERF-011, D-755), so a rebuild's swap waits for the listing only: never
     half the old snapshot and half the new. A listing that is not one state
     is listed again, up to ``READ_TRIES``; after the read every file taken with its sidecar must hash to it and the
     files must still be the ones listed, or the backup fails (nothing vanished, nothing new). The rest of the lake
     (NDJSON, the vector store, the site inputs) is read after, without the lock. Returns the files taken and the
-    count left out per reason."""
+    count left out per reason. With ``repo``, the served files go to restic instead (:func:`_add_lake_restic`)."""
+    if repo is not None:
+        return _add_lake_restic(tar, root, manifest, repo)
     left: dict[str, int] = {}
     n = 0
     for attempt in range(1, READ_TRIES + 1):
@@ -1134,8 +1226,13 @@ def backup(
     site: str = "",
     now: datetime | None = None,
     compression: str = "zstd",
+    restic_secrets: Path | None = None,
 ) -> list[Path]:
-    """Write one encrypted backup to every target directory; return the files written."""
+    """Write one encrypted backup to every target directory; return the files written. With ``restic_secrets`` (the
+    secrets folder holding ``restic.key`` under the unsealed KEK; PERF-010, D-968), the lake's served files go to a
+    restic repository on each target (``trialbox-restic``, with the escrow file beside it) and the sealed file keeps
+    their manifest; the other targets' repositories are filled by ``restic copy``, and ``keep`` applies to the
+    snapshots as to the files."""
     env = dict(os.environ if env is None else env)
     if not targets:
         raise BackupError("no --to target")
@@ -1152,6 +1249,19 @@ def backup(
     name = f"{prefix}{stamp}{SUFFIX}"
     recipient = load_public(public_key)
     srcs = db_sources(env)
+    repos: list[_rr.Repo] = []
+    if restic_secrets is not None:
+        try:  # before anything is written: a KEK the custodians' shares do not cover writes nothing (D-968)
+            pw = _rr.password(restic_secrets, env)
+            for t in targets:
+                Path(t).mkdir(parents=True, exist_ok=True)
+                _rr.escrow_copy(restic_secrets, Path(t))
+            repos = [_rr.Repo(Path(t) / _rr.REPO_DIR, pw, env) for t in targets]
+            repos[0].ensure()
+            for r in repos[1:]:
+                r.ensure(like=repos[0])
+        except (_rr.ResticError, _K.KekError, KeyMissingError, OSError) as e:  # named, never with a key in it
+            raise BackupError(f"incremental backup: {e}") from e
     manifest: dict[str, Any] = {"layout": LAYOUT, "hashing": "stream", "created_at": when.isoformat(timespec="seconds"),
                                 "site": site, "compression": f"{compression}-{ZSTD_LEVEL}" if compression == "zstd"
                                 else compression, "databases": {}, "dirs": {}, "files": {}, "sizes": {},
@@ -1189,7 +1299,7 @@ def backup(
                             manifest["files"][arc], manifest["sizes"][arc] = _add(tar, f, arc)
                 for dname, root in sorted(dirs.items()):
                     if dname == "lake":
-                        n, left = _add_lake(tar, root, manifest)
+                        n, left = _add_lake(tar, root, manifest, repos[0] if repos else None)
                         manifest["dirs"][dname] = {"path": str(root), "files": n}
                         if left:
                             manifest["excluded"][dname] = left
@@ -1258,6 +1368,15 @@ def backup(
             tpart.rename(t / name)
             _write_sidecar(t / name, sha)
             written.append(t / name)
+    snapshot = (manifest.get("restic") or {}).get("snapshot")
+    try:
+        if snapshot:
+            for r in repos[1:]:
+                r.copy_from(repos[0], snapshot)
+        for r in repos:
+            r.forget(keep=keep, tag=_rr.LAKE_TAG)
+    except _rr.ResticError as e:
+        raise BackupError(f"incremental backup: {e} (the sealed file was written: {written[0].name})") from e
     for t in targets:
         prune(Path(t), keep, prefix)
     return written
@@ -1312,8 +1431,12 @@ def _second_names(into: Path, manifest: dict[str, Any], bad: list[str]) -> list[
     return [rel for rel in bad if rel in wrong]
 
 
-def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
-    """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
+def unpack(
+    file: Path, key: Path, into: Path, *, restic_pw: str | None = None, lake_from_restic: bool = True
+) -> dict[str, Any]:
+    """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest. A
+    restic backup's lake comes from the repository beside ``file`` with ``restic_pw`` (D-968), checked against the
+    sealed manifest; ``lake_from_restic=False`` gives the sealed file's content only.
 
     The whole file is read and authenticated to its final chunk, and its sha256, taken on the way, must equal the
     ``.sha256`` sidecar when there is one."""
@@ -1353,14 +1476,16 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
             + _named("changed", bad)
             + _named("unlisted", extra)
         )
+    if "restic" in manifest and lake_from_restic:
+        _restore_lake_from_restic(file, into, manifest, restic_pw)
     manifest["_sha256"] = hr.sha.hexdigest()
     manifest["_owners"] = owners  # not in the signed manifest: read from the tar members, as the files are
     return manifest
 
 
-def verify(file: Path, key: Path) -> dict[str, Any]:
+def verify(file: Path, key: Path, *, restic_pw: str | None = None) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="tb-verify-") as tmp:
-        m = unpack(file, key, Path(tmp))
+        m = unpack(file, key, Path(tmp), restic_pw=restic_pw)
     return {"ok": True, "site": m["site"], "created_at": m["created_at"], "layout": m.get("layout", 1),
             "files": len(m["files"]), "sha256": m["_sha256"], "excluded": m.get("excluded", {}),
             "refdata_packs": m.get("refdata_packs", []),
@@ -1802,6 +1927,7 @@ def restore(
     other_site: bool = False,
     max_age_days: float | None = RESTORE_MAX_AGE_DAYS,
     running: Callable[[], list[str] | None] | None = None,
+    restic_pw: str | None = None,
 ) -> dict[str, Any]:
     """Restore the databases and directories of ``file``, the hospital's own reference rows and, from the pack files
     in ``refdata_dir``, the vendor packs a layout-2 backup leaves out; return what was restored, with rows checked.
@@ -1832,7 +1958,7 @@ def restore(
     refdata: dict[str, list[str]] = {"reloaded": [], "missing": []}
     with tempfile.TemporaryDirectory(prefix="tb-restore-") as tmp:
         work = Path(tmp)
-        manifest = unpack(file, key, work)
+        manifest = unpack(file, key, work, restic_pw=restic_pw)
         sha = manifest["_sha256"]
         targets = dict(dirs if dirs is not None else layout(env))
         missing = set(manifest["dirs"]) - set(targets) - {HOST}

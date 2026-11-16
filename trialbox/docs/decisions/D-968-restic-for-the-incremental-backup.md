@@ -78,13 +78,34 @@ restic does the incremental backup, on these conditions:
   - The command is `TB_RESTIC` (default `restic`, the image's pinned binary).
   - The tests use a stand-in (`tests/fixtures/restic/fake_restic.py`) with restic's subcommands and exit codes; the
     real binary runs in the box rehearsal (R4).
-- **R3, the lake goes to restic.**
-  - The lake's Parquet and DuckDB files go to `<target>/trialbox-restic/`. The other targets are filled with
-    `restic copy`.
-  - The `.tbbak` keeps the database dumps, the small folders and the host part, encrypted to the hospital's key. It
-    also holds the lake manifest (path, size, sha256) and the restic snapshot id.
-  - A restore checks restic's restored lake against that sealed manifest.
-  - The snapshot rule waits on lane B2's answer on #639.
+- **R3b, the lake goes to restic (landed: `agent/PERF-010-R3b-the-lake-goes-to-restic`).**
+  - `backup(..., restic_secrets=<secrets folder>)` (CLI `trialbox backup --restic`) starts by opening the password
+    under the unsealed KEK. It then writes the escrow file to every target and makes or opens each target's
+    repository. A KEK not covered by shares, a locked KEK or a missing key stops it here, before anything is written.
+  - The lake's served files (`db/`, `parquet/`) go to the first target's repository. This happens under the lake's
+    lock, which is held until restic has read them.
+    - Under the lock, each sidecar goes into the sealed `.tbbak`. Each served file's sha256 (from its sidecar, else
+      read once) and size go into `manifest["restic"]`, with the snapshot id and the lake's root.
+    - Exactly those files are given to restic. A listing that changed fails the backup.
+    - The rest of the lake (NDJSON, the vector store, the site inputs) and every other folder stay in the sealed
+      file, as before.
+  - After the sealed file is written and copied, every other target's repository gets the snapshot by `restic copy`.
+    `forget --keep-last <keep>` applies to the snapshots as `keep` applies to the files.
+  - On restore, `unpack`, `verify` and `restore` take the password. The CLI's `--restic-from-box` gives the box's
+    own key; `--restic-share FILE`, one per share, gives the custodians' shares with the file beside the
+    repository.
+    - The snapshot is restored beside the unpacked tree.
+    - Every file is checked against the sealed manifest (sha256 and size, nothing missing, nothing extra) before it is
+      put where the tar would have put it. The rest of the restore is unchanged.
+    - Without a password the lake is not given, and the message says how to open it.
+  - A backup without `--restic` is unchanged.
+  - Lane B2: the lock is held for restic's whole read, which is safe whatever the answer. A served file is never
+    written in place (D-755), so a later card may let the lock go after the listing and retry a vanished file.
+  - The sidecar's hash is trusted at the backup, as the lake trusts it when serving. A file that does not match its
+    sidecar fails at the restore's check and at the lake's own check (`lake_check`), not at the backup.
+- **R3c, the nightly wiring (next).** The host step runs `tools.keys restic-key`. The backup container mounts
+  `/run/trialbox:ro` and runs `backup --restic` when the box has a KEK the shares cover; otherwise it says why and
+  keeps the single file. A weekly `prune`.
 - **R4, the rehearsal.** `tools/rehearse_box/box.sh` gets a `backup-restore` step: back up, wipe, restore, compare.
 
 What changes for the hospital: its private key alone no longer opens the lake. The KEK is also needed, either on the
@@ -126,3 +147,17 @@ R3a: `tests/unit/test_restic_runner.py`:
 - the password is never in an argument list;
 - outside restic settings choose nothing;
 - a missing restic is said plainly.
+
+R3b: `tests/unit/test_backup_restic.py` (a real PostgreSQL, the stand-in restic, a shamir box):
+- the lake's bulk goes to restic and the rest stays sealed, with a repository and an escrow file on each target;
+- a restore checks restic's files against the sealed manifest and passes the lake's check;
+- the second target restores alone;
+- the custodians' shares open it without the box;
+- without the password the lake is not given;
+- a changed file in the repository fails the restore, named;
+- the keep applies to the snapshots;
+- a KEK without shares writes nothing;
+- the lake's lock is held for restic's whole read (a swap waits);
+- without restic nothing changes;
+- the command line (`backup --restic`; `backup-verify` with the box's key, with two shares, and refused with none or
+  one).
