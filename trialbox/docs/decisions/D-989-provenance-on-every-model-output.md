@@ -1,6 +1,6 @@
 # D-989 Provenance on every model output: each answer names its model, prompt, inputs, time and confirmer, and one query finds every record a version touched
 
-- **Task:** the owner's ruling of 2026-11-16, which the integrator calls D-537 (#639). Every model-derived answer must carry its provenance: the judge's, the verifier's, the extraction's and the pre-fill's. Provenance means which model and prompt version produced it, which inputs (their hashes), when, and which person confirmed it. One query must answer "which records did model or prompt version X influence" in under a minute. It must build on the audit chain and the D-908 judged-pair store's key, not on a new store. The HL7 "AI Transparency on FHIR" guide is a reference to read, not a dependency.
+- **Task:** the owner's ruling D-1037 (2026-11-16, #639; `OWNER-RULINGS-2026-11-16.md`, #897). Every model-derived answer must carry its provenance: the judge's, the verifier's, the extraction's and the pre-fill's. Provenance means which model and prompt version produced it, which inputs (their hashes), when, and which person confirmed it. One query must answer "which records did model or prompt version X influence" in under a minute. It must build on the audit chain and the D-908 judged-pair store's key, not on a new store. The HL7 "AI Transparency on FHIR" guide is a reference to read, not a dependency.
 
   **Date:** 2026-11-16. **Status:** reserved; this is a design, and the build comes after the P1b safety and compiler cards.
 

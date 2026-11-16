@@ -1,6 +1,6 @@
 # D-988 Shadow mode: the box screens a study unseen, and a report says how its answers compare with the coordinator's
 
-- **Task:** the owner's ruling of 2026-11-16, which the integrator calls D-537 (#639). This is the pilot's way to show value. The box screens a shadow study exactly as in production. The coordinator does not see its answers, or sees them only after deciding. The box records its own answer and the coordinator's, and a report compares the two.
+- **Task:** the owner's ruling D-1037 (2026-11-16, #639; `OWNER-RULINGS-2026-11-16.md`, #897). This is the pilot's way to show value. The box screens a shadow study exactly as in production. The coordinator does not see its answers, or sees them only after deciding. The box records its own answer and the coordinator's, and a report compares the two.
 
   **Date:** 2026-11-16. **Status:** reserved; this is a design, and the build comes after the P1b safety and compiler cards. Lane A2 owns screening, the seal, the answers store and the report. Lane C2 owns the console.
 
