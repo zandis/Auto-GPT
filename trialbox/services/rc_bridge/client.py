@@ -41,12 +41,21 @@ _KINDS: tuple[tuple[str, str], ...] = (
     ("fields were not found in the project", "fields that are not in the project"),
     ("不存在專案內", "fields that are not in the project"),
     ("not designated for event", "a field is not on an instrument of the event"),
+    # RC13-A (D-847): REDCap 13.7's sentence on a bad repeat instance names the event first, so it is read first
+    ("redcap_repeat_instance", "a repeating instrument or its instance number is not valid"),
     ("event name", "the event is missing or is not an event of the project"),
     ("redcap_event_name", "the event is missing or is not an event of the project"),
     ("repeat", "a repeating instrument or its instance number is not valid"),
+    # RC13-A (D-847): a write to another group's record, before the group's own kind
+    ("not belong to your data access group", "a record belongs to another data access group"),
     ("data access group", "the data access group is not valid"),
     ("record identifier", "the record identifier field is missing"),
     ("not in a valid format", "the import is not in a valid format"),
+    # RC13-A (D-847): REDCap 13.7's English sentences, seen on the private 13.7 instance (D-521)
+    ("invalid date format", "a value does not fit its field's validation"),
+    ("not a valid category", "a value does not fit its field's validation"),
+    ("record id field", "the record identifier field is missing"),
+    ("not formatted correctly", "the import is not in a valid format"),
 )
 _UNKNOWN_KIND = "REDCap's own text is not shown: it can quote a record's value"
 _MAX_NAMES = 20  # field names given back from one error (a longer list says no more to the person reading it)
