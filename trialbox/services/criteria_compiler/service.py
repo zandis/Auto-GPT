@@ -11,12 +11,14 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import httpx
 import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
 from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
-from tb_common.fhir import FhirEvaluator, library_resource
+from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource
+from tb_common.http import ServiceError
 from tb_common.llm import LlmClient, LlmError
 from tb_common.objstore import ObjectStore
 from tb_common.phi_guard import PhiScan, scan, variables_text
@@ -55,6 +57,63 @@ from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 log = logging.getLogger("criteria-compiler")
 MAX_ROUNDS = 3
 EquivalenceFn = Callable[[list[CriterionIR], str, str, date, str], EquivalenceReport]
+
+
+#: the answer tokens one extracted criterion takes at most, with its concept candidates and synonyms (measured on the
+#: shipped rulesets' compiles: 150 to 330); a part is sized so its answer fits the prompt's ``max_tokens`` (D-911)
+TOKENS_PER_CRITERION = 400
+ANSWER_SHARE = 0.75  # of max_tokens: room for the JSON's own frame and a long line
+
+
+def lines_per_part(max_tokens: int | None = None) -> int:
+    """How many protocol lines one ``ir_extract`` call carries (D-911): its answer must fit the prompt's cap."""
+    from tb_common.llm import load_prompt
+
+    cap = max_tokens if max_tokens is not None else int(load_prompt("ir_extract").meta.max_tokens or 8192)
+    return max(1, int(cap * ANSWER_SHARE) // TOKENS_PER_CRITERION)
+
+
+def extraction_parts(lines: list[dict[str, Any]], size: int) -> list[tuple[int, list[dict[str, Any]]]]:
+    """``lines`` as ``(first index, lines)`` parts of at most ``size`` lines (D-911). A line and the lines under it
+    (``parent``) stay in one part, whatever its size; a part ends at a section boundary (``kind``) when the next group
+    would not fit or the section changes and the part is at least half full. Each part's ``parent`` is rebased."""
+    groups: list[list[int]] = []  # contiguous runs of lines: a parent, the lines under it, and any lines between
+    owner: dict[int, int] = {}
+    for i, ln in enumerate(lines):
+        p = ln.get("parent")
+        if isinstance(p, int) and p in owner:
+            g = owner[p]
+            if g < len(groups) - 1:  # a line under an earlier parent: that group runs on to here
+                for later in groups[g + 1 :]:
+                    groups[g].extend(later)
+                del groups[g + 1 :]
+                owner.update({j: g for j in groups[g]})
+        else:
+            groups.append([])
+            g = len(groups) - 1
+        groups[g].append(i)
+        owner[i] = g
+    parts: list[list[int]] = []
+    cur: list[int] = []
+    for group in groups:
+        boundary = bool(cur) and lines[cur[-1]].get("kind") != lines[group[0]].get("kind")
+        if cur and (len(cur) + len(group) > size or (boundary and len(cur) >= size // 2)):
+            parts.append(cur)
+            cur = []
+        cur.extend(group)
+    if cur:
+        parts.append(cur)
+    out: list[tuple[int, list[dict[str, Any]]]] = []
+    for idx in parts:
+        start = idx[0]
+        rebased = []
+        for i in idx:
+            ln = dict(lines[i])
+            if isinstance(ln.get("parent"), int):
+                ln["parent"] = ln["parent"] - start
+            rebased.append(ln)
+        out.append((start, rebased))
+    return out
 
 
 class CompileFailed(RuntimeError):
@@ -230,24 +289,38 @@ class Compiler:
     def _extract(
         self, job_id: str, ruleset: str, language: str, lines: list[dict[str, Any]]
     ) -> tuple[LlmExtractOutput, PhiScan]:
+        """The model's criteria for ``lines``, asked in parts (D-911): one call answered a whole protocol, and a long
+        one (lane G's run: 11 public protocols) ran past the prompt's answer cap (``max_tokens``), so its JSON was cut
+        and the gateway refused it (``upstream_failed``). Each part holds at most :func:`lines_per_part` lines, split
+        at a section boundary where it can be, a line never apart from the lines under it; the answers are joined in
+        order, so the result is the one-call result for a protocol that fits."""
         variables = {"ruleset": ruleset, "language": language, "criteria": lines}
-        guard = scan(variables_text(variables), self.d.mrn_regex)  # exactly what the prompt carries (cloud routing)
-        try:
-            res = self.d.llm.chat_json(
-                "ir_extract",
-                variables,
-                job_id=job_id,
-                clearance=guard.clearance,
-                phi_guard_hit=guard.hit,
-            )
-        except LlmError as exc:  # was an unhandled 500 ("internal error") in the requester's Failed mail
-            raise CompileFailed(
-                "ir_extract", f"the model did not return usable criteria ({str(exc)[:160]}); send the protocol again"
-            ) from exc
-        out = LlmExtractOutput.model_validate(res.data)
-        if len(out.criteria) != len(lines):
-            raise CompileFailed("ir_extract", f"model returned {len(out.criteria)} criteria for {len(lines)} lines")
-        return out, guard
+        guard = scan(variables_text(variables), self.d.mrn_regex)  # exactly what the prompts carry (cloud routing)
+        criteria: list[Any] = []
+        parts = extraction_parts(lines, lines_per_part())
+        for n, (start, part) in enumerate(parts, start=1):
+            where = f" (part {n} of {len(parts)}, lines {start + 1}-{start + len(part)})" if len(parts) > 1 else ""
+            try:
+                res = self.d.llm.chat_json(
+                    "ir_extract",
+                    {"ruleset": ruleset, "language": language, "criteria": part},
+                    job_id=job_id,
+                    clearance=guard.clearance,
+                    phi_guard_hit=guard.hit,
+                )
+            except LlmError as exc:  # was an unhandled 500 ("internal error") in the requester's Failed mail
+                raise CompileFailed(
+                    "ir_extract",
+                    f"the model did not return usable criteria{where} ({str(exc)[:160]}); send the protocol again",
+                ) from exc
+            out = LlmExtractOutput.model_validate(res.data)
+            if len(out.criteria) != len(part):
+                raise CompileFailed(
+                    "ir_extract",
+                    f"model returned {len(out.criteria)} criteria for {len(part)} lines{where}",
+                )
+            criteria.extend(out.criteria)
+        return LlmExtractOutput.model_validate({"criteria": [dump(c) for c in criteria]}), guard
 
     def demote_uncompilable(
         self, ruleset: str, version: str, criteria: list[CriterionIR], valuesets: dict[str, dict[str, Any]]
@@ -342,10 +415,21 @@ class Compiler:
             library_resource("TB_Common", "1.0.0", art.cql["TB_Common"], art.elm.get("TB_Common")),
             library_resource(art.library, art.library_version, art.cql[art.library], art.elm.get(art.library)),
         ]
-        self.d.fhir.load(libs, valuesets.values())
-        return self.enforce(
-            run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold), active
-        )
+        try:
+            self.d.fhir.load(libs, valuesets.values())
+            report = run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold)
+        except (FhirEvalError, ServiceError, httpx.HTTPError) as exc:
+            # D-910: the FHIR server refusing a ruleset's CQL or ValueSets, or the lake its SQL, is a reason the
+            # equivalence check could not run, said by type and status (never the server's text: it can quote a
+            # patient's id), not an HTTP 500
+            status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            where = "the FHIR server" if isinstance(exc, FhirEvalError) else "the data lake"
+            raise CompileFailed(
+                "equivalence",
+                f"the comparison of the compiled CQL and SQL could not run: {where} refused it "
+                f"({type(exc).__name__}{f', HTTP {status}' if status else ''}); check the criteria flagged for review",
+            ) from exc
+        return self.enforce(report, active)
 
     @staticmethod
     def enforce(tests: EquivalenceReport, criteria: list[CriterionIR]) -> EquivalenceReport:

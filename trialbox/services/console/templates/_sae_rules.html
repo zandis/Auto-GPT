@@ -3,15 +3,17 @@
    it on the study set-up page. #}
 {% macro pname(p, reg='') %}{% if p == 'regulator' and reg %}{{ t('sae.party.regulator', name=reg) }}{% elif p == 'regulator' %}{{ t('sae.party.regulator_any') }}{% else %}{{ t('life.clock.party.' + p) }}{% endif %}{% endmacro %}
 {% macro rules_line(rules, reg='') %}{% for p, d in rules.items() if p != 'regulator_expected' %}{{ pname(p, reg) }} {% if d[0] or d[1] %}{{ d[0] }}/{{ d[1] }}{% else %}–{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}{% endmacro %}
-{% macro rules_card(study_rules, fu_rules, tz) %}<section class="card" data-testid="sae-rules">
+{# D-861 (lane G's walk, 2026-11-16): the study's set-up notes (not confirmed, the rule set to choose) go only to who can
+   act on them, the study's set-up (``study.setup``); a deadlines line with no deadline is not printed #}
+{% macro rules_card(study_rules, fu_rules, tz) %}{% set acts = user is defined and permit(user.role, 'study.setup').allowed %}<section class="card" data-testid="sae-rules">
 {% for rs_, x in study_rules.items() %}<div data-testid="sae-rules-{{ rs_ }}">
 <p><strong>{{ t('sae.rule.set', rs=rs_, name=t('sae.set.' + x.name) if x.name else '–', regulator=x.regulator or '–') }}</strong></p>
-<p>{{ t('sae.rule', rules=rules_line(x.parties or {}, x.regulator)) }}</p>
-{% if x.confirmed_by %}<p data-testid="sae-confirmed">{{ t('sae.rule.by', who=x.confirmed_by|who, at=x.confirmed_at|local) }}</p>{% else %}<p class="warn" data-testid="sae-unconfirmed">{{ t('sae.rule.unconfirmed') }}{% if x.source in ('box', 'country') %} {{ t('sae.rule.source.' + x.source) }}{% endif %}</p>{% endif %}
-{% for f in x.problems or [] %}<p class="error" data-testid="sae-rule-problem-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}
+{% set line = rules_line(x.parties or {}, x.regulator)|trim %}{% if line %}<p data-testid="sae-deadlines">{{ t('sae.rule', rules=line) }}</p>{% endif %}
+{% if x.confirmed_by %}<p data-testid="sae-confirmed">{{ t('sae.rule.by', who=x.confirmed_by|who, at=x.confirmed_at|local) }}</p>{% elif acts %}<p class="warn" data-testid="sae-unconfirmed">{{ t('sae.rule.unconfirmed') }}{% if x.source in ('box', 'country') %} {{ t('sae.rule.source.' + x.source) }}{% endif %}</p>{% endif %}
+{% if acts %}{% for f in x.problems or [] %}<p class="error" data-testid="sae-rule-problem-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}{% endif %}
 </div>{% endfor %}
 {% set regs = study_rules.values()|map(attribute='regulator')|unique|list %}
-<p>{{ t('sae.rule.followup', rules=rules_line(fu_rules, regs[0] if regs|length == 1 else '')) }}</p>
+{% set fu = rules_line(fu_rules or {}, regs[0] if regs|length == 1 else '')|trim %}{% if fu %}<p data-testid="sae-followup">{{ t('sae.rule.followup', rules=fu) }}</p>{% endif %}
 <p class="hint" data-testid="sae-legend">{{ t('sae.rule.legend') }}</p>
 <p class="hint">{{ t('sae.calendar', tz=tz) }}</p>
 </section>{% endmacro %}

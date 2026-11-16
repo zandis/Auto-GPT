@@ -348,6 +348,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "ctgov.search": ("Trial registry searched", "臨床試験登録の検索", "搜尋臨床試驗登錄"),
     "compile.start": ("Criteria compiling started", "基準の変換開始", "開始轉換條件"),
+    "compile.error": (
+        "Criteria compiler error (bug)",
+        "基準変換サービスのエラー（不具合）",
+        "條件轉換服務錯誤（程式錯誤）",
+    ),
     "compile.done": ("Criteria compiled", "基準の変換完了", "完成轉換條件"),
     "approve.done": ("Criteria approved", "基準の承認", "核准條件"),
     "approve.max_rounds": (
