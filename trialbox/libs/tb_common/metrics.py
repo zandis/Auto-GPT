@@ -19,7 +19,8 @@ The checks and their thresholds (each can be moved in ``deploy/.env``):
                     ``TB_BACKUP_MAX_AGE_HOURS``, 36 h, or the last nightly run failed, D-187, D-274)
 ``backup_verified`` red when no ``backup-verify`` with the private key succeeded for ``TB_HEALTH_VERIFIED_DAYS``
                     (100) days, warn after 90 or when none ever did (OPS-047); ``backup-verify`` writes
-                    ``deploy/site/backup-verified.json``
+                    ``deploy/site/backup-verified.json``, and so does ``restore-drill`` (T-730d, D-892): red
+                    when the last drill failed
 ``disk:<path>``     each disk the box writes to: warn over ``TB_HEALTH_DISK_WARN`` (70 %), red over
                     ``TB_HEALTH_DISK_RED`` (85 %) (OPS-031)
 ``certificate``     the hospital's certificate (``TB_TLS_CERT_FILE``): red when it ends within
@@ -232,7 +233,11 @@ def check_backup(backup: Mapping[str, Any] | None, th: Thresholds) -> Check:
 
 
 def check_verified(verified: Mapping[str, Any] | None, now: datetime, th: Thresholds) -> Check:
+    failed = _when((verified or {}).get("drill_failed_at"))
     at = _when((verified or {}).get("at"))
+    if failed is not None and (at is None or failed >= at):  # D-892: a failed restore drill, until one passes
+        why = f"the last restore drill ({failed:%Y-%m-%d}) failed: {(verified or {}).get('drill_error') or '?'}"
+        return Check("backup_verified", RED, why[:300], None)
     if at is None:
         return Check("backup_verified", WARN, "no backup has been verified with the private key yet (backup-verify)")
     days = round((now - at).total_seconds() / 86400, 1)
@@ -241,7 +246,8 @@ def check_verified(verified: Mapping[str, Any] | None, now: datetime, th: Thresh
         return Check("backup_verified", RED, why, days)
     if days > th.verified_warn_days:
         return Check("backup_verified", WARN, f"last key check of a backup {days:.0f} days ago", days)
-    return Check("backup_verified", OK, f"backup verified {days:.0f} days ago", days)
+    what = "restore drill passed" if (verified or {}).get("drill") else "backup verified"
+    return Check("backup_verified", OK, f"{what} {days:.0f} days ago", days)
 
 
 def check_disks(disks: Sequence[Mapping[str, Any]], th: Thresholds) -> list[Check]:
@@ -410,6 +416,30 @@ def record_verified(deploy: Path, result: Mapping[str, Any], now: datetime | Non
     rec = {"at": now.isoformat(timespec="seconds"), "file": str(result.get("file") or ""),
            "sha256": str(result.get("sha256") or ""), "created_at": str(result.get("created_at") or ""),
            "site": str(result.get("site") or "")}  # fmt: skip
+    tmp = out.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=1, sort_keys=True)
+    os.replace(tmp, out)
+    return out
+
+
+def record_drill(deploy: Path, res: Mapping[str, Any], now: datetime | None = None) -> Path:
+    """T-730d (D-892): a restore drill's result in the key-check record. A pass is a key check (``at`` and the file,
+    as ``record_verified``) with what was compared; a fail keeps the last good check and adds ``drill_failed_at`` and
+    ``drill_error``, which ``check_verified`` shows red until a drill passes. Never the key or its path; no rows."""
+    if res.get("ok"):
+        out = record_verified(deploy, {**res, "file": res.get("file")}, _when(res.get("at")) or now)
+        rec = read_verified(deploy) or {}
+        rec["drill"] = {db: {"tables": int(d.get("tables", 0)), "rows": int(d.get("rows", 0))}
+                        for db, d in (res.get("databases") or {}).items()}  # fmt: skip
+    else:
+        out = deploy / "site" / VERIFIED_FILE
+        out.parent.mkdir(parents=True, exist_ok=True)
+        rec = {k: v for k, v in (read_verified(deploy) or {}).items() if not k.startswith("drill")}
+        rec["drill_failed_at"] = str(res.get("at") or (now or datetime.now(UTC)).isoformat(timespec="seconds"))
+        rec["drill_error"] = str(res.get("error") or "")[:300]
+        rec["drill_file"] = str(res.get("file") or "")
     tmp = out.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
