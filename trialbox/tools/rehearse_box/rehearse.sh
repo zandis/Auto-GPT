@@ -160,7 +160,8 @@ media() (  # a subshell: set -e stops the step, not the run
     docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i" >/dev/null \
       || { echo "cannot pull $i (the registry refused or is not reachable): pull it once, then run again"; return 1; }
     echo "$i $(docker image inspect --format '{{.Id}}' "$i")" >> "$W/vendor/bundle-images.txt"
-    args+=(--image "$i")
+    # D-968: the nightly backup's image runs as a one-off job, as make_bundle's own default says (release.json)
+    case "$i" in trialbox-backup:*) args+=(--job-image "$i") ;; *) args+=(--image "$i") ;; esac
   done
   # no bundle without its checks (T-110b, D-340): the release gates over exactly these images, then the bundle
   make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$W/vendor/gates" SC_IMAGES="${imgs[*]}" || { echo "the release gates did not pass"; return 1; }

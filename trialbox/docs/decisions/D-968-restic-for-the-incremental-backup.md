@@ -78,6 +78,16 @@ restic does the incremental backup, on these conditions:
   - **Licence budget.** Syft reads no licence from a Go binary, so the image's Go modules count as unknown: 86 on the
     first source build. That is the one line that goes to the owner for a yes or no (#639). No allow-list entry is
     added without it.
+  - **A job image, not a service.** No compose service runs `trialbox-backup`: the nightly runs it as a one-off
+    container. Train 58 (#912) failed the box rehearsal's offline step on it ("in the bundle, but no box container
+    runs it"). The bundle now says how each image runs: `release.json` gives every image `runs: service` or
+    `runs: job` (`schemas/release.schema.json`; absent, in a bundle built before, means a service).
+    `tools/make_bundle.sh` names the backup image itself as a job, and `--job-image` does the same for a list given
+    by hand, as the rehearsal gives it. The offline step reads `runs` from the signed bundle's own `release.json`,
+    not from a list of names. A service image must still be run by a box container. A job image must be on the box
+    with exactly the bundle's image id: the images were removed by id before the install and nothing was pulled, so
+    only the media can have put it there. `tests/unit/test_bundle_job_images.py` runs the step's check against a
+    stand-in docker, both ways.
 - **R2, the password is a box key (landed: `agent/PERF-010-R2-restic-password-is-a-box-key`).**
   - `restic.key` is in `kek.PROTECTED` (and in `OPTIONAL`, since a box has none until its first incremental backup),
     so the custody report, `rotate-kek`, `doctor` and the key ceremony's record treat it like the other keys. It is in

@@ -171,6 +171,14 @@
         "sbom_sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "runs": {
+          "type": "string",
+          "enum": [
+            "service",
+            "job"
+          ],
+          "description": "How the box runs the image (D-968): `service`, a compose service's container; `job`, a one-off container (the nightly backup), so no box container runs it between runs. Absent in a bundle built before: a service."
         }
       }
     },
