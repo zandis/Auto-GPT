@@ -46,6 +46,10 @@ _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 EVIDENCE = ("quote", "quote_date", "reason", "resource_refs")
 
 
+#: ERASE-C (D-868): the token an opted-out patient's sample row holds after the opt-out worker's clear
+ERASED = "erased:"
+
+
 class NotMatched:
     """What ``console.home`` asks (``Helpers.not_matched``): is a study's list open, the state the page shows, and the
     sent-back patients the weekly list takes back."""
@@ -140,7 +144,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str], store: NotMatched
                     au.append("notmatched.sample", ruleset=rid, job_id=job.job_id, actor=h.actor(sess),
                               detail={"week": week, "n": len(got), "snapshot": snap, "by": "page"})  # fmt: skip
         gone = h.gone()
-        shown = [t for t in got if t.pid not in gone]
+        shown = [t for t in got if t.pid not in gone and not t.pid.startswith(ERASED)]  # D-868: an erased row
         rows: dict[str, dict[str, Any]] = {}
         values_unread = False  # NEW-CAND-1 (D-713): a run of this sample could not read its coded values (D-652)
         for job_id in sorted({t.job_id for t in shown}):
