@@ -35,6 +35,10 @@ services:
     volumes:
       - ${RC_TEST_WORK:?set by tools/redcap_instance.py}/www/redcap:/var/www/html/redcap:ro
       - redcap-temp:/var/redcap-temp
+      # RC13-C (D-850): the two folders REDCap writes to under its own root (temp; uploaded files): without them
+      # REDCap 13.7's dictionary import crashed. Made by the tool in the ignored work folder, writeable here only
+      - ${RC_TEST_WORK:?set by tools/redcap_instance.py}/www/redcap/temp:/var/www/html/redcap/temp
+      - ${RC_TEST_WORK:?set by tools/redcap_instance.py}/www/redcap/edocs:/var/www/html/redcap/edocs
     healthcheck:
       test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 80) ? 0 : 1);"]
       interval: 5s
