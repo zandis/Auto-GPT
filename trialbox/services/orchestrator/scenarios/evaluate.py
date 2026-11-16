@@ -30,6 +30,7 @@ from lake.client import LakeAPI
 from matching import coded_values, decision
 from matching import excerpts as excerpt_builder
 from matching import verdict as verdict_table
+from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.proposed import Proposed
@@ -131,7 +132,8 @@ class SqlEngine:
     def evaluate(self, rs: Ruleset, pids: list[str], index_date: date, ids: list[str]) -> dict[str, PatientEvaluation]:
         if not pids:
             return {}
-        t = self.lake.query(safe_sql(rs), [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
+        # NEW-B-53: the patients in batches of rows (D-748's rule)
+        t = query_by_patients(self.lake, safe_sql(rs), [index_date.isoformat()], list(pids), self.snapshot).to_pylist()
         crit = [c for c in rs.active() if c.id in set(ids)]
         apply_rows(t, crit, self.stored, self.snapshot, getattr(rs.manifest, "derived_pins", None))
         cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
