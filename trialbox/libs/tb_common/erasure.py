@@ -161,8 +161,12 @@ TABLES: dict[str, Entry] = {
         ("recall_cell", "recall_registration", "recall_run_cell", "recall_sequence_state"),
         _none("recall cells and sequences: counts by criterion, no patient"),
     ),
-    "recall.recall_observation": _owed("pid_hash: an unsalted hash of the pseudonym, linkable"),
-    "recall.recall_known_positive": _owed("pid_hash: an unsalted hash of the pseudonym, linkable"),
+    "recall.recall_observation": _erase(
+        "owed_tables", "a recall draw (pid_hash: an unsalted hash of the pseudonym), made unlinkable (D-866)"
+    ),
+    "recall.recall_known_positive": _erase(
+        "owed_tables", "a known positive's draw (pid_hash: an unsalted hash of the pseudonym), made unlinkable (D-866)"
+    ),
     **_each("study", ("rc_connection", "rc_project_link", "screen_scope", "study_settings"), _CONFIG),
     "study.rc_read_log": _none("a REDCap read: when, who, ok, counts"),
     "study.rc_record": _owed(
@@ -211,7 +215,7 @@ TABLES: dict[str, Entry] = {
     "orch.mails": _none("a mail sent: message id, job, kind, subject"),
     "orch.trial_cache": _none("the public registry cache"),
     "sitesetup.input": _owed("an uploaded file and the patient it belongs to"),
-    "sitesetup.fact": _owed("a fact read from an uploaded file, by pseudonym"),
+    "sitesetup.fact": _erase("owed_tables", "a fact read from an uploaded file, by pseudonym (D-866)"),
     "sitesetup.check_item": _owed("the raw value of an uploaded row"),
     "sitesetup.fix": _owed("example values of an uploaded column"),
     **_each("sitesetup", ("local_code", "setting"), _CONFIG),
@@ -317,8 +321,10 @@ TABLES: dict[str, Entry] = {
     "feedback.entry": _none("in-product feedback from staff, not about a patient (record inventory O-02)"),
     "breakglass.grants": _keep("D-430", "the record of an emergency access to a patient, for the steward's review"),
     "breakglass.uses": _keep("D-430", "each use of a break-glass grant, for the steward's review"),
-    "edc.draft": _owed(
-        "an EDC draft, by pseudonym", "the drafts of a patient who never enrolled (an enrolled subject's stay, OD-8)"
+    "edc.draft": _erase(
+        "owed_tables",
+        "an EDC draft, by pseudonym: a never-consented patient's go; a consented or enrolled subject's, and a "
+        "signed or sent draft, stay (OD-8, D-866)",
     ),
     **_each("edc", ("copy_tick", "decision", "sent", "signature", "signature_void"), _OD8),
     **_each("edc", ("item_map", "map_event", "reentry_record", "switch", "switch_event", "target"), _CONFIG),
