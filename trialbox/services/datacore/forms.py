@@ -21,19 +21,27 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # REDCap's data dictionary column headers (export names and the short API names)
+# REDCap's 18 dictionary columns (export header -> API name), in REDCap's order: its import reads them by position
+# (RC13-B, D-848: a short row or another order was refused on REDCap 13.7)
 _COLS = {
     "Variable / Field Name": "field_name",
     "Form Name": "form_name",
+    "Section Header": "section_header",
     "Field Type": "field_type",
     "Field Label": "field_label",
     "Choices, Calculations, OR Slider Labels": "select_choices_or_calculations",
+    "Field Note": "field_note",
     "Text Validation Type OR Show Slider Number": "text_validation_type_or_show_slider_number",
-    "Required Field?": "required_field",
-    "Identifier?": "identifier",
-    "Section Header": "section_header",
-    "Branching Logic (Show field only if...)": "branching_logic",
     "Text Validation Min": "text_validation_min",
     "Text Validation Max": "text_validation_max",
+    "Identifier?": "identifier",
+    "Branching Logic (Show field only if...)": "branching_logic",
+    "Required Field?": "required_field",
+    "Custom Alignment": "custom_alignment",
+    "Question Number (surveys only)": "question_number",
+    "Matrix Group Name": "matrix_group_name",
+    "Matrix Ranking?": "matrix_ranking",
+    "Field Annotation": "field_annotation",
 }
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 URL = "urn:trialbox:questionnaire:{study}:{form}"
@@ -482,20 +490,21 @@ def metadata(fields: list[Field], translations: bool = False) -> list[dict[str, 
     """Fields -> REDCap data dictionary rows (API column names). ``translations`` adds TrialBox's language columns."""
     out = []
     for f in fields:
-        row = {
+        row = dict.fromkeys(_COLS.values(), "")  # RC13-B (D-848): all 18 columns, in REDCap's order
+        row.update({
             "field_name": f.name,
             "form_name": f.form,
-            "section_header": "",
             "field_type": _BACK.get(f.kind, "text"),
             "field_label": f.label,
             "select_choices_or_calculations": " | ".join(f"{c}, {d}" for c, d in f.options.items()),
             "text_validation_type_or_show_slider_number": f.validation or _VALID.get(f.kind, ""),
             "text_validation_min": f.vmin,
             "text_validation_max": f.vmax,
-            "identifier": "",
+            "identifier": "y" if f.identifier else "",
             "branching_logic": f.branching,
             "required_field": "y" if f.required else "",
-        }
+            "field_annotation": f"@TB-DECIMALS={f.places}" if f.places and f.kind == "decimal" else "",
+        })  # fmt: skip
         if translations:
             for g in LANGS:
                 row[f"field_label:{g}"] = f.labels.get(g, "")
