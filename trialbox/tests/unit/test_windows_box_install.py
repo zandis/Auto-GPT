@@ -394,6 +394,35 @@ def test_the_first_run_of_a_rehearsal_box_is_not_handed_the_rehearsal_again(box:
     assert "box-install --firstrun" in box.log() and "--rehearsal" not in box.log()
 
 
+def test_install_asks_for_the_windows_key_back_end_only_when_the_host_tree_has_it(box: Box) -> None:
+    # NEW-WIN-15 (D-618): KEK_BACKEND=windows (lane D's half in seal_keys.sh); before it exists, nothing is asked
+    bundle = _installed_tree(
+        box, 'echo "kek=${TB_KEK_BACKEND:-none}" >> "$TB_FAKE/calls.log"; echo "  TrialBox is ready"'
+    )
+    (box.root / "deploy/hardening").mkdir(parents=True)
+    seal = box.root / "deploy/hardening/seal_keys.sh"
+    seal.write_text('case "$KEK_BACKEND" in\n  tpm) ;;\nesac\n')
+    assert box.run("install", str(bundle)).returncode == 0
+    assert "kek=none" in box.log()
+    other = Box(box.tmp / "second")
+    bundle2 = _installed_tree(
+        other, 'echo "kek=${TB_KEK_BACKEND:-none}" >> "$TB_FAKE/calls.log"; echo "  TrialBox is ready"'
+    )
+    (other.root / "deploy/hardening").mkdir(parents=True)
+    (other.root / "deploy/hardening/seal_keys.sh").write_text('case "$KEK_BACKEND" in\n  windows)\n    ;;\nesac\n')
+    assert other.run("install", str(bundle2)).returncode == 0
+    assert "kek=none" in other.log()  # the back end without its unseal unit: not asked for (review 7)
+    (other.root / "deploy/hardening/trialbox-kek-from-windows.service").write_text("[Unit]\n")
+    (other.root / "deploy/site/box").mkdir(parents=True, exist_ok=True)
+    for f in (other.root / "deploy/site/box").iterdir():
+        f.unlink()
+    done = other.root / "deploy/site/box/windows-install-done"
+    if done.exists():
+        done.unlink()
+    assert other.run("install", str(bundle2)).returncode == 0
+    assert "kek=windows" in other.log()
+
+
 def test_install_refuses_a_bundle_that_is_not_there(box: Box) -> None:
     _installed_tree(box, "exit 0")
     out = box.run("install", str(box.tmp / "missing.tar"))

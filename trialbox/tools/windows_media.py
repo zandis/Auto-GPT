@@ -47,6 +47,7 @@ INSTALLER_FILES = (
     "preflight.ps1",
     "host_facts.ps1",
     "console-proxy.ps1",
+    "site-key.ps1",
 )
 # what step 1 of box-install.ps1 looks for (Find-TbOne: exactly one match each); a test holds the two together
 NEEDS_ONE = {
