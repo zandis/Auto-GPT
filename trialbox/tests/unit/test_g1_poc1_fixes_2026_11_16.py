@@ -302,11 +302,11 @@ def _ans(rs: str, pats: dict[str, Any], draft: list[dict[str, Any]]) -> dict[str
 
 def test_s1_pair_and_criterion_label_conflicts_are_counted_apart() -> None:
     ids = {"lang": {"S1": "en"}}
-    pairs = [{"mrn": "71000001", "ruleset": "S1", "label": "eligible", "stratum": "sigir-eligible"},
-             {"mrn": "71000002", "ruleset": "S1", "label": "eligible", "stratum": "sigir-eligible"}]  # fmt: skip
-    crits = [{"mrn": "71000001", "ruleset": "S1", "kind": "exclusion", "label": "excluded", "text": "Pregnancy"},
-             {"mrn": "71000002", "ruleset": "S1", "kind": "exclusion", "label": "not excluded", "text": "Pregnancy"}]  # fmt: skip
-    pats = {score.pid_of(m): {"tier": "excluded", "verdicts": []} for m in ("71000001", "71000002")}
+    pairs = [{"mrn": "chart-a", "ruleset": "S1", "label": "eligible", "stratum": "sigir-eligible"},
+             {"mrn": "chart-b", "ruleset": "S1", "label": "eligible", "stratum": "sigir-eligible"}]  # fmt: skip
+    crits = [{"mrn": "chart-a", "ruleset": "S1", "kind": "exclusion", "label": "excluded", "text": "Pregnancy"},
+             {"mrn": "chart-b", "ruleset": "S1", "kind": "exclusion", "label": "not excluded", "text": "Pregnancy"}]  # fmt: skip
+    pats = {score.pid_of(m): {"tier": "excluded", "verdicts": []} for m in ("chart-a", "chart-b")}
     r = score.score_pairs(ids, pairs, _ans("S1", pats, []), crits=crits)
     assert r["label_conflicts"]["pairs"] == 1 and r["label_conflicts"]["by_lang"]["en"]["excluded"] == 1
     s = r["summary"]["en"]
@@ -315,10 +315,10 @@ def test_s1_pair_and_criterion_label_conflicts_are_counted_apart() -> None:
 
 def test_s2_a_matched_row_with_no_verdict_is_no_verdict_not_no_block() -> None:
     ids = {"lang": {"S1": "en"}}
-    crits = [{"mrn": "71000001", "ruleset": "S1", "kind": "exclusion", "label": "not excluded", "text": "Pregnancy",
+    crits = [{"mrn": "chart-a", "ruleset": "S1", "kind": "exclusion", "label": "not excluded", "text": "Pregnancy",
               "patient": "p1"}]  # fmt: skip
     draft = [{"id": "exc-1", "kind": "exclusion", "text": "Pregnancy"}]
-    pats = {score.pid_of("71000001"): {"tier": "high", "verdicts": [{"id": "other", "verdict": "pass"}]}}
+    pats = {score.pid_of("chart-a"): {"tier": "high", "verdicts": [{"id": "other", "verdict": "pass"}]}}
     r = score.score_criteria(ids, crits, _ans("S1", pats, draft))
     assert r["no_verdict"] == 1 and r["answered"] == 0 and r["rows"][0].get("no_block") is None
     assert r["wrong_exclusion"]["n"] == 0
