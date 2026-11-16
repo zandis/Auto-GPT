@@ -161,6 +161,8 @@ def check_canary(canary: Mapping[str, Any] | None) -> Check:
         return Check("canary", WARN, "model self-test unknown: the orchestrator did not answer")
     code = str(canary.get("code") or "")
     at = str(canary.get("at") or "?")
+    if code == "waiting":  # D-915: before "failed": the last real result may be an old failure
+        return Check("canary", WARN, "model self-test waiting for the models: note answers cannot exclude", 0.0)
     if canary.get("ok") is False or code == "failed":
         return Check("canary", RED, f"model self-test failed at {at}: note reading was off last night", 0.0)
     if code == "wake":

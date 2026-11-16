@@ -444,6 +444,8 @@ def verdicts_of(
     # as before, does not count: the status is the one function's over the outcomes the cascade has
     st = decision.status_of(rs.by_id(), judged_rows, policy or DEFAULT_POLICY)
     tier, actions, unknown = st.tier, list(st.actions), st.n_unknown
+    if tier == "high" and not any(o.status in ("pass", "fail") for o in t.outcomes.values()):
+        tier = "review"  # D-909: nothing the records or the models decided says this patient may meet the criteria
     if tier == "excluded" and TIER.get(t.tier, "review") != "excluded":
         tier = "review"  # the engine did not exclude: the rows never exclude on their own (cannot happen by CAS-7)
     if tier == "high" and (t.notes_over_budget or TIER.get(t.tier, "review") == "review"):
@@ -493,6 +495,7 @@ def summary(res: CascadeResult) -> dict[str, Any]:
             "pairs_s2_hit": m.pairs_s2_hit,
             "pairs_s2_zero_hit": m.pairs_s2_zero_hit,
             "pairs_s2_no_notes": m.pairs_s2_no_notes,
+            "nothing_decides": m.nothing_decides,  # D-909
             "pairs_s2b_above": m.pairs_s2b_above,
             "pairs_s2b_below": m.pairs_s2b_below,
             "pairs_judged": dict(m.pairs_judged),
@@ -620,6 +623,24 @@ def screen_with_cascade(
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
         registry=lambda: dctx.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
     )
+    # D-908 (D-519): the judged-pair store below the job's model clients; its end-of-job step (the opt-outs of the
+    # run, the snapshots' retention) runs however the job ends
+    from orchestrator.judged_store import JudgedPairs
+
+    pairs = getattr(getattr(note_judge, "llm", None), "pairs", None)
+    try:
+        return _screen(ctx, rs, cfg, judge, note_judge, embedder, source, snapshot, pids, judging, confidence_floor,
+                       may_block, max_pairs, pairs)  # fmt: skip
+    finally:
+        if isinstance(pairs, JudgedPairs):
+            pairs.close(run_date)
+
+
+def _screen(ctx: Ctx, rs: Ruleset, cfg: CascadeConfig, judge: Any, note_judge: Any, embedder: Any, source: Any,
+            snapshot: str, pids: list[str], judging: dict[str, Any], confidence_floor: float, may_block: bool,
+            max_pairs: int | None, pairs: Any) -> CascadeScreen:  # fmt: skip
+    from orchestrator.judged_store import JudgedPairs
+
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
             judge,
@@ -638,7 +659,9 @@ def screen_with_cascade(
     for pid in pids:
         if pid not in results:  # not in the lake's patient table on this snapshot: a person looks (D-118)
             results[pid] = not_in_snapshot(rs, pid)
-    if judge is not None:
+    if res.metrics.nothing_decides:  # D-909: nothing a machine decides; every patient in scope goes to review
+        judging = {**judging, "mode": "nothing"}
+    elif judge is not None:
         judging = {**judging, "disagreements": judge.disagreements, "failures": judge.failures}
         m = ctx.job.metrics
         ctx.metrics(
@@ -657,6 +680,8 @@ def screen_with_cascade(
         "hit": res.metrics.unprocessed > 0,
         "stopped_by": res.metrics.budget_stopped or None,
     }
+    if isinstance(pairs, JudgedPairs):
+        out["judged_store"] = pairs.report()  # D-908 (D-519): model calls answered from the store, and asked live
     sources = None
     if source is not None:
         sources = {pid: dict(t.s2b_source) for pid, t in sorted(res.traces.items()) if t.s2b_source is not None}

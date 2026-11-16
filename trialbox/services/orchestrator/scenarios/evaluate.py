@@ -33,6 +33,7 @@ from matching import verdict as verdict_table
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.proposed import Proposed
+from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
@@ -135,6 +136,7 @@ class SqlEngine:
         apply_rows(t, crit, self.stored, self.snapshot, getattr(rs.manifest, "derived_pins", None))
         cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         carried = Carried.for_criteria(self.lake, crit, self.snapshot)  # F11 (D-795): systems the site's rows carry
+        recorded = Recorded.for_criteria(self.lake, crit, pids, self.snapshot)  # D-914: each patient's kinds of record
         prop = Proposed.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         out: dict[str, PatientEvaluation] = {}
         for row in t:
@@ -159,6 +161,9 @@ class SqlEngine:
                 fids = prop.refs(c, str(row["pid"]), index_date, res.get(c.id))
                 if doubt and not fids:  # a list in a system no row carries cannot answer; a proposed fact says more
                     res[c.id], ev[c.id], reasons[c.id] = None, [], Reason.CODE_SYSTEM_NOT_CARRIED.value
+                elif not fids and recorded.doubt(c, str(row["pid"]), res.get(c.id)):
+                    # D-914: no coded record of the atom's kind at all for this patient: their record says nothing
+                    res[c.id], ev[c.id], reasons[c.id] = None, [], Reason.NO_RECORD_OF_KIND.value
                 if fids:  # a suspected diagnosis (疑い, D-142) the same way, with its own reason
                     res[c.id], ev[c.id], reasons[c.id] = None, fids, prop.reason(str(row["pid"]), fids)
             out[row["pid"]] = PatientEvaluation(
@@ -671,6 +676,7 @@ NOTE_BLOCK_CODES = (
     "no_verifier",
     "same_model",
     "wake",
+    "waiting",
     "none",
     "failed",
     "single",
