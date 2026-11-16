@@ -13,6 +13,13 @@
 # the memory cap of its compose service (a cgroup made with systemd-run), with the slow model stand-in; today's
 # failures are strict expected failures by card (EXPECTED in tools/scale_gate.py; empty since T-689).
 # workflow_dispatch runs the same jobs by hand; the first scheduled run after a change to this file is its proof.
+#
+# Private ARM runner, fail-closed. nightly, random-order and compose stay on ubuntu-24.04 (the image that already
+# carries PostgreSQL 16) unless every clause holds: the event is schedule or workflow_dispatch, the event repository
+# is private, and the Actions variable TB_PRIVATE_RUNNER is exactly enabled. pull_request and pull_request_target
+# never select it. A public repository stays on the hosted image even when the variable is set. TB_RUNNER is not
+# read. scale-50k is outside this gate: it needs passwordless sudo and a systemd-run cgroup, and a 50,000-patient
+# tree does not belong on the shared host.
 name: TrialBox nightly
 
 on:
@@ -37,7 +44,9 @@ env:
 
 jobs:
   nightly:
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    # tb-private-runner: fail-closed. Hosted ubuntu-24.04 unless schedule/workflow_dispatch, private, and enabled.
+    runs-on: >-
+      ${{ ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event.repository.private == true && github.event.repository.visibility == 'private' && vars.TB_PRIVATE_RUNNER == 'enabled') && fromJSON('["self-hosted","Linux","ARM64","trialbox"]') || 'ubuntu-24.04' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -115,7 +124,9 @@ jobs:
   # never named its one failure; a shard ends inside the limit the gate's shards have, with the test's name.
   random-order:
     name: random-order (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-24.04
+    # tb-private-runner: fail-closed. Hosted ubuntu-24.04 unless schedule/workflow_dispatch, private, and enabled.
+    runs-on: >-
+      ${{ ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event.repository.private == true && github.event.repository.visibility == 'private' && vars.TB_PRIVATE_RUNNER == 'enabled') && fromJSON('["self-hosted","Linux","ARM64","trialbox"]') || 'ubuntu-24.04' }}
     timeout-minutes: 40  # = unit-shard of trialbox-ci.yml (D-564: 1.5 times its slowest shard's median)
     strategy:
       fail-fast: false  # every shard reports: one night shows every order dependence
@@ -162,6 +173,7 @@ jobs:
   # 40 s from call 300, one restart (30 s down) after call 900 (the cascade made 1,362 calls at 50,000 in
   # eval/hospital_sim/results/scale.json). The report is the job summary and an artifact.
   scale-50k:
+    # Not the private runner: passwordless sudo, systemd-run cgroups, and a disk a shared host should not give this tree.
     runs-on: ubuntu-24.04  # 4 cores, 16 GB, systemd and cgroup v2, password-less sudo; PostgreSQL 16 for pglocal
     timeout-minutes: 340  # under GitHub's 360-minute job limit: the night is measured, not budgeted; a hang ends here
     env:
@@ -227,7 +239,9 @@ jobs:
   # ENG-017 (T-653): the tests that need the compose stack, a browser or both. One runner with Docker: the images are
   # built here (as trialbox-images.yml builds them), the stack started with the stub model, and nothing may skip.
   compose:
-    runs-on: ubuntu-24.04
+    # tb-private-runner: fail-closed. Hosted ubuntu-24.04 unless schedule/workflow_dispatch, private, and enabled.
+    runs-on: >-
+      ${{ ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event.repository.private == true && github.event.repository.visibility == 'private' && vars.TB_PRIVATE_RUNNER == 'enabled') && fromJSON('["self-hosted","Linux","ARM64","trialbox"]') || 'ubuntu-24.04' }}
     timeout-minutes: 150
     env:
       PLAYWRIGHT_VERSION: "1.63.0"  # = trialbox/tools/package.json and deploy/gcp/complete-run-vm.sh (test_browser_lock)
