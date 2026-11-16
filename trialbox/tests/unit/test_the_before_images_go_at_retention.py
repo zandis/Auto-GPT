@@ -1,12 +1,12 @@
 # ruff: noqa: F811 - the db fixture is imported from the ERASE-B test and taken by name
-"""D-531 (the owner, 2026-11-16): an opted-out patient's before-images are kept hidden until retention, then blanked.
+"""D-1031 (the owner, 2026-11-16): an opted-out patient's before-images are kept hidden until retention, then blanked.
 
 * past retention (the lake's month-end months, counted from the day the patient was withheld) the record events lose
   their before-images and the FHIR fields of the record image; the records keep their ids and provenance (D-441) and
   lose their FHIR fields (``extra``); another patient's stay;
 * before retention, or for a patient released (lifted), nothing is blanked: a lift and the export as of a time work;
 * an export as of an earlier time still winds back after the blank (the patient stays out); for a patient released
-  since, an instant before a blanked image is refused (the review of D-531);
+  since, an instant before a blanked image is refused (the review of D-1031);
 * the consent statements the withhold keeps (D-441) are not blanked; a steward's free-text reason goes;
 * the opt-out worker's ``omop`` clear blanks with the box's retention and its verify counts what is left.
 

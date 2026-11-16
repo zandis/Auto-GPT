@@ -32,7 +32,7 @@ SNAP = "2026-11-02"
 
 #: the erasure owed today (T-206b builds these on the registry; T-728 the backups' restore half). A card that adds a
 #: clear takes its line out; a card that adds a store with patient data and no clear adds one. ERASE-A2 (D-875) took
-#: the screening log's five tables out (the screening_log clear); D-531 the OMOP record ledger (a keep; its events
+#: the screening log's five tables out (the screening_log clear); D-1031 the OMOP record ledger (a keep; its events
 #: stay owed until retention).
 KNOWN_OWED = frozenset(
     {

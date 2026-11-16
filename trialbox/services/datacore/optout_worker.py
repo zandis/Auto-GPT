@@ -53,7 +53,7 @@ ACTOR = "optout-worker"
 OPEN_STATUSES = ("candidate", "contacted")
 WITHDRAW_REASON = "opted out (research-use register)"
 MINUTES_ENV = "TB_OPTOUT_WORKER_MINUTES"
-#: ``WorkerEnv.extra``: the months an opted-out patient's before-images are kept (D-531: the lake's month-end
+#: ``WorkerEnv.extra``: the months an opted-out patient's before-images are kept (D-1031: the lake's month-end
 #: snapshots, ``settings.retention.month_end_snapshots_months``); none: nothing is blanked
 KEEP_MONTHS = "omop_keep_months"
 
@@ -153,7 +153,7 @@ def clear_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     for name, db in stores:
         try:
             counts = load.withhold(db, pids, ACTOR).as_dict()
-            if months is not None:  # D-531: past retention, the before-images and the FHIR fields go
+            if months is not None:  # D-1031: past retention, the before-images and the FHIR fields go
                 counts.update(load.blank_at_retention(db, env.now, int(months)))
         except Exception as exc:
             log.error("opt-out worker: the OMOP store %s was not cleared (%s)", name, type(exc).__name__)
@@ -207,7 +207,7 @@ def verify_omop(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     months = env.extra.get(KEEP_MONTHS)
     for name, db in _omop_open(env):
         out.update(_verify_one_omop(name, db, pids))
-        if months is not None:  # D-531: what is past retention and not blanked yet
+        if months is not None:  # D-1031: what is past retention and not blanked yet
             from omop import load
 
             out.update({f"{name}.{k}": v for k, v in load.owed_at_retention(db, env.now, int(months)).items()})
@@ -793,7 +793,7 @@ def _failed(orch: Any, what: list[str], now: datetime) -> None:
 
 
 def _keep_months(orch: Any) -> int:
-    """D-531: the months the lake keeps a month-end snapshot (``settings.retention.month_end_snapshots_months``, 36
+    """D-1031: the months the lake keeps a month-end snapshot (``settings.retention.month_end_snapshots_months``, 36
     when unset, as the adapter reads it)."""
     ret = getattr(getattr(getattr(orch, "cfg", None), "settings", None), "retention", None)
     months = getattr(ret, "month_end_snapshots_months", None)

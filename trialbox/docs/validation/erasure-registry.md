@@ -39,7 +39,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `objects:attachments` | T-206b | the files kept with a job until retention (D-513): an attached chart of a patient who opted out after it came | files mailed or uploaded to a job (consent forms, review sheets, case requests); a CASE chart of an opted-out subject is refused before it is read (D-873) |
 | `objects:outputs` | T-206b | kept until retention (D-513): other patients' pages read the same files, so no clear deletes them | job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the console's pages and downloads (a per-patient file by its patient), a submission and a feedback row; the mail outbox asks before each send (D-863) |
 | `omop.tb_conflict` | T-206b | at retention, or with a before-image: a lift undoes the withhold, and the ruling must still hold (D-867) | a source conflict of a person, every source's value and the steward's ruling |
-| `omop.tb_record_event` | T-206b | an opted-out patient's before-images until retention (the lake's month-end months): kept hidden, so a lift and the export as of a time work (D-531, as D-513 for the lake's files) | every change of a record with its before-image: blanked at retention by the omop clear (D-531) |
+| `omop.tb_record_event` | T-206b | an opted-out patient's before-images until retention (the lake's month-end months): kept hidden, so a lift and the export as of a time work (D-1031, as D-513 for the lake's files) | every change of a record with its before-image: blanked at retention by the omop clear (D-1031) |
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
@@ -74,7 +74,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.signature_void` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `omop.tb_consent` | D-441 | the refusal itself must reach the lake, or the registry would read as silent |
 | `omop.tb_id_map` | D-441 | pseudonym to person id: the worker and the loader must still find the person |
-| `omop.tb_record` | D-531 | the record ledger, ids and provenance (D-441): the person's live records are tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the omop clear |
+| `omop.tb_record` | D-1031 | the record ledger, ids and provenance (D-441): the person's live records are tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the omop clear |
 | `omop.tb_withheld` | D-441 | the register's copy the loader reads to keep the patient out |
 | `optout.optout_events` | D-441 | the opt-out register itself: the record of the refusal (D-147) |
 | `orch.judge_answers` | D-456 | a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone |
