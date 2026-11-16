@@ -2,9 +2,9 @@
 11 times, compiling public protocols far messier than the eight shipped ones, and its own log was not kept (D-910).
 
 * One criterion the model wrote that the compiler cannot run (an age-or-sex atom with neither, "not" of two things,
-  "at least" with no count, a score on a diagnosis) stayed structured: its logic either failed the whole compile or
-  went into the SQL as written. It is now kept as a person's check, flagged, and the rest of the protocol compiles.
-  So is a criterion outside the IR.
+  "at least" with no count, a score on a diagnosis) is kept as a person's check at post-processing, so the approval's
+  re-extraction of a reviewer's edit (which has no later demotion, unlike /compile) no longer fails on it. So is a
+  criterion outside the IR, which raised unhandled.
 * The approval's comparison of the compiled CQL and SQL calls the FHIR server and the lake; a refusal there was an
   unhandled error. It is a 422 with the step and a reason, by type and status (never the server's text).
 * Every route answers: a compile error or an IR refusal is a 422 with its step and reason; anything else is a bug,
